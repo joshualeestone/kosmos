@@ -33,6 +33,7 @@ const win32update = require('./win32update');
 const win32zip = require('./win32zip');
 const worlds = require('./worlds');
 const { buildZip } = require('../test-support/zipfixture');
+const { SIGNED_KOSMOS } = require('../test-support/signedkosmos');
 
 test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
@@ -81,7 +82,7 @@ function freshCase(o = {}) {
   fs.mkdirSync(anchor, { recursive: true });
   fs.writeFileSync(path.join(anchor, win32anchor.NODE_NAME), o.anchoredNode !== undefined ? o.anchoredNode : 'the anchored node.exe of 0.6.55');
   if (o.pointer !== null) fs.writeFileSync(path.join(anchor, win32anchor.POINTER_NAME), o.pointer || path.join(root, 'app', 'engine'));
-  return { dir, root, env, anchor, work: path.join(root, '.kosmos-update'), log: [], nodeRuns: [] };
+  return { dir, root, env, anchor, work: path.join(root, '.kosmos-update'), log: [], nodeRuns: [], signatureChecks: [] };
 }
 
 /** The files of a Kosmos build, in the shape tools/build-kosmos-windows.sh stages. */
@@ -143,6 +144,9 @@ function prepareOpts(c, s, over) {
     fetch: s ? s.fetch : async () => { throw new Error('this case must not reach the network'); },
     freeBytes: () => PLENTY_OF_DISK,
     runStagedNode: (exe) => { c.nodeRuns.push(exe); return NODE_VERSION + '\n'; },
+    /* #1765: the staged Kosmos.exe here is a stub, so Windows' answer for a published build stands in
+       for it; engine/win32update.signature-1765.test.js runs the real check. */
+    checkSignature: (exe) => { c.signatureChecks.push(exe); return SIGNED_KOSMOS; },
     liveExecutionAllowed: () => true,
     /* S3's board-task preconditions: a board its logon task started, registered and switched on. */
     boardTask: TASK_BOARD,
@@ -1906,7 +1910,7 @@ test('the --apply CLI with --yes reads "started by its task" from the board\'s o
     /* #4382: never this machine's own mode file: a run computer, as these cases are written for. */
     readsConnect: () => false,
     begin: { platform: 'win32', arch: ARCH, env: c.env, fetch: site(zip).fetch, freeBytes: () => PLENTY_OF_DISK,
-      runStagedNode: () => NODE_VERSION, log: () => {}, spawn: () => fakeChild() },
+      runStagedNode: () => NODE_VERSION, checkSignature: () => SIGNED_KOSMOS, log: () => {}, spawn: () => fakeChild() },
   });
   const argv = ['--apply', '--root', c.root, '--base', BASE, '--port', '16555', '--world', 'default', '--yes'];
   assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams('0.6.1@default', true)), 1, 'another build answers');
@@ -2255,7 +2259,7 @@ test('#3286 --apply --from --report: the launcher reads one tagged line, and the
     probe: async () => ({ answering: true, identity: `${INSTALLED}+${SOURCE_SHA.slice(0, 12)}@default`, startedByTask }),
     boardStatus: () => ({ known: true, registered: true, enabled: true, running: null }),
     readsConnect: () => false,
-    begin: { platform: 'win32', arch: ARCH, env: c.env, ...OFFLINE, freeBytes: () => PLENTY_OF_DISK, runStagedNode: () => NODE_VERSION, log: () => {}, spawn: () => fakeChild() },
+    begin: { platform: 'win32', arch: ARCH, env: c.env, ...OFFLINE, freeBytes: () => PLENTY_OF_DISK, runStagedNode: () => NODE_VERSION, checkSignature: () => SIGNED_KOSMOS, log: () => {}, spawn: () => fakeChild() },
   });
   const argv = ['--apply', '--root', c.root, '--from', source, '--port', '16555', '--world', 'default', '--report', report, '--yes'];
   assert.equal(await win32update.cliMain(argv, () => {}, seams(false)), 1);

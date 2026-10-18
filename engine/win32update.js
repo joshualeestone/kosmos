@@ -19,7 +19,8 @@
  *       under caps on size and time; computed = pointer = sidecar;
  *   B3  the bytes that were hashed, unpacked with engine/win32zip.js into WORK\staged,
  *       allow-listed to ENTRIES;
- *   B4  the staged tree checked: its manifest, its app version, its required files, its node.exe
+ *   B4  the staged tree checked: its manifest, its app version, its required files, Kosmos.exe's
+ *       Authenticode signer (#1765, as tools/windows/setup.ps1 checks a fresh install), its node.exe
  *       actually running, whether that node.exe differs from the anchored one, and the board
  *       identity it will answer with.
  *
@@ -159,6 +160,22 @@ const UNREADABLE_LOCK_CONFIRM_WAIT_MS = 20;
  * TMP give Node a temp folder; PATH is the DLL search path.
  */
 const STAGED_NODE_ENV_KEYS = Object.freeze(['SystemRoot', 'windir', 'TEMP', 'TMP', 'PATH']);
+/**
+ * #1765: the Authenticode signer every published Kosmos.exe carries, pinned EXACTLY as
+ * tools/windows/setup.ps1 pins it for a fresh install (its $EXPECTED_SIGNER,
+ * $EXPECTED_ROOT_THUMBPRINT and $EXPECTED_INTERMEDIATE_PATTERN; engine/win32update.signature-1765.test.js
+ * reads setup.ps1 and holds the two equal). The signer by its certificate's common name, the root by
+ * thumbprint (Microsoft's, valid to 2045) and an intermediate issued to Microsoft's "ID Verified"
+ * CAs. No leaf thumbprint: Azure Artifact Signing's certificates last about three days.
+ * The intermediate pattern is setup.ps1's own with its `\z` written as JS's `$` (no `m` flag, so it
+ * too matches only at the very end).
+ */
+const EXPECTED_SIGNER = 'Kosmos Agent Manager, Inc.';
+const EXPECTED_ROOT_THUMBPRINT = 'F40042E2E5F7E8EF8189FED15519AECE42C3BFA2';
+const EXPECTED_INTERMEDIATE_PATTERN = /^CN=Microsoft ID Verified Code Signing PCA [0-9]{4}, O=Microsoft Corporation, C=US$/i;
+/** Get-AuthenticodeSignature on a ~7 KB exe answers in a second or two; a first PowerShell start
+    under an antivirus scan can take much longer. */
+const SIGNATURE_TIMEOUT_MS = 60 * 1000;
 
 const DEFAULT_LIMITS = Object.freeze({
   maxDownloadBytes: MAX_DOWNLOAD_BYTES,
@@ -169,6 +186,7 @@ const DEFAULT_LIMITS = Object.freeze({
   maxEntryBytes: MAX_ENTRY_BYTES,
   maxUnpackedBytes: MAX_UNPACKED_BYTES,
   stagedNodeTimeoutMs: STAGED_NODE_TIMEOUT_MS,
+  signatureTimeoutMs: SIGNATURE_TIMEOUT_MS,
   diskHeadroomMultiple: DISK_HEADROOM_MULTIPLE,
 });
 
@@ -299,6 +317,69 @@ function stagedNodeLaunch(nodeExe, timeoutMs) {
 function runStagedNode(nodeExe, timeoutMs) {
   const launch = stagedNodeLaunch(nodeExe, timeoutMs);
   return String(cp.execFileSync(launch.file, launch.args, launch.options)).trim();
+}
+
+/**
+ * #1765: what Windows says about an exe's Authenticode signature, the same questions
+ * tools/windows/setup.ps1's Assert-KosmosSignature asks: the status, the signer's common name, and
+ * the chain built with the certificates the signature carries (revocation and the leaf's expiry are
+ * Authenticode's to judge, as there). Returns `{ status, signer, rootThumbprint, chain: [subject...] }`;
+ * throws when Windows PowerShell does not answer. The decision is signatureRefusal's, in JS.
+ *
+ * Windows PowerShell 5.1 by its full path, its own Microsoft.PowerShell.Security imported by full
+ * path (setup.ps1's Import-SecurityModule: a PSModulePath inherited from PowerShell 7 finds 7's copy
+ * first, which 5.1 cannot load). The exe's path rides in the environment, not the command, so no
+ * quoting can change what is run.
+ */
+const SIGNATURE_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  "Import-Module -Name (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1')",
+  '$f = $env:KOSMOS_SIGNED_FILE',
+  '$s = Get-AuthenticodeSignature -LiteralPath $f',
+  '$leaf = $s.SignerCertificate',
+  "$signer = ''; $root = ''; $subjects = @()",
+  'if ($leaf) {',
+  '  $signer = $leaf.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)',
+  '  $chain = New-Object System.Security.Cryptography.X509Certificates.X509Chain',
+  '  $chain.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck',
+  '  $chain.ChainPolicy.VerificationFlags = [System.Security.Cryptography.X509Certificates.X509VerificationFlags]::IgnoreNotTimeValid',
+  '  try { $carried = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection; $carried.Import($f); [void] $chain.ChainPolicy.ExtraStore.AddRange($carried) } catch { }',
+  '  [void] $chain.Build($leaf)',
+  '  $elements = @($chain.ChainElements | ForEach-Object { $_.Certificate })',
+  '  if ($elements.Count) { $root = [string] $elements[$elements.Count - 1].Thumbprint }',
+  '  $subjects = @($elements | ForEach-Object { [string] $_.Subject })',
+  '}',
+  '[Console]::Out.Write((ConvertTo-Json -Compress -InputObject @{ status = [string] $s.Status; signer = [string] $signer; rootThumbprint = $root; chain = $subjects }))',
+].join('\n');
+
+function authenticodeOf(exe, timeoutMs) {
+  const ps = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const out = cp.execFileSync(ps, ['-NoProfile', '-NonInteractive', '-Command', SIGNATURE_SCRIPT], {
+    encoding: 'utf8', timeout: timeoutMs, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, KOSMOS_SIGNED_FILE: exe },
+  });
+  const j = JSON.parse(String(out).trim());
+  const chain = j.chain === null || j.chain === undefined ? [] : [].concat(j.chain);
+  return { status: String(j.status || ''), signer: String(j.signer || ''), rootThumbprint: String(j.rootThumbprint || ''), chain: chain.map(String) };
+}
+
+/**
+ * #1765: the update's Kosmos.exe is refused unless its signature is Valid, its signer is
+ * EXPECTED_SIGNER and its chain runs through Microsoft's ID Verified code-signing CA to the pinned
+ * root: setup.ps1's Assert-KosmosSignature, rule for rule (PowerShell's -ne and -match ignore case,
+ * so these do too). Returns the sentence to refuse with, or null. Pure.
+ */
+function signatureRefusal(sig) {
+  const s = sig || {};
+  if (s.status !== 'Valid') return `the update's Kosmos.exe is not validly signed (Windows says: ${s.status || 'nothing'})`;
+  const signer = String(s.signer || '');
+  if (signer.toLowerCase() !== EXPECTED_SIGNER.toLowerCase()) return `the update's Kosmos.exe is signed by '${signer}', not by ${EXPECTED_SIGNER}`;
+  const chain = Array.isArray(s.chain) ? s.chain.map(String) : [];
+  const root = String(s.rootThumbprint || '');
+  if (!root || root.toLowerCase() !== EXPECTED_ROOT_THUMBPRINT.toLowerCase() || !chain.some((subject) => EXPECTED_INTERMEDIATE_PATTERN.test(subject))) {
+    return `the update's Kosmos.exe signature does not come from Microsoft's code-signing service for ${EXPECTED_SIGNER} (its chain ends at ${chain.length ? chain[chain.length - 1] : 'nothing'})`;
+  }
+  return null;
 }
 
 /** Does the staged node.exe differ from the anchored one the fleet runs on? The anchor's own
@@ -1223,6 +1304,22 @@ function verifyStaged(ctx, latest) {
     if (!st || !st.isFile()) refuse(`the update is missing ${entry.split('/').join('\\')}`);
   }
 
+  /* #1765: the staged Kosmos.exe must carry the signature setup.ps1 requires of a fresh install,
+     before anything in the staged tree is run. It covers the launcher only: app\ and runtime\ are
+     covered by the checksums (B2) or, for --from, by the person's own copy, as for setup.ps1. A
+     refusal leaves the installed build untouched: nothing has been swapped yet, and prepare()
+     removes the staged tree. */
+  const stagedExe = path.join(staged, 'Kosmos.exe');
+  let sig;
+  try {
+    sig = ctx.checkSignature(stagedExe, ctx.limits.signatureTimeoutMs);
+  } catch (e) {
+    const why = e && e.code === 'ETIMEDOUT' ? `Windows did not answer within ${Math.round(ctx.limits.signatureTimeoutMs / 1000)} seconds` : firstLine(e);
+    refuse(`the signature of the update's Kosmos.exe could not be checked (${why})`);
+  }
+  const unsigned = signatureRefusal(sig);
+  if (unsigned) refuse(unsigned);
+
   const stagedNode = path.join(staged, 'runtime', 'node.exe');
   let printed = '';
   try {
@@ -1234,15 +1331,6 @@ function verifyStaged(ctx, latest) {
   if (!/^v\d+\.\d+\.\d+$/.test(printed)) refuse(`the Node runtime inside the update did not report a version (it printed ${JSON.stringify(printed.slice(0, 80))})`);
   const namedNode = manifest.node && manifest.node.version;
   if (namedNode && printed !== namedNode) refuse(`the Node runtime inside the update is ${printed}, but its manifest.json names ${namedNode}`);
-
-  /* AUTHENTICODE-SEAM (S4 follow-up): the staged Kosmos.exe's Authenticode signature is NOT
-     verified here. Trust today rests on the sha matching the channel manifest over HTTPS (B2), which
-     is what this whole flow checks; a signature check is defence in depth for a tampered-but-matching
-     mirror. It is deferred because Azure code signing is not landed (DUNS/paperwork pending), so
-     there is no signature to verify yet. When signing lands, add the check on `stagedExe` HERE, in
-     B4, before H1 ever runs. Tracked as a GitHub issue linked from
-     .claude/plans/win32-update-arm-20260913T230101Z.md. */
-  const stagedExe = path.join(staged, 'Kosmos.exe'); void stagedExe;
 
   const anchoredNode = path.join(win32anchor.anchorDir(process.platform, ctx.home, ctx.env), win32anchor.NODE_NAME);
   const runtimeChanged = interpreterDiffers(stagedNode, anchoredNode);
@@ -1267,7 +1355,8 @@ function verifyStaged(ctx, latest) {
  *   expectVersion  when given, the version the person accepted; a pointer that moved is refused
  *   world     the world the new board will serve (resolveWorld: this board's, else the registry's)
  * and the seams a suite or the live-check CLI sets: platform, env, home, fetch, freeBytes,
- * runStagedNode, liveExecutionAllowed, limits, log, lockHooks, and boardTask
+ * runStagedNode, checkSignature (#1765: `(exe, timeoutMs) => { status, signer, rootThumbprint, chain }`),
+ * liveExecutionAllowed, limits, log, lockHooks, and boardTask
  * (`{ startedByTask(), status() }`, B0's board-task preconditions), or, on a computer that connects to
  * agents elsewhere (#4382), connectComputer (`{ connects(), boardAnswers() }`, connectComputerRefusal) in
  * its place.
@@ -1312,6 +1401,7 @@ async function prepare(opts) {
     fetch: typeof o.fetch === 'function' ? o.fetch : fetch,
     freeBytes: typeof o.freeBytes === 'function' ? o.freeBytes : defaultFreeBytes,
     runStagedNode: typeof o.runStagedNode === 'function' ? o.runStagedNode : runStagedNode,
+    checkSignature: typeof o.checkSignature === 'function' ? o.checkSignature : authenticodeOf,
   };
   const lockPath = path.join(work, LOCK_NAME);
 
@@ -1907,6 +1997,7 @@ module.exports = {
   readFileRetryingHolds, tryRetryingHolds, QUICK_HELD_READ_BUDGET, HELD_FILE_CODES,
   processImageFromTasklist, processImageStamp, sha256OfFile, unusualLocationRefusal, helperLaunch, waitForOutcome,
   REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, STAGED_DIRNAME, DOWNLOAD_PART_NAME, LOCK_NAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,
+  signatureRefusal, authenticodeOf, EXPECTED_SIGNER, EXPECTED_ROOT_THUMBPRINT, EXPECTED_INTERMEDIATE_PATTERN,
   UNUSUAL_LOCATION_POLICY, APPLY_FLAG, RECOVER_FLAG, DEFAULT_BOARD_PORT,
 };
 
