@@ -12,6 +12,8 @@ docs/phone-notifications.md: the wording is in force on the coordinator; the "to
 the auto turn-on makes every connected computer eligible; "Where the code lives" names push.rs notice_text.
 
 ## Decided
+The room tap (#6254) is in 18e6ac3e too, so it is described as live with the wording. The Settings email hint is gone from
+0.7.58 (#6489 merged).
 Attribute the deploy to the push owner (not measured here) and say nobody has seen the words on a real phone.
 
 ## Weakest premise

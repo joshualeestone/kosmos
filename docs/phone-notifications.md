@@ -27,7 +27,7 @@ computer not yet allowed onto the person's Kosmos+ account: the coordinator refu
 
 ## Wording
 Short and plain: the title says who and what; the body names the project, and is left out when there is none
-(everything is in Kosmos, so "in Kosmos" adds nothing).
+(everything is in Kosmos, so "in Kosmos" adds nothing). An agent with no name is called "An agent".
 
 | Kind | Title | Body |
 |---|---|---|
@@ -39,7 +39,7 @@ Short and plain: the title says who and what; the body names the project, and is
 Changed on 2026-10-18: the body said `on <Project>` (now `in`, as Josh wrote it), and `in Kosmos` when there was no
 project (now no body).
 
-**In force on the coordinator since 2026-10-18** (kosmos-relay #451): iPhone and web push both take their words from
+**In force on the coordinator since 2026-10-18** (kosmos-relay #451, deployed per the push path's owner): iPhone and web push both take their words from
 this table, through one shared function. This repo's own `web/sw.js` matches it from Kosmos 0.7.58 (kosmos#6502). Nobody
 has yet seen the new words on a real phone. The test notice (`Kosmos has something for you`, body `in Kosmos`) is a
 deliberate exception that keeps its body; the email keeps its own sentence (`<Agent> needs you on <Project>.`), since it is
@@ -78,8 +78,7 @@ In the Android app a tap first opens the Kosmos+ sign-in page, and one more tap 
 plain Chrome on a phone that has the app). Otherwise a tap opens that agent's page (or the board's home when the agent's session name has
 anything but lowercase letters, digits, `-` and `_`, starts with `-` or `_`, or is longer than 64 characters). A project post is the exception in a browser without
 the Android app (a computer's browser, or Chrome on a phone without the app): its tap opens that project's room
-(kosmos#6254, in the coordinator's code since 2026-10-18; it reaches phones once a coordinator with that code is
-deployed). A project the board does not know opens the projects list, and a post with no usable project opens the agent.
+(kosmos#6254, live on the coordinator since 2026-10-18 with the wording above). A project the board does not know opens the projects list, and a post with no usable project opens the agent.
 The Android app and the iPhone still open the agent for a project post: the Android app's sign-in step carries only the
 agent, and the iPhone notification carries no project id. A reply, a crash, a stuck terminal and a helper giving up never carry a project, so they
 have no body. A reply or post written while Kosmos was closed, and delivered later, does
@@ -103,7 +102,7 @@ yet** (not the board, and not the iPhone or Android app in this repo), so with t
 person already answered on the board. The flag must stay off until the board sends that acknowledgement. A needs-you that turned 30 minutes old while the
 coordinator was running with the flag off is never emailed; a younger one is, once it reaches 30 minutes. The crash, stuck and helper notices are needs-you events too, so they would be emailed as well, and the email's closing
 sentence ("Your agent paused for your input and will pick up again once you answer.") does not fit them; change that
-before the flag is turned on. The Settings hint that mentions this email ("may also send you an email") still shows today and is removed under kosmos#6489.
+before the flag is turned on. The Settings hint that mentions this email ("may also send you an email") shows up to Kosmos 0.7.57 and is gone from 0.7.58 (kosmos#6489).
 
 ## Proposed (Josh, 2026-10-18)
 Josh's words, verbatim: "<Agent> said <message>" for a direct message, and "<Agent> commented in <Project>: <message>"
@@ -130,6 +129,6 @@ Recommended: option 2. The call is Josh's.
 ## Where the code lives
 The computer side: `engine/phonenotify.js` (kinds, switches, how often), called from `server.js`. The words:
 kosmos-relay `coordinator/src/push.rs` (`notice_text`, shared by `apns.rs` for iPhone and `coordinator/src/sw.js` for
-web push; the test notice is built in `apns.rs` `operator_test_with`). This repo's `web/sw.js` shows the same words from
+web push, including the test notice's words; `apns.rs` `operator_test_with` sends it). This repo's `web/sw.js` shows the same words from
 0.7.58 (#6502), though no phone push reaches it today (phones subscribe on the coordinator's address, #3510). The email: kosmos-relay `coordinator/src/delivery.rs`
 (`agent_needs_you_words`), sent by the `notify.rs` sweep.
