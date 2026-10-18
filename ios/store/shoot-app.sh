@@ -128,6 +128,7 @@ done
 kill -0 "$proxy_pid" 2>/dev/null || fail "the proxy stopped during the run; nothing filed"
 kill -0 "$board_pid" 2>/dev/null || fail "the throwaway board stopped during the run; nothing filed"
 if grep -q '^UPSTREAM' "$work/proxy.log"; then grep '^UPSTREAM' "$work/proxy.log" | head -5; fail "the board broke off an answer mid-run; a picture may be half loaded"; fi
+if grep -q '^STAGE' "$work/proxy.log"; then grep '^STAGE' "$work/proxy.log" | head -3; fail "the subscription was not staged as connected; the pictures would show its notice"; fi
 if grep -q '^REFUSED' "$work/proxy.log"; then grep '^REFUSED' "$work/proxy.log" | head -3; fail "something other than this Mac reached the proxy; nothing filed"; fi
 if grep -q '^LEAK' "$work/proxy.log"; then grep '^LEAK' "$work/proxy.log" | head -5; fail "the proxy's leak guard refused an answer; nothing filed"; fi
 
