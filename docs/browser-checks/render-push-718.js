@@ -390,8 +390,8 @@ function check(name, pass, detail) {
   for (const [st, want] of [
     [{ available: true, on: false, connected: true, kinds: pnState.kinds }, 'Not on yet. It turns on by itself, or press Turn on now.'],
     [{ available: true, on: false, connected: true, offByChoice: true, kinds: pnState.kinds }, 'Off. Press Turn on to turn it on.'],
-    [{ available: true, on: false, connected: false, kinds: pnState.kinds }, 'This turns on by itself once this computer is connected to Kosmos+.'],
-    [{ available: true, on: false, connected: false, offByChoice: true, kinds: pnState.kinds }, 'Off. You can turn it on once this computer is connected to Kosmos+.'],
+    [{ available: true, on: false, connected: false, kinds: pnState.kinds }, 'This turns on by itself once Kosmos+ is on for this computer.'],
+    [{ available: true, on: false, connected: false, offByChoice: true, kinds: pnState.kinds }, 'Off. You can turn it on once Kosmos+ is on for this computer.'],
   ]) {
     pnState = st;
     await pnPage.reload({ waitUntil: 'load' });

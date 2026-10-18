@@ -86,7 +86,7 @@ test('not connected to Kosmos+: the button stays disabled and says why', async (
   const h = load({ state: { connected: false } });
   h.domHandlers.DOMContentLoaded(); await flush();
   assert.equal(h.btn.disabled, true);
-  assert.match(h.msg.textContent, /turns on by itself once this computer is connected to Kosmos\+/);   // #6488
+  assert.match(h.msg.textContent, /turns on by itself once Kosmos\+ is on for this computer/);   // #6488
   assert.equal(await h.win.kosmosPhoneNotifyToggle(), false);
   assert.equal(h.calls.fetch.filter((c) => c.method === 'PUT').length, 0, 'a PUT went out for a Mac that is not connected');
 });
@@ -109,8 +109,8 @@ test('#6488: while waiting to turn on by itself, Settings looks again (30 s, and
   const hf = load({ fetchFails: true, win: { setTimeout: (fn, ms) => { tf.push(ms); return 1; }, clearTimeout: () => {} } });
   hf.domHandlers.DOMContentLoaded(); await flush();
   assert.deepEqual(tf, [30000], 'a failed read stopped the second looks');
-  // On, or off by the person's choice: nothing to wait for, so no timer.
-  for (const state of [{ connected: true, on: true }, { connected: true, on: false, offByChoice: true }]) {
+  // On, off by the person's choice, or Kosmos+ off here: nothing to wait for, so no timer.
+  for (const state of [{ connected: true, on: true }, { connected: true, on: false, offByChoice: true }, { connected: false, on: false }]) {
     const t2 = [];
     const h2 = load({ state, win: { setTimeout: (fn, ms) => { t2.push(ms); return 1; }, clearTimeout: () => {} } });
     h2.domHandlers.DOMContentLoaded(); await flush();
@@ -120,7 +120,7 @@ test('#6488: while waiting to turn on by itself, Settings looks again (30 s, and
 
 test('#6488: the Settings words follow whether the off was the person\'s choice', async () => {
   for (const [state, want] of [
-    [{ connected: false, offByChoice: true }, /^Off\. You can turn it on once this computer is connected to Kosmos\+\.$/],
+    [{ connected: false, offByChoice: true }, /^Off\. You can turn it on once Kosmos\+ is on for this computer\.$/],
     [{ connected: true, on: false, offByChoice: false }, /^Not on yet\. It turns on by itself, or press Turn on now\.$/],
     [{ connected: true, on: false, offByChoice: true }, /^Off\. Press Turn on to turn it on\.$/],
     [{ connected: true, on: true }, /^On for this computer\.$/],
