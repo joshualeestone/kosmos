@@ -85,7 +85,12 @@ URL="http://127.0.0.1:$PORT/setup"
 export KOSMOS_PKG_RETRY_SLEEP=0 KOSMOS_PKG_RETRY_MAX=4
 # #6474: HOME is sandboxed. The lifted block hands off to an INSTALLED Kosmos at $HOME/.local/share/kosmos when it has
 # a verifier, so the real HOME would make these arms depend on (and run against) this Mac's own install.
+# #6507: for the WHOLE test, not only run_arm. ARM 4 and CONTROL #4319 ran the block directly with the real HOME, so on a
+# Mac whose own install had the verifier (Mortals at 0.7.57) they took the hand-off and went red; a Mac on an older
+# install passed. Exported here, every arm, present and future, starts in the empty sandbox; run_arm still points an arm
+# at its own fake install through ARM_HOME.
 mkdir -p "$T/nohome"
+export HOME="$T/nohome"
 run_arm() { rm -f "$T/RAN" "$T/RANS" "$T/DIR"; HOME="${ARM_HOME:-$T/nohome}" /bin/sh -c "$(cat "$INNER")" "$URL" 0 2>&1; }
 # #4319: the verify directory the installer ran from must be gone once the run ends.
 verify_dir_gone() {
