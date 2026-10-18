@@ -78,7 +78,9 @@ for name in "${order[@]}"; do
     || { grep -E "^(FLAG|ERROR)" "$work/board.log" | head -3; fail "mobile-shots.js did not read $name cleanly, so its leak guard did not cover it"; }
 done
 
-lan="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)"
+# The address of the interface the default route uses (en0, en1 or any other), then en0 and en1 as before.
+lan="$(ipconfig getifaddr "$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')" 2>/dev/null \
+  || ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)"
 [ -n "$lan" ] || fail "this Mac has no network address for the app to reach the board at"
 node "$here/shots-proxy.js" "$lan" "$base" "$repo" > "$work/proxy.log" 2>&1 &
 proxy_pid=$!
@@ -143,18 +145,23 @@ for size, theme in sets:
         if im.size != want[size]:
             sys.exit(f'{size} {theme} {name} is {im.size}, not {want[size]}')
         im.convert('RGB').save(os.path.join(stage, f'{size}-{theme}', f'{i:02d}-{name}.png'), optimize=True)
-# Only once every shot was written, the committed sets are swapped as a whole: the new tree is built beside them
-# (same folder, so the swap is two renames), then old and new trade places. A run killed part way leaves either
-# the old set or the new one, never a half-filled set (between the two renames the old set is screenshots.old).
+# Only once every shot was written, each set this script makes is swapped as a whole: built beside screenshots/
+# (same folder, so the swap is two renames), then old and new trade places. A run killed part way leaves each set
+# either old or new, never half-filled (between its two renames the old one is .shots-old-<set> beside it).
+# Anything else in screenshots/ is left alone.
 import shutil
-new, old = dest + '.new', dest + '.old'
-for d in (new, old):
-    shutil.rmtree(d, ignore_errors=True)
-shutil.copytree(stage, new)
-if os.path.isdir(dest):
-    os.rename(dest, old)
-os.rename(new, dest)
-shutil.rmtree(old, ignore_errors=True)
+os.makedirs(dest, exist_ok=True)
+parent = os.path.dirname(dest)
+for size, theme in sets:
+    name = f'{size}-{theme}'
+    new, old, live = os.path.join(parent, '.shots-new-' + name), os.path.join(parent, '.shots-old-' + name), os.path.join(dest, name)
+    for d in (new, old):
+        shutil.rmtree(d, ignore_errors=True)
+    shutil.copytree(os.path.join(stage, name), new)
+    if os.path.isdir(live):
+        os.rename(live, old)
+    os.rename(new, live)
+    shutil.rmtree(old, ignore_errors=True)
 for size, theme in sets:
     for f in sorted(os.listdir(os.path.join(dest, f'{size}-{theme}'))):
         print('filed', f'screenshots/{size}-{theme}/{f}', Image.open(os.path.join(dest, f'{size}-{theme}', f)).size)
