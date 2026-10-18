@@ -16,7 +16,7 @@ engine/phonenotify.js (kinds, per-kind defaults, cooldowns); server.js call site
 - Plain templates now: title "<Agent> needs you|replied|posted|has work ready for you"; body "in <Project>" ("in", as
   Josh wrote it), and no body when there is no project (the old "in Kosmos" says nothing).
 - Message words stay PROPOSED: they would put a message's text through the coordinator and Apple, which today never
-  see it. Option 2 (the iPhone fetches the words itself) is recommended; the call is Josh's.
+  see it. Option 2 (the phone fetches the words from the computer itself, on iPhone, Android and the browser) is recommended; the call is Josh's.
 
 ## Weakest premise
 That dropping the body when there is no project reads well on the lock screen (a title alone). If it reads bare, "in
