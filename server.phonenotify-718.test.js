@@ -150,7 +150,7 @@ test('turning on mints through mac-request, body on stdin, token never returned'
   assert.equal(on.code, 200, on.text);
   assert.equal(on.json.on, true);
   assert.doesNotMatch(on.text, /knt1_/, 'the token leaked into the response');
-  assert.deepEqual(Object.keys(on.json).sort(), ['available', 'connected', 'kinds', 'offByChoice', 'on'], 'the setting answer carries more than it should');
+  assert.deepEqual(Object.keys(on.json).sort(), ['available', 'connected', 'defaultBecause', 'kinds', 'offByChoice', 'on'], 'the setting answer carries more than it should');
   const log = fs.readFileSync(TUNNEL_LOG, 'utf8');
   assert.match(log, /ARGV: mac-request --coordinator https:\/\/coord\.example\.test\/kosmos --state-dir \S+ --method POST --path \/v1\/mac\/notify-credential\n/);
   const stdin = JSON.parse(log.split('STDIN:')[1]);
@@ -550,13 +550,25 @@ test('PUT refuses anything but a boolean', async () => {
   }
 });
 
+/* #6488: signed in AND Kosmos+ switched on (remote.json on:true), which the default turn-on needs. enrol() alone is
+   signed in with the switch off. beforeEach puts the switch back off. */
+const REMOTE_FILE = () => require('./engine/remote').FILE;
+function plusSwitch(on) {
+  let cur = {};
+  try { cur = JSON.parse(fs.readFileSync(REMOTE_FILE(), 'utf8')) || {}; } catch { cur = {}; }
+  fs.mkdirSync(path.dirname(REMOTE_FILE()), { recursive: true });
+  fs.writeFileSync(REMOTE_FILE(), JSON.stringify(Object.assign(cur, { on })));
+}
+function enrolPlus() { enrol(); plusSwitch(true); }
+test.beforeEach(() => { if (fs.existsSync(REMOTE_FILE())) plusSwitch(false); });
+
 /* #6488 (Josh, 2026-10-18 09:43: "Let's have notifications switched on by default"): ensureDefaultOn turns the master
    on for a connected computer whose person never touched it, and never for one whose person turned it off. */
 const PN_FILE = () => path.join(STATE, 'phone-notify.json');
 const mints = () => (fs.existsSync(TUNNEL_LOG) ? fs.readFileSync(TUNNEL_LOG, 'utf8').split('ARGV: mac-request').length - 1 : 0);
 
 test('#6488: a connected computer that never touched the switch is turned on, minting once, and then sends', async () => {
-  enrol();
+  enrolPlus();
   assert.equal(phonenotify.masterChoice(), 'unset');
   const r = await phonenotify.ensureDefaultOn();
   assert.equal(r && r.ok, true, JSON.stringify(r));
@@ -578,7 +590,7 @@ test('#6488: not connected to Kosmos+, the default does nothing and saves nothin
 });
 
 test('#6488: a person who turns it off stays off, through restarts of the default and a sub-switch change', async () => {
-  enrol();
+  enrolPlus();
   assert.equal((await call('PUT', '/api/phone-notify', { body: { on: true } })).json.on, true);
   assert.equal((await call('PUT', '/api/phone-notify', { body: { on: false } })).json.on, false);
   assert.equal(JSON.parse(fs.readFileSync(PN_FILE(), 'utf8')).off, 'person', 'turning off did not record the choice');
@@ -593,7 +605,7 @@ test('#6488: a person who turns it off stays off, through restarts of the defaul
 });
 
 test('#6488: an off from before #6488 (a token held, switch off, no marker) is read as the person\'s off', async () => {
-  enrol();
+  enrolPlus();
   fs.writeFileSync(PN_FILE(), JSON.stringify({ on: false, notifyId: 'n1', token: 'knt1_heldtoken0123' }));
   assert.equal(phonenotify.masterChoice(), 'off');
   assert.equal(await phonenotify.ensureDefaultOn(), null);
@@ -601,7 +613,7 @@ test('#6488: an off from before #6488 (a token held, switch off, no marker) is r
 });
 
 test('#6488: only a sub-switch set (no turn-on ever) is still "never touched", and its choice survives the turn-on', async () => {
-  enrol();
+  enrolPlus();
   fs.writeFileSync(PN_FILE(), JSON.stringify({ on: false, notifyId: null, token: null, kinds: { replied: false } }));
   assert.equal(phonenotify.masterChoice(), 'unset');
   assert.equal((await phonenotify.ensureDefaultOn()).ok, true);
@@ -612,7 +624,7 @@ test('#6488: only a sub-switch set (no turn-on ever) is still "never touched", a
 });
 
 test('#6488: a setting file we cannot read is never turned on for the person', async () => {
-  enrol();
+  enrolPlus();
   for (const content of ['not json', '[1]', 'null', '"on"']) {
     fs.writeFileSync(PN_FILE(), content);
     assert.equal(phonenotify.masterChoice(), 'off', 'unreadable read as never-touched: ' + content);
@@ -622,7 +634,7 @@ test('#6488: a setting file we cannot read is never turned on for the person', a
 });
 
 test('#6488: with the ship gate closed the default does nothing', async () => {
-  enrol();
+  enrolPlus();
   phonenotify.setAvailableForTests(false);
   try { assert.equal(await phonenotify.ensureDefaultOn(), null); } finally { phonenotify.setAvailableForTests(true); }
   assert.equal(fs.existsSync(TUNNEL_LOG), false);
@@ -644,18 +656,18 @@ test('#6488: the board starts the default turn-on at real startup, not at requir
 });
 
 test('#6488: removing this computer from Kosmos+ and connecting again keeps the person\'s off', async () => {
-  enrol();
+  enrolPlus();
   assert.equal((await call('PUT', '/api/phone-notify', { body: { on: true } })).json.on, true);
   assert.equal((await call('PUT', '/api/phone-notify', { body: { on: false } })).json.on, false);
   unenrol();   // what remote.forget does to the tunnel state dir, phone-notify.json with it
-  enrol();
+  enrolPlus();
   assert.equal(phonenotify.masterChoice(), 'off', 'a reconnect forgot the person\'s off');
   const before = mints();
   assert.equal(await phonenotify.ensureDefaultOn(), null);
   assert.equal(mints(), before);
   // Turning on by hand clears it, so the next reconnect is back to the default.
   assert.equal((await call('PUT', '/api/phone-notify', { body: { on: true } })).json.on, true);
-  unenrol(); enrol();
+  unenrol(); enrolPlus();
   assert.equal(phonenotify.masterChoice(), 'unset', 'a turn-on did not clear the kept off');
 });
 
@@ -669,7 +681,7 @@ test('#6488: the default retries with a doubling wait, and waits the longest aft
   assert.deepEqual(waits, [phonenotify.DEFAULT_ON_EVERY_MS]);
   ctl.stop();
   // Connected, the mint fails: each failure doubles the wait, up to the cap, and stays there.
-  enrol();
+  enrolPlus();
   const failing = path.join(SANDBOX, 'fail-tunnel');
   fs.writeFileSync(failing, '#!/bin/bash\n' + LOG_CALL + '\necho "coordinator said no" >&2; exit 1\n', { mode: 0o755 });
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = failing;
@@ -704,19 +716,19 @@ test('#6488: the default retries with a doubling wait, and waits the longest aft
 });
 
 test('#6488: an off from before #6488 is copied out of the state dir, so it survives a reconnect too', async () => {
-  enrol();
+  enrolPlus();
   fs.writeFileSync(PN_FILE(), JSON.stringify({ on: false, notifyId: 'n1', token: 'knt1_heldtoken0123' }));
   assert.equal(await phonenotify.ensureDefaultOn(), null);
   const CHOICE = path.join(path.dirname(require('./engine/remote').FILE), 'phone-notify-choice.json');
   assert.equal(fs.readFileSync(CHOICE, 'utf8'), '{"off":true}\n', 'the kept off holds more than {off:true}');
-  unenrol(); enrol();
+  unenrol(); enrolPlus();
   assert.equal(phonenotify.masterChoice(), 'off', 'a pre-#6488 off was lost to a reconnect');
   assert.equal(await phonenotify.ensureDefaultOn(), null);
   assert.equal(fs.existsSync(TUNNEL_LOG), false);
 });
 
 test('#6488: an off with no token ever minted is still kept through a sub-switch change (the marker alone carries it)', async () => {
-  enrol();
+  enrolPlus();
   assert.equal((await call('PUT', '/api/phone-notify', { body: { on: false } })).json.on, false);
   assert.equal(phonenotify.readState().token, null, 'premise: no token was ever minted');
   // The kept copy beside remote.json would answer 'off' on its own; take it away so this checks setKind's marker.
@@ -728,7 +740,7 @@ test('#6488: an off with no token ever minted is still kept through a sub-switch
 });
 
 test('#6488: an off that could not be saved is not kept for later either', async () => {
-  enrol();
+  enrolPlus();
   assert.equal((await call('PUT', '/api/phone-notify', { body: { on: true } })).json.on, true);
   fs.chmodSync(STATE, 0o500);   // the state save fails
   let r;
@@ -762,7 +774,7 @@ async function withHeldDefaultMint(during) {
 }
 
 test('#6488: turning off while the default mint is out ends off, and the off is kept', async () => {
-  enrol();
+  enrolPlus();
   const r = await withHeldDefaultMint(() => phonenotify.turnOff());
   assert.equal(r.ok, true);
   assert.equal(phonenotify.readState().on, false, 'the default mint landed on over the person\'s off');
@@ -772,7 +784,7 @@ test('#6488: turning off while the default mint is out ends off, and the off is 
 });
 
 test('#6488: a sub-switch set while the default mint is out is kept, and it ends on', async () => {
-  enrol();
+  enrolPlus();
   const r = await withHeldDefaultMint(() => phonenotify.setKind('replied', false));
   assert.equal(r.ok, true);
   const st = phonenotify.readState();
@@ -782,7 +794,7 @@ test('#6488: a sub-switch set while the default mint is out is kept, and it ends
 });
 
 test('#6488: a refusal made before anything was sent does not lengthen the wait, and the raw reason is logged once', async () => {
-  enrol();
+  enrolPlus();
   const waits = []; const runs = [];
   const fakeSchedule = (fn, ms) => { waits.push(ms); runs.push(fn); return { unref() {} }; };
   const realWrite = process.stderr.write;
@@ -812,7 +824,7 @@ test('#6488: the wait goes back to short when this computer connects', async () 
   const realWrite = process.stderr.write;
   process.stderr.write = () => true;
   try {
-    enrol();
+    enrolPlus();
     const ctl = phonenotify.startDefaultOn({ schedule: fakeSchedule, ensure });
     await ctl.whenIdle();
     runs.shift()(); await ctl.whenIdle();
@@ -821,7 +833,7 @@ test('#6488: the wait goes back to short when this computer connects', async () 
     runs.shift()(); await ctl.whenIdle();
     assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS);
     // Connect again: the tick after the change fails, and it is not doubled (the first retry after connecting is soon).
-    enrol();
+    enrolPlus();
     runs.shift()(); await ctl.whenIdle();
     assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS, 'connecting did not reset the wait');
     ctl.stop();
@@ -848,16 +860,16 @@ test('#6488: sign-in pokes the schedule: the long wait is reset and it tries now
 });
 
 test('#6488: removed from Kosmos+ while the default mint is out: nothing is saved', async () => {
-  enrol();
+  enrolPlus();
   const r = await withHeldDefaultMint(async () => { unenrol(); return null; });
   assert.equal(r, null);
   assert.equal(fs.existsSync(PN_FILE()), false, 'a token for the retired identity was saved after removal');
-  enrol();
+  enrolPlus();
   assert.equal(phonenotify.masterChoice(), 'unset', 'the reconnect does not start from the default');
 });
 
 test('#6488: status says when the off was the person\'s choice', async () => {
-  enrol();
+  enrolPlus();
   assert.equal((await call('GET', '/api/phone-notify')).json.offByChoice, false, 'never touched read as a choice');
   await call('PUT', '/api/phone-notify', { body: { on: true } });
   assert.equal((await call('GET', '/api/phone-notify')).json.offByChoice, false);
@@ -878,10 +890,41 @@ test('#6488: a stopped schedule is forgotten, so a later sign-in poke still runs
 });
 
 test('#6488: an off we cannot read is copied out too, so removing the computer cannot turn it on', async () => {
-  enrol();
+  enrolPlus();
   fs.writeFileSync(PN_FILE(), 'not json');
   assert.equal(await phonenotify.ensureDefaultOn(), null);
-  unenrol(); enrol();
+  unenrol(); enrolPlus();
   assert.equal(phonenotify.masterChoice(), 'off', 'a corrupt file\'s off was lost to a reconnect');
+  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+});
+
+test('#6488: signed in but Kosmos+ switched off: the default mints nothing, and Settings says why', async () => {
+  enrol();   // signed in, switch off
+  assert.equal(phonenotify.masterChoice(), 'unset');
+  assert.equal(await phonenotify.ensureDefaultOn(), null);
+  assert.equal(fs.existsSync(TUNNEL_LOG), false, 'minted for a computer whose person switched Kosmos+ off');
+  assert.equal((await call('GET', '/api/phone-notify')).json.defaultBecause, 'Kosmos+ is switched off on this computer.');
+  plusSwitch(true);
+  assert.equal((await phonenotify.ensureDefaultOn()).ok, true);
+  assert.equal((await call('GET', '/api/phone-notify')).json.defaultBecause, null, 'the reason stayed after it turned on');
+});
+
+test('#6488: a failed default turn-on says why in Settings, and a turned-off computer never shows a reason', async () => {
+  enrolPlus();
+  const failing = path.join(SANDBOX, 'fail-tunnel-2');
+  fs.writeFileSync(failing, '#!/bin/bash\n' + LOG_CALL + '\necho "no" >&2; exit 1\n', { mode: 0o755 });
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = failing;
+  const realWrite = process.stderr.write; process.stderr.write = () => true;
+  try { assert.equal((await phonenotify.ensureDefaultOn()).ok, false); } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; process.stderr.write = realWrite; }
+  assert.equal((await call('GET', '/api/phone-notify')).json.defaultBecause, 'Kosmos+ could not be reached just now. Try again in a minute.');
+  await call('PUT', '/api/phone-notify', { body: { on: false } });
+  assert.equal((await call('GET', '/api/phone-notify')).json.defaultBecause, null, 'a reason shown for a person\'s off');
+});
+
+test('#6488: a notifyId left from an earlier turn-on counts as the person\'s off', async () => {
+  enrolPlus();
+  fs.writeFileSync(PN_FILE(), JSON.stringify({ on: false, notifyId: 'n1', token: null }));
+  assert.equal(phonenotify.masterChoice(), 'off');
+  assert.equal(await phonenotify.ensureDefaultOn(), null);
   assert.equal(fs.existsSync(TUNNEL_LOG), false);
 });
