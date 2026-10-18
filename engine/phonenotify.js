@@ -144,7 +144,7 @@ function readState() {
     - 'on': the file says on:true.
     - 'off': the file says off:'person' (turnOff writes it since #6488), or it holds a token without on:true. Only a
       turn-on ever saves a token and turnOff keeps it, so a token with the switch off means the person turned it on
-      and then off, on any version. Also 'off' when choiceFile says so: that one survives removing this computer
+      and then off, on any version (a notifyId alone counts the same). Also 'off' when choiceFile says so: that one survives removing this computer
       from Kosmos+ and connecting it again.
     - 'unset': no file at all, or a plain file with neither (only a sub-switch was set: setKind works before any
       turn-on, and choosing which kinds buzz is not choosing to have none).
@@ -159,6 +159,8 @@ function masterChoice() {
   if (parsed.on === true) return 'on';
   if (parsed.off === 'person' || choiceSaysOff()) return 'off';
   if (typeof parsed.token === 'string' && parsed.token !== '') return 'off';
+  // A notifyId is also only saved by a turn-on (and kept by turnOff), so it is the same evidence as a token.
+  if (typeof parsed.notifyId === 'string' && parsed.notifyId !== '') return 'off';
   return 'unset';
 }
 
@@ -195,10 +197,13 @@ function writeState(next) {
 /** What the Settings screen shows. Never the token. While the ship gate is
     closed it is off and unavailable, whatever the file says. */
 function status() {
-  if (!available) return { available: false, on: false, connected: remote.enrolled(), kinds: readState().kinds, offByChoice: false };
+  if (!available) return { available: false, on: false, connected: remote.enrolled(), kinds: readState().kinds, offByChoice: false, defaultBecause: null };
   const s = readState();
   // #6488: offByChoice says the person turned it off (so Settings does not promise it turns on by itself).
-  return { available: true, on: s.on, connected: remote.enrolled(), kinds: s.kinds, offByChoice: !s.on && masterChoice() === 'off' };
+  const offByChoice = !s.on && masterChoice() === 'off';
+  // defaultBecause: why it has not turned on by itself yet (Settings says it instead of promising), or null.
+  return { available: true, on: s.on, connected: remote.enrolled(), kinds: s.kinds, offByChoice,
+    defaultBecause: !s.on && !offByChoice ? defaultBecause : null };
 }
 
 /** Turn phone notifications on: mint a fresh notify token (minting replaces
@@ -214,8 +219,8 @@ function turnOn(opts) {
   return turningOn;
 }
 /* `quiet` (the default turn-on, #6488): no log line here; startDefaultOn logs once per reason instead. A failure
-   AFTER a mint succeeded carries `minted: true`: the coordinator has already replaced this computer's token, so
-   retrying would churn it. */
+   AFTER a mint succeeded whose retry would mint again at once carries `minted: true` (a bad answer, or a save that
+   failed): the coordinator has already replaced this computer's token, so retrying soon would churn it. */
 async function doTurnOn({ quiet } = {}) {
   if (!remote.enrolled()) {
     return { ok: false, because: 'connect this computer to Kosmos+ first, then turn phone notifications on' };
@@ -279,6 +284,7 @@ async function setKind(name, on) {
     Kosmos+ (minting needs the connection). Does nothing while the ship gate is closed, while not connected, or when
     the person chose either way. Through turnOn, so it mints exactly as the Settings button does and shares its
     one-at-a-time guard. Resolves to turnOn's answer, or null when it did nothing. Never throws. */
+let defaultBecause = null;   // #6488: why the default could not turn it on, last time (the person's sentence), or null
 async function ensureDefaultOn() {
   try {
     if (!available) return null;
@@ -287,9 +293,16 @@ async function ensureDefaultOn() {
     // we cannot read) goes with that file when this computer is removed. Copy it to choiceFile while it is still
     // here: no network, no connection needed, and tried again on every run if a write failed.
     if (choice === 'off' && !choiceSaysOff()) writeChoice(true);
-    if (!remote.enrolled()) return null;
-    if (choice !== 'unset') return null;
-    return await turnOn({ quiet: true });
+    if (!remote.enrolled()) { defaultBecause = null; return null; }
+    if (choice !== 'unset') { defaultBecause = null; return null; }
+    // Signed in but Kosmos+ switched off on this computer: the person took it off Kosmos+, so nothing is minted
+    // and nothing about agents goes there until they switch it back on.
+    let plusOn = false;
+    try { plusOn = remote.read().on === true; } catch { plusOn = false; }
+    if (!plusOn) { defaultBecause = 'Kosmos+ is switched off on this computer.'; return null; }
+    const r = await turnOn({ quiet: true });
+    defaultBecause = r && r.ok === false ? String(r.because || '') || null : null;
+    return r;
   } catch { return null; }
 }
 

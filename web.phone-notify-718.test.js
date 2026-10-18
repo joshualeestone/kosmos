@@ -104,6 +104,11 @@ test('#6488: while waiting to turn on by itself, Settings looks again (30 s, and
   assert.equal(gets(), before + 1, 'the second look did not fetch the setting');
   h.domHandlers.visibilitychange(); await flush();
   assert.equal(gets(), before + 2, 'coming back to the page did not look again');
+  // A failed read (the board restarting) keeps looking, so the section comes back by itself.
+  const tf = [];
+  const hf = load({ fetchFails: true, win: { setTimeout: (fn, ms) => { tf.push(ms); return 1; }, clearTimeout: () => {} } });
+  hf.domHandlers.DOMContentLoaded(); await flush();
+  assert.deepEqual(tf, [30000], 'a failed read stopped the second looks');
   // On, or off by the person's choice: nothing to wait for, so no timer.
   for (const state of [{ connected: true, on: true }, { connected: true, on: false, offByChoice: true }]) {
     const t2 = [];
@@ -119,6 +124,7 @@ test('#6488: the Settings words follow whether the off was the person\'s choice'
     [{ connected: true, on: false, offByChoice: false }, /^Not on yet\. It turns on by itself, or press Turn on now\.$/],
     [{ connected: true, on: false, offByChoice: true }, /^Off\. Press Turn on to turn it on\.$/],
     [{ connected: true, on: true }, /^On for this computer\.$/],
+    [{ connected: true, on: false, defaultBecause: 'Kosmos+ is switched off on this computer.' }, /^Not on yet\. Kosmos\+ is switched off on this computer\.$/],
   ]) {
     const h = load({ state });
     h.domHandlers.DOMContentLoaded(); await flush();

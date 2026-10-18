@@ -85281,7 +85281,9 @@ setInterval(ageCheckedStamp, 1000);
     btn.disabled = false;
     btn.textContent = st.on ? 'Turn off' : 'Turn on';
     if (step) step.hidden = !st.on;
-    setMsg(st.on ? 'On for this computer.' : st.offByChoice ? 'Off. Press Turn on to turn it on.' : 'Not on yet. It turns on by itself, or press Turn on now.');
+    setMsg(st.on ? 'On for this computer.' : st.offByChoice ? 'Off. Press Turn on to turn it on.'
+      : st.defaultBecause ? 'Not on yet. ' + st.defaultBecause   // #6488: why the default has not turned it on
+      : 'Not on yet. It turns on by itself, or press Turn on now.');
   }
 
   /* #6488: the switch can now turn on with no press (the default turn-on, after sign-in), so while it is waiting to
@@ -85292,7 +85294,8 @@ setInterval(ageCheckedStamp, 1000);
     if (typeof t !== 'function') return;
     if (relook && typeof c === 'function') c(relook);
     relook = null;
-    if (st && st.available && !st.on && !st.offByChoice) relook = t(function () { relook = null; if (busy) relookLater(current); else load(); }, 30000);
+    // A failed read (st null, the board restarting) keeps looking too, so the section comes back by itself.
+    if (!st || (st.available && !st.on && !st.offByChoice)) relook = t(function () { relook = null; if (busy) relookLater(current); else load(); }, 30000);
   }
 
   function load() {
