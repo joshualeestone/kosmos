@@ -117,7 +117,7 @@ function withLeo(fn) {
 const report = (h, state) => call('POST', '/api/report', { headers: h, body: { state, text: 'THE REPORT WORDS' } });
 const reply = (h) => call('POST', '/api/reply', { headers: h, body: { text: 'THE REPLY WORDS' } });
 
-test('OFF by default: nothing is sent and the tunnel never runs', async () => {
+test('OFF until turned on (by the person, or by #6488\'s default turn-on below): nothing is sent and the tunnel never runs', async () => {
   enrol();
   const st = await call('GET', '/api/phone-notify');
   assert.equal(st.json.on, false, 'phone notifications must start off');
@@ -546,4 +546,102 @@ test('PUT refuses anything but a boolean', async () => {
     const r = await call('PUT', '/api/phone-notify', { body: { on } });
     assert.equal(r.code, 400, 'accepted ' + JSON.stringify(on));
   }
+});
+
+/* #6488 (Josh, 2026-10-18 09:43: "Let's have notifications switched on by default"): ensureDefaultOn turns the master
+   on for a connected computer whose person never touched it, and never for one whose person turned it off. */
+const PN_FILE = () => path.join(STATE, 'phone-notify.json');
+const mints = () => (fs.existsSync(TUNNEL_LOG) ? fs.readFileSync(TUNNEL_LOG, 'utf8').split('ARGV: mac-request').length - 1 : 0);
+
+test('#6488: a connected computer that never touched the switch is turned on, minting once, and then sends', async () => {
+  enrol();
+  assert.equal(phonenotify.masterChoice(), 'unset');
+  const r = await phonenotify.ensureDefaultOn();
+  assert.equal(r && r.ok, true, JSON.stringify(r));
+  assert.equal(mints(), 1, 'the default turn-on did not mint exactly once');
+  assert.equal(phonenotify.readState().on, true);
+  assert.equal((await call('GET', '/api/phone-notify')).json.on, true, 'Settings does not show it on');
+  // Already on: a second run is a no-op (no second mint, which would replace the token at the coordinator).
+  assert.equal(await phonenotify.ensureDefaultOn(), null);
+  assert.equal(mints(), 1, 'a second default run minted again');
+  await withLeo(async (h) => { await report(h, 'needs_you'); });
+  assert.equal(sent.length, 1, 'turned on by default but a needs_you did not send');
+  assert.doesNotMatch(JSON.stringify(sent[0].body), /THE REPORT WORDS/);
+});
+
+test('#6488: not connected to Kosmos+, the default does nothing and saves nothing', async () => {
+  assert.equal(await phonenotify.ensureDefaultOn(), null);
+  assert.equal(fs.existsSync(TUNNEL_LOG), false, 'the tunnel ran on a computer not connected');
+  assert.equal(fs.existsSync(PN_FILE()), false);
+});
+
+test('#6488: a person who turns it off stays off, through restarts of the default and a sub-switch change', async () => {
+  enrol();
+  assert.equal((await call('PUT', '/api/phone-notify', { body: { on: true } })).json.on, true);
+  assert.equal((await call('PUT', '/api/phone-notify', { body: { on: false } })).json.on, false);
+  assert.equal(JSON.parse(fs.readFileSync(PN_FILE(), 'utf8')).off, 'person', 'turning off did not record the choice');
+  const before = mints();
+  assert.equal(await phonenotify.ensureDefaultOn(), null, 'the default undid an explicit off');
+  // A sub-switch change after the off must not turn the choice back into "never touched".
+  assert.equal((await call('PUT', '/api/phone-notify', { body: { kind: 'ready', on: false } })).code, 200);
+  assert.equal(phonenotify.masterChoice(), 'off');
+  assert.equal(await phonenotify.ensureDefaultOn(), null, 'a sub-switch change re-armed the default');
+  assert.equal(mints(), before, 'the default minted for a person who turned it off');
+  assert.equal(phonenotify.readState().on, false);
+});
+
+test('#6488: an off from before #6488 (a token held, switch off, no marker) is read as the person\'s off', async () => {
+  enrol();
+  fs.writeFileSync(PN_FILE(), JSON.stringify({ on: false, notifyId: 'n1', token: 'knt1_heldtoken0123' }));
+  assert.equal(phonenotify.masterChoice(), 'off');
+  assert.equal(await phonenotify.ensureDefaultOn(), null);
+  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+});
+
+test('#6488: only a sub-switch set (no turn-on ever) is still "never touched", and its choice survives the turn-on', async () => {
+  enrol();
+  fs.writeFileSync(PN_FILE(), JSON.stringify({ on: false, notifyId: null, token: null, kinds: { replied: false } }));
+  assert.equal(phonenotify.masterChoice(), 'unset');
+  assert.equal((await phonenotify.ensureDefaultOn()).ok, true);
+  const st = phonenotify.readState();
+  assert.equal(st.on, true);
+  assert.equal(st.kinds.replied, false, 'the default turn-on lost the person\'s sub-switch choice');
+  assert.equal(st.kinds.needsYou, true);
+});
+
+test('#6488: a setting file we cannot read is never turned on for the person', async () => {
+  enrol();
+  for (const content of ['not json', '[1]', 'null', '"on"']) {
+    fs.writeFileSync(PN_FILE(), content);
+    assert.equal(phonenotify.masterChoice(), 'off', 'unreadable read as never-touched: ' + content);
+    assert.equal(await phonenotify.ensureDefaultOn(), null);
+  }
+  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+});
+
+test('#6488: with the ship gate closed the default does nothing', async () => {
+  enrol();
+  phonenotify.setAvailableForTests(false);
+  try { assert.equal(await phonenotify.ensureDefaultOn(), null); } finally { phonenotify.setAvailableForTests(true); }
+  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+});
+
+test('#6488: the board starts the default turn-on at real startup, not at require', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const at = src.indexOf('phonenotify.startDefaultOn()');
+  assert.ok(at > 0, 'server.js no longer starts the default turn-on');
+  assert.equal(src.indexOf('phonenotify.startDefaultOn()', at + 1), -1, 'started twice');
+  // It sits in the same real-startup block as the crash-loop sweep, which a require never reaches.
+  const sweep = src.indexOf('const crashLoopTick = setInterval(');
+  assert.ok(sweep > at && sweep - at < 400, 'the default turn-on moved out of the real-startup block');
+});
+
+test('#6488: an off with no token ever minted is still kept through a sub-switch change (the marker alone carries it)', async () => {
+  enrol();
+  assert.equal((await call('PUT', '/api/phone-notify', { body: { on: false } })).json.on, false);
+  assert.equal(phonenotify.readState().token, null, 'premise: no token was ever minted');
+  assert.equal((await call('PUT', '/api/phone-notify', { body: { kind: 'replied', on: false } })).code, 200);
+  assert.equal(phonenotify.masterChoice(), 'off', 'the sub-switch write dropped the person\'s off');
+  assert.equal(await phonenotify.ensureDefaultOn(), null);
+  assert.equal(fs.existsSync(TUNNEL_LOG), false);
 });

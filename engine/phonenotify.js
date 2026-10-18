@@ -6,11 +6,15 @@
  * 2026-09-24: apps only). Josh, 2026-09-24: "100% the main reason we want
  * mobile apps is for push notifications."
  *
- * OFF UNTIL THE PERSON TURNS IT ON. Nothing is sent while off, and an
- * unreadable setting reads as off. This is not the "something happened" seam
- * deleted in #2623 (#2631): that sent to our own endpoint by default with the
+ * ON BY DEFAULT ONCE THIS COMPUTER IS CONNECTED TO KOSMOS+ (#6488; Josh,
+ * 2026-10-18 09:43: "Let's have notifications switched on by default"). A
+ * computer whose person never touched the switch is turned on by
+ * ensureDefaultOn; one whose person turned it off stays off (masterChoice says
+ * how the two are told apart). Nothing is sent while off, and an unreadable
+ * setting reads as off. This is not the "something happened" seam
+ * deleted in #2623 (#2631): that sent to our own endpoint with the
  * install id. This sends only to the coordinator the Mac is already connected
- * to, only after a person asks, and with its own random id (`notifyId`), never
+ * to, which the person chose by connecting it, and with its own random id (`notifyId`), never
  * ping.installId() (kosmos#5995: this file does not send that one; engine/ping.js
  * lists the files that do).
  *
@@ -117,6 +121,27 @@ function readState() {
   };
 }
 
+/** #6488: what the person chose for the master switch: 'on', 'off', or 'unset' (never touched).
+    - 'on': the file says on:true.
+    - 'off': the file says off:'person' (turnOff writes it since #6488), or it holds a token without on:true. Only a
+      turn-on ever saves a token and turnOff keeps it, so a token with the switch off means the person turned it on
+      and then off, on any version.
+    - 'unset': no file at all, or a plain file with neither (only a sub-switch was set: setKind works before any
+      turn-on, and choosing which kinds buzz is not choosing to have none).
+    A file that is present but unreadable, unparseable or not a plain object reads as 'off': it may have been an
+    explicit off, and an off we cannot read is never turned on for the person. */
+function masterChoice() {
+  let text;
+  try { text = fs.readFileSync(file(), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' ? 'unset' : 'off'; }
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { return 'off'; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return 'off';
+  if (parsed.on === true) return 'on';
+  if (parsed.off === 'person') return 'off';
+  if (typeof parsed.token === 'string' && parsed.token !== '') return 'off';
+  return 'unset';
+}
+
 /** The per-kind switches exactly as stored (booleans only, not resolved to
     defaults), so a write preserves the ones the person set and leaves the rest
     implicit at their defaults. */
@@ -193,7 +218,8 @@ async function doTurnOn() {
 async function turnOff() {
   if (turningOn) { try { await turningOn; } catch { /* its outcome does not matter here */ } }
   const s = readState();
-  return writeState({ on: false, notifyId: s.notifyId, token: s.token, kinds: storedKinds() });
+  // #6488: `off: 'person'` records the choice, so the default turn-on never undoes it (masterChoice).
+  return writeState({ on: false, off: 'person', notifyId: s.notifyId, token: s.token, kinds: storedKinds() });
 }
 
 /** #6254: set one per-kind sub-switch (the Settings toggles under the master).
@@ -208,7 +234,43 @@ async function setKind(name, on) {
   const s = readState();
   const k = storedKinds();
   k[name] = on === true;
-  return writeState({ on: s.on, notifyId: s.notifyId, token: s.token, kinds: k });
+  // #6488: keep a person's off. A sub-switch write must not turn an explicit off back into 'unset'.
+  const off = !s.on && masterChoice() === 'off' ? 'person' : undefined;
+  return writeState({ on: s.on, off, notifyId: s.notifyId, token: s.token, kinds: k });
+}
+
+/** #6488: turn phone notifications on for a computer whose person never touched the switch, once it is connected to
+    Kosmos+ (minting needs the connection). Does nothing while the ship gate is closed, while not connected, or when
+    the person chose either way. Through turnOn, so it mints exactly as the Settings button does and shares its
+    one-at-a-time guard. Resolves to turnOn's answer, or null when it did nothing. Never throws. */
+async function ensureDefaultOn() {
+  try {
+    if (!available) return null;
+    if (!remote.enrolled()) return null;
+    if (masterChoice() !== 'unset') return null;
+    return await turnOn();
+  } catch { return null; }
+}
+
+/** #6488: run ensureDefaultOn now and every DEFAULT_ON_EVERY_MS, so a computer connected later, or one whose
+    mint failed (Kosmos+ unreachable for a minute), is turned on without a restart. A failure is logged once per
+    reason, not every tick. Real startup only (server.js); returns the timer, unref'd. */
+const DEFAULT_ON_EVERY_MS = 5 * 60 * 1000;
+function startDefaultOn() {
+  let lastBecause = null;
+  const tick = () => {
+    ensureDefaultOn().then((r) => {
+      if (r && r.ok === false && r.because !== lastBecause) {
+        lastBecause = r.because;
+        process.stderr.write('phonenotify: could not turn phone notifications on by default: ' + String(r.because) + '\n');
+      }
+      if (r && r.ok === true) process.stdout.write('phonenotify: phone notifications turned on by default (#6488)\n');
+    }, () => { /* ensureDefaultOn never rejects */ });
+  };
+  tick();
+  const t = setInterval(tick, DEFAULT_ON_EVERY_MS);
+  if (t && typeof t.unref === 'function') t.unref();
+  return t;
 }
 
 /** `v` cut to at most `n` UTF-8 bytes, never inside a character. */
@@ -321,4 +383,4 @@ function happened(event) {
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 
-module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
+module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, DEFAULT_ON_EVERY_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
