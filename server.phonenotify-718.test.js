@@ -93,6 +93,7 @@ test.beforeEach(() => {
   phonenotify.setClock(() => fakeNow);
   unenrol();
   fs.rmSync(TUNNEL_LOG, { force: true });
+  fs.rmSync(path.join(path.dirname(require('./engine/remote').FILE), 'phone-notify-choice.json'), { force: true });   // #6488
   try { fs.rmSync(selfreport.DIR, { recursive: true, force: true }); } catch { /* not there */ }
   try { fs.rmSync(sendertoken.DIR, { recursive: true, force: true }); } catch { /* not there */ }
 });
@@ -585,7 +586,7 @@ test('#6488: a person who turns it off stays off, through restarts of the defaul
   // A sub-switch change after the off must not turn the choice back into "never touched".
   assert.equal((await call('PUT', '/api/phone-notify', { body: { kind: 'ready', on: false } })).code, 200);
   assert.equal(phonenotify.masterChoice(), 'off');
-  assert.equal(await phonenotify.ensureDefaultOn(), null, 'a sub-switch change re-armed the default');
+  assert.equal(await phonenotify.ensureDefaultOn(), null, 'the default turned it on after a sub-switch change');
   assert.equal(mints(), before, 'the default minted for a person who turned it off');
   assert.equal(phonenotify.readState().on, false);
 });
@@ -626,14 +627,78 @@ test('#6488: with the ship gate closed the default does nothing', async () => {
   assert.equal(fs.existsSync(TUNNEL_LOG), false);
 });
 
-test('#6488: the board starts the default turn-on at real startup, not at require', () => {
+test('#6488: the board starts the default turn-on at real startup, not at require, and runs it after sign-in', () => {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const at = src.indexOf('phonenotify.startDefaultOn()');
   assert.ok(at > 0, 'server.js no longer starts the default turn-on');
   assert.equal(src.indexOf('phonenotify.startDefaultOn()', at + 1), -1, 'started twice');
-  // It sits in the same real-startup block as the crash-loop sweep, which a require never reaches.
+  // It sits in the real-startup block with the crash-loop sweep (which a require never reaches): nothing but
+  // comments and the stuck-terminal reset between them.
   const sweep = src.indexOf('const crashLoopTick = setInterval(');
-  assert.ok(sweep > at && sweep - at < 400, 'the default turn-on moved out of the real-startup block');
+  assert.ok(sweep > at, 'the default turn-on moved out of the real-startup block');
+  const between = src.slice(at, sweep).split('\n').slice(1).map((l) => l.trim()).filter((l) => l && !l.startsWith('//'));
+  assert.deepEqual(between, [], 'code now sits between the default turn-on and the crash-loop sweep');
+  // And right after a register finishes (the sign-in that connects this computer).
+  const reg = src.indexOf('await remote.signinRegister(name)');
+  const after = src.indexOf('phonenotify.ensureDefaultOn()', reg);
+  assert.ok(reg > 0 && after > reg && after - reg < 600, 'sign-in no longer runs the default turn-on');
+});
+
+test('#6488: removing this computer from Kosmos+ and connecting again keeps the person\'s off', async () => {
+  enrol();
+  assert.equal((await call('PUT', '/api/phone-notify', { body: { on: true } })).json.on, true);
+  assert.equal((await call('PUT', '/api/phone-notify', { body: { on: false } })).json.on, false);
+  unenrol();   // what remote.forget does to the tunnel state dir, phone-notify.json with it
+  enrol();
+  assert.equal(phonenotify.masterChoice(), 'off', 'a reconnect forgot the person\'s off');
+  const before = mints();
+  assert.equal(await phonenotify.ensureDefaultOn(), null);
+  assert.equal(mints(), before);
+  // Turning on by hand clears it, so the next reconnect is back to the default.
+  assert.equal((await call('PUT', '/api/phone-notify', { body: { on: true } })).json.on, true);
+  unenrol(); enrol();
+  assert.equal(phonenotify.masterChoice(), 'unset', 'a turn-on did not clear the kept off');
+});
+
+test('#6488: the default retries with a doubling wait, and stops after a mint it could not use', async () => {
+  const waits = [];
+  const runs = [];
+  const fakeSchedule = (fn, ms) => { waits.push(ms); runs.push(fn); return { unref() {} }; };
+  const step = async () => { runs.shift()(); await new Promise((r) => setTimeout(r, 50)); };
+  // Not connected: nothing to do, so the short wait.
+  let ctl = phonenotify.startDefaultOn({ schedule: fakeSchedule });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS);
+  ctl.stop();
+  // Connected, the mint fails: each failure doubles the wait, up to the cap.
+  enrol();
+  const failing = path.join(SANDBOX, 'fail-tunnel');
+  fs.writeFileSync(failing, '#!/bin/bash\n' + LOG_CALL + '\necho "coordinator said no" >&2; exit 1\n', { mode: 0o755 });
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = failing;
+  waits.length = 0; runs.length = 0;
+  try {
+    ctl = phonenotify.startDefaultOn({ schedule: fakeSchedule });
+    await new Promise((r) => setTimeout(r, 300));
+    for (let i = 0; i < 8; i++) { await step(); await new Promise((r) => setTimeout(r, 250)); }
+    const want = [];
+    for (let w = phonenotify.DEFAULT_ON_EVERY_MS * 2; want.length < waits.length; w = Math.min(w * 2, phonenotify.DEFAULT_ON_MAX_MS)) want.push(w);
+    assert.deepEqual(waits, want, 'the waits did not double up to the cap');
+    assert.ok(waits.includes(phonenotify.DEFAULT_ON_MAX_MS), 'never reached the cap');
+    ctl.stop();
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
+  // The mint succeeds but its answer cannot be used: stop, do not mint again.
+  const bad = path.join(SANDBOX, 'bad-tunnel');
+  fs.writeFileSync(bad, '#!/bin/bash\n' + LOG_CALL + '\nprintf \'{"token":"not-a-token"}\\n\'\n', { mode: 0o755 });
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = bad;
+  waits.length = 0; runs.length = 0;
+  try {
+    fs.rmSync(TUNNEL_LOG, { force: true });
+    ctl = phonenotify.startDefaultOn({ schedule: fakeSchedule });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(mints(), 1);
+    assert.equal(ctl.stopped(), true, 'kept retrying after a mint it could not use');
+    assert.equal(runs.length, 0, 'scheduled another run after a mint it could not use');
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
 });
 
 test('#6488: an off with no token ever minted is still kept through a sub-switch change (the marker alone carries it)', async () => {

@@ -11,10 +11,10 @@
  * computer whose person never touched the switch is turned on by
  * ensureDefaultOn; one whose person turned it off stays off (masterChoice says
  * how the two are told apart). Nothing is sent while off, and an unreadable
- * setting reads as off. This is not the "something happened" seam
- * deleted in #2623 (#2631): that sent to our own endpoint with the
- * install id. This sends only to the coordinator the Mac is already connected
- * to, which the person chose by connecting it, and with its own random id (`notifyId`), never
+ * setting reads as off. This is not the "something happened" seam deleted in
+ * #2623 (#2631): that sent to our own endpoint with the install id. This sends
+ * only to the coordinator the Mac is already connected to, which the person
+ * chose by connecting it, and with its own random id (`notifyId`), never
  * ping.installId() (kosmos#5995: this file does not send that one; engine/ping.js
  * lists the files that do).
  *
@@ -43,8 +43,8 @@ const remote = require('./remote');
 // change it. Tests use setAvailableForTests.
 // #4194: OPEN. A phone app that receives now exists (the Android test build, vc3 #4165: a real push under the Kosmos
 // icon #4172, the tap routes to the agent #4178), so Josh's phone can be tested end to end. The app is not in the
-// stores yet, so the Settings section says it is in testing. It stays off by default: nothing is sent until someone
-// turns it on and has an enrolled phone. The bundle refuses to ship this open with a connector that lacks
+// stores yet, so the Settings section says it is in testing. #6488: on by default once connected (ensureDefaultOn),
+// unless the person turned it off; nothing reaches a phone until one is registered. The bundle refuses to ship this open with a connector that lacks
 // `mac-request` (tools/lib/connector-verbs.sh).
 const PHONE_APP_CAN_RECEIVE = true;
 let available = PHONE_APP_CAN_RECEIVE;
@@ -57,7 +57,7 @@ function setAvailableForTests(on) { available = on === true; }
 const KINDS = new Set(['needs_you', 'replied', 'posted', 'ready']);
 // #6254: one switch per kind, under the master `on`. Each reads as ITS OWN
 // default when the setting is missing or unreadable, never all-on (and the
-// master is still off by default on top). `postedRoom` (any other room post) is
+// master gates them on top: on by default once connected, #6488). `postedRoom` (any other room post) is
 // the only default-off one; a busy room is opt-in and coalesced (below).
 const KIND_DEFAULTS = { needsYou: true, replied: true, postedMention: true, ready: true, postedRoom: false };
 // The coordinator mints "knt1_" + random ids; anything else is not a token and
@@ -85,6 +85,19 @@ const POSTED_ROOM_COOLDOWN_MS = 10 * 60 * 1000;
 const COOLDOWN_PRUNE_MS = POSTED_ROOM_COOLDOWN_MS;   // the longest; an entry older than this has expired for every class
 
 const file = () => path.join(remote.stateDir(), 'phone-notify.json');
+// #6488: the person's off, kept beside remote.json and OUTSIDE the tunnel state dir, because removing this computer
+// from Kosmos+ deletes that dir (remote.forget), and a reconnect must not turn back on what the person turned off.
+// It holds only { off: true }: no token. Written by turnOff, removed by a turn-on.
+const choiceFile = () => path.join(path.dirname(remote.FILE), 'phone-notify-choice.json');
+function choiceSaysOff() {
+  try { const c = JSON.parse(fs.readFileSync(choiceFile(), 'utf8')); return !!(c && c.off === true); } catch { return false; }
+}
+function writeChoice(off) {
+  try {
+    if (off) require('./securewrite').writeSecret(choiceFile(), JSON.stringify({ off: true }) + '\n', 0o600, { atomicOnly: true });
+    else fs.rmSync(choiceFile(), { force: true });
+  } catch { /* best effort: the off marker in phone-notify.json still holds while the computer stays connected */ }
+}
 
 /** A coordinator URL for `route`, keeping a self-hosted path prefix
     (https://h/kosmos -> https://h/kosmos/<route>). */
@@ -125,19 +138,20 @@ function readState() {
     - 'on': the file says on:true.
     - 'off': the file says off:'person' (turnOff writes it since #6488), or it holds a token without on:true. Only a
       turn-on ever saves a token and turnOff keeps it, so a token with the switch off means the person turned it on
-      and then off, on any version.
+      and then off, on any version. Also 'off' when choiceFile says so: that one survives removing this computer
+      from Kosmos+ and connecting it again.
     - 'unset': no file at all, or a plain file with neither (only a sub-switch was set: setKind works before any
       turn-on, and choosing which kinds buzz is not choosing to have none).
     A file that is present but unreadable, unparseable or not a plain object reads as 'off': it may have been an
     explicit off, and an off we cannot read is never turned on for the person. */
 function masterChoice() {
   let text;
-  try { text = fs.readFileSync(file(), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' ? 'unset' : 'off'; }
+  try { text = fs.readFileSync(file(), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' && !choiceSaysOff() ? 'unset' : 'off'; }
   let parsed;
   try { parsed = JSON.parse(text); } catch { return 'off'; }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return 'off';
   if (parsed.on === true) return 'on';
-  if (parsed.off === 'person') return 'off';
+  if (parsed.off === 'person' || choiceSaysOff()) return 'off';
   if (typeof parsed.token === 'string' && parsed.token !== '') return 'off';
   return 'unset';
 }
@@ -187,12 +201,15 @@ function status() {
     nothing saved, when this computer is not connected to Kosmos+ or the mint
     fails. */
 let turningOn = null;
-function turnOn() {
+function turnOn(opts) {
   if (!available) return Promise.resolve({ ok: false, because: 'phone notifications are not available yet' });
-  if (!turningOn) turningOn = doTurnOn().finally(() => { turningOn = null; });
+  if (!turningOn) turningOn = doTurnOn(opts || {}).finally(() => { turningOn = null; });
   return turningOn;
 }
-async function doTurnOn() {
+/* `quiet` (the default turn-on, #6488): no log line here; startDefaultOn logs once per reason instead. A failure
+   AFTER a mint succeeded carries `minted: true`: the coordinator has already replaced this computer's token, so
+   retrying would churn it. */
+async function doTurnOn({ quiet } = {}) {
   if (!remote.enrolled()) {
     return { ok: false, because: 'connect this computer to Kosmos+ first, then turn phone notifications on' };
   }
@@ -204,12 +221,15 @@ async function doTurnOn() {
       return { ok: false, because: 'Kosmos on this computer needs an update before phone notifications can be turned on' };
     }
     // The raw reason goes to the board's log; the person gets a sentence.
-    process.stderr.write('phonenotify: turning on failed: ' + String(minted.because || '') + '\n');
+    if (!quiet) process.stderr.write('phonenotify: turning on failed: ' + String(minted.because || '') + '\n');
     return { ok: false, because: 'Kosmos+ could not be reached just now. Try again in a minute.' };
   }
   const token = minted.data && typeof minted.data.token === 'string' ? minted.data.token : '';
-  if (!TOKEN_SHAPE.test(token)) return { ok: false, because: 'Kosmos+ answered in a shape we could not use' };
-  return writeState({ on: true, notifyId, token, kinds: storedKinds() });
+  if (!TOKEN_SHAPE.test(token)) return { ok: false, minted: true, because: 'Kosmos+ answered in a shape we could not use' };
+  const saved = writeState({ on: true, notifyId, token, kinds: storedKinds() });
+  if (!saved.ok) return { ...saved, minted: true };
+  writeChoice(false);   // #6488: turning on undoes the person's earlier off
+  return saved;
 }
 
 /** Turn them off. Nothing is sent while off. The token is kept on disk (it can
@@ -219,6 +239,7 @@ async function turnOff() {
   if (turningOn) { try { await turningOn; } catch { /* its outcome does not matter here */ } }
   const s = readState();
   // #6488: `off: 'person'` records the choice, so the default turn-on never undoes it (masterChoice).
+  writeChoice(true);
   return writeState({ on: false, off: 'person', notifyId: s.notifyId, token: s.token, kinds: storedKinds() });
 }
 
@@ -248,29 +269,47 @@ async function ensureDefaultOn() {
     if (!available) return null;
     if (!remote.enrolled()) return null;
     if (masterChoice() !== 'unset') return null;
-    return await turnOn();
+    return await turnOn({ quiet: true });
   } catch { return null; }
 }
 
-/** #6488: run ensureDefaultOn now and every DEFAULT_ON_EVERY_MS, so a computer connected later, or one whose
-    mint failed (Kosmos+ unreachable for a minute), is turned on without a restart. A failure is logged once per
-    reason, not every tick. Real startup only (server.js); returns the timer, unref'd. */
+/** #6488: run ensureDefaultOn now, then again after DEFAULT_ON_EVERY_MS, so a computer connected later is turned on
+    without a restart. A failed turn-on waits twice as long each time, up to DEFAULT_ON_MAX_MS, and back to the
+    short wait once there is nothing to do; one that failed after its mint succeeded (`minted`) stops until the next
+    restart, because each retry would replace the token at the coordinator. A failure is logged once per reason.
+    Real startup only (server.js). Returns { stop } for tests. */
 const DEFAULT_ON_EVERY_MS = 5 * 60 * 1000;
-function startDefaultOn() {
+const DEFAULT_ON_MAX_MS = 6 * 60 * 60 * 1000;
+function startDefaultOn({ schedule = setTimeout } = {}) {
   let lastBecause = null;
-  const tick = () => {
-    ensureDefaultOn().then((r) => {
-      if (r && r.ok === false && r.because !== lastBecause) {
-        lastBecause = r.because;
-        process.stderr.write('phonenotify: could not turn phone notifications on by default: ' + String(r.because) + '\n');
-      }
-      if (r && r.ok === true) process.stdout.write('phonenotify: phone notifications turned on by default (#6488)\n');
-    }, () => { /* ensureDefaultOn never rejects */ });
+  let wait = DEFAULT_ON_EVERY_MS;
+  let stopped = false;
+  let timer = null;
+  const next = () => {
+    if (stopped) return;
+    timer = schedule(tick, wait);
+    if (timer && typeof timer.unref === 'function') timer.unref();
   };
+  function tick() {
+    ensureDefaultOn().then((r) => {
+      if (r && r.ok === true) {
+        process.stdout.write('phonenotify: phone notifications turned on by default (#6488)\n');
+        wait = DEFAULT_ON_EVERY_MS; lastBecause = null;
+      } else if (r && r.ok === false) {
+        if (r.because !== lastBecause) {
+          lastBecause = r.because;
+          process.stderr.write('phonenotify: could not turn phone notifications on by default: ' + String(r.because) + '\n');
+        }
+        if (r.minted === true) { stopped = true; return; }
+        wait = Math.min(wait * 2, DEFAULT_ON_MAX_MS);
+      } else {
+        wait = DEFAULT_ON_EVERY_MS;
+      }
+      next();
+    }, () => { next(); });
+  }
   tick();
-  const t = setInterval(tick, DEFAULT_ON_EVERY_MS);
-  if (t && typeof t.unref === 'function') t.unref();
-  return t;
+  return { stop: () => { stopped = true; if (timer) clearTimeout(timer); }, waitMs: () => wait, stopped: () => stopped };
 }
 
 /** `v` cut to at most `n` UTF-8 bytes, never inside a character. */
@@ -383,4 +422,4 @@ function happened(event) {
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 
-module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, DEFAULT_ON_EVERY_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
+module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
