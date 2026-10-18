@@ -43,7 +43,7 @@ function load(opts) {
   const DEFAULT_KINDS = { needsYou: true, replied: true, postedMention: true, ready: true, postedRoom: false };
   let state = Object.assign({ available: true, on: false, connected: true, kinds: Object.assign({}, DEFAULT_KINDS) }, opts.state);
   const navigator = opts.noSW ? {} : { serviceWorker: { register() { calls.registered = true; return Promise.resolve({}); } } };
-  const win = { console: { warn() {} } };
+  const win = Object.assign({ console: { warn() {} } }, opts.win);   // #6488: opts.win can bring a fake setTimeout
   const domHandlers = {};
   const document = {
     getElementById(id) { return elements[id]; },
@@ -91,11 +91,33 @@ test('not connected to Kosmos+: the button stays disabled and says why', async (
   assert.equal(h.calls.fetch.filter((c) => c.method === 'PUT').length, 0, 'a PUT went out for a Mac that is not connected');
 });
 
+test('#6488: while waiting to turn on by itself, Settings looks again (30 s, and when the page is shown)', async () => {
+  const timers = [];
+  const win = { setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimeout: () => {} };
+  const h = load({ state: { connected: true, on: false }, win });
+  h.domHandlers.DOMContentLoaded(); await flush();
+  assert.equal(timers.length, 1, 'no second look scheduled while it waits to turn on');
+  assert.equal(timers[0].ms, 30000);
+  const gets = () => h.calls.fetch.filter((c) => c.method === 'GET').length;
+  const before = gets();
+  timers[0].fn(); await flush();
+  assert.equal(gets(), before + 1, 'the second look did not fetch the setting');
+  h.domHandlers.visibilitychange(); await flush();
+  assert.equal(gets(), before + 2, 'coming back to the page did not look again');
+  // On, or off by the person's choice: nothing to wait for, so no timer.
+  for (const state of [{ connected: true, on: true }, { connected: true, on: false, offByChoice: true }]) {
+    const t2 = [];
+    const h2 = load({ state, win: { setTimeout: (fn, ms) => { t2.push(ms); return 1; }, clearTimeout: () => {} } });
+    h2.domHandlers.DOMContentLoaded(); await flush();
+    assert.deepEqual(t2, [], 'a look was scheduled with nothing to wait for: ' + JSON.stringify(state));
+  }
+});
+
 test('#6488: the Settings words follow whether the off was the person\'s choice', async () => {
   for (const [state, want] of [
     [{ connected: false, offByChoice: true }, /^Off\. You can turn it on once this computer is connected to Kosmos\+\.$/],
     [{ connected: true, on: false, offByChoice: false }, /^Not on yet\. It turns on by itself, or press Turn on now\.$/],
-    [{ connected: true, on: false, offByChoice: true }, /^$/],
+    [{ connected: true, on: false, offByChoice: true }, /^Off\. Press Turn on to turn it on\.$/],
     [{ connected: true, on: true }, /^On for this computer\.$/],
   ]) {
     const h = load({ state });

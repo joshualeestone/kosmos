@@ -85217,6 +85217,7 @@ setInterval(ageCheckedStamp, 1000);
   var current = null;
   function paint(st) {
     current = st;
+    relookLater(st);   // #6488
     paintKinds(st);   // #6254: the sub-switches follow the master on every paint (hidden unless on + connected)
     // Shown only when the board says phone notifications are available (the
     // ship gate in engine/phonenotify.js); hidden otherwise, including when the
@@ -85242,7 +85243,18 @@ setInterval(ageCheckedStamp, 1000);
     btn.disabled = false;
     btn.textContent = st.on ? 'Turn off' : 'Turn on';
     if (step) step.hidden = !st.on;
-    setMsg(st.on ? 'On for this computer.' : st.offByChoice ? '' : 'Not on yet. It turns on by itself, or press Turn on now.');
+    setMsg(st.on ? 'On for this computer.' : st.offByChoice ? 'Off. Press Turn on to turn it on.' : 'Not on yet. It turns on by itself, or press Turn on now.');
+  }
+
+  /* #6488: the switch can now turn on with no press (the default turn-on, after sign-in), so while it is waiting to
+     turn on, look again every 30 seconds, and whenever the page is shown again (wire). One timer at a time. */
+  var relook = null;
+  function relookLater(st) {
+    var t = window.setTimeout, c = window.clearTimeout;
+    if (typeof t !== 'function') return;
+    if (relook && typeof c === 'function') c(relook);
+    relook = null;
+    if (st && st.available && !st.on && !st.offByChoice) relook = t(function () { relook = null; if (!busy) load(); }, 30000);
   }
 
   function load() {
@@ -85319,6 +85331,8 @@ setInterval(ageCheckedStamp, 1000);
       })(KIND_BTNS[i]);
     }
     load();
+    // #6488: back on the page (another tab, the Mac woke): the state may have changed without a press.
+    document.addEventListener('visibilitychange', function () { if (!document.hidden && !busy) load(); });
     registerServiceWorker();
   }
   if (document.readyState === 'loading') {

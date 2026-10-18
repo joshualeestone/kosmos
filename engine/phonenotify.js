@@ -243,8 +243,9 @@ async function doTurnOn({ quiet } = {}) {
     return { ok: false, because: 'Kosmos+ could not be reached just now. Try again in a minute.',
       detail: String(minted.because || ''), notSent: minted.notSent === true };
   }
-  // #6488: removed from Kosmos+ while the mint was out: its state dir is gone, and saving would bring back a token
-  // for the identity just retired. Not saved; a reconnect starts again from masterChoice.
+  // #6488: the state dir went while the mint was out (remote.forget itself waits for a mint in flight before it
+  // deletes it, so this is the folder removed some other way): saving would bring back a token for an identity that
+  // is gone. Not saved; a reconnect starts again from masterChoice.
   if (!remote.enrolled()) return { ok: false, because: 'this computer was removed from Kosmos+ while turning on' };
   const token = minted.data && typeof minted.data.token === 'string' ? minted.data.token : '';
   if (!TOKEN_SHAPE.test(token)) return { ok: false, minted: true, because: 'Kosmos+ answered in a shape we could not use' };
@@ -309,7 +310,8 @@ let defaultOn = null;   // the running schedule (startDefaultOn), so sign-in can
     short wait once there is nothing to do, or when this computer's connection changes; a refusal made on this
     computer before anything was sent (`notSent`: busy signing in or being removed) does not lengthen the wait. One
     that failed after its mint succeeded (`minted`) waits the longest, because each retry replaces the token at the
-    coordinator. A failure is logged once per reason, with the raw reason (`detail`). Only one run is ever waiting.
+    coordinator. A failure is logged once per reason, with the raw reason (`detail`). Only one timer is ever
+    pending, and runs never overlap (a poke while one is out runs after it).
     Real startup only (server.js). Returns { stop, poke, whenIdle, waitMs, stopped } (poke and the rest for tests). */
 function startDefaultOn({ schedule = setTimeout, ensure = ensureDefaultOn } = {}) {   // both injectable for tests
   let lastBecause = null;
@@ -353,7 +355,11 @@ function startDefaultOn({ schedule = setTimeout, ensure = ensureDefaultOn } = {}
   }
   tick();
   const ctl = {
-    stop: () => { stopped = true; if (timer) { try { clearTimeout(timer); } catch { /* a test's timer */ } } },
+    stop: () => {
+      stopped = true;
+      if (timer) { try { clearTimeout(timer); } catch { /* a test's timer */ } }
+      if (defaultOn === ctl) defaultOn = null;   // a later sign-in poke falls back to ensureDefaultOn
+    },
     // Sign-in: start over from the short wait and try now.
     poke: () => { if (stopped) return inFlight; wait = DEFAULT_ON_EVERY_MS; lastBecause = null; return tick(); },
     whenIdle: () => inFlight,   // the tick in flight (tests)
