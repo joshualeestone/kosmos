@@ -88,7 +88,7 @@ function verify({ manifest, sig, tarball, stage, version, installedVersion, keys
   const have = parseVersion(installedVersion);
   if (!have) return { code: 1, why: 'the installed version could not be read, so the update could not be checked' };
   if (older(want, have)) return { code: 1, why: `the update is ${version}, older than the installed ${installedVersion}` };
-  if (skipTarball) return { code: 0, why: `the signed manifest for ${version} is genuine` };
+  if (skipTarball) return { code: 0, why: `the signed manifest for ${version} is genuine`, manifest: m };
   if (typeof m.sha256 !== 'string' || sha256File(tarball) !== m.sha256) return { code: 1, why: 'the download does not match its signed manifest' };
   if (stage === '-') return { code: 0, why: `the download matches the signed manifest for ${version}` };
   if (!Array.isArray(m.files)) return { code: 1, why: 'the signed manifest lists no files' };
@@ -110,8 +110,7 @@ function verify({ manifest, sig, tarball, stage, version, installedVersion, keys
 function verifySetup({ manifest, sig, setup, version, installedVersion, keys = KEYS }) {
   const r = verify({ manifest, sig, tarball: null, stage: '-', version, installedVersion, keys, skipTarball: true });
   if (r.code !== 0) return r;
-  let m;
-  try { m = JSON.parse(fs.readFileSync(manifest, 'utf8')); } catch { return { code: 1, why: 'the signed manifest is not readable' }; }
+  const m = r.manifest;   // the bytes the signature covered, parsed once (a second read could see a swapped file)
   if (typeof m.setup_sha256 !== 'string') return { code: 3, why: `the signed manifest for ${version} records no installer` };
   if (sha256File(setup) !== m.setup_sha256) return { code: 1, why: 'the installer does not match its signed release' };
   return { code: 0, why: `the installer matches the signed manifest for ${version}` };
@@ -123,7 +122,7 @@ function verifySetup({ manifest, sig, setup, version, installedVersion, keys = K
  * through. Returns the installer's exit code, or 97 (a sentence on stderr) when it was not run. */
 const NOT_RUN = 97;
 function runSetup({ setupUrl, base, version, home, spawnSync = require('child_process').spawnSync }) {
-  const say = (why) => { process.stderr.write('kosmos update: ' + why + ', so the installer was not run.\n'); return NOT_RUN; };
+  const say = (why) => { process.stderr.write('Kosmos: ' + why + ', so the installer was not run.\n'); return NOT_RUN; };
   if (!/^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(String(version || ''))) return say('the version to install is not known');
   if (!home) return say('the installed copy could not be found');
   let dir;
@@ -162,7 +161,7 @@ if (require.main === module && process.argv[2] === 'run-setup') {
   // <installed node> manifest-verify.js run-setup <setup-url> <release-base> <version> <installed-home>
   const [setupUrl, base, version, home] = process.argv.slice(3);
   let code;
-  try { code = runSetup({ setupUrl, base, version, home }); } catch (e) { process.stderr.write('kosmos update: the installer could not be checked (' + (e && e.code || 'error') + '), so it was not run.\n'); code = NOT_RUN; }
+  try { code = runSetup({ setupUrl, base, version, home }); } catch (e) { process.stderr.write('Kosmos: the installer could not be checked (' + (e && e.code || 'error') + '), so it was not run.\n'); code = NOT_RUN; }
   process.exit(code);
 } else if (require.main === module) {
   const [manifest, sig, tarball, stage, version, home] = process.argv.slice(2);
