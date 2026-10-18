@@ -807,6 +807,7 @@ update_manifest_ok() {
     return 1
   fi
   if [ "$phase" = pre ]; then
+    _UM_NOKEY=""
     _UM_DIR="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/kosmos-manifest.XXXXXX")" || { _UM_DIR=""; info "could not make a folder to check the update in, so it was not installed"; return 1; }
     curl -fsL -m 30 "$KOSMOS_RELEASE_BASE/kosmos-$v-$ARCH.manifest.json" -o "$_UM_DIR/manifest.json" 2>/dev/null \
       && curl -fsL -m 30 "$KOSMOS_RELEASE_BASE/kosmos-$v-$ARCH.manifest.json.sig" -o "$_UM_DIR/manifest.sig" 2>/dev/null || {

@@ -1034,14 +1034,15 @@ tar -czf "$TARBALL_OUT" -C "$STAGE" bin app runtime VERSION
 MANIFEST_OUT="$OUT/kosmos-$ARCH.manifest.json"
 _pkg_version="$(KOSMOS_PKG="$STAGE/app/package.json" "$STAGE/runtime/bin/node" -p 'JSON.parse(require("fs").readFileSync(process.env.KOSMOS_PKG,"utf8")).version')"
 # #6468: installs check every file against this list, so the list must describe the tree exactly. It cannot list a
-# symlink (find -type f skips it, the installed verifier refuses it) or a name the line format below would bend
-# (a tab, two spaces in a row, a space at either end, a newline): any of those would ship a release every checking
-# install refuses. Refuse the build instead.
-_odd="$(cd "$STAGE" && find bin app runtime VERSION ! -type f ! -type d 2>/dev/null | head -3)"
+# symlink (find -type f skips it, the installed verifier refuses it), and its one-name-per-line format cannot carry
+# a name with whitespace or a newline in it. So every name must be plain: letters, digits and . _ / @ + = , ~ % # ( ) -,
+# under bin/, app/ or runtime/, or VERSION itself (every name in the 0.7.56 bundle is). Anything else would ship a
+# release every checking install refuses, so the build refuses first.
+_odd="$(cd "$STAGE" && find bin app runtime VERSION ! -type f ! -type d 2>/dev/null | head -3)" || true
 [ -z "$_odd" ] || { echo "FAIL: the bundle holds something that is not a plain file or folder (the signed manifest cannot list it): $_odd" >&2; exit 1; }
-_odd="$(cd "$STAGE" && find bin app runtime VERSION -type f 2>/dev/null | LC_ALL=C grep -E $'\t|  | $|/ ' | head -3)" || _odd=""
-[ -z "$_odd" ] || { echo "FAIL: a bundle file name the manifest's line format would change: $_odd" >&2; exit 1; }
-( cd "$STAGE" && find bin app runtime VERSION -type f | LC_ALL=C sort | while read -r f; do printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "$f"; done ) > "$OUT/.files.$$"
+_odd="$(cd "$STAGE" && find bin app runtime VERSION -type f 2>/dev/null | LC_ALL=C grep -vE '^((bin|app|runtime)/[A-Za-z0-9._/@+=,~%#()-]+|VERSION)$' | head -3)" || _odd=""
+[ -z "$_odd" ] || { echo "FAIL: a bundle file name the signed manifest cannot carry (only plain names, no spaces): $_odd" >&2; exit 1; }
+( cd "$STAGE" && find bin app runtime VERSION -type f | LC_ALL=C sort | while IFS= read -r f; do printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "$f"; done ) > "$OUT/.files.$$"
 KOSMOS_MANIFEST_OUT="$MANIFEST_OUT" KOSMOS_MANIFEST_FILES="$OUT/.files.$$" \
 KM_VERSION="$_pkg_version" KM_ARCH="$ARCH" KM_ARTIFACT="$(basename "$TARBALL_OUT")" \
 KM_SHA="$(awk '{print $1}' "$TARBALL_OUT.sha256")" \
@@ -1053,7 +1054,7 @@ KM_BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" KM_HOST="$(hostname -s 2>/dev/null || 
 "$STAGE/runtime/bin/node" -e '
 const fs = require("fs"); const e = process.env;
 const files = fs.readFileSync(e.KOSMOS_MANIFEST_FILES, "utf8").trim().split("\n").filter(Boolean)
-  .map((l) => { const [sha, ...p] = l.split(/\s+/); return { path: p.join(" "), sha256: sha }; });
+  .map((l) => ({ path: l.slice(66), sha256: l.slice(0, 64) }));   // "<64 hex>  <name>", the name taken exactly (#6468)
 const m = {
   manifest: 1,
   version: e.KM_VERSION, arch: e.KM_ARCH, artifact: e.KM_ARTIFACT, sha256: e.KM_SHA,

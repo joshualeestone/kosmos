@@ -61,3 +61,9 @@ differ from it, or whose version is older than the installed one, before anythin
 - [NIT] no-target arm asserted only the exit (FIXED), build could ship a symlink or an odd name (FIXED: the build
   refuses), verify-manifest's node (FIXED, and NODE moved above its first use, which set -u would have killed),
   rollback named in Limits (FIXED)
+### Iteration 4 (sonnet): 0 BLOCKERs, 1 should-fix
+- [WARNING] the build guard missed CR, NBSP and newline names that the manifest parser still bent (FIXED at the
+  cause: names must be plain (a whitelist the whole 0.7.56 tree already meets, 362/362) and the parser takes
+  "<64 hex>  <name>" by position with IFS= read -r; measured: it reproduces the served 0.7.56 manifest exactly)
+- [NIT] first guard could SIGPIPE under pipefail (FIXED: || true), _UM_NOKEY not reset at pre (FIXED), the bad-.sig
+  promote arm accepts any verify failure (NOTED: the Ss5 control shows the rest runs)
