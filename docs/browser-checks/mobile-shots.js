@@ -1232,8 +1232,7 @@ const SCREENS = [
      project-head, where a top-level project's lone crumb is hidden in today's look. */
   { name: 'subproject-head', owner: 'PigeonPete', go: async (page, data) => {
     const ids = await subprojectFixture(page, data);
-    await openTab(page, 'projects');
-    await page.evaluate((id) => openProject(id), ids.launchA);
+    await at(page, '?project=' + encodeURIComponent(ids.launchA));   // a fresh load reads the fixture just made
     await page.waitForFunction(() => { const c = document.getElementById('pj-crumb'); return !!c && !!c.querySelector('.pj-crumb-lead') && c.getClientRects().length > 0; }, null, { timeout: 8000 });
   } },
   { name: 'tasks-subprojects', owner: 'Mona Lisa', go: async (page, data) => {
