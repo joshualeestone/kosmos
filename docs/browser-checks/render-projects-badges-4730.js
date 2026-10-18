@@ -180,6 +180,8 @@ function ok(name, cond, detail) {
       ok(`${t} ${view}: #6483 CONTROL a project with a real need still says Issue, red`, !!q.issue && q.issue.pill === 'Issue' && q.issue.attn && q.issue.haz, JSON.stringify(q.issue));
       ok(`${t} ${view}: #6483 the question project is not red (no attn, its border is not the Issue card's)`,
         !!q.ask && !!q.issue && !q.ask.attn && (view === 'list' || q.ask.border !== q.issue.border), JSON.stringify({ ask: q.ask && q.ask.border, issue: q.issue && q.issue.border }));
+      if (view === 'grid') ok(`${t} grid: #6483 the Question pill does not wear the Issue pill's red border`, !!q.ask && !!q.issue && q.ask.pillBorder !== q.issue.pillBorder,
+        JSON.stringify({ ask: q.ask && q.ask.pillBorder, issue: q.issue && q.issue.pillBorder }));
     }
 
     // A blind roster: no project shows a badge, not even Working (it could not read it), and no

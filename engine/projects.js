@@ -1405,7 +1405,9 @@ function describe(project, roster, all) {
       /* #6483: of needsYou, how many are an agent's own question about this project (reported by the agent, #2808 class
          2), the case the agent's card calls a calm "Question". When it is all of them, the project card says Question
          too; any other reason (sign-in lapsed, a crash loop, a technical prompt) keeps Issue. */
-      needsYouQuestions: members.filter((m) => m.needsYouHere === 'question' && m.stateReportedBy === 'agent').length,
+      // Review 1: in the agent card's own order (cardStOf): a failed restart or a crash loop is red before a question is calm.
+      needsYouQuestions: members.filter((m) => m.needsYouHere === 'question' && m.stateReportedBy === 'agent'
+        && m.restartFailed !== true && !(m.crashLoop && m.crashLoop.looping === true)).length,
       needsYouElsewhere: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject !== null && m.stateProject !== project.id).length,
       /* ...and about no project at all (nothing named, nothing to inherit). #6180: the Agents page no longer reads
          it (its No project chip is gone); kept as a field of this summary. Kept apart from "elsewhere" so a screen sentence
