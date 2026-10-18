@@ -3898,6 +3898,9 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
   font-family: inherit; font-size: 1.0625rem; font-weight: 600; line-height: 1.6;
   transition: background .12s ease;
 }
+/* #6514: a link wearing the button (Save diagnostics, Download) looks like the button: no link underline, and its
+   label stays on one line instead of wrapping when a settings row is narrow. */
+a.btn-quiet { text-decoration: none; white-space: nowrap; flex-shrink: 0; }
 .btn-quiet:hover { background: rgba(198,154,50,.14); }
 .btn-quiet:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
 .btn-quiet[disabled] { opacity: .55; cursor: default; }
