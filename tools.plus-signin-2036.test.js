@@ -142,6 +142,14 @@ function fakeBoard(opts = {}) {
         return send(200, { ok: true, name: 'x' });
       }
       if (req.url === '/api/remote/forget') {
+        /* kosmos#6389: Kosmos+ did not answer, so a plain Remove keeps the identity on the board. */
+        if (opts.forgetKept && !(calls[calls.length - 1].body && calls[calls.length - 1].body.anyway === true)) {
+          return send(200, { ok: false, kept: true, retired: false, because: 'this computer is not removed yet, because your Kosmos+ account could not be reached or did not answer (x)' });
+        }
+        if (opts.forgetKept) {   // anyway, and Kosmos+ still does not answer: removed from the board only
+          state.enrolled = false; state.on = false; state.up = false;
+          return send(200, { ok: true, retired: false, because: 'this computer is forgotten here, but your Kosmos+ account could not be updated (x); its address may still show on your account page until you remove it there' });
+        }
         const had = state.enrolled;
         state.enrolled = false; state.on = false; state.up = false;
         return send(200, had ? { ok: true, retired: true } : { ok: true, retired: false, because: 'this computer was not set up for Plus, so there was nothing to retire' });
@@ -199,6 +207,23 @@ test('#2036: a register that leaves the switch off (the #3827 class) fails the r
     assert.strictEqual(step(got, 'up').result, 'fail', 'enrolled with the switch off passed');
     assert.match(step(got, 'up').detail, /switch was OFF/);
     assert.strictEqual(step(got, 'forget').result, 'pass');
+  } finally { b.server.close(); }
+});
+
+test('#6389: a kept forget is followed by forget anyway, so the board is not left registered, and the step still fails', async () => {
+  const dir = tmp(); const e = env(dir); const ptr = pointerFile(dir);
+  const b = await fakeBoard({ forgetKept: true });
+  try {
+    const r = await both(b, e, ptr, ['--code', '123456', '--placement', 'INBOX']);
+    assert.strictEqual(r.code, 1, r.out);
+    const forgets = b.calls.filter((c) => c.url === '/api/remote/forget');
+    assert.strictEqual(forgets.length, 2, 'a kept forget was not followed up');
+    assert.deepStrictEqual(forgets[1].body, { anyway: true }, 'the follow-up was not forget anyway');
+    assert.notDeepStrictEqual(forgets[0].body, { anyway: true }, 'the first forget was already anyway');
+    assert.strictEqual(b.state.enrolled, false, 'the board was left registered');
+    const s = step(rec(e), 'forget');
+    assert.strictEqual(s.result, 'fail', 'a retire that never reached Kosmos+ passed');
+    assert.match(s.detail, /removed from the board only: check the seed account/);
   } finally { b.server.close(); }
 });
 

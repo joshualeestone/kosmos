@@ -192,7 +192,7 @@ function secureStateDir() {
 
 /* What read() answers when there is no file, or none it can use: every field at its empty value, in ONE place, so a
    field added to read() cannot be missing from one of the four early answers (kosmos#5995: computer_name was). */
-const blankSettings = (ok) => ({ on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, computer_name: null, ok });
+const blankSettings = (ok) => ({ on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, computer_name: null, forget_kept: '', ok });
 
 /** Off until somebody turns it on. `relay` may be stored here so a
     self-hoster can point at their own relay without an env var. */
@@ -257,6 +257,9 @@ function read() {
        showed or cleared it ('' is a choice: send no name of theirs). null when they never did, and then the name comes
        from the computer. Read by thisComputerDeviceName(), the one place every path that names this computer asks. */
     computer_name: typeof parsed.computer_name === 'string' ? parsed.computer_name : null,
+    /* kosmos#6389: why the last Remove was kept (it could not reach Kosmos+), so a reload still says it is not removed.
+       '' when there is none. Cleared by a Remove that finishes and by switching on. */
+    forget_kept: typeof parsed.forget_kept === 'string' ? parsed.forget_kept : '',
     ok: true,
   };
 }
@@ -558,6 +561,7 @@ function write(patch, opts) {
   if (current.ok === false && !(opts && opts.repair === true)) return { ok: false, because: UNREADABLE, unreadable: true };
   const next = { ...current, ...patch };
   delete next.ok;
+  if (patch.on === true) next.forget_kept = '';   // kosmos#6389: whatever switches Plus on, a kept Remove's note goes
   /* A repair starts from the defaults (the damaged file could not be read), so it would drop this computer's sign-in
      device id. If this process already minted one (signinDeviceId holds it in memory when its own write is refused
      on the damaged file), keep it: otherwise a sign-in on a damaged file repairs the file with no id, and the next
@@ -1151,11 +1155,16 @@ async function assistantChat(body) {
 /** Forget this Mac (#793): retire it at the coordinator while its key still
  * exists, THEN destroy the key. Order is the whole point: after the state
  * dir is gone the Mac cannot speak for itself and only a signed-in phone
- * can retire it (a dead sandbox, a wiped laptop). Retire is best-effort and
- * its outcome is reported, never hidden: a coordinator that could not be
- * reached still leaves the Mac forgotten HERE, and the answer says the
- * address may still show on the account page until it is removed there. */
-async function forget() {
+ * can retire it (a dead sandbox, a wiped laptop). Its outcome is reported,
+ * never hidden. kosmos#6389: a retire that got no answer (offline, timed out, a
+ * server error) KEEPS the key, as clearHalfIdentity does, and answers kept: the
+ * computer is not removed yet. Wiping it
+ * there left the name held on the account with nothing here able to free it.
+ * Only `anyway` (the person chose to remove it from this computer only, told
+ * the cost) wipes after such a retire. A kept Remove has still ended what forget() ends first: a sign-in or company
+ * setup in progress and an open browser secret. A final refusal is wiped as before:
+ * keeping a key Kosmos+ will never accept would say "try again" forever. */
+async function forget({ anyway = false } = {}) {
   // #3827: a sign-in in flight ends with the Mac's identity. Cancel it (its register
   // must not turn the switch back on), and WAIT for a register already out, so what
   // is retired and wiped below includes it; otherwise it writes a fresh identity
@@ -1167,8 +1176,9 @@ async function forget() {
   // when something is already broken. kosmos#5422 adds a sixth, the wait on key-making calls (a minute, below).
   //
   // One forget at a time: a second (a double click, two tabs, a retried request)
-  // gets the first one's answer instead of retiring the same Mac beside it.
-  if (forgetInFlight) return forgetInFlight;
+  // gets the first one's answer instead of retiring the same Mac beside it. kosmos#6389: except that a second
+  // asking `anyway` does not settle for a first one's kept: it runs once the first has ended.
+  if (forgetInFlight) return anyway ? forgetInFlight.then((got) => (got && got.kept ? forget({ anyway: true }) : got)) : forgetInFlight;
   signinEpoch += 1;
   signinSession = null;
   companySetup = null;   // kosmos#5628 review 1: a forgotten Mac keeps no half-made company setup (nor its secret)
@@ -1191,7 +1201,7 @@ async function forget() {
         await Promise.race([Promise.allSettled([...deviceIdInFlight]), new Promise((ok) => { timer = setTimeout(ok, keyCallWaitMs()); })]);
         clearTimeout(timer);
       }
-      return await forgetNow();
+      return await forgetNow(anyway);
     } finally {
       forgetting = false;
       forgetInFlight = null;
@@ -1201,19 +1211,21 @@ async function forget() {
 }
 let forgetInFlight = null;
 
-async function forgetNow() {
+async function forgetNow(anyway) {
   const was = { enrolled: enrolled(), address: address() };
   // A register killed mid-certificate (or any partial one) has registered the Mac
   // at the coordinator and left its key and id here, without the certificate
   // enrolled() needs. It can still sign a retire, so it is retired too.
   const canRetire = was.enrolled || halfRegistered();
+  const wasOn = read().on === true;   // kosmos#6389: a kept answer tells the account about this switch-off
   stopChild();
   // Off before the retire wait, not after: nothing may bring this Mac online on
   // the key being retired (the ensure tick, a stale page).
-  write({ on: false, vouched: {} }, { repair: true });   // kosmos#5786 (b): a forgotten computer keeps no notes
+  write({ on: false }, { repair: true });
   /* kosmos#5995: computer_name is NOT cleared here, on purpose. It is the person's own choice of what to call this
      computer, not a note about a sign-in, and the next sign-in's box is filled with it. (On a damaged file this
      write starts from the defaults, so the choice is lost with everything else.) Pinned in remote.test.js. */
+  const flipBefore = flipPending;   // kosmos#6389: put back if the identity is kept
   flipPending = false;   // kosmos#4743: a flip not yet told belonged to the identity being forgotten
   let retired = false;
   let because = null;
@@ -1221,6 +1233,17 @@ async function forgetNow() {
     const r = await retireHere();
     retired = r.ok === true || retiredAlready(r);
     because = retired ? null : retireReason(r);
+    // kosmos#6389: no answer is "not now". The key stays, so a later Remove can still sign the retire. Plus stays off
+    // (written above): the person asked for this computer to go, so it does not come back online by itself.
+    if (!retired && !anyway && retireTransient(r)) {
+      stopChild();
+      // The switch-off is queued like any flip (kosmos#4743) and goes on the next poll: busy() stops this ask while
+      // forgetting.
+      if (wasOn || flipBefore) { flipPending = true; askAfterFlip(); }
+      const keptBecause = 'this computer is not removed yet, because your Kosmos+ account could not be reached or did not answer (' + because + ')';
+      write({ forget_kept: keptBecause });
+      return { ok: false, kept: true, retired: false, address: was.address, because: keptBecause };
+    }
   }
   try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* best effort; enrolled() re-reads */ }
   try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
@@ -1230,7 +1253,7 @@ async function forgetNow() {
      federation UI) true for the NEXT account that has not signed in yet -- a leak
      of a member-only feature to a non-member. A real sign-in re-caches the new
      account's standing; until then, unknown -> not a member. */
-  write({ ...r, on: false, standing: '' }, { repair: true });
+  write({ ...r, on: false, standing: '', vouched: {}, forget_kept: '' }, { repair: true });   // kosmos#5786 (b): a forgotten computer keeps no notes
   // kosmos#5422: only now, after the repairs above put this process's ids back into remote.json (which keeps them, so
   // the old rows stay this computer's own), is what this process held let go.
   heldIdentity = null;
@@ -3112,6 +3135,14 @@ function retiredAlready(r) {
 const retireHere = () => setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs());
 // 408 and 429 are "not now", not "no": retried like a server error.
 const RETIRE_TRANSIENT = /unreachable|did not answer in time|could not be started|\(HTTP (5\d\d|408|429) on |answered (5\d\d|408|429) for /i;
+/* The line of a failed retire that says it may work a moment later, or null. Named from what the tunnel prints
+   (crates/tunnel coordinator.rs signed_request: "Kosmos+ unreachable for", "(HTTP <code> on", "Kosmos+ answered
+   <code> for") and from setupRun's own answers. The whole output, not only its last line: a gateway's HTML error
+   page is many lines, and its last one ("</html>") says nothing. */
+function retireTransient(r) {
+  if (!r || r.ok) return null;
+  return String((r.stderr || '') + '\n' + (r.because || '')).split('\n').find((l) => RETIRE_TRANSIENT.test(l)) || null;
+}
 /* Retires a half identity before a new register. Answers why the retire failed
    (the coordinator may still hold that earlier attempt), or null. */
 async function clearHalfIdentity() {
@@ -3126,12 +3157,8 @@ async function clearHalfIdentity() {
   // error) may work a moment later, and only this key can do it: keep it, and the
   // caller says try again. Anything else is final (Kosmos+ refused this Mac, a
   // key this computer cannot read), so it is wiped: keeping it would say "try
-  // again" forever. Named from what the tunnel prints (crates/tunnel
-  // coordinator.rs signed_request: "Kosmos+ unreachable for", "(HTTP <code> on",
-  // "Kosmos+ answered <code> for") and from setupRun's own answers.
-  // The whole output, not only its last line: a gateway's HTML error page is many
-  // lines, and its last one ("</html>") says nothing.
-  const transient = r.ok ? null : String((r.stderr || '') + '\n' + (r.because || '')).split('\n').find((l) => RETIRE_TRANSIENT.test(l));
+  // again" forever. Forget makes the same split (kosmos#6389).
+  const transient = retireTransient(r);
   if (transient) {
     process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ yet (' + transient.trim() + '); kept, so a retry can\n');
     return { kept: retireReason(r) };
