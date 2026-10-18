@@ -36,7 +36,7 @@ pick() { ( CUT_CHANNEL="$1"; eval "$SEL"; printf '%s %s' "$POINTER_FILE" "$SETUP
 grep -qF 'cp "$REPO/dist/setup" "$SITE/$SETUP_FILE"' "$REPO/tools/release.sh" && grep -qF 'cp "$REPO/dist/setup.sha256" "$SITE/$SETUP_FILE.sha256"' "$REPO/tools/release.sh" \
   && pass "release: step 5 copies to \$SETUP_FILE" || bad "release: step 5 does not copy to \$SETUP_FILE"
 grep -qF 'cp "$REPO/dist/setup" "$SITE/setup"' "$REPO/tools/release.sh" && bad "release: step 5 still writes /setup unconditionally" || pass "release: no unconditional write of /setup is left"
-grep -qF '_site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json $SETUP_FILE $SETUP_FILE.sha256 versions.html"' "$REPO/tools/release.sh" \
+grep -qF '_site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json dist/kosmos-$V-arm64.manifest.json.sig $SETUP_FILE $SETUP_FILE.sha256 versions.html"' "$REPO/tools/release.sh" \
   && pass "release: the release commit carries the channel's installer pair" || bad "release: _site_paths does not name \$SETUP_FILE"
 grep -qF 'KOSMOS_VERIFY_SETUP="$SETUP_FILE"' "$REPO/tools/release.sh" && pass "release: step 9 verifies the channel's installer" || bad "release: step 9 does not pass KOSMOS_VERIFY_SETUP"
 

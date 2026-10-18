@@ -1888,7 +1888,7 @@ step "== 9d. the served manifest answers for the served bytes (#776) =="
 # after the fact: a cut is not done until the served bytes are the ones the
 # build recorded. Small cuts, many times a day (Josh, 2026-08-25), is exactly
 # when a check that depends on someone being awake stops happening.
-if ! bash "$REPO/tools/verify-manifest.sh" "$V"; then
+if ! KOSMOS_REQUIRE_SIG=1 bash "$REPO/tools/verify-manifest.sh" "$V"; then
   echo "THE SERVED MANIFEST DOES NOT ANSWER FOR THE SERVED BYTES. The pointer is live; what it points at is not what the build recorded. Do not announce this cut; read the mismatch above."
   exit 1
 fi

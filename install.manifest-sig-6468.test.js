@@ -81,19 +81,19 @@ test('a manifest changed after signing is refused', () => {
 
 test('a changed file, an extra file, a missing file, and a symlink are each refused', () => {
   let r = release('1.2.3'); fs.writeFileSync(path.join(r.stage, 'app/server.js'), 'evil');
-  assert.match(run(r, '1.2.3', '').why, /app\/server\.js does not match/);
+  assert.match(run(r, '1.2.3', '1.2.0').why, /app\/server\.js does not match/);
   r = release('1.2.3'); fs.writeFileSync(path.join(r.stage, 'app/extra.js'), 'evil');
-  assert.equal(run(r, '1.2.3', '').code, 1);
+  assert.equal(run(r, '1.2.3', '1.2.0').code, 1);
   r = release('1.2.3'); fs.rmSync(path.join(r.stage, 'app/server.js'));
-  assert.equal(run(r, '1.2.3', '').code, 1);
+  assert.equal(run(r, '1.2.3', '1.2.0').code, 1);
   r = release('1.2.3'); fs.rmSync(path.join(r.stage, 'app/server.js')); fs.symlinkSync('/etc/hosts', path.join(r.stage, 'app/server.js'));
-  assert.match(run(r, '1.2.3', '').why, /not a plain file/);
+  assert.match(run(r, '1.2.3', '1.2.0').why, /not a plain file/);
 });
 
 test('a tarball other than the signed one is refused', () => {
   const r = release('1.2.3');
   fs.appendFileSync(r.tarball, 'x');
-  assert.match(run(r, '1.2.3', '').why, /does not match its signed manifest/);
+  assert.match(run(r, '1.2.3', '1.2.0').why, /does not match its signed manifest/);
 });
 
 test('an older signed release replayed, or one for another version, is refused', () => {
@@ -109,6 +109,8 @@ test('no pinned key: exit 3 (nothing to check against)', () => {
 
 // ---- part 2: the installer calls the INSTALLED verifier ----
 
+/** An installed home as a real build leaves it: VERSION in the build's own three-line shape, the version in
+ *  app/package.json, and the verifier with its pinned key list rewritten to the throwaway key. */
 function installedHome(version) {
   const home = fs.mkdtempSync(path.join(tmp, 'home-'));
   fs.mkdirSync(path.join(home, 'app', 'engine'), { recursive: true });
@@ -116,29 +118,81 @@ function installedHome(version) {
   const pinned = VERIFIER.replace(/const KEYS = \[[\s\S]*?\];/, `const KEYS = [${JSON.stringify(PUB)}];`);
   assert.notEqual(pinned, VERIFIER, 'the KEYS list moved; this fixture cannot pin its key');
   fs.writeFileSync(path.join(home, 'app', 'engine', 'manifest-verify.js'), pinned);
+  fs.writeFileSync(path.join(home, 'app', 'package.json'), JSON.stringify({ name: 'kosmos', version }, null, 2) + '\n');
   fs.symlinkSync(process.execPath, path.join(home, 'runtime', 'bin', 'node'));
-  fs.writeFileSync(path.join(home, 'VERSION'), version + '\n');
+  fs.writeFileSync(path.join(home, 'VERSION'), `app:    14fe852ed7 (package.json ${version})\nnode:   v24.19.0\nbuilt:  2026-10-17T07:26:51Z on macOS 27.0.1\n`);
   return home;
 }
-function setupCheck(r, home, target) {
-  const script = ['set -eu', 'info() { printf "%s\\n" "$*"; }', fnSource('update_manifest_ok'),
-    'update_manifest_ok "$1" "$2"'].join('\n');
-  const env = { ...process.env, KOSMOS_RELEASE_BASE: 'file://' + r.dir, ARCH: 'arm64', TARGET_VERSION: target };
-  const p = spawnSync('/bin/sh', ['-c', script, 'sh', r.stage, home], { encoding: 'utf8', env });
+/** Runs the real update_manifest_ok for the given phases in ONE shell (they share _UM_DIR), as install_kosmos does. */
+function setupCheck(r, home, target, phases = ['pre', 'post'], env = {}) {
+  const calls = phases.map((ph) => `update_manifest_ok ${ph} "$1" "$2" || { echo "refused at ${ph}"; exit 1; }`);
+  const script = ['set -eu', 'info() { printf "%s\\n" "$*"; }', '_UM_DIR=""', fnSource('update_manifest_ok'),
+    ...calls, 'printf "leftover=%s\\n" "$_UM_DIR"'].join('\n');
+  const e = { ...process.env, KOSMOS_RELEASE_BASE: 'file://' + r.dir, ARCH: 'arm64', TARGET_VERSION: target, TMPDIR: tmp, ...env };
+  const p = spawnSync('/bin/sh', ['-c', script, 'sh', r.stage, home], { encoding: 'utf8', env: e });
   return { code: p.status, out: p.stdout + p.stderr };
 }
 
-test('installer: a signed update is accepted by the installed verifier', () => {
+test('installer: a signed update is accepted by the installed verifier, and leaves nothing behind', () => {
   const r = setupCheck(release('1.2.3'), installedHome('1.2.0'), '1.2.3');
   assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /leftover=\n/);
 });
 
-test('installer: a tampered update is refused, in a sentence', () => {
+test('installer: a tampered file is refused after unpacking, in a sentence', () => {
   const rel = release('1.2.3');
   fs.writeFileSync(path.join(rel.stage, 'bin/kosmos'), 'evil');
   const r = setupCheck(rel, installedHome('1.2.0'), '1.2.3');
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /bin\/kosmos does not match the signed manifest, so it was not installed/);
+  assert.match(r.out, /refused at post/);
+});
+
+test('installer: a tarball other than the signed one is refused BEFORE it is unpacked', () => {
+  const rel = release('1.2.3');
+  fs.appendFileSync(rel.tarball, 'x');
+  const r = setupCheck(rel, installedHome('1.2.0'), '1.2.3', ['pre']);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /refused at pre/);
+});
+
+test('installer: an older signed release is refused against a real-shaped install (VERSION is not a bare number)', () => {
+  const r = setupCheck(release('1.2.3'), installedHome('1.3.0'), '1.2.3', ['pre']);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /older than the installed 1\.3\.0/);
+});
+
+test('installer: an install whose version cannot be read is refused, not waved through', () => {
+  const home = installedHome('1.2.0');
+  fs.writeFileSync(path.join(home, 'app', 'package.json'), '{"name":"kosmos"}\n');
+  let r = setupCheck(release('1.2.3'), home, '1.2.3', ['pre']);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /installed version could not be read/);
+  // A package.json node itself cannot parse: still refused, in one plain sentence, no stack trace in the log.
+  fs.writeFileSync(path.join(home, 'app', 'package.json'), '{');
+  r = setupCheck(release('1.2.3'), home, '1.2.3', ['pre']);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /^the update could not be checked, so it was not installed$/m);
+  assert.doesNotMatch(r.out, /node:internal|^\s+at /m);
+});
+
+test('installer: a link the archive plants where a manifest might be written is never written through', () => {
+  const rel = release('1.2.3');
+  const victim = path.join(tmp, 'victim-' + process.pid);
+  fs.writeFileSync(victim, 'untouched\n');
+  for (const n of ['.manifest.json', '.manifest.sig', 'manifest.json', 'manifest.sig']) fs.symlinkSync(victim, path.join(rel.stage, n));
+  const r = setupCheck(rel, installedHome('1.2.0'), '1.2.3', ['pre']);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched\n');
+});
+
+test('installer: NODE_OPTIONS from the environment does not reach the verifier', () => {
+  const marker = path.join(tmp, 'preload-ran-' + process.pid);
+  const pre = path.join(tmp, 'preload.js');
+  fs.writeFileSync(pre, `require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')`);
+  const r = setupCheck(release('1.2.3'), installedHome('1.2.0'), '1.2.3', ['pre'], { NODE_OPTIONS: '--require ' + pre });
+  assert.equal(r.code, 0, r.out);
+  assert.equal(fs.existsSync(marker), false);
 });
 
 test('installer: a missing .sig is refused, not skipped', () => {
@@ -164,11 +218,38 @@ test('installer: an install from before signing (no verifier) is not checked, an
   assert.match(r.out, /predates signed releases/);
 });
 
-test('installer: the check sits between unpacking and the first thing that runs', () => {
+test('installer: the archive is checked before tar reads it, and every file before anything runs', () => {
   const fn = SETUP.indexOf('\ninstall_kosmos() {\n');
+  const pre = SETUP.indexOf('! update_manifest_ok pre "$stage" "$dest"', fn);
   const tar = SETUP.indexOf('tar -xzf "$stage/kosmos.tar.gz"', fn);
-  const call = SETUP.indexOf('! update_manifest_ok "$stage" "$dest"', fn);
+  const post = SETUP.indexOf('! update_manifest_ok post "$stage" "$dest"', fn);
   const rmTar = SETUP.indexOf('rm -f "$stage/kosmos.tar.gz"', fn);
   const probe = SETUP.indexOf('"$stage/runtime/bin/node" --version', fn);
-  assert.ok(fn < tar && tar < call && call < rmTar && rmTar < probe, 'tar, then the check, then the tarball goes, then anything runs');
+  assert.ok(fn < pre && pre < tar && tar < post && post < rmTar && rmTar < probe, 'pre, tar, post, the tarball goes, then anything runs');
+});
+
+// ---- the release's half: tools/lib/manifest-sign.js ----
+const SIGN = path.join(__dirname, 'tools', 'lib', 'manifest-sign.js');
+const signRun = (...args) => spawnSync(process.execPath, [SIGN, ...args], { encoding: 'utf8' });
+
+test('release: a real ed25519 key that is not pinned is refused by check and sign', () => {
+  const k = path.join(tmp, 'unpinned.pem');
+  fs.writeFileSync(k, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
+  assert.equal(signRun('check', k).status, 1);
+  const rel = release('1.2.3');
+  const out = path.join(rel.dir, 'out.sig');
+  assert.equal(signRun('sign', k, rel.manifest, out).status, 1);
+  assert.equal(fs.existsSync(out), false, 'an unpinned key wrote a signature');
+});
+
+test('release: verify accepts only a pinned signature; CONTROL: a throwaway key\'s signature is refused', () => {
+  const rel = release('1.2.3');
+  assert.equal(signRun('verify', rel.manifest, rel.sig).status, 1, 'the throwaway key is not pinned in the shipped list');
+  assert.equal(signRun('verify', rel.manifest, path.join(rel.dir, 'missing.sig')).status, 1);
+});
+
+test('release: needs-sig is yes only for a release that ships the verifier', () => {
+  const rel = release('1.2.3', { files: { 'app/engine/manifest-verify.js': 'x', VERSION: '1.2.3\n' } });
+  assert.equal(signRun('needs-sig', rel.manifest).status, 0);
+  assert.equal(signRun('needs-sig', release('1.2.3').manifest).status, 1);
 });
