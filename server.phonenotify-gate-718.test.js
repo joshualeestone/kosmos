@@ -99,7 +99,7 @@ test('gate closed: the setting reads unavailable and off, whatever the file says
   // #6254: the status shape carries the per-kind defaults in both branches (one shape for the Settings UI);
   // while unavailable they are inert (available:false + on:false are the gate, kinds change nothing here).
   assert.deepEqual(st.json, { available: false, on: false, connected: true,
-    kinds: { needsYou: true, postedMention: true, postedRoom: false, ready: true, replied: true } });
+    kinds: { needsYou: true, postedMention: true, postedRoom: false, ready: true, replied: true }, offByChoice: false });   // #6488
 });
 
 test('gate closed: turning on is refused and the tunnel never runs', async (t) => {

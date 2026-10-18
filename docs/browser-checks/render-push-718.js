@@ -385,6 +385,22 @@ function check(name, pass, detail) {
   await pnPage.waitForTimeout(400);
   const hiddenOff = await pnPage.evaluate(() => { const b = document.getElementById('phone-notify-kinds'); return b ? b.hidden : null; });
   check('#6254: with the master off, the per-kind block is hidden', hiddenOff === true, JSON.stringify(hiddenOff));
+
+  // #6488: the sentence under the switch follows whether the off was the person's choice, connected or not.
+  for (const [st, want] of [
+    [{ available: true, on: false, connected: true, kinds: pnState.kinds }, 'Not on yet. It turns on by itself, or press Turn on now.'],
+    [{ available: true, on: false, connected: true, offByChoice: true, kinds: pnState.kinds }, ''],
+    [{ available: true, on: false, connected: false, kinds: pnState.kinds }, 'This turns on by itself once this computer is connected to Kosmos+.'],
+    [{ available: true, on: false, connected: false, offByChoice: true, kinds: pnState.kinds }, 'Off. You can turn it on once this computer is connected to Kosmos+.'],
+  ]) {
+    pnState = st;
+    await pnPage.reload({ waitUntil: 'load' });
+    if (await pnPage.$('#firstrun:not([hidden])')) { await pnPage.keyboard.press('Escape'); await pnPage.waitForTimeout(300); }
+    const said = await pnPage.waitForFunction((w) => { const m = document.getElementById('phone-notify-msg'); return !!m && m.textContent === w; }, want, { timeout: 8000 })
+      .then(() => want, () => pnPage.evaluate(() => { const m = document.getElementById('phone-notify-msg'); return m ? m.textContent : null; }));
+    check('#6488: ' + (st.connected ? 'connected' : 'not connected') + ', off' + (st.offByChoice ? ' by choice' : ', never touched') + ': the sentence says so',
+      said === want, JSON.stringify(said));
+  }
   check('#6254: no page errors while painting the sub-switches', pnErrors.length === 0, pnErrors.join(' | ').slice(0, 160));
   await pnCtx.close();
 

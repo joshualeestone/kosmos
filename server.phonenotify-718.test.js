@@ -150,7 +150,7 @@ test('turning on mints through mac-request, body on stdin, token never returned'
   assert.equal(on.code, 200, on.text);
   assert.equal(on.json.on, true);
   assert.doesNotMatch(on.text, /knt1_/, 'the token leaked into the response');
-  assert.deepEqual(Object.keys(on.json).sort(), ['available', 'connected', 'kinds', 'on'], 'the setting answer carries more than it should');
+  assert.deepEqual(Object.keys(on.json).sort(), ['available', 'connected', 'kinds', 'offByChoice', 'on'], 'the setting answer carries more than it should');
   const log = fs.readFileSync(TUNNEL_LOG, 'utf8');
   assert.match(log, /ARGV: mac-request --coordinator https:\/\/coord\.example\.test\/kosmos --state-dir \S+ --method POST --path \/v1\/mac\/notify-credential\n/);
   const stdin = JSON.parse(log.split('STDIN:')[1]);
@@ -639,7 +639,7 @@ test('#6488: the board starts the default turn-on at real startup, not at requir
   assert.ok(cb > 0 && at > cb && at < wired, 'the default turn-on moved out of the listen callback');
   // And right after a register finishes (the sign-in that connects this computer).
   const reg = src.indexOf('await remote.signinRegister(name)');
-  const after = src.indexOf('phonenotify.ensureDefaultOn()', reg);
+  const after = src.indexOf('phonenotify.pokeDefaultOn()', reg);
   assert.ok(reg > 0 && after > reg && after - reg < 600, 'sign-in no longer runs the default turn-on');
 });
 
@@ -659,7 +659,7 @@ test('#6488: removing this computer from Kosmos+ and connecting again keeps the 
   assert.equal(phonenotify.masterChoice(), 'unset', 'a turn-on did not clear the kept off');
 });
 
-test('#6488: the default retries with a doubling wait, and stops after a mint it could not use', async () => {
+test('#6488: the default retries with a doubling wait, and waits the longest after a mint it could not use', async () => {
   const waits = [];
   const runs = [];
   const fakeSchedule = (fn, ms) => { waits.push(ms); runs.push(fn); return { unref() {} }; };
@@ -688,7 +688,7 @@ test('#6488: the default retries with a doubling wait, and stops after a mint it
     assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_MAX_MS, 'never reached the cap');
     ctl.stop();
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
-  // The mint succeeds but its answer cannot be used: stop, do not mint again.
+  // The mint succeeds but its answer cannot be used: the longest wait (each retry replaces the token there).
   const bad = path.join(SANDBOX, 'bad-tunnel');
   fs.writeFileSync(bad, '#!/bin/bash\n' + LOG_CALL + '\nprintf \'{"token":"not-a-token"}\\n\'\n', { mode: 0o755 });
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = bad;
@@ -698,8 +698,8 @@ test('#6488: the default retries with a doubling wait, and stops after a mint it
     ctl = phonenotify.startDefaultOn({ schedule: fakeSchedule });
     await ctl.whenIdle();
     assert.equal(mints(), 1);
-    assert.equal(ctl.stopped(), true, 'kept retrying after a mint it could not use');
-    assert.equal(runs.length, 0, 'scheduled another run after a mint it could not use');
+    assert.deepEqual(waits, [phonenotify.DEFAULT_ON_MAX_MS], 'a mint it could not use was retried sooner than the longest wait');
+    ctl.stop();
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
 });
 
@@ -820,10 +820,49 @@ test('#6488: the wait goes back to short when this computer connects', async () 
     unenrol();                                   // removed: nothing to do, short wait
     runs.shift()(); await ctl.whenIdle();
     assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS);
-    // Grow it again, then connect: the first tick after the change starts short.
+    // Connect again: the tick after the change fails, and it is not doubled (the first retry after connecting is soon).
     enrol();
     runs.shift()(); await ctl.whenIdle();
     assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS, 'connecting did not reset the wait');
     ctl.stop();
   } finally { process.stderr.write = realWrite; }
+});
+
+test('#6488: sign-in pokes the schedule: the long wait is reset and it tries now', async () => {
+  const waits = []; const runs = [];
+  const fakeSchedule = (fn, ms) => { waits.push(ms); runs.push(fn); return { unref() {} }; };
+  let calls = 0;
+  const realWrite = process.stderr.write;
+  process.stderr.write = () => true;
+  try {
+    const ctl = phonenotify.startDefaultOn({ schedule: fakeSchedule, ensure: async () => { calls += 1; return { ok: false, because: 'x', detail: 'down' }; } });
+    await ctl.whenIdle();
+    for (let i = 0; i < 3; i++) { runs.shift()(); await ctl.whenIdle(); }
+    assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS * 16, 'premise: the wait grew');
+    const before = calls;
+    await phonenotify.pokeDefaultOn();
+    assert.equal(calls, before + 1, 'a poke did not try now');
+    assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS * 2, 'a poke did not start over from the short wait');
+    ctl.stop();
+  } finally { process.stderr.write = realWrite; }
+});
+
+test('#6488: removed from Kosmos+ while the default mint is out: nothing is saved', async () => {
+  enrol();
+  const r = await withHeldDefaultMint(async () => { unenrol(); return null; });
+  assert.equal(r, null);
+  assert.equal(fs.existsSync(PN_FILE()), false, 'a token for the retired identity was saved after removal');
+  enrol();
+  assert.equal(phonenotify.masterChoice(), 'unset', 'the reconnect does not start from the default');
+});
+
+test('#6488: status says when the off was the person\'s choice', async () => {
+  enrol();
+  assert.equal((await call('GET', '/api/phone-notify')).json.offByChoice, false, 'never touched read as a choice');
+  await call('PUT', '/api/phone-notify', { body: { on: true } });
+  assert.equal((await call('GET', '/api/phone-notify')).json.offByChoice, false);
+  await call('PUT', '/api/phone-notify', { body: { on: false } });
+  assert.equal((await call('GET', '/api/phone-notify')).json.offByChoice, true);
+  unenrol();
+  assert.equal((await call('GET', '/api/phone-notify')).json.offByChoice, true, 'removing the computer forgot the choice in status');
 });

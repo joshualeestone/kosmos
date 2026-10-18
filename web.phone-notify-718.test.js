@@ -91,6 +91,19 @@ test('not connected to Kosmos+: the button stays disabled and says why', async (
   assert.equal(h.calls.fetch.filter((c) => c.method === 'PUT').length, 0, 'a PUT went out for a Mac that is not connected');
 });
 
+test('#6488: the Settings words follow whether the off was the person\'s choice', async () => {
+  for (const [state, want] of [
+    [{ connected: false, offByChoice: true }, /^Off\. You can turn it on once this computer is connected to Kosmos\+\.$/],
+    [{ connected: true, on: false, offByChoice: false }, /^Not on yet\. It turns on by itself, or press Turn on now\.$/],
+    [{ connected: true, on: false, offByChoice: true }, /^$/],
+    [{ connected: true, on: true }, /^On for this computer\.$/],
+  ]) {
+    const h = load({ state });
+    h.domHandlers.DOMContentLoaded(); await flush();
+    assert.match(h.msg.textContent, want, JSON.stringify(state));
+  }
+});
+
 test('turning on PUTs on:true, then shows Turn off and the phone-app step', async () => {
   const h = load();
   h.domHandlers.DOMContentLoaded(); await flush();
