@@ -6,18 +6,18 @@ diff_hash: 8d241d9fdf38260ead3057ab22a21c2504e03c0ab40b2e89a175eefdec1ccc20
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T01:25:00Z
-iterations: 25
+iterations: 26
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 25 (fresh blind agents, Opus and Sonnet alternating)
-**Converged:** Yes. The last round (25, Sonnet) found no new findings.
+**Iterations:** 26 (fresh blind agents, Opus and Sonnet alternating)
+**Converged:** Yes. The last round (26, Sonnet) found no new findings.
 **Validation:** passed at ffafaddda6 (hash 8d241d9fdf38): 21,624 node tests, 0 failed; shell shard 246/246.
 
 **Numbering note.** The plan already holds a "Round 23" from before the squash. The two rounds after the squash ran
-as "23" and "24" in their own prompts; here they are iterations 24 and 25.
+as "23" and "24" in their own prompts. The pre-squash loop had already run 24 (fix commits through iteration 23, then a round 24 with no findings), so here they are iterations 25 and 26.
 
 **Squash note.** The branch's 33 commits were squashed onto main as 1f909686e9 after Kitty's #6408 merged, because they sat
 on her pre-squash branch. The squashed diff matches the original (26 files, +1227/-125). The one conflict was the Mac
@@ -55,12 +55,15 @@ they came; the plan's "Also (review rounds 8 and 9)" lists what those rounds cha
 **Reviewer model:** opus
 - [WARNING] comments implied the guard caps a live session's reach --> FIXED: the comments say what it bounds
 
-#### Iteration 24 (after the squash)
+#### Iteration 24
+- No new findings (the pre-squash convergence).
+
+#### Iteration 25 (after the squash)
 **Reviewer model:** opus
 - [WARNING] the Linux panel told a person to open the one-time address "in a browser on that computer", which fails for another browser or a headless server --> FIXED: the browser showing this page; a tab in another browser stays signed out; test pins both
 - [NIT] a plan bullet still said kosmos open is not available on Linux --> FIXED
 
-#### Iteration 25
+#### Iteration 26
 **Reviewer model:** sonnet
 - No new findings.
 
