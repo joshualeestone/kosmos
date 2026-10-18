@@ -111,8 +111,8 @@ path of a made-up user (`/Users/you/.local/share/kosmos/bin/kosmos`). No screen 
 hit still stops the run.
 
 **Worth knowing before upload.** In the chat shot your own messages carry a plain dark circle where a picture
-would be, because the test board has no profile picture for you. The messages say "9:27 pm" while the status
-bar says 9:41: the board writes the time the sample conversation was seeded. The project room opens on its newest
+would be, because the test board has no profile picture for you. The messages carry the time the sample
+conversation was seeded (an evening, or a date once a run crosses midnight) while the status bar says 9:41. The project room opens on its newest
 post, so on the 6.3-inch phone the first message is cut at the top; the app has no way to start it higher.
 
 **iPhone Duo.** Apple's page says: "Starting in April 2027, screenshots will be required for any app using the iOS
@@ -123,6 +123,6 @@ Take one with `shoot-app.sh` (a third device) once the simulator offers it.
 **My pick: the light sets** (6.3 and 6.9). They match the App Store's own default look and the kosmosplus.com
 site. The dark sets are there if you prefer them.
 
-To re-take them: `NODE_PATH=$HOME/work/pw-runtime/node_modules ios/store/shoot-app.sh` (it checks the heavy-run
+To re-take them: `NODE_PATH=$HOME/work/pw-runtime/node_modules bash ~/.cache/claude-handoffs/queued-heavy.sh "store shots" ios/store/shoot-app.sh` (the queue holds the box for the run; run directly it checks the heavy-run
 gate itself, and needs an iOS simulator runtime: `xcodebuild -downloadPlatform iOS`, about 8 GB), then
 `ios/store/check-listing.sh`. Both end with a `VERDICT:` line.
