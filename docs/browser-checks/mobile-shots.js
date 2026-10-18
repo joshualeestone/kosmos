@@ -1233,7 +1233,16 @@ const SCREENS = [
   { name: 'subproject-head', owner: 'PigeonPete', go: async (page, data) => {
     const ids = await subprojectFixture(page, data);
     await at(page, '?project=' + encodeURIComponent(ids.launchA));   // a fresh load reads the fixture just made
-    await page.waitForFunction(() => { const c = document.getElementById('pj-crumb'); return !!c && !!c.querySelector('.pj-crumb-lead') && c.getClientRects().length > 0; }, null, { timeout: 8000 });
+    try {
+      await page.waitForFunction(() => { const c = document.getElementById('pj-crumb'); return !!c && !!c.querySelector('.pj-crumb-lead') && c.getClientRects().length > 0; }, null, { timeout: 8000 });
+    } catch (e) {   // say what was on screen instead, so a failed shot can be put right
+      const seen = await page.evaluate(() => {
+        const c = document.getElementById('pj-crumb'), n = document.getElementById('pj-one-name');
+        return { cur: typeof PJ_CURRENT === 'undefined' ? 'n/a' : PJ_CURRENT, view: typeof PJ_VIEW === 'undefined' ? 'n/a' : PJ_VIEW,
+          crumb: c ? c.innerHTML.slice(0, 160) : null, crumbRects: c ? c.getClientRects().length : null, name: n ? n.textContent : null };
+      });
+      throw new Error('subproject-head: no sub-project trail on screen ' + JSON.stringify(seen) + ' (wanted ' + ids.launchA + ')');
+    }
   } },
   { name: 'tasks-subprojects', owner: 'Mona Lisa', go: async (page, data) => {
     await subprojectFixture(page, data);
