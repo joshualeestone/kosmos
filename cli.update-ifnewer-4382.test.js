@@ -303,13 +303,13 @@ test('#6468: a missing signature, or a manifest signed by another key, runs noth
   assert.equal(ran(), '');
   assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.log'), 'utf8'), /not signed by the Kosmos release key/);
 });
-test('#6468: a release cut before ask 3 (its manifest names no installer) still updates, and says it ran unchecked', async () => {
+test('#6468: a signed manifest that records no installer runs NOTHING (a cut gone wrong is not a pass)', async () => {
   reset({ prod: '1.2.0' });
   const m = path.join(DIST, 'kosmos-1.2.0-arm64.manifest.json');
   fs.writeFileSync(m, JSON.stringify({ manifest: 1, version: '1.2.0', arch: 'arm64', files: [] }) + '\n');
   fs.writeFileSync(m + '.sig', crypto.sign(null, fs.readFileSync(m), SIGNER.privateKey).toString('base64') + '\n');
   const r = await run(['--if-newer']);
-  assert.equal(r.code, 0, r.stdout + r.stderr);
-  assert.match(ran(), /installer=setup/);
-  assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.log'), 'utf8'), /records no installer, so the installer is run unchecked/);
+  assert.equal(r.code, 1, r.stdout + r.stderr);
+  assert.equal(ran(), '');
+  assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.log'), 'utf8'), /records no installer, so the installer was not run/);
 });

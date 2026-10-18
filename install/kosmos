@@ -2231,7 +2231,7 @@ cmd_version() {
 # Mac app runs this at launch and once a day on such a computer. It is the board's own look
 # (engine/update-ifnewer.js runs engine/update.js and engine/autoupdate.js, so the channel, the
 # pointer, newer() and the consent are the board's rules, not a copy), and the board's own install:
-# the same `curl <setup> | sh` beginInstall runs, with the same three channel variables, writing
+# the same checked run-setup beginInstall runs (#6468; it was curl <setup> | sh), with the same three channel variables, writing
 # install.started and install.status the same way, so a board started later reads how it went.
 # Not beginInstall's fourth, KOSMOS_UPDATE_BY_BOARD (#4675): that asks setup.sh to record a stop at its pause for the
 # board to show, and this computer runs no board to pause or to show it.
@@ -2296,8 +2296,7 @@ EOF
   mkdir -p "$LOG_DIR"
   started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf '%s\n' "$started" > "$LOG_DIR/install.started" 2>/dev/null || true
-  # The URL is a value, never part of the command text, as in beginInstall. pipefail is on, so a
-  # download that fails is a failure here even when sh, given nothing, exits 0.
+  # The URL is a value, never part of the command text, as in beginInstall. A download that fails is run-setup's 97.
   # Bounded, so a stalled download ends the run (and the app's wait) rather than holding them for good;
   # a slow one that keeps moving is not cut off. The installer's own downloads are its own business.
   # #6468 ask 3: the installed copy downloads the installer and the target's signed manifest, checks one against the

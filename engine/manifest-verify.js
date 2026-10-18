@@ -105,8 +105,8 @@ function verify({ manifest, sig, tarball, stage, version, installedVersion, keys
 
 /* #6468 ask 3: check the installer script against the SIGNED manifest of the version being installed, before it runs.
  * The build records setup_sha256 (install/setup.sh, the bytes the cut publishes as /setup and /setup-staging; the site
- * deploy refuses to serve any other, #5032). Exit 0: it matches. 1: refused. 3: that release's manifest records no
- * installer (cut before this), so there is nothing to check it against. */
+ * deploy refuses to serve any other, #5032). Exit 0: it matches. 1: refused. 3: no key is pinned, or the manifest
+ * records no installer; run-setup refuses on 3 as on 1. */
 function verifySetup({ manifest, sig, setup, version, installedVersion, keys = KEYS }) {
   const r = verify({ manifest, sig, tarball: null, stage: '-', version, installedVersion, keys, skipTarball: true });
   if (r.code !== 0) return r;
@@ -132,14 +132,17 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     const files = { setup: path.join(dir, 'setup'), manifest: path.join(dir, 'manifest.json'), sig: path.join(dir, 'manifest.sig') };
     const b = String(base || '').replace(/\/+$/, '');
     if (!get(setupUrl, files.setup)) return say('the installer could not be downloaded');
+    // arm64 only, as setup.sh's ARCH is on a Mac (an Intel Mac is refused before any update is offered).
     if (!get(`${b}/kosmos-${version}-arm64.manifest.json`, files.manifest) || !get(`${b}/kosmos-${version}-arm64.manifest.json.sig`, files.sig)) {
       return say(`the signed manifest for ${version} could not be downloaded`);
     }
     let installedVersion = '';
     try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
     const r = verifySetup({ manifest: files.manifest, sig: files.sig, setup: files.setup, version, installedVersion });
-    if (r.code === 1) return say(r.why);
-    if (r.code === 3) process.stderr.write('kosmos update: ' + r.why + ', so the installer is run unchecked.\n');
+    // Exit 3 (no key pinned, or a manifest that records no installer) is NOT a pass here (review 1): every release this
+    // code can update to is cut with setup_sha256, so a signed manifest without it is a cut gone wrong, and a site that
+    // could serve one would run any installer it liked.
+    if (r.code !== 0) return say(r.why);
     const env = { ...process.env };
     delete env.NODE_OPTIONS;
     // stdin is not handed on: under curl | sh the installer's stdin was its own bytes, so it never read one.

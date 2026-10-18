@@ -49,3 +49,16 @@ The only runners of the site installer: engine/update.js beginInstall (curl|sh, 
   publishes signed manifests; 3 new arms: mismatched installer, missing/foreign signature, pre-ask-3 manifest);
   engine/update.test.js's pinned command updated (and asserts no `| sh`). Mutants: refusal removed (2 red),
   NODE_OPTIONS kept (red), stdin passed through (red).
+
+## Validation note 06:27
+A sweep of every test reading install/kosmos, engine/update or manifest-verify (bare node --test from an agent shell): 14 failures in cli.task-*, cli.unknown-flag-4889, cli.msgqueue-5187, cli.limitmsg-5805, tools.windows-kosmos-cli-*: the SAME 14 fail on a clean origin/main worktree in this shell (10 + 4), so environmental, not this branch. Shell guards: installer-runnable-guard, install-static, kosmos-help-exit0, addr-reclaim, msg-newlines all pass.
+
+## Review log
+### Iteration 1 (opus): 0 BLOCKERs, 3 should-fix
+- [WARNING] exit 3 (no key pinned, or a manifest without setup_sha256) ran the installer unchecked; a cut gone
+  wrong would let a site run any installer (FIXED: run-setup refuses on 3; the cli arm flipped to "runs nothing")
+- [WARNING] the tmux bundle is fetched, checked only against a same-host sha, and run before the manifest check
+  (DEFERRED as card #6473: needs its own manifest field and an earlier fetch; stated as a limit)
+- [WARNING] the .pkg postinstall runs the site installer with only a same-host sha (DEFERRED as card #6474)
+- [NIT] 97 wording now says try again (FIXED), stale curl|sh comments (FIXED), the liveExec label (FIXED), arm64
+  coupling noted (FIXED), two source-text tests (ACCEPTED: the cli arms run the real path end to end)
