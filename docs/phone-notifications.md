@@ -41,7 +41,9 @@ Changed on 2026-10-18: the body said `on <Project>` (now `in`, as Josh wrote it)
 project (now no body).
 
 **In force on the coordinator since 2026-10-18** (kosmos-relay #451, deployed per the push path's owner): iPhone and web push both take their words from
-this table, through one shared function. This repo's own `web/sw.js` matches it from the release after 0.7.57 (kosmos#6502). As of
+this table, through one shared function. An iPhone shows them at once. An Android phone or a browser keeps
+its old copy of the coordinator's worker, which wrote `on <Project>` or `in Kosmos` itself, until it next checks for an
+update (within about a day). This repo's own `web/sw.js` matches it from the release after 0.7.57 (kosmos#6502). As of
 2026-10-18 nobody has seen the new words on a real phone. The test notice (`Kosmos has something for you`, body `in Kosmos`) is a
 deliberate exception that keeps its body; the email keeps its own sentence (`<Agent> needs you on <Project>.`), since it is
 not a notification. No test reads this page yet.
