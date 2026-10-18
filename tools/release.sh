@@ -788,7 +788,8 @@ fi
 notarize_probe_credentials || exit 1
 # #6468 ask 2: step 4b signs the release manifest; every install from this release on refuses an update whose
 # manifest is not signed by a key engine/manifest-verify.js pins. So the key must resolve AND be pinned, here,
-# before the bump. Resolved through the secrets map (kosmos-manifest-signing), never printed.
+# before the bump. Resolved through the secrets map (kosmos-manifest-signing), never printed. Checked against the
+# checkout's pinned list; step 2b freezes the shipping tree from this same commit, and the sign step checks again.
 KOSMOS_MANIFEST_KEY="$("${KOSMOS_SECRETS_MAP_BIN:-$HOME/.claude/scripts/secrets-map.sh}" path kosmos-manifest-signing 2>/dev/null)" || KOSMOS_MANIFEST_KEY=""
 # KOSMOS_MANIFEST_KEY_PROBE_BIN (tests only, like KOSMOS_NOTARY_PROBE_BIN): replaces this check and says it did. Step 4b
 # still signs with the resolved key, so a cut with it set cannot publish without a real one.

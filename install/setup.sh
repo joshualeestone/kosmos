@@ -795,6 +795,7 @@ verify_download() {
 # LIMITS: the tmux bundle is fetched and run before this, checked only against its unsigned .sha256; the manifest
 # does not name a channel, so a signed staging build newer than the install passes on a prod install.
 _UM_DIR=""   # never inherited: it names the folder holding the fetched manifest between the two phases
+_UM_NOKEY="" # never inherited: set when pre found no pinned key (exit 3), so post carries on as pre said
 update_manifest_ok() {
   local phase="$1" stage="$2" dest="$3" v rc=0 out arg
   [ -f "$dest/app/engine/manifest-verify.js" ] && [ -x "$dest/runtime/bin/node" ] || {
@@ -814,7 +815,10 @@ update_manifest_ok() {
       return 1; }
     arg="-"
   else
-    [ -n "$_UM_DIR" ] && [ -f "$_UM_DIR/manifest.json" ] || { info "the update's signed manifest went missing, so it was not installed"; return 1; }
+    [ -z "$_UM_NOKEY" ] || { _UM_NOKEY=""; return 0; }
+    [ -n "$_UM_DIR" ] && [ -f "$_UM_DIR/manifest.json" ] || {
+      [ -z "$_UM_DIR" ] || rm -rf "$_UM_DIR"; _UM_DIR=""
+      info "the update's signed manifest went missing, so it was not installed"; return 1; }
     arg="$stage"
   fi
   out="$(env -u NODE_OPTIONS "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" "$_UM_DIR/manifest.json" \
@@ -822,7 +826,8 @@ update_manifest_ok() {
   if [ "$phase" != pre ] || [ "$rc" != 0 ]; then rm -rf "$_UM_DIR"; _UM_DIR=""; fi
   case "$rc" in
     0) return 0 ;;
-    3) info "$out, so the update's manifest is not checked"; return 0 ;;
+    3) [ "$phase" != pre ] || _UM_NOKEY=yes
+       info "$out, so the update's manifest is not checked"; return 0 ;;
     # Only the verifier's own one-line reason is shown; anything else (node itself failing) gets a plain sentence.
     1) case "$out" in *"
 "*|''|node:*) out="the update could not be checked" ;; esac

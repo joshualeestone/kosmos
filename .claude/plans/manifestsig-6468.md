@@ -33,3 +33,20 @@ differ from it, or whose version is older than the installed one, before anythin
 ## Limits
 - Until ask 3, setup.sh itself is fetched from the site, so a site that serves its own setup.sh skips this check.
 - Losing both copies of the key means installs refuse updates until reinstalled fresh.
+
+## Review log
+### Iteration 1 (opus): 2 BLOCKERs, 3 should-fix, nits
+- [BLOCKER] the archive could plant a link that the manifest download wrote through (FIXED: fetched to a mktemp folder
+  outside the stage; the archive's sha and signature checked BEFORE tar; arm with planted links)
+- [BLOCKER] the not-older check read VERSION, which is not a bare version, so it never fired (FIXED: installed
+  app/package.json via the installed verifier; unreadable refuses; real-shaped VERSION in fixtures)
+- [WARNING] tmux is fetched and run earlier (DEFERRED: stated limit)
+- [WARNING] nothing checked the SERVED .sig (FIXED: verify-manifest.sh verifies it, required on a cut)
+- [WARNING] promote did not check the .sig (FIXED)
+- [NIT] unpinned real key arm (FIXED), channel binding (DEFERRED: stated), NODE_OPTIONS (FIXED: env -u + arm)
+### Iteration 2 (sonnet): 0 BLOCKERs, 2 should-fix
+- [WARNING] exit 3 (no key pinned) at pre led to a refusal at post (FIXED: _UM_NOKEY, two-phase arm, mutant red)
+- [WARNING] promote failed open when prod's manifest was missing or unparseable (FIXED: needs-sig exit 2 = refuse)
+- [NIT] post-branch cleanup (FIXED), channel switch refused as older (DEFERRED: stated on the card), replay of an
+  older signed release still at or above the installed one (DEFERRED: stated), 1c reads the checkout's key list
+  (NOTED: same commit as the frozen tree; sign re-checks), verb typo hits the key loader first (FIXED)
