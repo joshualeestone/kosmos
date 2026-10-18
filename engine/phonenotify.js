@@ -234,7 +234,11 @@ async function doTurnOn({ quiet } = {}) {
   // #6488: connected AND Kosmos+ switched on here (plusLive): a mint is a signed call to Kosmos+, and nothing goes there
   // while its switch is off, from a press or from the default.
   if (!plusLive()) {
-    return { ok: false, notSent: true, because: 'connect this computer to Kosmos+ first, then turn phone notifications on' };
+    let signedIn = false;
+    try { signedIn = remote.enrolled() === true; } catch { signedIn = false; }
+    return { ok: false, notSent: true, because: signedIn
+      ? 'switch Kosmos+ on for this computer first, then turn phone notifications on'
+      : 'connect this computer to Kosmos+ first, then turn phone notifications on' };
   }
   const s = readState();
   const notifyId = s.notifyId || crypto.randomUUID();
@@ -283,6 +287,11 @@ async function setKind(name, on) {
   // read after its await, so an un-awaited setKind here could be lost under it, or could
   // save `on: s.on` (stale) over the turn-on's `on: true`.
   if (turningOn) { try { await turningOn; } catch { /* its outcome does not matter here */ } }
+  // #6488: a settings file we cannot read may hold the person's off; writing the sub-switch would replace it with a
+  // never-touched file the default then turns on. Refuse instead, and leave the file as it is.
+  if (masterChoice() === 'off' && !choiceSaysOff() && !stateSaysOff()) {
+    return { ok: false, because: 'this setting could not be read, so it was not changed' };
+  }
   const s = readState();
   const k = storedKinds();
   k[name] = on === true;
@@ -327,7 +336,7 @@ async function ensureDefaultOn() {
 
 const DEFAULT_ON_EVERY_MS = 5 * 60 * 1000;
 const DEFAULT_ON_MAX_MS = 60 * 60 * 1000;   // after a mint we could not use (each retry replaces the token)
-const DEFAULT_ON_FAIL_MAX_MS = 30 * 60 * 1000;   // any other failure: nothing was replaced, so retry within the half hour
+const DEFAULT_ON_FAIL_MAX_MS = 15 * 60 * 1000;   // any other failure: nothing was replaced, so retry within 15 minutes
 let defaultOn = null;   // the running schedule (startDefaultOn), so sign-in can poke it
 
 /** #6488: run ensureDefaultOn now, then again after DEFAULT_ON_EVERY_MS, so a computer connected later is turned on
@@ -353,7 +362,8 @@ function startDefaultOn({ schedule = setTimeout, ensure = ensureDefaultOn } = {}
   };
   function handle(r) {
     const connected = plusLive();   // signed in and switched on; switching Kosmos+ back on counts as connecting
-    const changed = wasConnected !== null && connected !== wasConnected;
+    // Startup counts as a change too: a failure on the first run (the network not up yet) retries soon.
+    const changed = wasConnected === null || connected !== wasConnected;
     if (changed) wait = DEFAULT_ON_EVERY_MS;   // a first failure right after connecting retries soon
     wasConnected = connected;
     if (r && r.ok === true) {
