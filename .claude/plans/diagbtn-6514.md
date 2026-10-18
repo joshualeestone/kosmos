@@ -12,8 +12,11 @@ for `<button>`: it never removes a link's underline, and inside the `.setrow` fl
 wraps. Only `.acct-help a.btn-quiet` had a reset.
 
 ## Change
-- web/index.html: `a.btn-quiet { text-decoration: none; white-space: nowrap; flex-shrink: 0; }` beside `.btn-quiet`.
-  `.acct-help a.btn-quiet` is more specific and keeps its own display and size.
+- web/index.html: `.setrow > a.btn-quiet { text-decoration: none; white-space: nowrap; flex-shrink: 0; }` beside
+  `.btn-quiet`, and at 480px and below `.setrow:has(> a.btn-quiet:not([hidden])) { flex-wrap: wrap; }` so on a phone
+  the link goes under the row's words instead of squeezing them into a narrow column.
+- Scoped to settings rows after review round 1: a global `a.btn-quiet` rule also stopped the Add a provider help
+  links (inside `p.acct-help`, one about 46 characters long) from wrapping, so they would run past a phone dialog.
 - docs/browser-checks/mobile-shots.js: a `settings-diagnostics` screen that scrolls the row into view.
 
 ## Rejected
