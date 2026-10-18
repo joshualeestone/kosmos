@@ -225,10 +225,12 @@ function stateFact(session, now) {
     return 'could not read the self-report (' + firstLine(e && e.message) + ')';
   }
   if (!r || !r.found) {
-    const because = r && typeof r.because === 'string' && r.because ? ' (' + r.because + ')' : '';
-    // "never reported" is the sentence selfreport itself uses for a never-reported agent; an unreadable
-    // record carries its own `because`, surfaced in parentheses so the two are told apart.
-    return 'never reported' + because;
+    // A never-reported agent's own `because` from selfreport already reads "it has never reported",
+    // so do not double it into "never reported (it has never reported)"; a DIFFERENT because (an
+    // unreadable record carries its own) still adds information and is surfaced.
+    const never = (self.NO_READING && self.NO_READING.NEVER_REPORTED) || '';
+    const extra = r && typeof r.because === 'string' && r.because && r.because !== never ? ' (' + r.because + ')' : '';
+    return 'never reported' + extra;
   }
   const parts = [String(r.state || 'reported, state unknown')];
   if (typeof r.because === 'string' && r.because) parts.push(r.because);
