@@ -4386,7 +4386,7 @@ async function vouchSignedIn(name) {
   assert.equal(reg.ok, true, reg.because);
   const secret = remote.vouchSecretForTests();
   assert.ok(secret && /^[A-Za-z0-9_-]{43}$/.test(secret), 'premise: a sign-in mints a 43-character secret');
-  const plant = (devices) => fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices }));
+  const plant = (devices, signins) => fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify(signins ? { devices, signins } : { devices }));
   return { secret, plant };
 }
 const nowS = () => Math.floor(Date.now() / 1000);
@@ -4498,6 +4498,60 @@ test('#5786 (b): a secret ends on Sign out and on switching off, and an old requ
   } finally {
     if (before === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = before;
   }
+  remote.setOn(false);
+});
+
+test('kosmos#6407: a recent sign-in that never knocked here (in signins only) still opens the connect tab; this computer\'s own and a Not me one do not', async () => {
+  let r = await vouchSignedIn('vouchsign1');
+  // Premise for every refusal below: each id is one the filter would otherwise take (the engine's DEVICE_ID), so it is
+  // refused for the reason named, not for its shape. dev-web, the CONTROL, has the same shape and is taken.
+  const SHAPE = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32})$/;
+  const own = remote.read().device_id;
+  for (const id of [own, 'dev-refused', 'dev-old', 'dev-web']) assert.match(String(id), SHAPE, 'premise: ' + id + ' has the shape of a device id');
+  assert.ok(remote.ownDeviceIds().includes(own), 'premise: the sign-in id of this computer is one of its own ids');
+  // This computer's own sign-in, fresh: never "the person, a moment ago" (an app-only sign-in opens no tab).
+  r.plant([], [{ device_id: own, first_seen: nowS() - 30 }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'this computer\'s own sign-in opened the browser');
+  // A device the person said Not me to, fresh: not either.
+  const denied = { ...JSON.parse(fs.readFileSync(remote.FILE, 'utf8')) };
+  denied.denied = { 'dev-refused': nowS() };
+  fs.writeFileSync(remote.FILE, JSON.stringify(denied));
+  r.plant([], [{ device_id: 'dev-refused', first_seen: nowS() - 30 }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'a Not me device\'s sign-in opened the browser');
+  // A computer row, by its labels (a wrong tunnel could send one in signins): never "the person". The ids
+  // have a device id's shape, so each is refused for its label, not its shape.
+  for (const row of [{ device_id: 'dev-joining', joining_computer: 'tmnt' }, { device_id: 'dev-codewait', code_wait: 'another_computer' }]) {
+    assert.match(row.device_id, SHAPE, 'premise: ' + row.device_id + ' has the shape of a device id');
+    r.plant([], [{ ...row, first_seen: nowS() - 30 }]);
+    remote.vouchTickForTests();
+    assert.equal(remote.vouchOpenedUrlForTests(), '', row.device_id + ': a computer row opened the browser');
+  }
+  // An old one (an hour ago): not either.
+  r.plant([], [{ device_id: 'dev-old', first_seen: nowS() - 3600 }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'an hour-old sign-in opened the browser');
+  // CONTROL: a browser signed in on the website a minute ago, which never knocked here (devices is empty).
+  r.plant([], [{ device_id: 'dev-web', first_seen: nowS() - 60 }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'a recent website sign-in did not open the connect tab');
+  // signins only opens the tab: a row there carrying the right vouch is never what gets allowed. CONTROL below: the
+  // same vouch on a row in devices is allowed.
+  const vouch = require('node:crypto').createHmac('sha256', r.secret).update('dev-web').digest('base64url');
+  // Premise: the secret is live and nothing is mid-allow, so this tick does try the rows (it returns early otherwise).
+  assert.ok(remote.vouchSecretForTests(), 'premise: the secret is still live');
+  assert.equal(remote.vouchAllowingIdForTests(), '', 'premise: no allow is out before this tick');
+  r.plant([], [{ device_id: 'dev-web', first_seen: nowS() - 60, vouch }]);
+  remote.vouchTickForTests();
+  // Decided in the tick itself: an allow would be out now. Then as long as the CONTROL below is given to land.
+  assert.equal(remote.vouchAllowingIdForTests(), '', 'an allow started for a row in signins');
+  for (let i = 0; i < 50; i++) await new Promise((ok) => setTimeout(ok, 100));
+  assert.ok(!allowsOf().includes('dev-web'), 'a row in signins was allowed by its vouch');   // allowsOf() lists every recorded allow, this computer's own sign-in grant among them, so ask for dev-web by name
+  r.plant([{ device_id: 'dev-web', name: 'Mac · Safari', first_seen: nowS() - 60, code: 'VR-D6', vouch }], []);
+  remote.vouchTickForTests();
+  for (let i = 0; i < 50 && !allowsOf().includes('dev-web'); i++) await new Promise((ok) => setTimeout(ok, 100));
+  assert.ok(allowsOf().includes('dev-web'), 'CONTROL: the same vouch on a devices row was not allowed');
   remote.setOn(false);
 });
 
