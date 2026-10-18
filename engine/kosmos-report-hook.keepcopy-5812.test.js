@@ -143,16 +143,25 @@ async function boundIs3s(t, { slowCheckMs = 0 } = {}) {
     ? new Promise((resolve, reject) => { init.signal.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); }); })
     : { ok: true, status: 200, text: async () => '{"recorded":true}' };
   // The board check, run inside the window `proven` times with Date.now: it spends real time, as a loaded runner does.
+  // Counted, so the arm cannot quietly stop reaching it (review 1); the loop is also capped by iterations, so a runtime
+  // that mocked performance too would fail at once instead of hanging to the timeout.
+  let checked = 0;
   const proveBoard = slowCheckMs > 0
-    ? async () => { const until = performance.now() + slowCheckMs; while (performance.now() < until) { /* real time */ } return { ok: true }; }
+    ? async () => {
+      checked++;
+      const until = performance.now() + slowCheckMs;
+      for (let i = 0; i < 5e8 && performance.now() < until; i++) { /* real time */ }
+      return { ok: true };
+    }
     : undefined;
   const rec = recorder(hang);
   let done = false;
   const p = hook.main({ input: JSON.stringify(pre('Edit', { file_path: 'C:\\w\\agent\\n.md' })), env: { KOSMOS_AGENT_TOKEN: 'ab12' },
-    url: 'http://127.0.0.1:16180', boardToken: 'BT', fetchImpl: rec.fetchImpl, throttleDir: path.join(TMP, 'mt'), ppid: 9,
+    url: 'http://127.0.0.1:16180', boardToken: 'BT', fetchImpl: rec.fetchImpl, throttleDir: path.join(TMP, 'mt' + slowCheckMs), ppid: 9,
     now: () => 1000, stdout: () => {}, platform: 'win32', proveBoard }).then(() => { done = true; });
   const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
   await settle();
+  if (slowCheckMs > 0) assert.ok(checked >= 1, 'the slow board check ran');
   assert.equal(keeps(rec.calls).length, 1, 'the keep call went out');
   t.mock.timers.tick(2999); await settle();
   assert.equal(aborted, false, 'still waiting at 2999 ms');
