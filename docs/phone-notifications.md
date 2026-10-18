@@ -11,6 +11,8 @@ Read from the code on 2026-10-18 and checked against the push path owner's table
 - **Session name**: the agent's short internal name, such as `leo`, as opposed to the name shown on screen.
 - **The agent's token**: the private pass each agent uses when it posts, so Kosmos knows the post is really from it.
 
+- **Connected to Kosmos+**: this computer is signed in to Kosmos+ and Kosmos+ is switched on here.
+
 ## How a notification travels
 A computer running Kosmos notices that something happened and sends the coordinator a short event: its kind, the
 agent, the project when there is one, and an id. The coordinator turns that into the words on the phone, through Apple
@@ -93,7 +95,7 @@ Sound: the default sound on iPhone; on Android and the browser, whatever the dev
 
 | Event | When it would fire | Wording | Status |
 |---|---|---|---|
-| An agent needs you, by email | a needs-you this computer sent to Kosmos+ (so the master and "When an agent needs me" switches on, and not dropped by the 5-minute window, and the computer already allowed; no phone needed) and not acknowledged within 30 minutes, checked every minute (nothing in Kosmos sends that acknowledgement yet, see below); never one older than 6 hours; at most once per agent per account per 24 hours | subject `<Agent> needs you`; first line `<Agent> needs you on <Project>.` (the email keeps its own wording, see Wording) (no "on" part without a project), then how to open Kosmos, and "Your agent paused for your input and will pick up again once you answer." | built, behind `KOSMOS_NEEDS_YOU_EMAIL`, which is off in production (measured on the coordinator by the push path's owner, #6487), so nothing sends today |
+| An agent needs you, by email | a needs-you this computer sent to Kosmos+ (so the master and "When an agent needs me" switches on, and not dropped by the 5-minute window, and the computer already allowed; no phone needed) and not acknowledged within 30 minutes, checked every minute (nothing in Kosmos sends that acknowledgement yet, see below); never one older than 6 hours; at most once per agent per account per 24 hours | subject `<Agent> needs you`; first line `<Agent> needs you on <Project>.` (its own wording, see Wording; no "on" part without a project), then how to open Kosmos, and "Your agent paused for your input and will pick up again once you answer." | built, behind `KOSMOS_NEEDS_YOU_EMAIL`, which is off in production (measured on the coordinator by the push path's owner, #6487), so nothing sends today |
 
 A computer can send needs-yous only once the master switch is on (that is what gives it the key the coordinator checks).
 From 0.7.58 that happens by itself once a computer is connected to Kosmos+, so every connected computer becomes eligible
@@ -127,7 +129,7 @@ decision before it is built. Three ways:
 Recommended: option 2. The call is Josh's.
 
 ## Where the code lives
-The computer side: `engine/phonenotify.js` (kinds, switches, how often), called from `server.js`. The words:
+The computer side: `engine/phonenotify.js` (kinds, switches, how often, and from 0.7.58 the default turn-on), called from `server.js`. The words:
 kosmos-relay `coordinator/src/push.rs` (`notice_text`, shared by `apns.rs` for iPhone and `coordinator/src/sw.js` for
 web push, including the test notice's words; `apns.rs` `operator_test_with` sends it). This repo's `web/sw.js` shows the same words from
 0.7.58 (#6502), though no phone push reaches it today (phones subscribe on the coordinator's address, #3510). The email: kosmos-relay `coordinator/src/delivery.rs`
