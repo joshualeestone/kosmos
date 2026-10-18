@@ -265,9 +265,9 @@ test('#1765 CONTROL: from the checkout (no runtime) the same squatter DOES recei
 
 /* kosmos#6464: `kosmos connect` carries a service key in the BODY, and the proof is keyed on the board token. With no
    board token there is nothing to prove with, so the installed CLI refuses rather than send the key unproven. */
-function connectWith(port, dataDir) {
+function connectWith(port, dataDir, home = HOME) {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, AGENT_WORKFORCE_DATA: dataDir, KOSMOS_PORT: String(port), KOSMOS_HOME: HOME };
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: dataDir, KOSMOS_PORT: String(port), KOSMOS_HOME: home };
     for (const v of ['KOSMOS_AGENT_TOKEN', 'KOSMOS_AGENT_TOKEN_ONLY', 'KOSMOS_AGENT_SESSION', 'KOSMOS_WORLD', 'KOSMOS_PROOF_DEBUG', 'TMUX', 'TMUX_PANE', 'http_proxy', 'https_proxy', 'all_proxy', 'ALL_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY']) delete env[v];
     const child = spawn(CLI, ['connect', 'brave-search'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
     let out = '';
@@ -289,6 +289,7 @@ test('kosmos#6464: with no board token, the installed CLI refuses to send a serv
     const r = await connectWith(port, empty);
     assert.equal(r.code, 1, r.out);
     assert.match(r.out, /could not read its board token[\s\S]*Nothing was sent/, r.out);
+    assert.doesNotMatch(r.out, /Start Kosmos/, 'the board is up here; the old advice sent people the wrong way');
     assert.ok(!seen.some((q) => q.method === 'POST'), 'a request carrying the key reached the listener: ' + JSON.stringify(seen.map((q) => q.method + ' ' + q.url)));
   } finally { fs.rmSync(empty, { recursive: true, force: true }); }
 }));
@@ -296,4 +297,19 @@ test('kosmos#6464: with no board token, the installed CLI refuses to send a serv
 test('kosmos#6464 CONTROL: with the board token, a board that proves itself receives the key', { timeout: 30000 }, () => withStub({ prove: true }, async (port, seen) => {
   await connectWith(port, DATA);
   assert.ok(seen.some((q) => q.method === 'POST' && /\/token$/.test(new URL(q.url, 'http://x').pathname)), 'the key never reached a board that proved itself: ' + JSON.stringify(seen.map((q) => q.method + ' ' + q.url)));
+}));
+
+/* Review of #6464: an INSTALLED layout (app/server.js present) whose runtime is gone cannot run the board, so whatever
+   answers is not Kosmos; the key must not go, though kosmos_board_proven would send unproven there (#1765). */
+test('kosmos#6464: a damaged install (no runtime) refuses to send a service key, though the board token is readable', { timeout: 30000 }, () => withStub({ prove: false }, async (port, seen) => {
+  const broken = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-6464-noruntime-'));
+  try {
+    fs.mkdirSync(path.join(broken, 'app'), { recursive: true });
+    fs.writeFileSync(path.join(broken, 'app', 'server.js'), '// installed layout marker\n');
+    fs.symlinkSync(path.join(__dirname, 'engine'), path.join(broken, 'app', 'engine'));
+    const r = await connectWith(port, DATA, broken);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /Nothing was sent|nothing was connected/, r.out);
+    assert.ok(!seen.some((q) => q.method === 'POST'), 'a request carrying the key reached the listener: ' + JSON.stringify(seen.map((q) => q.method + ' ' + q.url)));
+  } finally { fs.rmSync(broken, { recursive: true, force: true }); }
 }));
