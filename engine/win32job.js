@@ -119,13 +119,13 @@ function rememberTaskSpec(name, worldId, answer) {
 /* 🔑 The runner swap clears it too. Without this a stubbed answer outlives the
    stub and the NEXT test reads the previous one's task, which is the kind of
    cross-test leak that reads as a flake rather than as a cache. It also clears
-   the `running()` seams (liveness + clock), mirroring the spec-cache clear, so a
+   the `runningSteps()` seams (liveness + clock), mirroring the spec-cache clear, so a
    stubbed liveness or fake clock cannot outlive the runner it was set up beside. */
 function setRunner(fn) {
   runFn = typeof fn === 'function' ? fn : null;
   TASK_SPEC_CACHE.clear();
   PRESENCE_MEMO.clear();
-  livenessFn = null; nowFn = null; sleepFn = null;
+  livenessFn = null; nowFn = null;
 }
 
 /* Whether a schtasks call made now would either go to an injected runner or is
@@ -587,104 +587,63 @@ function* startSteps(name, worldId) {
 
 /* The liveness seam, alongside the command seam above and cleared with it (see
    setRunner). A test injects the supervisor-authored identity source so the
-   fleet's Macs can drive `running()` exactly as they drive the rest of this
+   fleet's Macs can drive `runningSteps()` exactly as they drive the rest of this
    module. Production reads the real state file. */
 let livenessFn = null;
 function setLiveness(fn) { livenessFn = typeof fn === 'function' ? fn : null; }
-/* 🔑 THE CLOCK SEAM, AND WHY IT IS A SEPARATE ONE. `running()` polls, so its
-   `now`/`sleep` are injectable on the opts as well -- but its one production
-   caller (remove.js's `loaded` closure) forwards only `before`, never the clock.
-   So a test that drives the probe THROUGH remove cannot ride the clock in on
-   opts, and without this it would sleep the full deadline (12s) in real time.
-   This lets such a test fake time so no real time passes; cleared with the
-   runner, like the liveness seam. */
+/* 🔑 THE CLOCK SEAM, AND WHY IT IS A SEPARATE ONE. `runningSteps()` polls, so its
+   `now` is injectable on the opts as well -- but its one production caller
+   (remove.js's `loaded` step) forwards only `before`, never the clock. So a test
+   that drives the probe THROUGH remove cannot ride the clock in on opts; this
+   module-level seam lets such a test fake time so no real time passes. The poll's
+   wait is a yielded { sleep } the async driver answers, so only `now` is seamed
+   here. Cleared with the runner, like the liveness seam. */
 let nowFn = null;
-let sleepFn = null;
-function setRunningClock(now, sleep) {
+function setRunningClock(now) {
   nowFn = typeof now === 'function' ? now : null;
-  sleepFn = typeof sleep === 'function' ? sleep : null;
-}
-
-/* A bounded synchronous sleep, in-family with this file's blocking execFileSync
-   calls: `running()` is synchronous so every caller reports rather than awaits.
-   `Atomics.wait` on a throwaway SharedArrayBuffer parks this thread for `ms`
-   without a busy-loop. A platform without SharedArrayBuffer falls through, and
-   the deadline still bounds the loop. */
-function sleepSync(ms) {
-  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, ms | 0)); }
-  catch { /* no SharedArrayBuffer; the deadline still terminates the loop */ }
 }
 
 /* Whether a liveness identity proves the supervisor came up: a live pid, and (for a restart) a session id
-   different from the pre-restart baseline. ONE place so the sync `running` poll and the async `runningSteps`
-   cannot drift on the acceptance test. #6183. */
+   different from the pre-restart baseline. ONE place for the `runningSteps` poll's acceptance test. #6183. */
 function idAccepts(id, isAlive, before) {
   return Boolean(id && isAlive(id.pid) && (before == null || id.sessionId !== before.sessionId));
 }
 
 /**
- * Is this agent's SUPERVISOR actually up after a start? The win32 analog of the
- * Mac's `launchctl print` "loaded" probe (#3431).
+ * Is this agent's SUPERVISOR actually up after a start, as an async step? The win32
+ * analog of the Mac's `launchctl print` "loaded" probe (#3431, #6183).
  *
- * 🛑 WHY `status().registered` IS NOT ENOUGH. That only proves the TASK EXISTS,
- * never that a process came up: a `/Run` that returned ok can leave no supervisor
- * running, which is the win32 shape of Nora (#3418) -- a restart reporting success
- * over an agent that silently vanished. So this reads the LIVENESS signal instead:
- * `win32streamstate.liveIdentity(name)`, the `{ pid, sessionId }` the supervisor
- * itself authors into its state file, polled with a timeout.
+ * 🛑 WHY `status().registered` IS NOT ENOUGH. That only proves the TASK EXISTS, never
+ * that a process came up: a `/Run` that returned ok can leave no supervisor running,
+ * which is the win32 shape of Nora (#3418) -- a restart reporting success over an agent
+ * that silently vanished. So this reads the LIVENESS signal instead:
+ * `win32streamstate.liveIdentity(name)`, the `{ pid, sessionId }` the supervisor itself
+ * authors into its state file, polled with a timeout. NOT schtasks "Status: Running":
+ * that text is localized (the very thing this file avoids everywhere else) and it
+ * false-positives on the conhost wrapper the instant `/Run` fires, before the node
+ * under it has come up.
  *
- * 🛑 NOT schtasks "Status: Running". That text is localized (the very thing this
- * file avoids everywhere else), and it false-positives on the conhost wrapper the
- * instant `/Run` fires, before the node under it has come up.
+ * 🔑 DISCRIMINATED AGAINST A PRE-RESTART BASELINE. A dying supervisor can leave its OWN
+ * state file behind, so a live-looking identity that still names the session that was
+ * there BEFORE the relaunch is not evidence the new one came up. `before` (the identity
+ * read before `/End`+`/Run`) is rejected: an accepted identity must be alive AND carry a
+ * session id different from the baseline (or there was no baseline, a fully-dead start).
+ * The acceptance test is the shared idAccepts, the one place that judgement lives.
  *
- * 🔑 DISCRIMINATED AGAINST A PRE-RESTART BASELINE. A dying supervisor can leave its
- * OWN state file behind, so a live-looking identity that still names the session
- * that was there BEFORE the relaunch is not evidence the new one came up. `before`
- * (the identity read before `/End`+`/Run`) is rejected: an accepted identity must
- * be alive AND carry a session id different from the baseline (or there was no
- * baseline, a fully-dead start).
- *
- * Injectable deps with production defaults, lazy-required as this file already does
- * for win32argv; the module-level seams (setLiveness / setRunningClock) are the
- * fallback so a caller that forwards only `before` can still be driven from a test:
- *   - `liveIdentity` reads the supervisor-authored identity (default win32streamstate)
- *   - `isAlive` is the one pid-liveness reading the rest of the lane uses (win32orphan.pidAlive)
- *   - `now` / `sleep` drive the poll
- *   - `before` is the baseline identity, or null for a fully-dead start
- * `deadlineMs` is conservative on purpose; it is injectable and the orchestrator
- * will tune the production default from a real-box measurement of supervisor
- * start latency. This synchronous poll is intentional and in-family with the
- * blocking execFileSync calls above.
+ * The liveness signal is a STATE-FILE read (liveIdentity + pidAlive), not a command, so
+ * there is nothing to shell: the generator reads it in-line (cheap, non-blocking) and
+ * yields { sleep: intervalMs } between polls, so the async driver answers each wait with
+ * a timer, off the board's thread. The FIRST read happens before any yield, so an
+ * already-live pid returns at once with no spurious wait. Injectable deps default to the
+ * real sources (lazy-required as this file already does for win32argv); `now` falls back
+ * to the module-level setRunningClock seam so a caller that forwards only `before` can
+ * still fake the clock from a test, and `before` is the baseline identity or null for a
+ * fully-dead start. The loop is bounded by its own deadline and, under the async driver,
+ * by the driver's abandon check and the 300 s restart cap.
  *
  * Returns { ok: true } once the supervisor is confirmed up, or
  * { ok: false, because: '<plain sentence>' } on timeout.
  */
-function running(name, worldId, opts) {
-  const o = opts || {};
-  const liveIdentity = o.liveIdentity || livenessFn || require('./win32streamstate').liveIdentity;
-  const isAlive = o.isAlive || require('./win32orphan').pidAlive;
-  const now = o.now || nowFn || Date.now;
-  const sleep = o.sleep || sleepFn || sleepSync;
-  const before = o.before || null;
-  const intervalMs = Number.isFinite(o.intervalMs) ? o.intervalMs : 250;
-  const deadlineMs = Number.isFinite(o.deadlineMs) ? o.deadlineMs : 12000;
-
-  const start = now();
-  for (;;) {
-    if (idAccepts(liveIdentity(name), isAlive, before)) return { ok: true };
-    if (now() - start >= deadlineMs) return { ok: false, because: 'its supervisor did not come up' };
-    sleep(intervalMs);
-  }
-}
-/* #6183: `running` as an async step. The liveness signal is a STATE-FILE read (liveIdentity + pidAlive), not a
-   command, so there is nothing to shell: the generator reads it in-line (cheap, non-blocking) and yields
-   { sleep: intervalMs } between polls, so the async driver answers each wait with a timer -- off the board's
-   thread -- where the sync `running` blocks on sleepSync. The FIRST read happens before any yield, so an
-   already-live pid returns at once with no spurious wait. The deadline uses the same `now` seam as sync `running`,
-   but the `sleep` seam (setRunningClock's second argument) is deliberately NOT read here -- the wait is a yielded
-   { sleep } the driver answers, so a test drives this poll's clock through `now` alone. The acceptance test is the
-   shared idAccepts, so it cannot drift from the sync poll. The loop is bounded by its own deadline and, under the
-   async driver, also by the driver's abandon check and the 300 s restart cap. */
 function* runningSteps(name, worldId, opts) {
   const o = opts || {};
   const liveIdentity = o.liveIdentity || livenessFn || require('./win32streamstate').liveIdentity;
@@ -1154,7 +1113,7 @@ function configDirFor(name) {
 
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
-  install, installSteps, disable, enable, end, start, running, endSteps, startSteps, runningSteps, win32StepResult, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
+  install, installSteps, disable, enable, end, start, endSteps, startSteps, runningSteps, win32StepResult, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
   cachedTaskSpec, taskEnabled, taskEnabledFromQuery, taskEnabledSteps, csvFields, commandsAreReal, REFUSED_IN_TEST,
   schtasksMayRunInThisProcess,
   setRunner, setAnchorer, setLiveness, setRunningClock, setPresenceTtl, PRESENCE_TTL_MS,

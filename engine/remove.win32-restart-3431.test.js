@@ -85,7 +85,7 @@ function writeBaseline(name, pid, sessionId) {
    happens before the deadline is ever consulted). */
 function fastDeadlineClock() {
   let t = 0;
-  job.setRunningClock(() => { const v = t; t += 20000; return v; }, () => {});
+  job.setRunningClock(() => { const v = t; t += 20000; return v; });
 }
 
 /* A bounded synchronous block, standing in for execFileSync's blocking time, for the sync-control test. */

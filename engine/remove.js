@@ -615,19 +615,11 @@ function jobOps(platform) {
       stopNow: (name, job) => Boolean(win32job.end(name, job && job.worldId).ok),
       enable: (name, job) => Boolean(win32job.enable(name, job && job.worldId).ok),
       startNow: (name, job) => Boolean(win32job.start(name, job && job.worldId).ok),
-      /* #3431: a GENUINE running-state check now exists. The prior version confirmed only that
-         the task was REGISTERED (win32job.status), which proves the task EXISTS, not that a
-         supervisor came up -- so the win32 analog of Nora (a /Run that reports ok but whose
-         process never starts) would still read as loaded. `win32job.running` polls the
-         supervisor-authored liveness signal (win32streamstate.liveIdentity) against the
-         pre-restart baseline, which is the real analog of the Mac's `launchctl print` probe:
-         it catches a start that took at the task level but never produced a running process.
-         `beforeRestart` captures that baseline before the /End+/Run relaunch so a dying
-         supervisor's leftover state file is not mistaken for the new one. */
-      loaded: (name, job, before) => win32job.running(name, job && job.worldId, { before }).ok,
-      /* The pre-restart liveness identity, so `loaded` can tell the NEW supervisor from a
+      /* The pre-restart liveness identity, so the `loaded` step can tell the NEW supervisor from a
          leftover state file the old one wrote. win32-only; the Mac arm has no such op and
-         restartSteps passes null there. */
+         restartSteps passes null there. #3431's genuine running-state check (liveness, not mere
+         task registration) now lives entirely in the `loaded` STEP below (win32job.runningSteps);
+         the sync `loaded` act was dead -- restartSteps always prefers the step form via `act`. */
       beforeRestart: (name) => require('./win32streamstate').liveIdentity(name),
       /* The Mac asks whether the plist is still on disk; the analog is whether
          the task is still registered. Same question, different substrate. */
@@ -2580,6 +2572,13 @@ async function putBackAsync(name, dir) {
   const cap = asyncRestartCapMs();
   const ctl = { abandoned: false };
   let timer = null;
+  /* The hold is taken BEFORE the try, and the catch deliberately does not release it (the
+     `driven.then(release, release)` below owns that). That is safe ONLY because nothing between
+     here and that `.then` can throw synchronously: restoreAccountSteps is a generator function
+     (calling it just builds an iterator, it does not run the body) and driveAsync is async (it
+     returns a promise, so a synchronous throw inside it rejects that promise instead). If a
+     future change put a synchronous throw on that path, the hold would leak -- move the add past
+     it or release in the catch. (Raiden, #6433 review.) */
   RESTARTING.add(clean);
   try {
     const capped = new Promise((resolve) => {
