@@ -18,9 +18,13 @@ off, on every row whose launch was never recorded (every row on a board set up b
 - Hidden, not a dash: a dash says "unknown", which is the fault's meaning (#150's pair); empty plus a screen-reader
   sentence loses nothing. Rejected: a title tooltip (a hover-only fact on a list row).
 - Weakest premise: an empty model cell is clear enough on a list where the card and agent page say why.
+- Known and accepted (review 1 NIT): below 56rem the cell no longer matches `.lmodel:empty`, so it keeps its grid row
+  (zero height, the 8px row gap). Less space than the visible sentence took before.
 
 ## Checks
 - web.made-before.test.js: the cell is the .vh sentence for never-recorded; "Unknown Model" and a real model are shown
   (CONTROLS); a model name is escaped; the list row calls lmodelCell. Mutation: reverting either fails its test.
-- render-made-before.js: in list view, Rick's cell shows nothing and keeps the sentence as text; Bob's shows his model
+- render-made-before.js: in list view, Rick's cell shows nothing (its text with the .vh span removed is empty, and its
+  only child is the 1px .vh box: .vh clips rather than removing, so innerText would still return it) and keeps the
+  sentence as text; Bob's shows his model
   (CONTROL); the card still wears the sentence (existing check).
