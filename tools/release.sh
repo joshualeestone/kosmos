@@ -786,6 +786,18 @@ fi
 # starts mid-cut, or a submission still unfinished after its two 30-minute waits), the same exposure
 # the build already has.
 notarize_probe_credentials || exit 1
+# #6468 ask 2: step 4b signs the release manifest; every install from this release on refuses an update whose
+# manifest is not signed by a key engine/manifest-verify.js pins. So the key must resolve AND be pinned, here,
+# before the bump. Resolved through the secrets map (kosmos-manifest-signing), never printed.
+KOSMOS_MANIFEST_KEY="$("${KOSMOS_SECRETS_MAP_BIN:-$HOME/.claude/scripts/secrets-map.sh}" path kosmos-manifest-signing 2>/dev/null)" || KOSMOS_MANIFEST_KEY=""
+# KOSMOS_MANIFEST_KEY_PROBE_BIN (tests only, like KOSMOS_NOTARY_PROBE_BIN): replaces this check and says it did. Step 4b
+# still signs with the resolved key, so a cut with it set cannot publish without a real one.
+if [ -n "${KOSMOS_MANIFEST_KEY_PROBE_BIN:-}" ]; then
+  echo "manifest-signing key PASSED THROUGH KOSMOS_MANIFEST_KEY_PROBE_BIN, NOT probed. Unset it for a real cut."
+  "$KOSMOS_MANIFEST_KEY_PROBE_BIN" || exit 1
+elif [ -z "$KOSMOS_MANIFEST_KEY" ] || ! node "$REPO/tools/lib/manifest-sign.js" check "$KOSMOS_MANIFEST_KEY"; then
+  echo "the release manifest-signing key (secrets map target kosmos-manifest-signing) is missing or not pinned (#6468). A release cut without it would be refused by every install."; exit 1
+fi
 
 step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
 # 0.6.95 bundled a prebuilt kosmos-tunnel from 19:00 and missed relay #145 (the #3832 HSTS
@@ -1354,6 +1366,10 @@ fi
 # few KB per release that says what produced the served bytes. The tarballs
 # themselves stay untracked (48 MB each, and they prove only that bytes existed).
 cp "$REPO/dist/kosmos-arm64.manifest.json" "$SITE/dist/kosmos-$V-arm64.manifest.json"
+# #6468 ask 2: its signature, over the exact bytes served, beside it and committed with it. Installs check it with the
+# copy of engine/manifest-verify.js they already have before anything in an update runs.
+node "$REPO/tools/lib/manifest-sign.js" sign "$KOSMOS_MANIFEST_KEY" "$SITE/dist/kosmos-$V-arm64.manifest.json" "$SITE/dist/kosmos-$V-arm64.manifest.json.sig" || {
+  echo "could not sign the release manifest (#6468); nothing is published"; exit 1; }
 # ⚠️ THE VERSIONED NAME IS THE ONE A CACHE CANNOT LIE ABOUT. The plain
 # name is one URL across every release, and an edge cache satisfied an
 # update from it with the PRIOR release's bytes and matching checksum
@@ -1563,7 +1579,7 @@ step "== 7b. the site's release files are committed and pushed BEFORE they deplo
 # #2036: the CHANNEL pointer ($POINTER_FILE). In the default staging channel this
 # is dist/latest-staging.json; dist/latest.json (prod) is deliberately NOT in the set,
 # so prod stays at its prior version until promote-channel.sh flips it.
-_site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json $SETUP_FILE $SETUP_FILE.sha256 versions.html"
+_site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json dist/kosmos-$V-arm64.manifest.json.sig $SETUP_FILE $SETUP_FILE.sha256 versions.html"
 _site_commit_msg="$V: the $CUT_CHANNEL pointer ($POINTER_FILE), installer and versions entry"
 # 🛑 #2276/#2278/#2286: BUILD THE RELEASE COMMIT ON THE FRESHLY-FETCHED origin/main,
 # never on the shared local main. Agents merge chaoskosmos-site PRs through GitHub
@@ -1631,7 +1647,7 @@ for _p in $_site_paths; do
   [ "$_p" = versions.html ] && continue
   git -C "$SITE" checkout -- "$_p" 2>/dev/null || true
 done
-rm -f "$SITE/dist/kosmos-$V-arm64.manifest.json"
+rm -f "$SITE/dist/kosmos-$V-arm64.manifest.json" "$SITE/dist/kosmos-$V-arm64.manifest.json.sig"
 # #5032: likewise a first staging cut's /setup-staging pair, untracked locally until the checkout catches up.
 for _p in "$SETUP_FILE" "$SETUP_FILE.sha256"; do
   git -C "$SITE" ls-files --error-unmatch "$_p" >/dev/null 2>&1 || rm -f "$SITE/$_p"
