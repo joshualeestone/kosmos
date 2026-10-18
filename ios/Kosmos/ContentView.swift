@@ -133,7 +133,19 @@ enum KosmosConfig {
 
     // What the WebView loads: the coordinator's sign-in page, which after sign-in
     // links the person on to their own Mac's board.
+    #if KOSMOS_STORE_SHOTS
+    // App Store screenshots only (ios/store/shoot-app.sh, #6262): the throwaway board the script serves, so the
+    // real app shows an invented team and never a real account. The flag is set on that script's xcodebuild line
+    // alone; archive.sh never sets it, and tools/check-no-shots-flag.sh refuses an app built with it.
+    static let shotsOrigin: URL? = ProcessInfo.processInfo.environment["KOSMOS_SHOTS_URL"].flatMap { URL(string: $0) }
+    static let boardURL = shotsOrigin ?? URL(string: "/", relativeTo: coordinatorOrigin)!.absoluteURL
+    static func isShotsBoard(_ url: URL) -> Bool {
+        guard let o = shotsOrigin else { return false }
+        return url.scheme == o.scheme && url.host == o.host && url.port == o.port
+    }
+    #else
     static let boardURL = URL(string: "/", relativeTo: coordinatorOrigin)!.absoluteURL
+    #endif
 
     // Require Face ID / Touch ID before the board renders. Off by default so the
     // shell behaves as before; flip to true to demonstrate the biometric-unlock
@@ -281,6 +293,9 @@ struct WebView: UIViewRepresentable {
             guard let url = navigationAction.request.url,
                   let frame = navigationAction.targetFrame
             else { decisionHandler(.allow); return }
+            #if KOSMOS_STORE_SHOTS
+            if KosmosConfig.isShotsBoard(url) { decisionHandler(.allow); return }
+            #endif
             // A frame inside the page: https and about: only.
             guard frame.isMainFrame else {
                 decisionHandler(Shell.allowsSubframe(url) ? .allow : .cancel)

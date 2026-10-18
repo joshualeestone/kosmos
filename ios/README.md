@@ -101,6 +101,11 @@ simulator running iOS 26.5 (the app targets iOS 16), loads the live Kosmos+ sign
   $SC launch <udid> io.kosmos.app
   $SC io <udid> screenshot shot.png
   ```
+- **2026-10-17:** Xcode's first-launch setup has run (Josh, for #6262), so `xcrun simctl` works again, and the
+  simulator runtime is now **iOS 27.0** (`xcodebuild -downloadPlatform iOS`, about 8 GB; the 26.5 runtime was no
+  longer listed under Xcode 27.0). `ios/store/shoot-app.sh` runs the app on iPhone 17 and iPhone 17 Pro Max
+  simulators for the App Store screenshots, with a build-only switch (`KOSMOS_STORE_SHOTS`) that opens a
+  throwaway board instead of Kosmos+; iOS CI checks the store build never carries it.
 - Signing in needs the six-digit code sent to the account's email, and a simulator never receives a
   real push (the app registers as `sandbox` there).
 
