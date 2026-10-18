@@ -18,7 +18,7 @@
  * - Is the leak guard for this path. mobile-shots.js reads each page in its browser; the app's pictures never
  *   pass through it, so every text answer the board gives (the page itself included) is read whole here with the
  *   same checks (docs/browser-checks/lib-leak-guard.js) before any of it is sent on. An answer that is not text (an
- *   image, a font, a PDF, an attachment, no type at all) cannot be read that way, so it passes only empty or when
+ *   image, a font, a PDF, an attachment, no type at all) passes only empty or when
  *   its PATH is a file the product ships under web/ (the board's icons); the bytes are not compared, so this rests
  *   on the board serving its own icons at those paths. Any other picture or file (an agent's or a person's, an
  *   upload, at an /api path no shipped file has) is refused. A hit, an encoded body, a
@@ -67,11 +67,17 @@ const decodedForms = (t) => {
   forms.push(t.replace(/\\u([0-9a-f]{4})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))));
   forms.push(t.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
     .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&sol;/gi, '/'));
+  // A value that mixes encodings (%2F then \u escapes, or JSON's \/) needs them undone in turn: one more form.
+  let all = t.replace(/\\\//g, '/').replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&sol;/gi, '/')
+    .replace(/\\u([0-9a-f]{4})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  try { all = decodeURIComponent(all); } catch { all = all.replace(/%([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))); }
+  forms.push(all);
   return forms;
 };
 const hitsInAnyForm = (t) => [...new Set(decodedForms(t).flatMap((f) => hitsIn(f)))];
-// The answers the guard can read as text. Anything else (a PDF, a zip, an attachment, no type at all) cannot be
-// read that way, so it passes only empty or as a shipped file.
+// The answers read as text. Anything else (a PDF, a zip, an attachment, no type at all) passes only empty or as a
+// shipped file.
 const TEXT = /^(text\/(?!event-stream)|application\/(json|javascript|x-javascript|manifest\+json|xml)\b|image\/svg\+xml)/i;
 
 const server = http.createServer((req, res) => {
