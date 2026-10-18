@@ -8,7 +8,7 @@ A computer running Kosmos notices that something happened and sends the coordina
 agent, the project when there is one, and an id. The coordinator turns that into the words on the phone, through Apple
 for an iPhone and through web push for Android and the browser.
 
-**The words of a message are never sent.** A notification says who did what, and a tap opens that agent's page.
+**The words of a message are never sent.** A notification says who did what, and a tap usually opens that agent's page (exceptions below).
 
 **Phone notifications are off until the person turns them on**: Settings, "Buzz my phone about my agents", Turn on.
 That switch is off by default today; kosmos#6488 changes it. Once it is on, a notification goes out only when the kind's
@@ -44,12 +44,12 @@ email keeps its own sentence (`<Agent> needs you on <Project>.`), since it is no
 | An agent needs you (its report) | an agent's report changes to needing the person | `<Agent> needs you` | `on <Project>`, or `in Kosmos` | When an agent needs me, on | at most once per agent per 5 minutes |
 | An agent needs you (keeps crashing) | 3 runs of an agent end on their own within 30 minutes, each lasting 2 minutes or less; restarts Kosmos makes itself do not count (told once per loop) | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
 | An agent needs you (stuck) | an agent's sign-in has been expired for 15 minutes, or a usage limit has held it for 30 minutes | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
-| An agent needs you (a helper gave up) | about a minute after one of the agent's helpers gives up (a quota resume, an idle nudge, or the first-reply reminder); not while the agent already shows needs-you | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
+| An agent needs you (a helper gave up) | one to two minutes after one of the agent's helpers gives up (a quota resume, an idle nudge, or the first-reply reminder); not while the agent already shows needs-you | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
 | An agent answered you | an agent writes to the person in its direct chat (whether or not the person wrote first) | `<Agent> replied` | `in Kosmos` (a reply carries no project) | When an agent answers me, on | every reply |
 | An agent replied to your post | an agent's project post is a reply to one of the person's own posts (it carries the reply link), sent with the agent's own token | `<Agent> posted` | `on <Project>`, or `in Kosmos` | When an agent replies to a post of mine, on | at most once per agent per 5 minutes |
 | Any other agent post in a room (not a reply to the person's post) | an agent posts in any project room with its own token (the code does not check that the person is in it, though the switch's label says "I am on") | `<Agent> posted` | `on <Project>`, or `in Kosmos` | When anyone posts in a project room I am on, off | at most once per room per 10 minutes |
 | Work ready for you | an agent (not the person) marks a task built, when that changes the task | `<Agent> has work ready for you` | `on <Project>`, or `in Kosmos` | When work is ready for my check, on | at most once per agent per 5 minutes |
-| Test notice | the operator sends a test from the coordinator (iPhone only; a tap opens nothing) | `Kosmos has something for you` | `in Kosmos` | none (operator only) | on demand |
+| Test notice | someone running Kosmos+ sends a test from the coordinator (iPhone only; a tap opens nothing) | `Kosmos has something for you` | `in Kosmos` | none (operator only) | on demand |
 
 The four "needs you" rows share ONE 5-minute window per agent: a needs-you that lands inside the window of an earlier
 one from the same agent is not sent at all (it is dropped, not delayed), and a crash, stuck or helper notice dropped
@@ -58,7 +58,8 @@ this way is not tried again for that episode.
 The other windows are separate: "work ready" and "replied to your post" each have their own 5 minutes per agent, so one
 agent can buzz once for each inside the same 5 minutes. Restarting Kosmos clears the windows. It also restarts the stuck and helper clocks, so those
 notices come again only after another full wait; and it forgets which crash loops were already told, so a loop still
-going is told again straight after a restart.
+going is told again within about a minute of a restart. The crash notice's title shows the agent's name, or its
+session name (for example `leo`) when the board cannot read that agent at that moment.
 
 The stuck and helper notices cover only agents Kosmos itself set up. A helper give-up while the agent already shows
 needs-you is not sent; for the idle nudge and the first-reply reminder it is cleared at once. A quota give-up (the
@@ -85,10 +86,10 @@ A computer can send needs-yous only after someone has pressed Turn on (that is w
 checks). If kosmos#6488 makes notifications on without that press, every connected computer becomes eligible for this
 email, including people who never set up a phone. **And nothing in Kosmos acknowledges a needs-you
 yet** (not the board, and not the iPhone or Android app in this repo), so with the flag on, the first needs-you from each agent each day would be emailed after 30 minutes, even one the
-person already answered on the board. The flag must stay off until the board sends that acknowledgement. A needs-you already 30 minutes old when the flag takes
-effect (on the coordinator's next restart) is not emailed; a younger one is, once it reaches 30 minutes. The crash, stuck and helper notices are needs-you events too, so they would be emailed as well, and the email's closing
+person already answered on the board. The flag must stay off until the board sends that acknowledgement. A needs-you that turned 30 minutes old while the
+coordinator was running with the flag off is never emailed; a younger one is, once it reaches 30 minutes. The crash, stuck and helper notices are needs-you events too, so they would be emailed as well, and the email's closing
 sentence ("Your agent paused for your input and will pick up again once you answer.") does not fit them; change that
-before the flag is turned on. The Settings hint that promises this email still shows today and is removed under kosmos#6489.
+before the flag is turned on. The Settings hint that mentions this email ("may also send you an email") still shows today and is removed under kosmos#6489.
 
 ## Proposed (Josh, 2026-10-18)
 Josh's words, verbatim: "<Agent> said <message>" for a direct message, and "<Agent> commented in <Project>: <message>"
