@@ -63351,7 +63351,12 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      here (out of usage, a paused project, an idle room, dismissed) is not drawn red on the project's Members card, so
      a Dismiss visibly takes the row's red away there. The agents list row (also drawn for the open project's members in
      the one-column layout's rail) is the agent's own row and keeps its own state: that is "on the agent". */
-  const rowStRaw = (m && typeof m.needsYouHere === 'string' && m.needsYouHere && m.needsYouHere !== 'question') ? 'attn' : cardStOf(liveM).st;
+  /* #6484: a member carries a failed restart as restartFailed (the card's disruption.failed), not as disruption, so
+     cardStOf, which reads disruption.failed, drew a failed restart that was asking a question as a calm Question here
+     while the agent's own card and the project's pill were red. It is handed the same signal in the shape it reads. */
+  const stM = (liveM && liveM.restartFailed === true && !(liveM.disruption && liveM.disruption.failed === true))
+    ? Object.assign({}, liveM, { disruption: Object.assign({}, liveM.disruption, { failed: true }) }) : liveM;
+  const rowStRaw = (m && typeof m.needsYouHere === 'string' && m.needsYouHere && m.needsYouHere !== 'question') ? 'attn' : cardStOf(stM).st;
   const rowSt = rowStRaw === 'attn' && m && m.needsYouQuiet ? 'quiet' : rowStRaw;
   const needsYou = m.present === true && rowSt === 'attn'; // liveM: a given-up connection is red here too (#3410)
   const warn = needsYou ? LROW_WARN : '';
