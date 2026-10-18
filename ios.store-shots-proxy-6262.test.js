@@ -34,7 +34,8 @@ fs.writeFileSync(path.join(CHECKOUT, 'web', 'icons', 'kosmos-32.png'), 'png');
 const PNG = (res) => { res.writeHead(200, { 'content-type': 'image/png' }); res.end('png'); };
 
 const ROUTES = {
-  '/api/status': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ connection: { state: 'none', plan: null }, agents: [{ name: 'Cleo' }] })); },
+  '/api/status': (res, req) => {
+    if (req.url.includes('bad=1')) { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('not json'); return; } res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ connection: { state: 'none', plan: null }, agents: [{ name: 'Cleo' }] })); },
   '/api/agent/cleo/instructions': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ text: 'Run `' + CHECKOUT + '/install/kosmos task add` or read ' + CHECKOUT + '/web.' })); },
   '/icons/kosmos-32.png': PNG,                 // a file the product ships
   '/api/agent/cleo/avatar': PNG,                // a picture of someone: not a shipped file
@@ -45,6 +46,7 @@ const ROUTES = {
   '/leak-pct': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ href: '/open?p=' + encodeURIComponent(os.homedir() + '/x') })); },
   '/leak-u': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"p":"' + [...os.homedir()].map((c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')).join('') + '"}'); },
   '/leak-ent': (res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<p>' + [...os.homedir()].map((c) => '&#' + c.charCodeAt(0) + ';').join('') + '</p>'); },
+  '/hdr': (res) => { res.writeHead(200, { 'content-type': 'application/json', 'content-disposition': 'attachment; filename="' + os.homedir() + '/notes.txt"' }); res.end('{}'); },
   '/gzip': (res) => { res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' }); res.end(zlib.gzipSync('{"a":1}')); },
   '/stream': (res) => { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write('data: hello\n\n'); setTimeout(() => res.end(), 50); },
   '/chunked': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"a":'); setTimeout(() => res.end('1}'), 20); },
@@ -56,7 +58,7 @@ let board, proxy, base, logs = '';
 test.before(async () => {
   board = http.createServer((req, res) => {
     const p = new URL(req.url, 'http://x').pathname;
-    (ROUTES[p] || (p.endsWith('.png') ? PNG : (r) => { r.writeHead(404); r.end(); }))(res);
+    (ROUTES[p] || (p.endsWith('.png') ? PNG : (r) => { r.writeHead(404); r.end(); }))(res, req);
   });
   await new Promise((r) => board.listen(0, '127.0.0.1', r));
   proxy = spawn(process.execPath, [PROXY, '127.0.0.1', 'http://127.0.0.1:' + board.address().port, CHECKOUT], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -152,6 +154,17 @@ test('the home path is refused in its encoded forms too (percent, JSON \\u escap
     assert.equal((await get(p)).status, 502, p);
     await logged(new RegExp('^LEAK ' + p + ': home:', 'm'));
   }
+});
+
+test('a header carrying the home path is refused', async () => {
+  assert.equal((await get('/hdr')).status, 502);
+  await logged(/^LEAK \/hdr \(headers\): home:/m);
+});
+
+test('a status answer that cannot be marked connected is said, not passed silently', async () => {
+  const r = await get('/api/status?bad=1');
+  assert.equal(r.body, 'not json');
+  await logged(/^STAGE \/api\/status: not a JSON object/m);
 });
 
 test('an encoded answer and an event stream are refused', async () => {

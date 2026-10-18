@@ -102,6 +102,10 @@ const server = http.createServer((req, res) => {
     if (typeof out.location === 'string' && out.location.startsWith(board.origin)) out.location = ours + out.location.slice(board.origin.length);
     const type = String(r.headers['content-type'] || '');
     const refuse = (why) => { leak(pathname, [why]); res.writeHead(502); res.end(); r.resume(); };
+    // Headers are read too (a filename, a cookie, a redirect can carry a path), after the location rewrite.
+    for (const [k, v] of Object.entries(out)) out[k] = Array.isArray(v) ? v.map((x) => asInstalled(String(x))) : asInstalled(String(v));
+    const headerHits = hitsInAnyForm(Object.entries(out).map(([k, v]) => k + ': ' + [].concat(v).join(', ')).join('\n'));
+    if (headerHits.length) { leak(pathname + ' (headers)', headerHits); res.writeHead(502); res.end(); r.resume(); return; }
     // Binary media cannot be read as text (SVG is text and is read): only a file the product ships passes.
     if (/^(image\/(?!svg)|font\/|audio\/|video\/)/i.test(type)) {
       if (!shipped(pathname)) return refuse('a picture or media file that is not one the product ships (' + type.split(';')[0] + ')');
@@ -127,13 +131,15 @@ const server = http.createServer((req, res) => {
       // Sent whole with its own length: the board's framing and connection headers no longer describe it.
       for (const h of ['content-length', 'transfer-encoding', 'connection', 'keep-alive']) delete out[h];
       if (status && r.statusCode === 200) {
-        try {
-          const j = JSON.parse(body.toString('utf8'));
-          if (j && typeof j === 'object') {
-            j.connection = { ...(j.connection || {}), state: 'connected' };
-            body = Buffer.from(JSON.stringify(j));
-          }
-        } catch { /* not JSON: pass it through as the board sent it */ }
+        let j = null;
+        try { j = JSON.parse(body.toString('utf8')); } catch { /* checked below */ }
+        if (j && typeof j === 'object' && !Array.isArray(j)) {
+          j.connection = { ...(j.connection || {}), state: 'connected' };
+          body = Buffer.from(JSON.stringify(j));
+        } else {
+          // The staging did not apply, so the pictures would show the "cannot reach a Claude subscription" notice.
+          process.stderr.write('STAGE ' + pathname + ': not a JSON object, so it was not marked connected\n');
+        }
       }
       res.writeHead(r.statusCode, { ...out, 'content-length': body.length });
       res.end(body);

@@ -79,6 +79,14 @@ can fail on a set at the wrong size; the README and listing draft say what is tr
 - **Rejected: a real Kosmos+ sign-in and tunnel to a demo board.** Truest path, zero app change, but it needs a
   demo account (README item 5, Josh's) and its email could reach the Kosmos+ menu. Revisit when that account exists.
 
+## Deferred (review 9)
+- **The fixed settle (10s per screen) is the only readiness signal.** A slow box could photograph a half-drawn
+  page and still pass; every picture is read by eye before it is filed, and network quiet is no signal with the
+  page polling every few seconds. Revisit if a half-drawn picture is ever found.
+- **The switch check's control is a simulator Release build, not a device archive built with the switch.** The
+  marker is a string literal the code reads, so it is in any build that compiles the switch in; not measured on
+  a device archive.
+
 ## Weakest premise
 That the simulator's WKWebView matches a device closely enough for a store picture. It is the same app binary
 (for the simulator), the same WebKit version family and the real status bar and safe areas; fonts and rendering

@@ -56,9 +56,9 @@ for d in "$here"/screenshots/*/; do
   [ -d "$d" ] || continue
   set_name="$(basename "$d")"; sets=$((sets + 1)); count=0
   case "$set_name" in
-    6.3-*) sizes="1206x2622 1179x2556" ;;
-    6.9-*) sizes="1320x2868 1290x2796 1260x2736" ;;
-    *) echo "FAIL  screenshots/$set_name: not a size App Store Connect takes here (6.3-<theme> or 6.9-<theme>)"; fail=1; continue ;;
+    6.3-light|6.3-dark) sizes="1206x2622 1179x2556" ;;
+    6.9-light|6.9-dark) sizes="1320x2868 1290x2796 1260x2736" ;;
+    *) echo "FAIL  screenshots/$set_name: not a set this listing takes (6.3-light, 6.3-dark, 6.9-light or 6.9-dark)"; fail=1; continue ;;
   esac
   for s in "$d"*.png; do
     [ -e "$s" ] || continue
