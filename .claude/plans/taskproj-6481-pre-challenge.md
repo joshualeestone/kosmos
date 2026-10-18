@@ -31,6 +31,9 @@ this run; CI's browser-check workflows run them.
 
 The two browser checks this branch edits were then run on their own through queued-heavy at the squashed tree: docs/browser-checks/render-tasks-view-3559.js 313 PASS, 0 FAIL (exit 0), including the 390 px title-to-meta gap and the long subproject title; render-taskhover-4880.js 114 PASS, 0 FAIL (exit 0).
 
+
+Rebased 2026-10-18 14:18 CDT onto main during the 0.7.57 freeze (23 commits behind, no conflicts) and re-validated at 1ba1c117 through queued-heavy: tools/run-tests.sh node 21968 tests, 21670 pass, 0 fail, 0 cancelled, 298 skipped; shell 252 of 252; browser-check surface gate 0 FAILED (both per-check overrides read); bc-surface-map 0 FAILED; RUN_EXIT=0. The two edited browser checks again: render-tasks-view-3559.js 313 PASS, 0 FAIL; render-taskhover-4880.js 114 PASS, 0 FAIL.
+
 ### Per-Iteration Breakdown
 
 #### Iteration 1
