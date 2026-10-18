@@ -30174,6 +30174,8 @@ function worldswTipOnce() {
 /* #6403: the tip counts as seen when a person can see it: the tab is showing and the tip is laid out (a phone over
    Kosmos+ hides the switcher). Checked after it shows, when the tab is shown and when the window is resized; putting it
    away counts too. Until then a reload shows it again. */
+/* #6403: the resize listener's own name (worldswTipMarkSeen's first argument is a force flag, not an event). */
+function worldswTipOnResize() { worldswTipMarkSeen(); }
 function worldswTipMarkSeen(force) {
   const tip = document.getElementById('worldsw-tip');
   if (!force && (!tip || tip.hidden || document.hidden || tip.getClientRects().length === 0)) return;
@@ -32058,7 +32060,8 @@ async function worldHideSubmit() {
       if (!document.hidden) worldswTipMarkSeen();   // #6403: a tip shown while the tab was hidden is seen now
     });
     window.addEventListener('focus', () => computersReadSoon(false));   // #6403: the app window looked at again
-    window.addEventListener('resize', () => worldswTipMarkSeen());   // #6403: a layout that now shows the switcher
+    window.addEventListener('resize', worldswTipOnResize);   // #6403: a layout that now shows the switcher (named, so the layout resize
+    // handler stays the page's only arrow-form one: web.consolidated-breakpoint.test.js anchors on it)
     // The close button, or a click anywhere on the tip (a person clicking a popover to dismiss it), puts it away.
     const tipEl = document.getElementById('worldsw-tip');
     if (tipEl) tipEl.addEventListener('click', () => { worldswTipHide(); document.getElementById('worldsw-btn').focus(); });
