@@ -43,7 +43,8 @@ if (!host || !/^http:\/\/127\.0\.0\.1:\d+$/.test(boardBase || '') || !path.isAbs
   process.exit(2);
 }
 const INSTALLED = '/Users/you/.local/share/kosmos';
-const asInstalled = (t) => t.split(checkout + '/install/kosmos').join(INSTALLED + '/bin/kosmos').split(checkout).join(INSTALLED + '/app');
+// Anchored on the path's separators, so a sibling such as <checkout>-other is left alone (and refused by the guard).
+const asInstalled = (t) => t.split(checkout + '/install/kosmos').join(INSTALLED + '/bin/kosmos').split(checkout + '/').join(INSTALLED + '/app/');
 const board = new URL(boardBase);
 let ours = '';
 const fromHost = (addr) => addr === host || addr === '::ffff:' + host;

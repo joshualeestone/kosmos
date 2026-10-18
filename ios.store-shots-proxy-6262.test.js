@@ -29,6 +29,8 @@ const CHECKOUT = '/Users/someone/work/a-checkout';   // what the board writes, s
 const ROUTES = {
   '/api/status': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ connection: { state: 'none', plan: null }, agents: [{ name: 'Cleo' }] })); },
   '/api/agent/cleo/instructions': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ text: 'Run `' + CHECKOUT + '/install/kosmos task add` or read ' + CHECKOUT + '/web.' })); },
+  // A sibling folder whose name starts with the checkout's: not this checkout, so it must not be swapped.
+  '/sibling': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ text: CHECKOUT + '-other/x' })); },
   '/leak': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ where: os.homedir() + '/Documents' })); },
   '/gzip': (res) => { res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' }); res.end(zlib.gzipSync('{"a":1}')); },
   '/stream': (res) => { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write('data: hello\n\n'); setTimeout(() => res.end(), 50); },
@@ -54,6 +56,12 @@ test.after(async () => {
   if (proxy && proxy.exitCode === null) { proxy.kill(); await new Promise((r) => proxy.once('exit', r)); }
   if (board) await new Promise((r) => board.close(r));
 });
+
+/* The proxy's log lines and its answers travel on separate pipes, so wait for the line rather than assume it is in. */
+async function logged(re) {
+  for (const deadline = Date.now() + 3000; Date.now() < deadline; await new Promise((r) => setTimeout(r, 20))) if (re.test(logs)) return;
+  assert.match(logs, re);
+}
 
 function get(p) {
   return new Promise((resolve, reject) => {
@@ -86,20 +94,25 @@ test('the checkout path becomes a made-up install path, and only that changes', 
   assert.equal(Number(r.headers['content-length']), Buffer.byteLength(r.body));
 });
 
+test('a sibling of the checkout is not swapped', async () => {
+  const r = await get('/sibling');
+  assert.equal(JSON.parse(r.body).text, CHECKOUT + '-other/x');
+});
+
 test('an answer carrying this Mac\'s home path is refused and printed as LEAK', async () => {
   const r = await get('/leak');
   assert.equal(r.status, 502);
   assert.ok(!r.body.includes(os.homedir()));
-  assert.match(logs, /^LEAK \/leak: home:/m);
+  await logged(/^LEAK \/leak: home:/m);
 });
 
 test('an encoded answer and an event stream are refused', async () => {
   assert.equal((await get('/gzip')).status, 502);
-  assert.match(logs, /^LEAK \/gzip: an encoded answer/m);
+  await logged(/^LEAK \/gzip: an encoded answer/m);
   const s = await get('/stream');
   assert.equal(s.status, 502);
   assert.ok(!s.body.includes('hello'));
-  assert.match(logs, /^LEAK \/stream: a stream/m);
+  await logged(/^LEAK \/stream: a stream/m);
 });
 
 test('a chunked answer goes on with its own length and no Transfer-Encoding beside it', async () => {
@@ -114,5 +127,5 @@ test('an answer the board breaks off is refused and printed as UPSTREAM', async 
   const r = await get('/cut');
   assert.equal(r.status, 502);
   assert.ok(!r.body.includes('half'));
-  assert.match(logs, /^UPSTREAM \/cut:/m);
+  await logged(/^UPSTREAM \/cut:/m);
 });

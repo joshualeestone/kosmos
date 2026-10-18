@@ -66,7 +66,7 @@ expect preview-other-team   1 production  false ZZZZZ99999.io.kosmos.app.preview
 make_ipa shots-build production false $T.io.kosmos.app $T shots >/dev/null
 out=$("$here/check-ipa-entitlements.sh" "$work/shots-build.ipa" "$T"); rc=$?
 if [ "$rc" -ne 0 ] && [ "$(printf '%s\n' "$out" | tail -1)" = "VERDICT: FAIL" ] \
-  && printf '%s\n' "$out" | grep -q 'KOSMOS_STORE_SHOTS'; then
+  && printf '%s\n' "$out" | grep -q 'WRONG    built with KOSMOS_STORE_SHOTS'; then
   echo "PASS  shots-build (refused as the screenshot build)"
 else
   echo "FAIL  shots-build: wanted the screenshot-build refusal, got rc=$rc"; printf '%s\n' "$out" | sed 's/^/      /'; fail=1

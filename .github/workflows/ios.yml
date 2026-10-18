@@ -125,7 +125,8 @@ jobs:
           if ios/tools/check-no-shots-flag.sh "$RUNNER_TEMP/shots-sym/Release-iphonesimulator/Kosmos.app" > "$RUNNER_TEMP/shots-ctl.log"; then
             echo "the check passed an app built with the switch"; exit 1
           fi
-          grep -q '^VERDICT: FAIL' "$RUNNER_TEMP/shots-ctl.log"
+          # The found-it line, not the bare verdict: a missing executable also fails, and would prove nothing.
+          grep -q 'was built with KOSMOS_STORE_SHOTS' "$RUNNER_TEMP/shots-ctl.log"
 
       # #4089: the check archive.sh runs before any upload, shown able to fail.
       - name: Exported-app push check (production aps-environment)

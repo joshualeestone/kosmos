@@ -77,11 +77,12 @@ if [ -n "$team" ]; then
   fi
 fi
 
-if "$(dirname "$0")/check-no-shots-flag.sh" "$app" >/dev/null; then
-  echo "ok       not the screenshot build"
-else
-  echo "WRONG    built with KOSMOS_STORE_SHOTS, or no Kosmos executable (check-no-shots-flag.sh)"; fail=1
-fi
+shots="$("$(dirname "$0")/check-no-shots-flag.sh" "$app")"
+case "$shots" in
+  *"VERDICT: PASS") echo "ok       not the screenshot build" ;;
+  *"was built with KOSMOS_STORE_SHOTS"*) echo "WRONG    built with KOSMOS_STORE_SHOTS (the App Store screenshot build)"; fail=1 ;;
+  *) echo "WRONG    the screenshot-switch check could not read the app: $(printf '%s\n' "$shots" | head -1)"; fail=1 ;;
+esac
 
 [ "$fail" -eq 0 ] && echo "VERDICT: PASS" || echo "VERDICT: FAIL"
 exit "$fail"

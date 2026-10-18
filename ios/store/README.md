@@ -111,8 +111,7 @@ path of a made-up user (`/Users/you/.local/share/kosmos/bin/kosmos`). No screen 
 hit still stops the run.
 
 **Worth knowing before upload.** In the chat shot your own messages carry a plain dark circle where a picture
-would be, because the test board has no profile picture for you. The messages carry the time the sample
-conversation was seeded (an evening, or a date once a run crosses midnight) while the status bar says 9:41. The project room opens on its newest
+would be, because the test board has no profile picture for you. The project room opens on its newest
 post, so on the 6.3-inch phone the first message is cut at the top; the app has no way to start it higher.
 
 **iPhone Duo.** Apple's page says: "Starting in April 2027, screenshots will be required for any app using the iOS
