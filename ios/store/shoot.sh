@@ -1,5 +1,9 @@
 #!/bin/bash
-# Takes the iOS App Store screenshots (#718): the real board UI on a throwaway
+# NOT THE STORE SET any more (#6262): ios/store/shoot-app.sh takes that from the app itself, at the required
+# sizes. This one still shows the board's phone layout in a desktop WebKit, and files into the folder you name
+# (or a new temp folder, printed), never into ios/store/screenshots/.
+#
+# Was: takes the iOS App Store screenshots (#718): the real board UI on a throwaway
 # board seeded with the clean store fleet (docs/browser-checks/mobile-shots.js
 # --data store), at the 6.9-inch iPhone size App Store Connect requires
 # (1320x2868), in WebKit, light and dark. Then drops the alpha channel (App
@@ -8,7 +12,7 @@
 # WebKit is an engine approximation of the iPhone app's web view, not the app.
 # It is a heavy run: pass the fleet heavy-run gate before starting it.
 #
-# Usage: NODE_PATH=$HOME/work/pw-runtime/node_modules ios/store/shoot.sh
+# Usage: NODE_PATH=$HOME/work/pw-runtime/node_modules ios/store/shoot.sh [out-dir]
 # Ends with one VERDICT: line; no verdict line means it did not finish.
 set -u -o pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -30,7 +34,9 @@ if grep -q '| ERROR\|OVERFLOW\|page error' "$raw/report.md"; then
   echo "VERDICT: FAIL (a shot errored or overflowed; nothing filed)"; exit 1
 fi
 
-python3 - "$raw" "$here/screenshots" "${order[@]}" <<'PY'
+out="${1:-$(mktemp -d "${TMPDIR:-/tmp}/ios-webkit-shots-XXXXXX")}"
+case "$(cd "$out" 2>/dev/null && pwd -P)" in "$(cd "$here" && pwd -P)/screenshots"*) echo "VERDICT: FAIL (not into the store set; use shoot-app.sh)"; exit 1;; esac
+python3 - "$raw" "$out" "${order[@]}" <<'PY'
 import sys, os, glob
 from PIL import Image
 raw, dest, order = sys.argv[1], sys.argv[2], sys.argv[3:]
@@ -59,4 +65,5 @@ for theme in themes:
         print('filed', f'screenshots/{theme}/{f}', Image.open(os.path.join(d, f)).size)
 PY
 [ $? = 0 ] || { echo "VERDICT: FAIL (filing the shots failed)"; exit 1; }
+echo "filed under $out"
 echo "VERDICT: PASS"

@@ -5,6 +5,9 @@ checked against Apple's length limit by `ios/store/check-listing.sh`, which read
 the text between the `<!-- field -->` markers below, so edit the text there and
 run it again.
 
+**Refreshed 2026-10-17** (Mona Lisa): the name is decided and the app record exists; pushes are switched on; the
+screenshots are now taken from the app itself (`ios/store/README.md`).
+
 **Refreshed 2026-10-15 for #6262** (Mona Lisa): the app now ships as `io.kosmos.app` under KOSMOS Agent Manager,
 Inc. (#6280), Kosmos runs on Windows as well as the Mac (its Windows tunnel, `engine/remote.js`
 `kosmos-tunnel.exe`). The copy describes the product as it will be at launch (Josh, 09-14), **but only what the
@@ -25,9 +28,10 @@ The facts this copy relies on, and where each came from (first read 2026-09-25):
 - The company name on kosmosplus.com is KOSMOS Agent Manager, Inc.
 - A push is sent for three things only: an agent needs you, replied, or posted
   (kosmos-relay `coordinator/src/notify.rs:46`, at `1ff95bde6`). There is no
-  "work finished" push, so the copy does not promise one. Pushes to the iPhone
-  app are not switched on yet (the coordinator only logs them until the go-live
-  settings are made).
+  "work finished" push, so the copy does not promise one. The coordinator sends
+  pushes to the iPhone app since 2026-10-17 (relay main 56d980fe, per Ice Cream
+  Kitty on #6262); no phone had registered yet at that report, so none has been
+  seen landing.
 - A new phone must be allowed on the computer before it can see the board (the Allow
   card, and `device_grants` on the coordinator).
 
@@ -46,10 +50,9 @@ promotional text follows the same rule.
 Kosmos: AI Agent Manager
 <!-- /name -->
 
-**The name is Josh's call** (#6262 step 2, the app record). Recommended: `Kosmos: AI Agent Manager`, the line the
-logo carries in his trailer script (2026-10-15) and the company's own name. The earlier draft's `Kosmos: AI
-Workforce` stays the first alternative, then `Kosmos+ for iPhone`. App Store Connect only says a name is taken
-when the record is created.
+**Decided:** Josh, #admin 2026-10-16 05:01 CDT ("I'm cool with the extra words"), and the App Store Connect app
+record was created with this name on 2026-10-17 (per Splinter on #6262, 14:24 CDT). The Home Screen label stays
+"Kosmos".
 
 ## Subtitle (30 characters at most)
 

@@ -25,11 +25,10 @@ These are listed roughly in the order they would stop a submission.
    #3974).** They were registered but did nothing, so the first submission
    ships without them and the listing does not mention them. The card stays
    open for a check on a real phone.
-4. **Pushes to the iPhone app are not switched on yet** (the coordinator only
-   logs them). The description and one screenshot show a notification landing,
-   so pushes have to be live before submission. The app's `aps-environment` is
-   also still `development` (`ios/Kosmos.entitlements`), and a store build
-   needs `production`.
+4. **Pushes to the iPhone app were switched on 2026-10-17** (relay main 56d980fe, per Ice Cream Kitty on #6262), and
+   build 1's exported app was checked for a `production` `aps-environment` (Baron Draxum, #6262). The description
+   says a notification lands on the agent that asked, so one should be seen landing on a real phone before
+   submission; none had registered at that report.
 5. **App Review needs a way in.** That means a demo Kosmos+ account and a Mac
    running Kosmos that stays online through the review, which has to approve
    the reviewer's phone. Who runs that Mac, and a contact name for the review,
@@ -62,55 +61,68 @@ notification records, server logs, and Resend, Twilio and Apple as processors
 |---|---|
 | `listing.md` | Name, subtitle, promotional text, description, keywords, support, marketing and privacy URLs, category, copyright, and draft notes for App Review |
 | `privacy-label.md` | The App Privacy answers, from reading the app and the coordinator, with sources and the UNSURE items |
-| `screenshots/light/`, `screenshots/dark/` | Two screenshot sets at the 6.9-inch iPhone size |
-| `check-listing.sh` | Checks every field against Apple's length limits (keywords in bytes), that each URL is https, that there are no em dashes, and that each screenshot is 1320x2868 with no alpha channel. Ends with `VERDICT:` |
+| `screenshots/6.3-light/`, `6.3-dark/` | The required size, from the app on an iPhone 17 (1206x2622) |
+| `screenshots/6.9-light/`, `6.9-dark/` | The large size, from the app on an iPhone 17 Pro Max (1320x2868) |
+| `shoot-app.sh`, `shots-proxy.js` | Take all four sets from the real app in the iOS simulator (below) |
+| `shoot.sh` | The older way: the board in a desktop WebKit, not the app. Kept for the board's own phone checks |
+| `check-listing.sh` | Checks every field against Apple's length limits (keywords in bytes), that each URL is https, that there are no em dashes, and that each screenshot set is a size App Store Connect takes, with no alpha channel, including at least one set at the required size. Ends with `VERDICT:` |
 
 ## Screenshots
 
-Four screenshots per set, at the 6.9-inch iPhone size App Store Connect asks for
-(1320x2868, no transparency). An iPhone-only app needs only this size; Apple
-scales it down for smaller iPhones. In upload order:
+**Taken from the app itself, 2026-10-17 (#6262 step 8).** Each picture is the Kosmos iPhone app running in the
+iOS simulator (iOS 27.0): its status bar, its safe areas, and the board as the app shows it through Kosmos+ (the
+Kosmos+ bar, agents as a list). The September and 10-15 sets were the board drawn by a desktop WebKit at a phone
+size, at the computer's own address, so they showed the at-the-computer layout, which the app never shows.
+
+**Sizes (Apple's "Screenshot specifications" page, read 2026-10-17).** App Store Connect requires "at least one
+screenshot for iPhone with Dynamic Island (medium display)": 1206x2622 or 1179x2556. The earlier sets were only
+1320x2868 (the large display), which is not the required size, so they could not have been the only upload.
+Both are here now:
+
+| Set | Phone | Pixels | Needed? |
+|---|---|---|---|
+| `6.3-light`, `6.3-dark` | iPhone 17 | 1206x2622 | **Required** (medium display) |
+| `6.9-light`, `6.9-dark` | iPhone 17 Pro Max | 1320x2868 | Optional (large display); App Store Connect uses it on the biggest phones |
+
+Four screenshots per set, in upload order:
 
 | # | File | What it shows |
 |---|---|---|
-| 1 | `01-home.png` | The team at a glance: Dana working first, and Cleo below her with her question waiting |
+| 1 | `01-home.png` | The team at a glance: Dana working, Cleo with a question, Eli working, Farah idle |
 | 2 | `02-push-landing.png` | Where a notification tap lands: Cleo's question about the printer quote, ready to answer |
 | 3 | `03-agent-chat.png` | A direct conversation with Dana, the writer, about the catalogue |
 | 4 | `04-project-room.png` | A project room: the agents on the spring catalogue talking to each other |
 
-**How they were made.** `ios/store/shoot.sh` runs the shared phone screenshot
-tool (`docs/browser-checks/mobile-shots.js --data store`) against a throwaway
-board filled with an invented team. No real account, agent, message or Mac
-appears, and the tool's leak guard stops the run if one does. The rendering
-engine is WebKit, the engine inside the iPhone app, but it is not the iPhone
-app itself, so these show the app's content rather than a photographed phone.
+**How they were made.** `ios/store/shoot-app.sh` builds the app with a screenshot switch (`KOSMOS_STORE_SHOTS`)
+that only this script sets: it opens a given address instead of Kosmos+ and skips the notification prompt. The
+address is `shots-proxy.js` in front of a throwaway board filled with an invented team
+(`docs/browser-checks/mobile-shots.js --keep --data store`). No real account, agent, message or computer appears:
+the tool's leak guard reads the four screens first, and the proxy reads every answer the board gives the app with
+the same checks and stops the run on a hit. iOS CI checks that the store build never carries the switch
+(`ios/tools/check-no-shots-flag.sh`, shown able to fail). The status bar reads 9:41 with full signal, as Apple's
+own pictures do.
 
-Two things are set so the pictures show a Mac that is set up, which the empty
-test board is not: each invented agent has a launch file and its own folder,
-and the board's "Claude subscription" status reads connected. The sandbox has
-no Claude account on purpose (so nobody's real account can leak into a
-picture), and without this every screen would carry a "cannot reach a Claude
-subscription" warning that a customer with a working Mac never sees.
+Two things are staged so the pictures show a computer that is set up, which the empty test board is not, as the
+earlier sets did: each invented agent has its own folder, and the board's "Claude subscription" status reads
+connected (the sandbox has no Claude account on purpose, so nobody's real account can reach a picture).
+One value is swapped rather than refused: each agent's instructions name where the `kosmos` command lives, and
+the throwaway board runs from a checkout whose path holds this Mac's user name, so the proxy gives it the installed
+path of a made-up user (`/Users/you/.local/share/kosmos/bin/kosmos`). No screen shows the instructions; any other
+hit still stops the run.
 
-**Two things you may want changed before upload.** The home shot shows a red
-"1 Issue" tile above the cards: that is how the board counts an agent waiting
-on you today, so it is true, but it is the first thing a buyer sees. And in the
-chat shot your own messages carry a plain dark circle where a picture would be,
-because the test board has no profile picture for you. Both come from the app
-as it is, not from the staging above.
+**Worth knowing before upload.** In the chat shot your own messages carry a plain dark circle where a picture
+would be, because the test board has no profile picture for you. The messages say "9:27 pm" while the status
+bar says 9:41: the board writes the time the sample conversation was seeded. The project room opens on its newest
+post, so on the 6.3-inch phone the first message is cut at the top; the app has no way to start it higher.
 
-**Retaken 2026-10-15 for #6262** on the current board, which changed a lot since the September set (the new
-look, the K mark and its streak, the agent cards). Same tool, the same four screens and the same invented team.
+**iPhone Duo.** Apple's page says: "Starting in April 2027, screenshots will be required for any app using the iOS
+27.1 SDK or later" (outer display 1398x2034, inner 2007x2853; read 2026-10-17). Build 1 was made with Xcode 27.0,
+so not yet. This Mac's simulators (iOS 27.0) list no Duo device, so there is no Duo set and none is guessed at.
+Take one with `shoot-app.sh` (a third device) once the simulator offers it.
 
-**iPhone Duo.** App Store Connect is said to ask for iPhone Duo screenshots from April 2027 (relayed through #6262;
-not seen first-hand, since the app record does not exist yet). This Mac's simulators (Xcode 27.0) list no Duo
-device: the newest are the iPhone 17 family and iPhone Air. So there is no Duo set, and none is guessed at.
-Take one with the same tool once the device type and its screen size exist. Until then the 6.9-inch set is what
-App Store Connect requires today.
+**My pick: the light sets** (6.3 and 6.9). They match the App Store's own default look and the kosmosplus.com
+site. The dark sets are there if you prefer them.
 
-**My pick: the light set.** It matches the App Store's own default look and the
-kosmosplus.com site. The dark set is there if you prefer it.
-
-To re-take them (needs Python with Pillow for the last step): pass the fleet heavy-run gate, then run
-`NODE_PATH=$HOME/work/pw-runtime/node_modules ios/store/shoot.sh`, then
+To re-take them: `NODE_PATH=$HOME/work/pw-runtime/node_modules ios/store/shoot-app.sh` (it checks the heavy-run
+gate itself, and needs an iOS simulator runtime: `xcodebuild -downloadPlatform iOS`, about 8 GB), then
 `ios/store/check-listing.sh`. Both end with a `VERDICT:` line.

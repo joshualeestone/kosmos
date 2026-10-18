@@ -1,6 +1,6 @@
 #!/bin/bash
 # Checks ios/store/listing.md against App Store Connect's field limits, and
-# checks the screenshots against the 6.9-inch iPhone size with no alpha channel.
+# checks the screenshots against the sizes App Store Connect takes, with no alpha channel.
 # Limits: name 30, subtitle 30, promotional text 170, description 4000,
 # keywords 100 bytes (Apple counts keyword bytes). Ends with one VERDICT: line;
 # no verdict line means it did not finish.
@@ -46,25 +46,38 @@ for md in "$file" "$here"/*.md; do
   if grep -q $'\xe2\x80\x94' "$md"; then echo "FAIL  $(basename "$md") contains an em dash"; fail=1; fi
 done
 
-# Screenshots: each set is a folder under screenshots/ holding 1 to 10 PNGs,
-# every one 1320x2868 portrait with no alpha channel.
-sets=0
+# Screenshots: each set is a folder under screenshots/ named <size>-<theme>, holding 1 to 10 PNGs with no alpha
+# channel, every one a portrait size App Store Connect takes for that display (developer.apple.com, App Store
+# Connect help, "Screenshot specifications", read 2026-10-17):
+#   6.3  iPhone with Dynamic Island, medium display: 1206x2622 or 1179x2556. REQUIRED: at least one set.
+#   6.9  iPhone with Dynamic Island, large display: 1320x2868, 1290x2796 or 1260x2736. Optional.
+sets=0; required=0
 for d in "$here"/screenshots/*/; do
   [ -d "$d" ] || continue
-  sets=$((sets + 1)); count=0
+  set_name="$(basename "$d")"; sets=$((sets + 1)); count=0
+  case "$set_name" in
+    6.3-*) sizes="1206x2622 1179x2556" ;;
+    6.9-*) sizes="1320x2868 1290x2796 1260x2736" ;;
+    *) echo "FAIL  screenshots/$set_name: not a size App Store Connect takes here (6.3-<theme> or 6.9-<theme>)"; fail=1; continue ;;
+  esac
   for s in "$d"*.png; do
     [ -e "$s" ] || continue
     count=$((count + 1))
     w=$(sips -g pixelWidth "$s" | awk '/pixelWidth/{print $2}')
     h=$(sips -g pixelHeight "$s" | awk '/pixelHeight/{print $2}')
     a=$(sips -g hasAlpha "$s" | awk '/hasAlpha/{print $2}')
-    name="$(basename "$d")/$(basename "$s")"
-    if [ "$w" = 1320 ] && [ "$h" = 2868 ] && [ "$a" = no ]; then echo "ok    $name: ${w}x${h}, alpha $a"
-    else echo "FAIL  $name: ${w}x${h}, alpha $a (want 1320x2868, alpha no)"; fail=1; fi
+    name="$set_name/$(basename "$s")"
+    case " $sizes " in
+      *" ${w}x${h} "*) if [ "$a" = no ]; then echo "ok    $name: ${w}x${h}, alpha $a"
+                       else echo "FAIL  $name: has an alpha channel"; fail=1; fi ;;
+      *) echo "FAIL  $name: ${w}x${h} (want one of: $sizes)"; fail=1 ;;
+    esac
   done
-  if [ "$count" -lt 1 ] || [ "$count" -gt 10 ]; then echo "FAIL  $(basename "$d"): $count screenshots, App Store Connect takes 1 to 10"; fail=1; fi
+  if [ "$count" -lt 1 ] || [ "$count" -gt 10 ]; then echo "FAIL  $set_name: $count screenshots, App Store Connect takes 1 to 10"; fail=1
+  else case "$set_name" in 6.3-*) required=$((required + 1)) ;; esac; fi
 done
 if [ "$sets" = 0 ]; then echo "FAIL  no screenshot sets under $here/screenshots"; fail=1; fi
+if [ "$required" = 0 ]; then echo "FAIL  no 6.3-inch set: App Store Connect requires the medium Dynamic Island size"; fail=1; fi
 
 if [ "$fail" = 0 ]; then echo "VERDICT: PASS"; else echo "VERDICT: FAIL"; fi
 exit "$fail"

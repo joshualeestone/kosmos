@@ -38,7 +38,8 @@
  * of the stress-test sample (no stopped agent, no overlong names, no code
  * block); --scale device saves at the device's pixels, not CSS pixels. The
  * App Store size is `appstore` (440x956 at 3x, which is 1320x2868): it is not in
- * the default sweep. ios/store/shoot.sh is the one command for the iOS set.
+ * the default sweep. The iOS store set now comes from the app itself (ios/store/shoot-app.sh, #6262), which
+ * boots this board with --keep --data store and opens it in the iOS simulator.
  *
  * 🛑 NEVER THE LIVE BOARD, AND NEVER THIS MAC'S ACCOUNTS. The board below is
  * started here, on a free port, with every data root in a temp dir and a fake
