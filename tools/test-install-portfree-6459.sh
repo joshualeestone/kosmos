@@ -44,6 +44,7 @@ silent_listener() {   # <port>; sets LPID
 s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
 s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(16); time.sleep(120)' "$1" &
   LPID=$!
+  disown "$LPID" 2>/dev/null   # the kill pass below ends it; no "Killed: 9" job notice in the log
   PIDS="$PIDS $LPID"
   local i=0
   while [ "$i" -lt 100 ] && [ -z "$(lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null)" ]; do sleep 0.1; i=$((i+1)); done
@@ -53,6 +54,7 @@ s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(16); time.sleep(120)' "$1" &
 # The checks.
 n="$(grep -c '"! _ti_port_busy \$PORT"' tools/test-install.sh)"
 if [ "$n" = 2 ]; then ok "both released/free checks use the listening probe"; else bad "both released/free checks use the listening probe (found $n)"; fi
+# Catches this file's own spelling (curl ... -m 1 ... 127.0.0.1:$PORT/), not every way to write a 1 s probe.
 if grep -q 'curl [^#]*-m 1 [^#]*127\.0\.0\.1:\$PORT/' tools/test-install.sh; then
   bad "no 1 s curl probe of \$PORT is left in the harness"
 else
@@ -69,6 +71,7 @@ else
 fi
 
 # wait_port_free: the old one returns at once and leaves the listener; the new one reaches its kill pass.
+# The new one waits out its full first loop (30 x 0.5 s) before the kill pass, so this arm takes about 15 s.
 if old_wait_port_free && kill -0 "$LPID" 2>/dev/null; then
   ok "CONTROL: the old wait_port_free calls it free at once and leaves the listener running"
 else
