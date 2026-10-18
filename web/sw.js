@@ -170,16 +170,15 @@ self.addEventListener('fetch', (event) => {
 });
 
 /* The coordinator's sender (kosmos-relay VapidSender) posts who/what/where and
-   never content, so the payload is {kind, agent, project, id, address, session} -- NOT
-   {title, body}. `kind` is one of posted|replied|needs_you|ready (#6254 added
-   posted and ready); `address` is the person's own Mac host ("<mac>.<domain>", no
-   scheme) so a tap opens her board. We render a plain-language line from those
-   fields, still preferring an explicit title/body if some future producer sends
-   one. An unknown kind falls back to the generic headline below, so a new kind is
-   never dropped -- only phrased generically until it is listed here.
-   #6487: these words are the catalog's (docs/phone-notifications.md, "Wording") and the
-   coordinator's (kosmos-relay push.rs notice_text), which now sends title and body
-   itself; this table is the fallback for a push without a title. */
+   never content: {title, body|null, kind, agent, project, id, address, session}.
+   kosmos#6487: the coordinator makes the words itself (kosmos-relay push.rs
+   notice_text) and sends them as title and body (body null when there is no
+   project), so a title wins and is shown as it is. An older coordinator sends no
+   title; then the words come from `kind` (posted|replied|needs_you|ready, #6254
+   added posted and ready) with the table below, which matches the kosmos#6487
+   catalog's Wording table. An unknown kind gets the generic headline, so a new kind
+   is never dropped. `address` is the person's own Mac host ("<mac>.<domain>", no
+   scheme) so a tap opens her board. */
 const KIND_HEADLINE = {
   needs_you: 'needs you',
   posted: 'posted',
@@ -273,12 +272,12 @@ function notificationFor(event) {
     if (!data || typeof data !== 'object') data = {};
   }
   // #6487: a title from the coordinator is shown as it is, with its body only when it sent one (it sends none when
-  // there is no project). Without a title, the same words from the kind: "<Agent> <verb>", and "in <Project>" or
-  // no body; an unknown kind is "<Agent> has something for you" with no body.
-  let title = (typeof data.title === 'string' && data.title) ? data.title : '';
-  let body = (typeof data.body === 'string' && data.body) ? data.body : '';
+  // there is no project). Without a title, the words come from the kind alone (a body sent without a title is not
+  // used): "<Agent> <verb>", and "in <Project>" or no body; an unknown kind is "<Agent> has something for you".
+  let title = (typeof data.title === 'string' && data.title.trim()) ? data.title : '';
+  let body = (typeof data.body === 'string' && data.body.trim()) ? data.body : '';
   if (!title) {
-    const agent = (typeof data.agent === 'string' && data.agent) ? data.agent : 'An agent';
+    const agent = (typeof data.agent === 'string' && data.agent.trim()) ? data.agent : 'An agent';
     // Own keys only, so a kind such as "toString" is not read from the prototype.
     const known = Object.prototype.hasOwnProperty.call(KIND_HEADLINE, data.kind);
     title = agent + ' ' + (known ? KIND_HEADLINE[data.kind] : 'has something for you');

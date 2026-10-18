@@ -133,6 +133,13 @@ test('notificationFor renders each kind, and falls back safely', () => {
   assert.equal(notificationFor(ev({ kind: 'posted', agent: 'Sonya' })).title, 'Sonya posted');   // #6487
   assert.equal(notificationFor(ev({ kind: 'replied', agent: 'Sonya' })).title, 'Sonya replied');
   assert.equal(notificationFor(ev({ kind: 'ready', agent: 'Sonya' })).title, 'Sonya has work ready for you');   // #6254
+  // #6487: every known kind takes "in <Project>" as its body.
+  for (const kind of ['needs_you', 'replied', 'posted', 'ready']) {
+    assert.equal(notificationFor(ev({ kind, agent: 'Sonya', project: 'P' })).options.body, 'in P', kind);
+  }
+  // A blank name or title reads as missing, never as an empty-looking notification.
+  assert.equal(notificationFor(ev({ kind: 'needs_you', agent: '   ' })).title, 'An agent needs you');
+  assert.equal(notificationFor(ev({ title: '  ', kind: 'replied', agent: 'Sonya' })).title, 'Sonya replied');
   assert.equal(notificationFor(ev({ kind: 'weird', agent: 'Sonya' })).title, 'Sonya has something for you');   // #6487
   assert.equal(notificationFor(ev({ kind: 'weird', agent: 'Sonya', project: 'P' })).options.body, undefined, 'an unknown kind has no body');
   // A kind that names something every object has is still an unknown kind.

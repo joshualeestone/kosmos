@@ -214,13 +214,12 @@ function check(name, pass, detail) {
       } catch (e) {
         captureErr = String((e && e.message) || e);
       }
-      /* The REAL coordinator payload shape (kosmos-relay VapidSender): who/what/
-         where, never content -- {kind, agent, project, id, address}. sw.js must
-         DERIVE the notification from these fields. Delivering {title,body} here
-         instead would route through sw.js's explicit-title fallback and prove
-         nothing about the mapping the live push actually depends on (the exact
-         hand-rolled-fixture-answers-a-different-question trap). No title/body in
-         the fixture, on purpose, so the derive path is what is under test. */
+      /* The coordinator payload without a title -- {kind, agent, project, id, address}: what
+         the live coordinator sends until kosmos-relay pushwords-6487 (kosmos#6487) is deployed,
+         and what an older coordinator keeps sending after. sw.js must DERIVE the notification
+         from these fields, so the derive path is what is under test here. The payload WITH the
+         coordinator's own title and body (shown as it is, no body added) is pinned in
+         web.sw-718.test.js. */
       await cdp.send('ServiceWorker.deliverPushMessage', {
         origin,
         registrationId,
