@@ -3,6 +3,14 @@
 kosmos#6487 (Josh, 2026-10-18: "We should configure a list of all of the message types we could send and document").
 Read from the code on 2026-10-18 and checked against the push path owner's table on that card.
 
+## Words used here
+- **The coordinator**: the Kosmos+ service on the internet that passes a notification from this computer to a phone.
+- **Web push**: how Android phones and browsers receive notifications (iPhones use Apple's own service).
+- **Window**: a few minutes after a notification during which another of the same sort is not sent.
+- **Episode**: one stretch of the same trouble, from when it starts until it clears.
+- **Session name**: the agent's short internal name, such as `leo`, as opposed to the name shown on screen.
+- **The agent's token**: the private key each agent uses when it posts, so Kosmos knows the post is really from it.
+
 ## How a notification travels
 A computer running Kosmos notices that something happened and sends the coordinator a short event: its kind, the
 agent, the project when there is one, and an id. The coordinator turns that into the words on the phone, through Apple
@@ -41,7 +49,7 @@ email keeps its own sentence (`<Agent> needs you on <Project>.`), since it is no
 
 | Event | When it fires | Title | Body today | Settings switch, default | How often |
 |---|---|---|---|---|---|
-| An agent needs you (its report) | an agent's report changes to needing the person | `<Agent> needs you` | `on <Project>`, or `in Kosmos` | When an agent needs me, on | at most once per agent per 5 minutes |
+| An agent needs you (its report) | an agent's report changes to needing the person, including when it stops to ask permission for something | `<Agent> needs you` | `on <Project>`, or `in Kosmos` | When an agent needs me, on | at most once per agent per 5 minutes |
 | An agent needs you (keeps crashing) | 3 runs of an agent end on their own within 30 minutes, each lasting 2 minutes or less; restarts Kosmos makes itself do not count (told once per loop) | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
 | An agent needs you (stuck) | an agent's sign-in has been expired for 15 minutes, or a usage limit has held it for 30 minutes | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
 | An agent needs you (a helper gave up) | one to two minutes after one of the agent's helpers gives up (a quota resume, an idle nudge, or the first-reply reminder); not while the agent already shows needs-you | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
