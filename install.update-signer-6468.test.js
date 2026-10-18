@@ -101,7 +101,7 @@ it('an ad-hoc (local build) install is not held to a signer, and says so', () =>
   const dest = tree('/bin/ls', '/bin/cat', { adhoc: ['runtime/bin/node', 'app/bin/kosmos-tunnel'] });
   const r = check(tree('/bin/cat', '/bin/ls', { adhoc: ['runtime/bin/node'] }), dest);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /local build \(not signed for release: runtime\/bin\/node app\/bin\/kosmos-tunnel\)/);
+  assert.match(r.out, /not signed for release \(local build or older: runtime\/bin\/node app\/bin\/kosmos-tunnel\)/);
   assert.equal(r.out.split('\n').filter(Boolean).length, 1, 'one line, not one per part');
 });
 
@@ -153,7 +153,7 @@ it('an unsigned (local) installed part is not held to a signer, and is named', (
   fs.writeFileSync(path.join(dest, 'app/bin/kosmos-tunnel'), '#!/bin/sh\n', { mode: 0o755 });
   const r = check(tree('/bin/ls', '/bin/ls'), dest);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /not signed for release: app\/bin\/kosmos-tunnel\)/);
+  assert.match(r.out, /not signed for release \(local build or older: app\/bin\/kosmos-tunnel\)/);
 });
 
 it('a symlinked installed part is named as not held, not skipped silently', () => {
@@ -162,7 +162,7 @@ it('a symlinked installed part is named as not held, not skipped silently', () =
   fs.symlinkSync('/bin/cat', path.join(dest, 'app/bin/kosmos-tunnel'));
   const r = check(tree('/bin/ls', '/bin/cat'), dest);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /not signed for release: app\/bin\/kosmos-tunnel\)/);
+  assert.match(r.out, /not signed for release \(local build or older: app\/bin\/kosmos-tunnel\)/);
 });
 
 it('an install whose PATH contains the word adhoc is still held to its signer', () => {
