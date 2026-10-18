@@ -95,6 +95,7 @@ const HOST_BRANCH_EXCLUDED = {
   'engine/usage-world-5532.test.js': 'its win32 branches (#5532) only skip the chmod and symlink arms; the usage scan it tests reads Claude transcripts the same way on both, and engine/usage.test.js is not run on Windows either',
   'engine/agentbrowser.test.js': 'its win32 branch only skips a read-only-folder arm; the file describes macOS',
   'server.builtsha-6330.test.js': 'its win32 branches (#6330 slice 2) only skip the two Mac CLI arms (install/kosmos is bash); the Windows CLI\'s --file is tested in tools.windows-kosmos-cli-570.test.js, and the engine and route arms run everywhere',
+  'test-support.stray-processes.test.js': 'its six ps-based tests skip on win32 (killUnderScope reads ps, which Windows has not, and does nothing there); its pure names() test runs on the Mac and Linux (#6362)',
   'test-support.tmpscope.test.js': 'its win32 branches (#6362) only skip the locked-folder arm (POSIX permissions) and the left-running-child arm (bash and POSIX signals); tmpscope itself is plain node fs and its other arms run on the Mac and Linux',
   'engine/status.codex-model-switch-4416.test.js': 'the guard it tests is Mac-only by design: it compares a rollout with the launch plist\'s mtime, and a Windows Scheduled Task has no file to compare',
   'engine/geminisettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',

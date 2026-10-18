@@ -22,6 +22,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const stray = require('../test-support/stray-processes');
 
 const c = require('./orgchartcodex');
 
@@ -79,7 +80,8 @@ async function capture(argsFor, plant = {}) {
     // Its own process group, killed whole on a timeout, as the reader does: the launcher's native child must not outlive it.
     const child = spawn(bin, args, { cwd: work, env, stdio: ['ignore', 'ignore', 'ignore'], detached: true });
     const t = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }, 90000);
-    child.on('close', () => { clearTimeout(t); resolve(); });
+    // kosmos#6362 slice 2: Codex's plugin sync outlives it and wrote under the kts- dir after the sweep; end what names it.
+    child.on('close', () => { clearTimeout(t); stray.killUnderScope(); resolve(); });
     child.on('error', () => { clearTimeout(t); resolve(); });
   });
   cap.server.close();
