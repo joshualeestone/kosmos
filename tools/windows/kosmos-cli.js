@@ -91,6 +91,7 @@ const USAGE = {
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
+  handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a sha256 for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
   inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
@@ -2204,6 +2205,24 @@ async function verbAccounts(ctx) {
   return 0;
 }
 
+/* #6506, as install/kosmos cmd_handoff: the FACTS for an agent's handoff -- its live self-report state, a sha256 for
+   each artifact path it names, when its instruction file last changed, and whether the folder is a git repository.
+   Facts only: it writes nothing and changes no state. The words and the reads live once, in engine/handoff.js, which
+   the Mac cmd_handoff runs too, so the two CLIs cannot drift. A local read, so no board call. */
+async function verbHandoff(ctx, args) {
+  let handoff;
+  try { handoff = ctx.engine('handoff'); } catch { ctx.err('Kosmos could not find its own handoff reader; this install looks incomplete.'); return 1; }
+  let text;
+  try {
+    text = handoff.render({ session: ctx.env.KOSMOS_AGENT_SESSION || '', cwd: process.cwd(), artifacts: args, now: Date.now() });
+  } catch (e) {
+    ctx.err('kosmos handoff: could not gather the handoff facts (' + String((e && e.message) || e) + ')');
+    return 1;
+  }
+  for (const l of String(text).replace(/\n$/, '').split('\n')) ctx.out(l);
+  return 0;
+}
+
 /* The door checks the token with the service (up to 30 s) before storing it, so connect waits longer. */
 const CONNECT_TIMEOUT_MS = 35000;
 const CONNECT_TOKEN_MAX_BYTES = 64 * 1024;
@@ -2271,6 +2290,7 @@ const VERB_HANDLERS = {
   react: verbReact,
   report: verbReport,
   whoami: verbWhoami,
+  handoff: verbHandoff,
   inbox: verbInbox,
   room: verbRoom,
   task: subcommandRequired('task'),
@@ -2317,6 +2337,7 @@ const DESCRIBE = {
   react: 'react to a post in a project room',
   report: 'say what you are doing: working, blocked, waiting on someone',
   whoami: 'say which agent you are and which account you are on',
+  handoff: 'print facts for your handoff: your live state, artifact fingerprints, instruction and git status',
   room: 'read a project room',
   task: "a project's tasks: list, add, close, reopen, message, mark built",
   project: 'list, show, create or pause projects, or say your role on one',

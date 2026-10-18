@@ -3104,6 +3104,29 @@ cmd_accounts() {
   if [ "$prc" -ne 0 ]; then say "Kosmos gave an answer we could not read about its accounts."; exit 1; fi
 }
 
+# ---- kosmos handoff [path ...]  (kosmos#6506)
+# Prefill the FACTS for your handoff so you do not reconstruct them by hand (and
+# get them stale): your live self-report state, a sha256 for each artifact path
+# you name, when your instruction file last changed, and whether this folder is a
+# git repository. Facts only -- it writes nothing and changes no state; you still
+# write your own judgement, deliberate gaps and review notes. The output is shaped
+# to paste into the SAME per-agent handoff file the "Write a handoff, then
+# restart" flow uses (engine/autohandoff-sweep.js). It needs no board: every fact
+# is a local read, so it still works when the board is busy. The words it reuses
+# live once (engine/autohandoff.js HANDOFF_CONTENTS, engine/handoff.js), as
+# cmd_accounts reuses engine/accountline.js.
+cmd_handoff() {
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to gather your handoff facts."; exit 1; }
+  local _mod; _mod="$(kosmos_engine_module handoff).js"
+  if [ ! -f "$_mod" ]; then
+    say "Kosmos could not find its own handoff reader; this install looks incomplete."
+    exit 1
+  fi
+  # Each artifact path is forwarded as its own argument, so a path with spaces is
+  # never split (#6506). Session and cwd come from this process's environment.
+  "$_node" "$_mod" "$@"
+}
+
 # ---- kosmos connect <service>  (#4451), the token on STDIN
 # Connect a service THROUGH ITS KOSMOS DOOR, so its row in Settings > Connections shows it. The
 # token is read from stdin, never an argument (an argument is visible to every process on the
@@ -4555,6 +4578,7 @@ kosmos_command_list() {
   printf '  kosmos agent         make an agent, or list the roles one can have\n'
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
+  printf '  kosmos handoff       print facts for your handoff: your live state, artifact fingerprints, instruction and git status\n'
   printf '  kosmos connections   list the outside services and which are connected\n'
   printf '  kosmos accounts      list the provider accounts and whether each is signed in\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
@@ -4616,6 +4640,10 @@ if [ "$_kosmos_help" = 1 ]; then
       # #4784 review 1: NOT with the read-only group below. Run bare, inbox prints the person's private
       # messages, which is not what --help promises.
       printf 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)\n'
+      exit 0 ;;
+    handoff)
+      # #6506: run bare it prints your handoff facts (a local read); --help must only say what it does, not gather them.
+      printf 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a sha256 for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)\n'
       exit 0 ;;
     adopt|whoami|connections)
       # These show read-only OUTPUT on --help (they act read-only), so their own
@@ -5894,6 +5922,7 @@ case "${1:-}" in
   react)   shift; cmd_react "$@" ;;
   report)  shift; cmd_report "$@" ;;
   whoami)  shift; cmd_whoami "$@" ;;
+  handoff) shift; cmd_handoff "$@" ;;   # kosmos#6506
   inbox)   shift; cmd_inbox "$@" ;;
   connections) cmd_connections ;;
   accounts) cmd_accounts ;;

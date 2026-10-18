@@ -1,0 +1,296 @@
+'use strict';
+/**
+ * kosmos#6506: the facts a `kosmos handoff` prints so an agent whose context is
+ * filling up does not reconstruct them by hand (and get them stale). FACTS ONLY:
+ * this module measures and renders; it writes nothing and changes no state. The
+ * agent still writes its own judgement, deliberate gaps and review notes; this
+ * fills only what it can measure.
+ *
+ * The output is Markdown shaped to drop into the SAME per-agent handoff file the
+ * board's "Write a handoff, then restart" flow uses (engine/autohandoff-sweep.js
+ * handoffPathFor), not a second location (#3492). The handoff CONTRACT is reused
+ * verbatim from engine/autohandoff.js HANDOFF_CONTENTS, so there is no second
+ * copy of that list to drift (the codebase's most-shipped defect).
+ *
+ * The four measured facts (the card's scope ruling), and why each is honest:
+ *   - the agent's live state, from engine/selfreport.js. A missing report reads
+ *     "never reported", NEVER a default "idle" (selfreport's six states are
+ *     started/working/idle/needs_you/blocked/stopped; absence is a seventh thing,
+ *     not the third). The assigned-task LIST is deferred (card ruling 2): there
+ *     is no agent-token route for "all my tasks", so the self-report is the task
+ *     state a handoff can measure.
+ *   - when the instruction file last changed, from engine/instructions.js
+ *     staleness().editedAt. A bad or epoch mtime reads "cannot tell", never 1970.
+ *   - a sha256 for each artifact path the agent names, honest about a missing,
+ *     directory or unreadable path (it says which), with paths kept intact so a
+ *     path with spaces is never split.
+ *   - whether the current folder is a git repository: "not a git repository" is
+ *     printed ONLY when that is the real answer, kept distinct from git being
+ *     absent and from git erroring.
+ *
+ * Every read is fail-soft and local (no board, no network): a handoff is often
+ * written when the board is busy, so a fact that cannot be read says so rather
+ * than throwing. The requires are lazy and guarded for the same reason -- a
+ * partial install degrades one fact, it does not crash the command.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { execFileSync } = require('child_process');
+
+/* A sane calendar year floors "cannot tell": an mtime at or before the epoch, or
+ * one that does not parse, is not a date to show (#6506 axis 3: never 1970). */
+const MIN_SANE_YEAR = 2000;
+
+function iso(ms) {
+  if (!Number.isFinite(ms)) return null;
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+/* A one-line, control-stripped excerpt of a tool's error, so a multi-line git
+ * message never becomes extra Markdown lines. */
+function firstLine(s) {
+  const t = String(s == null ? '' : s).replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, ' ').trim();
+  const nl = t.indexOf('\n');
+  return nl === -1 ? t : t.slice(0, nl).trim();
+}
+
+/* Run git read-only, returning { ok, out } or { ok:false, code, stderr }. Never
+ * throws: a missing binary is reported as code 'ENOENT'. */
+function runGit(cwd, args) {
+  try {
+    const out = execFileSync('git', ['-C', cwd, ...args], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    return { ok: true, out: String(out) };
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return { ok: false, code: 'ENOENT' };
+    return { ok: false, code: (e && e.status) || null, stderr: String((e && e.stderr) || (e && e.message) || '') };
+  }
+}
+
+/**
+ * The repository fact for a folder. Four distinct answers (#6506 axis 4):
+ *   - git is not installed
+ *   - not a git repository (the real negative answer)
+ *   - git could not read this folder (some other git failure)
+ *   - branch + sha (+ clean/dirty) when it is a work tree
+ */
+function gitFact(cwd) {
+  const inside = runGit(cwd, ['rev-parse', '--is-inside-work-tree']);
+  if (!inside.ok) {
+    if (inside.code === 'ENOENT') return 'git is not installed, so the repository state could not be read';
+    if (/not a git repository/i.test(inside.stderr || '')) return 'not a git repository';
+    const why = firstLine(inside.stderr);
+    return 'git could not read this folder' + (why ? ': ' + why : '');
+  }
+  if (inside.out.trim() !== 'true') return 'inside a git directory but not a work tree';
+
+  const head = runGit(cwd, ['rev-parse', 'HEAD']);
+  if (!head.ok) {
+    // A repository with no commits yet: rev-parse HEAD fails with "unknown revision".
+    if (/unknown revision|ambiguous argument 'HEAD'|needed a single revision/i.test(head.stderr || '')) {
+      return 'a git repository with no commits yet';
+    }
+    const why = firstLine(head.stderr);
+    return 'a git repository, but its HEAD could not be read' + (why ? ': ' + why : '');
+  }
+  const sha = head.out.trim();
+  const br = runGit(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  let branch = br.ok ? br.out.trim() : '';
+  const dirty = runGit(cwd, ['status', '--porcelain']);
+  const state = dirty.ok ? (dirty.out.trim() ? 'uncommitted changes present' : 'clean') : 'working-tree state unknown';
+
+  const where = !branch || branch === 'HEAD' ? 'detached HEAD' : 'branch `' + branch + '`';
+  return where + ' at `' + sha + '`, ' + state;
+}
+
+/** sha256, or an honest reason, for one artifact path (#6506 axis 5). The path is
+ * echoed back exactly as given (never re-split), so a path with spaces is safe. */
+function fingerprint(p) {
+  let st;
+  try {
+    st = fs.statSync(p);
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return 'missing (no such file)';
+    if (e && e.code === 'EACCES') return 'unreadable (permission denied)';
+    if (e && e.code === 'ELOOP') return 'unreadable (symlink loop)';
+    if (e && e.code === 'ENOTDIR') return 'missing (a parent path element is not a directory)';
+    return 'could not be read (' + firstLine(e && e.message) + ')';
+  }
+  if (st.isDirectory()) return 'is a directory, not a file';
+  if (!st.isFile()) return 'not a regular file';
+  try {
+    const buf = fs.readFileSync(p);
+    return 'sha256:' + crypto.createHash('sha256').update(buf).digest('hex');
+  } catch (e) {
+    if (e && e.code === 'EACCES') return 'unreadable (permission denied)';
+    return 'could not be read (' + firstLine(e && e.message) + ')';
+  }
+}
+
+/** The agent's live state from the self-report, "never reported" when absent
+ * (#6506 axis 2). Never defaults to idle. */
+function stateFact(session) {
+  if (!session) return 'cannot tell which agent this is (no session), so no self-report was read';
+  let self;
+  try {
+    self = require('./selfreport');
+  } catch (e) {
+    return 'could not load the self-report reader (' + firstLine(e && e.message) + ')';
+  }
+  let r;
+  try {
+    r = self.read(session);
+  } catch (e) {
+    return 'could not read the self-report (' + firstLine(e && e.message) + ')';
+  }
+  if (!r || !r.found) {
+    const because = r && typeof r.because === 'string' && r.because ? ' (' + r.because + ')' : '';
+    // "never reported" is the sentence selfreport itself uses for a never-reported agent; an unreadable
+    // record carries its own `because`, surfaced in parentheses so the two are told apart.
+    return 'never reported' + because;
+  }
+  const parts = [String(r.state || 'reported, state unknown')];
+  if (typeof r.because === 'string' && r.because) parts.push(r.because);
+  if (typeof r.on === 'string' && r.on) parts.push('on ' + r.on);
+  if (typeof r.owner === 'string' && r.owner) parts.push('owner ' + r.owner);
+  if (typeof r.until === 'string' && r.until) parts.push('until ' + r.until);
+  const when = iso(Date.parse(r.at));
+  if (when) parts.push('as of ' + when);
+  return parts.join('; ');
+}
+
+/** When the instruction file last changed, its sha256 version, and whether the
+ * running agent is on an edited copy. A bad or epoch mtime reads "cannot tell"
+ * (#6506 axis 3). Returns { file, line }. */
+function instructionFact(session) {
+  if (!session) return { file: null, line: 'cannot tell which agent this is (no session), so the instruction file was not read' };
+  let instr;
+  try {
+    instr = require('./instructions');
+  } catch (e) {
+    return { file: null, line: 'could not load the instructions reader (' + firstLine(e && e.message) + ')' };
+  }
+  let file = null;
+  try {
+    file = instr.fileFor(session);
+  } catch (_) {
+    file = null;
+  }
+  let st;
+  try {
+    st = instr.staleness(session, null, session);
+  } catch (e) {
+    return { file, line: 'could not read the instruction file (' + firstLine(e && e.message) + ')' };
+  }
+  st = st || {};
+  const ms = st.editedAt ? Date.parse(st.editedAt) : NaN;
+  const sane = Number.isFinite(ms) && ms > 0 && new Date(ms).getUTCFullYear() >= MIN_SANE_YEAR;
+
+  const bits = [];
+  if (sane) bits.push('last changed ' + iso(ms));
+  else bits.push('cannot tell when it last changed' + (st.because ? ' (' + st.because + ')' : ''));
+  if (typeof st.version === 'string' && st.version) bits.push('version ' + st.version);
+  if (st.state === 'stale') bits.push('STALE: edited since this agent started, so a restart is needed to re-read it');
+  else if (st.state === 'current') bits.push('current with this agent');
+  else if (st.state === 'unknown') bits.push('freshness unknown');
+  return { file, line: bits.join('; ') };
+}
+
+/** The per-agent handoff file the board's restart flow uses, so the agent pastes
+ * into the one place both features read. Null when it cannot be computed. */
+function handoffPath(session) {
+  if (!session) return null;
+  try {
+    const store = require('./store');
+    const sweep = require('./autohandoff-sweep');
+    return sweep.handoffPathFor(store, session);
+  } catch (_) {
+    return null;
+  }
+}
+
+/** The shared handoff contract (engine/autohandoff.js HANDOFF_CONTENTS), reused
+ * verbatim so there is no drifting copy (#6506 axis 1). */
+function contractBullets() {
+  try {
+    const auto = require('./autohandoff');
+    if (Array.isArray(auto.HANDOFF_CONTENTS)) return auto.HANDOFF_CONTENTS.slice();
+  } catch (_) {
+    /* fall through */
+  }
+  return null;
+}
+
+/**
+ * Render the handoff facts as Markdown. Pure of its environment except for the
+ * reads it is meant to do: pass { session, cwd, artifacts, now } and it measures
+ * against those, so a test fully controls the output. Defaults read the running
+ * environment, which is what the CLI wants.
+ */
+function render(opts) {
+  opts = opts || {};
+  const session = typeof opts.session === 'string' ? opts.session : (process.env.KOSMOS_AGENT_SESSION || '');
+  const cwd = opts.cwd || process.cwd();
+  const artifacts = Array.isArray(opts.artifacts) ? opts.artifacts : [];
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+
+  const lines = [];
+  const stamp = iso(now) || new Date().toISOString();
+  lines.push('<!-- Facts for your handoff, prefilled by `kosmos handoff` at ' + stamp + '. These are measured, not judged: write the rest yourself. This command changes nothing. -->');
+  lines.push('');
+  lines.push('# Handoff facts: ' + (session || 'this agent'));
+  lines.push('');
+
+  const hp = handoffPath(session);
+  if (hp) {
+    lines.push('Paste into: ' + hp);
+    lines.push('');
+  }
+
+  const contract = contractBullets();
+  lines.push('## What a handoff must cover');
+  if (contract) {
+    for (const b of contract) lines.push(b);
+  } else {
+    lines.push('- (the shared handoff contract could not be read on this install)');
+  }
+  lines.push('');
+
+  lines.push('## Prefilled facts');
+  lines.push('- Branch and sha (checked in `' + cwd + '`): ' + gitFact(cwd));
+  lines.push('- Live state (self-report): ' + stateFact(session));
+  const instr = instructionFact(session);
+  lines.push('- Instruction file' + (instr.file ? ' (`' + instr.file + '`)' : '') + ': ' + instr.line);
+  if (artifacts.length) {
+    lines.push('- Artifacts you named:');
+    for (const p of artifacts) lines.push('  - `' + p + '`: ' + fingerprint(p));
+  } else {
+    lines.push('- Artifacts you named: none (pass artifact paths as arguments to fingerprint them)');
+  }
+  lines.push('');
+  lines.push('Everything else in the contract above is yours to write; this command measures facts and changes nothing.');
+
+  return lines.join('\n') + '\n';
+}
+
+module.exports = { render, gitFact, fingerprint, stateFact, instructionFact, handoffPath, contractBullets, MIN_SANE_YEAR };
+
+/* Run as the CLI entry (install/kosmos cmd_handoff runs this file with the
+ * artifact paths as arguments; the Windows CLI calls render directly). Session
+ * and cwd come from the environment the agent invoked it in. Never throws out:
+ * an unexpected failure prints one honest line and exits non-zero. */
+if (require.main === module) {
+  try {
+    process.stdout.write(render({ artifacts: process.argv.slice(2) }));
+  } catch (e) {
+    process.stderr.write('kosmos handoff: could not gather the handoff facts (' + firstLine(e && e.message) + ')\n');
+    process.exit(1);
+  }
+}
