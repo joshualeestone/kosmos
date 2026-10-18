@@ -277,8 +277,9 @@ function connectWith(port, dataDir, home = HOME) {
     const t = setTimeout(() => child.kill('SIGKILL'), 20000);
     child.on('close', (code, sig) => {
       clearTimeout(t);
-      if (typeof code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '). ' + out)); return; }
-      resolve({ code, out });
+      const done = { code, out };
+      if (typeof done.code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '). ' + out)); return; }
+      resolve(done);
     });
   });
 }
