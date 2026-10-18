@@ -338,6 +338,32 @@ sealed_requirement() {
   # An implicit requirement (the usual case, Developer ID or ad-hoc) prints as a comment: "# designated => ...".
   /usr/bin/codesign -d -r- "$ours" 2>&1 | /usr/bin/sed -n 's/^#* *designated => //p'
 }
+# #6468 ask 1: an update must come from whoever signed the build already installed. Each signed part of the new build
+# in the stage ($1) must satisfy the designated requirement of the same part installed at $2: the identifier and the
+# signing team, read from the installed copy, so no Team ID is spelled here (runtime/bin/node is Node's own team, the
+# rest are ours). Runs BEFORE anything in the stage is run. A part the installed copy does not have, or whose
+# installed signature is ad-hoc (a cdhash requirement: a local or test build), or unsigned, is not checked, and says
+# so: there is no release signer to hold it to. A tarball from a compromised host cannot meet a Developer ID
+# requirement it was not signed for. LIMIT: this guards the signed binaries only; app/ JS and bin/kosmos are covered
+# by the signed manifest (#6468 ask 2), and the check is only as trusted as the copy of this script that runs it.
+update_signer_ok() {
+  local stage="$1" dest="$2" part req deep
+  for part in app/Kosmos.app runtime/bin/node app/bin/kosmos-tunnel app/bin/kosmos-app; do
+    [ -e "$dest/$part" ] && [ ! -L "$dest/$part" ] || continue
+    req="$(/usr/bin/codesign -d -r- "$dest/$part" 2>&1 | /usr/bin/sed -n 's/^#* *designated => //p')" || req=""
+    case "$req" in
+      ''|*cdhash*) info "the installed $part is not a signed release, so the new one's signature is not checked"; continue ;;
+    esac
+    if [ ! -e "$stage/$part" ]; then continue; fi
+    deep=""; case "$part" in *.app) deep="--deep";; esac
+    # shellcheck disable=SC2086  # $deep is one flag or nothing
+    if [ -L "$stage/$part" ] || ! /usr/bin/codesign --verify $deep --strict "-R=$req" "$stage/$part" >/dev/null 2>&1; then
+      info "the update's $part is not signed by the same developer as this install, so it was not installed"
+      return 1
+    fi
+  done
+  return 0
+}
 # Does the account's own config (slice 1, write_install_config) name THIS install? Same anchored match as the
 # uninstall's removal of that file.
 sealed_serves_this_install() {
@@ -1331,6 +1357,12 @@ install_kosmos() {
   # fine and then cannot turn Plus on, so a missing one is a broken download.
   if [ "$(uname -s)" != "Linux" ]; then
     [ -f "$stage/app/bin/kosmos-tunnel" ] && [ -x "$stage/app/bin/kosmos-tunnel" ] || { rm -rf "$stage"; return 1; }
+  fi
+  # #6468: a downloaded update must be signed like the installed build BEFORE anything in it runs (the probe below
+  # runs the new node). Not on Linux (no codesign) and not for a local KOSMOS_SRC copy (a developer's own tree).
+  if [ "$from_network" = yes ] && [ "$(uname -s)" = "Darwin" ] && ! update_signer_ok "$stage" "$dest"; then
+    rm -rf "$stage"
+    return 1
   fi
   # The runtime must RUN here, the same probe the tmux bundle gets: a
   # binary that will not load fails silently and baffling, and the floor
