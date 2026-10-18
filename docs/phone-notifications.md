@@ -12,7 +12,7 @@ for an iPhone and through web push for Android and the browser.
 
 **Phone notifications are off until the person turns them on**: Settings, "Buzz my phone about my agents", Turn on.
 That switch is off by default today; kosmos#6488 changes it. Once it is on, a notification goes out only when the kind's
-own switch is on, this computer is connected to Kosmos+, and a phone is signed in to the Kosmos app and this computer has allowed that phone. A computer still
+own switch is on, this computer is connected to Kosmos+, and a phone or browser is signed in and this computer has allowed it. A computer still
 waiting to be allowed, or a phone that was denied, gets nothing.
 
 ## Wording (the plain templates, to ship)
@@ -32,7 +32,8 @@ no project (now no body).
 **Not yet in force.** The words are built in three places, and they must be changed to match this table: the
 coordinator's iPhone builder, the coordinator's web-push worker, and this repo's `web/sw.js`. Ice Cream Kitty makes that
 change after kosmos#6488, with tests that keep all three equal to this table. No test reads this page yet. The test
-notice (`Kosmos has something for you`, body `in Kosmos`) is fixed text outside this table and stays as it is; the
+notice (`Kosmos has something for you`, body `in Kosmos`) goes through the same wording code with no project, so the
+change must keep its body on purpose (or it loses it); the
 email keeps its own sentence (`<Agent> needs you on <Project>.`), since it is not a notification.
 
 ## Shipped today
@@ -60,11 +61,12 @@ agent can buzz once for each inside the same 5 minutes. Restarting Kosmos clears
 notices come again only after another full wait; and it forgets which crash loops were already told, so a loop still
 going is told again straight after a restart.
 
-The stuck and helper notices cover only agents Kosmos itself set up. A helper notice held back because the agent
-already shows needs-you is not lost: it comes once that question is answered.
+The stuck and helper notices cover only agents Kosmos itself set up. A helper give-up while the agent already shows
+needs-you is not sent; for the idle nudge and the first-reply reminder it is cleared at once, and a quota give-up is
+cleared as soon as the agent is working again, so in practice none of them arrives later.
 
 Tapping a notification opens that agent's page, even for a project post (or the board's home when the agent's session name has
-anything but lowercase letters, digits, `-` and `_`, or is longer than 64 characters). The crash notice is the
+anything but lowercase letters, digits, `-` and `_`, starts with `-` or `_`, or is longer than 64 characters). The crash notice is the
 exception: it sends the cleaned-up name (kosmos#6495), so for such an agent the tap can open a page for a name that is
 not quite the agent's. A reply, a crash, a stuck terminal and a helper giving up never carry a project, so their
 body is `in Kosmos` today and none under the new wording. A reply to the person's post uses only the "replies to a post
@@ -78,13 +80,15 @@ Sound: the default sound on every kind. Grouping: none yet; each notification st
 
 | Event | When it would fire | Wording | Status |
 |---|---|---|---|
-| An agent needs you, by email | a needs-you the phone was sent (so both phone switches on, and not dropped by the 5-minute window) and not acknowledged within 30 minutes, checked every minute (nothing in Kosmos sends that acknowledgement yet, see below); never one older than 6 hours; at most once per agent per account per day | subject `<Agent> needs you`; first line `<Agent> needs you on <Project>.` (no "on" part without a project), then how to open Kosmos, and "Your agent paused for your input and will pick up again once you answer." | built, behind `KOSMOS_NEEDS_YOU_EMAIL`, which is off in production, so nothing sends today |
+| An agent needs you, by email | a needs-you this computer sent to Kosmos+ (so the master and "When an agent needs me" switches on, and not dropped by the 5-minute window; no phone needed) and not acknowledged within 30 minutes, checked every minute (nothing in Kosmos sends that acknowledgement yet, see below); never one older than 6 hours; at most once per agent per account per day | subject `<Agent> needs you`; first line `<Agent> needs you on <Project>.` (no "on" part without a project), then how to open Kosmos, and "Your agent paused for your input and will pick up again once you answer." | built, behind `KOSMOS_NEEDS_YOU_EMAIL`, which is off in production (measured on the coordinator by the push path's owner, #6487), so nothing sends today |
 
 If that flag is turned on after kosmos#6488 makes the master switch on by default, every connected computer becomes
 eligible for this email, including people who never set up a phone. **And nothing in Kosmos acknowledges a needs-you
 yet**, so with the flag on every needs-you would be emailed after 30 minutes, even one the person already answered on
 the board. The flag must stay off until the board sends that acknowledgement. A needs-you already 30 minutes old when the flag takes
-effect (on the coordinator's next restart) is not emailed; a younger one is, once it reaches 30 minutes. The Settings hint that promises this email still shows today and is removed under kosmos#6489.
+effect (on the coordinator's next restart) is not emailed; a younger one is, once it reaches 30 minutes. The crash, stuck and helper notices are needs-you events too, so they would be emailed as well, and the email's closing
+sentence ("Your agent paused for your input and will pick up again once you answer.") does not fit them; change that
+before the flag is turned on. The Settings hint that promises this email still shows today and is removed under kosmos#6489.
 
 ## Proposed (Josh, 2026-10-18)
 Josh's words, verbatim: "<Agent> said <message>" for a direct message, and "<Agent> commented in <Project>: <message>"
