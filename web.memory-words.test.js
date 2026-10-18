@@ -467,3 +467,22 @@ test('a percentage measured against a guess says so, and one measured against a 
   assert.match(full, /assumed rather than watched/,
     'the arm a person acts on is the one that dropped the qualifier');
 });
+
+test('#6511: the Agents list row shows a dash for unknown memory, not the word, and still speaks the sentence', () => {
+  /* Mona's noise pass: "Unknown" in a narrow list cell is the status word Josh called meaningless (#3501). The row's
+     body is sliced by braces from `function lrow(` so a sibling surface (the agent page) cannot satisfy this. */
+  const at = PAGE.indexOf('function lrow(');
+  assert.notEqual(at, -1, 'the list row is not where this check expects it');
+  let depth = 0;
+  let i = PAGE.indexOf('{', at);
+  for (; i < PAGE.length; i++) {
+    if (PAGE[i] === '{') depth++;
+    else if (PAGE[i] === '}') { depth--; if (depth === 0) break; }
+  }
+  const row = PAGE.slice(at, i + 1);
+  const cell = row.match(/<span class="bar unknown"><\/span><span class="pct">(.*?)<\/span><\/span>/);
+  assert.ok(cell, 'the unknown-memory cell is not in the list row');
+  assert.match(cell[1], /^<span aria-hidden="true">\u2013<\/span>/, 'the visible half is not a dash');
+  assert.doesNotMatch(cell[1], /memu\.word/, 'the list row still shows the word');
+  assert.match(cell[1], /<span class="vh">\$\{memu\.aria\}$/, 'the spoken sentence is gone');
+});

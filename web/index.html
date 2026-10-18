@@ -22737,7 +22737,9 @@ function lrow(a) {
      both halves of the board explain the state the same way, which is what the
      shared derivation was for. */
   const mem = pct === null
-    ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
+    /* #6511 (Mona's noise pass): the row shows a dash, not the word ("Unknown" is the status word Josh called meaningless
+       on #3501); the ear still gets the sentence. The agent page keeps the word, beside its explanation. */
+    ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">–</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
   return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${answerAttrs(a)}${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}<span class="pres lpres ${m.pres}" aria-hidden="true"></span></div>${dmBadge(a)}
