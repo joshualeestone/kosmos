@@ -279,6 +279,20 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
    # shell, and the trap removes the directory without changing that status.
    # A signal sent to this shell alone (not its process group) now ends this shell and not
    # setup, which runs on from its open file. Nothing in a normal install does that.
+   # kosmos#6474: AN EXISTING INSTALL HOLDS THE INSTALLER TO ITS SIGNED RELEASE, as an in-app update does (#6468).
+   # When this user already has Kosmos at the default home and its verifier knows run-setup, that installed copy
+   # downloads the installer and the signed manifest of the version prod serves, checks one against the other, and
+   # only then runs it. A first install has no installed copy to check with, so it keeps the checksum above (the
+   # .pkg is notarized; checking a signature without one needs a native verifier, see the card). Keep this block
+   # free of apostrophes: it is inside the single-quoted argument above.
+   h="$HOME/.local/share/kosmos"
+   if [ -f "$h/app/engine/manifest-verify.js" ] && [ -f "$h/runtime/bin/node" ] && [ -x "$h/runtime/bin/node" ] \
+      && /usr/bin/grep -q run-setup "$h/app/engine/manifest-verify.js"; then
+     base="${0%/*}/dist"
+     v=$(/usr/bin/curl -fsSL "$base/latest.json" 2>/dev/null | /usr/bin/sed -n "s/.*\"version\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | /usr/bin/head -1) || v=""
+     "$h/runtime/bin/node" "$h/app/engine/manifest-verify.js" run-setup "$0" "$base" "$v" "$h"
+     exit $?
+   fi
    /bin/sh "$d/setup"' "$SETUP_URL" "$PAGE_OPENED"
 rc=$?
 

@@ -83,7 +83,10 @@ URL="http://127.0.0.1:$PORT/setup"
 # in a REAL install `sudo -u -H` strips them, so production keeps the 5/3 default.
 # The refuse arms below therefore complete instantly instead of waiting ~12s each.
 export KOSMOS_PKG_RETRY_SLEEP=0 KOSMOS_PKG_RETRY_MAX=4
-run_arm() { rm -f "$T/RAN" "$T/DIR"; /bin/sh -c "$(cat "$INNER")" "$URL" 0 2>&1; }
+# #6474: HOME is sandboxed. The lifted block hands off to an INSTALLED Kosmos at $HOME/.local/share/kosmos when it has
+# a verifier, so the real HOME would make these arms depend on (and run against) this Mac's own install.
+mkdir -p "$T/nohome"
+run_arm() { rm -f "$T/RAN" "$T/DIR"; HOME="${ARM_HOME:-$T/nohome}" /bin/sh -c "$(cat "$INNER")" "$URL" 0 2>&1; }
 # #4319: the verify directory the installer ran from must be gone once the run ends.
 verify_dir_gone() {
   _vd=$(cat "$T/DIR" 2>/dev/null)
@@ -124,6 +127,49 @@ if [ "$rc" -ne 0 ] && [ ! -f "$T/RAN" ]; then pass "an ABSENT checksum refuses a
 else fail "an absent checksum must refuse AND not run (rc=$rc, ran=$([ -f "$T/RAN" ] && echo yes || echo no))"; fi
 if has "$out" "could not download the installer or its published checksum"; then pass "and says it could not DOWNLOAD/check, a different sentence from a mismatch"; else fail "and distinguishes the two causes: $out"; fi
 if has "$out" "safe to try again"; then pass "and this one IS safe to retry, so it says so"; else fail "and says a retry is safe here: $out"; fi
+
+# --- ARMS 5 (#6474): an EXISTING install holds the installer to its signed release ----------------
+# A fake installed home whose verifier pins a throwaway key, and the origin serving dist/latest.json plus the version's
+# manifest and .sig. The checksum gate above still runs first (both arms here have a matching .sha256).
+printf '%s  setup\n' "$GOOD" > "$WWW/setup.sha256"
+IH="$T/ihome"; K="$IH/.local/share/kosmos"; mkdir -p "$K/app/engine" "$K/runtime/bin" "$WWW/dist"
+ln -sf "$(command -v node)" "$K/runtime/bin/node"
+printf '{"version":"1.2.0"}\n' > "$K/app/package.json"
+node -e '
+const c = require("crypto"), fs = require("fs");
+const [repo, k, www, setup] = process.argv.slice(1);
+const { privateKey, publicKey } = c.generateKeyPairSync("ed25519");
+const pub = publicKey.export({ type: "spki", format: "der" }).toString("base64");
+const src = fs.readFileSync(repo + "/engine/manifest-verify.js", "utf8");
+const out = src.replace(/const KEYS = \[[\s\S]*?\];/, "const KEYS = [" + JSON.stringify(pub) + "];");
+if (out === src) process.exit(4);
+fs.writeFileSync(k + "/app/engine/manifest-verify.js", out);
+const sign = (sha) => {
+  const m = www + "/dist/kosmos-1.2.3-arm64.manifest.json";
+  fs.writeFileSync(m, JSON.stringify({ manifest: 1, version: "1.2.3", arch: "arm64", setup_sha256: sha, files: [] }) + "\n");
+  fs.writeFileSync(m + ".sig", c.sign(null, fs.readFileSync(m), privateKey).toString("base64") + "\n");
+};
+fs.writeFileSync(www + "/dist/latest.json", JSON.stringify({ version: "1.2.3" }) + "\n");
+sign(c.createHash("sha256").update(fs.readFileSync(setup)).digest("hex"));
+' "$REPO" "$K" "$WWW" "$WWW/setup" || { fail "ARMS 5: could not build the fake signed install"; }
+out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 0 ] && [ -f "$T/RAN" ]; then pass "ARM 5a: an existing install checks the installer against its signed release, then runs it"
+else fail "ARM 5a: the signed, matching installer must run through the installed copy (rc=$rc): $out"; fi
+# Re-sign the manifest naming OTHER installer bytes: the published checksum still matches, the signed release does not.
+node -e '
+const fs = require("fs"); const m = process.argv[1] + "/dist/kosmos-1.2.3-arm64.manifest.json";
+const j = JSON.parse(fs.readFileSync(m, "utf8")); j.setup_sha256 = "f".repeat(64); fs.writeFileSync(m, JSON.stringify(j) + "\n");
+' "$WWW"
+out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -ne 0 ] && [ ! -f "$T/RAN" ]; then pass "ARM 5b: an installer the signed release does not name is NOT run, though its checksum matches"
+else fail "ARM 5b: a mismatch with the signed release must refuse and not run (rc=$rc, ran=$([ -f "$T/RAN" ] && echo yes || echo no)): $out"; fi
+if has "$out" "not run" || has "$out" "not signed"; then pass "ARM 5b: and says the installer was not run"; else fail "ARM 5b: and says why: $out"; fi
+# CONTROL: the same broken manifest, but the install has no verifier: the checksum path runs as before.
+rm -f "$K/app/engine/manifest-verify.js"
+out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 0 ] && [ -f "$T/RAN" ]; then pass "ARM 5c CONTROL: with no installed verifier the checksum path runs, so 5b refused on the signed check"
+else fail "ARM 5c: with no verifier the checksum path must run (rc=$rc): $out"; fi
+rm -rf "$IH" "$WWW/dist"
 
 # --- ARM 4: a TRANSIENT mismatch (half-published window) then a MATCH RUNS --
 # The 2026-09-15 hardening: a single-shot check turned a transient CDN/half-publish
