@@ -62,3 +62,5 @@ A sweep of every test reading install/kosmos, engine/update or manifest-verify (
 - [WARNING] the .pkg postinstall runs the site installer with only a same-host sha (DEFERRED as card #6474)
 - [NIT] 97 wording now says try again (FIXED), stale curl|sh comments (FIXED), the liveExec label (FIXED), arm64
   coupling noted (FIXED), two source-text tests (ACCEPTED: the cli arms run the real path end to end)
+### Iteration 2 (sonnet): no BLOCKER or WARNING findings (converged)
+- [NIT] an empty home is now an explicit refusal (FIXED + arm); an installer exiting 97 itself is reported as 1 (FIXED + arm)

@@ -125,6 +125,7 @@ const NOT_RUN = 97;
 function runSetup({ setupUrl, base, version, home, spawnSync = require('child_process').spawnSync }) {
   const say = (why) => { process.stderr.write('kosmos update: ' + why + ', so the installer was not run.\n'); return NOT_RUN; };
   if (!/^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(String(version || ''))) return say('the version to install is not known');
+  if (!home) return say('the installed copy could not be found');
   let dir;
   try { dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'kosmos-setup-')); } catch { return say('there was no private folder to check the installer in'); }
   try {
@@ -147,6 +148,8 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     delete env.NODE_OPTIONS;
     // stdin is not handed on: under curl | sh the installer's stdin was its own bytes, so it never read one.
     const run = spawnSync('/bin/sh', [files.setup], { stdio: ['ignore', 'inherit', 'inherit'], env });
+    // 97 is reserved for "not run": an installer that exits 97 itself is reported as a plain failure.
+    if (run.status === NOT_RUN) return 1;
     return typeof run.status === 'number' ? run.status : 1;
   } finally {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
