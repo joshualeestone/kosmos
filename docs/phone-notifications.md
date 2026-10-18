@@ -7,8 +7,9 @@ its server.js lines is in that card's comments).
 ## How a notification travels
 A computer running Kosmos decides that something happened (`engine/phonenotify.js`, called from `server.js`) and sends
 the coordinator a short event: its kind, the agent, the project, and an id. The coordinator turns the event into the
-words on the phone for iPhone (`coordinator/src/apns.rs` `payload`, sent through Apple), and the board's `sw.js` builds
-the same words for Android and the browser (web push). Both must match this page; a test checks them.
+words on the phone for iPhone (`coordinator/src/apns.rs` `payload`, sent through Apple). The same words are built
+twice more for web push (Android and the browser): by the coordinator's `coordinator/src/sw.js` and by this repo's
+`web/sw.js`. All three must match this page; tests check them.
 **The words of a message are never sent**: the notification says that something happened and who, and the
 conversation opens on a tap.
 
