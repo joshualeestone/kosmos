@@ -9778,9 +9778,10 @@ const server = http.createServer(async (req, res) => {
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
         // #6254: `{ kind, on }` sets one per-kind sub-switch under the master; `{ on }` alone is the
-        // master turn-on/off (unchanged). setKind refuses an unknown kind name.
-        const saved = typeof body.kind === 'string'
-          ? phonenotify.setKind(body.kind, body.on)
+        // master turn-on/off (unchanged). Any present `kind` (even a non-string) goes to setKind, which
+        // refuses an unknown kind with a 400, so a malformed kind can never fall through to the master path.
+        const saved = ('kind' in body)
+          ? await phonenotify.setKind(body.kind, body.on)
           : (body.on ? await phonenotify.turnOn() : await phonenotify.turnOff());
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         sendJson(res, 200, phonenotify.status());

@@ -242,6 +242,12 @@ test('#6254: a kind whose sub-switch is off sends nothing of that kind, the mast
   const st = await call('GET', '/api/phone-notify');
   assert.equal(st.json.kinds.ready, true, 'ready lost its default');
   assert.equal(st.json.kinds.postedRoom, false, 'postedRoom default is off');
+  // a kind field that is NOT a string is still routed to setKind (-> 400), never falling through
+  // to the master turn-off: a malformed `{ kind, on }` must not silently disable the feature.
+  const badType = await call('PUT', '/api/phone-notify', { body: { kind: 5, on: false } });
+  assert.equal(badType.code, 400, badType.text);
+  const st2 = await call('GET', '/api/phone-notify');
+  assert.equal(st2.json.on, true, 'a non-string kind fell through to the master path and turned it off');
 });
 
 /* #6254: `ready` through the REAL built route. An agent marking a task built is work waiting for the person's
@@ -354,6 +360,16 @@ test('#6254 posted: a names-you post buzzes by default; any other room post wait
   fakeNow += phonenotify.POSTED_ROOM_COOLDOWN_MS + 1;
   phonenotify.happened(ev({ namesPerson: false, id: 'post:m7', project: 'Room A' }));   // past the per-room window
   assert.equal(sent.length, 3, 'Room A did not buzz again past the coalesce window');
+
+  // The per-room window keys on the UNIQUE project id, not the display name, so two rooms that
+  // happen to share a name keep separate windows; posts to the same id still coalesce.
+  fakeNow += phonenotify.POSTED_ROOM_COOLDOWN_MS + 1;
+  sent.length = 0;
+  phonenotify.happened(ev({ namesPerson: false, id: 'post:i1', project: 'Shared name', projectId: 'p-alpha' }));
+  phonenotify.happened(ev({ namesPerson: false, id: 'post:i2', project: 'Shared name', projectId: 'p-beta' }));
+  assert.equal(sent.length, 2, 'two rooms sharing a display name but with distinct ids were coalesced into one window');
+  phonenotify.happened(ev({ namesPerson: false, id: 'post:i3', project: 'Shared name', projectId: 'p-alpha' }));   // same id, inside its window
+  assert.equal(sent.length, 2, 'a second post to the same project id buzzed inside its window');
 });
 
 /* #6254: the /api/post route's wiring to the posted seam (the behavioral gating is proven above; a full room

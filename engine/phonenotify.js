@@ -199,8 +199,12 @@ async function turnOff() {
 /** #6254: set one per-kind sub-switch (the Settings toggles under the master).
     An unknown kind name is refused. Preserves the master `on`, the token and
     notifyId, and the other kinds' stored values. */
-function setKind(name, on) {
+async function setKind(name, on) {
   if (!Object.prototype.hasOwnProperty.call(KIND_DEFAULTS, name)) return { ok: false, because: 'unknown notification kind' };
+  // Wait for a turn-on in flight, as turnOff does: its write saves `kinds: storedKinds()`
+  // read after its await, so an un-awaited setKind here could be lost under it, or could
+  // save `on: s.on` (stale) over the turn-on's `on: true`.
+  if (turningOn) { try { await turningOn; } catch { /* its outcome does not matter here */ } }
   const s = readState();
   const k = storedKinds();
   k[name] = on === true;
@@ -259,7 +263,10 @@ function routeFor(event) {
     case 'ready': return { sw: 'ready', cls: 'ready', key: agentKey, ms: READY_COOLDOWN_MS };
     case 'posted': return event.namesPerson
       ? { sw: 'postedMention', cls: 'posted_mention', key: agentKey, ms: POSTED_MENTION_COOLDOWN_MS }
-      : { sw: 'postedRoom', cls: 'posted_room', key: String(event.project || ''), ms: POSTED_ROOM_COOLDOWN_MS };
+      // Key per-room on the project id (unique) and fall back to the name only when
+      // there is no id, so two rooms that share a display name keep separate windows
+      // and a null-project post does not collapse every nameless room into one.
+      : { sw: 'postedRoom', cls: 'posted_room', key: String(event.projectId || event.project || ''), ms: POSTED_ROOM_COOLDOWN_MS };
     default: return null;
   }
 }
