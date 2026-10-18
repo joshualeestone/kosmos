@@ -349,6 +349,7 @@ const closeAll = (page) => page.evaluate(() => {
   }
   const newPage = async (width, fed, platform) => {
     const ctx = await browser.newContext({ viewport: { width, height: 900 }, timezoneId: 'UTC', locale: 'en-US' });
+    await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {} });   // #6403: the switcher's one-time tip is not this check's subject
     // C5: a page that believes it runs on another platform (MSG_MENU_MAC is read once, at load).
     if (platform) await ctx.addInitScript((p) => { Object.defineProperty(navigator, 'platform', { configurable: true, get: () => p }); }, platform);
     await ctx.addInitScript(initStub, { fed, code: CODE, expires: EXPIRES });

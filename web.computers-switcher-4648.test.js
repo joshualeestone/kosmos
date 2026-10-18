@@ -167,3 +167,120 @@ test('opening the menu reads the computers fresh: the shipped worldswOpen CALLS 
   new Function('document', 'computersFetch', `${slice('worldswOpen')}\nworldswOpen();`)(d.document, () => { calls++; return Promise.resolve(); });
   assert.equal(calls, 1, 'opening the menu did not read the computers');
 });
+
+/* kosmos#6406 step 2: a plain click on a link to another computer, in the app, asks this computer for a ticket and opens
+   the other computer with it in the fragment; anything else keeps the plain address. */
+const OPEN = slice('computersInApp') + slice('computersGo') + slice('computersOpenClick');
+const DECL = (() => { const at = PAGE.indexOf('let computersOpening = '); assert.ok(at >= 0, 'computersOpening moved'); return PAGE.slice(at, PAGE.indexOf('\n', at) + 1); })();   // the page's own declaration, not a copy
+function clickWith({ win, answer, ev, href, twice, timers }) {
+  const went = [];
+  const posted = [];
+  const attrs = {};
+  const a = { href: href || 'https://tmnt.kosmosplus.com/?tab=detail&agent=x', closest: (sel) => (sel === 'a[data-computer-open]' ? a : null),
+    setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; } };
+  const e = Object.assign({ defaultPrevented: false, button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, target: a,
+    preventDefault() { this.defaultPrevented = true; } }, ev || {});
+  const assigned = [];
+  const w = Object.assign({ location: { assign: (u) => assigned.push(u) } }, win || {});
+  // A page: the navigation the app takes goes through a throwaway link (computersGo); its click is the navigation.
+  const doc = { createElement: () => ({ setAttribute() {}, click() { went.push(this.href + (this.rel === 'noreferrer' ? '' : ' (REFERER)')); }, remove() {} }),
+    body: { appendChild() {} } };
+  const fetchFn = (url, opts) => { posted.push({ url, body: JSON.parse(opts.body) }); return answer(); };
+  const second = Object.assign({}, e, { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
+  const run = new Function('window', 'document', 'fetch', 'e', 'second', 'twice', 'URL', 'AbortController', 'setTimeout', 'clearTimeout',
+    `${DECL}\n${OPEN}\ncomputersOpenClick(e);\nif (twice) computersOpenClick(second);`);
+  run(w, doc, fetchFn, e, second, !!twice, URL, AbortController, timers ? timers.set : setTimeout, timers ? timers.clear : clearTimeout);
+  // went: navigations through the noreferrer link; assigned: script navigations (which would send a Referer), never.
+  assert.deepEqual(assigned, [], 'no script navigation');
+  return { went, posted, e, attrs };
+}
+const APP = { webkit: { messageHandlers: { kosmosBadge: {} } } };
+const settle = () => new Promise((r) => setTimeout(r, 20));
+
+test('#6406 step 2: in the app a plain click opens the other computer with a ticket, keeping its path', async () => {
+  const t = clickWith({ win: APP, answer: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ ticket: 'abcdefghijklmnopqrstuvwxyz_-0123' }) }) });
+  await settle();
+  assert.ok(t.e.defaultPrevented);
+  assert.deepEqual(t.posted, [{ url: '/api/remote/open-ticket', body: { address: 'tmnt.kosmosplus.com' } }]);
+  assert.deepEqual(t.went, ['https://tmnt.kosmosplus.com/?tab=detail&agent=x#kpt=abcdefghijklmnopqrstuvwxyz_-0123']);
+});
+
+test('#6406 step 2: a refused or failed ticket, or one of the wrong shape, opens the plain address', async () => {
+  for (const [label, answer] of [
+    ['refused', () => Promise.resolve({ ok: false, json: () => Promise.resolve({ error: 'x' }) })],
+    ['unreachable', () => Promise.reject(new Error('down'))],
+    ['odd ticket', () => Promise.resolve({ ok: true, json: () => Promise.resolve({ ticket: 'not one <b>' }) })],
+  ]) {
+    const t = clickWith({ win: APP, answer });
+    await settle();
+    assert.deepEqual(t.went, ['https://tmnt.kosmosplus.com/?tab=detail&agent=x'], label);
+  }
+});
+
+test('#6406 step 2: a browser, or a modified click, keeps the plain link and asks for nothing', async () => {
+  const never = () => { throw new Error('asked for a ticket'); };
+  for (const [label, win, ev] of [
+    ['browser', {}, {}], ['cmd-click', APP, { metaKey: true }], ['ctrl-click', APP, { ctrlKey: true }],
+    ['shift-click', APP, { shiftKey: true }], ['middle', APP, { button: 1 }], ['already handled', APP, { defaultPrevented: true }],
+  ]) {
+    const t = clickWith({ win, answer: never, ev });
+    await settle();
+    assert.equal(t.posted.length, 0, label);
+    assert.equal(t.went.length, 0, label);
+    if (label !== 'already handled') assert.ok(!t.e.defaultPrevented, label + ': the link does its own thing');
+  }
+  // Not https (a mistake in a row): nothing is taken over.
+  const t = clickWith({ win: APP, answer: never, href: 'http://tmnt.kosmosplus.com/' });
+  assert.ok(!t.e.defaultPrevented);
+});
+
+test('#6406 step 2: every link to another computer is marked for the click', () => {
+  const attrs = {};
+  const a = { setAttribute: (k, v) => { attrs[k] = v; } };
+  new Function('window', 'a', `${INAPP}\ncomputersLinkTarget(a);`)(APP, a);
+  assert.equal(attrs['data-computer-open'], '1');
+});
+
+test('#6406 step 2: one ticket at a time (a second click while the first is out does nothing more), and the link says it is busy', async () => {
+  let resolve;
+  const t = clickWith({ win: APP, twice: true, answer: () => new Promise((r) => { resolve = r; }) });
+  assert.equal(t.posted.length, 1, 'one request for two clicks');
+  assert.equal(t.attrs['aria-busy'], 'true', 'busy while the ticket is made');
+  resolve({ ok: true, json: () => Promise.resolve({ ticket: 'abcdefghijklmnopqrstuvwxyz_-0123' }) });
+  await settle();
+  assert.equal(t.went.length, 1);
+  assert.equal(t.attrs['aria-busy'], undefined, 'busy is cleared');
+});
+
+test('#6406 step 2: a ticket request that never answers opens the plain address after 8 s, once, and clears busy', async () => {
+  const pending = [];
+  const timers = { set: (fn, ms) => { pending.push({ fn, ms }); return pending.length; }, clear: () => {} };
+  let resolve;
+  const t = clickWith({ win: APP, timers, answer: () => new Promise((r) => { resolve = r; }) });
+  assert.equal(t.went.length, 0, 'nothing yet');
+  const cut = pending.find((p) => p.ms === 8000);
+  assert.ok(cut, 'an 8 s fallback is set: ' + JSON.stringify(pending.map((p) => p.ms)));
+  cut.fn();
+  assert.deepEqual(t.went, ['https://tmnt.kosmosplus.com/?tab=detail&agent=x']);
+  assert.equal(t.attrs['aria-busy'], undefined);
+  // The answer arriving late changes nothing (one navigation only).
+  resolve({ ok: true, json: () => Promise.resolve({ ticket: 'abcdefghijklmnopqrstuvwxyz_-0123' }) });
+  await settle();
+  assert.equal(t.went.length, 1);
+});
+
+test('#6406 step 2: on a page, the navigation goes through a throwaway hidden noreferrer link that is not marked', async () => {
+  const made = [];
+  const doc = { createElement: (tag) => { const el = { tag, attrs: {}, clicked: 0, removed: false,
+    click() { this.clicked += 1; }, remove() { this.removed = true; } }; made.push(el); return el; },
+    body: { appendChild: (el) => { el.inPage = true; } } };
+  let assigned = null;
+  const w = { location: { assign: (u) => { assigned = u; } } };
+  new Function('window', 'document', `${slice('computersGo')}\ncomputersGo('https://tmnt.kosmosplus.com/#kpt=x');`)(w, doc);
+  assert.equal(made.length, 1);
+  const l = made[0];
+  assert.deepEqual([l.tag, l.href, l.rel, l.hidden, l.inPage, l.clicked, l.removed], ['a', 'https://tmnt.kosmosplus.com/#kpt=x', 'noreferrer', true, true, 1, true]);
+  assert.equal(l.attrs['data-computer-open'], undefined, 'not marked, so computersOpenClick leaves it alone');
+  assert.equal(assigned, null, 'no script navigation (it would send a Referer)');
+});
+

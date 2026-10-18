@@ -2557,6 +2557,10 @@ async function run() {
                 });
               }
               await ctx.addInitScript((t) => { try { localStorage.setItem('kosmos-theme', t); } catch { /* no storage */ } }, theme);
+              // #6403: the switcher's one-time tip is not part of any screen here. This runs on every load, so a screen that
+              // wants the tip clears the key after load and then drives a one-computer read followed by a two-computer
+              // read (the tip shows on the first change to two computers in a page, which the boot read has already made).
+              await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch { /* no storage */ } });
               const page = await ctx.newPage();
               const pageErrors = [];
               page.on('pageerror', (e) => pageErrors.push(String(e)));
