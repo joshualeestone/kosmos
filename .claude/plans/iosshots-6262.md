@@ -38,8 +38,9 @@ can fail on a set at the wrong size; the README and listing draft say what is tr
   reads the same four screens first), proxy on this Mac's network address, iPhone 17 (6.3, required) and iPhone 17
   Pro Max (6.9) simulators, light and dark, status bar 9:41, alpha dropped, filed as screenshots/<size>-<theme>/.
 - `ios/tools/check-no-shots-flag.sh` + an iOS CI step: the Release app and the archive's app must not carry the
-  switch; a fake executable carrying it must fail (control). Measured locally: FAIL on the shots build, PASS on a
-  plain Release build.
+  switch; a real Release build made WITH the switch must fail on the found-it line (control). Measured locally:
+  FAIL on a Debug and a Release shots build, PASS on a plain Release build. archive.sh's export check
+  (check-ipa-entitlements.sh) runs the same check on the exported .ipa, with a compiled-fixture test arm.
 - `ios/store/check-listing.sh`: per-set sizes from Apple's table; at least one 6.3 set required. Measured: FAIL on
   the old light/ dark/ sets ("no 6.3-inch set").
 - `shoot.sh` no longer files into the store set (it would now fail the check); README, listing.md (name decided,
@@ -47,7 +48,10 @@ can fail on a set at the wrong size; the README and listing draft say what is tr
 
 ## Decided
 - **Any process on this Mac passes the proxy, and that is accepted:** it grants nothing new, since such a process
-  can already reach the throwaway board itself at its loopback address. Other machines are refused.
+  can already reach the throwaway board itself at its loopback address. Other machines are refused. One residual is
+  NOT covered by that reasoning: a web page open in a browser on this Mac could reach the proxy during the run,
+  and the proxy rewrites Host, so the board's own rebinding defence does not apply to it. Accepted for a run of a
+  few minutes over invented data.
 - **A picture passes only if it is a file the product ships under web/** (the board's icons); an agent's or a
   person's picture, or an upload, is refused, so "no pictures of anyone" is enforced rather than assumed.
 - **Run through the queue (queued-heavy.sh), and trust only the run's OWN claim.** Inside a queued turn, heavy-gate

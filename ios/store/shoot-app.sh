@@ -122,6 +122,9 @@ for d in "${devices[@]}"; do
   done
 done
 
+# A proxy or board that died part way leaves no log line, and the simulator would have photographed error pages.
+kill -0 "$proxy_pid" 2>/dev/null || fail "the proxy stopped during the run; nothing filed"
+kill -0 "$board_pid" 2>/dev/null || fail "the throwaway board stopped during the run; nothing filed"
 if grep -q '^UPSTREAM' "$work/proxy.log"; then fail "the board broke off an answer mid-run; a picture may be half loaded"; fi
 if grep -q '^REFUSED' "$work/proxy.log"; then fail "something other than this Mac reached the proxy; nothing filed"; fi
 if grep -q '^LEAK' "$work/proxy.log"; then grep '^LEAK' "$work/proxy.log" | head -5; fail "the proxy's leak guard refused an answer; nothing filed"; fi
