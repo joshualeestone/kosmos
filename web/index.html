@@ -52443,8 +52443,10 @@ function plusCountdown(line, btn, why, secs) {
    what happens next (sign in from the new phone, set it up again) is a
    thing the coordinator does not know to say. One place for the words. */
 const PLUS_SECOND_WORDS = {
-  armed: 'This switches the second step off for your whole account until you set it up again. Press the button once more to do it.',
-  done: 'The second step is off. Sign in from your new phone with the email code, and set the second step up again there.',
+  /* #6611: since kosmos#6605 a reset also signs every phone and browser out, so the person hears it before
+     agreeing, not after. */
+  armed: 'This switches the second step off for your whole account until you set it up again, and every phone and browser signed in to your account will need to sign in again. Press the button once more to do it.',
+  done: 'The second step is off. Every phone and browser will need to sign in again. Sign in from your new phone with the email code, and set the second step up again there.',
   failed: (why) => 'The second step was not reset: ' + why + '.',
 };
 let PLUS_SECOND_ARMED = false;

@@ -57,10 +57,13 @@ test('the first click arms and asks nothing; the second asks once and says it is
   assert.deepEqual(calls, [], 'one click reached the engine');
   assert.equal(w.el('plus-second-reset').textContent, 'Yes, reset it');
   assert.match(w.el('plus-second-msg').textContent, /once more/);
+  // #6611: the person hears about the sign-out before they agree to it.
+  assert.match(w.el('plus-second-msg').textContent, /every phone and browser signed in to your account will need to sign in again/);
   await w.click();
   assert.deepEqual(calls, [['/api/remote/second-reset', 'POST']]);
   assert.match(w.el('plus-second-msg').textContent, /^The second step is off\./);
   assert.match(w.el('plus-second-msg').textContent, /new phone/);
+  assert.match(w.el('plus-second-msg').textContent, /Every phone and browser will need to sign in again/);
   assert.equal(w.el('plus-second-reset').textContent, 'Reset the second step', 'the button did not disarm after the reset');
   assert.equal(w.el('plus-second-reset').disabled, false);
 });
