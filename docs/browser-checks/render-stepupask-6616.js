@@ -10,6 +10,7 @@
  *   SHOWN    a 403 with signInAgain shows the ask with the reply's sentence, and the link's href is the fixed address.
  *   ON TOP   the topmost element at the link's centre is the link itself, above the first-run cover, which makes the
  *            rest of the page inert (the ask is exempt, so it can still be pressed there).
+ *   UNDER RESTART  hidden while the restart screen is up (it makes the page inert), shown again after.
  *   CLOSE    Not now hides it, and it takes no space (the [hidden] rule wins over the ask's display: flex).
  *
  *   KOSMOS_URL=http://127.0.0.1:17372 NODE_PATH=~/work/pw-runtime/node_modules node docs/browser-checks/render-stepupask-6616.js
@@ -61,6 +62,14 @@ const WORDS = 'From a remote session this needs a fresh sign-in. (check 6616)';
       [box.x + box.width / 2, box.y + box.height / 2]) + '  box: ' + JSON.stringify(box);
     if (top !== 'stepup-go' && process.env.SHOT_6616) await page.screenshot({ path: process.env.SHOT_6616 });
     say(top === 'stepup-go', 'on top: the link is the topmost thing where it is drawn', String(top) + (chain ? '  ask: ' + chain : ''));
+    // UNDER RESTART: the restart screen makes the page inert, so the ask is hidden while it is up and back after.
+    const under = await page.evaluate(() => {
+      const r = document.createElement('div'); r.className = 'restart-back'; document.body.appendChild(r);
+      const during = getComputedStyle(document.getElementById('stepup-ask')).display;
+      r.remove();
+      return during + '/' + getComputedStyle(document.getElementById('stepup-ask')).display;
+    });
+    say(under === 'none/flex', 'under restart: hidden while the restart screen is up, shown again after', under);
     await page.locator('#stepup-close').click({ timeout: 5000 });
     const gone = await page.evaluate(() => { const e = document.getElementById('stepup-ask'); return e.hidden && getComputedStyle(e).display === 'none'; });
     say(gone, 'close: Not now hides the ask and it takes no space');

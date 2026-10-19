@@ -1284,12 +1284,15 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    covered the agent-status stamp. The Install button is gold (#e3b341, the
    pack's --gold-bright): gold is the primary ACTION colour, and an
    all-red notice would read as an error rather than something waiting. */
-/* kosmos#6616: the board's one "sign in again" ask. Above every layer the page draws (the first-run and restart
-   covers go to 70), because a key or a sign-in is often asked for from inside one of them. */
+/* kosmos#6616: the board's one "sign in again" ask. Above the first-run covers (they go to 70), because a key or a
+   sign-in is often asked for from inside them, and exempt from the inert they put on the page. Hidden while the
+   restart screen or the update overlay is up (review iteration 2): the board is going away then, they make the page
+   inert, and an ask left over them could be seen and not pressed. */
 .stepup-ask { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 80;
   max-width: min(560px, calc(100vw - 32px)); display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   padding: 10px 12px; border-radius: 11px; background: var(--bg-elevated); border: 1px solid var(--label-2);
   box-shadow: 0 6px 22px rgba(20,22,26,.13); }
+body:has(> .restart-back, > .upd-back) > .stepup-ask { display: none !important; }
 .utoast {
   --utone: #b3261e;
   /* Was IN THE FLOW, beside the mark (Josh 2026-08-17; pack 2e4e100), because an
@@ -20139,6 +20142,7 @@ window.kosmosMeasureScrollbarWidth();
     return nativeFetch.apply(window, args).then((res) => {
       if (res && res.ok === false && typeof res.clone === 'function') {
         // kosmos#6616: a 403 is read as JSON, which drains it just the same, to see whether it asks for a fresh sign-in.
+        // Every other refusal is drained as bytes, as before.
         try {
           const copy = res.clone();
           if (res.status === 403) copy.json().then(showStepUpAsk, () => {});
@@ -20162,7 +20166,7 @@ function showStepUpAsk(body) {
   box.hidden = false;
 }
 document.addEventListener('click', (e) => {
-  if (e.target && e.target.id === 'stepup-close') document.getElementById('stepup-ask').hidden = true;
+  if (e.target && e.target.closest && e.target.closest('#stepup-close')) document.getElementById('stepup-ask').hidden = true;
 });
 
 /* ================= win32-board-copy: the platform copy layer =================
