@@ -52,6 +52,7 @@ const STEP_UP_ROUTES = [
   '/api/antigravity/win32signin', '/api/muse/signin', '/api/muse/signin/retry', '/api/github/start',
   '/api/github-device/start', '/api/vercel/start',
   '/api/agents', '/api/team', '/api/connect-agent', '/api/worlds', '/api/worlds/import', '/api/agent/scout/restore',
+  '/api/register', '/api/remote/second-reset',
 ];
 
 test('R01: PUT /api/autoupdate (turning automatic updates on) from a stale remote session is refused', async () => {
@@ -148,6 +149,9 @@ const EXEMPT = {
   'POST /api/remote/signin-verify': "this computer's own Kosmos+ sign-in steps",
   'POST /api/github-device/app': 'stores a GitHub app client id, which is public by design; the sign-in start is gated',
 };
+/* Decided without a scan to catch them (their paths name none of the guard's words), written down so the boundary is
+   a record: POST /api/agent/<n>/codex-hooks trusting hooks lets them run outside Codex's sandbox, but every agent here
+   already runs an unsandboxed shell, so it adds nothing a remote session lacks. */
 const LOOKS_GATED = /(install|apikey|token|subscription\/start|signin|\/start$|import|^\/api\/worlds$|^\/api\/agents$|^\/api\/team$|connect-agent|update)/;
 test('R01: every key, sign-in, install, update or create route is gated or exempt with a reason, and every gated route exists', () => {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
@@ -189,6 +193,10 @@ test('R01: every regex route naming a token, install, sign-in, import, restore o
   assert.deepEqual(undecided, [], 'regex routes nobody has decided on');
   for (const [r, d] of Object.entries(REGEX_ROUTES)) {
     assert.ok(found.includes(r), r + ' is listed but is not in server.js any more');
-    if (d.gated) assert.equal(needsRemoteStepUp(d.gated, 'POST'), true, d.gated + ' should be gated');
+    if (d.gated) {
+      assert.equal(needsRemoteStepUp(d.gated, 'POST'), true, d.gated + ' should be gated');
+      // And the SERVER's own pattern serves that path, so a renamed route cannot leave the gate's copy guarding nothing.
+      assert.ok(new RegExp(r.slice(1, -1)).test(d.gated), r + ' does not serve ' + d.gated);
+    }
   }
 });

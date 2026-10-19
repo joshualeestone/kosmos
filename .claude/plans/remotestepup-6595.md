@@ -29,6 +29,13 @@ creation need a fresh authenticator code. This is the step-up half.
   sign-in START is gated; the steps after a start (a code, stop, agree) follow it and are not.
 - **A whole new Kosmos counts as making agents.** `POST /api/worlds` can copy agents in and starts them at once, so
   the route is gated whole, not only when its body asks for imports (the gate runs before any body is read).
+- **Writing an agent's launchd job counts as making one** (`/api/register`, review iteration 3).
+- **Resetting the second factor is gated.** From a stolen session it would let the thief enrol their own factor and
+  then pass this step-up; at the computer it needs nothing more. Someone without their authenticator resets it at the
+  computer.
+- **`PUT /api/autoupdate` is gated whole,** off as well as on: the gate reads no body, and one more prompt to switch
+  it off costs little.
+- **Codex hook trust is not gated:** every agent already runs an unsandboxed shell.
 - **Skills are not gated.** A skill is text agents read, and a remote session can already tell any agent anything in
   chat, so gating skills would add a prompt and no protection (review iteration 2).
 - **Taking things away is not gated:** forgetting a token, signing a provider out (DELETE), checking for an update.
@@ -51,9 +58,15 @@ writes them only after verifying a token session. If a remote path existed that 
 set none of the forwarding headers, it would read as local and never be asked (Renet's stated limit, same here).
 
 ## Not covered
+- 🛑 MERGE ORDER, and it is the protection (review iteration 3; an earlier version of this line had it backwards).
+  A tunnel older than sessioniat-6595 passes client headers through, so behind it a remote browser can send both
+  headers itself and pass the gate. The board cannot tell the tunnel's age. What protects it: the tunnel rides in the
+  same bundle (an update swaps app/ whole), and a cut refuses a tunnel behind relay main
+  (tools/lib/connector-currency.sh, unless KOSMOS_ALLOW_STALE_TUNNEL=1). So this branch merges only after
+  sessioniat-6595 is on relay main, and never into a cut that sets the stale-tunnel override. Before then, the gate is
+  forgeable, which is no worse than today (no gate at all). Recorded on #6595.
 - A sign-in session stored before sessioniat-6595 sends no headers, so those people are asked once and their next
-  sign-in carries both (Renet's contract). Until the tunnel change is deployed, EVERY remote key, update and new
-  agent is refused. Deploy order: tunnel first, then this board change.
+  sign-in carries both (Renet's contract).
 - A remote session can still ask an agent here to do these things; an agent's own request arrives without
   forwarding headers. Renet's plan names the same residual.
 - `POST /api/accounts/qwen/local/download` and `/model` (a model download, and the model choice, through Ollama,
@@ -61,11 +74,11 @@ set none of the forwarding headers, it would read as local and never be asked (R
   stores a client id that is public by design. Named here so the boundary is explicit.
 
 ## Tests
-`server.remotestepup-6595.test.js` (35), including two guards. Literal routes: every POST/PUT route whose path looks
+`server.remotestepup-6595.test.js` (37), including two guards. Literal routes: every POST/PUT route whose path looks
 like a key, token, sign-in, install, update or create is gated or exempt with a written reason, and every gated route
 exists (dropping one gated route turns it red, naming it). Regex routes, which the literal scan cannot see: every one
 whose pattern names a token, install, sign-in, import, restore or skill is decided, gated ones matching a sample path
-(deleting one decision turns it red, naming it). Neither guard can see a route whose path names none of those words.
+(deleting one decision turns it red, naming it), and each sample path must match the server's own pattern too. Neither guard can see a route whose path names none of those words.
 The rest: every gated route refused remotely without headers, with second=0, with a
 stale time and with a malformed time, reaching nothing (the gate runs before the body is read); CONTROL: a fresh
 remote session and a local request pass on key routes (which then answer 400 for an unreadable body); update and

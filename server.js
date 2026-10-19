@@ -4283,7 +4283,10 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    with the second factor. The Kosmos+ gate states the session it admitted in two headers it writes over any client
    value and strips on every other path (kosmos-relay sessioniat-6595): x-kosmos-session-iat, the decimal second the
    session's email code was proven, and x-kosmos-session-second, 1 when the second factor was. Missing or malformed
-   counts as NOT fresh, so a gate older than those headers asks for the step-up every time rather than never. A local
+   counts as NOT fresh. 🛑 A tunnel older than sessioniat-6595 does NOT strip client copies, so behind it a remote
+   browser can send both headers itself and pass. The board cannot tell the tunnel's age; the protection is that the
+   tunnel rides in the same bundle (an update swaps app/ whole) and a cut refuses a tunnel behind relay main
+   (tools/lib/connector-currency.sh). So this change must not reach a cut before sessioniat-6595 is on relay main. A local
    request is not asked: the person is at the computer. Taking things away (deleting a key, forgetting a token) is
    not asked either. */
 const REMOTE_STEP_UP_SECS = 10 * 60;
@@ -4297,7 +4300,9 @@ function remoteSessionFresh(headers, nowSecs) {
   return age >= -60 && age <= REMOTE_STEP_UP_SECS;
 }
 const REMOTE_STEP_UP_EXACT = new Set([
-  // Updating, and anything that downloads and runs software here.
+  // Updating, and anything that downloads and runs software here. PUT /api/autoupdate is gated whole, off as well as
+  // on: telling them apart needs the body, which the gate does not read, and asking once more to switch it off costs
+  // little.
   'POST /api/update', 'POST /api/update/rollback', 'PUT /api/autoupdate', 'POST /api/connect/start',
   'POST /api/antigravity/install', 'POST /api/muse/install',
   // A key, a token, or a sign-in that leaves a provider's or a service's credential on this computer.
@@ -4308,6 +4313,11 @@ const REMOTE_STEP_UP_EXACT = new Set([
   'POST /api/muse/signin/retry', 'POST /api/github/start', 'POST /api/github-device/start', 'POST /api/vercel/start',
   // Making an agent, including by copying one in with another Kosmos (which starts it at once).
   'POST /api/agents', 'POST /api/team', 'POST /api/connect-agent', 'POST /api/worlds', 'POST /api/worlds/import',
+  // Writing an agent's launchd job (it starts processes), the same class as bringing an agent back.
+  'POST /api/register',
+  // Resetting the account's second factor: from a stolen session it would let the thief enrol their own, and then
+  // pass this very step-up. At the computer it needs nothing more.
+  'POST /api/remote/second-reset',
 ]);
 /* The gated routes whose path carries a name: a service's token, a provider runner's install, an agent brought back. */
 const REMOTE_STEP_UP_PATTERNS = [/^\/api\/svc\/[a-z0-9-]+\/token$/, /^\/api\/runners\/[a-z]+\/install$/, /^\/api\/agent\/[^/]+\/restore$/];
