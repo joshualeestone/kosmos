@@ -185,6 +185,27 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
   await run('dark', { scheme: 'dark', reduced: false });
   await run('reduced-motion', { scheme: 'light', reduced: true });
 
+  /* #6557: at phone width the hero heading wraps to two lines, and it once inherited a fixed 16px line-height, so the
+     lines overlapped by 14px. CONTROL: the heading must actually wrap here, or "no overlap" is true of one line. */
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await ctx.newPage();
+    await page.goto('file://' + PAGE);
+    const h = await page.evaluate(async () => {
+      showTab('settings'); settingsGo('plus');
+      await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+      const el = document.querySelector('.plus-hero-h');
+      if (!el || el.offsetParent === null) return { error: 'the hero heading is not shown' };
+      const rg = document.createRange(); rg.selectNodeContents(el);
+      return { rects: Array.from(rg.getClientRects()).map((x) => ({ top: x.top, bottom: x.bottom })) };
+    });
+    results.phoneHero = h;
+    if (h.error) problems.push('phone 390: ' + h.error);
+    else if (h.rects.length < 2) problems.push('phone 390: CONTROL: the hero heading did not wrap (' + h.rects.length + ' line), so the overlap read proves nothing');
+    else if (h.rects[1].top < h.rects[0].bottom - 1) problems.push('phone 390: #6557 the hero heading lines overlap by ' + Math.round(h.rects[0].bottom - h.rects[1].top) + 'px');
+    await ctx.close();
+  }
+
   await browser.close();
 
   console.log('  ' + JSON.stringify(results));
