@@ -27,6 +27,8 @@
  * LIMIT: a library linked statically into tmux with neither a VERSION line nor a licence file is invisible here; so is a
  * static C library brought into the Mac app by a bridging header or a linker flag rather than an import, and the
  * second native binary (Kosmos.app/Contents/MacOS/Kosmos, a re-signed copy of kosmos-app) is accepted by name only.
+ * LIMIT: the Swift imports are read for the release's target, but `#if swift(...)` and `#if compiler(...)` follow the
+ * version of the compiler on the machine running this, not the build machine's.
  * LIMIT: the Mac app's shipped binary is not tied to native-app/main.swift at the app commit: the manifest's
  * native_app hash and its files entry for app/bin/kosmos-app are taken from the same file, so the Apple-only import
  * check vouches for the source, not the binary (the same gap as the connector's commit).
@@ -335,13 +337,16 @@ const APPLE_MODULES = new Set(['Foundation', 'Cocoa', 'AppKit', 'WebKit', 'Netwo
 // The modules a Swift file imports, as the Swift compiler reads them (-emit-imported-modules). Reviews 15 to 17 each
 // found a way for a hand-written reading of Swift to miss an import (an access level, a lost quote in a raw string, a
 // comment before the import); the compiler is the one reader that cannot disagree with the compiler.
-function swiftcImports(swift) {
+// target: the release's own (-target arm64-apple-macos<floor>, as the bundle build compiles it), so `#if arch(...)`
+// and `#if os(...)` read as they do in the build, not as they do on the machine running this.
+function swiftcImports(swift, target) {
+  if (!/^arm64-apple-macos[0-9]+(\.[0-9]+)*$/.test(target || '')) throw new Error(`no Swift target to read the imports for (${target})`);
   const dir = fs.mkdtempSync(require('path').join(require('os').tmpdir(), 'kosmos-sbom-swift-'));
   try {
     const src = require('path').join(dir, 'main.swift'), out = require('path').join(dir, 'imports');
     fs.writeFileSync(src, swift);
     try {
-      execFileSync('xcrun', ['swiftc', '-frontend', '-emit-imported-modules', src, '-o', out], { stdio: ['ignore', 'ignore', 'pipe'] });
+      execFileSync('xcrun', ['swiftc', '-frontend', '-emit-imported-modules', '-target', target, src, '-o', out], { stdio: ['ignore', 'ignore', 'pipe'] });
     } catch (e) {
       throw new Error(`the Swift compiler could not read native-app/main.swift (xcrun swiftc is needed): ${String(e.stderr || e.message).split('\n')[0]}`);
     }
@@ -351,12 +356,12 @@ function swiftcImports(swift) {
   }
 }
 
-function checkNativeApp(manifest, swift, readImports = swiftcImports) {
+function checkNativeApp(manifest, swift, target, readImports = swiftcImports) {
   const shipped = manifest.files.find((f) => f.path === 'app/bin/kosmos-app');
   if (!manifest.native_app || !SHA256.test(manifest.native_app.signed_sha256 || '') || !shipped || shipped.sha256 !== manifest.native_app.signed_sha256) {
     throw new Error('the manifest\'s app/bin/kosmos-app is not the Mac app it signed (native_app.signed_sha256)');
   }
-  for (const mod of readImports(swift)) {
+  for (const mod of readImports(swift, target)) {
     if (!APPLE_MODULES.has(mod)) throw new Error(`native-app/main.swift imports ${mod}, which is not an Apple framework this SBOM knows`);
   }
 }
@@ -405,7 +410,9 @@ function build(manifest, { repo, relay, tmux, show = gitShow, readImports = swif
   // The shipped app/bin/kosmos-tunnel must be that crate's binary, or its closure is not the connector's.
   const tunnelToml = members.get(CONNECTOR_CRATE) || '';
   if (!/^\[\[bin\]\]\s*\nname\s*=\s*"kosmos-tunnel"/m.test(tunnelToml)) throw new Error(`relay: ${CONNECTOR_CRATE} does not build the kosmos-tunnel binary`);
-  checkNativeApp(manifest, show(repo, appCommit, 'native-app/main.swift'), readImports);
+  const floor = show(repo, appCommit, 'tools/macos-floor').trim();
+  if (!/^[0-9]+(\.[0-9]+)*$/.test(floor)) throw new Error(`tools/macos-floor at the app commit is not a macOS version (${floor})`);
+  checkNativeApp(manifest, show(repo, appCommit, 'native-app/main.swift'), `arm64-apple-macos${floor}`, readImports);
   const pins = tmuxPins(show(repo, appCommit, 'tools/build-tmux-from-source.sh')).map((p) => p.name);
   for (const name of pins) {
     if (!tmux.versions[name]) throw new Error(`the build script fetches ${name}, but the tmux bundle's VERSION does not name it (linked statically and unrecorded?)`);
