@@ -45,18 +45,25 @@ real fix.
   26 are Windows-only or dev-only and 14 are optional dependencies of features the connector does not turn on (h2 and
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the header says so.
-- **`tools.sbom-o05.test.js`:** 24 arms, all in-process with injected reads, a test key or small fixtures it makes
-  (tmpscope); the command line is run for its refusals and usage errors. Fifty-one mutants each fail an arm (nine more
-  after review 6: no first-party check, node_modules accepted, npm dependencies accepted, any lockfile version, a
-  crates.io crate with no checksum, a named tmux library absent from lib/, no bin/tmux, a URL and SHA from two
-  inputs, a flag read as a --sig value). One survives and is equivalent (review 4's whitespace class, after the line
-  split).
-- **The first-party claim is checked, not stated** (review 6): every path in the signed manifest's file list must be
-  in VERSION, bin/kosmos, runtime/bin/node, runtime/LICENSE, app/server.js, app/package.json, or under app/engine/,
-  app/web/, app/bin/, app/assets/, app/Kosmos.app/; any node_modules refuses; package.json at the app commit may name
+- **`tools.sbom-o05.test.js`:** 27 arms, all in-process with injected reads, a test key or small fixtures it makes
+  (tmpscope); the command line is run for its refusals and usage errors. Sixty-two mutants each fail an arm (eleven
+  more after review 7: app/bin/ and the Mac app opened to any file, a curl outside fetch() accepted, a bare https
+  address accepted, the fetch() body not exempt, the connector or node not tied to shipped files, a short commit
+  accepted, a missing clean flag accepted, any arch accepted, the loose dylib suffix, an unknown flag accepted). One
+  survives and is equivalent (review 4's whitespace class, after the line split).
+- **The first-party claim is checked, not stated** (reviews 6 and 7): every path in the signed manifest's file list
+  must be VERSION, bin/kosmos, runtime/bin/node, runtime/LICENSE, app/server.js, app/package.json, under app/engine/,
+  app/web/ or app/assets/, a script (.sh, .js) or one of the two named binaries (kosmos-app, kosmos-tunnel) directly
+  in app/bin/, or one of the Mac app's own files (its executable, Info.plist, signature files, .icns). Native code is
+  exact because it is where a third-party addition would most likely go (review 7 showed a Sparkle framework inside
+  Kosmos.app passing the earlier prefix rule). Any node_modules refuses; package.json at the app commit may name
   no dependencies of any kind. The real 0.7.59 list (364 files) passes, and its SBOM is unchanged.
   LIMIT: a third-party file copied into a first-party place (a vendored script under app/web/) is not detectable from
   paths; it would need a content check, and none of today's files is one (review 5 read them).
+- **Every other download in the tmux build refuses** (review 7): a curl, wget, git clone, fetch or submodule, or a
+  bare https address, anywhere outside the fetch() function's own body and the *_URL= settings.
+- **The connector and node are tied to shipped files:** the manifest must ship app/bin/kosmos-tunnel with the
+  connector's signed sha256, and runtime/bin/node. Commits must be full shas, and the manifest must say `dirty: false`.
 - **The manifest's signature is verified** under the checkout's pinned keys (engine/manifest-verify.js) before
   anything is read from it. The real 0.7.59 manifest and its served .sig verify; the same manifest with its version
   changed refuses. The command line's success path cannot run in a test, since only the real release key signs; it
@@ -74,8 +81,10 @@ real fix.
   through its version.
 - The Rust standard library compiled into the connector. The relay pins no toolchain, so no rustc version is recorded
   to list; recording `rustc -V` beside the connector is a follow-up.
-- `readSignedManifest` repeats engine/manifest-verify.js's signature check (eight lines) instead of calling it: the
-  shipped verifier's exports are not changed in a tooling PR. Both are pinned to the same KEYS list.
+- `readSignedManifest` repeats engine/manifest-verify.js's signature check (eight lines) instead of calling its
+  `verify()`: that function also applies the update rules (the version must be newer than an installed one), which do
+  not belong in an SBOM, so calling it would mean passing a made-up installed version. Both use the same KEYS list.
+- Only the arm64 Mac release: any other arch refuses (a Node download name differs per arch).
 
 ## Not in this PR (named, owner Baron)
 - **Publishing:** the SBOM beside each release (`dist/kosmos-<V>-arm64.cdx.json`), written at release step 4b and
