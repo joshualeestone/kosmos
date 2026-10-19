@@ -11,6 +11,7 @@
  *   ON TOP   the topmost element at the link's centre is the link itself, above the first-run cover, which makes the
  *            rest of the page inert (the ask is exempt, so it can still be pressed there).
  *   UNDER    hidden while the restart, update or account-switch screen is up (the board is going away), shown after.
+ *   PHONE    at 390 px the ask fits inside the screen, and Not now (below) is pressed there.
  *   CLOSE    Not now hides it, and it takes no space (the [hidden] rule wins over the ask's display: flex).
  *
  *   KOSMOS_URL=http://127.0.0.1:17372 NODE_PATH=~/work/pw-runtime/node_modules node docs/browser-checks/render-stepupask-6616.js
@@ -74,6 +75,10 @@ const WORDS = 'From a remote session this needs a fresh sign-in. (check 6616)';
       }, cls);
       say(under === 'none/flex', 'under ' + cls + ': hidden while that screen is up, shown again after', under);
     }
+    // PHONE: at 390 px wide the ask fits inside the screen with its 16 px gutter, and Not now is pressable there.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const fit = await page.evaluate(() => { const r = document.getElementById('stepup-ask').getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), sw: document.documentElement.scrollWidth }; });
+    say(fit.l >= 16 && fit.r <= 390 - 16 && fit.r - fit.l >= 390 - 32 - 2 && fit.sw <= 390, 'phone: the ask uses the 390 px screen\'s width inside its gutter (the sentence is long), and the page does not scroll sideways', JSON.stringify(fit));
     await page.locator('#stepup-close').click({ timeout: 5000 });
     const gone = await page.evaluate(() => { const e = document.getElementById('stepup-ask'); return e.hidden && getComputedStyle(e).display === 'none'; });
     say(gone, 'close: Not now hides the ask and it takes no space');

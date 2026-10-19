@@ -1288,8 +1288,10 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    sign-in is often asked for from inside them, and exempt from the inert they put on the page. Hidden while the
    restart screen, the update overlay or the account-switch screen is up (review iterations 2 and 3): the board is
    going away then, and an ask left over them could be seen and not pressed. */
-.stepup-ask { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 80;
-  max-width: min(560px, calc(100vw - 32px)); display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+/* Centred by auto margins between a 16 px gutter, not left: 50% with a transform, which gave the box only half the
+   screen to size into (195 px wide on a phone, measured by its browser check). */
+.stepup-ask { position: fixed; left: 16px; right: 16px; bottom: 24px; margin: 0 auto; width: fit-content; z-index: 80;
+  max-width: 560px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   padding: 10px 12px; border-radius: 11px; background: var(--bg-elevated); border: 1px solid var(--label-2);
   box-shadow: 0 6px 22px rgba(20,22,26,.13); }
 body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display: none !important; }
@@ -20145,7 +20147,7 @@ window.kosmosMeasureScrollbarWidth();
         // Every other refusal is drained as bytes, as before.
         try {
           const copy = res.clone();
-          if (res.status === 403) copy.json().then(showStepUpAsk, () => {});
+          if (res.status === 403) copy.json().then(showStepUpAsk).catch(() => {});   // showStepUpAsk is declared below; only ever called later
           else copy.arrayBuffer().catch(() => {});
         } catch { /* the caller's own read is unaffected */ }
       }

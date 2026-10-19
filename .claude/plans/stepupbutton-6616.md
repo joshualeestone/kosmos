@@ -33,7 +33,8 @@ freshhandoff-6616). That connector then lists `fresh-signin` in `kosmos-tunnel c
   the page), and **hidden under the restart, update and account-switch screens** (the board is going away; those
   make the page inert, so an ask over them could be seen and not pressed).
 - **Shown first, words written after**, so a screen reader announces every refusal, the same sentence included.
-- Not measured at phone width (the check is 1280x800); the ask can cover a dialog's foot there, and Not now clears it.
+- **Measured at phone width** (review iteration 4): at 390 px it spans the screen inside a 16 px gutter (it was 195 px
+  wide with left: 50%). It can cover a dialog's foot there; Not now clears it.
 
 ## Weakest premise
 That `fresh-signin` is printed only by a tunnel that serves the path (Renet's contract). The board cannot check it.
