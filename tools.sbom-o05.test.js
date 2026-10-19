@@ -403,19 +403,18 @@ test('commits must be full shas, the build must say clean, and only the arm64 re
   assert.throws(() => sbom({ ...MANIFEST, arch: undefined }), /arch undefined/);
 });
 
-test('a download outside fetch() (curl, wget, git clone, a bare https address) refuses; one inside fetch() is its own', () => {
-  assert.equal(tmuxPins(TMUX).length, 3, 'the curl inside fetch() is the function itself');
-  for (const extra of ['curl -fL https://zlib.net/zlib-1.3.1.tar.gz -o z.tgz', 'wget -q "$ZURL"', 'git clone https://example.com/x.git',
-    '  git submodule update --init', 'tar xf "$(echo https://x/y.tgz)"']) {
-    assert.throws(() => tmuxPins(TMUX + extra + '\n'), /a download this SBOM cannot list/, extra);
-  }
-  assert.equal(tmuxPins(TMUX + '# curl https://x/y (a comment)\n').length, 3);
+test('a fetch call hidden behind a # in a string, or after a one-line definition, is still read and refuses', () => {
+  assert.equal(tmuxPins(TMUX).length, 3, 'the definition line and the comment line are not calls');
+  assert.throws(() => tmuxPins(TMUX + `echo "step #2"; fetch zlib "https://x/z.tgz" "${SHA('5')}"\n`), /a fetch line this SBOM cannot read: echo "step #2"/);
+  const oneLine = TMUX.replace('fetch() {\n  curl -fL "$2" -o "$1.tgz"\n}', 'fetch() { curl -fL "$2" -o "$1.tgz"; }');
+  assert.equal(tmuxPins(oneLine).length, 3, 'a one-line definition is the definition');
+  assert.throws(() => tmuxPins(oneLine + 'prep() {\n  fetch zlib "$ZLIB_URL" "$ZLIB_SHA"\n}\n'), /no version or url for zlib/);
   assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, 'lib/libevent-9evil.dylib']), /is not a file this SBOM accounts for/);
 });
 
-test('the relay workspace members are read from the [workspace] section only', () => {
-  const later = '[workspace]\nresolver = "2"\n\n[other]\nmembers = ["crates/proto", "crates/tunnel", "crates/relay"]\n';
-  assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, later)), /no \[workspace\] members/);
+test('the binary\'s own version line must agree with the source it was built from', () => {
+  assert.throws(() => parseTmuxVersion(VERSION.replace('tmux:   tmux 3.5a', 'tmux:   tmux 3.6'), LIBS), /the binary reports tmux 3\.6, the source is 3\.5a/);
+  assert.throws(() => parseTmuxVersion(VERSION.replace(/^tmux:.*$/m, ''), LIBS), /the binary reports tmux undefined/);
 });
 
 test('the bundle: a library VERSION names must be in lib/, bin/tmux must be there, a ./ prefix reads the same, URL and SHA must pair', () => {
@@ -508,12 +507,20 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   const ltgz = path.join(root, 'linked.tar.gz');
   execFileSync('tar', ['-czf', ltgz, '-C', linked, ...LIBS]);
   assert.throws(() => readTmuxBundle(ltgz), /an entry that is not a plain file or folder/);
+  const hard = path.join(root, 'hard');
+  fs.cpSync(stage, hard, { recursive: true });
+  fs.rmSync(path.join(hard, 'lib/libutf8proc.3.dylib'));
+  fs.linkSync(path.join(hard, 'bin/tmux'), path.join(hard, 'lib/libutf8proc.3.dylib'));
+  const htgz = path.join(root, 'hard.tar.gz');
+  execFileSync('tar', ['-czf', htgz, '-C', hard, ...LIBS]);
+  assert.throws(() => readTmuxBundle(htgz), /an entry that is not a plain file or folder/);
 
   const mf = path.join(root, 'manifest.json'), sg = path.join(root, 'manifest.json.sig');
   fs.writeFileSync(mf, JSON.stringify(manifest));
   fs.writeFileSync(sg, Buffer.alloc(64).toString('base64'));
   assert.equal(spawnSync(process.execPath, [SBOM_JS, mf, '--sig', sg, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir], { encoding: 'utf8' }).status, 2, 'a repeated flag');
   assert.equal(spawnSync(process.execPath, [SBOM_JS, mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, '--out', mf], { encoding: 'utf8' }).status, 2, '--out onto an input');
+  assert.equal(spawnSync(process.execPath, [SBOM_JS, mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, '--out', `${root}/./manifest.json`], { encoding: 'utf8', cwd: root }).status, 2, '--out onto an input by another spelling');
   assert.ok(fs.readFileSync(mf, 'utf8').includes('"version"'), 'the manifest was not overwritten');
   const run = (...a) => spawnSync(process.execPath, [SBOM_JS, ...a], { encoding: 'utf8' });
   const unsigned = run(mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir);

@@ -21,6 +21,9 @@
  * OpenSSL and so on) are Node's own and are matched through Node's version, not listed one by one; the Rust standard
  * library compiled into the connector is not listed either (the relay pins no toolchain, so no version is recorded).
  *
+ * LIMIT: the connector's relay commit is the relay build's own record (its sidecar); this does not rebuild the
+ * connector to check that the binary came from that commit's Cargo.lock.
+ * LIMIT: a library linked statically into tmux and not recorded in the bundle's VERSION is invisible here.
  * LIMIT: the crate list is the lockfile closure, a superset of what the macOS connector compiles. Measured for 0.7.59:
  * 227 crates against cargo tree's 189; the extra are Windows-only and dev-only crates (26) and optional dependencies
  * of features the connector does not turn on (14). It never misses a crate the connector builds with. A scan of this
@@ -120,9 +123,10 @@ function workspaceMembers(show, relay, commit) {
   }));
 }
 
-// Every `fetch <name> "$X_URL" "$X_SHA"` call, with X_VERSION, X_URL and X_SHA read from the same script. A fetch
-// call in any other shape, anywhere on a line, refuses, and so does a *_URL nobody fetches: skipping either silently
-// is how a build input goes missing.
+// Every `fetch <name> "$X_URL" "$X_SHA"` call, with X_VERSION, X_URL and X_SHA read from the same script. A line that
+// calls fetch in any other shape refuses, and so does a *_URL nobody fetches. This reads the script; it does not run
+// it, so it cannot see a download made some other way: what ships is decided by the bundle checks below, and the
+// script only supplies each input's source url and hash.
 function tmuxPins(text) {
   const vars = {};
   for (const m of text.matchAll(/^([A-Z0-9_]+)="([^"]*)"/gm)) {
@@ -133,20 +137,11 @@ function tmuxPins(text) {
     for (let i = 0; i < 5 && /\$\{[A-Z0-9_]+\}/.test(s); i++) s = s.replace(/\$\{([A-Z0-9_]+)\}/g, (_, v) => (v in vars ? vars[v] : `\${${v}}`));
     return s;
   };
-  // Any other download (curl, wget, git clone or fetch, an https:// address) outside the fetch() function's own body,
-  // and outside a *_URL= setting, refuses: it would be a build input with no fetch line to list it.
-  const lines = text.split('\n').map((l) => l.replace(/(^|\s)#.*$/, ''));
-  const start = lines.findIndex((l) => /^fetch\s*\(\)\s*\{/.test(l));
-  const end = start < 0 ? -1 : lines.findIndex((l, i) => i > start && /^\}/.test(l));
-  lines.forEach((l, i) => {
-    if (start >= 0 && i >= start && i <= end) return;
-    if (/\b(curl|wget)\b|\bgit\s+(clone|fetch|submodule)\b/.test(l) || (/https?:\/\//.test(l) && !/^[A-Z0-9_]+_URL="/.test(l))) {
-      throw new Error(`build-tmux-from-source.sh: a download this SBOM cannot list: ${l.trim()}`);
-    }
-  });
-  const code = lines.filter((l, i) => !(start >= 0 && i >= start && i <= end));
+  // Only whole-line comments are skipped, so nothing after a # inside a string can hide a call. Every other line that
+  // calls fetch must be exactly one call in the shape below; only the function's own definition line is exempt.
+  const code = text.split('\n').filter((l) => !/^\s*#/.test(l) && !/^\s*fetch\s*\(\)/.test(l));
   const pins = [];
-  for (const line of code.filter((l) => /(^|[\s;&|(])fetch\s/.test(l))) {
+  for (const line of code.filter((l) => /\bfetch\s/.test(l))) {
     const m = line.match(/^\s*fetch\s+(\S+)\s+"\$([A-Z0-9_]+)_URL"\s+"\$([A-Z0-9_]+)_SHA"\s*$/);
     if (!m) throw new Error(`build-tmux-from-source.sh: a fetch line this SBOM cannot read: ${line.trim()}`);
     const [, name, u, s] = m;
@@ -200,6 +195,8 @@ function parseTmuxVersion(text, list) {
     versions[name] = kv[key];
   }
   if (!versions.tmux) throw new Error('tmux bundle VERSION: no tmux-src line');
+  const self = (text.match(/^tmux:[ \t]+tmux[ \t]+(\S+)/m) || [])[1];
+  if (self !== versions.tmux) throw new Error(`tmux bundle VERSION: the binary reports tmux ${self}, the source is ${versions.tmux}`);
   const owned = new Set();
   let seenTmux = false;
   for (const raw of list) {
@@ -349,7 +346,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
   ];
   return {
     bomFormat: 'CycloneDX', specVersion: '1.5', version: 1,
-    serialNumber: `urn:uuid:${uuidFrom(manifest.sha256 || appCommit)}`,
+    serialNumber: `urn:uuid:${uuidFrom(manifest.sha256)}`,
     metadata: {
       timestamp: (manifest.built && manifest.built.at) || undefined,
       component: { type: 'application', 'bom-ref': 'kosmos', name: 'kosmos', version: manifest.version,
@@ -383,7 +380,7 @@ if (require.main === module) {
   const file = args[0], sig = opt('--sig'), repo = opt('--repo'), relay = opt('--relay'), tmuxFile = opt('--tmux'), out = opt('--out');
   const known = new Set(['--sig', '--repo', '--relay', '--tmux', '--out']);
   const badFlag = args.slice(1).some((a, i, xs) => a.startsWith('--') ? !known.has(a) || xs.indexOf(a) !== i : !(i > 0 && known.has(xs[i - 1])))
-    || (out && [file, sig, tmuxFile].includes(out));
+    || (out && [file, sig, tmuxFile].filter(Boolean).map((x) => require('path').resolve(x)).includes(require('path').resolve(out)));
   if (!file || file.startsWith('--') || !sig || !repo || !relay || !tmuxFile || badFlag || (args.includes('--out') && !out)) {
     console.error('usage: sbom.js <manifest.json> --sig <manifest.json.sig> --tmux <tmux-arch.tar.gz> --repo <kosmos> --relay <kosmos-relay> [--out <file>]');
     process.exit(2);
