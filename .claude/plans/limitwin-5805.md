@@ -38,14 +38,15 @@ rateLimitType: five_hour|seven_day|seven_day_opus|seven_day_sonnet|seven_day_ove
 - engine/win32capture.js (review 7, after rebasing onto main): #6131 made the capture accept only busy and idle and
   treat anything else as a failed look, which would have dropped the limit token silently on a clean-looking merge.
   It now also accepts the token (win32streamstate.isLimitToken), but only the two plain tokens are CARRIED across a
-  restart, since a carried limit would skip stateFor's reset expiry. Without this, a box whose refused turns fire
+  restart, since a carried limit would skip stateFor's reset expiry (the carry file may record one; it is not read
+  back). A held limit reading is logged as "out of usage", not "idle" (review 8; arm and mutant). Without this, a box whose refused turns fire
   Stop would read idle and hold nothing: the 17-hour failure again.
 - engine/chat.js: limitHeldVerdict uses a Windows card's limitUntil first (reachedByChannel is true only for Windows
   panes), so the hold and the card agree on the reset (review 1). No Mac card changes.
 - No new control and no new wording on the page.
 
 ## Test
-engine/win32limit-5805.test.js, 24 arms, on the Windows runner's list (selectFiles picks it): the real publisher, a
+engine/win32limit-5805.test.js, 25 arms, on the Windows runner's list (selectFiles picks it): the real publisher, a
 real state file, the real capture and status.snapshot(), the real holds. A refusal plus a failed turn reads
 rate_limited with the stream's reset and the turn's sentence, and both holds hold with the card's reset; an allowed
 event, a warning event, or a successful real turn clears it; a local command's result does not, also after an
