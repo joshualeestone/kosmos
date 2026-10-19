@@ -339,3 +339,20 @@ test('R01: a late answer from an earlier ask is dropped (generations), and start
     assert.equal(remote.connectorCapabilities().has('session-headers'), false, 'a late yes from an earlier connector was trusted');
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
 });
+
+test('R01: a tunnel restart on the same binary keeps a yes; a changed binary is asked again', async () => {
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  const yes = path.join(SANDBOX, 'yes-tunnel');
+  fs.writeFileSync(yes, '#!/bin/sh\nprintf "session-headers\\n"\n', { mode: 0o755 });
+  try {
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = yes;
+    remote.resetConnectorCapabilitiesForTests();
+    await warm();
+    remote.forgetConnectorCapabilities();   // a tunnel restarts on the same binary
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'a restart on the same binary lost the answer');
+    fs.writeFileSync(yes, '#!/bin/sh\nexit 2\n', { mode: 0o755 });   // the binary changes (an update)
+    const later = new Date(Date.now() + 5000); fs.utimesSync(yes, later, later);
+    remote.forgetConnectorCapabilities();
+    assert.equal((await warm()).size, 0, 'a changed binary kept the old yes');
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+});

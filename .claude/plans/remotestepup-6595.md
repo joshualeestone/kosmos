@@ -91,6 +91,10 @@ set none of the forwarding headers, it would read as local and never be asked (R
   connector away. Merge order still matters for usability (before Renet's verb ships, no remote session can do a
   gated thing), not for safety. The connector is asked in the background only (at start, when due, and anew whenever
   a tunnel is started): ten minutes after it answered without the capability, thirty seconds after it did not answer.
+- A tunnel restart on the SAME binary (path and modification time) keeps a yes, so a flapping tunnel does not close
+  gated actions; a changed binary is asked anew (review iteration 16).
+- Trailing slashes cannot slip past the gate: the gate and the routes read the same `pathname`, matched exactly, so
+  `/api/agents/` reaches neither the gate's list nor the route (review iteration 16 asked).
 - Residual: the answer is the BINARY's, not the running tunnel process's. Re-asking whenever this board starts a
   tunnel ties them, but a tunnel process that outlives a board restart after an update would be described by the new
   binary. Owner PigeonPete with Renet, in #6616 (R01b): the running tunnel reports its capabilities (its status

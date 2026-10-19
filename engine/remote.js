@@ -141,6 +141,7 @@ const CAPABILITIES_UNANSWERED_RECHECK_MS = 30 * 1000;
 // How long one ask may take before it counts as unanswered (a cold start on Windows can scan the exe first).
 const CAPABILITIES_ASK_TIMEOUT_MS = 5000;
 let capabilitiesSeen = null;
+let askingCapabilities = false;
 // Each ask carries the generation it started in; forgetting the answer starts a new one, so a late answer from an
 // earlier ask (an earlier connector) is dropped, never written over the new state.
 let capabilitiesGeneration = 0;
@@ -149,12 +150,21 @@ let capabilitiesGeneration = 0;
 function noteCapabilities(caps, answered, now, generation = capabilitiesGeneration) {
   if (generation !== capabilitiesGeneration) return capabilitiesSeen ? capabilitiesSeen.caps : new Set();
   if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) return capabilitiesSeen.caps;
-  capabilitiesSeen = { caps, answered, at: now };
+  capabilitiesSeen = { caps, answered, at: now, binary: connectorBinaryKey() };
   return caps;
 }
+/* Which connector binary an answer came from: its path and when it last changed. */
+function connectorBinaryKey() {
+  const bin = BIN();
+  try { return bin + ':' + fs.statSync(bin).mtimeMs; } catch { return bin + ':?'; }
+}
 /* Forget the answer: the connector process that forwards is about to change (a tunnel is started), so what the
-   binary says is asked again for the process it will be. */
-function forgetConnectorCapabilities() { capabilitiesSeen = null; askingCapabilities = false; capabilitiesGeneration += 1; }
+   binary says is asked again for the process it will be. Unless the binary is the one that already said yes: a tunnel
+   that restarts on the same binary keeps its answer (a flapping tunnel must not close gated actions each restart). */
+function forgetConnectorCapabilities({ always = false } = {}) {
+  if (!always && capabilitiesSeen && capabilitiesSeen.caps.has('session-headers') && capabilitiesSeen.binary === connectorBinaryKey()) return;
+  capabilitiesSeen = null; askingCapabilities = false; capabilitiesGeneration += 1;
+}
 function connectorCapabilities(now = Date.now()) {
   if (capabilitiesSeen) {
     const wait = capabilitiesSeen.answered ? CAPABILITIES_RECHECK_MS : CAPABILITIES_UNANSWERED_RECHECK_MS;
@@ -169,7 +179,6 @@ function connectorCapabilities(now = Date.now()) {
   }
   return capabilitiesSeen ? capabilitiesSeen.caps : new Set();
 }
-let askingCapabilities = false;
 const capabilityLines = (out) => new Set(String(out || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
 /* The warm-up: asked once at board start, without blocking, so the first remote request finds the answer kept. */
 function warmConnectorCapabilities(done = () => {}) {
@@ -184,7 +193,7 @@ function warmConnectorCapabilities(done = () => {}) {
     });
   } catch { done(noteCapabilities(new Set(), false, Date.now(), generation)); }
 }
-const resetConnectorCapabilitiesForTests = () => forgetConnectorCapabilities();
+const resetConnectorCapabilitiesForTests = () => forgetConnectorCapabilities({ always: true });
 /* The production addresses are the defaults (#648): a bundle needs nothing
  * baked for a Mac to reach the real relay and coordinator. Precedence: env
  * (tests, self-host), then the relay saved in remote.json, then production. */
