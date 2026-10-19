@@ -323,6 +323,9 @@ async function run(engineName) {
       reread: await page.evaluate((k) => window.__org.slice(k).some((x) => x.path === '/api/org' && x.method === 'GET'), m) };
     chk(r4.joined && !r4.row && !r4.say.includes('reports nothing until') && r4.reread,
       E + ' R4 accepted: the page reads /api/org again and the joined view stops waiting for a parent', JSON.stringify(r4));
+    // kosmos#6565: a family's joined line says "in", never the company wording "your work Kosmos for".
+    chk(r4.say === 'This Kosmos is in The Rivera family.' && !r4.say.includes('work Kosmos'),
+      E + ' R4 a family\u2019s joined line reads "This Kosmos is in" the family, with no "work Kosmos"', JSON.stringify(r4.say));
     await setEnroll(null);
     for (const [label, st] of [['a company with its terms gone', Object.assign({}, WAITING, { wordsNeeded: false, org: { name: 'Acme', slug: 'acme' } })],
       ['a family whose words are accepted', Object.assign({}, WAITING, { wordsNeeded: false, reporting: true })]]) {
@@ -422,7 +425,7 @@ async function run(engineName) {
     await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
     // R16: a review preview refused because the family no longer names this computer holds the words back (R8's twin).
     await reread(WAITING);
-    await setPreview({ ok: false, code: 'org_not_named', because: 'Your family does not name this Kosmos as your work Kosmos right now, so there is nothing to accept here.' });
+    await setPreview({ ok: false, code: 'org_not_named', because: 'Your family does not name this Kosmos as your family\'s Kosmos right now, so there is nothing to accept here.' });   // kosmos#6565: the engine (inKind) words it so now
     await page.click('#plus-org-words');
     await page.waitForTimeout(300);
     const r16 = { msg: await text('plus-org-msg'), row: await shown('plus-org-words'), say: await text('plus-org-say'), focus: await focus() };
