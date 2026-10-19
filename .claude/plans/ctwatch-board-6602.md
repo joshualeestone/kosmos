@@ -30,6 +30,9 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
   its silence then is the person's own choice); a finding still is.
 - A finding is said even with the check switched off ("The check is off." added), so the switch never
   hides one. Only a finding: an unknown or lost state is not said while off.
+- The switch route refuses a computer that is not enrolled (a leftover state dir is not set up), as the
+  page shows it only then. A check that keeps failing says so ("has been failing lately"), apart from one
+  that has gone quiet. The switch says it is saving (`aria-busy`) while a change is in flight.
 - The switch route is person-only (`isViaScreen`, 403 otherwise): an agent cannot use this switch. It can
   still stop the check another way, by turning Kosmos+ off (`PUT /api/remote`, which is not person-only),
   and with Kosmos+ off the cannot-confirm sentences are quiet. A finding is still shown. Recorded for
@@ -49,5 +52,5 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
   computer."). It does not tell the person what to do next, because there is no support path to name yet.
 
 ## Proof
-- `node --test engine/cert-watch.test.js` (10), `web.plus-cert-watch-6602.test.js` (9), and the new
+- `node --test engine/cert-watch.test.js` (10), `web.plus-cert-watch-6602.test.js` (9), the Plus panel browser check `render-plus-panel-3829.js` (a connected pane with a finding, a clear check, and the switch, each with its control), and the new
   `server.test.js` route test (by name).
