@@ -2497,7 +2497,7 @@ async function run() {
     throw new Error('MSHOTS_COVER_CONTROL=spill needs a phone size');
   }
   /* Nothing to shoot is not a pass: every requested screen is skipped at the sizes asked for (skipWhy:
-     phone-only at desktop or a tablet over 56rem, desktop-only at a phone or a tablet under 960px). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
+     phone-only at desktop or a tablet over 56rem, desktop-only at a phone or a tablet under 960px, or a screen whose needsData is another --data set, #6542). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
   const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !skipWhy(SIZES[sz], sc, args.data)).length, 0);
   if (!planned) throw new Error('no shot would be taken: every requested screen is skipped at these sizes (phone-only at desktop or a tablet over 56rem, desktop-only at a phone or a tablet under 960px) or needs another --data set (needsData, #6542)');
   // Test hook (tools.mobile-shots-desktop.test.js): report the plan and stop, before any browser or board.
@@ -2734,7 +2734,7 @@ async function run() {
   const md = ['# Mobile screenshots', '',
     `Throwaway board with the ${args.data} data set. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone. Phone audits read n/a where they did not run (the desktop size, or a screen that errored).`, '',
     `Shots: ${rows.filter((r) => r.file).length}${rows.some((r) => !r.file) ? ` (plus ${rows.filter((r) => !r.file).length} deleted by its verify)` : ''}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
-    `Skipped (phone-only at the desktop size, desktop-only at a phone size): ${skipped.length ? skipped.map((k) => `${k.screen}--${k.size}--${k.theme}--${k.engine}`).join(', ') : 'none'}.`, '',
+    `Skipped (phone-only at the desktop size, desktop-only at a phone size, or a screen that needs another --data set): ${skipped.length ? skipped.map((k) => `${k.screen}--${k.size}--${k.theme}--${k.engine} (${k.skipped})`).join(', ') : 'none'}.`, '',
     `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px | covers |`, '|---|---|---|---|---|---|---|---|---|---|',
     ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file || '(deleted)'} | ${r.note.replace(/\|/g, '/')} | ${r.audited ? r.taps.length : 'n/a'} | ${r.audited ? r.fields.length : 'n/a'} | ${r.audited ? (r.covers || []).length : 'n/a'} |`)];
   fs.writeFileSync(path.join(out, 'report.md'), md.join('\n') + '\n');
