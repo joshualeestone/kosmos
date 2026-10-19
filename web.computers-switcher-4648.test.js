@@ -172,12 +172,14 @@ test('opening the menu reads the computers fresh: the shipped worldswOpen CALLS 
    the other computer with it in the fragment; anything else keeps the plain address. */
 const OPEN = slice('computersInApp') + slice('computersGo') + slice('computersOpenClick');
 const DECL = (() => { const at = PAGE.indexOf('let computersOpening = '); assert.ok(at >= 0, 'computersOpening moved'); return PAGE.slice(at, PAGE.indexOf('\n', at) + 1); })();   // the page's own declaration, not a copy
-function clickWith({ win, answer, ev, href, twice, timers }) {
+function clickWith({ win, answer, ev, href, twice, timers, linkAttrs }) {
   const went = [];
   const posted = [];
-  const attrs = {};
+  const attrs = Object.assign({}, linkAttrs || {});
+  const screens = [];
+  const toasts = [];
   const a = { href: href || 'https://tmnt.kosmosplus.com/?tab=detail&agent=x', closest: (sel) => (sel === 'a[data-computer-open]' ? a : null),
-    setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; } };
+    setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; }, getAttribute: (k) => (k in attrs ? attrs[k] : null) };
   const e = Object.assign({ defaultPrevented: false, button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, target: a,
     preventDefault() { this.defaultPrevented = true; } }, ev || {});
   const assigned = [];
@@ -187,12 +189,15 @@ function clickWith({ win, answer, ev, href, twice, timers }) {
     body: { appendChild() {} } };
   const fetchFn = (url, opts) => { posted.push({ url, body: JSON.parse(opts.body) }); return answer(); };
   const second = Object.assign({}, e, { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
+  // #6585: the switching screen and the toast are recorded, not drawn (the screen has its own test below).
   const run = new Function('window', 'document', 'fetch', 'e', 'second', 'twice', 'URL', 'AbortController', 'setTimeout', 'clearTimeout',
+    'computersSwitchingScreen', 'msgToast',
     `${DECL}\n${OPEN}\ncomputersOpenClick(e);\nif (twice) computersOpenClick(second);`);
-  run(w, doc, fetchFn, e, second, !!twice, URL, AbortController, timers ? timers.set : setTimeout, timers ? timers.clear : clearTimeout);
+  run(w, doc, fetchFn, e, second, !!twice, URL, AbortController, timers ? timers.set : setTimeout, timers ? timers.clear : clearTimeout,
+    (n) => screens.push(n), (m) => toasts.push(m));
   // went: navigations through the noreferrer link; assigned: script navigations (which would send a Referer), never.
   assert.deepEqual(assigned, [], 'no script navigation');
-  return { went, posted, e, attrs };
+  return { went, posted, e, attrs, screens, toasts };
 }
 const APP = { webkit: { messageHandlers: { kosmosBadge: {} } } };
 const settle = () => new Promise((r) => setTimeout(r, 20));
