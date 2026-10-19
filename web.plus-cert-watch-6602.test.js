@@ -45,7 +45,6 @@ test('clear and never-run say nothing; unknown says it cannot confirm (the contr
   const { ctx, el } = world();
   for (const state of ['clear', 'none']) {
     ctx.paintPlusCertWatch({ on: true, state });
-    
     assert.equal(el('plus-cw-line').textContent, '', state);
   }
   ctx.paintPlusCertWatch({ on: true, state: 'unknown' });

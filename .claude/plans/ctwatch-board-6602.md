@@ -39,5 +39,5 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
   computer."). It does not tell the person what to do next, because there is no support path to name yet.
 
 ## Proof
-- `node --test engine/cert-watch.test.js` (9), `web.plus-cert-watch-6602.test.js` (9), and the new
+- `node --test engine/cert-watch.test.js` (10), `web.plus-cert-watch-6602.test.js` (9), and the new
   `server.test.js` route test (by name).
