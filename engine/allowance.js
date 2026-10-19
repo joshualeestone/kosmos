@@ -16,10 +16,9 @@
  * account simply has no weekly reading, and the swarm limit stays in tokens
  * for it. API-key accounts have no weekly figure, but they are wired anyway:
  * a key can later be swapped for a sign-in, and the slot costs nothing while
- * empty. Windows is not wired for now: a statusline is a shell string there,
- * the report hook's exec form (#570) does not apply to it, and wiring it
- * needs the Windows box to verify (the Mac does not ship a Windows change
- * unverified).
+ * empty. Windows (#6213): a statusline is a shell string run by Git Bash or,
+ * without it, PowerShell, and it has no exec form (the report hook's #570 way
+ * round this), so winCommandFor builds the one string both shells run alike.
  *
  * MERGE-ONLY, NEVER CLOBBER, through the same read/write/#1582 helpers as
  * engine/reporthook.js, so there is one copy of each. It requires
@@ -73,6 +72,68 @@ function commandFor(node, script, accountDir) {
   return '"' + node + '" "' + script + '" "' + accountDir + '"';
 }
 
+/* kosmos#6213: on Windows a status line command runs in Git Bash when it is installed and in PowerShell when it is not
+   (Claude Code docs, statusline "Windows configuration"), and a status line has no exec form. PowerShell needs `&` before a
+   quoted path and bash rejects that `&`, so the one form that runs the same in both is UNQUOTED paths
+   with forward slashes (bash eats backslashes). A folder with a space is replaced by its Windows short (8.3) name,
+   which has none; a `~` inside a word is literal to bash. The file name is kept as it is, so the command still names
+   kosmos-statusline.js (MARKER). Anything left outside this set is refused. */
+const WIN_SAFE = /^[A-Za-z0-9._\-\/:~]+$/;
+
+/* Ask cmd.exe for a folder's Windows short (8.3) name. { answered: true, short } when cmd.exe ran and exited 0 (short is
+   null when the folder has none: short names switched off); { answered: false } when it could not be asked (a timeout,
+   a failed spawn, a character cmd.exe would read inside its quotes). */
+function askShortPath(p) {
+  if (typeof p !== 'string' || /["%\r\n]/.test(p)) return { answered: false };   // cmd.exe would read these inside its quotes
+  try {
+    const r = require('node:child_process').spawnSync('cmd.exe', ['/d', '/s', '/c', 'for %I in ("' + p + '") do @echo %~sI'],
+      { encoding: 'utf8', windowsVerbatimArguments: true, timeout: 2000 });   // runs on the board's thread: kept short
+    if (!r || r.error || r.status !== 0 || typeof r.stdout !== 'string') return { answered: false };
+    const out = r.stdout.trim().split(/\r?\n/).pop();
+    return { answered: true, short: out && !/\s/.test(out) ? out : null };
+  } catch { return { answered: false }; }
+}
+
+/* The short name; null when Windows answered that there is none; undefined when it could not be asked (a timeout, a
+   failed spawn), which is never kept, so the next set-up asks again. An answer is kept only for a folder that exists
+   (cmd.exe hands back a missing folder's long spelling): one made later is asked again. A kept "none" stops 8.3 being
+   switched off from starting up to three cmd.exe per set-up. */
+const SHORT_SEEN = new Map();   // folder -> its short name, or null for "it has none": one cmd.exe per folder per process
+function winShortPathCached(p, ask = askShortPath, exists = fs.existsSync) {
+  if (SHORT_SEEN.has(p)) return SHORT_SEEN.get(p);
+  const r = ask(p);
+  if (!r.answered) return undefined;
+  if (exists(p)) SHORT_SEEN.set(p, r.short);
+  return r.short;
+}
+
+/* One path for a Windows command: forward slashes, and when that is not safe (a space, a non-ASCII letter) the short name
+   instead, if that one is safe. A short name can keep some characters (an apostrophe, & ( ) !), so such a folder is
+   refused. ensureStatusLine refuses ", %, $, ` and line breaks before this runs. With keepName the file name is kept long and only its folder is shortened (the script: MARKER);
+   otherwise the whole path may be. null when no safe form exists; undefined when the short name could not be asked
+   for. `shortPath` is injectable for tests. */
+function winPath(p, shortPath, keepName) {
+  if (typeof p !== 'string' || !p) return null;
+  const s = p.replace(/\\/g, '/');
+  if (WIN_SAFE.test(s)) return s;
+  const cut = s.lastIndexOf('/');
+  if (keepName && cut <= 0) return null;
+  const head = keepName ? s.slice(0, cut) : s;
+  const tail = keepName ? '/' + s.slice(cut + 1) : '';
+  const short = shortPath(head.replace(/\//g, '\\'));
+  if (short === undefined) return undefined;
+  const out = short ? short.replace(/\\/g, '/') + tail : null;
+  return out && WIN_SAFE.test(out) ? out : null;
+}
+
+/** The Windows statusline command (see WIN_SAFE), or with nothing written: null when a path cannot be made safe,
+    undefined when a short name could not be asked for (worth another try). */
+function winCommandFor(node, script, accountDir, shortPath = winShortPathCached) {
+  const parts = [winPath(node, shortPath, false), winPath(script, shortPath, true), winPath(accountDir, shortPath, false)];
+  if (parts.every(Boolean)) return parts.join(' ');
+  return parts.includes(undefined) ? undefined : null;
+}
+
 function isOurs(sl) {
   return !!(sl && typeof sl === 'object' && typeof sl.command === 'string' && sl.command.includes(MARKER));
 }
@@ -83,20 +144,21 @@ function isOurs(sl) {
  * shape (both callers fail soft, as with the report hooks).
  *
  * opts: platform, node (default: the node running this), script (default:
- * scriptPath()), accountDir (default: the settings file's directory).
+ * scriptPath()), accountDir (default: the settings file's directory), shortPath
+ * (win32: a folder's 8.3 name, for tests; default winShortPathCached).
  */
 function ensureStatusLine(settingsPath, opts) {
   const o = opts || {};
   const plat = o.platform || process.platform;
-  if (plat === 'win32') return { wired: false, because: 'the weekly reading is not wired on Windows yet' };
   const script = o.script === undefined ? scriptPath() : o.script;
   if (!script) return { wired: false, because: 'the statusline script is not on this machine' };
   if (typeof settingsPath !== 'string') return { wired: false, because: 'there is no settings file to wire' };
   const node = o.node || stableNode();
   const accountDir = o.accountDir || path.dirname(settingsPath);
   /* The command is a shell string, so every path in it is vetted the way the
-     posix report hook vets its script (quote, backslash, dollar, backtick,
-     CR/LF refused). */
+     report hook vets its script: on posix quote, backslash, dollar, backtick
+     and CR/LF are refused; on Windows quote, %, dollar, backtick and CR/LF
+     (backslashes become forward slashes in winCommandFor). */
   if ([node, script, accountDir].some((p) => reporthook.unsafeForCommand(p, plat))) {
     return { wired: false, because: 'the statusline command path contains characters we will not embed in a command' };
   }
@@ -106,7 +168,9 @@ function ensureStatusLine(settingsPath, opts) {
   const read = reporthook.readSettings(settingsPath);
   if (read.because) return { wired: false, because: read.because };
   const { target, data, prevMode } = read;
-  const want = commandFor(node, script, accountDir);
+  const want = plat === 'win32' ? winCommandFor(node, script, accountDir, o.shortPath) : commandFor(node, script, accountDir);
+  if (want === undefined) return { wired: false, because: 'Kosmos could not ask Windows for a folder\'s short name just now; set it up again to retry' };
+  if (!want) return { wired: false, because: 'a folder Kosmos would run it from has a name Windows commands cannot take as it is, and Windows has no short name for it' };
   const cur = data.statusLine;
   if (cur !== undefined && cur !== null) {
     if (!isOurs(cur)) {
@@ -255,5 +319,42 @@ function calibrate(accountDir, tokensToday, { now = Date.now(), dayStart } = {})
   return readCalibration(accountDir, now);
 }
 
-module.exports = { MARKER, scriptPath, stableNode, commandFor, isOurs, ensureStatusLine, readWeekly, readFiveHour,
+/* kosmos#6213: the Windows uninstall takes Kosmos's status line out of a settings file when it points inside the install
+   being removed (as install/setup.sh does on the Mac), or the person's Claude Code runs a deleted node.exe on every
+   refresh. `roots` are the install folder's spellings; each is also matched by its short name, since the command may
+   carry that. Under the caller's lock. Returns { ours, changed, because }. */
+function unwireStatusLine(settingsPath, roots, opts) {
+  const o = opts || {};
+  const shortPath = o.shortPath || winShortPathCached;
+  const read = reporthook.readSettings(settingsPath);
+  if (read.because) return { ours: false, changed: false, because: read.because };
+  const { target, data, prevMode } = read;
+  const sl = data.statusLine;
+  if (!isOurs(sl)) return { ours: false, changed: false };
+  const norm = (x) => String(x).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const spellings = [];
+  for (const r of roots || []) {
+    if (typeof r !== 'string' || !r) continue;
+    spellings.push(norm(r));
+    const sh = shortPath(r);
+    if (sh) spellings.push(norm(sh));
+  }
+  const cmd = norm(sl.command);
+  // Space-separated tokens are exact here: Kosmos only ever writes WIN_SAFE paths, which have none.
+  const inside = spellings.some((r) => r && (cmd.startsWith(r + '/') || cmd.includes(' ' + r + '/')));
+  /* Also ours when the script it names is already gone (an account wired from an earlier Kosmos folder), as the report
+     hooks' unwire does: left in, it runs a missing file on every refresh. */
+  /* The token must BE the script at a drive-qualified path, as Kosmos writes it: not a name ending in it
+     (C:/me/my-kosmos-statusline.js), and not ~/... or a bare name, which goneOnDisk would resolve wrongly and call gone. */
+  const script = String(sl.command).split(' ').map((t) => t.replace(/\\/g, '/')).find((t) => /^[A-Za-z]:\//.test(t) && t.endsWith('/' + MARKER));
+  const isGone = o.gone || reporthook.goneOnDisk;   // only ENOENT/ENOTDIR: an unreadable folder is not gone (#5999 round 3)
+  const gone = !!script && isGone(script);
+  if (!inside && !gone) return { ours: false, changed: false };
+  if (o.dryRun) return { ours: true, changed: false };
+  delete data.statusLine;
+  if (!reporthook.writeSettings(target, data, prevMode)) return { ours: true, changed: false, because: 'the settings file could not be saved' };
+  return { ours: true, changed: true };
+}
+
+module.exports = { MARKER, scriptPath, stableNode, commandFor, winCommandFor, winShortPathCached, unwireStatusLine, isOurs, ensureStatusLine, readWeekly, readFiveHour,
   MIN_CALIBRATION_POINTS, CALIBRATION_MAX_AGE_MS, CALIBRATION_REPLACE_AGE_MS, CALIBRATION_FILE, pointsSince, readCalibration, calibrate };

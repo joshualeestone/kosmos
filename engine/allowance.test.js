@@ -91,10 +91,9 @@ test('ours, aimed at another copy, is repointed and keeps the person\'s other fi
   assert.equal(sl.padding, 2);
 });
 
-test('the refusals: Windows, no script, an unsafe path, an ephemeral path into a durable file, a dangling link', () => {
+test('the refusals: no script, an unsafe path, an ephemeral path into a durable file, a dangling link', () => {
   const dir = freshDir();
   const p = path.join(dir, 'settings.json');
-  assert.match(allowance.ensureStatusLine(p, { platform: 'win32' }).because, /Windows/);
   assert.match(allowance.ensureStatusLine(p, { script: null }).because, /not on this machine/);
   assert.match(allowance.ensureStatusLine(p, { accountDir: '/a"b' }).because, /will not embed/);
   assert.match(allowance.ensureStatusLine(p, { node: '/x/$(boom)/node' }).because, /will not embed/);
@@ -442,3 +441,124 @@ test.after(() => {
   if (!mine.startsWith(tmp + path.sep) || !path.basename(mine).startsWith('kosmos-allowance-')) return;
   fs.rmSync(mine, { recursive: true, force: true });
 });
+
+/* kosmos#6213: on Windows the command runs in Git Bash or PowerShell, so it is unquoted, with forward slashes, and a
+   folder with a space is replaced by its short name. shortPath stands in for Windows' 8.3 lookup. */
+test('#6213 the Windows command: unquoted forward slashes, a spaced folder by its short name, the script name kept', () => {
+  const short = (d) => ({ 'C:\\Users\\John Smith\\AppData\\Local\\Kosmos\\runtime': 'C:\\Users\\JOHNSM~1\\AppData\\Local\\Kosmos\\runtime',
+    'C:\\Users\\John Smith\\AppData\\Local\\Kosmos\\app\\engine': 'C:\\Users\\JOHNSM~1\\AppData\\Local\\Kosmos\\app\\engine',
+    'C:\\Users\\John Smith\\.claude': 'C:\\Users\\JOHNSM~1\\.claude',
+    'C:\\Users\\John Smith\\AppData\\Local\\Kosmos\\runtime\\node.exe': 'C:\\Users\\JOHNSM~1\\AppData\\Local\\Kosmos\\runtime\\node.exe' })[d] || null;
+  const cmd = allowance.winCommandFor('C:\\Users\\John Smith\\AppData\\Local\\Kosmos\\runtime\\node.exe',
+    'C:\\Users\\John Smith\\AppData\\Local\\Kosmos\\app\\engine\\kosmos-statusline.js', 'C:\\Users\\John Smith\\.claude', short);
+  assert.equal(cmd, 'C:/Users/JOHNSM~1/AppData/Local/Kosmos/runtime/node.exe C:/Users/JOHNSM~1/AppData/Local/Kosmos/app/engine/kosmos-statusline.js C:/Users/JOHNSM~1/.claude');
+  assert.ok(cmd.includes(allowance.MARKER), 'the script name was shortened, so the command is no longer recognised as Kosmos\'s');
+  assert.ok(!/["\\]/.test(cmd), 'a quote or a backslash went into the command');
+  const plain = allowance.winCommandFor('C:\\K\\node.exe', 'C:\\K\\kosmos-statusline.js', 'C:\\Users\\p\\.claude', () => null);
+  assert.equal(plain, 'C:/K/node.exe C:/K/kosmos-statusline.js C:/Users/p/.claude', 'CONTROL: a path with no space needs no short name');
+  assert.equal(allowance.winCommandFor('C:\\a b\\node.exe', 'C:\\K\\kosmos-statusline.js', 'C:\\p', () => null), null, 'a spaced folder with no short name went in unquoted');
+  assert.equal(allowance.winCommandFor('C:\\K\\node.exe', 'C:\\K\\kosmos-statusline.js', 'C:\\p&q', () => null), null, 'a character a shell reads went in');
+  assert.equal(allowance.winCommandFor('C:\\K\\node.exe', 'C:\\K\\my script.js', 'C:\\p', () => 'C:\\K'), null, 'a spaced file name was shortened');
+});
+
+test('#6213 ensureStatusLine on Windows writes that command, and refuses (writing nothing) when it cannot be made', () => {
+  const dir = freshDir();
+  const p = path.join(dir, 'settings.json');
+  const got = allowance.ensureStatusLine(p, { platform: 'win32', node: 'C:\\K\\node.exe', script: 'C:\\K\\kosmos-statusline.js', accountDir: 'C:\\Users\\p\\.claude', shortPath: () => null });
+  assert.deepEqual(got, { wired: true, changed: true });
+  const sl = readJson(p).statusLine;
+  assert.deepEqual(sl, { type: 'command', command: 'C:/K/node.exe C:/K/kosmos-statusline.js C:/Users/p/.claude' });
+  assert.ok(allowance.isOurs(sl), 'the written status line is not recognised as Kosmos\'s');
+  assert.deepEqual(allowance.ensureStatusLine(p, { platform: 'win32', node: 'C:\\K\\node.exe', script: 'C:\\K\\kosmos-statusline.js', accountDir: 'C:\\Users\\p\\.claude', shortPath: () => null }),
+    { wired: true, changed: false }, 'CONTROL: a second wiring changed a file that was already right');
+  const q = path.join(freshDir(), 'settings.json');
+  const no = allowance.ensureStatusLine(q, { platform: 'win32', node: 'C:\\a b\\node.exe', script: 'C:\\K\\kosmos-statusline.js', accountDir: 'C:\\p', shortPath: () => null });
+  assert.equal(no.wired, false);
+  assert.match(no.because, /Windows has no short name for it/);
+  assert.equal(fs.existsSync(q), false, 'a refused wiring wrote a settings file');
+  const slow = allowance.ensureStatusLine(q, { platform: 'win32', node: 'C:\\a b\\node.exe', script: 'C:\\K\\kosmos-statusline.js', accountDir: 'C:\\p', shortPath: () => undefined });
+  assert.equal(slow.wired, false);
+  assert.match(slow.because, /could not ask Windows .* retry/, 'a lookup that timed out was reported as a folder with no short name');
+  assert.equal(fs.existsSync(q), false, 'a refused wiring wrote a settings file');
+});
+
+test('#6213 a folder with a non-ASCII letter is tried by its short name; one whose short name keeps an apostrophe is refused', () => {
+  // Windows keeps an apostrophe in an 8.3 name (it is a legal 8.3 character), so O'Brien stays O'Brien: refused, not wired.
+  const short = (d) => ({ 'C:\\Users\\Jos\u00e9\\.claude': 'C:\\Users\\JOSE~1\\.claude', "C:\\Users\\O'Brien\\K": "C:\\Users\\O'Brien\\K" })[d] || null;
+  assert.equal(allowance.winCommandFor('C:\\K\\node.exe', 'C:\\K\\kosmos-statusline.js', 'C:\\Users\\Jos\u00e9\\.claude', short),
+    'C:/K/node.exe C:/K/kosmos-statusline.js C:/Users/JOSE~1/.claude');
+  assert.equal(allowance.winCommandFor('C:\\K\\node.exe', "C:\\Users\\O'Brien\\K\\kosmos-statusline.js", 'C:\\p', short), null,
+    'a short name that keeps an apostrophe went into the command');
+});
+
+test('#6213 the Windows uninstall takes out Kosmos\'s status line when it points inside the install, by either spelling', () => {
+  const dir = freshDir();
+  const p = path.join(dir, 'settings.json');
+  const put = (command) => fs.writeFileSync(p, JSON.stringify({ theme: 'dark', statusLine: { type: 'command', command } }));
+  const roots = ['C:\\Users\\John Smith\\AppData\\Local\\Kosmos'];
+  const short = (r) => (r === roots[0] ? 'C:\\Users\\JOHNSM~1\\AppData\\Local\\Kosmos' : null);
+  put('C:/Users/JOHNSM~1/AppData/Local/Kosmos/runtime/node.exe C:/Users/JOHNSM~1/AppData/Local/Kosmos/app/engine/kosmos-statusline.js C:/Users/JOHNSM~1/.claude');
+  assert.deepEqual(allowance.unwireStatusLine(p, roots, { shortPath: short, dryRun: true }), { ours: true, changed: false }, 'a dry run is not read-only');
+  assert.ok(readJson(p).statusLine, 'CONTROL: the dry run changed the file');
+  assert.deepEqual(allowance.unwireStatusLine(p, roots, { shortPath: short }), { ours: true, changed: true });
+  assert.deepEqual(readJson(p), { theme: 'dark' }, 'the status line stayed, or another setting went');
+  put('C:/Other/Kosmos/runtime/node.exe C:/Other/Kosmos/app/engine/kosmos-statusline.js C:/Users/p/.claude');
+  assert.equal(allowance.unwireStatusLine(p, roots, { shortPath: short, gone: () => false }).changed, false, 'another install\'s (live) status line was taken out');
+  put('bash ~/.claude/my-status.sh');
+  assert.equal(allowance.unwireStatusLine(p, roots, { shortPath: short, gone: () => true }).changed, false, 'the person\'s own status line was taken out');
+});
+
+test('#6213 the uninstall also takes out a Kosmos status line whose script is already gone', () => {
+  const p = path.join(freshDir(), 'settings.json');
+  fs.writeFileSync(p, JSON.stringify({ statusLine: { type: 'command', command: 'C:/Old/runtime/node.exe C:/Old/app/engine/kosmos-statusline.js C:/Users/p/.claude' } }));
+  const roots = ['C:\\New\\Kosmos'];
+  assert.equal(allowance.unwireStatusLine(p, roots, { shortPath: () => null, gone: () => false }).changed, false, 'CONTROL: a live script from another install was taken out');
+  assert.deepEqual(allowance.unwireStatusLine(p, roots, { shortPath: () => null, gone: () => true }), { ours: true, changed: true }, 'a status line naming a deleted script was left to fail on every refresh');
+});
+
+test('#6213 a gone-script check claims only a token that IS kosmos-statusline.js, not a name ending in it', () => {
+  const p = path.join(freshDir(), 'settings.json');
+  const roots = ['C:\\New\\Kosmos'];
+  fs.writeFileSync(p, JSON.stringify({ statusLine: { type: 'command', command: 'node C:/me/my-kosmos-statusline.js C:/Users/p/.claude' } }));
+  assert.equal(allowance.unwireStatusLine(p, roots, { shortPath: () => null, gone: () => true }).changed, false, 'the person\'s own my-kosmos-statusline.js was taken out');
+  assert.ok(readJson(p).statusLine, 'the person\'s status line is gone from the file');
+  for (const command of ['node ~/.claude/kosmos-statusline.js', 'node kosmos-statusline.js']) {
+    fs.writeFileSync(p, JSON.stringify({ statusLine: { type: 'command', command } }));
+    assert.equal(allowance.unwireStatusLine(p, roots, { shortPath: () => null, gone: () => true }).changed, false, 'a status line naming ' + command + ' (not a path Kosmos writes) was taken out');
+  }
+  fs.writeFileSync(p, JSON.stringify({ statusLine: { type: 'command', command: 'node C:/Old/app/engine/kosmos-statusline.js C:/Users/p/.claude' } }));
+  assert.equal(allowance.unwireStatusLine(p, roots, { shortPath: () => null, gone: () => true }).changed, true, 'CONTROL: Kosmos\'s own gone script was left in');
+});
+
+test('#6213 winShortPathCached keeps a clean "no short name" for a folder that exists, and never a failed ask', () => {
+  const dir = freshDir();
+  let asks = 0;
+  const none = () => { asks++; return { answered: true, short: null }; };
+  assert.equal(allowance.winShortPathCached(dir, none), null);
+  assert.equal(allowance.winShortPathCached(dir, none), null);
+  assert.equal(asks, 1, '8.3 switched off started cmd.exe again for the same folder');
+  const failing = path.join(dir, 'failing');
+  fs.mkdirSync(failing);
+  asks = 0;
+  const fail = () => { asks++; return { answered: false }; };
+  allowance.winShortPathCached(failing, fail);
+  allowance.winShortPathCached(failing, fail);
+  assert.equal(asks, 2, 'a timeout or failed spawn was kept as the answer');
+  const later = path.join(dir, 'not-yet');
+  asks = 0;
+  allowance.winShortPathCached(later, none);
+  allowance.winShortPathCached(later, none);
+  assert.equal(asks, 2, 'a "none" for a folder that does not exist yet was kept');
+  const missing = path.join(dir, 'missing yet');
+  let longAsks = 0;
+  const long = () => { longAsks++; return { answered: true, short: 'C:/LONGNAME' }; };
+  allowance.winShortPathCached(missing, long);
+  allowance.winShortPathCached(missing, long);
+  assert.equal(longAsks, 2, 'an answer for a folder that does not exist yet was kept (cmd.exe echoes a missing folder back)');
+  assert.equal(allowance.winShortPathCached(failing, fail), undefined, 'a failed ask reads as "no short name", which is a different answer');
+  const sp = path.join(dir, 'spaced');
+  fs.mkdirSync(sp);
+  assert.equal(allowance.winShortPathCached(sp, () => ({ answered: true, short: 'C:/SPACED~1' })), 'C:/SPACED~1');
+  assert.equal(allowance.winShortPathCached(sp, () => { throw new Error('asked again'); }), 'C:/SPACED~1', 'an answer was not kept');
+});
+
