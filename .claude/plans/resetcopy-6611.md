@@ -23,3 +23,13 @@ browser-check gates (coarse refused before the check was updated, passes after).
 ## Weakest premise
 That "every phone and browser" is the right word for what ends: it is every SESSION (phone or browser sign-ins); the
 computers' own signed requests carry on, so the Macs themselves are not signed out, and the copy does not say they are.
+
+## Challenge-loop round 1 (addressed)
+- The dialog's opening paragraph (#plus-lost-say) also says switching the step off signs out every phone and browser,
+  so the person reads it before pressing anything; asserted in web.lost-phone.test.js.
+- Residual, stated: the done line says every phone and browser will sign in again whenever the reset succeeds. The
+  coordinator ends sessions only when a factor was really cleared, and the engine does not pass `had` back (the
+  connector does not print it). The dialog is offered only to an enrolled account, so the false case needs the factor
+  removed elsewhere between the page's paint and the press. Closing it means the connector reporting `had`, a change
+  in kosmos-relay, not taken here.
+- Order: still merge only after the coordinator deploy carrying #6605 is measured live, and after the cut hold lifts.

@@ -45,6 +45,8 @@ test('the control lives behind "Lost your phone?" under Plus, hidden until enrol
   // kosmos#3860: every live Mac on the account can reset the step, not only this one. The
   // sentence used to say "this computer can ... Nobody else can", which read as this Mac alone.
   assert.match(sec2, /this computer, or any other computer connected to this account, can switch the second step off/, 'kosmos#3860: the sentence says only this computer can reset the step');
+  // #6611: the dialog's opening words say the sign-out too, before the button is pressed at all.
+  assert.match(sec2, /Switching it off also signs out every phone and browser on your account\./, '#6611: the dialog does not say a reset signs everyone out');
   const paint = SCRIPT.slice(SCRIPT.indexOf('async function paintPlus('), SCRIPT.indexOf("document.getElementById('plus-switch').addEventListener"));
   assert.match(paint, /getElementById\('plus-devices'\)\.hidden = r\.enrolled !== true/, 'the block with the link is not gated on enrolled; an unenrolled Mac cannot sign the request');
   assert.match(paint, /plusSecondDisarm\(\)/, 'a repaint leaves a half-taken click armed');
