@@ -169,26 +169,26 @@ PLIST
 fi
 echo "Kosmos: install page opened=$PAGE_OPENED"
 
-# ---- kosmos#6576: a Mac with no Kosmos yet is held to the SIGNED release too. An installed copy checks every
-# update with its own verifier (#6468, and the hand-off below, #6474), but a first install has none, so it trusted
-# HTTPS and the checksum beside the installer. This package carries its own: kosmos-pkg-verify, signed with the
-# Developer ID Application identity and covered by this package's notarization, with the release public keys built
-# in. It runs HERE, as root, because the Scripts dir is readable by root only (#3268). The installer, the release
-# manifest and its signature are downloaded into a root-owned folder the person can read but not write; the helper
-# checks the signature, that it is the version the site offers and not older than this package (kosmos-pkg-floor),
-# and the installer must match the signed setup_sha256. The person's shell below then runs THAT file, with the
-# signed sha256 of the Kosmos and tmux downloads, which setup.sh holds them to (pinned_sha_ok). Anything that does
-# not check out ends the install here: nothing downloaded has run.
-# An existing install (its verifier file present) keeps the hand-off below, which checks with that copy.
-PIN_SETUP=""; PIN_TARBALL=""; PIN_TMUX=""
+# ---- kosmos#6576: the install is held to the SIGNED release before anything downloaded runs. An installed copy
+# checks every update with its own verifier (#6468), but a Mac with no Kosmos has none, and an older or damaged
+# install may not have a working one, so this package carries its own: kosmos-pkg-verify, signed with the Developer
+# ID Application identity and covered by this package's notarization, with the release public keys built in. It runs
+# HERE, as root, because the Scripts dir is readable by root only (#3268), and it runs for every install, existing
+# or not: an installed copy still makes its own checks inside setup.sh as well. The installer, the release manifest
+# and its signature are downloaded into a root-owned folder the person can read but not write; the helper checks the
+# signature, that it is the version the site offers and not older than the oldest release this package accepts
+# (kosmos-pkg-floor), and the installer must match the signed setup_sha256. The person's shell below then runs THAT
+# file, with the signed version and the signed sha256 of the Kosmos and tmux downloads, which setup.sh installs and
+# holds them to (pinned_sha_ok). Anything that does not check out ends the install here: nothing downloaded has run.
+PIN_SETUP=""; PIN_VERSION=""; PIN_TARBALL=""; PIN_TMUX=""
 _pin_helper="$(dirname "$0")/kosmos-pkg-verify"
 _pin_floor="$(/bin/cat "$(dirname "$0")/kosmos-pkg-floor" 2>/dev/null || true)"
 # SWITCHED OFF while kosmos-pkg-floor reads "off" (install/pkg-verify/floor): until production serves a signed
-# release, its pointer names one with no signature and every first install would refuse. Setting the floor to the
-# first signed release (0.7.57) turns this on; nothing else changes.
+# release, its pointer names one with no signature and every install would refuse. Setting the floor to the first
+# signed release (0.7.57) turns this on; nothing else changes.
 if [ "$_pin_floor" = off ]; then
-  echo "Kosmos: the signed-release check for a first install is not switched on in this installer yet"
-elif [ ! -f "$USER_HOME/.local/share/kosmos/app/engine/manifest-verify.js" ]; then
+  echo "Kosmos: the signed-release check is not switched on in this installer yet"
+else
   if [ ! -x "$_pin_helper" ] || [ -z "$_pin_floor" ]; then
     echo "Kosmos: this installer is incomplete (its release check is missing), so nothing was installed." >&2
     exit 1
@@ -197,10 +197,15 @@ elif [ ! -f "$USER_HOME/.local/share/kosmos/app/engine/manifest-verify.js" ]; th
   trap '/bin/rm -rf "$_pin_dir"' EXIT
   /bin/chmod 755 "$_pin_dir"
   _pin_base="${SETUP_URL%/*}/dist"
-  _pin_n=0; _pin_out=""
+  # The same cache-buster setup.sh uses for its pointer read, on an http(s) site only (a file:// path has no cache,
+  # and a query there names a missing file).
+  _pin_bust=""
+  case "$_pin_base" in http://*|https://*) _pin_bust="?nocache=$$" ;; esac
+  _pin_n=0; _pin_out=""; _pin_why=""
   while :; do
     _pin_n=$((_pin_n + 1))
-    _pin_v="$(/usr/bin/curl -fsSL --connect-timeout 20 -m 60 "$_pin_base/latest.json" 2>/dev/null \
+    _pin_why=unreachable
+    _pin_v="$(/usr/bin/curl -fsSL --connect-timeout 20 -m 60 "$_pin_base/latest.json$_pin_bust" 2>/dev/null \
       | /usr/bin/sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | /usr/bin/head -1)" || _pin_v=""
     if [ -n "$_pin_v" ] \
        && /usr/bin/curl -fsSL --connect-timeout 20 -m 60 -o "$_pin_dir/manifest.json" "$_pin_base/kosmos-$_pin_v-arm64.manifest.json" \
@@ -212,24 +217,30 @@ elif [ ! -f "$USER_HOME/.local/share/kosmos/app/engine/manifest-verify.js" ]; th
         echo "Kosmos: the download did not check out against the signed Kosmos release (the line above says why), so nothing was installed." >&2
         exit 97
       fi
-      break
+      PIN_TARBALL="$(printf '%s\n' "$_pin_out" | /usr/bin/sed -n 's/^sha256=//p')"
+      PIN_TMUX="$(printf '%s\n' "$_pin_out" | /usr/bin/sed -n 's/^tmux_sha256=//p')"
+      _pin_setup_want="$(printf '%s\n' "$_pin_out" | /usr/bin/sed -n 's/^setup_sha256=//p')"
+      _pin_setup_got="$(/usr/bin/shasum -a 256 "$_pin_dir/setup" | /usr/bin/awk '{print $1}')"
+      # A mismatch can be a deploy caught half way (the installer and the release published a moment apart), so it is
+      # rechecked on the same budget as a failed download, as the checksum path below does; one that persists refuses.
+      if [ -n "$_pin_setup_want" ] && [ "$_pin_setup_want" = "$_pin_setup_got" ] && [ -n "$PIN_TARBALL" ] && [ -n "$PIN_TMUX" ]; then
+        break
+      fi
+      _pin_why=mismatch
     fi
     if [ "$_pin_n" -ge 5 ]; then
+      if [ "$_pin_why" = mismatch ]; then
+        echo "Kosmos: the installer does not match its signed release, so it was NOT run and nothing was installed." >&2
+        exit 97
+      fi
       echo "Kosmos: the installer or its signed release could not be downloaded, so nothing was installed. It is safe to try again shortly." >&2
       exit 96
     fi
-    /bin/sleep 3
+    /bin/sleep "${KOSMOS_PKG_RETRY_SLEEP:-3}"
   done
-  PIN_TARBALL="$(printf '%s\n' "$_pin_out" | /usr/bin/sed -n 's/^sha256=//p')"
-  PIN_TMUX="$(printf '%s\n' "$_pin_out" | /usr/bin/sed -n 's/^tmux_sha256=//p')"
-  _pin_setup_want="$(printf '%s\n' "$_pin_out" | /usr/bin/sed -n 's/^setup_sha256=//p')"
-  _pin_setup_got="$(/usr/bin/shasum -a 256 "$_pin_dir/setup" | /usr/bin/awk '{print $1}')"
-  if [ -z "$_pin_setup_want" ] || [ "$_pin_setup_want" != "$_pin_setup_got" ] || [ -z "$PIN_TARBALL" ] || [ -z "$PIN_TMUX" ]; then
-    echo "Kosmos: the installer does not match its signed release, so it was NOT run and nothing was installed." >&2
-    exit 97
-  fi
   /bin/chmod 644 "$_pin_dir/setup"
   PIN_SETUP="$_pin_dir/setup"
+  PIN_VERSION="$_pin_v"
   echo "Kosmos: the installer matches signed release $_pin_v"
 fi
 
@@ -263,11 +274,11 @@ fi
    d=$(/usr/bin/mktemp -d) || exit 1
    trap "/bin/rm -rf \"$d\"" EXIT
    # kosmos#6576: a first install was checked against the signed release above, as root. Run THAT installer, and hold
-   # the Kosmos and tmux downloads to the signed sha256 values (setup.sh pinned_sha_ok). Nothing is downloaded here.
+   # the Kosmos and tmux downloads, and the version installed, to the signed values (setup.sh). Nothing is downloaded here.
    if [ -n "$2" ]; then
      /bin/cp "$2" "$d/setup" || exit 1
-     KOSMOS_PINNED_TARBALL_SHA256="$3"; KOSMOS_PINNED_TMUX_SHA256="$4"
-     export KOSMOS_PINNED_TARBALL_SHA256 KOSMOS_PINNED_TMUX_SHA256
+     KOSMOS_PINNED_TARBALL_SHA256="$3"; KOSMOS_PINNED_TMUX_SHA256="$4"; KOSMOS_PINNED_VERSION="$5"
+     export KOSMOS_PINNED_TARBALL_SHA256 KOSMOS_PINNED_TMUX_SHA256 KOSMOS_PINNED_VERSION
      /bin/sh "$d/setup"
      exit $?
    fi
@@ -392,7 +403,7 @@ fi
        /bin/sleep "$_rsleep"
      done
    fi
-   /bin/sh "$d/setup"' "$SETUP_URL" "$PAGE_OPENED" "$PIN_SETUP" "$PIN_TARBALL" "$PIN_TMUX"
+   /bin/sh "$d/setup"' "$SETUP_URL" "$PAGE_OPENED" "$PIN_SETUP" "$PIN_TARBALL" "$PIN_TMUX" "$PIN_VERSION"
 rc=$?
 
 if [ "$rc" -ne 0 ]; then
