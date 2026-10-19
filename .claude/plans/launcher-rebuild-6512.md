@@ -51,6 +51,8 @@ Card: #6512 (from the #6409 gap list, items B1 and B2).
 - verify-launcher.ps1 runs in the new test on the Windows box but is skipped on CI (GITHUB_ACTIONS): the runner's
   csc build is not the build box's, and an unproven byte compare there could red every PR. Would change once a
   runner run shows the compare passing.
+  So the byte compare is a release step instead: tools/windows/RELEASING.md step 3 runs verify-launcher.ps1 on
+  the Windows box before the staging verify. The cut's own check stops on drift and on git failing alike.
 - The kept page keeps its fragment (as the Mac does); `mode` is dropped and re-added by WithModeQuery only where the
   first screen needs it. A double-click does not stamp the page-asked pacing clock (deferred: bounded by the cap).
 
