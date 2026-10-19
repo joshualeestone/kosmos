@@ -11710,6 +11710,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-cw-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 #s-sec-plus .plus-cw-row .toggle { flex: 0 0 42px; }
 #s-sec-plus .plus-cw-row .fhint { margin: 0; }
+#s-sec-plus .plus-cw-line:empty { margin: 0; }
 #s-sec-plus .plus-cw-line[data-state="foreign"] { color: var(--danger); font-weight: 600; }
 /* #4744: one line (Josh, "lets make sure this all fits on one line"). The Settings column caps this panel at 544px on
    a desktop window, where the sentence at .9rem needs ~452px of the ~404 left beside Copy (measured). So the box
@@ -19588,7 +19589,9 @@ window.kosmosMeasureScrollbarWidth();
           <p class="fhint" id="plus-status" aria-live="polite"></p>
           <!-- kosmos#6602: what this computer's daily check of the public certificate logs found, and its switch.
                Painted by paintPlusCertWatch. The line shows only when there is something to say. -->
-          <p class="fhint plus-cw-line" id="plus-cw-line" role="status" hidden></p>
+          <!-- Never hidden: a live region that is out of the accessibility tree when its text arrives is often not
+               announced, and the first finding is the moment that must be. Empty, it takes no room (CSS below). -->
+          <p class="fhint plus-cw-line" id="plus-cw-line" role="status"></p>
           <div class="plus-cw-row" id="plus-cw-row" hidden>
             <button class="toggle" type="button" id="plus-cw-switch" role="switch" aria-labelledby="plus-cw-label" hidden><i></i></button>
             <span class="fhint" id="plus-cw-label">While Kosmos+ is on, check the public certificate logs for this computer's address once a day (this sends the address to Cert Spotter)</span>
@@ -51659,8 +51662,9 @@ async function paintPlus() {
       : (stat.state === 'up' ? 'Connected. Your address is on its way.'
         : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
   }
-  /* kosmos#6602. Reached only for a set-up computer (the not-enrolled branch above returns first), which is what
-     keeps the switch off a computer with no state dir. */
+  /* kosmos#6602. Reached only for a set-up computer (the not-enrolled branch above returns first), and the row
+     sits inside #plus-flow, which shows only then: together they keep the switch off a computer with no state dir.
+     Acknowledging what it reports, and raising it outside Settings, is kosmos#6613. */
   if (typeof paintPlusCertWatch === 'function') paintPlusCertWatch(r.certWatch, r.on === true);
   /* #4794: while this computer waits for one of the person's computers to allow it, the pairing code replaces the
      coordinator's sentence (paintPlusJoin). Anything else hides it. */
@@ -52436,11 +52440,10 @@ function paintPlusCertWatch(cw, plusOn) {
   const line = document.getElementById('plus-cw-line');
   const row = document.getElementById('plus-cw-row');
   if (!line || !row) return;
-  if (!cw || typeof cw !== 'object') { line.hidden = true; line.textContent = ''; row.hidden = true; return; }
+  if (!cw || typeof cw !== 'object') { line.textContent = ''; row.hidden = true; return; }
   const say = plusCwSay(cw, plusOn);
   /* Rewritten only on a change, so a screen reader does not re-read it every poll. */
   if (line.textContent !== say) line.textContent = say;
-  line.hidden = !say;
   if (line.dataset) line.dataset.state = String(cw.state || '');
   row.hidden = false;
   if (typeof paintSwitch === 'function') paintSwitch('plus-cw-switch', cw.on === true);
