@@ -23369,7 +23369,8 @@ const ORG_TICKET_MS = 10 * 60 * 1000;
     refusal or a flag; each then refreshes at once. A board in no company sends nothing
     (orgEnrollRefresh returns first). The coordinator's status answer carries the signed policy (up to about 22 KB)
     and asks to be polled "on the order of hours" (kosmos-relay org.rs, the doc comment above POLICY_TTL_SECS), so not
-    more often than this without a cheaper route. The bound relies on each ask ending: the signed coordinator call
+    more often than this. The cheaper route is kosmos#6560: while enrolled, the status route's lite read (no policy)
+    every 10 minutes (orgMemberCheckIfDue) brings a removal down to about 15 minutes wherever the coordinator serves it. The bound relies on each ask ending: the signed coordinator call
     times out after 20 seconds (engine/remote.js MAC_REQUEST_TIMEOUT_MS), so a hung ask cannot hold later ones. Not covered by the hour: an unreachable coordinator (nothing changes), and a board before
     live execution is allowed (nothing is sent). */
 const ORG_REFRESH_MS = 60 * 60 * 1000;
@@ -23403,6 +23404,7 @@ function orgEnrollRefresh() {
     const ask = ++ORG_ASK_SEQ;   // review 10: which ask is the latest, exactly (two in one millisecond are still two)
     ORG_ASKED_AT = askedAt;
     ORG_NEXT_AT = askedAt + ORG_REFRESH_MS;
+    ORG_MEMBER_CHECKED_AT = askedAt;   // kosmos#6560 review 1: a full ask answers the cheap check's question too
     return oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ }).then((r) => {
       // Only the latest ask moves the schedule: an older one finishing late changes nothing (reviews 5 and 6).
       if (ORG_ASK_SEQ === ask) {
@@ -23455,7 +23457,13 @@ function orgMemberCheckIfDue(now = Date.now()) {
   ORG_MEMBER_CHECK_BUSY = true;
   return oe.memberCheck().then((c) => {
     if (c && c.result === 'nocheap') ORG_MEMBER_CHECK_OFF = true;
-    if (c && c.result === 'ended') return orgEnrollRefresh();
+    if (c && c.result === 'ended') {
+      // Review 1: the full ask decides. If it does not end the enrolment (the two answers disagree), the cheap check
+      // stops until restart, so a disagreement cannot run the full, policy-carrying ask every ten minutes.
+      return Promise.resolve(orgEnrollRefresh()).then(() => {
+        try { if (oe.readEnrollment()) ORG_MEMBER_CHECK_OFF = true; } catch { /* unread: left as it is */ }
+      });
+    }
     return undefined;
   }).catch(() => undefined).finally(() => { ORG_MEMBER_CHECK_BUSY = false; });
 }

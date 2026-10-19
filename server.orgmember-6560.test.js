@@ -23,7 +23,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
-const { start, server, orgMemberCheckIfDue, _orgRefreshResetForTests } = require('./server');
+const { start, server, orgMemberCheckIfDue, orgRefreshIfDue, orgEnrollRefresh, _orgRefreshResetForTests } = require('./server');
 const store = require('./engine/store');
 const oe = require('./engine/orgenroll');
 const remote = require('./engine/remote');
@@ -100,4 +100,39 @@ test('#6560: nothing is sent before live execution is allowed (as the hourly ask
   live.resetForTests();
   await orgMemberCheckIfDue(Date.now());
   assert.equal(r.sent.length, 0, 'the cheap check was sent before live execution');
+});
+
+test('#6560 review 1: the five-minute tick runs the cheap check once the hourly ask is answered (the real path)', async (t) => {
+  const r = rig(t, () => ({ lite: true, member: true, enrolled: { world: oe.worldId(), thisComputer: true } }));
+  const at = Date.now();
+  await orgEnrollRefresh();   // the hourly ask: answered, next due in an hour (oe.refresh is the rig's counter)
+  const afterHourly = r.sent.length;
+  await orgRefreshIfDue(at + 11 * 60 * 1000);   // the tick: the hour is not due, ten minutes have passed
+  assert.equal(r.sent.length, afterHourly + 1, 'the tick did not run the cheap check: ' + JSON.stringify(r.sent));
+  assert.deepEqual(r.sent[r.sent.length - 1].body, { lite: true });
+  await orgRefreshIfDue(at + 12 * 60 * 1000);
+  assert.equal(r.sent.length, afterHourly + 1, 'the tick ran the cheap check again within ten minutes');
+});
+
+test('#6560 review 1: a failed answer leaves the cheap check on (a network blip must not turn it off)', async (t) => {
+  let fail = true;
+  const r = rig(t, () => ({ lite: true, member: false }));
+  const remoteNow = remote.macRequest;
+  remote.macRequest = async (method, route, body) => (fail ? { ok: false, because: 'unreachable' } : remoteNow(method, route, body));
+  const at = Date.now();
+  await orgMemberCheckIfDue(at);
+  assert.equal(r.refreshes(), 0, 'a failed answer ran the full ask');
+  fail = false;
+  await orgMemberCheckIfDue(at + 10 * 60 * 1000 + 1);
+  assert.equal(r.refreshes(), 1, 'after a failed answer the cheap check never asked again, so the removal waits for the hour');
+});
+
+test('#6560 review 1: when the full ask does not confirm the cheap check\'s "ended", the cheap check stops (no 22 KB ask every 10 minutes)', async (t) => {
+  const r = rig(t, () => ({ lite: true, member: false }));
+  const at = Date.now();
+  await orgMemberCheckIfDue(at);   // the rig's refresh leaves the enrollment in place: the full ask disagreed
+  assert.equal(r.refreshes(), 1, 'CONTROL: the cheap "ended" did run the full ask');
+  await orgMemberCheckIfDue(at + 10 * 60 * 1000 + 1);
+  await orgMemberCheckIfDue(at + 20 * 60 * 1000 + 2);
+  assert.equal(r.refreshes(), 1, 'a disagreement ran the full ask every ten minutes');
 });
