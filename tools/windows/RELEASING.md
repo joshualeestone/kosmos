@@ -74,7 +74,12 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
 
    That writes `dist\kosmos-tunnel.exe` with `.commit` and `.sha256` beside it. The Kosmos build
    reads it from `~/work/kosmos-relay/dist/kosmos-tunnel.exe`, or from `KOSMOS_TUNNEL_BIN`, and
-   refuses one that is missing, unsigned, or does not match its sidecars.
+   refuses one that is missing, unsigned, or does not match its sidecars. It also refuses one built
+   before a change to the connector reached kosmos-relay `main` (#6628, the same check the Mac cut
+   makes, #3884): it fetches `main` in the kosmos-relay checkout at `KOSMOS_RELAY_REPO`, else
+   `~/work/kosmos-relay`, so that checkout must exist and be able to fetch. A refusal names the
+   commits the connector is missing; rebuild it as above. `KOSMOS_ALLOW_STALE_TUNNEL=1` ships the
+   older connector on purpose.
 
 2. **Stage.** This checks that the zip's `Kosmos.exe` is byte for byte the committed launcher (and,
    on Windows, that its Authenticode signature is Valid), then uploads the versioned zip, its sidecar, and `latest-win-staging.json`
