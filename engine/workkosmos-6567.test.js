@@ -72,7 +72,7 @@ test('#6567: a stopped note written before kinds were kept reads as a company\'s
   assert.equal(org.stoppedKind({ root }), 'company');
 });
 
-test('#6567: the review refusal on a Kosmos that is not the family\'s says the family\'s words', () => {
+test('#6567: reviewHere\'s refusal is wired through inKind (its behaviour after a stop is the loop test above)', () => {
   const SENTENCE = 'This Kosmos is not your work Kosmos, so there is nothing to review here.';
   const src = fs.readFileSync(path.join(__dirname, 'orgenroll.js'), 'utf8');
   assert.ok(src.includes("because: inKind(KIND, '" + SENTENCE + "')"), 'reviewHere\'s refusal does not go through inKind');

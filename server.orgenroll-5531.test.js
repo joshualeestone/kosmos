@@ -218,7 +218,8 @@ test('#5531 review 9: the stopped note is shown to the screen once; org_bad_worl
   const fam = await call('/api/org', { method: 'GET', headers: SCREEN });
   assert.equal(fam.json.stoppedFor, 'The Riveras');
   assert.equal(fam.json.stoppedKind, 'family');
-  await call('/api/org', { method: 'GET', headers: SCREEN });   // shown once: the note is used up, as above
+  const usedUp = await call('/api/org', { method: 'GET', headers: SCREEN });
+  assert.equal(usedUp.json.stoppedFor, null, '#6567: the family\'s note came back on a second visit');   // shown once, as above
 
   const remote = require('./engine/remote');
   const orig = remote.macRequest;
