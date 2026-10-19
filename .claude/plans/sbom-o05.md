@@ -52,11 +52,11 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 49 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 51 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
-  must equal build()'s output byte for byte. Every rule added in reviews 1 to 30, apart from the time limits named below, has a mutant that fails an arm, run at
-  the time of the change (the first version, then reviews 1 to 30 in order: four, eight, six, eleven, six, seven,
-  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six, four, nine, six, six, eight, seven, one and two); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 31, apart from the time limits named below, has a mutant that fails an arm, run at
+  the time of the change (the first version, then reviews 1 to 31 in order: four, eight, six, eleven, six, seven,
+  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six, four, nine, six, six, eight, seven, one, two and eight); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
@@ -144,6 +144,15 @@ real fix.
   registry dependency missing from the lock, a quoted-key [patch], an export-ignore attribute, and a smudge filter
   in the checkout that would rewrite a bad toml to a good one, all refuse; the control passes and its members are
   Cargo's. On the real 0.7.59 commit it passes, and the SBOM is byte-identical to the previous round's.
+- (Was a gap, review 31.) "Cargo decides" held for the members, NOT for the crate list: `--locked` compares the
+  lock's meaning, so a lock Cargo accepts could read differently to the line reader (measured on the real 0.7.59
+  relay commit: a `[[package]] # x` header hid itoa 1.0.18 from the reader and a fake itoa 1.0.99 inside a
+  [metadata] string took its place; Cargo passed and the SBOM listed the fake). Now the lock AS READ must equal
+  Cargo's own resolve graph from `cargo metadata`, package for package (name, version, source) and edge for edge,
+  and the reader is strict: only exact `[[package]]` and `[[patch.unused]]` headers, nothing else at top level but
+  comments and the format version. The real 0.7.59 lock reads exactly as Cargo resolves it. The --out partial file is
+  removed and created exclusively (review 31: a planted link there was followed); the exclusive flag alone is an
+  equivalent survivor behind the removal, and removing both fails an arm.
 - **The tree Cargo reads** is written by the tool itself, blob by blob from `git cat-file --batch` (review 26: no
   filter, attribute, eol or lfs setting can change a byte), and BEFORE anything is written or Cargo runs, every path
   in the commit is checked (review 27 wrote a file OUTSIDE the tree through a committed symlink and a name a Mac
