@@ -16,8 +16,8 @@
  *   - the connector's Rust crates: the relay's Cargo.lock at the connector commit, walked from kosmos-tunnel-client,
  *     with each crate's direct dependencies. A crate with no source counts as first-party only when it is a member of
  *     the relay's workspace; any other crate from a source this does not know refuses the whole SBOM.
- * The app itself has no npm dependencies (package.json lists none), so nothing else is third-party code; the Mac app
- * (Swift) links Apple's frameworks only. Node is one component: the libraries inside the official Node build (V8,
+ * The app itself has no npm dependencies, and every file the manifest lists must sit in a first-party place (both are
+ * checked, and refuse otherwise); the Mac app (Swift) links Apple's frameworks only. Node is one component: the libraries inside the official Node build (V8,
  * OpenSSL and so on) are Node's own and are matched through Node's version, not listed one by one; the Rust standard
  * library compiled into the connector is not listed either (the relay pins no toolchain, so no version is recorded).
  *
@@ -46,6 +46,8 @@ function gitShow(repo, commit, file) {
 // as "name", "name version" or "name version (source)" when the name alone is ambiguous. Any other table
 // ([[patch.unused]], [metadata]) ends the current package, so its keys can never overwrite one.
 function parseLock(text) {
+  const v = text.match(/^version = (\d+)$/m);
+  if (!v || !['3', '4'].includes(v[1])) throw new Error(`Cargo.lock: format version ${v ? v[1] : '(none)'}; only 3 and 4 are read (an older lock keeps checksums elsewhere)`);
   const pkgs = [];
   let cur = null, inDeps = false;
   for (const raw of text.split('\n')) {
@@ -133,6 +135,7 @@ function tmuxPins(text) {
     const m = line.match(/^\s*fetch\s+(\S+)\s+"\$([A-Z0-9_]+)_URL"\s+"\$([A-Z0-9_]+)_SHA"\s*$/);
     if (!m) throw new Error(`build-tmux-from-source.sh: a fetch line this SBOM cannot read: ${line.trim()}`);
     const [, name, u, s] = m;
+    if (u !== s) throw new Error(`build-tmux-from-source.sh: ${name} is fetched with ${u}_URL but ${s}_SHA`);
     const version = vars[`${u}_VERSION`], url = vars[`${u}_URL`] && expand(vars[`${u}_URL`]), sha = vars[`${s}_SHA`];
     if (!version || !url) throw new Error(`build-tmux-from-source.sh: no version or url for ${name}`);
     if (/\$/.test(url) || /\$/.test(version)) throw new Error(`build-tmux-from-source.sh: ${name}'s version or url names a variable this SBOM cannot expand`);
@@ -177,13 +180,19 @@ function parseTmuxVersion(text, list) {
     versions[name] = kv[key];
   }
   if (!versions.tmux) throw new Error('tmux bundle VERSION: no tmux-src line');
+  const owned = new Set();
+  let seenTmux = false;
   for (const raw of list) {
     const p = raw.replace(/^\.\//, '');
+    if (p === 'bin/tmux') seenTmux = true;
     if (p.endsWith('/') || ['VERSION', 'THIRD-PARTY-NOTICES.txt', 'bin/tmux'].includes(p) || /^licenses\/[^/]+\.txt$/.test(p)) continue;
     const m = p.match(/^lib\/lib(.+?)(?:[-.][0-9][^/]*)?\.dylib$/);
     const owner = m && DYLIB_OWNER[m[1]];
     if (!owner || !versions[owner]) throw new Error(`tmux bundle: ${p} is not a file this SBOM accounts for`);
+    owned.add(owner);
   }
+  for (const lib of Object.keys(versions)) if (lib !== 'tmux' && !owned.has(lib)) throw new Error(`tmux bundle: VERSION names ${lib}, but no library of it is in lib/`);
+  if (!seenTmux) throw new Error('tmux bundle: no bin/tmux');
   return { versions };
 }
 
@@ -224,13 +233,37 @@ function crateComponent(p, relayCommit, crateRef, members) {
     if (!members.has(p.name)) throw new Error(`Cargo.lock: ${p.name} ${p.version} has no source and is not a relay workspace member (a vendored crate?)`);
     return { ...base, description: `kosmos-relay workspace crate, ${relayCommit}` };
   }
-  if (CRATES_IO.has(p.source)) return { ...base, purl: `pkg:cargo/${p.name}@${encodeURIComponent(p.version)}`, hashes: hashOf(p.checksum) };
+  if (CRATES_IO.has(p.source)) {
+    if (!SHA256.test(p.checksum || '')) throw new Error(`Cargo.lock: ${p.name} ${p.version} from crates.io has no checksum`);
+    return { ...base, purl: `pkg:cargo/${p.name}@${encodeURIComponent(p.version)}`, hashes: hashOf(p.checksum) };
+  }
   const git = p.source.match(/^git\+([^?#]+)(?:\?[^#]*)?#([0-9a-f]{7,40})$/);
   if (git) {
     // purl's vcs_url form: git+<url>@<commit>, the commit Cargo.lock pinned after its #.
     return { ...base, purl: `pkg:cargo/${p.name}@${encodeURIComponent(p.version)}?vcs_url=${encodeURIComponent(`git+${git[1]}@${git[2]}`)}` };
   }
   throw new Error(`Cargo.lock: ${p.name} ${p.version} comes from a source this SBOM does not know: ${p.source}`);
+}
+
+// The release's own files, from the signed manifest's list. Anything outside these places, or any node_modules, would
+// be code this SBOM does not list, so it refuses; so does an npm dependency in package.json at the app commit.
+const FIRST_PARTY_FILES = new Set(['VERSION', 'bin/kosmos', 'runtime/bin/node', 'runtime/LICENSE', 'app/server.js', 'app/package.json']);
+const FIRST_PARTY_DIRS = ['app/engine/', 'app/web/', 'app/bin/', 'app/assets/', 'app/Kosmos.app/'];
+function checkFirstParty(manifest, packageJson) {
+  if (!Array.isArray(manifest.files) || !manifest.files.length) throw new Error('manifest lists no files');
+  for (const f of manifest.files) {
+    const p = f && f.path;
+    if (typeof p !== 'string' || /(^|\/)node_modules(\/|$)/.test(p) || p.split('/').includes('..')
+      || !(FIRST_PARTY_FILES.has(p) || FIRST_PARTY_DIRS.some((d) => p.startsWith(d)))) {
+      throw new Error(`manifest ships ${p}, which is not a first-party place this SBOM accounts for`);
+    }
+  }
+  let pkg;
+  try { pkg = JSON.parse(packageJson); } catch { throw new Error('package.json at the app commit is not readable'); }
+  for (const k of ['dependencies', 'optionalDependencies', 'peerDependencies', 'bundledDependencies', 'bundleDependencies']) {
+    const v = pkg[k];
+    if (v && (Array.isArray(v) ? v.length : Object.keys(v).length)) throw new Error(`package.json at the app commit has ${k}: this SBOM lists no npm packages`);
+  }
 }
 
 function build(manifest, { repo, relay, tmux, show = gitShow }) {
@@ -245,6 +278,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
     if (!SHA256.test(v || '')) throw new Error(`manifest ${what} is not a sha256 (${v}): the SBOM cannot vouch for that input`);
   }
   if (tmux.sha !== manifest.tmux_sha256) throw new Error(`the tmux bundle (${tmux.sha.slice(0, 12)}) is not the one this release signed (${manifest.tmux_sha256.slice(0, 12)})`);
+  checkFirstParty(manifest, show(repo, appCommit, 'package.json'));
   const arch = manifest.arch || 'arm64';
   const { root, deps, edges } = closure(parseLock(show(relay, relayCommit, 'Cargo.lock')), CONNECTOR_CRATE);
   const members = workspaceMembers(show, relay, relayCommit);
@@ -308,7 +342,7 @@ module.exports = { parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundl
 
 if (require.main === module) {
   const args = process.argv.slice(2);
-  const opt = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : null; };
+  const opt = (n) => { const i = args.indexOf(n); const v = i >= 0 ? args[i + 1] : null; return v && !v.startsWith('--') ? v : null; };
   const file = args[0], sig = opt('--sig'), repo = opt('--repo'), relay = opt('--relay'), tmuxFile = opt('--tmux'), out = opt('--out');
   if (!file || file.startsWith('--') || !sig || !repo || !relay || !tmuxFile) {
     console.error('usage: sbom.js <manifest.json> --sig <manifest.json.sig> --tmux <tmux-arch.tar.gz> --repo <kosmos> --relay <kosmos-relay> [--out <file>]');
