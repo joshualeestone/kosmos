@@ -748,6 +748,14 @@
       "rank": 2.55,
       "since": "0.7.59",
       "status": "pending"
+    },
+    {
+      "title": "Switching computers is instant",
+      "line": "Choosing another computer in the switcher opens it right away, with the animated K meanwhile, and switching back skips the sign-in page.",
+      "icon": "phone",
+      "rank": 1,
+      "since": "0.7.60",
+      "status": "pending"
     }
   ]
 }
