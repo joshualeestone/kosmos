@@ -258,6 +258,9 @@ test('a fetch call in another shape or position, a *_URL never fetched, an unexp
   assert.throws(() => tmuxPins(TMUX + 'NCURSES_URL="https://x/n.tgz"\ncurl -o n.tgz "$NCURSES_URL"\n'), /NCURSES_URL is set but never fetched/);
   assert.throws(() => tmuxPins(TMUX.replace('download/${TMUX_VERSION}/', 'download/$TMUX_VERSION/')), /cannot expand/);
   assert.throws(() => tmuxPins(TMUX.replace('TMUX_VERSION="3.5a"', 'TMUX_VERSION="${TMUX_VERSION:-3.5a}"')), /cannot expand/);
+  const literalUrl = TMUX.replace(/^TMUX_URL=.*$/m, 'TMUX_URL="https://github.com/tmux/tmux/releases/download/3.5a/tmux-3.5a.tar.gz"');
+  assert.equal(tmuxPins(literalUrl)[0].version, '3.5a', 'the control: a url that does not name the version is fine');
+  assert.throws(() => tmuxPins(literalUrl.replace('TMUX_VERSION="3.5a"', 'TMUX_VERSION="${TMUX_VERSION:-3.5a}"')), /tmux's version or url names a variable/);
   assert.throws(() => tmuxPins(TMUX.replace(/^TMUX_SHA=.*$/m, 'TMUX_SHA=""')), /no recorded sha256 for tmux/);
   assert.throws(() => tmuxPins(TMUX.replace(/^TMUX_SHA=.*$/m, '')), /no recorded sha256 for tmux/);
   assert.throws(() => tmuxPins(TMUX.replace(/^fetch [a-z].*$/gm, '')), /no fetch lines/);
