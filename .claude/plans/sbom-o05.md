@@ -9,10 +9,9 @@ CycloneDX 1.5 JSON SBOM for one Mac release, derived only from records that alre
   and every dylib in its `lib/` must belong to one of them. Review 3 found the first versions of this tool read the
   versions from the build SCRIPT; but a release copies an already-built bundle and does not rebuild it (release.sh
   step 4), so a pin bumped without a rebuild would have listed a version users do not have;
-- **`tools/build-tmux-from-source.sh` at the app commit:** only for each input's download url and source sha256, and
-  only where its pinned version equals the bundle's; otherwise the component carries a `kosmos:source-pin` property
-  saying what differs, and no source reference. Every non-comment line that calls `fetch` must be one call in the
-  known shape, and a `*_URL` nothing fetches refuses (the script is read, not run: see below);
+- **`tools/build-tmux-from-source.sh` at the app commit:** only the NAMES of the libraries it fetches, each of which
+  the bundle must name (a library the script fetches and the bundle does not name refuses). Nothing else is taken
+  from the script, and the tmux parts carry no source download reference (decided after review 11, see below);
 - **the relay's `Cargo.lock` at the connector commit:** walked from `kosmos-tunnel-client` to every crate it reaches,
   with each crate's DIRECT dependencies as the CycloneDX dependency graph. A crate from a source the tool does not know
   (not crates.io exactly, not git) refuses the whole SBOM rather than being left out, and so does a sourceless crate
@@ -45,20 +44,19 @@ real fix.
   26 are Windows-only or dev-only and 14 are optional dependencies of features the connector does not turn on (h2 and
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the header says so.
-- **`tools.sbom-o05.test.js`:** 32 arms. The command line is now run END TO END (review 10): a copy of the tool in a
-  temp folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it
-  writes must equal build()'s output byte for byte. Eighty-three mutants each fail an arm (eleven more after review
-  10, among them the five command-line ones that survived before: repo and relay swapped, --out ignored, the
-  manifest passed as its own signature, the output indented differently). One survives and is equivalent (review
-  4's whitespace class). Review 10 judged two more equivalent: the 64-byte signature length guard (crypto.verify
-  refuses other lengths) and the de-duplication of dependency edges.
+- **`tools.sbom-o05.test.js`:** 31 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+  folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 11 has a mutant that fails an arm,
+  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven and eight per
+  round); the mutants of code later removed (the script's variable and url parsing) were retired with it. Every
+  field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
+  part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
+  split; review 10's signature length guard (crypto.verify refuses other lengths) and edge de-duplication.
 - **The Mac app is checked, not stated** (review 10): the shipped app/bin/kosmos-app must hash to the manifest's
   signed native_app.signed_sha256, and native-app/main.swift at the app commit may import only Apple frameworks
   (an allowlist); a Swift package or another module refuses.
 - **The connector crate is the binary's crate:** the relay workspace member kosmos-tunnel-client must declare the
   [[bin]] kosmos-tunnel, and the lockfile must hold exactly one such package.
-- **Every setting of a fetch input** (a *_URL, *_VERSION or *_SHA) in any shape (unquoted, indented, exported,
-  appended, single-quoted, readonly) refuses unless it is the one plain NAME="value" line read.
 - **The first-party claim is checked, not stated** (reviews 6 and 7): every path in the signed manifest's file list
   must be VERSION, bin/kosmos, runtime/bin/node, runtime/LICENSE, app/server.js, app/package.json, under app/engine/,
   app/web/ or app/assets/, a script (.sh, .js) or one of the two named binaries (kosmos-app, kosmos-tunnel) directly
@@ -71,14 +69,15 @@ real fix.
   no dependencies of any kind. The real 0.7.59 list (364 files) passes, and its SBOM is unchanged.
   LIMIT: a third-party file copied into a first-party place (a vendored script under app/web/) is not detectable from
   paths; it would need a content check, and none of today's files is one (review 5 read them).
-- **The build script is read, not run, and supplies only source urls and hashes** (decided after review 9). Reviews
-  7 to 9 each found a new way past a static scan for other downloads (curl outside fetch(), then a # inside a string,
-  then a one-line fetch() definition widening the exempt region). A shell script cannot be fully read statically, so
-  the scan was removed rather than patched a fourth time: it was a guard that looked complete and was not. What
-  remains is exact: every non-comment line that calls fetch must be one call in the one known shape (only whole-line
-  comments are skipped), a *_URL nobody fetches refuses, a fetch input set twice or a library fetched twice refuses,
-  and a library the script fetches must be named by the bundle. WHAT SHIPS is decided by the bundle (its signed hash,
-  its VERSION, its lib/, plain files only), never by the script.
+- **The build script is read, not run, and supplies only the names it fetches** (decided after review 11). Reviews 7
+  to 11 each found a new way for a static reading of the shell script to be wrong: a download outside fetch(), a #
+  inside a string, a one-line fetch() widening an exempt region, a fetch input set in another shape, a helper
+  variable re-set after the fetch. Each was patched and the next round found another. The values read (each part's
+  source url and hash) were nice to have and vouched for nothing that ships, so they are gone rather than patched a
+  sixth time. What remains is exact: every non-comment line that calls fetch must be one call in the one known shape,
+  a *_URL= line nothing fetches refuses, a library fetched twice refuses, and every fetched name must be named by the
+  bundle. WHAT SHIPS is decided by the signed manifest and the bundle (its signed hash, its VERSION, its lib/, plain
+  files only, the binary's own version line), never by the script.
 - **The bundle holds plain files and folders only** (review 8): a symlink or hard link refuses (both have an arm).
 - **The binary's own version line** (`tmux: tmux 3.5a`) must equal the source it was built from (`tmux-src`).
 - **The connector and node are tied to shipped files:** the manifest must ship app/bin/kosmos-tunnel with the
@@ -96,10 +95,17 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- The second native binary, app/Kosmos.app/Contents/MacOS/Kosmos (a re-signed copy of kosmos-app, so a different
+  hash), is accepted by name; and a static C library brought into the Mac app by a bridging header or a linker flag,
+  not an import, would not be seen.
+- A vendored third-party crate made a member of the relay workspace passes as first-party.
+- Out of scope: the provider tools (Claude Code, Codex and so on) Kosmos downloads later, when a person asks; the
+  installer itself installs none of them.
 - A library linked statically into tmux and not recorded in the bundle's VERSION. Nothing in a built bundle shows
   it; the build script records every input today (four, all in VERSION).
-- The release tarball is not read: its hash comes from the signed manifest, whose file list the installed copy checks
-  every file against. The shipped runtime/bin/node is not tied to the nodejs.org hash here; the bundle build checks
+- The release tarball is not read: its hash comes from the signed manifest, whose file list is exhaustive by
+  construction (the bundle build lists every file of the same stage it packs, and refuses anything that is not a plain
+  file; on an update the installed copy also checks every file against it). The shipped runtime/bin/node is not tied to the nodejs.org hash here; the bundle build checks
   it against nodejs.org's SHASUMS256 before packing.
 - Of the shipped files, only app/package.json, app/bin/kosmos-tunnel and app/bin/kosmos-app are tied by hash (to
   git, the connector record and the Mac app record).
