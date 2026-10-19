@@ -26,7 +26,7 @@ process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_SECS } = require('./server');
+const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_SECS } = require('./server');
 
 let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
@@ -146,6 +146,11 @@ test('R01: the gate passes update and agent creation for a fresh remote session 
     assert.equal(remoteStepUpRefusal(req(VIA_PLUS), route, t), REMOTE_STEP_UP, route + ' stale remote');
   }
   assert.equal(remoteStepUpRefusal(req(VIA_PLUS), '/api/agents/x/messages', t), null, 'an ungated route is never asked');
+  // A sign-in from more than a minute ahead of this clock is told apart: signing in again cannot help.
+  const ahead = { ...VIA_PLUS, 'x-kosmos-session-iat': String(t + 600), 'x-kosmos-session-second': '1' };
+  assert.equal(remoteStepUpRefusal(req(ahead), '/api/agents', t), REMOTE_STEP_UP_CLOCK);
+  const aheadNoSecond = { ...ahead, 'x-kosmos-session-second': '0' };
+  assert.equal(remoteStepUpRefusal(req(aheadNoSecond), '/api/agents', t), REMOTE_STEP_UP, 'no second factor is not a clock problem');
 });
 
 /* The guard that keeps the list honest (review iteration 1): every POST or PUT route in server.js, written in the
@@ -181,7 +186,7 @@ const EXEMPT = {
 const LOOKS_GATED = /(install|apikey|token|subscription\/start|signin|\/start$|import|^\/api\/worlds$|^\/api\/agents$|^\/api\/team$|connect-agent|update)/;
 test('R01: every key, sign-in, install, update or create route is gated or exempt with a reason, and every gated route exists', () => {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
-  const routes = [...src.matchAll(/pathname === '(\/api\/[^']*)' && req\.method === '(POST|PUT)'/g)].map((m) => m[2] + ' ' + m[1]);
+  const routes = [...src.matchAll(/pathname === '(\/api\/[^']*)' && req\.method === '(POST|PUT|PATCH)'/g)].map((m) => m[2] + ' ' + m[1]);
   assert.ok(routes.length > 100, 'the route scan found ' + routes.length + ' routes, so it is not reading server.js');
   const looks = routes.filter((r) => LOOKS_GATED.test(r.split(' ')[1]));
   assert.ok(looks.includes('POST /api/agents') && looks.includes('POST /api/update'), 'CONTROL: the scan sees known routes');

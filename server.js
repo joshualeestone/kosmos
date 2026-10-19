@@ -4339,10 +4339,21 @@ const REMOTE_STEP_UP = Object.freeze({
   code: 'remote_step_up',
   error: 'From a remote session this needs a fresh sign-in. Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, sign in again with your email code and authenticator code, then try again within 10 minutes.',
 });
+/* A sign-in that the gate says happened more than a minute AHEAD of this clock: signing in again cannot help, the
+   clocks disagree, so it is told apart (review iteration 8). */
+const REMOTE_STEP_UP_CLOCK = Object.freeze({
+  code: 'remote_step_up_clock',
+  error: "This computer's clock is behind Kosmos+, so a fresh sign-in reads as from the future. Set this computer's clock to the right time, then try again.",
+});
 /* The refusal for this request, or null. One place, before any route reads a body. */
 function remoteStepUpRefusal(req, pathname, nowSecs) {
   if (!needsRemoteStepUp(pathname, req.method) || !isRemoteRequest(req)) return null;
-  return remoteSessionFresh(req.headers, nowSecs) ? null : REMOTE_STEP_UP;
+  if (remoteSessionFresh(req.headers, nowSecs)) return null;
+  const h = req.headers || {};
+  const raw = h['x-kosmos-session-iat'];
+  if (h['x-kosmos-session-second'] === '1' && typeof raw === 'string' && /^[0-9]{1,12}$/.test(raw)
+      && Number(raw) - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
+  return REMOTE_STEP_UP;
 }
 /* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
    Kosmos+ reaches the board over loopback, which is why the header rule stays). */
@@ -25358,7 +25369,7 @@ module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
-  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up
+  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test

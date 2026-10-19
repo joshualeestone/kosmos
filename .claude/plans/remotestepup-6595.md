@@ -86,7 +86,8 @@ set none of the forwarding headers, it would read as local and never be asked (R
 - A remote session can still ask an agent here to do these things; an agent's own request arrives without
   forwarding headers. Renet's plan names the same residual.
 - A board clock more than a minute BEHIND the gate's reads every fresh sign-in as from the future and refuses it; the
-  refusal then asks for a sign-in that cannot help. Diagnose it from the two clocks. Accepted: the window is the
+  refusal said to sign in again, which cannot help; since review iteration 8 it answers its own code,
+  `remote_step_up_clock`, saying to set this computer's clock. Accepted: the window is the
   tolerance a clock stepped back deserves, and both run on this computer, so they share one clock in practice.
 - `POST /api/accounts/qwen/local/download` and `/model` (a model download, and the model choice, through Ollama,
   which the person installed themselves) are not gated: they run no new installer. `POST /api/github-device/app`
