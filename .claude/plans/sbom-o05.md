@@ -45,23 +45,30 @@ real fix.
   26 are Windows-only or dev-only and 14 are optional dependencies of features the connector does not turn on (h2 and
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the header says so.
-- **`tools.sbom-o05.test.js`:** 27 arms, all in-process with injected reads, a test key or small fixtures it makes
-  (tmpscope); the command line is run for its refusals and usage errors. Sixty-two mutants each fail an arm (eleven
-  more after review 7: app/bin/ and the Mac app opened to any file, a curl outside fetch() accepted, a bare https
-  address accepted, the fetch() body not exempt, the connector or node not tied to shipped files, a short commit
-  accepted, a missing clean flag accepted, any arch accepted, the loose dylib suffix, an unknown flag accepted). One
-  survives and is equivalent (review 4's whitespace class, after the line split).
+- **`tools.sbom-o05.test.js`:** 28 arms, all in-process with injected reads, a test key or small fixtures it makes
+  (tmpscope); the command line is run for its refusals and usage errors. Seventy-one mutants each fail an arm (nine
+  more after review 8: any extension under app/engine, app/web, app/assets; package.json not tied to the shipped
+  file; duplicate manifest paths; a fetch input set twice; a library fetched twice; a symlink in the bundle; the
+  workspace members read from a later table; a repeated flag; --out onto an input). One survives and is equivalent
+  (review 4's whitespace class, after the line split).
 - **The first-party claim is checked, not stated** (reviews 6 and 7): every path in the signed manifest's file list
   must be VERSION, bin/kosmos, runtime/bin/node, runtime/LICENSE, app/server.js, app/package.json, under app/engine/,
   app/web/ or app/assets/, a script (.sh, .js) or one of the two named binaries (kosmos-app, kosmos-tunnel) directly
   in app/bin/, or one of the Mac app's own files (its executable, Info.plist, signature files, .icns). Native code is
   exact because it is where a third-party addition would most likely go (review 7 showed a Sparkle framework inside
-  Kosmos.app passing the earlier prefix rule). Any node_modules refuses; package.json at the app commit may name
+  Kosmos.app passing the earlier prefix rule), and under app/engine/, app/web/ and app/assets/ only text and image
+  file types are accepted (review 8: a .node addon, a .dylib, a .wasm or an extensionless binary there refuses).
+  A path may appear once. Any node_modules refuses; package.json at the app commit must be the shipped
+  app/package.json byte for byte (review 8), and package.json at the app commit may name
   no dependencies of any kind. The real 0.7.59 list (364 files) passes, and its SBOM is unchanged.
   LIMIT: a third-party file copied into a first-party place (a vendored script under app/web/) is not detectable from
   paths; it would need a content check, and none of today's files is one (review 5 read them).
-- **Every other download in the tmux build refuses** (review 7): a curl, wget, git clone, fetch or submodule, or a
-  bare https address, anywhere outside the fetch() function's own body and the *_URL= settings.
+- **Other downloads in the tmux build refuse** (review 7): a curl, wget, git clone, fetch or submodule, or a bare
+  https address, anywhere outside the fetch() function's own body and the *_URL= settings. A fetch input set twice,
+  or a library fetched twice, refuses (review 8). LIMIT: this reads the script, it does not run it; a download by
+  another tool (python, rsync, brew, an ftp address) is not detected. The bundle's VERSION and lib/ checks are the
+  second line for anything that reaches the bundle.
+- **The bundle holds plain files and folders only** (review 8): a symlink or hard link refuses.
 - **The connector and node are tied to shipped files:** the manifest must ship app/bin/kosmos-tunnel with the
   connector's signed sha256, and runtime/bin/node. Commits must be full shas, and the manifest must say `dirty: false`.
 - **The manifest's signature is verified** under the checkout's pinned keys (engine/manifest-verify.js) before
