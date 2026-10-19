@@ -740,6 +740,14 @@
       "rank": 1,
       "since": "0.7.58",
       "status": "pending"
+    },
+    {
+      "title": "Less repeated text",
+      "line": "Notices, first run and adding a computer no longer repeat what is already on screen, so each says a thing once.",
+      "icon": "swarm",
+      "rank": 2.4,
+      "since": "0.7.59",
+      "status": "pending"
     }
   ]
 }
