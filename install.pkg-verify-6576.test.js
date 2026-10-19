@@ -122,11 +122,11 @@ function siteWith(h, { setup, manifestTamper, noSig }) {
   if (!noSig) fs.writeFileSync(path.join(root, 'dist', 'kosmos-0.7.60-arm64.manifest.json.sig'), rel.sig);
   return { root, setupSha: hex(setupBytes) };
 }
-function runRootStep(h, site, { home, setupOverride } = {}) {
+function runRootStep(h, site, { home, setupOverride, floor } = {}) {
   const scripts = fs.mkdtempSync(path.join(h.dir, 'scripts-'));
   fs.copyFileSync(h.bin, path.join(scripts, 'kosmos-pkg-verify'));
   fs.chmodSync(path.join(scripts, 'kosmos-pkg-verify'), 0o755);
-  fs.writeFileSync(path.join(scripts, 'kosmos-pkg-floor'), '0.7.57\n');
+  fs.writeFileSync(path.join(scripts, 'kosmos-pkg-floor'), (floor || '0.7.57') + '\n');
   if (setupOverride) fs.writeFileSync(path.join(site.root, 'setup'), setupOverride);
   const userHome = home || fs.mkdtempSync(path.join(h.dir, 'home-'));
   const body = 'set -u\nUSER_HOME="$1"\nSETUP_URL="$2"\n' + liftRootStep()
@@ -173,6 +173,44 @@ test('#6576: an existing install (its verifier present) keeps its own check: the
   const r = runRootStep(h, siteWith(h, {}), { home });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /PIN_SETUP_SHA=\nPIN_TARBALL=\nPIN_TMUX=\n/);
+});
+
+test('#6576: switched off (floor "off"), the root step says so, pins nothing and downloads nothing', { skip: SKIP }, () => {
+  const h = buildHelper();
+  const site = siteWith(h, {});
+  fs.rmSync(path.join(site.root, 'dist'), { recursive: true, force: true });   // nothing to fetch: an off step must not try
+  const r = runRootStep(h, site, { floor: 'off' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /signed-release check for a first install is not switched on/);
+  assert.match(r.stdout, /PIN_SETUP_SHA=\nPIN_TARBALL=\nPIN_TMUX=\n/);
+});
+
+test('#6576: the shipped floor is "off" or a signed release (0.7.57, the first with a manifest signature, or later)', () => {
+  const floor = fs.readFileSync(path.join(REPO, 'install', 'pkg-verify', 'floor'), 'utf8').trim();
+  if (floor === 'off') return;
+  const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(floor);
+  assert.ok(m, 'the floor is neither off nor a version: ' + floor);
+  const n = m.slice(1).map(Number);
+  assert.ok(n[0] > 0 || n[1] > 7 || (n[1] === 7 && n[2] >= 57), 'a floor below 0.7.57 accepts releases that carry no signature: ' + floor);
+});
+
+// ---- 3b. the person's shell, lifted verbatim (the same anchor as tools/test-pkg-checksum-1670.sh) ----
+test('#6576: handed a checked installer, the person\'s shell runs THAT file with the pins exported and downloads nothing', () => {
+  const m = POSTINSTALL.match(/\/bin\/sh -c \\\n\s*'(?<inner>[\s\S]*?)' "\$SETUP_URL"/);
+  assert.ok(m, 'could not lift the inner script; postinstall moved, re-anchor this test');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pkgpin-inner-6576-'));
+  const checked = path.join(d, 'checked-setup');
+  fs.writeFileSync(checked, '#!/bin/sh\nprintf "RAN tarball=%s tmux=%s via=%s\\n" "$KOSMOS_PINNED_TARBALL_SHA256" "$KOSMOS_PINNED_TMUX_SHA256" "$KOSMOS_INSTALL_VIA"\nexit 7\n');
+  // An unreachable address: the checked branch must not fetch the installer again.
+  const url = 'file://' + path.join(d, 'no-such-setup');
+  const r = spawnSync('/bin/sh', ['-c', m.groups.inner, url, '0', checked, 'b'.repeat(64), 'c'.repeat(64)], { encoding: 'utf8', timeout: 60000 });
+  assert.equal(r.status, 7, 'the checked installer ran and its status is the shell\'s: ' + r.stderr);
+  assert.equal(r.stdout, `RAN tarball=${'b'.repeat(64)} tmux=${'c'.repeat(64)} via=pkg\n`);
+  // CONTROL: with no checked installer the shell keeps its own download path (and fails on the unreachable address).
+  const ctl = spawnSync('/bin/sh', ['-c', m.groups.inner, url, '0', '', '', ''], { encoding: 'utf8', timeout: 60000, env: Object.assign({}, process.env, { KOSMOS_PKG_RETRY_MAX: '1', KOSMOS_PKG_RETRY_SLEEP: '0' }) });
+  assert.notEqual(ctl.status, 7);
+  assert.match(ctl.stderr, /could not download the installer/);
+  fs.rmSync(d, { recursive: true, force: true });
 });
 
 // ---- 4. setup.sh pinned_sha_ok, verbatim ----
