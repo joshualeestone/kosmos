@@ -32,8 +32,17 @@ test('#6548: a save writes remote.json owner-only even under a permissive umask'
 });
 
 test('#6548: a remote.json an earlier version left readable is owner-only after the next save', { skip: process.platform === 'win32' }, () => {
+  if (!fs.existsSync(remote.FILE)) assert.equal(remote.setOn(false).ok, true);   // stands alone (review 1)
   fs.chmodSync(remote.FILE, 0o644);
   assert.equal(modeOf(remote.FILE), 0o644, 'CONTROL: the file starts readable by others');
   assert.equal(remote.setOn(false).ok, true);
   assert.equal(modeOf(remote.FILE), 0o600, 'the next save makes it owner-only');
+});
+
+test('#6548 review 1: under a umask that takes the owner\'s own bits, the save is still exactly owner read and write', { skip: process.platform === 'win32' }, () => {
+  const old = process.umask(0o277);   // the open alone would leave 0400: the fchmod is what restores 0600
+  try {
+    assert.equal(remote.setOn(true).ok, true);
+  } finally { process.umask(old); }
+  assert.equal(modeOf(remote.FILE), 0o600, 'exactly 0600, readable and writable by its owner');
 });
