@@ -18,6 +18,15 @@ Card: kosmos#6628. Assigned by Liu Kang (tmux UPDATE, 2026-10-19). Reviewer: Rai
   unchanged). The Windows build passes the .ps1. A change to the Mac script does not ask for a Windows rebuild, and a
   change to the .ps1 does. Rejected: checking both scripts on both platforms (conservative, but every Mac-only build
   change would refuse a Windows cut for no reason, which teaches people to reach for the override).
+- **A build script missing from relay main refuses, on both platforms (review 3).** A pathspec that matches nothing
+  reads as "unchanged", so a renamed or misnamed script would have dropped out of the check silently. It is refused
+  as UNKNOWN, and `KOSMOS_ALLOW_STALE_TUNNEL=1` does not get past it (the override is for a connector known to be
+  behind, not for an answer nobody has). This is a NEW refusal on the Mac cut's step 1d too: if kosmos-relay ever
+  renames `tools/build-tunnel-release.sh`, the Mac cut stops until the caller is updated. Both scripts are on relay
+  main today. Rejected: applying it to the Windows call only (the Mac call has the same fail-open).
+- **Order in the Windows build: currency before the signature check.** Kept: a stale connector is the likelier
+  refusal at a cut, and the order is pinned by the wiring test. Swapping it (local signature check first, saves one
+  fetch) was considered and is equally valid.
 - **Where in the Windows build.** Right after the provenance check and before the connector is copied into the stage,
   so a stale connector costs a rebuild, not a zip. Same relay checkout default as the Mac (`KOSMOS_RELAY_REPO`, else
   `~/work/kosmos-relay`).

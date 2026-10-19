@@ -69,7 +69,7 @@ connector_currency_check() {
     fi
     return 1; }
   # A build script missing from relay main (renamed, or misnamed by the caller) would match nothing as a pathspec and
-  # read as unchanged, so it is refused rather than dropped from the inputs (#6628 review 3).
+  # read as unchanged, so it is refused rather than dropped from the inputs.
   git -C "$relay" cat-file -e "origin/main:$script" 2>/dev/null || {
     echo "connector_currency: kosmos-relay main has no $script, the script that builds this connector, so whether the connector is current is UNKNOWN (refused, not assumed). If it was renamed, update the caller." >&2
     return 1; }
