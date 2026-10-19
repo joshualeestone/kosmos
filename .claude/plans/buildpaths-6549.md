@@ -31,7 +31,8 @@ passes. Refused: a binary or a comment naming the home; the home followed by a q
 with trailing slashes; found AND NAMED through the default $HOME (the build's own call; CONTROL a clean stage passes
 under it); at the very end of a line; a home with a dot and a plus found
 literally; another account's .cargo/ or work/ in a compiled file (64-bit and universal headers); an unreadable file;
-a symlink; an unusable home (empty $HOME, `/`, `//`, `/Users`, `/Users/`, relative); no app/ or no bin/. Not refused:
+a symlink (under app/ or bin/); a file under bin/ naming the home (review 7: proves bin/ is read); a hidden
+compiled file in app/bin/; an unusable home (empty $HOME, `/`, `//`, `/Users`, `/Users/`, relative); no app/ or no bin/. Not refused:
 runtime/; `/Users/zz-builderother`; `/Users/joXhnnx` for `/Users/jo.hn+x` (no wildcards); a made-up build folder in
 a source comment or in a script under app/bin/. A `|` in a file name is still named. The build still calls the gate.
 Mutants (reviews 4 to 6, and mine): removing any of the named behaviours turns its arm red (30 of 34 mutants in

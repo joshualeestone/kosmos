@@ -5959,7 +5959,7 @@ function transcriptFor(agentName, exactSession) {
  * READ that folder; nothing in this repo writes it.
  *
  * ⚠️ SO MEMORY HAS NEVER WORKED FOR ANYBODY WHO IS NOT US. Josh, 2026-08-21, on
- * a clean install: `ls: /Users/example/.claude/agent-registry/: No such file or
+ * a clean install: `ls: /Users/<user>/.claude/agent-registry/: No such file or
  * directory`, and every agent on his board reading "Unknown". Not four agents
  * misbehaving — the normal case, on a machine without our fleet's scripts. The
  * development machine had a file the product depended on and did not create,

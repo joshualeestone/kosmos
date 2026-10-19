@@ -3,9 +3,9 @@
 # account folder of the Mac that built it: the connector once held the build Mac's home path hundreds of times
 # (the Rust compiler's source paths; kosmos-relay PR #454 makes tools/build-tunnel-release.sh remap them).
 # Two checks over the stage (the upstream Node runtime is skipped: it is not ours to rebuild):
-#   1. every file under app/ and bin/, read as bytes (binary or text), for THIS build user's home folder, ending at
-#      anything that cannot continue a folder name (so /Users/sam is caught in `path.relative('/Users/sam', p)` but
-#      /Users/samantha is not a hit for /Users/sam), in any case (macOS volumes ignore case). Known gap: a home
+#   1. every file under app/ and bin/, read as bytes (binary or text), for THIS build user's home folder followed by
+#      anything other than a letter, digit, `.`, `_` or `-`, or by a line's end (so /Users/sam is caught in
+#      `path.relative('/Users/sam', p)` but /Users/samantha is not a hit for /Users/sam), in any case (macOS volumes ignore case). Known gap: a home
 #      followed by a period, as at the end of a sentence, is not a hit, because a period can continue a folder name;
 #      nor is the home written another way: dash-encoded (-Users-<name>-, as agent folders are named) or as a
 #      Windows path. Build paths are neither, and comments carrying those forms are swept by hand (#6549);
@@ -37,7 +37,7 @@ home_path_gate_tree() {
     [ "$rc" -le 1 ] || { echo "FAIL: the home-path gate could not read every file under $part/ (grep rc $rc)" >&2; return 1; }
     [ -n "$out" ] && bad="$bad$out"$'\n'
   done
-  for f in "$stage"/app/bin/* "$stage"/app/*.app/Contents/MacOS/*; do
+  for f in "$stage"/app/bin/* "$stage"/app/bin/.[!.]* "$stage"/app/*.app/Contents/MacOS/*; do
     [ -f "$f" ] || continue
     # compiled (Mach-O) files only; app/bin/ also holds scripts, whose comments are check 1's business.
     magic="$(/usr/bin/head -c4 "$f" | /usr/bin/od -An -tx1 | /usr/bin/tr -d ' \n')"
