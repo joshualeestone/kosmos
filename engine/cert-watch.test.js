@@ -157,6 +157,8 @@ test('the finding key is the same for the same findings, new for a new one, and 
   const bare1 = certWatchFrom(d, NOW).key;
   put(d, { state: 'foreign', checked_at: S, foreign: [{}, {}] });
   assert.notEqual(certWatchFrom(d, NOW).key, bare1, 'a second entry with nothing to tell it apart is still a new finding');
+  put(d, { state: 'foreign', checked_at: S });
+  assert.match(certWatchFrom(d, NOW).key, /^[0-9a-f]{16}$/, 'a foreign report with empty lists still has a key (the notice must show)');
   put(d, { state: 'clear', checked_at: S, foreign: [] });
   assert.equal(certWatchFrom(d, NOW).key, null, 'no finding, no key');
 });

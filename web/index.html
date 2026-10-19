@@ -51607,7 +51607,7 @@ async function paintPlus() {
      hidden; an already-enrolled machine keeps the flow so it can still turn Plus OFF. */
   if (!r || r.enrolled !== true) {
     // kosmos#6613: a computer no longer set up has no finding to raise when the person leaves Kosmos+.
-    if (r && typeof paintCwNote === 'function') paintCwNote(null);
+    if (r && r.enrolled === false && typeof paintCwNote === 'function') paintCwNote(null);   // an error answer is not "not set up"
     /* #4794 review 7: not enrolled (a Forget, or never signed in) ends any pairing this page knew; this return skips the
        pairing block's own clearing below, so it happens here. A failed read (r null) is not an answer and keeps it. */
     if (r && typeof plusJoinReset === 'function') plusJoinReset();
@@ -52550,6 +52550,7 @@ function paintCwNote(cw, plusOn) {
 }
 async function pollCwNote() {
   if (typeof document !== 'undefined' && document.hidden) return;   // a tab in the background asks nothing
+  const seq = (CW_NOTE.seq = (CW_NOTE.seq || 0) + 1);   // an older answer that lands after a newer one is dropped
   // A computer not set up for Kosmos+ has no check: after one such answer, ask again only every ten minutes.
   if (CW_NOTE.quietUntil && Date.now() < CW_NOTE.quietUntil) return;
   let r = null;
@@ -52558,6 +52559,7 @@ async function pollCwNote() {
     r = res.ok ? await res.json() : null;   // an error answer (a 500) is a failed read, not "not set up"
   } catch { r = null; }
   // A failed read (a board restarting) is not "no finding": keep what shows rather than blink a warning off and on.
+  if (seq !== CW_NOTE.seq) return;
   if (!r || typeof r !== 'object' || typeof r.enrolled !== 'boolean') return;
   // Set up, but no certWatch in the answer (an older board): not an answer about the check, so nothing changes.
   if (r.enrolled === true && (!r.certWatch || typeof r.certWatch !== 'object')) return;
@@ -52585,7 +52587,12 @@ async function pollCwNote() {
           && !(flow && flow.hidden)) {
           cwNoteDismiss(shownKey);
           if (line.focus) { line.setAttribute('tabindex', '-1'); line.focus(); }
-        } else if (sw && !sw.hidden && sw.focus) sw.focus();   // not said there: kept for the next poll; focus not lost
+        } else {
+          // Not said there: the notice is kept for the next poll, and focus goes somewhere real.
+          const next = [sw && !sw.hidden ? sw : null, document.querySelector('.apphead .klink'), document.querySelector('.apphead h1')]
+            .find((el) => el && el.focus);
+          if (next) next.focus();
+        }
       };
       // If a status tick's paint overtook this one, the line may not be painted yet: land then keeps the notice.
       Promise.resolve().then(() => paintPlus()).then(land, land);

@@ -92,7 +92,8 @@ function certWatchFrom(dir, nowMs) {
     lost,
     /* The lost marker's value, so an acknowledgement names exactly the one the person saw (null when none). */
     lostAt: damagedAt,
-    key: foreign + earlier > 0 ? findingKey(raw) : null,
+    // Any foreign state has a key, even one whose lists are empty: the notice must not go silent while the pane warns.
+    key: state === 'foreign' ? findingKey(raw) : null,
     checkedAt,
     /* The last try failed after the last success (or there has been no success). */
     failing: errorAt !== null && (checkedAt === null || errorAt >= checkedAt),

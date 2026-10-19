@@ -44,6 +44,9 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
   named to the PM so Josh can choose otherwise.
 - A dismissed key stays dismissed (the newest 50 are kept): if the very same finding set came back after going away,
   it would stay quiet on that browser. Accepted: the Plus pane's line still says it.
+- Any `foreign` state has a key, even with empty lists, so the notice never goes silent while the pane warns.
+- `secs` (the time reader) now takes only values of at least one second, for every time in the report, not only the
+  lost marker; a sub-second epoch is never current anyway. A lost marker still counts if positive (said, not ackable).
 - The key is a digest, not the report's strings, so nothing from the third party reaches the page.
 - Got it is a board-side record keyed on the marker value, so a later loss (a new marker) is said again. Rejected:
   editing the tunnel's report (it is the tunnel's file, written atomically on its own schedule).
