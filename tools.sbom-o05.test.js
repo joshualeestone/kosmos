@@ -285,39 +285,40 @@ test('the manifest is used only when its signature verifies under a pinned key',
   assert.throws(() => readSignedManifest(mf, path.join(root, 'missing.sig'), [pub]), /not signed by a pinned/);
 });
 
-test('each part carries its source download only where the build script pins the version that shipped', () => {
+test('every vouched field: the release hash, node\'s purl, cpe and download, each part\'s type, purl and cpe; no source refs', () => {
   const b = sbom();
-  assert.deepEqual(comp(b, 'tmux-part:utf8proc').externalReferences, [{ type: 'distribution',
-    url: 'https://github.com/JuliaStrings/utf8proc/releases/download/v2.9.0/utf8proc-2.9.0.tar.gz',
-    hashes: [{ alg: 'SHA-256', content: SHA('c') }] }]);
-  assert.equal(comp(b, 'tmux-part:tmux').cpe, 'cpe:2.3:a:tmux_project:tmux:3.5a:*:*:*:*:*:*:*');
-  const drift = sbom(MANIFEST, files(LOCK, TMUX.replace('UTF8PROC_VERSION="2.9.0"', 'UTF8PROC_VERSION="2.10.0"')));
-  const u = comp(drift, 'tmux-part:utf8proc');
-  assert.equal(u.version, '2.9.0', 'the version is what shipped, not what the script pins');
-  assert.equal(u.externalReferences, undefined);
-  assert.deepEqual(u.properties, [{ name: 'kosmos:source-pin', value: 'the build script pins 2.10.0, the bundle has 2.9.0' }]);
-  assert.equal(comp(b, 'node').externalReferences[0].url, 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-darwin-arm64.tar.gz');
-  assert.deepEqual(comp(b, 'node').externalReferences[0].hashes, [{ alg: 'SHA-256', content: SHA('e') }]);
+  assert.deepEqual(b.metadata.component.hashes, [{ alg: 'SHA-256', content: SHA('d') }]);
+  assert.equal(b.metadata.component.type, 'application');
+  const node = comp(b, 'node');
+  assert.equal(node.type, 'framework');
+  assert.equal(node.purl, 'pkg:generic/nodejs/node@24.19.0');
+  assert.equal(node.cpe, 'cpe:2.3:a:nodejs:node.js:24.19.0:*:*:*:*:*:*:*');
+  assert.deepEqual(node.externalReferences, [{ type: 'distribution', url: 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-darwin-arm64.tar.gz',
+    hashes: [{ alg: 'SHA-256', content: SHA('e') }] }]);
+  assert.equal(comp(b, 'tmux-bundle').type, 'application');
+  assert.equal(comp(b, 'connector').type, 'application');
+  const tmux = comp(b, 'tmux-part:tmux');
+  assert.equal(tmux.type, 'application');
+  assert.equal(tmux.purl, 'pkg:generic/tmux@3.5a');
+  assert.equal(tmux.cpe, 'cpe:2.3:a:tmux_project:tmux:3.5a:*:*:*:*:*:*:*');
+  assert.equal(comp(b, 'tmux-part:libevent').type, 'library');
+  assert.equal(comp(b, 'tmux-part:libevent').purl, 'pkg:generic/libevent@2.1.12-stable');
+  for (const part of ['tmux', 'libevent', 'utf8proc']) {
+    assert.equal(comp(b, `tmux-part:${part}`).externalReferences, undefined, `${part}: nothing read out of the script is vouched for`);
+  }
+  const withNcurses = sbom(MANIFEST, files(), { sha: SHA('0'), ...parseTmuxVersion(VERSION + 'ncurses:  6.5\n', [...LIBS, 'lib/libncursesw.6.dylib']) });
+  assert.equal(comp(withNcurses, 'tmux-part:ncurses').cpe, 'cpe:2.3:a:gnu:ncurses:6.5:*:*:*:*:*:*:*');
 });
 
-test('a fetch call in another shape or position, a *_URL never fetched, an unexpanded variable or a missing hash refuses', () => {
-  assert.equal(tmuxPins(TMUX).length, 3, 'the definition and the comment are not calls');
+test('a fetch call in another shape or position, or a *_URL never fetched, refuses', () => {
+  assert.deepEqual(tmuxPins(TMUX).map((x) => x.name), ['tmux', 'libevent', 'utf8proc'], 'the definition and the comment are not calls');
   assert.throws(() => tmuxPins(TMUX + 'fetch ncurses $NCURSES_URL $NCURSES_SHA\n'), /a fetch line this SBOM cannot read: fetch ncurses/);
   assert.throws(() => tmuxPins(TMUX + 'fetch ncurses "${NCURSES_URL}" "${NCURSES_SHA}"\n'), /a fetch line this SBOM cannot read/);
   assert.throws(() => tmuxPins(TMUX + '[ -n "$X" ] && fetch ncurses "$NCURSES_URL" "$NCURSES_SHA"\n'), /a fetch line this SBOM cannot read/);
   assert.throws(() => tmuxPins(TMUX + 'if true; then fetch ncurses "$NCURSES_URL" "$NCURSES_SHA"; fi\n'), /a fetch line this SBOM cannot read/);
   assert.throws(() => tmuxPins(TMUX + 'NCURSES_URL="https://x/n.tgz"\n'), /NCURSES_URL is set but never fetched/);
-  assert.throws(() => tmuxPins(TMUX.replace('download/${TMUX_VERSION}/', 'download/$TMUX_VERSION/')), /cannot expand/);
-  assert.throws(() => tmuxPins(TMUX.replace('TMUX_VERSION="3.5a"', 'TMUX_VERSION="${TMUX_VERSION:-3.5a}"')), /cannot expand/);
-  const literalUrl = TMUX.replace(/^TMUX_URL=.*$/m, 'TMUX_URL="https://github.com/tmux/tmux/releases/download/3.5a/tmux-3.5a.tar.gz"');
-  assert.equal(tmuxPins(literalUrl)[0].version, '3.5a', 'the control: a url that does not name the version is fine');
-  assert.throws(() => tmuxPins(literalUrl.replace('TMUX_VERSION="3.5a"', 'TMUX_VERSION="${TMUX_VERSION:-3.5a}"')), /tmux's version or url names a variable/);
-  assert.throws(() => tmuxPins(TMUX.replace(/^TMUX_SHA=.*$/m, 'TMUX_SHA=""')), /no recorded sha256 for tmux/);
-  assert.throws(() => tmuxPins(TMUX.replace(/^TMUX_SHA=.*$/m, '')), /no recorded sha256 for tmux/);
+  assert.throws(() => tmuxPins(TMUX + '  export ZLIB_URL=https://x/z.tgz\n'), /ZLIB_URL is set but never fetched/);
   assert.throws(() => tmuxPins(TMUX.replace(/^fetch [a-z].*$/gm, '')), /no fetch lines/);
-  const nested = tmuxPins(TMUX.replace('download/v${UTF8PROC_VERSION}/', 'download/v${UTF8PROC_DIR}/') + 'UTF8PROC_DIR="${UTF8PROC_VERSION}"\n');
-  assert.equal(nested.find((x) => x.name === 'utf8proc').url,
-    'https://github.com/JuliaStrings/utf8proc/releases/download/v2.9.0/utf8proc-2.9.0.tar.gz');
 });
 
 test('two reached crates with one name and version from two sources get distinct references', () => {
@@ -417,14 +418,6 @@ test('the connector crate must be the one that builds kosmos-tunnel, and there i
   assert.throws(() => closure(parseLock(twoRoots), 'kosmos-tunnel-client'), /no single package kosmos-tunnel-client/);
 });
 
-test('a fetch input set in any other shape refuses, so the url and hash read are the ones the script uses', () => {
-  for (const line of ['TMUX_URL=https://evil/t.tgz', `  TMUX_SHA="${SHA('9')}"`, 'export TMUX_URL="https://evil/t.tgz"',
-    'TMUX_VERSION+="x"', "LIBEVENT_URL='https://evil/l.tgz'", 'readonly TMUX_SHA=abc']) {
-    assert.throws(() => tmuxPins(TMUX.replace('fetch() {', `${line}\nfetch() {`)), /a fetch input is set in a shape this SBOM cannot read/, line);
-  }
-  assert.equal(tmuxPins(TMUX + 'echo "$TMUX_URL"\nlocal url="$2"\n').length, 3, 'reading a variable is not setting it');
-});
-
 test('commits must be full shas, the build must say clean, and only the arm64 release is known', () => {
   assert.throws(() => sbom({ ...MANIFEST, app: { commit: 'HEAD', dirty: false } }), /must be full shas/);
   assert.throws(() => sbom({ ...MANIFEST, connector: { ...MANIFEST.connector, commit: 'b'.repeat(10) } }), /must be full shas/);
@@ -438,7 +431,8 @@ test('a fetch call hidden behind a # in a string, or after a one-line definition
   assert.throws(() => tmuxPins(TMUX + `echo "step #2"; fetch zlib "https://x/z.tgz" "${SHA('5')}"\n`), /a fetch line this SBOM cannot read: echo "step #2"/);
   const oneLine = TMUX.replace('fetch() {\n  curl -fL "$2" -o "$1.tgz"\n}', 'fetch() { curl -fL "$2" -o "$1.tgz"; }');
   assert.equal(tmuxPins(oneLine).length, 3, 'a one-line definition is the definition');
-  assert.throws(() => tmuxPins(oneLine + 'prep() {\n  fetch zlib "$ZLIB_URL" "$ZLIB_SHA"\n}\n'), /no version or url for zlib/);
+  assert.deepEqual(tmuxPins(oneLine + 'prep() {\n  fetch zlib "$ZLIB_URL" "$ZLIB_SHA"\n}\n').map((x) => x.name), ['tmux', 'libevent', 'utf8proc', 'zlib'],
+    'a call inside another function is still read');
   assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, 'lib/libevent-9evil.dylib']), /is not a file this SBOM accounts for/);
 });
 
@@ -453,9 +447,7 @@ test('the bundle: a library VERSION names must be in lib/, bin/tmux must be ther
   assert.deepEqual(parseTmuxVersion(VERSION, ['./', ...LIBS.map((p) => `./${p}`)]).versions, BUNDLE.versions);
   assert.throws(() => tmuxPins(TMUX.replace('fetch libevent "$LIBEVENT_URL" "$LIBEVENT_SHA"', 'fetch libevent "$LIBEVENT_URL" "$TMUX_SHA"')),
     /libevent is fetched with LIBEVENT_URL but TMUX_SHA/);
-  assert.throws(() => tmuxPins(TMUX + `TMUX_SHA="${SHA('9')}"\n`), /TMUX_SHA is set twice/);
   assert.throws(() => tmuxPins(TMUX + 'fetch tmux "$TMUX_URL" "$TMUX_SHA"\n'), /tmux is fetched twice/);
-  assert.equal(tmuxPins(TMUX + 'OUT="a"\nOUT="b"\n').length, 3, 'a variable no fetch reads may be set twice');
 });
 
 test('the same release gives a byte-identical SBOM; another release a different version-8 serial', () => {
