@@ -233,10 +233,8 @@ function verifyKeyList({ bytes, sig, recoveryKeys = RECOVERY_KEYS }) {
 }
 
 /* This install's record of the key lists it has taken: a folder (KEY_LIST_STATE in the install home) holding one file
- * per list, seq-<n>.json. The highest file present is the floor for the next list, so the record only moves forward
- * (a power loss can still lose the newest entry before the disk has it, dropping the floor one list back): files are only ever added, each in one step (written aside, then linked into place, which fails if that
- * seq is already there), and two checks running at once cannot take it backwards. The record is not signed: whoever
- * can write the install home can delete it, which drops this copy back to MIN_KEY_LIST_SEQ. */
+ * per list, seq-<n>.json. The highest file present is the floor for the next list. Its limits are in
+ * .claude/plans/recoverykey-6609.md. */
 // A canonical number only (no leading zero), within MAX_SEQ: the same seq one name, as a list can carry.
 const SEQ_FILE = /^seq-([1-9]\d{0,9})\.json$/;
 
