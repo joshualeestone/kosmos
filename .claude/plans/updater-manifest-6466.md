@@ -61,3 +61,12 @@ Addresses #6466 (asks 1 to 4), section C of Angel's 2026-10-18 checklist on #640
 - setup.ps1 fresh installs do not check the manifest (same origin as the script itself).
 - The staged tree and a kept rollback build are not re-checked between the check and the swap.
 - publish-kosmos-windows.sh and promote-channel.sh --family win (reference only per RELEASING.md) are unchanged.
+
+## Follow-up: Baron signs on a fleet Mac (decided 2026-10-19)
+
+The key never comes to the Windows PC. publish-r2.ps1 gains `-ForSigning` (same zip checks; uploads only the versioned
+zip, its .sha256 and the unsigned manifest after `check-unsigned` matches it to the zip file for file; never a pointer,
+the alias or a .sig; reads back through installkosmos.com, falling back to dl.chaoskosmos.com with a NOTICE while the
+site 404s the manifest; prints the version and manifest sha256) and `-Sig <file>`. The normal stage takes the .sig from
+-Sig, beside the zip, or the bucket, and refuses one that does not verify. RELEASING.md carries the per-release order:
+build, -ForSigning, send Baron version and sha256, wait for the .sig, stage, verify, Josh's go, promote.

@@ -19,6 +19,9 @@
  *       LIMIT: it checks against the keys THIS checkout pins. Under a key rotation, also run the Mac's
  *       tools/lib/manifest-sign.js check-served against the served build's manifest (its pinned_keys are what installs
  *       accept), as release.sh does.
+ *   node tools/lib/win-release-manifest.js check-unsigned <manifest.json> <zip> <version> [<arch>]
+ *       publish-r2.ps1 -ForSigning: the manifest is this zip's and lists exactly its files, before it goes up to be
+ *       signed (no signature yet). Same exit codes and stdout line as check.
  *   node tools/lib/win-release-manifest.js ships-checker <zip>
  *       exit 0 when the zip's app/engine/win32update.js checks signed manifests (it carries the capability line), so
  *       installs of that build refuse an update with none; 1 when it does not; 2 cannot tell.
@@ -132,6 +135,21 @@ function topLevelNames(buf) {
   return [...tops].filter(Boolean);
 }
 
+/** -ForSigning's check, before the manifest is put up for the key holder: it is THIS zip's (version, platform, arch,
+    artifact, sha256) and lists exactly its files. No signature yet. Returns { code, why }. */
+function checkUnsigned({ manifestPath, zipPath, version, arch = 'x64' }) {
+  let m;
+  try { m = JSON.parse(fs.readFileSync(manifestPath, 'utf8')); } catch { return { code: 1, why: 'the manifest is not readable' }; }
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return { code: 1, why: 'the manifest is not readable' };
+  if (m.version !== version) return { code: 1, why: `the manifest is for ${m.version}, not ${version}` };
+  const zipBytes = fs.readFileSync(zipPath);
+  const bad = headerRefusal(m, { version, arch, sha: sha256(zipBytes) });
+  if (bad) return { code: 1, why: bad };
+  const filesBad = withUnpacked(zipBytes, (x) => mv.filesRefusal(m, x, WIN_ENTRIES));
+  if (filesBad) return { code: 1, why: filesBad };
+  return { code: 0, why: `${path.basename(manifestPath)} describes ${path.basename(zipPath)} for ${version} (${m.files.length} files)` };
+}
+
 /** 0 the zip's updater checks signed manifests, 1 it does not, 2 cannot tell. */
 function shipsChecker(zipPath) {
   let zipBytes;
@@ -171,6 +189,14 @@ function main(argv) {
     console.log(r.why);
     return r.code;
   }
+  if (verb === 'check-unsigned') {
+    const [manifestPath, zipPath, version, arch] = a;
+    if (!manifestPath || !zipPath || !version) { console.error('usage: win-release-manifest.js check-unsigned <manifest> <zip> <version> [<arch>]'); return 2; }
+    let r;
+    try { r = checkUnsigned({ manifestPath, zipPath, version, arch: arch || 'x64' }); } catch (e) { r = { code: 2, why: 'could not check the manifest (' + ((e && e.message) || e) + ')' }; }
+    console.log(r.why);
+    return r.code;
+  }
   if (verb === 'ships-checker') return shipsChecker(a[0]);
   console.error('usage: win-release-manifest.js write|check|ships-checker ...');
   return 2;
@@ -179,4 +205,4 @@ function main(argv) {
 if (require.main === module) {
   try { process.exit(main(process.argv.slice(2))); } catch (e) { console.error('win-release-manifest: ' + ((e && e.message) || e)); process.exit(2); }
 }
-module.exports = { WIN_ENTRIES, buildManifest, manifestObject, headerRefusal, checkZip, shipsChecker, manifestName, versionedName, CHECKER_MARK, main };
+module.exports = { WIN_ENTRIES, buildManifest, manifestObject, checkUnsigned, headerRefusal, checkZip, shipsChecker, manifestName, versionedName, CHECKER_MARK, main };

@@ -179,3 +179,19 @@ test('#6466: the Mac verifier is unchanged by the split it now shares', T, () =>
   fs.writeFileSync(sig, sign(bytes, STRANGER));
   assert.match(mv.verify({ ...args, stage: '-' }).why, /not signed by the Kosmos release key/);
 });
+
+test('#6466 -ForSigning: check-unsigned accepts the build\'s own manifest for its zip and refuses one that is not its', T, () => {
+  const b = build();
+  const m = wrm.buildManifest({ stage: b.stage, zipBytes: b.zip, version: V, arch: 'x64', keys: TEST_KEYS });
+  const mp = path.join(b.dir, wrm.manifestName(V, 'x64'));
+  fs.writeFileSync(mp, JSON.stringify(m, null, 1) + '\n');
+  assert.equal(wrm.checkUnsigned({ manifestPath: mp, zipPath: b.zipPath, version: V }).code, 0);
+  assert.match(wrm.checkUnsigned({ manifestPath: mp, zipPath: b.zipPath, version: '0.7.61' }).why, /is for 0\.7\.60, not 0\.7\.61/);
+  assert.match(wrm.checkUnsigned({ manifestPath: mp, zipPath: b.zipPath, version: V, arch: 'arm64' }).why, /not arm64/);
+  const other = build({ 'runtime/node.exe': 'MZ another node' });
+  assert.deepEqual(wrm.checkUnsigned({ manifestPath: mp, zipPath: other.zipPath, version: V }), { code: 1, why: 'the download does not match its signed manifest' });
+  fs.writeFileSync(mp, JSON.stringify({ ...m, files: m.files.map((f) => (f.path === 'app/server.js' ? { ...f, sha256: '0'.repeat(64) } : f)) }));
+  assert.deepEqual(wrm.checkUnsigned({ manifestPath: mp, zipPath: b.zipPath, version: V }), { code: 1, why: 'app/server.js does not match the signed manifest' });
+  fs.writeFileSync(mp, 'not json');
+  assert.equal(wrm.checkUnsigned({ manifestPath: mp, zipPath: b.zipPath, version: V }).code, 1);
+});

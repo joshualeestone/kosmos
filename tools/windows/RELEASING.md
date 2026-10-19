@@ -55,12 +55,34 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
      A promote reads them back again before prod moves. `tools/deploy-site.sh`'s served-redirect
      checks do not cover these two names yet, so a site deploy that drops the redirect is caught only
      at the next stage or promote (installs fail closed meanwhile: they refuse updates, nothing breaks).
-   - **The key holder can sign.** The private key stays where it is (the release Mac, secrets map
-     target `kosmos-manifest-signing`). Either the key holder signs each Windows manifest (step 1b
-     below), or a copy of the key is filed on the Windows PC with `/add-secret`; never commit or
-     print it.
+   - **Baron signs, on a fleet Mac.** The private key (secrets map target `kosmos-manifest-signing`)
+     never comes to the Windows PC (decided 2026-10-19). Baron signs each Windows manifest after
+     `-ForSigning` has put it up (the per-release order below).
 
-## Each release
+## Each release, in order (#6466)
+
+1. **Build** (step 1 below). It writes `dist/kosmos-win-x64.zip` and
+   `dist/kosmos-<v>-win-x64.manifest.json`.
+2. **Put it up for signing**, which moves no pointer:
+   `pwsh tools\windows\publish-r2.ps1 -Zip dist\kosmos-win-x64.zip -ForSigning`.
+   It runs the stage's checks on the zip, checks the manifest describes the zip file for file,
+   uploads only the versioned zip, its `.sha256` and the manifest, reads them back (the manifest from
+   `dl.chaoskosmos.com` while installkosmos.com does not redirect it yet, and it says so), and
+   prints the version and the manifest's sha256.
+3. **Send Baron the version and the manifest sha256** (via Splinter, or kosmos #1050). He fetches
+   `kosmos-<v>-win-x64.manifest.json` from `dl.chaoskosmos.com`, checks its sha256 and version
+   against what you sent, checks that the zip sha256 it names equals the SERVED zip's, signs it with
+   `tools/lib/manifest-sign.js sign`, and uploads `kosmos-<v>-win-x64.manifest.json.sig` beside it,
+   or sends you the file.
+4. **Wait for the .sig.** Then **stage** (step 2 below): the stage takes the `.sig` from `-Sig <file>`
+   when Baron sent a file, else from beside the zip, else from the bucket, and refuses if it does not
+   verify against this zip and manifest.
+5. **Verify** on this PC (step 3), **ask Josh** (step 4), and **promote** only on his go (step 5).
+
+A rebuild after step 2 makes a new zip and a new manifest: put it up for signing again, and have it
+signed again (an old `.sig` no longer verifies, and the stage refuses it).
+
+## Each release, step by step
 
 1. **Build** from a clean checkout of `main`. A dirty tree is flagged in the zip's manifest, and
    `win-staging-verify.js` refuses to verify it.
@@ -95,27 +117,20 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    reads it from `~/work/kosmos-relay/dist/kosmos-tunnel.exe`, or from `KOSMOS_TUNNEL_BIN`, and
    refuses one that is missing, unsigned, or does not match its sidecars.
 
-1b. **Sign the release manifest (#6466).** The build also writes
+1b. **The release manifest (#6466).** The build also writes
    `dist/kosmos-<v>-win-x64.manifest.json` (every file in the zip with its sha256, the zip's sha256,
-   the version; the Mac manifest's format plus `"platform": "win32"`). Sign it with the Mac's own step
-   and key, unchanged:
-
-   ```
-   node tools/lib/manifest-sign.js sign <kosmos-manifest-signing key> dist/kosmos-<v>-win-x64.manifest.json dist/kosmos-<v>-win-x64.manifest.json.sig
-   ```
-
-   With `KOSMOS_MANIFEST_KEY=<path to the key>` set, the build does this itself and checks the result
-   against the zip. Otherwise send the manifest (it holds no secret) to the key holder and put the
-   `.sig` they return beside it. Check it before staging:
-   `node tools/lib/win-release-manifest.js check dist/kosmos-<v>-win-x64.manifest.json dist/kosmos-<v>-win-x64.manifest.json.sig dist/kosmos-win-x64.zip <v>`.
-   The manifest must be the one written by the same build as the zip: a rebuild makes a new zip, and
-   the old manifest no longer matches it.
+   the version; the Mac manifest's format plus `"platform": "win32"`). Baron signs it on a fleet Mac
+   with the Mac's own step and key, unchanged (`node tools/lib/manifest-sign.js sign <key> <manifest>
+   <manifest>.sig`), after `-ForSigning` has put it up: see the order above. The build's
+   `KOSMOS_MANIFEST_KEY` switch (sign during the build) is for a computer that holds the key; it is
+   not used on the Windows PC. The manifest must be the one written by the same build as the zip.
 
 2. **Stage.** This checks that the zip's `Kosmos.exe` is byte for byte the committed launcher (and,
    on Windows, that its Authenticode signature is Valid), then uploads the versioned zip, its sidecar, and `latest-win-staging.json`
    **last**, and reads every file back through installkosmos.com. Prod does not move. It also checks
-   the signed manifest beside the zip against the zip, file for file, uploads it and its `.sig`
-   before the pointer, and confirms installkosmos.com serves both. A build whose updater checks
+   the manifest beside the zip and its `.sig` (from `-Sig`, beside the zip, or the bucket) against the
+   zip, file for file, uploads them before the pointer (a `.sig` already in the bucket is not
+   rewritten), and confirms installkosmos.com serves both. A build whose updater checks
    signed manifests is refused without one; an older build without one is staged with a NOTICE. Everything
    that decides whether to write is read from the bucket itself with the key, so a slow or
    challenging edge produces a refusal, never a wrong write.

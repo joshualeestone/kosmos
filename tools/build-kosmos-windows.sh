@@ -592,7 +592,9 @@ echo "==> zip $_zipbytes bytes; unpacked $_unpacked bytes in $_nfiles files"
 # tools/windows/publish-r2.ps1 refuses to stage this build without it. Written from the STAGE the zip was made from,
 # then checked against the zip itself once signed (publish-r2.ps1 does that check again before uploading).
 # Signed with the SAME key and the SAME step as the Mac release (tools/lib/manifest-sign.js sign), on whichever
-# computer holds kosmos-manifest-signing: here when KOSMOS_MANIFEST_KEY names it, otherwise by the key holder.
+# computer holds kosmos-manifest-signing: here when KOSMOS_MANIFEST_KEY names it (a computer that holds the key; not
+# the Windows PC, where the key never comes), otherwise by the key holder after publish-r2.ps1 -ForSigning puts the
+# zip and this manifest up (tools/windows/RELEASING.md, the per-release order).
 MANIFEST_OUT="$OUTDIR/kosmos-$_ver-win-$ARCH.manifest.json"
 rm -f "$MANIFEST_OUT" "$MANIFEST_OUT.sig"
 command -v node >/dev/null 2>&1 || refuse "node is needed to write the signed release manifest (#6466)"
@@ -605,7 +607,7 @@ if [ -n "${KOSMOS_MANIFEST_KEY:-}" ]; then
     || { rm -f "$MANIFEST_OUT" "$MANIFEST_OUT.sig"; refuse "the signed release manifest does not check out against the zip (#6466)"; }
   echo "==> signed: $(basename "$MANIFEST_OUT").sig"
 else
-  echo "==> NOT SIGNED YET: $(basename "$MANIFEST_OUT"). The key holder signs it with the release key (the Mac's step):"
-  echo "      node tools/lib/manifest-sign.js sign <kosmos-manifest-signing key> $(basename "$MANIFEST_OUT") $(basename "$MANIFEST_OUT").sig"
-  echo "    and puts the .sig beside it here. publish-r2.ps1 refuses to stage this build without it."
+  echo "==> NOT SIGNED YET: $(basename "$MANIFEST_OUT"). Next: put it up for signing (no pointer moves):"
+  echo "      pwsh tools/windows/publish-r2.ps1 -Zip $ZIPOUT -ForSigning"
+  echo "    then send the key holder the version and manifest sha256 it prints. publish-r2.ps1 refuses to stage this build without the .sig."
 fi
