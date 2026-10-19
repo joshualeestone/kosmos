@@ -24,7 +24,10 @@ all the third-party code in the bundle.
 ## Why derived, not generated at build time
 Any served release's SBOM can be rebuilt later, on any machine, from its signed manifest. The manifest is signed, so
 the inputs are the ones the release vouched for. The same release always gives a byte-identical file (the serial
-number is derived from the tarball sha).
+number is derived from the tarball sha). LIMIT (review 5): the tmux bundle is served under one unversioned name, so
+an older release's SBOM can be rebuilt only while the bundle it shipped is still the one served (or kept); once tmux
+is rebuilt, the old release refuses on the hash, the safe direction. Publishing the SBOM at the cut (below) is the
+real fix.
 
 ## Checked
 - **Real release, 0.7.59 (served manifest and the served tmux bundle, whose sha256 equals the signed tmux_sha256):**
@@ -33,6 +36,7 @@ number is derived from the tarball sha).
   - the control: a bundle with one byte appended refuses ("not the one this release signed");
   - 227 registry crates and 1 first-party crate.
   - It passes the official CycloneDX 1.5 JSON schema (ajv), and a copy with one bad component type fails it.
+  - CPEs only for names NVD has (node, tmux, libevent without -stable, ncurses; none for utf8proc).
   - Purl versions are percent-encoded (`wasi@0.11.1%2Bwasi-snapshot-preview1`).
   - It is byte-identical under the C, en_US and da_DK locales (code-point order; locale-aware sorting changed it under
     da_DK, found in review 1).
@@ -41,12 +45,12 @@ number is derived from the tarball sha).
   26 are Windows-only or dev-only and 14 are optional dependencies of features the connector does not turn on (h2 and
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the header says so.
-- **`tools.sbom-o05.test.js`:** 18 arms, all in-process with injected reads, a test key or small fixtures it makes
-  (tmpscope); the command line is run for its refusals and usage errors. Thirty-five mutants each fail an arm (four
-  from the first version, eight after review 1, six after review 2, eleven after review 3, six after review 4: the
-  signature unchecked, only dylib-shaped files checked, an unknown VERSION key accepted, a repeated key accepted, an
-  empty version accepted, two VERSION files accepted). One review-4 mutant survives and is equivalent: `\s*` for
-  `[ \t]*` in the VERSION line match, since the file is split into lines first.
+- **`tools.sbom-o05.test.js`:** 21 arms, all in-process with injected reads, a test key or small fixtures it makes
+  (tmpscope); the command line is run for its refusals and usage errors. Forty-two mutants each fail an arm (seven
+  more after review 5: a fetched library the bundle does not name accepted, a non-sha256 hash accepted, the
+  connector's own ref left dangling, libevent's -stable suffix kept in its CPE, the VERSION `source` key dropped
+  (the real VERSION text is now the fixture), a utf8proc CPE restored, the old git purl). One survives and is
+  equivalent (see review 4 below).
 - **The manifest's signature is verified** under the checkout's pinned keys (engine/manifest-verify.js) before
   anything is read from it. The real 0.7.59 manifest and its served .sig verify; the same manifest with its version
   changed refuses. The command line's success path cannot run in a test, since only the real release key signs; it
@@ -62,6 +66,10 @@ number is derived from the tarball sha).
 ## Not covered, by design
 - Node's own bundled libraries (V8, OpenSSL and so on) are not listed one by one. Node is one component, matched
   through its version.
+- The Rust standard library compiled into the connector. The relay pins no toolchain, so no rustc version is recorded
+  to list; recording `rustc -V` beside the connector is a follow-up.
+- `readSignedManifest` repeats engine/manifest-verify.js's signature check (eight lines) instead of calling it: the
+  shipped verifier's exports are not changed in a tooling PR. Both are pinned to the same KEYS list.
 
 ## Not in this PR (named, owner Baron)
 - **Publishing:** the SBOM beside each release (`dist/kosmos-<V>-arm64.cdx.json`), written at release step 4b and
