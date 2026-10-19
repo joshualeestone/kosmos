@@ -52595,6 +52595,7 @@ async function pollCwNote() {
           if (line.focus) { line.setAttribute('tabindex', '-1'); line.focus(); }
         } else if (sw && !sw.hidden && sw.focus) sw.focus();   // not said there: kept for the next poll; focus not lost
       };
+      // If a status tick's paint overtook this one, the line may not be painted yet: land then keeps the notice.
       Promise.resolve().then(() => paintPlus()).then(land, land);
       return;
     }
@@ -52617,12 +52618,20 @@ async function pollCwNote() {
     } catch { plusSay('we could not save that', 'switch'); }
     finally { ackBusy = false; ackBtn.removeAttribute('aria-busy'); }
     await paintPlus();
-    if (!saved) { if (!ackBtn.hidden && ackBtn.focus) ackBtn.focus(); return; }
-    // Got it goes away with the sentence it answered. Focus goes to the line when it still says something (a finding),
-    // else to the check's switch, a stable place, and the pane says it was noted.
     const line = document.getElementById('plus-cw-line'), sw = document.getElementById('plus-cw-switch');
-    if (line && line.textContent) { line.setAttribute('tabindex', '-1'); line.focus(); }
-    else { plusSay('Noted.'); if (sw && !sw.hidden) sw.focus(); }
+    // Wherever Got it went, keyboard focus goes to the line when it still says something, else to the check's switch.
+    const refocus = () => {
+      if (line && line.textContent) { line.setAttribute('tabindex', '-1'); line.focus(); }
+      else if (sw && !sw.hidden) sw.focus();
+    };
+    if (!saved) {
+      // Refused: back on Got it when it is still there; gone (the marker cleared meanwhile), the line or the switch.
+      if (!ackBtn.hidden && ackBtn.focus) ackBtn.focus(); else refocus();
+      return;
+    }
+    // Saved: Got it goes away with the sentence it answered, and the pane says it was noted when the line is empty.
+    if (!(line && line.textContent)) plusSay('Noted.');
+    refocus();
   });
   setInterval(pollCwNote, 30000);
   // Back in front, asked at once rather than at the next tick.

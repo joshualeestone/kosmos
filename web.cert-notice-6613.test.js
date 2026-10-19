@@ -232,12 +232,13 @@ function ackWorld(answer) {
     plusOnScreen: () => true, localStorage: { getItem: () => null, setItem() {} },
     fetch: async (url, opts) => { calls.push({ url, body: opts && opts.body ? JSON.parse(opts.body) : null }); return answer; },
     setInterval: () => 0, showTab() {}, settingsGo() {}, plusWords: (s) => s, plusSay: (m) => said.push(m),
-    paintPlus: async () => { if (answer.ok) get('plus-cw-ack').hidden = true; },
+    paintPlus: async () => { if (answer.ok || world.repaintHides) get('plus-cw-ack').hidden = true; },
   };
+  const world = { get, calls, said, repaintHides: false };
   const start = SCRIPT.indexOf('/* kosmos#6613: the notice for a finding');
   const end = SCRIPT.indexOf('/* The words of the code box (#729).', start);
   vm.runInNewContext(SCRIPT.slice(start, end), ctx);
-  return { get, calls, said };
+  return world;
 }
 
 test('Got it posts the marker it was shown, then says Noted. with focus on the switch', async () => {
@@ -259,6 +260,16 @@ test('a refused Got it says why, does not say Noted. (the control), and keeps fo
   assert.equal(w.get('plus-cw-ack').hidden, false);
   assert.ok(w.get('plus-cw-ack').focused, 'focus left Got it');
   assert.equal(w.get('plus-cw-ack').getAttribute('aria-busy'), null);
+});
+
+test('a refused Got it whose button the repaint removed sends focus to the switch, not nowhere', async () => {
+  const w = ackWorld({ ok: false, json: async () => ({ error: 'that report is no longer the one to acknowledge' }) });
+  const ctxHide = w.get('plus-cw-ack');
+  // The marker was cleared meanwhile: the repaint hides Got it and the line says nothing.
+  w.repaintHides = true;
+  await w.get('plus-cw-ack').listeners.click();
+  assert.equal(ctxHide.hidden, true);
+  assert.ok(w.get('plus-cw-switch').focused, 'focus was left on nothing');
 });
 
 test('a computer not set up for Kosmos+ is asked again only after a while', async () => {
