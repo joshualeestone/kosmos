@@ -3,7 +3,9 @@
  * kosmos#6506: `kosmos handoff`, an agent's read of the FACTS for its handoff (its live
  * self-report state, a sha256 for each artifact path it names, when its instruction file
  * last changed, and whether the folder is a git repository). Facts only: it writes nothing
- * and changes no state. Three facts are local; the open-tasks fact (ruling 3) is one board call to GET /api/tasks/mine, and an unreachable board reads "the board did not answer", never an empty list. The engine that does the measuring is
+ * and changes no state. Three facts are local; the open-tasks fact (ruling 3) is one board call to
+ * GET /api/tasks/mine, and an unreachable board reads "the board did not answer", never an empty
+ * list. The engine that does the measuring is
  * engine/handoff.js (unit tests in engine/handoff.test.js); this holds the Mac CLI
  * plumbing. The Windows twin is held to the same verb by tools.windows-kosmos-cli-verbs-parity.
  *
@@ -22,9 +24,11 @@ const { spawn, execFileSync } = require('node:child_process');
    the #1765 board-proof is skipped (not the installed layout), so kosmos_curl reaches this directly.
    The default health page contains "Kosmos" like the other CLI test stubs. */
 function withStub(answers, fn) {
+  const seen = [];
   const server = http.createServer((req, res) => {
     req.on('data', () => {});
     req.on('end', () => {
+      seen.push({ method: req.method, url: req.url, headers: req.headers });
       const a = answers[req.method + ' ' + req.url.split('?')[0]];
       if (a) { res.writeHead(a.status || 200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(a.json)); }
       res.writeHead(200, { 'content-type': 'text/html' });
@@ -34,7 +38,7 @@ function withStub(answers, fn) {
   return new Promise((resolve, reject) => {
     server.listen(0, '127.0.0.1', async () => {
       let failure = null;
-      try { await fn(server.address().port); } catch (e) { failure = e; }
+      try { await fn(server.address().port, seen); } catch (e) { failure = e; }
       server.close(() => (failure ? reject(failure) : resolve()));
     });
   });
@@ -71,10 +75,10 @@ git(REPO, ['add', '.']);
 git(REPO, ['commit', '-q', '-m', 'first']);
 const NONGIT = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-handoff-nongit-'));
 
-function cli(args, { cwd = REPO, env: extra = {} } = {}) {
+function cli(args, { cwd = REPO, env: extra = {}, keepToken = false } = {}) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, AGENT_WORKFORCE_WORKERS: WORKERS, KOSMOS_AGENT_SESSION: SESSION, KOSMOS_PORT: '9', ...extra };
-    delete env.KOSMOS_AGENT_TOKEN;
+    if (!keepToken) delete env.KOSMOS_AGENT_TOKEN;   // keepToken: a test that sets KOSMOS_AGENT_TOKEN to check it is sent as a header
     // Force the CLI to resolve its engine from this repo, not a real install that might be on this box
     // and not yet carry engine/handoff.js: with KOSMOS_HOME unset, install/kosmos derives it from its own path.
     if (!('KOSMOS_HOME' in extra)) delete env.KOSMOS_HOME;
@@ -151,14 +155,28 @@ test('#6506: a directory named as an artifact is said as a directory, not hashed
   assert.match(r.out, /`: is a directory, not a file/, r.out);
 });
 
-test('#6506 ruling 3: a reachable board makes the handoff list the agent\'s open tasks', () => withStub({
-  'GET /api/tasks/mine': { status: 200, json: { tasks: [{ project: 'Kosmos Inside Out', number: 4, title: 'ship the thing' }], count: 1 } },
-}, async (port) => {
-  const r = await cli(['handoff'], { env: { KOSMOS_PORT: String(port) } });
-  assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /Open tasks assigned to you/, r.out);
-  assert.match(r.out, /Kosmos Inside Out #4: ship the thing/, r.out);
-}));
+test('#6506 ruling 3: a reachable board makes the handoff list the agent\'s open tasks', async () => {
+  await withStub({
+    'GET /api/tasks/mine': { status: 200, json: { tasks: [{ project: 'Kosmos Inside Out', number: 4, title: 'ship the thing' }], count: 1 } },
+  }, async (port) => {
+    const r = await cli(['handoff'], { env: { KOSMOS_PORT: String(port) } });
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Open tasks assigned to you/, r.out);
+    assert.match(r.out, /Kosmos Inside Out #4: ship the thing/, r.out);
+  });
+});
+
+test('#6506 ruling 3: the agent token is sent to the board as a header, never on the command line', async () => {
+  await withStub({
+    'GET /api/tasks/mine': { status: 200, json: { tasks: [], count: 0 } },
+  }, async (port, seen) => {
+    const r = await cli(['handoff'], { env: { KOSMOS_PORT: String(port), KOSMOS_AGENT_TOKEN: 'a'.repeat(64) }, keepToken: true });
+    assert.equal(r.code, 0, r.out);
+    const q = seen.find((x) => x.url.split('?')[0] === '/api/tasks/mine');
+    assert.ok(q, 'the board was not asked for the agent\'s tasks');
+    assert.equal(q.headers['x-kosmos-agent-token'], 'a'.repeat(64), 'the agent token did not reach the board as a header (kosmos_curl keeps it off argv in a mode-600 header file)');
+  });
+});
 
 test('#6506 ruling 3: an unreachable board makes the task line say so, never an empty list', async () => {
   // A port nothing listens on: taken from a stub that is then closed (as cli.accounts does).
