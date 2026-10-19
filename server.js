@@ -4327,7 +4327,10 @@ const REMOTE_STEP_UP_PATTERNS = [
 ];
 function needsRemoteStepUp(pathname, method) {
   if (REMOTE_STEP_UP_EXACT.has(method + ' ' + pathname)) return true;
-  return method === 'POST' && REMOTE_STEP_UP_PATTERNS.some((re) => re.test(pathname));
+  // A gated path is gated for every writing method but DELETE, so a later PUT or PATCH handler on it is covered too.
+  if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH') return false;
+  if (REMOTE_STEP_UP_EXACT.has('POST ' + pathname) || REMOTE_STEP_UP_EXACT.has('PUT ' + pathname)) return true;
+  return REMOTE_STEP_UP_PATTERNS.some((re) => re.test(pathname));
 }
 const REMOTE_STEP_UP = Object.freeze({
   code: 'remote_step_up',

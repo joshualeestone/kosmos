@@ -35,6 +35,11 @@ creation need a fresh authenticator code. This is the step-up half.
   computer.
 - **`PUT /api/autoupdate` is gated whole,** off as well as on: the gate reads no body, and one more prompt to switch
   it off costs little.
+- **A gated path is gated for POST, PUT and PATCH** (review iteration 6), so a later handler that accepts another
+  writing method on it is covered. DELETE takes away and is not.
+- **`/api/remote/setup-start` is not gated:** it is this computer's own Kosmos+ enrolment (remotemark-6595's list).
+- **The tests never send a request a broken gate would let act** (review iteration 6, after 13:10): over HTTP only
+  key routes with an unreadable body, which answer 400 either way; every other route is tested on the function.
 - **Making a project webhook is gated:** it mints a secret address an outside party can post tasks to, for as long as
   it lives. Renaming or deleting one is not.
 - **Codex hook trust is not gated:** every agent already runs an unsandboxed shell.
@@ -84,7 +89,7 @@ set none of the forwarding headers, it would read as local and never be asked (R
   stores a client id that is public by design. Named here so the boundary is explicit.
 
 ## Tests
-`server.remotestepup-6595.test.js` (38 cases: one per gated route, plus the guards and checks below), including two guards. Literal routes: every POST/PUT route whose path looks
+`server.remotestepup-6595.test.js`, including two guards. Literal routes: every POST/PUT route whose path looks
 like a key, token, sign-in, install, update or create is gated or exempt with a written reason, and every gated route
 exists (dropping one gated route turns it red, naming it). Regex routes, which the literal scan cannot see: every one
 whose pattern names a token, install, sign-in, import, restore or skill is decided, gated ones matching a sample path
@@ -93,7 +98,8 @@ The rest: every gated route refused remotely without headers, with second=0, wit
 stale time and with a malformed time, reaching nothing (the gate runs before the body is read); CONTROL: a fresh
 remote session and a local request pass on key routes (which then answer 400 for an unreadable body); update and
 agent creation pass arms tested on the function only, never run; the window's edges and malformed values.
-Mutations, run by hand on the first version (17 tests): gate removed 13 red; freshness always true 15 red. NOT
-re-run on the current file, on purpose: with the gate removed, each refusal test really posts to its route, and on
-13:10 one did (`/api/github/start` started a real GitHub sign-in; killed, nothing installed). Mutate this gate only
-against the function-level tests. The route guards' own controls (drop a gated route, drop a decision) were run.
+Mutations, run by hand on the current file (iteration 6), now safe to run because no test sends a request a broken
+gate would let act: gate call removed, the 5 HTTP refusal tests red; freshness always true, the 3 function-level
+refusal and freshness tests red. (At 13:10, on the earlier file, removing the gate let one test start a real GitHub
+sign-in; killed, nothing installed. That is why the tests changed.) The route guards' own controls (drop a gated
+route, drop a decision) were run too.

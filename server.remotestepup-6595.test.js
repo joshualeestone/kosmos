@@ -55,26 +55,42 @@ const STEP_UP_ROUTES = [
   '/api/register', '/api/remote/second-reset', '/api/project/p1/webhooks',
 ];
 
-test('R01: PUT /api/autoupdate (turning automatic updates on) from a stale remote session is refused', async () => {
-  const got = await post('/api/autoupdate', VIA_PLUS, '{"enabled":true}', 'PUT');
-  assert.equal(got.status, 403, JSON.stringify(got.body));
-  assert.deepEqual(got.body, { ...REMOTE_STEP_UP });
+test('R01: PUT /api/autoupdate from a stale remote session is refused (on the function)', () => {
+  assert.equal(remoteStepUpRefusal({ method: 'PUT', headers: VIA_PLUS }, '/api/autoupdate', now()), REMOTE_STEP_UP);
 });
 
-for (const route of STEP_UP_ROUTES) {
-  test(`R01: ${route} from a remote session with no fresh sign-in is refused with remote_step_up`, async () => {
-    for (const [why, extra] of [
-      ['no session headers', {}],
-      ['a fresh time but no second factor', { 'x-kosmos-session-iat': String(now() - 30), 'x-kosmos-session-second': '0' }],
-      ['the second factor but a stale time', { 'x-kosmos-session-iat': String(now() - REMOTE_STEP_UP_SECS - 5), 'x-kosmos-session-second': '1' }],
-      ['a malformed time', { 'x-kosmos-session-iat': '1e9', 'x-kosmos-session-second': '1' }],
-    ]) {
-      const got = await post(route, { ...VIA_PLUS, ...extra });
+const STALE = [
+  ['no session headers', {}],
+  ['a fresh time but no second factor', { 'x-kosmos-session-iat': String(now() - 30), 'x-kosmos-session-second': '0' }],
+  ['the second factor but a stale time', { 'x-kosmos-session-iat': String(now() - REMOTE_STEP_UP_SECS - 5), 'x-kosmos-session-second': '1' }],
+  ['a malformed time', { 'x-kosmos-session-iat': '1e9', 'x-kosmos-session-second': '1' }],
+];
+/* 🛑 Only these routes are sent real requests, and with an unreadable body: each reads and parses its body before it
+   acts, so even with the gate broken they answer 400 and change nothing. The rest (update, installs, sign-ins, new
+   agents, webhooks) are never sent a request from here, because a broken gate would run them for real (13:10
+   2026-10-19: one started a real GitHub sign-in). Their refusal is tested on the function below. */
+const SAFE_OVER_HTTP = ['/api/accounts/gemini/apikey', '/api/accounts/grok/apikey', '/api/accounts/claude/apikey',
+  '/api/cloudflare/token', '/api/svc/brave-search/token'];
+for (const route of SAFE_OVER_HTTP) {
+  test(`R01: ${route} from a remote session with no fresh sign-in is refused with remote_step_up (over HTTP)`, async () => {
+    for (const [why, extra] of STALE) {
+      const got = await post(route, { ...VIA_PLUS, ...extra }, 'not json');
       assert.equal(got.status, 403, `${route}, ${why}: ${JSON.stringify(got.body)}`);
       assert.deepEqual(got.body, { ...REMOTE_STEP_UP }, `${route}, ${why}`);
     }
   });
 }
+test('R01: every gated route is refused a remote session with no fresh sign-in (on the function)', () => {
+  const t = now();
+  for (const route of STEP_UP_ROUTES) {
+    for (const method of ['POST', 'PUT', 'PATCH']) {
+      for (const [why, extra] of STALE) {
+        assert.equal(remoteStepUpRefusal({ method, headers: { ...VIA_PLUS, ...extra } }, route, t), REMOTE_STEP_UP,
+          `${method} ${route}, ${why}`);
+      }
+    }
+  }
+});
 
 test('R01 CONTROL: a fresh remote sign-in, and a local request, pass the gate (a key route then reads its body)', async () => {
   for (const route of ['/api/accounts/gemini/apikey', '/api/accounts/grok/apikey', '/api/svc/brave-search/token']) {
@@ -96,7 +112,9 @@ test('R01: taking things away is not gated (forget a token, sign a provider out)
   for (const route of STEP_UP_ROUTES) assert.equal(needsRemoteStepUp(route, 'POST'), true, route);
   assert.equal(needsRemoteStepUp('/api/autoupdate', 'PUT'), true);
   assert.equal(needsRemoteStepUp('/api/autoupdate', 'GET'), false);
-  assert.equal(needsRemoteStepUp('/api/svc/brave-search/token', 'GET'), false, 'only POST enters a token');
+  assert.equal(needsRemoteStepUp('/api/svc/brave-search/token', 'GET'), false, 'reading is not gated');
+  assert.equal(needsRemoteStepUp('/api/agents', 'PUT'), true, 'a gated path is gated for PUT and PATCH too');
+  assert.equal(needsRemoteStepUp('/api/agents', 'DELETE'), false, 'DELETE takes away');
 });
 
 test('R01: freshness needs the second factor and a time within the window, bounded both sides', () => {
@@ -149,6 +167,7 @@ const EXEMPT = {
   'POST /api/remote/signin-start': "this computer's own Kosmos+ sign-in steps",
   'POST /api/remote/signin-verify': "this computer's own Kosmos+ sign-in steps",
   'POST /api/github-device/app': 'stores a GitHub app client id, which is public by design; the sign-in start is gated',
+  'POST /api/remote/setup-start': "this computer's own Kosmos+ enrolment (remotemark-6595's exclusions)",
 };
 /* Decided without a scan to catch them (their paths name none of the guard's words), written down so the boundary is
    a record: POST /api/agent/<n>/codex-hooks trusting hooks lets them run outside Codex's sandbox, but every agent here
