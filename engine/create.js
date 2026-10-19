@@ -2849,7 +2849,7 @@ function defaultAgentGrokHome() {
  * back to the exact same path.
  *
  * #3439: on Windows canonicalOnDisk returns a backslash path like
- * `C:\Users\joshu\work\workers\marcus`. Placed raw inside `[projects."..."]`,
+ * `C:\Users\sam\work\workers\marcus`. Placed raw inside `[projects."..."]`,
  * the `\U` and `\u` sequences are read by TOML as (invalid) unicode escapes, so
  * codex fails to load the WHOLE config.toml and every turn dies at load, before
  * auth or network. macOS paths use forward slashes and never trip this, which is

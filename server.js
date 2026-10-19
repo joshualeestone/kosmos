@@ -2467,7 +2467,7 @@ function accountForAgent(name, known) {
      (`engine/create.js`: "THE DEFAULT ROW WRITES NO HOME"), so its job carries
      `configDir: null` and this falls to the dir-less arm, which matched purely on
      `isDefault`. Handed the CLAUDE list, that is the operator's Claude account:
-     a Codex agent told it runs on josh@... with `isDefault: true`.
+     a Codex agent told it runs on an account's email with `isDefault: true`.
      ⭐ The codebase already knew, and said so in the #2413 overlay further down
      this file: "a codex agent on the default home maps to the default Claude
      account". That sentence was TRUE WHEN WRITTEN and this change is what makes

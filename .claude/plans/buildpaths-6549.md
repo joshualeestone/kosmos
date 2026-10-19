@@ -5,29 +5,39 @@ compiler's source paths), and shipped source comments named a few internal peopl
 email. The connector half is kosmos-relay remap-6549 (the build remaps those paths; measured 0 in both slices vs 878).
 
 ## Change
-- tools/lib/home-path-gate.sh: `home_path_gate_tree <stage> [<home>]` reads every staged file under app/ and bin/ as
-  bytes (binary or text; the upstream Node runtime is not ours to rebuild and is skipped) for the build user's home
-  folder with a trailing slash, prints each offending file and returns 1. An unusable home (empty, relative, `/`,
-  one component) or a stage with no app/ or bin/ is refused, never skipped.
-- tools/build-kosmos-bundle.sh: runs the gate right after the deployment-floor gate, so a release refuses before
-  packing.
-- Comments: 11 examples in server.js, web/index.html, engine/discover.js, engine/status.js and engine/trust.js use
-  made-up names (sam, alex, sampatel) instead of real ones. One was also wrong as an example: `/Users/agentine` does
-  not start with `/Users/agent1`; `/Users/alexandra` does start with `/Users/alex`.
+- tools/lib/home-path-gate.sh `home_path_gate_tree <stage> [<home>]`, two checks (the upstream Node runtime skipped):
+  1. every file under app/ and bin/, as bytes, for THIS build user's home folder followed by anything that cannot
+     continue a folder name or by the end of a line, in any case (review 1: the first version needed a trailing `/`
+     and missed `path.relative('/Users/x', p)`; macOS volumes ignore case);
+  2. every executable under app/bin/ and the app's Contents/MacOS/ for ANY account's build folders
+     (/Users/<name>/.cargo/, .rustup/, work/), because the connector may be built on another Mac (review 1).
+  It refuses an unusable home, a missing app/ or bin/, and a file grep cannot read (review 1: rc > 1 is a refusal).
+- tools/build-kosmos-bundle.sh runs it after the deployment-floor gate; the test checks that call is still there.
+- package.json test:shell runs the new test (review 1: tools.every-test-runs refused it as an orphan).
+- Comments: 21 places in shipped files (server.js, web/index.html, engine/*.js) that named real people or the build
+  Macs' accounts use made-up names (sam, alex, sampatel), or `<user>` where the comment records a measurement (a made-up
+  name there would falsify the record). One example was also wrong: `/Users/agentine` does not start with
+  `/Users/agent1`; `/Users/alexandra` does start with `/Users/alex`.
 
 ## Test
-tools/test-home-path-gate-6549.sh, on a fake stage and a fake home: CONTROL a clean stage passes; a binary naming the
-home is refused and named; a source comment naming it is refused; runtime/ is not read; `/Users/zz-builderother` is
-not a hit for `/Users/zz-builder`; an empty $HOME, `/`, a relative home and `/Users` are refused; a stage with no app/
-is refused.
+tools/test-home-path-gate-6549.sh (20 arms, fake stage and fake home): CONTROL a clean stage passes; refused: a binary
+or a comment naming the home, the home followed by a quote or a NUL, the home in another case, another account's
+.cargo/ or work/ in an executable, an unreadable file, an unusable home (empty $HOME, `/`, relative, `/Users`), no app/
+or no bin/; not refused: runtime/, `/Users/zz-builderother`, a made-up `/Users/alex/work/` in a source comment; a `|`
+in a file name is still named; the build script still calls the gate.
+Measured on stages built from the sources: this branch passes for /Users/agent1, /Users/mortalkombat, /Users/josh and
+/Users/joshu; CONTROL main's server.js and status.js are refused for /Users/agent1 and /Users/josh, files named.
 
 ## Order
-kosmos-relay remap-6549 must merge FIRST: until the connector is rebuilt with it, this gate refuses the cut. The build
-script is a connector input (agent-workforce tools/lib/connector-currency.sh), so the next cut's step 1d sees the
-connector as stale and rebuilds it.
+kosmos-relay remap-6549 must merge FIRST. Its change to tools/build-tunnel-release.sh is a connector input
+(tools/lib/connector-currency.sh CONNECTOR_TUNNEL_INPUTS), so the next cut's step 1d REFUSES the old connector as
+stale before the bump and a person rebuilds it (review 1 corrected this plan: 1d refuses, it does not rebuild). With
+KOSMOS_ALLOW_STALE_TUNNEL=1 the old connector gets past 1d and this gate refuses it at step 4.
 
 ## Not changed
-Test files that still quote the old names: they do not ship (the bundle copies only non-test engine files).
+- Test files that still quote the old names: they do not ship (the bundle copies only non-test engine files).
+- Review 1 NIT, deferred: the tarball records the build account as each entry's owner (`agent1 staff`). Changing the
+  owner fields is a different risk (an extraction as root would apply them), so it is not done here.
 
 ## Weakest premise
 That nothing else staged legitimately contains the build user's home path. A local or CI build from a checkout under
