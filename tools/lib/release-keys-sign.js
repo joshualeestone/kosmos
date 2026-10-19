@@ -17,12 +17,12 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { ed25519Key, verifyKeyList, RECOVERY_KEYS, KEY_LIST_TYPE, KEYS, MIN_KEY_LIST_SEQ } = require('../../engine/manifest-verify');
+const { ed25519Key, verifyKeyList, RECOVERY_KEYS, KEY_LIST_TYPE, KEYS, MIN_KEY_LIST_SEQ, MAX_SEQ } = require('../../engine/manifest-verify');
 
 function main(argv, stdin) {
   const [seqArg, outDir, ...keys] = argv;
   const seq = Number(seqArg);
-  if (!/^[1-9]\d*$/.test(String(seqArg || '')) || !Number.isInteger(seq) || seq < 1 || seq > 2147483647) { console.error('the sequence number must be a whole number from 1 to 2147483647'); return 1; }
+  if (!/^[1-9]\d*$/.test(String(seqArg || '')) || !Number.isInteger(seq) || seq < 1 || seq > MAX_SEQ) { console.error(`the sequence number must be a whole number from 1 to ${MAX_SEQ}`); return 1; }
   let isDir = false;
   try { isDir = fs.statSync(outDir).isDirectory(); } catch { isDir = false; }
   if (!outDir || !isDir) { console.error('the folder to write to does not exist'); return 1; }
@@ -48,6 +48,7 @@ function main(argv, stdin) {
   if (priv.asymmetricKeyType !== 'ed25519') { console.error('the private key is not an Ed25519 key'); return 2; }
   const recoveryPub = crypto.createPublicKey(priv).export({ format: 'der', type: 'spki' }).toString('base64');
   // The recovery key is never also a release key, in this list or among the keys this build ships.
+  if (keys.some((k) => RECOVERY_KEYS.includes(k))) { console.error('a key in the list is a built-in recovery key; recovery keys are never release keys'); return 1; }
   if (keys.includes(recoveryPub) || KEYS.includes(recoveryPub)) { console.error('that private key is a release key; the recovery key must be a different key'); return 2; }
   // Once a recovery key is built in, a list signed by any other key would be refused by every copy: say so now.
   if (RECOVERY_KEYS.length && !RECOVERY_KEYS.includes(recoveryPub)) { console.error('that private key is not the Kosmos recovery key (its public half is ' + recoveryPub + ')'); return 2; }
@@ -60,8 +61,8 @@ function main(argv, stdin) {
   // (a pair that does not verify, so nothing would take it); the error says so and the folder needs a look.
   const j = path.join(outDir, 'release-keys.json'), g = j + '.sig';
   try {
-    fs.writeFileSync(j + '.tmp', bytes);
-    fs.writeFileSync(g + '.tmp', sig + '\n');
+    fs.writeFileSync(j + '.tmp', bytes, { flag: 'wx' });
+    fs.writeFileSync(g + '.tmp', sig + '\n', { flag: 'wx' });
     fs.renameSync(g + '.tmp', g);
     fs.renameSync(j + '.tmp', j);
   } catch (e) {

@@ -314,7 +314,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
 }
 
 module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles,
-  RECOVERY_KEYS, KEY_LIST_STATE, KEY_LIST_TYPE, MIN_KEY_LIST_SEQ, ed25519Key, verifyKeyList, storedKeyList, trustedKeys };
+  RECOVERY_KEYS, KEY_LIST_STATE, KEY_LIST_TYPE, MIN_KEY_LIST_SEQ, MAX_SEQ, ed25519Key, verifyKeyList, storedKeyList, trustedKeys };
 
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before
  * using a call form: it greps the next line, which lists every form this copy understands beyond the original
