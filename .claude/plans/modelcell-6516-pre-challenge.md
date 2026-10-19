@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: modelcell-6516
-diff_hash: bd0536a9e6a521efaf7378634771675012a0e08a9cafc7fd2cbcb8a471575b05
+diff_hash: 96ecc0d45f1e3e00c3d3ba0b24f5914610cd98c0b4d2e402d928082667189dbe
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T22:41:57Z
@@ -16,7 +16,9 @@ converged: true
 **Converged:** Yes (iteration 4, sonnet: NO NEW ISSUES)
 **Fixed:** 2 WARNINGs, 3 NITs | **Accepted and recorded:** 2 spacing NITs | **Asked (awaiting user):** 0
 
-Validation: the full suite PASSED on Mortals at f64980ef9 (hash bd0536a9e6a5, 17:38 CDT 10-18).
+Validation: the full suite PASSED on Mortals at c14eb096f (hash 96ecc0d45f1e, 19:1x CDT 10-18), after PR CI's
+browser-checks caught a render-list-row requirement its fixture cannot meet (fixed in c14eb096fc; earlier pass at
+f64980ef9, hash bd0536a9e6a5).
 render-made-before PASSED (rc 0; the #6516 arm: Rick's list cell shows nothing, its only child is the 1x1 .vh span
 holding the ruled sentence, Bob's shows "Claude Opus 5"; no page errors). render-list-row.js needs a live board
 (KOSMOS_URL) and was NOT run here; its phone arm was corrected by reading, not by a run. Mutation, measured: reverting
