@@ -1713,7 +1713,9 @@ start_log() {
     # awk, not tee: one reader, two shapes. `print` goes to the console
     # verbatim; the file copy is prefixed with the run id. fflush both ways,
     # or the file trails the console by a buffer and a crash loses the tail.
-    awk -v id="$$" -v logfile="$LOG" '{ print "[" id "] " $0 >> logfile; fflush(logfile); print; fflush() }' < "$_pipe" &
+    # #6563: KOSMOS_LOG_FILE_ONLY=1 (set by `kosmos update`, whose console already goes into this same file) keeps
+    # the file copy and drops the console copy, so each line is logged once. Unset, a person piping this sees it all.
+    awk -v id="$$" -v logfile="$LOG" -v fileonly="${KOSMOS_LOG_FILE_ONLY:-0}" '{ print "[" id "] " $0 >> logfile; fflush(logfile); if (fileonly != "1") { print; fflush() } }' < "$_pipe" &
     exec > "$_pipe" 2>&1
     rm -f "$_pipe"
   fi
