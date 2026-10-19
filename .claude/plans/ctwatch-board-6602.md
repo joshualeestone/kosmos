@@ -57,5 +57,13 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
   computer."). It does not tell the person what to do next, because there is no support path to name yet.
 
 ## Proof
-- `node --test engine/cert-watch.test.js` (11), `web.plus-cert-watch-6602.test.js` (9), the Plus panel browser check `render-plus-panel-3829.js` (a connected pane with a finding, a clear check, and the switch, each with its control), and the new
-  `server.test.js` route test (by name).
+- Run by hand (10-19, Mac): `node --test engine/cert-watch.test.js` 11 passed, `web.plus-cert-watch-6602.test.js`
+  9 passed, `engine/windows-tests-1777.test.js` 23 passed, and the `server.test.js` route test (by name) passed.
+  Mutants, each red then restored: the busy guard removed (1 page test failed); `Math.abs` dropped from the
+  staleness rule (1 engine test failed).
+- Full suite on Mortals, at 32dfaaca8 (before the browser-check assertion was added): node tests 22233,
+  21916 passed, 0 failed (the rest skipped); the only failure was the browser-check gate (#1720), because that
+  head changed web/ without a browser-check assertion, which is what the later commits add. The final head's
+  run is recorded with the challenge-loop proof.
+- Browser check: `render-plus-panel-3829.js` gains a certificate-check scenario (a finding, a clear control, a
+  finding with the check off, and the switch's request); PR CI selects and runs it.
