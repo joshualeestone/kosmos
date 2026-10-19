@@ -4289,7 +4289,10 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    (tools/lib/connector-currency.sh). So this change must not reach a cut before sessioniat-6595 is on relay main. A local
    request is not asked: the person is at the computer. Taking things away (deleting a key, forgetting a token) is
    not asked either. */
-const REMOTE_STEP_UP_SECS = 10 * 60;
+/* Twelve minutes, a little longer than the coordinator's own STEP_UP_SECS (ten): a handoff minted near the end of the
+   coordinator's window must still be fresh when the page reaches this board (Renet, 13:54). The refusal still says
+   ten, the coordinator's figure, so the person is never told more time than they have. */
+const REMOTE_STEP_UP_SECS = 12 * 60;
 /* The gate's two headers, read one way: { second, iat }, iat null unless it is a plain decimal (a value Node joined
    from repeated headers, "a, b", is not). */
 function remoteSessionHeaders(headers) {

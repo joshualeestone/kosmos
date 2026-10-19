@@ -9,7 +9,8 @@ creation need a fresh authenticator code. This is the step-up half.
   `remoteStepUpRefusal(req, pathname, now)` refuses 403 `{code: "remote_step_up", error}` when the route is gated,
   the request is remote (`isRemoteRequest`, Renet's) and the session is not fresh.
 - Fresh = `x-kosmos-session-second` is exactly `1` AND `x-kosmos-session-iat` is a plain decimal within the last
-  10 minutes (a minute of clock drift ahead allowed). The Kosmos+ gate writes both, over any client value, only for a
+  12 minutes (a minute of clock drift ahead allowed). Twelve, not the coordinator's ten, so a handoff minted near the
+  end of the coordinator's window is still fresh on arrival; the refusal says ten. The Kosmos+ gate writes both, over any client value, only for a
   sign-in session minted from a token after kosmos-relay sessioniat-6595; every other session sends neither.
   Missing or malformed is NOT fresh.
 - Gated: updating and anything that downloads and runs software (`/api/update`, `/api/update/rollback`,
