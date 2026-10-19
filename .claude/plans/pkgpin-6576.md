@@ -25,7 +25,7 @@ Card: kosmos#6576 (security hardening item; detail kept with the security plan).
 ## Evidence (2026-10-19)
 - Notarization (the weakest premise): a trial pkg built by tools/build-installer-pkg.sh from this branch was notarized and stapled by Apple (spctl: accepted, Notarized Developer ID); the helper inside it carries the Developer ID Application signature with the hardened runtime, accepts the served staging 0.7.59 manifest and refuses a one-byte-tampered copy (97). Not published.
 - The helper against the served 0.7.59 release: prints its setup, tarball and tmux sha256 (equal to the served files); controls: tampered manifest, another version, below the floor, garbage signature, all 97.
-- install.pkg-verify-6576.test.js 13/13 (perturbed: removing the installer comparison turns a test red).
+- install.pkg-verify-6576.test.js 14/14 (perturbed: removing the installer comparison turns a test red).
 - Existing: test-pkg-checksum-1670, test-postinstall-inline-quoting, test-install-page-readable-3268, test-pkg-input-guard (59 checks, new #6576 rows), test-pkg-arch-gate-1562 all pass.
 
 ## Weakest premise

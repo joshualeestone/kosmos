@@ -122,9 +122,10 @@ function siteWith(h, { setup, manifestTamper, noSig }) {
   if (!noSig) fs.writeFileSync(path.join(root, 'dist', 'kosmos-0.7.60-arm64.manifest.json.sig'), rel.sig);
   return { root, setupSha: hex(setupBytes) };
 }
-function runRootStep(h, site, { home, setupOverride, floor, prelude, sleep } = {}) {
+function runRootStep(h, site, { home, setupOverride, floor, prelude, sleep, helperScript } = {}) {
   const scripts = fs.mkdtempSync(path.join(h.dir, 'scripts-'));
-  fs.copyFileSync(h.bin, path.join(scripts, 'kosmos-pkg-verify'));
+  if (helperScript) fs.writeFileSync(path.join(scripts, 'kosmos-pkg-verify'), helperScript);
+  else fs.copyFileSync(h.bin, path.join(scripts, 'kosmos-pkg-verify'));
   fs.chmodSync(path.join(scripts, 'kosmos-pkg-verify'), 0o755);
   fs.writeFileSync(path.join(scripts, 'kosmos-pkg-floor'), (floor || '0.7.57') + '\n');
   if (setupOverride) fs.writeFileSync(path.join(site.root, 'setup'), setupOverride);
@@ -181,15 +182,43 @@ test('#6576: a tampered installer, a tampered manifest, or no signature ends the
   assert.equal(fs.existsSync(ran), false, 'the tampered installer must never run');
 });
 
-test('#6576: an existing install is pinned too (its own checks still run inside setup.sh)', { skip: SKIP }, () => {
-  const h = buildHelper();
-  const home = fs.mkdtempSync(path.join(h.dir, 'home-installed-'));
-  fs.mkdirSync(path.join(home, '.local/share/kosmos/app/engine'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.local/share/kosmos/app/engine/manifest-verify.js'), '// installed\n');
-  const r = runRootStep(h, siteWith(h, {}), { home });
+test('#6576: on a Mac that already has Kosmos, the checked installer runs and the older hand-off is never reached', () => {
+  const m = POSTINSTALL.match(/\/bin\/sh -c \\\n\s*'(?<inner>[\s\S]*?)' "\$SETUP_URL"/);
+  assert.ok(m, 'could not lift the inner script; postinstall moved, re-anchor this test');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pkgpin-installed-6576-'));
+  // An installed copy the #6474 hand-off would use: a verifier that knows run-setup, a node that runs, a version.
+  const h = path.join(d, '.local/share/kosmos');
+  fs.mkdirSync(path.join(h, 'app/engine'), { recursive: true });
+  fs.mkdirSync(path.join(h, 'runtime/bin'), { recursive: true });
+  fs.writeFileSync(path.join(h, 'app/engine/manifest-verify.js'), '// run-setup\nrequire("fs").writeFileSync(process.argv[1] + ".HANDOFF", "1");\n');
+  fs.writeFileSync(path.join(h, 'app/package.json'), JSON.stringify({ version: '0.7.59' }));
+  fs.symlinkSync(process.execPath, path.join(h, 'runtime/bin/node'));
+  const checked = path.join(d, 'checked-setup');
+  fs.writeFileSync(checked, '#!/bin/sh\necho RAN-CHECKED\n');
+  const r = spawnSync('/bin/sh', ['-c', m.groups.inner, 'file://' + path.join(d, 'no-such-setup'), '0', checked, 'b'.repeat(64), 'c'.repeat(64), '0.7.60'],
+    { encoding: 'utf8', timeout: 60000, env: Object.assign({}, process.env, { HOME: d }) });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /the installer matches signed release 0\.7\.60/);
-  assert.match(r.stdout, new RegExp('PIN_TARBALL=' + 'b'.repeat(64) + '\n'));
+  assert.equal(r.stdout, 'RAN-CHECKED\n');
+  assert.equal(fs.existsSync(path.join(h, 'app/engine/manifest-verify.js.HANDOFF')), false, 'the hand-off ran on the pinned path');
+  // CONTROL: without a checked installer the same Mac does reach the hand-off (the test can see it run).
+  fs.writeFileSync(checked + '.sha256', crypto.createHash('sha256').update(fs.readFileSync(checked)).digest('hex') + '\n');
+  fs.mkdirSync(path.join(d, 'dist'));
+  fs.writeFileSync(path.join(d, 'dist', 'latest.json'), JSON.stringify({ version: '0.7.59' }));
+  const ctl = spawnSync('/bin/sh', ['-c', m.groups.inner, 'file://' + checked, '0', '', '', '', ''],
+    { encoding: 'utf8', timeout: 60000, env: Object.assign({}, process.env, { HOME: d, KOSMOS_PKG_RETRY_MAX: '1', KOSMOS_PKG_RETRY_SLEEP: '0' }) });
+  assert.equal(fs.existsSync(path.join(h, 'app/engine/manifest-verify.js.HANDOFF')), true, 'control: the hand-off did not run without a checked installer: ' + ctl.stderr);
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('#6576: a release check that cannot run (a crash, a bad argument) ends the install and says so, not that the release is bad', { skip: SKIP }, () => {
+  const h = buildHelper();
+  for (const code of [2, 134]) {
+    const r = runRootStep(h, siteWith(h, {}), { helperScript: '#!/bin/sh\nexit ' + code + '\n' });
+    assert.equal(r.status, 1, code + ': ' + r.stderr);
+    assert.match(r.stderr, new RegExp('could not run its release check \\(status ' + code + '\\)'));
+    assert.doesNotMatch(r.stderr, /did not check out against the signed/);
+    assert.doesNotMatch(r.stdout, /PIN_SETUP_SHA=[0-9a-f]/);
+  }
 });
 
 test('#6576: switched off (floor "off"), the root step says so, pins nothing and downloads nothing', { skip: SKIP }, () => {
