@@ -33,7 +33,7 @@ function main(argv, stdin) {
   if (prevRaw !== null) {
     let prev;
     try { prev = JSON.parse(prevRaw); } catch { console.error('the folder holds a release-keys.json that cannot be read; move it aside first'); return 1; }
-    if (!prev || typeof prev !== 'object' || !Number.isInteger(prev.seq) || prev.seq >= seq) { console.error(`the folder already holds list ${prev.seq}; a new list needs a higher number`); return 1; }
+    if (!prev || typeof prev !== 'object' || !Number.isInteger(prev.seq) || prev.seq >= seq) { console.error(`the folder already holds list ${prev && typeof prev === 'object' && Number.isInteger(prev.seq) ? prev.seq : '(unreadable number)'}; a new list needs a higher number`); return 1; }
   }
   if (new Set(keys).size !== keys.length) { console.error('a release key is named twice'); return 1; }
   const bad = keys.find((k) => !ed25519Key(k));
