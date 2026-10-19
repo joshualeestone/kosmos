@@ -52434,8 +52434,10 @@ function plusCwSay(cw, plusOn) {
   let say = '';
   const running = cw.on === true && plusOn !== false;
   /* The earlier-address sentence only when that is all there is; anything else foreign is this address. */
-  if (cw.state === 'foreign') say = (cw.earlier > 0 && !(cw.foreign > 0)) ? PLUS_CW_WORDS.earlier : PLUS_CW_WORDS.foreign;
-  else if (running && cw.lost === true) say = PLUS_CW_WORDS.lost;
+  if (cw.state === 'foreign') {
+    say = (cw.earlier > 0 && !(cw.foreign > 0)) ? PLUS_CW_WORDS.earlier : PLUS_CW_WORDS.foreign;
+    if (running && cw.lost === true) say += ' ' + PLUS_CW_WORDS.lost;   // a lost earlier report may have held more
+  } else if (running && cw.lost === true) say = PLUS_CW_WORDS.lost;
   else if (running && cw.state === 'unknown') say = cw.failing === true ? PLUS_CW_WORDS.failing : PLUS_CW_WORDS.unknown;
   if (say && cw.on !== true) say += PLUS_CW_WORDS.off;
   return say;
