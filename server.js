@@ -4390,7 +4390,11 @@ function remoteStepUpRefusal(req, pathname, nowSecs, caps) {
   if (remoteSessionFresh(req.headers, nowSecs)) return null;
   const { second, iat } = remoteSessionHeaders(req.headers);
   if (second && iat !== null && iat - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
-  return said.has('fresh-signin') ? REMOTE_STEP_UP_SIGNIN : REMOTE_STEP_UP;
+  /* The button only for a request the Kosmos+ gate forwarded (it wrote a session header), not one through a proxy the
+     person put in front of the board, which never serves /_kosmos/signin (review iteration 3). A gate session from
+     before kosmos-relay sessioniat-6595 sends neither header and gets the fallback sentence, which still works. */
+  const viaGate = req.headers['x-kosmos-session-iat'] !== undefined || req.headers['x-kosmos-session-second'] !== undefined;
+  return said.has('fresh-signin') && viaGate ? REMOTE_STEP_UP_SIGNIN : REMOTE_STEP_UP;
 }
 /* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
    Kosmos+ reaches the board over loopback, which is why the header rule stays). */

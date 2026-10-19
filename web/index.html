@@ -1286,13 +1286,13 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    all-red notice would read as an error rather than something waiting. */
 /* kosmos#6616: the board's one "sign in again" ask. Above the first-run covers (they go to 70), because a key or a
    sign-in is often asked for from inside them, and exempt from the inert they put on the page. Hidden while the
-   restart screen or the update overlay is up (review iteration 2): the board is going away then, they make the page
-   inert, and an ask left over them could be seen and not pressed. */
+   restart screen, the update overlay or the account-switch screen is up (review iterations 2 and 3): the board is
+   going away then, and an ask left over them could be seen and not pressed. */
 .stepup-ask { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 80;
   max-width: min(560px, calc(100vw - 32px)); display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   padding: 10px 12px; border-radius: 11px; background: var(--bg-elevated); border: 1px solid var(--label-2);
   box-shadow: 0 6px 22px rgba(20,22,26,.13); }
-body:has(> .restart-back, > .upd-back) > .stepup-ask { display: none !important; }
+body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display: none !important; }
 .utoast {
   --utone: #b3261e;
   /* Was IN THE FLOW, beside the mark (Josh 2026-08-17; pack 2e4e100), because an
@@ -20162,8 +20162,12 @@ function showStepUpAsk(body) {
   if (!body || body.code !== 'remote_step_up' || body.signInAgain !== true || typeof body.error !== 'string') return;
   const box = document.getElementById('stepup-ask');
   if (!box) return;
-  document.getElementById('stepup-words').textContent = body.error;
+  /* Shown FIRST and the words written after (review iteration 3): an alert announces nothing from inside a hidden
+     element, and the same sentence written again changes nothing, so a second refusal would be silent. */
+  const words = document.getElementById('stepup-words');
   box.hidden = false;
+  words.textContent = '';
+  setTimeout(() => { words.textContent = body.error; }, 0);
 }
 document.addEventListener('click', (e) => {
   if (e.target && e.target.closest && e.target.closest('#stepup-close')) document.getElementById('stepup-ask').hidden = true;

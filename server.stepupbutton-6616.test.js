@@ -37,7 +37,9 @@ const BOTH = new Set(['session-headers', 'fresh-signin']);
 
 test('R01b: a stale remote session is offered Sign in again only when the connector lists fresh-signin', () => {
   const t = now();
-  const got = remoteStepUpRefusal(req(), '/api/agents', t, BOTH);
+  // A stale session the gate forwarded: it writes both headers, here with a sign-in an hour old.
+  const stale = { 'x-kosmos-session-iat': String(t - 3600), 'x-kosmos-session-second': '1' };
+  const got = remoteStepUpRefusal(req(stale), '/api/agents', t, BOTH);
   assert.equal(got, REMOTE_STEP_UP_SIGNIN);
   assert.equal(got.code, 'remote_step_up', 'the code changed, so every page reading it would miss it');
   assert.equal(got.signInAgain, true);
@@ -45,10 +47,18 @@ test('R01b: a stale remote session is offered Sign in again only when the connec
   // The fallback stays in the sentence: the button may be closed, or the running tunnel older than the binary.
   assert.match(got.error, /Sign out of Kosmos\+ on this page and on the Kosmos\+ sign-in site/);
   // CONTROL: the same request through a connector without fresh-signin gets today's refusal, with no button.
-  const plain = remoteStepUpRefusal(req(), '/api/agents', t, new Set(['session-headers']));
+  const plain = remoteStepUpRefusal(req(stale), '/api/agents', t, new Set(['session-headers']));
   assert.equal(plain, REMOTE_STEP_UP);
   assert.equal('signInAgain' in plain, false);
   assert.match(plain.error, /Sign out of Kosmos\+ on this page and on the Kosmos\+ sign-in site/);
+});
+
+test('R01b: no button for a request that did not come through the gate (no session header: a proxy, or an old session)', () => {
+  const t = now();
+  assert.equal(remoteStepUpRefusal(req(), '/api/agents', t, BOTH), REMOTE_STEP_UP, 'a forwarded request with no gate header got the button');
+  // Either header alone marks the gate (second=0 is still the gate's own word).
+  assert.equal(remoteStepUpRefusal(req({ 'x-kosmos-session-second': '0' }), '/api/agents', t, BOTH), REMOTE_STEP_UP_SIGNIN);
+  assert.equal(remoteStepUpRefusal(req({ 'x-kosmos-session-iat': String(t - 3600) }), '/api/agents', t, BOTH), REMOTE_STEP_UP_SIGNIN);
 });
 
 test('R01b: fresh-signin vouches for nothing by itself, and changes no other refusal', () => {
@@ -75,7 +85,11 @@ function fakeDoc() {
 test('R01b page: the ask shows only for remote_step_up with signInAgain true, in the server\'s own words', () => {
   const run = (body) => {
     const d = fakeDoc();
-    vm.runInNewContext(lift(SCRIPT, 'showStepUpAsk') + '\nshowStepUpAsk(body);', { document: d.document, body });
+    const later = [];
+    vm.runInNewContext(lift(SCRIPT, 'showStepUpAsk') + '\nshowStepUpAsk(body);', { document: d.document, body, setTimeout: (fn) => later.push(fn) });
+    // The words are written AFTER the ask is shown (an alert in a hidden element announces nothing).
+    if (d.els['stepup-ask'].hidden === false) assert.equal(d.els['stepup-words'].textContent, '', 'the words were written before the ask was shown');
+    later.forEach((fn) => fn());
     return d.els;
   };
   const shown = run({ ...REMOTE_STEP_UP_SIGNIN });
@@ -100,9 +114,16 @@ test('R01b page: every refused fetch on the page reaches the ask (the one wrappe
   const iife = SCRIPT.slice(SCRIPT.lastIndexOf('(() => {', start), SCRIPT.indexOf('})();', start) + 5);
   const seen = [];
   const reply = (status, body) => ({ ok: false, status, clone: () => ({ json: () => Promise.resolve(body), arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) }) });
-  const win = { fetch: (u) => Promise.resolve(u === 'a' ? reply(403, { ...REMOTE_STEP_UP_SIGNIN }) : reply(500, { code: 'remote_step_up', signInAgain: true })) };
+  const notJson = { ok: false, status: 403, clone: () => ({ json: () => Promise.reject(new SyntaxError('not JSON')), arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) }) };
+  const win = { fetch: (u) => Promise.resolve(u === 'a' ? reply(403, { ...REMOTE_STEP_UP_SIGNIN }) : u === 'c' ? notJson : reply(500, { code: 'remote_step_up', signInAgain: true })) };
+  const unhandled = [];
+  const onUnhandled = (e) => unhandled.push(e);
+  process.on('unhandledRejection', onUnhandled);
   vm.runInNewContext(iife, { window: win, showStepUpAsk: (b) => seen.push(b) });
-  await win.fetch('a'); await win.fetch('b');
+  await win.fetch('a'); await win.fetch('b'); await win.fetch('c');
+  await new Promise((r) => setImmediate(r));
+  process.off('unhandledRejection', onUnhandled);
+  assert.equal(unhandled.length, 0, 'a 403 that is not JSON (a proxy page) left an unhandled rejection');
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(seen, [{ ...REMOTE_STEP_UP_SIGNIN }], 'a 403 did not reach the ask, or a non-403 did');
 });

@@ -10,7 +10,7 @@
  *   SHOWN    a 403 with signInAgain shows the ask with the reply's sentence, and the link's href is the fixed address.
  *   ON TOP   the topmost element at the link's centre is the link itself, above the first-run cover, which makes the
  *            rest of the page inert (the ask is exempt, so it can still be pressed there).
- *   UNDER RESTART  hidden while the restart screen is up (it makes the page inert), shown again after.
+ *   UNDER    hidden while the restart, update or account-switch screen is up (the board is going away), shown after.
  *   CLOSE    Not now hides it, and it takes no space (the [hidden] rule wins over the ask's display: flex).
  *
  *   KOSMOS_URL=http://127.0.0.1:17372 NODE_PATH=~/work/pw-runtime/node_modules node docs/browser-checks/render-stepupask-6616.js
@@ -35,8 +35,9 @@ const WORDS = 'From a remote session this needs a fresh sign-in. (check 6616)';
     await page.goto(BASE + '/', { waitUntil: 'load' });
     await page.waitForTimeout(1500);
     const ask = page.locator('#stepup-ask');
-    // A fresh sandboxed board shows the first-run cover, which makes the rest of the page inert: ON TOP is measured over it.
-    say(await page.locator('#firstrun').isVisible(), 'the first-run cover is up (the hardest layer for the ask)');
+    // A fresh board shows the first-run cover, which makes the rest of the page inert, so ON TOP is measured over it
+    // there. On the shared $B8 board an earlier check may have closed first run: then ON TOP is measured over the board.
+    console.log('NOTE  the first-run cover is ' + ((await page.locator('#firstrun').isVisible()) ? 'up' : 'not up') + ' for ON TOP');
     await page.evaluate(() => window.fetch('/api/check-6616/plain', { method: 'POST' }).then((r) => r.status));
     await page.waitForTimeout(300);
     say(!(await ask.isVisible()), 'control: a 403 without signInAgain shows no ask');
@@ -44,6 +45,7 @@ const WORDS = 'From a remote session this needs a fresh sign-in. (check 6616)';
     say(status === '403:remote_step_up', 'the caller still reads the refusal itself (the wrapper read only a copy)', status);
     await ask.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {});
     say(await ask.isVisible(), 'shown: a 403 with signInAgain shows the ask');
+    await page.waitForFunction((w) => document.getElementById('stepup-words').textContent === w, WORDS, { timeout: 3000 }).catch(() => {});
     say((await page.locator('#stepup-words').textContent()) === WORDS, 'the ask says the reply\'s own sentence');
     const go = page.locator('#stepup-go');
     say((await go.getAttribute('href')) === '/_kosmos/signin?fresh=1', 'the link goes to the fixed address', await go.getAttribute('href'));
@@ -63,13 +65,15 @@ const WORDS = 'From a remote session this needs a fresh sign-in. (check 6616)';
     if (top !== 'stepup-go' && process.env.SHOT_6616) await page.screenshot({ path: process.env.SHOT_6616 });
     say(top === 'stepup-go', 'on top: the link is the topmost thing where it is drawn', String(top) + (chain ? '  ask: ' + chain : ''));
     // UNDER RESTART: the restart screen makes the page inert, so the ask is hidden while it is up and back after.
-    const under = await page.evaluate(() => {
-      const r = document.createElement('div'); r.className = 'restart-back'; document.body.appendChild(r);
-      const during = getComputedStyle(document.getElementById('stepup-ask')).display;
-      r.remove();
-      return during + '/' + getComputedStyle(document.getElementById('stepup-ask')).display;
-    });
-    say(under === 'none/flex', 'under restart: hidden while the restart screen is up, shown again after', under);
+    for (const cls of ['restart-back', 'upd-back', 'cswitch-back']) {
+      const under = await page.evaluate((c) => {
+        const r = document.createElement('div'); r.className = c; document.body.appendChild(r);
+        const during = getComputedStyle(document.getElementById('stepup-ask')).display;
+        r.remove();
+        return during + '/' + getComputedStyle(document.getElementById('stepup-ask')).display;
+      }, cls);
+      say(under === 'none/flex', 'under ' + cls + ': hidden while that screen is up, shown again after', under);
+    }
     await page.locator('#stepup-close').click({ timeout: 5000 });
     const gone = await page.evaluate(() => { const e = document.getElementById('stepup-ask'); return e.hidden && getComputedStyle(e).display === 'none'; });
     say(gone, 'close: Not now hides the ask and it takes no space');
