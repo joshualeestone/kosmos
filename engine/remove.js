@@ -174,7 +174,7 @@ function retryWait() {
    get the wait the bootout race needs. Accepted, because a board frozen for N waits is worse than a second try
    that may not help; those agents still end on the failed card. */
 /* #4964: how long a restart waits, after bootout, for launchd to finish unloading the job before it bootstraps.
-   MEASURED on Agent1s (0.7.16): the bootout returned at once, the job then sat in `state = SIGTERMed` for 4.5 s
+   MEASURED on a build Mac (0.7.16): the bootout returned at once, the job then sat in `state = SIGTERMed` for 4.5 s
    while its supervisor shut down, and only then was gone. A bootstrap sent into that gap answers 5 ("already
    loaded", success), `launchctl print` still answers for the dying job, so the restart is "confirmed" and the
    #4006 second try never runs; the job then unloads and nothing brings the agent back. That is every
@@ -210,7 +210,7 @@ function unloadAllowance(now) {
   unloadWaits = unloadWaits.filter((w) => now - w.at < UNLOAD_BURST_WINDOW_MS);
   return Math.max(0, cap - unloadWaits.reduce((n, w) => n + w.ms, 0));
 }
-/* Gone only on launchd's own "no such service": 113, `Could not find service` (MEASURED on Agent1s). Any other
+/* Gone only on launchd's own "no such service": 113, `Could not find service` (MEASURED on a build Mac). Any other
    failure of print (a timeout, a launchctl error) says nothing about the job, so it is not read as gone. */
 function printSaysGone(out) {
   if (!out || out.ok !== false) return false;

@@ -2849,7 +2849,7 @@ function defaultAgentGrokHome() {
  * back to the exact same path.
  *
  * #3439: on Windows canonicalOnDisk returns a backslash path like
- * `C:\Users\sam\work\workers\marcus`. Placed raw inside `[projects."..."]`,
+ * `C:\Users\example\work\workers\marcus`. Placed raw inside `[projects."..."]`,
  * the `\U` and `\u` sequences are read by TOML as (invalid) unicode escapes, so
  * codex fails to load the WHOLE config.toml and every turn dies at load, before
  * auth or network. macOS paths use forward slashes and never trip this, which is
@@ -5300,7 +5300,7 @@ function createAgentInner(opts) {
    * loaded from somewhere other than this board's own plist path, AND whose plist
    * is now gone or sits in a temp folder, is a leftover nobody can use: it cannot
    * survive a restart (its plist is gone or in a folder the system clears), and a
-   * real agent's plist never lives in a temp folder. Measured on Agent1s
+   * real agent's plist never lives in a temp folder. Measured on a build Mac
    * 2026-09-27: a 09-24 test left `com.kosmos.agent.josh` loaded from
    * `T/rx-launch-*`, respawning 8,096 times with exit 1, and it blocked the setup
    * guide's creation for the name Josh. That kind is booted out and the creation

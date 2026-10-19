@@ -87,6 +87,10 @@ out="$(home_path_gate_tree "$T/s" "$H" 2>&1)"
 if printf '%s' "$out" | /usr/bin/grep -qF "app/bin/odd|name"; then pass "an offending file whose name holds a | is still named"
 else fail "a | in a file name must not lose the list: $out"; fi
 
+stage; ln -s /nonexistent/elsewhere "$T/s/app/lnk"
+if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a symlink in the stage is refused (grep -r would not read through it)"
+else fail "a symlink in the stage must be refused"; fi
+
 B="$HERE/build-kosmos-bundle.sh"
 if /usr/bin/grep -qx 'home_path_gate_tree "$STAGE" || exit 1' "$B"; then pass "the bundle build still calls the gate"
 else fail "tools/build-kosmos-bundle.sh no longer calls home_path_gate_tree (the gate is unarmed)"; fi

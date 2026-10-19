@@ -8,7 +8,7 @@
  * agent's tmux pane and so inherit TMUX_PANE, the identity /api/report resolves; that is not yet
  * measured under the supervisor (release check #1), which is why throttleKey has fallbacks.
  *
- * 📌 MEASURED on Agent1s 2026-09-26 (agy 1.2.x, a real print-mode turn with capture hooks):
+ * 📌 MEASURED on a build Mac 2026-09-26 (agy 1.2.x, a real print-mode turn with capture hooks):
  *   PreInvocation -> PostInvocation -> Stop, in that order; every payload carries conversationId,
  *   workspacePaths, transcriptPath and modelName; Stop adds fullyIdle, terminationReason and error.
  * agy's payload does NOT name its own event, so the hook passes the event name as argv[2]

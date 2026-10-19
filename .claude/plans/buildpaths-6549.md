@@ -11,13 +11,16 @@ email. The connector half is kosmos-relay remap-6549 (the build remaps those pat
      and missed `path.relative('/Users/x', p)`; macOS volumes ignore case);
   2. every executable under app/bin/ and the app's Contents/MacOS/ for ANY account's build folders
      (/Users/<name>/.cargo/, .rustup/, work/), because the connector may be built on another Mac (review 1).
-  It refuses an unusable home, a missing app/ or bin/, and a file grep cannot read (review 1: rc > 1 is a refusal).
+  It refuses an unusable home, a missing app/ or bin/, a file grep cannot read (review 1: rc > 1 is a refusal), and a
+  symlink in the stage, which grep -r would not read through (review 2; the build stages none, measured on 0.7.58).
 - tools/build-kosmos-bundle.sh runs it after the deployment-floor gate; the test checks that call is still there.
 - package.json test:shell runs the new test (review 1: tools.every-test-runs refused it as an orphan).
-- Comments: 21 places in shipped files (server.js, web/index.html, engine/*.js) that named real people or the build
-  Macs' accounts use made-up names (sam, alex, sampatel), or `<user>` where the comment records a measurement (a made-up
-  name there would falsify the record). One example was also wrong: `/Users/agentine` does not start with
-  `/Users/agent1`; `/Users/alexandra` does start with `/Users/alex`.
+- Comments: the places in shipped files (server.js, web/index.html, engine/*.js, bin/) that named real people, the
+  build Macs' accounts, or the build Mac's host name (Agent1s, 11 comments) now use placeholders no Mac would have as
+  an account (`example`, `exampleuser`, `example-person`; review 2: real-looking names like sam or alex would make
+  this gate refuse a build Mac that has one), `<user>` where the comment records a measurement (a made-up name there
+  would falsify the record), or "a build Mac". One example was also wrong: `/Users/agentine` does not start with
+  `/Users/agent1`; `/Users/exampleuser` does start with `/Users/example`.
 
 ## Test
 tools/test-home-path-gate-6549.sh (20 arms, fake stage and fake home): CONTROL a clean stage passes; refused: a binary
@@ -25,8 +28,8 @@ or a comment naming the home, the home followed by a quote or a NUL, the home in
 .cargo/ or work/ in an executable, an unreadable file, an unusable home (empty $HOME, `/`, relative, `/Users`), no app/
 or no bin/; not refused: runtime/, `/Users/zz-builderother`, a made-up `/Users/alex/work/` in a source comment; a `|`
 in a file name is still named; the build script still calls the gate.
-Measured on stages built from the sources: this branch passes for /Users/agent1, /Users/mortalkombat, /Users/josh and
-/Users/joshu; CONTROL main's server.js and status.js are refused for /Users/agent1 and /Users/josh, files named.
+Measured on stages built from the sources: this branch passes for /Users/agent1, /Users/mortalkombat, /Users/josh,
+/Users/joshu, /Users/sam and /Users/alex; CONTROL main's server.js and status.js are refused for /Users/agent1 and /Users/josh, files named.
 
 ## Order
 kosmos-relay remap-6549 must merge FIRST. Its change to tools/build-tunnel-release.sh is a connector input
@@ -35,6 +38,9 @@ stale before the bump and a person rebuilds it (review 1 corrected this plan: 1d
 KOSMOS_ALLOW_STALE_TUNNEL=1 the old connector gets past 1d and this gate refuses it at step 4.
 
 ## Not changed
+- engine/feedguard.js DEFAULT_DENY_NAMES holds Josh's real name and GitHub account as CODE (review 2): it is the
+  deny-list that stops agents posting his name to the community, so it has to ship. Kept, knowingly.
+- `joshualeestone/kosmos-catalogue` and `/kosmos-community` in comments: public repository owners, structural.
 - Test files that still quote the old names: they do not ship (the bundle copies only non-test engine files).
 - Review 1 NIT, deferred: the tarball records the build account as each entry's owner (`agent1 staff`). Changing the
   owner fields is a different risk (an extraction as root would apply them), so it is not done here.
