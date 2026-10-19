@@ -692,6 +692,7 @@ test('the command line end to end, against a copy of the tool that pins a test k
   const bin = path.join(root, 'bin');
   fs.mkdirSync(bin);
   fs.writeFileSync(path.join(bin, 'xcrun'), `#!${process.execPath}\nconst a = process.argv.slice(2), fs = require('fs');\n`
+    + `fs.appendFileSync(${JSON.stringify(path.join(root, 'xcrun-args'))}, a.join(' ') + '\\n');\n`
     + `const src = a.find((x) => x.endsWith('.swift')), out = a[a.indexOf('-o') + 1];\n`
     + `fs.writeFileSync(out, [...fs.readFileSync(src, 'utf8').matchAll(/^\\s*(?:@\\w+\\s+)?import\\s+(\\w+)/gm)].map((m) => m[1]).join('\\n') + '\\n');\n`);
   fs.chmodSync(path.join(bin, 'xcrun'), 0o755);
@@ -699,6 +700,8 @@ test('the command line end to end, against a copy of the tool that pins a test k
   const run = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
     '--repo', k.dir, '--relay', r.dir, '--out', out], { encoding: 'utf8', env });
   assert.equal(run.status, 0, run.stderr);
+  assert.match(fs.readFileSync(path.join(root, 'xcrun-args'), 'utf8'), /^swiftc -frontend -emit-imported-modules -target arm64-apple-macos13\.5 \S+main\.swift -o \S+$/m,
+    'the compiler is asked for the release\'s own target, not the machine\'s');
   assert.equal(fs.readFileSync(out, 'utf8'), JSON.stringify(build(manifest, { repo: k.dir, relay: r.dir, tmux, readImports: fixtureImports }), null, 2) + '\n');
   const swapped = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
     '--repo', r.dir, '--relay', k.dir], { encoding: 'utf8', env });
