@@ -141,7 +141,7 @@ function workspaceMembers(show, relay, commit) {
 function tmuxPins(text) {
   const code = text.split('\n').filter((l) => !/^\s*#/.test(l) && !/^\s*fetch\s*\(\)/.test(l));
   const pins = [];
-  for (const line of code.filter((l) => /\bfetch\s/.test(l))) {
+  for (const line of code.filter((l) => /\bfetch(\s|\\|;|$)/.test(l))) {
     const m = line.match(/^\s*fetch\s+(\S+)\s+"\$([A-Z0-9_]+)_URL"\s+"\$([A-Z0-9_]+)_SHA"\s*$/);
     if (!m) throw new Error(`build-tmux-from-source.sh: a fetch line this SBOM cannot read: ${line.trim()}`);
     const [, name, u, s] = m;
@@ -363,6 +363,8 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
     serialNumber: `urn:uuid:${uuidFrom(manifest.sha256)}`,
     metadata: {
       timestamp: (manifest.built && manifest.built.at) || undefined,
+      // Said in the SBOM itself, not only here, so a scanner reading the JSON is told.
+      properties: [{ name: 'kosmos:cargo-closure', value: 'the connector crates are its Cargo.lock closure, a superset of the macOS build: an advisory on a crate that cargo tree --target aarch64-apple-darwin does not list is not shipped' }],
       component: { type: 'application', 'bom-ref': 'kosmos', name: 'kosmos', version: manifest.version,
         hashes: hashOf(manifest.sha256), description: `Kosmos ${manifest.version} (${arch}), app ${appCommit}` },
     },

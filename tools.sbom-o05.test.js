@@ -319,6 +319,16 @@ test('a fetch call in another shape or position, or a *_URL never fetched, refus
   assert.throws(() => tmuxPins(TMUX + 'NCURSES_URL="https://x/n.tgz"\n'), /NCURSES_URL is set but never fetched/);
   assert.throws(() => tmuxPins(TMUX + '  export ZLIB_URL=https://x/z.tgz\n'), /ZLIB_URL is set but never fetched/);
   assert.throws(() => tmuxPins(TMUX.replace(/^fetch [a-z].*$/gm, '')), /no fetch lines/);
+  assert.throws(() => tmuxPins(TMUX + 'fetch\\\n  ncurses "$NCURSES_URL" "$NCURSES_SHA"\n'), /a fetch line this SBOM cannot read: fetch\\/);
+  assert.throws(() => tmuxPins(TMUX + 'fetch;\n'), /a fetch line this SBOM cannot read/);
+});
+
+test('the SBOM says in its own metadata that the crate list is a superset; a + in a tmux part version is encoded', () => {
+  const b = sbom();
+  assert.deepEqual(b.metadata.properties.map((x) => x.name), ['kosmos:cargo-closure']);
+  assert.match(b.metadata.properties[0].value, /a superset of the macOS build/);
+  const plus = sbom(MANIFEST, files(), { sha: SHA('0'), ...parseTmuxVersion(VERSION.replace('utf8proc: 2.9.0', 'utf8proc: 2.9.0+x'), LIBS) });
+  assert.equal(comp(plus, 'tmux-part:utf8proc').purl, 'pkg:generic/utf8proc@2.9.0%2Bx');
 });
 
 test('two reached crates with one name and version from two sources get distinct references', () => {
