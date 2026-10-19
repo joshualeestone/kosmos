@@ -49,11 +49,11 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 49 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 47 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
-  must equal build()'s output byte for byte. Every rule added in reviews 1 to 26 has a mutant that fails an arm, run at
-  the time of the change (the first version, then reviews 1 to 26 in order: four, eight, six, eleven, six, seven,
-  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six, four, nine, six and six); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 27 has a mutant that fails an arm, run at
+  the time of the change (the first version, then reviews 1 to 27 in order: four, eight, six, eleven, six, seven,
+  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six, four, nine, six, six and eight); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
@@ -126,29 +126,30 @@ real fix.
   lint pass.
 
 ## Not covered, by design
-- (Was a gap, reviews 24 and 25.) The connector is built WITHOUT `--locked` (relay tools/build-tunnel-release.sh),
-  so a Cargo.toml that disagrees with the Cargo.lock would make Cargo re-resolve the build while the lock, and so
-  the SBOM, names other crates. Review 24 added a hand-written Cargo.toml reader; review 25 beat it with valid TOML
-  it did not read (quoted keys, triple-quoted strings, a plain dependency missing from the lock, an alternative
-  registry). So the decision moved to CARGO: the connector commit's tree is written out and `cargo metadata
-  --locked --offline` must succeed on it. The tree is written blob by blob from `git cat-file --batch` (review 26:
-  checkout-index applied the checkout's own filters, and a smudge filter there made Cargo judge other bytes; git
-  archive's export-ignore can drop a file), so every file Cargo reads is the commit's blob; a submodule refuses.
-  Cargo runs with CARGO_HOME (its cache) and none of this shell's other CARGO_*, RUSTFLAGS or RUSTUP_TOOLCHAIN. Measured on the real 0.7.59 commit (passes) and with real Cargo on a test
-  workspace: a path dependency outside the workspace, the same with a quoted key and with a triple-quoted path, a
-  registry dependency missing from the lock, a quoted-key [patch], and an export-ignore attribute on the changed
-  toml, a smudge filter in the checkout that would rewrite a bad toml to a good one, all refuse; the control (a lock
-  Cargo itself wrote) passes. The hand-written reader is deleted. LIMIT: Cargo also reads config files in the
-  folders above its temp folder (under the system temp folder) and in CARGO_HOME; those are this machine's.
-  `--offline` means the crates must already be in this machine's Cargo cache; where they are not, Cargo cannot
-  answer and the SBOM refuses (fails closed). Adding --locked to the relay build itself would make the build refuse
-  the same disagreement; that is a separate relay change, not made here.
-- (Was a gap, reviews 24 and 25.) Each checked folder is LISTED (git ls-tree --full-tree, so a subfolder given as
-  --repo or --relay still reads the root, and the mode check reads the same path git show does) and any name that
-  case-folds to .cargo refuses, as does a Cargo.toml or Cargo.lock in another case: a Mac checkout folds case. And
-  (review 26) across the WHOLE relay commit, two paths that are one after lower-casing and Unicode NFC refuse. The
-  review-22 rule that a sourceless crate be the only one of its name was dead (the resolver already refuses that)
-  and is removed. A CPE escapes reserved characters in a version (a '+').
+- (Was a gap, reviews 24 to 27; four hand-written readers of the relay's Cargo files were beaten in four rounds, so
+  CARGO decides.) The connector is built WITHOUT `--locked` (relay tools/build-tunnel-release.sh; a relay change adds
+  it), so a Cargo.toml that disagrees with the Cargo.lock would make Cargo re-resolve the build while the lock, and
+  so the SBOM, names other crates. `cargo metadata --locked --offline` must succeed on the connector commit's tree,
+  and the workspace members and their binaries are the ones it reports (review 27: a [workspace] inside a TOML
+  string fooled the hand-written member reader into calling a non-member first-party). Measured with real Cargo on
+  a test workspace: a path dependency outside the workspace (also with a quoted key and a triple-quoted path), a
+  registry dependency missing from the lock, a quoted-key [patch], an export-ignore attribute, and a smudge filter
+  in the checkout that would rewrite a bad toml to a good one, all refuse; the control passes and its members are
+  Cargo's. On the real 0.7.59 commit it passes, and the SBOM is byte-identical to the previous round's.
+- **The tree Cargo reads** is written by the tool itself, blob by blob from `git cat-file --batch` (review 26: no
+  filter, attribute, eol or lfs setting can change a byte), and BEFORE anything is written or Cargo runs, every path
+  in the commit is checked (review 27 wrote a file OUTSIDE the tree through a committed symlink and a name a Mac
+  folds to the same one, `s` and U+017F, and ran a program through a committed .cargo/config.toml's build.rustc):
+  plain files only (no symlink, no submodule); printable ASCII names only, so case is the only folding a Mac does
+  and it is checked across the whole commit; no .cargo anywhere, in any case; no Cargo.toml or Cargo.lock in another
+  case; files created exclusively. Each is a real-git test arm, and with the .cargo refusal removed, the committed
+  program really ran. Cargo gets CARGO_HOME and none of the shell's other CARGO_*, RUSTFLAGS, RUSTDOCFLAGS,
+  RUSTC* (RUSTC_WRAPPER names a program Cargo runs), RUSTDOC* or RUSTUP_TOOLCHAIN. The real relay commit has
+  1191 paths, no symlink, no non-ASCII name, no .cargo.
+  LIMIT: Cargo still reads config in CARGO_HOME and in the folders above its temp folder, which are this machine's.
+  Equivalent survivors, recorded: the exclusive-create flag (the path checks already make every path unique), the
+  per-blob newline check (a misaligned read fails the next entry's sha check or the end-of-output check), and the
+  two-members-one-name refusal (Cargo itself refuses that workspace).
 - (Was a gap, review 23.) Every file read from git must be a plain file there (mode 100644 or 100755, read with git
   ls-tree first): git show of a symlink returns its target PATH as text, so a symlinked main.swift passed as importing
   nothing. Any `.cargo` entry (a folder, a file or a symlink) in the relay root or above a member refuses. The
