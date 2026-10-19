@@ -22,7 +22,8 @@
  * OpenSSL and so on) are Node's own and are matched through Node's version, not listed one by one; the Rust standard
  * library compiled into the connector is not listed either (the relay pins no toolchain, so no version is recorded).
  *
- * LIMIT: crate checksums are held by Cargo against this machine's cached index (CARGO_HOME), not compared here.
+ * LIMIT: crate checksums are held by Cargo against this machine's cached index (CARGO_HOME), not compared here;
+ * and CARGO_HOME's own config can name the rustc or wrapper Cargo runs.
  * LIMIT: the build machine's own ~/.cargo/config and CARGO_* settings, which can redirect a crate, are not visible
  * here (a .cargo/config in the relay itself refuses).
  * LIMIT: the connector's relay commit is the relay build's own record (its sidecar); this does not rebuild the
@@ -143,7 +144,9 @@ function cargoWorkspace(relay, commit) {
     let meta;
     try {
       meta = execFileSync('cargo', ['metadata', '--locked', '--offline', '--format-version', '1', '--manifest-path', p.join(tree, 'Cargo.toml')],
-        { cwd: tree, env, timeout: LIMITS.cargo, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
+        // cwd is / (review 33): Cargo and rustup read config and toolchain files in every folder above their working
+        // folder, and one above the temp folder could name the rustc Cargo runs. The manifest path is absolute.
+        { cwd: '/', env, timeout: LIMITS.cargo, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
       const why = String(e.stderr || e.message).split('\n').find((l) => /error/.test(l)) || String(e.message).split('\n')[0];
       // Review 30: offline, a crate missing from THIS machine's Cargo cache reads like a disagreement; say which.
@@ -324,10 +327,12 @@ function tmuxPins(text) {
 // refuses too: a statically linked library would show up there and nowhere else.
 const DYLIB_OWNER = { ncursesw: 'ncurses', ncurses: 'ncurses', event_core: 'libevent', event: 'libevent', utf8proc: 'utf8proc' };
 const VERSION_KEYS = new Set(['tmux', 'source', 'built', 'floor', 'tmux-src', 'libevent', 'ncurses', 'utf8proc']);
-function readTmuxBundle(file) {
+function readTmuxBundle(file, expectSha) {
   const bytes = fs.readFileSync(file);   // read once: the listing and the VERSION read are of the bytes hashed
   const sha = crypto.createHash('sha256').update(bytes).digest('hex');
-  const tar = (args) => execFileSync('tar', args, { input: bytes, encoding: 'utf8', maxBuffer: 64 << 20 });
+  // Review 33: given the signed hash, a bundle that is not the release's refuses BEFORE tar reads any of it.
+  if (expectSha !== undefined && sha !== expectSha) throw new Error(`the tmux bundle (${sha.slice(0, 12)}) is not the one this release signed (${String(expectSha).slice(0, 12)})`);
+  const tar = (args) => execFileSync('/usr/bin/tar', args, { input: bytes, encoding: 'utf8', timeout: LIMITS.tool, maxBuffer: 64 << 20 });
   const list = tar(['-tzf', '-']).split('\n').filter(Boolean);
   // tar escapes an odd byte in a listed name (bsdtar writes a newline as \n), so a backslash is refused as well as a
   // raw control character: either way the listed name is not the stored one.
@@ -342,7 +347,7 @@ function readTmuxBundle(file) {
   // The VERSION file is text anyone could edit; each version it names must also be in the bytes of the binary or
   // library it describes, so a stale or edited VERSION refuses.
   for (const [name, version] of Object.entries(parsed.versions)) {
-    const found = parsed.filesOf[name].every((f) => execFileSync('tar', ['-xzOf', '-', f], { input: bytes, maxBuffer: 64 << 20 }).includes(Buffer.from(version)));
+    const found = parsed.filesOf[name].every((f) => execFileSync('/usr/bin/tar', ['-xzOf', '-', f], { input: bytes, timeout: LIMITS.tool, maxBuffer: 64 << 20 }).includes(Buffer.from(version)));
     if (!found) throw new Error(`tmux bundle: VERSION says ${name} ${version}, but a file of it does not carry that version`);
   }
   return { sha, versions: parsed.versions };
@@ -617,7 +622,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow, workspace = cargoW
       timestamp: builtAt(manifest),
       tools: { components: [{ type: 'application', name: 'kosmos tools/lib/sbom.js', version: FORMAT }] },
       // Said in the SBOM itself, not only here, so a scanner reading the JSON is told.
-      properties: [{ name: 'kosmos:cargo-closure', value: 'the connector crates are its Cargo.lock closure, a superset of the macOS build: an advisory on a crate that cargo tree --target aarch64-apple-darwin does not list is not shipped' }],
+      properties: [{ name: 'kosmos:cargo-closure', value: 'the connector crates are its Cargo.lock closure, a superset of the macOS build: an advisory on a crate that `cargo tree --locked -p kosmos-tunnel-client --target aarch64-apple-darwin -e normal,build`, run at the relay commit, does not list is not shipped' }],
       component: { type: 'application', 'bom-ref': 'kosmos', name: 'kosmos', version: manifest.version,
         hashes: hashOf(manifest.sha256), description: `Kosmos ${manifest.version} (${arch}), app ${appCommit}` },
     },
@@ -667,7 +672,8 @@ if (require.main === module) {
   }
   try {
     if (out) fs.rmSync(out, { force: true });
-    const text = JSON.stringify(build(readSignedManifest(file, sig), { repo, relay, tmux: readTmuxBundle(tmuxFile) }), null, 2) + '\n';
+    const manifest = readSignedManifest(file, sig);
+    const text = JSON.stringify(build(manifest, { repo, relay, tmux: readTmuxBundle(tmuxFile, manifest.tmux_sha256) }), null, 2) + '\n';
     // Written beside the target and renamed into place, so a failed run never leaves an older SBOM under that name.
     // The partial file is removed and then created exclusively (review 31: a link planted at that name was followed,
     // and the SBOM written over the file it pointed at).

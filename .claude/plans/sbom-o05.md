@@ -18,7 +18,7 @@ CycloneDX 1.5 JSON SBOM for one Mac release, derived only from records that alre
   crate from a source the tool does not know
   (not crates.io exactly, not git) refuses the whole SBOM rather than being left out, and so does a sourceless crate
   that is not THE member of that name (the one sourceless package so named, at the version its Cargo.toml or
-  [workspace.package] gives, review 22: a path dependency outside the workspace can share a member's name) (a vendored crate would otherwise pass as first-party).
+  [workspace.package] gives, review 22: a path dependency outside the workspace can share a member's name) (a vendored crate that is not a workspace member would otherwise pass as first-party).
 
 The app has no npm dependencies (package.json lists none) and the Swift app links Apple frameworks only, so that is
 all the third-party code in the bundle.
@@ -52,10 +52,10 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 52 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 53 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
-  must equal build()'s output byte for byte. Every rule added in reviews 1 to 32, apart from the time limits named below, as measured in my own mutant runs, has a mutant that fails an arm, run at
-  the time of the change (the first version, then reviews 1 to 32 in order: four, eight, six, eleven, six, seven,
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 33, apart from the time limits named below, as measured in my own mutant runs, has a mutant that fails an arm, run at
+  the time of the change (the first version, then reviews 1 to 33 in order: four, eight, six, eleven, six, seven,
   nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six, four, nine, six, six, eight, seven, one, two and eight); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
@@ -169,13 +169,20 @@ real fix.
   add one to the index, but plumbing can commit one, review 29; it has an arm). Every git call, and Cargo, run with none of this shell's GIT_*
   settings and with GIT_NO_REPLACE_OBJECTS=1 (measured: with a `git replace` ref in the checkout, git show of a
   signed commit returned another commit's file). Each git, cargo and xcrun call has a time limit.
-  LIMIT: Cargo still reads config in CARGO_HOME and in the folders above its temp folder, which are this machine's.
+  Review 33: Cargo runs with its working folder at / (the manifest path is absolute), because Cargo and rustup read
+  config and toolchain files in every folder above their working folder, and one above the temp folder could name
+  the rustc Cargo runs (measured: it tried to execute one). An arm plants such a config above the temp folder; the
+  program never runs. tar is /usr/bin/tar with a time limit, and given the signed hash the bundle refuses before tar
+  reads it.
+  LIMIT: Cargo still reads config in CARGO_HOME (and in /.cargo), which is this machine's, and such config can name
+  the rustc or a wrapper that Cargo runs.
   LIMIT (review 32): the crate CHECKSUMS the SBOM lists are held by Cargo, not by this tool: `cargo metadata --locked
   --offline` refuses a checksum that differs from the one in CARGO_HOME's cached index (an arm flips one character
   and Cargo refuses), but the comparison against Cargo's graph covers names, versions, sources and edges only. So a
   checksum is as trustworthy as this machine's Cargo cache.
   Equivalent survivors, recorded: the exclusive-create flag (the path checks already make every path unique), the
-  per-blob newline check (a misaligned read fails the next entry's sha check or the end-of-output check), and the
+  per-blob newline check and the end-of-output check (git answers exactly one record per sha asked, so a
+  misaligned read fails the next entry's sha check), and the
   two-members-one-name refusal (Cargo itself refuses that workspace), the members-count agreement (valid
   cargo metadata describes every workspace member it names). UNTESTED, stated rather than claimed: the time limits
   on git, cargo and xcrun have no arm (a stuck tool would need an injectable limit to simulate); nor has the cold-cache hint (measured by hand with an empty CARGO_HOME: it refuses and names `cargo fetch --locked`).
