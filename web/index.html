@@ -51645,14 +51645,14 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     // carried to the next read, which runs at once and says whether they still fit.
     if (askedAt < (PLUS_ORG.wroteAt || 0)) {
       if (j && (j.stoppedFor || j.leaveRefused)) {
-        PLUS_ORG.carried = { stoppedFor: j.stoppedFor || null, leaveRefused: j.leaveRefused || null, leaveRefusedUndo: j.leaveRefusedUndo === true };
+        PLUS_ORG.carried = { stoppedFor: j.stoppedFor || null, stoppedKind: j.stoppedKind || null, leaveRefused: j.leaveRefused || null, leaveRefusedUndo: j.leaveRefusedUndo === true };   // kosmos#6567: and the stopped org's kind
         PLUS_ORG.at = 0; setTimeout(() => plusOrgMaybe(keepMsg), 0);
       }
       return;
     }
     if (j && PLUS_ORG.carried) {
       const c = PLUS_ORG.carried; PLUS_ORG.carried = null;
-      if (!j.stoppedFor && c.stoppedFor) j.stoppedFor = c.stoppedFor;
+      if (!j.stoppedFor && c.stoppedFor) { j.stoppedFor = c.stoppedFor; j.stoppedKind = c.stoppedKind; }   // kosmos#6567 review 1: the kind travels with the note
       if (!j.leaveRefused && c.leaveRefused) { j.leaveRefused = c.leaveRefused; j.leaveRefusedUndo = c.leaveRefusedUndo; }
     }
     // kosmos#6239: the words stay withheld after "no longer this family's" until a read says the state moved on.
@@ -51900,7 +51900,9 @@ async function plusOrgFamilyReview() {
       // Review 13: the family no longer names this computer; this record clears only at the next refresh, so the words
       // are held back as after an Accept refused for the same reason (R8), not offered again by the re-read below.
       if (p.code === 'org_not_named') { PLUS_ORG.wordsRefused = true; plusOrgPaint(); plusOrgFocus('plus-org-say'); }
-      msg.textContent = p.because || 'The family\u2019s words could not be read just now. Try again in a minute.';
+      // kosmos#6567 review 1: this button is a family's, so the engine's refusal reads in the family's words even when the
+      // record that knew the kind is already gone (the engine's not-here refusal after a stop).
+      msg.textContent = p.because ? plusOrgIn(PLUS_ORG.state && PLUS_ORG.state.org, p.because) : 'The family\u2019s words could not be read just now. Try again in a minute.';
       return;
     }
     // Kosmos+ did not answer as a family's (review 12): nothing for a parent to read, and the words stay held back until a
