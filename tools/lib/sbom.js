@@ -1,16 +1,20 @@
 'use strict';
-/* O05: a CycloneDX 1.5 bill of materials for one Mac release, derived from its SIGNED manifest and git history.
+/* O05: a CycloneDX 1.5 bill of materials for one Mac release, derived from its SIGNED manifest, the tmux bundle it
+ * shipped, and git history.
  *
- *   node tools/lib/sbom.js <manifest.json> --repo <kosmos checkout> --relay <kosmos-relay checkout> [--out <file>]
+ *   node tools/lib/sbom.js <manifest.json> --tmux <tmux-arch.tar.gz> --repo <kosmos checkout>
+ *                          --relay <kosmos-relay checkout> [--out <file>]
  *
- * Everything comes from records that already exist for the release, so the SBOM of any served release can be
- * rebuilt later, on any machine, without its build box:
- *   - the release itself, the Node runtime (version and download sha) and the connector's relay commit: the manifest;
- *   - every source tarball tmux is built from (tmux, libevent, ncurses, utf8proc today): the `fetch` lines of
- *     tools/build-tmux-from-source.sh at the app commit, with their pinned versions and sha256. Reading the fetch
- *     lines, not a list of names here, means a new build input is listed the day it is added;
+ * What ships, and where each part of the SBOM is read from:
+ *   - the release, the Node runtime (version and download sha) and the connector's relay commit: the signed manifest;
+ *   - tmux and the libraries it links: the TMUX BUNDLE the release copied in, which must hash to the manifest's signed
+ *     tmux_sha256. Its VERSION file names what was built, and every library in its lib/ must be accounted for there.
+ *     A release copies an already-built bundle and does not rebuild it, so the build script at the app commit can
+ *     disagree with what shipped; the script is read only for each input's download url and source sha256, and only
+ *     where its version equals the bundle's (otherwise the component says so and carries no source reference);
  *   - the connector's Rust crates: the relay's Cargo.lock at the connector commit, walked from kosmos-tunnel-client,
- *     with each crate's direct dependencies.
+ *     with each crate's direct dependencies. A crate with no source counts as first-party only when it is a member of
+ *     the relay's workspace; any other crate from a source this does not know refuses the whole SBOM.
  * The app itself has no npm dependencies (package.json lists none), so nothing else is third-party code; the Mac app
  * (Swift) links Apple's frameworks only.
  *
@@ -24,6 +28,7 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 const CONNECTOR_CRATE = 'kosmos-tunnel-client';
+const CRATES_IO = new Set(['registry+https://github.com/rust-lang/crates.io-index', 'sparse+https://index.crates.io/']);
 
 function gitShow(repo, commit, file) {
   try {
@@ -48,7 +53,8 @@ function parseLock(text) {
     if (inDeps) {
       if (line === ']') { inDeps = false; continue; }
       const m = line.match(/^"([^"]+)",?$/);
-      if (m) cur.deps.push(m[1]);
+      if (!m) throw new Error(`Cargo.lock: a dependency line this SBOM cannot read: ${line}`);
+      cur.deps.push(m[1]);
       continue;
     }
     const kv = line.match(/^(\w+) = (.*)$/);
@@ -94,8 +100,23 @@ function closure(pkgs, rootName) {
   return { root, deps: [...seen], edges };
 }
 
-// Every `fetch <name> "$X_URL" "$X_SHA"` line, with X_VERSION, X_URL and X_SHA read from the same script. A fetch
-// line in any other shape refuses: skipping one silently is exactly how a build input goes missing.
+// The relay workspace's member crate names, from its Cargo.toml and each member's own. Literal member paths only.
+function workspaceMembers(show, relay, commit) {
+  const top = show(relay, commit, 'Cargo.toml');
+  const m = top.match(/^\[workspace\][\s\S]*?^members\s*=\s*\[([^\]]*)\]/m);
+  if (!m) throw new Error('relay Cargo.toml: no [workspace] members');
+  const dirs = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+  if (!dirs.length || dirs.some((d) => /[*?[]/.test(d))) throw new Error('relay Cargo.toml: members must be literal paths');
+  return new Set(dirs.map((d) => {
+    const n = show(relay, commit, `${d}/Cargo.toml`).match(/^\[package\][\s\S]*?^name\s*=\s*"([^"]+)"/m);
+    if (!n) throw new Error(`relay ${d}/Cargo.toml: no [package] name`);
+    return n[1];
+  }));
+}
+
+// Every `fetch <name> "$X_URL" "$X_SHA"` call, with X_VERSION, X_URL and X_SHA read from the same script. A fetch
+// call in any other shape, anywhere on a line, refuses, and so does a *_URL nobody fetches: skipping either silently
+// is how a build input goes missing.
 function tmuxPins(text) {
   const vars = {};
   for (const m of text.matchAll(/^([A-Z0-9_]+)="([^"]*)"/gm)) vars[m[1]] = m[2];
@@ -103,26 +124,53 @@ function tmuxPins(text) {
     for (let i = 0; i < 5 && /\$\{[A-Z0-9_]+\}/.test(s); i++) s = s.replace(/\$\{([A-Z0-9_]+)\}/g, (_, v) => (v in vars ? vars[v] : `\${${v}}`));
     return s;
   };
-  const calls = text.split('\n').filter((l) => /^\s*fetch\s+\S/.test(l));
+  const code = text.split('\n').map((l) => l.replace(/(^|\s)#.*$/, '')).filter((l) => !/^\s*fetch\s*\(\)/.test(l));
   const pins = [];
-  for (const line of calls) {
+  for (const line of code.filter((l) => /(^|[\s;&|(])fetch\s/.test(l))) {
     const m = line.match(/^\s*fetch\s+(\S+)\s+"\$([A-Z0-9_]+)_URL"\s+"\$([A-Z0-9_]+)_SHA"\s*$/);
     if (!m) throw new Error(`build-tmux-from-source.sh: a fetch line this SBOM cannot read: ${line.trim()}`);
     const [, name, u, s] = m;
     const version = vars[`${u}_VERSION`], url = vars[`${u}_URL`] && expand(vars[`${u}_URL`]), sha = vars[`${s}_SHA`];
     if (!version || !url) throw new Error(`build-tmux-from-source.sh: no version or url for ${name}`);
-    if (/\$/.test(url)) throw new Error(`build-tmux-from-source.sh: ${name}'s url names a variable this SBOM cannot expand`);
+    if (/\$/.test(url) || /\$/.test(version)) throw new Error(`build-tmux-from-source.sh: ${name}'s version or url names a variable this SBOM cannot expand`);
     if (!/^[0-9a-f]{64}$/.test(sha || '')) throw new Error(`build-tmux-from-source.sh: no recorded sha256 for ${name}`);
-    pins.push({ name, version, url, sha });
+    pins.push({ name, url, version, sha, urlVar: `${u}_URL` });
   }
   if (!pins.length) throw new Error('build-tmux-from-source.sh: no fetch lines');
+  const fetched = new Set(pins.map((p) => p.urlVar));
+  for (const v of Object.keys(vars)) if (/_URL$/.test(v) && !fetched.has(v)) throw new Error(`build-tmux-from-source.sh: ${v} is set but never fetched`);
   return pins;
+}
+
+// The shipped tmux bundle: its sha256, the versions its VERSION file names, and its lib/ dylibs, each of which must
+// belong to a named library.
+const DYLIB_OWNER = { ncursesw: 'ncurses', ncurses: 'ncurses', event_core: 'libevent', event: 'libevent', utf8proc: 'utf8proc' };
+function readTmuxBundle(file) {
+  const sha = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  const list = execFileSync('tar', ['-tzf', file], { encoding: 'utf8', maxBuffer: 64 << 20 }).split('\n').filter(Boolean);
+  const vfile = list.find((p) => p.replace(/^\.\//, '') === 'VERSION');
+  if (!vfile) throw new Error('tmux bundle: no VERSION file');
+  return { sha, ...parseTmuxVersion(execFileSync('tar', ['-xzOf', file, vfile], { encoding: 'utf8' }), list) };
+}
+function parseTmuxVersion(text, list) {
+  const kv = {};
+  for (const m of text.matchAll(/^([a-z0-9-]+):\s+(\S+)/gm)) kv[m[1]] = m[2];
+  const versions = { tmux: kv['tmux-src'] };
+  if (!versions.tmux) throw new Error('tmux bundle VERSION: no tmux-src line');
+  for (const lib of ['libevent', 'ncurses', 'utf8proc']) if (kv[lib]) versions[lib] = kv[lib];
+  for (const p of list) {
+    const m = p.replace(/^\.\//, '').match(/^lib\/lib([A-Za-z_]+?)(?:[-.][0-9][^/]*)?\.dylib$/);
+    if (!m) continue;
+    const owner = DYLIB_OWNER[m[1]];
+    if (!owner || !versions[owner]) throw new Error(`tmux bundle: ${p} belongs to no library its VERSION names`);
+  }
+  return { versions };
 }
 
 const byCodePoint = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const hashOf = (sha) => (sha && /^[0-9a-f]{64}$/.test(sha) ? [{ alg: 'SHA-256', content: sha }] : undefined);
 const download = (url, sha) => [{ type: 'distribution', url, hashes: hashOf(sha) }];
-// Common Platform Enumeration names, so a scan that does not read purls (NVD) can match these four.
+// Common Platform Enumeration names, so a scan that does not read purls (NVD) can match these.
 const CPE = { node: 'nodejs:node.js', tmux: 'tmux_project:tmux', libevent: 'libevent_project:libevent',
   ncurses: 'gnu:ncurses', utf8proc: 'utf8proc_project:utf8proc' };
 const cpe = (name, version) => (CPE[name] ? `cpe:2.3:a:${CPE[name]}:${version}:*:*:*:*:*:*:*` : undefined);
@@ -135,41 +183,55 @@ function crateRefs(crates) {
   return (p) => (!p.source ? `first-party:${p.name}`
     : `crate:${p.name}@${p.version}${n.get(`${p.name}@${p.version}`) > 1 ? `?source=${encodeURIComponent(p.source)}` : ''}`);
 }
-function crateComponent(p, relayCommit, crateRef) {
+function crateComponent(p, relayCommit, crateRef, members) {
   const base = { type: 'library', 'bom-ref': crateRef(p), name: p.name, version: p.version };
-  if (!p.source) return { ...base, description: `kosmos-relay workspace crate, ${relayCommit}` };
-  if (p.source.startsWith('registry+https://github.com/rust-lang/crates.io-index') || p.source === 'sparse+https://index.crates.io/') {
-    return { ...base, purl: `pkg:cargo/${p.name}@${encodeURIComponent(p.version)}`, hashes: hashOf(p.checksum) };
+  if (!p.source) {
+    if (!members.has(p.name)) throw new Error(`Cargo.lock: ${p.name} ${p.version} has no source and is not a relay workspace member (a vendored crate?)`);
+    return { ...base, description: `kosmos-relay workspace crate, ${relayCommit}` };
   }
+  if (CRATES_IO.has(p.source)) return { ...base, purl: `pkg:cargo/${p.name}@${encodeURIComponent(p.version)}`, hashes: hashOf(p.checksum) };
   if (p.source.startsWith('git+')) {
     return { ...base, purl: `pkg:cargo/${p.name}@${encodeURIComponent(p.version)}?vcs_url=${encodeURIComponent(p.source.slice(4))}` };
   }
   throw new Error(`Cargo.lock: ${p.name} ${p.version} comes from a source this SBOM does not know: ${p.source}`);
 }
 
-function build(manifest, { repo, relay, show = gitShow }) {
+function build(manifest, { repo, relay, tmux, show = gitShow }) {
   for (const k of ['version', 'app', 'node', 'connector']) if (!manifest[k]) throw new Error(`manifest has no ${k}`);
   if (!manifest.node.version) throw new Error('manifest has no node version');
   const appCommit = manifest.app.commit, relayCommit = manifest.connector.commit;
   if (!appCommit || !relayCommit) throw new Error('manifest names no app or connector commit');
+  if (manifest.app.dirty) throw new Error('manifest says the app was built from a dirty tree: its commit is not what shipped');
+  if (!tmux || !manifest.tmux_sha256) throw new Error('a tmux bundle and the manifest\'s tmux_sha256 are both required');
+  if (tmux.sha !== manifest.tmux_sha256) throw new Error(`the tmux bundle (${tmux.sha.slice(0, 12)}) is not the one this release signed (${manifest.tmux_sha256.slice(0, 12)})`);
   const arch = manifest.arch || 'arm64';
   const { root, deps, edges } = closure(parseLock(show(relay, relayCommit, 'Cargo.lock')), CONNECTOR_CRATE);
+  const members = workspaceMembers(show, relay, relayCommit);
+  const pins = new Map(tmuxPins(show(repo, appCommit, 'tools/build-tmux-from-source.sh')).map((p) => [p.name, p]));
   const node = manifest.node.version.replace(/^v/, '');
   const crateRef = crateRefs([root, ...deps]);
   const crates = deps.slice().sort((a, b) => byCodePoint(crateRef(a), crateRef(b)));
+  const libs = Object.keys(tmux.versions).filter((n) => n !== 'tmux');
+  const tmuxPart = (name) => {
+    const version = tmux.versions[name], pin = pins.get(name);
+    const c = { type: name === 'tmux' ? 'application' : 'library', 'bom-ref': `tmux-part:${name}`, name, version,
+      purl: `pkg:generic/${name}@${encodeURIComponent(version)}`, cpe: cpe(name, version),
+      description: `${name}, in the shipped tmux bundle` };
+    if (pin && pin.version === version) c.externalReferences = download(pin.url, pin.sha);
+    else c.properties = [{ name: 'kosmos:source-pin', value: pin ? `the build script pins ${pin.version}, the bundle has ${version}` : 'the build script has no fetch line for it' }];
+    return c;
+  };
   const components = [
-    { type: 'framework', 'bom-ref': 'node', name: 'node', version: node, purl: `pkg:generic/nodejs/node@${node}`,
+    { type: 'framework', 'bom-ref': 'node', name: 'node', version: node, purl: `pkg:generic/nodejs/node@${encodeURIComponent(node)}`,
       cpe: cpe('node', node), description: `Node.js runtime, the official darwin-${arch} tarball`,
       externalReferences: download(`https://nodejs.org/dist/v${node}/node-v${node}-darwin-${arch}.tar.gz`, manifest.node.download_sha256) },
-    ...tmuxPins(show(repo, appCommit, 'tools/build-tmux-from-source.sh')).map((p) => ({
-      type: 'library', 'bom-ref': p.name, name: p.name, version: p.version, purl: `pkg:generic/${p.name}@${p.version}`,
-      cpe: cpe(p.name, p.version), description: `${p.name}, built from its source tarball by the release`,
-      externalReferences: download(p.url, p.sha) })),
+    { type: 'application', 'bom-ref': 'tmux-bundle', name: `tmux-${arch}`, version: tmux.versions.tmux,
+      hashes: hashOf(manifest.tmux_sha256), description: 'the tmux bundle the release ships (tmux and the libraries it links)' },
+    tmuxPart('tmux'), ...libs.map(tmuxPart),
     { type: 'application', 'bom-ref': 'connector', name: CONNECTOR_CRATE, version: root.version,
       hashes: hashOf(manifest.connector.signed_sha256), description: `the Plus connector, kosmos-relay ${relayCommit}` },
-    ...crates.map((p) => crateComponent(p, relayCommit, crateRef)),
+    ...crates.map((p) => crateComponent(p, relayCommit, crateRef, members)),
   ];
-  const tmuxRefs = components.filter((c) => c.type === 'library' && !c['bom-ref'].includes(':')).map((c) => c['bom-ref']);
   return {
     bomFormat: 'CycloneDX', specVersion: '1.5', version: 1,
     serialNumber: `urn:uuid:${uuidFrom(manifest.sha256 || appCommit)}`,
@@ -180,7 +242,11 @@ function build(manifest, { repo, relay, show = gitShow }) {
     },
     components,
     dependencies: [
-      { ref: 'kosmos', dependsOn: ['node', ...tmuxRefs, 'connector'] },
+      { ref: 'kosmos', dependsOn: ['connector', 'node', 'tmux-bundle'] },
+      { ref: 'node', dependsOn: [] },
+      { ref: 'tmux-bundle', dependsOn: ['tmux-part:tmux'] },
+      { ref: 'tmux-part:tmux', dependsOn: libs.map((n) => `tmux-part:${n}`).sort(byCodePoint) },
+      ...libs.map((n) => ({ ref: `tmux-part:${n}`, dependsOn: [] })),
       { ref: 'connector', dependsOn: edges.get(root).map(crateRef).sort(byCodePoint) },
       ...crates.map((p) => ({ ref: crateRef(p), dependsOn: [...new Set(edges.get(p).map(crateRef))].sort(byCodePoint) })),
     ],
@@ -194,15 +260,18 @@ function uuidFrom(seed) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-module.exports = { parseLock, closure, tmuxPins, build };
+module.exports = { parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, build };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
   const opt = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : null; };
-  const file = args[0], repo = opt('--repo'), relay = opt('--relay'), out = opt('--out');
-  if (!file || file.startsWith('--') || !repo || !relay) { console.error('usage: sbom.js <manifest.json> --repo <kosmos> --relay <kosmos-relay> [--out <file>]'); process.exit(2); }
+  const file = args[0], repo = opt('--repo'), relay = opt('--relay'), tmuxFile = opt('--tmux'), out = opt('--out');
+  if (!file || file.startsWith('--') || !repo || !relay || !tmuxFile) {
+    console.error('usage: sbom.js <manifest.json> --tmux <tmux-arch.tar.gz> --repo <kosmos> --relay <kosmos-relay> [--out <file>]');
+    process.exit(2);
+  }
   try {
-    const text = JSON.stringify(build(JSON.parse(fs.readFileSync(file, 'utf8')), { repo, relay }), null, 2) + '\n';
+    const text = JSON.stringify(build(JSON.parse(fs.readFileSync(file, 'utf8')), { repo, relay, tmux: readTmuxBundle(tmuxFile) }), null, 2) + '\n';
     if (out) fs.writeFileSync(out, text); else process.stdout.write(text);
   } catch (e) { console.error(`sbom: ${e.message}`); process.exit(1); }
 }
