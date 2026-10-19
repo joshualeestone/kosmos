@@ -31,18 +31,25 @@ const STALE_MS = 2 * 20 * 60 * 60 * 1000;
    a new key (so a dismissed notice comes back for it). Built from each finding's own hash, or its log id when it has
    none, for this address and earlier ones; only the hex digest leaves this module. */
 function findingKey(raw) {
+  /* Stable under what the tunnel does without a new certificate: a rename moves findings from `foreign` to
+     `earlier_foreign` and folds the overflow counts (so lists are pooled and overflow is one total), and dropping one
+     entry must not renumber the others (so identical bare entries are told apart by how often they repeat, not by
+     their place in a list). */
   const ids = [];
+  const seen = new Map();
   for (const list of [raw.foreign, raw.earlier_foreign]) {
     if (!Array.isArray(list)) continue;
-    for (const [n, f] of list.entries()) {
+    for (const f of list) {
       if (!f || typeof f !== 'object') continue;
-      // The last fallback carries its place in the list, so two entries with nothing to tell them apart stay two.
-      const id = typeof f.cert_sha256 === 'string' && f.cert_sha256 ? 'c:' + f.cert_sha256
-        : typeof f.id === 'string' && f.id ? 'i:' + f.id : 'p:' + String(f.pubkey_sha256) + '@' + String(f.not_before) + '#' + n;
+      let id = typeof f.cert_sha256 === 'string' && f.cert_sha256 ? 'c:' + f.cert_sha256
+        : typeof f.id === 'string' && f.id ? 'i:' + f.id : 'p:' + String(f.pubkey_sha256) + '@' + String(f.not_before);
+      const n = seen.get(id) || 0;
+      seen.set(id, n + 1);
+      if (id.startsWith('p:')) id += '#' + n;   // the n-th copy of the same bare entry
       ids.push(id);
     }
   }
-  ids.push('o:' + count(raw.foreign_overflow) + ':' + count(raw.earlier_overflow));
+  ids.push('o:' + (count(raw.foreign_overflow) + count(raw.earlier_overflow)));
   ids.sort();
   return crypto.createHash('sha256').update(ids.join('\n')).digest('hex').slice(0, 16);
 }
@@ -79,7 +86,7 @@ function certWatchFrom(dir, nowMs) {
   const acked = damagedAt === null ? null
     : (() => { try { const t = fs.readFileSync(path.join(dir, LOST_ACK_FILE), 'utf8').trim(); return /^\d+$/.test(t) ? Number(t) : null; } catch { return null; } })();
   // A record that is not all digits (empty, damaged) reads as none and never matches, so the loss is said again. Any
-  // positive marker is a loss, even one that is not a whole second (said, though it cannot be acknowledged).
+  // positive marker is a loss, even one below one second (said, though it cannot be acknowledged).
   const marked = typeof raw.damaged_report_at === 'number' && raw.damaged_report_at > 0;
   const lost = marked && (damagedAt === null || acked !== damagedAt);
   if (lost && state === 'clear') state = 'unknown';
@@ -141,4 +148,4 @@ function ackLostIn(dir, at) {
   }
 }
 
-module.exports = { certWatchFrom, setCertWatchIn, ackLostIn, findingKey, REPORT_FILE, OFF_FILE, LOST_ACK_FILE, STALE_MS };
+module.exports = { certWatchFrom, setCertWatchIn, ackLostIn, REPORT_FILE, OFF_FILE, LOST_ACK_FILE, STALE_MS };

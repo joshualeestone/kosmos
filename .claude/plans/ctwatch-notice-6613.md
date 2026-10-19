@@ -47,6 +47,10 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
 - Any `foreign` state has a key, even with empty lists, so the notice never goes silent while the pane warns.
 - `secs` (the time reader) now takes only values of at least one second, for every time in the report, not only the
   lost marker; a sub-second epoch is never current anyway. A lost marker still counts if positive (said, not ackable).
+- The key pools both lists and both overflow counts and numbers identical bare entries by repetition, so a rename or
+  a dropped entry (no new certificate) keeps the key; tested with a rename-shaped report.
+- After Got it, a current check whose last try failed stays `unknown` (says the failing sentence), where a board
+  that never lost a report would read the tunnel's `clear`. The cautious direction, chosen.
 - The key is a digest, not the report's strings, so nothing from the third party reaches the page.
 - After Got it, a current successful check reads clear again: the tunnel writes `unknown` for as long as its lost
   marker stands and never removes it (kosmos-relay ctwatch.rs, read on relay main). Stale or failing stays unknown.
