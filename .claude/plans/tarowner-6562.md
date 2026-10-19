@@ -36,5 +36,9 @@ build packs with the neutral names and calls the gate; the tmux build does both;
 --no-same-owner. Mutants: removing the listing's exit check or its empty check each turns its arm red.
 
 ## Weakest premise
-That `--no-same-owner` is honoured on every platform setup.sh runs on (bsdtar on macOS, GNU tar and busybox tar on
-Linux). bsdtar and GNU tar document it; busybox tar's support was not checked.
+That every tar setup.sh meets accepts `--no-same-owner`; an unknown option would fail the extraction and the install.
+bsdtar (macOS, measured) and GNU tar take it. Busybox tar takes it only when built with long options, and was not
+tested (review 2). Kept anyway, deliberately: setup.sh's Linux path needs apt-get (tmux) and systemctl (the board
+unit), so it targets glibc, systemd distros, which ship GNU tar; setup.sh never mentions busybox or Alpine. For a
+non-root user the flag is a no-op (review 2, measured: ids, modes and ownership identical with and without it), so it
+only ever changes a root install, which is what it is for.

@@ -57,7 +57,7 @@ else fail "tools/build-kosmos-bundle.sh must pack with --uname kosmos --gname st
 if /usr/bin/grep -qF 'tar -czf "$TARBALL" --uname kosmos --gname staff' "$HERE/build-tmux-bundle.sh" && /usr/bin/grep -qx 'tar_owner_gate "$TARBALL" || exit 1' "$HERE/build-tmux-bundle.sh"; then pass "the tmux bundle packs with the neutral names and calls the gate"
 else fail "tools/build-tmux-bundle.sh must pack with --uname kosmos --gname staff and call tar_owner_gate"; fi
 S="$HERE/../install/setup.sh"
-if [ "$(/usr/bin/grep -c 'tar -xzf "$stage/[a-z]*\.tar\.gz" --no-same-owner -C "$stage"' "$S")" = 2 ] && [ "$(/usr/bin/grep -cE 'tar -x' "$S")" = 2 ]; then pass "install/setup.sh extracts both tarballs with --no-same-owner (no install applies a recorded owner)"
+if [ "$(/usr/bin/grep -c 'tar -xzf "$stage/[a-z]*\.tar\.gz" --no-same-owner -C "$stage"' "$S")" = 2 ] && [ "$(/usr/bin/grep -vE '^[[:space:]]*#' "$S" | /usr/bin/grep -cE 'tar -x')" = 2 ]; then pass "install/setup.sh extracts both tarballs with --no-same-owner (no install applies a recorded owner)"
 else fail "install/setup.sh must extract both tarballs with --no-same-owner, and only those two"; fi
 
 if [ "$fails" -ne 0 ]; then echo "$fails check(s) failed"; exit 1; fi
