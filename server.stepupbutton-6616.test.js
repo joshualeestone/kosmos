@@ -113,17 +113,20 @@ test('R01b page: every refused fetch on the page reaches the ask (the one wrappe
   assert.ok(start > -1, 'the page\'s fetch wrapper is gone');
   const iife = SCRIPT.slice(SCRIPT.lastIndexOf('(() => {', start), SCRIPT.indexOf('})();', start) + 5);
   const seen = [];
-  const reply = (status, body) => ({ ok: false, status, clone: () => ({ json: () => Promise.resolve(body), arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) }) });
-  const notJson = { ok: false, status: 403, clone: () => ({ json: () => Promise.reject(new SyntaxError('not JSON')), arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) }) };
-  const win = { fetch: (u) => Promise.resolve(u === 'a' ? reply(403, { ...REMOTE_STEP_UP_SIGNIN }) : u === 'c' ? notJson : reply(500, { code: 'remote_step_up', signInAgain: true })) };
+  const reply = (status, body, url = 'http://board.test/api/x') => ({ ok: false, status, url, clone: () => ({ json: () => Promise.resolve(body), arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) }) });
+  const notJson = { ok: false, status: 403, url: 'http://board.test/api/y', clone: () => ({ json: () => Promise.reject(new SyntaxError('not JSON')), arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) }) };
+  // 'd': another computer's board (the page reads them cross-origin, credentialed) answering the same refusal.
+  const win = { fetch: (u) => Promise.resolve(u === 'a' ? reply(403, { ...REMOTE_STEP_UP_SIGNIN }) : u === 'c' ? notJson
+    : u === 'd' ? reply(403, { ...REMOTE_STEP_UP_SIGNIN, error: 'from elsewhere' }, 'https://other.kosmos.test/api/status')
+    : reply(500, { code: 'remote_step_up', signInAgain: true })) };
   const unhandled = [];
   const onUnhandled = (e) => unhandled.push(e);
   process.on('unhandledRejection', onUnhandled);
-  vm.runInNewContext(iife, { window: win, showStepUpAsk: (b) => seen.push(b) });
-  await win.fetch('a'); await win.fetch('b'); await win.fetch('c');
+  vm.runInNewContext(lift(SCRIPT, 'sameOriginReply') + '\n' + iife, { window: win, URL, location: { href: 'http://board.test/', origin: 'http://board.test' }, showStepUpAsk: (b) => seen.push(b) });
+  await win.fetch('a'); await win.fetch('b'); await win.fetch('c'); await win.fetch('d');
   await new Promise((r) => setImmediate(r));
   process.off('unhandledRejection', onUnhandled);
   assert.equal(unhandled.length, 0, 'a 403 that is not JSON (a proxy page) left an unhandled rejection');
   await new Promise((r) => setImmediate(r));
-  assert.deepEqual(seen, [{ ...REMOTE_STEP_UP_SIGNIN }], 'a 403 did not reach the ask, or a non-403 did');
+  assert.deepEqual(seen, [{ ...REMOTE_STEP_UP_SIGNIN }], 'a 403 did not reach the ask, or a non-403 or another origin\'s 403 did');
 });

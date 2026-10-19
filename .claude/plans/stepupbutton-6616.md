@@ -18,6 +18,8 @@ freshhandoff-6616). That connector then lists `fresh-signin` in `kosmos-tunnel c
 
 ## Decided
 - **The button's address is fixed in the markup**, never read from a reply: a reply can only say whether to show it.
+- **Only this board's own replies raise it** (review iteration 7): the page also reads other computers' boards,
+  credentialed and cross-origin, and their refusal must not raise an ask that links to this board's gate.
 - **Shown only when the connector says it serves the path.** An older connector would answer 404; the board then
   shows today's sentence and no button.
 - **One ask for the whole page**, through the wrapper, rather than a button in each of the many places that show a
