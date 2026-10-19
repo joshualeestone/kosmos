@@ -95,6 +95,27 @@ test('the dismissed list keeps the newest 50 keys', () => {
   assert.equal(kept[kept.length - 1], FOUND.key, 'the newest is the one just put away');
 });
 
+test('with the check switched off, a finding is still raised, and says the check is off', () => {
+  const { ctx, get } = noteWorld();
+  ctx.paintCwNote({ ...FOUND, on: false });
+  assert.ok(shown(get));
+  assert.match(get('cwnote-slot').innerHTML, /The certificate check is off; this is what it found before\./);
+  assert.ok(!/Kosmos\+ checks the public certificate logs/.test(get('cwnote-slot').innerHTML));
+  ctx.paintCwNote(FOUND);
+  assert.match(get('cwnote-slot').innerHTML, /Kosmos\+ checks the public certificate logs/, 'switched back on, the card says so (repainted)');
+});
+
+test('Review puts the finding away only once the pane says it', async () => {
+  for (const paneSays of [true, false]) {
+    const w = noteWorld();
+    w.ctx.paintPlus = async () => { w.get('plus-cw-line').textContent = paneSays ? 'Warning: a finding.' : ''; };
+    w.ctx.paintCwNote(FOUND);
+    w.get('cwnote-slot').listeners.click({ target: { closest: () => ({ getAttribute: () => 'open' }) } });
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(w.store['kosmos.cwnote.dismissed'] === FOUND.key, paneSays, paneSays ? 'the pane said it: put away' : 'CONTROL: a pane that did not paint keeps the notice');
+  }
+});
+
 test('a key put away in another tab (storage) is honoured at the next paint', () => {
   const { ctx, get } = noteWorld({ stored: FOUND.key });
   ctx.paintCwNote(FOUND);
