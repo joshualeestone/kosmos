@@ -17,7 +17,7 @@ const crypto = require('node:crypto');
 const { execFileSync, spawnSync } = require('node:child_process');
 
 const SBOM_JS = path.join(__dirname, 'tools', 'lib', 'sbom.js');
-const { parseLock, closure, tmuxPins, parseTmuxVersion, build } = require(SBOM_JS);
+const { parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, build } = require(SBOM_JS);
 
 const SHA = (c) => c.repeat(64);
 const CRATES = 'registry+https://github.com/rust-lang/crates.io-index';
@@ -229,9 +229,43 @@ test('tmux and its libraries come from the shipped bundle, which must be the one
   assert.equal(comp(b, 'tmux-part:ncurses'), undefined, 'the bundle names no ncurses, so none is listed');
   assert.throws(() => sbom(MANIFEST, files(), { ...BUNDLE, sha: SHA('1') }), /not the one this release signed/);
   assert.throws(() => sbom({ ...MANIFEST, tmux_sha256: undefined }), /tmux_sha256 are both required/);
-  assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, 'lib/libncursesw.6.dylib']), /libncursesw\.6\.dylib belongs to no library its VERSION names/);
-  assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, 'lib/libssl.3.dylib']), /libssl\.3\.dylib belongs to no library/);
+  assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, 'lib/libncursesw.6.dylib']), /libncursesw\.6\.dylib is not a file this SBOM accounts for/);
+  assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, 'lib/libssl.3.dylib']), /libssl\.3\.dylib is not a file this SBOM accounts for/);
   assert.throws(() => parseTmuxVersion(VERSION.replace(/^tmux-src:.*$/m, ''), LIBS), /no tmux-src line/);
+});
+
+test('every file in the bundle must be one the SBOM accounts for; the real 0.7.59 listing is', () => {
+  const real = ['bin/', 'bin/tmux', 'lib/', 'lib/libncursesw.6.dylib', 'lib/libevent_core-2.1.7.dylib', 'lib/libutf8proc.3.dylib',
+    'VERSION', 'THIRD-PARTY-NOTICES.txt', 'licenses/', 'licenses/tmux-3.5a.txt', 'licenses/ncurses-6.5.txt'];
+  assert.deepEqual(parseTmuxVersion(VERSION + 'ncurses:  6.5\n', real).versions,
+    { tmux: '3.5a', libevent: '2.1.12-stable', ncurses: '6.5', utf8proc: '2.9.0' });
+  for (const extra of ['lib/libpng16.16.dylib', 'lib/libssl3.dylib', 'lib/libstdc++.6.dylib', 'lib/sub/libssl.3.dylib',
+    'libexec/libz.dylib', 'bin/helper', 'lib/libcrypto.so', 'lib/libfoo.a', 'share/terminfo/x/xterm']) {
+    assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, extra]), /is not a file this SBOM accounts for/, extra);
+  }
+});
+
+test('the VERSION file: a key with no value, an unknown key or a repeated key refuses', () => {
+  assert.throws(() => parseTmuxVersion(VERSION.replace('utf8proc: 2.9.0', 'utf8proc:'), LIBS), /utf8proc has no version/);
+  assert.throws(() => parseTmuxVersion(VERSION.replace('utf8proc: 2.9.0', 'ncurses:\nutf8proc: 2.9.0'), LIBS), /ncurses has no version/);
+  assert.throws(() => parseTmuxVersion(VERSION + 'openssl: 3.3.2\n', LIBS), /openssl is not a part this SBOM knows/);
+  assert.throws(() => parseTmuxVersion(VERSION + 'utf8proc: 2.10.0\n', LIBS), /utf8proc appears twice/);
+  assert.throws(() => parseTmuxVersion(VERSION + 'not a key line\n', LIBS), /a line this SBOM cannot read/);
+});
+
+test('the manifest is used only when its signature verifies under a pinned key', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-sig-'));
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
+  const pub = publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+  const mf = path.join(root, 'm.json'), sg = path.join(root, 'm.json.sig');
+  fs.writeFileSync(mf, JSON.stringify(MANIFEST));
+  fs.writeFileSync(sg, crypto.sign(null, fs.readFileSync(mf), privateKey).toString('base64') + '\n');
+  assert.equal(readSignedManifest(mf, sg, [pub]).version, '0.7.60');
+  const other = crypto.generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+  assert.throws(() => readSignedManifest(mf, sg, [other]), /not signed by a pinned Kosmos release key/);
+  fs.writeFileSync(mf, JSON.stringify({ ...MANIFEST, version: '0.7.61' }));
+  assert.throws(() => readSignedManifest(mf, sg, [pub]), /not signed by a pinned/);
+  assert.throws(() => readSignedManifest(mf, path.join(root, 'missing.sig'), [pub]), /not signed by a pinned/);
 });
 
 test('each part carries its source download only where the build script pins the version that shipped', () => {
@@ -318,7 +352,7 @@ test('a manifest with no connector commit, no node version or a dirty app refuse
   assert.throws(() => sbom({ ...MANIFEST, app: { commit: 'a'.repeat(40), dirty: true } }), /dirty tree/);
 });
 
-test('the command line reads the repos at the manifest\'s commits and the bundle, to a file or stdout; exits 2 or 1', () => {
+test('the command line refuses an unsigned manifest; in-process, the same reads build the SBOM; usage exits 2', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-'));
   const git = (dir, ...a) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8' }).trim();
   const repo = (name, tree) => {
@@ -340,22 +374,27 @@ test('the command line reads the repos at the manifest\'s commits and the bundle
   for (const f of LIBS) { fs.mkdirSync(path.join(stage, path.dirname(f)), { recursive: true }); fs.writeFileSync(path.join(stage, f), f === 'VERSION' ? VERSION : f); }
   const tgz = path.join(root, 'tmux-arm64.tar.gz');
   execFileSync('tar', ['-czf', tgz, '-C', stage, ...LIBS]);
-  const tsha = crypto.createHash('sha256').update(fs.readFileSync(tgz)).digest('hex');
-  const mf = path.join(root, 'manifest.json');
-  fs.writeFileSync(mf, JSON.stringify({ ...MANIFEST, tmux_sha256: tsha, app: { commit: k.commit }, connector: { ...MANIFEST.connector, commit: r.commit } }));
-  const out = path.join(root, 'sbom.json');
-  const run = (...a) => spawnSync(process.execPath, [SBOM_JS, ...a], { encoding: 'utf8' });
-  const ok = run(mf, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, '--out', out);
-  assert.equal(ok.status, 0, ok.stderr);
-  const b = JSON.parse(fs.readFileSync(out, 'utf8'));
+  const tmux = readTmuxBundle(tgz);
+  assert.equal(tmux.sha, crypto.createHash('sha256').update(fs.readFileSync(tgz)).digest('hex'));
+  const manifest = { ...MANIFEST, tmux_sha256: tmux.sha, app: { commit: k.commit }, connector: { ...MANIFEST.connector, commit: r.commit } };
+  const b = build(manifest, { repo: k.dir, relay: r.dir, tmux });
   assert.equal(comp(b, 'crate:rustls@0.23.46').version, '0.23.46');
   assert.equal(comp(b, 'tmux-part:utf8proc').version, '2.9.0');
-  assert.deepEqual(comp(b, 'tmux-bundle').hashes, [{ alg: 'SHA-256', content: tsha }]);
-  const stdout = run(mf, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir);
-  assert.equal(stdout.status, 0, stdout.stderr);
-  assert.equal(stdout.stdout, fs.readFileSync(out, 'utf8'));
-  assert.equal(run(mf, '--repo', k.dir, '--relay', r.dir).status, 2, 'no --tmux');
-  const bad = run(mf, '--tmux', tgz, '--repo', r.dir, '--relay', r.dir);
-  assert.equal(bad.status, 1);
-  assert.match(bad.stderr, /^sbom: .* has no tools\/build-tmux-from-source\.sh at /);
+  assert.deepEqual(comp(b, 'tmux-bundle').hashes, [{ alg: 'SHA-256', content: tmux.sha }]);
+  assert.throws(() => build(manifest, { repo: r.dir, relay: r.dir, tmux }), /has no tools\/build-tmux-from-source\.sh at /);
+  const twice = path.join(root, 'twice.tar.gz');
+  fs.mkdirSync(path.join(stage, 'x'), { recursive: true });
+  fs.writeFileSync(path.join(stage, 'x', 'VERSION'), VERSION);
+  execFileSync('tar', ['-czf', twice, '-C', stage, ...LIBS, '-C', path.join(stage, 'x'), 'VERSION']);
+  assert.throws(() => readTmuxBundle(twice), /2 VERSION files, not one/);
+
+  const mf = path.join(root, 'manifest.json'), sg = path.join(root, 'manifest.json.sig');
+  fs.writeFileSync(mf, JSON.stringify(manifest));
+  fs.writeFileSync(sg, Buffer.alloc(64).toString('base64'));
+  const run = (...a) => spawnSync(process.execPath, [SBOM_JS, ...a], { encoding: 'utf8' });
+  const unsigned = run(mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir);
+  assert.equal(unsigned.status, 1);
+  assert.match(unsigned.stderr, /^sbom: the manifest is not signed by a pinned Kosmos release key/);
+  assert.equal(run(mf, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir).status, 2, 'no --sig');
+  assert.equal(run(mf, '--sig', sg, '--repo', k.dir, '--relay', r.dir).status, 2, 'no --tmux');
 });
