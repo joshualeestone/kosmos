@@ -52499,7 +52499,7 @@ function paintPlusCertWatch(cw, plusOn) {
    on every view but Kosmos+. Its close (and Review) put away the finding set shown (its key, kept per browser, as
    #6315's request notice and #5018's login notice keep theirs); a new finding is a new key and brings it back. The
    Kosmos+ pane's own line is never put away. Only fixed sentences are written. */
-var CW_NOTE = { key: null, sig: null, away: [], last: null };
+var CW_NOTE = { key: null, sig: null, away: [], last: null, quietUntil: 0 };
 function cwNoteAway() {
   let stored = [];
   try { stored = (localStorage.getItem('kosmos.cwnote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { stored = []; }
@@ -52539,10 +52539,13 @@ function paintCwNote(cw) {
 }
 async function pollCwNote() {
   if (typeof document !== 'undefined' && document.hidden) return;   // a tab in the background asks nothing
+  // A computer not set up for Kosmos+ has no check: after one such answer, ask again only every ten minutes.
+  if (CW_NOTE.quietUntil && Date.now() < CW_NOTE.quietUntil) return;
   let r = null;
   try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
   // A failed read (a board restarting) is not "no finding": keep what shows rather than blink a warning off and on.
   if (!r || typeof r !== 'object') return;
+  CW_NOTE.quietUntil = r.enrolled === true ? 0 : Date.now() + 10 * 60 * 1000;
   paintCwNote(r.enrolled === true ? r.certWatch : null);
 }
 { const cwSlot = document.getElementById('cwnote-slot');
@@ -52573,10 +52576,11 @@ async function pollCwNote() {
     if (next) next.focus();
   });
   const ackBtn = document.getElementById('plus-cw-ack');
+  let ackBusy = false;   // a busy flag and aria-busy, not disabled: a disabled button drops keyboard focus (the switch's way)
   if (ackBtn) ackBtn.addEventListener('click', async () => {
     const at = Number(ackBtn.dataset && ackBtn.dataset.at);
-    if (!Number.isInteger(at) || at <= 0 || ackBtn.disabled) return;
-    ackBtn.disabled = true;
+    if (!Number.isInteger(at) || at <= 0 || ackBusy) return;
+    ackBusy = true; ackBtn.setAttribute('aria-busy', 'true');
     plusSay('');
     let saved = false;
     try {
@@ -52584,9 +52588,9 @@ async function pollCwNote() {
       if (!res.ok) plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not save that'), 'switch');
       else saved = true;
     } catch { plusSay('we could not save that', 'switch'); }
-    finally { ackBtn.disabled = false; }
+    finally { ackBusy = false; ackBtn.removeAttribute('aria-busy'); }
     await paintPlus();
-    if (!saved) return;
+    if (!saved) { if (!ackBtn.hidden && ackBtn.focus) ackBtn.focus(); return; }
     // Got it goes away with the sentence it answered. Focus goes to the line when it still says something (a finding),
     // else to the check's switch, a stable place, and the pane says it was noted.
     const line = document.getElementById('plus-cw-line'), sw = document.getElementById('plus-cw-switch');
@@ -52594,6 +52598,8 @@ async function pollCwNote() {
     else { plusSay('Noted.'); if (sw && !sw.hidden) sw.focus(); }
   });
   setInterval(pollCwNote, 30000);
+  // Back in front, asked at once rather than at the next tick.
+  if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', () => { if (!document.hidden) pollCwNote(); });
   pollCwNote();
 }
 /* The words of the code box (#729). Pete sat at it for twelve minutes, three

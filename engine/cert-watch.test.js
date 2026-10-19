@@ -151,7 +151,7 @@ test('the finding key is the same for the same findings, new for a new one, and 
   assert.equal(certWatchFrom(d, NOW).key, k1, 'other fields do not change the key');
   put(d, { state: 'foreign', checked_at: S, foreign: [one, two] });
   assert.notEqual(certWatchFrom(d, NOW).key, k1, 'a new finding is a new key');
-  put(d, { state: 'clear', checked_at: S, foreign: [], earlier_foreign: [one] });
+  put(d, { state: 'foreign', checked_at: S, foreign: [], earlier_foreign: [one] });
   assert.match(certWatchFrom(d, NOW).key, /^[0-9a-f]{16}$/, 'an earlier-address finding has a key too');
   put(d, { state: 'clear', checked_at: S, foreign: [] });
   assert.equal(certWatchFrom(d, NOW).key, null, 'no finding, no key');
