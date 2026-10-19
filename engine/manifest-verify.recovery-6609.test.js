@@ -214,7 +214,7 @@ test('#6609: switched on, no install home is a refusal (the record is what stops
   assert.equal(fs.existsSync(wrong), false, 'a mistyped home must not start a fresh record');
 });
 
-test('#6609: the record only moves forward: a check that lost a race to a newer list refuses, and the record keeps the newer one', () => {
+test('#6609: the record only moves forward: once a newer list is recorded, the older one is refused and the record keeps the newer', () => {
   const h = home();
   const v6 = list({ release_keys: [spki(rel1), spki(rel2)], seq: 6 });
   const v7 = list({ release_keys: [spki(rel2)], seq: 7 });
