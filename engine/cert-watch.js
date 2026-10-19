@@ -41,6 +41,7 @@ function certWatchFrom(dir, nowMs) {
   const earlier = len(raw.earlier_foreign) + count(raw.earlier_overflow);
   const checkedAt = secs(raw.checked_at);
   const errorAt = secs(raw.error_at);
+  /* A `foreign` stays foreign however old the report is (only `clear` goes stale): a finding is never aged out. */
   let state = ['clear', 'foreign', 'unknown'].includes(raw.state) ? raw.state : 'unknown';
   if (foreign + earlier > 0) state = 'foreign';
   /* Both directions on purpose: a check dated far in the future (a skewed clock, a bad write) is not current either. */
