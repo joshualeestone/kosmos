@@ -193,7 +193,7 @@ const list = (files) => (repo, commit, dir) => {
   }
   return [...names];
 };
-const sbom = (m = MANIFEST, f = files(), tmux = BUNDLE) => build(m, { repo: 'K', relay: 'R', tmux, show: show(f), list: list(f), readImports: fixtureImports });
+const sbom = (m = MANIFEST, f = files(), tmux = BUNDLE) => build(m, { repo: 'K', relay: 'R', tmux, show: show(f), list: list(f), lockAgrees: () => {}, readImports: fixtureImports });
 const comp = (b, ref) => b.components.find((c) => c['bom-ref'] === ref);
 const deps = (b, ref) => (b.dependencies.find((d) => d.ref === ref) || {}).dependsOn;
 
@@ -501,11 +501,11 @@ test('the Mac app: its shipped binary is the one signed, and every module the co
   assert.ok(sbom(), 'the fixture imports Apple frameworks');
   assert.throws(() => sbom({ ...MANIFEST, native_app: { signed_sha256: SHA('d') } }), /app\/bin\/kosmos-app is not the Mac app it signed/);
   assert.throws(() => sbom({ ...MANIFEST, native_app: undefined }), /is not the Mac app it signed/);
-  const reads = (mods) => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), list: list(files()), readImports: () => mods });
+  const reads = (mods) => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), list: list(files()), lockAgrees: () => {}, readImports: () => mods });
   assert.throws(() => reads(['Cocoa', 'Sparkle']), /native-app\/main\.swift imports Sparkle, which is not an Apple framework/);
   assert.ok(reads(['Cocoa', 'Dispatch']));
   let seen, target;
-  build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), list: list(files()), readImports: (src, t) => { seen = src; target = t; return []; } });
+  build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), list: list(files()), lockAgrees: () => {}, readImports: (src, t) => { seen = src; target = t; return []; } });
   assert.equal(seen, SWIFT, 'the reader is given native-app/main.swift at the app commit');
   assert.equal(target, 'arm64-apple-macos13.5', 'and the release\'s own target, from tools/macos-floor at the app commit');
   const badFloor = files(); badFloor[`K:${'a'.repeat(40)}:tools/macos-floor`] = 'thirteen\n';
@@ -582,7 +582,7 @@ test('the serial includes a hash of the generator\'s own source, so a changed ge
   fs.writeFileSync(copy, fs.readFileSync(SBOM_JS, 'utf8') + '\n// one more line\n');
   const other = require(copy);
   assert.notEqual(other.SELF_SHA, require(SBOM_JS).SELF_SHA);
-  const a = sbom(), b = other.build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), list: list(files()), readImports: fixtureImports });
+  const a = sbom(), b = other.build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), list: list(files()), lockAgrees: () => {}, readImports: fixtureImports });
   assert.notEqual(a.serialNumber, b.serialNumber);
   assert.deepEqual(a.components, b.components, 'the same release, the same components');
 });
@@ -599,21 +599,46 @@ test('a .cargo in any case, or a Cargo.toml or Cargo.lock in another case, refus
   assert.equal(sbom(MANIFEST, f).components.length, 15, 'the control: names that only look alike are fine');
 });
 
-test('a Cargo.toml that could make Cargo build something other than the lock refuses (the build is not --locked)', () => {
-  const c = `R:${'b'.repeat(40)}:`;
-  const withToml = (at, extra) => { const f = files(); f[c + at] = f[c + at] + extra; return f; };
-  for (const [at, extra, want] of [
-    ['Cargo.toml', '\n[patch.crates-io]\nrustls = { path = "../evil" }\n', /relay Cargo\.toml: a \[patch\] or \[replace\] section/],
-    ['Cargo.toml', '\n[replace]\n"ring:0.17.14" = { path = "x" }\n', /a \[patch\] or \[replace\] section/],
-    ['crates/tunnel/Cargo.toml', '\n[dependencies]\nevil = { path = "../../evil" }\n', /relay crates\/tunnel\/Cargo\.toml: a path dependency outside the workspace \(\.\.\/\.\.\/evil\)/],
-    ['crates/tunnel/Cargo.toml', "\n[dependencies.evil]\npath = '../../evil'\n", /a path dependency outside the workspace/],
-    ['crates/tunnel/Cargo.toml', '\n[target.\'cfg(unix)\'.dependencies]\nring = { git = "https://example.invalid/ring" }\n', /a git dependency/],
-    ['Cargo.toml', '\n[workspace.dependencies]\nring = { version = "0.17", git = "https://example.invalid/ring" }\n', /a git dependency/],
-    ['crates/relay/Cargo.toml', '\n[dev-dependencies]\nx = { path = ../x }\n', /a path dependency it cannot read/],
-    ['crates/relay/Cargo.toml', '\n[build-dependencies]\nx.path = "/abs/x"\n', /a path dependency outside the workspace/],
-  ]) assert.throws(() => sbom(MANIFEST, withToml(at, extra)), want, extra.trim());
-  assert.equal(sbom(MANIFEST, withToml('crates/tunnel/Cargo.toml', '\n[dependencies]\nkosmos-relay-proto = { path = "../proto" }\n# evil = { path = "../../evil" }\n')).components.length, 15,
-    'the control: a path dependency on a workspace member, a commented-out line, and [[bin]] path are fine');
+test('the relay commit is refused unless Cargo agrees the lock is its resolution (the build is not --locked)', () => {
+  let seen;
+  const b = build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), list: list(files()), readImports: fixtureImports,
+    lockAgrees: (relay, commit) => { seen = [relay, commit]; } });
+  assert.deepEqual(seen, ['R', 'b'.repeat(40)], 'asked about the connector commit of the relay');
+  assert.equal(b.components.length, 15);
+  assert.throws(() => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), list: list(files()), readImports: fixtureImports,
+    lockAgrees: () => { throw new Error('relay at x: Cargo does not agree'); } }), /Cargo does not agree/);
+});
+
+const HAS_CARGO = spawnSync('cargo', ['--version'], { encoding: 'utf8' }).status === 0;
+test('real Cargo, offline: a lock that matches passes; every way a Cargo.toml can disagree with it refuses', { skip: !HAS_CARGO && 'no cargo here' }, () => {
+  const { cargoLockAgrees } = require(SBOM_JS);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-cargo-'));
+  const git = (...a) => execFileSync('git', ['-C', root, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const put = (f, t) => { fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true }); fs.writeFileSync(path.join(root, f), t); };
+  const crate = (n) => `[package]\nname = "${n}"\nversion = "0.1.0"\nedition = "2021"\n`;
+  git('init', '-q');
+  put('Cargo.toml', '[workspace]\nresolver = "2"\nmembers = ["a", "b"]\n');
+  put('a/Cargo.toml', crate('a') + '\n[dependencies]\nb = { path = "../b" }\n'); put('a/src/lib.rs', '');
+  put('b/Cargo.toml', crate('b')); put('b/src/lib.rs', '');
+  put('evil/Cargo.toml', crate('evil')); put('evil/src/lib.rs', '');
+  execFileSync('cargo', ['generate-lockfile', '--offline', '--manifest-path', path.join(root, 'Cargo.toml')], { stdio: 'ignore' });
+  const commit = () => { git('add', '-A'); git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'x'); return git('rev-parse', 'HEAD'); };
+  const good = commit();
+  assert.doesNotThrow(() => cargoLockAgrees(root, good), 'the control: a lock Cargo itself wrote');
+  const base = fs.readFileSync(path.join(root, 'a/Cargo.toml'), 'utf8');
+  for (const extra of ['evil = { path = "../evil" }', 'evil = { "path" = "../evil" }', "evil = { path = '''../evil''' }", 'registrycrate = "1"']) {
+    fs.writeFileSync(path.join(root, 'a/Cargo.toml'), base + extra + '\n');
+    assert.throws(() => cargoLockAgrees(root, commit()), /Cargo does not agree the Cargo\.lock is what the Cargo\.toml files resolve to/, extra);
+  }
+  fs.writeFileSync(path.join(root, 'a/Cargo.toml'), base);
+  put('Cargo.toml', '[workspace]\nresolver = "2"\nmembers = ["a", "b"]\n\n["patch".crates-io]\nb = { path = "evil" }\n');
+  assert.throws(() => cargoLockAgrees(root, commit()), /Cargo does not agree/, 'a quoted-key [patch]');
+  assert.doesNotThrow(() => cargoLockAgrees(root, good), 'the old commit still agrees: the check reads the COMMIT, not the working tree');
+  put('.gitattributes', 'a/Cargo.toml export-ignore\n');
+  put('Cargo.toml', '[workspace]\nresolver = "2"\nmembers = ["a", "b"]\n');
+  fs.writeFileSync(path.join(root, 'a/Cargo.toml'), base + 'evil = { path = "../evil" }\n');
+  assert.throws(() => cargoLockAgrees(root, commit()), /Cargo does not agree/, 'an export-ignore attribute does not hide a member toml');
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('a symlinked main.swift or .cargo in a real git repo refuses: git show of a link is its target path, not the file', () => {
@@ -635,7 +660,16 @@ test('a symlinked main.swift or .cargo in a real git repo refuses: git show of a
   assert.equal(gitEntry(root, c, 'nothing-here'), null);
   assert.deepEqual(gitList(root, c, '').sort(), ['.cargo', 'conf', 'native-app', 'plain.txt', 'vendor'], 'the listing the case check reads');
   assert.deepEqual(gitList(root, c, 'native-app/'), ['main.swift']);
+  const sub = path.join(root, 'vendor');
+  assert.deepEqual(gitList(sub, c, '').sort(), ['.cargo', 'conf', 'native-app', 'plain.txt', 'vendor'], 'a subfolder given as the repo still lists the ROOT (--full-tree)');
+  assert.throws(() => gitShow(sub, c, 'native-app/main.swift'), /is not a plain file \(mode 120000\)/, 'and the mode check reads the same path git show does');
   assert.throws(() => gitShow(root, c, 'nothing-here'), (e) => e.notFound === true);
+});
+
+test('a CPE escapes a version character CPE 2.3 reserves', () => {
+  const { tmuxCpeFor } = require(SBOM_JS);
+  assert.equal(tmuxCpeFor('tmux', '3.5a+p1'), 'cpe:2.3:a:tmux_project:tmux:3.5a\\+p1:*:*:*:*:*:*:*');
+  assert.equal(tmuxCpeFor('tmux', '3.5a'), 'cpe:2.3:a:tmux_project:tmux:3.5a:*:*:*:*:*:*:*', 'the control');
 });
 
 test('the installer is listed under its signed hash', () => {
@@ -729,11 +763,11 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   const tmux = readTmuxBundle(tgz);
   assert.equal(tmux.sha, crypto.createHash('sha256').update(fs.readFileSync(tgz)).digest('hex'));
   const manifest = { ...MANIFEST, tmux_sha256: tmux.sha, app: { commit: k.commit, dirty: false }, connector: { ...MANIFEST.connector, commit: r.commit } };
-  const b = build(manifest, { repo: k.dir, relay: r.dir, tmux, readImports: fixtureImports });
+  const b = build(manifest, { repo: k.dir, relay: r.dir, tmux, readImports: fixtureImports, lockAgrees: () => {} });
   assert.equal(comp(b, 'crate:rustls@0.23.46').version, '0.23.46');
   assert.equal(comp(b, 'tmux-part:utf8proc').version, '2.9.0');
   assert.deepEqual(comp(b, 'tmux-bundle').hashes, [{ alg: 'SHA-256', content: tmux.sha }]);
-  assert.throws(() => build(manifest, { repo: r.dir, relay: r.dir, tmux, readImports: fixtureImports }), /^Error: \/.*\/relay: git could not list package\.json at [0-9a-f]{40}: fatal: not a tree object$/);
+  assert.throws(() => build(manifest, { repo: r.dir, relay: r.dir, tmux, readImports: fixtureImports, lockAgrees: () => {} }), /^Error: \/.*\/relay: git could not list package\.json at [0-9a-f]{40}: fatal: not a tree object$/);
   const twice = path.join(root, 'twice.tar.gz');
   fs.mkdirSync(path.join(stage, 'x'), { recursive: true });
   fs.writeFileSync(path.join(stage, 'x', 'VERSION'), VERSION);
@@ -847,14 +881,27 @@ test('the command line end to end, against a copy of the tool that pins a test k
     + `const src = a.find((x) => x.endsWith('.swift')), out = a[a.indexOf('-o') + 1];\n`
     + `fs.writeFileSync(out, [...fs.readFileSync(src, 'utf8').matchAll(/^\\s*(?:@\\w+\\s+)?import\\s+(\\w+)/gm)].map((m) => m[1]).join('\\n') + '\\n');\n`);
   fs.chmodSync(path.join(bin, 'xcrun'), 0o755);
-  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+  // And a stand-in cargo: it records how it was asked and checks the tree it was pointed at is the commit's own
+  // (the Cargo.lock there is the relay's), then answers with CARGO_RC.
+  fs.writeFileSync(path.join(bin, 'cargo'), `#!${process.execPath}\nconst a = process.argv.slice(2), fs = require('fs'), p = require('path');\n`
+    + `const m = a[a.indexOf('--manifest-path') + 1];\n`
+    + `fs.appendFileSync(${JSON.stringify(path.join(root, 'cargo-args'))}, a.join(' ') + ' LOCK=' + (fs.readFileSync(p.join(p.dirname(m), 'Cargo.lock'), 'utf8') === ${JSON.stringify(LOCK)}) + '\\n');\n`
+    + `if (process.env.CARGO_RC !== '0') process.stderr.write('error: cannot update the lock file\\n');\nprocess.exit(Number(process.env.CARGO_RC || 0));\n`);
+  fs.chmodSync(path.join(bin, 'cargo'), 0o755);
+  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, CARGO_RC: '0' };
   const run = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
     '--repo', k.dir, '--relay', r.dir, '--out', out], { encoding: 'utf8', env });
   assert.equal(run.status, 0, run.stderr);
   assert.match(fs.readFileSync(path.join(root, 'xcrun-args'), 'utf8'), /^swiftc -frontend -emit-imported-modules -target arm64-apple-macos13\.5 \S+main\.swift -o \S+$/m,
     'the compiler is asked for the release\'s own target, not the machine\'s');
-  assert.equal(fs.readFileSync(out, 'utf8'), JSON.stringify(build(manifest, { repo: k.dir, relay: r.dir, tmux, readImports: fixtureImports }), null, 2) + '\n');
+  assert.equal(fs.readFileSync(out, 'utf8'), JSON.stringify(build(manifest, { repo: k.dir, relay: r.dir, tmux, readImports: fixtureImports, lockAgrees: () => {} }), null, 2) + '\n');
   const swapped = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
     '--repo', r.dir, '--relay', k.dir], { encoding: 'utf8', env });
   assert.equal(swapped.status, 1, 'the repo and relay swapped refuse');
+  assert.match(fs.readFileSync(path.join(root, 'cargo-args'), 'utf8'), /^metadata --locked --offline --format-version 1 --manifest-path \S+\/Cargo\.toml LOCK=true$/m,
+    'Cargo is asked, locked and offline, about a tree holding the connector commit\'s own lock');
+  const disagree = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
+    '--repo', k.dir, '--relay', r.dir], { encoding: 'utf8', env: { ...env, CARGO_RC: '101' } });
+  assert.equal(disagree.status, 1, 'Cargo disagreeing refuses');
+  assert.match(disagree.stderr, /^sbom: relay at [0-9a-f]{40}: Cargo does not agree the Cargo\.lock is what the Cargo\.toml files resolve to \(cargo is needed\): error: cannot update the lock file$/m);
 });
