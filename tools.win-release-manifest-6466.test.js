@@ -136,6 +136,11 @@ test('#6466: the publish check passes the genuine pair and refuses a tampered zi
   assert.equal(wrm.checkZip({ ...r6, zipPath: b6.zipPath, keys: TEST_KEYS }).code, 1);
   /* And the version the publish was asked for must be the manifest's. */
   assert.match(wrm.checkZip({ ...release(build()), zipPath: b.zipPath, version: '0.7.61', keys: TEST_KEYS }).why, /is for 0\.7\.60, not 0\.7\.61/);
+  /* And the arch the publish serves it as, not the manifest's own word for it. */
+  const b7 = build();
+  const r7 = release(b7);
+  assert.equal(wrm.checkZip({ ...r7, zipPath: b7.zipPath, keys: TEST_KEYS }).code, 0);
+  assert.match(wrm.checkZip({ ...r7, zipPath: b7.zipPath, arch: 'arm64', keys: TEST_KEYS }).why, /the signed manifest is for "x64", not arm64/);
 });
 
 test('#6466: ships-checker tells a build whose installs refuse an unsigned update', T, () => {

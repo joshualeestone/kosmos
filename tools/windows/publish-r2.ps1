@@ -595,7 +595,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   $hasS = Test-Path -LiteralPath $SigPath -PathType Leaf
   if ($hasM -or $hasS) {
     if (-not ($hasM -and $hasS)) { Refuse "$ManifestName and its .sig must both be beside the zip; only one is. Nothing was written." }
-    $mc = Invoke-WinManifest @('check', $ManifestPath, $SigPath, $ZipPath, $Version)
+    $mc = Invoke-WinManifest @('check', $ManifestPath, $SigPath, $ZipPath, $Version, $Arch)
     if ($mc.Rc -ne 0) { Refuse "the signed release manifest $ManifestName does not check out against this zip ($($mc.Out)). Nothing was written." }
     $ManifestBytes = [IO.File]::ReadAllBytes($ManifestPath); $SigBytes = [IO.File]::ReadAllBytes($SigPath)
     Say "signed manifest: $($mc.Out)"
@@ -758,11 +758,20 @@ if ($stagedManifest -or $stagedSig) {
     [IO.File]::WriteAllBytes((Join-Path $mdir $ManifestName), $stagedManifest.Bytes)
     [IO.File]::WriteAllBytes((Join-Path $mdir "$ManifestName.sig"), $stagedSig.Bytes)
     [IO.File]::WriteAllBytes((Join-Path $mdir $Versioned), $staged.Bytes)
-    $mc = Invoke-WinManifest @('check', (Join-Path $mdir $ManifestName), (Join-Path $mdir "$ManifestName.sig"), (Join-Path $mdir $Versioned), $ApprovedVersion)
+    $mc = Invoke-WinManifest @('check', (Join-Path $mdir $ManifestName), (Join-Path $mdir "$ManifestName.sig"), (Join-Path $mdir $Versioned), $ApprovedVersion, $Arch)
   } finally { Remove-Item -LiteralPath $mdir -Recurse -Force -ErrorAction SilentlyContinue }
   if ($mc.Rc -ne 0) { Refuse "the staged signed manifest does not check out against the staged zip ($($mc.Out)). Nothing was written." }
   Say "signed manifest: $($mc.Out)"
+  # Installs fetch both through installkosmos.com. A site deploy since the stage could have dropped the redirect that
+  # serves them, and prod's installs would then refuse this update, so they are read back again before prod moves.
+  if (-not $DryRun) {
+    Assert-Served $ManifestName (Sha256-Bytes $stagedManifest.Bytes)
+    Assert-Served "$ManifestName.sig" (Sha256-Bytes $stagedSig.Bytes)
+  }
 } else {
+  # "Prod's installs check" is read from whether prod's current build was published with a manifest, which every build
+  # that checks is (staging refuses one without). A build published with one that does not check reads as checking:
+  # the safe direction, a refusal here rather than stranded installs.
   $prodNow = Get-Object 'latest-win.json'
   $pnow = if ($prodNow) { Read-PointerFields $prodNow.Bytes } else { $null }
   if ($prodNow -and -not $pnow) { Refuse "the staged build has no signed manifest, and prod's latest-win.json cannot be read to tell whether prod's installs require one. Nothing was written." }

@@ -2563,7 +2563,15 @@ test('#6466 ask 3 --from: a Kosmos folder holding a link where a file or folder 
   await refusedWith(c, null, /holds something that is not a plain file \(bin is not a plain file\), so it cannot update/, { ...OFFLINE, source });
   assert.deepEqual(c.nodeRuns, []);
   assert.equal(fs.existsSync(path.join(c.work, 'staged')), false, 'nothing was copied');
-  /* Kosmos.exe itself as a link: a file symlink needs Developer Mode or an administrator on Windows. */
+  /* Kosmos.exe itself as a junction (no privilege needed), pointing at a folder. */
+  const c3 = withInstalledManifest(freshCase());
+  const source3 = downloadedBuild(c3);
+  fs.rmSync(path.join(source3, 'Kosmos.exe'));
+  fs.mkdirSync(path.join(c3.dir, 'a-folder'));
+  fs.symlinkSync(path.join(c3.dir, 'a-folder'), path.join(source3, 'Kosmos.exe'), ON_WINDOWS ? 'junction' : 'dir');
+  await refusedWith(c3, null, /Kosmos\.exe is not a plain file|is not a complete Kosmos for Windows/, { ...OFFLINE, source: source3 });
+  assert.deepEqual(c3.nodeRuns, []);
+  /* Kosmos.exe itself as a link to a real exe: a file symlink needs Developer Mode or an administrator on Windows. */
   const c2 = withInstalledManifest(freshCase());
   const source2 = downloadedBuild(c2);
   const real = path.join(c2.dir, 'real-Kosmos.exe');

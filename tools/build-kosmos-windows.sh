@@ -601,7 +601,7 @@ node "$REPO/tools/lib/win-release-manifest.js" write "$STAGE" "$ZIPOUT" "$_ver" 
 if [ -n "${KOSMOS_MANIFEST_KEY:-}" ]; then
   node "$REPO/tools/lib/manifest-sign.js" sign "$KOSMOS_MANIFEST_KEY" "$MANIFEST_OUT" "$MANIFEST_OUT.sig" \
     || { rm -f "$MANIFEST_OUT" "$MANIFEST_OUT.sig"; refuse "the release manifest could not be signed (#6466)"; }
-  node "$REPO/tools/lib/win-release-manifest.js" check "$MANIFEST_OUT" "$MANIFEST_OUT.sig" "$ZIPOUT" "$_ver" \
+  node "$REPO/tools/lib/win-release-manifest.js" check "$MANIFEST_OUT" "$MANIFEST_OUT.sig" "$ZIPOUT" "$_ver" "$ARCH" \
     || { rm -f "$MANIFEST_OUT" "$MANIFEST_OUT.sig"; refuse "the signed release manifest does not check out against the zip (#6466)"; }
   echo "==> signed: $(basename "$MANIFEST_OUT").sig"
 else

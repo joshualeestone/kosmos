@@ -52,6 +52,9 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
      (`/dist/kosmos-:v-win-x64.manifest.json` and `/dist/kosmos-:v-win-x64.manifest.json.sig` to
      `https://dl.chaoskosmos.com/...`). `publish-r2.ps1` reads both back through the site before it
      moves the staging pointer, so a missing redirect stops the stage instead of stranding installs.
+     A promote reads them back again before prod moves. `tools/deploy-site.sh`'s served-redirect
+     checks do not cover these two names yet, so a site deploy that drops the redirect is caught only
+     at the next stage or promote (installs fail closed meanwhile: they refuse updates, nothing breaks).
    - **The key holder can sign.** The private key stays where it is (the release Mac, secrets map
      target `kosmos-manifest-signing`). Either the key holder signs each Windows manifest (step 1b
      below), or a copy of the key is filed on the Windows PC with `/add-secret`; never commit or

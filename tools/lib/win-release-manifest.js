@@ -12,10 +12,13 @@
  *   node tools/lib/win-release-manifest.js write <stage-dir> <zip> <version> <arch> <out.json>
  *       the build (tools/build-kosmos-windows.sh): every file under the stage (what the zip holds), with its sha256,
  *       the zip's sha256, and the build facts from the stage's own manifest.json.
- *   node tools/lib/win-release-manifest.js check <manifest.json> <manifest.json.sig> <zip> [<version>]
+ *   node tools/lib/win-release-manifest.js check <manifest.json> <manifest.json.sig> <zip> [<version> [<arch>]]
  *       the publish (tools/windows/publish-r2.ps1): the signature verifies under a pinned key, the manifest is this
  *       zip's (version, platform, arch, artifact, sha256), and every file inside the zip is exactly the manifest's.
  *       Exit 0 good, 1 refused, 2 could not check; one line on stdout says why.
+ *       LIMIT: it checks against the keys THIS checkout pins. Under a key rotation, also run the Mac's
+ *       tools/lib/manifest-sign.js check-served against the served build's manifest (its pinned_keys are what installs
+ *       accept), as release.sh does.
  *   node tools/lib/win-release-manifest.js ships-checker <zip>
  *       exit 0 when the zip's app/engine/win32update.js checks signed manifests (it carries the capability line), so
  *       installs of that build refuse an update with none; 1 when it does not; 2 cannot tell.
@@ -92,7 +95,7 @@ function manifestObject({ files, zipBytes, version, arch, inner = {}, keys = mv.
 const headerRefusal = mv.win32HeaderRefusal;
 
 /** The publish's whole check of a zip against its signed manifest. Returns { code, why }. */
-function checkZip({ manifestPath, sigPath, zipPath, version, keys = mv.KEYS }) {
+function checkZip({ manifestPath, sigPath, zipPath, version, arch = 'x64', keys = mv.KEYS }) {
   const bytes = fs.readFileSync(manifestPath);
   let sigText = '';
   try { sigText = fs.readFileSync(sigPath, 'utf8'); } catch { return { code: 1, why: `there is no signature at ${sigPath}` }; }
@@ -103,7 +106,8 @@ function checkZip({ manifestPath, sigPath, zipPath, version, keys = mv.KEYS }) {
   const r = mv.signedManifest({ bytes, sigText, version: v, installedVersion: v, keys });
   if (r.code !== 0) return { code: r.code === 3 ? 2 : 1, why: r.why };
   const zipBytes = fs.readFileSync(zipPath);
-  const bad = headerRefusal(r.manifest, { version: v, arch: r.manifest.arch, sha: sha256(zipBytes) });
+  // The arch the publish serves it as (every Windows name is x64 today), never the manifest's own word for it.
+  const bad = headerRefusal(r.manifest, { version: v, arch, sha: sha256(zipBytes) });
   if (bad) return { code: 1, why: bad };
   const filesBad = withUnpacked(zipBytes, (x) => mv.filesRefusal(r.manifest, x, WIN_ENTRIES));
   if (filesBad) return { code: 1, why: filesBad };
@@ -159,10 +163,10 @@ function main(argv) {
     return 0;
   }
   if (verb === 'check') {
-    const [manifestPath, sigPath, zipPath, version] = a;
-    if (!manifestPath || !sigPath || !zipPath) { console.error('usage: win-release-manifest.js check <manifest> <sig> <zip> [<version>]'); return 2; }
+    const [manifestPath, sigPath, zipPath, version, arch] = a;
+    if (!manifestPath || !sigPath || !zipPath) { console.error('usage: win-release-manifest.js check <manifest> <sig> <zip> [<version> [<arch>]]'); return 2; }
     let r;
-    try { r = checkZip({ manifestPath, sigPath, zipPath, version }); } catch (e) { r = { code: 2, why: 'could not check the manifest (' + ((e && e.message) || e) + ')' }; }
+    try { r = checkZip({ manifestPath, sigPath, zipPath, version, arch: arch || 'x64' }); } catch (e) { r = { code: 2, why: 'could not check the manifest (' + ((e && e.message) || e) + ')' }; }
     // On STDOUT either way: publish-r2.ps1 reads it, and native stderr can stop a 5.1 script under Stop.
     console.log(r.why);
     return r.code;
