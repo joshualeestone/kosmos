@@ -82,6 +82,9 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    older connector on purpose. It does not get past a checkout that is missing, cannot fetch, is
    shallow, or lacks the connector's commit, nor a relay `main` with no
    `tools/build-tunnel-release-windows.ps1`: then the build cannot tell, and refuses either way.
+   Next, as on the Mac (#5037), it asks the coordinator serving traffic whether it already carries
+   every relay change that connector needs deployed first (`tools/coordinator-floor`), and refuses
+   if not; deploy the coordinator, or `KOSMOS_ALLOW_COORDINATOR_BEHIND=1` ships anyway.
 
 2. **Stage.** This checks that the zip's `Kosmos.exe` is byte for byte the committed launcher (and,
    on Windows, that its Authenticode signature is Valid), then uploads the versioned zip, its sidecar, and `latest-win-staging.json`

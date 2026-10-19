@@ -24,6 +24,12 @@ Card: kosmos#6628. Assigned by Liu Kang (tmux UPDATE, 2026-10-19). Reviewer: Rai
   behind, not for an answer nobody has). This is a NEW refusal on the Mac cut's step 1d too: if kosmos-relay ever
   renames `tools/build-tunnel-release.sh`, the Mac cut stops until the caller is updated. Both scripts are on relay
   main today. Rejected: applying it to the Windows call only (the Mac call has the same fail-open).
+- **The coordinator floor check comes with it (review 5).** The Mac cut runs `coordinator_floor_check` right after the
+  currency check (release.sh step 1d2, #5037), because forcing the connector up to relay main can make it carry a
+  change the coordinator must have first. Adding only the currency half to Windows would make that the normal path,
+  so the Windows build runs both, in the same order, with the same override (`KOSMOS_ALLOW_COORDINATOR_BEHIND=1`).
+  It reads `/v1/meta` over HTTPS with curl, which Git for Windows ships. Beyond the card's literal ask, recorded so
+  the reviewer can drop it.
 - **Order in the Windows build: currency before the signature check.** Kept: a stale connector is the likelier
   refusal at a cut, and the order is pinned by the wiring test. Swapping it (local signature check first, saves one
   fetch) was considered and is equally valid.

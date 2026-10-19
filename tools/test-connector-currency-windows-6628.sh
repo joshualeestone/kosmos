@@ -73,12 +73,13 @@ done
 
 # 7. the Windows build runs it, after the provenance check and before the connector is staged, and exits on refusal
 awk '/_connector_provenance_check "\$TUNNEL_BIN"/{p=NR}
-     /connector_currency_check "\$TUNNEL_BIN"/{c=NR}
+     /^connector_currency_check "\$TUNNEL_BIN"/{c=NR}
      c && NR<=c+1 && /build-tunnel-release-windows\.ps1 \|\| exit 1/{w=NR}
+     /^coordinator_floor_check "\$TUNNEL_BIN" .*coordinator-floor" \|\| exit 1$/{f=NR}
      /^connector_pe_signed "\$TUNNEL_BIN"/{q=NR}
      /cp "\$TUNNEL_BIN" "\$STAGE/{s=NR}
-     END{ if (p && c && w && q && s && p<c && w<q && q<s) print "wired" }' tools/build-kosmos-windows.sh | grep -q wired \
-  && ok "build-kosmos-windows.sh runs the check with the .ps1, || exit 1, after provenance, before the signature check and staging" \
+     END{ if (p && c && w && f && q && s && p<c && w<f && f<q && q<s) print "wired" }' tools/build-kosmos-windows.sh | grep -q wired \
+  && ok "build-kosmos-windows.sh runs the check with the .ps1, || exit 1, after provenance, then the coordinator floor check, both before the signature check and staging" \
   || bad "build-kosmos-windows.sh does not run the currency check before it stages the connector"
 
 echo "---"
