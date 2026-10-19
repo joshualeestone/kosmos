@@ -48,6 +48,10 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
 - `secs` (the time reader) now takes only values of at least one second, for every time in the report, not only the
   lost marker; a sub-second epoch is never current anyway. A lost marker still counts if positive (said, not ackable).
 - The key is a digest, not the report's strings, so nothing from the third party reaches the page.
+- After Got it, a current successful check reads clear again: the tunnel writes `unknown` for as long as its lost
+  marker stands and never removes it (kosmos-relay ctwatch.rs, read on relay main). Stale or failing stays unknown.
+  Tests use the tunnel's real shape (`unknown` beside the marker); a mutant dropping the rule turns the engine test red.
+  The button says what it acknowledges: "Got it: earlier report".
 - Got it is a board-side record keyed on the marker value, so a later loss (a new marker) is said again. Rejected:
   editing the tunnel's report (it is the tunnel's file, written atomically on its own schedule).
 - Weakest premise: the notice is per browser (localStorage); another browser shows it again. Accepted: it errs

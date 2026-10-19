@@ -165,7 +165,8 @@ test('the finding key is the same for the same findings, new for a new one, and 
 
 test('acknowledging a lost report quiets it for that marker only', () => {
   const d = dir();
-  put(d, { state: 'clear', checked_at: S, damaged_report_at: S - 600 });
+  // The tunnel's real shape: `unknown` while its lost marker stands (it never writes clear beside the marker).
+  put(d, { state: 'unknown', checked_at: S, damaged_report_at: S - 600 });
   const w = certWatchFrom(d, NOW);
   assert.equal(w.lost, true);
   assert.equal(w.lostAt, S - 600);
@@ -173,8 +174,12 @@ test('acknowledging a lost report quiets it for that marker only', () => {
   assert.ok(!fs.existsSync(path.join(d, LOST_ACK_FILE)));
   assert.deepEqual(ackLostIn(d, S - 600), { ok: true });
   assert.equal(certWatchFrom(d, NOW).lost, false);
-  assert.equal(certWatchFrom(d, NOW).state, 'clear', 'acknowledged, a recent clear is clear again');
-  put(d, { state: 'clear', checked_at: S, damaged_report_at: S - 5 });
+  assert.equal(certWatchFrom(d, NOW).state, 'clear', 'acknowledged, a current successful check reads clear again');
+  put(d, { state: 'unknown', checked_at: S - 41 * 3600, damaged_report_at: S - 600 });
+  assert.equal(certWatchFrom(d, NOW).state, 'unknown', 'CONTROL: acknowledged but stale stays unknown');
+  put(d, { state: 'unknown', checked_at: S - 100, error_at: S - 50, damaged_report_at: S - 600 });
+  assert.equal(certWatchFrom(d, NOW).state, 'unknown', 'CONTROL: acknowledged but failing stays unknown');
+  put(d, { state: 'unknown', checked_at: S, damaged_report_at: S - 5 });
   assert.equal(certWatchFrom(d, NOW).lost, true, 'a later loss is said again');
   assert.equal(ackLostIn(d, 'x').ok, false);
   put(d, { state: 'clear', checked_at: S, damaged_report_at: 0.5 });

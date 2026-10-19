@@ -11638,7 +11638,7 @@ test('the Plus state route carries the certificate check, and its switch writes 
     assert.ok(!fsx.existsSync(px.join(dir, 'ct-watch-off')));
     // kosmos#6613: Got it for a lost report, person-only, for the marker shown only.
     const at = Math.floor(Date.now() / 1000) - 600;
-    fsx.writeFileSync(px.join(dir, 'ct-watch.json'), JSON.stringify({ state: 'clear', checked_at: Math.floor(Date.now() / 1000), damaged_report_at: at }));
+    fsx.writeFileSync(px.join(dir, 'ct-watch.json'), JSON.stringify({ state: 'unknown', checked_at: Math.floor(Date.now() / 1000), damaged_report_at: at }));
     assert.equal(JSON.parse((await req('/api/remote')).body).certWatch.lost, true);
     r = await req('/api/remote/cert-watch/ack-lost', { method: 'POST', body: JSON.stringify({ at }) });
     assert.equal(r.status, 403, 'Got it that did not come from the screen is refused');
@@ -11647,6 +11647,7 @@ test('the Plus state route carries the certificate check, and its switch writes 
     r = await req('/api/remote/cert-watch/ack-lost', { method: 'POST', headers: screen, body: JSON.stringify({ at }) });
     assert.equal(r.status, 200, r.body);
     assert.equal(JSON.parse(r.body).certWatch.lost, false);
+    assert.equal(JSON.parse(r.body).certWatch.state, 'clear', 'acknowledged, the tunnel\'s unknown-with-marker reads clear again');
   } finally {
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_STATE;
     else process.env.AGENT_WORKFORCE_TUNNEL_STATE = prev;
