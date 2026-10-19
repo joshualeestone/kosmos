@@ -18,8 +18,11 @@ freshhandoff-6616). That connector then lists `fresh-signin` in `kosmos-tunnel c
 
 ## Decided
 - **The button's address is fixed in the markup**, never read from a reply: a reply can only say whether to show it.
-- **A write that gets through hides it** (review iteration 8): only writes are gated, so a successful write from this
-  board means the fresh sign-in took; a read, or another origin's write, leaves it.
+- **Only the refused request, getting through later, hides it** (review iterations 8 and 9). The ask remembers the
+  refused method and path; when that same write succeeds from this board, the fresh sign-in took. Iteration 8's first
+  version hid it on ANY successful write, on the false premise that every write is gated: only a listed few are, and a
+  chat message or the streak ping passes a stale session too. A read, another write, or another origin leaves it.
+- Not now sends focus to the K mark, as the board's other notices do (rebootFocusAway).
 - **Above the phone's home indicator**: its foot is 24 px plus the safe-area inset.
 - **Only this board's own replies raise it** (review iteration 7): the page also reads other computers' boards,
   credentialed and cross-origin, and their refusal must not raise an ask that links to this board's gate.
@@ -44,8 +47,7 @@ freshhandoff-6616). That connector then lists `fresh-signin` in `kosmos-tunnel c
   is not JSON is caught (tested). Accepted as a cost, not a hazard (review iterations 4 and 6).
 - **Shown first, words written after**, so a screen reader announces every refusal, the same sentence included; the
   alert is the sentence alone (role on the words, not the box with its two buttons; review iteration 5).
-- Decided, not done (review iteration 5 NITs): Not now leaves focus where the browser puts it; pressing Sign in again
-  leaves the page, so a key being typed in the asking dialog is typed again after ("then try again" says so).
+- Decided, not done (review iteration 5 NIT): pressing Sign in again leaves the page, so a key being typed in the asking dialog is typed again after ("then try again" says so).
 - **Measured at phone width** (review iteration 4): at 390 px it spans the screen inside a 16 px gutter (it was 195 px
   wide with left: 50%). It can cover a dialog's foot there; Not now clears it.
 

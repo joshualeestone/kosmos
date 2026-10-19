@@ -1274,6 +1274,18 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    and so is consolidated, where the header is not sticky and the stack scrolls away (the padding then over-shoots). */
 @media (max-width: 720px) { html { scroll-padding-top: calc(165px + var(--topnotes-h, 0px)); } }
 @media (max-width: 440px) { html { scroll-padding-top: calc(187px + var(--topnotes-h, 0px)); } }
+/* kosmos#6616: the board's one "sign in again" ask. Above the first-run covers (they go to 70), because a key or a
+   sign-in is often asked for from inside them, and exempt from the inert they put on the page. Hidden while the
+   restart screen, the update overlay or the account-switch screen is up (review iterations 2 and 3): the board is
+   going away then, and an ask left over them could be seen and not pressed. */
+/* Centred by auto margins between a 16 px gutter, not left: 50% with a transform, which gave the box only half the
+   screen to size into (195 px wide on a phone, measured by its browser check). */
+.stepup-ask a.btn { text-decoration: none; }
+.stepup-ask { position: fixed; left: 16px; right: 16px; margin: 0 auto; width: fit-content; z-index: 80;
+  max-width: 560px; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 11px; background: var(--bg-elevated); border: 1px solid var(--label-2);
+  box-shadow: 0 6px 22px rgba(20,22,26,.13); }
+body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display: none !important; }
 /* ⚠️ THE UPDATE NOTICE, ported from the frozen pack. The decisions it
    carries are the pack's, recorded there and not re-opened here: RED
    (Josh's call, twice, wanting it unmissable), and #b3261e specifically
@@ -1284,18 +1296,6 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    covered the agent-status stamp. The Install button is gold (#e3b341, the
    pack's --gold-bright): gold is the primary ACTION colour, and an
    all-red notice would read as an error rather than something waiting. */
-/* kosmos#6616: the board's one "sign in again" ask. Above the first-run covers (they go to 70), because a key or a
-   sign-in is often asked for from inside them, and exempt from the inert they put on the page. Hidden while the
-   restart screen, the update overlay or the account-switch screen is up (review iterations 2 and 3): the board is
-   going away then, and an ask left over them could be seen and not pressed. */
-/* Centred by auto margins between a 16 px gutter, not left: 50% with a transform, which gave the box only half the
-   screen to size into (195 px wide on a phone, measured by its browser check). */
-.stepup-ask a.btn { text-decoration: none; }
-.stepup-ask { position: fixed; left: 16px; right: 16px; bottom: 24px; margin: 0 auto; width: fit-content; z-index: 80;
-  max-width: 560px; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
-  padding: 10px 12px; border-radius: 11px; background: var(--bg-elevated); border: 1px solid var(--label-2);
-  box-shadow: 0 6px 22px rgba(20,22,26,.13); }
-body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display: none !important; }
 .utoast {
   --utone: #b3261e;
   /* Was IN THE FLOW, beside the mark (Josh 2026-08-17; pack 2e4e100), because an
@@ -20150,11 +20150,14 @@ window.kosmosMeasureScrollbarWidth();
           const copy = res.clone();
           // Only this board's own replies: the page also reads other computers' boards (credentialed, cross-origin), and
           // their refusal must not raise an ask that links to THIS board's gate (review iteration 7).
-          if (res.status === 403 && sameOriginReply(res)) copy.json().then(showStepUpAsk).catch(() => {});   // declared below; called later
+          if (res.status === 403 && sameOriginReply(res)) copy.json().then((b) => showStepUpAsk(b, requestKey(args, res))).catch(() => {});   // declared below; called later
           else copy.arrayBuffer().catch(() => {});
         } catch { /* the caller's own read is unaffected */ }
       } else if (res && res.ok && writeRequest(args) && sameOriginReply(res)) {
-        hideStepUpAsk();   // kosmos#6616 review 8: a write that got through means the fresh sign-in took, so the ask goes
+        // kosmos#6616: the SAME write that was refused now got through, so the fresh sign-in took and the ask goes. Not
+        // any write (review iteration 9): only a listed few are gated, and a chat message passes a stale session too.
+        const box = document.getElementById('stepup-ask');
+        if (box && !box.hidden && box.stepUpFor === requestKey(args, res)) hideStepUpAsk();
       }
       return res;
     });
@@ -20165,11 +20168,18 @@ window.kosmosMeasureScrollbarWidth();
    page that asked still shows the refusal its own way; this adds the one button. The words are the server's own
    sentence for that code, and the link's address is fixed in the markup. Not now closes it until the next such
    refusal; the sentence carries its own fallback, so it still reads right with the ask closed. */
-/* A writing request (POST, PUT, PATCH, DELETE): the step-up gates only writes, so only one of those can show it is met. */
-function writeRequest(args) {
+/* A fetch's method, from its init or from a Request passed as the first argument. */
+function requestMethod(args) {
   const init = args[1] || {};
-  const method = String(init.method || (args[0] && typeof args[0] === 'object' && args[0].method) || 'GET').toUpperCase();
+  return String(init.method || (args[0] && typeof args[0] === 'object' && args[0].method) || 'GET').toUpperCase();
+}
+function writeRequest(args) {
+  const method = requestMethod(args);
   return method !== 'GET' && method !== 'HEAD';
+}
+/* Which request this was, as the ask remembers the refused one: its method and its path on this board. */
+function requestKey(args, res) {
+  try { return requestMethod(args) + ' ' + new URL(res.url, location.href).pathname; } catch { return ''; }
 }
 function hideStepUpAsk() {
   const box = document.getElementById('stepup-ask');
@@ -20178,19 +20188,20 @@ function hideStepUpAsk() {
 function sameOriginReply(res) {
   try { return new URL(res.url, location.href).origin === location.origin; } catch { return false; }
 }
-function showStepUpAsk(body) {
+function showStepUpAsk(body, key) {
   if (!body || body.code !== 'remote_step_up' || body.signInAgain !== true || typeof body.error !== 'string') return;
   const box = document.getElementById('stepup-ask');
   if (!box) return;
   /* Shown FIRST and the words written after (review iteration 3): an alert announces nothing from inside a hidden
      element, and the same sentence written again changes nothing, so a second refusal would be silent. */
   const words = document.getElementById('stepup-words');
+  box.stepUpFor = key || '';   // the refused request: only it, getting through later, takes the ask away
   box.hidden = false;
   words.textContent = '';
   setTimeout(() => { words.textContent = body.error; }, 0);
 }
 document.addEventListener('click', (e) => {
-  if (e.target && e.target.closest && e.target.closest('#stepup-close')) hideStepUpAsk();
+  if (e.target && e.target.closest && e.target.closest('#stepup-close')) { hideStepUpAsk(); rebootFocusAway(); }   // focus to the K mark, as the other notices
 });
 
 /* ================= win32-board-copy: the platform copy layer =================

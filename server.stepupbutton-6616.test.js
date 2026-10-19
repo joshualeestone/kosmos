@@ -122,7 +122,7 @@ test('R01b page: every refused fetch on the page reaches the ask (the one wrappe
   const unhandled = [];
   const onUnhandled = (e) => unhandled.push(e);
   process.on('unhandledRejection', onUnhandled);
-  vm.runInNewContext(lift(SCRIPT, 'sameOriginReply') + '\n' + iife, { window: win, URL, location: { href: 'http://board.test/', origin: 'http://board.test' }, showStepUpAsk: (b) => seen.push(b) });
+  vm.runInNewContext(liftAll(SCRIPT, ['sameOriginReply', 'requestMethod', 'requestKey']) + '\n' + iife, { window: win, URL, location: { href: 'http://board.test/', origin: 'http://board.test' }, showStepUpAsk: (b) => seen.push(b) });
   await win.fetch('a'); await win.fetch('b'); await win.fetch('c'); await win.fetch('d');
   await new Promise((r) => setImmediate(r));
   process.off('unhandledRejection', onUnhandled);
@@ -130,20 +130,33 @@ test('R01b page: every refused fetch on the page reaches the ask (the one wrappe
   assert.deepEqual(seen, [{ ...REMOTE_STEP_UP_SIGNIN }], 'a 403 did not reach the ask, or a non-403 or another origin\'s 403 did');
 });
 
-test('R01b page: a write that gets through hides the ask; a read, or another origin, does not', async () => {
+test('R01b page: only the refused write, getting through later, hides the ask; any other write, a read or another origin does not', async () => {
   const start = SCRIPT.indexOf('const nativeFetch = window.fetch;');
   const iife = SCRIPT.slice(SCRIPT.lastIndexOf('(() => {', start), SCRIPT.indexOf('})();', start) + 5);
-  const box = { hidden: false };
-  const ok = (url) => ({ ok: true, status: 200, url, clone: () => ({}) });
-  const win = { fetch: (u) => Promise.resolve(ok(u === 'other' ? 'https://other.kosmos.test/x' : 'http://board.test/api/x')) };
-  const doc = { getElementById: (id) => (id === 'stepup-ask' ? box : null) };
-  vm.runInNewContext(liftAll(SCRIPT, ['writeRequest', 'hideStepUpAsk', 'sameOriginReply']) + '\n' + iife,
-    { window: win, document: doc, URL, location: { href: 'http://board.test/', origin: 'http://board.test' }, showStepUpAsk: () => {} });
-  await win.fetch('read');
-  assert.equal(box.hidden, false, 'a read hid the ask (reads are never gated, so they prove nothing)');
-  await win.fetch('other', { method: 'POST' });
-  assert.equal(box.hidden, false, 'another origin\'s write hid the ask');
-  await win.fetch('mine', { method: 'POST' });
-  assert.equal(box.hidden, true, 'a write that got through left the ask up');
+  const box = { hidden: true };
+  const words = { textContent: '' };
+  let refuse = true;
+  const reply = (u, ok) => ({ ok, status: ok ? 200 : 403, url: u.startsWith('http') ? u : 'http://board.test' + u,
+    clone: () => ({ json: () => Promise.resolve({ ...REMOTE_STEP_UP_SIGNIN }), arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) }) });
+  // Only the gated write is refused while the session is stale (reads are never gated).
+  const win = { fetch: (u, init) => {
+    const url = typeof u === 'object' ? u.url : u;
+    const method = String((init && init.method) || (typeof u === 'object' && u.method) || 'GET');
+    return Promise.resolve(reply(url, !(refuse && method === 'POST' && url.endsWith('/api/agents'))));
+  } };
+  const doc = { getElementById: (id) => (id === 'stepup-ask' ? box : id === 'stepup-words' ? words : null) };
+  vm.runInNewContext(liftAll(SCRIPT, ['requestMethod', 'writeRequest', 'requestKey', 'hideStepUpAsk', 'sameOriginReply', 'showStepUpAsk']) + '\n' + iife,
+    { window: win, document: doc, URL, setTimeout, location: { href: 'http://board.test/', origin: 'http://board.test' } });
+  await win.fetch('/api/agents', { method: 'POST' });   // refused: the ask shows, remembering POST /api/agents
   await new Promise((r) => setImmediate(r));
+  assert.equal(box.hidden, false, 'the refusal did not show the ask (the arm under test never ran)');
+  await win.fetch('/api/streak', { method: 'POST' });   // an ungated write that a stale session gets through
+  assert.equal(box.hidden, false, 'an ungated write hid the ask though no fresh sign-in happened');
+  await win.fetch('/api/agents');                      // a read of the same path
+  assert.equal(box.hidden, false, 'a read hid the ask');
+  await win.fetch('https://other.kosmos.test/api/agents', { method: 'POST' });
+  assert.equal(box.hidden, false, 'another origin\'s write hid the ask');
+  refuse = false;
+  await win.fetch({ url: 'http://board.test/api/agents', method: 'POST' });   // the same write, as a Request, now through
+  assert.equal(box.hidden, true, 'the refused write got through and the ask stayed up');
 });
