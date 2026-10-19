@@ -46,11 +46,10 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the header says so.
 - **`tools.sbom-o05.test.js`:** 28 arms, all in-process with injected reads, a test key or small fixtures it makes
-  (tmpscope); the command line is run for its refusals and usage errors. Seventy-one mutants each fail an arm (nine
-  more after review 8: any extension under app/engine, app/web, app/assets; package.json not tied to the shipped
-  file; duplicate manifest paths; a fetch input set twice; a library fetched twice; a symlink in the bundle; the
-  workspace members read from a later table; a repeated flag; --out onto an input). One survives and is equivalent
-  (review 4's whitespace class, after the line split).
+  (tmpscope); the command line is run for its refusals and usage errors. Seventy-two mutants each fail an arm (the
+  three that guarded the removed download scan are gone; four more after review 9: inline comments stripped again,
+  fetch read only at a line start, the binary's own tmux version unchecked, --out compared as a string). One
+  survives and is equivalent (review 4's whitespace class, after the line split).
 - **The first-party claim is checked, not stated** (reviews 6 and 7): every path in the signed manifest's file list
   must be VERSION, bin/kosmos, runtime/bin/node, runtime/LICENSE, app/server.js, app/package.json, under app/engine/,
   app/web/ or app/assets/, a script (.sh, .js) or one of the two named binaries (kosmos-app, kosmos-tunnel) directly
@@ -63,12 +62,16 @@ real fix.
   no dependencies of any kind. The real 0.7.59 list (364 files) passes, and its SBOM is unchanged.
   LIMIT: a third-party file copied into a first-party place (a vendored script under app/web/) is not detectable from
   paths; it would need a content check, and none of today's files is one (review 5 read them).
-- **Other downloads in the tmux build refuse** (review 7): a curl, wget, git clone, fetch or submodule, or a bare
-  https address, anywhere outside the fetch() function's own body and the *_URL= settings. A fetch input set twice,
-  or a library fetched twice, refuses (review 8). LIMIT: this reads the script, it does not run it; a download by
-  another tool (python, rsync, brew, an ftp address) is not detected. The bundle's VERSION and lib/ checks are the
-  second line for anything that reaches the bundle.
-- **The bundle holds plain files and folders only** (review 8): a symlink or hard link refuses.
+- **The build script is read, not run, and supplies only source urls and hashes** (decided after review 9). Reviews
+  7 to 9 each found a new way past a static scan for other downloads (curl outside fetch(), then a # inside a string,
+  then a one-line fetch() definition widening the exempt region). A shell script cannot be fully read statically, so
+  the scan was removed rather than patched a fourth time: it was a guard that looked complete and was not. What
+  remains is exact: every non-comment line that calls fetch must be one call in the one known shape (only whole-line
+  comments are skipped), a *_URL nobody fetches refuses, a fetch input set twice or a library fetched twice refuses,
+  and a library the script fetches must be named by the bundle. WHAT SHIPS is decided by the bundle (its signed hash,
+  its VERSION, its lib/, plain files only), never by the script.
+- **The bundle holds plain files and folders only** (review 8): a symlink or hard link refuses (both have an arm).
+- **The binary's own version line** (`tmux: tmux 3.5a`) must equal the source it was built from (`tmux-src`).
 - **The connector and node are tied to shipped files:** the manifest must ship app/bin/kosmos-tunnel with the
   connector's signed sha256, and runtime/bin/node. Commits must be full shas, and the manifest must say `dirty: false`.
 - **The manifest's signature is verified** under the checkout's pinned keys (engine/manifest-verify.js) before
@@ -84,6 +87,10 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- A library linked statically into tmux and not recorded in the bundle's VERSION. Nothing in a built bundle shows
+  it; the build script records every input today (four, all in VERSION).
+- That the connector binary was built from the Cargo.lock at its recorded relay commit: the commit is the relay
+  build's own record (its sidecar); this tool does not rebuild the connector to check it.
 - Node's own bundled libraries (V8, OpenSSL and so on) are not listed one by one. Node is one component, matched
   through its version.
 - The Rust standard library compiled into the connector. The relay pins no toolchain, so no rustc version is recorded
