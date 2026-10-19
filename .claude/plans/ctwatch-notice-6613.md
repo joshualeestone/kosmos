@@ -25,7 +25,8 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
   and focus goes to the check's switch), and focus goes to that line. Rejected: dismissing only on close (Review is the person reading it).
 - Review captures the key it acted on before opening Kosmos+ (the repaint on the way there clears the notice's
   key); a page test models that repaint, and a mutant that reads the key afterwards turns it red.
-- A failed read of the board keeps the notice as it is (no blink); a tab in the background does not poll; on a phone the card keeps its small line.
+- A failed read of the board keeps the notice as it is (no blink); a tab in the background does not poll, and asks
+  at once when it comes back; a computer not set up for Kosmos+ is asked only every ten minutes; on a phone the card keeps its small line.
 - With the check switched off, the card still raises a finding (a switch never hides one) and says the check is off.
 - The notice's words carry `role="status"` and are filled after the card is inserted, the login notice's pattern
   (#3532); consistent with the stack, not separately measured with a screen reader. Owner of that measurement: April,
@@ -37,6 +38,8 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
   editing the tunnel's report (it is the tunnel's file, written atomically on its own schedule).
 - Weakest premise: the notice is per browser (localStorage); another browser shows it again. Accepted: it errs
   toward telling, and the request notice works the same way.
+- Got it uses a busy flag and `aria-busy`, not `disabled` (a disabled button drops focus); a refused Got it keeps focus
+  on it and says why.
 - After Got it, focus goes to the line when it still says something (a finding), else to the check's switch, and
   the pane says "Noted." (an empty status line is no place to land).
 - Not in this branch (still kosmos#6613's remaining notes): the Kosmos+-off path an agent can use to stop the check,
@@ -48,5 +51,5 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
   finding is raised away from Kosmos+ as the fixed warning, Review opens Kosmos+ and puts it away; a clear check
   raises nothing (the control). Its lost scenario: Got it shows with the lost sentence, posts the marker it was
   shown, then goes, the pane says Noted., and focus is on the switch.
-- `node --test engine/cert-watch.test.js` (13), `web.cert-notice-6613.test.js` (14), `web.plus-cert-watch-6602.test.js`
+- `node --test engine/cert-watch.test.js` (13), `web.cert-notice-6613.test.js` (15), `web.plus-cert-watch-6602.test.js`
   (9), the `server.test.js` route test (by name). Mutant: the dismissed-key check removed, 2 notice tests red.

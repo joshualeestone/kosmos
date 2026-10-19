@@ -200,12 +200,23 @@ test('Got it posts the marker it was shown, then says Noted. with focus on the s
   assert.ok(w.get('plus-cw-switch').focused, 'focus was left on nothing');
 });
 
-test('a refused Got it says why, and does not say Noted. (the control)', async () => {
+test('a refused Got it says why, does not say Noted. (the control), and keeps focus on Got it', async () => {
   const w = ackWorld({ ok: false, json: async () => ({ error: 'that report is no longer the one to acknowledge' }) });
   await w.get('plus-cw-ack').listeners.click();
   assert.ok(w.said.includes('that report is no longer the one to acknowledge'), JSON.stringify(w.said));
   assert.ok(!w.said.includes('Noted.'));
   assert.equal(w.get('plus-cw-ack').hidden, false);
+  assert.ok(w.get('plus-cw-ack').focused, 'focus left Got it');
+  assert.equal(w.get('plus-cw-ack').getAttribute('aria-busy'), null);
+});
+
+test('a computer not set up for Kosmos+ is asked again only after a while', async () => {
+  const { ctx } = noteWorld();
+  let asked = 0;
+  ctx.fetch = async () => { asked += 1; return { ok: true, json: async () => ({ enrolled: false }) }; };
+  await ctx.pollCwNote();
+  await ctx.pollCwNote();
+  assert.equal(asked, 1);
 });
 
 test('the markup carries the notice slot (first in the floating stack) and Got it', () => {
