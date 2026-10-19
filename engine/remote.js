@@ -193,7 +193,8 @@ function connectorCapabilities(now = Date.now()) {
   return capabilitiesSeen ? capabilitiesSeen.caps : new Set();
 }
 const capabilityLines = (out) => new Set(String(out || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
-/* The warm-up: asked once at board start, without blocking, so the first remote request finds the answer kept. */
+/* One ask of the connector, without blocking. Run when this board starts its tunnel (forgetConnectorCapabilities) and
+   when a kept answer is due again (connectorCapabilities); never at board start, and never while a request waits. */
 function warmConnectorCapabilities(done = () => {}) {
   // As the other connector spawns here: under the test runner, only a connector a test names is ever run.
   if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) { done(new Set()); return; }

@@ -70,8 +70,7 @@ creation need a fresh authenticator code. This is the step-up half.
   gated.)
 - **A local request is never asked:** the person is at the computer.
 - **The refusal says what to do** (sign out on the page and on the sign-in site, sign in again with the email code
-  and authenticator code, retry within 10 minutes; see the next section). The page shows the `error` it is given;
-  no page change in this branch.
+  and authenticator code, retry within 10 minutes; see the next section). The pages show the sentence (the update card since review iteration 19).
 
 ## The fresh sign-in must really be fresh (Renet, 12:54)
 The gate's sign-in ends in a handoff that keeps the SOURCE sign-in site session's issue time. So signing out of
