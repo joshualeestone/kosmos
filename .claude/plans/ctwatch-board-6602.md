@@ -23,7 +23,10 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
   its silence then is the person's own choice); a finding still is.
 - A finding is said even with the check switched off ("The check is off." added), so the switch never
   hides one. Only a finding: an unknown or lost state is not said while off.
-- The switch route is person-only (`isViaScreen`, 403 otherwise): an agent cannot turn the check off.
+- The switch route is person-only (`isViaScreen`, 403 otherwise): an agent cannot use this switch. It can
+  still stop the check another way, by turning Kosmos+ off (`PUT /api/remote`, which is not person-only),
+  and with Kosmos+ off the cannot-confirm sentences are quiet. A finding is still shown. Recorded for
+  kosmos#6613 with the other Kosmos+-off gaps.
 - A finding only for a previous address, and a lost (damaged) earlier report, each have their own
   sentence. Known gap: the tunnel asks the board to acknowledge a lost report (it stays until a person
   has looked); this branch ships no acknowledge, so that sentence stays until the state dir changes. Owner: kosmos#6613.
