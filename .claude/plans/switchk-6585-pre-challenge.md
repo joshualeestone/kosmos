@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: switchk-6585
-diff_hash: fc173e04649ec0dce6af3bc2b9b56d8d1b89201374432f3e0b21526e880f4243
+diff_hash: 332b7138eb5a264a6bd00acbfa05b8bb6e7ec36fefe76fb277bb24f243201abd
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-19T15:27:08Z
-iterations: 4
+timestamp: 2026-10-19T16:14:13Z
+iterations: 5
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 4
+**Iterations:** 5
 **Converged:** Yes
 **Total findings:** 21 (0 BLOCKERs, 10 WARNINGs, 2 CONVENTIONs, 9 NITs)
 **Fixed:** 9 | **Deferred:** 5 | **Asked (awaiting user):** 0
@@ -63,6 +63,12 @@ Validation note, stated plainly: 6.0's baseline run and iteration 1's 6g run wer
 **Duplicates:** 1 (plan name, deferred in iteration 2)
 **Converged** - no new actionable findings.
 
+#### Iteration 5 (after CI)
+**Reviewer model:** sonnet
+CI's browser-checks on Linux chromium found the switching screen short of the right edge by the page scrollbar gutter (covers: false). Fix 0604226d0a: one CSS rule adding #cswitch-screen to the html:has(...) { overflow: hidden; scrollbar-gutter: auto } rule the update overlay and first-run use. A fresh blind review of the whole diff after the fix: 0 BLOCKERs; 2 WARNINGs, both duplicates (the weakest premise, deferred in iteration 3; and a probe-per-open note the reviewer judged fine); 2 NITs.
+**Validation on this HEAD:** web.* suite 3051/3051. The full suite PASSED on 32f127b4cd (22166, 0 fail); the only change since is the one CSS rule above. CI on Linux is the check that measures the fix.
+**Converged** - no new actionable findings.
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
@@ -77,6 +83,7 @@ Validation note, stated plainly: 6.0's baseline run and iteration 1's 6g run wer
 | 8 | 3 | WARNING | web/index.html:30884 | BRANCH | toast too short | FIXED | 32f127b4cd |
 | 9 | 3 | WARNING | native-app/main.swift | BRANCH | go-home keyed on an unmeasured navigation type | FIXED | 32f127b4cd |
 | 10 | 3 | WARNING | web/index.html:30880 | BRANCH | home row refusable | DEFERRED | one bundle |
+| 12 | CI | WARNING | web/index.html (gutter) | BRANCH | switching screen short of the edge on classic scrollbars | FIXED | 0604226d0a |
 | 11 | 3 | CONVENTION | .claude/plans/switchk-6585.md:41 | BRANCH | wrong test count | FIXED | 32f127b4cd |
 
 ### NITs (non-blocking, across all iterations)
