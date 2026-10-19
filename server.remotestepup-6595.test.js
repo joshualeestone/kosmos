@@ -39,17 +39,26 @@ const now = () => Math.floor(Date.now() / 1000);
 const PAGE = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' };
 const VIA_PLUS = { ...PAGE, 'x-forwarded-host': 'hers.kosmos.invalid', 'x-forwarded-for': '203.0.113.9' };
 const fresh = () => ({ 'x-kosmos-session-iat': String(now() - 30), 'x-kosmos-session-second': '1' });
-const post = async (route, headers, raw) => {
-  const res = await fetch(base + route, { method: 'POST', headers, body: raw === undefined ? '{}' : raw });
+const post = async (route, headers, raw, method = 'POST') => {
+  const res = await fetch(base + route, { method, headers, body: raw === undefined ? '{}' : raw });
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 
 const STEP_UP_ROUTES = [
-  '/api/update', '/api/update/rollback', '/api/connect/start',
+  '/api/update', '/api/update/rollback', '/api/connect/start', '/api/antigravity/install', '/api/muse/install',
   '/api/accounts/openai', '/api/accounts/claude/apikey', '/api/accounts/gemini/apikey', '/api/accounts/grok/apikey',
   '/api/accounts/qwen', '/api/cloudflare/token', '/api/svc/brave-search/token',
-  '/api/agents', '/api/team', '/api/connect-agent',
+  '/api/accounts/openai/subscription/start', '/api/accounts/grok/subscription/start', '/api/antigravity/signin',
+  '/api/antigravity/win32signin', '/api/muse/signin', '/api/muse/signin/retry', '/api/github/start',
+  '/api/github-device/start', '/api/vercel/start',
+  '/api/agents', '/api/team', '/api/connect-agent', '/api/worlds', '/api/worlds/import',
 ];
+
+test('R01: PUT /api/autoupdate (turning automatic updates on) from a stale remote session is refused', async () => {
+  const got = await post('/api/autoupdate', VIA_PLUS, '{"enabled":true}', 'PUT');
+  assert.equal(got.status, 403, JSON.stringify(got.body));
+  assert.deepEqual(got.body, { ...REMOTE_STEP_UP });
+});
 
 for (const route of STEP_UP_ROUTES) {
   test(`R01: ${route} from a remote session with no fresh sign-in is refused with remote_step_up`, async () => {
@@ -84,6 +93,8 @@ test('R01: taking things away is not gated (forget a token, sign a provider out)
   assert.equal(needsRemoteStepUp('/api/accounts', 'GET'), false);
   assert.equal(needsRemoteStepUp('/api/update/check', 'POST'), false, 'checking for an update changes nothing');
   for (const route of STEP_UP_ROUTES) assert.equal(needsRemoteStepUp(route, 'POST'), true, route);
+  assert.equal(needsRemoteStepUp('/api/autoupdate', 'PUT'), true);
+  assert.equal(needsRemoteStepUp('/api/autoupdate', 'GET'), false);
   assert.equal(needsRemoteStepUp('/api/svc/brave-search/token', 'GET'), false, 'only POST enters a token');
 });
 
@@ -114,4 +125,39 @@ test('R01: the gate passes update and agent creation for a fresh remote session 
     assert.equal(remoteStepUpRefusal(req(VIA_PLUS), route, t), REMOTE_STEP_UP, route + ' stale remote');
   }
   assert.equal(remoteStepUpRefusal(req(VIA_PLUS), '/api/agents/x/messages', t), null, 'an ungated route is never asked');
+});
+
+/* The guard that keeps the list honest (review iteration 1): every POST or PUT route in server.js that looks like it
+   takes a key, a token or a sign-in, installs or updates, or makes an agent, is either gated or exempt here with its
+   reason. A new such route that forgets the gate turns this red. And every gated route is a real route, so a rename
+   cannot leave the gate guarding a path nothing serves. */
+const EXEMPT = {
+  'POST /api/agent-import': 'parses a file into instructions; the create it feeds is gated (and it is loopback-only)',
+  'POST /api/agent-import-file': 'parses a file; the create it feeds is gated',
+  'POST /api/agent-import-folder': 'parses a folder; the create it feeds is gated',
+  'POST /api/agent-token': 'refused remotely outright (remote_not_allowed, remotemark-6595)',
+  'POST /api/disconnect-agent': 'takes an agent away',
+  'POST /api/update/check': 'asks whether an update exists; changes nothing',
+  'POST /api/remote/company/start': "this computer's own company enrolment (remotemark-6595's exclusions)",
+  'POST /api/remote/signin-cancel': "this computer's own Kosmos+ sign-in steps",
+  'POST /api/remote/signin-confirm-enrol': "this computer's own Kosmos+ sign-in steps",
+  'POST /api/remote/signin-enrol': "this computer's own Kosmos+ sign-in steps",
+  'POST /api/remote/signin-register': "this computer's own sign-in, with a secret the remote side never sees",
+  'POST /api/remote/signin-second': "this computer's own Kosmos+ sign-in steps",
+  'POST /api/remote/signin-start': "this computer's own Kosmos+ sign-in steps",
+  'POST /api/remote/signin-verify': "this computer's own Kosmos+ sign-in steps",
+};
+const LOOKS_GATED = /(install|apikey|token|subscription\/start|signin|\/start$|import|^\/api\/worlds$|^\/api\/agents$|^\/api\/team$|connect-agent|update)/;
+test('R01: every key, sign-in, install, update or create route is gated or exempt with a reason, and every gated route exists', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const routes = [...src.matchAll(/pathname === '(\/api\/[^']*)' && req\.method === '(POST|PUT)'/g)].map((m) => m[2] + ' ' + m[1]);
+  assert.ok(routes.length > 100, 'the route scan found ' + routes.length + ' routes, so it is not reading server.js');
+  const looks = routes.filter((r) => LOOKS_GATED.test(r.split(' ')[1]));
+  assert.ok(looks.includes('POST /api/agents') && looks.includes('POST /api/update'), 'CONTROL: the scan sees known routes');
+  const missing = looks.filter((r) => { const [m, p] = r.split(' '); return !needsRemoteStepUp(p, m) && !EXEMPT[r]; });
+  assert.deepEqual(missing, [], 'routes that look like keys, installs, updates or creates but are neither gated nor exempt');
+  for (const route of STEP_UP_ROUTES) {
+    assert.ok(src.includes("'" + route + "'") || route.startsWith('/api/svc/'), route + ' is gated but server.js serves no such path');
+  }
+  for (const r of Object.keys(EXEMPT)) assert.ok(routes.includes(r), 'exempt ' + r + ' is not a route any more');
 });

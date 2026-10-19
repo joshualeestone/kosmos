@@ -4297,10 +4297,17 @@ function remoteSessionFresh(headers, nowSecs) {
   return age >= -60 && age <= REMOTE_STEP_UP_SECS;
 }
 const REMOTE_STEP_UP_EXACT = new Set([
-  'POST /api/update', 'POST /api/update/rollback', 'POST /api/connect/start',
+  // Updating, and anything that downloads and runs software here.
+  'POST /api/update', 'POST /api/update/rollback', 'PUT /api/autoupdate', 'POST /api/connect/start',
+  'POST /api/antigravity/install', 'POST /api/muse/install',
+  // A key, a token, or a sign-in that leaves a provider's or a service's credential on this computer.
   'POST /api/accounts/openai', 'POST /api/accounts/claude/apikey', 'POST /api/accounts/gemini/apikey',
   'POST /api/accounts/grok/apikey', 'POST /api/accounts/qwen', 'POST /api/cloudflare/token',
-  'POST /api/agents', 'POST /api/team', 'POST /api/connect-agent',
+  'POST /api/accounts/openai/subscription/start', 'POST /api/accounts/grok/subscription/start',
+  'POST /api/antigravity/signin', 'POST /api/antigravity/win32signin', 'POST /api/muse/signin',
+  'POST /api/muse/signin/retry', 'POST /api/github/start', 'POST /api/github-device/start', 'POST /api/vercel/start',
+  // Making an agent, including by copying one in with another Kosmos (which starts it at once).
+  'POST /api/agents', 'POST /api/team', 'POST /api/connect-agent', 'POST /api/worlds', 'POST /api/worlds/import',
 ]);
 function needsRemoteStepUp(pathname, method) {
   if (REMOTE_STEP_UP_EXACT.has(method + ' ' + pathname)) return true;
@@ -4308,7 +4315,7 @@ function needsRemoteStepUp(pathname, method) {
 }
 const REMOTE_STEP_UP = Object.freeze({
   code: 'remote_step_up',
-  error: 'From a remote session this needs a fresh sign-in: sign out of Kosmos+ on this page, sign in again with your authenticator code, then try again within 10 minutes.',
+  error: 'From a remote session this needs a fresh sign-in. Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, sign in again with your email code and authenticator code, then try again within 10 minutes.',
 });
 /* The refusal for this request, or null. One place, before any route reads a body. */
 function remoteStepUpRefusal(req, pathname, nowSecs) {
