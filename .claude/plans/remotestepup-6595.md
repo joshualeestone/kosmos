@@ -111,15 +111,6 @@ set none of the forwarding headers, it would read as local and never be asked (R
   tunnel ties them, but a tunnel process that outlives a board restart after an update would be described by the new
   binary. Owner PigeonPete with Renet, in #6616 (R01b): the running tunnel reports its capabilities (its status
   file), and the board reads that instead.
-- (History, superseded by the line above; no longer an instruction) MERGE ORDER (review iteration 3; an earlier version of this line had it backwards).
-  A tunnel older than sessioniat-6595 passes client headers through, so behind it a remote browser can send both
-  headers itself and pass the gate. The board cannot tell the tunnel's age. What protects it: the tunnel rides in the
-  same bundle (an update swaps app/ whole), and a cut refuses a tunnel behind relay main
-  (tools/lib/connector-currency.sh, unless KOSMOS_ALLOW_STALE_TUNNEL=1). So this branch merges only after
-  sessioniat-6595 is on relay main, and never into a cut that sets the stale-tunnel override. The PR is opened with
-  a do-not-merge label naming that dependency. A runtime check (the board asks its bundled tunnel whether it
-  strips the headers, and trusts them only if so) would make it mechanical; it is proposed for #6616 (R01b). Before then, the gate is
-  forgeable, which is no worse than today (no gate at all). Recorded on #6595.
 - A sign-in session stored before sessioniat-6595 sends no headers, so those people are asked once and their next
   sign-in carries both (Renet's contract).
 - A remote session can still ask an agent here to do these things; an agent's own request arrives without

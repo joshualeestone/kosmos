@@ -4354,7 +4354,7 @@ function needsRemoteStepUp(pathname, method) {
 }
 const REMOTE_STEP_UP = Object.freeze({
   code: 'remote_step_up',
-  error: 'From a remote session this needs a fresh sign-in. Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, sign in again with your email code and authenticator code, then try again within 10 minutes.',
+  error: 'From a remote session this needs a fresh sign-in. Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, sign in again with your email code and authenticator code, then try again within 10 minutes. Not using Kosmos+? Do this at the computer itself.',
 });
 /* A sign-in that the gate says happened more than a minute AHEAD of this clock: signing in again cannot help, the
    clocks disagree, so it is told apart (review iteration 8). */

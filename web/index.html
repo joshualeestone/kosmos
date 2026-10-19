@@ -23839,6 +23839,7 @@ async function updCheckNowClick() {
   line.textContent = (LAST_VERSION ? 'Kosmos ' + LAST_VERSION + '. ' : 'Kosmos. ') + 'Checking.';
   btn.disabled = true;
   let out = null;
+  let stepUpSays = '';   // kosmos#6595: the board's own words when a remote session needs a fresh sign-in
   try {
     // A hang would otherwise lock the card at Checking with the recovery
     // button disabled (UPD_CHECKING stands off every poll paint); ten
@@ -23853,7 +23854,6 @@ async function updCheckNowClick() {
     // so the whole round trip resolves within ten seconds either way.
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 10000);
-    var stepUpSays = '';
     try {
       const res = await fetch('/api/update/check', { method: 'POST', signal: ctl.signal });
       // A non-ok answer is the BOARD failing, not the release host: parsing
@@ -23873,7 +23873,7 @@ async function updCheckNowClick() {
     // The BOARD did not answer (restarting, or the page is orphaned).
     // Naming the update server here would blame the wrong leg, and
     // clearing the toast on our own failure could eat a valid offer.
-    line.textContent = (typeof stepUpSays === 'string' && stepUpSays) ? stepUpSays
+    line.textContent = stepUpSays ? stepUpSays
       : (LAST_VERSION ? 'Kosmos ' + LAST_VERSION + '. ' : 'Kosmos. ') + 'Could not check just now.';
     btn.textContent = 'Try again';
     btn.dataset.act = 'check';
