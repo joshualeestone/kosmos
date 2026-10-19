@@ -209,8 +209,16 @@ test('#5531 review 9: the stopped note is shown to the screen once; org_bad_worl
   fs.writeFileSync(path.join(store.ROOT, 'org-stopped.json'), JSON.stringify({ at: '2026-10-07T00:00:00.000Z', name: 'Acme' }));
   const first = await call('/api/org', { method: 'GET', headers: SCREEN });
   assert.equal(first.json.stoppedFor, 'Acme');
+  assert.equal(first.json.stoppedKind, 'company', '#6567: a note from before kinds were kept reads as a company\'s');
   const second = await call('/api/org', { method: 'GET', headers: SCREEN });
   assert.equal(second.json.stoppedFor, null, 'the stopped note came back on every visit');
+  assert.equal('stoppedKind' in second.json, false, '#6567: stoppedKind is sent only beside a stopped note');
+  // #6567: a family's note carries its kind to the screen, which says it in the family's words.
+  fs.writeFileSync(path.join(store.ROOT, 'org-stopped.json'), JSON.stringify({ at: '2026-10-07T00:00:00.000Z', name: 'The Riveras', kind: 'family' }));
+  const fam = await call('/api/org', { method: 'GET', headers: SCREEN });
+  assert.equal(fam.json.stoppedFor, 'The Riveras');
+  assert.equal(fam.json.stoppedKind, 'family');
+  await call('/api/org', { method: 'GET', headers: SCREEN });   // shown once: the note is used up, as above
 
   const remote = require('./engine/remote');
   const orig = remote.macRequest;
