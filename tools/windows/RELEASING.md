@@ -94,7 +94,14 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    the version prod names. Windows builds are x64 and versions are x.y.z; nothing else is accepted.
 
 3. **Verify** the staged build on this PC. This writes the verification record that the promote
-   requires.
+   requires. First prove the launcher in it came from its source (#6512): the build's own check reads
+   only the order of commits, and CI does not compare the bytes.
+
+   ```
+   powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows\verify-launcher.ps1
+   ```
+
+   It must end `OK:`. Then:
 
    ```
    node tools/win-staging-verify.js

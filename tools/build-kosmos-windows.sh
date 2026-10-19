@@ -365,12 +365,17 @@ if [ "$(git -C "$REPO" rev-parse --is-shallow-repository 2>/dev/null)" = "false"
   LAUNCHER_EXE_AT="$(git -C "$REPO" log -1 --format=%H -- tools/windows/Kosmos.exe 2>/dev/null || true)"
 fi
 if [ -n "$LAUNCHER_SRC_AT" ] && [ -n "$LAUNCHER_EXE_AT" ]; then
-  git -C "$REPO" merge-base --is-ancestor "$LAUNCHER_SRC_AT" "$LAUNCHER_EXE_AT" || {
+  LAUNCHER_ORDER=0
+  git -C "$REPO" merge-base --is-ancestor "$LAUNCHER_SRC_AT" "$LAUNCHER_EXE_AT" || LAUNCHER_ORDER=$?
+  if [ "$LAUNCHER_ORDER" = 1 ]; then
     echo "tools/windows/Kosmos.exe is older than what it is built from ($LAUNCHER_INPUTS):" >&2
     echo "they changed in $LAUNCHER_SRC_AT, after the exe's last rebuild in $LAUNCHER_EXE_AT." >&2
     echo "Rebuild and re-sign Kosmos.exe on the Windows box (tools/windows/README.md), and commit it." >&2
     exit 1
-  }
+  elif [ "$LAUNCHER_ORDER" != 0 ]; then
+    echo "git could not compare the launcher's commits (merge-base exit $LAUNCHER_ORDER), so the cut stops here (#6512)." >&2
+    exit 1
+  fi
 else
   echo "note: no full git history for the launcher here, so its source-vs-exe order is not checked (#6512)" >&2
 fi

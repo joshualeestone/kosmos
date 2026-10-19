@@ -3616,7 +3616,9 @@ class BoardWindowForm : System.Windows.Forms.Form
     // the window signs itself in again the way a second double-click of Kosmos.exe does (SignInAgain: a fresh
     // ?boot= address from open-board.js, which checks the board before it uses the token, #1765), as the Mac app
     // answers kosmosSignin, and back on `page`, the board page that said so (SignInAgainAddress). Paced and capped by
-    // SignInAgainDecision, so a sign-in that does not take never reloads the window in a loop. Giving up changes
+    // SignInAgainDecision, so a sign-in that does not take never reloads the window in a loop. The reload is the
+    // double-click's accepted cost, here with nobody asking: text typed and not sent is lost, as on the Mac, and a
+    // signed-out page could not have sent it anyway. Giving up changes
     // nothing on screen: the page's Windows signed-out panel already says to open Kosmos.exe again, which still signs
     // in (the launcher keeps no log to note it in). A connect computer has no board here to sign in to.
     void PageSaysSignedOut(string page)

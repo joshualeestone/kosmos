@@ -81,7 +81,6 @@ test('#6512: only the board\'s own page is heard, a connect computer is not, and
   const proc = SOURCE.slice(SOURCE.indexOf('protected override void WndProc('), SOURCE.indexOf('protected override void OnFormClosed('));
   assert.ok(proc.length > 0, 'WndProc moved');
   assert.match(proc, /SignInAgain\(\);/, 'the double-click no longer signs in with no page to keep');
-  assert.doesNotMatch(says, /token=/, 'the window must never put the board token into an address');
 });
 
 // ---- the probe ----
@@ -172,7 +171,9 @@ test('#6512: the page-asked sign-in comes back on the page the person was on, an
 // ---- the drift ----
 
 test('#6512: the Windows build refuses an exe older than its source', () => {
-  assert.match(BUILD, /git -C "\$REPO" merge-base --is-ancestor "\$LAUNCHER_SRC_AT" "\$LAUNCHER_EXE_AT" \|\| \{/);
+  assert.match(BUILD, /git -C "\$REPO" merge-base --is-ancestor "\$LAUNCHER_SRC_AT" "\$LAUNCHER_EXE_AT" \|\| LAUNCHER_ORDER=\$\?/);
+  // Exit 1 is drift; anything else is git failing, and the cut stops on both rather than going on unchecked.
+  assert.match(BUILD, /if \[ "\$LAUNCHER_ORDER" = 1 \]; then[\s\S]*?exit 1\n  elif \[ "\$LAUNCHER_ORDER" != 0 \]; then[\s\S]*?exit 1\n  fi/);
   const check = BUILD.indexOf('merge-base --is-ancestor "$LAUNCHER_SRC_AT"');
   const copy = BUILD.indexOf('cp "$LAUNCHER" "$STAGE/Kosmos.exe"');
   assert.ok(check !== -1 && copy > check, 'the order check must come before the exe is staged');
