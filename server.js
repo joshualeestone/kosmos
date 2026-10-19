@@ -17987,7 +17987,7 @@ const server = http.createServer(async (req, res) => {
            * contains the answered one's, and `includes` called that the same
            * question. Measured end to end through the real producers: buttons
            * drawn for "Do you want to proceed?", the pane redrew to `rm -rf
-           * /Users/example/build` above the same Yes/No menu, both 409s passed,
+           * /Users/<user>/build` above the same Yes/No menu, both 409s passed,
            * and "1" went through.
            *
            * The cursor problem is fixed where it belongs -- `questionAbove` now

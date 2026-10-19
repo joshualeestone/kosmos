@@ -107,9 +107,17 @@ stage; printf '// see /Users/joXhnnx/work\n' >> "$T/s/app/server.js"
 if home_path_gate_tree "$T/s" "/Users/jo.hn+x" 2>/dev/null; then pass "its dot and plus are not wildcards (/Users/joXhnnx is not a hit for /Users/jo.hn+x)"
 else fail "a home's dot and plus must not act as a pattern"; fi
 
+stage
+if ( HOME="$H"; home_path_gate_tree "$T/s" ) 2>/dev/null; then pass "CONTROL: with no home given, a clean stage passes under \$HOME"
+else fail "with no home given and a usable \$HOME, a clean stage must pass (the default arm below would be vacuous)"; fi
 stage; printf '// %s/x\n' "$H" >> "$T/s/app/server.js"
-if ! ( HOME="$H"; home_path_gate_tree "$T/s" ) 2>/dev/null; then pass "with no home given, \$HOME is used and the hit is found (the build's own call)"
-else fail "the default \$HOME must be used when no home is given"; fi
+out="$( ( HOME="$H"; home_path_gate_tree "$T/s" ) 2>&1 )"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | /usr/bin/grep -qF "app/server.js"; then pass "with no home given, \$HOME is used and the hit is found and named (the build's own call)"
+else fail "the default \$HOME must find and name the hit (rc=$rc): $out"; fi
+
+stage; printf 'HOME=%s\n' "$H" >> "$T/s/app/server.js"
+if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "the home at the very end of a line is refused"
+else fail "the home at the end of a line must be refused"; fi
 
 stage; ln -s /nonexistent/elsewhere "$T/s/app/lnk"
 if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a symlink in the stage is refused (grep -r would not read through it)"

@@ -5,7 +5,8 @@
 # Two checks over the stage (the upstream Node runtime is skipped: it is not ours to rebuild):
 #   1. every file under app/ and bin/, read as bytes (binary or text), for THIS build user's home folder, ending at
 #      anything that cannot continue a folder name (so /Users/sam is caught in `path.relative('/Users/sam', p)` but
-#      /Users/samantha is not a hit for /Users/sam), in any case (macOS volumes ignore case);
+#      /Users/samantha is not a hit for /Users/sam), in any case (macOS volumes ignore case). Known gap: a home
+#      followed by a period, as at the end of a sentence, is not a hit, because a period can continue a folder name;
 #   2. every compiled (Mach-O) file directly in app/bin/ and the app's Contents/MacOS/, for ANY account's build folders
 #      (/Users/<name>/.cargo/, .rustup/ or work/), because the connector may be built on another Mac and copied in.
 # A home it cannot use (empty, relative, the root or one component), a missing app/ or bin/, or a file it cannot

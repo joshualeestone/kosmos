@@ -19,15 +19,17 @@ email. The connector half is kosmos-relay remap-6549 (the build remaps those pat
 - package.json test:shell runs the new test (review 1: tools.every-test-runs refused it as an orphan).
 - Comments: the places in shipped files (server.js, web/index.html, engine/*.js, bin/) that named real people, the
   build Macs' accounts, or the build Mac's host name (Agent1s, 11 comments) now use placeholders no Mac would have as
-  an account (`example`, `exampleuser`, `example-person`; review 2: real-looking names like sam or alex would make
-  this gate refuse a build Mac that has one), `<user>` where the comment records a measurement (a made-up name there
+  an account (`example`, `exampleuser`, `example-person`; review 2), so the names this change writes cannot make the gate
+  refuse a build Mac that has one (older placeholders such as /Users/alice and /Users/pat still ship and would refuse a
+  Mac with those accounts; neither build Mac has one), `<user>` where the comment records a measurement (a made-up name there
   would falsify the record), or "a build Mac". One example was also wrong: `/Users/agentine` does not start with
   `/Users/agent1`; `/Users/exampleuser` does start with `/Users/example`.
 
 ## Test
 tools/test-home-path-gate-6549.sh (fake stage and fake home), run by package.json test:shell. CONTROL a clean stage
 passes. Refused: a binary or a comment naming the home; the home followed by a quote or a NUL; in another case; given
-with trailing slashes; found through the default $HOME (the build's own call); a home with a dot and a plus found
+with trailing slashes; found AND NAMED through the default $HOME (the build's own call; CONTROL a clean stage passes
+under it); at the very end of a line; a home with a dot and a plus found
 literally; another account's .cargo/ or work/ in a compiled file (64-bit and universal headers); an unreadable file;
 a symlink; an unusable home (empty $HOME, `/`, `//`, `/Users`, `/Users/`, relative); no app/ or no bin/. Not refused:
 runtime/; `/Users/zz-builderother`; `/Users/joXhnnx` for `/Users/jo.hn+x` (no wildcards); a made-up build folder in

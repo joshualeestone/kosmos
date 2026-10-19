@@ -27417,8 +27417,8 @@ function accountQualifiers(list) {
       if (!qual || String(qual).toLowerCase() === 'main' || takenAlready(qual)) {
         /* 🔑 #2612: THE PROVIDER BEFORE THE PATH. A second default has no label
            (`list()` sets `label: null` for a default), so it fell straight to
-           `dir` and the screen read "Sign in again as sam@example.com
-           (/Users/example/.codex)". `dir` is correct and unique; a filesystem path
+           `dir` and the screen read "Sign in again as <email>
+           (/Users/<user>/.codex)". `dir` is correct and unique; a filesystem path
            is a poor thing to announce to a screen reader. Defaults differ BY
            provider, which makes the provider the natural disambiguator here.
            ⚠️ AN UNKNOWN PROVIDER FALLS THROUGH TO `dir` RATHER THAN GUESSING.
