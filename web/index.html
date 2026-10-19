@@ -1292,7 +1292,7 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    screen to size into (195 px wide on a phone, measured by its browser check). */
 .stepup-ask a.btn { text-decoration: none; }
 .stepup-ask { position: fixed; left: 16px; right: 16px; bottom: 24px; margin: 0 auto; width: fit-content; z-index: 80;
-  max-width: 560px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  max-width: 560px; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   padding: 10px 12px; border-radius: 11px; background: var(--bg-elevated); border: 1px solid var(--label-2);
   box-shadow: 0 6px 22px rgba(20,22,26,.13); }
 body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display: none !important; }
@@ -20153,6 +20153,8 @@ window.kosmosMeasureScrollbarWidth();
           if (res.status === 403 && sameOriginReply(res)) copy.json().then(showStepUpAsk).catch(() => {});   // declared below; called later
           else copy.arrayBuffer().catch(() => {});
         } catch { /* the caller's own read is unaffected */ }
+      } else if (res && res.ok && writeRequest(args) && sameOriginReply(res)) {
+        hideStepUpAsk();   // kosmos#6616 review 8: a write that got through means the fresh sign-in took, so the ask goes
       }
       return res;
     });
@@ -20163,6 +20165,16 @@ window.kosmosMeasureScrollbarWidth();
    page that asked still shows the refusal its own way; this adds the one button. The words are the server's own
    sentence for that code, and the link's address is fixed in the markup. Not now closes it until the next such
    refusal; the sentence carries its own fallback, so it still reads right with the ask closed. */
+/* A writing request (POST, PUT, PATCH, DELETE): the step-up gates only writes, so only one of those can show it is met. */
+function writeRequest(args) {
+  const init = args[1] || {};
+  const method = String(init.method || (args[0] && typeof args[0] === 'object' && args[0].method) || 'GET').toUpperCase();
+  return method !== 'GET' && method !== 'HEAD';
+}
+function hideStepUpAsk() {
+  const box = document.getElementById('stepup-ask');
+  if (box) box.hidden = true;
+}
 function sameOriginReply(res) {
   try { return new URL(res.url, location.href).origin === location.origin; } catch { return false; }
 }
@@ -20178,7 +20190,7 @@ function showStepUpAsk(body) {
   setTimeout(() => { words.textContent = body.error; }, 0);
 }
 document.addEventListener('click', (e) => {
-  if (e.target && e.target.closest && e.target.closest('#stepup-close')) document.getElementById('stepup-ask').hidden = true;
+  if (e.target && e.target.closest && e.target.closest('#stepup-close')) hideStepUpAsk();
 });
 
 /* ================= win32-board-copy: the platform copy layer =================
@@ -24145,6 +24157,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   // Same rule as the first-run overlay: everything behind it goes inert, so
   // the keyboard cannot operate the dying board through the backdrop. No
   // un-inert path is needed; every exit from this state is a reload.
+  // #6616: the Sign in again ask is made inert here too, on purpose: CSS hides it under this overlay (.stepup-ask).
   document.querySelectorAll('body > *:not(.upd-back)').forEach((el) => { el.inert = true; });
   back.querySelector('.upd-msg').focus();   // announced, and the keyboard is off the dying board
   /* The board goes down and comes back; reload on the way back up OR the
@@ -24651,6 +24664,7 @@ let BOARD_NO_ANSWER_SINCE = null;
 let RESTART_SCREEN_INERTED = [];
 let RESTART_SCREEN_WATCH = null;    // inerts anything added to <body> while the screen is up
 let RESTART_SCREEN_RETURN = null;   // where focus was, to give it back on recovery
+// #6616: this inerts the Sign in again ask too, on purpose: CSS hides it under the restart screen (.stepup-ask).
 function restartScreenInert(el) {
   if (el.classList && el.classList.contains('restart-back')) return;
   if (!el.inert) { el.inert = true; RESTART_SCREEN_INERTED.push(el); }

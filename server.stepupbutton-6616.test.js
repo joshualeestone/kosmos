@@ -26,7 +26,7 @@ process.env.AGENT_WORKFORCE_TUNNEL_BIN = path.join(SANDBOX, 'no-connector');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR } = require('./server');
-const { scriptOf, lift } = require('./test-support/page');
+const { scriptOf, lift, liftAll } = require('./test-support/page');
 
 test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
@@ -127,6 +127,23 @@ test('R01b page: every refused fetch on the page reaches the ask (the one wrappe
   await new Promise((r) => setImmediate(r));
   process.off('unhandledRejection', onUnhandled);
   assert.equal(unhandled.length, 0, 'a 403 that is not JSON (a proxy page) left an unhandled rejection');
-  await new Promise((r) => setImmediate(r));
   assert.deepEqual(seen, [{ ...REMOTE_STEP_UP_SIGNIN }], 'a 403 did not reach the ask, or a non-403 or another origin\'s 403 did');
+});
+
+test('R01b page: a write that gets through hides the ask; a read, or another origin, does not', async () => {
+  const start = SCRIPT.indexOf('const nativeFetch = window.fetch;');
+  const iife = SCRIPT.slice(SCRIPT.lastIndexOf('(() => {', start), SCRIPT.indexOf('})();', start) + 5);
+  const box = { hidden: false };
+  const ok = (url) => ({ ok: true, status: 200, url, clone: () => ({}) });
+  const win = { fetch: (u) => Promise.resolve(ok(u === 'other' ? 'https://other.kosmos.test/x' : 'http://board.test/api/x')) };
+  const doc = { getElementById: (id) => (id === 'stepup-ask' ? box : null) };
+  vm.runInNewContext(liftAll(SCRIPT, ['writeRequest', 'hideStepUpAsk', 'sameOriginReply']) + '\n' + iife,
+    { window: win, document: doc, URL, location: { href: 'http://board.test/', origin: 'http://board.test' }, showStepUpAsk: () => {} });
+  await win.fetch('read');
+  assert.equal(box.hidden, false, 'a read hid the ask (reads are never gated, so they prove nothing)');
+  await win.fetch('other', { method: 'POST' });
+  assert.equal(box.hidden, false, 'another origin\'s write hid the ask');
+  await win.fetch('mine', { method: 'POST' });
+  assert.equal(box.hidden, true, 'a write that got through left the ask up');
+  await new Promise((r) => setImmediate(r));
 });
