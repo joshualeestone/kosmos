@@ -4061,6 +4061,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .bar i.warn { background: #d97528; }
 .bar i.high { background: #b3261e; }
 .bar.unknown { background: repeating-linear-gradient(90deg, rgba(20,22,26,.18) 0 3px, transparent 3px 8px); }
+/* #6515 (Mona's #6511 review): on a list row the dash already says the memory is unknown, so the empty dotted
+   track beside it is a second mark for one fact. Hidden, not removed: the track still holds the column's width,
+   so unknown rows line up with measured ones, and the markup the "never a guessed bar" guards read is unchanged.
+   The agent page's memory box draws the same track and keeps it. */
+.lmem .bar.unknown { visibility: hidden; }
 .pct { font: 600 .8125rem var(--k-mono);
        font-variant-numeric: tabular-nums; color: var(--k-ink-2);
        min-width: 2.4rem; text-align: right; }
@@ -22536,7 +22541,8 @@ function card(a) {
  * Both renderers read the same derivations (cardStOf/taskLine/modelLine/
  * roleLine/answerAttrs), so grid and list cannot disagree about an agent.
  * Memory here is a BAR (the row has no room for a ring); unknown memory is
- * the dashed bar with no number, never a guessed figure.
+ * a dash with no number, never a guessed figure (#6511), and its empty track
+ * is hidden but keeps its width (#6515).
  */
 /* #520, piece four: the rail row's ring and warning. Both are drawn into
    every list row and shown only in the consolidated view (the tabs' list
