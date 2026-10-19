@@ -46,7 +46,7 @@ test('a board running older engine code than the disk says so, and outranks both
   // #4408: plain words, no Terminal command (#996), no "running code from 9:59".
   assert.match(t.html, /Kosmos needs a quick restart/);
   assert.match(t.html, /A Kosmos file was changed on this computer, and Kosmos is still running the old copy\./);
-  assert.match(t.html, /Kosmos cannot restart itself here, so it keeps running the old copy until it is next started\. Your agents keep running\./);
+  assert.match(t.html, /Kosmos cannot restart itself here, so the change takes effect when it is next started\. Your agents keep running\./);
   assert.doesNotMatch(t.html, /restart your computer|Restarting your computer/i, 'a remedy that is false for the boards that reach this arm');
   assert.doesNotMatch(t.html, /kosmos restart|<code>|Terminal|changed on disk|running code from/i);
   assert.doesNotMatch(t.html, /ut-engine-restart/, 'a board that cannot restart itself offered a button that would fail');
@@ -65,7 +65,9 @@ test('#4408: a stale board that can restart itself offers ONE Restart Kosmos but
   assert.match(t.html, /<div class="uacts"><button type="button" class="uprime" id="ut-engine-restart">Restart Kosmos<\/button><\/div>/, "the button is the house gold action");
   // #4408: it names what changed and says it changed here (the tester's was an agent's edit, not an update).
   assert.match(t.html, /Kosmos files were changed on this computer \(engine\/roles\.js and 1 more\), and Kosmos is still running the old copy\./);
-  assert.match(t.html, /A restart picks it up\. Your agents keep running\./);
+  // #6536: "A restart picks it up." went; the title and the Restart Kosmos button say it.
+  assert.match(t.html, /still running the old copy\. Your agents keep running\./);
+  assert.doesNotMatch(t.html, /A restart picks it up/);
   assert.doesNotMatch(t.html, /finish updating/, 'it said "updating" about a file an agent edited');
   assert.doesNotMatch(t.html, /kosmos restart|<code>|Terminal/i);
   assert.equal(t.listeners.length, 1, 'the button is not wired');

@@ -23442,7 +23442,8 @@ async function engineRestartClick() {
          reason is what is announced, not a generic line replaced a moment later. */
       const moveHeld = r.status === 409 && out && out.moveStoppable && (small || title);
       said(moveHeld ? 'An account move is running, so Kosmos cannot restart yet' : 'Kosmos could not restart itself');
-      if (small) small.textContent = 'Kosmos could not restart itself, so it keeps running the old copy until it is next started.';
+      /* #6535: the title above already says it could not restart itself; this line adds only what follows. */
+      if (small) small.textContent = 'It keeps running the old copy until it is next started.';
       /* #6214: refused because an account move holds the board: say that instead, and offer to stop the move. At narrow
          widths the small line is hidden, so the title says it, and the stop's answer is written there. */
       if (moveHeld) {
@@ -23457,7 +23458,7 @@ async function engineRestartClick() {
     ENGINE_RESTARTING = false;
     if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
     said('Kosmos could not be reached');
-    if (small) small.textContent = 'Kosmos could not be reached to restart it. Try again in a moment.';
+    if (small) small.textContent = 'Try again in a moment.';   // #6535: the title says it could not be reached
     return;
   }
   /* Back when a board with a different start time answers; then the page itself reloads onto it. */
@@ -23472,7 +23473,7 @@ async function engineRestartClick() {
   ENGINE_RESTARTING = false;
   if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
   said('Kosmos is taking longer than it should');
-  if (small) small.textContent = 'Kosmos is taking longer than it should to come back. Try again in a moment.';
+  if (small) small.textContent = 'Try again in a moment.';   // #6535: the title says it is taking longer than it should
 }
 function renderUpdateToast(u) {
   const slot = document.getElementById('utoast-slot');
@@ -23505,12 +23506,13 @@ function renderUpdateToast(u) {
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt"><b>Kosmos needs a quick restart</b><small>'
       + what + ' '
-      + (can ? 'A restart picks it up. Your agents keep running.'
+      /* #6536: the title and the Restart Kosmos button already say a restart picks it up. */
+      + (can ? 'Your agents keep running.'
         /* A phone looking at a board that can restart itself: true, and where to do it. */
         : remote && ENGINE_STALE.canRestart === true ? 'Restart it from Kosmos on that computer to pick it up. Your agents keep running.'
         /* No remedy promised: this is a board that cannot restart itself, and which step would work
            (a sign-in, a login item, a hand start) depends on how it was started. */
-        : 'Kosmos cannot restart itself here, so it keeps running the old copy until it is next started. Your agents keep running.')
+        : 'Kosmos cannot restart itself here, so the change takes effect when it is next started. Your agents keep running.')
       + '</small></div>'
       + (can ? '<div class="uacts"><button type="button" class="uprime" id="ut-engine-restart">Restart Kosmos</button></div>' : '')
       + '</div>';
@@ -24044,8 +24046,8 @@ document.getElementById('uc-go').addEventListener('click', async () => {
      line; failed (the installer's OWN non-zero exit, matched to THIS
      press by its start stamp) and did-not-take (the board went away and
      came back on the old version) and the deadline each paint a true
-     sentence with Try again and Reload instead of a blind reload into
-     a toast that says update available; slow keeps waiting but says so.
+     sentence with Reload instead of a blind reload into
+     a toast that says update available (#6533: one Reload button); slow keeps waiting but says so.
      "It failed" is only ever the installer's word, never our guess. */
   const before = LAST_VERSION;
   const myStart = body && body.startedAt ? String(body.startedAt) : null;
@@ -24063,10 +24065,10 @@ document.getElementById('uc-go').addEventListener('click', async () => {
        become their own row. */
     msg.innerHTML = '<span>' + text + '</span>'
       + '<div class="frow" style="margin-top:12px;justify-content:center;">'
-      + '<button class="btn" type="button" id="upd-again">Reload and try again</button>'
       + '<button class="btn uprime" type="button" id="upd-reload">Reload</button></div>';
+    /* #6533: one Reload. A second button that also only reloaded said the same thing in more words; the reloaded
+       page offers Update again from its own chip. */
     msg.querySelector('#upd-reload').addEventListener('click', () => location.reload());
-    msg.querySelector('#upd-again').addEventListener('click', () => location.reload());
     msg.focus();
   };
   for (;;) {
@@ -24126,7 +24128,9 @@ function updateSettleText(verdict, versionNow, attempt, logAt, platform, rollbac
     if (onWindows(platform)) return '<b>The update did not take.</b>' + still + ' ' + windowsCopy('updateNothingChanged') + notes;
     return verdict === 'failed'
       ? '<b>The update did not take.</b>The installer ' + (attempt && attempt.code != null ? 'stopped (code ' + esc(String(attempt.code)) + ')' : 'could not be started') + '.' + still + updateRefusedText(attempt) + notes
-      : '<b>The update did not take.</b>Kosmos came back on the same version.' + still + notes;
+      /* #6533: "Kosmos is still on X." already says it came back on the same version, so that line went. It names
+         the version only when there is one, so with none the overlay stops at the bold line (plus any notes). */
+      : '<b>The update did not take.</b>' + still.replace(/^ /, '') + notes;
   }
   return '<b>This is taking longer than expected.</b>' + still.replace(/^ /, '') + ' '
     + platformCopy('updateSlowRemedy', 'If Kosmos does not come back on its own, open it again from Applications.', platform) + notes;
@@ -38807,15 +38811,24 @@ function deviceOffline() {
 }
 /* #718 state 2: what a phone or remote computer is told when the Mac behind Kosmos+ does not answer. */
 /* #5865: a Linux board is often a server: not asleep, but off or with Kosmos stopped, and the step is #5862's. Chosen at
-   load from the served platform meta, which is in <head> before this script runs. These four sentences call the
-   platform helpers (onLinux, hostMachine, hostMachineCap), so a test that lifts one needs page.PLATFORM_COPY_FNS. */
+   load from the served platform meta, which is in <head> before this script runs. The sentences here that call the
+   platform helpers (onLinux, hostMachine, hostMachineCap) need page.PLATFORM_COPY_FNS in a test that lifts one
+   (OFFLINE_SENTENCE no longer calls one, #6537). */
 const MAC_ASLEEP_SENTENCE = onLinux()   // per platform since #5865, the name kept for its callers
   ? 'It may be turned off, or Kosmos may have stopped on it. Make sure it is on, then run kosmos restart in a terminal on it, and this page asks again by itself. If it is running, check this phone or computer\'s own connection.'
   : 'It may be asleep or turned off. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If ' + hostMachine() + ' is on, check this phone or computer\'s own connection.';
-const OFFLINE_SENTENCE = 'This phone or computer is not connected to the internet, so it cannot reach ' + hostMachine() + '. The board tries again by itself when you are online again.';
+/* #6537: the top note (#uoffline-slot) already says "You are offline" and that this phone or computer is not connected,
+   and it goes up with these. Both places that set BOARD_DEVICE_OFFLINE true paint it in the same failure branch: the
+   status poll (tick's catch) and the projects poll (loadProjects' catch); every box that shows this sentence (the
+   agents card, the projects list and its one-project, add and settings notes, the org note, the add-agents box) reads
+   that flag. So the boxes say only what the note does not: that the board asks again by itself. One gap, new with this
+   change and accepted (the device is online then): a projects read that finds the device online takes the note down, and the agents card may keep this
+   shortened text until the next status poll repaints it. Under 720px the note's small line is hidden by the page
+   CSS, so a phone shows only its bold "You are offline". */
+const OFFLINE_SENTENCE = 'The board tries again by itself when you are online again.';
 function deviceOfflineHtml() {
   return '<div class="pj-empty boardfail">'
-    + '<p><b>You are offline.</b><br>' + OFFLINE_SENTENCE + '</p>'
+    + '<p>' + OFFLINE_SENTENCE + '</p>'
     + '<button class="btn" type="button" data-board-retry>Try again</button>'
     + '</div>';
 }
@@ -38925,9 +38938,9 @@ function boardEmpty() {
   if (BOARD_LOOK_FAILED) {
     return '<div class="pj-empty boardfail">'
       + '<p><b>We cannot read your agents right now.</b><br>'
-      + 'This is not the same as having none. Something on '
-      + (!onWindows() && kplusRemote() ? hostMachine() : 'this computer') // #718 state 2: through Kosmos+, "this computer" is the phone
-      + ' did not answer, so we are not telling you the board is empty. ('
+      /* #6538: "did not answer" is the top note's own news, and "not telling you the board is empty" repeated the
+         sentence before it, so that second sentence went. */
+      + 'This is not the same as having none. ('
       + esc(BOARD_LOOK_FAILED) + ')</p>'
       /* #274: the moment a person most needs to look for themselves is the
          moment `tmux ls` says "command not found", because Kosmos ships its
@@ -64547,6 +64560,14 @@ async function loadProjects() {
   let got403 = false; // #2023: did THIS read get a 403 (not-signed-in), specifically?
   let gotSignedOut = false; // #718 state 3: did THIS read get the relay's signed-out 401?
   let reached = false; // #718 state 1: did THIS read get any answer at all?
+  /* #6537: one rule for the top offline note, run once this read concludes with the device not offline (a readable
+     response, or a failed read while BOARD_DEVICE_OFFLINE is false): the device is online, so the offline note comes
+     down, whichever poll painted it. Only the offline note ('device'): a "not answering" note ('mac') belongs to the
+     status poll and is never cleared from here. dataset is checked too, since tests stub the slot without one. */
+  const offlineNoteDown = () => {
+    const offSlot = document.getElementById('uoffline-slot');
+    if (offSlot && offSlot.dataset && offSlot.dataset.on === 'device' && typeof paintOfflineNote === 'function') paintOfflineNote(false);
+  };
   // Returns whether THIS call's read is the one that landed (true on either
   // outcome, success or recorded failure; false when a newer call retired
   // it). Callers that branch on PJ_READ_FAILED right after awaiting need to
@@ -64606,6 +64627,7 @@ async function loadProjects() {
       const first = sortProjects(PROJECTS.filter((p) => !p.archived), PJ_SORT)[0];
       if (first) openProject(first.id);
     }
+    try { offlineNoteDown(); } catch (_) {}   // #6537: online, so the offline note comes down (the rule is at the top of this function); a paint error must not turn a good read into a failed one
     PJ_AGENTS_UNREADABLE = body.agentsUnreadable === true;
     PJ_READ_FAILED = false;
     BOARD_NEEDS_SIGNIN = false; BOARD_SIGNED_OUT = false; BOARD_DEVICE_OFFLINE = false; // #2023 / #718 states 3 and 1: a readable projects response means this device is online and authed.
@@ -64621,6 +64643,13 @@ async function loadProjects() {
     BOARD_NEEDS_SIGNIN = got403;
     BOARD_SIGNED_OUT = gotSignedOut;
     BOARD_DEVICE_OFFLINE = !reached && deviceOffline();   // #718 state 1
+    /* #6537: the boxes below say only that the board tries again (OFFLINE_SENTENCE); "You are offline" is the top
+       note's. A phone that goes offline and opens Projects before the next status poll reaches here first, so this
+       path paints the offline note when it finds the device offline. A failed read with the device online takes the
+       offline note down under the same rule as a readable one (offlineNoteDown), and a "not answering" note is never
+       painted or cleared from here; the status poll owns it. */
+    if (BOARD_DEVICE_OFFLINE) { try { paintOfflineNote(true, true); } catch { /* a paint never breaks the failure path */ } }
+    else offlineNoteDown();
     PJ_READ_FAILED = true;
     paintPjNone();
     // kosmos#5391 review 2: the header Pause / Resume goes inert while the projects cannot be read (it repaints on recovery).

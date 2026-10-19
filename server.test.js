@@ -7932,7 +7932,8 @@ test('paintAddAgents tells an offline device it is offline, and does not say the
       + 'const OFFLINE_SENTENCE = ' + JSON.stringify(pageConst('OFFLINE_SENTENCE')) + ';\n'
       + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = "Load failed"; let BOARD_NEEDS_SIGNIN = false; let BOARD_SIGNED_OUT = false;\n';
     pageFunction('paintAddAgents', base + 'let BOARD_DEVICE_OFFLINE = true;\n')();
-    assert.match(box.innerHTML, /not connected to the internet/i, 'an offline device got another copy: ' + box.innerHTML);
+    // #6537: the top note says it is offline; this box says only that the board asks again by itself.
+    assert.match(box.innerHTML, /The board tries again by itself when you are online again/, 'an offline device got another copy: ' + box.innerHTML);
     assert.ok(!/You can still add the project/i.test(box.innerHTML), 'it promised a project an offline device cannot create');
     assert.ok(!/cannot read the agents on this computer/i.test(box.innerHTML), 'the offline branch blamed the Mac');
     // CONTROL: the flag off with the same failed read is cannot-read.

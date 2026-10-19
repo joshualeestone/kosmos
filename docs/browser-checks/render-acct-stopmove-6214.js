@@ -166,7 +166,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         for (let el = slot; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; }
         slot.dataset.v = 'engine-btn';
         slot.innerHTML = '<div class="utoast stale" role="status"><span class="udot" aria-hidden="true"></span>'
-          + '<div class="utxt"><b>Kosmos needs a quick restart</b><small>A Kosmos file was changed, and Kosmos is still running the old copy. A restart picks it up.</small></div>'
+          + '<div class="utxt"><b>Kosmos needs a quick restart</b><small>A Kosmos file was changed, and Kosmos is still running the old copy. Your agents keep running.</small></div>'
           + '<div class="uacts"><button type="button" class="uprime" id="ut-engine-restart">Restart Kosmos</button></div></div>';
         document.getElementById('ut-engine-restart').addEventListener('click', () => engineRestartClick());
         const wait = async (pred, ms) => { const until = Date.now() + ms; while (Date.now() < until) { if (pred()) return true; await new Promise((x) => setTimeout(x, 30)); } return pred(); };

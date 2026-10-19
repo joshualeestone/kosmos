@@ -7,6 +7,10 @@
  * blames the Mac when the phone is what is offline. Now it says "You are offline", and asks again the moment the
  * phone is back online.
  *
+ * #6537: "You are offline" is said once, in the top note. The agents card and the projects list under it say only
+ * "The board tries again by itself when you are online again." (OFFLINE_CARD), and never repeat the top note.
+ * #6538: the cannot-read card no longer says which machine did not answer (when nothing answered, the top note does).
+ *
  * Harness: the real board, reached through remote.test (Chromium maps it to loopback and the board is told to accept
  * it, as render-plus-bar-3837 does), at phone width. The phone going offline is Playwright's network emulation, which
  * is what sets navigator.onLine false and fails every fetch.
@@ -48,6 +52,8 @@ function chk(ok, label, extra) {
   else { fail.push(label); console.log('FAIL  ' + label + (extra ? '  --  ' + extra : '')); }
 }
 const OFFLINE = /You are offline/;
+const OFFLINE_CARD = /The board tries again by itself when you are online again\./;   // #6537: what the page boxes keep
+const ANY_OFFLINE = /You are offline|tries again by itself when you are online/;
 const MAC_BLAMED = /not answering on this computer|Something on this computer did not answer/i;
 const read = (page) => page.evaluate(() => {
   const t = (id) => ((document.getElementById(id) || {}).textContent || '').replace(/\s+/g, ' ').trim();
@@ -81,11 +87,25 @@ const waitFor = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 9000
       chk(landed && !off.online, 'S1 offline: the top note says You are offline', off.note.slice(0, 140));
       chk(!MAC_BLAMED.test(off.note), 'S1 offline: the top note does not blame the Mac', off.note.slice(0, 140));
       chk(!/Applications folder/.test(off.note), 'S1 offline: no desktop-only remedy on a phone', off.note.slice(0, 140));
-      chk(OFFLINE.test(off.grid) && !MAC_BLAMED.test(off.grid), 'S1 offline: the agents card says You are offline, not that the Mac did not answer', off.grid.slice(0, 160));
+      chk(OFFLINE_CARD.test(off.grid) && !MAC_BLAMED.test(off.grid), 'S1 offline: the agents card says the board tries again when online, not that the Mac did not answer', off.grid.slice(0, 160));
+      chk(!OFFLINE.test(off.grid) && !/not connected to the internet/.test(off.grid), 'S1 offline: the agents card does not repeat the top note (#6537)', off.grid.slice(0, 160));
       // Projects are read on arrival at the tab (not polled from Agents), so go there, offline.
       await page.evaluate(() => showTab('projects'));
-      const pjOff = await waitFor(page, () => /You are offline/.test((document.getElementById('pj-list') || {}).textContent || ''));
-      chk(pjOff, 'S1 offline: the projects list says You are offline', (await read(page)).pj.slice(0, 140));
+      const pjOff = await waitFor(page, () => /tries again by itself when you are online/.test((document.getElementById('pj-list') || {}).textContent || ''));
+      const pjText = (await read(page)).pj;
+      chk(pjOff, 'S1 offline: the projects list says the board tries again when online', pjText.slice(0, 140));
+      chk(!OFFLINE.test(pjText), 'S1 offline: the projects list does not repeat the top note (#6537)', pjText.slice(0, 140));
+      /* #6537 review: the projects read can land before the next status poll, so the projects path must put the top
+         note up itself. With the note cleared, one projects read while offline: the call is recorded by its caller
+         (a status poll landing in the same moment cannot pass this), and the note says You are offline after it. */
+      const pjNote = await page.evaluate(async () => {
+        const real = window.paintOfflineNote; const calls = [];
+        window.paintOfflineNote = function (...a) { calls.push({ a, fromProjects: /loadProjects/.test(new Error().stack || '') }); return real.apply(this, a); };
+        const slot = document.getElementById('uoffline-slot'); slot.innerHTML = ''; delete slot.dataset.on;
+        try { await loadProjects(); } finally { window.paintOfflineNote = real; }
+        return { fromProjects: calls.some((c) => c.fromProjects && c.a[0] === true && c.a[1] === true), note: (slot.textContent || '').replace(/\s+/g, ' ').trim() };
+      });
+      chk(pjNote.fromProjects && OFFLINE.test(pjNote.note), 'S1 offline: the projects read itself puts up the top note You are offline (#6537)', JSON.stringify(pjNote).slice(0, 160));
       await page.evaluate(() => showTab('agents'));
 
       // Back online: asked again at once (the online event), not at the next five-second poll.
@@ -99,7 +119,7 @@ const waitFor = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 9000
       await page.waitForTimeout(700);
       const soon = asked.filter((t) => t - t0 < 700).length;
       chk(polled && soon > 0, 'S1 back online: the board asks again at once', 'aligned to a poll: ' + polled + ', status reads within 700ms: ' + soon);
-      const cleared = await waitFor(page, () => !/You are offline/.test(((document.getElementById('uoffline-slot') || {}).textContent || '')
+      const cleared = await waitFor(page, () => !/You are offline|tries again by itself when you are online/.test(((document.getElementById('uoffline-slot') || {}).textContent || '')
         + ((document.getElementById('grid') || {}).textContent || '')));
       chk(cleared, 'S1 back online: You are offline is gone', JSON.stringify(await read(page)).slice(0, 160));
       await ctx.close();
@@ -114,7 +134,7 @@ const waitFor = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 9000
       const landed = await waitFor(page, () => ((document.getElementById('uoffline-slot') || {}).textContent || '').length > 0);
       const r = await read(page);
       chk(landed, 'CONTROL A precondition: the offline Mac window drew a note', r.note.slice(0, 120));
-      chk(!OFFLINE.test(r.note + r.grid), 'CONTROL A: on the Mac itself (127.0.0.1) the page does not say You are offline', (r.note + ' | ' + r.grid).slice(0, 160));
+      chk(!ANY_OFFLINE.test(r.note + r.grid), 'CONTROL A: on the Mac itself (127.0.0.1) the page does not say You are offline', (r.note + ' | ' + r.grid).slice(0, 160));
       await ctx.close();
     }
 
@@ -128,7 +148,7 @@ const waitFor = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 9000
       const landed = await waitFor(page, () => /not answering/i.test((document.getElementById('uoffline-slot') || {}).textContent || ''));
       const r = await read(page);
       chk(landed && r.online, 'CONTROL B: online, nothing answered, the note says the Mac is not answering', r.note.slice(0, 120));
-      chk(!OFFLINE.test(r.note + r.grid + r.pj), 'CONTROL B: an online phone is not told it is offline', (r.note + ' | ' + r.grid).slice(0, 160));
+      chk(!ANY_OFFLINE.test(r.note + r.grid + r.pj), 'CONTROL B: an online phone is not told it is offline', (r.note + ' | ' + r.grid).slice(0, 160));
       // #718 state 2: through Kosmos+ it is the person's Mac, asleep or off, and a phone cannot open an Applications folder.
       chk(/Your Mac is not answering/.test(r.note) && /asleep or turned off/.test(r.note), 'S2: the note names the Mac and why', r.note.slice(0, 160));
       chk(!/Applications folder/.test(r.note), 'S2: no desktop-only remedy on a phone', r.note.slice(0, 200));
@@ -136,7 +156,8 @@ const waitFor = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 9000
       const carded = await waitFor(page, () => /We cannot read your agents/.test(((document.getElementById('grid') || {}).textContent || '') + ((document.getElementById('alist') || {}).textContent || '')));
       const r2 = await read(page);
       const hatch = await page.evaluate(() => /Already use Terminal/.test(((document.getElementById('grid') || {}).textContent || '') + ((document.getElementById('alist') || {}).textContent || '')));
-      chk(carded && /Something on your Mac did not answer/.test(r2.grid) && !MAC_BLAMED.test(r2.note + r2.grid), 'S2: the agents card names your Mac, not this computer', r2.grid.slice(0, 200));
+      /* #6538: the card's did-not-answer sentence repeated the top note, so it went; the top note names the Mac. */
+      chk(carded && /This is not the same as having none\./.test(r2.grid) && !/did not answer/.test(r2.grid) && !MAC_BLAMED.test(r2.note + r2.grid), 'S2: the agents card does not repeat the top note or blame this computer (#6538)', r2.grid.slice(0, 200));
       chk(carded && !hatch, 'S2: no Terminal hatch for a person who is not at the Mac', r2.grid.slice(0, 120));
       await ctx.close();
     }
