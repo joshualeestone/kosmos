@@ -23,13 +23,26 @@ test('no report yet is none, and on', () => {
   assert.deepEqual(certWatchFrom(dir(), NOW), { on: true, state: 'none', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, checkedAt: null, failing: false });
 });
 
-/* A report exactly as the tunnel writes one (kosmos-relay#459, crates/tunnel/src/ctwatch.rs check_with): every key it
-   writes, with the JSON types serde_json gives them. If the tunnel renames a key or changes a type, change this too. */
+/* A report shaped as the tunnel writes one (kosmos-relay#459, crates/tunnel/src/ctwatch.rs check_with, read on relay main
+   16b8c2c9): its keys, with the JSON types serde_json gives them. The keys it writes only sometimes (after a failure:
+   error, error_at; after a lost report: damaged_report_at; after a rename: address_since; during a weekly re-read:
+   recount_below) are in TUNNEL_SOMETIMES below. If the tunnel renames a key or changes a type, change these too. */
 const TUNNEL_SAMPLE = (checkedAt) => ({
   address: 'mine.kosmosplus.com', earlier_foreign: [], earlier_overflow: 0, full_at: checkedAt,
   foreign_overflow: 0, bad_ids: 0, unmatched: 0, cursor: '17000000000', before_record: 2,
   before_record_sample: [{ id: '16000000000', cert_sha256: 'ab', pubkey_sha256: 'cd', not_before: '2026-09-01T00:00:00Z' }],
   record_since: checkedAt - 86400, state: 'clear', foreign: [], checked_at: checkedAt,
+});
+
+const TUNNEL_SOMETIMES = (at) => ({ error: 'the log search answered 429', error_at: at, damaged_report_at: at - 600, address_since: at - 86400, recount_below: 16000000000 });
+
+test('the keys the tunnel writes only sometimes carry the meaning the board reads', () => {
+  const d = dir();
+  put(d, { ...TUNNEL_SAMPLE(S - 3600), ...TUNNEL_SOMETIMES(S - 60) });
+  const w = certWatchFrom(d, NOW);
+  assert.equal(w.failing, true, 'error_at after checked_at is a failing check');
+  assert.equal(w.lost, true, 'damaged_report_at is a lost report');
+  assert.equal(w.state, 'unknown', 'a lost report is never clear');
 });
 
 test('a report shaped as the tunnel writes it reads as the tunnel meant', () => {

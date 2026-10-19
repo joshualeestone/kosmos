@@ -52,5 +52,5 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
   computer."). It does not tell the person what to do next, because there is no support path to name yet.
 
 ## Proof
-- `node --test engine/cert-watch.test.js` (10), `web.plus-cert-watch-6602.test.js` (9), the Plus panel browser check `render-plus-panel-3829.js` (a connected pane with a finding, a clear check, and the switch, each with its control), and the new
+- `node --test engine/cert-watch.test.js` (11), `web.plus-cert-watch-6602.test.js` (9), the Plus panel browser check `render-plus-panel-3829.js` (a connected pane with a finding, a clear check, and the switch, each with its control), and the new
   `server.test.js` route test (by name).
