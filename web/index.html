@@ -30885,7 +30885,9 @@ function computersOpenClick(e) {
   /* kosmos#6585 (Josh 09:12: "it immediately switches to that Kosmos"): a computer the board measured as unable to
      take the instant switch would only show its sign-in page, so say why here and stay. */
   if (a.getAttribute('data-computer-instant') === '0') {
-    if (typeof msgToast === 'function') msgToast(name + ' is on an older Kosmos, so it cannot switch instantly yet. Update Kosmos on ' + name + ', or open ' + url.host + ' in your browser and sign in.');
+    // The phone menu covers the page and its toasts, so it closes first; the words carry an address, so they stay longer.
+    if (typeof pnavClose === 'function') pnavClose(false);
+    if (typeof msgToast === 'function') msgToast(name + ' is on an older Kosmos, so it cannot switch instantly yet. Update Kosmos on ' + name + ', or open ' + url.host + ' in your browser and sign in.', 9000);
     return;
   }
   computersOpening = true;
@@ -71457,7 +71459,7 @@ function msgRefText(row) {
   const who = nm ? nm.textContent.trim() : agent;
   return who ? who + "'s message to me" + when : '';
 }
-function msgToast(text) {
+function msgToast(text, holdMs) {
   let t = document.getElementById('msg-toast');
   if (!t) {
     t = document.createElement('div');
@@ -71473,7 +71475,7 @@ function msgToast(text) {
   msgToast.words = text;
   t.hidden = false;
   clearTimeout(msgToast.timer);
-  msgToast.timer = setTimeout(() => { t.hidden = true; }, 2600);
+  msgToast.timer = setTimeout(() => { t.hidden = true; }, holdMs || 2600);   // #6585: a longer hold for words someone must act on
 }
 /* #5312: the whole message as plain text, as it was written (not cut, not tidied for the screen), then each attached
    file by its name on a line of its own. PURE. A post with no words carries its file names as its text (pjWords), so

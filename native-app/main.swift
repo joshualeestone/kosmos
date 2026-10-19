@@ -462,14 +462,15 @@ func showsAnotherComputer(_ page: URL?, board: (host: String, port: Int)?, ownPl
     return isBoardPage(page, board: board) && !isOwnSettingsPage(page, board: board, ownPlusHost: ownPlusHost)
 }
 
-/// kosmos#6585: PURE, for --kosmos-app-mode-selftest. Whether a click on another computer's page goes HOME instead:
-/// the window is on another computer, the person clicked a link (the switcher's row, or the phone menu's copy of it),
-/// and it leads to this computer's own Kosmos+ address. That address is a sign-in in this window (Josh 2026-10-19
-/// 09:25: "when I tried to flip back to mine, I got the blue login screen again"), because the other computer's board
-/// mints no ticket for a page seen through Kosmos+ (server.js ticketCallerHere). Back to This Computer loads this
-/// computer's own board with no sign-in, so the click does that. Only a click: a redirect or a script leads nowhere new.
-func switchGoesHome(_ target: URL?, onAnotherComputer: Bool, clicked: Bool, ownPlusHost: String?) -> Bool {
-    guard onAnotherComputer, clicked, let target = target, let own = ownPlusHost?.lowercased(),
+/// kosmos#6585: PURE, for --kosmos-app-mode-selftest. Whether a navigation on another computer's page goes HOME
+/// instead: the window is on another computer and the navigation leads to this computer's own Kosmos+ address. That
+/// address is a sign-in in this window (Josh 2026-10-19 09:25: "when I tried to flip back to mine, I got the blue
+/// login screen again"), because the other computer's board mints no ticket for a page seen through Kosmos+ (server.js
+/// ticketCallerHere). Back to This Computer loads this computer's own board with no sign-in, so the navigation does
+/// that. Any navigation, not only a click: the switcher reaches it through a script-made click (computersGo), and
+/// going home loads nothing but this computer's own board.
+func switchGoesHome(_ target: URL?, onAnotherComputer: Bool, ownPlusHost: String?) -> Bool {
+    guard onAnotherComputer, let target = target, let own = ownPlusHost?.lowercased(),
           isKosmosPlusURL(target), let host = target.host?.lowercased()
     else { return false }
     return host == own
@@ -3548,13 +3549,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
               let url = navigationAction.request.url,
               let frame = navigationAction.targetFrame, frame.isMainFrame
         else { decisionHandler(.allow); return }
-        // kosmos#6585: on another computer's page, a click to THIS computer's own address goes home (its own board)
-        // instead of opening a sign-in there. Same checks as View > Back to This Computer, which it calls: during a
+        // kosmos#6585: on another computer's page, a navigation to THIS computer's own address goes home (its own
+        // board) instead of opening a sign-in there. Same checks as View > Back to This Computer, which it calls: during a
         // board start or an update it beeps or says so, and the page's switching screen comes down on its own.
-        // A click is checked first, so other navigations never read the address file here.
-        if navigationAction.navigationType == .linkActivated, isOnAnotherComputer(),
-           switchGoesHome(url, onAnotherComputer: true, clicked: true, ownPlusHost: ownKosmosPlusHost()) {
-            logLine("#6585: a click to this computer's own address goes back to its board")
+        if isOnAnotherComputer(), switchGoesHome(url, onAnotherComputer: true, ownPlusHost: ownKosmosPlusHost()) {
+            logLine("#6585: a navigation to this computer's own address goes back to its board")
             decisionHandler(.cancel)
             backToThisComputer(nil)
             return
@@ -7319,23 +7318,22 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     away("https://example.com/", "home.kosmosplus.com", false, "a foreign site is not another computer")
     away(nil, "home.kosmosplus.com", false, "no page yet")
     // kosmos#6585: a click on another computer's page that leads to this computer's own address goes home instead.
-    func goHome(_ s: String?, _ onAway: Bool, _ clicked: Bool, _ ownPlus: String?, _ want: Bool, _ why: String) {
+    func goHome(_ s: String?, _ onAway: Bool, _ ownPlus: String?, _ want: Bool, _ why: String) {
         ran += 1
-        let got = switchGoesHome(s.flatMap { URL(string: $0) }, onAnotherComputer: onAway, clicked: clicked, ownPlusHost: ownPlus)
+        let got = switchGoesHome(s.flatMap { URL(string: $0) }, onAnotherComputer: onAway, ownPlusHost: ownPlus)
         if got != want { bad += 1 }
         print((got == want ? "PASS  " : "FAIL  ") + (got ? "go home" : "load").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
     }
-    goHome("https://home.kosmosplus.com/", true, true, "home.kosmosplus.com", true, "THE SWITCHER'S ROW FOR THIS COMPUTER, ON ANOTHER ONE: home, no sign-in")
-    goHome("https://HOME.kosmosplus.com/?tab=agents", true, true, "home.kosmosplus.com", true, "its host in any case, with a path")
-    goHome("https://amy.kosmosplus.com/", true, true, "home.kosmosplus.com", false, "ANOTHER COMPUTER'S ROW LOADS IT (its ticket or sign-in)")
-    goHome("https://home.kosmosplus.com/", false, true, "home.kosmosplus.com", false, "already on this computer: nothing to go back from")
-    goHome("https://home.kosmosplus.com/", true, false, "home.kosmosplus.com", false, "A REDIRECT OR SCRIPT IS NOT A CHOICE: only a click goes home")
-    goHome("https://home.kosmosplus.com/", true, true, nil, false, "no address of its own: nothing is home")
-    goHome("http://home.kosmosplus.com/", true, true, "home.kosmosplus.com", false, "an http address is not a Kosmos+ address")
-    goHome("https://home.kosmosplus.com:8443/", true, true, "home.kosmosplus.com", false, "nor one on another port")
-    goHome("https://u@home.kosmosplus.com/", true, true, "home.kosmosplus.com", false, "nor one with a user part")
-    goHome("https://evil.example/", true, true, "evil.example", false, "A FILE NAMING A FOREIGN HOST SENDS NOTHING HOME")
-    goHome(nil, true, true, "home.kosmosplus.com", false, "no address at all")
+    goHome("https://home.kosmosplus.com/", true, "home.kosmosplus.com", true, "THE SWITCHER'S ROW FOR THIS COMPUTER, ON ANOTHER ONE: home, no sign-in")
+    goHome("https://HOME.kosmosplus.com/?tab=agents", true, "home.kosmosplus.com", true, "its host in any case, with a path")
+    goHome("https://amy.kosmosplus.com/", true, "home.kosmosplus.com", false, "ANOTHER COMPUTER'S ROW LOADS IT (its ticket or sign-in)")
+    goHome("https://home.kosmosplus.com/", false, "home.kosmosplus.com", false, "already on this computer: nothing to go back from")
+    goHome("https://home.kosmosplus.com/", true, nil, false, "no address of its own: nothing is home")
+    goHome("http://home.kosmosplus.com/", true, "home.kosmosplus.com", false, "an http address is not a Kosmos+ address")
+    goHome("https://home.kosmosplus.com:8443/", true, "home.kosmosplus.com", false, "nor one on another port")
+    goHome("https://u@home.kosmosplus.com/", true, "home.kosmosplus.com", false, "nor one with a user part")
+    goHome("https://evil.example/", true, "evil.example", false, "A FILE NAMING A FOREIGN HOST SENDS NOTHING HOME")
+    goHome(nil, true, "home.kosmosplus.com", false, "no address at all")
     // #6411: how a failed or hung board start says to try again, by what began it (one row per origin, each
     // reading both boardStartRetry, the watchdog's advice, and boardStartFailureRemedy, the failure alert's).
     func retry(_ origin: BoardStartOrigin, _ ok: Bool, _ why: String) {
@@ -7474,7 +7472,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 192   // #6585: +11 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 191   // #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
