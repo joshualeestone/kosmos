@@ -613,6 +613,7 @@ const HAS_CARGO = spawnSync('cargo', ['--version'], { encoding: 'utf8' }).status
 test('real Cargo, offline: a lock that matches passes; every way a Cargo.toml can disagree with it refuses', { skip: !HAS_CARGO && 'no cargo here' }, () => {
   const { cargoLockAgrees } = require(SBOM_JS);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-cargo-'));
+  try {
   const git = (...a) => execFileSync('git', ['-C', root, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   const put = (f, t) => { fs.mkdirSync(path.dirname(path.join(root, f)), { recursive: true }); fs.writeFileSync(path.join(root, f), t); };
   const crate = (n) => `[package]\nname = "${n}"\nversion = "0.1.0"\nedition = "2021"\n`;
@@ -638,7 +639,25 @@ test('real Cargo, offline: a lock that matches passes; every way a Cargo.toml ca
   put('Cargo.toml', '[workspace]\nresolver = "2"\nmembers = ["a", "b"]\n');
   fs.writeFileSync(path.join(root, 'a/Cargo.toml'), base + 'evil = { path = "../evil" }\n');
   assert.throws(() => cargoLockAgrees(root, commit()), /Cargo does not agree/, 'an export-ignore attribute does not hide a member toml');
-  fs.rmSync(root, { recursive: true, force: true });
+  // Review 26: a filter in the CHECKOUT (config plus an uncommitted .gitattributes) that would rewrite the bad toml
+  // back to the good one must not change what is judged: the check reads the commit's blobs.
+  fs.rmSync(path.join(root, '.gitattributes'));
+  const bad = commit();
+  git('config', 'filter.fix.smudge', `sed '/evil/d'`); git('config', 'filter.fix.clean', 'cat');
+  fs.writeFileSync(path.join(root, '.gitattributes'), 'a/Cargo.toml filter=fix\n');
+  assert.throws(() => cargoLockAgrees(root, bad), /Cargo does not agree/, 'a smudge filter in the checkout does not launder the commit');
+  // Two paths that are one on a case-insensitive disk, committed with plumbing (this disk cannot hold both).
+  const blob = execFileSync('git', ['-C', root, 'hash-object', '-w', '--stdin'], { input: 'x\n', encoding: 'utf8' }).trim();
+  git('read-tree', good);
+  git('update-index', '--add', '--cacheinfo', `100644,${blob},crates/a.txt`);
+  git('update-index', '--add', '--cacheinfo', `100644,${blob},Crates/a.txt`);
+  const tree = git('write-tree');
+  const both = git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', tree, '-p', good, '-m', 'case');
+  assert.throws(() => cargoLockAgrees(root, both), /Crates and crates are one path on a case-insensitive disk|crates and Crates are one path/, 'a case-only collision refuses');
+  assert.doesNotThrow(() => cargoLockAgrees(root, good), 'the control again: the good commit still agrees');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('a symlinked main.swift or .cargo in a real git repo refuses: git show of a link is its target path, not the file', () => {
@@ -882,13 +901,14 @@ test('the command line end to end, against a copy of the tool that pins a test k
     + `fs.writeFileSync(out, [...fs.readFileSync(src, 'utf8').matchAll(/^\\s*(?:@\\w+\\s+)?import\\s+(\\w+)/gm)].map((m) => m[1]).join('\\n') + '\\n');\n`);
   fs.chmodSync(path.join(bin, 'xcrun'), 0o755);
   // And a stand-in cargo: it records how it was asked and checks the tree it was pointed at is the commit's own
-  // (the Cargo.lock there is the relay's), then answers with CARGO_RC.
+  // (the Cargo.lock there is the relay's), then answers with STANDIN_EXIT.
   fs.writeFileSync(path.join(bin, 'cargo'), `#!${process.execPath}\nconst a = process.argv.slice(2), fs = require('fs'), p = require('path');\n`
     + `const m = a[a.indexOf('--manifest-path') + 1];\n`
-    + `fs.appendFileSync(${JSON.stringify(path.join(root, 'cargo-args'))}, a.join(' ') + ' LOCK=' + (fs.readFileSync(p.join(p.dirname(m), 'Cargo.lock'), 'utf8') === ${JSON.stringify(LOCK)}) + '\\n');\n`
-    + `if (process.env.CARGO_RC !== '0') process.stderr.write('error: cannot update the lock file\\n');\nprocess.exit(Number(process.env.CARGO_RC || 0));\n`);
+    + `fs.appendFileSync(${JSON.stringify(path.join(root, 'cargo-args'))}, a.join(' ') + ' LOCK=' + (fs.readFileSync(p.join(p.dirname(m), 'Cargo.lock'), 'utf8') === ${JSON.stringify(LOCK)}) + ' ENV=' + Object.keys(process.env).filter((k) => /^(CARGO_|RUSTFLAGS$|RUSTUP_TOOLCHAIN$)/.test(k)).sort().join(',') + '\\n');\n`
+    + `if (process.env.STANDIN_EXIT !== '0') process.stderr.write('error: cannot update the lock file\\n');\nprocess.exit(Number(process.env.STANDIN_EXIT || 0));\n`);
   fs.chmodSync(path.join(bin, 'cargo'), 0o755);
-  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, CARGO_RC: '0' };
+  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, STANDIN_EXIT: '0',
+    CARGO_HOME: path.join(root, 'cargo-home'), CARGO_TARGET_DIR: '/evil', CARGO_BUILD_TARGET: 'evil', RUSTFLAGS: '--evil' };
   const run = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
     '--repo', k.dir, '--relay', r.dir, '--out', out], { encoding: 'utf8', env });
   assert.equal(run.status, 0, run.stderr);
@@ -898,10 +918,10 @@ test('the command line end to end, against a copy of the tool that pins a test k
   const swapped = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
     '--repo', r.dir, '--relay', k.dir], { encoding: 'utf8', env });
   assert.equal(swapped.status, 1, 'the repo and relay swapped refuse');
-  assert.match(fs.readFileSync(path.join(root, 'cargo-args'), 'utf8'), /^metadata --locked --offline --format-version 1 --manifest-path \S+\/Cargo\.toml LOCK=true$/m,
-    'Cargo is asked, locked and offline, about a tree holding the connector commit\'s own lock');
+  assert.match(fs.readFileSync(path.join(root, 'cargo-args'), 'utf8'), /^metadata --locked --offline --format-version 1 --manifest-path \S+\/Cargo\.toml LOCK=true ENV=CARGO_HOME$/m,
+    'Cargo is asked, locked and offline, about a tree holding the connector commit\'s own lock, with only CARGO_HOME of this shell\'s Cargo settings');
   const disagree = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
-    '--repo', k.dir, '--relay', r.dir], { encoding: 'utf8', env: { ...env, CARGO_RC: '101' } });
+    '--repo', k.dir, '--relay', r.dir], { encoding: 'utf8', env: { ...env, STANDIN_EXIT: '101' } });
   assert.equal(disagree.status, 1, 'Cargo disagreeing refuses');
   assert.match(disagree.stderr, /^sbom: relay at [0-9a-f]{40}: Cargo does not agree the Cargo\.lock is what the Cargo\.toml files resolve to \(cargo is needed\): error: cannot update the lock file$/m);
 });
