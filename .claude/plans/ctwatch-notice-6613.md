@@ -21,11 +21,11 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
 - The slot is in the stack's `:empty { display: none }` rule like every other slot (an empty flex item spends one
   gap); a static test checks every slot in `#topnotes` has one.
 - Review puts the finding away, as #6315 ruled for the request notice ("Its close button or Review puts that set
-  away"), but only once the pane's line says the finding (a pane that did not paint keeps the notice), and focus goes
-  to that line. Rejected: dismissing only on close (Review is the person reading it).
+  away"), but only once the pane's line says the finding (its `foreign` state; a pane that did not paint keeps the notice,
+  and focus goes to the check's switch), and focus goes to that line. Rejected: dismissing only on close (Review is the person reading it).
 - Review captures the key it acted on before opening Kosmos+ (the repaint on the way there clears the notice's
   key); a page test models that repaint, and a mutant that reads the key afterwards turns it red.
-- A failed read of the board keeps the notice as it is (no blink); on a phone the card keeps its small line.
+- A failed read of the board keeps the notice as it is (no blink); a tab in the background does not poll; on a phone the card keeps its small line.
 - With the check switched off, the card still raises a finding (a switch never hides one) and says the check is off.
 - The notice's words carry `role="status"` and are filled after the card is inserted, the login notice's pattern
   (#3532); consistent with the stack, not separately measured with a screen reader. Owner of that measurement: April,

@@ -112,11 +112,17 @@ test('Review puts the finding away only once the pane says it', async () => {
   for (const paneSays of [true, false]) {
     const w = noteWorld();
     // The real repaint on Kosmos+ also hands the notice the answer (paintPlusCertWatch -> paintCwNote), clearing its key.
-    w.ctx.paintPlus = async () => { w.ctx.paintCwNote(FOUND); w.get('plus-cw-line').textContent = paneSays ? 'Warning: a finding.' : ''; };
+    w.ctx.paintPlus = async () => {
+      w.ctx.paintCwNote(FOUND);
+      w.get('plus-cw-line').textContent = paneSays ? 'Warning: a finding.' : '';
+      w.get('plus-cw-line').dataset.state = paneSays ? 'foreign' : '';
+      w.get('plus-cw-switch').hidden = false;
+    };
     w.ctx.paintCwNote(FOUND);
     w.get('cwnote-slot').listeners.click({ target: { closest: () => ({ getAttribute: () => 'open' }) } });
     await new Promise((r) => setTimeout(r, 0));
     assert.equal(w.store['kosmos.cwnote.dismissed'] === FOUND.key, paneSays, paneSays ? 'the pane said it: put away' : 'CONTROL: a pane that did not paint keeps the notice');
+    if (!paneSays) assert.ok(w.get('plus-cw-switch').focused, 'focus was left on nothing');
   }
 });
 
