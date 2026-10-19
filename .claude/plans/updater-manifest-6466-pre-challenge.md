@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: updater-manifest-6466
-diff_hash: 8999f4c85592b5e6df6f540013fbf95ed853bcb3714690c80c4bac38f3a5198f
+diff_hash: 9c446c6ea2aea4d10b64cc2f7bba19888d35e3229717c78f6ab811397bc6a6ee
 validation: passed
 timestamp: 2026-10-19T15:51:07Z
 iterations: 2
@@ -16,7 +16,7 @@ converged: true
 **Total findings:** 0 BLOCKERs, 1 WARNING, 8 NITs
 **Fixed:** the WARNING and 4 NITs; 3 NITs kept with reasons in the code and docs; 1 NIT answered with a comment
 
-diff_hash is the sha256 of `git diff origin/main...HEAD` at cb6934217 (before this file was added).
+diff_hash is the sha256 of `git diff origin/main...HEAD` without this file, at 5a75a70ac.
 
 Validation (Windows 11 box, every node run through the no-schtasks preload): engine/win32*.test.js,
 engine/update*.test.js, tools.win-*.test.js and tools.build-windows*.test.js: 1490 pass, 2 fail, 8 skipped; the 2 are
