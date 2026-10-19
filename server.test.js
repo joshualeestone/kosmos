@@ -11606,6 +11606,34 @@ test('skills over the wire: global lists and adds; the agent write carries the e
 // The Plus routes (#464's engine behind the Settings tab)
 // ─────────────────────────────────────────────────────────────────────────────
 
+test('the Plus state route carries the certificate check, and its switch writes the tunnel\'s off file (kosmos#6602)', async () => {
+  const fsx = require('fs'), osx = require('os'), px = require('path');
+  const dir = fsx.mkdtempSync(px.join(osx.tmpdir(), 'cw-route-'));
+  const prev = process.env.AGENT_WORKFORCE_TUNNEL_STATE;
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = dir;
+  try {
+    let st = JSON.parse((await req('/api/remote')).body);
+    assert.equal(st.certWatch.state, 'none');
+    assert.equal(st.certWatch.on, true);
+    fsx.writeFileSync(px.join(dir, 'ct-watch.json'), JSON.stringify({ state: 'foreign', checked_at: Math.floor(Date.now() / 1000), foreign: [{ dns_names: ['<b>x</b>'] }] }));
+    st = JSON.parse((await req('/api/remote')).body);
+    assert.equal(st.certWatch.state, 'foreign');
+    assert.equal(st.certWatch.foreign, 1);
+    let r = await req('/api/remote/cert-watch', { method: 'PUT', body: JSON.stringify({ on: false }) });
+    assert.equal(r.status, 200, r.body);
+    assert.equal(JSON.parse(r.body).certWatch.on, false);
+    assert.ok(fsx.existsSync(px.join(dir, 'ct-watch-off')));
+    r = await req('/api/remote/cert-watch', { method: 'PUT', body: JSON.stringify({ on: 'no' }) });
+    assert.equal(r.status, 400, 'a switch that is not on or off is refused');
+    r = await req('/api/remote/cert-watch', { method: 'PUT', body: JSON.stringify({ on: true }) });
+    assert.equal(r.status, 200, r.body);
+    assert.ok(!fsx.existsSync(px.join(dir, 'ct-watch-off')));
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_STATE;
+    else process.env.AGENT_WORKFORCE_TUNNEL_STATE = prev;
+  }
+});
+
 test('the Plus state route says configured through the production default, and the env seam still wins (#790)', async () => {
   /* Until #722 this asserted false on a bare sandbox: the relay's domain was
      undecided and a default would have been wishful. The domain is ruled and

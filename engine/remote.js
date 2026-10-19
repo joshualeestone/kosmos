@@ -630,6 +630,12 @@ function address() {
   catch { return null; }
 }
 
+/* kosmos#6602: what the tunnel's certificate check found for this computer, and its switch
+   (engine/cert-watch.js reads the tunnel's files). */
+const certWatchFiles = require('./cert-watch');
+function certWatch() { return certWatchFiles.certWatchFrom(STATE_DIR(), Date.now()); }
+function setCertWatch(on) { return certWatchFiles.setCertWatchIn(STATE_DIR(), on); }
+
 /** The switch. Turning on does not start anything by itself unless setup
     already happened; the Settings flow calls setupStart/setupComplete and
     then ensure() brings the tunnel up. Turning off stops it now. */
@@ -3443,6 +3449,7 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   enrolled,
   spawnFedSeat,
   address,
+  certWatch, setCertWatch,
   ensure,
   status,
   setupStart,

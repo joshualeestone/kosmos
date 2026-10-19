@@ -11706,6 +11706,12 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* #4080 (Josh's design): logo, switch, badge on top; the sign-in box; the bottom row. */
 #s-sec-plus .plus-logo { display: block; height: 22px; width: auto; }
 #s-sec-plus .plus-headrow .toggle { flex: 0 0 42px; }
+/* kosmos#6602: the certificate check's switch, a quiet row under the status line. */
+#s-sec-plus .plus-cw-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+#s-sec-plus .plus-cw-row:not([hidden]) { display: flex; }
+#s-sec-plus .plus-cw-row .toggle { flex: 0 0 42px; }
+#s-sec-plus .plus-cw-row .fhint { margin: 0; }
+#s-sec-plus .plus-cw-line[data-state="foreign"] { color: var(--danger); font-weight: 600; }
 /* #4744: one line (Josh, "lets make sure this all fits on one line"). The Settings column caps this panel at 544px on
    a desktop window, where the sentence at .9rem needs ~452px of the ~404 left beside Copy (measured). So the box
    reaches into the panel's side padding, Copy is compact, and the sentence's size follows the box's width (container
@@ -19581,6 +19587,13 @@ window.kosmosMeasureScrollbarWidth();
       <div class="setrow">
         <div>
           <p class="fhint" id="plus-status" aria-live="polite"></p>
+          <!-- kosmos#6602: what this computer's daily check of the public certificate logs found, and its switch.
+               Painted by paintPlusCertWatch. The line shows only when there is something to say. -->
+          <p class="fhint plus-cw-line" id="plus-cw-line" role="status" hidden></p>
+          <div class="plus-cw-row" id="plus-cw-row" hidden>
+            <button class="toggle" type="button" id="plus-cw-switch" role="switch" aria-labelledby="plus-cw-label" hidden><i></i></button>
+            <span class="fhint" id="plus-cw-label">Check the public certificate logs for this computer's address once a day (this sends the address to Cert Spotter)</span>
+          </div>
           <!-- #4794 slice 1 (Mona Lisa's design): while this computer waits to be allowed, the code both computers show,
                in place of the coordinator's sentence above, and "The codes match". Painted by paintPlusJoin. -->
           <div class="plus-join" id="plus-join" aria-live="polite" tabindex="-1" hidden></div>
@@ -51647,6 +51660,7 @@ async function paintPlus() {
       : (stat.state === 'up' ? 'Connected. Your address is on its way.'
         : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
   }
+  if (typeof paintPlusCertWatch === 'function') paintPlusCertWatch(r.certWatch);   // kosmos#6602
   /* #4794: while this computer waits for one of the person's computers to allow it, the pairing code replaces the
      coordinator's sentence (paintPlusJoin). Anything else hides it. */
   if (typeof plusJoinTick === 'function') {   // the page tests lift paintPlus alone
@@ -52393,6 +52407,37 @@ document.getElementById('plus-switch').addEventListener('click', async () => {
   } catch { plusSay('we could not change that', 'switch'); }
   paintPlus();
 });
+/* kosmos#6602: the certificate check's line and switch. The server passes only a state, counts and times
+   (engine/cert-watch.js); nothing from the outside answer is shown. The line is said only when it says
+   something: a finding, or a check that cannot confirm anything. Clear, never-run and off say nothing. */
+const PLUS_CW_WORDS = {
+  foreign: 'Warning: the public certificate logs show a certificate for this computer\'s address that this computer did not ask for. Someone else may be able to pose as this computer.',
+  unknown: 'The daily check of the public certificate logs has not been able to confirm anything lately.',
+};
+function paintPlusCertWatch(cw) {
+  const line = document.getElementById('plus-cw-line');
+  const row = document.getElementById('plus-cw-row');
+  if (!line || !row) return;
+  if (!cw || typeof cw !== 'object') { line.hidden = true; line.textContent = ''; row.hidden = true; return; }
+  const say = cw.on === true ? (PLUS_CW_WORDS[cw.state] || '') : '';
+  /* Rewritten only on a change, so a screen reader does not re-read it every poll. */
+  if (line.textContent !== say) line.textContent = say;
+  line.hidden = !say;
+  if (line.dataset) line.dataset.state = cw.on === true ? String(cw.state || '') : 'off';
+  row.hidden = false;
+  if (typeof paintSwitch === 'function') paintSwitch('plus-cw-switch', cw.on === true);
+}
+{ const cwSw = document.getElementById('plus-cw-switch');
+  if (cwSw) cwSw.addEventListener('click', async () => {
+    /* The click means what the switch showed; unread does nothing (the #4080 rule for plus-switch). */
+    if (!cwSw.hasAttribute('aria-checked')) { paintPlus(); return; }
+    const wantOn = cwSw.getAttribute('aria-checked') !== 'true';
+    try {
+      const res = await fetch('/api/remote/cert-watch', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: wantOn }) });
+      if (!res.ok) plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not change that'), 'switch');
+    } catch { plusSay('we could not change that', 'switch'); }
+    paintPlus();
+  }); }
 /* The words of the code box (#729). Pete sat at it for twelve minutes, three
    sends in, unable to tell from the screen whether anything had happened;
    the emails had all delivered. A wait a person is in must be able to say
