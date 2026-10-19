@@ -85,6 +85,16 @@ test('close puts that finding away (kept in storage), sends focus to the K mark;
   assert.ok(shown(get), 'a new finding shows again');
 });
 
+test('the dismissed list keeps the newest 50 keys', () => {
+  const many = Array.from({ length: 60 }, (_, i) => i.toString(16).padStart(16, '0')).join('\n');
+  const { ctx, get, store } = noteWorld({ stored: many });
+  ctx.paintCwNote(FOUND);
+  get('cwnote-slot').listeners.click({ target: { closest: () => ({ getAttribute: () => 'dismiss' }) } });
+  const kept = store['kosmos.cwnote.dismissed'].split('\n');
+  assert.equal(kept.length, 50);
+  assert.equal(kept[kept.length - 1], FOUND.key, 'the newest is the one just put away');
+});
+
 test('a key put away in another tab (storage) is honoured at the next paint', () => {
   const { ctx, get } = noteWorld({ stored: FOUND.key });
   ctx.paintCwNote(FOUND);
@@ -120,5 +130,14 @@ test('Got it shows with the lost-report sentence only, carrying its marker', () 
 
 test('the markup carries the notice slot (first in the floating stack) and Got it', () => {
   assert.match(PAGE, /<div class="topnotes" id="topnotes">[\s\S]{0,400}<div id="cwnote-slot"><\/div>\s*<div id="utoast-slot"><\/div>/);
-  assert.match(PAGE, /<button class="btn" type="button" id="plus-cw-ack" aria-describedby="plus-cw-line" hidden>Got it<\/button>/);
+  assert.match(PAGE, /<button class="btn" type="button" id="plus-cw-ack" aria-label="Got it: the earlier report could not be read" hidden>Got it<\/button>/);
+});
+
+test('every slot in the floating stack is taken out of the layout while empty (an empty flex item spends a gap)', () => {
+  const stack = PAGE.slice(PAGE.indexOf('<div class="topnotes" id="topnotes">'));
+  const slots = [...stack.slice(0, stack.indexOf('</div>\n  </div>')).matchAll(/<div id="([a-z-]+-slot)"><\/div>/g)].map((m) => m[1]);
+  assert.ok(slots.includes('cwnote-slot') && slots.length >= 7, JSON.stringify(slots));
+  const rule = (PAGE.match(/^(#[a-z-]+-slot:empty(?:, #[a-z-]+-slot:empty)*) \{ display: none; \}$/m) || [])[1] || '';
+  const covered = rule.split(', ').map((x) => x.replace(/^#|:empty$/g, ''));
+  assert.deepEqual(slots.filter((s) => !covered.includes(s)), [], 'a slot that stays a flex item while empty');
 });

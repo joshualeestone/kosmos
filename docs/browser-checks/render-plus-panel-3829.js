@@ -479,8 +479,13 @@ const STATES = {
       await page.waitForTimeout(400);
       const note = await page.evaluate(() => { const c = document.querySelector('#cwnote-slot .utoast'); const r = c && c.getBoundingClientRect();
         return { shown: !!(c && r.height > 0), text: c ? c.innerText.replace(/\s+/g, ' ') : '', first: document.getElementById('topnotes').firstElementChild.id }; });
+      /* (the else branch below also checks Review's focus lands on the pane's line) */
       chk(note.first === 'cwnote-slot', `${t} #6613: the notice's slot is first in the floating stack`, note.first);
-      if (mode === 'clear') chk(!note.shown, `${t} #6613 CONTROL: a clear check raises no notice`, JSON.stringify(note));
+      if (mode === 'clear') {
+        chk(!note.shown, `${t} #6613 CONTROL: a clear check raises no notice`, JSON.stringify(note));
+        const slotDisplay = await page.evaluate(() => getComputedStyle(document.getElementById('cwnote-slot')).display);
+        chk(slotDisplay === 'none', `${t} #6613: the empty slot takes no room (no extra gap in the stack)`, slotDisplay);
+      }
       else {
         chk(note.shown && /^Warning: a certificate was issued for this computer's address that this computer did not ask for\./.test(note.text),
           `${t} #6613: away from Kosmos+, the finding is raised as a fixed warning`, JSON.stringify(note));
@@ -489,6 +494,9 @@ const STATES = {
         const after = await page.evaluate(() => ({ gone: !document.querySelector('#cwnote-slot .utoast'),
           stored: (localStorage.getItem('kosmos.cwnote.dismissed') || '') }));
         chk(after.gone && /^[0-9a-f]{16}$/.test(after.stored), `${t} #6613: Review opens Kosmos+ and puts that finding away`, JSON.stringify(after));
+        await page.waitForTimeout(300);
+        const focusOn = await page.evaluate(() => (document.activeElement || {}).id || '');
+        chk(focusOn === 'plus-cw-line', `${t} #6613: after Review, keyboard focus is on the pane's line, not lost`, focusOn);
       }
       if (mode === 'clear') {
         await page.evaluate(() => showTab('settings'));
