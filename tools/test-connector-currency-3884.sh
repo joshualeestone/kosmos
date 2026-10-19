@@ -78,6 +78,13 @@ if check_rc; then bad "a narrowed refspec hid a tunnel commit (false green)"
 else grep -q "tunnel fix while the checkout is narrowed" "$T/err" && ok "a narrowed refspec and a non-main checkout still see relay main" || bad "wrong refusal with a narrowed refspec: $(cat "$T/err")"; fi
 g -C "$T/relay" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'; g -C "$T/relay" checkout -q main
 
+# 5d. the build script is required on main (#6628): one that is gone refuses as UNKNOWN, even with the override
+reset_origin; rm -rf "$T/other"; g clone -q "$T/origin.git" "$T/other"
+g -C "$T/other" rm -q tools/build-tunnel-release.sh; g -C "$T/other" commit -q -m "drop the build script"; g -C "$T/other" push -q origin main
+if KOSMOS_ALLOW_STALE_TUNNEL=1 connector_currency_check "$B" "$T/relay" 2>"$T/err"; then bad "a relay main with no tools/build-tunnel-release.sh was accepted"
+else grep -q "has no tools/build-tunnel-release.sh" "$T/err" && ok "a relay main with no tools/build-tunnel-release.sh refuses as UNKNOWN, override or not" || bad "wrong refusal with no build script: $(cat "$T/err")"; fi
+reset_origin; g -C "$T/relay" fetch -q origin
+
 # 6. a rebuild from the new main clears it (the CONTROL that a refusal is about currency)
 NEW="$(g -C "$T/relay" rev-parse origin/main)"; printf '%s\n' "$NEW" > "$B.commit"
 if check_rc; then ok "CONTROL: a connector rebuilt from the new main is current again"; else bad "a rebuilt connector was refused: $(cat "$T/err")"; fi

@@ -73,6 +73,9 @@ gitfx('init', '-q', '--bare', '-b', 'main', path.join(RELAY_FX, 'origin.git'));
 gitfx('init', '-q', '-b', 'main', RELAY_REPO);
 fs.mkdirSync(path.join(RELAY_REPO, 'crates', 'tunnel'), { recursive: true });
 fs.writeFileSync(path.join(RELAY_REPO, 'crates', 'tunnel', 'lib.rs'), '// fixture\n');
+// #6628: step 1d refuses a relay main with no copy of the connector's build script, as the real relay has one.
+fs.mkdirSync(path.join(RELAY_REPO, 'tools'), { recursive: true });
+fs.writeFileSync(path.join(RELAY_REPO, 'tools', 'build-tunnel-release.sh'), '# fixture\n');
 gitfx('-C', RELAY_REPO, 'add', '-A');
 gitfx('-C', RELAY_REPO, 'commit', '-q', '-m', 'fixture');
 gitfx('-C', RELAY_REPO, 'remote', 'add', 'origin', path.join(RELAY_FX, 'origin.git'));

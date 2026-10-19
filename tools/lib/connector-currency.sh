@@ -25,8 +25,9 @@
 # By CONTENT (`git diff`), not ancestry: a connector built from a branch, or a relay
 # main that was rebased or squash-merged, would read wrong by ancestry.
 #
-# FAILS CLOSED. If origin/main cannot be fetched or the connector's commit is not in
-# the relay checkout, the answer is unknown, and an unknown is refused, not waved on.
+# FAILS CLOSED. If origin/main cannot be fetched, the connector's commit is not in the
+# relay checkout, or relay main has no copy of the build script, the answer is unknown, and
+# an unknown is refused, not waved on.
 #
 # OVERRIDE. KOSMOS_ALLOW_STALE_TUNNEL=1 ships the older connector on purpose. It says
 # what it is skipping and returns 0. It covers only a connector KNOWN to be behind: an
@@ -54,8 +55,9 @@ connector_currency_check() {
     echo "connector_currency: $relay is not a git checkout, so there is nothing to compare the connector with. Set KOSMOS_RELAY_REPO to the kosmos-relay checkout." >&2; return 1; }
   # An EXPLICIT refspec: a clone whose fetch refspec does not cover main (single-branch, or
   # narrowed by hand) would otherwise update only FETCH_HEAD and leave a stale origin/main,
-  # a false green (review 1). No terminal prompt: a box without credentials must fail, not hang.
-  rc=0; out=$(GIT_TERMINAL_PROMPT=0 git -C "$relay" fetch --quiet origin +refs/heads/main:refs/remotes/origin/main 2>&1) || rc=$?
+  # a false green (review 1). No prompt: a box without credentials must fail, not hang (GCM_INTERACTIVE is Git
+  # Credential Manager's own no-prompt switch, for the Windows build, #6628).
+  rc=0; out=$(GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git -C "$relay" fetch --quiet origin +refs/heads/main:refs/remotes/origin/main 2>&1) || rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "connector_currency: could not fetch kosmos-relay origin/main in $relay, so whether the connector is current is UNKNOWN (refused, not assumed):" >&2
     printf '%s\n' "$out" >&2
