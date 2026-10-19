@@ -24,6 +24,7 @@ number is derived from the tarball sha).
   - node 24.19.0, tmux 3.5a, libevent 2.1.12-stable, ncurses 6.5, utf8proc 2.9.0, the connector;
   - 227 registry crates and 1 first-party crate.
   - It passes the official CycloneDX 1.5 JSON schema (ajv), and a copy with one bad component type fails it.
+  - Purl versions are percent-encoded (`wasi@0.11.1%2Bwasi-snapshot-preview1`).
   - It is byte-identical under the C, en_US and da_DK locales (code-point order; locale-aware sorting changed it under
     da_DK, found in review 1).
   - The control: rustls reads 0.23.43, the version that release shipped before the O05 fix (#457, 0.23.46).
@@ -31,11 +32,16 @@ number is derived from the tarball sha).
   26 are Windows-only or dev-only and 14 are optional dependencies of features the connector does not turn on (h2 and
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the header says so.
-- **`tools.sbom-o05.test.js`:** 11 arms, 10 through injected git reads (no relay checkout needed in CI) and 1 through
-  the command line against two git repos it makes (tmpscope). Twelve mutants each fail an arm: no transitive walk,
-  ignoring a dependency's version, guessing an ambiguous bare name, dropping first-party crates, a flat graph, no sort,
-  an unknown source let through, a `[[patch.unused]]` table overwriting a package, ignoring a `(source)` ref, no
-  timestamp, git crates refused, and a tmux script with no fetch lines accepted.
+- **`tools.sbom-o05.test.js`:** 14 arms, 13 through injected git reads (no relay checkout needed in CI) and 1 through
+  the command line against two git repos it makes (tmpscope). Eighteen mutants each fail an arm:
+  - round 0: no transitive walk; ignoring a dependency's version; guessing an ambiguous bare name; dropping
+    first-party crates;
+  - round 1: a flat graph; no sort; an unknown source let through; a `[[patch.unused]]` table overwriting a package;
+    ignoring a `(source)` ref; no timestamp; git crates refused; a tmux script with no fetch lines accepted;
+  - round 2: a fetch line in another shape skipped; only braced variables checked; no source hash required; no
+    disambiguation of one name@version from two sources; a `+` left unencoded in a purl; no nested expansion.
+- **Every refusal names what it could not read,** so a new build-script shape fails loudly at SBOM time instead of
+  going missing (review 2: the fetch-line approach is only as good as its refusal on a line it cannot parse).
 - **Full-suite-only guards:** every-test-runs, all-node-tests-considered, engine.reachable, #1732, #1777 and the mktemp
   lint pass.
 
