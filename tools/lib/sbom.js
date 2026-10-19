@@ -27,8 +27,8 @@
  * LIMIT: a library linked statically into tmux with neither a VERSION line nor a licence file is invisible here; so is a
  * static C library brought into the Mac app by a bridging header or a linker flag rather than an import, and the
  * second native binary (Kosmos.app/Contents/MacOS/Kosmos, a re-signed copy of kosmos-app) is accepted by name only.
- * LIMIT: the Swift imports are read for the release's target, but `#if swift(...)` and `#if compiler(...)` follow the
- * version of the compiler on the machine running this, not the build machine's.
+ * The Swift imports are read for the release's target; `#if canImport/swift/compiler(...)`, which follow the machine
+ * running this rather than the build, refuse.
  * LIMIT: the Mac app's shipped binary is not tied to native-app/main.swift at the app commit: the manifest's
  * native_app hash and its files entry for app/bin/kosmos-app are taken from the same file, so the Apple-only import
  * check vouches for the source, not the binary (the same gap as the connector's commit).
@@ -62,6 +62,7 @@ function gitShow(repo, commit, file) {
 // Cargo.lock v3/v4: [[package]] tables of name, version, source, checksum, dependencies. A dependency names a package
 // as "name", "name version" or "name version (source)" when the name alone is ambiguous. Any other table
 // ([[patch.unused]], [metadata]) ends the current package, so its keys can never overwrite one.
+const LOCK_KEYS = new Set(['name', 'version', 'source', 'checksum', 'dependencies']);
 function parseLock(text) {
   const v = text.match(/^version = (\d+)$/m);
   if (!v || !['3', '4'].includes(v[1])) throw new Error(`Cargo.lock: format version ${v ? v[1] : '(none)'}; only 3 and 4 are read (an older lock keeps checksums elsewhere)`);
@@ -89,6 +90,9 @@ function parseLock(text) {
       for (const d of kv[2].replace(/^\[|\]$/g, '').split(',')) { const s = d.trim().replace(/^"|"$/g, ''); if (s) cur.deps.push(s); }
       continue;
     }
+    // The keys Cargo writes for a crate that builds as itself. Any other (`replace`, which points the build at a
+    // different crate) would make this list a crate that does not ship, so it refuses.
+    if (!LOCK_KEYS.has(kv[1])) throw new Error(`Cargo.lock: ${cur.name || 'a package'} has ${kv[1]}, a key this SBOM does not read`);
     const str = kv[2].match(/^"(.*)"$/);
     if (str) cur[kv[1]] = str[1];
   }
@@ -189,8 +193,8 @@ function readTmuxBundle(file) {
   // The VERSION file is text anyone could edit; each version it names must also be in the bytes of the binary or
   // library it describes, so a stale or edited VERSION refuses.
   for (const [name, version] of Object.entries(parsed.versions)) {
-    const found = parsed.filesOf[name].some((f) => execFileSync('tar', ['-xzOf', '-', f], { input: bytes, maxBuffer: 64 << 20 }).includes(Buffer.from(version)));
-    if (!found) throw new Error(`tmux bundle: VERSION says ${name} ${version}, but no file of it carries that version`);
+    const found = parsed.filesOf[name].every((f) => execFileSync('tar', ['-xzOf', '-', f], { input: bytes, maxBuffer: 64 << 20 }).includes(Buffer.from(version)));
+    if (!found) throw new Error(`tmux bundle: VERSION says ${name} ${version}, but a file of it does not carry that version`);
   }
   return { sha, versions: parsed.versions };
 }
@@ -361,6 +365,9 @@ function checkNativeApp(manifest, swift, target, readImports = swiftcImports) {
   if (!manifest.native_app || !SHA256.test(manifest.native_app.signed_sha256 || '') || !shipped || shipped.sha256 !== manifest.native_app.signed_sha256) {
     throw new Error('the manifest\'s app/bin/kosmos-app is not the Mac app it signed (native_app.signed_sha256)');
   }
+  // These conditions follow the machine running this (its modules, its compiler), not the build: refuse them.
+  const cond = swift.match(/^[ \t]*#(?:if|elseif)\b.*\b(canImport|swift|compiler)[ \t]*\(/m);
+  if (cond) throw new Error(`native-app/main.swift has #if ${cond[1]}(...), which this SBOM cannot read for the build machine`);
   for (const mod of readImports(swift, target)) {
     if (!APPLE_MODULES.has(mod)) throw new Error(`native-app/main.swift imports ${mod}, which is not an Apple framework this SBOM knows`);
   }

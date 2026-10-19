@@ -220,6 +220,19 @@ test('a crate from an unknown source, or a sourceless crate outside the workspac
   assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, '[workspace]\nmembers = ["crates/*"]\n')), /members must be literal paths/);
 });
 
+test('a package key Cargo writes for a replaced crate (replace) refuses: the crate listed would not be the one built', () => {
+  const replaced = LOCK.replace(`name = "ring"\nversion = "0.17.14"\nsource = "${CRATES}"\nchecksum = "${SHA('3')}"`,
+    `name = "ring"\nversion = "0.17.14"\nsource = "${CRATES}"\nchecksum = "${SHA('3')}"\nreplace = "ring 0.17.14"`);
+  assert.throws(() => parseLock(replaced), /ring has replace, a key this SBOM does not read/);
+});
+
+test('#if canImport, swift or compiler in the Mac app refuses: they read as the machine running this, not the build', () => {
+  for (const c of ['#if canImport(Sparkle)', '#if swift(>=6.0)', '#elseif compiler(>=6)', '  #if os(macOS) && canImport(X)']) {
+    assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + c + '\nimport Sparkle\n#endif\n')), /which this SBOM cannot read for the build machine/, c);
+  }
+  assert.ok(sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + '#if arch(arm64)\nlet a = 1\n#endif\n')), 'arch and os conditions are read for the target');
+});
+
 test('a [[patch.unused]] table does not overwrite the package before it', () => {
   const pkgs = parseLock(LOCK);
   const axum = pkgs.find((p) => p.name === 'axum');
@@ -603,7 +616,15 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   fs.renameSync(path.join(edited, 'licenses/utf8proc-2.9.0.txt'), path.join(edited, 'licenses/utf8proc-2.10.0.txt'));
   const etgz = path.join(root, 'edited.tar.gz');
   execFileSync('tar', ['-czf', etgz, '-C', edited, ...LIBS.map((x) => x.replace('utf8proc-2.9.0.txt', 'utf8proc-2.10.0.txt'))]);
-  assert.throws(() => readTmuxBundle(etgz), /VERSION says utf8proc 2\.10\.0, but no file of it carries that version/);
+  assert.throws(() => readTmuxBundle(etgz), /VERSION says utf8proc 2\.10\.0, but a file of it does not carry that version/);
+  const decoy = path.join(root, 'decoy');
+  fs.cpSync(stage, decoy, { recursive: true });
+  fs.writeFileSync(path.join(decoy, 'lib/libevent_core-2.1.7.dylib'), '\0libevent 2.1.11-stable\0');
+  fs.writeFileSync(path.join(decoy, 'lib/libevent.dylib'), '\0libevent 2.1.12-stable\0');
+  const dtgz = path.join(root, 'decoy.tar.gz');
+  execFileSync('tar', ['-czf', dtgz, '-C', decoy, ...LIBS, 'lib/libevent.dylib']);
+  assert.throws(() => readTmuxBundle(dtgz), /VERSION says libevent 2\.1\.12-stable, but a file of it does not carry that version/,
+    'a decoy dylib carrying the version cannot cover a stale real one');
   for (const [from, to, name, oldLic, newLic] of [[/^tmux:.*$/m, 'tmux:   tmux 3.6', 'tmux', 'tmux-3.5a', 'tmux-3.6'],
     [/^libevent:.*$/m, 'libevent: 2.1.13-stable (core only)', 'libevent', 'libevent-2.1.12-stable', 'libevent-2.1.13-stable']]) {
     const dir = path.join(root, `edited-${name}`);
