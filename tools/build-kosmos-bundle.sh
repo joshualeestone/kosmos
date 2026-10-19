@@ -900,10 +900,11 @@ chmod +x "$STAGE/runtime/bin/node"
 # eighteen releases while the gate stood here, pointed at one file.
 . "$(dirname "${BASH_SOURCE[0]}")/lib/floor-gate.sh"
 floor_gate_tree "$STAGE"
-# #6549: nothing staged may name this Mac's home folder (the connector's compiler paths once did, hundreds of times).
+# #6549: nothing under app/ or bin/ may name this Mac's home folder (the connector's compiler paths once did, hundreds
+# of times), and no compiled file there may name any account's build folders.
 . "$(dirname "${BASH_SOURCE[0]}")/lib/home-path-gate.sh"
 home_path_gate_tree "$STAGE" || exit 1
-echo "==> no staged file names this Mac's home folder (#6549)"
+echo "==> nothing under app/ or bin/ names a build Mac's home folder (#6549)"
 
 # ---- smoke test -------------------------------------------------------------
 # ⚠️ THE STAGED TREE IS WHAT GETS TESTED, not the repo, AND A REAL REQUEST IS
