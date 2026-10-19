@@ -51623,10 +51623,14 @@ async function paintPlus() {
 // open: the person opened the company block (10-08). dismissed: the company note they closed with Cancel (#5791).
 var PLUS_ORG = { at: 0, busy: false, state: null, open: false, dismissed: null, reviewAccepted: 0, wroteAt: 0, wordsRefused: false, carried: null };
 /* kosmos#6251: a sentence written for a company, said for a family when the org this board knows is one ("your
-   company" becomes "your family"), as engine/orgenroll.js inKind does for the engine's own sentences. */
+   company" becomes "your family", "its company's" becomes "its family's"), as engine/orgenroll.js inKind does for the
+   engine's own sentences. kosmos#6565: and the joined line's "your work Kosmos for" becomes "in", so a family's
+   Settings reads "This Kosmos is in <family>.", and any other "your work Kosmos" becomes "your family's Kosmos" (the
+   leave-refused and stopped-reporting lines). That second rule is inKind's too (web.familysay-6251 pins the two copies
+   together); the "for" rule is page-only, since no engine sentence says "your work Kosmos for". */
 function plusOrgIn(org, text) {
   if (!(org && org.kind === 'family')) return text;
-  return String(text).replace(/\b([Yy])our company('s)?\b/g, (m, y, s) => y + 'our family' + (s || '')).replace(/\bits company's\b/g, "its family's");
+  return String(text).replace(/\b([Yy])our company('s)?\b/g, (m, y, s) => y + 'our family' + (s || '')).replace(/\bits company's\b/g, "its family's").replace(/\byour work Kosmos for\b/g, 'in').replace(/\b([Yy])our work Kosmos\b/g, (m, y) => y + "our family's Kosmos");
 }
 // kosmos#6239: the family's words on screen, or null. Here, not beside plusOrgFamilyShow, because plusOrgPaint reads it.
 var PLUS_ORG_FAMILY = null;
@@ -51673,8 +51677,8 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     // "reports to it" only when it may (review 33): a record with no consent recorded here sends nothing.
     const reports = j && j.wordsNeeded === true && PLUS_ORG.wordsRefused ? '. It reports nothing to the family.' : j && j.wordsNeeded === true ? '. It reports nothing until a parent or guardian reads and accepts the family\u2019s words.' : plusOrgIn(j && j.org, j && j.reporting === true ? ' and reports to it.' : j && j.reportingWait === 'print' ? '. It reports to your company once it has read this computer\'s identity.' : j && j.reportingWait === 'printError' ? '. It cannot report to your company yet: Kosmos could not check this computer.' : j && j.reportingWait === 'noReports' ? '. Your company asks it to report nothing.' : '. It reports to your company once Kosmos has your company\'s current terms.');
     if (j && j.enrolled === true && j.leaveRefused) msg.textContent = j.leaveRefusedUndo === true
-      ? plusOrgIn(j.org, 'Your company could not undo joining ') + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos' + reports
-      : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
+      ? plusOrgIn(j.org, 'Your company could not undo joining ') + j.leaveRefused + plusOrgIn(j.org, ': you are its last admin. This Kosmos is your work Kosmos') + reports
+      : 'Your leave from ' + j.leaveRefused + plusOrgIn(j.org, ' was refused: you are its last admin. This Kosmos is your work Kosmos again') + reports;
     plusOrgPaint();   // once more, now the message is set: the block shows or folds to match it at once
   }).catch(() => { if (PLUS_ORG.reviewAccepted && askedAt >= PLUS_ORG.reviewAccepted) PLUS_ORG.reviewAccepted = 0; /* the next minute tries again */ });
 }
@@ -51954,7 +51958,7 @@ async function plusOrgLeave() {
   const name = (org0 && org0.name) || plusOrgIn(org0, 'your company');
   // localOnly: the company enrolls another world or computer, so the membership goes on; only this Kosmos stopped.
   document.getElementById('plus-org-msg').textContent = r.ok && r.localOnly
-    ? 'This Kosmos has stopped reporting. You are still in ' + name + ': your work Kosmos is elsewhere, so leave from there.'
+    ? 'This Kosmos has stopped reporting. You are still in ' + name + plusOrgIn(org0, ': your work Kosmos is elsewhere, so leave from there.')
     : r.ok ? plusOrgIn(org0, 'You left. This Kosmos no longer reports to your company.')
     : r.pending ? (r.because || plusOrgIn(org0, 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.'))
     : (r.because || r.error || 'Leaving did not go through. Nothing changed; try again in a minute.');

@@ -385,11 +385,14 @@ const FAMILY_SAY = Object.freeze({
 /* kosmos#6251: what this board knows of an org's kind. Anything but a family (none, an older coordinator) is a
    company's, as the coordinator reads it. */
 function kindOf(k) { return k === 'family' ? 'family' : 'company'; }
-/* A sentence written for a company, said for the org's kind: "your company" becomes "your family". One copy of each
+/* A sentence written for a company, said for the org's kind: "your company" becomes "your family", and (kosmos#6565)
+   "your work Kosmos" becomes "your family's Kosmos", as the page's plusOrgIn does (the page alone also turns "your
+   work Kosmos for" into "in"; no engine sentence says that, and web.familysay-6251 refuses one). One copy of each
    sentence, so the two kinds cannot drift apart. */
 function inKind(kind, text) {
   if (kindOf(kind) !== 'family') return text;
-  return String(text).replace(/\b([Yy])our company('s)?\b/g, (m, y, s) => y + 'our family' + (s || '')).replace(/\bits company's\b/g, "its family's");
+  return String(text).replace(/\b([Yy])our company('s)?\b/g, (m, y, s) => y + 'our family' + (s || '')).replace(/\bits company's\b/g, "its family's")
+    .replace(/\b([Yy])our work Kosmos\b/g, (m, y) => y + "our family's Kosmos");   // kosmos#6565: as the page's plusOrgIn does
 }
 /* A public code's sentence in the org's kind. */
 function sayCode(c, kind) { return (kindOf(kind) === 'family' && FAMILY_SAY[c]) || SAY[c]; }
