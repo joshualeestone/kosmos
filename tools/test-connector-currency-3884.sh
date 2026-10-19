@@ -15,7 +15,8 @@ g(){ git -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false "$@"
 # coordinator file that is NOT one of them.
 g init -q --bare -b main "$T/origin.git"
 g init -q -b main "$T/relay"
-mkdir -p "$T/relay/crates/tunnel" "$T/relay/crates/proto" "$T/relay/coordinator"
+mkdir -p "$T/relay/crates/tunnel" "$T/relay/crates/proto" "$T/relay/coordinator" "$T/relay/tools"
+echo 1 > "$T/relay/tools/build-tunnel-release.sh"   # #6628: the build script must exist on main
 echo 1 > "$T/relay/crates/tunnel/lib.rs"; echo 1 > "$T/relay/crates/proto/lib.rs"
 echo 1 > "$T/relay/coordinator/lib.rs"; echo 1 > "$T/relay/Cargo.lock"; echo 1 > "$T/relay/Cargo.toml"
 g -C "$T/relay" add -A; g -C "$T/relay" commit -q -m "base"

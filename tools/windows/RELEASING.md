@@ -79,7 +79,8 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    makes, #3884): it fetches `main` in the kosmos-relay checkout at `KOSMOS_RELAY_REPO`, else
    `~/work/kosmos-relay`, so that checkout must exist and be able to fetch. A refusal names the
    commits the connector is missing; rebuild it as above. `KOSMOS_ALLOW_STALE_TUNNEL=1` ships the
-   older connector on purpose.
+   older connector on purpose. It does not get past a checkout that is missing, cannot fetch, is
+   shallow, or lacks the connector's commit: then the build cannot tell, and refuses either way.
 
 2. **Stage.** This checks that the zip's `Kosmos.exe` is byte for byte the committed launcher (and,
    on Windows, that its Authenticode signature is Valid), then uploads the versioned zip, its sidecar, and `latest-win-staging.json`
