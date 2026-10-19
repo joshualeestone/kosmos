@@ -321,7 +321,7 @@ function tasksFact(resp) {
   const items = body.tasks.map((raw) => {
     const t = raw || {};
     const proj = cleanPath(String(t.project != null ? t.project : (t.projectId != null ? t.projectId : '?')));
-    const num = t.number != null ? '#' + t.number : '#?';
+    const num = t.number != null ? '#' + cleanPath(String(t.number)) : '#?';   // defense in depth: clean every echoed field uniformly
     const title = cleanPath(String(t.title != null ? t.title : ''));
     return proj + ' ' + num + ': ' + title;
   });
