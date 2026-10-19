@@ -4240,6 +4240,17 @@ const ROUTING_BASE = 'http://localhost';
 // while refusing `//localhost:4317/x` (us).
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
+/* kosmos#6595: the ONE reading of "this request came through a forwarder": any of x-forwarded-host, x-forwarded-for
+   or Forwarded PRESENT, even empty (an empty one must not read as local: madeOnThisComputer keeps this computer's key
+   to itself on that reading). Node joins repeated copies of these headers into one string. The Kosmos+ tunnel sets
+   x-forwarded-for on every request it forwards and x-forwarded-host on all but a webhook, writing over any value a
+   client sent; a direct local request has none. That tunnel behaviour is per kosmos-relay
+   crates/tunnel/src/proxy.rs (forward, forward_hook); not checked from this repo.
+   What it covers and does not is in the boundary docblock above remoteWriteGuard. */
+function cameThroughForwarder(headers) {
+  const h = headers || {};
+  return h['x-forwarded-host'] !== undefined || h['x-forwarded-for'] !== undefined || h.forwarded !== undefined;
+}
 /* kosmos#6406 step 2: whether a request was made on THIS computer itself, for the one route that signs with its key to
    open another of the account's computers. All three, positively: addressed to a loopback name (Host); sent by a page
    on a loopback name (Origin, which a browser always sends on a POST); and forwarded by nothing that says so (Kosmos+
@@ -4248,7 +4259,7 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
    the phone's page is on the proxy's own name. */
 function madeOnThisComputer(headers) {
   const h = headers || {};
-  if (h['x-forwarded-host'] !== undefined || h['x-forwarded-for'] !== undefined || h.forwarded !== undefined) return false;
+  if (cameThroughForwarder(h)) return false;
   const nameOf = (v, withScheme) => {
     try { return new URL(withScheme ? String(v) : 'http://' + String(v)).hostname.replace(/\.$/, '').toLowerCase(); } catch { return ''; }
   };
@@ -4256,6 +4267,17 @@ function madeOnThisComputer(headers) {
   if (typeof h.origin !== 'string' || !LOOPBACK_HOSTS.has(nameOf(h.origin, true))) return false;
   return true;
 }
+/* kosmos#6595: whether a request came through Kosmos+ remote access (or another forwarder), for the routes a remote
+   session may not use. */
+function isRemoteRequest(req) {
+  return cameThroughForwarder(req && req.headers);
+}
+/* kosmos#6595: what each of those routes answers a remote session. One code, a sentence per route. */
+const REMOTE_NOT_ALLOWED = Object.freeze({
+  allow: Object.freeze({ code: 'remote_not_allowed', error: 'Allowing another device is done at the computer itself, not from a remote session.' }),
+  joinConfirm: Object.freeze({ code: 'remote_not_allowed', error: "Finishing this computer's join is done at the computer itself, not from a remote session." }),
+  agentToken: Object.freeze({ code: 'remote_not_allowed', error: 'Agent tokens are made at the computer itself, not from a remote session.' }),
+});
 /* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
    Kosmos+ reaches the board over loopback, which is why the header rule stays). */
 function ticketCallerHere(req) {
@@ -5421,6 +5443,15 @@ const PUBLIC_COMMUNITY_ROUTES = new Set([
  * Funnel arm of the `start()` warning). Trusting `X-Forwarded-For` to recover
  * the real client is its own footgun and is not done here. This guard protects a
  * DIRECT network bind, which is the approved Windows-agent case.
+ * kosmos#6595: the Kosmos+ tunnel is the one remote path the board CAN name. It
+ * sets `x-forwarded-for` on every request it forwards and `x-forwarded-host` on
+ * all but a webhook, writing over any value a client sent; a direct local
+ * request has none, so `isRemoteRequest` (through `cameThroughForwarder`, the
+ * one reading `madeOnThisComputer` also uses) treats any of those or `Forwarded`,
+ * present even empty, as remote. It only asks whether a forwarder was involved and names no client, so
+ * it is not the footgun above. What it does NOT cover: a remote path that does
+ * not go through the tunnel and sets none of them reads as local; a local
+ * reverse proxy that sets one reads as remote, which errs toward restricting.
  *
  * 📌 ACCEPTED, KNOWN TRADEOFF: on an open bind, an unauthenticated remote peer
  * hitting `POST /api/report`/`/api/reply` with any token string forces
@@ -11043,6 +11074,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (pathname === '/api/remote/join/confirm' && req.method === 'POST') {
+    /* kosmos#6595: confirming the code finishes letting this computer into the account, so not from a remote session. */
+    if (isRemoteRequest(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.joinConfirm); return; }
     readBody(req)
       .then(async (buf) => {
         let body;
@@ -11142,6 +11175,9 @@ const server = http.createServer(async (req, res) => {
   }
   const deviceVerb = /^\/api\/remote\/devices\/(allow|deny|remove)$/.exec(pathname);
   if (deviceVerb && req.method === 'POST') {
+    /* kosmos#6595: Allow lets a device in, so never from a remote session. Deny and Remove take access away and stay
+       open remotely. */
+    if (deviceVerb[1] === 'allow' && isRemoteRequest(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.allow); return; }
     readBody(req)
       .then(async (buf) => {
         let body;
@@ -16688,6 +16724,8 @@ const server = http.createServer(async (req, res) => {
      lists that name. The operator hands the returned token to the
      remote agent as KOSMOS_AGENT_TOKEN. */
   if (pathname === '/api/agent-token' && req.method === 'POST') {
+    /* kosmos#6595: a token lets another computer post to this board, so it is never minted for a remote session. */
+    if (isRemoteRequest(req)) { sendJson(res, 403, REMOTE_NOT_ALLOWED.agentToken); return; }
     // #6358: an agent token outlives any browser session, so a session cookie alone does not mint one.
     if (boardAuthState.on && !boardTokenOkWithoutCookie(req)) {
       sendJson(res, 403, { error: boardTokenRefusal(req, '') });
@@ -25247,6 +25285,7 @@ if (require.main === module) {
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
+  cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test
