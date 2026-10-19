@@ -13,11 +13,12 @@ creation need a fresh authenticator code. This is the step-up half.
   sign-in session minted from a token after kosmos-relay sessioniat-6595; every other session sends neither.
   Missing or malformed is NOT fresh.
 - Gated: updating and anything that downloads and runs software (`/api/update`, `/api/update/rollback`,
-  `PUT /api/autoupdate`, `/api/connect/start`, `/api/antigravity/install`, `/api/muse/install`); a key, a token or a
+  `PUT /api/autoupdate`, `/api/connect/start`, `/api/antigravity/install`, `/api/muse/install`,
+  `/api/runners/<id>/install`); a key, a token or a
   sign-in that leaves a credential here (`/api/accounts/openai`, `.../{claude,gemini,grok}/apikey`, `.../qwen`,
   `/api/cloudflare/token`, `/api/svc/<service>/token`, the OpenAI and Grok subscription starts, Antigravity and Muse
   sign-in, GitHub, GitHub device and Vercel starts); making an agent (`/api/agents`, `/api/team`,
-  `/api/connect-agent`, `/api/worlds`, `/api/worlds/import`).
+  `/api/connect-agent`, `/api/worlds`, `/api/worlds/import`, and bringing one back, `/api/agent/<name>/restore`).
 
 ## Decided (reversible; each is one line in REMOTE_STEP_UP_EXACT)
 - **"Unsandboxed agent" is every agent.** Every Kosmos agent runs with an unsandboxed shell; there is no sandboxed
@@ -28,6 +29,8 @@ creation need a fresh authenticator code. This is the step-up half.
   sign-in START is gated; the steps after a start (a code, stop, agree) follow it and are not.
 - **A whole new Kosmos counts as making agents.** `POST /api/worlds` can copy agents in and starts them at once, so
   the route is gated whole, not only when its body asks for imports (the gate runs before any body is read).
+- **Skills are not gated.** A skill is text agents read, and a remote session can already tell any agent anything in
+  chat, so gating skills would add a prompt and no protection (review iteration 2).
 - **Taking things away is not gated:** forgetting a token, signing a provider out (DELETE), checking for an update.
 - **A local request is never asked:** the person is at the computer.
 - **The refusal says what to do** (sign out on the page and on the sign-in site, sign in again with the email code
@@ -53,13 +56,17 @@ set none of the forwarding headers, it would read as local and never be asked (R
   agent is refused. Deploy order: tunnel first, then this board change.
 - A remote session can still ask an agent here to do these things; an agent's own request arrives without
   forwarding headers. Renet's plan names the same residual.
-- `POST /api/accounts/qwen/local/download` (a model download through Ollama, which the person installed themselves)
-  is not gated: it runs no new installer. Named here so the boundary is explicit.
+- `POST /api/accounts/qwen/local/download` and `/model` (a model download, and the model choice, through Ollama,
+  which the person installed themselves) are not gated: they run no new installer. `POST /api/github-device/app`
+  stores a client id that is public by design. Named here so the boundary is explicit.
 
 ## Tests
-`server.remotestepup-6595.test.js` (32), including a guard that every POST/PUT route whose path looks like a key,
-token, sign-in, install, update or create is gated or exempt with a written reason, and every gated route exists
-(dropping one gated route turns it red, naming the route): every gated route refused remotely without headers, with second=0, with a
+`server.remotestepup-6595.test.js` (35), including two guards. Literal routes: every POST/PUT route whose path looks
+like a key, token, sign-in, install, update or create is gated or exempt with a written reason, and every gated route
+exists (dropping one gated route turns it red, naming it). Regex routes, which the literal scan cannot see: every one
+whose pattern names a token, install, sign-in, import, restore or skill is decided, gated ones matching a sample path
+(deleting one decision turns it red, naming it). Neither guard can see a route whose path names none of those words.
+The rest: every gated route refused remotely without headers, with second=0, with a
 stale time and with a malformed time, reaching nothing (the gate runs before the body is read); CONTROL: a fresh
 remote session and a local request pass on key routes (which then answer 400 for an unreadable body); update and
 agent creation pass arms tested on the function only, never run; the window's edges and malformed values.

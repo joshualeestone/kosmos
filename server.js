@@ -4309,9 +4309,11 @@ const REMOTE_STEP_UP_EXACT = new Set([
   // Making an agent, including by copying one in with another Kosmos (which starts it at once).
   'POST /api/agents', 'POST /api/team', 'POST /api/connect-agent', 'POST /api/worlds', 'POST /api/worlds/import',
 ]);
+/* The gated routes whose path carries a name: a service's token, a provider runner's install, an agent brought back. */
+const REMOTE_STEP_UP_PATTERNS = [/^\/api\/svc\/[a-z0-9-]+\/token$/, /^\/api\/runners\/[a-z]+\/install$/, /^\/api\/agent\/[^/]+\/restore$/];
 function needsRemoteStepUp(pathname, method) {
   if (REMOTE_STEP_UP_EXACT.has(method + ' ' + pathname)) return true;
-  return method === 'POST' && /^\/api\/svc\/[a-z0-9-]+\/token$/.test(pathname);
+  return method === 'POST' && REMOTE_STEP_UP_PATTERNS.some((re) => re.test(pathname));
 }
 const REMOTE_STEP_UP = Object.freeze({
   code: 'remote_step_up',

@@ -47,11 +47,11 @@ const post = async (route, headers, raw, method = 'POST') => {
 const STEP_UP_ROUTES = [
   '/api/update', '/api/update/rollback', '/api/connect/start', '/api/antigravity/install', '/api/muse/install',
   '/api/accounts/openai', '/api/accounts/claude/apikey', '/api/accounts/gemini/apikey', '/api/accounts/grok/apikey',
-  '/api/accounts/qwen', '/api/cloudflare/token', '/api/svc/brave-search/token',
+  '/api/accounts/qwen', '/api/cloudflare/token', '/api/svc/brave-search/token', '/api/runners/openai/install',
   '/api/accounts/openai/subscription/start', '/api/accounts/grok/subscription/start', '/api/antigravity/signin',
   '/api/antigravity/win32signin', '/api/muse/signin', '/api/muse/signin/retry', '/api/github/start',
   '/api/github-device/start', '/api/vercel/start',
-  '/api/agents', '/api/team', '/api/connect-agent', '/api/worlds', '/api/worlds/import',
+  '/api/agents', '/api/team', '/api/connect-agent', '/api/worlds', '/api/worlds/import', '/api/agent/scout/restore',
 ];
 
 test('R01: PUT /api/autoupdate (turning automatic updates on) from a stale remote session is refused', async () => {
@@ -146,6 +146,7 @@ const EXEMPT = {
   'POST /api/remote/signin-second': "this computer's own Kosmos+ sign-in steps",
   'POST /api/remote/signin-start': "this computer's own Kosmos+ sign-in steps",
   'POST /api/remote/signin-verify': "this computer's own Kosmos+ sign-in steps",
+  'POST /api/github-device/app': 'stores a GitHub app client id, which is public by design; the sign-in start is gated',
 };
 const LOOKS_GATED = /(install|apikey|token|subscription\/start|signin|\/start$|import|^\/api\/worlds$|^\/api\/agents$|^\/api\/team$|connect-agent|update)/;
 test('R01: every key, sign-in, install, update or create route is gated or exempt with a reason, and every gated route exists', () => {
@@ -157,7 +158,37 @@ test('R01: every key, sign-in, install, update or create route is gated or exemp
   const missing = looks.filter((r) => { const [m, p] = r.split(' '); return !needsRemoteStepUp(p, m) && !EXEMPT[r]; });
   assert.deepEqual(missing, [], 'routes that look like keys, installs, updates or creates but are neither gated nor exempt');
   for (const route of STEP_UP_ROUTES) {
-    assert.ok(src.includes("'" + route + "'") || route.startsWith('/api/svc/'), route + ' is gated but server.js serves no such path');
+    const named = /^\/api\/(svc|runners|agent)\//.test(route);
+    assert.ok(src.includes("'" + route + "'") || named, route + ' is gated but server.js serves no such path');
   }
   for (const r of Object.keys(EXEMPT)) assert.ok(routes.includes(r), 'exempt ' + r + ' is not a route any more');
+});
+
+/* Regex-defined routes are invisible to the literal scan above (review iteration 2), so each one whose pattern names a
+   token, an install, a sign-in, an import, a restore or a skill is listed here: gated (with a path it must match) or
+   exempt with its reason. A new such regex route turns this red until someone decides. */
+const REGEX_ROUTES = {
+  '/^\\/api\\/svc\\/([a-z0-9-]+)(?:\\/(token|forget))?$/': { gated: '/api/svc/brave-search/token' },
+  '/^\\/api\\/runners\\/([a-z]+)\\/install$/': { gated: '/api/runners/openai/install' },
+  '/^\\/api\\/agent\\/([^/]+)\\/restore$/': { gated: '/api/agent/scout/restore' },
+  '/^\\/api\\/skills\\/([^/]+)$/': { exempt: 'a skill is text agents read; a remote session can already tell any agent anything in chat' },
+  '/^\\/api\\/agent\\/([^/]+)\\/skills$/': { exempt: 'as for skills: no more than messaging that agent' },
+  '/^\\/api\\/agent\\/([^/]+)\\/skills\\/([^/]+)$/': { exempt: 'as for skills: no more than messaging that agent' },
+  // The gate's own patterns.
+  '/^\\/api\\/svc\\/[a-z0-9-]+\\/token$/': { gate: true },
+  '/^\\/api\\/runners\\/[a-z]+\\/install$/': { gate: true },
+  '/^\\/api\\/agent\\/[^/]+\\/restore$/': { gate: true },
+};
+test('R01: every regex route naming a token, install, sign-in, import, restore or skill is decided, and gated ones match', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const found = [...new Set([...src.matchAll(/\/\^\\\/api\\\/[^\s]*?\$\//g)].map((m) => m[0]))];
+  assert.ok(found.length > 30, 'the regex scan found ' + found.length + ', so it is not reading server.js');
+  const named = found.filter((r) => /install|token|apikey|signin|subscription|import|restore|skill/.test(r));
+  assert.ok(named.includes('/^\\/api\\/runners\\/([a-z]+)\\/install$/'), 'CONTROL: the scan sees a known regex route');
+  const undecided = named.filter((r) => !REGEX_ROUTES[r]);
+  assert.deepEqual(undecided, [], 'regex routes nobody has decided on');
+  for (const [r, d] of Object.entries(REGEX_ROUTES)) {
+    assert.ok(found.includes(r), r + ' is listed but is not in server.js any more');
+    if (d.gated) assert.equal(needsRemoteStepUp(d.gated, 'POST'), true, d.gated + ' should be gated');
+  }
 });
