@@ -11,8 +11,8 @@ CycloneDX 1.5 JSON SBOM for one Mac release, derived only from records that alre
   step 4), so a pin bumped without a rebuild would have listed a version users do not have;
 - **`tools/build-tmux-from-source.sh` at the app commit:** only for each input's download url and source sha256, and
   only where its pinned version equals the bundle's; otherwise the component carries a `kosmos:source-pin` property
-  saying what differs, and no source reference. Every `fetch` call is read, anywhere on a line, and one in a shape
-  it cannot read, or a `*_URL` nothing fetches, refuses;
+  saying what differs, and no source reference. Every non-comment line that calls `fetch` must be one call in the
+  known shape, and a `*_URL` nothing fetches refuses (the script is read, not run: see below);
 - **the relay's `Cargo.lock` at the connector commit:** walked from `kosmos-tunnel-client` to every crate it reaches,
   with each crate's DIRECT dependencies as the CycloneDX dependency graph. A crate from a source the tool does not know
   (not crates.io exactly, not git) refuses the whole SBOM rather than being left out, and so does a sourceless crate
