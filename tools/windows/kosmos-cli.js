@@ -567,7 +567,7 @@ async function verbReply(ctx, args) {
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was kept: that reply is too large to send to the board at all. Send a summary, or split it.'); keepPiped(); return 2; }
   const r = await ctx.call('POST', '/api/reply', body);
   if (!r.reached) {
-    if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Your answer may have been kept; check your conversation before sending it again.');
+    if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Your message may have been kept; check your conversation before sending it again.');
     const code = ctx.unreachable('keep that');
     keepPiped();
     return code;
@@ -579,7 +579,7 @@ async function verbReply(ctx, args) {
     return kept;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); keepPiped(); return 1; }   // #5333
-  if (r.json && r.json.kept === true) { ctx.out('Answered. It is in their conversation with you.'); return 0; }
+  if (r.json && r.json.kept === true) { ctx.out('Sent. It is in their conversation with you.'); return 0; }
   ctx.err('That was not kept: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
   tokenRefusedHint(ctx, r);   // #5333: a refused reply is {kept:false, because}, not an error
   keepPiped();
@@ -2342,7 +2342,7 @@ const BANNER = 'Usage: kosmos <' + VERBS.join('|') + '> ...   (this is the Windo
    every verb they share, and every verb here to having one. */
 const DESCRIBE = {
   msg: 'send a message to one agent',
-  reply: 'answer the person in your conversation with them',
+  reply: 'message the person in your conversation with them (an answer, or one you start)',
   'reply-channel': 'say where you answer the person, when it is not kosmos reply',
   inbox: 'read your recent messages with the person (a notice can arrive without them)',
   post: 'post in a project room',

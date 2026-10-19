@@ -189,6 +189,13 @@ const BLOCK = [
   '**The two commands that do it are in "You do not stop" above**, because being',
   'blocked is when you need them and that is where you will be reading.',
   '',
+  '**To tell the person something yourself, unasked, use `kosmos reply`.** It',
+  'does not need a message from them first: it starts a message in your',
+  'conversation with them as readily as it answers one. There is no separate',
+  'command for starting one. If your instructions name another place where you',
+  'answer them, use that place. A question only they can answer is also',
+  'reported as needs_you (above), which is what puts it on the board.',
+  '',
   '### Answering where you were asked',
   '',
   '**When a message reaches you in a project room, your reply goes back to that',
@@ -1115,8 +1122,21 @@ function block() {
  *     heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that agents will pass --file when the work is a file.
  *     Not measured; the count of built marks carrying builtFingerprint is the measure.
+ *  34. kosmos#6572 (agent feedback, 10-19). An agent with something to raise with its
+ *     person, unasked, searched for a command to start a message and concluded there was
+ *     none: every line about `kosmos reply` said "answer". There is one: /api/reply keeps
+ *     the message in the person's direct conversation whether or not they wrote first.
+ *     So this is wording, not a new verb: "Telling people what is happening" now says
+ *     `kosmos reply` starts a message too. Rejected: a second verb for the same act (two commands, one
+ *     route), and "by design, you cannot" (false). An agent that declared a reply
+ *     channel (#5805) uses that place. The CLI confirmation says "Sent." rather
+ *     than "Answered.", on both platforms. No new heading, so as in 32 an agent's
+ *     EDITED copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that agents starting messages unasked is welcome. The
+ *     section's own rule (report four things, do not narrate) is what bounds it; if
+ *     people find it noisy, the line to change is this one, not the route.
  */
-const DOCTRINE_VERSION = 33;
+const DOCTRINE_VERSION = 34;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

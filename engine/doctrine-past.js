@@ -5,7 +5,10 @@
    first line, and the sha256 of exactly those characters. doctrine.planFor uses it to tell an unedited copy from one
    a person changed. `sections` holds the sha256 of every section of every one of them, for a span holding some. */
 const blocks = [
+  { version: 34, length: 29293, sha256: 'a39a0bc29b3835a15e153f690aca36c48f5f9fdde53709d6d8412fe1c2267d92' },
   { version: 33, length: 28862, sha256: '2133561e3eab26ea070b70ecd3f77a3fce1021ced93eed07f90d827a44e179f1' },
+  { version: 33, length: 28855, sha256: 'be67d23dbc3e362307d52d1189e30f4ee7bd3744f6bc45714ffcf8b2a360f7e6' },
+  { version: 33, length: 28754, sha256: 'ef506f73982bf454db7930e6fe5ca4cf2dff7cfd96a86ee7bc857cb0c96e4100' },
   { version: 32, length: 28522, sha256: '73e44376fbc76c206ef42beb8b6010c0d98854e0464625c41157bcc56a7c02cf' },
   { version: 32, length: 28491, sha256: 'eeaead318041ae929584e60fbc635105faf15ec2a6ca2cdd8a51da34993315d9' },
   { version: 31, length: 28119, sha256: 'abc33c9b62fa12ae877a644a58ce5fca3351f8a299670a3bef170f22eb4831ad' },
@@ -102,6 +105,7 @@ blocks.sections = [
   'a139dc53994bcd809e68829f2e7e0afed6566a38318ba06a691c8c5d8f53b506',
   'a406625dd8449290ec3ee6e710596985c96d0c6900dcf5d5c187ac1db78d2ba5',
   'a8b41fe111fb6548ebecb0444712ca688e24079f53f76be070cb4d94da3ffb23',
+  'a9681134905d0d55de0bf030dd6df9ee0837f8b702f3855d8bd8b215bb7b5d3a',
   'b5721e1b0fba7cda4c0d84c6f1bfb98c07298931ba740d926fd9f0ff054d6fdc',
   'bf2c85940ad31253b5105af430e9241a2e690f0ce4db45d6ac3b5ee58cfc5e09',
   'c0863a501e68a8e2fc18c9953e065c598caddb89226264a9839d4a6d3065c7df',
@@ -114,10 +118,12 @@ blocks.sections = [
   'd6a31c8f12c2bbe8eccad81422dabfa4e087ee1b6a57b4dd22a94b6b75f99fdb',
   'd80f0fb3e012e5f6337fcee336d03db1a927abe40a5bdaf147f8e56bb3e629ca',
   'dd5a2db581810c02f98f8dcc6e54f76eb75f934e9895808e4a3eecf5b6b21220',
+  'e2ee3e07cc1f000975515d0b0048ef0b40407736a288b427f15de7a7faece4f0',
   'ec18433f76a55e066677735b6758a6cf1e4fcfe40727ef2e1656250d207a491f',
   'ec3452b6a1b9e979734f6f1aaba451859d7c9b7872d8ddd1b727e04bf80dda31',
   'ef92f1a1649a3a3e6378440ea5e72302ca21cea33fe79adb07d677e744cf6a3a',
   'f4a88b4c533e6671fb054dd27b255c5e46a15d86e8251409e3e9865472d17531',
+  'f73a32ed6c768f8cb285259461f66a9949fcc9c11874031dffdec212534c4d45',
   'f7945364a2ec0e31093ab616ec41a04bf15cdf83481b5f2fe6af47d0b9fdb467',
   'f8f447c331b9da0284350b417bb4938cae4db4a9433e0c915ad20544caf54cd6',
   'fb95589734488ead29b6d47deac00a03f38fc6d1d4d0d71ab72f07279829d193',

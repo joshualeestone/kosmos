@@ -56,7 +56,7 @@ test('#4582: reply --stdin sends the piped text as written, with both tokens', a
   assert.deepEqual(r.calls[0].body, { text: 'run `x` and $y\n\n- one', from_pane: '' });
   assert.equal(r.calls[0].headers['x-kosmos-agent-token'], AGENT);
   assert.equal(r.calls[0].headers['x-kosmos-board-token'], BOARD);
-  assert.match(r.out, /Answered/);
+  assert.match(r.out, /Sent\. It is in their conversation with you/);
 });
 
 test('#4582 CONTROL: without --stdin, reply takes its words from the args and never reads stdin', async () => {
