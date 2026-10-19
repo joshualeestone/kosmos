@@ -45,22 +45,27 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 33 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 34 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
   must equal build()'s output byte for byte. Every rule added in reviews 1 to 11 has a mutant that fails an arm,
-  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven, eight, three, four, seven, six and five per
-  round); the mutants of code later removed (the script's variable and url parsing) were retired with it. Every
+  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven, eight, three, four, seven, six, five and three per
+  round); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
+  retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
   split; review 10's signature length guard (crypto.verify refuses other lengths) and edge de-duplication.
-- **The Mac app's source is checked** (reviews 10, 15, 16): native-app/main.swift at the app commit may import only
-  Apple frameworks (an allowlist), read two ways. (1) On the RAW text: any import at the start of a statement, after
-  an attribute or an access level, must name an Apple module; this does not depend on telling strings and comments
-  apart, so a scanner that loses track of a quote cannot hide one (review 16 showed three ways the second check alone
-  could), and it is stricter than Swift (an import at a line start inside a multi-line string refuses). (2) With
-  comments and strings blanked: any statement that mentions import must be one import in the plain shape. The real
-  7,600-line main.swift passes both. LIMIT (review 16): the shipped app/bin/kosmos-app is not tied to that source;
-  the manifest's native_app hash and its files entry are taken from the same file, so they agree by construction.
+- **The Mac app's imports are read by the Swift compiler** (decided after review 17). Reviews 15 to 17 each found a way
+  past a hand-written reading of Swift (an access level, a raw string or regex literal that loses a quote, a comment
+  before an import), the same pattern as the shell script; Swift really compiles each one. So the tool now asks
+  `xcrun swiftc -frontend -emit-imported-modules` for the modules native-app/main.swift imports, and every one must be
+  an Apple framework (an allowlist). Measured: the compiler lists Evil, Sparkle and Kingfisher from every shape the
+  hand-written readers missed, and exactly Cocoa, WebKit, Network, ApplicationServices, UserNotifications, Speech
+  and AVFoundation from the real 0.7.59 file. Where no Swift compiler is installed the tool refuses with that reason
+  (the release Macs have one). Tests: the fixture arms pass a simple stand-in reader, the command-line arm puts a
+  stand-in xcrun on its PATH, and one arm runs the real compiler on the attack shapes and the real main.swift; on a
+  machine without Swift that arm skips (measured: 33 pass, 1 skipped) and the rest still run.
+  LIMIT (review 16): the shipped app/bin/kosmos-app is not tied to that source; the manifest's native_app hash and its
+  files entry are taken from the same file, so they agree by construction.
 - **The connector crate is the binary's crate:** the relay workspace member kosmos-tunnel-client must declare the
   [[bin]] kosmos-tunnel, and the lockfile must hold exactly one such package.
 - **The first-party claim is checked, not stated** (reviews 6 and 7): every path in the signed manifest's file list
