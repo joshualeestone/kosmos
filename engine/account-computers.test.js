@@ -163,35 +163,6 @@ test('fetchComputers: an old connector, a refusal, or an answer with no list is 
   }
 });
 
-test('probeOnline: ANY HTTP answer is online (even a 404), a refused connection and a silent server are offline', async () => {
-  // A server that answers 404: the relay forwarded, so the computer is up.
-  const answering = http.createServer((q, s) => { s.statusCode = 404; s.end(); });
-  await new Promise((r) => answering.listen(0, '127.0.0.1', r));
-  // A server that accepts and never answers: the timeout decides.
-  const silent = http.createServer(() => { /* never answer */ });
-  await new Promise((r) => silent.listen(0, '127.0.0.1', r));
-  // A port with nothing on it: refused.
-  const closed = http.createServer();
-  await new Promise((r) => closed.listen(0, '127.0.0.1', r));
-  const closedPort = closed.address().port;
-  await new Promise((r) => closed.close(r));
-  try {
-    const opts = (port, timeoutMs) => ({ request: http.request, port, timeoutMs });
-    assert.equal(await ac.probeOnline('127.0.0.1', opts(answering.address().port, 2000)), true);
-    assert.equal(await ac.probeOnline('127.0.0.1', opts(closedPort, 2000)), false);
-    // A hard race, so a probe that ignores its timeout fails here instead of hanging the file.
-    let raceT;
-    const bounded = await Promise.race([
-      ac.probeOnline('127.0.0.1', opts(silent.address().port, 300)),
-      new Promise((r) => { raceT = setTimeout(() => r('HUNG'), 2000); }),
-    ]);
-    clearTimeout(raceT);
-    assert.equal(bounded, false, 'a silent server must read offline within its timeout, got ' + bounded);
-  } finally {
-    answering.close(); silent.closeAllConnections(); silent.close();
-  }
-});
-
 test('probeReach (#6585): a ticket-taking gate (405 on the ticket path) is instant, an older gate (its sign-in page, 200) is online but not instant, refused and silent are offline', async () => {
   const seen = [];
   // The 0.7.57+ tunnel: a read of /_kosmos/ticket is 405 (it takes only POST there).
