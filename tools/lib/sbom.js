@@ -108,7 +108,8 @@ function closure(pkgs, rootName) {
 // The relay workspace's member crate names, from its Cargo.toml and each member's own. Literal member paths only.
 function workspaceMembers(show, relay, commit) {
   const top = show(relay, commit, 'Cargo.toml').replace(/#.*$/gm, '');
-  const m = top.match(/^\[workspace\][\s\S]*?^members\s*=\s*\[([^\]]*)\]/m);
+  const section = (top.match(/^\[workspace\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m) || [])[1] || '';
+  const m = section.match(/^members\s*=\s*\[([^\]]*)\]/m);
   if (!m) throw new Error('relay Cargo.toml: no [workspace] members');
   const dirs = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
   if (!dirs.length || dirs.some((d) => /[*?[]/.test(d))) throw new Error('relay Cargo.toml: members must be literal paths');
@@ -124,7 +125,10 @@ function workspaceMembers(show, relay, commit) {
 // is how a build input goes missing.
 function tmuxPins(text) {
   const vars = {};
-  for (const m of text.matchAll(/^([A-Z0-9_]+)="([^"]*)"/gm)) vars[m[1]] = m[2];
+  for (const m of text.matchAll(/^([A-Z0-9_]+)="([^"]*)"/gm)) {
+    if (m[1] in vars && /_(URL|VERSION|SHA)$/.test(m[1])) throw new Error(`build-tmux-from-source.sh: ${m[1]} is set twice (the value at fetch time is not knowable here)`);
+    vars[m[1]] = m[2];
+  }
   const expand = (s) => {
     for (let i = 0; i < 5 && /\$\{[A-Z0-9_]+\}/.test(s); i++) s = s.replace(/\$\{([A-Z0-9_]+)\}/g, (_, v) => (v in vars ? vars[v] : `\${${v}}`));
     return s;
@@ -151,6 +155,7 @@ function tmuxPins(text) {
     if (!version || !url) throw new Error(`build-tmux-from-source.sh: no version or url for ${name}`);
     if (/\$/.test(url) || /\$/.test(version)) throw new Error(`build-tmux-from-source.sh: ${name}'s version or url names a variable this SBOM cannot expand`);
     if (!/^[0-9a-f]{64}$/.test(sha || '')) throw new Error(`build-tmux-from-source.sh: no recorded sha256 for ${name}`);
+    if (pins.some((x) => x.name === name)) throw new Error(`build-tmux-from-source.sh: ${name} is fetched twice`);
     pins.push({ name, url, version, sha, urlVar: `${u}_URL` });
   }
   if (!pins.length) throw new Error('build-tmux-from-source.sh: no fetch lines');
@@ -170,6 +175,10 @@ function readTmuxBundle(file) {
   const sha = crypto.createHash('sha256').update(bytes).digest('hex');
   const tar = (args) => execFileSync('tar', args, { input: bytes, encoding: 'utf8', maxBuffer: 64 << 20 });
   const list = tar(['-tzf', '-']).split('\n').filter(Boolean);
+  // Regular files and directories only: a symlink or hard link would name one file and ship another.
+  for (const line of tar(['-tvzf', '-']).split('\n').filter(Boolean)) {
+    if (!/^[-d]/.test(line)) throw new Error(`tmux bundle: an entry that is not a plain file or folder: ${line}`);
+  }
   const vfiles = list.filter((p) => p.replace(/^\.\//, '') === 'VERSION');
   if (vfiles.length !== 1) throw new Error(`tmux bundle: ${vfiles.length} VERSION files, not one`);
   return { sha, ...parseTmuxVersion(tar(['-xzOf', '-', vfiles[0]]), list) };
@@ -264,17 +273,24 @@ const FIRST_PARTY_FILES = new Set(['VERSION', 'bin/kosmos', 'runtime/bin/node', 
   'app/bin/kosmos-app', 'app/bin/kosmos-tunnel', 'app/Kosmos.app/Contents/Info.plist', 'app/Kosmos.app/Contents/CodeResources',
   'app/Kosmos.app/Contents/MacOS/Kosmos', 'app/Kosmos.app/Contents/_CodeSignature/CodeResources']);
 const FIRST_PARTY_DIRS = ['app/engine/', 'app/web/', 'app/assets/'];
+// Inside those, text and image files only: a prebuilt addon (.node), a library or a binary with no extension refuses.
+const FIRST_PARTY_EXT = /\.(js|mjs|cjs|json|html|css|svg|png|jpg|jpeg|gif|webp|ico|icns|webmanifest|md|txt)$/;
 const FIRST_PARTY_PATTERNS = [/^app\/bin\/[A-Za-z0-9_.-]+\.(sh|js)$/, /^app\/Kosmos\.app\/Contents\/Resources\/[A-Za-z0-9_.-]+\.icns$/];
 function checkFirstParty(manifest, packageJson) {
   if (!Array.isArray(manifest.files) || !manifest.files.length) throw new Error('manifest lists no files');
   for (const f of manifest.files) {
     const p = f && f.path;
     if (typeof p !== 'string' || /(^|\/)node_modules(\/|$)/.test(p) || p.split('/').includes('..')
-      || !(FIRST_PARTY_FILES.has(p) || FIRST_PARTY_DIRS.some((d) => p.startsWith(d)) || FIRST_PARTY_PATTERNS.some((r) => r.test(p)))) {
+      || !(FIRST_PARTY_FILES.has(p) || (FIRST_PARTY_DIRS.some((d) => p.startsWith(d)) && FIRST_PARTY_EXT.test(p))
+        || FIRST_PARTY_PATTERNS.some((r) => r.test(p)))) {
       throw new Error(`manifest ships ${p}, which is not a first-party place this SBOM accounts for`);
     }
   }
   const shipped = new Map(manifest.files.map((f) => [f.path, f.sha256]));
+  if (shipped.size !== manifest.files.length) throw new Error('manifest lists a file twice');
+  if (crypto.createHash('sha256').update(packageJson, 'utf8').digest('hex') !== shipped.get('app/package.json')) {
+    throw new Error('package.json at the app commit is not the app/package.json the release shipped');
+  }
   if (shipped.get('app/bin/kosmos-tunnel') !== manifest.connector.signed_sha256) throw new Error('the manifest\'s app/bin/kosmos-tunnel is not the connector it names');
   if (!shipped.has('runtime/bin/node')) throw new Error('the manifest ships no runtime/bin/node');
   let pkg;
@@ -346,7 +362,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
       { ref: 'tmux-bundle', dependsOn: ['tmux-part:tmux'] },
       { ref: 'tmux-part:tmux', dependsOn: libs.map((n) => `tmux-part:${n}`).sort(byCodePoint) },
       ...libs.map((n) => ({ ref: `tmux-part:${n}`, dependsOn: [] })),
-      { ref: 'connector', dependsOn: edges.get(root).map(crateRef).sort(byCodePoint) },
+      { ref: 'connector', dependsOn: [...new Set(edges.get(root).map(crateRef))].sort(byCodePoint) },
       ...crates.map((p) => ({ ref: crateRef(p), dependsOn: [...new Set(edges.get(p).map(crateRef))].sort(byCodePoint) })),
     ],
   };
@@ -366,7 +382,8 @@ if (require.main === module) {
   const opt = (n) => { const i = args.indexOf(n); const v = i >= 0 ? args[i + 1] : null; return v && !v.startsWith('--') ? v : null; };
   const file = args[0], sig = opt('--sig'), repo = opt('--repo'), relay = opt('--relay'), tmuxFile = opt('--tmux'), out = opt('--out');
   const known = new Set(['--sig', '--repo', '--relay', '--tmux', '--out']);
-  const badFlag = args.slice(1).some((a, i, xs) => a.startsWith('--') ? !known.has(a) : !(i > 0 && known.has(xs[i - 1])));
+  const badFlag = args.slice(1).some((a, i, xs) => a.startsWith('--') ? !known.has(a) || xs.indexOf(a) !== i : !(i > 0 && known.has(xs[i - 1])))
+    || (out && [file, sig, tmuxFile].includes(out));
   if (!file || file.startsWith('--') || !sig || !repo || !relay || !tmuxFile || badFlag || (args.includes('--out') && !out)) {
     console.error('usage: sbom.js <manifest.json> --sig <manifest.json.sig> --tmux <tmux-arch.tar.gz> --repo <kosmos> --relay <kosmos-relay> [--out <file>]');
     process.exit(2);
