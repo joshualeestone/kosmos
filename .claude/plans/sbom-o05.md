@@ -17,7 +17,8 @@ CycloneDX 1.5 JSON SBOM for one Mac release, derived only from records that alre
   source, checksum and dependencies refuses (review 19: Cargo's `replace` points the build at a different crate). A
   crate from a source the tool does not know
   (not crates.io exactly, not git) refuses the whole SBOM rather than being left out, and so does a sourceless crate
-  that is not a member of the relay workspace (a vendored crate would otherwise pass as first-party).
+  that is not THE member of that name (the one sourceless package so named, at the version its Cargo.toml or
+  [workspace.package] gives, review 22: a path dependency outside the workspace can share a member's name) (a vendored crate would otherwise pass as first-party).
 
 The app has no npm dependencies (package.json lists none) and the Swift app links Apple frameworks only, so that is
 all the third-party code in the bundle.
@@ -48,15 +49,15 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 41 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 43 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
-  must equal build()'s output byte for byte. Every rule added in reviews 1 to 21 has a mutant that fails an arm, run at
-  the time of the change (the first version, then reviews 1 to 21 in order: four, eight, six, eleven, six, seven,
-  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five and five); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 22 has a mutant that fails an arm, run at
+  the time of the change (the first version, then reviews 1 to 22 in order: four, eight, six, eleven, six, seven,
+  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five and six); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
-  split; review 10's signature length guard (crypto.verify refuses other lengths) and edge de-duplication.
+  split; the tmux-part dependency sort (the parts come out in the code's fixed order); review 10's signature length guard (crypto.verify refuses other lengths) and edge de-duplication.
 - **The Mac app's imports are read by the Swift compiler** (decided after review 17). Reviews 15 to 17 each found a way
   past a hand-written reading of Swift (an access level, a raw string or regex literal that loses a quote, a comment
   before an import), the same pattern as the shell script; Swift really compiles each one. So the tool now asks

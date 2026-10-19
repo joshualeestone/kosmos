@@ -57,8 +57,11 @@ function gitShow(repo, commit, file) {
   try {
     return execFileSync('git', ['-C', repo, 'show', `${commit}:${file}`],
       { encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'] });
-  } catch {
-    throw new Error(`${repo} has no ${file} at ${commit} (fetch it, or pass the right checkout)`);
+  } catch (e) {
+    const err = new Error(`${repo} has no ${file} at ${commit} (fetch it, or pass the right checkout)`);
+    // Only git saying the path is not in that commit means "absent"; any other failure is not an answer.
+    err.notFound = /does not exist in|exists on disk, but not in/.test(String(e.stderr || ''));
+    throw err;
   }
 }
 
@@ -136,21 +139,24 @@ function closure(pkgs, rootName) {
 }
 
 // The relay workspace's member crate names, from its Cargo.toml and each member's own. Literal member paths only.
-const memberDirs = new Map();
+// The relay workspace's members: crate name -> { dir, toml, version }, read from its Cargo.toml and each member's own.
+// Literal member paths only. A member's version may come from [workspace.package] (version.workspace = true).
 function workspaceMembers(show, relay, commit) {
-  memberDirs.clear();
   const top = show(relay, commit, 'Cargo.toml').replace(/#.*$/gm, '');
-  const section = (top.match(/^\[workspace\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m) || [])[1] || '';
-  const m = section.match(/^members\s*=\s*\[([^\]]*)\]/m);
+  const sectionOf = (text, name) => (text.match(new RegExp(`^\\[${name.replace('.', '\\.')}\\]\\s*$([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`, 'm')) || [])[1] || '';
+  const m = sectionOf(top, 'workspace').match(/^members\s*=\s*\[([^\]]*)\]/m);
   if (!m) throw new Error('relay Cargo.toml: no [workspace] members');
   const dirs = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
   if (!dirs.length || dirs.some((d) => /[*?[]/.test(d))) throw new Error('relay Cargo.toml: members must be literal paths');
+  const wsVersion = (sectionOf(top, 'workspace.package').match(/^version\s*=\s*"([^"]+)"/m) || [])[1];
   return new Map(dirs.map((d) => {
     const toml = show(relay, commit, `${d}/Cargo.toml`);
-    const n = toml.match(/^\[package\][\s\S]*?^name\s*=\s*"([^"]+)"/m);
+    const pkg = sectionOf(toml.replace(/#.*$/gm, ''), 'package');
+    const n = pkg.match(/^name\s*=\s*"([^"]+)"/m);
     if (!n) throw new Error(`relay ${d}/Cargo.toml: no [package] name`);
-    memberDirs.set(n[1], d);
-    return [n[1], toml];
+    const v = (pkg.match(/^version\s*=\s*"([^"]+)"/m) || [])[1] || (/^version\.workspace\s*=\s*true/m.test(pkg) ? wsVersion : undefined);
+    if (!v) throw new Error(`relay ${d}/Cargo.toml: no version`);
+    return [n[1], { dir: d, toml, version: v }];
   }));
 }
 
@@ -294,7 +300,7 @@ function crateRefs(root, crates) {
 function crateComponent(p, relayCommit, crateRef, members) {
   const base = { type: 'library', 'bom-ref': crateRef(p), name: p.name, version: p.version };
   if (!p.source) {
-    if (!members.has(p.name)) throw new Error(`Cargo.lock: ${p.name} ${p.version} has no source and is not a relay workspace member (a vendored crate?)`);
+    if (!members.has(p.name)) throw new Error(`Cargo.lock: ${p.name} ${p.version} has no source and is not the relay workspace member of that name`);
     return { ...base, description: `kosmos-relay workspace crate, ${relayCommit}` };
   }
   if (CRATES_IO.has(p.source)) {
@@ -431,14 +437,31 @@ function build(manifest, { repo, relay, tmux, show = gitShow, readImports = swif
   // A .cargo/config in the relay can point a crate at other code (paths, [source] replacement, vendoring) while the
   // Cargo.lock still names the registry crate, so any one refuses. The build machine's own ~/.cargo and CARGO_*
   // settings are a LIMIT: this cannot see them.
-  const has = (f) => { try { show(relay, relayCommit, f); return true; } catch { return false; } };
-  for (const dir of ['', ...[...members.keys()].map((n) => memberDirs.get(n) + '/')]) {
+  const has = (f) => { try { show(relay, relayCommit, f); return true; } catch (e) { if (e.notFound) return false; throw e; } };
+  // Cargo reads config from every folder above the build's, so every ancestor of every member, up to the root.
+  const dirsToCheck = new Set(['']);
+  for (const { dir } of members.values()) {
+    const parts = dir.split('/');
+    for (let k = 1; k <= parts.length; k++) dirsToCheck.add(parts.slice(0, k).join('/') + '/');
+  }
+  for (const dir of [...dirsToCheck].sort(byCodePoint)) {
     for (const f of ['.cargo/config', '.cargo/config.toml']) {
       if (has(dir + f)) throw new Error(`relay ${dir}${f} at the connector commit can change what the connector builds; this SBOM cannot vouch for it`);
     }
   }
+  // A crate with no source is first-party only when it IS the member: the one sourceless package of that name, at
+  // the member's version (a path dependency outside the workspace can share a member's name).
+  const sourceless = new Map();
+  for (const p of [root, ...deps]) if (!p.source) sourceless.set(p.name, (sourceless.get(p.name) || 0) + 1);
+  for (const p of [root, ...deps]) {
+    if (p.source) continue;
+    const mem = members.get(p.name);
+    if (!mem || sourceless.get(p.name) !== 1 || mem.version !== p.version) {
+      throw new Error(`Cargo.lock: ${p.name} ${p.version} has no source and is not the relay workspace member of that name${mem ? ` (${mem.version})` : ''}`);
+    }
+  }
   // The shipped app/bin/kosmos-tunnel must be that crate's binary, or its closure is not the connector's.
-  const tunnelToml = members.get(CONNECTOR_CRATE) || '';
+  const tunnelToml = (members.get(CONNECTOR_CRATE) || {}).toml || '';
   if (!/^\[\[bin\]\]\s*\nname\s*=\s*"kosmos-tunnel"/m.test(tunnelToml)) throw new Error(`relay: ${CONNECTOR_CRATE} does not build the kosmos-tunnel binary`);
   const floor = show(repo, appCommit, 'tools/macos-floor').trim();
   if (!/^[0-9]+(\.[0-9]+)*$/.test(floor)) throw new Error(`tools/macos-floor at the app commit is not a macOS version (${floor})`);
@@ -522,8 +545,10 @@ if (require.main === module) {
     console.error('usage: sbom.js <manifest.json> --sig <manifest.json.sig> --tmux <tmux-arch.tar.gz> --repo <kosmos> --relay <kosmos-relay> [--out <file>]');
     process.exit(2);
   }
+  if (out) fs.rmSync(out, { force: true });
   try {
     const text = JSON.stringify(build(readSignedManifest(file, sig), { repo, relay, tmux: readTmuxBundle(tmuxFile) }), null, 2) + '\n';
-    if (out) fs.writeFileSync(out, text); else process.stdout.write(text);
+    // Written beside the target and renamed into place, so a failed run never leaves an older SBOM under that name.
+    if (out) { fs.writeFileSync(`${out}.partial`, text); fs.renameSync(`${out}.partial`, out); } else process.stdout.write(text);
   } catch (e) { console.error(`sbom: ${e.message}`); process.exit(1); }
 }
