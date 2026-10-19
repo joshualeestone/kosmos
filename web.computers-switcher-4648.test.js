@@ -178,6 +178,8 @@ function clickWith({ win, answer, ev, href, twice, timers, linkAttrs }) {
   const attrs = Object.assign({}, linkAttrs || {});
   const screens = [];
   const toasts = [];
+  const holds = [];
+  let pnavClosed = 0;
   const a = { href: href || 'https://tmnt.kosmosplus.com/?tab=detail&agent=x', closest: (sel) => (sel === 'a[data-computer-open]' ? a : null),
     setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; }, getAttribute: (k) => (k in attrs ? attrs[k] : null) };
   const e = Object.assign({ defaultPrevented: false, button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, target: a,
@@ -191,13 +193,13 @@ function clickWith({ win, answer, ev, href, twice, timers, linkAttrs }) {
   const second = Object.assign({}, e, { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
   // #6585: the switching screen and the toast are recorded, not drawn (the screen has its own test below).
   const run = new Function('window', 'document', 'fetch', 'e', 'second', 'twice', 'URL', 'AbortController', 'setTimeout', 'clearTimeout',
-    'computersSwitchingScreen', 'msgToast',
+    'computersSwitchingScreen', 'msgToast', 'pnavClose',
     `${DECL}\n${OPEN}\ncomputersOpenClick(e);\nif (twice) computersOpenClick(second);`);
   run(w, doc, fetchFn, e, second, !!twice, URL, AbortController, timers ? timers.set : setTimeout, timers ? timers.clear : clearTimeout,
-    (n) => screens.push(n), (m) => toasts.push(m));
+    (n) => screens.push(n), (m, h) => { toasts.push(m); holds.push(h); }, () => { pnavClosed += 1; });
   // went: navigations through the noreferrer link; assigned: script navigations (which would send a Referer), never.
   assert.deepEqual(assigned, [], 'no script navigation');
-  return { went, posted, e, attrs, screens, toasts };
+  return { went, posted, e, attrs, screens, toasts, holds, pnavClosed };
 }
 const APP = { webkit: { messageHandlers: { kosmosBadge: {} } } };
 const settle = () => new Promise((r) => setTimeout(r, 20));
@@ -297,6 +299,8 @@ test('#6585: a computer measured as unable to take the instant switch says so an
   assert.deepEqual(t.went, []);
   assert.deepEqual(t.screens, []);
   assert.equal(t.toasts.length, 1);
+  assert.equal(t.pnavClosed, 1, 'the phone menu covers the toast, so it closes first');
+  assert.ok(t.holds[0] >= 8000, 'words carrying an address stay long enough to read: ' + t.holds[0]);
   assert.match(t.toasts[0], /^tmnt is on an older Kosmos, so it cannot switch instantly yet\. Update Kosmos on tmnt, or open tmnt\.kosmosplus\.com in your browser and sign in\.$/);
   // Not one at a time: a refusal never holds the next click.
   assert.equal(t.attrs['aria-busy'], undefined);

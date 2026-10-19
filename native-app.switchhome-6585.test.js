@@ -19,9 +19,9 @@ function body(sig) {
   return SRC.slice(at, SRC.indexOf('\n    }\n', at) + 6);
 }
 
-test('#6585: the navigation policy sends a click to this computer\'s own address home, before the link rules', () => {
+test('#6585: the navigation policy sends a navigation to this computer\'s own address home, before the link rules', () => {
   const policy = body('func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,');
-  const ask = policy.indexOf('if navigationAction.navigationType == .linkActivated, isOnAnotherComputer(),\n           switchGoesHome(url, onAnotherComputer: true, clicked: true, ownPlusHost: ownKosmosPlusHost()) {');
+  const ask = policy.indexOf('if isOnAnotherComputer(), switchGoesHome(url, onAnotherComputer: true, ownPlusHost: ownKosmosPlusHost()) {');
   assert.ok(ask > 0, 'the policy no longer asks switchGoesHome');
   const links = policy.indexOf('switch connectLinkDecision(');
   assert.ok(links > ask, 'switchGoesHome must be asked before the link rules, which would load the address');
@@ -31,11 +31,14 @@ test('#6585: the navigation policy sends a click to this computer\'s own address
   // No boardStartInFlight check here: backToThisComputer beeps during a start, where a sign-in page would load.
   assert.doesNotMatch(arm, /boardStartInFlight/, 'a start in flight must reach backToThisComputer (it beeps), not fall through to the sign-in page');
   assert.match(arm, /decisionHandler\(\.cancel\)\n\s+backToThisComputer\(nil\)/, 'cancels the sign-in page and goes home through the menu item\'s own checks');
+  /* Not keyed on .linkActivated: the switcher's way there is computersGo's script-made click, and whether WebKit
+     reports that as a link click was never measured in the app. Going home loads only this computer's own board. */
+  assert.doesNotMatch(policy.slice(policy.lastIndexOf('\n', ask), ask + 200), /linkActivated/);
 });
 
 test('#6585: switchGoesHome is pure and keyed on this computer\'s own Kosmos+ address only', () => {
   const fn = SRC.slice(SRC.indexOf('func switchGoesHome('), SRC.indexOf('\n}\n', SRC.indexOf('func switchGoesHome(')));
-  assert.match(fn, /guard onAnotherComputer, clicked, let target = target, let own = ownPlusHost\?\.lowercased\(\),\n\s+isKosmosPlusURL\(target\)/);
+  assert.match(fn, /guard onAnotherComputer, let target = target, let own = ownPlusHost\?\.lowercased\(\),\n\s+isKosmosPlusURL\(target\)/);
   assert.match(fn, /return host == own/);
   assert.doesNotMatch(fn, /ownKosmosPlusHost\(\)|ProcessInfo|FileManager/, 'pure: the caller reads the address file');
 });

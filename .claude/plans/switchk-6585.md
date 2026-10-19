@@ -14,8 +14,8 @@ Card: kosmos#6585. Josh 2026-10-19 09:12 ("it immediately switches ... our anima
 
 ## Changes
 - engine/account-computers.js: probeReach replaces probeOnline in fetchComputers. One HEAD of /_kosmos/ticket: any answer is online (as before), 405 also means it takes tickets; an older gate answers its sign-in page (200). Rows carry `instant` only when online and measured.
-- web/index.html: rows carry data-computer-name and data-computer-instant="0"; the phone menu copies both. computersOpenClick refuses "0" with a toast; otherwise computersSwitchingScreen (opaque, role=status, startKLoader canvas, "Opening <name>"); pageshow removes it (back from the bfcache).
-- native-app/main.swift: switchGoesHome (pure, 11 selftest rows, expected 181 -> 192), asked in the main-frame navigation policy before the link rules; a click to the own Kosmos+ address while on another computer cancels and calls backToThisComputer.
+- web/index.html: rows carry data-computer-name and data-computer-instant="0"; the phone menu copies both. computersOpenClick refuses "0" with a toast; otherwise computersSwitchingScreen (opaque, role=status, startKLoader canvas, "Opening <name>"); pageshow removes it (back from the bfcache). The older-Kosmos toast closes the phone menu first (it covers toasts) and holds 9 s (msgToast takes an optional hold); the screen comes down after 15 s if the page was not replaced.
+- native-app/main.swift: switchGoesHome (pure, 10 selftest rows, expected 181 -> 191), asked in the main-frame navigation policy before the link rules; any main-frame navigation to the own Kosmos+ address while on another computer cancels and calls backToThisComputer. Not keyed on a click: the switcher gets there through computersGo's script-made click, whose WebKit navigation type was not measured in the app.
 
 ## Rejected
 - Passing the app's local board origin in the fragment to the other computer's page: page-supplied navigation targets, and both computers must update. The native intercept needs neither.
@@ -32,7 +32,7 @@ Card: kosmos#6585. Josh 2026-10-19 09:12 ("it immediately switches ... our anima
 That every gate older than #443 answers /_kosmos/ticket with 200. Measured on one (tmnt at 0.7.55) and in source (the gate serves its page for any path to a stranger); not measured on a still-older gate. A false 200 refuses a computer that could switch; a false anything-else only tries the ticket as before.
 
 ## Verification
-- engine/account-computers.test.js 11/11 (perturbed: probe '/' turns 1 red).
+- engine/account-computers.test.js 10/10 (perturbed: probe '/' turns 1 red).
 - web.computers-switcher-4648.test.js 17/17 (perturbed: refusal removed turns 1 red).
-- --kosmos-app-mode-selftest 192/192 (perturbed: switchGoesHome false turns 2 red); native-app wiring tests 66/66.
+- --kosmos-app-mode-selftest 191/191 (perturbed: switchGoesHome false turns 2 red); native-app wiring tests pass.
 - Full web.* suite; browser-check gates; design shots of the switching screen and the toast.
