@@ -150,6 +150,7 @@ real fix.
   Equivalent survivors, recorded: the exclusive-create flag (the path checks already make every path unique), the
   per-blob newline check (a misaligned read fails the next entry's sha check or the end-of-output check), and the
   two-members-one-name refusal (Cargo itself refuses that workspace).
+- (Review 25.) A CPE escapes reserved characters in a version (a '+').
 - (Was a gap, review 23.) Every file read from git must be a plain file there (mode 100644 or 100755, read with git
   ls-tree first): git show of a symlink returns its target PATH as text, so a symlinked main.swift passed as importing
   nothing. Any `.cargo` entry (a folder, a file or a symlink) in the relay root or above a member refuses. The
