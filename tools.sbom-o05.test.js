@@ -153,6 +153,9 @@ const MANIFEST = {
     'app/Kosmos.app/Contents/Resources/Kosmos.icns'].map((path) => ({ path, sha256: path === 'app/bin/kosmos-tunnel' ? SHA('f') : SHA('2') })),
 };
 const PACKAGE = '{ "name": "agent-workforce", "private": true, "scripts": { "test": "x" } }';
+const sha256 = (t) => crypto.createHash('sha256').update(t, 'utf8').digest('hex');
+MANIFEST.files.find((f) => f.path === 'app/package.json').sha256 = sha256(PACKAGE);
+const withPackage = (m, pkg) => ({ ...m, files: m.files.map((f) => (f.path === 'app/package.json' ? { ...f, sha256: sha256(pkg) } : f)) });
 const show = (files) => (repo, commit, file) => {
   const v = files[`${repo}:${commit}:${file}`];
   if (v === undefined) throw new Error(`no ${repo}:${commit}:${file}`);
@@ -364,10 +367,19 @@ test('every shipped file must sit in a first-party place, and package.json may n
   assert.throws(() => sbom({ ...MANIFEST, files: [] }), /manifest lists no files/);
   assert.throws(() => sbom({ ...MANIFEST, files: undefined }), /manifest lists no files/);
   for (const k of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
-    assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, JSON.stringify({ name: 'x', [k]: { leftpad: '1' } }))), new RegExp(`has ${k}`));
+    const pkg = JSON.stringify({ name: 'x', [k]: { leftpad: '1' } });
+    assert.throws(() => sbom(withPackage(MANIFEST, pkg), files(LOCK, TMUX, WORKSPACE, pkg)), new RegExp(`has ${k}`));
   }
-  assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, JSON.stringify({ name: 'x', bundledDependencies: ['a'] }))), /has bundledDependencies/);
-  assert.ok(sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, JSON.stringify({ name: 'x', dependencies: {} }))), 'an empty map is no dependency');
+  const bundled = JSON.stringify({ name: 'x', bundledDependencies: ['a'] });
+  assert.throws(() => sbom(withPackage(MANIFEST, bundled), files(LOCK, TMUX, WORKSPACE, bundled)), /has bundledDependencies/);
+  const empty = JSON.stringify({ name: 'x', dependencies: {} });
+  assert.ok(sbom(withPackage(MANIFEST, empty), files(LOCK, TMUX, WORKSPACE, empty)), 'an empty map is no dependency');
+  assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, empty)), /is not the app\/package\.json the release shipped/);
+  for (const p of ['app/engine/x.node', 'app/web/lib.dylib', 'app/assets/blob.wasm', 'app/engine/rg']) {
+    assert.throws(() => sbom(ship(p)), /which is not a first-party place/, p);
+  }
+  assert.ok(sbom(ship('app/engine/new-module.js', 'app/web/style.css', 'app/web/icons/x.svg')), 'text and images pass');
+  assert.throws(() => sbom({ ...MANIFEST, files: [{ path: 'app/bin/kosmos-tunnel', sha256: SHA('3') }, ...MANIFEST.files] }), /lists a file twice/);
 });
 
 test('native code: only the two named binaries in app/bin/ and the Mac app\'s own files; components tie to shipped files', () => {
@@ -401,12 +413,20 @@ test('a download outside fetch() (curl, wget, git clone, a bare https address) r
   assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, 'lib/libevent-9evil.dylib']), /is not a file this SBOM accounts for/);
 });
 
+test('the relay workspace members are read from the [workspace] section only', () => {
+  const later = '[workspace]\nresolver = "2"\n\n[other]\nmembers = ["crates/proto", "crates/tunnel", "crates/relay"]\n';
+  assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, later)), /no \[workspace\] members/);
+});
+
 test('the bundle: a library VERSION names must be in lib/, bin/tmux must be there, a ./ prefix reads the same, URL and SHA must pair', () => {
   assert.throws(() => parseTmuxVersion(VERSION + 'ncurses: 6.5\n', LIBS), /VERSION names ncurses, but no library of it is in lib\//);
   assert.throws(() => parseTmuxVersion(VERSION, LIBS.filter((p) => p !== 'bin/tmux')), /no bin\/tmux/);
   assert.deepEqual(parseTmuxVersion(VERSION, LIBS.map((p) => `./${p}`)).versions, BUNDLE.versions);
   assert.throws(() => tmuxPins(TMUX.replace('fetch libevent "$LIBEVENT_URL" "$LIBEVENT_SHA"', 'fetch libevent "$LIBEVENT_URL" "$TMUX_SHA"')),
     /libevent is fetched with LIBEVENT_URL but TMUX_SHA/);
+  assert.throws(() => tmuxPins(TMUX + `TMUX_SHA="${SHA('9')}"\n`), /TMUX_SHA is set twice/);
+  assert.throws(() => tmuxPins(TMUX + 'fetch tmux "$TMUX_URL" "$TMUX_SHA"\n'), /tmux is fetched twice/);
+  assert.equal(tmuxPins(TMUX + 'OUT="a"\nOUT="b"\n').length, 3, 'a variable no fetch reads may be set twice');
 });
 
 test('the same release gives a byte-identical SBOM; another release a different version-8 serial', () => {
@@ -475,16 +495,26 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   assert.equal(comp(b, 'crate:rustls@0.23.46').version, '0.23.46');
   assert.equal(comp(b, 'tmux-part:utf8proc').version, '2.9.0');
   assert.deepEqual(comp(b, 'tmux-bundle').hashes, [{ alg: 'SHA-256', content: tmux.sha }]);
-  assert.throws(() => build(manifest, { repo: r.dir, relay: r.dir, tmux }), /relay has no package\.json at [0-9a-f]{40} \(fetch it, or pass the right checkout\)/);
+  assert.throws(() => build(manifest, { repo: r.dir, relay: r.dir, tmux }), /^Error: \/.*\/relay has no package\.json at [0-9a-f]{40} \(fetch it, or pass the right checkout\)$/);
   const twice = path.join(root, 'twice.tar.gz');
   fs.mkdirSync(path.join(stage, 'x'), { recursive: true });
   fs.writeFileSync(path.join(stage, 'x', 'VERSION'), VERSION);
   execFileSync('tar', ['-czf', twice, '-C', stage, ...LIBS, '-C', path.join(stage, 'x'), 'VERSION']);
   assert.throws(() => readTmuxBundle(twice), /2 VERSION files, not one/);
+  const linked = path.join(root, 'linked');
+  fs.cpSync(stage, linked, { recursive: true });
+  fs.rmSync(path.join(linked, 'lib/libutf8proc.3.dylib'));
+  fs.symlinkSync('/usr/lib/libz.1.dylib', path.join(linked, 'lib/libutf8proc.3.dylib'));
+  const ltgz = path.join(root, 'linked.tar.gz');
+  execFileSync('tar', ['-czf', ltgz, '-C', linked, ...LIBS]);
+  assert.throws(() => readTmuxBundle(ltgz), /an entry that is not a plain file or folder/);
 
   const mf = path.join(root, 'manifest.json'), sg = path.join(root, 'manifest.json.sig');
   fs.writeFileSync(mf, JSON.stringify(manifest));
   fs.writeFileSync(sg, Buffer.alloc(64).toString('base64'));
+  assert.equal(spawnSync(process.execPath, [SBOM_JS, mf, '--sig', sg, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir], { encoding: 'utf8' }).status, 2, 'a repeated flag');
+  assert.equal(spawnSync(process.execPath, [SBOM_JS, mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, '--out', mf], { encoding: 'utf8' }).status, 2, '--out onto an input');
+  assert.ok(fs.readFileSync(mf, 'utf8').includes('"version"'), 'the manifest was not overwritten');
   const run = (...a) => spawnSync(process.execPath, [SBOM_JS, ...a], { encoding: 'utf8' });
   const unsigned = run(mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir);
   assert.equal(unsigned.status, 1);
