@@ -4315,6 +4315,9 @@ const REMOTE_STEP_UP_EXACT = new Set([
   'POST /api/agents', 'POST /api/team', 'POST /api/connect-agent', 'POST /api/worlds', 'POST /api/worlds/import',
   // Writing an agent's launchd job (it starts processes), the same class as bringing an agent back.
   'POST /api/register',
+  // Joining a company or family: it applies that org's policy here and starts reporting this computer's activity to
+  // it. Previewing a code and leaving are not gated (one reads, the other takes away).
+  'POST /api/org/enroll',
   // Resetting the account's second factor: from a stolen session it would let the thief enrol their own, and then
   // pass this very step-up. At the computer it needs nothing more.
   'POST /api/remote/second-reset',
@@ -4329,7 +4332,7 @@ function needsRemoteStepUp(pathname, method) {
   if (REMOTE_STEP_UP_EXACT.has(method + ' ' + pathname)) return true;
   // A gated path is gated for every writing method but DELETE, so a later PUT or PATCH handler on it is covered too.
   if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH') return false;
-  if (REMOTE_STEP_UP_EXACT.has('POST ' + pathname) || REMOTE_STEP_UP_EXACT.has('PUT ' + pathname)) return true;
+  for (const m of ['POST', 'PUT', 'PATCH']) if (REMOTE_STEP_UP_EXACT.has(m + ' ' + pathname)) return true;
   return REMOTE_STEP_UP_PATTERNS.some((re) => re.test(pathname));
 }
 const REMOTE_STEP_UP = Object.freeze({

@@ -40,6 +40,8 @@ creation need a fresh authenticator code. This is the step-up half.
 - **`/api/remote/setup-start` is not gated:** it is this computer's own Kosmos+ enrolment (remotemark-6595's list).
 - **The tests never send a request a broken gate would let act** (review iteration 6, after 13:10): over HTTP only
   key routes with an unreadable body, which answer 400 either way; every other route is tested on the function.
+- **Joining a company or family is gated** (`/api/org/enroll`, review iteration 7): it applies that org's policy here
+  and starts reporting this computer's activity to it. Previewing a code and leaving are not.
 - **Making a project webhook is gated:** it mints a secret address an outside party can post tasks to, for as long as
   it lives. Renaming or deleting one is not.
 - **Codex hook trust is not gated:** every agent already runs an unsandboxed shell.
@@ -75,7 +77,9 @@ set none of the forwarding headers, it would read as local and never be asked (R
   headers itself and pass the gate. The board cannot tell the tunnel's age. What protects it: the tunnel rides in the
   same bundle (an update swaps app/ whole), and a cut refuses a tunnel behind relay main
   (tools/lib/connector-currency.sh, unless KOSMOS_ALLOW_STALE_TUNNEL=1). So this branch merges only after
-  sessioniat-6595 is on relay main, and never into a cut that sets the stale-tunnel override. Before then, the gate is
+  sessioniat-6595 is on relay main, and never into a cut that sets the stale-tunnel override. The PR is opened with
+  a do-not-merge label naming that dependency. A runtime check (the board asks its bundled tunnel whether it
+  strips the headers, and trusts them only if so) would make it mechanical; it is proposed for #6616 (R01b). Before then, the gate is
   forgeable, which is no worse than today (no gate at all). Recorded on #6595.
 - A sign-in session stored before sessioniat-6595 sends no headers, so those people are asked once and their next
   sign-in carries both (Renet's contract).
@@ -93,7 +97,10 @@ set none of the forwarding headers, it would read as local and never be asked (R
 like a key, token, sign-in, install, update or create is gated or exempt with a written reason, and every gated route
 exists (dropping one gated route turns it red, naming it). Regex routes, which the literal scan cannot see: every one
 whose pattern names a token, install, sign-in, import, restore or skill is decided, gated ones matching a sample path
-(deleting one decision turns it red, naming it), and each sample path must match the server's own pattern too. Neither guard can see a route whose path names none of those words.
+(deleting one decision turns it red, naming it), and each sample path must match the server's own pattern too.
+Two shapes neither scan sees: a route whose path names none of the scans' words, and a route written as a group
+(`(pathname === 'a' || pathname === 'b') && ...`, or one block that checks the method inside, as the Antigravity,
+Muse and org routes are). Those are covered only by being listed by hand. Neither guard can see a route whose path names none of those words.
 The rest: every gated route refused remotely without headers, with second=0, with a
 stale time and with a malformed time, reaching nothing (the gate runs before the body is read); CONTROL: a fresh
 remote session and a local request pass on key routes (which then answer 400 for an unreadable body); update and

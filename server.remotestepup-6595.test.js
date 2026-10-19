@@ -52,7 +52,7 @@ const STEP_UP_ROUTES = [
   '/api/antigravity/win32signin', '/api/muse/signin', '/api/muse/signin/retry', '/api/github/start',
   '/api/github-device/start', '/api/vercel/start',
   '/api/agents', '/api/team', '/api/connect-agent', '/api/worlds', '/api/worlds/import', '/api/agent/scout/restore',
-  '/api/register', '/api/remote/second-reset', '/api/project/p1/webhooks',
+  '/api/register', '/api/remote/second-reset', '/api/project/p1/webhooks', '/api/org/enroll',
 ];
 
 test('R01: PUT /api/autoupdate from a stale remote session is refused (on the function)', () => {
@@ -115,6 +115,8 @@ test('R01: taking things away is not gated (forget a token, sign a provider out)
   assert.equal(needsRemoteStepUp('/api/svc/brave-search/token', 'GET'), false, 'reading is not gated');
   assert.equal(needsRemoteStepUp('/api/agents', 'PUT'), true, 'a gated path is gated for PUT and PATCH too');
   assert.equal(needsRemoteStepUp('/api/agents', 'DELETE'), false, 'DELETE takes away');
+  assert.equal(needsRemoteStepUp('/api/org/preview', 'POST'), false, 'previewing a code reads');
+  assert.equal(needsRemoteStepUp('/api/org/leave', 'POST'), false, 'leaving takes away');
 });
 
 test('R01: freshness needs the second factor and a time within the window, bounded both sides', () => {
@@ -187,7 +189,7 @@ test('R01: every key, sign-in, install, update or create route is gated or exemp
   assert.deepEqual(missing, [], 'routes that look like keys, installs, updates or creates but are neither gated nor exempt');
   for (const route of STEP_UP_ROUTES) {
     const named = /^\/api\/(svc|runners|agent|project)\//.test(route);
-    assert.ok(src.includes("'" + route + "'") || named, route + ' is gated but server.js serves no such path');
+    assert.ok(src.includes("pathname === '" + route + "'") || named, route + ' is gated but server.js serves no such path');
   }
   for (const r of Object.keys(EXEMPT)) assert.ok(routes.includes(r), 'exempt ' + r + ' is not a route any more');
 });
