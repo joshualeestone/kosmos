@@ -66,6 +66,45 @@ function gitEntry(repo, commit, file) {
   return line ? line.split(' ')[0] : null;
 }
 
+// The names directly inside one folder of a commit ('' is the root, otherwise 'a/b/'), as git stores them: their
+// exact case, which a case-insensitive Mac checkout does not keep apart.
+function gitList(repo, commit, dir) {
+  let out;
+  try {
+    out = execFileSync('git', ['-C', repo, 'ls-tree', '-z', '--name-only', commit, '--', ...(dir ? [dir] : [])], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    throw new Error(`${repo}: git could not list ${dir || 'the root'} at ${commit}: ${String(e.stderr || e.message).split('\n')[0]}`);
+  }
+  return out.split('\0').filter(Boolean).map((n) => n.slice(dir.length));
+}
+
+// Review 24: the Cargo.lock is trusted only if no Cargo.toml can make Cargo build something else. The connector is
+// built WITHOUT --locked (relay tools/build-tunnel-release.sh), so a [patch] or [replace], a git dependency, or a path
+// dependency outside the workspace would re-resolve the build while the lock still names the registry crate. Only
+// dependency sections are read for path: [lib] and [[bin]] name source files. Fails closed: a path it cannot read
+// (an unquoted or multi-line value) refuses too.
+function checkTomls(top, members) {
+  const memberDirs = new Set([...members.values()].map((m) => m.dir));
+  const tomls = [['', 'Cargo.toml', top], ...[...members.values()].map((m) => [m.dir, `${m.dir}/Cargo.toml`, m.toml])];
+  for (const [base, name, raw] of tomls) {
+    const text = raw.replace(/#.*$/gm, '');
+    const bad = (why) => { throw new Error(`relay ${name}: ${why}; the Cargo.lock would not be what the connector builds`); };
+    if (/^\s*\[+\s*(patch|replace)\b/m.test(text)) bad('a [patch] or [replace] section');
+    let section = '';
+    for (const line of text.split('\n')) {
+      const h = line.match(/^\s*\[+\s*([^\]]+?)\s*\]+\s*$/);
+      if (h) { section = h[1]; continue; }
+      if (!/(^|\.)(dev-|build-)?dependencies(\.|$)/.test(section)) continue;
+      if (/\bgit\s*=/.test(line)) bad(`a git dependency (${line.trim()})`);
+      if (!/\bpath\s*=/.test(line)) continue;
+      const v = line.match(/\bpath\s*=\s*(["'])([^"'\n]*)\1/);
+      if (!v) bad(`a path dependency it cannot read (${line.trim()})`);
+      const to = require('path').posix.normalize(require('path').posix.join(base || '.', v[2])).replace(/\/$/, '');
+      if (!memberDirs.has(to)) bad(`a path dependency outside the workspace (${v[2]})`);
+    }
+  }
+}
+
 // A file's text at a commit, only when it is a plain file there: git show of a symlink returns its target PATH as
 // text, which every check below would then read as the file (review 23: a symlinked main.swift passed as importing
 // nothing).
@@ -418,7 +457,7 @@ const FORMAT = 'kosmos-sbom-1';
 // And this file's own bytes, so a change to the generator changes the id even if FORMAT was not bumped.
 const SELF_SHA = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex').slice(0, 16);
 
-function build(manifest, { repo, relay, tmux, show = gitShow, entry = gitEntry, readImports = swiftcImports }) {
+function build(manifest, { repo, relay, tmux, show = gitShow, list = gitList, readImports = swiftcImports }) {
   if (manifest.manifest !== 1) throw new Error(`manifest format ${manifest.manifest}: this SBOM reads format 1`);
   for (const k of Object.keys(manifest)) {
     if (!MANIFEST_KEYS.has(k)) throw new Error(`manifest has ${k}, a part this SBOM does not know (it would be left out)`);
@@ -448,6 +487,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow, entry = gitEntry, 
   const arch = manifest.arch;
   const { root, deps, edges } = closure(parseLock(show(relay, relayCommit, 'Cargo.lock')), CONNECTOR_CRATE);
   const members = workspaceMembers(show, relay, relayCommit);
+  checkTomls(show(relay, relayCommit, 'Cargo.toml'), members);
   // A .cargo/config in the relay can point a crate at other code (paths, [source] replacement, vendoring) while the
   // Cargo.lock still names the registry crate, so any one refuses. The build machine's own ~/.cargo and CARGO_*
   // settings are a LIMIT: this cannot see them.
@@ -459,19 +499,25 @@ function build(manifest, { repo, relay, tmux, show = gitShow, entry = gitEntry, 
     const parts = dir.split('/');
     for (let k = 1; k <= parts.length; k++) dirsToCheck.add(parts.slice(0, k).join('/') + '/');
   }
+  // Review 24: by NAME, case-folded, from a listing of the folder: a Mac checkout is case-insensitive, so a .Cargo in
+  // git is the .cargo Cargo reads there, and a second Cargo.toml or Cargo.lock spelled in another case could be
+  // the one that lands on disk.
   for (const dir of [...dirsToCheck].sort(byCodePoint)) {
-    if (entry(relay, relayCommit, dir + '.cargo') !== null) {
-      throw new Error(`relay ${dir}.cargo at the connector commit can change what the connector builds; this SBOM cannot vouch for it`);
+    for (const n of list(relay, relayCommit, dir)) {
+      const low = n.toLowerCase();
+      if (low === '.cargo') throw new Error(`relay ${dir}${n} at the connector commit can change what the connector builds; this SBOM cannot vouch for it`);
+      if ((low === 'cargo.toml' && n !== 'Cargo.toml') || (low === 'cargo.lock' && n !== 'Cargo.lock')) {
+        throw new Error(`relay ${dir}${n}: a case-insensitive checkout may read it instead of ${low === 'cargo.toml' ? 'Cargo.toml' : 'Cargo.lock'}`);
+      }
     }
   }
-  // A crate with no source is first-party only when it IS the member: the one sourceless package of that name, at
-  // the member's version (a path dependency outside the workspace can share a member's name).
-  const sourceless = new Map();
-  for (const p of [root, ...deps]) if (!p.source) sourceless.set(p.name, (sourceless.get(p.name) || 0) + 1);
+  // A crate with no source is first-party only when it IS the member, at the member's version (a path dependency
+  // outside the workspace can share a member's name). Two sourceless packages of one name and version cannot reach
+  // here: the closure's resolver already refuses that as ambiguous.
   for (const p of [root, ...deps]) {
     if (p.source) continue;
     const mem = members.get(p.name);
-    if (!mem || sourceless.get(p.name) !== 1 || mem.version !== p.version) {
+    if (!mem || mem.version !== p.version) {
       throw new Error(`Cargo.lock: ${p.name} ${p.version} has no source and is not the relay workspace member of that name${mem ? ` (${mem.version})` : ''}`);
     }
   }
@@ -547,7 +593,7 @@ function uuidFrom(seed) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-module.exports = { SELF_SHA, gitShow, gitEntry, parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
+module.exports = { SELF_SHA, gitShow, gitEntry, gitList, checkTomls, parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
 
 // A path as the file system resolves it (following a symlink), or as written when it does not exist yet.
 function realish(p) { try { return fs.realpathSync(p); } catch { return require('path').resolve(p); } }
@@ -563,8 +609,8 @@ if (require.main === module) {
     console.error('usage: sbom.js <manifest.json> --sig <manifest.json.sig> --tmux <tmux-arch.tar.gz> --repo <kosmos> --relay <kosmos-relay> [--out <file>]');
     process.exit(2);
   }
-  if (out) fs.rmSync(out, { force: true });
   try {
+    if (out) fs.rmSync(out, { force: true });
     const text = JSON.stringify(build(readSignedManifest(file, sig), { repo, relay, tmux: readTmuxBundle(tmuxFile) }), null, 2) + '\n';
     // Written beside the target and renamed into place, so a failed run never leaves an older SBOM under that name.
     if (out) { fs.writeFileSync(`${out}.partial`, text); fs.renameSync(`${out}.partial`, out); } else process.stdout.write(text);
