@@ -45,10 +45,10 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 32 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 33 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
   must equal build()'s output byte for byte. Every rule added in reviews 1 to 11 has a mutant that fails an arm,
-  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven, eight, three and four per
+  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven, eight, three, four and seven per
   round); the mutants of code later removed (the script's variable and url parsing) were retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
@@ -80,7 +80,13 @@ real fix.
   bundle. WHAT SHIPS is decided by the signed manifest and the bundle (its signed hash, its VERSION, its lib/, plain
   files only, the binary's own version line), never by the script.
 - **The bundle holds plain files and folders only** (review 8): a symlink or hard link refuses (both have an arm).
-- **The binary's own version line** (`tmux: tmux 3.5a`) must equal the source it was built from (`tmux-src`).
+- **The binary's own version line** (`tmux: tmux 3.5a`) must equal the source it was built from (`tmux-src`), and
+  (review 14) each version the VERSION file names must also be in the bytes of the binary or library it describes
+  (3.5a in bin/tmux, 2.1.12-stable in libevent, 6.5 in ncurses, 2.9.0 in utf8proc, all true for 0.7.59): a stale or
+  edited VERSION refuses. This is a string-presence check, not a proof of the version.
+- **The manifest's format is pinned** (review 14): format 1 only, and a top-level key this SBOM does not know refuses,
+  so a future manifest that signs a new shipped part cannot produce an SBOM without it. The release and node versions
+  must be plain x.y.z. The SBOM names its generator (metadata.tools) and its output format is part of the serial.
 - **The connector and node are tied to shipped files:** the manifest must ship app/bin/kosmos-tunnel with the
   connector's signed sha256, and runtime/bin/node. Commits must be full shas, and the manifest must say `dirty: false`.
 - **The manifest's signature is verified** under the checkout's pinned keys (engine/manifest-verify.js) before
@@ -96,6 +102,8 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- After the release key is rotated, a manifest signed only by the retired key refuses here (the checkout's KEYS are
+  used), so an old release's SBOM is rebuilt from a checkout that still pins its key, or not at all.
 - The second native binary, app/Kosmos.app/Contents/MacOS/Kosmos (a re-signed copy of kosmos-app, so a different
   hash), is accepted by name; and a static C library brought into the Mac app by a bridging header or a linker flag,
   not an import, would not be seen.

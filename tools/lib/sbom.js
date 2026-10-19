@@ -180,7 +180,14 @@ function readTmuxBundle(file) {
   }
   const vfiles = list.filter((p) => p.replace(/^\.\//, '') === 'VERSION');
   if (vfiles.length !== 1) throw new Error(`tmux bundle: ${vfiles.length} VERSION files, not one`);
-  return { sha, ...parseTmuxVersion(tar(['-xzOf', '-', vfiles[0]]), list) };
+  const parsed = parseTmuxVersion(tar(['-xzOf', '-', vfiles[0]]), list);
+  // The VERSION file is text anyone could edit; each version it names must also be in the bytes of the binary or
+  // library it describes, so a stale or edited VERSION refuses.
+  for (const [name, version] of Object.entries(parsed.versions)) {
+    const found = parsed.filesOf[name].some((f) => execFileSync('tar', ['-xzOf', '-', f], { input: bytes, maxBuffer: 64 << 20 }).includes(Buffer.from(version)));
+    if (!found) throw new Error(`tmux bundle: VERSION says ${name} ${version}, but no file of it carries that version`);
+  }
+  return { sha, versions: parsed.versions };
 }
 function parseTmuxVersion(text, list) {
   const kv = {};
@@ -202,19 +209,21 @@ function parseTmuxVersion(text, list) {
   const self = (text.match(/^tmux:[ \t]+tmux[ \t]+(\S+)/m) || [])[1];
   if (self !== versions.tmux) throw new Error(`tmux bundle VERSION: the binary reports tmux ${self}, the source is ${versions.tmux}`);
   const owned = new Set();
+  const filesOf = {};
   let seenTmux = false;
   for (const raw of list) {
     const p = raw.replace(/^\.\//, '');
-    if (p === 'bin/tmux') seenTmux = true;
+    if (p === 'bin/tmux') { seenTmux = true; filesOf.tmux = [raw]; }
     if (p === '' || p.endsWith('/') || ['VERSION', 'THIRD-PARTY-NOTICES.txt', 'bin/tmux'].includes(p) || /^licenses\/[^/]+\.txt$/.test(p)) continue;
     const m = p.match(/^lib\/lib(.+?)(?:[-.][0-9]+(?:\.[0-9]+)*)?\.dylib$/);
     const owner = m && DYLIB_OWNER[m[1]];
     if (!owner || !versions[owner]) throw new Error(`tmux bundle: ${p} is not a file this SBOM accounts for`);
     owned.add(owner);
+    (filesOf[owner] = filesOf[owner] || []).push(raw);
   }
   for (const lib of Object.keys(versions)) if (lib !== 'tmux' && !owned.has(lib)) throw new Error(`tmux bundle: VERSION names ${lib}, but no library of it is in lib/`);
   if (!seenTmux) throw new Error('tmux bundle: no bin/tmux');
-  return { versions };
+  return { versions, filesOf };
 }
 
 // The manifest bytes, only when their signature verifies under one of the pinned release keys (engine/manifest-verify.js):
@@ -317,9 +326,21 @@ function checkNativeApp(manifest, swift) {
   }
 }
 
+const MANIFEST_KEYS = new Set(['manifest', 'version', 'arch', 'artifact', 'sha256', 'app', 'node', 'connector', 'native_app', 'built',
+  'pinned_keys', 'setup_sha256', 'tmux_sha256', 'files']);
+const SEMVER = /^\d+\.\d+\.\d+$/;
+// The format of this SBOM's output; part of the serial number, so a changed generator never reuses a document id.
+const FORMAT = 'kosmos-sbom-1';
+
 function build(manifest, { repo, relay, tmux, show = gitShow }) {
+  if (manifest.manifest !== 1) throw new Error(`manifest format ${manifest.manifest}: this SBOM reads format 1`);
+  for (const k of Object.keys(manifest)) {
+    if (!MANIFEST_KEYS.has(k)) throw new Error(`manifest has ${k}, a part this SBOM does not know (it would be left out)`);
+  }
   for (const k of ['version', 'app', 'node', 'connector']) if (!manifest[k]) throw new Error(`manifest has no ${k}`);
   if (!manifest.node.version) throw new Error('manifest has no node version');
+  if (!SEMVER.test(manifest.version)) throw new Error(`manifest version ${manifest.version} is not a release version`);
+  if (!SEMVER.test(manifest.node.version.replace(/^v/, ''))) throw new Error(`manifest node version ${manifest.node.version} is not a version`);
   const appCommit = manifest.app.commit, relayCommit = manifest.connector.commit;
   if (!appCommit || !relayCommit) throw new Error('manifest names no app or connector commit');
   if (!/^[0-9a-f]{40}$/.test(appCommit) || !/^[0-9a-f]{40}$/.test(relayCommit)) throw new Error('manifest app and connector commits must be full shas');
@@ -366,9 +387,10 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
   ];
   return {
     bomFormat: 'CycloneDX', specVersion: '1.5', version: 1,
-    serialNumber: `urn:uuid:${uuidFrom(manifest.sha256)}`,
+    serialNumber: `urn:uuid:${uuidFrom(`${FORMAT}:${manifest.sha256}`)}`,
     metadata: {
       timestamp: builtAt(manifest),
+      tools: { components: [{ type: 'application', name: 'kosmos tools/lib/sbom.js', version: FORMAT }] },
       // Said in the SBOM itself, not only here, so a scanner reading the JSON is told.
       properties: [{ name: 'kosmos:cargo-closure', value: 'the connector crates are its Cargo.lock closure, a superset of the macOS build: an advisory on a crate that cargo tree --target aarch64-apple-darwin does not list is not shipped' }],
       component: { type: 'application', 'bom-ref': 'kosmos', name: 'kosmos', version: manifest.version,
@@ -403,13 +425,16 @@ function uuidFrom(seed) {
 
 module.exports = { parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, build };
 
+// A path as the file system resolves it (following a symlink), or as written when it does not exist yet.
+function realish(p) { try { return fs.realpathSync(p); } catch { return require('path').resolve(p); } }
+
 if (require.main === module) {
   const args = process.argv.slice(2);
   const opt = (n) => { const i = args.indexOf(n); const v = i >= 0 ? args[i + 1] : null; return v && !v.startsWith('--') ? v : null; };
   const file = args[0], sig = opt('--sig'), repo = opt('--repo'), relay = opt('--relay'), tmuxFile = opt('--tmux'), out = opt('--out');
   const known = new Set(['--sig', '--repo', '--relay', '--tmux', '--out']);
   const badFlag = args.slice(1).some((a, i, xs) => a.startsWith('--') ? !known.has(a) || xs.indexOf(a) !== i : !(i > 0 && known.has(xs[i - 1])))
-    || (out && [file, sig, tmuxFile].filter(Boolean).map((x) => require('path').resolve(x)).includes(require('path').resolve(out)));
+    || (out && [file, sig, tmuxFile].filter(Boolean).map(realish).includes(realish(out)));
   if (!file || file.startsWith('--') || !sig || !repo || !relay || !tmuxFile || badFlag || (args.includes('--out') && !out)) {
     console.error('usage: sbom.js <manifest.json> --sig <manifest.json.sig> --tmux <tmux-arch.tar.gz> --repo <kosmos> --relay <kosmos-relay> [--out <file>]');
     process.exit(2);

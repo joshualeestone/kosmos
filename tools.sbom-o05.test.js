@@ -145,6 +145,9 @@ fetch utf8proc "$UTF8PROC_URL" "$UTF8PROC_SHA"
 const VERSION = 'tmux:   tmux 3.5a\nbuilt:  2026-08-13T18:58:27Z\ntmux-src: 3.5a\nlibevent: 2.1.12-stable (core only)\nutf8proc: 2.9.0\nfloor:    13.5\n';
 const LIBS = ['bin/tmux', 'lib/libevent_core-2.1.7.dylib', 'lib/libutf8proc.3.dylib', 'VERSION'];
 const BUNDLE = { sha: SHA('0'), ...parseTmuxVersion(VERSION, LIBS) };
+// What each test tarball file holds: the binaries carry their own version strings, as the real ones do.
+const CONTENT = { 'bin/tmux': '\0tmux 3.5a\0', 'lib/libevent_core-2.1.7.dylib': '\0libevent 2.1.12-stable\0',
+  'lib/libutf8proc.3.dylib': '\0utf8proc 2.9.0\0', VERSION };
 const MANIFEST = {
   manifest: 1, version: '0.7.60', arch: 'arm64', sha256: SHA('d'), tmux_sha256: SHA('0'),
   app: { commit: 'a'.repeat(40), dirty: false }, node: { version: 'v24.19.0', download_sha256: SHA('e') },
@@ -499,6 +502,15 @@ test('a crate that depends back on the connector points at the connector compone
   for (const d of b.dependencies) for (const r of [d.ref, ...d.dependsOn]) assert.ok(refs.has(r), `dangling ${r}`);
 });
 
+test('the manifest format is pinned: another format, an unknown part or a malformed version refuses', () => {
+  assert.throws(() => sbom({ ...MANIFEST, manifest: 2 }), /manifest format 2: this SBOM reads format 1/);
+  assert.throws(() => sbom({ ...MANIFEST, cloudflared_sha256: SHA('1') }), /manifest has cloudflared_sha256, a part this SBOM does not know/);
+  assert.throws(() => sbom({ ...MANIFEST, version: '0.7.60/../x' }), /manifest version 0\.7\.60\/\.\.\/x is not a release version/);
+  assert.throws(() => sbom({ ...MANIFEST, node: { ...MANIFEST.node, version: 'v24.19.0/../../evil:x' } }), /node version .* is not a version/);
+  const b = sbom();
+  assert.deepEqual(b.metadata.tools, { components: [{ type: 'application', name: 'kosmos tools/lib/sbom.js', version: 'kosmos-sbom-1' }] });
+});
+
 test('a manifest with no connector commit, no node version or a dirty app refuses', () => {
   assert.throws(() => sbom({ ...MANIFEST, connector: { signed_sha256: SHA('f') } }), /no app or connector commit/);
   assert.throws(() => sbom({ ...MANIFEST, node: { download_sha256: SHA('e') } }), /no node version/);
@@ -524,7 +536,7 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   const r = repo('relay', { 'Cargo.lock': LOCK, 'Cargo.toml': WORKSPACE, 'crates/proto/Cargo.toml': MEMBER('kosmos-relay-proto'),
     'crates/tunnel/Cargo.toml': MEMBER('kosmos-tunnel-client'), 'crates/relay/Cargo.toml': MEMBER('kosmos-relay-server') });
   const stage = path.join(root, 'bundle');
-  for (const f of LIBS) { fs.mkdirSync(path.join(stage, path.dirname(f)), { recursive: true }); fs.writeFileSync(path.join(stage, f), f === 'VERSION' ? VERSION : f); }
+  for (const f of LIBS) { fs.mkdirSync(path.join(stage, path.dirname(f)), { recursive: true }); fs.writeFileSync(path.join(stage, f), CONTENT[f]); }
   const tgz = path.join(root, 'tmux-arm64.tar.gz');
   execFileSync('tar', ['-czf', tgz, '-C', stage, ...LIBS]);
   const tmux = readTmuxBundle(tgz);
@@ -540,6 +552,13 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   fs.writeFileSync(path.join(stage, 'x', 'VERSION'), VERSION);
   execFileSync('tar', ['-czf', twice, '-C', stage, ...LIBS, '-C', path.join(stage, 'x'), 'VERSION']);
   assert.throws(() => readTmuxBundle(twice), /2 VERSION files, not one/);
+  assert.deepEqual(readTmuxBundle(tgz).versions, { tmux: '3.5a', libevent: '2.1.12-stable', utf8proc: '2.9.0' });
+  const edited = path.join(root, 'edited');
+  fs.cpSync(stage, edited, { recursive: true });
+  fs.writeFileSync(path.join(edited, 'VERSION'), VERSION.replace('utf8proc: 2.9.0', 'utf8proc: 2.10.0'));
+  const etgz = path.join(root, 'edited.tar.gz');
+  execFileSync('tar', ['-czf', etgz, '-C', edited, ...LIBS]);
+  assert.throws(() => readTmuxBundle(etgz), /VERSION says utf8proc 2\.10\.0, but no file of it carries that version/);
   const linked = path.join(root, 'linked');
   fs.cpSync(stage, linked, { recursive: true });
   fs.rmSync(path.join(linked, 'lib/libutf8proc.3.dylib'));
@@ -561,6 +580,9 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   assert.equal(spawnSync(process.execPath, [SBOM_JS, mf, '--sig', sg, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir], { encoding: 'utf8' }).status, 2, 'a repeated flag');
   assert.equal(spawnSync(process.execPath, [SBOM_JS, mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, '--out', mf], { encoding: 'utf8' }).status, 2, '--out onto an input');
   assert.equal(spawnSync(process.execPath, [SBOM_JS, mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, '--out', `${root}/./manifest.json`], { encoding: 'utf8', cwd: root }).status, 2, '--out onto an input by another spelling');
+  const alias = path.join(root, 'alias.json');
+  fs.symlinkSync(mf, alias);
+  assert.equal(spawnSync(process.execPath, [SBOM_JS, mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, '--out', alias], { encoding: 'utf8' }).status, 2, '--out through a symlink to an input');
   assert.ok(fs.readFileSync(mf, 'utf8').includes('"version"'), 'the manifest was not overwritten');
   const run = (...a) => spawnSync(process.execPath, [SBOM_JS, ...a], { encoding: 'utf8' });
   const unsigned = run(mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir);
@@ -599,7 +621,7 @@ test('the command line end to end, against a copy of the tool that pins a test k
   const r = repo('relay', { 'Cargo.lock': LOCK, 'Cargo.toml': WORKSPACE, 'crates/proto/Cargo.toml': MEMBER('kosmos-relay-proto'),
     'crates/tunnel/Cargo.toml': MEMBER('kosmos-tunnel-client'), 'crates/relay/Cargo.toml': MEMBER('kosmos-relay-server') });
   const stage = path.join(root, 'bundle');
-  for (const f of LIBS) { fs.mkdirSync(path.join(stage, path.dirname(f)), { recursive: true }); fs.writeFileSync(path.join(stage, f), f === 'VERSION' ? VERSION : f); }
+  for (const f of LIBS) { fs.mkdirSync(path.join(stage, path.dirname(f)), { recursive: true }); fs.writeFileSync(path.join(stage, f), CONTENT[f]); }
   const tgz = path.join(root, 'tmux-arm64.tar.gz');
   execFileSync('tar', ['-czf', tgz, '-C', stage, ...LIBS]);
   const tmux = readTmuxBundle(tgz);
