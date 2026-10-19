@@ -103,7 +103,7 @@ function clickWorld(answer) {
     plusSay: (m) => said.push(m), plusWords: (s) => s, paintPlus: () => {}, console,
   };
   const start = SCRIPT.indexOf("{ const cwSw = document.getElementById('plus-cw-switch');");
-  const end = SCRIPT.indexOf('/* The words of the code box (#729).', start);
+  const end = SCRIPT.indexOf('/* kosmos#6613: the compact notice for a finding', start);
   assert.ok(start > 0 && end > start, 'the switch handler moved; re-anchor this test');
   vm.runInNewContext(SCRIPT.slice(start, end), ctx);
   return { click: listeners.click, calls, said, release, sw };

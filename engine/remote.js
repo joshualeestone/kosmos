@@ -639,6 +639,11 @@ function setCertWatch(on) {
   if (!enrolled()) return { ok: false, because: 'this computer is not set up for Kosmos+ yet' };
   return certWatchFiles.setCertWatchIn(STATE_DIR(), on);
 }
+/* kosmos#6613: a person saw the lost-report sentence for marker `at`. */
+function ackCertWatchLost(at) {
+  if (!enrolled()) return { ok: false, because: 'this computer is not set up for Kosmos+ yet' };
+  return certWatchFiles.ackLostIn(STATE_DIR(), at);
+}
 
 /** The switch. Turning on does not start anything by itself unless setup
     already happened; the Settings flow calls setupStart/setupComplete and
@@ -3453,7 +3458,7 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   enrolled,
   spawnFedSeat,
   address,
-  certWatch, setCertWatch,
+  certWatch, setCertWatch, ackCertWatchLost,
   ensure,
   status,
   setupStart,

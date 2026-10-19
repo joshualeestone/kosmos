@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { certWatchFrom, setCertWatchIn, REPORT_FILE, OFF_FILE, STALE_MS } = require('./cert-watch');
+const { certWatchFrom, setCertWatchIn, ackLostIn, REPORT_FILE, OFF_FILE, LOST_ACK_FILE, STALE_MS } = require('./cert-watch');
 
 const NOW = Date.UTC(2026, 9, 19, 12, 0, 0);
 const S = Math.floor(NOW / 1000);
@@ -20,7 +20,7 @@ test('the file names are the tunnel\'s (crates/tunnel/src/ctwatch.rs): change bo
 });
 
 test('no report yet is none, and on', () => {
-  assert.deepEqual(certWatchFrom(dir(), NOW), { on: true, state: 'none', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, checkedAt: null, failing: false });
+  assert.deepEqual(certWatchFrom(dir(), NOW), { on: true, state: 'none', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, lostAt: null, key: null, checkedAt: null, failing: false });
 });
 
 /* A report shaped as the tunnel writes one (kosmos-relay#459, crates/tunnel/src/ctwatch.rs check_with, read on relay main
@@ -136,4 +136,38 @@ test('the switch writes and removes the off file, and is read back', () => {
 test('the switch refuses a non-boolean and a computer that is not set up', () => {
   assert.equal(setCertWatchIn(dir(), 'off').ok, false);
   assert.equal(setCertWatchIn(path.join(dir(), 'missing'), false).ok, false);
+});
+
+/* kosmos#6613: the finding key and the lost-report acknowledgement. */
+test('the finding key is the same for the same findings, new for a new one, and only hex', () => {
+  const d = dir();
+  const one = { id: '17', cert_sha256: 'aa', pubkey_sha256: '11', not_before: '2026-10-19T01:00:00Z' };
+  const two = { id: '18', cert_sha256: 'bb', pubkey_sha256: '22', not_before: '2026-10-19T02:00:00Z' };
+  put(d, { state: 'foreign', checked_at: S, foreign: [one] });
+  const k1 = certWatchFrom(d, NOW).key;
+  assert.match(k1, /^[0-9a-f]{16}$/);
+  put(d, { state: 'foreign', checked_at: S - 60, foreign: [one], before_record: 9 });
+  assert.equal(certWatchFrom(d, NOW).key, k1, 'other fields do not change the key');
+  put(d, { state: 'foreign', checked_at: S, foreign: [one, two] });
+  assert.notEqual(certWatchFrom(d, NOW).key, k1, 'a new finding is a new key');
+  put(d, { state: 'clear', checked_at: S, foreign: [], earlier_foreign: [one] });
+  assert.match(certWatchFrom(d, NOW).key, /^[0-9a-f]{16}$/, 'an earlier-address finding has a key too');
+  put(d, { state: 'clear', checked_at: S, foreign: [] });
+  assert.equal(certWatchFrom(d, NOW).key, null, 'no finding, no key');
+});
+
+test('acknowledging a lost report quiets it for that marker only', () => {
+  const d = dir();
+  put(d, { state: 'clear', checked_at: S, damaged_report_at: S - 600 });
+  const w = certWatchFrom(d, NOW);
+  assert.equal(w.lost, true);
+  assert.equal(w.lostAt, S - 600);
+  assert.equal(ackLostIn(d, S - 1).ok, false, 'a marker that is not the report\'s is refused');
+  assert.ok(!fs.existsSync(path.join(d, LOST_ACK_FILE)));
+  assert.deepEqual(ackLostIn(d, S - 600), { ok: true });
+  assert.equal(certWatchFrom(d, NOW).lost, false);
+  assert.equal(certWatchFrom(d, NOW).state, 'clear', 'acknowledged, a recent clear is clear again');
+  put(d, { state: 'clear', checked_at: S, damaged_report_at: S - 5 });
+  assert.equal(certWatchFrom(d, NOW).lost, true, 'a later loss is said again');
+  assert.equal(ackLostIn(d, 'x').ok, false);
 });

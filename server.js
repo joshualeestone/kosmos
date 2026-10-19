@@ -10576,6 +10576,21 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* kosmos#6613: a person has seen the lost-report sentence (person-only, like the switch). */
+  if (pathname === '/api/remote/cert-watch/ack-lost' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can do this, from Settings' }); return; }
+        const done = remote.ackCertWatchLost(body.at);
+        if (!done.ok) { sendJson(res, 400, { error: done.because }); return; }
+        sendJson(res, 200, { certWatch: remote.certWatch() });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that' }));
+    return;
+  }
   /* The one email-shape rule every Plus enrolment route checks (setup-start and
      the two signin steps). ONE derivation, per the repo convention that two
      copies of a rule drift the moment one changes. The engine has its own,
