@@ -48,11 +48,11 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 39 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 41 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
-  must equal build()'s output byte for byte. Every rule added in reviews 1 to 20 has a mutant that fails an arm, run at
-  the time of the change (the first version, then reviews 1 to 19 in order: four, eight, six, eleven, six, seven,
-  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four and five); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 21 has a mutant that fails an arm, run at
+  the time of the change (the first version, then reviews 1 to 21 in order: four, eight, six, eleven, six, seven,
+  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five and five); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
@@ -123,7 +123,11 @@ real fix.
   lint pass.
 
 ## Not covered, by design
-- (Was a limit; now a refusal, reviews 19 and 20.) Any `#if` in main.swift refuses: several conditions (canImport,
+- The build machine's own ~/.cargo/config and CARGO_* settings, which can point a crate at other code. A .cargo/config
+  in the relay itself, at the root or in a member, refuses (review 21); lockfile values must be plain quoted strings
+  and every package must have a name and version (a literal string or a trailing comment dropped the version).
+- (Was a limit; now a refusal, reviews 19 to 21.) Any `#if` anywhere in main.swift (Swift accepts one after a
+  comment or code on the same line) refuses: several conditions (canImport,
   swift, compiler, hasFeature, hasAttribute) read as the machine running this, not the build, and a list of them kept
   missing one. The real file has no #if.
 - macOS's own libraries (libSystem, libresolv, the Apple frameworks) are not listed: they are the operating system.

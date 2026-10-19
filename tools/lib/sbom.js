@@ -22,6 +22,8 @@
  * OpenSSL and so on) are Node's own and are matched through Node's version, not listed one by one; the Rust standard
  * library compiled into the connector is not listed either (the relay pins no toolchain, so no version is recorded).
  *
+ * LIMIT: the build machine's own ~/.cargo/config and CARGO_* settings, which can redirect a crate, are not visible
+ * here (a .cargo/config in the relay itself refuses).
  * LIMIT: the connector's relay commit is the relay build's own record (its sidecar); this does not rebuild the
  * connector to check that the binary came from that commit's Cargo.lock.
  * LIMIT: a library linked statically into tmux with neither a VERSION line nor a licence file is invisible here; so is a
@@ -94,9 +96,12 @@ function parseLock(text) {
     // The keys Cargo writes for a crate that builds as itself. Any other (`replace`, which points the build at a
     // different crate) would make this list a crate that does not ship, so it refuses.
     if (!LOCK_KEYS.has(kv[1])) throw new Error(`Cargo.lock: ${cur.name || 'a package'} has ${kv[1]}, a key this SBOM does not read`);
-    const str = kv[2].match(/^"(.*)"$/);
-    if (str) cur[kv[1]] = str[1];
+    // A plain double-quoted value only: a literal string or a trailing comment would otherwise drop the value.
+    const str = kv[2].match(/^"([^"\\]*)"$/);
+    if (!str) throw new Error(`Cargo.lock: ${cur.name || 'a package'} ${kv[1]} is not a plain quoted value: ${kv[2]}`);
+    cur[kv[1]] = str[1];
   }
+  for (const p of pkgs) if (!p.name || !p.version) throw new Error(`Cargo.lock: a package with no ${p.name ? 'version' : 'name'}`);
   return pkgs;
 }
 
@@ -131,7 +136,9 @@ function closure(pkgs, rootName) {
 }
 
 // The relay workspace's member crate names, from its Cargo.toml and each member's own. Literal member paths only.
+const memberDirs = new Map();
 function workspaceMembers(show, relay, commit) {
+  memberDirs.clear();
   const top = show(relay, commit, 'Cargo.toml').replace(/#.*$/gm, '');
   const section = (top.match(/^\[workspace\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m) || [])[1] || '';
   const m = section.match(/^members\s*=\s*\[([^\]]*)\]/m);
@@ -142,6 +149,7 @@ function workspaceMembers(show, relay, commit) {
     const toml = show(relay, commit, `${d}/Cargo.toml`);
     const n = toml.match(/^\[package\][\s\S]*?^name\s*=\s*"([^"]+)"/m);
     if (!n) throw new Error(`relay ${d}/Cargo.toml: no [package] name`);
+    memberDirs.set(n[1], d);
     return [n[1], toml];
   }));
 }
@@ -371,7 +379,8 @@ function checkNativeApp(manifest, swift, target, readImports = swiftcImports) {
   }
   // Any #if refuses (review 20): several conditions (canImport, swift, compiler, hasFeature, hasAttribute...) follow
   // the machine running this rather than the build, a list of them keeps missing one, and the real file has none.
-  const cond = swift.match(/^[ \t]*#(if|elseif)\b.*$/m);
+  // Anywhere, not only at a line start: Swift accepts a directive after a comment or code on the same line.
+  const cond = swift.match(/#\s*(if|elseif)\b[^\n]*/);
   if (cond) throw new Error(`native-app/main.swift has a conditional (${cond[0].trim()}), which this SBOM cannot read for the build machine`);
   for (const mod of readImports(swift, target)) {
     if (!APPLE_MODULES.has(mod)) throw new Error(`native-app/main.swift imports ${mod}, which is not an Apple framework this SBOM knows`);
@@ -419,6 +428,15 @@ function build(manifest, { repo, relay, tmux, show = gitShow, readImports = swif
   const arch = manifest.arch;
   const { root, deps, edges } = closure(parseLock(show(relay, relayCommit, 'Cargo.lock')), CONNECTOR_CRATE);
   const members = workspaceMembers(show, relay, relayCommit);
+  // A .cargo/config in the relay can point a crate at other code (paths, [source] replacement, vendoring) while the
+  // Cargo.lock still names the registry crate, so any one refuses. The build machine's own ~/.cargo and CARGO_*
+  // settings are a LIMIT: this cannot see them.
+  const has = (f) => { try { show(relay, relayCommit, f); return true; } catch { return false; } };
+  for (const dir of ['', ...[...members.keys()].map((n) => memberDirs.get(n) + '/')]) {
+    for (const f of ['.cargo/config', '.cargo/config.toml']) {
+      if (has(dir + f)) throw new Error(`relay ${dir}${f} at the connector commit can change what the connector builds; this SBOM cannot vouch for it`);
+    }
+  }
   // The shipped app/bin/kosmos-tunnel must be that crate's binary, or its closure is not the connector's.
   const tunnelToml = members.get(CONNECTOR_CRATE) || '';
   if (!/^\[\[bin\]\]\s*\nname\s*=\s*"kosmos-tunnel"/m.test(tunnelToml)) throw new Error(`relay: ${CONNECTOR_CRATE} does not build the kosmos-tunnel binary`);
