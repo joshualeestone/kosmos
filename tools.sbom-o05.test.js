@@ -175,7 +175,7 @@ const files = (lock = LOCK, tmux = TMUX, workspace = WORKSPACE, pkg = PACKAGE, s
   return { [r('Cargo.lock')]: lock, [r('Cargo.toml')]: workspace, [r('crates/proto/Cargo.toml')]: MEMBER('kosmos-relay-proto'),
     [r('crates/tunnel/Cargo.toml')]: MEMBER('kosmos-tunnel-client'), [r('crates/relay/Cargo.toml')]: MEMBER('kosmos-relay-server'),
     [`K:${'a'.repeat(40)}:tools/build-tmux-from-source.sh`]: tmux, [`K:${'a'.repeat(40)}:package.json`]: pkg,
-    [`K:${'a'.repeat(40)}:native-app/main.swift`]: swift };
+    [`K:${'a'.repeat(40)}:native-app/main.swift`]: swift, [`K:${'a'.repeat(40)}:tools/macos-floor`]: '13.5\n' };
 };
 // A stand-in for the compiler in the fixture arms: the fixtures import plain module names, one per line.
 const fixtureImports = (src) => [...src.matchAll(/^\s*(?:@\w+\s+)?import\s+(\w+)/gm)].map((m) => m[1]);
@@ -346,6 +346,16 @@ test('the SBOM says in its own metadata that the crate list is a superset; a + i
   assert.equal(comp(plus, 'tmux-part:utf8proc').purl, 'pkg:generic/utf8proc@2.9.0%2Bx');
 });
 
+test('a git crate with a full 40-character sha, roots listed out of order, and a VERSION key outside the known set', () => {
+  const full = 'git+https://github.com/example/baz?rev=main#' + 'c'.repeat(40);
+  const b = sbom(MANIFEST, files(LOCK.replaceAll(GIT, full)));
+  assert.equal(b.components.find((c) => c.name === 'baz').purl, `pkg:cargo/baz@1.0.0?vcs_url=${encodeURIComponent(`git+https://github.com/example/baz@${'c'.repeat(40)}`)}`);
+  const shuffled = LOCK.replace(` "baz 1.0.0 (${GIT})",\n "kosmos-relay-proto",\n "rcgen 0.13.2",\n "rustls",`, ` "rustls",\n "rcgen 0.13.2",\n "kosmos-relay-proto",\n "baz 1.0.0 (${GIT})",`);
+  assert.notEqual(shuffled, LOCK);
+  assert.deepEqual(deps(sbom(MANIFEST, files(shuffled)), 'connector'), deps(sbom(), 'connector'), 'the connector\'s direct dependencies are sorted whatever the lock order');
+  assert.throws(() => parseTmuxVersion(VERSION + 'zlib: 1.3.1\n', LIBS), /zlib is not a part this SBOM knows/);
+});
+
 test('two reached crates with one name and version from two sources get distinct references', () => {
   const both = LOCK.replace(' "rustls",\n', ` "baz 1.0.0 (${CRATES})",\n "rustls",\n`);
   const b = sbom(MANIFEST, files(both));
@@ -433,9 +443,12 @@ test('the Mac app: its shipped binary is the one signed, and every module the co
   const reads = (mods) => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), readImports: () => mods });
   assert.throws(() => reads(['Cocoa', 'Sparkle']), /native-app\/main\.swift imports Sparkle, which is not an Apple framework/);
   assert.ok(reads(['Cocoa', 'Dispatch']));
-  let seen;
-  build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), readImports: (src) => { seen = src; return []; } });
+  let seen, target;
+  build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), readImports: (src, t) => { seen = src; target = t; return []; } });
   assert.equal(seen, SWIFT, 'the reader is given native-app/main.swift at the app commit');
+  assert.equal(target, 'arm64-apple-macos13.5', 'and the release\'s own target, from tools/macos-floor at the app commit');
+  const badFloor = files(); badFloor[`K:${'a'.repeat(40)}:tools/macos-floor`] = 'thirteen\n';
+  assert.throws(() => sbom(MANIFEST, badFloor), /tools\/macos-floor at the app commit is not a macOS version/);
 });
 
 const HAS_SWIFTC = spawnSync('xcrun', ['--find', 'swiftc'], { encoding: 'utf8' }).status === 0;
@@ -443,12 +456,15 @@ test('the real Swift compiler reads every import a hand-written scanner missed, 
   for (const [src, mod] of [['let s = #"\\"#\n/* x */ import Evil\nlet t = "y"\n', 'Evil'], ['let r = #/"/#\n/* x */ import Evil\n', 'Evil'],
     ['@_spi(Private) import Sparkle\n', 'Sparkle'], ['public import Kingfisher\n', 'Kingfisher'], ['let u = "https://x"; import Sparkle\n', 'Sparkle'],
     ['import struct Sentry.Event\n', 'Sentry'], ['import Cocoa; import Sparkle\n', 'Sparkle']]) {
-    assert.ok(swiftcImports('import Foundation\n' + src).includes(mod), src);
+    assert.ok(swiftcImports('import Foundation\n' + src, 'arm64-apple-macos13.5').includes(mod), src);
   }
   const quiet = 'import Cocoa\n// import Sparkle\nlet s = "import Sparkle"\nlet m = """\nimport Sparkle\n"""\n';
-  assert.deepEqual(swiftcImports(quiet), ['Cocoa'], 'a comment or a string is not an import');
+  assert.deepEqual(swiftcImports(quiet, 'arm64-apple-macos13.5'), ['Cocoa'], 'a comment or a string is not an import');
+  assert.ok(swiftcImports('import Cocoa\n#if arch(arm64)\nimport Evil\n#endif\n', 'arm64-apple-macos13.5').includes('Evil'),
+    'an import under #if arch(arm64) is read for the release target, whatever machine runs this');
+  assert.throws(() => swiftcImports('import Cocoa\n'), /no Swift target/);
   const real = fs.readFileSync(path.join(__dirname, 'native-app', 'main.swift'), 'utf8');
-  const mods = swiftcImports(real);
+  const mods = swiftcImports(real, 'arm64-apple-macos13.5');
   assert.ok(mods.length >= 5 && mods.includes('Cocoa') && mods.includes('WebKit'), mods.join(' '));
 });
 
@@ -560,7 +576,7 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
     git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'x');
     return { dir, commit: git(dir, 'rev-parse', 'HEAD') };
   };
-  const k = repo('kosmos', { 'tools/build-tmux-from-source.sh': TMUX, 'package.json': PACKAGE, 'native-app/main.swift': SWIFT });
+  const k = repo('kosmos', { 'tools/build-tmux-from-source.sh': TMUX, 'package.json': PACKAGE, 'native-app/main.swift': SWIFT, 'tools/macos-floor': '13.5\n' });
   const r = repo('relay', { 'Cargo.lock': LOCK, 'Cargo.toml': WORKSPACE, 'crates/proto/Cargo.toml': MEMBER('kosmos-relay-proto'),
     'crates/tunnel/Cargo.toml': MEMBER('kosmos-tunnel-client'), 'crates/relay/Cargo.toml': MEMBER('kosmos-relay-server') });
   const stage = path.join(root, 'bundle');
@@ -659,7 +675,7 @@ test('the command line end to end, against a copy of the tool that pins a test k
     git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'x');
     return { dir, commit: git(dir, 'rev-parse', 'HEAD') };
   };
-  const k = repo('kosmos', { 'tools/build-tmux-from-source.sh': TMUX, 'package.json': PACKAGE, 'native-app/main.swift': SWIFT });
+  const k = repo('kosmos', { 'tools/build-tmux-from-source.sh': TMUX, 'package.json': PACKAGE, 'native-app/main.swift': SWIFT, 'tools/macos-floor': '13.5\n' });
   const r = repo('relay', { 'Cargo.lock': LOCK, 'Cargo.toml': WORKSPACE, 'crates/proto/Cargo.toml': MEMBER('kosmos-relay-proto'),
     'crates/tunnel/Cargo.toml': MEMBER('kosmos-tunnel-client'), 'crates/relay/Cargo.toml': MEMBER('kosmos-relay-server') });
   const stage = path.join(root, 'bundle');
