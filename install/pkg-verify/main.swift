@@ -84,7 +84,7 @@ guard let version = m["version"] as? String, let got = parseVersion(version) els
 }
 // The version the site's pointer offered, and not older than the oldest release this package accepts: an old, genuinely signed
 // release served again by the download site is refused.
-guard got == want else { refuse("the signed release is \(version), not the \(args[3]) offered, so nothing was installed") }
+guard version == args[3], got == want else { refuse("the signed release is \(version), not the \(args[3]) offered, so nothing was installed") }
 guard !isOlder(got, floor) else { refuse("the release offered (\(version)) is older than the oldest release this installer accepts, so nothing was installed") }
 // Every field is checked before any is printed: a refusal prints nothing a caller could take as a pin.
 var lines: [String] = []

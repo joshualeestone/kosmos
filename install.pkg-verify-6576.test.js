@@ -94,6 +94,7 @@ test('#6576: the helper refuses (97) a tampered manifest, another key, another v
     ['another version than the site offered', good, '0.7.61', '0.7.57', /not the 0\.7\.61 offered/],
     ['a release older than the floor (an old signed release served again)', release(h, '0.7.56', SHAS), '0.7.56', '0.7.57', /older than the oldest release this installer accepts/],
     ['no tmux_sha256', release(h, '0.7.60', { setup_sha256: SHAS.setup_sha256, sha256: SHAS.sha256 }), '0.7.60', '0.7.57', /has no tmux_sha256/],
+    ['the offered version spelled differently (0.7.060 for 0.7.60)', release(h, '0.7.060', SHAS), '0.7.60', '0.7.57', /not the 0\.7\.60 offered/],
     ['an uppercase sha256 (not the manifest form)', release(h, '0.7.60', Object.assign({}, SHAS, { sha256: 'B'.repeat(64) })), '0.7.60', '0.7.57', /has no sha256/],
   ];
   for (const [label, rel, v, floor, why] of cases) {
@@ -280,7 +281,7 @@ test('#6576: setup.sh holds a pinned download to its pin: none passes, equal pas
 });
 
 test('#6576: setup.sh checks each pinned download right after its checksum, before anything unpacks it', () => {
-  for (const [file, pin, what] of [['tmux.tar.gz', 'KOSMOS_PINNED_TMUX_SHA256', 'terminal manager'], ['kosmos.tar.gz', 'KOSMOS_PINNED_TARBALL_SHA256', 'Kosmos']]) {
+  for (const [file, pin, what] of [['tmux.tar.gz', '_PIN_TMUX_SHA256', 'terminal manager'], ['kosmos.tar.gz', '_PIN_TARBALL_SHA256', 'Kosmos']]) {
     const dl = SETUP.indexOf(`verify_download "$stage/${file}" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }\n`);
     assert.ok(dl > 0, `the ${file} download moved; re-anchor this test`);
     const next = SETUP.slice(SETUP.indexOf('\n', dl) + 1, SETUP.indexOf('\n', SETUP.indexOf('\n', dl) + 1));
@@ -292,6 +293,16 @@ test('#6576: setup.sh checks each pinned download right after its checksum, befo
     const pinAt = SETUP.slice(fnStart, fnEnd).indexOf('pinned_sha_ok');
     assert.ok(unpack === -1 || pinAt < unpack, `the ${file} pin check must come before it is unpacked`);
   }
+});
+
+test('#6576: setup.sh takes the pins once and removes them from the environment (the board it starts must not inherit them)', () => {
+  const start = SETUP.indexOf('case "${KOSMOS_PINNED_VERSION:-}" in');
+  const end = SETUP.indexOf('unset KOSMOS_PINNED_TARBALL_SHA256 KOSMOS_PINNED_TMUX_SHA256 KOSMOS_PINNED_VERSION\n', start);
+  assert.ok(start > 0 && end > start, 'the pin capture moved; re-anchor this test');
+  const block = SETUP.slice(start, SETUP.indexOf('\n', end) + 1);
+  const r = spawnSync('/bin/sh', ['-c', 'die() { echo "DIE $*"; exit 1; }\nTARGET_VERSION=x\n' + block + 'printf "%s %s %s\\n" "$TARGET_VERSION" "$_PIN_TARBALL_SHA256" "$_PIN_TMUX_SHA256"\nenv | grep -c "^KOSMOS_PINNED_" || true'],
+    { encoding: 'utf8', env: Object.assign({}, process.env, { KOSMOS_PINNED_VERSION: '0.7.60', KOSMOS_PINNED_TARBALL_SHA256: 'b'.repeat(64), KOSMOS_PINNED_TMUX_SHA256: 'c'.repeat(64) }) });
+  assert.equal(r.stdout, `0.7.60 ${'b'.repeat(64)} ${'c'.repeat(64)}\n0\n`, 'pins kept for this run, and none left in the environment: ' + r.stderr);
 });
 
 test('#6576: setup.sh installs the checked version, and refuses one that is not a.b.c', () => {
