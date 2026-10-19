@@ -37,7 +37,8 @@ let base;
 const warm = () => new Promise((resolve) => remote.warmConnectorCapabilities(resolve));
 // Polls, not a fixed sleep: a background ask on a loaded machine can take far longer than it does here.
 const until = async (ok, ms = 5000) => { const end = Date.now() + ms; while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 20)); return ok(); };
-test.before(async () => { await start(0); await warm(); base = `http://127.0.0.1:${server.address().port}`; });
+// This board "started" its tunnel (the tests start none), so what the connector says is listened to.
+test.before(async () => { await start(0); remote.resetConnectorCapabilitiesForTests(); await warm(); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(() => {
   server.closeAllConnections(); server.close();
   fs.rmSync(SANDBOX, { recursive: true, force: true });
@@ -360,4 +361,12 @@ test('R01: a forget right after the start-up ask still ends with an answer (the 
   remote.askConnectorCapabilities();          // the start-up ask
   remote.forgetConnectorCapabilities();       // a tunnel starts before it returns
   assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'nothing was asking after the forget');
+});
+
+test('R01: until this board has started its own tunnel, nothing is vouched for (a tunnel from an earlier board borrows nothing)', async () => {
+  try {
+    remote.resetConnectorCapabilitiesForTests({ startedHere: false });
+    await warm();                                   // the binary says yes ...
+    assert.equal(remote.connectorCapabilities().size, 0, 'a tunnel this board did not start was vouched for');
+  } finally { remote.resetConnectorCapabilitiesForTests(); await warm(); }
 });

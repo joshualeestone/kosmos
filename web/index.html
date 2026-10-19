@@ -23853,12 +23853,19 @@ async function updCheckNowClick() {
     // so the whole round trip resolves within ten seconds either way.
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 10000);
+    var stepUpSays = '';
     try {
       const res = await fetch('/api/update/check', { method: 'POST', signal: ctl.signal });
       // A non-ok answer is the BOARD failing, not the release host: parsing
       // it would paint "could not reach the update server", blaming the
-      // wrong leg (the arm below owns board-side failures).
+      // wrong leg (the arm below owns board-side failures). One exception
+      // (kosmos#6595): a remote session asked for a fresh sign-in gets the
+      // board's own sentence, which says what to do.
       out = res.ok ? await res.json() : null;
+      if (!res.ok && res.status === 403) {
+        const b = await res.json().catch(() => null);
+        if (b && /^remote_step_up/.test(String(b.code || '')) && typeof b.error === 'string') stepUpSays = b.error;
+      }
     } finally { clearTimeout(timer); }
   } catch { out = null; }
   UPD_CHECKING = false;
@@ -23866,7 +23873,8 @@ async function updCheckNowClick() {
     // The BOARD did not answer (restarting, or the page is orphaned).
     // Naming the update server here would blame the wrong leg, and
     // clearing the toast on our own failure could eat a valid offer.
-    line.textContent = (LAST_VERSION ? 'Kosmos ' + LAST_VERSION + '. ' : 'Kosmos. ') + 'Could not check just now.';
+    line.textContent = (typeof stepUpSays === 'string' && stepUpSays) ? stepUpSays
+      : (LAST_VERSION ? 'Kosmos ' + LAST_VERSION + '. ' : 'Kosmos. ') + 'Could not check just now.';
     btn.textContent = 'Try again';
     btn.dataset.act = 'check';
     btn.disabled = false;

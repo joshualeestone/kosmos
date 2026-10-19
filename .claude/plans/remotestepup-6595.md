@@ -15,13 +15,14 @@ creation need a fresh authenticator code. This is the step-up half.
   end of the coordinator's window is still fresh on arrival; the refusal says ten. The Kosmos+ gate writes both, over any client value, only for a
   sign-in session minted from a token after kosmos-relay sessioniat-6595; every other session sends neither.
   Missing or malformed is NOT fresh.
-- Gated: updating and anything that downloads and runs software (`/api/update`, `/api/update/rollback`,
-  `PUT /api/autoupdate`, `/api/connect/start`, `/api/antigravity/install`, `/api/muse/install`,
-  `/api/runners/<id>/install`); a key, a token or a
-  sign-in that leaves a credential here (`/api/accounts/openai`, `.../{claude,gemini,grok}/apikey`, `.../qwen`,
-  `/api/cloudflare/token`, `/api/svc/<service>/token`, the OpenAI and Grok subscription starts, Antigravity and Muse
-  sign-in, GitHub, GitHub device and Vercel starts); making an agent (`/api/agents`, `/api/team`,
-  `/api/connect-agent`, `/api/worlds`, `/api/worlds/import`, and bringing one back, `/api/agent/<name>/restore`).
+- Gated (the full list is REMOTE_STEP_UP_EXACT and REMOTE_STEP_UP_PATTERNS in server.js; the tests' two scans
+  keep it honest): updates and installs (update, rollback, update/check, autoupdate, connect/start, Antigravity, Muse
+  and runner installs); keys, tokens and sign-in starts for providers and services; making or bringing back agents
+  (agents, team, connect-agent, worlds, worlds/import, register, agent restore); Kosmos+ re-sign-in, enrolment and
+  forget for this computer; second-factor reset; company enrolment; federation join, invite and own-code; project
+  webhook creation.
+- Pages: the update check's page showed only "Could not check just now." on any refusal; it now shows the
+  step-up sentence (review iteration 19). The other gated routes' pages already show the error they are given.
 
 ## Decided (reversible; each is one line in REMOTE_STEP_UP_EXACT)
 - **"Unsandboxed agent" is every agent.** Every Kosmos agent runs with an unsandboxed shell; there is no sandboxed
@@ -40,7 +41,6 @@ creation need a fresh authenticator code. This is the step-up half.
   it off costs little.
 - **A gated path is gated for POST, PUT and PATCH** (review iteration 6), so a later handler that accepts another
   writing method on it is covered. DELETE takes away and is not.
-- **`/api/remote/setup-start` is not gated:** it is this computer's own Kosmos+ enrolment (remotemark-6595's list).
 - **The tests never send a request a broken gate would let act** (review iteration 6, after 13:10): over HTTP only
   key routes with an unreadable body, which answer 400 either way; every other route is tested on the function.
 - **Federation is gated where it lets something in** (review iteration 9): joining another Kosmos's project (a room
@@ -100,6 +100,10 @@ set none of the forwarding headers, it would read as local and never be asked (R
   gated actions; a changed binary is asked anew (review iteration 16).
 - Trailing slashes cannot slip past the gate: the gate and the routes read the same `pathname`, matched exactly, so
   `/api/agents/` reaches neither the gate's list nor the route (review iteration 16 asked).
+- Residual (review iteration 19): a Kosmos+ sign-in started LOCALLY and left pending could be finished by a stale
+  remote session (the steps after a start are not gated). It needs someone at the computer to start one first.
+- The connector is asked only once this board has started its own tunnel (review iteration 19): a tunnel left
+  running by an earlier board vouches for nothing until this board starts its own.
 - Residual (review iteration 18): the binary is identified by path, modification time and size, so one replaced in
   place with all three unchanged would keep the earlier answer. An update writes a new file, so this needs a hand-made
   copy; the running-tunnel report in #6616 removes it too.

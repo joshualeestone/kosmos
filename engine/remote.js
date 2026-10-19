@@ -132,8 +132,10 @@ const connectorSpawnOptions = (opts) => ({ ...opts, windowsHide: true });
    "session-headers" (it strips client copies, kosmos-relay sessioniat-6595). A connector older than that verb, or one
    that cannot be run, lists nothing, so its headers are never trusted: this is what makes an old connector fail
    closed on every platform, whatever order things merge or ship in. Asked once and kept; a connector that lacked it
-   is asked again after ten minutes, one that did not answer at all after thirty seconds. Always asked in the
-   background (at start, and when due), never while a request waits. */
+   is asked again after ten minutes, one that did not answer at all after thirty seconds. A YES is kept: never
+   downgraded within a generation, and kept across a tunnel restart on the same binary (path, mtime, size). Asked only
+   once this board has started its own tunnel (a tunnel left by an earlier board vouches for nothing), and always in
+   the background, never while a request waits. */
 // A connector that answered without the capability changes only with an update: asked again after ten minutes.
 const CAPABILITIES_RECHECK_MS = 10 * 60 * 1000;
 // One that did not answer at all (timed out, or could not be started) says nothing about its age: thirty seconds.
@@ -176,7 +178,11 @@ function askConnectorCapabilities() {
   const generation = capabilitiesGeneration;
   warmConnectorCapabilities(() => { if (generation === capabilitiesGeneration) askingCapabilities = false; });
 }
+/* Whether this board has started the tunnel process that forwards. Until it has, nothing is vouched for: a tunnel
+   left running by an earlier board (an older binary, say) must not borrow what this board's binary says. */
+let tunnelStartedHere = false;
 function connectorCapabilities(now = Date.now()) {
+  if (!tunnelStartedHere) return new Set();
   if (capabilitiesSeen) {
     const wait = capabilitiesSeen.answered ? CAPABILITIES_RECHECK_MS : CAPABILITIES_UNANSWERED_RECHECK_MS;
     if (capabilitiesSeen.caps.has('session-headers') || now - capabilitiesSeen.at < wait) return capabilitiesSeen.caps;
@@ -194,14 +200,19 @@ function warmConnectorCapabilities(done = () => {}) {
   const generation = capabilitiesGeneration;
   const binary = connectorBinaryKey();
   try {
-    execFile(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: CAPABILITIES_ASK_TIMEOUT_MS }), (err, stdout) => {
+    const child = execFile(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: CAPABILITIES_ASK_TIMEOUT_MS }), (err, stdout) => {
       // Answered = it ran to an exit code (an old connector's unknown verb is an answer); killed or unstartable is not.
       const answered = !err || (typeof err.code === 'number' && !err.killed);
       done(noteCapabilities(err ? new Set() : capabilityLines(stdout), answered, Date.now(), generation, binary));
     });
+    // Nothing to say on stdin: closed at once, so a connector that reads it cannot sit until the timeout.
+    if (child && child.stdin) child.stdin.end();
   } catch { done(noteCapabilities(new Set(), false, Date.now(), generation, binary)); }
 }
-const resetConnectorCapabilitiesForTests = () => forgetConnectorCapabilities({ always: true, ask: false });
+const resetConnectorCapabilitiesForTests = ({ startedHere = true } = {}) => {
+  tunnelStartedHere = startedHere;
+  forgetConnectorCapabilities({ always: true, ask: false });
+};
 /* The production addresses are the defaults (#648): a bundle needs nothing
  * baked for a Mac to reach the real relay and coordinator. Precedence: env
  * (tests, self-host), then the relay saved in remote.json, then production. */
@@ -820,6 +831,7 @@ function spawnFedSeat(target) {
 
 function startChild() {
   // kosmos#6595 (R01): the process that forwards is about to be this binary's, so what it vouches for is asked anew.
+  tunnelStartedHere = true;
   forgetConnectorCapabilities();
   if (restartPending) { restarts += 1; restartPending = false; }
   lastTunnelFailure = null;   // a new process has written nothing yet
