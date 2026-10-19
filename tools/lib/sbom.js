@@ -160,7 +160,19 @@ function cargoWorkspace(relay, commit) {
       members.set(pkg.name, { version: pkg.version, bins: (pkg.targets || []).filter((t) => (t.kind || []).includes('bin')).map((t) => t.name) });
     }
     if (members.size !== ids.size || !members.size) refuse(`cargo metadata named ${ids.size} workspace members and described ${members.size}`);
-    return members;
+    // And Cargo's resolve graph, every package with its dependencies, for the lock reader to be held against.
+    const byId = new Map((m.packages || []).map((pkg) => [pkg.id, pkg]));
+    if (!m.resolve || !Array.isArray(m.resolve.nodes)) refuse('cargo metadata gave no resolve graph');
+    const packages = m.resolve.nodes.map((node) => {
+      const pkg = byId.get(node.id);
+      if (!pkg) refuse(`cargo metadata resolved ${node.id}, which it does not describe`);
+      return { name: pkg.name, version: pkg.version, source: pkg.source || '', deps: (node.dependencies || []).map((id) => {
+        const d = byId.get(id);
+        if (!d) refuse(`cargo metadata resolved a dependency ${id} it does not describe`);
+        return pkgKey(d);
+      }) };
+    });
+    return { members, packages };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -192,8 +204,14 @@ function parseLock(text) {
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (line === '[[package]]') { cur = { deps: [] }; pkgs.push(cur); inDeps = false; continue; }
-    if (line.startsWith('[') && !inDeps) { cur = null; continue; }
-    if (!cur) continue;
+    // Review 31: only the two table headers Cargo writes in a v3/v4 lock, exactly. A header with a trailing comment
+    // hid a real package from this reader while Cargo read it, and a [metadata] string held a fake one.
+    if (line === '[[patch.unused]]' && !inDeps) { cur = { deps: [], unused: true }; inDeps = false; continue; }
+    if (line.startsWith('[') && !inDeps) throw new Error(`Cargo.lock: a table this SBOM does not read: ${line}`);
+    if (!cur) {
+      if (line && !line.startsWith('#') && !/^version = \d+$/.test(line)) throw new Error(`Cargo.lock: a top-level line this SBOM cannot read: ${line}`);
+      continue;
+    }
     if (inDeps) {
       if (line === ']') { inDeps = false; continue; }
       const m = line.match(/^"([^"]+)",?$/);
@@ -220,7 +238,7 @@ function parseLock(text) {
     cur[kv[1]] = str[1];
   }
   for (const p of pkgs) if (!p.name || !p.version) throw new Error(`Cargo.lock: a package with no ${p.name ? 'version' : 'name'}`);
-  return pkgs;
+  return pkgs.filter((p) => !p.unused);
 }
 
 function resolver(pkgs) {
@@ -251,6 +269,24 @@ function closure(pkgs, rootName) {
   }
   seen.delete(root);
   return { root, deps: [...seen], edges };
+}
+
+// Review 31: the lockfile as read here must be, package for package and edge for edge, the resolve graph Cargo
+// itself reports for that commit (cargo --locked compares the lock's MEANING, so a lock Cargo accepts can still read
+// differently to a line reader). Keys are name@version#source, the source empty for a workspace crate.
+const pkgKey = (p) => `${p.name}@${p.version}#${p.source || ''}`;
+function lockMatchesCargo(pkgs, cargoPkgs) {
+  const resolve = resolver(pkgs);
+  const ours = new Map(pkgs.map((p) => [pkgKey(p), [...new Set(p.deps.map((d) => pkgKey(resolve(d))))].sort(byCodePoint)]));
+  const theirs = new Map(cargoPkgs.map((p) => [pkgKey(p), [...new Set(p.deps)].sort(byCodePoint)]));
+  const only = (a, b) => [...a.keys()].filter((k) => !b.has(k)).sort(byCodePoint);
+  const extra = only(ours, theirs), missing = only(theirs, ours);
+  if (extra.length || missing.length) {
+    throw new Error(`Cargo.lock as read here is not what Cargo resolves: read but not Cargo's ${JSON.stringify(extra.slice(0, 3))}, Cargo's but not read ${JSON.stringify(missing.slice(0, 3))}`);
+  }
+  for (const [k, deps] of ours) {
+    if (deps.join(' ') !== theirs.get(k).join(' ')) throw new Error(`Cargo.lock as read here gives ${k} other dependencies than Cargo does`);
+  }
 }
 
 
@@ -528,7 +564,9 @@ function build(manifest, { repo, relay, tmux, show = gitShow, workspace = cargoW
   checkFirstParty(manifest, show(repo, appCommit, 'package.json'));
   const arch = manifest.arch;
   const { root, deps, edges } = closure(parseLock(show(relay, relayCommit, 'Cargo.lock')), CONNECTOR_CRATE);
-  const members = workspace(relay, relayCommit);
+  const ws = workspace(relay, relayCommit);
+  const members = ws.members;
+  lockMatchesCargo(parseLock(show(relay, relayCommit, 'Cargo.lock')), ws.packages);
   // A crate with no source is first-party only when it IS the member, at the member's version (a path dependency
   // outside the workspace can share a member's name). Two sourceless packages of one name and version cannot reach
   // here: the closure's resolver already refuses that as ambiguous.
@@ -610,7 +648,7 @@ function uuidFrom(seed) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-module.exports = { SELF_SHA, gitShow, gitEntry, cargoWorkspace, tmuxCpeFor: cpe, parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
+module.exports = { SELF_SHA, gitShow, gitEntry, cargoWorkspace, lockMatchesCargo, tmuxCpeFor: cpe, parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
 
 // A path as the file system resolves it (following a symlink), or as written when it does not exist yet.
 function realish(p) { try { return fs.realpathSync(p); } catch { return require('path').resolve(p); } }
@@ -630,6 +668,8 @@ if (require.main === module) {
     if (out) fs.rmSync(out, { force: true });
     const text = JSON.stringify(build(readSignedManifest(file, sig), { repo, relay, tmux: readTmuxBundle(tmuxFile) }), null, 2) + '\n';
     // Written beside the target and renamed into place, so a failed run never leaves an older SBOM under that name.
-    if (out) { fs.writeFileSync(`${out}.partial`, text); fs.renameSync(`${out}.partial`, out); } else process.stdout.write(text);
+    // The partial file is removed and then created exclusively (review 31: a link planted at that name was followed,
+    // and the SBOM written over the file it pointed at).
+    if (out) { fs.rmSync(`${out}.partial`, { force: true }); fs.writeFileSync(`${out}.partial`, text, { flag: 'wx' }); fs.renameSync(`${out}.partial`, out); } else process.stdout.write(text);
   } catch (e) { console.error(`sbom: ${e.message}`); process.exit(1); }
 }

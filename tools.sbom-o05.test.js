@@ -181,13 +181,27 @@ const files = (lock = LOCK, tmux = TMUX, workspace = WORKSPACE, pkg = PACKAGE, s
 // A stand-in for the compiler in the fixture arms: the fixtures import plain module names, one per line.
 const fixtureImports = (src) => [...src.matchAll(/^\s*(?:@\w+\s+)?import\s+(\w+)/gm)].map((m) => m[1]);
 // A stand-in for what `cargo metadata` reports of the relay workspace: each member's version and binaries.
-const WS = (over = {}) => () => new Map(Object.entries({
-  'kosmos-relay-proto': { version: '0.1.0', bins: [] },
-  'kosmos-tunnel-client': { version: '0.1.0', bins: ['kosmos-tunnel'] },
-  'kosmos-relay-server': { version: '0.1.0', bins: ['kosmos-relay'] },
-  ...over,
-}));
-const sbom = (m = MANIFEST, f = files(), tmux = BUNDLE) => build(m, { repo: 'K', relay: 'R', tmux, show: show(f), workspace: WS(), readImports: fixtureImports });
+// And Cargo's resolve graph, here derived from the fixture's own lock (so a fixture lock and "Cargo" agree; the
+// real-Cargo arm below holds the comparison against real Cargo).
+const cargoGraph = (lockText) => {
+  const pkgs = parseLock(lockText);
+  const key = (p) => `${p.name}@${p.version}#${p.source || ''}`;
+  const byName = (d) => {
+    const [n, v, src] = d.match(/^(\S+)(?: (\S+))?(?: \((.*)\))?$/).slice(1);
+    return pkgs.find((p) => p.name === n && (!v || p.version === v) && (!src || p.source === src));
+  };
+  return pkgs.map((p) => ({ name: p.name, version: p.version, source: p.source || '', deps: p.deps.map((d) => key(byName(d))) }));
+};
+const WS = (over = {}, f = null) => (relay, commit) => ({
+  members: new Map(Object.entries({
+    'kosmos-relay-proto': { version: '0.1.0', bins: [] },
+    'kosmos-tunnel-client': { version: '0.1.0', bins: ['kosmos-tunnel'] },
+    'kosmos-relay-server': { version: '0.1.0', bins: ['kosmos-relay'] },
+    ...over,
+  })),
+  packages: cargoGraph(f ? f[`${relay}:${commit}:Cargo.lock`] : LOCK),
+});
+const sbom = (m = MANIFEST, f = files(), tmux = BUNDLE) => build(m, { repo: 'K', relay: 'R', tmux, show: show(f), workspace: WS({}, f), readImports: fixtureImports });
 const comp = (b, ref) => b.components.find((c) => c['bom-ref'] === ref);
 const deps = (b, ref) => (b.dependencies.find((d) => d.ref === ref) || {}).dependsOn;
 
@@ -257,6 +271,23 @@ test('each crate\'s direct dependencies are sorted whatever the lock order', () 
   const lock = LOCK.replace(before, before.replace(' "ring",\n]', ' "subtle",\n "ring",\n]'))
     + `\n[[package]]\nname = "subtle"\nversion = "2.6.1"\nsource = "${CRATES}"\nchecksum = "${SHA('e')}"\n`;
   assert.deepEqual(deps(sbom(MANIFEST, files(lock)), 'crate:rustls@0.23.46'), ['crate:ring@0.17.14', 'crate:subtle@2.6.1']);
+});
+
+test('the build refuses when Cargo resolves the lock to other packages than the reader read (review 31)', () => {
+  const differs = (relay, commit) => {
+    const w = WS({}, files())(relay, commit);
+    return { ...w, packages: w.packages.map((p) => (p.name === 'serde' ? { ...p, version: '1.0.99' } : p)) };
+  };
+  assert.throws(() => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), readImports: fixtureImports, workspace: differs }),
+    /Cargo\.lock as read here is not what Cargo resolves/);
+});
+
+test('the lock reader reads only what Cargo writes: a commented header, another table or a stray line refuses (review 31)', () => {
+  const q3 = '"'.repeat(3);
+  assert.throws(() => parseLock(LOCK.replace('[[package]]\nname = "rustls"', '[[package]] # hidden\nname = "rustls"')), /a table this SBOM does not read: \[\[package\]\] # hidden/);
+  assert.throws(() => parseLock(LOCK + `\n[metadata]\nnote = ${q3}\n[[package]]\nname = "itoa"\nversion = "1.0.99"\n${q3}\n`), /a table this SBOM does not read: \[metadata\]/);
+  assert.throws(() => parseLock(LOCK.replace('version = 4', 'version = 4\nsomething = 1')), /a top-level line this SBOM cannot read: something = 1/);
+  assert.equal(parseLock(LOCK + '\n[[patch.unused]]\nname = "x"\nversion = "1.0.0"\n').length, parseLock(LOCK).length, 'the control: an unused patch is read and not listed');
 });
 
 test('a lockfile value that is not a plain quoted string, or a package with no version, refuses', () => {
@@ -485,11 +516,11 @@ test('the Mac app: its shipped binary is the one signed, and every module the co
   assert.ok(sbom(), 'the fixture imports Apple frameworks');
   assert.throws(() => sbom({ ...MANIFEST, native_app: { signed_sha256: SHA('d') } }), /app\/bin\/kosmos-app is not the Mac app it signed/);
   assert.throws(() => sbom({ ...MANIFEST, native_app: undefined }), /is not the Mac app it signed/);
-  const reads = (mods) => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), workspace: WS(), readImports: () => mods });
+  const reads = (mods) => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), workspace: WS({}, files()), readImports: () => mods });
   assert.throws(() => reads(['Cocoa', 'Sparkle']), /native-app\/main\.swift imports Sparkle, which is not an Apple framework/);
   assert.ok(reads(['Cocoa', 'Dispatch']));
   let seen, target;
-  build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), workspace: WS(), readImports: (src, t) => { seen = src; target = t; return []; } });
+  build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), workspace: WS({}, files()), readImports: (src, t) => { seen = src; target = t; return []; } });
   assert.equal(seen, SWIFT, 'the reader is given native-app/main.swift at the app commit');
   assert.equal(target, 'arm64-apple-macos13.5', 'and the release\'s own target, from tools/macos-floor at the app commit');
   const badFloor = files(); badFloor[`K:${'a'.repeat(40)}:tools/macos-floor`] = 'thirteen\n';
@@ -514,7 +545,7 @@ test('the real Swift compiler reads every import a hand-written scanner missed, 
 });
 
 test('the connector crate must be the one that builds kosmos-tunnel, and there is one of it', () => {
-  const noBin = WS({ 'kosmos-tunnel-client': { version: '0.1.0', bins: ['kosmos-tunnel-old'] } });
+  const noBin = WS({ 'kosmos-tunnel-client': { version: '0.1.0', bins: ['kosmos-tunnel-old'] } }, files());
   assert.throws(() => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), readImports: fixtureImports, workspace: noBin }),
     /kosmos-tunnel-client does not build the kosmos-tunnel binary/);
   const twoRoots = LOCK + '\n[[package]]\nname = "kosmos-tunnel-client"\nversion = "0.2.0"\n';
@@ -566,7 +597,7 @@ test('the serial includes a hash of the generator\'s own source, so a changed ge
   fs.writeFileSync(copy, fs.readFileSync(SBOM_JS, 'utf8') + '\n// one more line\n');
   const other = require(copy);
   assert.notEqual(other.SELF_SHA, require(SBOM_JS).SELF_SHA);
-  const a = sbom(), b = other.build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), workspace: WS(), readImports: fixtureImports });
+  const a = sbom(), b = other.build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), workspace: WS({}, files()), readImports: fixtureImports });
   assert.notEqual(a.serialNumber, b.serialNumber);
   assert.deepEqual(a.components, b.components, 'the same release, the same components');
 });
@@ -574,7 +605,7 @@ test('the serial includes a hash of the generator\'s own source, so a changed ge
 test('the workspace is what Cargo reports for the connector commit, and a refusal from Cargo stops the build', () => {
   let seen;
   const b = build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), readImports: fixtureImports,
-    workspace: (relay, commit) => { seen = [relay, commit]; return WS()(); } });
+    workspace: (relay, commit) => { seen = [relay, commit]; return WS({}, files())(relay, commit); } });
   assert.deepEqual(seen, ['R', 'b'.repeat(40)], 'asked about the connector commit of the relay');
   assert.equal(b.components.length, 15);
   assert.throws(() => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), readImports: fixtureImports,
@@ -597,8 +628,17 @@ test('real Cargo, offline: a lock that matches passes; every way a Cargo.toml ca
   execFileSync('cargo', ['generate-lockfile', '--offline', '--manifest-path', path.join(root, 'Cargo.toml')], { stdio: 'ignore' });
   const commit = () => { git('add', '-A'); git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'x'); return git('rev-parse', 'HEAD'); };
   const good = commit();
-  assert.deepEqual([...cargoWorkspace(root, good)].sort(), [['a', { version: '0.1.0', bins: [] }], ['b', { version: '0.1.0', bins: [] }]],
+  const ws = cargoWorkspace(root, good);
+  assert.deepEqual([...ws.members].sort(), [['a', { version: '0.1.0', bins: [] }], ['b', { version: '0.1.0', bins: [] }]],
     'the control: a lock Cargo itself wrote; the members are the ones Cargo reports');
+  // Review 31: the lock as read here must be Cargo's resolve graph, exactly.
+  const { lockMatchesCargo } = require(SBOM_JS);
+  const lockText = fs.readFileSync(path.join(root, 'Cargo.lock'), 'utf8');
+  assert.doesNotThrow(() => lockMatchesCargo(parseLock(lockText), ws.packages), 'the control: the reading and Cargo agree');
+  const hidden = parseLock(lockText).filter((p) => p.name !== 'b').map((p) => (p.name === 'a' ? { ...p, deps: [] } : p));
+  assert.throws(() => lockMatchesCargo(hidden, ws.packages), /Cargo's but not read \["b@0\.1\.0#"\]/, 'a package hidden from the reader');
+  const noEdge = parseLock(lockText).map((p) => (p.name === 'a' ? { ...p, deps: [] } : p));
+  assert.throws(() => lockMatchesCargo(noEdge, ws.packages), /gives a@0\.1\.0# other dependencies than Cargo does/, 'an edge read differently');
   const base = fs.readFileSync(path.join(root, 'a/Cargo.toml'), 'utf8');
   for (const extra of ['evil = { path = "../evil" }', 'evil = { "path" = "../evil" }', "evil = { path = '''../evil''' }", 'registrycrate = "1"']) {
     fs.writeFileSync(path.join(root, 'a/Cargo.toml'), base + extra + '\n');
@@ -947,9 +987,20 @@ test('the command line end to end, against a copy of the tool that pins a test k
     + `const m = a[a.indexOf('--manifest-path') + 1];\n`
     + `fs.appendFileSync(${JSON.stringify(path.join(root, 'cargo-args'))}, a.join(' ') + ' LOCK=' + (fs.readFileSync(p.join(p.dirname(m), 'Cargo.lock'), 'utf8') === ${JSON.stringify(LOCK)}) + ' ENV=' + Object.keys(process.env).filter((k) => /^(CARGO_|RUSTFLAGS$|RUSTDOCFLAGS$|RUSTC|RUSTDOC|RUSTUP_|GIT_)/.test(k)).sort().map((k) => k + (k === 'RUSTUP_AUTO_INSTALL' ? '=' + process.env[k] : '')).join(',') + '\\n');\n`
     + `if (process.env.STANDIN_EXIT !== '0') { process.stderr.write('error: cannot update the lock file\\n'); process.exit(Number(process.env.STANDIN_EXIT)); }\n`
-    + `const pkg = (n, bins) => ({ id: n + ' 0.1.0', name: n, version: '0.1.0', targets: bins.map((b) => ({ kind: ['bin'], name: b })) });\n`
-    + `process.stdout.write(JSON.stringify({ workspace_members: ['kosmos-relay-proto 0.1.0', 'kosmos-tunnel-client 0.1.0', 'kosmos-relay-server 0.1.0'],\n`
-    + `  packages: [pkg('kosmos-relay-proto', []), pkg('kosmos-tunnel-client', ['kosmos-tunnel']), pkg('kosmos-relay-server', ['kosmos-relay']), pkg('rustls', [])] }));\n`);
+    + `process.stdout.write(fs.readFileSync(${JSON.stringify(path.join(root, 'cargo-metadata.json'))}));\n`);
+  // What the stand-in Cargo answers: the members, and a resolve graph equal to the fixture lock's.
+  {
+    const graph = cargoGraph(LOCK);
+    const id = (k) => k;
+    const bins = { 'kosmos-tunnel-client': ['kosmos-tunnel'], 'kosmos-relay-server': ['kosmos-relay'] };
+    const keyOf = (p) => `${p.name}@${p.version}#${p.source || ''}`;
+    fs.writeFileSync(path.join(root, 'cargo-metadata.json'), JSON.stringify({
+      workspace_members: ['kosmos-relay-proto@0.1.0#', 'kosmos-tunnel-client@0.1.0#', 'kosmos-relay-server@0.1.0#'],
+      packages: graph.map((p) => ({ id: id(keyOf(p)), name: p.name, version: p.version, source: p.source || null,
+        targets: (bins[p.name] || []).map((b) => ({ kind: ['bin'], name: b })) })),
+      resolve: { nodes: graph.map((p) => ({ id: id(keyOf(p)), dependencies: p.deps })) },
+    }));
+  }
   fs.chmodSync(path.join(bin, 'cargo'), 0o755);
   const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, STANDIN_EXIT: '0',
     CARGO_HOME: path.join(root, 'cargo-home'), CARGO_TARGET_DIR: '/evil', CARGO_BUILD_TARGET: 'evil', RUSTFLAGS: '--evil',
@@ -960,6 +1011,14 @@ test('the command line end to end, against a copy of the tool that pins a test k
   assert.match(fs.readFileSync(path.join(root, 'xcrun-args'), 'utf8'), /^swiftc -frontend -emit-imported-modules -target arm64-apple-macos13\.5 \S+main\.swift -o \S+$/m,
     'the compiler is asked for the release\'s own target, not the machine\'s');
   assert.equal(fs.readFileSync(out, 'utf8'), JSON.stringify(build(manifest, { repo: k.dir, relay: r.dir, tmux, readImports: fixtureImports, workspace: WS() }), null, 2) + '\n');
+  // A link planted at the partial file's name is not followed (review 31).
+  const victim = path.join(root, 'victim.txt'), out2 = path.join(root, 'sbom2.json');
+  fs.writeFileSync(victim, 'keep me\n'); fs.symlinkSync(victim, `${out2}.partial`);
+  const planted = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
+    '--repo', k.dir, '--relay', r.dir, '--out', out2], { encoding: 'utf8', env });
+  assert.equal(planted.status, 0, planted.stderr);
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'keep me\n', 'the file a planted link points at is untouched');
+  assert.ok(!fs.lstatSync(out2).isSymbolicLink() && fs.readFileSync(out2, 'utf8') === fs.readFileSync(out, 'utf8'), 'and the SBOM is a plain file of its own');
   const swapped = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
     '--repo', r.dir, '--relay', k.dir], { encoding: 'utf8', env });
   assert.equal(swapped.status, 1, 'the repo and relay swapped refuse');
