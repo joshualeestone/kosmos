@@ -42,9 +42,10 @@ function certWatchFrom(dir, nowMs) {
   const errorAt = secs(raw.error_at);
   let state = ['clear', 'foreign', 'unknown'].includes(raw.state) ? raw.state : 'unknown';
   if (foreign + earlier > 0) state = 'foreign';
+  /* Both directions on purpose: a check dated far in the future (a skewed clock, a bad write) is not current either. */
   else if (state === 'clear' && (checkedAt === null || Math.abs(nowMs - checkedAt * 1000) >= STALE_MS)) state = 'unknown';
   /* An earlier report could not be read and was kept aside by the tunnel: findings in it may be lost. */
-  const lost = raw.damaged_report_at !== undefined;
+  const lost = secs(raw.damaged_report_at) !== null;
   if (lost && state === 'clear') state = 'unknown';
   return {
     on,

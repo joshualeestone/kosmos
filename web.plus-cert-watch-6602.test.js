@@ -75,6 +75,54 @@ test('a finding only for an earlier address says so; a lost report says so', () 
   assert.match(el('plus-cw-line').textContent, /could not be read/);
 });
 
+test('with Kosmos+ off, cannot-confirm is not said, but a finding still is', () => {
+  const { ctx, el } = world();
+  ctx.paintPlusCertWatch({ on: true, state: 'unknown' }, false);
+  assert.equal(el('plus-cw-line').hidden, true);
+  ctx.paintPlusCertWatch({ on: true, state: 'unknown', lost: true }, false);
+  assert.equal(el('plus-cw-line').hidden, true);
+  ctx.paintPlusCertWatch({ on: true, state: 'foreign', foreign: 1 }, false);
+  assert.equal(el('plus-cw-line').hidden, false);
+});
+
+/* The click handler: lifted with its stubs, driven twice at once (the busy guard), and once refused. */
+function clickWorld(answer) {
+  const listeners = {};
+  const sw = { attrs: { 'aria-checked': 'true' }, hasAttribute(k) { return k in this.attrs; }, getAttribute(k) { return this.attrs[k] ?? null; },
+    addEventListener(t, fn) { listeners[t] = fn; } };
+  const calls = [], said = [];
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const ctx = {
+    document: { getElementById: (id) => (id === 'plus-cw-switch' ? sw : null) },
+    fetch: async (url, opts) => { calls.push({ url, body: JSON.parse(opts.body) }); await gate; return answer; },
+    plusSay: (m) => said.push(m), plusWords: (s) => s, paintPlus: () => {}, console,
+  };
+  const start = SCRIPT.indexOf("{ const cwSw = document.getElementById('plus-cw-switch');");
+  const end = SCRIPT.indexOf('/* The words of the code box (#729).', start);
+  assert.ok(start > 0 && end > start, 'the switch handler moved; re-anchor this test');
+  vm.runInNewContext(SCRIPT.slice(start, end), ctx);
+  return { click: listeners.click, calls, said, release };
+}
+
+test('a click asks for the opposite of what the switch showed, once even when clicked twice', async () => {
+  const w = clickWorld({ ok: true, json: async () => ({}) });
+  const a = w.click(), b = w.click();
+  w.release();
+  await a; await b;
+  assert.equal(w.calls.length, 1, 'a second click while one was in flight sent another request');
+  assert.equal(w.calls[0].url, '/api/remote/cert-watch');
+  assert.deepEqual(w.calls[0].body, { on: false });
+});
+
+test('a refused change says why', async () => {
+  const w = clickWorld({ ok: false, json: async () => ({ error: 'only you can change this, from Settings' }) });
+  const a = w.click();
+  w.release();
+  await a;
+  assert.ok(w.said.includes('only you can change this, from Settings'), JSON.stringify(w.said));
+});
+
 test('an older server with no certWatch hides the line and the switch', () => {
   const { ctx, el } = world();
   ctx.paintPlusCertWatch(undefined);
@@ -83,7 +131,7 @@ test('an older server with no certWatch hides the line and the switch', () => {
 });
 
 test('paintPlus paints it, and the markup carries the line, the switch and its label', () => {
-  assert.ok(SCRIPT.includes("paintPlusCertWatch(r.certWatch)"), 'paintPlus no longer paints the certificate check');
+  assert.ok(SCRIPT.includes("paintPlusCertWatch(r.certWatch, r.on === true)"), 'paintPlus no longer paints the certificate check');
   for (const id of ['plus-cw-line', 'plus-cw-row', 'plus-cw-switch', 'plus-cw-label']) assert.ok(PAGE.includes('id="' + id + '"'), id);
   assert.match(PAGE, /this sends the address to Cert Spotter/, 'the switch must say what it sends where');
 });
