@@ -594,7 +594,8 @@ function write(patch, opts) {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
     /* kosmos#6548: owner-only, like board.token: the file holds the account's email and this computer's device ids.
        The open's mode keeps it owner-only (a umask only narrows it); the fchmod restores the owner's own read and
-       write bits if a strict umask took them, so the board can still read the file it saved. */
+       write bits if a strict umask took them, so the board can still read the file it saved. Not securewrite.writeSecret:
+       this writer keeps its own unique temp names and sweepStaleTemps, which that helper does not. */
     fd = fs.openSync(tmp, 'w', 0o600);
     try { fs.fchmodSync(fd, 0o600); } catch { /* the open's own mode stands */ }
     fs.writeSync(fd, JSON.stringify(next) + '\n');
