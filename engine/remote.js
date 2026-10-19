@@ -593,7 +593,8 @@ function write(patch, opts) {
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
     /* kosmos#6548: owner-only, like board.token: the file holds the account's email and this computer's device ids.
-       fchmod as well, because the open's mode is narrowed by the umask but never widened past it. */
+       The open's mode keeps it owner-only (a umask only narrows it); the fchmod restores the owner's own read and
+       write bits if a strict umask took them, so the board can still read the file it saved. */
     fd = fs.openSync(tmp, 'w', 0o600);
     try { fs.fchmodSync(fd, 0o600); } catch { /* the open's own mode stands */ }
     fs.writeSync(fd, JSON.stringify(next) + '\n');
