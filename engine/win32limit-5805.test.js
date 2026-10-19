@@ -328,3 +328,37 @@ test('#5805 Windows review 8: a failed look after a limit reading keeps the limi
   assert.ok(held, 'the hold was logged: ' + JSON.stringify(lines));
   assert.match(held[2], /keeps its last known state \(out of usage\)/, 'the log names the state the card shows');
 });
+
+test('#5805 Windows review 9: a refused turn\'s own error message (is_api_error_message) does not count as reaching the model', () => {
+  const b = box('winapierr', 'sid-ae', 7700);
+  try {
+    b.pub.started(7700, 'sid-ae');
+    b.pub.wrote();
+    b.pub.event({ type: 'system', subtype: 'init' });
+    b.pub.event(rejected(Math.floor(Date.now() / 1000) + 3600, 'five_hour'));
+    b.pub.event({ type: 'assistant', is_api_error_message: true, message: { content: [{ type: 'text', text: LIMIT_SENTENCE }] } });
+    b.pub.event({ type: 'result', subtype: 'success', is_error: false, result: LIMIT_SENTENCE });
+    assert.equal(b.card().state, status.STATE.RATE_LIMITED, 'even if the result were not marked is_error, the refusal stands');
+  } finally { b.done(); }
+});
+
+test('#5805 Windows review 9: a FAILED look after a limit, with the hook\'s automatic idle on file, stays limited and held', () => {
+  const name = 'winheldrep';
+  const sid = 'sid-hr';
+  const agents = [streaming(sid, 7800, 'cwd-' + name)];
+  const rec = recordOf({ [sid]: { name, runner: 'claude' } });
+  const pub = win32streamstate.publisher(name);
+  let failNext = false;
+  status.setPaneSource(win32roster.make({ run: () => agents, record: rec }));
+  status.setPaneCapture(win32capture.make({ run: () => agents, record: rec, ttlMs: 0, streamState: (n, hit) => (failNext ? null : win32streamstate.stateFor(n, hit)), log: () => {} }));
+  try {
+    pub.started(7800, sid);
+    pub.event(rejected(Math.floor(Date.now() / 1000) + 3600, 'five_hour'));
+    assert.equal(selfreport.record(name, { state: 'idle', auto: true }).recorded, true, 'CONTROL: the Stop hook\'s idle is on file');
+    const card = () => status.snapshot().agents.find((a) => a.sessionName === name);
+    assert.equal(card().state, status.STATE.RATE_LIMITED, 'CONTROL: a good look reads limited');
+    failNext = true;
+    assert.equal(card().state, status.STATE.RATE_LIMITED, 'a failed look keeps the account\'s refusal, not the hook\'s idle');
+    assert.ok(chat.limitHeldVerdict(name, status.snapshot().agents), 'still held, so no backlog is released');
+  } finally { pub.stopped(); status.setPaneSource(null); status.setPaneCapture(null); }
+});

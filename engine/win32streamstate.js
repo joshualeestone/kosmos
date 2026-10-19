@@ -101,8 +101,8 @@ function resetIso(v) {
 /**
  * #5805: what one rate_limit_event says about the account's usage limit. `undefined` for no claim, `null` when it
  * shows the account has room (allowed, a warning, or a refusal the account's extra usage covers), or `{ until, kind }`
- * for a refusal. The test is Claude Code's own (review 2, read from its binary): a refusal counts only with a reset
- * time and neither isUsingOverage nor overageInUse. Clearing on a finished turn is the publisher's (see event()).
+ * for a refusal. Claude Code's own test (review 2, read from its binary): a refusal counts only with a reset time and
+ * neither isUsingOverage nor overageInUse; Kosmos also treats an overageStatus of allowed or allowed_warning as room. Clearing on a finished turn is the publisher's (see event()).
  */
 function limitAfterEvent(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return undefined;
@@ -353,15 +353,19 @@ function publisher(name, opts) {
       if (next) current.state = next;
       /* #5805: a refusal is kept, room clears it, and the refused turn's own sentence rides with it. */
       if (e && e.type === 'system' && e.subtype === 'init') current.reachedModel = false;
-      if (e && e.type === 'assistant') current.reachedModel = true;
+      /* Review 9: a refused request's own error message (is_api_error_message, in Claude Code's stream-json schema) did
+         not reach the model, so it does not count; then even a result without is_error cannot clear the limit. */
+      const apiError = e && (e.is_api_error_message === true || e.isApiErrorMessage === true
+        || (e.message && typeof e.message === 'object' && (e.message.is_api_error_message === true || e.message.isApiErrorMessage === true)));
+      if (e && e.type === 'assistant' && !apiError) current.reachedModel = true;
       let lim = limitAfterEvent(e);
       /* A refused turn's error arrives as an assistant message (so it counts as reaching the model), and its result
          carries is_error true (Claude Code 2.1.303: is_error follows the last assistant's isApiErrorMessage). So only
          is_error keeps the refused turn's own result from clearing the limit it just set (review 3). */
-      if (lim === undefined && e && e.type === 'result' && e.is_error !== true && current.reachedModel === true) lim = null;
+      if (lim === undefined && e && e.type === 'result' && e.is_error !== true && !e.api_error && current.reachedModel === true) lim = null;
       /* Every refusal is stamped now, the LATEST one (review 7: a refusal after the agent's report proves the account is
          capped now; status lets only an agent report newer than this outrank the limit). The same refusal again
-         (Claude Code re-sends it on every rejected response) keeps the sentence already read. */
+         (Claude Code re-sends it, at most every 30 s per reset) keeps the sentence already read. */
       if (lim) {
         const same = current.limit && lim.until === current.limit.until && lim.kind === current.limit.kind;
         lim = { ...lim, since: new Date().toISOString(), ...(same && current.limit.line ? { line: current.limit.line } : {}) };
