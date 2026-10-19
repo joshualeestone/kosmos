@@ -190,6 +190,8 @@ test('acknowledging a lost report quiets it for that marker only', () => {
   assert.equal(certWatchFrom(d, NOW).state, 'unknown', 'CONTROL: acknowledged but stale stays unknown');
   put(d, { state: 'unknown', checked_at: S - 100, error_at: S - 50, damaged_report_at: S - 600 });
   assert.equal(certWatchFrom(d, NOW).state, 'unknown', 'CONTROL: acknowledged but failing stays unknown');
+  put(d, { state: 'garbled', checked_at: S, damaged_report_at: S - 600 });
+  assert.equal(certWatchFrom(d, NOW).state, 'unknown', 'only the tunnel\'s own unknown is read clear after an acknowledgement');
   put(d, { state: 'unknown', checked_at: S, damaged_report_at: S - 5 });
   assert.equal(certWatchFrom(d, NOW).lost, true, 'a later loss is said again');
   assert.equal(ackLostIn(d, 'x').ok, false);

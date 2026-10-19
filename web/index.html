@@ -52540,7 +52540,7 @@ function paintCwNote(cw, plusOn) {
   if (!key || onPlus || cwNoteAway().indexOf(key) !== -1) { CW_NOTE.key = null; CW_NOTE.sig = null; slot.textContent = ''; return; }
   const here = cw.foreign > 0 || !(cw.earlier > 0);   // this computer's address, or only an earlier one
   // What the small line can truly say: the check runs only while both it and Kosmos+ are on.
-  const runs = cw.on !== true ? 'off' : plusOn === false ? 'plus-off' : 'on';
+  const runs = cw.on !== true ? 'off' : plusOn === false ? 'plus-off' : cw.failing === true ? 'failing' : 'on';
   const sig = key + (here ? ':here' : ':earlier') + ':' + runs;
   if (CW_NOTE.sig === sig && slot.firstChild) return;   // unchanged: not rewritten, so it is not read out again
   CW_NOTE.key = key; CW_NOTE.sig = sig;
@@ -52552,6 +52552,7 @@ function paintCwNote(cw, plusOn) {
   slot.innerHTML = '<div class="utoast cwnote"><span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt" role="status"><b></b><small>' + (runs === 'on' ? 'Kosmos+ checks the public certificate logs for this computer.'
       : runs === 'plus-off' ? 'Kosmos+ is off, so nothing is checking now; this is what the check found before.'
+      : runs === 'failing' ? 'The check has been failing lately; this is what it found before.'
       : 'The certificate check is off; this is what it found before.') + '</small></div>'
     + '<div class="uacts"><button type="button" class="uprime" data-cw="open">Review</button></div>'
     + '<button type="button" class="ux" data-cw="dismiss" aria-label="Close: certificate warning">&times;</button></div>';

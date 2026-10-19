@@ -189,6 +189,8 @@ test('the small line says what is true: on, Kosmos+ off, or the check off', () =
   assert.match(get('cwnote-slot').innerHTML, /Kosmos\+ is off, so nothing is checking now/);
   ctx.paintCwNote({ ...FOUND, on: false }, true);
   assert.match(get('cwnote-slot').innerHTML, /The certificate check is off/);
+  ctx.paintCwNote({ ...FOUND, failing: true }, true);
+  assert.match(get('cwnote-slot').innerHTML, /The check has been failing lately/);
 });
 
 test('a key put away in another tab (storage) is honoured at the next paint', () => {

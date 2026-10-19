@@ -28,7 +28,7 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
 - A failed read of the board keeps the notice as it is (no blink); a tab in the background does not poll, and asks
   at once when it comes back; a computer not set up for Kosmos+ is asked only every ten minutes; on a phone the card keeps its small line.
 - With the check switched off, the card still raises a finding (a switch never hides one) and says the check is off;
-  with Kosmos+ itself off it says nothing is checking now. Only an OK answer with a yes/no `enrolled` is read: an
+  with Kosmos+ itself off it says nothing is checking now; with the check failing it says so. Only an OK answer with a yes/no `enrolled` is read: an
   error answer is a failed read (the card stays, polling does not go quiet), and so is a set-up answer with no
   `certWatch` (an older board).
 - The notice's words carry `role="status"` and are filled after the card is inserted, the login notice's pattern
@@ -53,7 +53,8 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
   that never lost a report would read the tunnel's `clear`. The cautious direction, chosen.
 - The key is a digest, not the report's strings, so nothing from the third party reaches the page.
 - After Got it, a current successful check reads clear again: the tunnel writes `unknown` for as long as its lost
-  marker stands and never removes it (kosmos-relay ctwatch.rs, read on relay main). Stale or failing stays unknown.
+  marker stands and never removes it (kosmos-relay ctwatch.rs, read on relay main). Stale or failing stays unknown,
+  and only the tunnel's own literal `unknown` is read so (a garbled state stays unknown).
   Tests use the tunnel's real shape (`unknown` beside the marker); a mutant dropping the rule turns the engine test red.
   The button says what it acknowledges: "Got it: earlier report".
 - Got it is a board-side record keyed on the marker value, so a later loss (a new marker) is said again. Rejected:
