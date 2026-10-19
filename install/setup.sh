@@ -839,6 +839,26 @@ verify_download() {
   return 0
 }
 
+# #6576: a first install from the .pkg is held to the SIGNED release too. The .pkg's own notarized helper checked the
+# release manifest's signature before this script ran, and hands over the manifest's sha256 for each download in
+# KOSMOS_PINNED_TARBALL_SHA256 and KOSMOS_PINNED_TMUX_SHA256. A download that differs is not installed. No pin (the
+# install line, an update run by an installed copy, which checks the manifest itself): returns 0. A pin that is not
+# 64 hex characters refuses, rather than reading as no pin.
+pinned_sha_ok() {
+  local file="$1" pin="$2" what="$3" got
+  [ -n "$pin" ] || return 0
+  case "$pin" in
+    *[!0-9a-f]*) info "the $what could not be checked against its signed release, so it was not installed"; return 1 ;;
+  esac
+  [ "${#pin}" -eq 64 ] || { info "the $what could not be checked against its signed release, so it was not installed"; return 1; }
+  got="$(shasum -a 256 "$file" | awk '{print $1}')"
+  if [ "$got" != "$pin" ]; then
+    info "the $what download does not match its signed release, so it was not installed"
+    return 1
+  fi
+  return 0
+}
+
 # #6468 ask 2: a downloaded update must match its SIGNED release manifest before anything in it runs. The check is made
 # by the INSTALLED copy (its own node running its own engine/manifest-verify.js, which pins the release's public
 # keys), never by the new build or by this script, so an install that has the check holds every later update to it.
@@ -1315,6 +1335,7 @@ fetch_tmux() {
     # is the failure this whole file is written against.
     curl -fL --progress-bar "$url" -o "$stage/tmux.tar.gz" || { rm -rf "$stage"; return 1; }
     verify_download "$stage/tmux.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
+    pinned_sha_ok "$stage/tmux.tar.gz" "${KOSMOS_PINNED_TMUX_SHA256:-}" "terminal manager" || { rm -rf "$stage"; return 1; }   # #6576
     # #6473: held to the signed manifest (fetched by update_manifest_ok early) before tar or anything in it runs.
     if [ "$(uname -s)" = "Darwin" ] && ! update_tmux_ok "$stage/tmux.tar.gz" "$KOSMOS_HOME"; then rm -rf "$stage"; return 1; fi
     # #6562: never apply the archive's recorded owner, whoever runs this (a root install on Linux would).
@@ -1447,6 +1468,7 @@ install_kosmos() {
     rm -f "$_kp_sentinel" 2>/dev/null || true; kill "$_kp_watcher" 2>/dev/null || true; wait "$_kp_watcher" 2>/dev/null || true
     _kp_emit downloaded
     verify_download "$stage/kosmos.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
+    pinned_sha_ok "$stage/kosmos.tar.gz" "${KOSMOS_PINNED_TARBALL_SHA256:-}" "Kosmos" || { rm -rf "$stage"; return 1; }   # #6576
     _kp_emit installing
     # #6468 ask 2: held to the installed copy's signed-manifest check, the archive itself before tar reads it and every
     # unpacked file before anything runs. Not on Linux (its updates are not built or signed here yet).
