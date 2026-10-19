@@ -240,9 +240,11 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const wrongOn = await page.evaluate((id) => { const a = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]'); return !a.disabled && a.getAttribute('aria-disabled') !== 'true'; }, PC_ID);
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="' + PC_ID + '"]');
       await page.waitForFunction(() => /That is not the code/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
-      const wrong = await page.evaluate((id) => { const f = document.getElementById('askcode-' + id), said = f && document.getElementById(f.getAttribute('aria-describedby'));
+      /* aria-describedby is a LIST of ids (#6522 review 1: the heading, then the error line), so each one is resolved. */
+      const wrong = await page.evaluate((id) => { const f = document.getElementById('askcode-' + id);
+        const said = f ? (f.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).map((n) => document.getElementById(n)).filter(Boolean) : [];
         return { text: (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '), focused: document.activeElement === f,
-          invalid: f && f.getAttribute('aria-invalid'), describedBy: said ? said.textContent : '' }; }, PC_ID);
+          invalid: f && f.getAttribute('aria-invalid'), describedBy: said.map((n) => n.textContent).join(' ') }; }, PC_ID);
       chk(wrongOn && /That is not the code windowsbox shows\. Check it on windowsbox and type it again\./.test(wrong.text) && !allowBodies[PC_ID] && denyIds.length === 0 && wrong.focused
         && wrong.invalid === 'true' && /That is not the code/.test(wrong.describedBy),
         `${tag} #6404: a wrong code is answered on the sheet (the field is marked invalid and described by it), sends nothing, and puts the person back in the field`, JSON.stringify({ wrongOn, wrong, sent: allowBodies[PC_ID], denyIds }));
