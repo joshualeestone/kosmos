@@ -1021,7 +1021,12 @@ notarize_binaries "$STAGE/app/bin/kosmos-app" "$STAGE/app/bin/kosmos-tunnel" "$S
 echo "==> packing"
 TARBALL_OUT="$OUT/kosmos-$ARCH.tar.gz"
 rm -f "$TARBALL_OUT"
-tar -czf "$TARBALL_OUT" -C "$STAGE" bin app runtime VERSION
+# #6562: store a neutral owner NAME (the numeric ids still come from disk, so an extraction behaves as before), and
+# refuse a tarball that still records this Mac's account.
+tar -czf "$TARBALL_OUT" --uname kosmos --gname staff -C "$STAGE" bin app runtime VERSION
+. "$(dirname "${BASH_SOURCE[0]}")/lib/tar-owner-gate.sh"
+tar_owner_gate "$TARBALL_OUT" || exit 1
+echo "==> the tarball records no build account as owner (#6562)"
 # ⚠️ The .sha256 is what install/setup.sh verifies before extracting; a
 # tarball published without it refuses to install, on purpose.
 ( cd "$OUT" && shasum -a 256 "$(basename "$TARBALL_OUT")" > "$(basename "$TARBALL_OUT").sha256" )

@@ -268,6 +268,7 @@ ARCH="$(uname -m)"
 TARBALL="$OUTDIR/tmux-$ARCH.tar.gz"
 _extra=""
 [ -d "$OUT/licenses" ] && _extra="licenses"
-tar -czf "$TARBALL" -C "$OUT" bin lib VERSION THIRD-PARTY-NOTICES.txt $_extra
+# #6562: a neutral owner NAME, as the Kosmos bundle stores (numeric ids from disk, unchanged on extraction).
+tar -czf "$TARBALL" --uname kosmos --gname staff -C "$OUT" bin lib VERSION THIRD-PARTY-NOTICES.txt $_extra
 ( cd "$(dirname "$TARBALL")" && shasum -a 256 "$(basename "$TARBALL")" > "$(basename "$TARBALL").sha256" )
 echo "==> packed: $(du -sh "$TARBALL" | cut -f1) at $TARBALL (+ .sha256)"
