@@ -24,6 +24,9 @@
  * LIMIT: the connector's relay commit is the relay build's own record (its sidecar); this does not rebuild the
  * connector to check that the binary came from that commit's Cargo.lock.
  * LIMIT: a library linked statically into tmux and not recorded in the bundle's VERSION is invisible here.
+ * LIMIT: the release tarball itself is not read: its hash comes from the manifest, and the manifest's file list is
+ * exhaustive because the installed copy checks every file against it. The shipped runtime/bin/node is not tied to the
+ * nodejs.org download hash here (the bundle build verifies it against nodejs.org's SHASUMS256 before packing).
  * LIMIT: the crate list is the lockfile closure, a superset of what the macOS connector compiles. Measured for 0.7.59:
  * 227 crates against cargo tree's 189; the extra are Windows-only and dev-only crates (26) and optional dependencies
  * of features the connector does not turn on (14). It never misses a crate the connector builds with. A scan of this
@@ -116,10 +119,11 @@ function workspaceMembers(show, relay, commit) {
   if (!m) throw new Error('relay Cargo.toml: no [workspace] members');
   const dirs = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
   if (!dirs.length || dirs.some((d) => /[*?[]/.test(d))) throw new Error('relay Cargo.toml: members must be literal paths');
-  return new Set(dirs.map((d) => {
-    const n = show(relay, commit, `${d}/Cargo.toml`).match(/^\[package\][\s\S]*?^name\s*=\s*"([^"]+)"/m);
+  return new Map(dirs.map((d) => {
+    const toml = show(relay, commit, `${d}/Cargo.toml`);
+    const n = toml.match(/^\[package\][\s\S]*?^name\s*=\s*"([^"]+)"/m);
     if (!n) throw new Error(`relay ${d}/Cargo.toml: no [package] name`);
-    return n[1];
+    return [n[1], toml];
   }));
 }
 
@@ -129,6 +133,12 @@ function workspaceMembers(show, relay, commit) {
 // script only supplies each input's source url and hash.
 function tmuxPins(text) {
   const vars = {};
+  // Every setting of a fetch input, in any shape (unquoted, indented, exported, appended), must be the one plain
+  // NAME="value" line read below; otherwise the url or hash read here may not be the one the script fetches.
+  const anyShape = text.split('\n').filter((l) => !/^\s*#/.test(l))
+    .flatMap((l) => [...l.matchAll(/(^|[^A-Za-z0-9_$])([A-Z0-9_]+_(URL|VERSION|SHA))\+?=/g)].map((m) => m[2]));
+  const plain = [...text.matchAll(/^([A-Z0-9_]+_(URL|VERSION|SHA))="[^"]*"\s*$/gm)].map((m) => m[1]);
+  if (anyShape.length !== plain.length) throw new Error(`build-tmux-from-source.sh: a fetch input is set in a shape this SBOM cannot read (${anyShape.filter((n, i) => plain[i] !== n)[0] || anyShape[plain.length]})`);
   for (const m of text.matchAll(/^([A-Z0-9_]+)="([^"]*)"/gm)) {
     if (m[1] in vars && /_(URL|VERSION|SHA)$/.test(m[1])) throw new Error(`build-tmux-from-source.sh: ${m[1]} is set twice (the value at fetch time is not knowable here)`);
     vars[m[1]] = m[2];
@@ -202,7 +212,7 @@ function parseTmuxVersion(text, list) {
   for (const raw of list) {
     const p = raw.replace(/^\.\//, '');
     if (p === 'bin/tmux') seenTmux = true;
-    if (p.endsWith('/') || ['VERSION', 'THIRD-PARTY-NOTICES.txt', 'bin/tmux'].includes(p) || /^licenses\/[^/]+\.txt$/.test(p)) continue;
+    if (p === '' || p.endsWith('/') || ['VERSION', 'THIRD-PARTY-NOTICES.txt', 'bin/tmux'].includes(p) || /^licenses\/[^/]+\.txt$/.test(p)) continue;
     const m = p.match(/^lib\/lib(.+?)(?:[-.][0-9]+(?:\.[0-9]+)*)?\.dylib$/);
     const owner = m && DYLIB_OWNER[m[1]];
     if (!owner || !versions[owner]) throw new Error(`tmux bundle: ${p} is not a file this SBOM accounts for`);
@@ -298,6 +308,21 @@ function checkFirstParty(manifest, packageJson) {
   }
 }
 
+// The Mac app is one Swift file (native-app/main.swift); its shipped binary is the one the manifest signed, and it may
+// import Apple's frameworks only. A Swift package, or another module, would be third-party code this does not list.
+const APPLE_MODULES = new Set(['Foundation', 'Cocoa', 'AppKit', 'WebKit', 'Network', 'ApplicationServices', 'AVFoundation', 'Speech',
+  'UserNotifications', 'Security', 'CoreGraphics', 'CoreFoundation', 'CoreServices', 'Darwin', 'os', 'ServiceManagement',
+  'SwiftUI', 'Combine', 'IOKit', 'SystemConfiguration', 'UniformTypeIdentifiers', 'QuartzCore', 'CoreAudio']);
+function checkNativeApp(manifest, swift) {
+  const shipped = manifest.files.find((f) => f.path === 'app/bin/kosmos-app');
+  if (!manifest.native_app || !SHA256.test(manifest.native_app.signed_sha256 || '') || !shipped || shipped.sha256 !== manifest.native_app.signed_sha256) {
+    throw new Error('the manifest\'s app/bin/kosmos-app is not the Mac app it signed (native_app.signed_sha256)');
+  }
+  for (const m of swift.matchAll(/^\s*(?:@\w+\s+)*import\s+(?:(?:class|struct|enum|func|protocol|typealias|var|let)\s+)?([A-Za-z_][A-Za-z0-9_]*)/gm)) {
+    if (!APPLE_MODULES.has(m[1])) throw new Error(`native-app/main.swift imports ${m[1]}, which is not an Apple framework this SBOM knows`);
+  }
+}
+
 function build(manifest, { repo, relay, tmux, show = gitShow }) {
   for (const k of ['version', 'app', 'node', 'connector']) if (!manifest[k]) throw new Error(`manifest has no ${k}`);
   if (!manifest.node.version) throw new Error('manifest has no node version');
@@ -316,6 +341,10 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
   const arch = manifest.arch;
   const { root, deps, edges } = closure(parseLock(show(relay, relayCommit, 'Cargo.lock')), CONNECTOR_CRATE);
   const members = workspaceMembers(show, relay, relayCommit);
+  // The shipped app/bin/kosmos-tunnel must be that crate's binary, or its closure is not the connector's.
+  const tunnelToml = members.get(CONNECTOR_CRATE) || '';
+  if (!/^\[\[bin\]\]\s*\nname\s*=\s*"kosmos-tunnel"/m.test(tunnelToml)) throw new Error(`relay: ${CONNECTOR_CRATE} does not build the kosmos-tunnel binary`);
+  checkNativeApp(manifest, show(repo, appCommit, 'native-app/main.swift'));
   const pins = new Map(tmuxPins(show(repo, appCommit, 'tools/build-tmux-from-source.sh')).map((p) => [p.name, p]));
   for (const name of pins.keys()) {
     if (!tmux.versions[name]) throw new Error(`the build script fetches ${name}, but the tmux bundle's VERSION does not name it (linked statically and unrecorded?)`);

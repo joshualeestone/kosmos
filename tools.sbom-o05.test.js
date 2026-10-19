@@ -121,7 +121,9 @@ version = "9.9.9"
 source = "git+https://example.invalid/rustls"
 `;
 const WORKSPACE = '[workspace]\nresolver = "2"\nmembers = ["crates/proto", "crates/tunnel", "crates/relay"]\n';
-const MEMBER = (n) => `[package]\nname = "${n}"\nversion.workspace = true\n`;
+const MEMBER = (n) => `[package]\nname = "${n}"\nversion.workspace = true\n`
+  + (n === 'kosmos-tunnel-client' ? '\n[[bin]]\nname = "kosmos-tunnel"\npath = "src/main.rs"\n' : '');
+const SWIFT = 'import Cocoa\nimport WebKit\n@preconcurrency import Network\nimport AVFoundation // the mic\nlet x = 1\n';
 const TMUX = `#!/bin/bash
 TMUX_VERSION="3.5a"
 LIBEVENT_VERSION="2.1.12-stable"
@@ -150,7 +152,9 @@ const MANIFEST = {
   files: ['VERSION', 'bin/kosmos', 'runtime/bin/node', 'runtime/LICENSE', 'app/server.js', 'app/package.json',
     'app/engine/status.js', 'app/web/index.html', 'app/bin/kosmos-tunnel', 'app/assets/Kosmos.icns',
     'app/Kosmos.app/Contents/MacOS/Kosmos', 'app/bin/kosmos-report-hook.sh', 'app/bin/codex-report-bridge.js',
-    'app/Kosmos.app/Contents/Resources/Kosmos.icns'].map((path) => ({ path, sha256: path === 'app/bin/kosmos-tunnel' ? SHA('f') : SHA('2') })),
+    'app/Kosmos.app/Contents/Resources/Kosmos.icns', 'app/bin/kosmos-app']
+    .map((path) => ({ path, sha256: path === 'app/bin/kosmos-tunnel' ? SHA('f') : path === 'app/bin/kosmos-app' ? SHA('c') : SHA('2') })),
+  native_app: { signed_sha256: SHA('c') },
 };
 const PACKAGE = '{ "name": "agent-workforce", "private": true, "scripts": { "test": "x" } }';
 const sha256 = (t) => crypto.createHash('sha256').update(t, 'utf8').digest('hex');
@@ -161,11 +165,12 @@ const show = (files) => (repo, commit, file) => {
   if (v === undefined) throw new Error(`no ${repo}:${commit}:${file}`);
   return v;
 };
-const files = (lock = LOCK, tmux = TMUX, workspace = WORKSPACE, pkg = PACKAGE) => {
+const files = (lock = LOCK, tmux = TMUX, workspace = WORKSPACE, pkg = PACKAGE, swift = SWIFT) => {
   const r = (f) => `R:${'b'.repeat(40)}:${f}`;
   return { [r('Cargo.lock')]: lock, [r('Cargo.toml')]: workspace, [r('crates/proto/Cargo.toml')]: MEMBER('kosmos-relay-proto'),
     [r('crates/tunnel/Cargo.toml')]: MEMBER('kosmos-tunnel-client'), [r('crates/relay/Cargo.toml')]: MEMBER('kosmos-relay-server'),
-    [`K:${'a'.repeat(40)}:tools/build-tmux-from-source.sh`]: tmux, [`K:${'a'.repeat(40)}:package.json`]: pkg };
+    [`K:${'a'.repeat(40)}:tools/build-tmux-from-source.sh`]: tmux, [`K:${'a'.repeat(40)}:package.json`]: pkg,
+    [`K:${'a'.repeat(40)}:native-app/main.swift`]: swift };
 };
 const sbom = (m = MANIFEST, f = files(), tmux = BUNDLE) => build(m, { repo: 'K', relay: 'R', tmux, show: show(f) });
 const comp = (b, ref) => b.components.find((c) => c['bom-ref'] === ref);
@@ -361,7 +366,7 @@ test('an older lockfile format, or a crates.io crate with no checksum, refuses',
 test('every shipped file must sit in a first-party place, and package.json may name no npm packages', () => {
   const ship = (...extra) => ({ ...MANIFEST, files: [...MANIFEST.files, ...extra.map((path) => ({ path, sha256: SHA('2') }))] });
   for (const p of ['app/node_modules/left-pad/index.js', 'app/engine/node_modules/x/y.js', 'app/vendor/lib.js', 'lib/libfoo.dylib',
-    'runtime/lib/node_modules/npm/index.js', 'app/../etc/x']) {
+    'runtime/lib/node_modules/npm/index.js', 'app/engine/../../bin/x.js']) {
     assert.throws(() => sbom(ship(p)), /which is not a first-party place this SBOM accounts for/, p);
   }
   assert.throws(() => sbom({ ...MANIFEST, files: [] }), /manifest lists no files/);
@@ -395,6 +400,31 @@ test('native code: only the two named binaries in app/bin/ and the Mac app\'s ow
   assert.throws(() => sbom({ ...MANIFEST, files: MANIFEST.files.filter((f) => f.path !== 'runtime/bin/node') }), /ships no runtime\/bin\/node/);
 });
 
+test('the Mac app: its shipped binary is the one signed, and it imports Apple frameworks only', () => {
+  assert.ok(sbom(), 'Cocoa, WebKit, an attributed Network import and a commented one pass');
+  assert.throws(() => sbom({ ...MANIFEST, native_app: { signed_sha256: SHA('d') } }), /app\/bin\/kosmos-app is not the Mac app it signed/);
+  assert.throws(() => sbom({ ...MANIFEST, native_app: undefined }), /is not the Mac app it signed/);
+  for (const imp of ['import Sparkle', '@testable import Alamofire', 'import struct Sentry.Event', '  import Kingfisher']) {
+    assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + imp + '\n')), /native-app\/main\.swift imports \w+, which is not an Apple framework/, imp);
+  }
+});
+
+test('the connector crate must be the one that builds kosmos-tunnel, and there is one of it', () => {
+  const noBin = files();
+  noBin[`R:${'b'.repeat(40)}:crates/tunnel/Cargo.toml`] = '[package]\nname = "kosmos-tunnel-client"\n';
+  assert.throws(() => sbom(MANIFEST, noBin), /kosmos-tunnel-client does not build the kosmos-tunnel binary/);
+  const twoRoots = LOCK + '\n[[package]]\nname = "kosmos-tunnel-client"\nversion = "0.2.0"\n';
+  assert.throws(() => closure(parseLock(twoRoots), 'kosmos-tunnel-client'), /no single package kosmos-tunnel-client/);
+});
+
+test('a fetch input set in any other shape refuses, so the url and hash read are the ones the script uses', () => {
+  for (const line of ['TMUX_URL=https://evil/t.tgz', `  TMUX_SHA="${SHA('9')}"`, 'export TMUX_URL="https://evil/t.tgz"',
+    'TMUX_VERSION+="x"', "LIBEVENT_URL='https://evil/l.tgz'", 'readonly TMUX_SHA=abc']) {
+    assert.throws(() => tmuxPins(TMUX.replace('fetch() {', `${line}\nfetch() {`)), /a fetch input is set in a shape this SBOM cannot read/, line);
+  }
+  assert.equal(tmuxPins(TMUX + 'echo "$TMUX_URL"\nlocal url="$2"\n').length, 3, 'reading a variable is not setting it');
+});
+
 test('commits must be full shas, the build must say clean, and only the arm64 release is known', () => {
   assert.throws(() => sbom({ ...MANIFEST, app: { commit: 'HEAD', dirty: false } }), /must be full shas/);
   assert.throws(() => sbom({ ...MANIFEST, connector: { ...MANIFEST.connector, commit: 'b'.repeat(10) } }), /must be full shas/);
@@ -420,7 +450,7 @@ test('the binary\'s own version line must agree with the source it was built fro
 test('the bundle: a library VERSION names must be in lib/, bin/tmux must be there, a ./ prefix reads the same, URL and SHA must pair', () => {
   assert.throws(() => parseTmuxVersion(VERSION + 'ncurses: 6.5\n', LIBS), /VERSION names ncurses, but no library of it is in lib\//);
   assert.throws(() => parseTmuxVersion(VERSION, LIBS.filter((p) => p !== 'bin/tmux')), /no bin\/tmux/);
-  assert.deepEqual(parseTmuxVersion(VERSION, LIBS.map((p) => `./${p}`)).versions, BUNDLE.versions);
+  assert.deepEqual(parseTmuxVersion(VERSION, ['./', ...LIBS.map((p) => `./${p}`)]).versions, BUNDLE.versions);
   assert.throws(() => tmuxPins(TMUX.replace('fetch libevent "$LIBEVENT_URL" "$LIBEVENT_SHA"', 'fetch libevent "$LIBEVENT_URL" "$TMUX_SHA"')),
     /libevent is fetched with LIBEVENT_URL but TMUX_SHA/);
   assert.throws(() => tmuxPins(TMUX + `TMUX_SHA="${SHA('9')}"\n`), /TMUX_SHA is set twice/);
@@ -480,7 +510,7 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
     git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'x');
     return { dir, commit: git(dir, 'rev-parse', 'HEAD') };
   };
-  const k = repo('kosmos', { 'tools/build-tmux-from-source.sh': TMUX, 'package.json': PACKAGE });
+  const k = repo('kosmos', { 'tools/build-tmux-from-source.sh': TMUX, 'package.json': PACKAGE, 'native-app/main.swift': SWIFT });
   const r = repo('relay', { 'Cargo.lock': LOCK, 'Cargo.toml': WORKSPACE, 'crates/proto/Cargo.toml': MEMBER('kosmos-relay-proto'),
     'crates/tunnel/Cargo.toml': MEMBER('kosmos-tunnel-client'), 'crates/relay/Cargo.toml': MEMBER('kosmos-relay-server') });
   const stage = path.join(root, 'bundle');
@@ -532,4 +562,46 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   assert.equal(run(mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, '--outt', 'x').status, 2, 'an unknown flag');
   assert.equal(run(mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, '--out').status, 2, '--out with no value');
   assert.equal(run(mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, 'stray').status, 2, 'a stray argument');
+});
+
+test('the command line end to end, against a copy of the tool that pins a test key: the file it writes is build()\'s', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-cli-'));
+  fs.mkdirSync(path.join(root, 'tools', 'lib'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'engine'), { recursive: true });
+  fs.copyFileSync(SBOM_JS, path.join(root, 'tools', 'lib', 'sbom.js'));
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
+  fs.writeFileSync(path.join(root, 'engine', 'manifest-verify.js'),
+    `module.exports = { KEYS: [${JSON.stringify(publicKey.export({ type: 'spki', format: 'der' }).toString('base64'))}] };\n`);
+  const git = (dir, ...a) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8' }).trim();
+  const repo = (name, tree) => {
+    const dir = path.join(root, name);
+    fs.mkdirSync(dir, { recursive: true });
+    git(dir, 'init', '-q');
+    for (const [f, text] of Object.entries(tree)) {
+      fs.mkdirSync(path.join(dir, path.dirname(f)), { recursive: true });
+      fs.writeFileSync(path.join(dir, f), text);
+      git(dir, 'add', f);
+    }
+    git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'x');
+    return { dir, commit: git(dir, 'rev-parse', 'HEAD') };
+  };
+  const k = repo('kosmos', { 'tools/build-tmux-from-source.sh': TMUX, 'package.json': PACKAGE, 'native-app/main.swift': SWIFT });
+  const r = repo('relay', { 'Cargo.lock': LOCK, 'Cargo.toml': WORKSPACE, 'crates/proto/Cargo.toml': MEMBER('kosmos-relay-proto'),
+    'crates/tunnel/Cargo.toml': MEMBER('kosmos-tunnel-client'), 'crates/relay/Cargo.toml': MEMBER('kosmos-relay-server') });
+  const stage = path.join(root, 'bundle');
+  for (const f of LIBS) { fs.mkdirSync(path.join(stage, path.dirname(f)), { recursive: true }); fs.writeFileSync(path.join(stage, f), f === 'VERSION' ? VERSION : f); }
+  const tgz = path.join(root, 'tmux-arm64.tar.gz');
+  execFileSync('tar', ['-czf', tgz, '-C', stage, ...LIBS]);
+  const tmux = readTmuxBundle(tgz);
+  const manifest = { ...MANIFEST, tmux_sha256: tmux.sha, app: { commit: k.commit, dirty: false }, connector: { ...MANIFEST.connector, commit: r.commit } };
+  const mf = path.join(root, 'm.json'), sg = path.join(root, 'm.json.sig'), out = path.join(root, 'sbom.json');
+  fs.writeFileSync(mf, JSON.stringify(manifest));
+  fs.writeFileSync(sg, crypto.sign(null, fs.readFileSync(mf), privateKey).toString('base64') + '\n');
+  const run = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
+    '--repo', k.dir, '--relay', r.dir, '--out', out], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(fs.readFileSync(out, 'utf8'), JSON.stringify(build(manifest, { repo: k.dir, relay: r.dir, tmux }), null, 2) + '\n');
+  const swapped = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
+    '--repo', r.dir, '--relay', k.dir], { encoding: 'utf8' });
+  assert.equal(swapped.status, 1, 'the repo and relay swapped refuse');
 });
