@@ -3,8 +3,11 @@
   "highlights": [
     {
       "icon": "phone",
-      "title": "Switching computers is instant",
-      "line": "Choosing another computer in the switcher opens it right away, with the animated K meanwhile, and switching back skips the sign-in page."
+      "title": "Smoother computer switching",
+      "line": "Choosing another computer in the switcher shows the animated K until it opens, and switching back to this Mac skips the sign-in page.",
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "icon": "phone",
