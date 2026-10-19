@@ -12,6 +12,9 @@
 // Exit 97: refused, with one line on stderr saying why (bad signature, another version, older than the floor, a field
 //          missing). The caller runs nothing.
 // Exit 2: called wrongly or a file could not be read; the caller runs nothing either.
+//
+// What it does not tell apart: a manifest names no channel, so a genuinely signed STAGING release at or above the
+// floor passes as well as a production one. It is still a release Kosmos signed, not someone else's code.
 import CryptoKit
 import Foundation
 
@@ -47,8 +50,9 @@ func isOlder(_ a: [Int], _ b: [Int]) -> Bool {
     return false
 }
 
+/// 64 lowercase hex characters, judged byte by byte (a Character would let a digit with a combining mark through).
 func isSha256(_ s: String) -> Bool {
-    s.count == 64 && s.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
+    s.utf8.count == 64 && s.utf8.allSatisfy { ($0 >= 48 && $0 <= 57) || ($0 >= 97 && $0 <= 102) }
 }
 
 let args = CommandLine.arguments
