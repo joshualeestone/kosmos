@@ -191,7 +191,7 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
  * stolen release key is a new list without it, seq + 1, signed with the recovery key (tools/lib/release-keys-sign.js),
  * and the next release raises MIN_KEY_LIST_SEQ to it. Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
 const RECOVERY_KEYS = Object.freeze([]);   // frozen: nothing in the process can turn the feature on by adding one
-const KEY_LIST_STATE = 'release-keys.state.json';
+const KEY_LIST_STATE = 'release-keys.state';   // a folder: one seq-<n>.json per list taken
 // The lowest list seq this build accepts, even with no state stored (a fresh install): raised in the release after a
 // revocation, so a copy without a record still refuses the list from before it.
 const MIN_KEY_LIST_SEQ = 1;
@@ -229,24 +229,31 @@ function verifyKeyList({ bytes, sig, recoveryKeys = RECOVERY_KEYS }) {
   return { ok: true, why: `release key list ${list.seq}`, seq: list.seq, keys: keys.slice() };
 }
 
-/** This install's key-list record: { seq, keys } (seq the highest taken, never below minSeq), or null when the record
- * is there but damaged, which is refused rather than read as none: damage must not reset the floor. The record is not
- * signed: whoever can write the install home can delete it, which drops this copy back to MIN_KEY_LIST_SEQ. */
+/* This install's record of the key lists it has taken: a folder (KEY_LIST_STATE in the install home) holding one file
+ * per list, seq-<n>.json. The highest file present is the floor for the next list, so the record can only move
+ * forward: files are only ever added, each in one step (written aside, then linked into place, which fails if that
+ * seq is already there), and two checks running at once cannot take it backwards. The record is not signed: whoever
+ * can write the install home can delete it, which drops this copy back to MIN_KEY_LIST_SEQ. */
+const SEQ_FILE = /^seq-(\d{1,10})\.json$/;
+
+/** { seq, keys } of the highest list recorded (seq never below minSeq; keys null when nothing at or above it is
+ * recorded), or null when that record is damaged, which is refused rather than read as none. */
 function storedKeyList(home, minSeq = MIN_KEY_LIST_SEQ) {
-  let raw;
-  try { raw = fs.readFileSync(path.join(home, KEY_LIST_STATE), 'utf8'); } catch (e) {
-    return e && e.code === 'ENOENT' ? { seq: minSeq, keys: null } : null;
-  }
+  const dir = path.join(home, KEY_LIST_STATE);
+  let names;
+  try { names = fs.readdirSync(dir); } catch (e) { return e && e.code === 'ENOENT' ? { seq: minSeq, keys: null } : null; }
+  let top = 0;
+  for (const n of names) { const m = SEQ_FILE.exec(n); if (m && Number(m[1]) > top) top = Number(m[1]); }
+  if (!top || top < minSeq) return { seq: minSeq, keys: null };
   try {
-    const s = JSON.parse(raw);
-    if (!Number.isInteger(s.seq) || s.seq < 1 || s.seq > MAX_SEQ) return null;
-    if (!Array.isArray(s.release_keys) || !s.release_keys.length) return null;
-    return { seq: Math.max(s.seq, minSeq), keys: s.seq >= minSeq ? s.release_keys : null };
+    const r = JSON.parse(fs.readFileSync(path.join(dir, `seq-${top}.json`), 'utf8'));
+    if (r.seq !== top || !Array.isArray(r.release_keys) || !r.release_keys.length || !r.release_keys.every((k) => ed25519Key(k))) return null;
+    return { seq: top, keys: r.release_keys };
   } catch { return null; }
 }
 
 /** The release keys to check a manifest with. Off (no recovery key): the built-in KEYS. On: a key list that verifies
- * and is not older than this copy's record, which is then moved on when the list is newer. { ok, why, keys }. */
+ * and is not older than this copy's record, recorded when not yet there. { ok, why, keys }. */
 function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, builtIn = KEYS, minSeq = MIN_KEY_LIST_SEQ }) {
   if (!recoveryKeys.length) return { ok: true, why: 'no recovery key is set, so the built-in release keys apply', keys: builtIn };
   if (!listBytes) return { ok: false, why: 'the release key list could not be read' };
@@ -257,45 +264,34 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   const stored = storedKeyList(home, minSeq);
   if (!stored) return { ok: false, why: 'this copy\'s record of the release key list is damaged, so no list can be taken' };
   if (v.seq < stored.seq) return { ok: false, why: `the release key list is ${v.seq}, older than the ${stored.seq} this copy has taken` };
-  if (v.seq === stored.seq && stored.keys && !sameKeys(stored.keys, v.keys)) {
-    return { ok: false, why: `the release key list ${v.seq} names other keys than the list ${v.seq} this copy took` };
+  if (v.seq === stored.seq && stored.keys) {
+    if (!sameKeys(stored.keys, v.keys)) return { ok: false, why: `the release key list ${v.seq} names other keys than the list ${v.seq} this copy took` };
+    return { ok: true, why: v.why, keys: v.keys };
   }
-  // Recorded when newer, and also when there is no record yet (a list at exactly the floor), so its keys are what a
-  // later list with the same seq is held to.
-  if (v.seq > stored.seq || !stored.keys) {
-    // The keys are written as a record only: what is trusted always comes from a list that verified just now.
-    const out = path.join(home, KEY_LIST_STATE);
-    const lock = out + '.lock';
-    const tmp = out + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
-    // One check at a time moves the record. A lock left by a check that died is taken over after a minute by renaming
-    // it to a name of its own first (only one check can win that rename), and a check releases only the lock it made.
-    const token = crypto.randomBytes(8).toString('hex');
-    try {
-      if (Date.now() - fs.statSync(lock).mtimeMs > 60000) {
-        const gone = lock + '.stale.' + token;
-        fs.renameSync(lock, gone);
-        fs.rmSync(gone, { recursive: true, force: true });
+  // Not recorded yet: add seq-<n>.json. The keys are a record only: what is trusted always comes from a list that
+  // verified just now.
+  const dir = path.join(home, KEY_LIST_STATE);
+  const file = path.join(dir, `seq-${v.seq}.json`);
+  const tmp = path.join(dir, `.seq-${v.seq}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`);
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(tmp, JSON.stringify({ seq: v.seq, release_keys: v.keys }) + '\n', { mode: 0o600, flag: 'wx' });
+    try { fs.linkSync(tmp, file); } catch (e) {
+      if (!e || e.code !== 'EEXIST') throw e;
+      // Another check recorded this seq first: it must name the same keys.
+      const other = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (!Array.isArray(other.release_keys) || !sameKeys(other.release_keys, v.keys)) {
+        return { ok: false, why: `the release key list ${v.seq} names other keys than the list ${v.seq} this copy took` };
       }
-    } catch { /* no lock, or another check took the stale one over first */ }
-    try { fs.mkdirSync(lock); fs.writeFileSync(path.join(lock, 'owner'), token); } catch (e) {
-      return { ok: false, why: e && e.code === 'EEXIST' ? 'another check is taking the release key list; try again' : 'this copy\'s record of the release key list could not be written' };
     }
-    try {
-      // Read again under the lock: if a newer list was taken meanwhile, this one is not trusted (it may hold a key the
-      // newer list dropped), and the record is not moved.
-      const now = storedKeyList(home, minSeq);
-      if (!now || now.seq > v.seq || (now.seq === v.seq && now.keys && !sameKeys(now.keys, v.keys))) {
-        return { ok: false, why: 'a newer release key list was taken meanwhile; check again' };
-      }
-      fs.writeFileSync(tmp, JSON.stringify({ seq: v.seq, release_keys: v.keys }) + '\n', { mode: 0o600, flag: 'wx' });
-      fs.renameSync(tmp, out);
-    } catch {
-      return { ok: false, why: 'this copy\'s record of the release key list could not be written' };
-    } finally {
-      try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
-      try { if (fs.readFileSync(path.join(lock, 'owner'), 'utf8') === token) fs.rmSync(lock, { recursive: true, force: true }); } catch { /* not ours, or gone */ }
-    }
+  } catch {
+    return { ok: false, why: 'this copy\'s record of the release key list could not be written' };
+  } finally {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
   }
+  // A newer list recorded meanwhile wins: this one may hold a key that one dropped.
+  const now = storedKeyList(home, minSeq);
+  if (!now || now.seq > v.seq) return { ok: false, why: 'a newer release key list was taken meanwhile; check again' };
   return { ok: true, why: v.why, keys: v.keys };
 }
 
