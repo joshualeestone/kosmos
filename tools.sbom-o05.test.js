@@ -120,7 +120,7 @@ name = "rustls"
 version = "9.9.9"
 source = "git+https://example.invalid/rustls"
 `;
-const WORKSPACE = '[workspace]\nresolver = "2"\nmembers = ["crates/proto", "crates/tunnel", "crates/relay"]\n';
+const WORKSPACE = '[workspace]\nresolver = "2"\nmembers = ["crates/proto", "crates/tunnel", "crates/relay"]\n\n[workspace.package]\nversion = "0.1.0"\n';
 const MEMBER = (n) => `[package]\nname = "${n}"\nversion.workspace = true\n`
   + (n === 'kosmos-tunnel-client' ? '\n[[bin]]\nname = "kosmos-tunnel"\npath = "src/main.rs"\n' : '');
 const SWIFT = 'import Cocoa\nimport WebKit\n@preconcurrency import Network\nimport AVFoundation // the mic\nlet x = 1\n';
@@ -167,7 +167,8 @@ MANIFEST.files.find((f) => f.path === 'app/package.json').sha256 = sha256(PACKAG
 const withPackage = (m, pkg) => ({ ...m, files: m.files.map((f) => (f.path === 'app/package.json' ? { ...f, sha256: sha256(pkg) } : f)) });
 const show = (files) => (repo, commit, file) => {
   const v = files[`${repo}:${commit}:${file}`];
-  if (v === undefined) throw new Error(`no ${repo}:${commit}:${file}`);
+  if (v === undefined) { const e = new Error(`no ${repo}:${commit}:${file}`); e.notFound = true; throw e; }
+  if (v instanceof Error) throw v;
   return v;
 };
 const files = (lock = LOCK, tmux = TMUX, workspace = WORKSPACE, pkg = PACKAGE, swift = SWIFT) => {
@@ -216,7 +217,7 @@ test('a crate from an unknown source, or a sourceless crate outside the workspac
   assert.throws(() => sbom(MANIFEST, files(ringFrom(`${CRATES}-evil`))), /comes from a source this SBOM does not know/);
   assert.equal(comp(sbom(MANIFEST, files(ringFrom('sparse+https://index.crates.io/'))), 'crate:ring@0.17.14').purl, 'pkg:cargo/ring@0.17.14');
   const vendored = LOCK.replace(`name = "ring"\nversion = "0.17.14"\nsource = "${CRATES}"\nchecksum = "${SHA('3')}"`, 'name = "ring"\nversion = "0.17.14"');
-  assert.throws(() => sbom(MANIFEST, files(vendored)), /ring 0\.17\.14 has no source and is not a relay workspace member/);
+  assert.throws(() => sbom(MANIFEST, files(vendored)), /ring 0\.17\.14 has no source and is not the relay workspace member of that name/);
   assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, '[workspace]\nmembers = ["crates/*"]\n')), /members must be literal paths/);
 });
 
@@ -234,14 +235,33 @@ test('any #if in the Mac app refuses: several conditions read as the machine run
   }
 });
 
+test('a sourceless crate is first-party only when it is the one workspace member of that name, at its version', () => {
+  const other = LOCK.replace('dependencies = ["serde"]', 'dependencies = ["serde", "kosmos-relay-proto 9.9.9"]')
+    + '\n[[package]]\nname = "kosmos-relay-proto"\nversion = "9.9.9"\n';
+  const fix = other.replace('"kosmos-relay-proto",\n "rcgen 0.13.2"', '"kosmos-relay-proto 0.1.0",\n "rcgen 0.13.2"');
+  assert.throws(() => sbom(MANIFEST, files(fix)), /kosmos-relay-proto .* has no source and is not the relay workspace member of that name/);
+  assert.throws(() => sbom(MANIFEST, files(LOCK.replace('name = "kosmos-relay-proto"\nversion = "0.1.0"', 'name = "kosmos-relay-proto"\nversion = "0.2.0"').replace('"kosmos-relay-proto",', '"kosmos-relay-proto",'))),
+    /kosmos-relay-proto 0\.2\.0 has no source and is not the relay workspace member of that name \(0\.1\.0\)/);
+});
+
+test('each crate\'s direct dependencies are sorted whatever the lock order', () => {
+  const before = `name = "rustls"\nversion = "0.23.46"\nsource = "${CRATES}"\nchecksum = "${SHA('4')}"\ndependencies = [\n "ring",\n]`;
+  assert.ok(LOCK.includes(before));
+  const lock = LOCK.replace(before, before.replace(' "ring",\n]', ' "subtle",\n "ring",\n]'))
+    + `\n[[package]]\nname = "subtle"\nversion = "2.6.1"\nsource = "${CRATES}"\nchecksum = "${SHA('e')}"\n`;
+  assert.deepEqual(deps(sbom(MANIFEST, files(lock)), 'crate:rustls@0.23.46'), ['crate:ring@0.17.14', 'crate:subtle@2.6.1']);
+});
+
 test('a lockfile value that is not a plain quoted string, or a package with no version, refuses', () => {
   assert.throws(() => parseLock(LOCK.replace('name = "rustls"\nversion = "0.23.46"', "name = \"rustls\"\nversion = '0.23.46'")), /rustls version is not a plain quoted value/);
   assert.throws(() => parseLock(LOCK.replace('name = "rustls"\nversion = "0.23.46"', 'name = "rustls"\nversion = "0.23.46" # pinned')), /rustls version is not a plain quoted value/);
   assert.throws(() => parseLock(LOCK.replace('name = "rustls"\nversion = "0.23.46"\n', 'name = "rustls"\n')), /a package with no version/);
 });
 
-test('a .cargo/config in the relay, at its root or in a member, refuses: it can point a crate at other code', () => {
-  for (const at of ['.cargo/config.toml', '.cargo/config', 'crates/tunnel/.cargo/config.toml']) {
+test('a .cargo/config in the relay, at its root, in a member or in any folder above one, refuses', () => {
+  const err = files(); err[`R:${'b'.repeat(40)}:.cargo/config.toml`] = new Error('git failed for another reason');
+  assert.throws(() => sbom(MANIFEST, err), /git failed for another reason/, 'a git failure is not read as "absent"');
+  for (const at of ['.cargo/config.toml', '.cargo/config', 'crates/tunnel/.cargo/config.toml', 'crates/.cargo/config.toml']) {
     const f = files(); f[`R:${'b'.repeat(40)}:${at}`] = '[patch.crates-io]\nring = { path = "vendor/ring" }\n';
     assert.throws(() => sbom(MANIFEST, f), new RegExp(`relay ${at.replace(/\./g, '\\.')} at the connector commit can change what the connector builds`), at);
   }
@@ -497,7 +517,7 @@ test('the real Swift compiler reads every import a hand-written scanner missed, 
 
 test('the connector crate must be the one that builds kosmos-tunnel, and there is one of it', () => {
   const noBin = files();
-  noBin[`R:${'b'.repeat(40)}:crates/tunnel/Cargo.toml`] = '[package]\nname = "kosmos-tunnel-client"\n';
+  noBin[`R:${'b'.repeat(40)}:crates/tunnel/Cargo.toml`] = '[package]\nname = "kosmos-tunnel-client"\nversion.workspace = true\n';
   assert.throws(() => sbom(MANIFEST, noBin), /kosmos-tunnel-client does not build the kosmos-tunnel binary/);
   const twoRoots = LOCK + '\n[[package]]\nname = "kosmos-tunnel-client"\nversion = "0.2.0"\n';
   assert.throws(() => closure(parseLock(twoRoots), 'kosmos-tunnel-client'), /no single package kosmos-tunnel-client/);
