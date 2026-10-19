@@ -43,7 +43,8 @@ real fix.
 - **Against `cargo tree` (review 1, offline, locked):** none of its 189 macOS crates is missing. Of the 40 extras,
   26 are Windows-only or dev-only and 14 are optional dependencies of features the connector does not turn on (h2 and
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
-  checks the macOS build graph; the header says so.
+  checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
+  the source.
 - **`tools.sbom-o05.test.js`:** 31 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
   must equal build()'s output byte for byte. Every rule added in reviews 1 to 11 has a mutant that fails an arm,
@@ -84,8 +85,8 @@ real fix.
   connector's signed sha256, and runtime/bin/node. Commits must be full shas, and the manifest must say `dirty: false`.
 - **The manifest's signature is verified** under the checkout's pinned keys (engine/manifest-verify.js) before
   anything is read from it. The real 0.7.59 manifest and its served .sig verify; the same manifest with its version
-  changed refuses. The command line's success path cannot run in a test, since only the real release key signs; it
-  is the same three calls the in-process arm makes, and the CLI arm checks it refuses an unsigned manifest.
+  changed refuses. Only the real release key is untested (it signs nothing in a test): the command line's success
+  path runs end to end under a test key (see the tests bullet), and the CLI arm checks it refuses an unsigned manifest.
 - **The bundle allowlist:** every file must be the VERSION file, a notice or licence, bin/tmux, or a dylib of a library
   the VERSION names. The real 0.7.59 bundle passes it; nine other shapes (a digit or a + in a dylib name, a
   subdirectory, libexec/, a bin/ helper, a .so, a .a, terminfo data) each refuse.
