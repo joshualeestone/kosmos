@@ -23433,11 +23433,35 @@ function orgRefreshIfDue(now = Date.now()) {
   // roster sync, so it runs whether or not an ask is due and needs no live-execution gate.
   companyPolicyRetryIfOwed(now);
   if (now >= ORG_NEXT_AT || now < ORG_ASKED_AT) return orgEnrollRefresh();
-  return undefined;
+  return orgMemberCheckIfDue(now);
+}
+/* kosmos#6560: a member the admin removed was told "enrolled" until the next hourly ask (up to about 65 minutes). While
+   enrolled, this board also asks the CHEAP membership check (orgenroll memberCheck: the status route with lite, no
+   policy) every ORG_MEMBER_CHECK_MS on the same five-minute tick, and runs the full ask (orgEnrollRefresh, which ends
+   the enrolment and everything after it) only when that check clearly says the membership ended. So a removal is
+   seen within about 15 minutes. A coordinator that answers in full (no lite) has no cheap check: the board stops
+   asking it until it restarts, and the hourly ask still covers it. */
+const ORG_MEMBER_CHECK_MS = 10 * 60 * 1000;
+let ORG_MEMBER_CHECKED_AT = 0;
+let ORG_MEMBER_CHECK_OFF = false;
+let ORG_MEMBER_CHECK_BUSY = false;
+function orgMemberCheckIfDue(now = Date.now()) {
+  if (ORG_MEMBER_CHECK_OFF || ORG_MEMBER_CHECK_BUSY) return undefined;
+  if (now - ORG_MEMBER_CHECKED_AT < ORG_MEMBER_CHECK_MS && now >= ORG_MEMBER_CHECKED_AT) return undefined;
+  if (!liveExecution.liveExecutionAllowed()) return undefined;   // as the hourly ask: nothing is sent before that
+  const oe = require('./engine/orgenroll');
+  try { if (!oe.readEnrollment()) return undefined; } catch { return undefined; }
+  ORG_MEMBER_CHECKED_AT = now;
+  ORG_MEMBER_CHECK_BUSY = true;
+  return oe.memberCheck().then((c) => {
+    if (c && c.result === 'nocheap') ORG_MEMBER_CHECK_OFF = true;
+    if (c && c.result === 'ended') return orgEnrollRefresh();
+    return undefined;
+  }).catch(() => undefined).finally(() => { ORG_MEMBER_CHECK_BUSY = false; });
 }
 /* TESTS ONLY: start the hourly schedule over (no ask yet, no misses) and forget the company text the agents were last
    handed, so a test does not depend on the one before it. */
-function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0; ORG_ASK_SEQ = 0; ORG_POLICY_RETRY_AT = 0; COMPANY_POLICY_SEEN = undefined; }
+function _orgRefreshResetForTests() { ORG_MEMBER_CHECKED_AT = 0; ORG_MEMBER_CHECK_OFF = false; ORG_MEMBER_CHECK_BUSY = false; ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0; ORG_ASK_SEQ = 0; ORG_POLICY_RETRY_AT = 0; COMPANY_POLICY_SEEN = undefined; }
 /* #6232 review 10: when this board's own enrollment ends by any path (the hourly ask, or a rollup or agent event the
    company refused, which call oe.refresh themselves), its agents are handed the change at once. Before, a removal
    caught by a refused rollup cleared the applied policy, but the agents kept the company's AI policy text until a
@@ -25213,6 +25237,7 @@ module.exports = {
   statusForSibling, // #6178: the sibling cut's account keys, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   orgRefreshIfDue, // #6232: the hourly ask, measured on the clock
+  orgMemberCheckIfDue, // kosmos#6560: the cheap membership check while enrolled
   _orgRefreshResetForTests, // #6232 review 6: tests only
   companyPolicySync, // #5534: handing agents the company's AI policy, tested by behaviour (#6232)
   companyPolicyRetryIfOwed, // #6240: the no-company hand-over retry (hourly-bounded), tested by behaviour
