@@ -22,6 +22,7 @@
  * OpenSSL and so on) are Node's own and are matched through Node's version, not listed one by one; the Rust standard
  * library compiled into the connector is not listed either (the relay pins no toolchain, so no version is recorded).
  *
+ * LIMIT: crate checksums are held by Cargo against this machine's cached index (CARGO_HOME), not compared here.
  * LIMIT: the build machine's own ~/.cargo/config and CARGO_* settings, which can redirect a crate, are not visible
  * here (a .cargo/config in the relay itself refuses).
  * LIMIT: the connector's relay commit is the relay build's own record (its sidecar); this does not rebuild the

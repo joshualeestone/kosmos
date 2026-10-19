@@ -732,6 +732,34 @@ test('a symlinked main.swift or .cargo in a real git repo refuses: git show of a
   assert.throws(() => gitShow(root, c, 'nothing-here'), (e) => e.notFound === true);
 });
 
+test('a crate checksum is held by Cargo: one changed character refuses (review 32)', { skip: !HAS_CARGO && 'no cargo here' }, (t) => {
+  const { cargoWorkspace } = require(SBOM_JS);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-sum-'));
+  try {
+    const git = (...a) => execFileSync('git', ['-C', root, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    git('init', '-q');
+    fs.writeFileSync(path.join(root, 'Cargo.toml'), '[workspace]\nresolver = "2"\nmembers = ["a"]\n');
+    fs.mkdirSync(path.join(root, 'a', 'src'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'a', 'Cargo.toml'), '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nitoa = "=1.0.18"\n');
+    fs.writeFileSync(path.join(root, 'a', 'src', 'lib.rs'), '');
+    // Offline, this needs itoa 1.0.18 in this machine's Cargo cache (the relay's builds put it there).
+    if (spawnSync('cargo', ['generate-lockfile', '--offline', '--manifest-path', path.join(root, 'Cargo.toml')], { stdio: 'ignore' }).status !== 0) {
+      t.skip('itoa 1.0.18 is not in this machine\'s Cargo cache');
+      return;
+    }
+    const commit = () => { git('add', '-A'); git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'x'); return git('rev-parse', 'HEAD'); };
+    const good = commit();
+    assert.doesNotThrow(() => cargoWorkspace(root, good), 'the control: the lock Cargo wrote');
+    const lock = fs.readFileSync(path.join(root, 'Cargo.lock'), 'utf8');
+    const flipped = lock.replace(/(checksum = ")([0-9a-f])/, (m, a, c) => a + (c === '0' ? '1' : '0'));
+    assert.notEqual(flipped, lock);
+    fs.writeFileSync(path.join(root, 'Cargo.lock'), flipped);
+    assert.throws(() => cargoWorkspace(root, commit()), /checksum for .*itoa.* changed between lock files/, 'Cargo refuses a changed checksum');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('a git replace ref in the checkout cannot change what a commit is read as (review 28)', () => {
   const { gitShow } = require(SBOM_JS);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-replace-'));
