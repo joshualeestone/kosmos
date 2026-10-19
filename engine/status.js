@@ -5123,7 +5123,8 @@ function classify(pane, paneText) {
        so the card says "Looks like a usage limit until <time>" and the usage-limit holds apply; limitUntil is the reset
        the event gave, and evidence is the refused turn's own sentence when it sent one. */
     const lim = typeof paneText === 'string' ? /^limit (\S+) (\S+) (\S+)(?: ([\s\S]*))?$/.exec(paneText) : null;
-    const limUntil = lim && lim[1] !== '-' && Number.isFinite(Date.parse(lim[1])) ? lim[1] : null;
+    /* A held (remembered) token is not re-read by stateFor, so its reset is checked here too (review 10). */
+    const limUntil = lim && lim[1] !== '-' && Number.isFinite(Date.parse(lim[1])) && Date.parse(lim[1]) > Date.now() ? lim[1] : null;
     /* Review 7: no readable reset, no limit (stateFor never writes one; the reader refuses one it did not write). */
     if (lim && limUntil !== null) {
       const until = lim[1] !== '-' && Number.isFinite(Date.parse(lim[1])) ? new Date(Date.parse(lim[1])).toISOString() : null;
@@ -8969,8 +8970,8 @@ function snapshot() {
        reading is first left out (as the failed look it stands in for), and stands in only when nothing else decides. */
     /* #5805 review 9: EXCEPT a held Windows usage limit. It is the account's own refusal, not a remembered screen, so a
        hook's automatic idle after the refused turn must not lift it on a failed look (that released the held backlog
-       into a capped session); reconcileReport still lets the agent's own newer report outrank it. The hold is ~15 s
-       and the token expires at the reset. */
+       into a capped session); reconcileReport still lets the agent's own newer report outrank it. The hold is ~15 s,
+       classify drops a held token whose reset has passed, and a restart on record keeps the #2019 rule below. */
     const heldLimit = !scrapedNow && scrapedStatus.streamLimit === true && !disruptionRec;
     let status = reconcileWith((scrapedNow || heldLimit) ? scrapedStatus
       : { ...scrapedStatus, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its state' });

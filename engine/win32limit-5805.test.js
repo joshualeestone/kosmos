@@ -24,6 +24,7 @@ process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 const status = require('./status');
 const chat = require('./chat');
 const selfreport = require('./selfreport');
+const disruption = require('./disruption');
 const win32capture = require('./win32capture');
 const win32roster = require('./win32roster');
 const win32streamstate = require('./win32streamstate');
@@ -361,4 +362,36 @@ test('#5805 Windows review 9: a FAILED look after a limit, with the hook\'s auto
     assert.equal(card().state, status.STATE.RATE_LIMITED, 'a failed look keeps the account\'s refusal, not the hook\'s idle');
     assert.ok(chat.limitHeldVerdict(name, status.snapshot().agents), 'still held, so no backlog is released');
   } finally { pub.stopped(); status.setPaneSource(null); status.setPaneCapture(null); }
+});
+
+test('#5805 Windows review 10: a result carrying api_error does not clear the limit, even after a real turn', () => {
+  const b = box('winapi', 'sid-api', 7900);
+  try {
+    b.pub.started(7900, 'sid-api');
+    b.pub.event(rejected(Math.floor(Date.now() / 1000) + 3600, 'five_hour'));
+    b.pub.wrote();
+    b.pub.event({ type: 'assistant', message: { content: [] } });
+    b.pub.event({ type: 'result', subtype: 'success', is_error: false, api_error: 'usage_limit_reached', result: LIMIT_SENTENCE });
+    assert.equal(b.card().state, status.STATE.RATE_LIMITED);
+  } finally { b.done(); }
+});
+
+test('#5805 Windows review 10: with a restart on record, a failed look does not show the old limit', () => {
+  const name = 'winrestart';
+  const sid = 'sid-rs';
+  const agents = [streaming(sid, 7950, 'cwd-' + name)];
+  const rec = recordOf({ [sid]: { name, runner: 'claude' } });
+  const pub = win32streamstate.publisher(name);
+  let failNext = false;
+  status.setPaneSource(win32roster.make({ run: () => agents, record: rec }));
+  status.setPaneCapture(win32capture.make({ run: () => agents, record: rec, ttlMs: 0, streamState: (n, hit) => (failNext ? null : win32streamstate.stateFor(n, hit)), log: () => {} }));
+  try {
+    pub.started(7950, sid);
+    pub.event(rejected(Math.floor(Date.now() / 1000) + 3600, 'five_hour'));
+    const card = () => status.snapshot().agents.find((a) => a.sessionName === name);
+    assert.equal(card().state, status.STATE.RATE_LIMITED, 'CONTROL: limited');
+    disruption.begin(name, 'restart');
+    failNext = true;
+    assert.notEqual(card().state, status.STATE.RATE_LIMITED, 'the remembered limit is from before the restart, so it does not stand');
+  } finally { pub.stopped(); try { disruption.clear && disruption.clear(name); } catch {} status.setPaneSource(null); status.setPaneCapture(null); }
 });
