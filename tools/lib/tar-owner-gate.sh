@@ -5,6 +5,9 @@
 # from disk), and install/setup.sh extracts with --no-same-owner, so no install applies a recorded owner at all, even
 # one run as root (a Linux install can be).
 #
+# Known limit: a build run by an account literally named `kosmos` or `staff` would be refused, since those are the
+# names the bundle stores.
+#
 # Usage: source this file, then `tar_owner_gate <tarball> [<account>] || exit 1` (account defaults to `id -un`).
 # Prints the first offending entries and returns 1 when any entry names the account, or when it cannot list them.
 
