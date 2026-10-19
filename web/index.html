@@ -20988,7 +20988,7 @@ function syncPlusChrome() {
   /* #3829 addendum: where the requests paint depends on whether Kosmos Plus is on screen. */
   if (typeof paintAsk === 'function' && typeof ASK !== 'undefined') paintAsk();
   /* kosmos#6613: the certificate notice hides on Kosmos+ and comes back when the person leaves it. */
-  if (typeof paintCwNote === 'function' && typeof CW_NOTE !== 'undefined') paintCwNote(CW_NOTE.last);
+  if (typeof paintCwNote === 'function' && typeof CW_NOTE !== 'undefined') paintCwNote(CW_NOTE.last, CW_NOTE.lastPlusOn);
 }
 if (typeof window !== 'undefined') window.addEventListener('resize', function () { if (plusMounted) { plusStarsResize(); plusMarkBuild(); plusMarkDraw(null); } });   // #3778: the field keeps its dots on a window resize too
 /* ================= end #1615 Plus canvases ================= */
@@ -51603,6 +51603,8 @@ async function paintPlus() {
      machine at state1 (no switch). state2's paid sign-in still has no signal and stays
      hidden; an already-enrolled machine keeps the flow so it can still turn Plus OFF. */
   if (!r || r.enrolled !== true) {
+    // kosmos#6613: a computer no longer set up has no finding to raise when the person leaves Kosmos+.
+    if (r && typeof paintCwNote === 'function') paintCwNote(null);
     /* #4794 review 7: not enrolled (a Forget, or never signed in) ends any pairing this page knew; this return skips the
        pairing block's own clearing below, so it happens here. A failed read (r null) is not an answer and keeps it. */
     if (r && typeof plusJoinReset === 'function') plusJoinReset();
@@ -52473,7 +52475,7 @@ function paintPlusCertWatch(cw, plusOn) {
     ack.hidden = !lostSaid;
     if (ack.dataset) ack.dataset.at = lostSaid ? String(cw.lostAt) : '';
   }
-  if (typeof paintCwNote === 'function') paintCwNote(cw);
+  if (typeof paintCwNote === 'function') paintCwNote(cw, plusOn);
   if (line.dataset) line.dataset.state = String(cw.state || '');
   row.hidden = false;
   if (typeof paintSwitch === 'function') paintSwitch('plus-cw-switch', cw.on === true);
@@ -52499,7 +52501,7 @@ function paintPlusCertWatch(cw, plusOn) {
    on every view but Kosmos+. Its close (and Review) put away the finding set shown (its key, kept per browser, as
    #6315's request notice and #5018's login notice keep theirs); a new finding is a new key and brings it back. The
    Kosmos+ pane's own line is never put away. Only fixed sentences are written. */
-var CW_NOTE = { key: null, sig: null, away: [], last: null, quietUntil: 0 };
+var CW_NOTE = { key: null, sig: null, away: [], last: null, lastPlusOn: undefined, quietUntil: 0 };
 function cwNoteAway() {
   let stored = [];
   try { stored = (localStorage.getItem('kosmos.cwnote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { stored = []; }
@@ -52513,8 +52515,8 @@ function cwNoteDismiss(key) {
   CW_NOTE.away = keys;
   try { localStorage.setItem('kosmos.cwnote.dismissed', keys.join('\n')); } catch (e) { /* this tab's record holds */ }
 }
-function paintCwNote(cw) {
-  CW_NOTE.last = cw || null;
+function paintCwNote(cw, plusOn) {
+  CW_NOTE.last = cw || null; CW_NOTE.lastPlusOn = plusOn;
   const slot = document.getElementById('cwnote-slot');
   if (!slot) return;
   const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
@@ -52522,7 +52524,9 @@ function paintCwNote(cw) {
   // Leaving Kosmos+ with the finding still there shows the card again, and says it again: a reminder, by design.
   if (!key || onPlus || cwNoteAway().indexOf(key) !== -1) { CW_NOTE.key = null; CW_NOTE.sig = null; slot.textContent = ''; return; }
   const here = cw.foreign > 0 || !(cw.earlier > 0);   // this computer's address, or only an earlier one
-  const sig = key + (here ? ':here' : ':earlier') + (cw.on === true ? ':on' : ':off');
+  // What the small line can truly say: the check runs only while both it and Kosmos+ are on.
+  const runs = cw.on !== true ? 'off' : plusOn === false ? 'plus-off' : 'on';
+  const sig = key + (here ? ':here' : ':earlier') + ':' + runs;
   if (CW_NOTE.sig === sig && slot.firstChild) return;   // unchanged: not rewritten, so it is not read out again
   CW_NOTE.key = key; CW_NOTE.sig = sig;
   const head = here
@@ -52531,7 +52535,8 @@ function paintCwNote(cw) {
   // role=status on the words, not the card, so the buttons are not read out with every announcement (#3532's rule).
   // The headline is set after the card is in; the small line comes with it, so a reader may say the headline only.
   slot.innerHTML = '<div class="utoast cwnote"><span class="udot" aria-hidden="true"></span>'
-    + '<div class="utxt" role="status"><b></b><small>' + (cw.on === true ? 'Kosmos+ checks the public certificate logs for this computer.'
+    + '<div class="utxt" role="status"><b></b><small>' + (runs === 'on' ? 'Kosmos+ checks the public certificate logs for this computer.'
+      : runs === 'plus-off' ? 'Kosmos+ is off, so nothing is checking now; this is what the check found before.'
       : 'The certificate check is off; this is what it found before.') + '</small></div>'
     + '<div class="uacts"><button type="button" class="uprime" data-cw="open">Review</button></div>'
     + '<button type="button" class="ux" data-cw="dismiss" aria-label="Close: certificate warning">&times;</button></div>';
@@ -52542,11 +52547,14 @@ async function pollCwNote() {
   // A computer not set up for Kosmos+ has no check: after one such answer, ask again only every ten minutes.
   if (CW_NOTE.quietUntil && Date.now() < CW_NOTE.quietUntil) return;
   let r = null;
-  try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
+  try {
+    const res = await fetch('/api/remote', { cache: 'no-store' });
+    r = res.ok ? await res.json() : null;   // an error answer (a 500) is a failed read, not "not set up"
+  } catch { r = null; }
   // A failed read (a board restarting) is not "no finding": keep what shows rather than blink a warning off and on.
-  if (!r || typeof r !== 'object') return;
+  if (!r || typeof r !== 'object' || typeof r.enrolled !== 'boolean') return;
   CW_NOTE.quietUntil = r.enrolled === true ? 0 : Date.now() + 10 * 60 * 1000;
-  paintCwNote(r.enrolled === true ? r.certWatch : null);
+  paintCwNote(r.enrolled === true ? r.certWatch : null, r.on === true);
 }
 { const cwSlot = document.getElementById('cwnote-slot');
   if (cwSlot) cwSlot.addEventListener('click', (e) => {
@@ -52563,7 +52571,8 @@ async function pollCwNote() {
       showTab('settings'); settingsGo('plus');
       const land = () => {
         const line = document.getElementById('plus-cw-line'), sw = document.getElementById('plus-cw-switch');
-        if (line && line.textContent && line.dataset && line.dataset.state === 'foreign') {
+        const flow = document.getElementById('plus-flow');
+        if (line && line.textContent && line.dataset && line.dataset.state === 'foreign' && !(flow && flow.hidden)) {
           cwNoteDismiss(shownKey);
           if (line.focus) { line.setAttribute('tabindex', '-1'); line.focus(); }
         } else if (sw && !sw.hidden && sw.focus) sw.focus();   // not said there: kept for the next poll; focus not lost

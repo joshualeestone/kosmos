@@ -34,10 +34,11 @@ function findingKey(raw) {
   const ids = [];
   for (const list of [raw.foreign, raw.earlier_foreign]) {
     if (!Array.isArray(list)) continue;
-    for (const f of list) {
+    for (const [n, f] of list.entries()) {
       if (!f || typeof f !== 'object') continue;
+      // The last fallback carries its place in the list, so two entries with nothing to tell them apart stay two.
       const id = typeof f.cert_sha256 === 'string' && f.cert_sha256 ? 'c:' + f.cert_sha256
-        : typeof f.id === 'string' && f.id ? 'i:' + f.id : 'p:' + String(f.pubkey_sha256) + '@' + String(f.not_before);
+        : typeof f.id === 'string' && f.id ? 'i:' + f.id : 'p:' + String(f.pubkey_sha256) + '@' + String(f.not_before) + '#' + n;
       ids.push(id);
     }
   }
