@@ -13,11 +13,11 @@
  * with the one being built in before publishing the first list.
  * Exit 0 written and checked; 1 refused or not written (a bad seq, a key that is not one, a duplicate, no key, a
  * folder that already holds a list as new, a write that failed, a list that did not check out); 2 the private key on
- * stdin is not an Ed25519 key. */
+ * stdin is not usable here (not an Ed25519 key, passphrase-protected, a release key, or not the built-in recovery key). */
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { ed25519Key, verifyKeyList, RECOVERY_KEYS, KEY_LIST_TYPE, KEYS } = require('../../engine/manifest-verify');
+const { ed25519Key, verifyKeyList, RECOVERY_KEYS, KEY_LIST_TYPE, KEYS, MIN_KEY_LIST_SEQ } = require('../../engine/manifest-verify');
 
 function main(argv, stdin) {
   const [seqArg, outDir, ...keys] = argv;
@@ -27,6 +27,7 @@ function main(argv, stdin) {
   try { isDir = fs.statSync(outDir).isDirectory(); } catch { isDir = false; }
   if (!outDir || !isDir) { console.error('the folder to write to does not exist'); return 1; }
   if (!keys.length) { console.error('name at least one release key'); return 1; }
+  if (seq < MIN_KEY_LIST_SEQ) { console.error(`this build refuses lists below ${MIN_KEY_LIST_SEQ}; a new list needs a higher number`); return 1; }
   // A list already in the folder with this seq or a higher one is not replaced: publishing it would roll copies back.
   // One that is there but unreadable is not replaced either: its number cannot be compared.
   let prevRaw = null;
@@ -40,7 +41,10 @@ function main(argv, stdin) {
   const bad = keys.find((k) => !ed25519Key(k));
   if (bad) { console.error('not an Ed25519 public key: ' + bad.slice(0, 16) + '...'); return 1; }
   let priv;
-  try { priv = crypto.createPrivateKey(stdin); } catch { console.error('stdin does not hold a private key (copy the whole note, BEGIN and END lines included)'); return 2; }
+  try { priv = crypto.createPrivateKey(stdin); } catch {
+    console.error(/ENCRYPTED/.test(stdin) ? 'the private key is passphrase-protected; export it without a passphrase into the pipe' : 'stdin does not hold a private key (copy the whole note, BEGIN and END lines included)');
+    return 2;
+  }
   if (priv.asymmetricKeyType !== 'ed25519') { console.error('the private key is not an Ed25519 key'); return 2; }
   const recoveryPub = crypto.createPublicKey(priv).export({ format: 'der', type: 'spki' }).toString('base64');
   // The recovery key is never also a release key, in this list or among the keys this build ships.

@@ -286,7 +286,9 @@ test('#6609: the signing tool writes a list the installed check accepts, reading
   const tool = path.join(__dirname, '..', 'tools', 'lib', 'release-keys-sign.js');
   const r = spawnSync(process.execPath, [tool, '1', out, spki(rel1), spki(rel2)], { input: pem(recovery), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, new RegExp('signed by recovery key ' + RK[0].replace(/[+/=]/g, '\\$&')));
+  assert.ok(r.stdout.includes('signed by recovery key ' + RK[0]), r.stdout);
+  const body = pem(recovery).split('\n').filter((l) => l && !l.startsWith('-----')).join('');
+  assert.ok(!(r.stdout + r.stderr).includes(body.slice(10, 40)), 'no part of the private key reaches the output');
   const bytes = fs.readFileSync(path.join(out, 'release-keys.json'));
   const sig = fs.readFileSync(path.join(out, 'release-keys.json.sig'), 'utf8');
   const v = mv.verifyKeyList({ bytes, sig, recoveryKeys: RK });
