@@ -16,7 +16,7 @@ converged: true
 **Converged:** Yes (iteration 4, sonnet: NO NEW ISSUES)
 **Fixed:** 2 WARNINGs, 3 NITs | **Accepted and recorded:** 2 spacing NITs | **Asked (awaiting user):** 0
 
-Validation: the full suite PASSED on Mortals at c14eb096f (hash 96ecc0d45f1e, 19:1x CDT 10-18), after PR CI's
+Validation: the full suite PASSED on Mortals at c14eb096f (hash 96ecc0d45f1e, 19:03 CDT 10-18), after PR CI's
 browser-checks caught a render-list-row requirement its fixture cannot meet (fixed in c14eb096fc; earlier pass at
 f64980ef9, hash bd0536a9e6a5).
 render-made-before PASSED (rc 0; the #6516 arm: Rick's list cell shows nothing, its only child is the 1x1 .vh span
