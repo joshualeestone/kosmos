@@ -159,6 +159,17 @@ test('the finding key is the same for the same findings, new for a new one, and 
   assert.notEqual(certWatchFrom(d, NOW).key, bare1, 'a second entry with nothing to tell it apart is still a new finding');
   put(d, { state: 'foreign', checked_at: S });
   assert.match(certWatchFrom(d, NOW).key, /^[0-9a-f]{16}$/, 'a foreign report with empty lists still has a key (the notice must show)');
+  // A rename (the tunnel moves findings to earlier_foreign and folds overflow) is no new finding: same key.
+  put(d, { state: 'foreign', checked_at: S, foreign: [one, two], foreign_overflow: 2 });
+  const before = certWatchFrom(d, NOW).key;
+  put(d, { state: 'foreign', checked_at: S, foreign: [], earlier_foreign: [{ ...one, address: 'old' }, { ...two, address: 'old' }], earlier_overflow: 2 });
+  assert.equal(certWatchFrom(d, NOW).key, before, 'a rename re-raised a closed notice');
+  // Dropping one entry does not renumber a bare one after it.
+  const bare = { pubkey_sha256: '33', not_before: '2026-10-19T03:00:00Z' };
+  put(d, { state: 'foreign', checked_at: S, foreign: [one, bare] });
+  const k3 = certWatchFrom(d, NOW).key;
+  put(d, { state: 'foreign', checked_at: S, foreign: [bare, one] });
+  assert.equal(certWatchFrom(d, NOW).key, k3, 'order alone changed the key');
   put(d, { state: 'clear', checked_at: S, foreign: [] });
   assert.equal(certWatchFrom(d, NOW).key, null, 'no finding, no key');
 });
@@ -183,7 +194,7 @@ test('acknowledging a lost report quiets it for that marker only', () => {
   assert.equal(certWatchFrom(d, NOW).lost, true, 'a later loss is said again');
   assert.equal(ackLostIn(d, 'x').ok, false);
   put(d, { state: 'clear', checked_at: S, damaged_report_at: 0.5 });
-  assert.equal(certWatchFrom(d, NOW).lost, true, 'a marker that is not a whole second is still a loss');
+  assert.equal(certWatchFrom(d, NOW).lost, true, 'a marker below one second is still a loss (a defensive path: the tunnel writes whole seconds)');
   assert.equal(certWatchFrom(d, NOW).lostAt, null, 'but it names no second, so Got it cannot acknowledge it');
   put(d, { state: 'clear', checked_at: S, damaged_report_at: 0 });
   assert.equal(certWatchFrom(d, NOW).lost, false, 'zero is no marker');
