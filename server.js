@@ -4311,7 +4311,8 @@ const REMOTE_STEP_UP_EXACT = new Set([
   // Updating, and anything that downloads and runs software here. PUT /api/autoupdate is gated whole, off as well as
   // on: telling them apart needs the body, which the gate does not read, and asking once more to switch it off costs
   // little.
-  'POST /api/update', 'POST /api/update/rollback', 'PUT /api/autoupdate', 'POST /api/connect/start',
+  // POST /api/update/check too: with automatic updates on (the default) a check can start an install (#5084).
+  'POST /api/update', 'POST /api/update/rollback', 'POST /api/update/check', 'PUT /api/autoupdate', 'POST /api/connect/start',
   'POST /api/antigravity/install', 'POST /api/muse/install',
   // A key, a token, or a sign-in that leaves a provider's or a service's credential on this computer.
   'POST /api/accounts/openai', 'POST /api/accounts/claude/apikey', 'POST /api/accounts/gemini/apikey',
@@ -4361,7 +4362,7 @@ const REMOTE_STEP_UP_CLOCK = Object.freeze({
    for the Mac build only, so merge order alone could not keep an old connector away). */
 const REMOTE_STEP_UP_CONNECTOR = Object.freeze({
   code: 'remote_step_up_unavailable',
-  error: "This computer's Kosmos+ connector cannot vouch for a fresh sign-in yet, so this cannot be done from a remote session. Do it at the computer, or update Kosmos.",
+  error: "This computer's Kosmos+ connector cannot vouch for a fresh sign-in right now, so this cannot be done from a remote session. Do it at the computer, or try again in a minute; if this keeps happening, update Kosmos.",
 });
 /* The refusal for this request, or null. One place, before any route reads a body. */
 function remoteStepUpRefusal(req, pathname, nowSecs, caps) {

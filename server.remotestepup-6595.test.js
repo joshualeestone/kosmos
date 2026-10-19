@@ -50,7 +50,7 @@ const post = async (route, headers, raw, method = 'POST') => {
 };
 
 const STEP_UP_ROUTES = [
-  '/api/update', '/api/update/rollback', '/api/connect/start', '/api/antigravity/install', '/api/muse/install',
+  '/api/update', '/api/update/rollback', '/api/update/check', '/api/connect/start', '/api/antigravity/install', '/api/muse/install',
   '/api/accounts/openai', '/api/accounts/claude/apikey', '/api/accounts/gemini/apikey', '/api/accounts/grok/apikey',
   '/api/accounts/qwen', '/api/cloudflare/token', '/api/svc/brave-search/token', '/api/runners/openai/install',
   '/api/accounts/openai/subscription/start', '/api/accounts/grok/subscription/start', '/api/antigravity/signin',
@@ -114,7 +114,7 @@ test('R01: taking things away is not gated (forget a token, sign a provider out)
   assert.equal(needsRemoteStepUp('/api/accounts/gemini', 'DELETE'), false);
   assert.equal(needsRemoteStepUp('/api/accounts/qwen', 'DELETE'), false);
   assert.equal(needsRemoteStepUp('/api/accounts', 'GET'), false);
-  assert.equal(needsRemoteStepUp('/api/update/check', 'POST'), false, 'checking for an update changes nothing');
+  assert.equal(needsRemoteStepUp('/api/update/check', 'POST'), true, 'a check can start an install while automatic updates are on');
   for (const route of STEP_UP_ROUTES) assert.equal(needsRemoteStepUp(route, 'POST'), true, route);
   assert.equal(needsRemoteStepUp('/api/autoupdate', 'PUT'), true);
   assert.equal(needsRemoteStepUp('/api/autoupdate', 'GET'), false);
@@ -170,7 +170,6 @@ const EXEMPT = {
   'POST /api/agent-import-folder': 'parses a folder; the create it feeds is gated',
   'POST /api/agent-token': 'refused remotely outright (remote_not_allowed, remotemark-6595)',
   'POST /api/disconnect-agent': 'takes an agent away',
-  'POST /api/update/check': 'asks whether an update exists; changes nothing',
   'POST /api/remote/company/start': "this computer's own company enrolment (remotemark-6595's exclusions)",
   'POST /api/remote/signin-cancel': "this computer's own Kosmos+ sign-in steps",
   'POST /api/remote/signin-confirm-enrol': "this computer's own Kosmos+ sign-in steps",
@@ -189,7 +188,8 @@ const EXEMPT = {
    a record: POST /api/agent/<n>/codex-hooks trusting hooks lets them run outside Codex's sandbox, but every agent here
    already runs an unsandboxed shell, so it adds nothing a remote session lacks. POST /api/accounts/share points a
    Claude account's history at the shared tree: it moves where history lives, and no credential or software enters.
-   POST /api/engine/restart restarts the board onto the code already on disk, and only when it is stale: it runs nothing
+   POST /api/agents/account moves agents to another account's folder and restarts them, making none and storing no
+   credential. POST /api/engine/restart restarts the board onto the code already on disk, and only when it is stale: it runs nothing
    new. POST /api/machine/start-at-sign-in writes the board's own login job, which restarts only code already on disk,
    for the same reason. POST /api/federation/verify checks an invite and lets nothing in. The gate is a list, so a future route like these is open until someone adds it; the two scans above narrow
    that to routes whose paths name none of their words. */
@@ -279,4 +279,27 @@ test('R01: the connector is asked once, by its capabilities verb, and one that c
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = was;
     remote.resetConnectorCapabilitiesForTests();
   }
+});
+
+test('R01: an answer without the capability is asked again after ten minutes; no answer at all after thirty seconds', () => {
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  const old = path.join(SANDBOX, 'old-tunnel');
+  fs.writeFileSync(old, '#!/bin/sh\nexit 2\n', { mode: 0o755 });   // an older connector: the verb is unknown
+  try {
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = old;
+    remote.resetConnectorCapabilitiesForTests();
+    const t0 = 1_000_000;
+    assert.equal(remote.connectorCapabilities(t0).size, 0, 'an old connector lists nothing');
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;   // updated
+    assert.equal(remote.connectorCapabilities(t0 + 9 * 60 * 1000).size, 0, 'kept for ten minutes');
+    assert.ok(remote.connectorCapabilities(t0 + 10 * 60 * 1000 + 1).has('session-headers'), 'asked again after ten');
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = path.join(SANDBOX, 'no-such-tunnel');   // cannot be started
+    remote.resetConnectorCapabilitiesForTests();
+    assert.equal(remote.connectorCapabilities(t0).size, 0);
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;
+    assert.ok(remote.connectorCapabilities(t0 + 31 * 1000).has('session-headers'), 'unanswered: asked again after thirty seconds');
+    // Never downgraded: a later failure keeps the positive answer.
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';
+    assert.ok(remote.connectorCapabilities(t0 + 10 * 60 * 60 * 1000).has('session-headers'));
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); }
 });

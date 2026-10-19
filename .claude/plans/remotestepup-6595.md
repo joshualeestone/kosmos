@@ -58,7 +58,9 @@ creation need a fresh authenticator code. This is the step-up half.
   which would ask for a fresh sign-in to send a chat message.
 - **Skills are not gated.** A skill is text agents read, and a remote session can already tell any agent anything in
   chat, so gating skills would add a prompt and no protection (review iteration 2).
-- **Taking things away is not gated:** forgetting a token, signing a provider out (DELETE), checking for an update.
+- **Taking things away is not gated:** forgetting a token, signing a provider out (DELETE). (Checking for an update
+  WAS listed here; review iteration 13 found a check can start an install while automatic updates are on, so it is
+  gated.)
 - **A local request is never asked:** the person is at the computer.
 - **The refusal says what to do** (sign out on the page and on the sign-in site, sign in again with the email code
   and authenticator code, retry within 10 minutes; see the next section). The page shows the `error` it is given;

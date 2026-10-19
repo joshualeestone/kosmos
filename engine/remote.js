@@ -134,20 +134,31 @@ const connectorSpawnOptions = (opts) => ({ ...opts, windowsHide: true });
    closed on every platform, whatever order things merge or ship in. Asked once and kept; a connector that lacked it
    is asked again after ten minutes (it changes only with an update, which restarts the board anyway). */
 const CAPABILITIES_RECHECK_MS = 10 * 60 * 1000;
+// A connector that did not answer at all (a timeout, or it could not be started) is asked again much sooner than one
+// that answered without the capability: not answering in time says nothing about its age.
+const CAPABILITIES_UNANSWERED_RECHECK_MS = 30 * 1000;
 let capabilitiesSeen = null;
+// Kept, never downgraded: once the connector has said it strips the headers, a later slow or failed ask does not undo it.
+function noteCapabilities(caps, answered, now) {
+  if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) return capabilitiesSeen.caps;
+  capabilitiesSeen = { caps, answered, at: now };
+  return caps;
+}
 function connectorCapabilities(now = Date.now()) {
-  if (capabilitiesSeen && (capabilitiesSeen.caps.has('session-headers') || now - capabilitiesSeen.at < CAPABILITIES_RECHECK_MS)) {
-    return capabilitiesSeen.caps;
+  if (capabilitiesSeen) {
+    const wait = capabilitiesSeen.answered ? CAPABILITIES_RECHECK_MS : CAPABILITIES_UNANSWERED_RECHECK_MS;
+    if (capabilitiesSeen.caps.has('session-headers') || now - capabilitiesSeen.at < wait) return capabilitiesSeen.caps;
   }
   // Normally answered already by the warm-up at start (below), so this rarely runs. When it does, it blocks the
   // board's one event loop, so it is kept short: a connector slower than this lists nothing, and is asked again later.
   let caps = new Set();
+  let answered = false;
   try {
     const r = spawnSync(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: 1500 }));
+    answered = !r.error && r.signal === null && typeof r.status === 'number';
     if (r.status === 0) caps = capabilityLines(r.stdout);
-  } catch { /* cannot run: lists nothing */ }
-  capabilitiesSeen = { caps, at: now };
-  return caps;
+  } catch { /* cannot run: lists nothing, and did not answer */ }
+  return noteCapabilities(caps, answered, now);
 }
 const capabilityLines = (out) => new Set(String(out || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
 /* The warm-up: asked once at board start, without blocking, so the first remote request finds the answer kept. */
@@ -156,8 +167,9 @@ function warmConnectorCapabilities(done = () => {}) {
   if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) { done(new Set()); return; }
   try {
     execFile(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: 5000 }), (err, stdout) => {
-      capabilitiesSeen = { caps: err ? new Set() : capabilityLines(stdout), at: Date.now() };
-      done(capabilitiesSeen.caps);
+      // Answered = it ran to an exit code (an old connector's unknown verb is an answer); killed or unstartable is not.
+      const answered = !err || (typeof err.code === 'number' && !err.killed);
+      done(noteCapabilities(err ? new Set() : capabilityLines(stdout), answered, Date.now()));
     });
   } catch { done(new Set()); }
 }
