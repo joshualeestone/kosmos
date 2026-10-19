@@ -1,5 +1,7 @@
 # updater-manifest-6466: the Windows updater checks a signed release manifest, and pins more than the signer name
 
+**Posture:** production
+
 Addresses #6466 (asks 1 to 4), section C of Angel's 2026-10-18 checklist on #6409, and the review notes on #6437 and
 #6451. Windows parity with the Mac's #6468 (#6472, #6475).
 
