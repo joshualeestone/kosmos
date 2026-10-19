@@ -1164,13 +1164,14 @@ class KosmosLauncher
     }
 
     // #6512: PURE. The address a sign-in the PAGE asked for loads, as the Mac's signInAgainPage: the page the person
-    // was on, so a board restart does not throw them back to the front page. Only a page of this board (IsBoardAddress)
-    // is kept, and only its path and query: the scheme, host and port stay open-board.js's `fresh` address, so the
-    // session cookie lands on the host that minted the nonce. A `token`, `boot`, `signin` or `mode` item already in
-    // the kept page is dropped (`mode` because WithModeQuery adds its own; names are compared decoded, as the board's
-    // URLSearchParams reads them), and fresh's `boot` nonce goes FIRST, so it is the one the board reads. Only
-    // the nonce is taken from fresh: open-board.js --print-url names `/?boot=<nonce>` and nothing else. With no nonce
-    // in fresh, or no board page to keep, it is `fresh` unchanged.
+    // was on, so a board restart does not throw them back to the front page. Only a page of this board
+    // (IsBoardAddress) is kept, and only its path, query and fragment: the scheme, host and port stay open-board.js's
+    // `fresh` address, so the session cookie lands on the host that minted the nonce. A `token`, `boot`, `signin` or
+    // `mode` item already in the kept page is dropped (`mode` because WithModeQuery adds its own where the first
+    // screen needs one, and on a computer that runs agents the page reads none). Names are compared decoded, as the
+    // board's URLSearchParams reads them, and fresh's `boot` nonce goes FIRST, so it is the one the board reads. Only
+    // the nonce is taken from fresh: open-board.js --print-url names `/?boot=<nonce>` and nothing else. With no
+    // nonce in fresh, or no board page to keep, it is `fresh` unchanged.
     internal static string SignInAgainAddress(string fresh, string page, int port)
     {
         Uri freshUri;
@@ -1194,7 +1195,7 @@ class KosmosLauncher
         UriBuilder b = new UriBuilder(freshUri);
         b.Path = pageUri.AbsolutePath;
         b.Query = query.ToString();
-        b.Fragment = "";
+        b.Fragment = pageUri.Fragment.TrimStart('#');
         return b.Uri.AbsoluteUri;
     }
 
@@ -3570,8 +3571,8 @@ class BoardWindowForm : System.Windows.Forms.Form
     // this thread, and loads it. Only a signed-in (?boot=) answer is loaded: the plain address would
     // only throw away what the page shows and sign nobody in. The nonce travels as it did the first
     // time, over the private pipe, never a command line.
-    // ⚠️ Accepted cost: the page reloads to the board's front page, so text typed and not yet sent
-    // is lost. That is what the Mac's Reload does too, and the person asked for Kosmos again.
+    // ⚠️ Accepted cost, for a double-click: the page reloads to the board's front page, so text typed and
+    // not yet sent is lost. That is what the Mac's Reload does too, and the person asked for Kosmos again.
     // #6512: `keepPage`, for a sign-in the page asked for (PageSaysSignedOut), is the page to come back to
     // (KosmosLauncher.SignInAgainAddress); a double-click passes none and lands on the front page, as before. The
     // not-confirmed branch below starts over and keeps no page; a page-asked sign-in never reaches it, as that

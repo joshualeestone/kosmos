@@ -46,7 +46,13 @@ Card: #6512 (from the #6409 gap list, items B1 and B2).
 - The git-order check also runs as a test on every PR, not only at the cut: a source-only edit, even a comment, goes
   red until the Windows box rebuilds and re-signs the exe on that branch (written in tools/windows/README.md). That
   is the existing "rebuild in the same commit" rule, now enforced. Rejected: cut-time only (drift then surfaces on
-  release day, which is how #6437/#6449 slipped).
+  release day, which is how #6437/#6449 slipped). Cost, accepted: every launcher or icon edit from any lane needs a
+  turn on the Windows box that holds the signing setup before it can go green.
+- verify-launcher.ps1 runs in the new test on the Windows box but is skipped on CI (GITHUB_ACTIONS): the runner's
+  csc build is not the build box's, and an unproven byte compare there could red every PR. Would change once a
+  runner run shows the compare passing.
+- The kept page keeps its fragment (as the Mac does); `mode` is dropped and re-added by WithModeQuery only where the
+  first screen needs it. A double-click does not stamp the page-asked pacing clock (deferred: bounded by the cap).
 
 ## Not done
 - The Windows signed-out panel copy (windowsCopy signinPanel) still says to open Kosmos.exe again: still true as the

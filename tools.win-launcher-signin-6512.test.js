@@ -17,7 +17,7 @@
  *   - a PROBE compiled beside KosmosLauncher.cs (Windows only), for the pure parts: what reads as the
  *     sign-in message, and the sign-in / wait / give-up / stay decision;
  *   - the DRIFT: the committed exe is no older than its source (git order, any platform with history),
- *     and on Windows verify-launcher.ps1 reproduces it from the source.
+ *     and on the Windows box (not a CI runner) verify-launcher.ps1 reproduces it from the source.
  */
 
 const test = require('node:test');
@@ -78,7 +78,9 @@ test('#6512: only the board\'s own page is heard, a connect computer is not, and
   assert.match(again, /if \(fresh != null && fresh\.Contains\("\?boot="\) && webView != null\) webView\.Navigate\(KosmosLauncher\.WithModeQuery\(KosmosLauncher\.SignInAgainAddress\(fresh, keepPage, port\), mode\)\);/,
     'only a signed-in (?boot=) answer is loaded, on the kept page');
   // A double-click keeps its old behaviour: no page to keep, so the front page.
-  assert.match(SOURCE, /\n\s*SignInAgain\(\);\n/, 'the double-click no longer signs in with no page to keep');
+  const proc = SOURCE.slice(SOURCE.indexOf('protected override void WndProc('), SOURCE.indexOf('protected override void OnFormClosed('));
+  assert.ok(proc.length > 0, 'WndProc moved');
+  assert.match(proc, /SignInAgain\(\);/, 'the double-click no longer signs in with no page to keep');
   assert.doesNotMatch(says, /token=/, 'the window must never put the board token into an address');
 });
 
@@ -156,7 +158,7 @@ test('#6512: the page-asked sign-in comes back on the page the person was on, an
   const a = (page, port = 16180, f = fresh) => probe(['address', f, page == null ? 'none' : page, String(port)]);
   assert.equal(a('http://127.0.0.1:16180/?tab=projects&p=abc'), 'http://127.0.0.1:16180/?boot=N0nce&tab=projects&p=abc', 'the page and its query are kept, the fresh nonce first');
   assert.equal(a('http://127.0.0.1:16180/agent/a%20b?q=x%26y'), 'http://127.0.0.1:16180/agent/a%20b?boot=N0nce&q=x%26y', 'escapes are kept as written');
-  assert.equal(a('http://127.0.0.1:16180/agent/x?tab=chat#bottom'), 'http://127.0.0.1:16180/agent/x?boot=N0nce&tab=chat', 'the path is kept, the fragment is not');
+  assert.equal(a('http://127.0.0.1:16180/agent/x?tab=chat#bottom'), 'http://127.0.0.1:16180/agent/x?boot=N0nce&tab=chat#bottom', 'the path and the fragment are kept, as the Mac keeps them');
   assert.equal(a('http://127.0.0.1:16180/?token=OLD&boot=OLD&signin=failed&mode=run&tab=a'), 'http://127.0.0.1:16180/?boot=N0nce&tab=a', 'old sign-in items and mode are dropped');
   assert.equal(a('http://localhost:16180/?tab=a'), 'http://127.0.0.1:16180/?boot=N0nce&tab=a', 'fresh keeps its own host, so the cookie lands where the nonce was minted');
   assert.equal(a('http://127.0.0.1:16180/?bo%6Ft=OLD&%74oken=T&sign+in=x&tab=a'), 'http://127.0.0.1:16180/?boot=N0nce&sign+in=x&tab=a', 'encoded names are read as the board reads them');
@@ -190,7 +192,11 @@ test('#6512: the committed Kosmos.exe is no older than KosmosLauncher.cs and the
     + ': rebuild and re-sign it (tools/windows/README.md)');
 });
 
-test('#6512: verify-launcher.ps1 reproduces the committed Kosmos.exe from its source', WINDOWS_ONLY, (t) => {
+// Not on a CI runner: its .NET Framework compiler is not the one the committed exe was built with on the Windows box
+// that signs it, and a different compiler build may lay the bytes out differently, which would read as a mismatch on
+// every PR with nothing any lane could do. The git-order test above is the CI check; this one is run on the box.
+test('#6512: verify-launcher.ps1 reproduces the committed Kosmos.exe from its source (on the Windows box)', WINDOWS_ONLY, (t) => {
+  if (process.env.GITHUB_ACTIONS) { t.skip('a CI runner: its compiler is not the build box\'s'); return; }
   if (!fs.existsSync(csc)) { t.skip('no .NET Framework compiler on this machine'); return; }
   const r = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(REPO, 'tools', 'windows', 'verify-launcher.ps1')],
     { encoding: 'utf8', windowsHide: true, timeout: 120000 });

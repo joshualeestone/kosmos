@@ -429,8 +429,9 @@ still passes verify-launcher.ps1). A lane that cannot build on Windows hands the
 branch to the Windows box to rebuild and re-sign before it merges; it does not
 merge the source alone. Both checks read only the ORDER of commits, so a branch
 that committed an exe built from other source (a rebase that kept the wrong side
-of a binary conflict) passes them: verify-launcher.ps1 is what compares bytes,
-and the same test runs it in the Windows CI job. The test needs full history, which the CI workflows
+of a binary conflict) passes them: verify-launcher.ps1 is what compares bytes.
+The same test runs it on the Windows box but not in CI, whose compiler is not the
+one the exe was built with; run it by hand before merging a rebuilt exe. The test needs full history, which the CI workflows
 check out (`fetch-depth: 0`); in a shallow clone it skips, so keep that setting.
 
 **A rebuild drops the signature, so it must be re-signed in the same commit**
