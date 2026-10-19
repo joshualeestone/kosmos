@@ -3,13 +3,13 @@
 
 /*
  * kosmos#6616 (R01b): a remote session's step-up refusal that says this computer's connector serves a fresh sign-in
- * (code remote_step_up, signInAgain true) shows one ask at the foot of the page, with a link to /_kosmos/signin?fresh=1.
+ * (code remote_step_up, signInAgain true) shows one ask at the foot of the page, whose button submits a POST to /_kosmos/signin?fresh=1.
  * The page is a real board; the refusals are answered in the browser (the board itself is local here, so it would never
  * refuse), and the request is made through the page's own window.fetch, which is the wrapper every page call uses.
  *   CONTROL  a 403 remote_step_up WITHOUT signInAgain leaves the ask hidden (so SHOWN below is the flag, not any 403).
  *   SHOWN    a 403 with signInAgain shows the ask with the reply's sentence, and its button submits a POST to the fixed
  *            address (the gate's route is POST only; a GET would be 405).
- *   ON TOP   the topmost element at the link's centre is the link itself, above the first-run cover, which makes the
+ *   ON TOP   the topmost element at the button's centre is the button itself, above the first-run cover, which makes the
  *            rest of the page inert (the ask is exempt, so it can still be pressed there).
  *   UNDER    hidden while the restart, update or account-switch screen is up (the board is going away), shown after.
  *   PHONE    at 390 px the ask fits inside the screen, and Not now (below) is pressed there.
@@ -76,7 +76,26 @@ const WORDS = 'From a remote session this needs a fresh sign-in. (check 6616)';
     }) + '  stack: ' + await page.evaluate(([x, y]) => document.elementsFromPoint(x, y).slice(0, 6).map((e) => e.id || e.tagName).join(','),
       [box.x + box.width / 2, box.y + box.height / 2]) + '  box: ' + JSON.stringify(box);
     if (top !== 'stepup-go' && process.env.SHOT_6616) await page.screenshot({ path: process.env.SHOT_6616 });
-    say(top === 'stepup-go', 'on top: the link is the topmost thing where it is drawn', String(top) + (chain ? '  ask: ' + chain : ''));
+    say(top === 'stepup-go', 'on top: the button is the topmost thing where it is drawn', String(top) + (chain ? '  ask: ' + chain : ''));
+    // NOT NOW OVER FIRST RUN (review iteration 11): focus goes back into the first-run screen, not to the K mark,
+    // which is inert under the cover (focus would fall to the page). The ask is shown again afterwards for the rest.
+    // By KEYBOARD: a mouse click need not move focus onto the button, and then focus never leaves where it was, which
+    // would pass whatever the handler does. First run traps focus (Tab wraps in it, and a focusin backstop pulls focus
+    // back to its heading), so the ask must be IN that cycle: Tab from first run's heading reaches Sign in again.
+    await page.evaluate(() => { if (FR_ACTIVE_H2) FR_ACTIVE_H2.focus(); });   // eslint-disable-line no-undef
+    let reached = '';
+    for (let i = 0; i < 40 && reached !== 'stepup-go'; i++) {
+      await page.keyboard.press('Tab');
+      reached = await page.evaluate(() => (document.activeElement && document.activeElement.id) || '');
+    }
+    say(reached === 'stepup-go', 'keyboard over first run: Tab reaches Sign in again (the trap lets it in)', reached);
+    await page.keyboard.press('Tab');
+    say(await page.evaluate(() => document.activeElement && document.activeElement.id === 'stepup-close'), 'precondition: Not now holds the keyboard focus');
+    await page.keyboard.press('Enter');
+    const fin = await page.evaluate(() => { const a = document.activeElement; return !!(a && a.closest && a.closest('#firstrun')) + ' ' + (a ? a.tagName : 'none'); });
+    say(fin.startsWith('true'), 'not now over first run: focus goes back into the first-run screen', fin);
+    await page.evaluate(() => window.fetch('/api/check-6616/ask', { method: 'POST' }));
+    await ask.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {});
     if (openedHere) await page.evaluate(() => frClose());   // eslint-disable-line no-undef
     // UNDER RESTART: the restart screen makes the page inert, so the ask is hidden while it is up and back after.
     for (const cls of ['restart-back', 'upd-back', 'cswitch-back']) {

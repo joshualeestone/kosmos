@@ -20168,7 +20168,7 @@ window.kosmosMeasureScrollbarWidth();
 /* kosmos#6616 (R01b): a remote session's refusal that says this computer's connector can take a fresh sign-in
    (`signInAgain`, server.js REMOTE_STEP_UP_SIGNIN) shows the Sign in again ask, whichever page made the request. The
    page that asked still shows the refusal its own way; this adds the one button. The words are the server's own
-   sentence for that code, and the link's address is fixed in the markup. Not now closes it until the next such
+   sentence for that code, and the form's address is fixed in the markup. Not now closes it until the next such
    refusal; the sentence carries its own fallback, so it still reads right with the ask closed. */
 /* A fetch's method, from its init or from a Request passed as the first argument. */
 function requestMethod(args) {
@@ -20179,9 +20179,23 @@ function writeRequest(args) {
   const method = requestMethod(args);
   return method !== 'GET' && method !== 'HEAD';
 }
-/* Which request this was, as the ask remembers the refused one: its method and its path on this board. */
+/* Which request this was, as the ask remembers the refused one: its method and its path on this board. A success
+   that comes back from another final address (a redirect) does not match, and the ask stays until Not now; the
+   sentence carries its own fallback, so that is a known limit, not a stuck page. */
 function requestKey(args, res) {
   try { return requestMethod(args) + ' ' + new URL(res.url, location.href).pathname; } catch { return ''; }
+}
+/* Where focus goes when Not now closes the ask: back into a first-run screen when one is up (the rest of the page is
+   inert under it, so the K mark would take no focus and it would fall to the page; review iteration 11), else the K
+   mark, as the board's other notices do. */
+function stepUpFocusAway() {
+  for (const id of ['fr-choice', 'firstrun']) {
+    const screen = document.getElementById(id);
+    if (!screen || screen.hidden) continue;
+    const to = [...screen.querySelectorAll('button')].find((b) => !b.disabled && b.getClientRects().length);
+    if (to) { to.focus(); return; }
+  }
+  rebootFocusAway();
 }
 function hideStepUpAsk() {
   const box = document.getElementById('stepup-ask');
@@ -20203,7 +20217,7 @@ function showStepUpAsk(body, key) {
   setTimeout(() => { words.textContent = body.error; }, 0);
 }
 document.addEventListener('click', (e) => {
-  if (e.target && e.target.closest && e.target.closest('#stepup-close')) { hideStepUpAsk(); rebootFocusAway(); }   // focus to the K mark, as the other notices
+  if (e.target && e.target.closest && e.target.closest('#stepup-close')) { hideStepUpAsk(); stepUpFocusAway(); }
 });
 
 /* ================= win32-board-copy: the platform copy layer =================
@@ -83523,7 +83537,11 @@ document.addEventListener('keydown', (e) => {
    * title. Wrapping here handles the ordinary case properly and leaves the
    * backstop for anything that gets past it.
    */
+  // kosmos#6616: the Sign in again ask, when it shows, is a stop in this cycle too (the last), so the keyboard can
+  // reach it over first run; it is the one thing outside the overlay that is not inert.
+  const ask = document.getElementById('stepup-ask');
   const stops = Array.from(overlay.querySelectorAll('button, [href], input, [tabindex]:not([tabindex="-1"])'))
+    .concat(ask && !ask.hidden ? Array.from(ask.querySelectorAll('button')) : [])
     .filter((el) => !el.hidden && !el.disabled && el.getClientRects().length);
   if (!stops.length) return;
   const first = stops[0];
@@ -83536,6 +83554,7 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('focusin', (e) => {
   const overlay = document.getElementById('firstrun');
   if (overlay.hidden || overlay.contains(e.target)) return;
+  if (e.target && e.target.closest && e.target.closest('#stepup-ask')) return;   // kosmos#6616: the ask is reachable over first run
   // install-flow-9screen: pull focus back to the ACTIVE pane's own <h2> (the
   // dialog's live accessible name), the shell #fr-title being retired.
   if (FR_ACTIVE_H2) FR_ACTIVE_H2.focus();

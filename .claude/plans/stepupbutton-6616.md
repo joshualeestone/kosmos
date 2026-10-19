@@ -25,7 +25,11 @@ freshhandoff-6616). That connector then lists `fresh-signin` in `kosmos-tunnel c
   refused method and path; when that same write succeeds from this board, the fresh sign-in took. Iteration 8's first
   version hid it on ANY successful write, on the false premise that every write is gated: only a listed few are, and a
   chat message or the streak ping passes a stale session too. A read, another write, or another origin leaves it.
-- Not now sends focus to the K mark, as the board's other notices do (rebootFocusAway).
+- **The keyboard reaches the ask over first run** (found while testing review iteration 11): first run traps focus
+  (Tab wraps in it; a focusin backstop pulls focus back to its heading), so the ask was mouse-only there. It is now
+  the last stop in that Tab cycle, and the backstop leaves focus inside it.
+- Not now sends focus back into a first-run screen when one is up (the page is inert under it; review iteration
+  11), else to the K mark, as the board's other notices do (rebootFocusAway).
 - **Above the phone's home indicator**: its foot is 24 px plus the safe-area inset.
 - **Only this board's own replies raise it** (review iteration 7): the page also reads other computers' boards,
   credentialed and cross-origin, and their refusal must not raise an ask that links to this board's gate.
@@ -64,13 +68,13 @@ That `fresh-signin` is printed only by a tunnel that serves the path (Renet's co
 ## Tests
 server.stepupbutton-6616.test.js: the refusal with and without fresh-signin (CONTROL: today's sentence, no flag);
 fresh-signin alone, the clock refusal and a fresh session; the page's showStepUpAsk shown only for remote_step_up with
-signInAgain === true and a string sentence, the words written after the ask is shown; the link's fixed address and
+signInAgain === true and a string sentence, the words written after the ask is shown; the form's fixed address and
 nothing rewriting it; the wrapper sends a 403 (and not a 500) to the ask, and a 403 that is not JSON leaves no
 unhandled rejection; no button without a gate session header. Mutations: the server never choosing the new refusal,
 the page ignoring the flag, the wrapper not reading 403s, the gate-header test removed, the words written before
 showing, the rejection handler removed; each turned one test red.
 Browser check docs/browser-checks/render-stepupask-6616.js, on the $B8 board: control (no flag, no ask), shown, the
-reply's sentence, the fixed link, on top over the first-run cover (opened by the check with the page's own frOpen
+reply's sentence, the form's fixed address, on top over the first-run cover (opened by the check with the page's own frOpen
 when the $B8 runner has completed first run; control: removing frOpen's exemption turns it red on a B8-style board), hidden under each of the three going-away screens
 (control: the CSS rule removed turns that arm red), Not now. Updated render-firstrun-choice-4356 C1 (the ask is the one
 non-inert child, and hidden there). render-layer-gutter-4494 (13/13) and render-restart-screen-4343 (78/78) re-run green.
