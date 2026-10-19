@@ -1289,11 +1289,14 @@ async function secondReset() {
   const r = await tracked(setupRun(['second', 'reset', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
   if (!r.ok) return { ok: false, because: r.because };
   // #6611: the connector prints the coordinator's answer, {"ok":true,"had":"totp"|"sms"|null}. `had` is null when
-  // there was no factor to clear, and then no session ended (kosmos#6605), so the page must not say one did. An
-  // answer without it (an older connector) leaves `had` undefined: unknown, not "none".
+  // there was no factor to clear, and then no session ended (kosmos#6605), so the page must not say one did. An answer
+  // this cannot read (no JSON line, no `had`, or a `had` of any other type) is undefined: unknown, never "none", because
+  // "none" makes the page say nobody was signed out. Every connector since 2026-08-25 prints `had`, so unknown means
+  // an answer that went wrong, not an old connector. And `had` cannot tell whether the coordinator ends sessions
+  // (kosmos#6605 deployed): a coordinator without it answers `had` too. That is held by the merge order, not here.
   const got = lastJsonLine(r.said);
   const v = got && got.value && typeof got.value === 'object' ? got.value : null;
-  const had = v && Object.prototype.hasOwnProperty.call(v, 'had') ? (typeof v.had === 'string' ? v.had : null) : undefined;
+  const had = v && typeof v.had === 'string' ? v.had : v && v.had === null ? null : undefined;
   return { ok: true, because: null, had };
 }
 

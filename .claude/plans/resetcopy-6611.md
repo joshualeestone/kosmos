@@ -44,4 +44,16 @@ computers' own signed requests carry on, so the Macs themselves are not signed o
   armed line is three short sentences.
 - Ran: engine/remote.test.js 236/236; web*.test.js sweep 391 files, 3053/3053; the plus-panel browser check 149/149.
 - Order (round 2 asked for a mechanical hold): the PR is opened as a DRAFT and stays one until the coordinator deploy
-  carrying #6605 is measured live and the cut hold has lifted.
+  carrying #6605 is measured live and the cut hold has lifted. `had` is NOT a guard for this: a coordinator without
+  #6605 also answers `had`, so every sign-out sentence (the dialog's opening line included) is held by the merge order
+  alone.
+
+## Challenge-loop round 3 (addressed)
+- The "none" words no longer say "nothing changed": a reset with no factor still cancels a set-up not yet confirmed.
+  They say nobody was signed out and, if a set-up was started, to start again.
+- A `had` of any type other than a string or null reads as unknown (the words that claim nothing), never as none.
+- The absent case is described as an answer that went wrong, not an older connector (every connector since
+  2026-08-25 prints `had`).
+- server.remote-second-reset-6611.test.js pins the route: a kind and null pass through, absent stays absent, a
+  refusal is the engine's words. engine/remote.test.js adds garbled and wrongly typed answers, with the env var reset
+  in a finally.

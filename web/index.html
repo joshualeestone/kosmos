@@ -52449,8 +52449,9 @@ const PLUS_SECOND_WORDS = {
   done: 'The second step is off. Every phone and browser will need to sign in again. Sign in from your new phone with the email code, and set the second step up again there.',
   /* #6611: the coordinator answered that there was no second step to clear (`had` null): nothing was switched off and
      nobody was signed out, so the page must not say they were. */
-  none: 'There was no second step on your account to switch off, so nothing changed and nobody was signed out.',
-  /* An older connector that does not report what it cleared: the words from before #6605, which claim no sign-out. */
+  none: 'There was no second step on your account to switch off, so nobody was signed out. If you had started setting one up, start again.',
+  /* An answer that did not say what it cleared (it went wrong somewhere): the words from before #6605, which claim no
+     sign-out either way. */
   doneUnknown: 'The second step is off. Sign in from your new phone with the email code, and set the second step up again there.',
   failed: (why) => 'The second step was not reset: ' + why + '.',
 };

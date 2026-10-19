@@ -54,6 +54,8 @@ const fakeKeyId = (bytes) => 'k1.' + require('node:crypto').createHash('sha256')
 if (args[0] === 'second' && args[1] === 'reset') {
   // #6611: the real connector prints the coordinator's answer. FAKE_SECOND_HAD picks it: a kind, 'null', or 'absent'.
   const h = process.env.FAKE_SECOND_HAD || 'totp';
+  if (h === 'garbled') { console.log('{not json'); process.exit(0); }
+  if (h === 'number') { console.log(JSON.stringify({ ok: true, had: 1 })); process.exit(0); }
   console.log(JSON.stringify(h === 'absent' ? { ok: true } : { ok: true, had: h === 'null' ? null : h }));
   process.exit(0);
 }
@@ -1404,11 +1406,16 @@ test('#733: a second-factor reset is the enrolled Mac\'s own signed request, and
   const yes = await remote.secondReset();
   assert.equal(yes.ok, true, yes.because);
   assert.equal(yes.had, 'totp', '#6611: the kind the coordinator cleared is passed back');
-  process.env.FAKE_SECOND_HAD = 'null';
-  assert.equal((await remote.secondReset()).had, null, '#6611: nothing cleared reads as null, not as cleared');
-  process.env.FAKE_SECOND_HAD = 'absent';
-  assert.equal((await remote.secondReset()).had, undefined, '#6611: an answer without had is unknown, not none');
-  delete process.env.FAKE_SECOND_HAD;
+  try {
+    process.env.FAKE_SECOND_HAD = 'null';
+    assert.equal((await remote.secondReset()).had, null, '#6611: nothing cleared reads as null, not as cleared');
+    // Unknown is never "none": each of these must read as undefined, because null makes the page say nobody was
+    // signed out.
+    for (const odd of ['absent', 'garbled', 'number']) {
+      process.env.FAKE_SECOND_HAD = odd;
+      assert.equal((await remote.secondReset()).had, undefined, '#6611: an answer ' + odd + ' read as known');
+    }
+  } finally { delete process.env.FAKE_SECOND_HAD; }
   const call = recorded().find((c) => { const a = Array.isArray(c) ? c : c.args || []; return a.includes('second') && a.includes('reset'); });
   assert.ok(call, 'the reset never reached the connector: ' + JSON.stringify(recorded()));
   remote.resetForTests();
