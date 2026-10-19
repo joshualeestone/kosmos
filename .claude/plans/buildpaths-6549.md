@@ -9,8 +9,10 @@ email. The connector half is kosmos-relay remap-6549 (the build remaps those pat
   1. every file under app/ and bin/, as bytes, for THIS build user's home folder followed by anything that cannot
      continue a folder name or by the end of a line, in any case (review 1: the first version needed a trailing `/`
      and missed `path.relative('/Users/x', p)`; macOS volumes ignore case);
-  2. every executable under app/bin/ and the app's Contents/MacOS/ for ANY account's build folders
-     (/Users/<name>/.cargo/, .rustup/, work/), because the connector may be built on another Mac (review 1).
+  2. every compiled (Mach-O, by its first four bytes) file under app/bin/ and the app's Contents/MacOS/ for ANY
+     account's build folders (/Users/<name>/.cargo/, .rustup/, work/), because the connector may be built on another
+     Mac (review 1). Scripts in app/bin/ are left to check 1 (review 3: a placeholder comment there must not refuse a
+     cut). Measured on the real connectors with an unrelated home: the old one is refused, the remapped one passes.
   It refuses an unusable home, a missing app/ or bin/, a file grep cannot read (review 1: rc > 1 is a refusal), and a
   symlink in the stage, which grep -r would not read through (review 2; the build stages none, measured on 0.7.58).
 - tools/build-kosmos-bundle.sh runs it after the deployment-floor gate; the test checks that call is still there.
@@ -41,6 +43,8 @@ KOSMOS_ALLOW_STALE_TUNNEL=1 the old connector gets past 1d and this gate refuses
 - engine/feedguard.js DEFAULT_DENY_NAMES holds Josh's real name and GitHub account as CODE (review 2): it is the
   deny-list that stops agents posting his name to the community, so it has to ship. Kept, knowingly.
 - `joshualeestone/kosmos-catalogue` and `/kosmos-community` in comments: public repository owners, structural.
+- The host name "Mortals" in about 20 comments (review 3): unlike "Agent1s", it does not contain its Mac's account
+  name, which is what this card is about. "Josh" in comments: the product owner's first name, in quoted rulings.
 - Test files that still quote the old names: they do not ship (the bundle copies only non-test engine files).
 - Review 1 NIT, deferred: the tarball records the build account as each entry's owner (`agent1 staff`). Changing the
   owner fields is a different risk (an extraction as root would apply them), so it is not done here.

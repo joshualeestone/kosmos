@@ -59,16 +59,16 @@ stage; printf '// %s/x\n' "$(printf '%s' "$H" | tr '[:lower:]' '[:upper:]')" >> 
 if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "the home in another case is refused (macOS volumes ignore case)"
 else fail "the home in another case must be refused"; fi
 
-stage; printf 'panicked at /Users/someone-else/.cargo/registry/src/a.rs\0' > "$T/s/app/bin/kosmos-tunnel"
-if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "an executable naming ANOTHER account's .cargo is refused (a connector built on another Mac)"
+stage; printf '\xcf\xfa\xed\xfe panicked at /Users/someone-else/.cargo/registry/src/a.rs\0' > "$T/s/app/bin/kosmos-tunnel"
+if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a compiled file naming ANOTHER account's .cargo is refused (a connector built on another Mac)"
 else fail "another account's build folder in an executable must be refused"; fi
 
-stage; mkdir -p "$T/s/app/Kosmos.app/Contents/MacOS"; printf 'x /Users/other/work/kosmos/native-app/main.swift\0' > "$T/s/app/Kosmos.app/Contents/MacOS/Kosmos"
+stage; mkdir -p "$T/s/app/Kosmos.app/Contents/MacOS"; printf '\xca\xfe\xba\xbe x /Users/other/work/kosmos/native-app/main.swift\0' > "$T/s/app/Kosmos.app/Contents/MacOS/Kosmos"
 if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "the app executable naming another account's work/ folder is refused"
 else fail "the app executable naming another account's work/ must be refused"; fi
 
 stage; printf '// for example /Users/alex/work/x\n' >> "$T/s/app/server.js"
-if home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a made-up /Users/<name>/work/ in a SOURCE comment is not refused (the any-account check reads executables only)"
+if home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a made-up /Users/<name>/work/ in a SOURCE comment is not refused (the any-account check reads compiled files only)"
 else fail "a made-up example in a source comment must not be refused"; fi
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -86,6 +86,16 @@ stage; printf 'x %s/y\0' "$H" > "$T/s/app/bin/odd|name"
 out="$(home_path_gate_tree "$T/s" "$H" 2>&1)"
 if printf '%s' "$out" | /usr/bin/grep -qF "app/bin/odd|name"; then pass "an offending file whose name holds a | is still named"
 else fail "a | in a file name must not lose the list: $out"; fi
+
+stage; printf '#!/bin/bash\n# e.g. /Users/<user>/work/workers/x\n' > "$T/s/app/bin/agent-supervisor.sh"
+if home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a placeholder build folder in a SCRIPT under app/bin/ is not refused (the any-account check reads compiled files only)"
+else fail "a script comment under app/bin/ must not trip the any-account check"; fi
+
+stage
+for bad in "/Users/" "//"; do
+  if ! home_path_gate_tree "$T/s" "$bad" 2>/dev/null; then pass "an unusable home with a trailing slash ('$bad') is refused"
+  else fail "an unusable home ('$bad') must be refused"; fi
+done
 
 stage; ln -s /nonexistent/elsewhere "$T/s/app/lnk"
 if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a symlink in the stage is refused (grep -r would not read through it)"

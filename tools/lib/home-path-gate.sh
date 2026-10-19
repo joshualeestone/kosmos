@@ -6,7 +6,7 @@
 #   1. every file under app/ and bin/, read as bytes (binary or text), for THIS build user's home folder, ending at
 #      anything that cannot continue a folder name (so /Users/sam is caught in `path.relative('/Users/sam', p)` but
 #      /Users/samantha is not a hit for /Users/sam), in any case (macOS volumes ignore case);
-#   2. every executable under app/bin/ and the app's Contents/MacOS/, for ANY account's build folders
+#   2. every compiled (Mach-O) file under app/bin/ and the app's Contents/MacOS/, for ANY account's build folders
 #      (/Users/<name>/.cargo/, .rustup/ or work/), because the connector may be built on another Mac and copied in.
 # A home it cannot use (empty, relative, the root or one component), a missing app/ or bin/, or a file it cannot
 # read, or a symlink it would not follow, is refused, never skipped: a gate that passes because it could not look is
@@ -16,17 +16,17 @@
 # Prints each offending file (relative to the stage) and returns 1 when any is found or a check could not run.
 
 home_path_gate_tree() {
-  local stage="$1" home="${2:-$HOME}" part esc out rc bad="" f
+  local stage="$1" home="${2:-$HOME}" part esc out rc bad="" f magic
+  while [ "${home%/}" != "$home" ]; do home="${home%/}"; done   # review 3: judge the home without trailing slashes
   case "$home" in
-    /*/*) ;;
+    /*/[!/]*) ;;
     *) echo "FAIL: the home-path gate needs the build user's home folder (got '$home')" >&2; return 1 ;;
   esac
   [ -d "$stage" ] || { echo "FAIL: the home-path gate has no stage at $stage" >&2; return 1; }
   # review 2: grep -r does not follow a symlink, so a link (or what it points at) would never be read. The build stages
   # none; refuse one rather than pass it unread.
   out="$(/usr/bin/find "$stage/app" "$stage/bin" -type l 2>/dev/null)"
-  [ -z "$out" ] || { echo "FAIL: the home-path gate cannot read through symlinks, and the stage has some:" >&2; printf '  %s\n' $out >&2; return 1; }
-  home="${home%/}"
+  [ -z "$out" ] || { echo "FAIL: the home-path gate cannot read through symlinks, and the stage has some:" >&2; printf '%s\n' "$out" | /usr/bin/sed 's/^/  /' >&2; return 1; }
   esc="$(printf '%s' "$home" | /usr/bin/sed 's/[^A-Za-z0-9/]/\\&/g')"
   for part in app bin; do
     [ -d "$stage/$part" ] || { echo "FAIL: the home-path gate found no $part/ in the stage" >&2; return 1; }
@@ -36,6 +36,9 @@ home_path_gate_tree() {
   done
   for f in "$stage"/app/bin/* "$stage"/app/*.app/Contents/MacOS/*; do
     [ -f "$f" ] || continue
+    # review 3: compiled (Mach-O) files only; app/bin/ also holds scripts, whose comments are check 1's business.
+    magic="$(/usr/bin/head -c4 "$f" | /usr/bin/od -An -tx1 | /usr/bin/tr -d ' \n')"
+    case "$magic" in cffaedfe|cefaedfe|cafebabe|feedfacf|feedface|bebafeca) ;; *) continue ;; esac
     out="$(LC_ALL=C /usr/bin/grep -laE -e '/Users/[^/[:cntrl:]]+/(\.cargo|\.rustup|work)/' "$f")"; rc=$?
     [ "$rc" -le 1 ] || { echo "FAIL: the home-path gate could not read $f (grep rc $rc)" >&2; return 1; }
     [ -n "$out" ] && bad="$bad$out"$'\n'
