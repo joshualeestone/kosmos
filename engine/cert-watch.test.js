@@ -77,6 +77,8 @@ test('a recent clear is clear; the control: the same report, old, is unknown', (
   assert.equal(certWatchFrom(d, NOW).state, 'unknown');
   put(d, { state: 'clear', checked_at: S - 40 * 3600, foreign: [] });
   assert.equal(certWatchFrom(d, NOW).state, 'unknown', 'exactly two spacings is not current (the tunnel\'s rule)');
+  put(d, { state: 'clear', checked_at: S + 41 * 3600, foreign: [] });
+  assert.equal(certWatchFrom(d, NOW).state, 'unknown', 'a clear dated far ahead (a skewed clock) is not current either');
 });
 
 test('foreign entries, overflow and earlier findings are counted, and any of them is foreign', () => {
