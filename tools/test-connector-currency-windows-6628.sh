@@ -73,9 +73,9 @@ done
 
 # 7. the Windows build runs it, after the provenance check and before the connector is staged, and exits on refusal
 awk '/_connector_provenance_check "\$TUNNEL_BIN"/{p=NR}
-     /^connector_currency_check "\$TUNNEL_BIN"/{c=NR}
+     /^connector_currency_check "\$TUNNEL_BIN" "\$\{KOSMOS_RELAY_REPO:-\$HOME\/work\/kosmos-relay\}"/{c=NR}
      c && NR<=c+1 && /build-tunnel-release-windows\.ps1 \|\| exit 1/{w=NR}
-     /^coordinator_floor_check "\$TUNNEL_BIN" .*coordinator-floor" \|\| exit 1$/{f=NR}
+     /^coordinator_floor_check "\$TUNNEL_BIN" "\$\{KOSMOS_RELAY_REPO:-\$HOME\/work\/kosmos-relay\}" .*coordinator-floor" \|\| exit 1$/{f=NR}
      /^connector_pe_signed "\$TUNNEL_BIN"/{q=NR}
      /cp "\$TUNNEL_BIN" "\$STAGE/{s=NR}
      END{ if (p && c && w && f && q && s && p<c && w<f && f<q && q<s) print "wired" }' tools/build-kosmos-windows.sh | grep -q wired \

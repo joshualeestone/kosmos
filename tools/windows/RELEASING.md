@@ -77,17 +77,17 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    refuses one that is missing, unsigned, or does not match its sidecars. It also refuses one built
    before a change to the connector reached kosmos-relay `main` (#6628, the same check the Mac cut
    makes, #3884): it fetches `main` in the kosmos-relay checkout at `KOSMOS_RELAY_REPO`, else
-   `~/work/kosmos-relay`, so that checkout must exist and be able to fetch. A refusal names the
+   `~/work/kosmos-relay`, so that checkout must exist and be able to fetch (with credentials already
+   stored: the fetch never prompts). A refusal names the
    commits the connector is missing; rebuild it as above. `KOSMOS_ALLOW_STALE_TUNNEL=1` ships the
    older connector on purpose. It does not get past a checkout that is missing, cannot fetch, or
    lacks the connector's commit (a shallow clone usually does), nor a relay `main` with no
    `tools/build-tunnel-release-windows.ps1`: then the build cannot tell, and refuses either way.
    Next, as on the Mac (#5037), it asks the coordinator serving traffic whether it already carries
    every relay change that connector needs deployed first (`tools/coordinator-floor`), and refuses
-   if not; deploy the coordinator, or `KOSMOS_ALLOW_COORDINATOR_BEHIND=1` ships anyway. That step
-   reads the coordinator with `curl` (7.71 or later) and `node` (needed even with
-   `KOSMOS_CUT_NO_WHATS_NEW=1`), and refuses a shallow relay clone; the override does not cover a
-   coordinator it could not read.
+   if not; deploy the coordinator, or `KOSMOS_ALLOW_COORDINATOR_BEHIND=1` ships anyway. When it asks,
+   it uses `curl` (7.71 or later) and `node`, and the override does not cover a coordinator it
+   could not read.
 
 2. **Stage.** This checks that the zip's `Kosmos.exe` is byte for byte the committed launcher (and,
    on Windows, that its Authenticode signature is Valid), then uploads the versioned zip, its sidecar, and `latest-win-staging.json`
