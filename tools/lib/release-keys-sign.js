@@ -13,7 +13,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { ed25519Key, verifyKeyList, RECOVERY_KEYS } = require('../../engine/manifest-verify');
+const { ed25519Key, verifyKeyList, RECOVERY_KEYS, KEY_LIST_TYPE } = require('../../engine/manifest-verify');
 
 function main(argv, stdin) {
   const [seqArg, outDir, ...keys] = argv;
@@ -39,13 +39,13 @@ function main(argv, stdin) {
   const recoveryPub = crypto.createPublicKey(priv).export({ format: 'der', type: 'spki' }).toString('base64');
   // Once a recovery key is built in, a list signed by any other key would be refused by every copy: say so now.
   if (RECOVERY_KEYS.length && !RECOVERY_KEYS.includes(recoveryPub)) { console.error('that private key is not the Kosmos recovery key (its public half is ' + recoveryPub + ')'); return 2; }
-  const bytes = Buffer.from(JSON.stringify({ release_keys: keys, seq, issued: new Date().toISOString().slice(0, 10) }, null, 2) + '\n');
+  const bytes = Buffer.from(JSON.stringify({ type: KEY_LIST_TYPE, release_keys: keys, seq, issued: new Date().toISOString().slice(0, 10) }, null, 2) + '\n');
   const sig = crypto.sign(null, bytes, priv).toString('base64');
   const check = verifyKeyList({ bytes, sig, recoveryKeys: [recoveryPub] });
   if (!check.ok) { console.error('the signed list did not check out: ' + check.why); return 1; }
-  // Both files to temporary names first, then into place one after the other: a failed write leaves the folder's
-  // previous pair as it was. (Between the two renames the new signature sits beside the old list for an instant;
-  // nothing reads the folder while this runs.)
+  // Both files to temporary names first, then into place one after the other: a failed temporary write leaves the
+  // folder's previous pair as it was. A failure of the second rename would leave the new signature beside the old list
+  // (a pair that does not verify, so nothing would take it); the error says so and the folder needs a look.
   const j = path.join(outDir, 'release-keys.json'), g = j + '.sig';
   try {
     fs.writeFileSync(j + '.tmp', bytes);

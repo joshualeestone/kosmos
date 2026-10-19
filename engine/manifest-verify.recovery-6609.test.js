@@ -23,7 +23,7 @@ const rel2 = crypto.generateKeyPairSync('ed25519');
 const RK = [spki(recovery)];
 
 function list(obj, by = recovery) {
-  const bytes = Buffer.from(JSON.stringify(obj));
+  const bytes = Buffer.from(JSON.stringify(Object.assign({ type: mv.KEY_LIST_TYPE }, obj)));
   return { bytes, sig: crypto.sign(null, bytes, by.privateKey).toString('base64') };
 }
 const home = () => fs.mkdtempSync(path.join(os.tmpdir(), 'rk-6609-'));
@@ -101,6 +101,9 @@ test('#6609: no record falls back to the built-in floor; a damaged record is ref
   const h = home();
   fs.writeFileSync(path.join(h, mv.KEY_LIST_STATE), 'not json');
   assert.equal(mv.storedKeyList(h), null);
+  const h2 = home();
+  fs.writeFileSync(path.join(h2, mv.KEY_LIST_STATE), JSON.stringify({ seq: 3 }));
+  assert.equal(mv.storedKeyList(h2), null, 'a record without its keys is damaged too (else the seq-reuse rule would be skipped)');
   const l = list({ release_keys: [spki(rel1)], seq: 5 });
   const r = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: h, recoveryKeys: RK });
   assert.equal(r.ok, false, 'damage must not reset the floor');
@@ -184,6 +187,8 @@ test('#6609: malformed lists are refused even when properly signed', () => {
     ['seq 0', { release_keys: [spki(rel1)], seq: 0 }, /no sequence number/],
     ['seq not a whole number', { release_keys: [spki(rel1)], seq: 1.5 }, /no sequence number/],
     ['seq as text', { release_keys: [spki(rel1)], seq: '2' }, /no sequence number/],
+    ['no type (a recovery signature over something that is not a key list)', { type: undefined, release_keys: [spki(rel1)], seq: 1 }, /not a release key list/],
+    ['another type', { type: 'something-else', release_keys: [spki(rel1)], seq: 1 }, /not a release key list/],
   ];
   for (const [label, obj, why] of bad) {
     const l = list(obj);

@@ -182,7 +182,7 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
  * scheme and is not recovered by it. Revocation protects only copies that take the new list first, which is why every
  * update path must fetch and check the list before it checks the release (#6609 phase 2).
  *
- *   dist/release-keys.json      {"release_keys": ["<spki base64>", ...], "seq": <n>, "issued": "<date>"}
+ *   dist/release-keys.json      {"type": "kosmos-release-keys", "release_keys": ["<spki base64>", ...], "seq": <n>, "issued": "<date>"}
  *   dist/release-keys.json.sig  the recovery key's Ed25519 signature over that file's exact bytes, base64
  *
  * A list is taken only when it verifies under a recovery key and its seq is not below the highest this copy has
@@ -196,6 +196,9 @@ const KEY_LIST_STATE = 'release-keys.state.json';
 // revocation, so a copy without a record still refuses the list from before it.
 const MIN_KEY_LIST_SEQ = 1;
 const MAX_SEQ = 2147483647;
+// The list names what it is, so a recovery signature over it can never be taken for one over anything else.
+const KEY_LIST_TYPE = 'kosmos-release-keys';
+const sameKeys = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
 /** An Ed25519 public key from its SubjectPublicKeyInfo base64, or null for anything else. Only the canonical
  * spelling is a key (the bytes re-encoded must be the same string), so comparing strings compares keys. */
@@ -218,6 +221,7 @@ function verifyKeyList({ bytes, sig, recoveryKeys = RECOVERY_KEYS }) {
   if (!signed) return { ok: false, why: 'the release key list is not signed by the Kosmos recovery key' };
   let list;
   try { list = JSON.parse(Buffer.from(bytes).toString('utf8')); } catch { return { ok: false, why: 'the signed release key list is not readable' }; }
+  if (!list || list.type !== KEY_LIST_TYPE) return { ok: false, why: 'the signed file is not a release key list' };
   const keys = list && list.release_keys;
   if (!Array.isArray(keys) || !keys.length) return { ok: false, why: 'the signed release key list names no release key' };
   if (new Set(keys).size !== keys.length || !keys.every((k) => ed25519Key(k))) return { ok: false, why: 'the signed release key list holds a key that is not one' };
@@ -226,7 +230,8 @@ function verifyKeyList({ bytes, sig, recoveryKeys = RECOVERY_KEYS }) {
 }
 
 /** This install's key-list record: { seq, keys } (seq the highest taken, never below minSeq), or null when the record
- * is there but damaged, which is refused rather than read as none: damage must not reset the floor. */
+ * is there but damaged, which is refused rather than read as none: damage must not reset the floor. The record is not
+ * signed: whoever can write the install home can delete it, which drops this copy back to MIN_KEY_LIST_SEQ. */
 function storedKeyList(home, minSeq = MIN_KEY_LIST_SEQ) {
   let raw;
   try { raw = fs.readFileSync(path.join(home, KEY_LIST_STATE), 'utf8'); } catch (e) {
@@ -235,7 +240,8 @@ function storedKeyList(home, minSeq = MIN_KEY_LIST_SEQ) {
   try {
     const s = JSON.parse(raw);
     if (!Number.isInteger(s.seq) || s.seq < 1 || s.seq > MAX_SEQ) return null;
-    return { seq: Math.max(s.seq, minSeq), keys: s.seq >= minSeq && Array.isArray(s.release_keys) ? s.release_keys : null };
+    if (!Array.isArray(s.release_keys) || !s.release_keys.length) return null;
+    return { seq: Math.max(s.seq, minSeq), keys: s.seq >= minSeq ? s.release_keys : null };
   } catch { return null; }
 }
 
@@ -251,7 +257,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   const stored = storedKeyList(home, minSeq);
   if (!stored) return { ok: false, why: 'this copy\'s record of the release key list is damaged, so no list can be taken' };
   if (v.seq < stored.seq) return { ok: false, why: `the release key list is ${v.seq}, older than the ${stored.seq} this copy has taken` };
-  if (v.seq === stored.seq && stored.keys && JSON.stringify([...stored.keys].sort()) !== JSON.stringify([...v.keys].sort())) {
+  if (v.seq === stored.seq && stored.keys && !sameKeys(stored.keys, v.keys)) {
     return { ok: false, why: `the release key list ${v.seq} names other keys than the list ${v.seq} this copy took` };
   }
   // Recorded when newer, and also when there is no record yet (a list at exactly the floor), so its keys are what a
@@ -261,16 +267,24 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
     const out = path.join(home, KEY_LIST_STATE);
     const lock = out + '.lock';
     const tmp = out + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
-    // One check at a time moves the record: a lock left by a check that died is taken over after a minute.
-    try { if (Date.now() - fs.statSync(lock).mtimeMs > 60000) fs.rmSync(lock, { recursive: true, force: true }); } catch { /* no lock */ }
-    try { fs.mkdirSync(lock); } catch (e) {
+    // One check at a time moves the record. A lock left by a check that died is taken over after a minute by renaming
+    // it to a name of its own first (only one check can win that rename), and a check releases only the lock it made.
+    const token = crypto.randomBytes(8).toString('hex');
+    try {
+      if (Date.now() - fs.statSync(lock).mtimeMs > 60000) {
+        const gone = lock + '.stale.' + token;
+        fs.renameSync(lock, gone);
+        fs.rmSync(gone, { recursive: true, force: true });
+      }
+    } catch { /* no lock, or another check took the stale one over first */ }
+    try { fs.mkdirSync(lock); fs.writeFileSync(path.join(lock, 'owner'), token); } catch (e) {
       return { ok: false, why: e && e.code === 'EEXIST' ? 'another check is taking the release key list; try again' : 'this copy\'s record of the release key list could not be written' };
     }
     try {
       // Read again under the lock: if a newer list was taken meanwhile, this one is not trusted (it may hold a key the
       // newer list dropped), and the record is not moved.
       const now = storedKeyList(home, minSeq);
-      if (!now || now.seq > v.seq || (now.seq === v.seq && now.keys && JSON.stringify([...now.keys].sort()) !== JSON.stringify([...v.keys].sort()))) {
+      if (!now || now.seq > v.seq || (now.seq === v.seq && now.keys && !sameKeys(now.keys, v.keys))) {
         return { ok: false, why: 'a newer release key list was taken meanwhile; check again' };
       }
       fs.writeFileSync(tmp, JSON.stringify({ seq: v.seq, release_keys: v.keys }) + '\n', { mode: 0o600, flag: 'wx' });
@@ -279,14 +293,14 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
       return { ok: false, why: 'this copy\'s record of the release key list could not be written' };
     } finally {
       try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
-      try { fs.rmSync(lock, { recursive: true, force: true }); } catch { /* best effort */ }
+      try { if (fs.readFileSync(path.join(lock, 'owner'), 'utf8') === token) fs.rmSync(lock, { recursive: true, force: true }); } catch { /* not ours, or gone */ }
     }
   }
   return { ok: true, why: v.why, keys: v.keys };
 }
 
 module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles,
-  RECOVERY_KEYS, KEY_LIST_STATE, MIN_KEY_LIST_SEQ, ed25519Key, verifyKeyList, storedKeyList, trustedKeys };
+  RECOVERY_KEYS, KEY_LIST_STATE, KEY_LIST_TYPE, MIN_KEY_LIST_SEQ, ed25519Key, verifyKeyList, storedKeyList, trustedKeys };
 
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before
  * using a call form: it greps the next line, which lists every form this copy understands beyond the original
