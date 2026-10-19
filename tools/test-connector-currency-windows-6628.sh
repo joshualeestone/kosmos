@@ -39,7 +39,7 @@ if check_rc; then ok "a Windows connector built from relay main is current"; els
 # 2. refuse: a change to the Windows build script, named with the commit and the rebuild
 land "$WINSCRIPT" "windows build: sign before the sidecars"
 if check_rc; then bad "a change to $WINSCRIPT did not refuse"
-else grep -q "STALE" "$T/err" && grep -q "windows build: sign before the sidecars" "$T/err" && grep -q -- "-File $WINSCRIPT -Sign <the signing script>" "$T/err" && grep -q "copy dist/kosmos-tunnel.exe with" "$T/err" \
+else grep -q "STALE" "$T/err" && grep -q "windows build: sign before the sidecars" "$T/err" && grep -q -- "-File $WINSCRIPT -Sign <the signing script>" "$T/err" && grep -q "copy dist/kosmos-tunnel.exe with" "$T/err" && ! grep -q "both rustup targets" "$T/err" \
   && ok "a change to $WINSCRIPT refuses, names that commit and the Windows rebuild" || bad "wrong refusal for the Windows build script: $(cat "$T/err")"; fi
 
 # 3. override: exactly 1 ships it on purpose and says what it skips; anything else still refuses
@@ -63,6 +63,13 @@ else grep -q "mac build only" "$T/err" && ok "CONTROL: with no third argument th
 reset_origin; land "$WINSCRIPT" "another windows build change"
 g -C "$T/relay" fetch -q origin; NEW="$(g -C "$T/relay" rev-parse origin/main)"; printf '%s\n' "$NEW" > "$B.commit"
 if check_rc; then ok "CONTROL: a Windows connector rebuilt from the new main is current again"; else bad "a rebuilt Windows connector was refused: $(cat "$T/err")"; fi
+
+# 6b. a build script relay main does not have refuses as unknown, even with the override (a pathspec matching
+# nothing would otherwise read as unchanged)
+for ov in "" 1; do
+  if KOSMOS_ALLOW_STALE_TUNNEL=$ov connector_currency_check "$B" "$T/relay" tools/no-such-build.ps1 2>"$T/err"; then bad "a build script missing from relay main was accepted (override '${ov}')"
+  else grep -q "has no tools/no-such-build.ps1" "$T/err" && ok "a build script missing from relay main refuses as UNKNOWN (override '${ov}')" || bad "wrong refusal for a missing build script: $(cat "$T/err")"; fi
+done
 
 # 7. the Windows build runs it, after the provenance check and before the connector is staged, and exits on refusal
 awk '/_connector_provenance_check "\$TUNNEL_BIN"/{p=NR}

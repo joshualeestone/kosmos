@@ -122,8 +122,8 @@ cp "$REPO/bin/agy-report-bridge.js" "$STAGE/app/bin/"
 # tools/build-tunnel-release-windows.ps1 -Sign, and it rides in app/bin, where
 # remote.js looks for it on Windows (bundledConnector: bin/kosmos-tunnel.exe).
 # 🛑 REFUSE, NEVER SHIP WITHOUT IT, like the Mac builder: missing or mismatched
-# sidecars (connector-provenance.sh), not a Windows x86-64 program, or unsigned
-# (connector-windows.sh) all stop the build.
+# sidecars (connector-provenance.sh), behind kosmos-relay main (connector-currency.sh),
+# not a Windows x86-64 program, or unsigned (connector-windows.sh) all stop the build.
 # 🔏 SIGNED BEFORE IT GETS HERE, NOT HERE, the launcher's rule (see Kosmos.exe
 # below): the .sha256 names the signed bytes, so provenance, signature and the
 # staged copy are one set of bytes. On Windows the build also asks Windows whether

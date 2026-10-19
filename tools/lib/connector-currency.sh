@@ -29,7 +29,8 @@
 # the relay checkout, the answer is unknown, and an unknown is refused, not waved on.
 #
 # OVERRIDE. KOSMOS_ALLOW_STALE_TUNNEL=1 ships the older connector on purpose. It says
-# what it is skipping and returns 0.
+# what it is skipping and returns 0. It covers only a connector KNOWN to be behind: an
+# unknown answer (above) is refused even with it set.
 #
 # Usage: source, then `connector_currency_check <connector-bin> <relay-checkout> [<relay build script>]`.
 # Returns 0 when current (or overridden); otherwise says why on stderr, returns 1.
@@ -67,6 +68,11 @@ connector_currency_check() {
       echo "connector_currency: the connector says it was built from $built, which is not in $relay (built from an unpushed commit, or another clone). Rebuild it from kosmos-relay main." >&2
     fi
     return 1; }
+  # A build script missing from relay main (renamed, or misnamed by the caller) would match nothing as a pathspec and
+  # read as unchanged, so it is refused rather than dropped from the inputs (#6628 review 3).
+  git -C "$relay" cat-file -e "origin/main:$script" 2>/dev/null || {
+    echo "connector_currency: kosmos-relay main has no $script, the script that builds this connector, so whether the connector is current is UNKNOWN (refused, not assumed). If it was renamed, update the caller." >&2
+    return 1; }
   rc=0; git -C "$relay" diff --quiet "$built" origin/main -- "${inputs[@]}" || rc=$?
   [ "$rc" -eq 0 ] && return 0
   [ "$rc" -eq 1 ] || { echo "connector_currency: git diff failed in $relay (rc=$rc); refused." >&2; return 1; }
@@ -84,14 +90,15 @@ connector_currency_check() {
     return 0
   fi
   # How to run the build that made this connector.
-  local _run="run $script on a box with both rustup targets"
+  local _run="run $script on a box with both rustup targets" _dist=dist/kosmos-tunnel
   case "$script" in
-    *.ps1) _run="run powershell -NoProfile -ExecutionPolicy Bypass -File $script -Sign <the signing script> on the Windows release PC" ;;
+    *.ps1) _run="run powershell -NoProfile -ExecutionPolicy Bypass -File $script -Sign <the signing script> on the Windows release PC"
+           _dist=dist/kosmos-tunnel.exe ;;
   esac
   {
     echo "connector_currency: the Plus connector is $_what. It was built from ${built:0:12}, and its build inputs (crates/tunnel, crates/proto, Cargo.toml, Cargo.lock, $script; tests excluded) differ on kosmos-relay main:"
     printf '%s\n' "$missing"
-    echo "Rebuild it before cutting: in kosmos-relay on an UP-TO-DATE main (git -C $relay pull --ff-only; this check moved only origin/main), ${_run}, and copy dist/$(basename "$bin") with its .commit and .sha256 to this box's $bin."
+    echo "Rebuild it before cutting: in kosmos-relay on an UP-TO-DATE main (git -C $relay pull --ff-only; this check moved only origin/main), ${_run}, and copy $_dist with its .commit and .sha256 to this box's $bin (or point KOSMOS_TUNNEL_BIN at it)."
     echo "To ship the older connector deliberately, rerun with KOSMOS_ALLOW_STALE_TUNNEL=1."
   } >&2
   return 1
