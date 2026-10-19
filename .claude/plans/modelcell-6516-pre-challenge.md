@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: modelcell-6516
-diff_hash: 96ecc0d45f1e3e00c3d3ba0b24f5914610cd98c0b4d2e402d928082667189dbe
+diff_hash: 4cdce8244aa620dda45cee8ee2ad5671ad516247c7896bf7b6cfd5a47c146633
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T22:41:57Z
@@ -23,6 +23,9 @@ render-made-before PASSED (rc 0; the #6516 arm: Rick's list cell shows nothing, 
 holding the ruled sentence, Bob's shows "Claude Opus 5"; no page errors). render-list-row.js needs a live board
 (KOSMOS_URL) and was NOT run here; its phone arm was corrected by reading, not by a run. Mutation, measured: reverting
 the list row's call or lmodelCell's .vh fails exactly its test. No CLAUDE.md in the diff. Origin: every finding BRANCH.
+
+Rebased 2026-10-18 20:27 after the 0.7.58 lift (main +11, no conflict). range-diff: all 8 commits patch-identical; the
+diff hash moved from 96ecc0d45f1e by hunk offsets only, so the Mortals pass covers the same change. PR CI runs on this base.
 
 ### Per-Iteration Breakdown
 
