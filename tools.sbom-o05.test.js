@@ -221,6 +221,7 @@ test('an unresolvable or ambiguous dependency, or an unreadable dependency line,
 test('a crate from an unknown source, or a sourceless crate outside the workspace, refuses', () => {
   const ringFrom = (src) => LOCK.replace(`name = "ring"\nversion = "0.17.14"\nsource = "${CRATES}"`, `name = "ring"\nversion = "0.17.14"\nsource = "${src}"`);
   assert.throws(() => sbom(MANIFEST, files(ringFrom('registry+https://example.invalid/index'))), /ring 0\.17\.14 comes from a source this SBOM does not know/);
+  assert.throws(() => sbom(MANIFEST, files(ringFrom('sparse+https://example.invalid/'))), /comes from a source this SBOM does not know/, 'another sparse registry (review 30)');
   assert.throws(() => sbom(MANIFEST, files(ringFrom(`${CRATES}-evil`))), /comes from a source this SBOM does not know/);
   assert.equal(comp(sbom(MANIFEST, files(ringFrom('sparse+https://index.crates.io/'))), 'crate:ring@0.17.14').purl, 'pkg:cargo/ring@0.17.14');
   const vendored = LOCK.replace(`name = "ring"\nversion = "0.17.14"\nsource = "${CRATES}"\nchecksum = "${SHA('3')}"`, 'name = "ring"\nversion = "0.17.14"');
@@ -703,6 +704,23 @@ test('a git replace ref in the checkout cannot change what a commit is read as (
     git('replace', a, git('rev-parse', 'HEAD'));
     assert.equal(git('show', `${a}:f`), 'fake', 'the control: a plain git show follows the replace ref');
     assert.equal(gitShow(root, a, 'f'), 'real\n', 'the SBOM reads the commit itself');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a partial clone is not allowed to fetch a missing blob while the SBOM reads (review 30)', () => {
+  const { gitShow } = require(SBOM_JS);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-lazy-'));
+  try {
+    const src = path.join(root, 'src'), part = path.join(root, 'part');
+    const git = (dir, ...a) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    fs.mkdirSync(src); git(src, 'init', '-q'); git(src, 'config', 'uploadpack.allowFilter', 'true');
+    fs.writeFileSync(path.join(src, 'f'), 'real\n'); git(src, 'add', 'f'); git(src, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'a');
+    const c = git(src, 'rev-parse', 'HEAD');
+    execFileSync('git', ['clone', '-q', '--no-checkout', '--filter=blob:none', `file://${src}`, part], { stdio: 'ignore' });
+    assert.throws(() => gitShow(part, c, 'f'), /./, 'the missing blob is not fetched');
+    assert.equal(git(part, 'show', `${c}:f`), 'real', 'the control: a plain git show in that clone fetches it');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

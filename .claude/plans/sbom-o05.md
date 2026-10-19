@@ -24,10 +24,13 @@ The app has no npm dependencies (package.json lists none) and the Swift app link
 all the third-party code in the bundle.
 
 ## Why derived, not generated at build time
-Any served release's SBOM can be rebuilt later, on any machine, from its signed manifest. The manifest is signed, so
+Any served release's SBOM can be rebuilt later from its signed manifest, on a machine that has (review 30 named
+these): macOS with the Swift compiler, cargo with every crate of the relay's lock already in CARGO_HOME (Cargo runs
+offline; a cold cache refuses, with a hint to run `cargo fetch --locked` first), git checkouts of both repos holding
+the two commits, and the release's tmux bundle. The manifest is signed, so
 the inputs are the ones the release vouched for. With the same generator, the same release always gives a
 byte-identical file (the serial
-number is derived from the tarball sha). LIMIT (review 5): the tmux bundle is served under one unversioned name, so
+number is derived from the format, the generator's own source hash and the tarball sha). LIMIT (review 5): the tmux bundle is served under one unversioned name, so
 an older release's SBOM can be rebuilt only while the bundle it shipped is still the one served (or kept); once tmux
 is rebuilt, the old release refuses on the hash, the safe direction. Publishing the SBOM at the cut (below) is the
 real fix.
@@ -49,11 +52,11 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 48 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 49 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
-  must equal build()'s output byte for byte. Every rule added in reviews 1 to 29, apart from the time limits named below, has a mutant that fails an arm, run at
-  the time of the change (the first version, then reviews 1 to 29 in order: four, eight, six, eleven, six, seven,
-  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six, four, nine, six, six, eight, seven and one); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 30, apart from the time limits named below, has a mutant that fails an arm, run at
+  the time of the change (the first version, then reviews 1 to 30 in order: four, eight, six, eleven, six, seven,
+  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six, four, nine, six, six, eight, seven, one and two); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
@@ -126,6 +129,9 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- DELIBERATE, so a future refusal is not read as a bug: a relay commit with a rust-toolchain(.toml), a .cargo folder,
+  a symlink or a non-ASCII path anywhere refuses (reviews 27 and 28). If the relay adopts a toolchain file (for
+  example to record `rustc -V`), this tool must learn to read it safely before it can vouch for that release.
 - The C and assembly that crates such as `ring` and `aws-lc-sys` bundle are identified only by their crate's
   name and version, not as components of their own.
 - (Was a gap, reviews 24 to 27; four hand-written readers of the relay's Cargo files were beaten in four rounds, so
@@ -159,7 +165,7 @@ real fix.
   per-blob newline check (a misaligned read fails the next entry's sha check or the end-of-output check), and the
   two-members-one-name refusal (Cargo itself refuses that workspace), the members-count agreement (valid
   cargo metadata describes every workspace member it names). UNTESTED, stated rather than claimed: the time limits
-  on git, cargo and xcrun have no arm (a stuck tool would need an injectable limit to simulate).
+  on git, cargo and xcrun have no arm (a stuck tool would need an injectable limit to simulate); nor has the cold-cache hint (measured by hand with an empty CARGO_HOME: it refuses and names `cargo fetch --locked`).
 - (Review 25.) A CPE escapes reserved characters in a version (a '+').
 - (Was a gap, review 23.) Every file read from git must be a plain file there (mode 100644 or 100755, read with git
   ls-tree first): git show of a symlink returns its target PATH as text, so a symlinked main.swift passed as importing
@@ -213,4 +219,5 @@ real fix.
 ## Weakest premise
 That the lockfile closure is an acceptable SBOM for the connector. It over-lists (Windows and test crates) rather than
 under-lists. A reviewer may prefer the exact macOS build graph (`cargo tree --target aarch64-apple-darwin -e normal,build`, 189 crates; `-e normal` alone drops build dependencies),
-but that needs a relay checkout with cargo at SBOM time and loses the any-machine property.
+and the tool now runs Cargo anyway (reviews 25 to 27); switching the crate list to that graph is a follow-up, not this
+change.

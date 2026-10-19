@@ -56,7 +56,7 @@ const CRATES_IO = new Set(['registry+https://github.com/rust-lang/crates.io-inde
 // Every git call reads the OBJECTS a commit names and nothing a local setting puts in front of them (review 28: with
 // a `git replace` ref in the checkout, git show of a signed commit returned another commit's file): no replace
 // objects, and none of this shell's GIT_* settings (another repo, index, object store or alternates).
-const GIT_ENV = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^GIT_/.test(k))), GIT_NO_REPLACE_OBJECTS: '1' };
+const GIT_ENV = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^GIT_/.test(k))), GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1' };   // review 30: a partial clone would fetch over the network
 const LIMITS = { git: 300000, cargo: 120000, tool: 120000 };   // ms; a stuck tool fails the run instead of holding it
 
 // The mode of a path in a commit ('100644', '120000' for a symlink, '040000' for a folder...), or null when it is not
@@ -145,7 +145,10 @@ function cargoWorkspace(relay, commit) {
         { cwd: tree, env, timeout: LIMITS.cargo, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
       const why = String(e.stderr || e.message).split('\n').find((l) => /error/.test(l)) || String(e.message).split('\n')[0];
-      throw new Error(`relay at ${commit}: Cargo does not agree the Cargo.lock is what the Cargo.toml files resolve to (cargo is needed): ${why.trim()}`);
+      // Review 30: offline, a crate missing from THIS machine's Cargo cache reads like a disagreement; say which.
+      const cold = /no matching package|offline|failed to download|not downloaded/i.test(String(e.stderr || ''))
+        ? ' (if the cause is a cold cache: the crates must already be in CARGO_HOME; run `cargo fetch --locked` in the relay at this commit first)' : '';
+      throw new Error(`relay at ${commit}: Cargo does not agree the Cargo.lock is what the Cargo.toml files resolve to (cargo is needed): ${why.trim()}${cold}`);
     }
     let m;
     try { m = JSON.parse(meta.toString('utf8')); } catch (e) { refuse(`cargo metadata did not answer JSON (${e.message})`); }
