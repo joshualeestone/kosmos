@@ -592,7 +592,10 @@ function write(patch, opts) {
   let fd = null;
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    fd = fs.openSync(tmp, 'w');
+    /* kosmos#6548: owner-only, like board.token: the file holds the account's email and this computer's device ids.
+       fchmod as well, because the open's mode is narrowed by the umask but never widened past it. */
+    fd = fs.openSync(tmp, 'w', 0o600);
+    try { fs.fchmodSync(fd, 0o600); } catch { /* the open's own mode stands */ }
     fs.writeSync(fd, JSON.stringify(next) + '\n');
     fs.fsyncSync(fd);
     const closing = fd; fd = null;   // never closed twice, even if this close throws
