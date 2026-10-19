@@ -2563,7 +2563,9 @@ test('#6466 ask 3 --from: a Kosmos folder holding a link where a file or folder 
   await refusedWith(c, null, /holds something that is not a plain file \(bin is not a plain file\), so it cannot update/, { ...OFFLINE, source });
   assert.deepEqual(c.nodeRuns, []);
   assert.equal(fs.existsSync(path.join(c.work, 'staged')), false, 'nothing was copied');
-  /* Kosmos.exe itself as a junction (no privilege needed), pointing at a folder. */
+  /* Kosmos.exe itself as a junction (no privilege needed), pointing at a folder. A junction can only name a folder,
+     so the older completeness check may refuse it first; either refusal is right here. The not-a-plain-file wording
+     for Kosmos.exe is pinned by the file-link arm below, where this computer can make one. */
   const c3 = withInstalledManifest(freshCase());
   const source3 = downloadedBuild(c3);
   fs.rmSync(path.join(source3, 'Kosmos.exe'));
