@@ -66,7 +66,7 @@ const win32streamstate = require('./win32streamstate');
 const GOOD = new Set([win32streamstate.BUSY, win32streamstate.IDLE]);
 /* #5805: a reading the card can be drawn from: the two tokens, or the out-of-usage one (`limit ...`, read by classify
    as rate_limited). The carry file may record a limit token, but only the two plain tokens are READ BACK after a
-   restart (failed(), below): a carried limit would skip stateFor's reset expiry and show a limit already lifted. */
+   restart (failed(), below): a limit carried across a restart is from before it, so it says nothing about now. */
 const isGood = (token) => GOOD.has(token) || win32streamstate.isLimitToken(token);
 /* #5949: a card shows "Can't tell" only after this many failed looks in a row AND this long
    since its last good one. Both, so neither a burst of quick looks nor one slow one is enough

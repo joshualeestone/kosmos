@@ -352,7 +352,6 @@ function publisher(name, opts) {
       const next = stateAfterEvent(e);
       if (next) current.state = next;
       /* #5805: a refusal is kept, room clears it, and the refused turn's own sentence rides with it. */
-      if (e && e.type === 'system' && e.subtype === 'init') current.reachedModel = false;
       /* Review 9: a refused request's own error message (is_api_error_message, in Claude Code's stream-json schema) did
          not reach the model, so it does not count; then even a result without is_error cannot clear the limit. */
       const apiError = e && (e.is_api_error_message === true || e.isApiErrorMessage === true
