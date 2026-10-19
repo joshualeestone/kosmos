@@ -227,7 +227,7 @@ test('#5805 Windows review 4: with no sentence from Claude yet, the card quotes 
   } finally { b.done(); }
 });
 
-test('#5805 Windows review 4: a write alone (no init) starts a new turn, so a later local result does not clear the limit', () => {
+test('#5805 Windows review 4: a write starts a new turn, so a later local result does not clear the limit', () => {
   const b = box('wininit', 'sid-l14', 7014);
   try {
     b.pub.started(7014, 'sid-l14');
@@ -394,4 +394,21 @@ test('#5805 Windows review 10: with a restart on record, a failed look does not 
     failNext = true;
     assert.notEqual(card().state, status.STATE.RATE_LIMITED, 'the remembered limit is from before the restart, so it does not stand');
   } finally { pub.stopped(); try { disruption.clear && disruption.clear(name); } catch {} status.setPaneSource(null); status.setPaneCapture(null); }
+});
+
+test('#5805 Windows review 11: a held limit token whose reset passes during the hold does not read limited', async () => {
+  const name = 'winexpire';
+  const sid = 'sid-ex';
+  const agents = [streaming(sid, 7990, 'cwd-' + name)];
+  const rec = recordOf({ [sid]: { name, runner: 'claude' } });
+  let answer = 'limit ' + new Date(Date.now() + 80).toISOString() + ' ' + new Date().toISOString() + ' five_hour';
+  status.setPaneSource(win32roster.make({ run: () => agents, record: rec }));
+  status.setPaneCapture(win32capture.make({ run: () => agents, record: rec, ttlMs: 0, streamState: () => answer, log: () => {} }));
+  try {
+    const card = () => status.snapshot().agents.find((a) => a.sessionName === name);
+    assert.equal(card().state, status.STATE.RATE_LIMITED, 'CONTROL: a good limit reading');
+    await new Promise((r) => setTimeout(r, 150));
+    answer = null;
+    assert.notEqual(card().state, status.STATE.RATE_LIMITED, 'the held token\'s reset has passed');
+  } finally { status.setPaneSource(null); status.setPaneCapture(null); }
 });

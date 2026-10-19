@@ -54,7 +54,7 @@ rateLimitType: five_hour|seven_day|seven_day_opus|seven_day_sonnet|seven_day_ove
 - No new control and no new wording on the page.
 
 ## Test
-engine/win32limit-5805.test.js, 29 arms, on the Windows runner's list (selectFiles picks it): the real publisher, a
+engine/win32limit-5805.test.js, 30 arms, on the Windows runner's list (selectFiles picks it): the real publisher, a
 real state file, the real capture and status.snapshot(), the real holds. A refusal plus a failed turn reads
 rate_limited with the stream's reset and the turn's sentence, and both holds hold with the card's reset; an allowed
 event, a warning event, or a successful real turn clears it; a local command's result does not, also after an
@@ -64,7 +64,8 @@ error as an assistant message, then is_error true), twice, stays limited and kee
 no overage check; no overageInUse; clear on any result; no warning clear; overwrite the line; the sentence's date
 first; no is_error guard; no keep-the-sentence rule) each fail their arm. With no sentence from Claude the card
 quotes nothing (review 4: the account-problem box shows evidence as `Claude says: "..."`), and a write with no init
-starts a new turn for the flag. The real hook sequences (review 5): against an automatic working report, an automatic
+starts a new turn for the flag (the redundant init reset was removed, review 11). A held token whose reset passes
+during the hold does not read limited (review 11; arm and mutant). The real hook sequences (review 5): against an automatic working report, an automatic
 idle report and StopFailure's blocked report the card stays rate_limited and held; CONTROL the agent's own fresh
 report still outranks it. A refusal with no reset neither sets a limit nor clears a live one. Mutants: no exemption
 (the working and idle arms fail); no no-reset guard (that arm fails). The 24 test files touching reconcile, rate
