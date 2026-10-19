@@ -196,3 +196,35 @@ test('#6544 followup: a large task list is carried to node on stdin (not an env 
     assert.match(r.out, /task number 200 with a longish title/, 'the last of a large list must survive the stdin pipe (the point of stdin over an env var)');
   });
 });
+
+test('#6544 followup: the task body goes to node on stdin, and KOSMOS_HANDOFF_TASKS_BODY is gone (the mechanism, deterministically)', () => {
+  // A static check so a regression to the env var fails even when the body is small enough to fit
+  // in one: the env var must be gone from both sides, and the body must be piped.
+  const kosmos = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
+  assert.doesNotMatch(kosmos, /KOSMOS_HANDOFF_TASKS_BODY/, 'the task body must no longer ride an env var in install/kosmos');
+  assert.match(kosmos, /printf '%s' "\$_tbody" \|/, 'cmd_handoff must pipe the task body to node on stdin');
+  const engine = fs.readFileSync(path.join(__dirname, 'engine', 'handoff.js'), 'utf8');
+  assert.doesNotMatch(engine, /KOSMOS_HANDOFF_TASKS_BODY/, 'the entry must no longer read the task body from an env var');
+  assert.match(engine, /readFileSync\(0/, 'the entry must read the task body from stdin (fd 0)');
+});
+
+test('#6506 followup (note 2): cmd_handoff resolves the tmux session pinned to -t $TMUX_PANE, and skips it when there is no pane', async () => {
+  const bindir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-handoff-tmuxbin-'));
+  const argfile = path.join(bindir, 'tmux-args.txt');
+  // a stub tmux: records its argv, echoes a session name (what display-message returns)
+  fs.writeFileSync(path.join(bindir, 'tmux'), '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "' + argfile + '"\necho winhandoff-sess-7\n', { mode: 0o755 });
+  const PATH2 = bindir + path.delimiter + process.env.PATH;
+  // TMUX_PANE set + stub tmux on PATH: cmd_handoff must call display-message pinned to the pane.
+  const r = await cli(['handoff'], { env: { PATH: PATH2, TMUX_PANE: '%42' } });
+  assert.equal(r.code, 0, r.out);
+  const args = fs.existsSync(argfile) ? fs.readFileSync(argfile, 'utf8') : '';
+  assert.match(args, /display-message -p -t %42 /, 'tmux must be called display-message -p -t "$TMUX_PANE": ' + JSON.stringify(args));
+  // No TMUX_PANE: the stub must not be called (the fallback, exactSession undefined).
+  fs.writeFileSync(argfile, '');
+  const r2 = await cli(['handoff'], { env: { PATH: PATH2, TMUX_PANE: '' } });
+  assert.equal(r2.code, 0, r2.out);
+  const args2 = fs.existsSync(argfile) ? fs.readFileSync(argfile, 'utf8') : '';
+  // cmd_handoff must not RESOLVE the session (no display-message). The engine's sessionStartedAt may
+  // still call `tmux list-sessions` to find a session start, which is a separate, unrelated caller.
+  assert.doesNotMatch(args2, /display-message/, 'with no TMUX_PANE, cmd_handoff must not call tmux display-message');
+});
