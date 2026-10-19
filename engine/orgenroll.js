@@ -44,7 +44,7 @@ const ENROLLMENT_FILE = 'org-enrollment.json';
 const SETTLE_AFTER_MS = 2 * 60 * 1000;
 const JOIN_UNKNOWN_FILE = 'org-join-unknown.json';   // { at, consentHash, move }: a join whose outcome is not known yet (review 25)
 const LEAVE_REFUSED_FILE = 'org-leave-refused.json';   // { at, name }: a retried leave was refused as the last admin (the screen says so once)
-const STOPPED_FILE = 'org-stopped.json';   // { at, name }: the company stopped naming this world (the screen says so once)
+const STOPPED_FILE = 'org-stopped.json';   // { at, name, kind } (kind since #6567): the company stopped naming this world (the screen says so once)
 const LEAVE_PENDING_FILE = 'org-leave-pending';   // a leave the company has not confirmed yet; retried on start and hourly
 const NAME_MAX = 120;      // a company name or slug, as the page shows it
 const LINE_MAX = 300;      // one consent line
@@ -461,7 +461,7 @@ async function preview(code, opts) {
 async function reviewHere(opts) {
   const KIND = recKind(opts);   // kosmos#6251: the org's kind, as this board knows it, for every sentence below
   const rec = readEnrollment(opts);
-  if (!rec || !isEnrolledHere(opts)) return { ok: false, because: 'This Kosmos is not your work Kosmos, so there is nothing to review here.' };
+  if (!rec || !isEnrolledHere(opts)) return { ok: false, because: inKind(KIND, 'This Kosmos is not your work Kosmos, so there is nothing to review here.') };   // kosmos#6567
   // Only for a Kosmos that sends nothing (orgreview review 3): one that reports has its words on record, and the plan
   // rejects a second path to the same state. The page hides the button too; this is the engine's own refusal.
   /* #5532 review 31: "already reports" by the SAME test /api/org uses (accepted words with report lines on record here),
@@ -541,7 +541,7 @@ async function enrollNow(code, accepted, opts) {
      BEFORE anything is sent or any id is made (reviews 4 and 5), never fall through into a move. */
   const held = readEnrollment(opts);
   const asReview = !!(opts && opts.review === true && code == null);
-  if (asReview && !(held && held.world === readWorldId(opts))) return { ok: false, code: 'org_not_here', because: 'This Kosmos is no longer your work Kosmos, so nothing was sent.' };
+  if (asReview && !(held && held.world === readWorldId(opts))) return { ok: false, code: 'org_not_here', because: inKind(KIND, 'This Kosmos is no longer your work Kosmos, so nothing was sent.') };   // kosmos#6567
   const world = worldId(opts);
   if (!world) return { ok: false, because: "This Kosmos's data folder cannot be written, so nothing was sent." };
   const body = { world, accepted: true };
@@ -751,12 +751,19 @@ function stoppedFor(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), STOPPED_FILE), 'utf8')); return j && typeof j.name === 'string' ? j.name : null; }
   catch { return null; }
 }
+/* kosmos#6567: the kind of the org that stopped naming this world, kept beside its name, so the screen's note can say it
+   in the family's words once the record that knew the kind is gone. A note written before kinds were kept reads as a
+   company's (kindOf). */
+function stoppedKind(opts) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), STOPPED_FILE), 'utf8')); return kindOf(j && j.kind); }
+  catch { return kindOf(null); }
+}
 function clearStopped(opts) { setStopped(null, opts); }
-function setStopped(name, opts) {
+function setStopped(name, opts, kind) {
   const file = path.join(storeRoot(opts), STOPPED_FILE);
   try {
     if (name == null) { fs.rmSync(file, { force: true }); return; }
-    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), name }) + '\n');
+    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), name, kind: kindOf(kind) }) + '\n');
   } catch { /* the screen just does not say it */ }
 }
 function leavePending(opts) { return fs.existsSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE)); }
@@ -996,7 +1003,7 @@ async function refreshNow(opts) {
   if (!readWorldId(opts)) {
     if (before && !fs.existsSync(path.join(storeRoot(opts), WORLD_ID_FILE))) {
       clearEnrollment(opts);
-      setStopped((before.org && before.org.name) || inKind(KIND, 'your company'), opts);   // the screen says once that it stopped (review 22)
+      setStopped((before.org && before.org.name) || inKind(KIND, 'your company'), opts, KIND);   // the screen says once that it stopped (review 22)
       tellEnded(opts);   // #6232
     }
     return { ok: false, because: 'This Kosmos has no id of its own.', enrolled: false };
@@ -1010,7 +1017,7 @@ async function refreshNow(opts) {
   const verdict = statusVerdict(d, world);
   if (verdict !== 'here') {
     if (verdict === 'unclear') return { ok: false, because: inKind(KIND, 'Your company\'s answer was not complete.'), enrolled: !!before };
-    if (before) { clearEnrollment(opts); setStopped((before.org && before.org.name) || inKind(KIND, 'your company'), opts); retireWorldId(opts); tellEnded(opts); }
+    if (before) { clearEnrollment(opts); setStopped((before.org && before.org.name) || inKind(KIND, 'your company'), opts, KIND); retireWorldId(opts); tellEnded(opts); }
     return { ok: true, enrolled: false, member: d.member === true, stopped: !!before, org: d.member === true ? cleanOrg(d.org) : null };
   }
   const org = cleanOrg(d.org);
@@ -1082,5 +1089,5 @@ function applyPolicy(token, opts, orgId) {
 module.exports = {
   onEnrollmentEnded,   // #6232 review 10
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindNow, kindOf, codeOf,
-  worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, memberCheck, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
+  worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, stoppedKind, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, memberCheck, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };

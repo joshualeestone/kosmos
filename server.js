@@ -10920,6 +10920,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const stopped = here ? null : oe.stoppedFor();   // the company stopped naming this world: the screen says so ONCE
+      const stoppedKind = stopped ? oe.stoppedKind() : null;   // kosmos#6567: in the stopped org's words (a family's or a company's)
       if (stopped && req.method === 'GET') oe.clearStopped();   // a HEAD shows nothing, so it must not use up the note
       const refused = here ? oe.leaveRefusedFor() : null;   // a retried leave refused as the last admin: said ONCE (review 21)
       const refusedUndo = refused ? oe.leaveRefusedKind() === 'undo' : false;   // an undo, not the person's leave (review 31)
@@ -10937,7 +10938,7 @@ const server = http.createServer(async (req, res) => {
       // kosmos#6367: the company's policy requires reports, so Remove this computer from Kosmos+ says the company will see it stop.
       const reportingRequired = here ? require('./engine/orgpolicy').reportingRequired() : false;
       sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
-       stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
+       stoppedFor: stopped, ...(stopped ? { stoppedKind } : {}), leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
   }

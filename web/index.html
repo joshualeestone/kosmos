@@ -51672,7 +51672,7 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     // #5791 review 1: a note the person closed with Cancel is not written back by the next read. Review 2: only while
     // the engine still carries THAT note; once it is gone (or this Kosmos joined), a later stop shows again.
     if (j && (!j.stoppedFor || j.enrolled === true)) PLUS_ORG.dismissed = null;
-    if (j && j.enrolled !== true && j.stoppedFor && j.stoppedFor !== PLUS_ORG.dismissed) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
+    if (j && j.enrolled !== true && j.stoppedFor && j.stoppedFor !== PLUS_ORG.dismissed) msg.textContent = (j.stoppedKind === 'family' ? 'This Kosmos is no longer in ' : 'This Kosmos is no longer the work Kosmos for ') + j.stoppedFor + ', so it has stopped reporting.';   // kosmos#6567: a family's words, as the Settings line says "is in" (#6565)
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
     // "reports to it" only when it may (review 33): a record with no consent recorded here sends nothing.
     const reports = j && j.wordsNeeded === true && PLUS_ORG.wordsRefused ? '. It reports nothing to the family.' : j && j.wordsNeeded === true ? '. It reports nothing until a parent or guardian reads and accepts the family\u2019s words.' : plusOrgIn(j && j.org, j && j.reporting === true ? ' and reports to it.' : j && j.reportingWait === 'print' ? '. It reports to your company once it has read this computer\'s identity.' : j && j.reportingWait === 'printError' ? '. It cannot report to your company yet: Kosmos could not check this computer.' : j && j.reportingWait === 'noReports' ? '. Your company asks it to report nothing.' : '. It reports to your company once Kosmos has your company\'s current terms.');
@@ -51961,7 +51961,7 @@ async function plusOrgLeave() {
     ? 'This Kosmos has stopped reporting. You are still in ' + name + plusOrgIn(org0, ': your work Kosmos is elsewhere, so leave from there.')
     : r.ok ? plusOrgIn(org0, 'You left. This Kosmos no longer reports to your company.')
     : r.pending ? (r.because || plusOrgIn(org0, 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.'))
-    : (r.because || r.error || 'Leaving did not go through. Nothing changed; try again in a minute.');
+    : (r.because ? plusOrgIn(org0, r.because) : (r.error || 'Leaving did not go through. Nothing changed; try again in a minute.'));   // kosmos#6567: the board's refusal (a plain server sentence) in the family's words
   plusOrgPaint();
 }
 document.getElementById('plus-org-check').addEventListener('click', plusOrgConnect);
