@@ -460,3 +460,11 @@ test('#4588 ask 3: at cap 1 the stuck agent is reserved before its peer is asked
     assert.equal(control.verdict, DELIVERY.COULD_NOT, 'CONTROL: without reserve the peer\'s ask takes the only slot (the bug this fixes)');
   } finally { b.restore(); }
 });
+
+test('#5949 a peer whose state is remembered through a failed look is not offered until a fresh look', () => {
+  const { peersFor } = require('./recommender');
+  const cards = new Map([['me', { state: 'needs_you' }], ['bo', { state: 'idle', name: 'Bo' }], ['cy', { state: 'working', name: 'Cy' }]]);
+  assert.deepEqual(peersFor('me', ['me', 'bo', 'cy'], cards).map((p) => p.session), ['bo', 'cy'], 'CONTROL: fresh peers are offered, idle first');
+  cards.set('bo', { state: 'idle', name: 'Bo', screenRead: 'remembered' });
+  assert.deepEqual(peersFor('me', ['me', 'bo', 'cy'], cards).map((p) => p.session), ['cy']);
+});

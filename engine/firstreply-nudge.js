@@ -126,6 +126,9 @@ function plan(card, fc, entry, now) {
   if (nudged(entry)) return { act: 'none', because: 'already reminded once' };
   if (spent(entry)) return { act: 'none', gaveUp: true, because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };   // #5154 slice B: gaveUp lets the sweep surface this on the board
   if (!card || card.state !== 'idle') return { act: 'none', because: 'not idle' };
+  /* #5949: a remembered idle (held through a failed look) is not evidence it is idle now; typing into the pane waits a
+     few seconds for a fresh look, as the Assigner and the limit release do. */
+  if (require('./status').stateIsRemembered(card)) return { act: 'none', because: 'its idle is remembered, not a fresh look' };
   if (!fc || fc.state !== 'owes') return { act: 'none', because: (fc && fc.because) || 'owes no first reply' };
   const heard = typeof fc.heardAt === 'string' ? Date.parse(fc.heardAt) : NaN;
   if (!Number.isFinite(heard) || !Number.isFinite(now)) return { act: 'none', because: 'no readable time for the person\'s message' };
@@ -213,7 +216,7 @@ function sweepOnce(o) {
         }
         continue;
       }
-      if (card.state !== 'idle') continue;
+      if (card.state !== 'idle' || require('./status').stateIsRemembered(card)) continue;   // #5949: a remembered idle is not a fresh look
       /* #4354: a switched-off swarm is left alone before anything is read or tried: its pane refuses the text, and
          each refusal would spend one of MAX_TRIES, leaving it never nudged once it runs again. */
       let pz = null;

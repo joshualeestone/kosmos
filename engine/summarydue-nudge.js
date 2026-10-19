@@ -167,6 +167,7 @@ function sweepOnce(o) {
       const session = card && card.sessionName;
       if (!session || card.isNamedOurs !== true || card.runner !== 'claude' || card.reachedByChannel === true) continue;
       if (card.state !== 'idle') continue;   // between turns only: a working agent is told on a later sweep
+      if (require('./status').stateIsRemembered(card)) continue;   // #5949: a remembered idle waits for a fresh look before anything is typed
       let summary = null;
       try { summary = projectview.summaryFreshness(folderOf(session), now); } catch { summary = null; }
       if (!summary || summary.state !== 'stale') continue;

@@ -83,6 +83,7 @@ const NO_DUE_DATE = '9999-99-99';
    paused swarm (#3564: deliver refuses a paused swarm, so a part given to it is taken back). */
 function idleCard(a) {
   return Boolean(a && a.sessionName && a.isNamedOurs === true && a.state === 'idle'
+    && !require('./status').stateIsRemembered(a)   // #5949: a remembered idle waits for a fresh look
     && !(a.swarm && a.swarm.active === false));
 }
 

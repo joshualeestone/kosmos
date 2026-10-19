@@ -140,6 +140,9 @@ function sweepOnce(o) {
        prompt would take the Enter as its answer (engine/recommender.js keeps the same rule), and one
        stopped by its own account problem could not act on it. It is tried again next sweep. */
     if (mCard.state !== 'idle' && mCard.state !== 'working') { report('manager-busy', { managerState: mCard.state }); continue; }
+    /* #5949: nor into one whose state is remembered through a failed look: on main that card read unknown and waited
+       here, so a held idle or working waits too, a few seconds, for a fresh look. */
+    if (require('./status').stateIsRemembered(mCard)) { report('manager-busy', { managerState: mCard.state, remembered: true }); continue; }
     let delivery = null;
     try { delivery = o.deliver(manager, noticeText(card, problem)); } catch { delivery = null; }
     // UNCONFIRMED may already have reached the manager: counted as told, so it is never sent twice.
