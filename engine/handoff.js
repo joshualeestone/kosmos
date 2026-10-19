@@ -310,6 +310,30 @@ function contractBullets() {
  * against those, so a test fully controls the output. Defaults read the running
  * environment, which is what the CLI wants.
  */
+/* The open-tasks fact (kosmos#6506 ruling 3): the agent's own open tasks across its projects. This
+ * is the ONE fact that needs the board, so the CLI makes the call (GET /api/tasks/mine, agent token)
+ * and passes the response here as `resp` = { reached, status, body }. An unreachable board reads "the
+ * board did not answer", NEVER an empty list; a refusal and an unreadable answer are each said as
+ * themselves; a 200 yields the list (or "none open"). Returns { line, items }: when items is null,
+ * print line; else print the items (or "none open" when empty). Board task fields are echoed through
+ * cleanPath so a title with a control character cannot break the pasted handoff. */
+function tasksFact(resp) {
+  if (!resp) return { line: 'not checked (no board response)', items: null };
+  if (resp.reached === false) return { line: 'the board did not answer, so your open tasks could not be read', items: null };
+  const status = Number(resp.status);
+  const body = resp.body && typeof resp.body === 'object' ? resp.body : null;
+  if (status === 403) return { line: 'the board would not read them (' + cleanPath(String((body && body.error) || 'refused')) + ')', items: null };
+  if (status !== 200 || !body || !Array.isArray(body.tasks)) return { line: 'the board gave an answer that could not be read', items: null };
+  const items = body.tasks.map((raw) => {
+    const t = raw || {};
+    const proj = cleanPath(String(t.project != null ? t.project : (t.projectId != null ? t.projectId : '?')));
+    const num = t.number != null ? '#' + t.number : '#?';
+    const title = cleanPath(String(t.title != null ? t.title : ''));
+    return proj + ' ' + num + ': ' + title;
+  });
+  return { line: null, items };
+}
+
 function render(opts) {
   opts = opts || {};
   const session = typeof opts.session === 'string' ? opts.session : (process.env.KOSMOS_AGENT_SESSION || '');
@@ -342,6 +366,15 @@ function render(opts) {
   lines.push('## Prefilled facts');
   lines.push('- Branch and sha (checked in `' + cleanPath(cwd) + '`): ' + gitFact(cwd));
   lines.push('- Live state (self-report): ' + stateFact(session, now));
+  const tf = tasksFact(opts.tasks);
+  if (tf.items === null) {
+    lines.push('- Open tasks assigned to you (across your projects): ' + tf.line);
+  } else if (tf.items.length === 0) {
+    lines.push('- Open tasks assigned to you (across your projects): none open');
+  } else {
+    lines.push('- Open tasks assigned to you (across your projects):');
+    for (const it of tf.items) lines.push('  - ' + it);
+  }
   const instr = instructionFact(session, now);
   lines.push('- Instruction file' + (instr.file ? ' (`' + cleanPath(instr.file) + '`)' : '') + ': ' + instr.line);
   if (artifacts.length) {
@@ -358,7 +391,7 @@ function render(opts) {
   return lines.join('\n') + '\n';
 }
 
-module.exports = { render, gitFact, fingerprint, stateFact, instructionFact, handoffPath, contractBullets, saneIso, cleanPath, MIN_SANE_YEAR };
+module.exports = { render, gitFact, fingerprint, stateFact, instructionFact, tasksFact, handoffPath, contractBullets, saneIso, cleanPath, MIN_SANE_YEAR };
 
 /* Run as the CLI entry (install/kosmos cmd_handoff runs this file with the
  * artifact paths as arguments; the Windows CLI calls render directly). Session
@@ -366,7 +399,16 @@ module.exports = { render, gitFact, fingerprint, stateFact, instructionFact, han
  * an unexpected failure prints one honest line and exits non-zero. */
 if (require.main === module) {
   try {
-    process.stdout.write(render({ artifacts: process.argv.slice(2) }));
+    // cmd_handoff makes the one board call (GET /api/tasks/mine) and passes the response in via
+    // these env vars, so engine/handoff.js itself stays free of HTTP. Absent env (an old caller) ->
+    // undefined -> tasksFact says "not checked".
+    let tasks;
+    if (process.env.KOSMOS_HANDOFF_TASKS_REACHED !== undefined) {
+      let body = null;
+      try { body = JSON.parse(process.env.KOSMOS_HANDOFF_TASKS_BODY || 'null'); } catch { body = null; }
+      tasks = { reached: process.env.KOSMOS_HANDOFF_TASKS_REACHED === '1', status: Number(process.env.KOSMOS_HANDOFF_TASKS_STATUS || 0), body };
+    }
+    process.stdout.write(render({ artifacts: process.argv.slice(2), tasks }));
   } catch (e) {
     process.stderr.write('kosmos handoff: could not gather the handoff facts (' + firstLine(e && e.message) + ')\n');
     process.exit(1);

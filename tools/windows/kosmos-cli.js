@@ -2212,9 +2212,20 @@ async function verbAccounts(ctx) {
 async function verbHandoff(ctx, args) {
   let handoff;
   try { handoff = ctx.engine('handoff'); } catch { ctx.err('Kosmos could not find its own handoff reader; this install looks incomplete.'); return 1; }
+  // The ONE non-local fact (#6506 ruling 3): this agent's own open tasks, from GET /api/tasks/mine
+  // on the agent token (ctx.call sends it by default; the token never reaches a command line). Best
+  // effort: an unreachable board yields reached:false, which the renderer says as "the board did not
+  // answer", never an empty list. The three local facts need no board.
+  let tasks;
+  try {
+    const r = await ctx.call('GET', '/api/tasks/mine');
+    tasks = { reached: r.reached !== false, status: r.status, body: r.json };
+  } catch {
+    tasks = { reached: false };
+  }
   let text;
   try {
-    text = handoff.render({ session: ctx.env.KOSMOS_AGENT_SESSION || '', cwd: process.cwd(), artifacts: args, now: Date.now() });
+    text = handoff.render({ session: ctx.env.KOSMOS_AGENT_SESSION || '', cwd: process.cwd(), artifacts: args, now: Date.now(), tasks });
   } catch (e) {
     const why = String((e && e.message) || e).split('\n')[0];   // one line, as the Mac entry's firstLine keeps it
     ctx.err('kosmos handoff: could not gather the handoff facts (' + why + ')');

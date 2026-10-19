@@ -3122,9 +3122,26 @@ cmd_handoff() {
     say "Kosmos could not find its own handoff reader; this install looks incomplete."
     exit 1
   fi
-  # Each artifact path is forwarded as its own argument, so a path with spaces is
-  # never split (#6506). Session and cwd come from this process's environment.
-  "$_node" "$_mod" "$@"
+  # The ONE non-local fact (kosmos#6506 ruling 3): this agent's own open tasks across its projects,
+  # from GET /api/tasks/mine. The board is found the `kosmos accounts` way, through $URL (the
+  # per-account port this script already derived, never a hard-coded 16180), and kosmos_curl keeps
+  # both tokens in a mode-600 header file, never on the command line. Best-effort: if the board does
+  # not answer, the handoff still prints every local fact and the task line says the board did not
+  # answer (never an empty list). curl exit 0 means the board answered (even a 403); non-zero means
+  # it was not reached.
+  local _bt _atok _tbody _trc=0 _tcode _reached=0
+  _bt="$(agent_board_token || true)"
+  _atok=""; case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _atok="$KOSMOS_AGENT_TOKEN" ;; esac
+  _tbody=$(kosmos_curl "$_bt" "$_atok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/tasks/mine" 2>/dev/null) || _trc=$?
+  if [ "$_trc" -eq 0 ]; then
+    _reached=1; _tcode="${_tbody##*$'\n'}"; _tbody="${_tbody%$'\n'*}"
+  else
+    _reached=0; _tcode=0; _tbody=""
+  fi
+  # Each artifact path is forwarded as its own argument, so a path with spaces is never split
+  # (#6506). Session and cwd come from this process's environment; the task response comes in via
+  # these env vars so engine/handoff.js itself makes no HTTP call.
+  KOSMOS_HANDOFF_TASKS_REACHED="$_reached" KOSMOS_HANDOFF_TASKS_STATUS="$_tcode" KOSMOS_HANDOFF_TASKS_BODY="$_tbody" "$_node" "$_mod" "$@"
 }
 
 # ---- kosmos connect <service>  (#4451), the token on STDIN
