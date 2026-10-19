@@ -36,6 +36,11 @@ creation need a fresh authenticator code. This is the step-up half.
 - **`PUT /api/autoupdate` is gated whole,** off as well as on: the gate reads no body, and one more prompt to switch
   it off costs little.
 - **Codex hook trust is not gated:** every agent already runs an unsandboxed shell.
+- **Not gated, decided (review iteration 4):** `/api/accounts/share` (moves where a Claude account's history lives; no
+  credential or software enters) and `/api/engine/restart` (restarts onto code already on disk, only when stale).
+- **The gate is a list, not a default.** A future route of this kind is open until someone adds it; the two source
+  scans narrow that to routes whose paths name none of their words. Rejected: gating every POST from a remote session,
+  which would ask for a fresh sign-in to send a chat message.
 - **Skills are not gated.** A skill is text agents read, and a remote session can already tell any agent anything in
   chat, so gating skills would add a prompt and no protection (review iteration 2).
 - **Taking things away is not gated:** forgetting a token, signing a provider out (DELETE), checking for an update.
@@ -74,7 +79,7 @@ set none of the forwarding headers, it would read as local and never be asked (R
   stores a client id that is public by design. Named here so the boundary is explicit.
 
 ## Tests
-`server.remotestepup-6595.test.js` (37), including two guards. Literal routes: every POST/PUT route whose path looks
+`server.remotestepup-6595.test.js` (37 cases: one per gated route, plus the guards and checks below), including two guards. Literal routes: every POST/PUT route whose path looks
 like a key, token, sign-in, install, update or create is gated or exempt with a written reason, and every gated route
 exists (dropping one gated route turns it red, naming it). Regex routes, which the literal scan cannot see: every one
 whose pattern names a token, install, sign-in, import, restore or skill is decided, gated ones matching a sample path

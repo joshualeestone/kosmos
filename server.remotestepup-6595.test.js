@@ -151,7 +151,11 @@ const EXEMPT = {
 };
 /* Decided without a scan to catch them (their paths name none of the guard's words), written down so the boundary is
    a record: POST /api/agent/<n>/codex-hooks trusting hooks lets them run outside Codex's sandbox, but every agent here
-   already runs an unsandboxed shell, so it adds nothing a remote session lacks. */
+   already runs an unsandboxed shell, so it adds nothing a remote session lacks. POST /api/accounts/share points a
+   Claude account's history at the shared tree: it moves where history lives, and no credential or software enters.
+   POST /api/engine/restart restarts the board onto the code already on disk, and only when it is stale: it runs nothing
+   new. The gate is a list, so a future route like these is open until someone adds it; the two scans above narrow
+   that to routes whose paths name none of their words. */
 const LOOKS_GATED = /(install|apikey|token|subscription\/start|signin|\/start$|import|^\/api\/worlds$|^\/api\/agents$|^\/api\/team$|connect-agent|update)/;
 test('R01: every key, sign-in, install, update or create route is gated or exempt with a reason, and every gated route exists', () => {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
