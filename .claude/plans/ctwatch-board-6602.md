@@ -17,7 +17,8 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
 ## Decisions
 - Clear, never-run and off say nothing: the line is for news. Weakest premise: a person never learns the
   check exists unless they read the switch label; rejected a permanent "checked today" line as noise.
-- The switch shows whenever the computer is set up, so the off switch is reachable from the app.
+- The switch shows whenever the computer is set up, so the off switch is reachable from the app. The check
+  runs in the tunnel, so the label says "While Kosmos+ is on"; with Kosmos+ off nothing is checked.
 - A finding is said even with the check switched off ("The check is off." added), so the switch never
   hides one. Only a finding: an unknown or lost state is not said while off.
 - The switch route is person-only (`isViaScreen`, 403 otherwise): an agent cannot turn the check off.

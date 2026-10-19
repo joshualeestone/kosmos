@@ -24,7 +24,7 @@ function world() {
   const ctx = { document: { getElementById: el }, console };
   const start = SCRIPT.indexOf('function paintSwitch(togId, on) {');
   const end = SCRIPT.indexOf('\n}\n', start) + 3;
-  const cwStart = SCRIPT.indexOf('const PLUS_CW_WORDS = {');   // through plusCwSay and paintPlusCertWatch
+  const cwStart = SCRIPT.indexOf('var PLUS_CW_WORDS = {');   // through plusCwSay and paintPlusCertWatch
   const cwEnd = SCRIPT.indexOf('{ const cwSw = document.getElementById(\'plus-cw-switch\');');
   assert.ok(start > 0 && cwStart > 0 && cwEnd > cwStart, 'the certificate check script moved; re-anchor this test');
   vm.runInNewContext(SCRIPT.slice(start, end) + SCRIPT.slice(cwStart, cwEnd), ctx);
@@ -67,6 +67,10 @@ test('a finding only for an earlier address says so; a lost report says so', () 
   const { ctx, el } = world();
   ctx.paintPlusCertWatch({ on: true, state: 'foreign', foreign: 0, earlier: 1 });
   assert.match(el('plus-cw-line').textContent, /an address this computer used before/);
+  ctx.paintPlusCertWatch({ on: true, state: 'foreign', foreign: 0, earlier: 0 });
+  assert.match(el('plus-cw-line').textContent, /this computer's address/, 'foreign with no counts is not an earlier address');
+  ctx.paintPlusCertWatch({ on: true, state: 'foreign', foreign: 1, earlier: 1 });
+  assert.match(el('plus-cw-line').textContent, /this computer's address/);
   ctx.paintPlusCertWatch({ on: true, state: 'unknown', lost: true });
   assert.match(el('plus-cw-line').textContent, /could not be read/);
 });

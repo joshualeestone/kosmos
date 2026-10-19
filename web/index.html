@@ -19591,7 +19591,7 @@ window.kosmosMeasureScrollbarWidth();
           <p class="fhint plus-cw-line" id="plus-cw-line" role="status" hidden></p>
           <div class="plus-cw-row" id="plus-cw-row" hidden>
             <button class="toggle" type="button" id="plus-cw-switch" role="switch" aria-labelledby="plus-cw-label" hidden><i></i></button>
-            <span class="fhint" id="plus-cw-label">Check the public certificate logs for this computer's address once a day (this sends the address to Cert Spotter)</span>
+            <span class="fhint" id="plus-cw-label">While Kosmos+ is on, check the public certificate logs for this computer's address once a day (this sends the address to Cert Spotter)</span>
           </div>
           <!-- #4794 slice 1 (Mona Lisa's design): while this computer waits to be allowed, the code both computers show,
                in place of the coordinator's sentence above, and "The codes match". Painted by paintPlusJoin. -->
@@ -52411,7 +52411,9 @@ document.getElementById('plus-switch').addEventListener('click', async () => {
 /* kosmos#6602: the certificate check's line and switch. The server passes only a state, counts and times
    (engine/cert-watch.js); nothing from the outside answer is shown. The line is said only when it says
    something: a finding, or a check that cannot confirm anything. Clear, never-run and off say nothing. */
-const PLUS_CW_WORDS = {
+/* var, not const: paintPlus reads these, and a const declared this far below it is in its dead zone
+   for any paint that runs before this line (the siblings' rule). */
+var PLUS_CW_WORDS = {
   foreign: 'Warning: the public certificate logs show a certificate for this computer\'s address that this computer did not ask for. Someone else may be able to pose as this computer.',
   earlier: 'Warning: the public certificate logs show a certificate for an address this computer used before, that this computer did not ask for.',
   lost: 'An earlier report of the daily check of the public certificate logs could not be read, so something it found may have been lost.',
@@ -52421,7 +52423,8 @@ const PLUS_CW_WORDS = {
 /* Which sentence: a finding is said even with the check off (switching it off must not hide one). */
 function plusCwSay(cw) {
   let say = '';
-  if (cw.state === 'foreign') say = cw.foreign > 0 ? PLUS_CW_WORDS.foreign : PLUS_CW_WORDS.earlier;
+  /* The earlier-address sentence only when that is all there is; anything else foreign is this address. */
+  if (cw.state === 'foreign') say = (cw.earlier > 0 && !(cw.foreign > 0)) ? PLUS_CW_WORDS.earlier : PLUS_CW_WORDS.foreign;
   else if (cw.on === true && cw.lost === true) say = PLUS_CW_WORDS.lost;
   else if (cw.on === true && cw.state === 'unknown') say = PLUS_CW_WORDS.unknown;
   if (say && cw.on !== true) say += PLUS_CW_WORDS.off;
@@ -52441,15 +52444,19 @@ function paintPlusCertWatch(cw) {
   if (typeof paintSwitch === 'function') paintSwitch('plus-cw-switch', cw.on === true);
 }
 { const cwSw = document.getElementById('plus-cw-switch');
+  let cwBusy = false;   // one change at a time: a second click while one is in flight does nothing
   if (cwSw) cwSw.addEventListener('click', async () => {
+    if (cwBusy) return;
     /* The click means what the switch showed; unread does nothing (the #4080 rule for plus-switch). */
     plusSay('');
     if (!cwSw.hasAttribute('aria-checked')) { paintPlus(); return; }
     const wantOn = cwSw.getAttribute('aria-checked') !== 'true';
     try {
+      cwBusy = true;
       const res = await fetch('/api/remote/cert-watch', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: wantOn }) });
       if (!res.ok) plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not change that'), 'switch');
     } catch { plusSay('we could not change that', 'switch'); }
+    finally { cwBusy = false; }
     paintPlus();
   }); }
 /* The words of the code box (#729). Pete sat at it for twelve minutes, three
