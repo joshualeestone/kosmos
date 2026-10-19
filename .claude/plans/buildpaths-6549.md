@@ -16,7 +16,8 @@ email. The connector half is kosmos-relay remap-6549 (the build remaps those pat
   It refuses an unusable home, a missing app/ or bin/, a file grep cannot read (review 1: rc > 1 is a refusal), and a
   symlink in the stage, which grep -r would not read through (review 2; the build stages none, measured on 0.7.58).
 - tools/build-kosmos-bundle.sh runs it after the deployment-floor gate; the test checks that call is still there.
-- package.json test:shell runs the new test (review 1: tools.every-test-runs refused it as an orphan).
+- package.json test:shell syntax-checks the lib (bash -n, as its siblings) and runs the new test (review 1:
+  tools.every-test-runs refused it as an orphan).
 - Comments: the places in shipped files (server.js, web/index.html, engine/*.js, bin/) that named real people, the
   build Macs' accounts, or the build Mac's host name (Agent1s, 11 comments) now use placeholders no Mac would have as
   an account (`example`, `exampleuser`, `example-person`; review 2), so the names this change writes cannot make the gate
@@ -35,8 +36,10 @@ a symlink (under app/ or bin/); a file under bin/ naming the home (review 7: pro
 compiled file in app/bin/; an unusable home (empty $HOME, `/`, `//`, `/Users`, `/Users/`, relative); no app/ or no bin/. Not refused:
 runtime/; `/Users/zz-builderother`; `/Users/joXhnnx` for `/Users/jo.hn+x` (no wildcards); a made-up build folder in
 a source comment or in a script under app/bin/. A `|` in a file name is still named. The build still calls the gate.
-Mutants (reviews 4 to 6, and mine): removing any of the named behaviours turns its arm red (30 of 34 mutants in
-review 6; the survivors are a redundant flag, an unreachable second rc check, and two cosmetic forms).
+Mutants (reviews 4 to 8, and mine): removing any named behaviour turns its arm red. Review 8 ran 31; the survivors
+are redundant or cosmetic (the -a flag, the second rc check, -i on the compiled-file grep, the stage -d check that the
+app/ and bin/ checks cover, LC_ALL on the first grep, the [:cntrl:] class, the printed-name strip). The name-boundary
+characters were unarmed until review 8; they now have an arm (${H}1, ${H}_x, ${H}-x, ${H}X are not hits).
 Measured on stages built from the sources: this branch passes for /Users/agent1, /Users/mortalkombat, /Users/josh,
 /Users/joshu, /Users/sam and /Users/alex; CONTROL main's server.js and status.js are refused for /Users/agent1 and /Users/josh, files named.
 

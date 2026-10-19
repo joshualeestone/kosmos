@@ -36,6 +36,10 @@ else fail "${H}other is not the build home and must not be refused"; fi
 stage
 if ! ( HOME=""; home_path_gate_tree "$T/s" ) 2>/dev/null; then pass "an EMPTY \$HOME with no home given is refused, never skipped"
 else fail "an empty \$HOME must be refused, not passed"; fi
+stage; printf '// %s1/x %s_x/y %s-x/z %sX/w\n' "$H" "$H" "$H" "$H" >> "$T/s/app/server.js"
+if home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "folders that continue the home's name (a digit, _, -, a capital) are not hits"
+else fail "${H}1, ${H}_x, ${H}-x and ${H}X are other folders and must not be refused"; fi
+
 for bad in "/" "relative/home" "/Users"; do
   stage
   if ! home_path_gate_tree "$T/s" "$bad" 2>/dev/null; then pass "an unusable home ('$bad') is refused, never skipped"
