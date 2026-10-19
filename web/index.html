@@ -52505,7 +52505,7 @@ function paintPlusCertWatch(cw, plusOn) {
    on every view but Kosmos+. Its close (and Review) put away the finding set shown (its key, kept per browser, as
    #6315's request notice and #5018's login notice keep theirs); a new finding is a new key and brings it back. The
    Kosmos+ pane's own line is never put away. Only fixed sentences are written. */
-var CW_NOTE = { key: null, away: [], last: null };
+var CW_NOTE = { key: null, sig: null, away: [], last: null };
 function cwNoteAway() {
   let stored = [];
   try { stored = (localStorage.getItem('kosmos.cwnote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { stored = []; }
@@ -52523,13 +52523,16 @@ function paintCwNote(cw) {
   if (!slot) return;
   const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
   const key = cw && cw.state === 'foreign' && typeof cw.key === 'string' && /^[0-9a-f]{16}$/.test(cw.key) ? cw.key : null;
-  if (!key || onPlus || cwNoteAway().indexOf(key) !== -1) { CW_NOTE.key = null; slot.textContent = ''; return; }
-  if (CW_NOTE.key === key && slot.firstChild) return;   // unchanged: not rewritten, so it is not read out again
-  CW_NOTE.key = key;
-  const head = cw.foreign > 0 || !(cw.earlier > 0)
+  if (!key || onPlus || cwNoteAway().indexOf(key) !== -1) { CW_NOTE.key = null; CW_NOTE.sig = null; slot.textContent = ''; return; }
+  const here = cw.foreign > 0 || !(cw.earlier > 0);   // this computer's address, or only an earlier one
+  const sig = key + (here ? ':here' : ':earlier');
+  if (CW_NOTE.sig === sig && slot.firstChild) return;   // unchanged: not rewritten, so it is not read out again
+  CW_NOTE.key = key; CW_NOTE.sig = sig;
+  const head = here
     ? 'Warning: a certificate was issued for this computer\'s address that this computer did not ask for.'
-    : 'Warning: a certificate was issued for an address this computer used before, that this computer did not ask for.';
+    : 'Warning: a certificate, which this computer did not ask for, was issued for an address this computer used before.';
   // role=status on the words, not the card, so the buttons are not read out with every announcement (#3532's rule).
+  // The headline is set after the card is in; the small line comes with it, so a reader may say the headline only.
   slot.innerHTML = '<div class="utoast cwnote"><span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt" role="status"><b></b><small>Kosmos+ checks the public certificate logs for this computer.</small></div>'
     + '<div class="uacts"><button type="button" class="uprime" data-cw="open">Review</button></div>'
@@ -52568,15 +52571,20 @@ async function pollCwNote() {
     if (!Number.isInteger(at) || at <= 0 || ackBtn.disabled) return;
     ackBtn.disabled = true;
     plusSay('');
+    let saved = false;
     try {
       const res = await fetch('/api/remote/cert-watch/ack-lost', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at }) });
       if (!res.ok) plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not save that'), 'switch');
+      else saved = true;
     } catch { plusSay('we could not save that', 'switch'); }
     finally { ackBtn.disabled = false; }
     await paintPlus();
-    // Got it goes away with the sentence it answered: keep keyboard focus on the line that said it.
-    const line = document.getElementById('plus-cw-line');
-    if (ackBtn.hidden && line) { line.setAttribute('tabindex', '-1'); line.focus(); }
+    if (!saved) return;
+    // Got it goes away with the sentence it answered. Focus goes to the line when it still says something (a finding),
+    // else to the check's switch, a stable place, and the pane says it was noted.
+    const line = document.getElementById('plus-cw-line'), sw = document.getElementById('plus-cw-switch');
+    if (line && line.textContent) { line.setAttribute('tabindex', '-1'); line.focus(); }
+    else { plusSay('Noted.'); if (sw && !sw.hidden) sw.focus(); }
   });
   setInterval(pollCwNote, 30000);
   pollCwNote();

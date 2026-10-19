@@ -128,6 +128,47 @@ test('Got it shows with the lost-report sentence only, carrying its marker', () 
   assert.equal(get('plus-cw-ack').hidden, true, 'with Kosmos+ off the lost sentence is quiet, and so is Got it');
 });
 
+/* The Got it handler, lifted with its stubs: success hides it (by the repaint) and says Noted. with focus on the switch;
+   a refusal says why and leaves it. */
+function ackWorld(answer) {
+  const els = {};
+  const get = (id) => (els[id] ||= el(id));
+  get('plus-cw-ack').dataset.at = '1792368000';
+  get('plus-cw-ack').hidden = false;
+  get('plus-cw-switch').hidden = false;
+  const calls = [], said = [];
+  const ctx = {
+    document: { getElementById: get, querySelector: () => null }, console,
+    plusOnScreen: () => true, localStorage: { getItem: () => null, setItem() {} },
+    fetch: async (url, opts) => { calls.push({ url, body: opts && opts.body ? JSON.parse(opts.body) : null }); return answer; },
+    setInterval: () => 0, showTab() {}, settingsGo() {}, plusWords: (s) => s, plusSay: (m) => said.push(m),
+    paintPlus: async () => { if (answer.ok) get('plus-cw-ack').hidden = true; },
+  };
+  const start = SCRIPT.indexOf('/* kosmos#6613: the notice for a finding');
+  const end = SCRIPT.indexOf('/* The words of the code box (#729).', start);
+  vm.runInNewContext(SCRIPT.slice(start, end), ctx);
+  return { get, calls, said };
+}
+
+test('Got it posts the marker it was shown, then says Noted. with focus on the switch', async () => {
+  const w = ackWorld({ ok: true, json: async () => ({}) });
+  await w.get('plus-cw-ack').listeners.click();
+  const post = w.calls.find((c) => c.url === '/api/remote/cert-watch/ack-lost');
+  assert.ok(post, JSON.stringify(w.calls));
+  assert.deepEqual(post.body, { at: 1792368000 });
+  assert.equal(w.get('plus-cw-ack').hidden, true);
+  assert.ok(w.said.includes('Noted.'), JSON.stringify(w.said));
+  assert.ok(w.get('plus-cw-switch').focused, 'focus was left on nothing');
+});
+
+test('a refused Got it says why, and does not say Noted. (the control)', async () => {
+  const w = ackWorld({ ok: false, json: async () => ({ error: 'that report is no longer the one to acknowledge' }) });
+  await w.get('plus-cw-ack').listeners.click();
+  assert.ok(w.said.includes('that report is no longer the one to acknowledge'), JSON.stringify(w.said));
+  assert.ok(!w.said.includes('Noted.'));
+  assert.equal(w.get('plus-cw-ack').hidden, false);
+});
+
 test('the markup carries the notice slot (first in the floating stack) and Got it', () => {
   assert.match(PAGE, /<div class="topnotes" id="topnotes">[\s\S]{0,400}<div id="cwnote-slot"><\/div>\s*<div id="utoast-slot"><\/div>/);
   assert.match(PAGE, /<button class="btn" type="button" id="plus-cw-ack" aria-label="Got it: the earlier report could not be read" hidden>Got it<\/button>/);

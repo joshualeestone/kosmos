@@ -527,6 +527,38 @@ const STATES = {
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
     }
+    /* kosmos#6613: Got it for a lost report. Shown with the lost sentence, it posts the marker it was shown; the answer
+       (nothing lost now) hides it, the pane says Noted. and focus is on the check's switch. Control: the clear pane above
+       shows no Got it. */
+    {
+      const t = '[cert check lost]';
+      let lost = true; const acks = [];
+      const at = now() - 600;
+      const cwNow = () => ({ on: true, state: lost ? 'unknown' : 'clear', foreign: 0, earlier: 0, beforeRecord: 0, lost, lostAt: lost ? at : null, key: null, checkedAt: now(), failing: false });
+      const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+      const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+      const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
+      await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? { ...STATES.connected.remote, certWatch: cwNow() } : { ok: true })));
+      await page.route('**/api/remote/cert-watch/ack-lost', (route, req) => { acks.push(req.postData() || ''); lost = false; return route.fulfill(json({ certWatch: cwNow() })); });
+      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', self_device_id: 'd-self' })));
+      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [], pending: [], self_device_id: 'd-self' })));
+      await page.goto(BASE, { waitUntil: 'networkidle' });
+      if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+      await page.evaluate(() => showTab('settings'));
+      await page.click('#s-nav button[data-go="plus"]');
+      await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+      await page.waitForTimeout(500);
+      const before = await page.evaluate(() => ({ line: document.getElementById('plus-cw-line').textContent, ack: !document.getElementById('plus-cw-ack').hidden }));
+      chk(before.ack && /could not be read/.test(before.line), `${t} the lost sentence shows with Got it`, JSON.stringify(before));
+      await page.click('#plus-cw-ack');
+      await page.waitForTimeout(600);
+      const after = await page.evaluate(() => ({ ack: !document.getElementById('plus-cw-ack').hidden, line: document.getElementById('plus-cw-line').textContent,
+        focus: (document.activeElement || {}).id || '', msg: (document.getElementById('plus-msg') || {}).textContent || '' }));
+      chk(acks.length === 1 && JSON.parse(acks[0]).at === at, `${t} Got it posts the marker it was shown`, JSON.stringify(acks));
+      chk(!after.ack && after.line === '' && after.focus === 'plus-cw-switch' && /Noted/.test(after.msg), `${t} then it goes, the pane says Noted., and focus is on the switch`, JSON.stringify(after));
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await page.close();
+    }
     /* #4079: Disconnect this computer. Three outcomes of the engine's /api/remote/forget, each on a connected
        pane: the account was told (the pane goes back to not connected and says it is done), the account could
        not be told (the same, saying the address may still show on the account), and the engine failed (the
