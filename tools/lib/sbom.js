@@ -82,23 +82,60 @@ function gitList(repo, commit, dir) {
 // CARGO agrees it is the resolution of the Cargo.toml files at that commit. The connector is built WITHOUT --locked
 // (relay tools/build-tunnel-release.sh), so a [patch], a git or path dependency, or a dependency missing from the lock
 // would re-resolve the build while the lock still names other crates. `cargo metadata --locked --offline` on the
-// commit's own tree refuses each of those. The tree is written with read-tree and checkout-index into a throwaway
-// index, not git archive, whose export-ignore and export-subst attributes can drop or rewrite files.
+// commit's own tree refuses each of those.
+// Review 26: the tree is written HERE, blob by blob from git cat-file, so no filter, attribute, eol or lfs setting of
+// the relay checkout or this machine can change a byte Cargo reads (checkout-index applied them). A submodule
+// refuses. The same listing refuses two paths that are one path on a case-insensitive disk (a Mac's), after
+// lower-casing and Unicode NFC: git show, Cargo and a Mac build could each read a different one.
 function cargoLockAgrees(relay, commit) {
   const os = require('os'), p = require('path');
+  const git = (args, input) => {
+    try {
+      return execFileSync('git', ['-C', relay, ...args], { input, maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (e) {
+      throw new Error(`${relay}: git ${args[0]} failed at ${commit}: ${String(e.stderr || e.message).split('\n')[0]}`);
+    }
+  };
+  const entries = git(['ls-tree', '-r', '-z', '--full-tree', commit]).toString('utf8').split('\0').filter(Boolean).map((l) => {
+    const [meta, file] = [l.slice(0, l.indexOf('\t')), l.slice(l.indexOf('\t') + 1)];
+    const [mode, type, sha] = meta.split(' ');
+    return { mode, type, sha, file };
+  });
+  if (!entries.length) throw new Error(`${relay}: the tree of ${commit} is empty`);
+  const folded = new Map();
+  for (const { file } of entries) {
+    const parts = file.split('/');
+    for (let k = 1; k <= parts.length; k++) {
+      const real = parts.slice(0, k).join('/'), key = real.normalize('NFC').toLowerCase();
+      const seen = folded.get(key);
+      if (seen !== undefined && seen !== real) throw new Error(`relay at ${commit}: ${seen} and ${real} are one path on a case-insensitive disk`);
+      folded.set(key, real);
+    }
+  }
+  const sub = entries.find((e) => e.type !== 'blob');
+  if (sub) throw new Error(`relay at ${commit}: ${sub.file} is a ${sub.type}, which this check cannot write`);
   const dir = fs.mkdtempSync(p.join(os.tmpdir(), 'kosmos-sbom-cargo-'));
   try {
-    const env = { ...process.env, GIT_INDEX_FILE: p.join(dir, '.index') };
-    const tree = p.join(dir, 'tree') + '/';
-    try {
-      execFileSync('git', ['-C', relay, 'read-tree', commit], { env, stdio: ['ignore', 'ignore', 'pipe'] });
-      execFileSync('git', ['-C', relay, 'checkout-index', '-a', '-f', `--prefix=${tree}`], { env, stdio: ['ignore', 'ignore', 'pipe'] });
-    } catch (e) {
-      throw new Error(`${relay}: git could not write the tree of ${commit}: ${String(e.stderr || e.message).split('\n')[0]}`);
+    const tree = p.join(dir, 'tree');
+    const out = git(['cat-file', '--batch'], entries.map((e) => e.sha).join('\n') + '\n');
+    let at = 0;
+    for (const e of entries) {
+      const nl = out.indexOf(10, at);
+      const [sha, type, size] = out.slice(at, nl).toString('utf8').split(' ');
+      if (sha !== e.sha || type !== 'blob') throw new Error(`relay at ${commit}: git cat-file answered ${sha} ${type} for ${e.file}`);
+      const body = out.subarray(nl + 1, nl + 1 + Number(size));
+      at = nl + 1 + Number(size) + 1;
+      const dest = p.join(tree, e.file);
+      if (!dest.startsWith(tree + p.sep)) throw new Error(`relay at ${commit}: ${e.file} leaves the tree`);
+      fs.mkdirSync(p.dirname(dest), { recursive: true });
+      if (e.mode === '120000') fs.symlinkSync(body.toString('utf8'), dest);
+      else fs.writeFileSync(dest, body, { mode: e.mode === '100755' ? 0o755 : 0o644 });
     }
+    // Cargo with the build's own cache (CARGO_HOME) and nothing else of this shell's Cargo settings.
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CARGO_(?!HOME$)|RUSTUP_TOOLCHAIN$|RUSTFLAGS$)/.test(k)));
     try {
       execFileSync('cargo', ['metadata', '--locked', '--offline', '--format-version', '1', '--manifest-path', p.join(tree, 'Cargo.toml')],
-        { cwd: tree, stdio: ['ignore', 'ignore', 'pipe'] });
+        { cwd: tree, env, stdio: ['ignore', 'ignore', 'pipe'] });
     } catch (e) {
       const why = String(e.stderr || e.message).split('\n').find((l) => /error/.test(l)) || String(e.message).split('\n')[0];
       throw new Error(`relay at ${commit}: Cargo does not agree the Cargo.lock is what the Cargo.toml files resolve to (cargo is needed): ${why.trim()}`);
