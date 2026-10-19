@@ -230,9 +230,12 @@ function stateFact(session, now) {
     // but could not be read is NOT "never reported" (#6532 Raiden note 1): say so, still inventing
     // no state.
     const never = (self.NO_READING && self.NO_READING.NEVER_REPORTED) || '';
+    const unreadable = (self.NO_READING && self.NO_READING.UNREADABLE) || '';
     const because = r && typeof r.because === 'string' ? r.because : '';
     if (!because || because === never) return 'never reported';
-    return 'could not read the self-report (' + because + ')';
+    // The UNREADABLE sentinel ("could not read its self-report") carries no detail, so its parenthetical
+    // would only echo this prefix; append a because only when it adds something (e.g. a thrown error).
+    return because === unreadable ? 'could not read the self-report' : 'could not read the self-report (' + because + ')';
   }
   const parts = [String(r.state || 'reported, state unknown')];
   if (typeof r.because === 'string' && r.because) parts.push(r.because);
@@ -413,7 +416,7 @@ if (require.main === module) {
     let tasks;
     if (process.env.KOSMOS_HANDOFF_TASKS_REACHED !== undefined) {
       let raw = '';
-      try { raw = require('fs').readFileSync(0, 'utf8'); } catch (_) { raw = ''; }   // the tasks body, piped in on stdin
+      try { raw = fs.readFileSync(0, 'utf8'); } catch (_) { raw = ''; }   // the tasks body, piped in on stdin (fs bound at top)
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       tasks = { reached: process.env.KOSMOS_HANDOFF_TASKS_REACHED === '1', status: Number(process.env.KOSMOS_HANDOFF_TASKS_STATUS || 0), body };
