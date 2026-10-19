@@ -32,7 +32,10 @@ freshhandoff-6616). That connector then lists `fresh-signin` in `kosmos-tunnel c
 - **Above the first-run covers, pressable there** (z 80; exempt from the inert first run and its choice screen put on
   the page), and **hidden under the restart, update and account-switch screens** (the board is going away; those
   make the page inert, so an ask over them could be seen and not pressed).
-- **Shown first, words written after**, so a screen reader announces every refusal, the same sentence included.
+- **Shown first, words written after**, so a screen reader announces every refusal, the same sentence included; the
+  alert is the sentence alone (role on the words, not the box with its two buttons; review iteration 5).
+- Decided, not done (review iteration 5 NITs): Not now leaves focus where the browser puts it; pressing Sign in again
+  leaves the page, so a key being typed in the asking dialog is typed again after ("then try again" says so).
 - **Measured at phone width** (review iteration 4): at 390 px it spans the screen inside a 16 px gutter (it was 195 px
   wide with left: 50%). It can cover a dialog's foot there; Not now clears it.
 
@@ -52,6 +55,7 @@ unhandled rejection; no button without a gate session header. Mutations: the ser
 the page ignoring the flag, the wrapper not reading 403s, the gate-header test removed, the words written before
 showing, the rejection handler removed; each turned one test red.
 Browser check docs/browser-checks/render-stepupask-6616.js, on the $B8 board: control (no flag, no ask), shown, the
-reply's sentence, the fixed link, on top over the first-run cover, hidden under each of the three going-away screens
+reply's sentence, the fixed link, on top over the first-run cover (opened by the check with the page's own frOpen
+when the $B8 runner has completed first run; control: removing frOpen's exemption turns it red on a B8-style board), hidden under each of the three going-away screens
 (control: the CSS rule removed turns that arm red), Not now. Updated render-firstrun-choice-4356 C1 (the ask is the one
 non-inert child, and hidden there). render-layer-gutter-4494 (13/13) and render-restart-screen-4343 (78/78) re-run green.

@@ -36,9 +36,17 @@ const WORDS = 'From a remote session this needs a fresh sign-in. (check 6616)';
     await page.goto(BASE + '/', { waitUntil: 'load' });
     await page.waitForTimeout(1500);
     const ask = page.locator('#stepup-ask');
-    // A fresh board shows the first-run cover, which makes the rest of the page inert, so ON TOP is measured over it
-    // there. On the shared $B8 board an earlier check may have closed first run: then ON TOP is measured over the board.
-    console.log('NOTE  the first-run cover is ' + ((await page.locator('#firstrun').isVisible()) ? 'up' : 'not up') + ' for ON TOP');
+    // ON TOP is measured over the first-run cover, which makes the rest of the page inert. The $B8 runner completes first
+    // run at boot, so the check opens the cover itself with the page's own frOpen (it shows the cover and sets inert,
+    // and posts nothing), and closes it again after (review iteration 5: without this the arm never ran there).
+    const openedHere = await page.evaluate(() => {
+      if (!document.getElementById('firstrun').hidden) return false;
+      frOpen();   // eslint-disable-line no-undef
+      return true;
+    });
+    const cover = await page.evaluate(() => ({ up: !document.getElementById('firstrun').hidden,
+      inertBehind: [...document.querySelectorAll('body > *:not(#firstrun):not(#stepup-ask)')].some((n) => n.inert) }));
+    say(cover.up && cover.inertBehind, 'the first-run cover is up and the page behind it is inert (ON TOP is measured over it)', JSON.stringify({ ...cover, openedHere }));
     await page.evaluate(() => window.fetch('/api/check-6616/plain', { method: 'POST' }).then((r) => r.status));
     await page.waitForTimeout(300);
     say(!(await ask.isVisible()), 'control: a 403 without signInAgain shows no ask');
@@ -65,6 +73,7 @@ const WORDS = 'From a remote session this needs a fresh sign-in. (check 6616)';
       [box.x + box.width / 2, box.y + box.height / 2]) + '  box: ' + JSON.stringify(box);
     if (top !== 'stepup-go' && process.env.SHOT_6616) await page.screenshot({ path: process.env.SHOT_6616 });
     say(top === 'stepup-go', 'on top: the link is the topmost thing where it is drawn', String(top) + (chain ? '  ask: ' + chain : ''));
+    if (openedHere) await page.evaluate(() => frClose());   // eslint-disable-line no-undef
     // UNDER RESTART: the restart screen makes the page inert, so the ask is hidden while it is up and back after.
     for (const cls of ['restart-back', 'upd-back', 'cswitch-back']) {
       const under = await page.evaluate((c) => {
