@@ -37,8 +37,13 @@ function main(argv, stdin) {
   const sig = crypto.sign(null, bytes, priv).toString('base64');
   const check = verifyKeyList({ bytes, sig, recoveryKeys: [recoveryPub] });
   if (!check.ok) { console.error('the signed list did not check out: ' + check.why); return 1; }
-  fs.writeFileSync(path.join(outDir, 'release-keys.json'), bytes);
-  fs.writeFileSync(path.join(outDir, 'release-keys.json.sig'), sig + '\n');
+  // Both files to temporary names first, then into place one after the other: a failed write leaves the folder's
+  // previous pair as it was rather than half of a new one.
+  const j = path.join(outDir, 'release-keys.json'), g = j + '.sig';
+  fs.writeFileSync(j + '.tmp', bytes);
+  fs.writeFileSync(g + '.tmp', sig + '\n');
+  fs.renameSync(g + '.tmp', g);
+  fs.renameSync(j + '.tmp', j);
   console.log(`release key list ${seq} written to ${outDir}, ${keys.length} key(s), signed by recovery key ${recoveryPub}`);
   return 0;
 }

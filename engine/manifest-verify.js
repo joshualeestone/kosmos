@@ -177,29 +177,33 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
  * nothing could take a stolen key back. A recovery key, held offline by one person, narrows that: once its public half
  * is in RECOVERY_KEYS, the release keys a copy trusts come from a KEY LIST that a recovery key signed, not from KEYS.
  * What it gives, exactly: a copy that has taken a list without a revoked key refuses every release signed by that key
- * from then on, and the release key alone cannot sign a list. What it cannot do: a copy that installed a release signed
- * with the stolen key BEFORE taking the revocation runs that release's code, and is not recovered by this.
+ * from then on, and the release key alone cannot sign a list. What it cannot do: a release signed with a stolen key
+ * that a copy installs BEFORE taking the revocation replaces this file, RECOVERY_KEYS included, so that copy leaves the
+ * scheme and is not recovered by it. Revocation protects only copies that take the new list first, which is why every
+ * update path must fetch and check the list before it checks the release (#6609 phase 2).
  *
  *   dist/release-keys.json      {"release_keys": ["<spki base64>", ...], "seq": <n>, "issued": "<date>"}
  *   dist/release-keys.json.sig  the recovery key's Ed25519 signature over that file's exact bytes, base64
  *
  * A list is taken only when it verifies under a recovery key and its seq is not below the highest this copy has
  * stored (KEY_LIST_STATE in the install home), so an older list served again cannot bring a revoked key back; a newer
- * one replaces the stored seq. Revoking a stolen release key is a new list without it, seq + 1, signed with the
- * recovery key (tools/lib/release-keys-sign.js). Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
+ * one replaces the stored seq. A seq is never reused: a list with the stored seq but other keys is refused. Revoking a
+ * stolen release key is a new list without it, seq + 1, signed with the recovery key (tools/lib/release-keys-sign.js),
+ * and the next release raises MIN_KEY_LIST_SEQ to it. Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
 const RECOVERY_KEYS = [];
 const KEY_LIST_STATE = 'release-keys.state.json';
-// The lowest list seq this build accepts, even with no state stored (a fresh install, or a state file lost): raised in
-// the release after a revocation, so a copy that lost its record still refuses the list from before it.
+// The lowest list seq this build accepts, even with no state stored (a fresh install): raised in the release after a
+// revocation, so a copy without a record still refuses the list from before it.
 const MIN_KEY_LIST_SEQ = 1;
 const MAX_SEQ = 2147483647;
 
-/** An Ed25519 public key from its SubjectPublicKeyInfo base64, or null for anything else. */
+/** An Ed25519 public key from its SubjectPublicKeyInfo base64, or null for anything else. Only the canonical
+ * spelling is a key (the bytes re-encoded must be the same string), so comparing strings compares keys. */
 function ed25519Key(b64) {
-  // One spelling per key: 59 characters and one pad (44 bytes of DER), so a duplicate check on strings means one key.
   if (typeof b64 !== 'string' || !/^[A-Za-z0-9+/]{59}=$/.test(b64)) return null;
   const der = Buffer.from(b64, 'base64');
-  if (der.length !== 44 || !der.subarray(0, 12).equals(Buffer.from('302a300506032b6570032100', 'hex'))) return null;
+  if (der.length !== 44 || der.toString('base64') !== b64) return null;
+  if (!der.subarray(0, 12).equals(Buffer.from('302a300506032b6570032100', 'hex'))) return null;
   try { return crypto.createPublicKey({ key: der, format: 'der', type: 'spki' }); } catch { return null; }
 }
 
@@ -221,39 +225,53 @@ function verifyKeyList({ bytes, sig, recoveryKeys = RECOVERY_KEYS }) {
   return { ok: true, why: `release key list ${list.seq}`, seq: list.seq, keys: keys.slice() };
 }
 
-/** The lowest key-list seq this install may take: the highest it has stored, and never below MIN_KEY_LIST_SEQ (no state,
- * or an unreadable one, falls back to that floor, not to "any"). */
-function storedKeyListSeq(home) {
-  let seq = 0;
+/** This install's key-list record: { seq, keys } (seq the highest taken, never below minSeq), or null when the record
+ * is there but damaged, which is refused rather than read as none: damage must not reset the floor. */
+function storedKeyList(home, minSeq = MIN_KEY_LIST_SEQ) {
+  let raw;
+  try { raw = fs.readFileSync(path.join(home, KEY_LIST_STATE), 'utf8'); } catch (e) {
+    return e && e.code === 'ENOENT' ? { seq: minSeq, keys: null } : null;
+  }
   try {
-    const s = JSON.parse(fs.readFileSync(path.join(home, KEY_LIST_STATE), 'utf8'));
-    if (Number.isInteger(s.seq) && s.seq >= 1 && s.seq <= MAX_SEQ) seq = s.seq;
-  } catch { seq = 0; }
-  return Math.max(seq, MIN_KEY_LIST_SEQ);
+    const s = JSON.parse(raw);
+    if (!Number.isInteger(s.seq) || s.seq < 1 || s.seq > MAX_SEQ) return null;
+    return { seq: Math.max(s.seq, minSeq), keys: s.seq >= minSeq && Array.isArray(s.release_keys) ? s.release_keys : null };
+  } catch { return null; }
 }
 
 /** The release keys to check a manifest with. Off (no recovery key): the built-in KEYS. On: a key list that verifies
- * and is not older than the stored one, whose seq is then stored when newer. { ok, why, keys }. */
-function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, builtIn = KEYS }) {
+ * and is not older than this copy's record, which is then moved on when the list is newer. { ok, why, keys }. */
+function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, builtIn = KEYS, minSeq = MIN_KEY_LIST_SEQ }) {
   if (!recoveryKeys.length) return { ok: true, why: 'no recovery key is set, so the built-in release keys apply', keys: builtIn };
   if (!listBytes) return { ok: false, why: 'the release key list could not be read' };
   const v = verifyKeyList({ bytes: listBytes, sig: listSig, recoveryKeys });
   if (!v.ok) return v;
-  const stored = home ? storedKeyListSeq(home) : MIN_KEY_LIST_SEQ;
-  if (v.seq < stored) return { ok: false, why: `the release key list is ${v.seq}, older than the ${stored} this copy has taken` };
-  if (home && v.seq > stored) {
+  const stored = home ? storedKeyList(home, minSeq) : { seq: minSeq, keys: null };
+  if (!stored) return { ok: false, why: 'this copy\'s record of the release key list is damaged, so no list can be taken' };
+  if (v.seq < stored.seq) return { ok: false, why: `the release key list is ${v.seq}, older than the ${stored.seq} this copy has taken` };
+  if (v.seq === stored.seq && stored.keys && JSON.stringify([...stored.keys].sort()) !== JSON.stringify([...v.keys].sort())) {
+    return { ok: false, why: `the release key list ${v.seq} names other keys than the list ${v.seq} this copy took` };
+  }
+  if (home && v.seq > stored.seq) {
     // The keys are written as a record only: what is trusted always comes from a list that verified just now.
     const out = path.join(home, KEY_LIST_STATE);
     const tmp = out + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ seq: v.seq, release_keys: v.keys }) + '\n', { mode: 0o600, flag: 'wx' });
-    // Read again just before the swap: another check may have stored a newer list since; never move it backwards.
-    if (storedKeyListSeq(home) < v.seq) fs.renameSync(tmp, out); else fs.rmSync(tmp, { force: true });
+    try {
+      fs.writeFileSync(tmp, JSON.stringify({ seq: v.seq, release_keys: v.keys }) + '\n', { mode: 0o600, flag: 'wx' });
+      // Read again just before the swap: another check may have stored a newer list since; never move it backwards.
+      const now = storedKeyList(home, minSeq);
+      if (now && now.seq < v.seq) fs.renameSync(tmp, out);
+    } catch {
+      return { ok: false, why: 'this copy\'s record of the release key list could not be written' };
+    } finally {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+    }
   }
   return { ok: true, why: v.why, keys: v.keys };
 }
 
 module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles,
-  RECOVERY_KEYS, KEY_LIST_STATE, MIN_KEY_LIST_SEQ, ed25519Key, verifyKeyList, storedKeyListSeq, trustedKeys };
+  RECOVERY_KEYS, KEY_LIST_STATE, MIN_KEY_LIST_SEQ, ed25519Key, verifyKeyList, storedKeyList, trustedKeys };
 
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before
  * using a call form: it greps the next line, which lists every form this copy understands beyond the original

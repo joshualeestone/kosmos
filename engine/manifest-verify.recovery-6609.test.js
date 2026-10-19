@@ -41,7 +41,7 @@ test('#6609: a list the recovery key signed is taken, its keys are the trusted o
   const r = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: h, recoveryKeys: RK });
   assert.equal(r.ok, true, r.why);
   assert.deepEqual(r.keys, [spki(rel1)]);
-  assert.equal(mv.storedKeyListSeq(h), 3);
+  assert.equal(mv.storedKeyList(h).seq, 3);
   assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE)).mode & 0o777), 0o600);
 });
 
@@ -67,13 +67,13 @@ test('#6609: an older list served again cannot bring a revoked key back; a newer
   assert.equal(mv.trustedKeys({ listBytes: v1.bytes, listSig: v1.sig, home: h, recoveryKeys: RK }).ok, true);
   const r2 = mv.trustedKeys({ listBytes: v2.bytes, listSig: v2.sig, home: h, recoveryKeys: RK });
   assert.deepEqual(r2.keys, [spki(rel2)]);
-  assert.equal(mv.storedKeyListSeq(h), 2);
+  assert.equal(mv.storedKeyList(h).seq, 2);
   const back = mv.trustedKeys({ listBytes: v1.bytes, listSig: v1.sig, home: h, recoveryKeys: RK });
   assert.equal(back.ok, false);
   assert.match(back.why, /older than the 2 this copy has taken/);
   // The same seq again is fine (every update fetches it).
   assert.equal(mv.trustedKeys({ listBytes: v2.bytes, listSig: v2.sig, home: h, recoveryKeys: RK }).ok, true);
-  assert.equal(mv.storedKeyListSeq(h), 2);
+  assert.equal(mv.storedKeyList(h).seq, 2);
 });
 
 test('#6609: a revoked key no longer opens a release: the keys trustedKeys gives after the newer list refuse its manifest', () => {
@@ -96,15 +96,50 @@ test('#6609: a revoked key no longer opens a release: the keys trustedKeys gives
   assert.equal(mv.trustedKeys({ listBytes: v1.bytes, listSig: v1.sig, home: h, recoveryKeys: RK }).ok, false);
 });
 
-test('#6609: no stored state falls back to the built-in floor, not to any list; one key has one spelling', () => {
-  assert.equal(mv.storedKeyListSeq(home()), mv.MIN_KEY_LIST_SEQ);
+test('#6609: no record falls back to the built-in floor; a damaged record is refused, not read as none', () => {
+  assert.equal(mv.storedKeyList(home()).seq, mv.MIN_KEY_LIST_SEQ);
   const h = home();
   fs.writeFileSync(path.join(h, mv.KEY_LIST_STATE), 'not json');
-  assert.equal(mv.storedKeyListSeq(h), mv.MIN_KEY_LIST_SEQ, 'an unreadable state is the floor, not zero');
+  assert.equal(mv.storedKeyList(h), null);
+  const l = list({ release_keys: [spki(rel1)], seq: 5 });
+  const r = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: h, recoveryKeys: RK });
+  assert.equal(r.ok, false, 'damage must not reset the floor');
+  assert.match(r.why, /record of the release key list is damaged/);
+});
+
+test('#6609: a floor above 1 (raised after a revocation) refuses the older list on a copy with no record', () => {
+  const v1 = list({ release_keys: [spki(rel1)], seq: 1 });
+  const v3 = list({ release_keys: [spki(rel2)], seq: 3 });
+  assert.equal(mv.trustedKeys({ listBytes: v1.bytes, listSig: v1.sig, home: home(), recoveryKeys: RK, minSeq: 3 }).ok, false);
+  assert.equal(mv.trustedKeys({ listBytes: v3.bytes, listSig: v3.sig, home: home(), recoveryKeys: RK, minSeq: 3 }).ok, true);
+  assert.equal(mv.trustedKeys({ listBytes: v1.bytes, listSig: v1.sig, home: home(), recoveryKeys: RK, minSeq: 1 }).ok, true, 'CONTROL: floor 1 takes it');
+});
+
+test('#6609: one key has one spelling: the pad dropped, or the unused low bits of the last character changed, is not a key', () => {
   const k = spki(rel1);
   assert.ok(mv.ed25519Key(k));
-  assert.equal(mv.ed25519Key(k.replace(/=$/, '')), null, 'the same key without its pad is not a second spelling');
-  assert.equal(mv.ed25519Key(k + '='), null);
+  assert.equal(mv.ed25519Key(k.replace(/=$/, '')), null);
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const last = k[58];
+  const twin = k.slice(0, 58) + alphabet[alphabet.indexOf(last) ^ 1] + '=';
+  assert.ok(Buffer.from(twin, 'base64').equals(Buffer.from(k, 'base64')), 'the twin decodes to the same bytes (the case this guards)');
+  assert.equal(mv.ed25519Key(twin), null);
+  const l = list({ release_keys: [k, twin], seq: 1 });
+  assert.equal(mv.verifyKeyList({ bytes: l.bytes, sig: l.sig, recoveryKeys: RK }).ok, false, 'one key listed twice in two spellings is refused');
+});
+
+test('#6609: a seq is never reused: the same seq with other keys is refused; a failed record write is a refusal, not a throw', () => {
+  const h = home();
+  const a = list({ release_keys: [spki(rel1)], seq: 4 });
+  const b = list({ release_keys: [spki(rel2)], seq: 4 });
+  assert.equal(mv.trustedKeys({ listBytes: a.bytes, listSig: a.sig, home: h, recoveryKeys: RK }).ok, true);
+  const r = mv.trustedKeys({ listBytes: b.bytes, listSig: b.sig, home: h, recoveryKeys: RK });
+  assert.equal(r.ok, false);
+  assert.match(r.why, /names other keys than the list 4/);
+  const missing = path.join(home(), 'no-such-dir');
+  const w = mv.trustedKeys({ listBytes: a.bytes, listSig: a.sig, home: missing, recoveryKeys: RK });
+  assert.equal(w.ok, false);
+  assert.match(w.why, /could not be written/);
 });
 
 test('#6609: malformed lists are refused even when properly signed', () => {
