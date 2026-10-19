@@ -2,7 +2,8 @@
 /* #6609: sign a release KEY LIST with the recovery key (engine/manifest-verify.js RECOVERY_KEYS).
  *
  *   pbpaste | node tools/lib/release-keys-sign.js <seq> <out-dir> <release-key> [<release-key> ...]
- *   pbcopy < /dev/null      (then clear the clipboard: the private key was on it)
+ *   pbcopy < /dev/null      (then clear the clipboard: the private key was on it; a clipboard-history app or
+ *                             Universal Clipboard can keep a copy, so turn those off first or read the key from a file)
  *
  * The recovery private key (PKCS#8 PEM) arrives on stdin only, from the password manager it lives in, and is never
  * written anywhere. Each <release-key> is a release public key as SubjectPublicKeyInfo base64 (the form KEYS uses).
@@ -21,7 +22,7 @@ const { ed25519Key, verifyKeyList, RECOVERY_KEYS, KEY_LIST_TYPE, KEYS } = requir
 function main(argv, stdin) {
   const [seqArg, outDir, ...keys] = argv;
   const seq = Number(seqArg);
-  if (!/^\d+$/.test(String(seqArg || '')) || !Number.isInteger(seq) || seq < 1 || seq > 2147483647) { console.error('the sequence number must be a whole number from 1 to 2147483647'); return 1; }
+  if (!/^[1-9]\d*$/.test(String(seqArg || '')) || !Number.isInteger(seq) || seq < 1 || seq > 2147483647) { console.error('the sequence number must be a whole number from 1 to 2147483647'); return 1; }
   let isDir = false;
   try { isDir = fs.statSync(outDir).isDirectory(); } catch { isDir = false; }
   if (!outDir || !isDir) { console.error('the folder to write to does not exist'); return 1; }

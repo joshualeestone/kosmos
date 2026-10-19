@@ -18,6 +18,9 @@ Card: kosmos#6609 (security hardening item; detail kept with the security plan).
 - After a revocation: the next release raises MIN_KEY_LIST_SEQ to the revoking list's seq, so a fresh install refuses the list from before it.
 - Freshness: lists carry no expiry yet. Whoever controls what a copy fetches can keep serving the last list from before a revocation to a copy that has not taken the newer one. Phase 2 adds an expiry (a signed not_after, re-signed on a schedule) or a recency check on issued.
 - Callers never pass recoveryKeys, builtIn or minSeq from outside engine/manifest-verify.js.
+- Activation: the test that pins RECOVERY_KEYS empty gets RECOVERY_KEYS.every(ed25519Key) (a typo in the built-in key would refuse every list).
+- A damaged top record (possible after a power loss: fsync on macOS is not a full barrier) refuses every list; the message names the file to remove. Document that repair where activation is documented.
+- Signing: the recovery key comes off the clipboard; turn off clipboard history and Universal Clipboard first, or read it from a file on an encrypted volume.
 - The record uses hard links; an install home on a filesystem without them (exFAT, some network mounts) would refuse every update once on. Not a concern on APFS homes; say so where activation is documented.
 - Wire trustedKeys into runSetup, setup.sh's manifest checks and the .pkg helper; serve dist/release-keys.json(.sig) from the site; the release refuses to cut when the served list does not include its signing key. Activation: the recovery public key built in, and its first list (seq 1, the current release key) published before the release that turns it on.
 
