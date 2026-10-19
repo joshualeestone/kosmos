@@ -51,9 +51,9 @@ real fix.
   the source.
 - **`tools.sbom-o05.test.js`:** 48 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
-  must equal build()'s output byte for byte. Every rule added in reviews 1 to 28 has a mutant that fails an arm, run at
-  the time of the change (the first version, then reviews 1 to 28 in order: four, eight, six, eleven, six, seven,
-  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six, four, nine, six, six, eight and seven); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 29, apart from the time limits named below, has a mutant that fails an arm, run at
+  the time of the change (the first version, then reviews 1 to 29 in order: four, eight, six, eleven, six, seven,
+  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six, four, nine, six, six, eight, seven and one); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
@@ -150,22 +150,23 @@ real fix.
   1191 paths, no symlink, no non-ASCII name, no .cargo.
   Review 28: no rust-toolchain or rust-toolchain.toml anywhere, in any case (rustup reads one in the tree Cargo runs
   in, then downloads and runs that toolchain; measured: it reached for a download), and rustup is told not to
-  install (RUSTUP_AUTO_INSTALL=0) with none of this shell's RUSTUP_* but RUSTUP_HOME; no .git part (git itself
-  will not index one, so this is a second fence). Every git call, and Cargo, run with none of this shell's GIT_*
+  install (RUSTUP_AUTO_INSTALL=0) with none of this shell's RUSTUP_* but RUSTUP_HOME; no .git part (git will not
+  add one to the index, but plumbing can commit one, review 29; it has an arm). Every git call, and Cargo, run with none of this shell's GIT_*
   settings and with GIT_NO_REPLACE_OBJECTS=1 (measured: with a `git replace` ref in the checkout, git show of a
   signed commit returned another commit's file). Each git, cargo and xcrun call has a time limit.
   LIMIT: Cargo still reads config in CARGO_HOME and in the folders above its temp folder, which are this machine's.
   Equivalent survivors, recorded: the exclusive-create flag (the path checks already make every path unique), the
   per-blob newline check (a misaligned read fails the next entry's sha check or the end-of-output check), and the
-  two-members-one-name refusal (Cargo itself refuses that workspace), and the members-count agreement (valid
-  cargo metadata describes every workspace member it names).
+  two-members-one-name refusal (Cargo itself refuses that workspace), the members-count agreement (valid
+  cargo metadata describes every workspace member it names). UNTESTED, stated rather than claimed: the time limits
+  on git, cargo and xcrun have no arm (a stuck tool would need an injectable limit to simulate).
 - (Review 25.) A CPE escapes reserved characters in a version (a '+').
 - (Was a gap, review 23.) Every file read from git must be a plain file there (mode 100644 or 100755, read with git
   ls-tree first): git show of a symlink returns its target PATH as text, so a symlinked main.swift passed as importing
-  nothing. Any `.cargo` entry (a folder, a file or a symlink) in the relay root or above a member refuses. The
+  nothing. Any `.cargo` entry (a folder, a file or a symlink) anywhere in the commit, in any case (review 27) refuses. The
   installer is listed as a `setup` file component under its signed hash, instead of being signed and dropped.
 - The build machine's own ~/.cargo/config and CARGO_* settings, which can point a crate at other code. A .cargo/config
-  in the relay itself, at the root or in a member, refuses (review 21); lockfile values must be plain quoted strings
+  in the relay itself, anywhere in the commit, in any case (review 27), refuses (review 21); lockfile values must be plain quoted strings
   and every package must have a name and version (a literal string or a trailing comment dropped the version).
 - (Was a limit; now a refusal, reviews 19 to 21.) Any `#if` anywhere in main.swift (Swift accepts one after a
   comment or code on the same line) refuses: several conditions (canImport,

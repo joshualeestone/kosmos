@@ -653,6 +653,12 @@ test('real Cargo, offline: a lock that matches passes; every way a Cargo.toml ca
       [[['a/RUST-TOOLCHAIN', '1.2.3\n']], /a\/RUST-TOOLCHAIN names a Rust toolchain/],
       [[['a/src/Lib.rs', '']], /a\/src\/lib\.rs and a\/src\/Lib\.rs are one path|a\/src\/Lib\.rs and a\/src\/lib\.rs are one path/],
     ]) assert.throws(() => cargoWorkspace(root, plumb(extra)), want, extra.map((e) => e[0]).join(' '));
+    // A .git folder: the index refuses one, but plumbing commits it (review 29), so it is built with mktree.
+    const blob = execFileSync('git', ['-C', root, 'hash-object', '-w', '--stdin'], { input: '[core]\n', encoding: 'utf8' }).trim();
+    const sub = execFileSync('git', ['-C', root, 'mktree'], { input: `100644 blob ${blob}\tconfig\n`, encoding: 'utf8' }).trim();
+    const top = execFileSync('git', ['-C', root, 'mktree'], { input: git('ls-tree', good) + `\n040000 tree ${sub}\t.git\n`, encoding: 'utf8' }).trim();
+    const withGit = git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', top, '-p', good, '-m', 'git');
+    assert.throws(() => cargoWorkspace(root, withGit), /\.git\/config is inside a \.git folder/, 'a committed .git folder refuses');
     assert.ok(!fs.existsSync(marker), 'the committed build.rustc never ran: refused before Cargo was asked');
     assert.deepEqual(fs.readdirSync(outside).filter((n) => n !== 'ran-rustc.sh'), [], 'nothing was written outside the tree');
   } finally {
