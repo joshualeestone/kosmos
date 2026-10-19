@@ -1811,7 +1811,7 @@ function allowSelfQuietly() {
    coordinator's first_seen, so a coordinator can also make the tab open inside the window; the tab carries S only in
    its fragment, and allowing still needs the vouch. A joining computer is never allowed this way: computers pair by
    code (#4794, Baron's tunnel review). */
-const VOUCH_WINDOW_MS = 10 * 60 * 1000;
+const VOUCH_WINDOW_MS = 3 * 60 * 1000;   // kosmos#6599: 3 minutes (was 10); the notice with its Undo (VOUCH_NOTICE_MS) still lasts 10
 const VOUCH_RECENT_S = 30 * 60;
 const VOUCH_POLL_MS = 3000;
 const VOUCH_NOTICE_MS = 10 * 60 * 1000;
@@ -1884,12 +1884,22 @@ function vouchMatches(secret, d) {
   return got.length === want.length && crypto.timingSafeEqual(got, want);
 }
 /* Allows in-engine, like #4610's own-sign-in grant, so it does not pass server.js's screen-only Allow gate (isViaScreen):
-   what stands in for the person's press is S (minted here after their own sign-in, one device, ten minutes) and the row
-   filters above. */
+   what stands in for the person's press is S (minted here after their own sign-in, one device, three minutes since
+   #6599) and the row filters above. */
 function vouchTick() {
   const v = vouchState;
   if (!v) return;
-  if (Date.now() > v.until || v.epoch !== selfEpoch || !enrolled() || !read().on || inState(HELD_FILE)) { stopVouch(); return; }
+  // Sign-out, the switch, enrolment and a hold end the secret first, with nothing said.
+  if (v.epoch !== selfEpoch || !enrolled() || !read().on || inState(HELD_FILE)) { stopVouch(); return; }
+  if (Date.now() > v.until) {
+    // kosmos#6599: the window ran out after this computer started opening the browser and before any phone or browser
+    // sign-in matched, so the person (if they are still signing in) gets the ordinary Allow card. One line per such
+    // window end (stopVouch ends the secret); a window that ends while a matched allow is still being retried says
+    // nothing. It is not a measure of how often 3 minutes is too short: a browser nobody signed in on writes it too,
+    // and a sign-in that arrives after the window never opens the browser, so writes nothing.
+    if (v.opened && !v.matched) process.stderr.write('kosmos+: the automatic allow window ended before a sign-in matched; the Allow card is the way in\n');
+    stopVouch(); return;
+  }
   const lists = vouchRows();
   if (!lists) return;
   const rows = lists.devices;
@@ -1899,7 +1909,7 @@ function vouchTick() {
     if (!rows.some(recent) && !lists.signins.some(recent)) return;
     v.opened = true;   // armed before the opener runs, so it is never re-run; one still running after 5 s is not an
     // error (runCompanyOpener), it just logs nothing. The window still bounds S.
-    // The window is NOT restarted here: Josh ruled on a secret that lives ~10 minutes from the app sign-in (10-10 19:04).
+    // The window is NOT restarted here: Josh accepted a secret that lives about 10 minutes from the app sign-in (10-10 19:04); it is 3 since #6599.
     const url = vouchUrl(v.secret);
     if (!url) {
       process.stderr.write('kosmos+: the sign-in page is not https here, so the browser is not opened to connect it; the Allow card stays\n');
@@ -1942,7 +1952,7 @@ function vouchTick() {
         // not counted either, but the next tick's !enrolled() ends S: it fails closed rather than waiting.)
         const why = String((r && r.because) || '');
         if (!busy() && !/being forgotten|still signing in|finish the Plus sign-up/.test(why)) v.tries += 1;
-        // Three tries, then the ordinary Allow card is the way in (no spawn every 3 s for ten minutes).
+        // Three tries, then the ordinary Allow card is the way in (no spawn every 3 s for the whole window).
         if (vouchState === v && v.tries >= 3) {
           process.stderr.write('kosmos+: could not allow the browser this computer opened (' + String((r && r.because) || 'no answer') + '); the Allow card stays\n');
           stopVouch();
@@ -3498,6 +3508,8 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
   vouchAllowingIdForTests: () => vouchAllowingId,   // kosmos#6407
   vouchUntilForTests: () => (vouchState ? vouchState.until : 0),
+  recentlyVouchedForTests: (settings) => recentlyVouched(settings),
+  vouchPatchForTests: (patch) => { if (vouchState && patch) Object.assign(vouchState, patch); },   // kosmos#6599
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
   setCompanyOpenCommandForTests: (argv) => { companyOpenCommandForTests = argv || null; },
