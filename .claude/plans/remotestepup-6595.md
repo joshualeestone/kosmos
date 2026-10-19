@@ -100,6 +100,9 @@ set none of the forwarding headers, it would read as local and never be asked (R
   gated actions; a changed binary is asked anew (review iteration 16).
 - Trailing slashes cannot slip past the gate: the gate and the routes read the same `pathname`, matched exactly, so
   `/api/agents/` reaches neither the gate's list nor the route (review iteration 16 asked).
+- Residual (review iteration 18): the binary is identified by path, modification time and size, so one replaced in
+  place with all three unchanged would keep the earlier answer. An update writes a new file, so this needs a hand-made
+  copy; the running-tunnel report in #6616 removes it too.
 - Residual: the answer is the BINARY's, not the running tunnel process's. Re-asking whenever this board starts a
   tunnel ties them, but a tunnel process that outlives a board restart after an update would be described by the new
   binary. Owner PigeonPete with Renet, in #6616 (R01b): the running tunnel reports its capabilities (its status
