@@ -85,6 +85,14 @@ const os = require('node:os');
 const path = require('node:path');
 // #6205: bound every browser/context close so a dead engine fails the run in seconds instead of hanging it.
 const { closeContextBounded, closeBrowserBounded, childPidsOf, withTimeout, CTX_CLOSE_MS } = require('./lib-bounded-close.js');
+/* kosmos#6543: a fresh engine after this many screens. WebKit (playwright 1.62.1, webkit build 2336, on a Mac) stops
+   navigating in the 64th context of one browser: that goto never sends a request (none open, none sent) and times
+   out on 'load', and the close after it wedges (the #6205 hang). Measured on a two-line static page with no Kosmos in
+   it (63 loads, then a timeout on every one); Chromium loaded 72 of 72 the same way. A full run opens about 70 webkit
+   contexts per size, so the same screens failed every run (first-run-model and agent-files at se, light). Every engine
+   is relaunched, not only webkit: one rule is simpler, and a relaunch costs about a second. Well under 63, so a
+   screen that opens a page or two of its own cannot reach the limit. */
+const CONTEXTS_PER_ENGINE = 40;
 
 const REPO = path.resolve(__dirname, '..', '..');
 
@@ -2545,11 +2553,15 @@ async function run() {
          tree, since webkit/firefox launch through a wrapper and the real engine is a grandchild.
          Two reads after the launch, intersected (#6205 review): the engine persists in both, while each childPidsOf's
          own transient `ps` child (ps -A lists itself as our child, then exits) differs between reads, so it drops out. */
-      const childrenBefore = childPidsOf(process.pid);
-      const browser = await engines[en].launch();
-      const after1 = childPidsOf(process.pid);
-      const after2 = childPidsOf(process.pid);
-      const enginePids = after1.filter((p) => after2.includes(p) && !childrenBefore.includes(p));
+      const launchEngine = async () => {
+        const childrenBefore = childPidsOf(process.pid);
+        const b = await engines[en].launch();
+        const after1 = childPidsOf(process.pid);
+        const after2 = childPidsOf(process.pid);
+        return { b, pids: after1.filter((p) => after2.includes(p) && !childrenBefore.includes(p)) };
+      };
+      let { b: browser, pids: enginePids } = await launchEngine();
+      let contextsOnEngine = 0;   // kosmos#6543: see CONTEXTS_PER_ENGINE
       // #6205 (review): once a close times out, this browser is wedged; stop using it and let the finally force-kill
       // the engine, rather than opening another context on it (an unbounded newContext would reintroduce the hang).
       let wedged = false;
@@ -2571,6 +2583,14 @@ async function run() {
               /* A fresh context per screen: the board remembers choices (layout,
                  open sections) in localStorage, and one screen's clicks must not
                  decide what the next screen looks like. */
+              // kosmos#6543: a fresh engine before this one reaches the context count WebKit stops navigating at.
+              if (contextsOnEngine >= CONTEXTS_PER_ENGINE) {
+                await closeBrowserBounded(browser, enginePids);
+                browser = null;   // closed: the finally below must not close it again if the relaunch throws
+                ({ b: browser, pids: enginePids } = await launchEngine());
+                contextsOnEngine = 0;
+              }
+              contextsOnEngine++;
               let ctx;
               try {
                 // #6205 (review): bound newContext too. A wedged browser hangs here unbounded otherwise; a timeout
@@ -2712,7 +2732,7 @@ async function run() {
             }
           }
         }
-      } finally { await closeBrowserBounded(browser, enginePids); }
+      } finally { if (browser) await closeBrowserBounded(browser, enginePids); }
     }
     if (args.keep) {
       console.log(`\n--keep: the throwaway board stays up at ${board.base} (data in ${board.roots.DATA}); Ctrl-C to stop.`);
