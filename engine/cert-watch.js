@@ -34,7 +34,9 @@ function findingKey(raw) {
   /* Stable under what the tunnel does without a new certificate: a rename moves findings from `foreign` to
      `earlier_foreign` and folds the overflow counts (so lists are pooled and overflow is one total), and dropping one
      entry must not renumber the others (so identical bare entries are told apart by how often they repeat, not by
-     their place in a list). */
+     their place in a list). One exception: a rename that pools more findings than the tunnel keeps (its MAX_FOREIGN
+     cap) truncates the list into the overflow count, so the key changes and a put-away notice comes back once. That
+     errs toward a repeat reminder, never toward a missed finding. */
   const ids = [];
   const seen = new Map();
   for (const list of [raw.foreign, raw.earlier_foreign]) {

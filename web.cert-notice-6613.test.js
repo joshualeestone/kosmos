@@ -19,9 +19,15 @@ function el(id) {
     id, hidden: true, dataset: {}, attrs: {}, listeners: {}, focused: false,
     _text: '', _html: '', head: '',
     get textContent() { return this._text; }, set textContent(v) { this._text = v; this._html = ''; this.head = ''; },
-    set innerHTML(v) { this._html = v; this._text = ''; }, get innerHTML() { return this._html; },
+    set innerHTML(v) { this._html = v; this._text = ''; this._review = null; }, get innerHTML() { return this._html; },
     get firstChild() { return this._html || this._text ? {} : null; },
-    querySelector() { const self = this; return { set textContent(v) { self.head = v; } }; },
+    // The card's Review: a new button each time the card is rebuilt, as the real innerHTML makes one.
+    querySelector(sel) {
+      const self = this;
+      if (sel === '[data-cw="open"]') return this._html ? (this._review ||= { focused: false, focus() { this.focused = true; } }) : null;
+      return { set textContent(v) { self.head = v; } };
+    },
+    contains(x) { return !!x && x === this._review; },
     setAttribute(k, v) { this.attrs[k] = String(v); }, removeAttribute(k) { delete this.attrs[k]; },
     hasAttribute(k) { return k in this.attrs; }, getAttribute(k) { return this.attrs[k] ?? null; },
     classList: { toggle() {}, remove() {} }, addEventListener(t, fn) { this.listeners[t] = fn; },
@@ -37,7 +43,7 @@ function noteWorld({ onPlus = false, stored = '' } = {}) {
   const store = { 'kosmos.cwnote.dismissed': stored };
   const where = { onPlus };
   const ctx = {
-    document: { getElementById: get, querySelector: (sel) => (sel === '.apphead .klink' ? mark : null) }, console,
+    document: { getElementById: get, querySelector: (sel) => (sel === '.apphead .klink' ? mark : null), activeElement: null }, console,
     plusOnScreen: () => where.onPlus,
     localStorage: { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = v; } },
     // The block polls once as it loads; an error answer keeps that poll from painting over what a test paints.
@@ -47,7 +53,10 @@ function noteWorld({ onPlus = false, stored = '' } = {}) {
   const start = SCRIPT.indexOf('/* kosmos#6613: the notice for a finding');
   const end = SCRIPT.indexOf('/* The words of the code box (#729).', start);
   assert.ok(start > 0 && end > start, 'the notice script moved; re-anchor this test');
-  vm.runInNewContext(SCRIPT.slice(start, end), ctx);
+  // The restart note's focus-away (where a cleared notice sends focus), lifted from the page, not stubbed.
+  const fa = SCRIPT.indexOf('function rebootFocusAway() {');
+  assert.ok(fa > 0, 'rebootFocusAway moved; re-anchor this test');
+  vm.runInNewContext(SCRIPT.slice(fa, SCRIPT.indexOf('\n}\n', fa) + 3) + SCRIPT.slice(start, end), ctx);
   /* As the page does: opening Kosmos+ (settingsGo) puts the person on it, and syncPlusChrome repaints the notice. */
   ctx.settingsGo = (sec) => { if (sec === 'plus') { where.onPlus = true; ctx.paintCwNote(ctx.CW_NOTE.last); } };
   return { ctx, get, store, mark, where };
@@ -303,4 +312,96 @@ test('every slot in the floating stack is taken out of the layout while empty (a
   const rule = (PAGE.match(/^(#[a-z-]+-slot:empty(?:, #[a-z-]+-slot:empty)*) \{ display: none; \}$/m) || [])[1] || '';
   const covered = rule.split(', ').map((x) => x.replace(/^#|:empty$/g, ''));
   assert.deepEqual(slots.filter((s) => !covered.includes(s)), [], 'a slot that stays a flex item while empty');
+});
+
+test('a finding only for an earlier address says so; a finding here as well says this computer (the control)', () => {
+  const { ctx, get } = noteWorld();
+  ctx.paintCwNote({ ...FOUND, foreign: 0, earlier: 2 });
+  assert.match(get('cwnote-slot').head, /an address this computer used before\.$/);
+  ctx.paintCwNote({ ...FOUND, foreign: 1, earlier: 2 });
+  assert.match(get('cwnote-slot').head, /^Warning: a certificate was issued for this computer's address/);
+});
+
+test('Review carries a name that says which card it belongs to', () => {
+  const { ctx, get } = noteWorld();
+  ctx.paintCwNote(FOUND);
+  assert.match(get('cwnote-slot').innerHTML, /data-cw="open" aria-label="Review: certificate warning">Review</);
+});
+
+test('focus on the card survives a repaint (onto the new Review) and a clear (onto the K mark)', () => {
+  const { ctx, get, mark } = noteWorld();
+  ctx.paintCwNote(FOUND, true);
+  const first = get('cwnote-slot').querySelector('[data-cw="open"]');
+  ctx.document.activeElement = first;
+  ctx.paintCwNote(FOUND, false);   // the small line changes, so the card is rebuilt
+  const second = get('cwnote-slot').querySelector('[data-cw="open"]');
+  assert.notEqual(second, first, 'the card was not rebuilt; this test proves nothing');
+  assert.ok(second.focused, 'focus was dropped to the page by the rebuild');
+  ctx.document.activeElement = second;
+  ctx.paintCwNote({ on: true, state: 'clear', key: null });
+  assert.ok(!shown(get));
+  assert.ok(mark.focused, 'focus was dropped to the page by the clear');
+});
+
+test('a clear or a repaint with focus elsewhere moves nobody (the control for the test above)', () => {
+  const { ctx, get, mark } = noteWorld();
+  ctx.paintCwNote(FOUND, true);
+  ctx.paintCwNote(FOUND, false);
+  assert.ok(!get('cwnote-slot').querySelector('[data-cw="open"]').focused);
+  ctx.paintCwNote({ on: true, state: 'clear', key: null });
+  assert.ok(!mark.focused);
+});
+
+/* The pane painter and the notice in one context, as on the page. */
+function paneWorld() {
+  const w = noteWorld();
+  const sw = SCRIPT.indexOf('function paintSwitch(togId, on) {');
+  const a = SCRIPT.indexOf('var PLUS_CW_WORDS = {');
+  const b = SCRIPT.indexOf("{ const cwSw = document.getElementById('plus-cw-switch');");
+  assert.ok(sw > 0 && a > 0 && b > a, 'the certificate check script moved; re-anchor this test');
+  vm.runInNewContext(SCRIPT.slice(sw, SCRIPT.indexOf('\n}\n', sw) + 3) + SCRIPT.slice(a, b), w.ctx);
+  return w;
+}
+
+test('a poll in flight when the pane paints a newer answer cannot repaint over it', async () => {
+  const w = paneWorld();
+  let land;
+  w.ctx.fetch = () => new Promise((r) => { land = r; });
+  const poll = w.ctx.pollCwNote();
+  w.ctx.paintPlusCertWatch({ on: true, state: 'clear', key: null }, true);   // the newer answer: nothing found
+  land({ ok: true, json: async () => ({ enrolled: true, on: true, certWatch: FOUND }) });   // the older one: a finding
+  await poll;
+  assert.ok(!shown(w.get), 'the late poll painted its older finding over the pane\'s newer answer');
+});
+
+test('the same late poll, with no pane paint between, does paint (the control for the test above)', async () => {
+  const w = paneWorld();
+  let land;
+  w.ctx.fetch = () => new Promise((r) => { land = r; });
+  const poll = w.ctx.pollCwNote();
+  land({ ok: true, json: async () => ({ enrolled: true, on: true, certWatch: FOUND }) });
+  await poll;
+  assert.ok(shown(w.get));
+});
+
+test('an answer with no certWatch hides the pane row and Got it, and clears the key Review reads', () => {
+  const w = paneWorld();
+  w.ctx.paintPlusCertWatch({ on: true, state: 'unknown', lost: true, lostAt: 1792368000, key: null }, true);
+  w.ctx.paintPlusCertWatch({ ...FOUND }, true);
+  assert.equal(w.get('plus-cw-line').dataset.key, FOUND.key, 'CONTROL: a finding sets the key');
+  w.ctx.paintPlusCertWatch(null, true);
+  assert.equal(w.get('plus-cw-row').hidden, true);
+  assert.equal(w.get('plus-cw-ack').hidden, true);
+  assert.equal(w.get('plus-cw-line').dataset.key, '');
+  assert.equal(w.get('plus-cw-line').dataset.state, '');
+});
+
+test('paintPlus clears the notice only on a real not-set-up answer, and polls again once set up', () => {
+  const a = SCRIPT.indexOf('async function paintPlus() {');
+  const body = SCRIPT.slice(a, SCRIPT.indexOf('\n}\n', a));
+  assert.ok(a > 0 && body.length > 0, 'paintPlus moved; re-anchor this test');
+  assert.ok(body.includes("if (r && r.enrolled === true && typeof CW_NOTE !== 'undefined') CW_NOTE.quietUntil = 0;"), 'a computer set up again stays quiet for ten minutes');
+  const clears = body.match(/paintCwNote\(null\)/g) || [];
+  assert.equal(clears.length, 1, 'paintPlus clears the notice somewhere else too');
+  assert.ok(body.includes("if (r && r.enrolled === false && typeof paintCwNote === 'function') paintCwNote(null);"), 'a failed read (r null) or an error answer clears the warning');
 });
