@@ -15,6 +15,13 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
   says what it sends where.
 
 ## Decisions
+- Known gap, decided: `none` (no report yet) never goes stale. Treating a missing report as `unknown` after
+  a while would say "cannot confirm" on every install whose tunnel predates the check, until that update
+  ships, which is noise. So a tunnel that never writes a report looks like a quiet one. Revisit once the
+  tunnel with the check is everywhere (kosmos#6613).
+- After Kosmos+ was off for more than two spacings, an old `clear` reads `unknown` until the tunnel's
+  first check after it comes back (at session start), so "cannot confirm" can show briefly then. Accepted:
+  it is true.
 - Clear, never-run and off say nothing: the line is for news. Weakest premise: a person never learns the
   check exists unless they read the switch label; rejected a permanent "checked today" line as noise.
 - The switch shows whenever the computer is set up, so the off switch is reachable from the app. The check
