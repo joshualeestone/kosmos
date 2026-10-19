@@ -2508,7 +2508,7 @@ cmd_msg() {
 }
 
 # ---- kosmos reply [--stdin] <text…> ------------------------------------------------
-# Answer the person, in the box on your own page.
+# Message the person, in the box on your own page: an answer, or one the agent starts (#6572).
 #
 # 🛑 THE COMMAND THAT DID NOT EXIST. `post` reaches a room and `msg` types into
 # another agent's terminal; NEITHER reaches the person who messaged you. Until
@@ -4594,7 +4594,7 @@ kosmos_command_list() {
   printf '  kosmos update        install a newer Kosmos when one is published (only on a computer set to connect elsewhere; the app runs it)\n'
   printf '  kosmos msg           send a message to one agent\n'
   printf '  kosmos post          post in a project room\n'
-  printf '  kosmos reply         answer the person in your conversation with them\n'
+  printf '  kosmos reply         message the person in your conversation with them (an answer, or one you start)\n'
   printf '  kosmos reply-channel say where you answer the person, when it is not kosmos reply\n'
   printf '  kosmos inbox         read your recent messages with the person (a notice can arrive without them)\n'
   printf '  kosmos react         react to a post in a project room\n'

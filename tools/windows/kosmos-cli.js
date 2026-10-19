@@ -2342,7 +2342,7 @@ const BANNER = 'Usage: kosmos <' + VERBS.join('|') + '> ...   (this is the Windo
    every verb they share, and every verb here to having one. */
 const DESCRIBE = {
   msg: 'send a message to one agent',
-  reply: 'answer the person in your conversation with them',
+  reply: 'message the person in your conversation with them (an answer, or one you start)',
   'reply-channel': 'say where you answer the person, when it is not kosmos reply',
   inbox: 'read your recent messages with the person (a notice can arrive without them)',
   post: 'post in a project room',
