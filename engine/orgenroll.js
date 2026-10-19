@@ -459,7 +459,9 @@ async function preview(code, opts) {
    nothing: accepting goes through enroll with no code, which the coordinator records as a re-acceptance of the same
    world. Answered only while the company names THIS world here, for the company on this board's own record. */
 async function reviewHere(opts) {
-  const KIND = recKind(opts);   // kosmos#6251: the org's kind, as this board knows it, for every sentence below
+  // kosmos#6251: the org's kind, as this board knows it, for every sentence below. kosmos#6567 review 1: once a stop
+  // cleared the record, the stopped note still knows it (a family's screen may still offer the words until its next read).
+  const KIND = recKind(opts) || (stoppedFor(opts) ? stoppedKind(opts) : null);
   const rec = readEnrollment(opts);
   if (!rec || !isEnrolledHere(opts)) return { ok: false, because: inKind(KIND, 'This Kosmos is not your work Kosmos, so there is nothing to review here.') };   // kosmos#6567
   // Only for a Kosmos that sends nothing (orgreview review 3): one that reports has its words on record, and the plan
@@ -1089,5 +1091,5 @@ function applyPolicy(token, opts, orgId) {
 module.exports = {
   onEnrollmentEnded,   // #6232 review 10
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindNow, kindOf, codeOf,
-  worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, stoppedKind, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, memberCheck, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
+  worldId, siblingId, SIBLING_ID_FILE, STOPPED_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, stoppedKind, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, memberCheck, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };

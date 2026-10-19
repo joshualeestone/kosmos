@@ -13,11 +13,15 @@ Settings' joined line ("This Kosmos is in <family>."), both leave-refused lines,
     org_not_here "This Kosmos is no longer your work Kosmos, so nothing was sent." now go through inKind(KIND, ...).
   - setStopped(name, opts, kind) keeps the org's kind beside its name in org-stopped.json; stoppedKind(opts) reads it
     ('family' | 'company'; a note from before kinds were kept reads as a company's). Both stop paths pass KIND.
+  - reviewHere's KIND falls back to the stopped note's kind once a stop cleared the record (review 1: the screen may still
+    offer "Read the family's words" until its next read, and the refusal then said "work Kosmos").
 - server.js GET /api/org: sends stoppedKind beside a stopped note, and only then (the reply's shape is unchanged
   otherwise; server.orgenroll-5531.test.js pins it).
 - web/index.html:
   - the stopped note says "This Kosmos is no longer in X" for a family (as #6565's Settings line says "is in"), and
     keeps "no longer the work Kosmos for X" for a company.
+  - the review preview's refusal is said through plusOrgIn (that button is a family's), and a stopped note carried
+    across a dropped read (review 13's path) keeps its kind.
   - a leave refusal (r.because) is said through plusOrgIn with the org the page left. This covers the server's plain
     refusal on a member's other computer ("This Kosmos is not your work Kosmos. Leave from your work Kosmos."): that
     board has no record, so it cannot know the kind; the page, which offered Leave from the joined view, does.

@@ -55,3 +55,9 @@ test('#6567: the stopped note says "is no longer in" for a family, and the board
   // Only beside a stopped note: the reply's shape is unchanged when there is none (server.orgenroll-5531.test.js pins it).
   assert.ok(SERVER.includes('stoppedFor: stopped, ...(stopped ? { stoppedKind } : {}), leaveRefused:'), 'GET /api/org does not send stoppedKind with a stopped note');
 });
+
+test('#6567 review 1: a carried stopped note keeps its kind, and a family\'s review refusal is said in its words', () => {
+  assert.ok(PAGE.includes("PLUS_ORG.carried = { stoppedFor: j.stoppedFor || null, stoppedKind: j.stoppedKind || null,"), 'a carried note drops its kind');
+  assert.ok(PAGE.includes('if (!j.stoppedFor && c.stoppedFor) { j.stoppedFor = c.stoppedFor; j.stoppedKind = c.stoppedKind; }'), 'the carried kind is not restored with the note');
+  assert.ok(PAGE.includes("msg.textContent = p.because ? plusOrgIn(PLUS_ORG.state && PLUS_ORG.state.org, p.because) :"), 'the review preview refusal is not said through plusOrgIn');
+});

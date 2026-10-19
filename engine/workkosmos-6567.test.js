@@ -55,12 +55,19 @@ for (const [kind, name, says] of [['family', 'The Riveras', 'is no longer your f
     assert.equal(refused.code, 'org_not_here', JSON.stringify(refused));
     assert.ok(refused.because.includes(says), refused.because);
     if (kind === 'family') assert.equal(/work Kosmos/.test(refused.because), false, 'a family was told "work Kosmos"');
+    // Review 1: Read the family's words pressed after the stop (the screen read before it) is refused by reviewHere,
+    // whose record is gone; it reads the kind from the stopped note.
+    const review = await org.reviewHere({ root, remote: remoteFor(ORG, state) });
+    assert.equal(review.ok, false, JSON.stringify(review));
+    assert.ok(review.because.startsWith('This Kosmos is not your '), 'CONTROL: the not-here refusal: ' + review.because);
+    assert.equal(/work Kosmos/.test(review.because), kind !== 'family', review.because);
   });
 }
 
 test('#6567: a stopped note written before kinds were kept reads as a company\'s', (t) => {
   const root = sandbox(t);
-  fs.writeFileSync(path.join(root, org.STOPPED_FILE || 'org-stopped.json'), JSON.stringify({ at: new Date().toISOString(), name: 'Acme' }) + '\n');
+  assert.equal(org.STOPPED_FILE, 'org-stopped.json', 'CONTROL: the note file the server and the engine both read');
+  fs.writeFileSync(path.join(root, org.STOPPED_FILE), JSON.stringify({ at: new Date().toISOString(), name: 'Acme' }) + '\n');
   assert.equal(org.stoppedFor({ root }), 'Acme', 'CONTROL: the old note is read');
   assert.equal(org.stoppedKind({ root }), 'company');
 });
