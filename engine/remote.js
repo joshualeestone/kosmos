@@ -1296,7 +1296,7 @@ async function secondReset() {
   // (kosmos#6605 deployed): a coordinator without it answers `had` too. That is held by the merge order, not here.
   const got = lastJsonLine(r.said);
   const v = got && got.value && typeof got.value === 'object' ? got.value : null;
-  const had = v && typeof v.had === 'string' ? v.had : v && v.had === null ? null : undefined;
+  const had = v && typeof v.had === 'string' && v.had ? v.had : v && v.had === null ? null : undefined;
   return { ok: true, because: null, had };
 }
 

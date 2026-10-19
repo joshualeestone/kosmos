@@ -56,6 +56,7 @@ if (args[0] === 'second' && args[1] === 'reset') {
   const h = process.env.FAKE_SECOND_HAD || 'totp';
   if (h === 'garbled') { console.log('{not json'); process.exit(0); }
   if (h === 'number') { console.log(JSON.stringify({ ok: true, had: 1 })); process.exit(0); }
+  if (h === 'empty') { console.log(JSON.stringify({ ok: true, had: '' })); process.exit(0); }
   console.log(JSON.stringify(h === 'absent' ? { ok: true } : { ok: true, had: h === 'null' ? null : h }));
   process.exit(0);
 }
@@ -1411,7 +1412,7 @@ test('#733: a second-factor reset is the enrolled Mac\'s own signed request, and
     assert.equal((await remote.secondReset()).had, null, '#6611: nothing cleared reads as null, not as cleared');
     // Unknown is never "none": each of these must read as undefined, because null makes the page say nobody was
     // signed out.
-    for (const odd of ['absent', 'garbled', 'number']) {
+    for (const odd of ['absent', 'garbled', 'number', 'empty']) {
       process.env.FAKE_SECOND_HAD = odd;
       assert.equal((await remote.secondReset()).had, undefined, '#6611: an answer ' + odd + ' read as known');
     }

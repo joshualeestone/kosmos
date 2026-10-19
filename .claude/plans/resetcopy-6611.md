@@ -57,3 +57,13 @@ computers' own signed requests carry on, so the Macs themselves are not signed o
 - server.remote-second-reset-6611.test.js pins the route: a kind and null pass through, absent stays absent, a
   refusal is the engine's words. engine/remote.test.js adds garbled and wrongly typed answers, with the env var reset
   in a finally.
+
+## Challenge-loop round 4 (addressed)
+- An empty-string `had` reads as unknown, not as a cleared kind (tested with the others).
+- Deliberate, not changed: the dialog's opening line and the armed line speak before `had` is known. The opening line
+  is conditional by its grammar ("Switching it off also means ..."), and the armed line describes the case this
+  dialog exists for (a lost phone, so a factor is on). For an account with no factor the done words correct it
+  ("nobody was signed out"). Hedging both lines with "if the second step is on" was rejected: it adds a condition a
+  person at this screen almost never meets, to every person who does.
+- Ran on 5b09ace6cf: engine/remote.test.js 236/236, web*.test.js 391 files 3053/3053, the two server route tests 8/8,
+  the plus-panel browser check 149/149.
