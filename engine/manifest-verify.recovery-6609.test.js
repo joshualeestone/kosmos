@@ -156,6 +156,40 @@ test('#6609: only a canonical seq name counts: a leading zero or a number past t
   assert.equal(mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: h, recoveryKeys: RK }).ok, true, 'neither name blocks a real list');
 });
 
+test('#6609: the race window between reading the record and linking: a newer list that lands there wins, and a same-seq list with other keys is refused', () => {
+  const realLink = fs.linkSync;
+  try {
+    // A newer list (seq 7) is recorded by another check just before this check links seq 6.
+    const h = home();
+    const v6 = list({ release_keys: [spki(rel1), spki(rel2)], seq: 6 });
+    fs.linkSync = (from, to) => {
+      fs.writeFileSync(path.join(h, mv.KEY_LIST_STATE, 'seq-7.json'), JSON.stringify({ seq: 7, release_keys: [spki(rel2)] }));
+      return realLink(from, to);
+    };
+    const r = mv.trustedKeys({ listBytes: v6.bytes, listSig: v6.sig, home: h, recoveryKeys: RK });
+    assert.equal(r.ok, false, 'list 6 may hold a key list 7 dropped');
+    assert.match(r.why, /a newer release key list was taken meanwhile/);
+    assert.equal(mv.storedKeyList(h).seq, 7);
+    // Another check records seq 5 with other keys in the same window: the link finds it, and this list is refused.
+    const h2 = home();
+    const mine5 = list({ release_keys: [spki(rel2)], seq: 5 });
+    fs.linkSync = (from, to) => {
+      fs.writeFileSync(to, JSON.stringify({ seq: 5, release_keys: [spki(rel1)] }));
+      return realLink(from, to);
+    };
+    const r2 = mv.trustedKeys({ listBytes: mine5.bytes, listSig: mine5.sig, home: h2, recoveryKeys: RK });
+    assert.equal(r2.ok, false);
+    assert.match(r2.why, /names other keys than the list 5/);
+    // CONTROL: the same window with the SAME keys is fine (two checks taking one list).
+    const h3 = home();
+    fs.linkSync = (from, to) => {
+      fs.writeFileSync(to, JSON.stringify({ seq: 5, release_keys: [spki(rel2)] }));
+      return realLink(from, to);
+    };
+    assert.equal(mv.trustedKeys({ listBytes: mine5.bytes, listSig: mine5.sig, home: h3, recoveryKeys: RK }).ok, true);
+  } finally { fs.linkSync = realLink; }
+});
+
 test('#6609: switched on, no install home is a refusal (the record is what stops rollback)', () => {
   const l = list({ release_keys: [spki(rel1)], seq: 2 });
   const r = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: '', recoveryKeys: RK });
@@ -219,6 +253,7 @@ test('#6609: malformed lists are refused even when properly signed', () => {
     ['seq as text', { release_keys: [spki(rel1)], seq: '2' }, /no sequence number/],
     ['no type (a recovery signature over something that is not a key list)', { type: undefined, release_keys: [spki(rel1)], seq: 1 }, /not a release key list/],
     ['another type', { type: 'something-else', release_keys: [spki(rel1)], seq: 1 }, /not a release key list/],
+    ['the recovery key named as a release key', { release_keys: [spki(rel1), spki(recovery)], seq: 1 }, /names a recovery key as a release key/],
   ];
   for (const [label, obj, why] of bad) {
     const l = list(obj);
@@ -253,5 +288,11 @@ test('#6609: the signing tool writes a list the installed check accepts, reading
   fs.writeFileSync(path.join(out2, 'release-keys.json'), 'garbage');
   const g = spawnSync(process.execPath, [tool, '5', out2, spki(rel1)], { input: pem(recovery), encoding: 'utf8' });
   assert.equal(g.status, 1, 'an unreadable list in the folder is not overwritten');
+  const out3 = home();
+  const asRelease = spawnSync(process.execPath, [tool, '1', out3, spki(recovery)], { input: pem(recovery), encoding: 'utf8' });
+  assert.equal(asRelease.status, 2, 'the recovery key is never also a release key');
+  assert.deepEqual(fs.readdirSync(out3), []);
+  fs.writeFileSync(path.join(out3, 'release-keys.json'), 'null');
+  assert.equal(spawnSync(process.execPath, [tool, '1', out3, spki(rel1)], { input: pem(recovery), encoding: 'utf8' }).status, 1, 'a list file holding null is refused, not a crash');
   assert.equal(fs.readFileSync(path.join(out2, 'release-keys.json'), 'utf8'), 'garbage');
 });
