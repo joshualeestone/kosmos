@@ -297,7 +297,7 @@ test('#6585: a computer measured as unable to take the instant switch says so an
   assert.deepEqual(t.went, []);
   assert.deepEqual(t.screens, []);
   assert.equal(t.toasts.length, 1);
-  assert.match(t.toasts[0], /^tmnt is on an older Kosmos, so it cannot switch instantly yet\. Update Kosmos on tmnt, then try again\.$/);
+  assert.match(t.toasts[0], /^tmnt is on an older Kosmos, so it cannot switch instantly yet\. Update Kosmos on tmnt, or open tmnt\.kosmosplus\.com in your browser and sign in\.$/);
   // Not one at a time: a refusal never holds the next click.
   assert.equal(t.attrs['aria-busy'], undefined);
 });

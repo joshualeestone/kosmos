@@ -249,7 +249,7 @@ const FOUR = {
     ok(`${t} #6585: an older Kosmos is not opened: no screen, no ticket, the page stays`,
       !refused.screen && refused.asked === 0 && refused.url.startsWith('file:'), JSON.stringify(refused));
     ok(`${t} #6585: and says why and what to do`,
-      refused.toast === 'old-mini is on an older Kosmos, so it cannot switch instantly yet. Update Kosmos on old-mini, then try again.', refused.toast);
+      refused.toast === 'old-mini is on an older Kosmos, so it cannot switch instantly yet. Update Kosmos on old-mini, or open old-mini.kosmosplus.example in your browser and sign in.', refused.toast);
     await page.evaluate(() => { worldswClose(); worldswOpen(); });
     await page.waitForTimeout(150);
     await page.click('#worldsw-computers-list a.worldsw-row[href="https://desk-mini.kosmosplus.example/"]');

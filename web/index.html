@@ -30859,7 +30859,12 @@ function computersSwitchingScreen(name) {
   back.append(cv, p);
   document.body.appendChild(back);
   if (typeof startKLoader === 'function') startKLoader(cv);
+  /* Never stranded: when the switch does not leave this page (the Mac app went home instead and declined, an update
+     running there; or the navigation failed and the page stayed), the screen comes down after the ticket's own
+     8 s cut and a margin, and the page is usable again. */
+  setTimeout(() => { if (back.isConnected) back.remove(); }, COMPUTERS_SWITCH_SCREEN_MAX_MS);
 }
+const COMPUTERS_SWITCH_SCREEN_MAX_MS = 15000;
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('pageshow', () => {
     const s = document.getElementById('cswitch-screen');
@@ -30880,7 +30885,7 @@ function computersOpenClick(e) {
   /* kosmos#6585 (Josh 09:12: "it immediately switches to that Kosmos"): a computer the board measured as unable to
      take the instant switch would only show its sign-in page, so say why here and stay. */
   if (a.getAttribute('data-computer-instant') === '0') {
-    if (typeof msgToast === 'function') msgToast(name + ' is on an older Kosmos, so it cannot switch instantly yet. Update Kosmos on ' + name + ', then try again.');
+    if (typeof msgToast === 'function') msgToast(name + ' is on an older Kosmos, so it cannot switch instantly yet. Update Kosmos on ' + name + ', or open ' + url.host + ' in your browser and sign in.');
     return;
   }
   computersOpening = true;

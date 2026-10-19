@@ -21,14 +21,15 @@ function body(sig) {
 
 test('#6585: the navigation policy sends a click to this computer\'s own address home, before the link rules', () => {
   const policy = body('func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,');
-  const ask = policy.indexOf('if switchGoesHome(url, onAnotherComputer: isOnAnotherComputer(), clicked: navigationAction.navigationType == .linkActivated,');
+  const ask = policy.indexOf('if navigationAction.navigationType == .linkActivated,\n           switchGoesHome(url, onAnotherComputer: isOnAnotherComputer(), clicked: true, ownPlusHost: ownKosmosPlusHost()) {');
   assert.ok(ask > 0, 'the policy no longer asks switchGoesHome');
   const links = policy.indexOf('switch connectLinkDecision(');
   assert.ok(links > ask, 'switchGoesHome must be asked before the link rules, which would load the address');
   const guardAt = policy.indexOf('let frame = navigationAction.targetFrame, frame.isMainFrame');
   assert.ok(guardAt > 0 && guardAt < ask, 'only a main-frame navigation may go home');
   const arm = policy.slice(ask, policy.indexOf('return\n', ask));
-  assert.match(arm, /ownPlusHost: ownKosmosPlusHost\(\)\), !boardStartInFlight \{/, 'reads the address file when asked, and not during a start');
+  // No boardStartInFlight check here: backToThisComputer beeps during a start, where a sign-in page would load.
+  assert.doesNotMatch(arm, /boardStartInFlight/, 'a start in flight must reach backToThisComputer (it beeps), not fall through to the sign-in page');
   assert.match(arm, /decisionHandler\(\.cancel\)\n\s+backToThisComputer\(nil\)/, 'cancels the sign-in page and goes home through the menu item\'s own checks');
 });
 
