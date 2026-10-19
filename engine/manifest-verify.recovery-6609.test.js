@@ -4,6 +4,7 @@
  * Throwaway keys throughout: a recovery key, two release keys, and a stranger's key.
  *   node --test engine/manifest-verify.recovery-6609.test.js
  */
+require('../test-support/tmpscope');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -75,17 +76,35 @@ test('#6609: an older list served again cannot bring a revoked key back; a newer
   assert.equal(mv.storedKeyListSeq(h), 2);
 });
 
-test('#6609: a revoked key no longer opens a release: verify() with the list keys refuses its manifest', () => {
+test('#6609: a revoked key no longer opens a release: the keys trustedKeys gives after the newer list refuse its manifest', () => {
   const d = home();
   const manifest = path.join(d, 'm.json'); const sig = path.join(d, 'm.sig');
   const bytes = Buffer.from(JSON.stringify({ version: '0.7.70', sha256: 'x' }));
   fs.writeFileSync(manifest, bytes);
   fs.writeFileSync(sig, crypto.sign(null, bytes, rel1.privateKey).toString('base64'));
-  const before = mv.verify({ manifest, sig, tarball: null, stage: '-', version: '0.7.70', installedVersion: '0.7.60', keys: [spki(rel1)], skipTarball: true });
-  assert.equal(before.code, 0, 'CONTROL: rel1 opens it while trusted: ' + before.why);
-  const after = mv.verify({ manifest, sig, tarball: null, stage: '-', version: '0.7.70', installedVersion: '0.7.60', keys: [spki(rel2)], skipTarball: true });
+  const check = (keys) => mv.verify({ manifest, sig, tarball: null, stage: '-', version: '0.7.70', installedVersion: '0.7.60', keys, skipTarball: true });
+  const h = home();
+  const v1 = list({ release_keys: [spki(rel1), spki(rel2)], seq: 1 });
+  const k1 = mv.trustedKeys({ listBytes: v1.bytes, listSig: v1.sig, home: h, recoveryKeys: RK });
+  assert.equal(check(k1.keys).code, 0, 'CONTROL: while list 1 is current, rel1 opens it');
+  const v2 = list({ release_keys: [spki(rel2)], seq: 2 });
+  const k2 = mv.trustedKeys({ listBytes: v2.bytes, listSig: v2.sig, home: h, recoveryKeys: RK });
+  const after = check(k2.keys);
   assert.equal(after.code, 1);
   assert.match(after.why, /not signed by the Kosmos release key/);
+  // And serving list 1 again does not bring it back.
+  assert.equal(mv.trustedKeys({ listBytes: v1.bytes, listSig: v1.sig, home: h, recoveryKeys: RK }).ok, false);
+});
+
+test('#6609: no stored state falls back to the built-in floor, not to any list; one key has one spelling', () => {
+  assert.equal(mv.storedKeyListSeq(home()), mv.MIN_KEY_LIST_SEQ);
+  const h = home();
+  fs.writeFileSync(path.join(h, mv.KEY_LIST_STATE), 'not json');
+  assert.equal(mv.storedKeyListSeq(h), mv.MIN_KEY_LIST_SEQ, 'an unreadable state is the floor, not zero');
+  const k = spki(rel1);
+  assert.ok(mv.ed25519Key(k));
+  assert.equal(mv.ed25519Key(k.replace(/=$/, '')), null, 'the same key without its pad is not a second spelling');
+  assert.equal(mv.ed25519Key(k + '='), null);
 });
 
 test('#6609: malformed lists are refused even when properly signed', () => {
@@ -122,4 +141,9 @@ test('#6609: the signing tool writes a list the installed check accepts, reading
   assert.equal(spawnSync(process.execPath, [tool, '2', out, spki(rel1)], { input: 'not a key', encoding: 'utf8' }).status, 2);
   assert.equal(spawnSync(process.execPath, [tool, '0', out, spki(rel1)], { input: pem(recovery), encoding: 'utf8' }).status, 1);
   assert.equal(spawnSync(process.execPath, [tool, '2', out, spki(rel1), spki(rel1)], { input: pem(recovery), encoding: 'utf8' }).status, 1);
+  const over = spawnSync(process.execPath, [tool, '1', out, spki(rel2)], { input: pem(recovery), encoding: 'utf8' });
+  assert.equal(over.status, 1, 'a list with the same or a lower number than the one in the folder is not written');
+  assert.match(over.stderr, /already holds list 1/);
+  assert.equal(spawnSync(process.execPath, [tool, '2147483648', out, spki(rel1)], { input: pem(recovery), encoding: 'utf8' }).status, 1);
+  assert.equal(spawnSync(process.execPath, [tool, '2', out, spki(rel2)], { input: pem(recovery), encoding: 'utf8' }).status, 0, 'a higher number is written');
 });

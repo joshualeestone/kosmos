@@ -2,6 +2,7 @@
 /* #6609: sign a release KEY LIST with the recovery key (engine/manifest-verify.js RECOVERY_KEYS).
  *
  *   pbpaste | node tools/lib/release-keys-sign.js <seq> <out-dir> <release-key> [<release-key> ...]
+ *   pbcopy < /dev/null      (then clear the clipboard: the private key was on it)
  *
  * The recovery private key (PKCS#8 PEM) arrives on stdin only, from the password manager it lives in, and is never
  * written anywhere. Each <release-key> is a release public key as SubjectPublicKeyInfo base64 (the form KEYS uses).
@@ -17,9 +18,14 @@ const { ed25519Key, verifyKeyList } = require('../../engine/manifest-verify');
 function main(argv, stdin) {
   const [seqArg, outDir, ...keys] = argv;
   const seq = Number(seqArg);
-  if (!/^\d+$/.test(String(seqArg || '')) || !Number.isInteger(seq) || seq < 1) { console.error('the sequence number must be a whole number from 1'); return 1; }
+  if (!/^\d+$/.test(String(seqArg || '')) || !Number.isInteger(seq) || seq < 1 || seq > 2147483647) { console.error('the sequence number must be a whole number from 1 to 2147483647'); return 1; }
   if (!outDir || !fs.existsSync(outDir)) { console.error('the folder to write to does not exist'); return 1; }
   if (!keys.length) { console.error('name at least one release key'); return 1; }
+  // A list already in the folder with this seq or a higher one is not replaced: publishing it would roll copies back.
+  try {
+    const prev = JSON.parse(fs.readFileSync(path.join(outDir, 'release-keys.json'), 'utf8'));
+    if (Number.isInteger(prev.seq) && prev.seq >= seq) { console.error(`the folder already holds list ${prev.seq}; a new list needs a higher number`); return 1; }
+  } catch { /* no list there yet */ }
   if (new Set(keys).size !== keys.length) { console.error('a release key is named twice'); return 1; }
   const bad = keys.find((k) => !ed25519Key(k));
   if (bad) { console.error('not an Ed25519 public key: ' + bad.slice(0, 16) + '...'); return 1; }
