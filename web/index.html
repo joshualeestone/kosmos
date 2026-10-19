@@ -1337,7 +1337,7 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 .apphead .topnotes > div > * { pointer-events: auto; }   /* a notice goes in a slot div, never straight in #topnotes */
 /* The Allow card (#567) sits right under the header and is a security decision (the device and the code to compare):
    a floating notice must never paint over it, so it moves down by the stack's height (0 with no notice). */
-#askcard, #cwcard { margin-top: calc(10px + var(--topnotes-h, 0px)); }
+#askcard { margin-top: calc(10px + var(--topnotes-h, 0px)); }
 /* Mona Lisa, 2026-10-03: the Claude-unreachable line (#conn) is a warning too, and it shows on the same day as an
    expiring login, so it moves down the same way. Only when the Allow card is hidden: a showing Allow card already
    moved down and #conn follows it in the flow. The agent talk view gives #conn its own top gap, plus the stack. */
@@ -11779,10 +11779,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 /* #3829 addendum: the requests above the connected panel, at the panel's width. */
 #s-sec-plus .plus-asks { max-width: 620px; }
 #s-sec-plus .plus-asks .askreq { max-width: none; }
-#askcard .asknote, #cwcard .asknote { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-#askcard .asknote-x, #cwcard .asknote-x { margin-left: auto; background: none; border: 0; color: inherit; opacity: .7; font-size: 1.4rem; line-height: 1; min-width: 44px; min-height: 44px; cursor: pointer; border-radius: 8px; }
-#askcard .asknote-x:hover, #askcard .asknote-x:focus-visible, #cwcard .asknote-x:hover, #cwcard .asknote-x:focus-visible { opacity: 1; }
-#askcard .asknote-x:focus-visible, #cwcard .asknote-x:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+#askcard .asknote { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+#askcard .asknote-x { margin-left: auto; background: none; border: 0; color: inherit; opacity: .7; font-size: 1.4rem; line-height: 1; min-width: 44px; min-height: 44px; cursor: pointer; border-radius: 8px; }
+#askcard .asknote-x:hover, #askcard .asknote-x:focus-visible { opacity: 1; }
+#askcard .asknote-x:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #plus-state2 h3 { font-size: 1.3rem; line-height: 1.2; margin: 0 0 .25rem; }   /* #6314: a heading that wraps on a phone ("Add this computer to your account") must not inherit the body's fixed 16px (#6299) */
 #plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
 /* #5785: the branded K-to-circle loader (#2692) above "Signing in..." while this computer connects; the restart
@@ -12489,6 +12489,9 @@ window.kosmosMeasureScrollbarWidth();
          never changes height. This reverses the in-flow placement above (2026-08-17) at his request; the stack is
          centred under the navigation, clear of the left column's primary actions. -->
     <div class="topnotes" id="topnotes">
+    <!-- kosmos#6613: a certificate check finding, on every view but Kosmos+ (where its own line says it). First in the
+         stack: it asks the person to look. Painted by paintCwNote; only fixed sentences, never text from the report. -->
+    <div id="cwnote-slot"></div>
     <div id="utoast-slot"></div>
     <!-- #2055: the update-abort notice. Its own slot so it can co-occur with the
          post-update note and the offline note rather than overwriting either; a
@@ -12676,12 +12679,6 @@ window.kosmosMeasureScrollbarWidth();
   <h3 id="ask-title"></h3>
   <p id="ask-lead" hidden></p>
   <div id="ask-rows"></div>
-</div>
-<!-- kosmos#6613: the certificate check's finding, raised on every view but Kosmos+ (where its line already says it),
-     in the same compact notice as the request notice above (#6315: Review, and a close that puts this finding away;
-     a new finding shows it again). Painted by paintCwNote; only fixed sentences, never text from the report. -->
-<div class="askcard" id="cwcard" role="status" aria-live="polite" hidden>
-  <div id="cw-rows"></div>
 </div>
 <!-- ⚠️ ONE FACT ABOUT THE MACHINE, ABOVE THE FLEET, not a badge on thirteen
      cards. Whether this computer can reach a Claude subscription is a single
@@ -19602,7 +19599,7 @@ window.kosmosMeasureScrollbarWidth();
                the flow itself appears) may still not be read out. Empty, it takes no room (CSS below). -->
           <p class="fhint plus-cw-line" id="plus-cw-line" role="status"></p>
           <!-- kosmos#6613: shown with the lost-report sentence; tells the board this person has seen it. -->
-          <button class="btn" type="button" id="plus-cw-ack" hidden>Got it</button>
+          <button class="btn" type="button" id="plus-cw-ack" aria-describedby="plus-cw-line" hidden>Got it</button>
           <div class="plus-cw-row" id="plus-cw-row" hidden>
             <button class="toggle" type="button" id="plus-cw-switch" role="switch" aria-labelledby="plus-cw-label" hidden><i></i></button>
             <span class="fhint" id="plus-cw-label">While Kosmos+ is on, check the public certificate logs for this computer's address once a day (this sends the address to Cert Spotter)</span>
@@ -20988,6 +20985,8 @@ function syncPlusChrome() {
   else if (plusMounted) plusTeardown();
   /* #3829 addendum: where the requests paint depends on whether Kosmos Plus is on screen. */
   if (typeof paintAsk === 'function' && typeof ASK !== 'undefined') paintAsk();
+  /* kosmos#6613: the certificate notice hides on Kosmos+ and comes back when the person leaves it. */
+  if (typeof paintCwNote === 'function' && typeof CW_NOTE !== 'undefined') paintCwNote(CW_NOTE.last);
 }
 if (typeof window !== 'undefined') window.addEventListener('resize', function () { if (plusMounted) { plusStarsResize(); plusMarkBuild(); plusMarkDraw(null); } });   // #3778: the field keeps its dots on a window resize too
 /* ================= end #1615 Plus canvases ================= */
@@ -52501,10 +52500,11 @@ function paintPlusCertWatch(cw, plusOn) {
     finally { cwBusy = false; cwSw.removeAttribute('aria-busy'); }
     paintPlus();
   }); }
-/* kosmos#6613: the compact notice for a finding, on every view but Kosmos+. Its close (and Review) put away the
-   finding set shown (its key, kept across a reload, as #6315's request notice keeps its own); a new finding is a new
-   key and brings it back. The Kosmos+ pane's own line is never put away. Only fixed sentences are written. */
-var CW_NOTE = { key: null, away: [] };
+/* kosmos#6613: the notice for a finding, a card in the floating stack (#cwnote-slot, the .utoast look and its red),
+   on every view but Kosmos+. Its close (and Review) put away the finding set shown (its key, kept per browser, as
+   #6315's request notice and #5018's login notice keep theirs); a new finding is a new key and brings it back. The
+   Kosmos+ pane's own line is never put away. Only fixed sentences are written. */
+var CW_NOTE = { key: null, away: [], last: null };
 function cwNoteAway() {
   let stored = [];
   try { stored = (localStorage.getItem('kosmos.cwnote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { stored = []; }
@@ -52517,34 +52517,40 @@ function cwNoteDismiss() {
   try { localStorage.setItem('kosmos.cwnote.dismissed', keys.join('\n')); } catch (e) { /* this tab's record holds */ }
 }
 function paintCwNote(cw) {
-  const card = document.getElementById('cwcard'), rows = document.getElementById('cw-rows');
-  if (!card || !rows) return;
+  CW_NOTE.last = cw || null;
+  const slot = document.getElementById('cwnote-slot');
+  if (!slot) return;
   const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
   const key = cw && cw.state === 'foreign' && typeof cw.key === 'string' && /^[0-9a-f]{16}$/.test(cw.key) ? cw.key : null;
-  if (!key || onPlus || cwNoteAway().indexOf(key) !== -1) { CW_NOTE.key = null; card.hidden = true; rows.textContent = ''; return; }
-  if (CW_NOTE.key === key && !card.hidden) return;   // unchanged: not rewritten, so it is not read out again
+  if (!key || onPlus || cwNoteAway().indexOf(key) !== -1) { CW_NOTE.key = null; slot.textContent = ''; return; }
+  if (CW_NOTE.key === key && slot.firstChild) return;   // unchanged: not rewritten, so it is not read out again
   CW_NOTE.key = key;
-  const line = cw.foreign > 0 || !(cw.earlier > 0)
-    ? 'A certificate for this computer\'s address was issued that this computer did not ask for.'
-    : 'A certificate for an address this computer used before was issued that this computer did not ask for.';
-  rows.innerHTML = '<div class="asknote"><span class="askbrand">Kosmos+</span><span></span>'
-    + '<button class="btn uprime" type="button" data-cw="open">Review</button>'
-    + '<button class="asknote-x" type="button" data-cw="dismiss" aria-label="Dismiss notice" title="Dismiss"><span aria-hidden="true">&times;</span></button></div>';
-  rows.querySelector('.asknote span:not(.askbrand)').textContent = line;
-  card.hidden = false;
+  const head = cw.foreign > 0 || !(cw.earlier > 0)
+    ? 'Warning: a certificate was issued for this computer\'s address that this computer did not ask for.'
+    : 'Warning: a certificate was issued for an address this computer used before, that this computer did not ask for.';
+  // role=status on the words, not the card, so the buttons are not read out with every announcement (#3532's rule).
+  slot.innerHTML = '<div class="utoast cwnote"><span class="udot" aria-hidden="true"></span>'
+    + '<div class="utxt" role="status"><b></b><small>Kosmos+ checks the public certificate logs for this computer.</small></div>'
+    + '<div class="uacts"><button type="button" class="uprime" data-cw="open">Review</button></div>'
+    + '<button type="button" class="ux" data-cw="dismiss" aria-label="Close: certificate warning">&times;</button></div>';
+  slot.querySelector('.utxt b').textContent = head;
 }
 async function pollCwNote() {
   let r = null;
   try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
   paintCwNote(r && r.enrolled === true ? r.certWatch : null);
 }
-{ const cwRows = document.getElementById('cw-rows');
-  if (cwRows) cwRows.addEventListener('click', (e) => {
+{ const cwSlot = document.getElementById('cwnote-slot');
+  if (cwSlot) cwSlot.addEventListener('click', (e) => {
     const b = e.target && e.target.closest ? e.target.closest('[data-cw]') : null;
     if (!b) return;
+    const open = b.getAttribute('data-cw') === 'open';
     cwNoteDismiss();
-    document.getElementById('cwcard').hidden = true;
-    if (b.getAttribute('data-cw') === 'open') { showTab('settings'); settingsGo('plus'); paintPlus(); }
+    cwSlot.textContent = '';
+    if (open) { showTab('settings'); settingsGo('plus'); paintPlus(); return; }
+    // Keyboard focus goes where #5018's notices send it when they close: the K mark, the remote bar's menu, the heading.
+    const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+    if (next) next.focus();
   });
   const ackBtn = document.getElementById('plus-cw-ack');
   if (ackBtn) ackBtn.addEventListener('click', async () => {
@@ -52557,7 +52563,10 @@ async function pollCwNote() {
       if (!res.ok) plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not save that'), 'switch');
     } catch { plusSay('we could not save that', 'switch'); }
     finally { ackBtn.disabled = false; }
-    paintPlus();
+    await paintPlus();
+    // Got it goes away with the sentence it answered: keep keyboard focus on the line that said it.
+    const line = document.getElementById('plus-cw-line');
+    if (ackBtn.hidden && line) { line.setAttribute('tabindex', '-1'); line.focus(); }
   });
   setInterval(pollCwNote, 30000);
   pollCwNote();
