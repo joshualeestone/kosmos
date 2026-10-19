@@ -136,6 +136,11 @@ TUNNEL_BIN="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel.exe}
 . "$REPO/tools/lib/connector-windows.sh"
 _connector_provenance_check "$TUNNEL_BIN" || exit 1
 _tunnel_src="$CONNECTOR_COMMIT"; _tunnel_in="$CONNECTOR_SHA"
+# #6628: the Mac cut refuses a connector behind kosmos-relay main (#3884, release.sh step 1d); so does this, for the
+# connector the Windows build script made. KOSMOS_ALLOW_STALE_TUNNEL=1 ships it on purpose.
+. "$REPO/tools/lib/connector-currency.sh"
+connector_currency_check "$TUNNEL_BIN" "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" \
+  tools/build-tunnel-release-windows.ps1 || exit 1
 connector_pe_signed "$TUNNEL_BIN" || exit 1
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) _on_windows=1 ;; *) _on_windows=0 ;; esac
 _tunnel_sig="present (not verified: this build did not run on Windows)"
