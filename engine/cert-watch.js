@@ -15,13 +15,36 @@
    The tunnel itself keeps `clear` for up to two check spacings while failing; past that, and whenever
    the report is that old, this reads `unknown`, as the tunnel's report doc asks of a reader. */
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
 const REPORT_FILE = 'ct-watch.json';
 const OFF_FILE = 'ct-watch-off';
+/* kosmos#6613: the board's own record that a person has seen a lost report: the tunnel's damaged_report_at value
+   it was told about. Written by the board, never by the tunnel, and the tunnel's report is never edited. */
+const LOST_ACK_FILE = 'ct-watch-lost-ack';
 /* The tunnel's CHECK_SPACING_SECS is 20 hours; a `clear` older than two spacings is not current. */
 const STALE_MS = 2 * 20 * 60 * 60 * 1000;
+
+/* kosmos#6613: one finding set, as a short hex key: the same certificates give the same key, and any new one gives
+   a new key (so a dismissed notice comes back for it). Built from each finding's own hash, or its log id when it has
+   none, for this address and earlier ones; only the hex digest leaves this module. */
+function findingKey(raw) {
+  const ids = [];
+  for (const list of [raw.foreign, raw.earlier_foreign]) {
+    if (!Array.isArray(list)) continue;
+    for (const f of list) {
+      if (!f || typeof f !== 'object') continue;
+      const id = typeof f.cert_sha256 === 'string' && f.cert_sha256 ? 'c:' + f.cert_sha256
+        : typeof f.id === 'string' && f.id ? 'i:' + f.id : 'p:' + String(f.pubkey_sha256) + '@' + String(f.not_before);
+      ids.push(id);
+    }
+  }
+  ids.push('o:' + count(raw.foreign_overflow) + ':' + count(raw.earlier_overflow));
+  ids.sort();
+  return crypto.createHash('sha256').update(ids.join('\n')).digest('hex').slice(0, 16);
+}
 
 const count = (v) => (Number.isInteger(v) && v >= 0 ? v : 0);
 const len = (v) => (Array.isArray(v) ? v.length : 0);
@@ -37,7 +60,7 @@ function certWatchFrom(dir, nowMs) {
     /* A file that is there but does not parse is not "never checked". */
     const there = fs.existsSync(path.join(dir, REPORT_FILE));
     /* Not `failing`: a report that does not parse says nothing about whether the check runs. */
-    return { on, state: there ? 'unknown' : 'none', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, checkedAt: null, failing: false };
+    return { on, state: there ? 'unknown' : 'none', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, lostAt: null, key: null, checkedAt: null, failing: false };
   }
   const foreign = len(raw.foreign) + count(raw.foreign_overflow);
   const earlier = len(raw.earlier_foreign) + count(raw.earlier_overflow);
@@ -50,7 +73,10 @@ function certWatchFrom(dir, nowMs) {
   else if (state === 'clear' && (checkedAt === null || Math.abs(nowMs - checkedAt * 1000) >= STALE_MS)) state = 'unknown';
   /* An earlier report could not be read and was kept aside by the tunnel: findings in it may be lost. The tunnel
      keeps the marker until a person has looked; acknowledging it from the board is kosmos#6613. */
-  const lost = secs(raw.damaged_report_at) !== null;
+  const damagedAt = secs(raw.damaged_report_at);
+  /* kosmos#6613: a lost report a person has acknowledged (the same marker value) is no longer said. */
+  const acked = (() => { try { return Number(fs.readFileSync(path.join(dir, LOST_ACK_FILE), 'utf8').trim()); } catch { return null; } })();
+  const lost = damagedAt !== null && acked !== damagedAt;
   if (lost && state === 'clear') state = 'unknown';
   return {
     on,
@@ -59,6 +85,9 @@ function certWatchFrom(dir, nowMs) {
     earlier,
     beforeRecord: count(raw.before_record),
     lost,
+    /* The lost marker's value, so an acknowledgement names exactly the one the person saw (null when none). */
+    lostAt: damagedAt,
+    key: foreign + earlier > 0 ? findingKey(raw) : null,
     checkedAt,
     /* The last try failed after the last success (or there has been no success). */
     failing: errorAt !== null && (checkedAt === null || errorAt >= checkedAt),
@@ -79,4 +108,19 @@ function setCertWatchIn(dir, on) {
   }
 }
 
-module.exports = { certWatchFrom, setCertWatchIn, REPORT_FILE, OFF_FILE, STALE_MS };
+/** kosmos#6613: a person has seen the lost-report notice for marker `at` (the `lostAt` they were shown). Refused when the
+    report's marker is no longer that value, so an acknowledgement never covers a later loss. */
+function ackLostIn(dir, at) {
+  if (!Number.isInteger(at) || at <= 0) return { ok: false, because: 'say which report' };
+  let raw = null;
+  try { raw = JSON.parse(fs.readFileSync(path.join(dir, REPORT_FILE), 'utf8')); } catch { raw = null; }
+  if (!raw || secs(raw.damaged_report_at) !== at) return { ok: false, because: 'that report is no longer the one to acknowledge' };
+  try {
+    fs.writeFileSync(path.join(dir, LOST_ACK_FILE), String(at) + '\n', { mode: 0o600 });
+    return { ok: true };
+  } catch {
+    return { ok: false, because: 'we could not save that' };
+  }
+}
+
+module.exports = { certWatchFrom, setCertWatchIn, ackLostIn, findingKey, REPORT_FILE, OFF_FILE, LOST_ACK_FILE, STALE_MS };
