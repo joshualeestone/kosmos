@@ -45,7 +45,7 @@ if check_rc; then ok "a coordinator-only change on main does not refuse"; else b
 # 3. a tunnel change refuses, names the missing commit and the rebuild
 land crates/tunnel/lib.rs "tunnel-hsts: every answer carries HSTS"
 if check_rc; then bad "a connector missing a tunnel commit was NOT refused (the 0.6.95 shape)"
-else grep -q "STALE" "$T/err" && grep -q "tunnel-hsts: every answer carries HSTS" "$T/err" && grep -q "build-tunnel-release.sh" "$T/err" \
+else grep -q "STALE" "$T/err" && grep -q "tunnel-hsts: every answer carries HSTS" "$T/err" && grep -q "run tools/build-tunnel-release.sh on a box with both rustup targets, and copy dist/kosmos-tunnel with" "$T/err" \
   && ! grep -q "coordinator-only change" "$T/err" \
   && ok "a tunnel commit on main refuses, names that commit (not the coordinator one) and the rebuild" \
   || bad "wrong refusal for a stale connector: $(cat "$T/err")"; fi

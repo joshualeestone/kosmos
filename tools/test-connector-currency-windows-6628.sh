@@ -39,7 +39,7 @@ if check_rc; then ok "a Windows connector built from relay main is current"; els
 # 2. refuse: a change to the Windows build script, named with the commit and the rebuild
 land "$WINSCRIPT" "windows build: sign before the sidecars"
 if check_rc; then bad "a change to $WINSCRIPT did not refuse"
-else grep -q "STALE" "$T/err" && grep -q "windows build: sign before the sidecars" "$T/err" && grep -q "run $WINSCRIPT" "$T/err" \
+else grep -q "STALE" "$T/err" && grep -q "windows build: sign before the sidecars" "$T/err" && grep -q -- "-File $WINSCRIPT -Sign <the signing script>" "$T/err" && grep -q "copy dist/kosmos-tunnel.exe with" "$T/err" \
   && ok "a change to $WINSCRIPT refuses, names that commit and the Windows rebuild" || bad "wrong refusal for the Windows build script: $(cat "$T/err")"; fi
 
 # 3. override: exactly 1 ships it on purpose and says what it skips; anything else still refuses

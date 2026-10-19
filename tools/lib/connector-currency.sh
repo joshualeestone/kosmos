@@ -83,11 +83,15 @@ connector_currency_check() {
     printf '%s\n' "$missing" >&2
     return 0
   fi
-  local _where=""; [ "$script" = tools/build-tunnel-release.sh ] && _where=" on a box with both rustup targets"
+  # How to run the build that made this connector.
+  local _run="run $script on a box with both rustup targets"
+  case "$script" in
+    *.ps1) _run="run powershell -NoProfile -ExecutionPolicy Bypass -File $script -Sign <the signing script> on the Windows release PC" ;;
+  esac
   {
     echo "connector_currency: the Plus connector is $_what. It was built from ${built:0:12}, and its build inputs (crates/tunnel, crates/proto, Cargo.toml, Cargo.lock, $script; tests excluded) differ on kosmos-relay main:"
     printf '%s\n' "$missing"
-    echo "Rebuild it before cutting: in kosmos-relay on an UP-TO-DATE main (git -C $relay pull --ff-only; this check moved only origin/main), run ${script}${_where}, and copy the connector from dist/ with its .commit and .sha256 to this box's $bin."
+    echo "Rebuild it before cutting: in kosmos-relay on an UP-TO-DATE main (git -C $relay pull --ff-only; this check moved only origin/main), ${_run}, and copy dist/$(basename "$bin") with its .commit and .sha256 to this box's $bin."
     echo "To ship the older connector deliberately, rerun with KOSMOS_ALLOW_STALE_TUNNEL=1."
   } >&2
   return 1
