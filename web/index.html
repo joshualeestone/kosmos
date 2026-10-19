@@ -2815,6 +2815,11 @@ body.filter-attn #orgview .onode:not([data-attn]) { opacity: .26; }
 .oa-open { font-size: 13px; color: var(--k-ink); }
 /* kosmos#6406 step 2: a link to another computer while this computer makes its ticket (computersOpenClick). */
 a[data-computer-open][aria-busy="true"] { cursor: progress; text-decoration: underline dotted; }
+/* kosmos#6585: the switching screen, on the page's own ground like the full-restart screen. */
+.cswitch-back { position: fixed; inset: 0; z-index: 62; background: var(--k-bg); display: flex; flex-direction: column;
+                align-items: center; justify-content: center; gap: 22px; color: var(--k-ink); }
+.cswitch-back .cswitch-k { width: 88px; height: 103px; display: block; }
+.cswitch-back p { margin: 0; font-size: 17px; font-weight: 600; }
 .oa-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); }
 .oa-card { display: flex; flex-direction: column; gap: 4px; min-width: 0; text-decoration: none;
            background: var(--k-surface); color: var(--k-ink); border: 1px solid var(--k-rule);
@@ -20752,7 +20757,9 @@ function pnavFill(name) {
       // #6406: the row's own target (none in the Kosmos app, so the app keeps it in its window; a new tab in a browser).
       if (row.tagName === 'A') { it.href = row.href; if (row.target) it.target = row.target; it.rel = 'noopener noreferrer'; it.setAttribute('aria-label', row.getAttribute('aria-label') || '');
         // kosmos#6406 step 2: and its mark, so in the app it opens with a ticket as the row does.
-        if (row.hasAttribute('data-computer-open')) it.setAttribute('data-computer-open', '1'); }
+        if (row.hasAttribute('data-computer-open')) it.setAttribute('data-computer-open', '1');
+        // kosmos#6585: and what the switch needs (its name, whether it can switch instantly).
+        for (const k of ['data-computer-name', 'data-computer-instant']) { if (row.hasAttribute(k)) it.setAttribute(k, row.getAttribute(k)); } }
       if (row.getAttribute('aria-current') === 'true') it.setAttribute('aria-current', 'true');
       const t = document.createElement('span'); t.className = 'pnav-text'; t.textContent = nm ? nm.textContent : row.textContent;
       it.appendChild(t);
@@ -30830,6 +30837,35 @@ function computersGo(to) {
     l.remove();
   } catch { window.location.assign(to); }
 }
+/* kosmos#6585 (Josh 09:12: "a loading screen or something with our animated K with the dots, that's fine"): from
+   the click until the other computer's page replaces this one, the whole window shows the animated K and the
+   computer's name, so a switch never looks like a dead click. A status, not a dialog: there is nothing to answer,
+   and the next page takes it away. Back from the other computer can restore this page from the browser's cache
+   with the screen still up, so pageshow takes it down. */
+function computersSwitchingScreen(name) {
+  if (typeof document === 'undefined' || !document.body || document.getElementById('cswitch-screen')) return;
+  const back = document.createElement('div');
+  back.className = 'cswitch-back';
+  back.id = 'cswitch-screen';
+  back.setAttribute('role', 'status');
+  const cv = document.createElement('canvas');
+  cv.className = 'cswitch-k';
+  cv.width = 176;
+  cv.height = 206;
+  cv.setAttribute('aria-hidden', 'true');
+  const p = document.createElement('p');
+  p.textContent = 'Opening ' + name;
+  back.append(cv, p);
+  document.body.appendChild(back);
+  if (typeof startKLoader === 'function') startKLoader(cv);
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('pageshow', () => {
+    const s = document.getElementById('cswitch-screen');
+    if (s) s.remove();
+    computersOpening = false;
+  });
+}
 function computersOpenClick(e) {
   if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   const a = e.target && e.target.closest ? e.target.closest('a[data-computer-open]') : null;
@@ -30839,7 +30875,15 @@ function computersOpenClick(e) {
   if (url.protocol !== 'https:') return;
   e.preventDefault();
   if (computersOpening) return;   // one at a time: a click while one is out is ignored
+  const name = a.getAttribute('data-computer-name') || url.host.split('.')[0];
+  /* kosmos#6585 (Josh 09:12: "it immediately switches to that Kosmos"): a computer the board measured as unable to
+     take the instant switch would only show its sign-in page, so say why here and stay. */
+  if (a.getAttribute('data-computer-instant') === '0') {
+    if (typeof msgToast === 'function') msgToast(name + ' is on an older Kosmos, so it cannot switch instantly yet. Update Kosmos on ' + name + ', then try again.');
+    return;
+  }
   computersOpening = true;
+  computersSwitchingScreen(name);
   // Said while the ticket is made (review 2: up to 8 s of a link that looked dead).
   try { a.setAttribute('aria-busy', 'true'); } catch {}
   const plain = url.origin + url.pathname + url.search;
@@ -30924,6 +30968,10 @@ function computersRender(data) {
         if (typeof computersLinkTarget === 'function') computersLinkTarget(row); else row.target = '_blank';
         row.rel = 'noopener noreferrer';
         row.setAttribute('aria-label', 'Open ' + c.name + ', ' + state.toLowerCase());
+        /* kosmos#6585: its name for the switching screen, and "0" when the board measured that it cannot take the
+           instant switch (an older Kosmos there), so a click says so rather than opening its sign-in page. */
+        row.setAttribute('data-computer-name', c.name);
+        if (c.instant === false) row.setAttribute('data-computer-instant', '0');
       }
     }
     row.append(check, nm, st);

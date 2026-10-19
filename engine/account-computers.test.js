@@ -192,6 +192,53 @@ test('probeOnline: ANY HTTP answer is online (even a 404), a refused connection 
   }
 });
 
+test('probeReach (#6585): a ticket-taking gate (405 on the ticket path) is instant, an older gate (its sign-in page, 200) is online but not instant, refused and silent are offline', async () => {
+  const seen = [];
+  // The 0.7.57+ tunnel: a read of /_kosmos/ticket is 405 (it takes only POST there).
+  const ticketing = http.createServer((q, s) => { seen.push(q.method + ' ' + q.url); s.statusCode = q.url === '/_kosmos/ticket' ? 405 : 200; s.end(); });
+  await new Promise((r) => ticketing.listen(0, '127.0.0.1', r));
+  // The older tunnel, measured on tmnt at 0.7.55 (2026-10-19): every path answers its sign-in page, 200.
+  const older = http.createServer((q, s) => { s.statusCode = 200; s.end(); });
+  await new Promise((r) => older.listen(0, '127.0.0.1', r));
+  const silent = http.createServer(() => { /* never answer */ });
+  await new Promise((r) => silent.listen(0, '127.0.0.1', r));
+  const closed = http.createServer();
+  await new Promise((r) => closed.listen(0, '127.0.0.1', r));
+  const closedPort = closed.address().port;
+  await new Promise((r) => closed.close(r));
+  try {
+    const opts = (port, timeoutMs) => ({ request: http.request, port, timeoutMs });
+    assert.deepEqual(await ac.probeReach('127.0.0.1', opts(ticketing.address().port, 2000)), { online: true, instant: true });
+    assert.deepEqual(seen, ['HEAD /_kosmos/ticket'], 'one HEAD of the ticket path, and nothing else');
+    assert.deepEqual(await ac.probeReach('127.0.0.1', opts(older.address().port, 2000)), { online: true, instant: false });
+    assert.deepEqual(await ac.probeReach('127.0.0.1', opts(closedPort, 2000)), { online: false, instant: false });
+    let raceT;
+    const bounded = await Promise.race([
+      ac.probeReach('127.0.0.1', opts(silent.address().port, 300)),
+      new Promise((r) => { raceT = setTimeout(() => r('HUNG'), 2000); }),
+    ]);
+    clearTimeout(raceT);
+    assert.deepEqual(bounded, { online: false, instant: false }, 'a silent server must read offline within its timeout');
+  } finally {
+    ticketing.close(); older.close(); silent.closeAllConnections(); silent.close();
+  }
+});
+
+test('fetchComputers (#6585): a { online, instant } probe puts instant on an online row only; a bare boolean probe leaves it off', async () => {
+  enroll(true);
+  const reach = { 'agent1s.kosmos.test': { online: true, instant: false }, 'pizzarama.kosmos.test': { online: false, instant: false } };
+  const r = await run('ok:' + JSON.stringify(ANSWER), () => ac.fetchComputers({ probe: async (a) => reach[a] }));
+  assert.equal(r.value.ok, true, JSON.stringify(r.value));
+  const by = Object.fromEntries(r.value.computers.map((c) => [c.name, c]));
+  assert.equal(by.agent1s.online, true);
+  assert.equal(by.agent1s.instant, false, 'an older Kosmos there: the page must say so, not open it');
+  assert.equal(by.pizzarama.online, false);
+  assert.equal('instant' in by.pizzarama, false, 'an offline row is not a link, so it carries no instant');
+  assert.equal('instant' in by.laptop, false, 'this computer is never probed');
+  const r2 = await run('ok:' + JSON.stringify(ANSWER), () => ac.fetchComputers({ probe: async () => true }));
+  for (const c of r2.value.computers) assert.equal('instant' in c, false, c.name + ': a boolean probe says nothing about the instant switch');
+});
+
 test.after(() => {
   for (const d of [SANDBOX, STATE]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   fake.cleanup();   // the fake tunnel's own temp dir (the #4273 leak guard caught it on Mortals)
