@@ -678,6 +678,28 @@ test('real Cargo, offline: a lock that matches passes; every way a Cargo.toml ca
     }
     return git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', git('write-tree'), '-p', good, '-m', 'case');
   };
+  // Review 33: a Cargo config in a folder ABOVE the temp folder must not choose the rustc Cargo runs. The temp folder is
+  // put under one that holds such a config, naming a script that leaves a mark if it ever runs.
+  {
+    const above = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-above-'));
+    const mark = path.join(above, 'ran');
+    try {
+      fs.mkdirSync(path.join(above, '.cargo'));
+      fs.writeFileSync(path.join(above, 'rustc.sh'), `#!/bin/sh\ntouch ${mark}\nexit 1\n`, { mode: 0o755 });
+      fs.writeFileSync(path.join(above, '.cargo', 'config.toml'), `[build]\nrustc = "${path.join(above, 'rustc.sh')}"\n`);
+      fs.mkdirSync(path.join(above, 'tmp'));
+      const saved = process.env.TMPDIR;
+      process.env.TMPDIR = path.join(above, 'tmp');
+      try {
+        assert.doesNotThrow(() => cargoWorkspace(root, good), 'a config above the temp folder changed the answer');
+      } finally {
+        if (saved === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = saved;
+      }
+      assert.ok(!fs.existsSync(mark), 'Cargo ran the rustc a config above its temp folder named');
+    } finally {
+      fs.rmSync(above, { recursive: true, force: true });
+    }
+  }
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-outside-'));
   try {
     const marker = path.join(outside, 'ran-rustc');
@@ -791,6 +813,17 @@ test('a partial clone is not allowed to fetch a missing blob while the SBOM read
     assert.equal(git(part, 'show', `${c}:f`), 'real', 'the control: a plain git show in that clone fetches it');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('given the signed hash, a bundle that is not the release\'s refuses before tar reads it (review 33)', () => {
+  const junk = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-junk-')), 'tmux.tar.gz');
+  try {
+    fs.writeFileSync(junk, 'not a tar file at all\n');
+    assert.throws(() => readTmuxBundle(junk, SHA('0')), /is not the one this release signed/);
+    assert.throws(() => readTmuxBundle(junk), (e) => !/is not the one this release signed/.test(e.message), 'the control: without the hash, tar is what refuses');
+  } finally {
+    fs.rmSync(path.dirname(junk), { recursive: true, force: true });
   }
 });
 
@@ -1039,6 +1072,13 @@ test('the command line end to end, against a copy of the tool that pins a test k
   assert.match(fs.readFileSync(path.join(root, 'xcrun-args'), 'utf8'), /^swiftc -frontend -emit-imported-modules -target arm64-apple-macos13\.5 \S+main\.swift -o \S+$/m,
     'the compiler is asked for the release\'s own target, not the machine\'s');
   assert.equal(fs.readFileSync(out, 'utf8'), JSON.stringify(build(manifest, { repo: k.dir, relay: r.dir, tmux, readImports: fixtureImports, workspace: WS() }), null, 2) + '\n');
+  // A failed run leaves no older SBOM under --out (review 33): a pipeline that ignored the exit code would publish it.
+  const stale = path.join(root, 'stale.json'), badSig = path.join(root, 'bad.sig');
+  fs.writeFileSync(stale, 'old\n'); fs.writeFileSync(badSig, Buffer.alloc(64).toString('base64') + '\n');
+  const failed = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', badSig, '--tmux', tgz,
+    '--repo', k.dir, '--relay', r.dir, '--out', stale], { encoding: 'utf8', env });
+  assert.equal(failed.status, 1, 'a bad signature refuses');
+  assert.ok(!fs.existsSync(stale), 'the older file under --out is gone after a failed run');
   // A link planted at the partial file's name is not followed (review 31).
   const victim = path.join(root, 'victim.txt'), out2 = path.join(root, 'sbom2.json');
   fs.writeFileSync(victim, 'keep me\n'); fs.symlinkSync(victim, `${out2}.partial`);
