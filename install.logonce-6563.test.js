@@ -26,15 +26,19 @@ test.before(() => { tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-logo
 test.after(() => { if (tmpRoot) fs.rmSync(tmpRoot, { recursive: true, force: true }); });
 
 // Runs start_log, then prints two lines the way the installer narrates; returns the console and the log file.
-function runStartLog(env) {
+function runStartLog(env, { noFifo = false } = {}) {
   const home = fs.mkdtempSync(path.join(tmpRoot, 'home-'));
   const logDir = path.join(home, 'logs');
   const script = [
     'die() { echo "die: $*" >&2; exit 1; }',
+    // noFifo: the exotic-filesystem branch, where start_log cannot make its pipe and leaves the console alone.
+    noFifo ? 'mkfifo() { return 1; }' : '',
     'KOSMOS_HOME="$1"; LOG_DIR="$1/logs"; LOG="$LOG_DIR/install.log"',
     fnSource(SETUP, 'start_log'),
     'start_log',
     'echo "first line"',
+    // What a board or agent this run starts would inherit (review 1: the switch must not outlive start_log).
+    '/usr/bin/env | grep -c "^KOSMOS_LOG_FILE_ONLY=" | sed "s/^/inherited=/"',
     'echo "second line"',
   ].join('\n');
   const r = spawnSync('/bin/sh', ['-c', script, 'sh', home], { env: { PATH: '/usr/bin:/bin', ...env }, encoding: 'utf8' });
@@ -58,12 +62,19 @@ test('#6563: KOSMOS_LOG_FILE_ONLY=1 logs each line to the file once and prints n
   assert.equal(count(r.log, /first line/g), 1, 'the file holds the line once: ' + r.log);
   assert.match(r.log, /^\[\d+\] first line$/m, 'the file copy keeps its run id');
   assert.equal(r.console, '', 'nothing on the console, which `kosmos update` appends to the same file');
+  assert.match(r.log, /inherited=0/, 'a child started after start_log does not inherit the switch');
+});
+
+test('#6563: with no fifo (exotic filesystem), KOSMOS_LOG_FILE_ONLY=1 still leaves every line on the console', () => {
+  const r = runStartLog({ KOSMOS_LOG_FILE_ONLY: '1' }, { noFifo: true });
+  assert.equal(r.status, 0);
+  assert.match(r.console, /first line\n[\s\S]*second line\n/, 'the console, which `kosmos update` logs, keeps the lines');
 });
 
 test('#6563 control: unset, a person piping the installer still sees every line, and the file still gets it', () => {
   const r = runStartLog({});
   assert.equal(r.status, 0);
-  assert.match(r.console, /^first line\nsecond line\n$/, 'the console shows each line, untagged');
+  assert.match(r.console, /^first line\ninherited=0\nsecond line\n$/, 'the console shows each line, untagged');
   assert.equal(count(r.log, /first line/g), 1);
 });
 

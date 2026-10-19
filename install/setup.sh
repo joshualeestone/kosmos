@@ -1716,6 +1716,9 @@ start_log() {
     # #6563: KOSMOS_LOG_FILE_ONLY=1 (set by `kosmos update`, whose console already goes into this same file) keeps
     # the file copy and drops the console copy, so each line is logged once. Unset, a person piping this sees it all.
     awk -v id="$$" -v logfile="$LOG" -v fileonly="${KOSMOS_LOG_FILE_ONLY:-0}" '{ print "[" id "] " $0 >> logfile; fflush(logfile); if (fileonly != "1") { print; fflush() } }' < "$_pipe" &
+    # Read once, then gone (review 1): a board or agent this run starts must not inherit it, or an installer someone
+    # later runs from that pane by hand would print nothing.
+    unset KOSMOS_LOG_FILE_ONLY
     exec > "$_pipe" 2>&1
     rm -f "$_pipe"
   fi
