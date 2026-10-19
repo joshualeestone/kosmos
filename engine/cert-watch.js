@@ -34,7 +34,7 @@ function certWatchFrom(dir, nowMs) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     /* A file that is there but does not parse is not "never checked". */
     const there = fs.existsSync(path.join(dir, REPORT_FILE));
-    return { on, state: there ? 'unknown' : 'none', foreign: 0, earlier: 0, beforeRecord: 0, checkedAt: null, failing: there };
+    return { on, state: there ? 'unknown' : 'none', foreign: 0, earlier: 0, beforeRecord: 0, checkedAt: null, failing: there, lost: false };
   }
   const foreign = len(raw.foreign) + count(raw.foreign_overflow);
   const earlier = len(raw.earlier_foreign) + count(raw.earlier_overflow);
@@ -42,14 +42,17 @@ function certWatchFrom(dir, nowMs) {
   const errorAt = secs(raw.error_at);
   let state = ['clear', 'foreign', 'unknown'].includes(raw.state) ? raw.state : 'unknown';
   if (foreign + earlier > 0) state = 'foreign';
-  else if (state === 'clear' && (checkedAt === null || Math.abs(nowMs - checkedAt * 1000) > STALE_MS)) state = 'unknown';
-  if (raw.damaged_report_at !== undefined && state === 'clear') state = 'unknown';
+  else if (state === 'clear' && (checkedAt === null || Math.abs(nowMs - checkedAt * 1000) >= STALE_MS)) state = 'unknown';
+  /* An earlier report could not be read and was kept aside by the tunnel: findings in it may be lost. */
+  const lost = raw.damaged_report_at !== undefined;
+  if (lost && state === 'clear') state = 'unknown';
   return {
     on,
     state,
     foreign,
     earlier,
     beforeRecord: count(raw.before_record),
+    lost,
     checkedAt,
     /* The last try failed after the last success (or there has been no success). */
     failing: errorAt !== null && (checkedAt === null || errorAt >= checkedAt),

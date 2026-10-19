@@ -7,9 +7,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const vm = require('node:vm');
-const page = require('./test-support/page');
-const PAGE = fs.readFileSync('web/index.html', 'utf8');
+const page = require(path.join(__dirname, 'test-support/page'));
+const PAGE = fs.readFileSync(path.join(__dirname, 'web/index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 
 function world() {
@@ -23,7 +24,7 @@ function world() {
   const ctx = { document: { getElementById: el }, console };
   const start = SCRIPT.indexOf('function paintSwitch(togId, on) {');
   const end = SCRIPT.indexOf('\n}\n', start) + 3;
-  const cwStart = SCRIPT.indexOf('const PLUS_CW_WORDS = {');
+  const cwStart = SCRIPT.indexOf('const PLUS_CW_WORDS = {');   // through plusCwSay and paintPlusCertWatch
   const cwEnd = SCRIPT.indexOf('{ const cwSw = document.getElementById(\'plus-cw-switch\');');
   assert.ok(start > 0 && cwStart > 0 && cwEnd > cwStart, 'the certificate check script moved; re-anchor this test');
   vm.runInNewContext(SCRIPT.slice(start, end) + SCRIPT.slice(cwStart, cwEnd), ctx);
@@ -52,11 +53,22 @@ test('clear and never-run say nothing; unknown says it cannot confirm (the contr
   assert.match(el('plus-cw-line').textContent, /not been able to confirm/);
 });
 
-test('switched off: no line even with a finding, and the switch shows off', () => {
+test('switched off: a finding is still said (with "the check is off"), nothing else is, and the switch shows off', () => {
   const { ctx, el } = world();
   ctx.paintPlusCertWatch({ on: false, state: 'foreign', foreign: 2 });
-  assert.equal(el('plus-cw-line').hidden, true);
+  assert.equal(el('plus-cw-line').hidden, false);
+  assert.match(el('plus-cw-line').textContent, /did not ask for\..* The check is off\.$/);
   assert.equal(el('plus-cw-switch').getAttribute('aria-checked'), 'false');
+  ctx.paintPlusCertWatch({ on: false, state: 'unknown' });
+  assert.equal(el('plus-cw-line').hidden, true);
+});
+
+test('a finding only for an earlier address says so; a lost report says so', () => {
+  const { ctx, el } = world();
+  ctx.paintPlusCertWatch({ on: true, state: 'foreign', foreign: 0, earlier: 1 });
+  assert.match(el('plus-cw-line').textContent, /an address this computer used before/);
+  ctx.paintPlusCertWatch({ on: true, state: 'unknown', lost: true });
+  assert.match(el('plus-cw-line').textContent, /could not be read/);
 });
 
 test('an older server with no certWatch hides the line and the switch', () => {

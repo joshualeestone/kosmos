@@ -18,11 +18,17 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
 - Clear, never-run and off say nothing: the line is for news. Weakest premise: a person never learns the
   check exists unless they read the switch label; rejected a permanent "checked today" line as noise.
 - The switch shows whenever the computer is set up, so the off switch is reachable from the app.
+- A finding is said even with the check switched off ("The check is off." added), so the switch never
+  hides one. Only a finding: an unknown or lost state is not said while off.
+- The switch route is person-only (`isViaScreen`, 403 otherwise): an agent cannot turn the check off.
+- A finding only for a previous address, and a lost (damaged) earlier report, each have their own
+  sentence. Known gap: the tunnel asks the board to acknowledge a lost report (it stays until a person
+  has looked); this branch ships no acknowledge, so that sentence stays until the state dir changes.
 - No acknowledge button yet: a finding stays until the tunnel's report changes. Rejected for now, a
   "dismiss" would hide a security finding with one click; revisit with a design review.
 - Wording is mine and reversible ("Warning: ... did not ask for. Someone else may be able to pose as this
   computer."). It does not tell the person what to do next, because there is no support path to name yet.
 
 ## Proof
-- `node --test engine/cert-watch.test.js` (9), `web.plus-cert-watch-6602.test.js` (5), and the new
+- `node --test engine/cert-watch.test.js` (9), `web.plus-cert-watch-6602.test.js` (6), and the new
   `server.test.js` route test (by name).
