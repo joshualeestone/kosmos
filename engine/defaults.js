@@ -183,12 +183,10 @@ const BLOCK = [
   '',
   '**To tell the person something yourself, unasked, use `kosmos reply`.** It',
   'does not need a message from them first: it starts a message in your',
-  'conversation with them as readily as it answers one, so a Decided or a',
-  'Stopped goes there unasked. There is no separate command for starting one.',
-  'If your instructions name another place where you answer them, send these',
-  'there instead. A question only they can',
-  'answer is also reported as needs_you (above), which is what puts it on the',
-  'board.',
+  'conversation with them as readily as it answers one. There is no separate',
+  'command for starting one. If your instructions name another place where you',
+  'answer them, use that place. A question only they can answer is also',
+  'reported as needs_you (above), which is what puts it on the board.',
   '',
   '**One of those four is also a STATE on your card.** Telling a person you are',
   'blocked and telling Kosmos you are blocked are two separate acts. The second is',
@@ -1129,10 +1127,9 @@ function block() {
  *     none: every line about `kosmos reply` said "answer". There is one: /api/reply keeps
  *     the message in the person's direct conversation whether or not they wrote first.
  *     So this is wording, not a new verb: "Telling people what is happening" now says
- *     `kosmos reply` starts a message too, which is also the first place the four reports
- *     are given a command. Rejected: a second verb for the same act (two commands, one
+ *     `kosmos reply` starts a message too. Rejected: a second verb for the same act (two commands, one
  *     route), and "by design, you cannot" (false). An agent that declared a reply
- *     channel (#5805) is sent there instead. The CLI confirmation says "Sent." rather
+ *     channel (#5805) uses that place. The CLI confirmation says "Sent." rather
  *     than "Answered.", on both platforms. No new heading, so as in 32 an agent's
  *     EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that agents starting messages unasked is welcome. The

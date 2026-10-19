@@ -14,9 +14,14 @@ Neither option on the card as worded. Option 1 (a new verb) would be a second co
 the same route. Option 2 as worded ("by design you cannot") would be false. The fix is the
 wording:
 - doctrine (engine/defaults.js, "Telling people what is happening"): `kosmos reply` starts a
-  message too; it is the command for the four reports to the person; a question only they
-  can answer is also reported as needs_you. v33 -> v34, logged, pinned, past table regenerated.
-- help line on the Mac CLI (install/kosmos) and the Windows CLI (tools/windows/kosmos-cli.js).
+  message too; an agent with a declared reply channel uses that place; a question only they
+  can answer is also reported as needs_you. It does not say the four reports go to the
+  person: they go to whoever the agent reports to (review iteration 2). v33 -> v34, logged,
+  pinned, past table regenerated.
+- help line and the kept-reply confirmation ("Sent.", was "Answered.") on the Mac CLI
+  (install/kosmos) and the Windows CLI (tools/windows/kosmos-cli.js), with their tests.
+- doctrine-past.js also gains two intermediate v33 rows from #6330's history on main. That
+  is the generator's own output and only widens which unedited past copies are recognised.
 
 ## Weakest premise
 That unasked messages are welcome. Bounded by the section's own "report four things, do not
