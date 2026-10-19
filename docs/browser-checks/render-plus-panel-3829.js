@@ -479,7 +479,7 @@ const STATES = {
       await page.waitForTimeout(500);
       const c = await page.evaluate(() => {
         const line = document.getElementById('plus-cw-line'), row = document.getElementById('plus-cw-row'), sw = document.getElementById('plus-cw-switch');
-        return { text: line.textContent, inTree: !line.hidden && !line.closest('[hidden]'), state: line.getAttribute('data-state'),
+        return { text: line.textContent, inTree: !line.hidden && !line.closest('[hidden]') && getComputedStyle(line).display !== 'none', state: line.getAttribute('data-state'),
           colour: getComputedStyle(line).color, plain: getComputedStyle(document.getElementById('plus-cw-label')).color,
           rowShown: !!(row && !row.hidden && row.getBoundingClientRect().height > 0), swOn: sw.getAttribute('aria-checked'), swShown: !sw.hidden,
           label: (document.getElementById('plus-cw-label') || {}).textContent || '' };

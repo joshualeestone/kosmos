@@ -140,6 +140,9 @@ test('an older server with no certWatch hides the line and the switch', () => {
 test('paintPlus paints it, and the markup carries the line, the switch and its label', () => {
   assert.ok(SCRIPT.includes("paintPlusCertWatch(r.certWatch, r.on === true)"), 'paintPlus no longer paints the certificate check');
   assert.match(PAGE, /<p class="fhint plus-cw-line" id="plus-cw-line" role="status"><\/p>/, 'the live line must stay in the page (not hidden) so its first text is announced');
+  // .fhint:empty is display:none globally; the line overrides it, or an empty line leaves the accessibility tree.
+  assert.match(PAGE, /\.fhint:empty \{ display: none; \}/, 'the global rule this override answers moved; re-check the override');
+  assert.match(PAGE, /#s-sec-plus \.plus-cw-line:empty \{ display: block; margin: 0; \}/, 'the empty live line is not kept rendered');
   for (const id of ['plus-cw-line', 'plus-cw-row', 'plus-cw-switch', 'plus-cw-label']) assert.ok(PAGE.includes('id="' + id + '"'), id);
   assert.match(PAGE, /this sends the address to Cert Spotter/, 'the switch must say what it sends where');
 });

@@ -11710,7 +11710,9 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-cw-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 #s-sec-plus .plus-cw-row .toggle { flex: 0 0 42px; }
 #s-sec-plus .plus-cw-row .fhint { margin: 0; }
-#s-sec-plus .plus-cw-line:empty { margin: 0; }
+/* The global .fhint:empty rule takes an empty hint out of the layout AND the accessibility tree; this live line
+   must stay rendered while empty (no height, no margin), or its first text may not be announced. */
+#s-sec-plus .plus-cw-line:empty { display: block; margin: 0; }
 #s-sec-plus .plus-cw-line[data-state="foreign"] { color: var(--danger); font-weight: 600; }
 /* #4744: one line (Josh, "lets make sure this all fits on one line"). The Settings column caps this panel at 544px on
    a desktop window, where the sentence at .9rem needs ~452px of the ~404 left beside Copy (measured). So the box
