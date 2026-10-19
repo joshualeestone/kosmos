@@ -13,7 +13,7 @@ read `mortalkombat staff` (uid 501, gid 20), the build account's name in a shipp
 - install/setup.sh extracts both tarballs with `--no-same-owner` (review 1, below). install.manifest-sig-6468 and
   install.tmux-sig-6473 find those lines by their prefix, which is unchanged (42/42 pass).
 - tools/build-tmux-bundle.sh also calls the gate (review 1).
-- package.json test:shell: `bash -n` on the lib and the new test.
+- package.json test:shell: `bash -n` on the lib, then runs the new test.
 
 ## Root extraction (review 1)
 The plan first said every install extracts unprivileged. Not so: a Linux install run as root (`curl | sh` in a
