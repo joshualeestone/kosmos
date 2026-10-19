@@ -143,11 +143,13 @@ fetch libevent "$LIBEVENT_URL" "$LIBEVENT_SHA"
 fetch utf8proc "$UTF8PROC_URL" "$UTF8PROC_SHA"
 `;
 const VERSION = 'tmux:   tmux 3.5a\nbuilt:  2026-08-13T18:58:27Z\ntmux-src: 3.5a\nlibevent: 2.1.12-stable (core only)\nutf8proc: 2.9.0\nfloor:    13.5\n';
-const LIBS = ['bin/tmux', 'lib/libevent_core-2.1.7.dylib', 'lib/libutf8proc.3.dylib', 'VERSION'];
+const LIBS = ['bin/tmux', 'lib/libevent_core-2.1.7.dylib', 'lib/libutf8proc.3.dylib', 'VERSION',
+  'licenses/tmux-3.5a.txt', 'licenses/libevent-2.1.12-stable.txt', 'licenses/utf8proc-2.9.0.txt'];
 const BUNDLE = { sha: SHA('0'), ...parseTmuxVersion(VERSION, LIBS) };
 // What each test tarball file holds: the binaries carry their own version strings, as the real ones do.
 const CONTENT = { 'bin/tmux': '\0tmux 3.5a\0', 'lib/libevent_core-2.1.7.dylib': '\0libevent 2.1.12-stable\0',
-  'lib/libutf8proc.3.dylib': '\0utf8proc 2.9.0\0', VERSION };
+  'lib/libutf8proc.3.dylib': '\0utf8proc 2.9.0\0', VERSION, 'licenses/tmux-3.5a.txt': 'ISC', 'licenses/libevent-2.1.12-stable.txt': 'BSD',
+  'licenses/utf8proc-2.9.0.txt': 'MIT' };
 const MANIFEST = {
   manifest: 1, version: '0.7.60', arch: 'arm64', sha256: SHA('d'), tmux_sha256: SHA('0'),
   app: { commit: 'a'.repeat(40), dirty: false }, node: { version: 'v24.19.0', download_sha256: SHA('e') },
@@ -309,7 +311,7 @@ test('every vouched field: the release hash, node\'s purl, cpe and download, eac
   for (const part of ['tmux', 'libevent', 'utf8proc']) {
     assert.equal(comp(b, `tmux-part:${part}`).externalReferences, undefined, `${part}: nothing read out of the script is vouched for`);
   }
-  const withNcurses = sbom(MANIFEST, files(), { sha: SHA('0'), ...parseTmuxVersion(VERSION + 'ncurses:  6.5\n', [...LIBS, 'lib/libncursesw.6.dylib']) });
+  const withNcurses = sbom(MANIFEST, files(), { sha: SHA('0'), ...parseTmuxVersion(VERSION + 'ncurses:  6.5\n', [...LIBS, 'lib/libncursesw.6.dylib', 'licenses/ncurses-6.5.txt']) });
   assert.equal(comp(withNcurses, 'tmux-part:ncurses').cpe, 'cpe:2.3:a:gnu:ncurses:6.5:*:*:*:*:*:*:*');
 });
 
@@ -338,7 +340,7 @@ test('the SBOM says in its own metadata that the crate list is a superset; a + i
   const b = sbom();
   assert.deepEqual(b.metadata.properties.map((x) => x.name), ['kosmos:cargo-closure']);
   assert.match(b.metadata.properties[0].value, /a superset of the macOS build/);
-  const plus = sbom(MANIFEST, files(), { sha: SHA('0'), ...parseTmuxVersion(VERSION.replace('utf8proc: 2.9.0', 'utf8proc: 2.9.0+x'), LIBS) });
+  const plus = sbom(MANIFEST, files(), { sha: SHA('0'), ...parseTmuxVersion(VERSION.replace('utf8proc: 2.9.0', 'utf8proc: 2.9.0+x'), LIBS.map((x) => x.replace('utf8proc-2.9.0.txt', 'utf8proc-2.9.0+x.txt'))) });
   assert.equal(comp(plus, 'tmux-part:utf8proc').purl, 'pkg:generic/utf8proc@2.9.0%2Bx');
 });
 
@@ -426,9 +428,15 @@ test('the Mac app: its shipped binary is the one signed, and it imports Apple fr
   assert.ok(sbom(), 'Cocoa, WebKit, an attributed Network import and a commented one pass');
   assert.throws(() => sbom({ ...MANIFEST, native_app: { signed_sha256: SHA('d') } }), /app\/bin\/kosmos-app is not the Mac app it signed/);
   assert.throws(() => sbom({ ...MANIFEST, native_app: undefined }), /is not the Mac app it signed/);
-  for (const imp of ['import Sparkle', '@testable import Alamofire', 'import struct Sentry.Event', '  import Kingfisher']) {
+  for (const imp of ['import Sparkle', '@testable import Alamofire', 'import struct Sentry.Event', '  import Kingfisher',
+    'let u = "https://x"; import Sparkle']) {
     assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + imp + '\n')), /native-app\/main\.swift imports \w+, which is not an Apple framework/, imp);
   }
+  for (const imp of ['public import Sparkle', 'internal import Sparkle', '@_spi(Private) import Sparkle', '/* x */ import Sparkle']) {
+    assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + imp + '\n')), /an import this SBOM cannot read|imports Sparkle/, imp);
+  }
+  const quiet = SWIFT + '// the import-scan walk\nlet s = "import Sparkle // not code"\n/* import Sparkle\n   /* nested */ still a comment */\nlet m = """\nimport Sparkle\n"""\n';
+  assert.ok(sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, quiet)), 'comments and strings that say import are not imports');
 });
 
 test('the connector crate must be the one that builds kosmos-tunnel, and there is one of it', () => {
@@ -463,7 +471,11 @@ test('the binary\'s own version line must agree with the source it was built fro
 });
 
 test('the bundle: a library VERSION names must be in lib/, bin/tmux must be there, a ./ prefix reads the same, URL and SHA must pair', () => {
-  assert.throws(() => parseTmuxVersion(VERSION + 'ncurses: 6.5\n', LIBS), /VERSION names ncurses, but no library of it is in lib\//);
+  assert.throws(() => parseTmuxVersion(VERSION + 'ncurses: 6.5\n', [...LIBS, 'licenses/ncurses-6.5.txt']), /VERSION names ncurses, but no library of it is in lib\//);
+  assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, 'licenses/openssl-3.0.15.txt']), /licenses\/openssl-3\.0\.15\.txt is the licence of a library its VERSION does not name/);
+  assert.throws(() => parseTmuxVersion(VERSION, LIBS.map((x) => x.replace('utf8proc-2.9.0.txt', 'utf8proc-2.8.0.txt'))), /utf8proc-2\.8\.0\.txt is the licence of a library its VERSION does not name at that version/);
+  assert.throws(() => parseTmuxVersion(VERSION, LIBS.filter((x) => x !== 'licenses/libevent-2.1.12-stable.txt')), /no licence file for libevent 2\.1\.12-stable/);
+  assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, 'lib/libutf8proc.3.dylib']), /a path appears twice/);
   assert.throws(() => parseTmuxVersion(VERSION, LIBS.filter((p) => p !== 'bin/tmux')), /no bin\/tmux/);
   assert.deepEqual(parseTmuxVersion(VERSION, ['./', ...LIBS.map((p) => `./${p}`)]).versions, BUNDLE.versions);
   assert.throws(() => tmuxPins(TMUX.replace('fetch libevent "$LIBEVENT_URL" "$LIBEVENT_SHA"', 'fetch libevent "$LIBEVENT_URL" "$TMUX_SHA"')),
@@ -556,9 +568,23 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   const edited = path.join(root, 'edited');
   fs.cpSync(stage, edited, { recursive: true });
   fs.writeFileSync(path.join(edited, 'VERSION'), VERSION.replace('utf8proc: 2.9.0', 'utf8proc: 2.10.0'));
+  fs.renameSync(path.join(edited, 'licenses/utf8proc-2.9.0.txt'), path.join(edited, 'licenses/utf8proc-2.10.0.txt'));
   const etgz = path.join(root, 'edited.tar.gz');
-  execFileSync('tar', ['-czf', etgz, '-C', edited, ...LIBS]);
+  execFileSync('tar', ['-czf', etgz, '-C', edited, ...LIBS.map((x) => x.replace('utf8proc-2.9.0.txt', 'utf8proc-2.10.0.txt'))]);
   assert.throws(() => readTmuxBundle(etgz), /VERSION says utf8proc 2\.10\.0, but no file of it carries that version/);
+  for (const [from, to, name, oldLic, newLic] of [[/^tmux:.*$/m, 'tmux:   tmux 3.6', 'tmux', 'tmux-3.5a', 'tmux-3.6'],
+    [/^libevent:.*$/m, 'libevent: 2.1.13-stable (core only)', 'libevent', 'libevent-2.1.12-stable', 'libevent-2.1.13-stable']]) {
+    const dir = path.join(root, `edited-${name}`);
+    fs.cpSync(stage, dir, { recursive: true });
+    let v = VERSION.replace(from, to);
+    if (name === 'tmux') v = v.replace('tmux-src: 3.5a', 'tmux-src: 3.6');
+    fs.writeFileSync(path.join(dir, 'VERSION'), v);
+    fs.renameSync(path.join(dir, 'licenses', `${oldLic}.txt`), path.join(dir, 'licenses', `${newLic}.txt`));
+    const t = path.join(root, `edited-${name}.tar.gz`);
+    const listing = LIBS.map((x) => x.replace(`${oldLic}.txt`, `${newLic}.txt`));
+    execFileSync('tar', ['-czf', t, '-C', dir, ...listing]);
+    assert.throws(() => readTmuxBundle(t), new RegExp(`VERSION says ${name} `), name);
+  }
   const linked = path.join(root, 'linked');
   fs.cpSync(stage, linked, { recursive: true });
   fs.rmSync(path.join(linked, 'lib/libutf8proc.3.dylib'));

@@ -24,7 +24,7 @@
  *
  * LIMIT: the connector's relay commit is the relay build's own record (its sidecar); this does not rebuild the
  * connector to check that the binary came from that commit's Cargo.lock.
- * LIMIT: a library linked statically into tmux and not recorded in the bundle's VERSION is invisible here; so is a
+ * LIMIT: a library linked statically into tmux with neither a VERSION line nor a licence file is invisible here; so is a
  * static C library brought into the Mac app by a bridging header or a linker flag rather than an import, and the
  * second native binary (Kosmos.app/Contents/MacOS/Kosmos, a re-signed copy of kosmos-app) is accepted by name only.
  * LIMIT: a vendored third-party crate made a member of the relay workspace passes as first-party.
@@ -209,12 +209,24 @@ function parseTmuxVersion(text, list) {
   const self = (text.match(/^tmux:[ \t]+tmux[ \t]+(\S+)/m) || [])[1];
   if (self !== versions.tmux) throw new Error(`tmux bundle VERSION: the binary reports tmux ${self}, the source is ${versions.tmux}`);
   const owned = new Set();
+  const licensed = new Set();
   const filesOf = {};
+  const names = list.map((x) => x.replace(/^\.\//, '').replace(/\/$/, ''));
+  if (new Set(names).size !== names.length) throw new Error('tmux bundle: a path appears twice');
   let seenTmux = false;
   for (const raw of list) {
     const p = raw.replace(/^\.\//, '');
     if (p === 'bin/tmux') { seenTmux = true; filesOf.tmux = [raw]; }
-    if (p === '' || p.endsWith('/') || ['VERSION', 'THIRD-PARTY-NOTICES.txt', 'bin/tmux'].includes(p) || /^licenses\/[^/]+\.txt$/.test(p)) continue;
+    if (p === '' || p.endsWith('/') || ['VERSION', 'THIRD-PARTY-NOTICES.txt', 'bin/tmux'].includes(p)) continue;
+    // One licence file per library the bundle was built from, named <name>-<version>.txt: a record of what is
+    // linked in, so each must be a part VERSION names, at its version, and each part must have one.
+    const lic = p.match(/^licenses\/(.+)\.txt$/);
+    if (lic) {
+      const part = Object.keys(versions).find((n) => lic[1] === `${n}-${versions[n]}`);
+      if (!part) throw new Error(`tmux bundle: ${p} is the licence of a library its VERSION does not name at that version`);
+      licensed.add(part);
+      continue;
+    }
     const m = p.match(/^lib\/lib(.+?)(?:[-.][0-9]+(?:\.[0-9]+)*)?\.dylib$/);
     const owner = m && DYLIB_OWNER[m[1]];
     if (!owner || !versions[owner]) throw new Error(`tmux bundle: ${p} is not a file this SBOM accounts for`);
@@ -223,6 +235,7 @@ function parseTmuxVersion(text, list) {
   }
   for (const lib of Object.keys(versions)) if (lib !== 'tmux' && !owned.has(lib)) throw new Error(`tmux bundle: VERSION names ${lib}, but no library of it is in lib/`);
   if (!seenTmux) throw new Error('tmux bundle: no bin/tmux');
+  for (const part of Object.keys(versions)) if (!licensed.has(part)) throw new Error(`tmux bundle: no licence file for ${part} ${versions[part]}`);
   return { versions, filesOf };
 }
 
@@ -316,12 +329,39 @@ function checkFirstParty(manifest, packageJson) {
 const APPLE_MODULES = new Set(['Foundation', 'Cocoa', 'AppKit', 'WebKit', 'Network', 'ApplicationServices', 'AVFoundation', 'Speech',
   'UserNotifications', 'Security', 'CoreGraphics', 'CoreFoundation', 'CoreServices', 'Darwin', 'os', 'ServiceManagement',
   'SwiftUI', 'Combine', 'IOKit', 'SystemConfiguration', 'UniformTypeIdentifiers', 'QuartzCore', 'CoreAudio']);
+// Swift source with its comments (// and /* */, which nest in Swift) blanked and its string literals emptied, so what
+// is left is code. Quotes are tracked, so a // inside a string is not a comment.
+function swiftCode(src) {
+  let out = '', i = 0, depth = 0;
+  while (i < src.length) {
+    const c = src[i], two = src.slice(i, i + 2);
+    if (depth) { if (two === '/*') { depth++; i += 2; } else if (two === '*/') { depth--; i += 2; } else { out += c === '\n' ? '\n' : ' '; i++; } continue; }
+    if (two === '/*') { depth = 1; i += 2; continue; }
+    if (two === '//') { while (i < src.length && src[i] !== '\n') i++; continue; }
+    if (c === '"') {
+      const triple = src.slice(i, i + 3) === '"""';
+      const end = triple ? '"""' : '"';
+      i += end.length;
+      while (i < src.length && src.slice(i, i + end.length) !== end) { if (src[i] === '\\') i++; if (src[i] === '\n') out += '\n'; i++; }
+      i += end.length; out += '""';
+      continue;
+    }
+    out += c; i++;
+  }
+  return out;
+}
+
 function checkNativeApp(manifest, swift) {
   const shipped = manifest.files.find((f) => f.path === 'app/bin/kosmos-app');
   if (!manifest.native_app || !SHA256.test(manifest.native_app.signed_sha256 || '') || !shipped || shipped.sha256 !== manifest.native_app.signed_sha256) {
     throw new Error('the manifest\'s app/bin/kosmos-app is not the Mac app it signed (native_app.signed_sha256)');
   }
-  for (const m of swift.matchAll(/(?:^|;)\s*(?:@\w+\s+)*import\s+(?:(?:class|struct|enum|func|protocol|typealias|var|let)\s+)?([A-Za-z_][A-Za-z0-9_]*)/gm)) {
+  // Every statement that mentions import, once comments are gone, must be one import in the plain shape; anything
+  // else (an access level, an attribute with arguments, a form this does not know) refuses rather than going unread.
+  for (const stmt of swiftCode(swift).split(/[\n;]/)) {
+    if (!/\bimport\b/.test(stmt)) continue;
+    const m = stmt.match(/^\s*(?:@(?:preconcurrency|testable)\s+)?import\s+(?:(?:class|struct|enum|func|protocol|typealias|var|let)\s+)?([A-Za-z_][A-Za-z0-9_]*)(?:\.[A-Za-z_][A-Za-z0-9_]*)*\s*$/);
+    if (!m) throw new Error(`native-app/main.swift: an import this SBOM cannot read: ${stmt.trim()}`);
     if (!APPLE_MODULES.has(m[1])) throw new Error(`native-app/main.swift imports ${m[1]}, which is not an Apple framework this SBOM knows`);
   }
 }
