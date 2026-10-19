@@ -5102,7 +5102,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    service at most once (no cache, no valve, an 8 second limit): a looping token-only caller can do that as fast
    as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
-  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read',
+  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/tasks/mine', 'GET /api/community/read',
   'POST /api/undo/keep', 'POST /api/agent/reply-channel', 'POST /api/toolfail']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler; toolfail: #6071, its handler resolves the caller token-first (resolveAgentSender)
 /* kosmos#5805 part 2: `kosmos reply-channel` (POST /api/agent/reply-channel) joins: its handler names the caller
    (processCaller) and sets only that agent's own channel; no name in the body is read. Every Windows agent holds a
@@ -19518,6 +19518,48 @@ const server = http.createServer(async (req, res) => {
     /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
        read its "false" as "nobody needs you". It says it could not tell. */
     sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope, rosterUnreadable: !Array.isArray(roster) });
+    return;
+  }
+
+  /**
+   * kosmos#6506 (ruling 3): the CALLING agent's own OPEN tasks across every project it is on, so
+   * `kosmos handoff` can print them without the agent naming a project. Read-only; writes nothing.
+   *
+   * 🔑 KEYED ON THE TOKEN, NEVER A NAME FROM THE REQUEST. The caller is resolved from its agent
+   * token via sendertoken.resolveName (no roster/panes needed), and a missing, unknown or ambiguous
+   * (twins) token is REFUSED with the same "could not tell which agent" 403 the task-list arm uses.
+   * The name used to pick both projects (tokenOnlyOnProject) and tasks (sameAgentName over whoNames)
+   * comes ONLY from the resolved token, so one agent's token can never return another agent's tasks.
+   * "Open" is the derived listGroup, never a stored `state`. In AGENT_TOKEN_ROUTES (GET only), so an
+   * agent-token-only caller reaches it; HEAD/writes on this path stay board-gated.
+   */
+  if (pathname === '/api/tasks/mine' && req.method === 'GET') {
+    let who = null;
+    try { who = sendertoken.resolveName(req && req.headers && req.headers['x-kosmos-agent-token']); } catch { who = null; }
+    if (!(who && who.ok === true && typeof who.key === 'string')) {
+      sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read its tasks' });
+      return;
+    }
+    let caller;
+    if (typeof who.name === 'string' && who.name) caller = { name: who.name, key: who.key, twins: who.twins === true };
+    else if (who.twins === true) { sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read its tasks' }); return; }
+    else caller = { name: who.key, key: who.key, byKey: true };
+
+    let everyProject;
+    try { everyProject = projects.readAll(); }
+    catch (err) { sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your tasks right now'), projectsUnreadable: true }); return; }
+
+    const myIds = new Set((everyProject || []).filter((p) => tokenOnlyOnProject(p, caller)).map((p) => p && p.id));
+    const open = tasks.inListOrder(
+      tasks.allTasks(everyProject).filter((t) =>
+        myIds.has(t.projectId)
+        && tasks.listGroup(t) === 'open'
+        && Array.isArray(t.whoNames) && t.whoNames.some((n) => sameAgentName(n, caller.name, !!caller.byKey))),
+      'open');
+    sendJson(res, 200, {
+      tasks: open.map((t) => ({ project: t.projectName, projectId: t.projectId, number: t.number, title: String(t.sentence == null ? '' : t.sentence) })),
+      count: open.length,
+    });
     return;
   }
 

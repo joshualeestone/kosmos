@@ -232,6 +232,36 @@ test('#6506 axis 5: fingerprint hashes a file larger than the 1 MiB chunk correc
   assert.equal(handoff.fingerprint(big), 'sha256:' + crypto.createHash('sha256').update(payload).digest('hex'));
 });
 
+// ── the open-tasks fact (ruling 3): the one board-sourced fact ─────────────────
+
+test('#6506 ruling 3: tasksFact says the board did not answer when unreachable, never an empty list', () => {
+  assert.deepEqual(handoff.tasksFact({ reached: false }), { line: 'the board did not answer, so your open tasks could not be read', items: null });
+  const md = handoff.render({ session: '', cwd: tmp('kosmos-handoff-tf-'), artifacts: [], now: Date.UTC(2026, 9, 18, 20, 0, 0), tasks: { reached: false } });
+  assert.match(md, /Open tasks assigned to you.*: the board did not answer/, md);
+  assert.doesNotMatch(md, /Open tasks assigned to you.*: none open/, 'unreachable must not read as "none open"');
+});
+
+test('#6506 ruling 3: tasksFact lists open tasks from a 200, "none open" when empty, a refusal for 403, unreadable otherwise', () => {
+  const ok = handoff.tasksFact({ reached: true, status: 200, body: { tasks: [{ project: 'projA', number: 7, title: 'do the thing' }, { projectId: 'projB', number: 2, title: 'other' }], count: 2 } });
+  assert.equal(ok.line, null);
+  assert.deepEqual(ok.items, ['projA #7: do the thing', 'projB #2: other']);
+  const empty = handoff.tasksFact({ reached: true, status: 200, body: { tasks: [], count: 0 } });
+  assert.equal(empty.line, null);
+  assert.deepEqual(empty.items, []);
+  const refused = handoff.tasksFact({ reached: true, status: 403, body: { error: 'could not tell which agent' } });
+  assert.equal(refused.items, null);
+  assert.match(refused.line, /the board would not read them \(could not tell which agent\)/);
+  const weird = handoff.tasksFact({ reached: true, status: 200, body: { nope: 1 } });
+  assert.equal(weird.items, null);
+  assert.match(weird.line, /could not be read/);
+});
+
+test('#6506 ruling 3: a task title with a control character cannot inject lines into the handoff', () => {
+  const r = handoff.tasksFact({ reached: true, status: 200, body: { tasks: [{ project: 'p', number: 1, title: 'bad\ntitle' }] } });
+  assert.equal(r.items.length, 1);
+  assert.doesNotMatch(r.items[0], /\n/, 'a newline in a task title must be stripped');
+});
+
 // ── echoed paths cannot inject lines into the pasted handoff ───────────────────
 
 test('#6506 axis 5: a path with a newline or backtick cannot inject lines or break the code span', () => {

@@ -1,9 +1,9 @@
 'use strict';
 /**
  * kosmos#6506, the Windows half: `kosmos handoff` in tools/windows/kosmos-cli.js (verbHandoff),
- * mirroring cli.handoff-6506.test.js for install/kosmos. The verb is thin: it calls the shared
- * engine/handoff.js render (unit-tested in engine/handoff.test.js) and prints the lines. Driven
- * through main() with its out/err/env seams; nothing leaves the process and no board is called.
+ * mirroring cli.handoff-6506.test.js for install/kosmos. Three facts are local (git, self-report,
+ * instruction file); the fourth, the agent's own open tasks (ruling 3), is the ONE board call
+ * (GET /api/tasks/mine on the agent token). Driven through main() with its out/err/env/fetch seams.
  *
  *   node --test tools.windows-kosmos-cli-handoff-6506.test.js
  */
@@ -26,8 +26,19 @@ const cli = require('./tools/windows/kosmos-cli');
 const instructions = require('./engine/instructions');
 const selfreport = require('./engine/selfreport');
 
-function harness(env = {}) {
+/* opts.tasks = { status, json } answers GET /api/tasks/mine; opts.fetchThrows makes the board
+   unreachable. Default: a 200 with no open tasks, so a test that does not care about the task line
+   still gets a clean board answer. */
+function harness(env = {}, opts = {}) {
   const lines = { out: [], err: [] };
+  const fetchImpl = async (u) => {
+    if (opts.fetchThrows) throw new Error('unreachable');
+    if (String(u).includes('/api/tasks/mine')) {
+      const a = opts.tasks || { status: 200, json: { tasks: [], count: 0 } };
+      return { status: a.status, text: async () => JSON.stringify(a.json == null ? {} : a.json) };
+    }
+    throw new Error('unexpected fetch ' + u);
+  };
   const io = {
     env,
     url: 'http://127.0.0.1:16180',
@@ -35,12 +46,12 @@ function harness(env = {}) {
     err: (s) => lines.err.push(s),
     readStdin: async () => ({ text: '', ended: true }),
     hook: { agentToken: () => 'agent-tok', readBoardToken: () => 'board-tok', resolveUrl: () => 'http://127.0.0.1:16180' },
-    fetch: async () => { throw new Error('verbHandoff must not call the board'); },
+    fetch: fetchImpl,
   };
   return { io, lines, out: () => lines.out.join('\n'), all: () => lines.out.concat(lines.err).join('\n') };
 }
 
-test('#6506: verbHandoff prints the shared contract and the facts, exits 0, and calls no board', async () => {
+test('#6506: verbHandoff prints the shared contract, the local facts, and the open tasks from the board', async () => {
   const session = 'winhandoff';
   const r = selfreport.record(session, { state: 'working', because: 'writing the handoff' });
   assert.ok(r.recorded, 'precondition: self-report recorded: ' + (r.because || ''));
@@ -49,13 +60,28 @@ test('#6506: verbHandoff prints the shared contract and the facts, exits 0, and 
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, '# ' + session + '\n');
 
-  const h = harness({ KOSMOS_AGENT_SESSION: session });
+  const h = harness({ KOSMOS_AGENT_SESSION: session }, { tasks: { status: 200, json: { tasks: [
+    { project: 'projA', number: 7, title: 'do the thing' },
+    { project: 'projB', number: 2, title: 'second thing' },
+  ], count: 2 } } });
   assert.equal(await cli.main(['handoff'], h.io), 0, h.all());
   const out = h.out();
   assert.match(out, /## What a handoff must cover/, out);
   assert.match(out, /- current branch and sha/, 'the shared contract bullets must print');
   assert.match(out, /Live state \(self-report\): working/, out);
   assert.match(out, /Instruction file .*: last changed /, out);
+  assert.match(out, /Open tasks assigned to you/, out);
+  assert.match(out, /projA #7: do the thing/, out);
+  assert.match(out, /projB #2: second thing/, out);
+});
+
+test('#6506 ruling 3: when the board does not answer, the task line says so, never an empty list, and the local facts still print', async () => {
+  const h = harness({ KOSMOS_AGENT_SESSION: 'winhandoff' }, { fetchThrows: true });
+  assert.equal(await cli.main(['handoff'], h.io), 0, h.all());
+  const out = h.out();
+  assert.match(out, /Open tasks assigned to you.*: the board did not answer/, out);
+  assert.doesNotMatch(out, /Open tasks assigned to you.*: none open/, 'unreachable must not read as "none open"');
+  assert.match(out, /- current branch and sha/, 'the local facts must still print when the board is down');
 });
 
 test('#6506: with no session verbHandoff says so rather than guessing', async () => {
