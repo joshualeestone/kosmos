@@ -1,5 +1,6 @@
 'use strict';
 /* kosmos#6602: engine/cert-watch.js, reading the tunnel's certificate check report and its switch. */
+require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -49,6 +50,9 @@ test('a damaged earlier report, a report that does not parse, or an unknown stat
   put(d, { state: 'clear', checked_at: S, damaged_report_at: S - 10 });
   assert.equal(certWatchFrom(d, NOW).state, 'unknown');
   assert.equal(certWatchFrom(d, NOW).lost, true);
+  put(d, { state: 'clear', checked_at: S, damaged_report_at: null });
+  assert.equal(certWatchFrom(d, NOW).lost, false, 'a null marker is no marker');
+  assert.equal(certWatchFrom(d, NOW).state, 'clear');
   put(d, '{"state": "cle');
   assert.equal(certWatchFrom(d, NOW).state, 'unknown');
   put(d, { state: 'fine', checked_at: S });

@@ -19,6 +19,8 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
   check exists unless they read the switch label; rejected a permanent "checked today" line as noise.
 - The switch shows whenever the computer is set up, so the off switch is reachable from the app. The check
   runs in the tunnel, so the label says "While Kosmos+ is on"; with Kosmos+ off nothing is checked.
+- With Kosmos+ itself off, the cannot-confirm sentences are not said (the check runs in the tunnel, so
+  its silence then is the person's own choice); a finding still is.
 - A finding is said even with the check switched off ("The check is off." added), so the switch never
   hides one. Only a finding: an unknown or lost state is not said while off.
 - The switch route is person-only (`isViaScreen`, 403 otherwise): an agent cannot turn the check off.
@@ -31,5 +33,5 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
   computer."). It does not tell the person what to do next, because there is no support path to name yet.
 
 ## Proof
-- `node --test engine/cert-watch.test.js` (9), `web.plus-cert-watch-6602.test.js` (6), and the new
+- `node --test engine/cert-watch.test.js` (9), `web.plus-cert-watch-6602.test.js` (9), and the new
   `server.test.js` route test (by name).
