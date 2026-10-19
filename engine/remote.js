@@ -134,17 +134,27 @@ const connectorSpawnOptions = (opts) => ({ ...opts, windowsHide: true });
    closed on every platform, whatever order things merge or ship in. Asked once and kept; a connector that lacked it
    is asked again after ten minutes, one that did not answer at all after thirty seconds. Always asked in the
    background (at start, and when due), never while a request waits. */
+// A connector that answered without the capability changes only with an update: asked again after ten minutes.
 const CAPABILITIES_RECHECK_MS = 10 * 60 * 1000;
-// A connector that did not answer at all (a timeout, or it could not be started) is asked again much sooner than one
-// that answered without the capability: not answering in time says nothing about its age.
+// One that did not answer at all (timed out, or could not be started) says nothing about its age: thirty seconds.
 const CAPABILITIES_UNANSWERED_RECHECK_MS = 30 * 1000;
+// How long one ask may take before it counts as unanswered (a cold start on Windows can scan the exe first).
+const CAPABILITIES_ASK_TIMEOUT_MS = 5000;
 let capabilitiesSeen = null;
-// Kept, never downgraded: once the connector has said it strips the headers, a later slow or failed ask does not undo it.
-function noteCapabilities(caps, answered, now) {
+// Each ask carries the generation it started in; forgetting the answer starts a new one, so a late answer from an
+// earlier ask (an earlier connector) is dropped, never written over the new state.
+let capabilitiesGeneration = 0;
+// Kept, never downgraded within a generation: once the connector has said it strips the headers, a later slow or
+// failed ask does not undo it.
+function noteCapabilities(caps, answered, now, generation = capabilitiesGeneration) {
+  if (generation !== capabilitiesGeneration) return capabilitiesSeen ? capabilitiesSeen.caps : new Set();
   if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) return capabilitiesSeen.caps;
   capabilitiesSeen = { caps, answered, at: now };
   return caps;
 }
+/* Forget the answer: the connector process that forwards is about to change (a tunnel is started), so what the
+   binary says is asked again for the process it will be. */
+function forgetConnectorCapabilities() { capabilitiesSeen = null; askingCapabilities = false; capabilitiesGeneration += 1; }
 function connectorCapabilities(now = Date.now()) {
   if (capabilitiesSeen) {
     const wait = capabilitiesSeen.answered ? CAPABILITIES_RECHECK_MS : CAPABILITIES_UNANSWERED_RECHECK_MS;
@@ -154,7 +164,8 @@ function connectorCapabilities(now = Date.now()) {
   // answers "nothing" now, so the request is refused with "try again in a minute", and asks in the background.
   if (!askingCapabilities) {
     askingCapabilities = true;
-    warmConnectorCapabilities(() => { askingCapabilities = false; });
+    const generation = capabilitiesGeneration;
+    warmConnectorCapabilities(() => { if (generation === capabilitiesGeneration) askingCapabilities = false; });
   }
   return capabilitiesSeen ? capabilitiesSeen.caps : new Set();
 }
@@ -164,15 +175,16 @@ const capabilityLines = (out) => new Set(String(out || '').split(/\r?\n/).map((l
 function warmConnectorCapabilities(done = () => {}) {
   // As the other connector spawns here: under the test runner, only a connector a test names is ever run.
   if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) { done(new Set()); return; }
+  const generation = capabilitiesGeneration;
   try {
-    execFile(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: 5000 }), (err, stdout) => {
+    execFile(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: CAPABILITIES_ASK_TIMEOUT_MS }), (err, stdout) => {
       // Answered = it ran to an exit code (an old connector's unknown verb is an answer); killed or unstartable is not.
       const answered = !err || (typeof err.code === 'number' && !err.killed);
-      done(noteCapabilities(err ? new Set() : capabilityLines(stdout), answered, Date.now()));
+      done(noteCapabilities(err ? new Set() : capabilityLines(stdout), answered, Date.now(), generation));
     });
-  } catch { done(new Set()); }
+  } catch { done(noteCapabilities(new Set(), false, Date.now(), generation)); }
 }
-function resetConnectorCapabilitiesForTests() { capabilitiesSeen = null; askingCapabilities = false; }
+const resetConnectorCapabilitiesForTests = () => forgetConnectorCapabilities();
 /* The production addresses are the defaults (#648): a bundle needs nothing
  * baked for a Mac to reach the real relay and coordinator. Precedence: env
  * (tests, self-host), then the relay saved in remote.json, then production. */
@@ -790,6 +802,8 @@ function spawnFedSeat(target) {
 }
 
 function startChild() {
+  // kosmos#6595 (R01): the process that forwards is about to be this binary's, so what it vouches for is asked anew.
+  forgetConnectorCapabilities();
   if (restartPending) { restarts += 1; restartPending = false; }
   lastTunnelFailure = null;   // a new process has written nothing yet
   dialingSince = performance.now();
@@ -3471,7 +3485,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { connectorCapabilities, warmConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+module.exports = { connectorCapabilities, warmConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,

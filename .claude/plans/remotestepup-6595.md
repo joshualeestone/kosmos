@@ -6,8 +6,10 @@ creation need a fresh authenticator code. This is the step-up half.
 
 ## What changes
 - `server.js`: one gate, right after `remoteWriteGuard`, before any route reads its body.
-  `remoteStepUpRefusal(req, pathname, now)` refuses 403 `{code: "remote_step_up", error}` when the route is gated,
-  the request is remote (`isRemoteRequest`, Renet's) and the session is not fresh.
+  `remoteStepUpRefusal(req, pathname, now)` answers 403 for a remote request (`isRemoteRequest`, Renet's) to a gated
+  route, with one of three codes: `remote_step_up_unavailable` when the bundled connector does not say it strips the
+  session headers; `remote_step_up_clock` when the sign-in reads as more than a minute in this clock's future;
+  otherwise `remote_step_up` when the session is not fresh.
 - Fresh = `x-kosmos-session-second` is exactly `1` AND `x-kosmos-session-iat` is a plain decimal within the last
   12 minutes (a minute of clock drift ahead allowed). Twelve, not the coordinator's ten, so a handoff minted near the
   end of the coordinator's window is still fresh on arrival; the refusal says ten. The Kosmos+ gate writes both, over any client value, only for a
@@ -87,8 +89,13 @@ set none of the forwarding headers, it would read as local and never be asked (R
   the protection: iteration 11 found the cut's stale-connector check runs for the Mac build only
   (tools/release.sh), not the Windows one (tools/build-kosmos-windows.sh), so order alone could not keep an old
   connector away. Merge order still matters for usability (before Renet's verb ships, no remote session can do a
-  gated thing), not for safety.
-- (History, superseded by the line above) MERGE ORDER (review iteration 3; an earlier version of this line had it backwards).
+  gated thing), not for safety. The connector is asked in the background only (at start, when due, and anew whenever
+  a tunnel is started): ten minutes after it answered without the capability, thirty seconds after it did not answer.
+- Residual: the answer is the BINARY's, not the running tunnel process's. Re-asking whenever this board starts a
+  tunnel ties them, but a tunnel process that outlives a board restart after an update would be described by the new
+  binary. Owner PigeonPete with Renet, in #6616 (R01b): the running tunnel reports its capabilities (its status
+  file), and the board reads that instead.
+- (History, superseded by the line above; no longer an instruction) MERGE ORDER (review iteration 3; an earlier version of this line had it backwards).
   A tunnel older than sessioniat-6595 passes client headers through, so behind it a remote browser can send both
   headers itself and pass the gate. The board cannot tell the tunnel's age. What protects it: the tunnel rides in the
   same bundle (an update swaps app/ whole), and a cut refuses a tunnel behind relay main

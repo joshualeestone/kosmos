@@ -258,16 +258,6 @@ test('R01: a connector that does not list session-headers cannot vouch, so even 
   assert.equal(remoteStepUpRefusal({ method: 'POST', headers: PAGE }, '/api/agents', t, new Set()), null);
 });
 
-test('R01: a connector that does not list session-headers cannot vouch, so even a fresh remote session is refused', () => {
-  const t = now();
-  const fresh = { method: 'POST', headers: { ...VIA_PLUS, 'x-kosmos-session-iat': String(t - 30), 'x-kosmos-session-second': '1' } };
-  assert.equal(remoteStepUpRefusal(fresh, '/api/agents', t, new Set(['session-headers'])), null, 'CONTROL: it lists it');
-  assert.equal(remoteStepUpRefusal(fresh, '/api/agents', t, new Set()), REMOTE_STEP_UP_CONNECTOR);
-  assert.equal(remoteStepUpRefusal(fresh, '/api/agents', t, new Set(['something-else'])), REMOTE_STEP_UP_CONNECTOR);
-  // A local request is never asked, whatever the connector says.
-  assert.equal(remoteStepUpRefusal({ method: 'POST', headers: PAGE }, '/api/agents', t, new Set()), null);
-});
-
 test('R01: the warm-up fills the answer without blocking, and a request then finds it kept', async () => {
   remote.resetConnectorCapabilitiesForTests();
   const caps = await new Promise((resolve) => remote.warmConnectorCapabilities(resolve));
@@ -278,8 +268,6 @@ test('R01: the warm-up fills the answer without blocking, and a request then fin
     assert.ok(remote.connectorCapabilities().has('session-headers'), 'the request used the warmed answer, not a new spawn');
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); }
 });
-
-
 
 test('R01: the connector is never asked while a request waits: with no answer kept, "nothing" now, and an ask in the background', async () => {
   const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
@@ -316,5 +304,38 @@ test('R01: an old connector is asked again after ten minutes, one that did not a
     assert.equal(remote.connectorCapabilities(t1 + 20 * 1000).size, 0, 'unanswered: kept for thirty seconds');
     remote.connectorCapabilities(t1 + 31 * 1000);
     assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'unanswered: asked again after thirty seconds');
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+});
+
+test('R01: over HTTP, a connector that cannot vouch refuses a fresh remote session (key route, unreadable body)', async () => {
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  const old = path.join(SANDBOX, 'old-tunnel-http');
+  fs.writeFileSync(old, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+  try {
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = old;
+    remote.resetConnectorCapabilitiesForTests();
+    await warm();
+    const got = await post('/api/accounts/gemini/apikey', { ...VIA_PLUS, ...fresh() }, 'not json');
+    assert.equal(got.status, 403, JSON.stringify(got.body));
+    assert.equal(got.body.code, 'remote_step_up_unavailable');
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+});
+
+test('R01: a late answer from an earlier ask is dropped (generations), and starting a tunnel asks anew', async () => {
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  // The earlier connector would vouch, but slowly; the one now in place does not. Its late "yes" must not be trusted.
+  const slowYes = path.join(SANDBOX, 'slow-yes-tunnel');
+  fs.writeFileSync(slowYes, '#!/bin/sh\nsleep 0.3\nprintf "session-headers\\n"\n', { mode: 0o755 });
+  const no = path.join(SANDBOX, 'no-tunnel');
+  fs.writeFileSync(no, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+  try {
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = slowYes;
+    remote.resetConnectorCapabilitiesForTests();
+    const late = warm();                       // the earlier connector's ask, still running
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = no;
+    remote.forgetConnectorCapabilities();      // a tunnel is started: a new generation
+    assert.equal((await warm()).size, 0, 'the connector now in place does not vouch');
+    await late;                                // the earlier ask lands now, saying yes
+    assert.equal(remote.connectorCapabilities().has('session-headers'), false, 'a late yes from an earlier connector was trusted');
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
 });

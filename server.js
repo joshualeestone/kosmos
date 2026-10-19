@@ -4283,10 +4283,10 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    with the second factor. The Kosmos+ gate states the session it admitted in two headers it writes over any client
    value and strips on every other path (kosmos-relay sessioniat-6595): x-kosmos-session-iat, the decimal second the
    session's email code was proven, and x-kosmos-session-second, 1 when the second factor was. Missing or malformed
-   counts as NOT fresh. 🛑 A tunnel older than sessioniat-6595 does NOT strip client copies, so behind it a remote
-   browser can send both headers itself and pass. The board cannot tell the tunnel's age; the protection is that the
-   tunnel rides in the same bundle (an update swaps app/ whole) and a cut refuses a tunnel behind relay main
-   (tools/lib/connector-currency.sh). So this change must not reach a cut before sessioniat-6595 is on relay main. A local
+   counts as NOT fresh. A tunnel older than sessioniat-6595 does not strip client copies, so its headers are trusted
+   only when the bundled connector says it does (`kosmos-tunnel capabilities` lists session-headers; asked by
+   remote.connectorCapabilities, in the background): an older connector, on any platform, makes every gated remote
+   request refused with remote_step_up_unavailable. A local
    request is not asked: the person is at the computer. Taking things away (deleting a key, forgetting a token) is
    not asked either. */
 /* Twelve minutes, a little longer than the coordinator's own STEP_UP_SECS (ten): a handoff minted near the end of the
@@ -23802,8 +23802,8 @@ function nameCheckFleet(platform = process.platform) {
 
 function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
-  // kosmos#6595 (R01): ask the bundled connector what it vouches for now, without blocking, so a remote request never
-  // waits on it. Best effort: an answer not in yet is asked for (briefly) by the first request that needs it.
+  // kosmos#6595 (R01): ask the bundled connector what it vouches for now, in the background. Until the answer is in,
+  // a gated remote request is refused at once (remote_step_up_unavailable, "try again in a minute"), never held.
   try { remote.warmConnectorCapabilities(); } catch { /* best effort */ }
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
