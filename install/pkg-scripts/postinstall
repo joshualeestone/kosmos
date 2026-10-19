@@ -183,7 +183,12 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
 PIN_SETUP=""; PIN_TARBALL=""; PIN_TMUX=""
 _pin_helper="$(dirname "$0")/kosmos-pkg-verify"
 _pin_floor="$(/bin/cat "$(dirname "$0")/kosmos-pkg-floor" 2>/dev/null || true)"
-if [ ! -f "$USER_HOME/.local/share/kosmos/app/engine/manifest-verify.js" ]; then
+# SWITCHED OFF while kosmos-pkg-floor reads "off" (install/pkg-verify/floor): until production serves a signed
+# release, its pointer names one with no signature and every first install would refuse. Setting the floor to the
+# first signed release (0.7.57) turns this on; nothing else changes.
+if [ "$_pin_floor" = off ]; then
+  echo "Kosmos: the signed-release check for a first install is not switched on in this installer yet"
+elif [ ! -f "$USER_HOME/.local/share/kosmos/app/engine/manifest-verify.js" ]; then
   if [ ! -x "$_pin_helper" ] || [ -z "$_pin_floor" ]; then
     echo "Kosmos: this installer is incomplete (its release check is missing), so nothing was installed." >&2
     exit 1

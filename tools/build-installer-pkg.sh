@@ -72,7 +72,8 @@ echo "==> inputs: $_insha"
 # Application identity with the hardened runtime (notarization requires both for any executable in the package),
 # and staged beside the scripts with the floor it checks against: the oldest release it accepts, the first signed
 # one, a reviewed constant (install/pkg-verify/floor), NOT this build's version, which can run ahead of what the
-# production pointer serves. The package is no longer free of Mach-O: this one helper is the exception.
+# production pointer serves. While it reads "off" the postinstall does not run the check at all (until production
+# serves a signed release). The package is no longer free of Mach-O: this one helper is the exception.
 APP_CERT="${KOSMOS_APP_CERT:-$KOSMOS_SIGN_APP_DEFAULT}"
 if ! security find-identity -v | grep -qF "$APP_CERT"; then
   echo "FATAL: signing identity not found: $APP_CERT (the release check must be signed)" >&2
