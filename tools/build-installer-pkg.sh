@@ -4,8 +4,9 @@
 #
 #   bash tools/build-installer-pkg.sh <version>
 #
-# The package is PAYLOAD-FREE: it ships only a postinstall that runs the
-# current install/setup.sh (installkosmos.com/setup) as the console user.
+# The package is PAYLOAD-FREE: it ships only scripts, a postinstall that runs the
+# current install/setup.sh (installkosmos.com/setup) as the console user, its
+# helpers, and the release check (#6576).
 # Double-clicking opens macOS's own Installer UI (no Terminal, no paste, no
 # "Possible Malware" dialog). The PACKAGE is signed (Developer ID Installer),
 # then notarised and stapled. Its scripts carry ONE executable of ours, the

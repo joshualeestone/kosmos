@@ -207,17 +207,21 @@ else
     _pin_why=unreachable
     _pin_v="$(/usr/bin/curl -fsSL --connect-timeout 20 -m 60 "$_pin_base/latest.json$_pin_bust" 2>/dev/null \
       | /usr/bin/sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | /usr/bin/head -1)" || _pin_v=""
+    # Only an a.b.c goes into a download address; anything else is a pointer caught mid-deploy, retried as a failed download.
+    case "$_pin_v" in *[!0-9.]*|.*|*.|*..*|*.*.*.*) _pin_v="" ;; *.*.*) ;; *) _pin_v="" ;; esac
     if [ -n "$_pin_v" ] \
-       && /usr/bin/curl -fsSL --connect-timeout 20 -m 60 -o "$_pin_dir/manifest.json" "$_pin_base/kosmos-$_pin_v-arm64.manifest.json" \
-       && /usr/bin/curl -fsSL --connect-timeout 20 -m 60 -o "$_pin_dir/manifest.sig" "$_pin_base/kosmos-$_pin_v-arm64.manifest.json.sig" \
+       && /usr/bin/curl -fsSL --connect-timeout 20 -m 60 -o "$_pin_dir/manifest.json" "$_pin_base/kosmos-$_pin_v-arm64.manifest.json$_pin_bust" \
+       && /usr/bin/curl -fsSL --connect-timeout 20 -m 60 -o "$_pin_dir/manifest.sig" "$_pin_base/kosmos-$_pin_v-arm64.manifest.json.sig$_pin_bust" \
        && /usr/bin/curl -fsSL --connect-timeout 20 -m 300 -o "$_pin_dir/setup" "$SETUP_URL"; then
       _pin_rc=0
       _pin_out="$("$_pin_helper" "$_pin_dir/manifest.json" "$_pin_dir/manifest.sig" "$_pin_v" "$_pin_floor")" || _pin_rc=$?
-      if [ "$_pin_rc" -eq 2 ]; then
-        echo "Kosmos: this installer could not run its release check (the line above says why), so nothing was installed." >&2
+      # 97 is the helper refusing the release; any other failure (a bad argument, a crash, a refused launch) means the
+      # check itself could not run. Both end the install.
+      if [ "$_pin_rc" -ne 0 ] && [ "$_pin_rc" -ne 97 ]; then
+        echo "Kosmos: this installer could not run its release check (status $_pin_rc), so nothing was installed." >&2
         exit 1
       fi
-      if [ "$_pin_rc" -ne 0 ]; then
+      if [ "$_pin_rc" -eq 97 ]; then
         echo "Kosmos: the download did not check out against the signed Kosmos release (the line above says why), so nothing was installed." >&2
         exit 97
       fi
@@ -370,8 +374,8 @@ fi
    # kosmos#6474: AN EXISTING INSTALL HOLDS THE INSTALLER TO ITS SIGNED RELEASE, as an in-app update does (#6468).
    # When this user already has Kosmos at the default home and its verifier knows run-setup, that installed copy
    # downloads the installer and the signed manifest of the version prod serves, checks one against the other, and
-   # only then runs it. A first install has no installed copy to check with, so it keeps the checksum above (the
-   # .pkg is notarized; checking a signature without one needs a native verifier, see the card). Keep this block
+   # only then runs it. While the #6576 check is switched off, a first install has no installed copy to check with, so it
+   # keeps the checksum above; switched on, every package install takes the pinned path above and never reaches this. Keep this block
    # free of apostrophes: it is inside the single-quoted argument above.
    h="$HOME/.local/share/kosmos"
    # The checksum gate above still runs first, on purpose: an existing install is held to BOTH (the hand-off downloads
