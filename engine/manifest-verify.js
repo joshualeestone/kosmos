@@ -187,7 +187,8 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
  *
  * A list is taken only when it verifies under a recovery key and its seq is not below the highest this copy has
  * stored (KEY_LIST_STATE in the install home), so an older list served again cannot bring a revoked key back; a newer
- * one is recorded above it. A seq is never reused: a list with the stored seq but other keys is refused. Revoking a
+ * one is recorded above it. A seq is never reused: a list with the stored seq but other keys is refused (except when
+ * the record at that seq is damaged and cannot be compared; the recovery key never signs two lists with one seq). Revoking a
  * stolen release key is a new list without it, seq + 1, signed with the recovery key (tools/lib/release-keys-sign.js),
  * and the next release raises MIN_KEY_LIST_SEQ to it. Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
 const RECOVERY_KEYS = Object.freeze([]);   // frozen: nothing in the process can turn the feature on by adding one
@@ -232,8 +233,8 @@ function verifyKeyList({ bytes, sig, recoveryKeys = RECOVERY_KEYS }) {
 }
 
 /* This install's record of the key lists it has taken: a folder (KEY_LIST_STATE in the install home) holding one file
- * per list, seq-<n>.json. The highest file present is the floor for the next list, so the record can only move
- * forward: files are only ever added, each in one step (written aside, then linked into place, which fails if that
+ * per list, seq-<n>.json. The highest file present is the floor for the next list, so the record only moves forward
+ * (a power loss can still lose the newest entry before the disk has it, dropping the floor one list back): files are only ever added, each in one step (written aside, then linked into place, which fails if that
  * seq is already there), and two checks running at once cannot take it backwards. The record is not signed: whoever
  * can write the install home can delete it, which drops this copy back to MIN_KEY_LIST_SEQ. */
 // A canonical number only (no leading zero), within MAX_SEQ: the same seq one name, as a list can carry.
