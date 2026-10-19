@@ -33,6 +33,11 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
   with VoiceOver at this card's design review, recorded on kosmos#6613 before it closes.
 - Follows Josh's #6315 ruling for the request notice ("Definitely have to have a way to dismiss it"): close puts
   away what was shown, a new one comes back. The Plus pane line is never put away, so a finding stays findable.
+- Known gap, decided: a lost report (findings may be missing) is said on the Kosmos+ pane only, not raised in the
+  floating stack. Rejected for now: a red card on every view for "a report could not be read", which is not a
+  finding; the stack's red is kept for one. A person who never opens Kosmos+ does not learn of a lost report.
+- After Review, the card does not come back for that finding set (only a new finding brings it back); the pane's
+  line stays. This is #6315's rule, applied as written.
 - The key is a digest, not the report's strings, so nothing from the third party reaches the page.
 - Got it is a board-side record keyed on the marker value, so a later loss (a new marker) is said again. Rejected:
   editing the tunnel's report (it is the tunnel's file, written atomically on its own schedule).
