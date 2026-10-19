@@ -48,6 +48,11 @@ creation need a fresh authenticator code. This is the step-up half.
   removing and withdrawing are not.
 - **`/api/machine/start-at-sign-in` is not gated:** it writes the board's own login job, which restarts only code
   already on disk (the engine-restart reason).
+- **Signing this computer in to Kosmos+ anew, enrolling it, or forgetting it is gated** (review iteration 17, a
+  BLOCKER): from a stale remote session someone could sign this computer in to THEIR account (signin-start ...
+  signin-register, or forget then setup-start), then make a fresh sign-in of their own and pass every gate. Gated:
+  signin-start, signin-register, setup-start, setup-complete, company/start, forget. The steps after a start follow it.
+  This narrows remotemark-6595's "this computer's own" exclusions for the step-up only; nothing is refused outright.
 - **Joining a company or family is gated** (`/api/org/enroll`, review iteration 7): it applies that org's policy here
   and starts reporting this computer's activity to it. Previewing a code and leaving are not.
 - **Making a project webhook is gated:** it mints a secret address an outside party can post tasks to, for as long as

@@ -4327,6 +4327,11 @@ const REMOTE_STEP_UP_EXACT = new Set([
   // Federation: joining another Kosmos's project opens a room here that outsiders post into and agents act on;
   // inviting one, or sharing this project's own code, lets another Kosmos in. Removing and withdrawing take away.
   'POST /api/federation/join', 'POST /api/federation/invite', 'POST /api/federation/own-code',
+  // Signing this computer in to Kosmos+ anew, enrolling it, or forgetting its enrolment (review iteration 17): from a
+  // stale remote session, someone could sign this computer in to THEIR account, then make a fresh sign-in of their
+  // own and pass every gate here. The steps after a start (verify, second, enrol, confirm, cancel) follow it.
+  'POST /api/remote/signin-start', 'POST /api/remote/signin-register', 'POST /api/remote/setup-start',
+  'POST /api/remote/setup-complete', 'POST /api/remote/company/start', 'POST /api/remote/forget',
   // Joining a company or family: it applies that org's policy here and starts reporting this computer's activity to
   // it. Previewing a code and leaving are not gated (one reads, the other takes away).
   'POST /api/org/enroll',
@@ -5713,6 +5718,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   // kosmos#6595 (R01): a key, an update or a new agent from a remote session needs a fresh second-factor sign-in.
+  // Before board auth on purpose: a forwarded request to a gated route is refused the same way signed in or not, and
+  // reveals only which routes are gated, which the docs already say.
   const stepUp = remoteStepUpRefusal(req, pathname, Math.floor(Date.now() / 1000));
   if (stepUp) {
     sendJson(res, 403, stepUp);
@@ -23804,7 +23811,7 @@ function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
   // kosmos#6595 (R01): ask the bundled connector what it vouches for now, in the background. Until the answer is in,
   // a gated remote request is refused at once (remote_step_up_unavailable, "try again in a minute"), never held.
-  try { remote.warmConnectorCapabilities(); } catch { /* best effort */ }
+  try { remote.askConnectorCapabilities(); } catch { /* best effort */ }
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();

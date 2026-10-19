@@ -62,6 +62,8 @@ const STEP_UP_ROUTES = [
   '/api/agents', '/api/team', '/api/connect-agent', '/api/worlds', '/api/worlds/import', '/api/agent/scout/restore',
   '/api/register', '/api/remote/second-reset', '/api/project/p1/webhooks', '/api/org/enroll',
   '/api/federation/join', '/api/federation/invite', '/api/federation/own-code',
+  '/api/remote/signin-start', '/api/remote/signin-register', '/api/remote/setup-start', '/api/remote/setup-complete',
+  '/api/remote/company/start', '/api/remote/forget',
 ];
 
 test('R01: PUT /api/autoupdate from a stale remote session is refused (on the function)', () => {
@@ -173,16 +175,12 @@ const EXEMPT = {
   'POST /api/agent-import-folder': 'parses a folder; the create it feeds is gated',
   'POST /api/agent-token': 'refused remotely outright (remote_not_allowed, remotemark-6595)',
   'POST /api/disconnect-agent': 'takes an agent away',
-  'POST /api/remote/company/start': "this computer's own company enrolment (remotemark-6595's exclusions)",
-  'POST /api/remote/signin-cancel': "this computer's own Kosmos+ sign-in steps",
-  'POST /api/remote/signin-confirm-enrol': "this computer's own Kosmos+ sign-in steps",
-  'POST /api/remote/signin-enrol': "this computer's own Kosmos+ sign-in steps",
-  'POST /api/remote/signin-register': "this computer's own sign-in, with a secret the remote side never sees",
-  'POST /api/remote/signin-second': "this computer's own Kosmos+ sign-in steps",
-  'POST /api/remote/signin-start': "this computer's own Kosmos+ sign-in steps",
-  'POST /api/remote/signin-verify': "this computer's own Kosmos+ sign-in steps",
+  'POST /api/remote/signin-cancel': "a step after signin-start, which is gated",
+  'POST /api/remote/signin-confirm-enrol': "a step after signin-start, which is gated",
+  'POST /api/remote/signin-enrol': "a step after signin-start, which is gated",
+  'POST /api/remote/signin-second': "a step after signin-start, which is gated",
+  'POST /api/remote/signin-verify': "a step after signin-start, which is gated",
   'POST /api/github-device/app': 'stores a GitHub app client id, which is public by design; the sign-in start is gated',
-  'POST /api/remote/setup-start': "this computer's own Kosmos+ enrolment (remotemark-6595's exclusions)",
   'POST /api/remote/join/confirm': 'refused remotely outright (remote_not_allowed, remotemark-6595)',
   'POST /api/remote/join/recheck': "this computer's own join attempt, no allow (remotemark-6595's exclusions)",
   'POST /api/remote/join/retry': "this computer's own join attempt, no allow (remotemark-6595's exclusions)",
@@ -355,4 +353,11 @@ test('R01: a tunnel restart on the same binary keeps a yes; a changed binary is 
     remote.forgetConnectorCapabilities();
     assert.equal((await warm()).size, 0, 'a changed binary kept the old yes');
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+});
+
+test('R01: a forget right after the start-up ask still ends with an answer (the ask is restarted)', async () => {
+  remote.resetConnectorCapabilitiesForTests();
+  remote.askConnectorCapabilities();          // the start-up ask
+  remote.forgetConnectorCapabilities();       // a tunnel starts before it returns
+  assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'nothing was asking after the forget');
 });
