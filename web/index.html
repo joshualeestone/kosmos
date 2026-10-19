@@ -2150,7 +2150,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
+#cwnote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -19599,7 +19599,7 @@ window.kosmosMeasureScrollbarWidth();
                the flow itself appears) may still not be read out. Empty, it takes no room (CSS below). -->
           <p class="fhint plus-cw-line" id="plus-cw-line" role="status"></p>
           <!-- kosmos#6613: shown with the lost-report sentence; tells the board this person has seen it. -->
-          <button class="btn" type="button" id="plus-cw-ack" aria-describedby="plus-cw-line" hidden>Got it</button>
+          <button class="btn" type="button" id="plus-cw-ack" aria-label="Got it: the earlier report could not be read" hidden>Got it</button>
           <div class="plus-cw-row" id="plus-cw-row" hidden>
             <button class="toggle" type="button" id="plus-cw-switch" role="switch" aria-labelledby="plus-cw-label" hidden><i></i></button>
             <span class="fhint" id="plus-cw-label">While Kosmos+ is on, check the public certificate logs for this computer's address once a day (this sends the address to Cert Spotter)</span>
@@ -52466,6 +52466,7 @@ function paintPlusCertWatch(cw, plusOn) {
   if (!cw || typeof cw !== 'object') {
     line.textContent = ''; row.hidden = true;
     const ack0 = document.getElementById('plus-cw-ack'); if (ack0) ack0.hidden = true;
+    if (typeof paintCwNote === 'function') paintCwNote(null);   // so leaving Kosmos+ does not bring back an old finding
     return;
   }
   const say = plusCwSay(cw, plusOn);
@@ -52547,7 +52548,16 @@ async function pollCwNote() {
     const open = b.getAttribute('data-cw') === 'open';
     cwNoteDismiss();
     cwSlot.textContent = '';
-    if (open) { showTab('settings'); settingsGo('plus'); paintPlus(); return; }
+    /* Review puts the set away, as #6315's request notice does ("Its close button or Review puts that set away"). The
+       button it pressed is gone, so keyboard focus goes to the pane's own line, which says the finding. */
+    if (open) {
+      showTab('settings'); settingsGo('plus');
+      Promise.resolve(paintPlus()).then(() => {
+        const line = document.getElementById('plus-cw-line');
+        if (line && line.focus) { line.setAttribute('tabindex', '-1'); line.focus(); }
+      });
+      return;
+    }
     // Keyboard focus goes where #5018's notices send it when they close: the K mark, the remote bar's menu, the heading.
     const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();

@@ -13,6 +13,7 @@ const S = Math.floor(NOW / 1000);
 const dir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'cert-watch-'));
 const put = (d, v) => fs.writeFileSync(path.join(d, REPORT_FILE), typeof v === 'string' ? v : JSON.stringify(v));
 
+/* LOST_ACK_FILE is not here on purpose: the board owns it (the tunnel never reads or writes it). */
 test('the file names are the tunnel\'s (crates/tunnel/src/ctwatch.rs): change both together', () => {
   assert.equal(REPORT_FILE, 'ct-watch.json');
   assert.equal(OFF_FILE, 'ct-watch-off');

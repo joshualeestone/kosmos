@@ -18,6 +18,12 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
 - In the floating stack, not beside `#askcard`: the page flow's `#askcard[hidden] + #conn` rules (the warning line,
   the empty-board phone layout, the talk view) need `#conn` straight after `#askcard`, and the stack takes no room.
   Closing sends keyboard focus where #5018's notices send it (the K mark, the remote bar's menu, the heading).
+- The slot is in the stack's `:empty { display: none }` rule like every other slot (an empty flex item spends one
+  gap); a static test checks every slot in `#topnotes` has one.
+- Review puts the finding away, as #6315 ruled for the request notice ("Its close button or Review puts that set
+  away"), and focus goes to the pane's line. Rejected: dismissing only on close (Review is the person reading it).
+- The notice's words carry `role="status"` and are filled after the card is inserted, the login notice's pattern
+  (#3532); consistent with the stack, not separately measured with a screen reader.
 - Follows Josh's #6315 ruling for the request notice ("Definitely have to have a way to dismiss it"): close puts
   away what was shown, a new one comes back. The Plus pane line is never put away, so a finding stays findable.
 - The key is a digest, not the report's strings, so nothing from the third party reaches the page.
@@ -32,5 +38,5 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
 - Browser check `render-plus-panel-3829.js`, its certificate scenario: the notice's slot is first in the stack, a
   finding is raised away from Kosmos+ as the fixed warning, Review opens Kosmos+ and puts it away; a clear check
   raises nothing (the control).
-- `node --test engine/cert-watch.test.js` (13), `web.cert-notice-6613.test.js` (7), `web.plus-cert-watch-6602.test.js`
+- `node --test engine/cert-watch.test.js` (13), `web.cert-notice-6613.test.js` (9), `web.plus-cert-watch-6602.test.js`
   (9), the `server.test.js` route test (by name). Mutant: the dismissed-key check removed, 2 notice tests red.
