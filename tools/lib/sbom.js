@@ -2,11 +2,12 @@
 /* O05: a CycloneDX 1.5 bill of materials for one Mac release, derived from its SIGNED manifest, the tmux bundle it
  * shipped, and git history.
  *
- *   node tools/lib/sbom.js <manifest.json> --tmux <tmux-arch.tar.gz> --repo <kosmos checkout>
- *                          --relay <kosmos-relay checkout> [--out <file>]
+ *   node tools/lib/sbom.js <manifest.json> --sig <manifest.json.sig> --tmux <tmux-arch.tar.gz>
+ *                          --repo <kosmos checkout> --relay <kosmos-relay checkout> [--out <file>]
  *
  * What ships, and where each part of the SBOM is read from:
- *   - the release, the Node runtime (version and download sha) and the connector's relay commit: the signed manifest;
+ *   - the release, the Node runtime (version and download sha) and the connector's relay commit: the manifest, whose
+ *     signature must verify under a pinned release key;
  *   - tmux and the libraries it links: the TMUX BUNDLE the release copied in, which must hash to the manifest's signed
  *     tmux_sha256. Its VERSION file names what was built, and every library in its lib/ must be accounted for there.
  *     A release copies an already-built bundle and does not rebuild it, so the build script at the app commit can
@@ -16,7 +17,8 @@
  *     with each crate's direct dependencies. A crate with no source counts as first-party only when it is a member of
  *     the relay's workspace; any other crate from a source this does not know refuses the whole SBOM.
  * The app itself has no npm dependencies (package.json lists none), so nothing else is third-party code; the Mac app
- * (Swift) links Apple's frameworks only.
+ * (Swift) links Apple's frameworks only. Node is one component: the libraries inside the official Node build (V8,
+ * OpenSSL and so on) are Node's own and are matched through Node's version, not listed one by one.
  *
  * LIMIT: the crate list is the lockfile closure, a superset of what the macOS connector compiles. Measured for 0.7.59:
  * 227 crates against cargo tree's 189; the extra are Windows-only and dev-only crates (26) and optional dependencies
@@ -102,7 +104,7 @@ function closure(pkgs, rootName) {
 
 // The relay workspace's member crate names, from its Cargo.toml and each member's own. Literal member paths only.
 function workspaceMembers(show, relay, commit) {
-  const top = show(relay, commit, 'Cargo.toml');
+  const top = show(relay, commit, 'Cargo.toml').replace(/#.*$/gm, '');
   const m = top.match(/^\[workspace\][\s\S]*?^members\s*=\s*\[([^\]]*)\]/m);
   if (!m) throw new Error('relay Cargo.toml: no [workspace] members');
   const dirs = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
@@ -142,29 +144,57 @@ function tmuxPins(text) {
   return pins;
 }
 
-// The shipped tmux bundle: its sha256, the versions its VERSION file names, and its lib/ dylibs, each of which must
-// belong to a named library.
+// The shipped tmux bundle: its sha256, the versions its VERSION file names, and its contents. Every file in it must
+// be one this SBOM accounts for (the VERSION file, the notices and licences, bin/tmux, and a dylib of a library the
+// VERSION names); anything else refuses, since it would be code that ships unlisted. A VERSION key this does not know
+// refuses too: a statically linked library would show up there and nowhere else.
 const DYLIB_OWNER = { ncursesw: 'ncurses', ncurses: 'ncurses', event_core: 'libevent', event: 'libevent', utf8proc: 'utf8proc' };
+const VERSION_KEYS = new Set(['tmux', 'source', 'built', 'floor', 'tmux-src', 'libevent', 'ncurses', 'utf8proc']);
 function readTmuxBundle(file) {
   const sha = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   const list = execFileSync('tar', ['-tzf', file], { encoding: 'utf8', maxBuffer: 64 << 20 }).split('\n').filter(Boolean);
-  const vfile = list.find((p) => p.replace(/^\.\//, '') === 'VERSION');
-  if (!vfile) throw new Error('tmux bundle: no VERSION file');
-  return { sha, ...parseTmuxVersion(execFileSync('tar', ['-xzOf', file, vfile], { encoding: 'utf8' }), list) };
+  const vfiles = list.filter((p) => p.replace(/^\.\//, '') === 'VERSION');
+  if (vfiles.length !== 1) throw new Error(`tmux bundle: ${vfiles.length} VERSION files, not one`);
+  return { sha, ...parseTmuxVersion(execFileSync('tar', ['-xzOf', file, vfiles[0]], { encoding: 'utf8' }), list) };
 }
 function parseTmuxVersion(text, list) {
   const kv = {};
-  for (const m of text.matchAll(/^([a-z0-9-]+):\s+(\S+)/gm)) kv[m[1]] = m[2];
-  const versions = { tmux: kv['tmux-src'] };
+  for (const raw of text.split('\n')) {
+    if (!raw.trim()) continue;
+    const m = raw.match(/^([a-z0-9-]+):[ \t]*(.*)$/);
+    if (!m) throw new Error(`tmux bundle VERSION: a line this SBOM cannot read: ${raw}`);
+    if (!VERSION_KEYS.has(m[1])) throw new Error(`tmux bundle VERSION: ${m[1]} is not a part this SBOM knows (a statically linked library?)`);
+    if (m[1] in kv) throw new Error(`tmux bundle VERSION: ${m[1]} appears twice`);
+    kv[m[1]] = m[2].trim().split(/[ \t]/)[0];
+  }
+  const versions = {};
+  for (const [key, name] of [['tmux-src', 'tmux'], ['libevent', 'libevent'], ['ncurses', 'ncurses'], ['utf8proc', 'utf8proc']]) {
+    if (!(key in kv)) continue;
+    if (!/^[0-9][0-9A-Za-z.+_-]*$/.test(kv[key])) throw new Error(`tmux bundle VERSION: ${key} has no version`);
+    versions[name] = kv[key];
+  }
   if (!versions.tmux) throw new Error('tmux bundle VERSION: no tmux-src line');
-  for (const lib of ['libevent', 'ncurses', 'utf8proc']) if (kv[lib]) versions[lib] = kv[lib];
-  for (const p of list) {
-    const m = p.replace(/^\.\//, '').match(/^lib\/lib([A-Za-z_]+?)(?:[-.][0-9][^/]*)?\.dylib$/);
-    if (!m) continue;
-    const owner = DYLIB_OWNER[m[1]];
-    if (!owner || !versions[owner]) throw new Error(`tmux bundle: ${p} belongs to no library its VERSION names`);
+  for (const raw of list) {
+    const p = raw.replace(/^\.\//, '');
+    if (p.endsWith('/') || ['VERSION', 'THIRD-PARTY-NOTICES.txt', 'bin/tmux'].includes(p) || /^licenses\/[^/]+\.txt$/.test(p)) continue;
+    const m = p.match(/^lib\/lib(.+?)(?:[-.][0-9][^/]*)?\.dylib$/);
+    const owner = m && DYLIB_OWNER[m[1]];
+    if (!owner || !versions[owner]) throw new Error(`tmux bundle: ${p} is not a file this SBOM accounts for`);
   }
   return { versions };
+}
+
+// The manifest bytes, only when their signature verifies under one of the pinned release keys (engine/manifest-verify.js):
+// the SBOM is only as true as its inputs, and the manifest is the one that names everything else.
+function readSignedManifest(file, sigFile, keys = require('../../engine/manifest-verify.js').KEYS) {
+  const bytes = fs.readFileSync(file);
+  let sig;
+  try { sig = Buffer.from(fs.readFileSync(sigFile, 'utf8').trim(), 'base64'); } catch { sig = Buffer.alloc(0); }
+  const ok = sig.length === 64 && keys.some((k) => {
+    try { return crypto.verify(null, bytes, crypto.createPublicKey({ key: Buffer.from(k, 'base64'), format: 'der', type: 'spki' }), sig); } catch { return false; }
+  });
+  if (!ok) throw new Error('the manifest is not signed by a pinned Kosmos release key');
+  return JSON.parse(bytes.toString('utf8'));
 }
 
 const byCodePoint = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
@@ -260,18 +290,18 @@ function uuidFrom(seed) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-module.exports = { parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, build };
+module.exports = { parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, build };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
   const opt = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : null; };
-  const file = args[0], repo = opt('--repo'), relay = opt('--relay'), tmuxFile = opt('--tmux'), out = opt('--out');
-  if (!file || file.startsWith('--') || !repo || !relay || !tmuxFile) {
-    console.error('usage: sbom.js <manifest.json> --tmux <tmux-arch.tar.gz> --repo <kosmos> --relay <kosmos-relay> [--out <file>]');
+  const file = args[0], sig = opt('--sig'), repo = opt('--repo'), relay = opt('--relay'), tmuxFile = opt('--tmux'), out = opt('--out');
+  if (!file || file.startsWith('--') || !sig || !repo || !relay || !tmuxFile) {
+    console.error('usage: sbom.js <manifest.json> --sig <manifest.json.sig> --tmux <tmux-arch.tar.gz> --repo <kosmos> --relay <kosmos-relay> [--out <file>]');
     process.exit(2);
   }
   try {
-    const text = JSON.stringify(build(JSON.parse(fs.readFileSync(file, 'utf8')), { repo, relay, tmux: readTmuxBundle(tmuxFile) }), null, 2) + '\n';
+    const text = JSON.stringify(build(readSignedManifest(file, sig), { repo, relay, tmux: readTmuxBundle(tmuxFile) }), null, 2) + '\n';
     if (out) fs.writeFileSync(out, text); else process.stdout.write(text);
   } catch (e) { console.error(`sbom: ${e.message}`); process.exit(1); }
 }
