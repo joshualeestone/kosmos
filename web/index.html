@@ -1284,8 +1284,9 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    covered the agent-status stamp. The Install button is gold (#e3b341, the
    pack's --gold-bright): gold is the primary ACTION colour, and an
    all-red notice would read as an error rather than something waiting. */
-/* kosmos#6616: the board's one "sign in again" ask, over the page like the notices below. */
-.stepup-ask { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60;
+/* kosmos#6616: the board's one "sign in again" ask. Above every layer the page draws (the first-run and restart
+   covers go to 70), because a key or a sign-in is often asked for from inside one of them. */
+.stepup-ask { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 80;
   max-width: min(560px, calc(100vw - 32px)); display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   padding: 10px 12px; border-radius: 11px; background: var(--bg-elevated); border: 1px solid var(--label-2);
   box-shadow: 0 6px 22px rgba(20,22,26,.13); }
@@ -20151,7 +20152,8 @@ window.kosmosMeasureScrollbarWidth();
 /* kosmos#6616 (R01b): a remote session's refusal that says this computer's connector can take a fresh sign-in
    (`signInAgain`, server.js REMOTE_STEP_UP_SIGNIN) shows the Sign in again ask, whichever page made the request. The
    page that asked still shows the refusal its own way; this adds the one button. The words are the server's own
-   sentence for that code, and the link's address is fixed in the markup. */
+   sentence for that code, and the link's address is fixed in the markup. Not now closes it until the next such
+   refusal; the sentence carries its own fallback, so it still reads right with the ask closed. */
 function showStepUpAsk(body) {
   if (!body || body.code !== 'remote_step_up' || body.signInAgain !== true || typeof body.error !== 'string') return;
   const box = document.getElementById('stepup-ask');
@@ -83323,7 +83325,7 @@ function frOpen() {
    * through into tabs and cards a person has not been shown yet, and a screen
    * reader reads the whole board underneath the welcome message.
    */
-  document.querySelectorAll('body > *:not(#firstrun)').forEach((el) => { el.inert = true; });
+  document.querySelectorAll('body > *:not(#firstrun):not(#stepup-ask)').forEach((el) => { el.inert = true; });   // #6616: the Sign in again ask stays pressable
   frDots.boot();
   frGo(1);
   // The heading, not the button: frGo already focuses #fr-title per step
@@ -83338,7 +83340,7 @@ function frClose() {
   frKeyedHideAll();   // #3713/#3731: Gemini's and Grok's panels close with first run, and their watchers stop
   frMuseCollapse();   // #3939 3c-4: and Meta's sign-in is stopped by its id
   document.getElementById('firstrun').hidden = true;
-  document.querySelectorAll('body > *:not(#firstrun)').forEach((el) => { el.inert = false; });
+  document.querySelectorAll('body > *:not(#firstrun):not(#stepup-ask)').forEach((el) => { el.inert = false; });
   if (FR_RETURN && FR_RETURN.focus) FR_RETURN.focus();
   FR_RETURN = null;
 }
@@ -85276,7 +85278,7 @@ let FR_CHOICE_CONNECTING = false;   // Connect was chosen: the board is being st
 let FR_CHOICE_PENDING = false;      // the first screen is waiting for an answer (frChoose)
 let FR_CHOICE_HIDDEN_BY_RESTART = false;   // the restart screen hid it, and gives it back if it clears
 function frChoiceHold(n) {
-  if (n.nodeType !== 1 || n.id === 'fr-choice' || n.inert) return;
+  if (n.nodeType !== 1 || n.id === 'fr-choice' || n.id === 'stepup-ask' || n.inert) return;   // #6616: the ask stays pressable
   n.inert = true;
   FR_CHOICE_INERTED.push(n);
 }

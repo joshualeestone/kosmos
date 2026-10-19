@@ -4359,10 +4359,13 @@ const REMOTE_STEP_UP = Object.freeze({
 /* kosmos#6616 (R01b): the same refusal when the connector also serves `/_kosmos/signin?fresh=1` (it lists
    fresh-signin): the board page then offers a Sign in again button there, which ends the gate's session and asks the
    sign-in site for a FRESH sign-in, so one press replaces signing out in two places. The button's address is fixed in
-   the page; this only says the connector serves it. */
+   the page; this only says the connector serves it. The sentence keeps the two-place sign-out as its fallback (review
+   iteration 1): the capability is read from the connector BINARY, so a tunnel still running from before an update may
+   not serve the path yet (part 6 of #6616 reads the running tunnel instead), and the ask can be closed while the
+   page that asked still shows this sentence. */
 const REMOTE_STEP_UP_SIGNIN = Object.freeze({
   code: 'remote_step_up',
-  error: 'From a remote session this needs a fresh sign-in. Press Sign in again, sign in with your email code and authenticator code, then try again within 10 minutes. Not using Kosmos+? Do this at the computer itself.',
+  error: 'From a remote session this needs a fresh sign-in. Press Sign in again at the foot of the page, sign in with your email code and authenticator code, then try again within 10 minutes. No Sign in again there? Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, then sign in again. Not using Kosmos+? Do this at the computer itself.',
   signInAgain: true,
 });
 /* A sign-in that the gate says happened more than a minute AHEAD of this clock: signing in again cannot help, the

@@ -42,6 +42,8 @@ test('R01b: a stale remote session is offered Sign in again only when the connec
   assert.equal(got.code, 'remote_step_up', 'the code changed, so every page reading it would miss it');
   assert.equal(got.signInAgain, true);
   assert.match(got.error, /Press Sign in again/);
+  // The fallback stays in the sentence: the button may be closed, or the running tunnel older than the binary.
+  assert.match(got.error, /Sign out of Kosmos\+ on this page and on the Kosmos\+ sign-in site/);
   // CONTROL: the same request through a connector without fresh-signin gets today's refusal, with no button.
   const plain = remoteStepUpRefusal(req(), '/api/agents', t, new Set(['session-headers']));
   assert.equal(plain, REMOTE_STEP_UP);
