@@ -103,10 +103,39 @@ function probeOnline(address, opts) {
   });
 }
 
+/* kosmos#6585: online AND whether it can be switched to with no sign-in, from ONE request. A tunnel that takes
+   #6406's ticket answers a read of TICKET_PROBE_PATH with 405 (it takes only POST there); an older one answers
+   every path with its sign-in page (200), so it cannot take the instant switch and the page says so instead of
+   opening it. Any answer still means online, exactly as probeOnline. Resolves { online, instant }, never throws. */
+const TICKET_PROBE_PATH = '/_kosmos/ticket';
+function probeReach(address, opts) {
+  const timeoutMs = (opts && opts.timeoutMs) || PROBE_TIMEOUT_MS;
+  const request = (opts && opts.request) || require('https').request;
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    const no = { online: false, instant: false };
+    let req;
+    try {
+      req = request(
+        Object.assign(
+          { method: 'HEAD', host: address, path: TICKET_PROBE_PATH, timeout: timeoutMs, headers: { 'user-agent': 'kosmos-switcher' } },
+          opts && opts.port ? { port: opts.port } : {},
+        ),
+        (res) => { finish({ online: true, instant: res.statusCode === 405 }); res.resume(); req.destroy(); },
+      );
+    } catch { finish(no); return; }
+    req.on('timeout', () => { finish(no); req.destroy(); });
+    req.on('error', () => finish(no));
+    req.end();
+  });
+}
+
 /* fetchComputers({ probe }) -- best effort, never throws. `probe` is a test seam
-   (address -> Promise<boolean>); production uses probeOnline. */
+   (address -> Promise<boolean> or Promise<{ online, instant }>); production uses probeReach. A bare boolean
+   says nothing about the instant switch, so that row carries no `instant` and the page tries the ticket as before. */
 async function fetchComputers(opts) {
-  const probe = (opts && opts.probe) || probeOnline;
+  const probe = (opts && opts.probe) || probeReach;
   /* 🛑 SUITE GUARD, as in mac-standing.js: under node's test runner never run the
      real bundled tunnel against the production coordinator. A test that supplies
      its own fake tunnel (AGENT_WORKFORCE_TUNNEL_BIN) still runs the real path. */
@@ -125,8 +154,15 @@ async function fetchComputers(opts) {
     if (!domain) return { ok: false, because: 'the Kosmos+ address is not one computers can live under' };
     const rows = parseComputers(r.data, domain);
     if (!rows) return { ok: false, because: 'the Kosmos+ answer carried no computers' };
-    const online = await Promise.all(rows.map((c) => (c.this ? true : probe(c.address).catch(() => false))));
-    const computers = rows.map((c, i) => Object.assign({}, c, { online: online[i] === true }));
+    const reach = await Promise.all(rows.map((c) => (c.this ? true : probe(c.address).catch(() => false))));
+    const computers = rows.map((c, i) => {
+      const r = reach[i];
+      if (r && typeof r === 'object') {
+        const online = r.online === true;
+        return Object.assign({}, c, online && typeof r.instant === 'boolean' ? { online, instant: r.instant } : { online });
+      }
+      return Object.assign({}, c, { online: r === true });
+    });
     // This computer first, then the others by name, so the list reads the same every time.
     computers.sort((a, b) => (a.this === b.this ? a.name.localeCompare(b.name) : (a.this ? -1 : 1)));
     return { ok: true, domain, computers };
@@ -135,4 +171,4 @@ async function fetchComputers(opts) {
   }
 }
 
-module.exports = { ROUTE, PROBE_TIMEOUT_MS, computerDomain, validAddress, parseComputers, probeOnline, fetchComputers };
+module.exports = { ROUTE, PROBE_TIMEOUT_MS, TICKET_PROBE_PATH, computerDomain, validAddress, parseComputers, probeOnline, probeReach, fetchComputers };
