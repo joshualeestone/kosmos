@@ -42,6 +42,8 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
 - After Review, the card does not come back for that finding set (only a new finding brings it back); the pane's
   line stays. This is #6315's rule, applied as written; it is the design's weakest part for a security warning,
   named to the PM so Josh can choose otherwise.
+- A dismissed key stays dismissed (the newest 50 are kept): if the very same finding set came back after going away,
+  it would stay quiet on that browser. Accepted: the Plus pane's line still says it.
 - The key is a digest, not the report's strings, so nothing from the third party reaches the page.
 - Got it is a board-side record keyed on the marker value, so a later loss (a new marker) is said again. Rejected:
   editing the tunnel's report (it is the tunnel's file, written atomically on its own schedule).

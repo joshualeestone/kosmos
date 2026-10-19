@@ -78,8 +78,10 @@ function certWatchFrom(dir, nowMs) {
   /* kosmos#6613: a lost report a person has acknowledged (the same marker value) is no longer said. */
   const acked = damagedAt === null ? null
     : (() => { try { const t = fs.readFileSync(path.join(dir, LOST_ACK_FILE), 'utf8').trim(); return /^\d+$/.test(t) ? Number(t) : null; } catch { return null; } })();
-  // A record that is not all digits (empty, damaged) reads as none and never matches, so the loss is said again.
-  const lost = damagedAt !== null && acked !== damagedAt;
+  // A record that is not all digits (empty, damaged) reads as none and never matches, so the loss is said again. Any
+  // positive marker is a loss, even one that is not a whole second (said, though it cannot be acknowledged).
+  const marked = typeof raw.damaged_report_at === 'number' && raw.damaged_report_at > 0;
+  const lost = marked && (damagedAt === null || acked !== damagedAt);
   if (lost && state === 'clear') state = 'unknown';
   return {
     on,
