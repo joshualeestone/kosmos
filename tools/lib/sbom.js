@@ -66,28 +66,19 @@ function gitEntry(repo, commit, file) {
   return line ? line.split(' ')[0] : null;
 }
 
-// The names directly inside one folder of a commit ('' is the root, otherwise 'a/b/'), as git stores them: their
-// exact case, which a case-insensitive Mac checkout does not keep apart.
-function gitList(repo, commit, dir) {
-  let out;
-  try {
-    out = execFileSync('git', ['-C', repo, 'ls-tree', '--full-tree', '-z', '--name-only', commit, '--', ...(dir ? [dir] : [])], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  } catch (e) {
-    throw new Error(`${repo}: git could not list ${dir || 'the root'} at ${commit}: ${String(e.stderr || e.message).split('\n')[0]}`);
-  }
-  return out.split('\0').filter(Boolean).map((n) => n.slice(dir.length));
-}
-
-// Review 25 (reviews 24 and 25 each beat a hand-written Cargo.toml reader): the Cargo.lock is trusted only if
-// CARGO agrees it is the resolution of the Cargo.toml files at that commit. The connector is built WITHOUT --locked
-// (relay tools/build-tunnel-release.sh), so a [patch], a git or path dependency, or a dependency missing from the lock
-// would re-resolve the build while the lock still names other crates. `cargo metadata --locked --offline` on the
-// commit's own tree refuses each of those.
-// Review 26: the tree is written HERE, blob by blob from git cat-file, so no filter, attribute, eol or lfs setting of
-// the relay checkout or this machine can change a byte Cargo reads (checkout-index applied them). A submodule
-// refuses. The same listing refuses two paths that are one path on a case-insensitive disk (a Mac's), after
-// lower-casing and Unicode NFC: git show, Cargo and a Mac build could each read a different one.
-function cargoLockAgrees(relay, commit) {
+// Reviews 24 to 27 each beat a hand-written reader of the relay's Cargo files, so CARGO decides: the Cargo.lock is
+// trusted only if `cargo metadata --locked --offline` agrees it is the resolution of the Cargo.toml files at that
+// commit (the connector is built without --locked, so a [patch], a git or path dependency, or a dependency missing
+// from the lock would re-resolve the build while the lock names other crates), and the workspace's members and
+// their binaries are the ones Cargo reports, not ones read from the toml text (review 27: a [workspace] inside a
+// TOML string fooled the hand-written reader).
+// The tree Cargo reads is written HERE, blob by blob from git cat-file (review 26: no filter or attribute of the
+// checkout can change a byte), and BEFORE anything is written every path is checked (review 27, which wrote a file
+// outside the tree through a symlink and a name a Mac folds to the same one, and ran a program through a committed
+// .cargo/config.toml): plain files only (no symlink, no submodule), printable ASCII names only (so case is the
+// only folding, and it is checked across the whole commit), no .cargo anywhere, no Cargo.toml or Cargo.lock in
+// another case, no file written twice.
+function cargoWorkspace(relay, commit) {
   const os = require('os'), p = require('path');
   const git = (args, input) => {
     try {
@@ -102,18 +93,23 @@ function cargoLockAgrees(relay, commit) {
     return { mode, type, sha, file };
   });
   if (!entries.length) throw new Error(`${relay}: the tree of ${commit} is empty`);
+  const refuse = (why) => { throw new Error(`relay at ${commit}: ${why}; this SBOM cannot vouch for what Cargo reads`); };
   const folded = new Map();
-  for (const { file } of entries) {
+  for (const { mode, type, file } of entries) {
+    if (type !== 'blob' || (mode !== '100644' && mode !== '100755')) refuse(`${file} is not a plain file (mode ${mode})`);
+    if (!/^[ -~]+$/.test(file)) refuse(`${JSON.stringify(file)} is not a plain ASCII path`);
     const parts = file.split('/');
-    for (let k = 1; k <= parts.length; k++) {
-      const real = parts.slice(0, k).join('/'), key = real.normalize('NFC').toLowerCase();
+    for (let k = 0; k < parts.length; k++) {
+      const seg = parts[k], low = seg.toLowerCase();
+      if (seg === '' || seg === '.' || seg === '..') refuse(`${file} has an empty, . or .. part`);
+      if (low === '.cargo') refuse(`${file} is Cargo configuration, which can change what the connector builds`);
+      if ((low === 'cargo.toml' && seg !== 'Cargo.toml') || (low === 'cargo.lock' && seg !== 'Cargo.lock')) refuse(`${file} is a Cargo file in another case`);
+      const real = parts.slice(0, k + 1).join('/'), key = real.toLowerCase();
       const seen = folded.get(key);
-      if (seen !== undefined && seen !== real) throw new Error(`relay at ${commit}: ${seen} and ${real} are one path on a case-insensitive disk`);
+      if (seen !== undefined && seen !== real) refuse(`${seen} and ${real} are one path on a case-insensitive disk`);
       folded.set(key, real);
     }
   }
-  const sub = entries.find((e) => e.type !== 'blob');
-  if (sub) throw new Error(`relay at ${commit}: ${sub.file} is a ${sub.type}, which this check cannot write`);
   const dir = fs.mkdtempSync(p.join(os.tmpdir(), 'kosmos-sbom-cargo-'));
   try {
     const tree = p.join(dir, 'tree');
@@ -122,24 +118,36 @@ function cargoLockAgrees(relay, commit) {
     for (const e of entries) {
       const nl = out.indexOf(10, at);
       const [sha, type, size] = out.slice(at, nl).toString('utf8').split(' ');
-      if (sha !== e.sha || type !== 'blob') throw new Error(`relay at ${commit}: git cat-file answered ${sha} ${type} for ${e.file}`);
-      const body = out.subarray(nl + 1, nl + 1 + Number(size));
-      at = nl + 1 + Number(size) + 1;
-      const dest = p.join(tree, e.file);
-      if (!dest.startsWith(tree + p.sep)) throw new Error(`relay at ${commit}: ${e.file} leaves the tree`);
-      fs.mkdirSync(p.dirname(dest), { recursive: true });
-      if (e.mode === '120000') fs.symlinkSync(body.toString('utf8'), dest);
-      else fs.writeFileSync(dest, body, { mode: e.mode === '100755' ? 0o755 : 0o644 });
+      if (sha !== e.sha || type !== 'blob' || !/^[0-9]+$/.test(size || '')) refuse(`git cat-file answered "${out.slice(at, nl)}" for ${e.file}`);
+      const end = nl + 1 + Number(size);
+      if (out[end] !== 10) refuse(`git cat-file's answer for ${e.file} does not end where its size says`);
+      fs.mkdirSync(p.dirname(p.join(tree, e.file)), { recursive: true });
+      fs.writeFileSync(p.join(tree, e.file), out.subarray(nl + 1, end), { flag: 'wx', mode: e.mode === '100755' ? 0o755 : 0o644 });
+      at = end + 1;
     }
-    // Cargo with the build's own cache (CARGO_HOME) and nothing else of this shell's Cargo settings.
-    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CARGO_(?!HOME$)|RUSTUP_TOOLCHAIN$|RUSTFLAGS$)/.test(k)));
+    if (at !== out.length) refuse('git cat-file answered more than was asked');
+    // Cargo with the build's own cache (CARGO_HOME) and nothing else of this shell's Cargo or Rust settings (a
+    // RUSTC or RUSTC_WRAPPER names a program Cargo runs).
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CARGO_(?!HOME$)|RUSTUP_TOOLCHAIN$|RUSTFLAGS$|RUSTDOCFLAGS$|RUSTC|RUSTDOC)/.test(k)));
+    let meta;
     try {
-      execFileSync('cargo', ['metadata', '--locked', '--offline', '--format-version', '1', '--manifest-path', p.join(tree, 'Cargo.toml')],
-        { cwd: tree, env, stdio: ['ignore', 'ignore', 'pipe'] });
+      meta = execFileSync('cargo', ['metadata', '--locked', '--offline', '--format-version', '1', '--manifest-path', p.join(tree, 'Cargo.toml')],
+        { cwd: tree, env, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
       const why = String(e.stderr || e.message).split('\n').find((l) => /error/.test(l)) || String(e.message).split('\n')[0];
       throw new Error(`relay at ${commit}: Cargo does not agree the Cargo.lock is what the Cargo.toml files resolve to (cargo is needed): ${why.trim()}`);
     }
+    let m;
+    try { m = JSON.parse(meta.toString('utf8')); } catch (e) { refuse(`cargo metadata did not answer JSON (${e.message})`); }
+    const ids = new Set(m.workspace_members || []);
+    const members = new Map();
+    for (const pkg of m.packages || []) {
+      if (!ids.has(pkg.id)) continue;
+      if (members.has(pkg.name)) refuse(`two workspace members are named ${pkg.name}`);
+      members.set(pkg.name, { version: pkg.version, bins: (pkg.targets || []).filter((t) => (t.kind || []).includes('bin')).map((t) => t.name) });
+    }
+    if (members.size !== ids.size || !members.size) refuse(`cargo metadata named ${ids.size} workspace members and described ${members.size}`);
+    return members;
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -232,26 +240,6 @@ function closure(pkgs, rootName) {
   return { root, deps: [...seen], edges };
 }
 
-// The relay workspace's members: crate name -> { dir, toml, version }, read from its Cargo.toml and each member's own.
-// Literal member paths only. A member's version may come from [workspace.package] (version.workspace = true).
-function workspaceMembers(show, relay, commit) {
-  const top = show(relay, commit, 'Cargo.toml').replace(/#.*$/gm, '');
-  const sectionOf = (text, name) => (text.match(new RegExp(`^\\[${name.replace('.', '\\.')}\\]\\s*$([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`, 'm')) || [])[1] || '';
-  const m = sectionOf(top, 'workspace').match(/^members\s*=\s*\[([^\]]*)\]/m);
-  if (!m) throw new Error('relay Cargo.toml: no [workspace] members');
-  const dirs = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
-  if (!dirs.length || dirs.some((d) => /[*?[]/.test(d))) throw new Error('relay Cargo.toml: members must be literal paths');
-  const wsVersion = (sectionOf(top, 'workspace.package').match(/^version\s*=\s*"([^"]+)"/m) || [])[1];
-  return new Map(dirs.map((d) => {
-    const toml = show(relay, commit, `${d}/Cargo.toml`);
-    const pkg = sectionOf(toml.replace(/#.*$/gm, ''), 'package');
-    const n = pkg.match(/^name\s*=\s*"([^"]+)"/m);
-    if (!n) throw new Error(`relay ${d}/Cargo.toml: no [package] name`);
-    const v = (pkg.match(/^version\s*=\s*"([^"]+)"/m) || [])[1] || (/^version\.workspace\s*=\s*true/m.test(pkg) ? wsVersion : undefined);
-    if (!v) throw new Error(`relay ${d}/Cargo.toml: no version`);
-    return [n[1], { dir: d, toml, version: v }];
-  }));
-}
 
 // The names of the libraries tools/build-tmux-from-source.sh fetches, so the bundle can be held to naming each one.
 // Nothing else is taken from the script: it is read, not run, and five review rounds each found a way for a static
@@ -498,7 +486,7 @@ const FORMAT = 'kosmos-sbom-1';
 // And this file's own bytes, so a change to the generator changes the id even if FORMAT was not bumped.
 const SELF_SHA = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex').slice(0, 16);
 
-function build(manifest, { repo, relay, tmux, show = gitShow, list = gitList, lockAgrees = cargoLockAgrees, readImports = swiftcImports }) {
+function build(manifest, { repo, relay, tmux, show = gitShow, workspace = cargoWorkspace, readImports = swiftcImports }) {
   if (manifest.manifest !== 1) throw new Error(`manifest format ${manifest.manifest}: this SBOM reads format 1`);
   for (const k of Object.keys(manifest)) {
     if (!MANIFEST_KEYS.has(k)) throw new Error(`manifest has ${k}, a part this SBOM does not know (it would be left out)`);
@@ -527,31 +515,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow, list = gitList, lo
   checkFirstParty(manifest, show(repo, appCommit, 'package.json'));
   const arch = manifest.arch;
   const { root, deps, edges } = closure(parseLock(show(relay, relayCommit, 'Cargo.lock')), CONNECTOR_CRATE);
-  const members = workspaceMembers(show, relay, relayCommit);
-  lockAgrees(relay, relayCommit);
-  // A .cargo/config in the relay can point a crate at other code (paths, [source] replacement, vendoring) while the
-  // Cargo.lock still names the registry crate, so any one refuses. The build machine's own ~/.cargo and CARGO_*
-  // settings are a LIMIT: this cannot see them.
-  // ANY .cargo entry (a folder, a file, a symlink to one) refuses, review 23: a symlinked .cargo is not a plain file,
-  // and Cargo follows it.
-  // Cargo reads config from every folder above the build's, so every ancestor of every member, up to the root.
-  const dirsToCheck = new Set(['']);
-  for (const { dir } of members.values()) {
-    const parts = dir.split('/');
-    for (let k = 1; k <= parts.length; k++) dirsToCheck.add(parts.slice(0, k).join('/') + '/');
-  }
-  // Review 24: by NAME, case-folded, from a listing of the folder: a Mac checkout is case-insensitive, so a .Cargo in
-  // git is the .cargo Cargo reads there, and a second Cargo.toml or Cargo.lock spelled in another case could be
-  // the one that lands on disk.
-  for (const dir of [...dirsToCheck].sort(byCodePoint)) {
-    for (const n of list(relay, relayCommit, dir)) {
-      const low = n.toLowerCase();
-      if (low === '.cargo') throw new Error(`relay ${dir}${n} at the connector commit can change what the connector builds; this SBOM cannot vouch for it`);
-      if ((low === 'cargo.toml' && n !== 'Cargo.toml') || (low === 'cargo.lock' && n !== 'Cargo.lock')) {
-        throw new Error(`relay ${dir}${n}: a case-insensitive checkout may read it instead of ${low === 'cargo.toml' ? 'Cargo.toml' : 'Cargo.lock'}`);
-      }
-    }
-  }
+  const members = workspace(relay, relayCommit);
   // A crate with no source is first-party only when it IS the member, at the member's version (a path dependency
   // outside the workspace can share a member's name). Two sourceless packages of one name and version cannot reach
   // here: the closure's resolver already refuses that as ambiguous.
@@ -563,8 +527,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow, list = gitList, lo
     }
   }
   // The shipped app/bin/kosmos-tunnel must be that crate's binary, or its closure is not the connector's.
-  const tunnelToml = (members.get(CONNECTOR_CRATE) || {}).toml || '';
-  if (!/^\[\[bin\]\]\s*\nname\s*=\s*"kosmos-tunnel"/m.test(tunnelToml)) throw new Error(`relay: ${CONNECTOR_CRATE} does not build the kosmos-tunnel binary`);
+  if (!((members.get(CONNECTOR_CRATE) || {}).bins || []).includes('kosmos-tunnel')) throw new Error(`relay: ${CONNECTOR_CRATE} does not build the kosmos-tunnel binary`);
   const floor = show(repo, appCommit, 'tools/macos-floor').trim();
   if (!/^[0-9]+(\.[0-9]+)*$/.test(floor)) throw new Error(`tools/macos-floor at the app commit is not a macOS version (${floor})`);
   checkNativeApp(manifest, show(repo, appCommit, 'native-app/main.swift'), `arm64-apple-macos${floor}`, readImports);
@@ -634,7 +597,7 @@ function uuidFrom(seed) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-module.exports = { SELF_SHA, gitShow, gitEntry, gitList, cargoLockAgrees, tmuxCpeFor: cpe, parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
+module.exports = { SELF_SHA, gitShow, gitEntry, cargoWorkspace, tmuxCpeFor: cpe, parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
 
 // A path as the file system resolves it (following a symlink), or as written when it does not exist yet.
 function realish(p) { try { return fs.realpathSync(p); } catch { return require('path').resolve(p); } }
