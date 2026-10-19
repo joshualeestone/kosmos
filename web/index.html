@@ -52466,7 +52466,8 @@ function paintPlusCertWatch(cw, plusOn) {
     line.textContent = ''; row.hidden = true;
     if (line.dataset) { line.dataset.state = ''; line.dataset.key = ''; }
     const ack0 = document.getElementById('plus-cw-ack'); if (ack0) ack0.hidden = true;
-    if (typeof paintCwNote === 'function') paintCwNote(null);   // so leaving Kosmos+ does not bring back an old finding
+    // Not a "no finding": an answer with no certWatch (an older board) is left alone, so a showing warning stays. A
+    // computer no longer set up clears the notice on paintPlus's own not-enrolled branch.
     return;
   }
   const say = plusCwSay(cw, plusOn);
@@ -52558,6 +52559,8 @@ async function pollCwNote() {
   } catch { r = null; }
   // A failed read (a board restarting) is not "no finding": keep what shows rather than blink a warning off and on.
   if (!r || typeof r !== 'object' || typeof r.enrolled !== 'boolean') return;
+  // Set up, but no certWatch in the answer (an older board): not an answer about the check, so nothing changes.
+  if (r.enrolled === true && (!r.certWatch || typeof r.certWatch !== 'object')) return;
   CW_NOTE.quietUntil = r.enrolled === true ? 0 : Date.now() + 10 * 60 * 1000;
   paintCwNote(r.enrolled === true ? r.certWatch : null, r.on === true);
 }

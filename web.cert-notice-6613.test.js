@@ -167,6 +167,14 @@ test('an error answer from the board (a 500) is a failed read too: the warning s
   assert.equal(asked, 2, 'a 500 was read as "not set up" and polling went quiet');
 });
 
+test('a set-up answer with no certWatch (an older board) leaves a showing warning alone', async () => {
+  const { ctx, get } = noteWorld();
+  ctx.paintCwNote(FOUND);
+  ctx.fetch = async () => ({ ok: true, json: async () => ({ enrolled: true, on: true }) });
+  await ctx.pollCwNote();
+  assert.ok(shown(get));
+});
+
 test('the small line says what is true: on, Kosmos+ off, or the check off', () => {
   const { ctx, get } = noteWorld();
   ctx.paintCwNote(FOUND, true);
