@@ -922,6 +922,18 @@ chk "and swap_dir names the folder the swap acted on (physical path)" "[ \"\$(gr
 chk "the install log records app_path=swap for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = swap ]"
 chk "the swapped app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
 chk "no stage or aside folder is left behind by the swap" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
+# #2864 composition, the single riskiest interaction with the sealed-icon model, so TESTED here, not
+# only reasoned about: the swap exchanges the whole Contents/ (which holds _CodeSignature) as one
+# kernel step, so the visible app must still verify its ad-hoc signature afterwards. The stage is
+# signed by build_app_bundle before placement (#5992), so a correct swap leaves a complete,
+# verifiable bundle; this is the only path in the suite that runs codesign --verify on a SWAPPED app.
+chk "the swapped app still verifies its code signature (the seal survives the Contents exchange)" "/usr/bin/codesign --verify --deep --strict \"$SB/apps/Kosmos.app\" 2>/dev/null"
+# CONTROL: codesign --verify is a LIVE check here, not vacuous -- a copy of the swapped app with one
+# sealed file tampered must FAIL to verify. On a copy, so the real app is left intact for the checks below.
+rm -rf "$SB/verify-control.app"; cp -R "$SB/apps/Kosmos.app" "$SB/verify-control.app"
+printf '\n<!-- tampered -->' >> "$SB/verify-control.app/Contents/Info.plist"
+chk "CONTROL: a tampered copy of the swapped app FAILS codesign --verify (so the check above is live)" "! /usr/bin/codesign --verify --deep --strict \"$SB/verify-control.app\" 2>/dev/null"
+rm -rf "$SB/verify-control.app"
 # CONTROL, the property the fix exists for: with the swap switched off, the old
 # whole-bundle rename runs and the folder IS a new one. If this ever passes with the
 # same inode, the check above proves nothing.
