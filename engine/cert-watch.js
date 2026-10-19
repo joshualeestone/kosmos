@@ -73,7 +73,7 @@ function certWatchFrom(dir, nowMs) {
   /* Both directions on purpose: a check dated far in the future (a skewed clock, a bad write) is not current either. */
   else if (state === 'clear' && (checkedAt === null || Math.abs(nowMs - checkedAt * 1000) >= STALE_MS)) state = 'unknown';
   /* An earlier report could not be read and was kept aside by the tunnel: findings in it may be lost. The tunnel
-     keeps the marker until a person has looked; acknowledging it from the board is kosmos#6613. */
+     keeps the marker; a person's Got it is recorded in the board's own file (LOST_ACK_FILE), read just below. */
   const damagedAt = secs(raw.damaged_report_at);
   /* kosmos#6613: a lost report a person has acknowledged (the same marker value) is no longer said. */
   const acked = damagedAt === null ? null
