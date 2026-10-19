@@ -71,7 +71,7 @@ test('the first click arms and asks nothing; the second asks once and says it is
 });
 
 // #6611: the done words follow what the coordinator reported clearing. No factor cleared (had: null) must never say
-// anyone was signed out; an answer without `had` (an older connector) gets the words that claim no sign-out.
+// anyone was signed out; an answer without `had` (one that went wrong somewhere) gets the words that claim no sign-out.
 for (const [label, body, want, notWant] of [
   ['nothing to clear', { ok: true, had: null }, /^There was no second step on your account to switch off, so nobody was signed out\. If you had started setting one up, start again\.$/, /Every phone and browser/],
   ['without had', { ok: true }, /^The second step is off\. Sign in from your new phone/, /Every phone and browser/],

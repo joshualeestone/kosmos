@@ -52483,7 +52483,7 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
       // #6611: say what the coordinator actually did, by what it reported clearing.
       const said = (await res.json().catch(() => null)) || {};
       msg.textContent = said.had === null ? PLUS_SECOND_WORDS.none
-        : typeof said.had === 'string' ? PLUS_SECOND_WORDS.done
+        : typeof said.had === 'string' && said.had.trim() ? PLUS_SECOND_WORDS.done
         : PLUS_SECOND_WORDS.doneUnknown;
     }
   } catch { msg.textContent = PLUS_SECOND_WORDS.failed('this computer could not reach its own engine'); }
