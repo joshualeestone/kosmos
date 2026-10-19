@@ -116,12 +116,13 @@ function ackLostIn(dir, at) {
   try { raw = JSON.parse(fs.readFileSync(path.join(dir, REPORT_FILE), 'utf8')); } catch { raw = null; }
   if (!raw || secs(raw.damaged_report_at) !== at) return { ok: false, because: 'that report is no longer the one to acknowledge' };
   /* Whole or not at all (a temp file then a rename), so a read never sees an empty record and says the loss again. */
-  const file = path.join(dir, LOST_ACK_FILE), tmp = file + '.tmp';
+  const file = path.join(dir, LOST_ACK_FILE), tmp = file + '.' + process.pid + '.' + Date.now() + '.' + Math.random().toString(16).slice(2) + '.tmp';
   try {
     fs.writeFileSync(tmp, String(at) + '\n', { mode: 0o600 });
     fs.renameSync(tmp, file);
     return { ok: true };
   } catch {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* nothing was left */ }
     return { ok: false, because: 'we could not save that' };
   }
 }

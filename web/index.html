@@ -1486,6 +1486,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   .utoast.login-adv .utxt small { display: block; }
   /* #5359: the restart note's line is that Kosmos came back by itself, the point of it; kept the same way. */
   .utoast.reboot .utxt small { display: block; }
+  /* kosmos#6613: the certificate notice's small line says whether the check is still on; a phone keeps it. */
+  .utoast.cwnote .utxt small { display: block; }
 }
 /* The updating overlay: the board is about to vanish on purpose, and this is
    the sentence that stops that being alarming. Same ground as the modals. */
@@ -52503,9 +52505,11 @@ function cwNoteAway() {
   try { stored = (localStorage.getItem('kosmos.cwnote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { stored = []; }
   return stored.concat(CW_NOTE.away.filter((k) => stored.indexOf(k) === -1));
 }
-function cwNoteDismiss() {
-  if (!CW_NOTE.key) return;
-  const keys = cwNoteAway().filter((k) => k !== CW_NOTE.key).concat([CW_NOTE.key]).slice(-50);
+/* Put `key` away (the one the person acted on, captured when they pressed: a repaint on the way to Kosmos+ clears
+   CW_NOTE.key, so it cannot be read afterwards). */
+function cwNoteDismiss(key) {
+  if (!key) return;
+  const keys = cwNoteAway().filter((k) => k !== key).concat([key]).slice(-50);
   CW_NOTE.away = keys;
   try { localStorage.setItem('kosmos.cwnote.dismissed', keys.join('\n')); } catch (e) { /* this tab's record holds */ }
 }
@@ -52515,6 +52519,7 @@ function paintCwNote(cw) {
   if (!slot) return;
   const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
   const key = cw && cw.state === 'foreign' && typeof cw.key === 'string' && /^[0-9a-f]{16}$/.test(cw.key) ? cw.key : null;
+  // Leaving Kosmos+ with the finding still there shows the card again, and says it again: a reminder, by design.
   if (!key || onPlus || cwNoteAway().indexOf(key) !== -1) { CW_NOTE.key = null; CW_NOTE.sig = null; slot.textContent = ''; return; }
   const here = cw.foreign > 0 || !(cw.earlier > 0);   // this computer's address, or only an earlier one
   const sig = key + (here ? ':here' : ':earlier') + (cw.on === true ? ':on' : ':off');
@@ -52535,14 +52540,17 @@ function paintCwNote(cw) {
 async function pollCwNote() {
   let r = null;
   try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
-  paintCwNote(r && r.enrolled === true ? r.certWatch : null);
+  // A failed read (a board restarting) is not "no finding": keep what shows rather than blink a warning off and on.
+  if (!r || typeof r !== 'object') return;
+  paintCwNote(r.enrolled === true ? r.certWatch : null);
 }
 { const cwSlot = document.getElementById('cwnote-slot');
   if (cwSlot) cwSlot.addEventListener('click', (e) => {
     const b = e.target && e.target.closest ? e.target.closest('[data-cw]') : null;
     if (!b) return;
     const open = b.getAttribute('data-cw') === 'open';
-    if (!open) cwNoteDismiss();
+    const shownKey = CW_NOTE.key;
+    if (!open) cwNoteDismiss(shownKey);
     cwSlot.textContent = '';
     /* Review puts the set away, as #6315's request notice does ("Its close button or Review puts that set away"), but
        only once the pane's own line says the finding: a pane that did not paint must not cost the person the notice.
@@ -52552,7 +52560,7 @@ async function pollCwNote() {
       Promise.resolve(paintPlus()).then(() => {
         const line = document.getElementById('plus-cw-line');
         if (line && line.textContent) {
-          cwNoteDismiss();
+          cwNoteDismiss(shownKey);
           if (line.focus) { line.setAttribute('tabindex', '-1'); line.focus(); }
         }
       });

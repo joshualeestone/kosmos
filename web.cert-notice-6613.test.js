@@ -35,9 +35,10 @@ function noteWorld({ onPlus = false, stored = '' } = {}) {
   const get = (id) => (els[id] ||= el(id));
   const mark = el('klink');
   const store = { 'kosmos.cwnote.dismissed': stored };
+  const where = { onPlus };
   const ctx = {
     document: { getElementById: get, querySelector: (sel) => (sel === '.apphead .klink' ? mark : null) }, console,
-    plusOnScreen: () => onPlus,
+    plusOnScreen: () => where.onPlus,
     localStorage: { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = v; } },
     fetch: async () => ({ ok: true, json: async () => ({ enrolled: false }) }),
     setInterval: () => 0, showTab() {}, settingsGo() {}, paintPlus() {}, plusSay() {}, plusWords: (s) => s,
@@ -46,7 +47,9 @@ function noteWorld({ onPlus = false, stored = '' } = {}) {
   const end = SCRIPT.indexOf('/* The words of the code box (#729).', start);
   assert.ok(start > 0 && end > start, 'the notice script moved; re-anchor this test');
   vm.runInNewContext(SCRIPT.slice(start, end), ctx);
-  return { ctx, get, store, mark };
+  /* As the page does: opening Kosmos+ (settingsGo) puts the person on it, and syncPlusChrome repaints the notice. */
+  ctx.settingsGo = (sec) => { if (sec === 'plus') { where.onPlus = true; ctx.paintCwNote(ctx.CW_NOTE.last); } };
+  return { ctx, get, store, mark, where };
 }
 
 const FOUND = { on: true, state: 'foreign', foreign: 1, earlier: 0, key: '0123456789abcdef' };
@@ -108,12 +111,21 @@ test('with the check switched off, a finding is still raised, and says the check
 test('Review puts the finding away only once the pane says it', async () => {
   for (const paneSays of [true, false]) {
     const w = noteWorld();
-    w.ctx.paintPlus = async () => { w.get('plus-cw-line').textContent = paneSays ? 'Warning: a finding.' : ''; };
+    // The real repaint on Kosmos+ also hands the notice the answer (paintPlusCertWatch -> paintCwNote), clearing its key.
+    w.ctx.paintPlus = async () => { w.ctx.paintCwNote(FOUND); w.get('plus-cw-line').textContent = paneSays ? 'Warning: a finding.' : ''; };
     w.ctx.paintCwNote(FOUND);
     w.get('cwnote-slot').listeners.click({ target: { closest: () => ({ getAttribute: () => 'open' }) } });
     await new Promise((r) => setTimeout(r, 0));
     assert.equal(w.store['kosmos.cwnote.dismissed'] === FOUND.key, paneSays, paneSays ? 'the pane said it: put away' : 'CONTROL: a pane that did not paint keeps the notice');
   }
+});
+
+test('a failed read of the board keeps the warning showing (no blink)', async () => {
+  const { ctx, get } = noteWorld();
+  ctx.paintCwNote(FOUND);
+  ctx.fetch = async () => { throw new Error('board restarting'); };
+  await ctx.pollCwNote();
+  assert.ok(shown(get));
 });
 
 test('a key put away in another tab (storage) is honoured at the next paint', () => {
