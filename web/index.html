@@ -1284,6 +1284,11 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    covered the agent-status stamp. The Install button is gold (#e3b341, the
    pack's --gold-bright): gold is the primary ACTION colour, and an
    all-red notice would read as an error rather than something waiting. */
+/* kosmos#6616: the board's one "sign in again" ask, over the page like the notices below. */
+.stepup-ask { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60;
+  max-width: min(560px, calc(100vw - 32px)); display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 11px; background: var(--bg-elevated); border: 1px solid var(--label-2);
+  box-shadow: 0 6px 22px rgba(20,22,26,.13); }
 .utoast {
   --utone: #b3261e;
   /* Was IN THE FLOW, beside the mark (Josh 2026-08-17; pack 2e4e100), because an
@@ -20099,6 +20104,12 @@ window.kosmosMeasureScrollbarWidth();
      `role="alert"` also announces nothing from inside a hidden subtree, so the
      screen-reader half was silently gone too. -->
 <p class="removed-msg" id="removed-msg" role="alert" aria-live="assertive"></p>
+<!-- kosmos#6616 (R01b): from a remote session, a refusal that asks for a fresh sign-in, when this computer's Kosmos+
+     connector serves /_kosmos/signin?fresh=1. One place for every page, filled by the fetch wrapper below. The
+     address is fixed here, never read from a reply. -->
+<div class="stepup-ask" id="stepup-ask" role="alert" hidden><span id="stepup-words"></span>
+  <a class="btn" id="stepup-go" href="/_kosmos/signin?fresh=1">Sign in again</a>
+  <button type="button" class="btn" id="stepup-close">Not now</button></div>
 <!-- ⚠️ THE FOOT, not the top (Josh, 2026-08-19). This line sat above the cards,
      under the New agent button, where the first thing a person met on their
      board was its version number. It belongs where a version belongs: at the
@@ -20126,12 +20137,31 @@ window.kosmosMeasureScrollbarWidth();
   window.fetch = function fetchReadingRefusals(...args) {
     return nativeFetch.apply(window, args).then((res) => {
       if (res && res.ok === false && typeof res.clone === 'function') {
-        try { res.clone().arrayBuffer().catch(() => {}); } catch { /* the caller's own read is unaffected */ }
+        // kosmos#6616: a 403 is read as JSON, which drains it just the same, to see whether it asks for a fresh sign-in.
+        try {
+          const copy = res.clone();
+          if (res.status === 403) copy.json().then(showStepUpAsk, () => {});
+          else copy.arrayBuffer().catch(() => {});
+        } catch { /* the caller's own read is unaffected */ }
       }
       return res;
     });
   };
 })();
+/* kosmos#6616 (R01b): a remote session's refusal that says this computer's connector can take a fresh sign-in
+   (`signInAgain`, server.js REMOTE_STEP_UP_SIGNIN) shows the Sign in again ask, whichever page made the request. The
+   page that asked still shows the refusal its own way; this adds the one button. The words are the server's own
+   sentence for that code, and the link's address is fixed in the markup. */
+function showStepUpAsk(body) {
+  if (!body || body.code !== 'remote_step_up' || body.signInAgain !== true || typeof body.error !== 'string') return;
+  const box = document.getElementById('stepup-ask');
+  if (!box) return;
+  document.getElementById('stepup-words').textContent = body.error;
+  box.hidden = false;
+}
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'stepup-close') document.getElementById('stepup-ask').hidden = true;
+});
 
 /* ================= win32-board-copy: the platform copy layer =================
    ONE place decides whether this board speaks Windows, and ONE table holds every
