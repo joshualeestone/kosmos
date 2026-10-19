@@ -2618,7 +2618,11 @@ function limitHeldVerdict(sessionName, roster, now = Date.now()) {
   const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
   if (!limitable(card) || card.state !== status.STATE.RATE_LIMITED) return null;
   if (addressable(sessionName, roster).ok !== true) return null;
-  let reset = status.limitResetAt(card.stateEvidence, now);
+  /* #5805 review 1: a Windows card's reset is the one its account's stream gave (status read it into limitUntil), so it
+     comes first, and the card and the hold cannot disagree; a Mac card's comes from its screen line, as before. */
+  let reset = null;
+  if (card.reachedByChannel === true && typeof card.limitUntil === 'string' && Number.isFinite(Date.parse(card.limitUntil))) reset = Date.parse(card.limitUntil);
+  if (reset === null) reset = status.limitResetAt(card.stateEvidence, now);
   /* #5805 slice 3b: a dateless line ("resets 4pm (zone)") holds too, on the card's limitUntil: its reset as resolved
      from when the board first saw the line on screen (status.claudeLimitUntil). No limitUntil (seen late): not held. */
   if (reset === null && typeof card.limitUntil === 'string') {

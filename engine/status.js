@@ -3235,9 +3235,12 @@ function limitCaptureSweep(names) {
 function resetLimitFirstSeenForTests() { limitFirstSeen.clear(); limitCapturedAgents.clear(); limitRowGone.clear(); }
 /* The card's limitUntil: only for a Claude pane read rate_limited (a Codex or Gemini limit says its own reset). */
 function claudeLimitUntilIso(pane, status) {
-  if (!pane || !status || status.state !== STATE.RATE_LIMITED || typeof status.evidence !== 'string') return null;
+  if (!pane || !status || status.state !== STATE.RATE_LIMITED) return null;
   if (pane.runner && pane.runner !== 'claude') return null;
   if (isCodexCommand(pane.command) || isGrokCommand(pane.command) || isAntigravityCommand(pane.command)) return null;
+  /* #5805: a Windows reading carries the reset its account's stream gave, so it is used as it is. */
+  if (typeof status.limitUntil === 'string' && Number.isFinite(Date.parse(status.limitUntil))) return status.limitUntil;
+  if (typeof status.evidence !== 'string') return null;
   const at = claudeLimitUntil(pane.name, status.evidence);
   return at === null ? null : new Date(at).toISOString();
 }
@@ -5098,7 +5101,8 @@ function classify(pane, paneText) {
    *
    * The token comes from `claude agents --json` for an interactive session, and
    * from the agent's own event stream (engine/win32streamstate, #570 7c-5) for a
-   * streaming one, whose live row carries no status. Same two tokens either way.
+   * streaming one, whose live row carries no status. Same two tokens either way, plus a third from the stream alone:
+   * `limit ...` while the agent's account is out of usage (#5805, read just below).
    *
    * 🔑 THIS IS THE SCRAPE-EQUIVALENT, NOT THE WHOLE STATE. It maps only the coarse
    * working/idle the live list can see; `needs_you`/`blocked` are NOT here and
@@ -5114,6 +5118,23 @@ function classify(pane, paneText) {
    * which is where "stopped" is decided for win32 -- not here.
    */
   if (require('./win32roster').isWin32Pane(pane)) {
+    /* #5805: the agent's own stream said its account refused a request on its usage limit (win32streamstate's
+       `limit <until> <since|-> <kind|->[ <line>]`; stateFor returns one only while the reset is ahead). It reads exactly as the Mac's screen reading does (rate_limited, scraped),
+       so the card says "Looks like a usage limit until <time>" and the usage-limit holds apply; limitUntil is the reset
+       the event gave, and evidence is the refused turn's own sentence when it sent one. */
+    const lim = typeof paneText === 'string' ? /^limit (\S+) (\S+) (\S+)(?: ([\s\S]*))?$/.exec(paneText) : null;
+    const limUntil = lim && lim[1] !== '-' && Number.isFinite(Date.parse(lim[1])) ? lim[1] : null;
+    /* Review 7: no readable reset, no limit (stateFor never writes one; the reader refuses one it did not write). */
+    if (lim && limUntil !== null) {
+      const until = lim[1] !== '-' && Number.isFinite(Date.parse(lim[1])) ? new Date(Date.parse(lim[1])).toISOString() : null;
+      const since = lim[2] !== '-' && Number.isFinite(Date.parse(lim[2])) ? new Date(Date.parse(lim[2])).toISOString() : null;
+      /* Evidence is Claude's own sentence or nothing (review 4): it is shown quoted as Claude's words, so a line Kosmos
+         wrote must never stand in for one. */
+      const line = typeof lim[4] === 'string' && lim[4].trim() ? lim[4].trim() : null;
+      /* streamLimit: the account's own refusal, not a screen reading, so reconcileReport lets it stand against a fresh
+         AUTOMATIC report, as #3723 does for Codex's and Gemini's limit messages (review 5). */
+      return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.SCRAPED, because: 'its account reported a usage limit', evidence: line, limitUntil: until, streamLimit: true, streamLimitSince: since };
+    }
     /* The two tokens are win32streamstate's, the one vocabulary win32capture holds by too (#5949). */
     const { BUSY: WIN32_BUSY, IDLE: WIN32_IDLE } = require('./win32streamstate');
     if (paneText === WIN32_BUSY) {
@@ -8147,7 +8168,16 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     /* #3723: except Codex's own limit message against an AUTOMATIC report. Codex's bridge reports
        idle at the end of every turn, and a turn that failed on the limit still ends, so that report
        is the machine noticing the turn ended, not evidence the account works. */
-    const autoOverCodexLimit = (scraped.limitFrom === 'codex' || scraped.limitFrom === 'gemini') && reported.by === 'auto';   // #4004: Gemini's bridge ends a failed turn with idle too
+    /* #5805 review 5: a Windows agent's limit comes from its account's own rate_limit_event, not a screen; its hooks'
+       automatic working (a message typed in) and idle (the refused turn ending) are the machine noticing turns, not
+       evidence the account has room, so they cannot outrank it. Its own report still can. */
+    const autoOverCodexLimit = ((scraped.limitFrom === 'codex' || scraped.limitFrom === 'gemini') && reported.by === 'auto')
+      /* #5805: a Windows agent's limit is its account's own refusal. Only the AGENT's own report can outrank it (an
+         automatic hook noticing a turn, or an operator clear, says nothing about the account; reviews 5 and 7), and only
+         one newer than the latest refusal: a capped session cannot write a new one, so an older report is from before
+         the cap (review 6). */
+      || (scraped.streamLimit === true && (reported.by !== 'agent'
+        || (typeof scraped.streamLimitSince === 'string' && Number.isFinite(atRl) && atRl <= Date.parse(scraped.streamLimitSince))));
     /* #5805: Claude Code's StopFailure hook reports the same failed turn as an automatic blocked "provider api
        (rate_limit)", the #3723 case in Claude's words: it says the turn hit the limit, so it cannot outrank the screen
        that says so, and the card keeps its dated limit line (the usage-limit hold reads it). */
@@ -9319,7 +9349,7 @@ function snapshot() {
          usage-limit hold can release once the screen is back at its prompt (chat.limitReleased). Null otherwise. */
       screenState: typeof status.screenState === 'string' ? status.screenState : null,
       /* #5805 slice 3: the reset a capped Claude agent is out of usage until (an ISO time, dated or dateless, see
-         claudeLimitUntil), so the card can say when: "Looks like a usage limit until <time>" (every Claude card is a
+         claudeLimitUntil, or on Windows the reset its account's stream gave), so the card can say when: "Looks like a usage limit until <time>" (every Claude card is a
          screen reading today; a reported one would say "Out of usage until"). Null for any other card or an unread line. */
       limitUntil: claudeLimitUntilIso(pane, status),
       /* #6249: text has sat unsent in its input box for a few minutes ({ since }), else null. */
