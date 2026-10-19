@@ -190,7 +190,7 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
  * one replaces the stored seq. A seq is never reused: a list with the stored seq but other keys is refused. Revoking a
  * stolen release key is a new list without it, seq + 1, signed with the recovery key (tools/lib/release-keys-sign.js),
  * and the next release raises MIN_KEY_LIST_SEQ to it. Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
-const RECOVERY_KEYS = [];
+const RECOVERY_KEYS = Object.freeze([]);   // frozen: nothing in the process can turn the feature on by adding one
 const KEY_LIST_STATE = 'release-keys.state.json';
 // The lowest list seq this build accepts, even with no state stored (a fresh install): raised in the release after a
 // revocation, so a copy without a record still refuses the list from before it.
@@ -246,25 +246,40 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   if (!listBytes) return { ok: false, why: 'the release key list could not be read' };
   const v = verifyKeyList({ bytes: listBytes, sig: listSig, recoveryKeys });
   if (!v.ok) return v;
-  const stored = home ? storedKeyList(home, minSeq) : { seq: minSeq, keys: null };
+  // On, the record is what stops an older list coming back, so a check with no install home to keep it in is refused.
+  if (!home) return { ok: false, why: 'the release key list cannot be checked without this copy\'s record' };
+  const stored = storedKeyList(home, minSeq);
   if (!stored) return { ok: false, why: 'this copy\'s record of the release key list is damaged, so no list can be taken' };
   if (v.seq < stored.seq) return { ok: false, why: `the release key list is ${v.seq}, older than the ${stored.seq} this copy has taken` };
   if (v.seq === stored.seq && stored.keys && JSON.stringify([...stored.keys].sort()) !== JSON.stringify([...v.keys].sort())) {
     return { ok: false, why: `the release key list ${v.seq} names other keys than the list ${v.seq} this copy took` };
   }
-  if (home && v.seq > stored.seq) {
+  // Recorded when newer, and also when there is no record yet (a list at exactly the floor), so its keys are what a
+  // later list with the same seq is held to.
+  if (v.seq > stored.seq || !stored.keys) {
     // The keys are written as a record only: what is trusted always comes from a list that verified just now.
     const out = path.join(home, KEY_LIST_STATE);
+    const lock = out + '.lock';
     const tmp = out + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
+    // One check at a time moves the record: a lock left by a check that died is taken over after a minute.
+    try { if (Date.now() - fs.statSync(lock).mtimeMs > 60000) fs.rmSync(lock, { recursive: true, force: true }); } catch { /* no lock */ }
+    try { fs.mkdirSync(lock); } catch (e) {
+      return { ok: false, why: e && e.code === 'EEXIST' ? 'another check is taking the release key list; try again' : 'this copy\'s record of the release key list could not be written' };
+    }
     try {
-      fs.writeFileSync(tmp, JSON.stringify({ seq: v.seq, release_keys: v.keys }) + '\n', { mode: 0o600, flag: 'wx' });
-      // Read again just before the swap: another check may have stored a newer list since; never move it backwards.
+      // Read again under the lock: if a newer list was taken meanwhile, this one is not trusted (it may hold a key the
+      // newer list dropped), and the record is not moved.
       const now = storedKeyList(home, minSeq);
-      if (now && now.seq < v.seq) fs.renameSync(tmp, out);
+      if (!now || now.seq > v.seq || (now.seq === v.seq && now.keys && JSON.stringify([...now.keys].sort()) !== JSON.stringify([...v.keys].sort()))) {
+        return { ok: false, why: 'a newer release key list was taken meanwhile; check again' };
+      }
+      fs.writeFileSync(tmp, JSON.stringify({ seq: v.seq, release_keys: v.keys }) + '\n', { mode: 0o600, flag: 'wx' });
+      fs.renameSync(tmp, out);
     } catch {
       return { ok: false, why: 'this copy\'s record of the release key list could not be written' };
     } finally {
       try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+      try { fs.rmSync(lock, { recursive: true, force: true }); } catch { /* best effort */ }
     }
   }
   return { ok: true, why: v.why, keys: v.keys };

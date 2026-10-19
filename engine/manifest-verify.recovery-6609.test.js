@@ -128,6 +128,39 @@ test('#6609: one key has one spelling: the pad dropped, or the unused low bits o
   assert.equal(mv.verifyKeyList({ bytes: l.bytes, sig: l.sig, recoveryKeys: RK }).ok, false, 'one key listed twice in two spellings is refused');
 });
 
+test('#6609: a list at exactly the floor is recorded, so a different list with the same seq is refused (activation case)', () => {
+  const h = home();
+  const a1 = list({ release_keys: [spki(rel1)], seq: 1 });
+  const b1 = list({ release_keys: [spki(rel2)], seq: 1 });
+  assert.equal(mv.trustedKeys({ listBytes: a1.bytes, listSig: a1.sig, home: h, recoveryKeys: RK }).ok, true);
+  assert.deepEqual(mv.storedKeyList(h).keys, [spki(rel1)], 'the seq-1 list was recorded');
+  const r = mv.trustedKeys({ listBytes: b1.bytes, listSig: b1.sig, home: h, recoveryKeys: RK });
+  assert.equal(r.ok, false);
+  assert.match(r.why, /names other keys than the list 1/);
+});
+
+test('#6609: switched on, no install home is a refusal (the record is what stops rollback); a held lock is a retry, not a pass', () => {
+  const l = list({ release_keys: [spki(rel1)], seq: 2 });
+  const r = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: '', recoveryKeys: RK });
+  assert.equal(r.ok, false);
+  assert.match(r.why, /cannot be checked without this copy/);
+  const h = home();
+  fs.mkdirSync(path.join(h, mv.KEY_LIST_STATE + '.lock'));
+  const busy = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: h, recoveryKeys: RK });
+  assert.equal(busy.ok, false);
+  assert.match(busy.why, /another check is taking the release key list/);
+  // A lock a dead check left over a minute ago is taken over.
+  const old = new Date(Date.now() - 120000);
+  fs.utimesSync(path.join(h, mv.KEY_LIST_STATE + '.lock'), old, old);
+  assert.equal(mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: h, recoveryKeys: RK }).ok, true);
+  assert.equal(fs.existsSync(path.join(h, mv.KEY_LIST_STATE + '.lock')), false, 'the lock is released');
+});
+
+test('#6609: RECOVERY_KEYS cannot be turned on from inside the process', () => {
+  assert.throws(() => mv.RECOVERY_KEYS.push(spki(recovery)));
+  assert.equal(mv.RECOVERY_KEYS.length, 0);
+});
+
 test('#6609: a seq is never reused: the same seq with other keys is refused; a failed record write is a refusal, not a throw', () => {
   const h = home();
   const a = list({ release_keys: [spki(rel1)], seq: 4 });
@@ -181,4 +214,9 @@ test('#6609: the signing tool writes a list the installed check accepts, reading
   assert.match(over.stderr, /already holds list 1/);
   assert.equal(spawnSync(process.execPath, [tool, '2147483648', out, spki(rel1)], { input: pem(recovery), encoding: 'utf8' }).status, 1);
   assert.equal(spawnSync(process.execPath, [tool, '2', out, spki(rel2)], { input: pem(recovery), encoding: 'utf8' }).status, 0, 'a higher number is written');
+  const out2 = home();
+  fs.writeFileSync(path.join(out2, 'release-keys.json'), 'garbage');
+  const g = spawnSync(process.execPath, [tool, '5', out2, spki(rel1)], { input: pem(recovery), encoding: 'utf8' });
+  assert.equal(g.status, 1, 'an unreadable list in the folder is not overwritten');
+  assert.equal(fs.readFileSync(path.join(out2, 'release-keys.json'), 'utf8'), 'garbage');
 });
