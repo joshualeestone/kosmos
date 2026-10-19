@@ -144,8 +144,8 @@ test('Review does not put a finding away on a line left from an older finding se
   assert.notEqual(w.store['kosmos.cwnote.dismissed'], FOUND.key);
 });
 
-test('the notice\'s Review is at finger size on a touch screen', () => {
-  assert.match(PAGE, /\.utoast\.cwnote \.uacts button \{ min-height: 44px; \}/);
+test('the notice\'s Review and Got it are at finger size on a touch screen', () => {
+  assert.match(PAGE, /\.utoast\.cwnote \.uacts button, #plus-cw-ack \{ min-height: 44px; \}/, 'Review and Got it at finger size');
 });
 
 test('a failed read of the board keeps the warning showing (no blink)', async () => {
