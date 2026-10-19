@@ -103,6 +103,7 @@ const COPY_KEYS_IN_MARKUP = ['s3Lead', 's3SleepCaption', 's3SleepHow', 's3Batter
   'settingsRevealButton', 'settingsOpenKosmos', 'terminalBoxTitle', 'trustRestartHint', 'docsOpenFolder',
   'updateOpenFolder', 'updateConfirmBody',
   'openaiSubHow',   // #3436: the OpenAI subscription explainer (device code on Windows)
+  'frOpenaiSubHow',   // #6521: the same on the first-run Model step, without the sentence its lead already says
   'openaiSubOpen'];   // 0.6.96: the OpenAI open-page link reads "again" on Windows, where Kosmos already opened it
 
 test('every data-win-copy key in the markup has a Windows string, and the list is the one expected', () => {

@@ -80,7 +80,7 @@ const WORDS = {
     /* 0.6.96: Kosmos opens the page itself now, so the explainer says so and the link reads "again". */
     '#acct-openai-sub-open[data-win-copy="openaiSubOpen"]': 'Open the sign-in page again',
     '#fr-openai-sub-open[data-win-copy="openaiSubOpen"]': 'Open the sign-in page again',
-    '#fr-openai-sub-t [data-win-copy="openaiSubHow"]': 'Kosmos opens OpenAI\u2019s sign-in page in your browser and shows you a short code to type there. Kosmos never sees your password. Your agents then run on your own subscription, on this computer.',
+    '#fr-openai-sub-t [data-win-copy="frOpenaiSubHow"]': 'Kosmos opens OpenAI\u2019s sign-in page in your browser and shows you a short code to type there. Kosmos never sees your password.',   // #6521
   },
   darwin: {
     '#docs-finder': 'Open this folder in Finder',
@@ -91,7 +91,7 @@ const WORDS = {
     '#acct-openai-sub-step [data-win-copy="openaiSubHow"]': "Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.",
     '#acct-openai-sub-open[data-win-copy="openaiSubOpen"]': 'Open the sign-in page',
     '#fr-openai-sub-open[data-win-copy="openaiSubOpen"]': 'Open the sign-in page',
-    '#fr-openai-sub-t [data-win-copy="openaiSubHow"]': "Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.",
+    '#fr-openai-sub-t [data-win-copy="frOpenaiSubHow"]': "Kosmos opens OpenAI's sign-in in your browser and never sees your password.",   // #6521
   },
 };
 

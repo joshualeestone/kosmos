@@ -10,7 +10,7 @@
  * Drives the page's own paintLoginAdvisories and paintAccounts against stubbed data (no board needed):
  *   N1  the expiring, the "stops working" and the "has expired" notice each carry Refresh login, naming their row
  *   L1  pressing it opens AI Models; the matching row is ringed (acct-land), in view, and its Sign in again has focus
- *   R1  the expiring row: warning edge, "Expires in 2 days: sign in again to keep its agents running.", badge
+ *   R1  the expiring row: warning edge, "Expires in 2 days." (#6520), badge
  *       "login expires in 2 days", Sign in again first in its actions and gold
  *   R2  the ended row: its line says when its agents stop, Sign in again is its main action
  *   C1  CONTROL: a login good for 20 days stays green with no line, and Sign in again is the plain link, not first
@@ -169,7 +169,8 @@ function readRows(page) {
     const rows = await readRows(page);
     const soon = rows['soon@example.com'] || {};
     chk(/acct-expiring/.test(soon.cls || ''), theme + ' R1: the expiring row has the warning edge', soon.cls);
-    chk(soon.line === 'Expires in 2 days: sign in again to keep its agents running.', theme + ' R1: its line', JSON.stringify(soon.line));
+    chk(soon.line === 'Expires in 2 days.',   // #6520: the Sign in again button says the rest
+       theme + ' R1: its line', JSON.stringify(soon.line));
     chk(/^Signed in until [A-Z][a-z]{2} \d{1,2}$/.test(soon.badge || ''), theme + ' R1: its badge gives the date (the line gives the days)', soon.badge);
     chk(!/acct-ended/.test(soon.cls || ''), theme + ' R1: an expiring row is not drawn as ended', soon.cls);
     chk(soon.firstIsReauth && soon.reauthCount === 1, theme + ' R1: Sign in again is first, and only once', JSON.stringify(soon));

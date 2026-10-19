@@ -497,15 +497,15 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askcard .code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .06em;
                    color: var(--k-ink); background: var(--k-sunk, rgba(20,22,26,.05)); padding: 1px 6px; border-radius: 5px; }
   /* #3829: one compact card per request; older than an hour: faded. */
-  /* #4637: one sheet per request, on the Kosmos+ navy: the brand, who wants in, the code large and once, one line,
+  /* #4637: one sheet per request, on the Kosmos+ navy: who wants in, the code large and once, one line,
      then Allow (Kosmos+ blue) and a quiet Not me. */
   .askreq { display: grid; gap: 4px 14px; align-items: center;
             padding: 16px 18px; margin-top: 8px; border: 1px solid #3a68d8; border-radius: 14px; max-width: 640px;
             background: linear-gradient(160deg,#1f3360,#132449); color: #c3cde3; }
-  /* Named areas: the brand across the top, the icon beside who and when, then the line, the code and the buttons
-     under the headline's column (the look Mona Lisa approved). The areas alone place every item. */
-  .askreq { grid-template-columns: 40px 1fr; grid-template-areas: "brand brand" "dev who" ". say" ". code" ". acts"; }
-  .askreq .askbrand { grid-area: brand; }
+  /* Named areas: the icon beside who and when, then the line, the code and the buttons under the headline's column
+     (the look Mona Lisa approved). The areas alone place every item. #6519: no brand line on the sheet; it renders only
+     on the Kosmos+ page, which already says Kosmos+ (the board notice keeps its brand, #4637). */
+  .askreq { grid-template-columns: 40px 1fr; grid-template-areas: "dev who" ". say" ". code" ". acts"; }
   .askreq .askdev { grid-area: dev; }
   .askreq .askwho { grid-area: who; }
   .askreq .asksay { grid-area: say; }
@@ -15438,7 +15438,7 @@ window.kosmosMeasureScrollbarWidth();
                   </div>
                 </div>
                 <div id="fr-openai-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-openai-sub-t">
-                  <p class="fr-confirm-t" id="fr-openai-sub-t"><b>Sign in with your ChatGPT subscription.</b> <span data-win-copy="openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</span></p>
+                  <p class="fr-confirm-t" id="fr-openai-sub-t"><b>Sign in with your ChatGPT subscription.</b> <span data-win-copy="frOpenaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password.</span></p>
                   <!-- #2913: no name field -- the subscription sign-in pulls the account's
                        email automatically, and that distinguishes accounts (mirror of the
                        Settings acct-openai-sub-step). -->
@@ -15519,7 +15519,7 @@ window.kosmosMeasureScrollbarWidth();
                   </div>
                 </div>
                 <div id="fr-gemini-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-gemini-sub-t">
-                  <p class="fr-confirm-t" id="fr-gemini-sub-t"><b>Sign in with your Google subscription.</b> Gemini on a subscription runs on Google's Antigravity, which signs in with Google in your browser; Kosmos never sees your password. Your agents then run on your own subscription, on this computer.</p>
+                  <p class="fr-confirm-t" id="fr-gemini-sub-t"><b>Sign in with your Google subscription.</b> Gemini on a subscription runs on Google's Antigravity, which signs in with Google in your browser; Kosmos never sees your password.</p>
                   <div class="frow" style="margin-top:12px;">
                     <button class="btn uprime" id="fr-gemini-sub-go" type="button">Sign in with Google</button>
                   </div>
@@ -15585,7 +15585,7 @@ window.kosmosMeasureScrollbarWidth();
                   </div>
                 </div>
                 <div id="fr-grok-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-grok-sub-t">
-                  <p class="fr-confirm-t" id="fr-grok-sub-t"><b>Sign in with your Grok subscription.</b> Kosmos opens xAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+                  <p class="fr-confirm-t" id="fr-grok-sub-t"><b>Sign in with your Grok subscription.</b> Kosmos opens xAI's sign-in in your browser and never sees your password.</p>
                   <div class="frow" style="margin-top:12px;">
                     <button class="btn uprime" id="fr-grok-sub-go" type="button">Sign in with Grok</button>
                   </div>
@@ -20289,6 +20289,8 @@ function windowsCopyTable() {
        the code names the address, so the screen still makes sense if the person has to
        go and find the browser. %ADDR% is filled in by openaiSubDeviceMarkup. */
     openaiSubHow: 'Kosmos opens OpenAI&rsquo;s sign-in page in your browser and shows you a short code to type there. Kosmos never sees your password. Your agents then run on your own subscription, on this computer.',
+    /* #6521: the first-run Model step already leads with the subscription sentence, so its sign-in panel does not repeat it. */
+    frOpenaiSubHow: 'Kosmos opens OpenAI&rsquo;s sign-in page in your browser and shows you a short code to type there. Kosmos never sees your password.',
     openaiSubOpen: 'Open the sign-in page again',
     openaiSubCodeLead: 'On that page, enter this code:',
     openaiSubCodeLeadAt: 'In your browser, go to %ADDR% and enter this code:',
@@ -22757,7 +22759,9 @@ function lrow(a) {
  * When the connection is not working we do NOT know that a given idle agent is
  * dead. It might have finished thirty seconds ago and be perfectly fine. So the
  * banner states the fact we DID observe (the connection is not working) and
- * says agents may be unable to start work. It never counts corpses.
+ * nothing about the agents. It never counts corpses. (#6517: it no longer
+ * counts idle agents either; that count repeated the Idle tile and included
+ * agents that do not run on Claude.)
  *
  * Asserting "12 agents are dead" off one file read would be exactly the
  * overreach this feature exists to correct: it would replace one confident
@@ -22788,19 +22792,11 @@ function renderConnection(conn, agents, dependsOnClaude) {
      account is configured OR any agent is not positively a codex runner. */
   if (dependsOnClaude === false) { el.hidden = true; el.textContent = ''; el.className = 'conn'; return; }
 
-  const idle = (agents || []).filter((a) => a && a.state === 'idle').length;
   const bad = conn.state === 'none';
 
   const head = bad
     ? 'Kosmos cannot reach a Claude subscription on this computer.'
     : 'Kosmos cannot tell whether a Claude subscription is connected.';
-
-  // ⚠️ "may not be able to", not "cannot". We are inferring from one fact about
-  // the machine, not from anything observed about these agents.
-  const effect = idle
-    ? ' ' + idle + (idle === 1 ? ' agent is' : ' agents are') +
-      ' sitting idle and may not be able to start work until this is fixed.'
-    : '';
 
   /**
    * ⚠️ THE `because` STRINGS ARE WRITTEN FOR A DIFFERENT SENTENCE, and pasting
@@ -22826,7 +22822,7 @@ function renderConnection(conn, agents, dependsOnClaude) {
   })();
 
   el.className = 'conn ' + (bad ? 'conn-bad' : 'conn-unsure');
-  el.textContent = head + detail + effect;
+  el.textContent = head + detail;
   el.hidden = false;
 }
 
@@ -23106,11 +23102,11 @@ function paintLoginAdvisories(advs) {
       ? ('Sign in again before then to keep ' + (n === 1 ? 'it' : 'them') + ' running.')   // Mona Lisa: the head carries the timing; the not-expired sibling's verb
       : a.expired
       ? ('Sign in again to bring ' + (n === 1 ? 'it' : 'them') + ' back.')
-      : ('Sign in again to keep ' + (n === 1 ? 'it' : 'them') + ' running.');
+      : '';   // #6520: not yet expired, the Refresh login button beside it is the instruction
     // role=status on the words, not the notice, so the close button is not read out with every announcement.
     return '<div class="utoast login-adv ' + sev + '" data-adv-dir="' + esc(a.dir || '') + '">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + acct + who + '. ' + esc(tail) + '</small></div>'
+      + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + acct + who + '.' + (tail ? ' ' + esc(tail) : '') + '</small></div>'
       /* #5407 (Josh): one press to where the person signs in again: Settings > AI Models, at this account's row. */
       + '<div class="uacts"><button type="button" class="uprime login-adv-go" data-adv-dir="' + esc(a.dir || '') + '" aria-label="'
       + esc('Refresh login: ' + (a.provider || 'Claude') + (a.email ? ', ' + a.email : '')) + '">Refresh login</button></div>'
@@ -28498,7 +28494,7 @@ async function paintAccounts(opts) {
     const soonLine = !claudeSignIn ? ''
       : stopsAt ? 'Its login has ended, and its agents stop working ' + loginAdvWhen(stopsAt) + '. Sign in again to keep them running.'
       : loginEnded ? 'Sign in again to bring its agents back.'   // Mona Lisa: the badge already says "Login expired"; review 2: no claim the cache cannot prove
-      : expiresIn !== null ? (expiresIn === 0 ? 'Expires today' : 'Expires in ' + expiresIn + (expiresIn === 1 ? ' day' : ' days')) + ': sign in again to keep its agents running.'
+      : expiresIn !== null ? (expiresIn === 0 ? 'Expires today' : 'Expires in ' + expiresIn + (expiresIn === 1 ? ' day' : ' days')) + '.'   // #6520: the Sign in again button beside it says the rest
       : '';
     const soonId = soonLine ? 'acct-soon-' + (++ACCT_SOON_SEQ) : '';   // review 1: the line describes the main button
     const reauthBtn = (main) => '<button class="acct-reauth' + (main ? ' uprime acct-reauth-main' : '') + '" type="button" data-reauth="' + esc(a.dir) + '" '
@@ -47762,31 +47758,33 @@ async function paintSurvival() {
   };
   const names = body.missing.map((n) => esc(shownFor(n))).join(', ');
   const unknownNames = unknown.map((n) => esc(shownFor(n))).join(', ');
-  const unknownBlock = SURVIVAL_UNKNOWN_BLOCK = unknown.length
-    ? '<div class="survival-unknown"><p><b>' + esc(unknown.length === 1
-        ? 'We could not check whether one of your agents comes back if you restart this computer.'
-        : 'We could not check whether ' + unknown.length + ' of your agents come back if you restart this computer.') + '</b><br>'
+  /* #6518: under the "will not come back" headline the unknown group says only that
+     it could not be checked; the restart is already said once above it. Alone, and
+     in the Done report (which no longer repeats the restart fact), it keeps the
+     full headline. */
+  const unknownBlockWith = (headline) => unknown.length
+    ? '<div class="survival-unknown"><p><b>' + esc(headline) + '</b><br>'
       + 'Something we need for this check could not be read. ' + (unknown.length === 1
         ? 'We will leave it as it is, and this message goes away once we can read it.'
         : 'We will leave them as they are, and this message goes away once we can read it.') + '</p>'
       + '<p class="dhint" data-survival-unknown>' + unknownNames + '</p></div>'
     : '';
+  const unknownBlock = SURVIVAL_UNKNOWN_BLOCK = unknownBlockWith(unknown.length === 1
+    ? 'We could not check whether one of your agents comes back if you restart this computer.'
+    : 'We could not check whether ' + unknown.length + ' of your agents come back if you restart this computer.');
   wrap.hidden = false;
   // "We could not read this" is an unanswered question, not an empty slot: the solid boardfail shape (see .boardfail).
   if (!body.missing.length) { wrap.innerHTML = '<div class="pj-empty boardfail">' + unknownBlock + '</div>'; return; }
   wrap.innerHTML = '<div class="pj-empty boardfail">'
     + '<p><b>' + esc(survivalSay(body.missing.length)) + '</b><br>'
-    /* ⚠️ NOT "the session they are running in" (Mona Lisa). A session is a
-       component whose existence is our design decision: a person cannot see
-       one, count one, or act on one. They can act on "when this computer
-       stops", which is the same fact in a noun they already own. Same finding
-       as the word for our terminal manager reaching a refusal an hour before. */
-    + 'Nothing on this computer starts them when you log in, so they stop when '
-    + 'it does. Their folders and everything they remember are untouched '
-    + 'either way.</p>'
+    /* #6518: the cause is the button's own words and the effect is the headline,
+       so the body says only what the headline does not. */
+    + 'Their folders and everything they remember are untouched.</p>'
     + '<p class="dhint">' + names + '</p>'
     + '<button class="btn" type="button" data-survival-fix>Set them to start at login</button>'
-    + unknownBlock
+    + unknownBlockWith(unknown.length === 1
+      ? 'We could not check one more agent.'
+      : 'We could not check ' + unknown.length + ' more agents.')
     + '</div>';
 }
 
@@ -47835,7 +47833,7 @@ document.addEventListener('click', async (e) => {
      find out why. */
   const guessed = body.results.filter((r) => r.ok && r.guessed && r.guessed.model).length;
   wrap.innerHTML = '<div class="pj-empty boardfail">'
-    + '<p><b>Done.</b> Restarting this computer will bring these back.</p>'
+    + '<p><b>Done.</b></p>'   // #6518: each row below says it starts at login
     + rows
     + (guessed
       ? '<p class="dhint">' + esc(guessed === 1
@@ -50821,7 +50819,9 @@ function paintAsk() {
        cannot be pressed without reading the other screen (one click used to send this computer's own code). */
     const typing = !!(d.joining_computer && d.code && !waitLine);
     const typed = typing ? askTypedFor(d) : '';
-    const say = d.joining_computer ? (d.code ? 'Type the code shown on ' + name + ', then press ' + (d.recheck ? 'Confirm' : 'Allow') + '.' : '')
+    /* #6522: a computer's sheet names it once, in its heading (what the person approves); the field and the button
+       under it already say what to type and what to press. */
+    const say = d.joining_computer ? ''
       : d.code && deskBrowser ? 'Allow only if this code is showing in ' + askEsc(deskBrowser[2]) + ', in the tab where you signed in.'
         : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
@@ -50838,20 +50838,24 @@ function paintAsk() {
             // kosmos#6404: a check's other refusals (a key that is no longer trusted, a check that lapsed) never show a tag.
             : d.recheck && /peer_conflict|sas_pending|code_pending|recheck_gone/.test(String(e.because)) ? 'The code check with ' + name + ' did not go through. On ' + name + ', press Check the code again.'
             : askEsc(e.because);
-    /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. The brand, who wants in and when, one line, then the code
+    /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. Who wants in and when (#6519: no brand line), one line, then the code
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
        and a quiet Not me. The device id never reaches readable text. */
     const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code && !d.joining_computer ? ', code ' + askEsc(d.code) : '');
-    return '<div class="askreq' + (stale ? ' stale' : '') + '"><p class="askbrand">Kosmos+</p><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
-      '<div class="askwho"><b>' + askHead(d) + '</b>' + (joiningRow ? '' : askAgoSpan(d.first_seen)) + '</div>' +
-      '<p class="asksay" id="asksay-' + askEsc(d.device_id) + '">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
+    /* #6522 review 1: an empty line renders no paragraph, and the code field is described by the heading, which is
+       where the computer's name is on screen, plus the line when there is one (an error or a re-ask). */
+    const sayText = [say, again.trim(), errWords].filter(Boolean).join(' ');
+    const codeDescribedBy = 'askhead-' + askEsc(d.device_id) + (sayText ? ' asksay-' + askEsc(d.device_id) : '');
+    return '<div class="askreq' + (stale ? ' stale' : '') + '"><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
+      '<div class="askwho"><b id="askhead-' + askEsc(d.device_id) + '">' + askHead(d) + '</b>' + (joiningRow ? '' : askAgoSpan(d.first_seen)) + '</div>' +
+      (sayText ? '<p class="asksay" id="asksay-' + askEsc(d.device_id) + '">' + sayText + '</p>' : '') +
       (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +
       /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
       /* Not a [data-ask] control (a click on it must never act), and the typed digits stay out of the markup, so typing
          rebuilds nothing except once, when Allow wakes or sleeps at six digits (askWrite puts the digits, focus and place back). */
-      (typing ? '<p class="askcodetype"><label for="askcode-' + askEsc(d.device_id) + '">Code on ' + name + '</label>' +
+      (typing ? '<p class="askcodetype"><label for="askcode-' + askEsc(d.device_id) + '">Code</label>' +
         '<input class="askcodein" id="askcode-' + askEsc(d.device_id) + '" data-askcode="' + askEsc(d.device_id) + '" type="text" inputmode="numeric"' +
-        ' autocomplete="off" spellcheck="false" maxlength="9" placeholder="000 000" aria-describedby="asksay-' + askEsc(d.device_id) + '"' +
+        ' autocomplete="off" spellcheck="false" maxlength="9" placeholder="000 000" aria-describedby="' + codeDescribedBy + '"' +
         (e && e.state === 'error' && (e.because === 'code_typed' || e.because === 'code_short') && !staleTag ? ' aria-invalid="true"' : '') + '></p>' : '') +
       (d.code && !waitLine && !typing ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
       '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="' + (d.recheck ? 'Confirm the code check for ' : 'Allow ') + label + '"' + (holdAllow ? ' disabled' : typing && askDigits(typed).length !== 6 ? ' aria-disabled="true"' : '') + '>' + (d.recheck ? 'Confirm' : 'Allow') + '</button>' +
@@ -52099,13 +52103,14 @@ function paintPlusJoin() {
   /* #6353: the code ran out and nothing restarts by itself (each new code is a try, and a night with nobody here used to
      spend all of them). The person asks for the next one. */
   else if (j.needs_retry === true) html = '<p class="plus-join-say">A new code is needed to finish pairing.</p>'
-    + '<p class="plus-join-next">When you are at both computers, press Try again for a new code.</p>'
+    + '<p class="plus-join-next">When you are at both computers, press Try again.</p>'   // #6522: the line above says a new code
     + '<div class="acts"><button class="btn uprime" type="button" id="plus-join-retry">Try again</button></div>'
     + (PLUS_JOIN_MSG && Date.now() - PLUS_JOIN_MSG_AT < PLUS_JOIN_CODE_MS ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
   /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads. */
   /* #6404: the other computer allows by TYPING this code, so it stays large until it has been allowed. */
   else if (code && j.confirmed) html = '<p class="plus-join-say plus-join-done">The codes match.</p>'
-    + '<p class="plus-join-next">Waiting for ' + name + (other ? other + ',' : '') + ' to allow this computer. If you have not yet, type this code there and press Allow.</p>'
+    /* #6522: the pill already says it is waiting to be allowed, so the line says only what to do. */
+    + '<p class="plus-join-next">If you have not yet, type this code on ' + name + (other ? other + ',' : '') + ' and press Allow.</p>'
     + plusJoinCode(code);
   /* Allowed already (not held): the other computer no longer shows the code, so the line asks what it showed (review 5). */
   /* kosmos#6314 (Josh 11:28, "Check that 10102026 shows..." read as THIS computer): the other computer is named as the
