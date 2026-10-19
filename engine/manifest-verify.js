@@ -187,7 +187,7 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
  *
  * A list is taken only when it verifies under a recovery key and its seq is not below the highest this copy has
  * stored (KEY_LIST_STATE in the install home), so an older list served again cannot bring a revoked key back; a newer
- * one replaces the stored seq. A seq is never reused: a list with the stored seq but other keys is refused. Revoking a
+ * one is recorded above it. A seq is never reused: a list with the stored seq but other keys is refused. Revoking a
  * stolen release key is a new list without it, seq + 1, signed with the recovery key (tools/lib/release-keys-sign.js),
  * and the next release raises MIN_KEY_LIST_SEQ to it. Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
 const RECOVERY_KEYS = Object.freeze([]);   // frozen: nothing in the process can turn the feature on by adding one
@@ -226,6 +226,8 @@ function verifyKeyList({ bytes, sig, recoveryKeys = RECOVERY_KEYS }) {
   if (!Array.isArray(keys) || !keys.length) return { ok: false, why: 'the signed release key list names no release key' };
   if (new Set(keys).size !== keys.length || !keys.every((k) => ed25519Key(k))) return { ok: false, why: 'the signed release key list holds a key that is not one' };
   if (!Number.isInteger(list.seq) || list.seq < 1 || list.seq > MAX_SEQ) return { ok: false, why: 'the signed release key list has no sequence number' };
+  // The recovery key is never also a release key: whoever held the release key could then sign key lists.
+  if (keys.some((k) => recoveryKeys.includes(k))) return { ok: false, why: 'the signed release key list names a recovery key as a release key' };
   return { ok: true, why: `release key list ${list.seq}`, seq: list.seq, keys: keys.slice() };
 }
 

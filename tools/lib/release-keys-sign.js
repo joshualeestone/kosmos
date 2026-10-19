@@ -16,7 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { ed25519Key, verifyKeyList, RECOVERY_KEYS, KEY_LIST_TYPE } = require('../../engine/manifest-verify');
+const { ed25519Key, verifyKeyList, RECOVERY_KEYS, KEY_LIST_TYPE, KEYS } = require('../../engine/manifest-verify');
 
 function main(argv, stdin) {
   const [seqArg, outDir, ...keys] = argv;
@@ -33,7 +33,7 @@ function main(argv, stdin) {
   if (prevRaw !== null) {
     let prev;
     try { prev = JSON.parse(prevRaw); } catch { console.error('the folder holds a release-keys.json that cannot be read; move it aside first'); return 1; }
-    if (!Number.isInteger(prev.seq) || prev.seq >= seq) { console.error(`the folder already holds list ${prev.seq}; a new list needs a higher number`); return 1; }
+    if (!prev || typeof prev !== 'object' || !Number.isInteger(prev.seq) || prev.seq >= seq) { console.error(`the folder already holds list ${prev.seq}; a new list needs a higher number`); return 1; }
   }
   if (new Set(keys).size !== keys.length) { console.error('a release key is named twice'); return 1; }
   const bad = keys.find((k) => !ed25519Key(k));
@@ -42,6 +42,8 @@ function main(argv, stdin) {
   try { priv = crypto.createPrivateKey(stdin); } catch { console.error('stdin does not hold a private key (copy the whole note, BEGIN and END lines included)'); return 2; }
   if (priv.asymmetricKeyType !== 'ed25519') { console.error('the private key is not an Ed25519 key'); return 2; }
   const recoveryPub = crypto.createPublicKey(priv).export({ format: 'der', type: 'spki' }).toString('base64');
+  // The recovery key is never also a release key, in this list or among the keys this build ships.
+  if (keys.includes(recoveryPub) || KEYS.includes(recoveryPub)) { console.error('that private key is a release key; the recovery key must be a different key'); return 2; }
   // Once a recovery key is built in, a list signed by any other key would be refused by every copy: say so now.
   if (RECOVERY_KEYS.length && !RECOVERY_KEYS.includes(recoveryPub)) { console.error('that private key is not the Kosmos recovery key (its public half is ' + recoveryPub + ')'); return 2; }
   const bytes = Buffer.from(JSON.stringify({ type: KEY_LIST_TYPE, release_keys: keys, seq, issued: new Date().toISOString().slice(0, 10) }, null, 2) + '\n');
