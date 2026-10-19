@@ -24,7 +24,7 @@ rateLimitType: five_hour|seven_day|seven_day_opus|seven_day_sonnet|seven_day_ove
   2.1.303: is_error follows the last assistant's isApiErrorMessage), so is_error is what keeps that turn's own result
   from clearing the limit (review 3); a repeat of the same refusal keeps the sentence already read. The first error sentence after the refusal rides along as its evidence (one line, capped at 300). A
   transition is the state token AND the limit, so a refusal while idle is written. `stateFor` returns
-  `limit <until> <kind|->[ <line>]` while the reset is ahead; past it, the plain state comes back. resetsAt above
+  `limit <until> <since|-> <kind|->[ <line>]` while the reset is ahead; past it, the plain state comes back. resetsAt above
   1e12 is taken as milliseconds.
 - engine/status.js: the win32 branch maps that token to rate_limited / scraped (the Mac's reading, so the card says
   "Looks like a usage limit until <time>" and the existing holds apply); claudeLimitUntilIso uses the stream's reset.
@@ -54,7 +54,7 @@ rateLimitType: five_hour|seven_day|seven_day_opus|seven_day_sonnet|seven_day_ove
 - No new control and no new wording on the page.
 
 ## Test
-engine/win32limit-5805.test.js, 27 arms, on the Windows runner's list (selectFiles picks it): the real publisher, a
+engine/win32limit-5805.test.js, 29 arms, on the Windows runner's list (selectFiles picks it): the real publisher, a
 real state file, the real capture and status.snapshot(), the real holds. A refusal plus a failed turn reads
 rate_limited with the stream's reset and the turn's sentence, and both holds hold with the card's reset; an allowed
 event, a warning event, or a successful real turn clears it; a local command's result does not, also after an
@@ -75,6 +75,9 @@ arm. Rebased onto main 858c20a7c (the capture's #6131 filter): 24/24; 27 neighbo
 test: 735/735; the four full-suite guards pass. win32streamstate.test.js and the Mac limit neighbours pass.
 
 ## Not done (the device half, parked as the card says)
+- An account that recovers before its reset (extra usage bought, a plan change) is not noticed until the reset: held
+  messages are not typed, so no request is made and no new event arrives (review 10). The Mac's hold behaves the same;
+  "Send now anyway" is the way out. A periodic probe is a possible follow-up, not built here.
 - The page's existing wording says "<name>'s screen said: <sentence>" for a Windows card too, where the sentence comes
   from its stream (review 5 NIT); left for a wording pass, since changing page copy needs its own browser check.
 - engine/assigner.js's limitedCard reads a reset only from the card's sentence, not limitUntil, so a Windows card

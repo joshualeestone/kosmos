@@ -359,9 +359,9 @@ function publisher(name, opts) {
         || (e.message && typeof e.message === 'object' && (e.message.is_api_error_message === true || e.message.isApiErrorMessage === true)));
       if (e && e.type === 'assistant' && !apiError) current.reachedModel = true;
       let lim = limitAfterEvent(e);
-      /* A refused turn's error arrives as an assistant message (so it counts as reaching the model), and its result
-         carries is_error true (Claude Code 2.1.303: is_error follows the last assistant's isApiErrorMessage). So only
-         is_error keeps the refused turn's own result from clearing the limit it just set (review 3). */
+      /* A refused turn's error arrives as an assistant message flagged is_api_error_message (so it does not count as
+         reaching the model, above), and its result carries is_error true and api_error (Claude Code 2.1.303's schema).
+         Any one of the three keeps the refused turn's own result from clearing the limit it just set (reviews 3, 9). */
       if (lim === undefined && e && e.type === 'result' && e.is_error !== true && !e.api_error && current.reachedModel === true) lim = null;
       /* Every refusal is stamped now, the LATEST one (review 7: a refusal after the agent's report proves the account is
          capped now; status lets only an agent report newer than this outrank the limit). The same refusal again
