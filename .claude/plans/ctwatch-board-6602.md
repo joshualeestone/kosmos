@@ -32,7 +32,8 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
   hides one. Only a finding: an unknown or lost state is not said while off.
 - The switch route refuses a computer that is not enrolled (a leftover state dir is not set up), as the
   page shows it only then. A check that keeps failing says so ("has been failing lately"), apart from one
-  that has gone quiet. The switch says it is saving (`aria-busy`) while a change is in flight.
+  that has gone quiet. A click while a change is saving does nothing (`aria-busy` marks the switch, but it is a guard, not
+  announced feedback).
 - The switch takes effect at the tunnel's next check, with no restart: kosmos-relay's `check_with` looks for
   `ct-watch-off` on every check (read on relay main 16b8c2c9).
 - A finding and a lost earlier report together say both sentences.
@@ -51,7 +52,8 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
 - No acknowledge button yet: a finding stays until the tunnel's report changes. Rejected for now, a
   "dismiss" would hide a security finding with one click; revisit with a design review.
 - The status line is never hidden (a live region must be in the page when its first text arrives); empty, it
-  takes no room.
+  takes no room. It overrides the global `.fhint:empty { display: none; }`, which would otherwise take it out
+  of the accessibility tree; the browser check reads its computed display on the clear control.
 - The report's field names and types are pinned by a sample shaped as kosmos-relay#459 writes it.
 - Wording is mine and reversible ("Warning: ... did not ask for. Someone else may be able to pose as this
   computer."). It does not tell the person what to do next, because there is no support path to name yet.
