@@ -72,7 +72,7 @@ CLAUDE="${3:?the path to claude is required}"
 TMUX_BIN="${4:?the path to tmux is required}"
 # 🔑 #2955: IF A DIFFERENT tmux OWNS THE SERVER, USE THE ONE THAT CAN READ IT. Two tmux versions cannot share a socket:
 # the older client answers "server exited unexpectedly" (tmux 3.5a) or "protocol version mismatch" and sees nothing.
-# Measured on Agent1s, 2026-10-01 13:42: the fleet's Homebrew 3.6a owned the socket and Kosmos's bundled 3.5a could
+# Measured on a build Mac, 2026-10-01 13:42: the fleet's Homebrew 3.6a owned the socket and Kosmos's bundled 3.5a could
 # read no agent. This job's tmux path was baked into its plist when the agent was made, and plists are never rewritten,
 # so the choice is made here, each time the job starts, by asking: the first tmux that can LIST the live server wins.
 # The board makes the same choice the same way (engine/status.js, tmuxRepick), so both land on one tmux per socket.

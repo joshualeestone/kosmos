@@ -4,7 +4,7 @@
  * #4039 / #4043: read an Antigravity (agy) agent's conversation, the way geminisession.js reads a
  * Gemini CLI session, so the board can draw its context ring (and, later, tell its liveness).
  *
- * 📌 WHERE AGY KEEPS IT (measured 2026-09-26 on Agent1s, agy from the 09-25 spike):
+ * 📌 WHERE AGY KEEPS IT (measured 2026-09-26 on a build Mac, agy from the 09-25 spike):
  *   <HOME()>/cache/last_conversations.json   a flat map { "<resolved workdir>": "<conversation id>" }
  *   <HOME()>/conversations/<id>.db           one SQLite file per conversation
  * with HOME() = ~/.gemini/antigravity-cli. In each db, `gen_metadata` holds one protobuf blob per

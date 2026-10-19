@@ -7,7 +7,7 @@
  *    in ~/.local/bin/agy; Kosmos runs that installer on a press, see install()). Cheap.
  *  - SIGNED IN: agy keeps its Google sign-in to itself (no file Kosmos can read) and has no status
  *    command, so the only test is to ask it something. A one-line prompt in print mode, run in a
- *    throwaway folder: measured 2026-09-25 on Agent1s, signed in it answered "ok" in 2 to 5 s, from a
+ *    throwaway folder: measured 2026-09-25 on a build Mac, signed in it answered "ok" in 2 to 5 s, from a
  *    folder agy had never seen and without adding it to agy's trusted folders; signed out the same
  *    command waited about 60 s and failed. So: "ok" within the cap is signed in; anything else is
  *    NOT a confident signed-out, it is "could not confirm" (it may be the network, or a slow Mac).

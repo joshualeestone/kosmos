@@ -56,7 +56,7 @@ const GENERIC_USERS = new Set(['root', 'admin', 'administrator', 'user', 'users'
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-/* A whole-name pattern: not preceded or followed by a name character, so "agent1" never matches inside "agent12". */
+/* A whole-name pattern: not preceded or followed by a name character, so "example1" never matches inside "example12". */
 function wholeName(name) {
   // A name just after a URL-encoded separator (%2F, %5C) is whole too, as in a logged ?path=%2FUsers%2Fpat%2F.
   return new RegExp('(?:(?<![A-Za-z0-9_.-])|(?<=%2F|%5C))' + escapeRe(name) + '(?![A-Za-z0-9_-])', 'gi');

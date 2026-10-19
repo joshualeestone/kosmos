@@ -556,7 +556,7 @@ function tmuxGone() {
 function isVersionWall(got) {
   return /server exited unexpectedly|protocol version mismatch/i.test(String((got && got.err) || '')) && !tmuxSaidNoServer(got);
 }
-/* 🔑 #2955: A DIFFERENT tmux OWNS THE SERVER, SO READ THROUGH THE ONE THAT CAN. Measured on Agent1s, 2026-10-01 13:42:
+/* 🔑 #2955: A DIFFERENT tmux OWNS THE SERVER, SO READ THROUGH THE ONE THAT CAN. Measured on a build Mac, 2026-10-01 13:42:
    the board picked the bundled 3.5a at launch (no server yet), and three seconds later the fleet's Homebrew 3.6a
    started the server; the launcher's pick is made once, so the board read no agent until a person repointed the
    bundled path. Now the board asks again when it meets the wall: the first tmux that can LIST the live server wins,
@@ -671,7 +671,7 @@ function tmuxRepick() {
     ? process.env.KOSMOS_TMUX_KNOWN.split(/\s+/).filter(Boolean)
     : ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux'];
   const cands = (TMUX_CANDIDATES_SEAM || known).concat(ownTmux(), launcherPick());   // non-null here; a gone one is skipped
-  /* Once per real binary: on Agent1s the bundled path is a symlink to Homebrew's, so one tmux can appear three times
+  /* Once per real binary: on a build Mac the bundled path is a symlink to Homebrew's, so one tmux can appear three times
      here, each a blocking probe of up to 5 s. */
   const real = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
   const seen = new Set([real(current) || current]);
@@ -5959,7 +5959,7 @@ function transcriptFor(agentName, exactSession) {
  * READ that folder; nothing in this repo writes it.
  *
  * ⚠️ SO MEMORY HAS NEVER WORKED FOR ANYBODY WHO IS NOT US. Josh, 2026-08-21, on
- * a clean install: `ls: /Users/alex/.claude/agent-registry/: No such file or
+ * a clean install: `ls: /Users/example/.claude/agent-registry/: No such file or
  * directory`, and every agent on his board reading "Unknown". Not four agents
  * misbehaving — the normal case, on a machine without our fleet's scripts. The
  * development machine had a file the product depended on and did not create,
@@ -5968,8 +5968,8 @@ function transcriptFor(agentName, exactSession) {
  * 🔑 WHAT THIS USES INSTEAD IS SOMETHING KOSMOS ALREADY KNOWS. Claude Code
  * writes each transcript to `<root>/projects/<the-launch-directory>/<id>.jsonl`,
  * with the directory's path flattened — every character that is not a letter or
- * a digit becomes a dash. For example `/Users/alex/.openclaw-workspace`
- * is stored as `-Users-alex--openclaw-workspace`, and the naive
+ * a digit becomes a dash. For example `/Users/example/.openclaw-workspace`
+ * is stored as `-Users-example--openclaw-workspace`, and the naive
  * `[^A-Za-z0-9] -> -` reproduces it exactly, double dash and all. And the
  * supervisor launches every agent with `-c "$WORKDIR"`, one folder per agent,
  * created by `create.js`. So the folder is derivable from the agent's name.

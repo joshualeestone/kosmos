@@ -9,7 +9,8 @@
 #   2. every executable under app/bin/ and the app's Contents/MacOS/, for ANY account's build folders
 #      (/Users/<name>/.cargo/, .rustup/ or work/), because the connector may be built on another Mac and copied in.
 # A home it cannot use (empty, relative, the root or one component), a missing app/ or bin/, or a file it cannot
-# read is refused, never skipped: a gate that passes because it could not look is the failure this repo bans.
+# read, or a symlink it would not follow, is refused, never skipped: a gate that passes because it could not look is
+# the failure this repo bans.
 #
 # Usage: source this file, then `home_path_gate_tree <stage> [<home>]` (home defaults to $HOME).
 # Prints each offending file (relative to the stage) and returns 1 when any is found or a check could not run.
@@ -21,6 +22,10 @@ home_path_gate_tree() {
     *) echo "FAIL: the home-path gate needs the build user's home folder (got '$home')" >&2; return 1 ;;
   esac
   [ -d "$stage" ] || { echo "FAIL: the home-path gate has no stage at $stage" >&2; return 1; }
+  # review 2: grep -r does not follow a symlink, so a link (or what it points at) would never be read. The build stages
+  # none; refuse one rather than pass it unread.
+  out="$(/usr/bin/find "$stage/app" "$stage/bin" -type l 2>/dev/null)"
+  [ -z "$out" ] || { echo "FAIL: the home-path gate cannot read through symlinks, and the stage has some:" >&2; printf '  %s\n' $out >&2; return 1; }
   home="${home%/}"
   esc="$(printf '%s' "$home" | /usr/bin/sed 's/[^A-Za-z0-9/]/\\&/g')"
   for part in app bin; do

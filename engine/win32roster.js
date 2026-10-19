@@ -35,7 +35,7 @@
  * Property 2 defeats only the isNativeClaude PROCESS arm; it does not neutralize
  * the `-discord$` NAME arm. What actually closes the hole is property 1: an
  * unrecorded session is never emitted at all, so no such row exists to be claimed
- * by any arm. Operator `claude agents --json` sessions are named like `alex-d2`,
+ * by any arm. Operator `claude agents --json` sessions are named like `example-d2`,
  * not `*-discord`, so this is not reachable today -- but the guarantee is
  * property 1, and property 2 is a defense-in-depth that narrows, not closes.
  *
