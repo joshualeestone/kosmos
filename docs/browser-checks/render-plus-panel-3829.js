@@ -370,6 +370,8 @@ const STATES = {
           await page.waitForTimeout(150);
           const seen = await page.evaluate(() => { const m = document.getElementById('plus-second-msg'); return { shown: !m.hidden, text: m.textContent }; });
           chk(seen.shown && /second step is off/i.test(seen.text), `${t} #4080: a reset that answered while the dialog was closed is shown on the next open`, JSON.stringify(seen));
+          // kosmos#6611: the rendered done message also says every phone and browser signs in again (since kosmos#6605).
+          chk(/Every phone and browser will need to sign in again/.test(seen.text), `${t} #6611: the reset's done message says every phone and browser signs in again`, JSON.stringify(seen));
           await page.keyboard.press('Escape');
           if (SHOTS) { await page.setViewportSize({ width: 1400, height: 1000 }); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200); await page.screenshot({ path: path.join(SHOTS, '4080-connected.png') }); await page.setViewportSize({ width: 1400, height: 950 }); }
           /* The switch pauses: pressing it sends on:false (the route stub answers ok and the next paint re-reads). */
