@@ -8,7 +8,7 @@ Card: kosmos#6609 (security hardening item; detail kept with the security plan).
 - Nothing changes for any install: RECOVERY_KEYS ships empty, and every update path still uses the built-in KEYS.
 
 ## Changes
-- engine/manifest-verify.js: RECOVERY_KEYS (empty), KEY_LIST_STATE, MIN_KEY_LIST_SEQ, ed25519Key (strict, canonical SubjectPublicKeyInfo only), verifyKeyList, storedKeyList (a damaged record is refused, not read as none), trustedKeys (off: built-in KEYS; on: the list's keys; a seq is never reused with other keys). The record is a folder with one seq-<n>.json per list taken, only ever added to (written aside, then linked into place), so it cannot move backwards, with no lock.
+- engine/manifest-verify.js: RECOVERY_KEYS (empty), KEY_LIST_STATE, MIN_KEY_LIST_SEQ, ed25519Key (strict, canonical SubjectPublicKeyInfo only), verifyKeyList, storedKeyList (a damaged top record keeps its seq as the floor, and only a list at or above it repairs it), trustedKeys (off: built-in KEYS; on: the list's keys; a seq is never reused with other keys). The record is a folder with one seq-<n>.json per list taken, only ever added to (written aside, then linked into place), so it cannot move backwards, with no lock.
 - tools/lib/release-keys-sign.js: the signing tool; checks its own output with verifyKeyList before reporting success.
 - engine/manifest-verify.recovery-6609.test.js: 17 tests with throwaway keys, including a revoked key no longer opening a release (with a control where it still does).
 - engine.reachable.test.js: trustedKeys excused until phase 2 wires it.
@@ -19,7 +19,7 @@ Card: kosmos#6609 (security hardening item; detail kept with the security plan).
 - Freshness: lists carry no expiry yet. Whoever controls what a copy fetches can keep serving the last list from before a revocation to a copy that has not taken the newer one. Phase 2 adds an expiry (a signed not_after, re-signed on a schedule) or a recency check on issued.
 - Callers never pass recoveryKeys, builtIn or minSeq from outside engine/manifest-verify.js.
 - Activation: the test that pins RECOVERY_KEYS empty gets RECOVERY_KEYS.every(ed25519Key) (a typo in the built-in key would refuse every list).
-- A damaged top record (possible after a power loss: fsync on macOS is not a full barrier) refuses every list; the message names the file to remove. Document that repair where activation is documented.
+- A damaged top record (possible after a power loss: fsync on macOS is not a full barrier) keeps its seq as the floor; the next list at or above that seq writes it afresh. Nothing is removed by hand, so the floor never drops.
 - Signing: the recovery key comes off the clipboard; turn off clipboard history and Universal Clipboard first, or read it from a file on an encrypted volume.
 - The record uses hard links; an install home on a filesystem without them (exFAT, some network mounts) would refuse every update once on. Not a concern on APFS homes; say so where activation is documented.
 - Wire trustedKeys into runSetup, setup.sh's manifest checks and the .pkg helper; serve dist/release-keys.json(.sig) from the site; the release refuses to cut when the served list does not include its signing key. Activation: the recovery public key built in, and its first list (seq 1, the current release key) published before the release that turns it on.

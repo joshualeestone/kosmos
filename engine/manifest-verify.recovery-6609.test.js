@@ -98,20 +98,31 @@ test('#6609: a revoked key no longer opens a release: the keys trustedKeys gives
   assert.equal(mv.trustedKeys({ listBytes: v1.bytes, listSig: v1.sig, home: h, recoveryKeys: RK }).ok, false);
 });
 
-test('#6609: no record falls back to the built-in floor; a damaged record is refused, not read as none', () => {
+test('#6609: no record falls back to the built-in floor; a damaged top record keeps its seq as the floor and is repaired only by a list at or above it', () => {
   assert.equal(mv.storedKeyList(home()).seq, mv.MIN_KEY_LIST_SEQ);
   const h = home();
-  fs.mkdirSync(path.join(h, mv.KEY_LIST_STATE));
-  fs.writeFileSync(path.join(h, mv.KEY_LIST_STATE, 'seq-2.json'), 'not json');
-  assert.equal(mv.storedKeyList(h), null);
+  const dir = path.join(h, mv.KEY_LIST_STATE);
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, 'seq-1.json'), JSON.stringify({ seq: 1, release_keys: [spki(rel1), spki(rel2)] }));
+  fs.writeFileSync(path.join(dir, 'seq-2.json'), '');   // a power loss left the top file empty
+  assert.deepEqual(mv.storedKeyList(h), { seq: 2, keys: null, damaged: true });
+  // The list below it (which may still hold the key list 2 revoked) is refused: damage must not lower the floor.
+  const v1 = list({ release_keys: [spki(rel1), spki(rel2)], seq: 1 });
+  const low = mv.trustedKeys({ listBytes: v1.bytes, listSig: v1.sig, home: h, recoveryKeys: RK });
+  assert.equal(low.ok, false);
+  assert.match(low.why, /older than the 2 this copy has taken/);
+  // The list at that seq repairs the record in place, with nothing removed by hand.
+  const v2 = list({ release_keys: [spki(rel2)], seq: 2 });
+  assert.equal(mv.trustedKeys({ listBytes: v2.bytes, listSig: v2.sig, home: h, recoveryKeys: RK }).ok, true);
+  assert.deepEqual(mv.storedKeyList(h), { seq: 2, keys: [spki(rel2)] });
+  // A record without its keys is damaged the same way; a list above it is recorded above.
   const h2 = home();
   fs.mkdirSync(path.join(h2, mv.KEY_LIST_STATE));
   fs.writeFileSync(path.join(h2, mv.KEY_LIST_STATE, 'seq-3.json'), JSON.stringify({ seq: 3 }));
-  assert.equal(mv.storedKeyList(h2), null, 'a record without its keys is damaged too (else the seq-reuse rule would be skipped)');
-  const l = list({ release_keys: [spki(rel1)], seq: 5 });
-  const r = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: h, recoveryKeys: RK });
-  assert.equal(r.ok, false, 'damage must not reset the floor');
-  assert.match(r.why, /record of the release key list is damaged/);
+  assert.equal(mv.storedKeyList(h2).damaged, true);
+  const v5 = list({ release_keys: [spki(rel1)], seq: 5 });
+  assert.equal(mv.trustedKeys({ listBytes: v5.bytes, listSig: v5.sig, home: h2, recoveryKeys: RK }).ok, true);
+  assert.equal(mv.storedKeyList(h2).seq, 5);
 });
 
 test('#6609: a floor above 1 (raised after a revocation) refuses the older list on a copy with no record', () => {
