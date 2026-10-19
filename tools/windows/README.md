@@ -419,6 +419,21 @@ Those flags are the ones `verify-launcher.ps1` uses. If they change, they must
 change in both places, and the binary must be rebuilt.
 `tools.win-launcher-native.test.js` compares the two.
 
+**A source or icon change without a rebuild now fails two checks (#6512):**
+`tools.win-launcher-signin-6512.test.js` (every PR, from git history: the exe's
+last commit must contain the last commit to the source or to `assets/kosmos.ico`) and
+`tools/build-kosmos-windows.sh` (the cut refuses the same drift). Even a
+comment-only edit to `KosmosLauncher.cs` counts: the git check cannot tell a
+comment from code, so commit the exe again with it (a rebuild of unchanged code
+still passes verify-launcher.ps1). A lane that cannot build on Windows hands the
+branch to the Windows box to rebuild and re-sign before it merges; it does not
+merge the source alone. Both checks read only the ORDER of commits, so a branch
+that committed an exe built from other source (a rebase that kept the wrong side
+of a binary conflict) passes them: verify-launcher.ps1 is what compares bytes.
+The same test runs it on the Windows box but not in CI, whose compiler is not the
+one the exe was built with; run it by hand before merging a rebuilt exe. The test needs full history, which the CI workflows
+check out (`fetch-depth: 0`); in a shallow clone it skips, so keep that setting.
+
 **A rebuild drops the signature, so it must be re-signed in the same commit**
 (see [Signing](#signing)). An unsigned rebuild still passes the provenance check,
 which is why the re-sign has to be a habit and not something the check forces.

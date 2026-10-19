@@ -1130,6 +1130,90 @@ class KosmosLauncher
 
     internal const string PageModeMessageKey = "kosmosMode";
 
+    // #6512 (the Windows half of #6358): the page's { kosmosSignin: true } (web signedOutTellApp), sent when the
+    // board no longer knows this window's session (a board restart or update ends every one). Only `true` is the
+    // message; anything else is not.
+    internal const string PageSigninMessageKey = "kosmosSignin";
+    internal static bool IsSigninPageMessage(string json)
+    {
+        string raw = TaskbarBadge.JsonMember(json, PageSigninMessageKey);
+        return raw != null && raw.Trim() == "true";
+    }
+
+    // #6512: PURE. What the window does with the page's "signed out", as the Mac's signInAgainDecision: sign in
+    // again (SignInAgain, the same fresh ?boot= address a second double-click of Kosmos.exe loads); wait, inside the
+    // once-a-minute limit, so a sign-in the board does not take never reloads the window in a loop; or give up, once,
+    // after SignInAgainTries sign-ins in a row brought no board read. After giving up the window stays out of it
+    // (Stay) until a board read works (the page's badge post), and the page's panel says to open Kosmos.exe again,
+    // which still signs in. `lastMs` is null before the first try.
+    // Two differences from the Mac, both deliberate. No `refused` input: the Mac reads a refusal from a kept
+    // `?token=`, and this window signs in with a single-use `?boot=` nonce, whose refusal leaves nothing to read; the
+    // three-try cap covers it, at up to about three minutes of tries. And no `haveToken` input: a board.token read
+    // that fails (missing, or a sharing violation while the board writes it, likeliest right at a restart) is not a
+    // give-up at once, as one unlucky read would then switch the sign-in off for good. Such a try finds no ?boot=
+    // address (open-board.js names one only with the token) and counts toward the same cap.
+    internal enum SignInAgainStep { SignIn, Wait, GiveUp, Stay }
+    internal const long SignInAgainMinGapMs = 60000;
+    internal const int SignInAgainTries = 3;
+    internal static SignInAgainStep SignInAgainDecision(long nowMs, long? lastMs, bool gaveUp, int triesWithoutRead)
+    {
+        if (gaveUp) return SignInAgainStep.Stay;
+        if (triesWithoutRead >= SignInAgainTries) return SignInAgainStep.GiveUp;
+        if (lastMs == null || nowMs - lastMs.Value >= SignInAgainMinGapMs) return SignInAgainStep.SignIn;
+        return SignInAgainStep.Wait;
+    }
+
+    // #6512: PURE. The address a sign-in the PAGE asked for loads, as the Mac's signInAgainPage: the page the person
+    // was on, so a board restart does not throw them back to the front page. Only a page of this board
+    // (IsBoardAddress) is kept, and only its path, query and fragment: the scheme, host and port stay open-board.js's
+    // `fresh` address, so the session cookie lands on the host that minted the nonce. A `token`, `boot`, `signin` or
+    // `mode` item already in the kept page is dropped (`mode` because WithModeQuery adds its own where the first
+    // screen needs one, and on a computer that runs agents the page reads none). Names are compared decoded, as the
+    // board's URLSearchParams reads them, and fresh's `boot` nonce goes FIRST, so it is the one the board reads. Only
+    // the nonce is taken from fresh: open-board.js --print-url names `/?boot=<nonce>` and nothing else. With no
+    // nonce in fresh, or no board page to keep, it is `fresh` unchanged.
+    internal static string SignInAgainAddress(string fresh, string page, int port)
+    {
+        Uri freshUri;
+        if (fresh == null || !Uri.TryCreate(fresh, UriKind.Absolute, out freshUri)) return fresh;
+        string boot = null;
+        foreach (string item in QueryItems(freshUri.Query))
+        {
+            if (item.StartsWith("boot=", StringComparison.Ordinal)) { boot = item; break; }
+        }
+        Uri pageUri;
+        if (boot == null || page == null || !IsBoardAddress(page, port) || !Uri.TryCreate(page, UriKind.Absolute, out pageUri)
+            || pageUri.UserInfo.Length > 0) return fresh;
+        StringBuilder query = new StringBuilder(boot);
+        foreach (string item in QueryItems(pageUri.Query))
+        {
+            int eq = item.IndexOf('=');
+            string name = QueryName(eq < 0 ? item : item.Substring(0, eq));
+            if (name == "token" || name == "boot" || name == "signin" || name == "mode") continue;
+            query.Append('&').Append(item);
+        }
+        UriBuilder b = new UriBuilder(freshUri);
+        b.Path = pageUri.AbsolutePath;
+        b.Query = query.ToString();
+        b.Fragment = pageUri.Fragment.TrimStart('#');
+        return b.Uri.AbsoluteUri;
+    }
+
+    // A query item's name as URLSearchParams reads it: `+` is a space, and %XX is decoded.
+    static string QueryName(string raw)
+    {
+        try { return Uri.UnescapeDataString(raw.Replace('+', ' ')); }
+        catch { return raw; }
+    }
+
+    // The `name=value` items of a URI's query (`?` and empty items dropped), as written: nothing is unescaped.
+    static string[] QueryItems(string query)
+    {
+        if (string.IsNullOrEmpty(query)) return new string[0];
+        if (query[0] == '?') query = query.Substring(1);
+        return query.Split(new[] { '&' }, StringSplitOptions.RemoveEmptyEntries);
+    }
+
     // Where a connect computer's window goes: the same origin the phone apps and the Mac load (#2854).
     internal const string KosmosPlusSignIn = "https://login.kosmosplus.com/";
 
@@ -3268,6 +3352,12 @@ class BoardWindowForm : System.Windows.Forms.Form
     // The --print-url answer, asked again each time Kosmos.exe is opened while this window is up.
     readonly Func<string> resolveBoardAddress;
     bool signingInAgain;
+    // #6512: the page's "signed out" (PageSaysSignedOut): when the window last signed itself in again, on this
+    // window's own clock; whether it gave up; and how many of its sign-ins in a row brought no board read.
+    readonly Stopwatch windowClock = Stopwatch.StartNew();
+    long? lastSignInAgainAt;
+    bool signInAgainGaveUp;
+    int signInsWithoutRead;
     // #1765: the opener refused to name an address (KosmosLauncher.NotConfirmed), so the window shows why and loads nothing.
     bool boardNotConfirmed;
 
@@ -3481,9 +3571,13 @@ class BoardWindowForm : System.Windows.Forms.Form
     // this thread, and loads it. Only a signed-in (?boot=) answer is loaded: the plain address would
     // only throw away what the page shows and sign nobody in. The nonce travels as it did the first
     // time, over the private pipe, never a command line.
-    // ⚠️ Accepted cost: the page reloads to the board's front page, so text typed and not yet sent
-    // is lost. That is what the Mac's Reload does too, and the person asked for Kosmos again.
-    internal void SignInAgain()
+    // ⚠️ Accepted cost, for a double-click: the page reloads to the board's front page, so text typed and
+    // not yet sent is lost. That is what the Mac's Reload does too, and the person asked for Kosmos again.
+    // #6512: `keepPage`, for a sign-in the page asked for (PageSaysSignedOut), is the page to come back to
+    // (KosmosLauncher.SignInAgainAddress); a double-click passes none and lands on the front page, as before. The
+    // not-confirmed branch below starts over and keeps no page; a page-asked sign-in never reaches it, as that
+    // window shows a NavigateToString page, which is not a board address and so is never heard.
+    internal void SignInAgain(string keepPage = null)
     {
         // #4381: a connect computer has no board to sign in to; opening Kosmos again only brings this
         // window forward (and goes back to sign-in if its last load failed, as the Mac's Reload does).
@@ -3509,13 +3603,43 @@ class BoardWindowForm : System.Windows.Forms.Form
                 {
                     signingInAgain = false;
                     if (mode == KosmosLauncher.ComputerMode.Connect) return;
-                    if (fresh != null && fresh.Contains("?boot=") && webView != null) webView.Navigate(KosmosLauncher.WithModeQuery(fresh, mode));
+                    if (fresh != null && fresh.Contains("?boot=") && webView != null) webView.Navigate(KosmosLauncher.WithModeQuery(KosmosLauncher.SignInAgainAddress(fresh, keepPage, port), mode));
                 }));
             }
             catch { /* the window closed meanwhile */ }
         });
         resolve.IsBackground = true;
         resolve.Start();
+    }
+
+    // #6512: the page says the board no longer knows this window's session (a board restart ends every one), so
+    // the window signs itself in again the way a second double-click of Kosmos.exe does (SignInAgain: a fresh
+    // ?boot= address from open-board.js, which checks the board before it uses the token, #1765), as the Mac app
+    // answers kosmosSignin, and back on `page`, the board page that said so (SignInAgainAddress). Paced and capped by
+    // SignInAgainDecision, so a sign-in that does not take never reloads the window in a loop. The reload is the
+    // double-click's accepted cost, here with nobody asking: text typed and not sent is lost, as on the Mac, and a
+    // signed-out page could not have sent it anyway. Giving up changes
+    // nothing on screen: the page's Windows signed-out panel already says to open Kosmos.exe again, which still signs
+    // in (the launcher keeps no log to note it in). A connect computer has no board here to sign in to.
+    void PageSaysSignedOut(string page)
+    {
+        if (mode == KosmosLauncher.ComputerMode.Connect || !navigatedToBoard || signingInAgain) return;
+        long now = windowClock.ElapsedMilliseconds;
+        switch (KosmosLauncher.SignInAgainDecision(now, lastSignInAgainAt, signInAgainGaveUp, signInsWithoutRead))
+        {
+            case KosmosLauncher.SignInAgainStep.SignIn:
+                // Counted before SignInAgain runs, on purpose: a try that cannot navigate (no ?boot= address, no
+                // opener) is a fruitless sign-in too, and the cap is what stops it being tried for ever.
+                lastSignInAgainAt = now;
+                signInsWithoutRead++;
+                SignInAgain(page);
+                return;
+            case KosmosLauncher.SignInAgainStep.GiveUp:
+                signInAgainGaveUp = true;
+                return;
+            default:
+                return;
+        }
     }
 
     void NavigateToBoard()
@@ -3786,11 +3910,16 @@ class BoardWindowForm : System.Windows.Forms.Form
         if (chosen != null) { PageChoseMode(chosen); return; }
         // A connect computer shows no badge, whatever a board page still on screen says.
         if (mode == KosmosLauncher.ComputerMode.Connect) return;
+        // #6512: the page's { kosmosSignin: true }: this window is signed out (PageSaysSignedOut).
+        if (KosmosLauncher.IsSigninPageMessage(json)) { PageSaysSignedOut(source); return; }
         int? waiting;
         if (!TaskbarBadge.ReadsAsPageMessage(json, out waiting)) return;
         pageSaidWaiting.Restart();
-        // A post is a board read that worked, so the window's miss count starts again.
+        // A post is a board read that worked, so the window's miss count starts again, and so does
+        // its sign-in count (#6512): the last sign-in took, or the window never needed one.
         badgeMisses = 0;
+        signInAgainGaveUp = false;
+        signInsWithoutRead = 0;
         ShowBadge(waiting, ++badgeAsked);
     }
 

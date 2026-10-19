@@ -243,7 +243,7 @@ test('#1765: a refusal from the opener is NotConfirmed in the window, which then
   assert.match(resolved, /if \(address == KosmosLauncher\.NotConfirmed\)\s*\{\s*boardNotConfirmed = true;\s*if \(webView != null\) webView\.NavigateToString\(KosmosLauncher\.NotConfirmedPage\);\s*return;/,
     'a NotConfirmed answer is loaded as an address');
   assert.match(SOURCE, /else if \(boardAddress != null\) NavigateToBoard\(\);\s*else if \(boardNotConfirmed\) webView\.NavigateToString\(KosmosLauncher\.NotConfirmedPage\);/);
-  const again = slice('internal void SignInAgain()', '\n    }\n');
+  const again = slice('internal void SignInAgain(string keepPage = null)', '\n    }\n');
   assert.match(again, /if \(boardNotConfirmed && !signingInAgain && resolveBoardAddress != null\)[\s\S]*?ResolveBoardAddressInBackground\(\);/, 'reopening Kosmos.exe does not ask again');
   const browser = slice('static int OpenInBrowserInstead(', '\n    }\n');
   assert.match(browser, /if \(!p\.WaitForExit\(OpenerBrowserWaitCapMs\)\) \{ try \{ p\.Kill\(\); \} catch \{[^}]*\} unknown = true; \}\s*(?:\/\/[^\n]*\n\s*)?else refused = p\.ExitCode == OpenerRefusedExit \|\| \(p\.ExitCode != 0 && TaskbarBadge\.ReadBoardToken\(\) != null\);/,

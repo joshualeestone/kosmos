@@ -166,10 +166,10 @@ test('#4381: Connect runs in the spec\'s order: the badge, then the task switche
 test('#4381: every launch of a connect computer stops a leftover board, shows no badge, and nothing in the window ever starts the board but "Run agents"', () => {
   const load = slice('protected override void OnLoad(EventArgs e)', 'try');
   assert.match(load, /if \(mode != KosmosLauncher\.ComputerMode\.Connect\) StartBadge\(\);\s*else StopBoardInBackground\(false\);/);
-  assert.match(method('internal void OnWebMessage(ICoreWebView2WebMessageReceivedEventArgs args)'), /if \(mode == KosmosLauncher\.ComputerMode\.Connect\) return;\s*int\? waiting;/, 'a board page still on screen sets the badge');
+  assert.match(method('internal void OnWebMessage(ICoreWebView2WebMessageReceivedEventArgs args)'), /if \(mode == KosmosLauncher\.ComputerMode\.Connect\) return;\s*(?:\/\/[^\n]*\s*)*if \(KosmosLauncher\.IsSigninPageMessage\(json\)\) \{ PageSaysSignedOut\(source\); return; \}\s*int\? waiting;/, 'a board page still on screen on a connect computer must set no badge and reach no sign-in');
   assert.match(method('void BoardAnswered(bool answered, int? waiting, int asked)'), /if \(mode == KosmosLauncher\.ComputerMode\.Connect\) return;/, 'a read asked before Connect sets the badge');
   /* Reload and "open Kosmos again": nothing starts the board. */
-  const again = method('internal void SignInAgain()');
+  const again = method('internal void SignInAgain(string keepPage = null)');
   assert.match(again, /if \(mode == KosmosLauncher\.ComputerMode\.Connect\) \{ if \(connectLoadFailed\) LoadConnect\(\); return; \}/);
   const form = slice('class BoardWindowForm : System.Windows.Forms.Form', '// The completion handlers and event handlers WebView2 calls back on.');
   assert.doesNotMatch(form, /RunSchtasks\(|"\/Run|OpenerStartInfo|server\.js/, 'the window starts the board some way other than Run agents');

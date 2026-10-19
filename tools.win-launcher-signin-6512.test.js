@@ -1,0 +1,206 @@
+'use strict';
+
+/**
+ * #6512: the Windows window signs itself in again after a board restart, and the committed Kosmos.exe
+ * cannot fall behind its source again without the Windows build saying so.
+ *
+ *   node --test tools.win-launcher-signin-6512.test.js
+ *
+ * #6358 ends every browser session when the board restarts. The page then tells the app
+ * ({ kosmosSignin: true } to the Windows window, web signedOutTellApp), and the Mac app signs its
+ * window in again (native-app/main.swift pageSaysSignedOut). Before #6512 the Windows window ignored
+ * it, so the person had to open Kosmos.exe again. Now the window answers it the way that second
+ * double-click does (BoardWindowForm.SignInAgain), paced and capped as the Mac is.
+ *
+ * Three halves:
+ *   - the SOURCE, for the wiring nothing can call from outside;
+ *   - a PROBE compiled beside KosmosLauncher.cs (Windows only), for the pure parts: what reads as the
+ *     sign-in message, and the sign-in / wait / give-up / stay decision;
+ *   - the DRIFT: the committed exe is no older than its source (git order, any platform with history),
+ *     and on the Windows box (not a CI runner) verify-launcher.ps1 reproduces it from the source.
+ */
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const REPO = __dirname;
+const LAUNCHER = path.join(REPO, 'tools', 'windows', 'KosmosLauncher.cs');
+const SOURCE = fs.readFileSync(LAUNCHER, 'utf8');
+const PAGE = fs.readFileSync(path.join(REPO, 'web', 'index.html'), 'utf8');
+const BUILD = fs.readFileSync(path.join(REPO, 'tools', 'build-kosmos-windows.sh'), 'utf8');
+const WINDOWS_ONLY = { skip: process.platform !== 'win32' && 'needs the Windows C# compiler' };
+
+function method(signature) {
+  const at = SOURCE.indexOf(signature);
+  assert.notEqual(at, -1, signature + ' is gone from KosmosLauncher.cs');
+  const end = SOURCE.indexOf('\n    }\n', at);
+  assert.notEqual(end, -1, 'the end of ' + signature + ' is gone');
+  return SOURCE.slice(at, end);
+}
+
+test('#6512: the instrument is reading the launcher and the page', () => {
+  assert.ok(SOURCE.length > 100000, 'KosmosLauncher.cs read back only ' + SOURCE.length + ' bytes');
+  assert.ok(PAGE.length > 1000000, 'web/index.html read back only ' + PAGE.length + ' bytes');
+});
+
+test('#6512: the page and the window agree on the message, and the page retells it after the window\'s own limit', () => {
+  assert.match(PAGE, /else win\.postMessage\(\{ kosmosSignin: true \}\);/, 'the page no longer tells the Windows window');
+  assert.match(SOURCE, /internal const string PageSigninMessageKey = "kosmosSignin";/);
+  const retell = Number((PAGE.match(/const SIGNED_OUT_RETELL_MS = (\d+);/) || [])[1]);
+  const gap = Number((SOURCE.match(/internal const long SignInAgainMinGapMs = (\d+);/) || [])[1]);
+  assert.ok(retell > 0 && gap > 0, 'the retell or the window\'s gap is gone');
+  assert.ok(retell > gap, 'a retold sign-out (' + retell + ' ms) would land inside the window\'s limit (' + gap + ' ms) and be set aside again');
+});
+
+test('#6512: only the board\'s own page is heard, a connect computer is not, and the message signs in again', () => {
+  const on = method('internal void OnWebMessage(');
+  const gate = on.indexOf('if (!KosmosLauncher.IsBoardAddress(source, port)) return;');
+  const connect = on.indexOf('if (mode == KosmosLauncher.ComputerMode.Connect) return;');
+  const signin = on.indexOf('if (KosmosLauncher.IsSigninPageMessage(json)) { PageSaysSignedOut(source); return; }');
+  assert.ok(gate !== -1 && connect > gate && signin > connect, 'the sign-in message is not behind the board-origin and connect gates');
+  const badge = on.slice(on.indexOf('TaskbarBadge.ReadsAsPageMessage'));
+  assert.match(badge, /signInAgainGaveUp = false;/, 'a board read that worked does not end a give-up');
+  assert.match(badge, /signInsWithoutRead = 0;/, 'a board read that worked does not reset the sign-in count');
+
+  const says = method('void PageSaysSignedOut(string page)');
+  assert.match(says, /mode == KosmosLauncher\.ComputerMode\.Connect \|\| !navigatedToBoard \|\| signingInAgain\) return;/);
+  assert.match(says, /KosmosLauncher\.SignInAgainDecision\(now, lastSignInAgainAt, signInAgainGaveUp, signInsWithoutRead\)/);
+  assert.doesNotMatch(says, /ReadBoardToken/, 'one failed board.token read must not switch the sign-in off (it counts as a try instead)');
+  const signIn = says.slice(says.indexOf('case KosmosLauncher.SignInAgainStep.SignIn:'), says.indexOf('case KosmosLauncher.SignInAgainStep.GiveUp:'));
+  assert.ok(signIn.indexOf('lastSignInAgainAt = now;') !== -1 && signIn.indexOf('signInsWithoutRead++;') !== -1, 'a sign-in is not counted and timed');
+  assert.ok(signIn.indexOf('SignInAgain(page);') > signIn.indexOf('signInsWithoutRead++;'), 'the sign-in is not the double-click path, back on the page that asked');
+  // The sign-in itself is the double-click path: a fresh ?boot= address from open-board.js, never a token in a URL.
+  const again = method('internal void SignInAgain(string keepPage = null)');
+  assert.match(again, /if \(fresh != null && fresh\.Contains\("\?boot="\) && webView != null\) webView\.Navigate\(KosmosLauncher\.WithModeQuery\(KosmosLauncher\.SignInAgainAddress\(fresh, keepPage, port\), mode\)\);/,
+    'only a signed-in (?boot=) answer is loaded, on the kept page');
+  // A double-click keeps its old behaviour: no page to keep, so the front page.
+  const proc = SOURCE.slice(SOURCE.indexOf('protected override void WndProc('), SOURCE.indexOf('protected override void OnFormClosed('));
+  assert.ok(proc.length > 0, 'WndProc moved');
+  assert.match(proc, /SignInAgain\(\);/, 'the double-click no longer signs in with no page to keep');
+});
+
+// ---- the probe ----
+
+const PROBE = `
+using System;
+static class SigninProbe
+{
+    static int Main(string[] args)
+    {
+        if (args[0] == "msg") { Console.Write(KosmosLauncher.IsSigninPageMessage(Console.In.ReadToEnd()) ? "yes" : "no"); return 0; }
+        if (args[0] == "address") { string page = args[2] == "none" ? null : args[2]; Console.Write(KosmosLauncher.SignInAgainAddress(args[1], page, int.Parse(args[3]))); return 0; }
+        if (args[0] == "decide")
+        {
+            long now = long.Parse(args[1]);
+            long? last = args[2] == "none" ? (long?)null : long.Parse(args[2]);
+            Console.Write(KosmosLauncher.SignInAgainDecision(now, last, args[3] == "gaveup", int.Parse(args[4])));
+            return 0;
+        }
+        return 2;
+    }
+}
+`;
+
+let probeExe = null;
+let probeDir = null;
+function probe(args, input) {
+  const r = spawnSync(probeExe, args, { input: input || '', encoding: 'utf8', windowsHide: true });
+  assert.equal(r.status, 0, 'the probe failed: ' + r.stdout + r.stderr);
+  return r.stdout;
+}
+const csc = path.join(process.env.SystemRoot || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
+
+test('#6512: the probe compiles beside the launcher', WINDOWS_ONLY, (t) => {
+  if (!fs.existsSync(csc)) { t.skip('no .NET Framework compiler on this machine'); return; }
+  probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-signin-probe-'));
+  fs.writeFileSync(path.join(probeDir, 'SigninProbe.cs'), PROBE);
+  const out = path.join(probeDir, 'probe.exe');
+  const built = spawnSync(csc, ['/nologo', '/target:exe', '/main:SigninProbe', '/out:' + out, LAUNCHER, path.join(probeDir, 'SigninProbe.cs')], { encoding: 'utf8', windowsHide: true });
+  assert.equal(built.status, 0, 'the probe did not compile: ' + built.stdout + built.stderr);
+  probeExe = out;
+});
+
+test.after(() => { if (probeDir) fs.rmSync(probeDir, { recursive: true, force: true }); });
+
+const needsProbe = (t) => { if (!probeExe) { t.skip('no probe (not Windows, or no compiler)'); return false; } return true; };
+
+test('#6512: only { kosmosSignin: true } is the sign-in message', WINDOWS_ONLY, (t) => {
+  if (!needsProbe(t)) return;
+  assert.equal(probe(['msg'], JSON.stringify({ kosmosSignin: true })), 'yes');
+  assert.equal(probe(['msg'], '{ "kosmosSignin" : true }'), 'yes');
+  for (const no of ['{"kosmosSignin":false}', '{"kosmosSignin":"true"}', '{"kosmosSignin":1}', '{"kosmosBadge":3}',
+    '{"kosmosMode":"run"}', '{"x":{"kosmosSignin":true}}', 'true', '"kosmosSignin"', '', '{"kosmosSignin":true']) {
+    assert.equal(probe(['msg'], no), 'no', no + ' read as the sign-in message');
+  }
+});
+
+test('#6512: sign in at once, then once a minute, give up after three fruitless tries, then stay out', WINDOWS_ONLY, (t) => {
+  if (!needsProbe(t)) return;
+  const d = (now, last, gaveUp, tries) => probe(['decide', String(now), last == null ? 'none' : String(last), gaveUp ? 'gaveup' : 'no', String(tries)]);
+  assert.equal(d(5000, null, false, 0), 'SignIn', 'the first sign-out signs in at once');
+  assert.equal(d(100000, 100000 - 59999, false, 1), 'Wait', 'under a minute since the last try: wait');
+  assert.equal(d(100000, 100000 - 60000, false, 1), 'SignIn', 'a minute later: again');
+  assert.equal(d(100000, 0, false, 2), 'SignIn', 'two sign-ins with no board read: one more');
+  assert.equal(d(100000, 0, false, 3), 'GiveUp', 'three sign-ins with no board read: give up');
+  assert.equal(d(100000, 100000 - 1000, false, 3), 'GiveUp', 'the cap is checked before the minute: a give-up is not put off');
+  assert.equal(d(100000, 0, true, 0), 'Stay', 'after giving up: stay out of it until a board read works');
+  assert.equal(d(100000, 0, true, 3), 'Stay', 'given up is checked first: no second give-up');
+});
+
+test('#6512: the page-asked sign-in comes back on the page the person was on, and only on this board', WINDOWS_ONLY, (t) => {
+  if (!needsProbe(t)) return;
+  const fresh = 'http://127.0.0.1:16180/?boot=N0nce';
+  const a = (page, port = 16180, f = fresh) => probe(['address', f, page == null ? 'none' : page, String(port)]);
+  assert.equal(a('http://127.0.0.1:16180/?tab=projects&p=abc'), 'http://127.0.0.1:16180/?boot=N0nce&tab=projects&p=abc', 'the page and its query are kept, the fresh nonce first');
+  assert.equal(a('http://127.0.0.1:16180/agent/a%20b?q=x%26y'), 'http://127.0.0.1:16180/agent/a%20b?boot=N0nce&q=x%26y', 'escapes are kept as written');
+  assert.equal(a('http://127.0.0.1:16180/agent/x?tab=chat#bottom'), 'http://127.0.0.1:16180/agent/x?boot=N0nce&tab=chat#bottom', 'the path and the fragment are kept, as the Mac keeps them');
+  assert.equal(a('http://127.0.0.1:16180/?token=OLD&boot=OLD&signin=failed&mode=run&tab=a'), 'http://127.0.0.1:16180/?boot=N0nce&tab=a', 'old sign-in items and mode are dropped');
+  assert.equal(a('http://localhost:16180/?tab=a'), 'http://127.0.0.1:16180/?boot=N0nce&tab=a', 'fresh keeps its own host, so the cookie lands where the nonce was minted');
+  assert.equal(a('http://127.0.0.1:16180/?bo%6Ft=OLD&%74oken=T&sign+in=x&tab=a'), 'http://127.0.0.1:16180/?boot=N0nce&sign+in=x&tab=a', 'encoded names are read as the board reads them');
+  assert.equal(a(null), fresh, 'no page: the front page');
+  assert.equal(a('http://127.0.0.1:9999/?tab=a'), fresh, 'another port is not this board');
+  assert.equal(a('https://login.kosmosplus.com/x'), fresh, 'a Kosmos+ page is never the address the nonce goes to');
+  assert.equal(a('http://user:pw@127.0.0.1:16180/?tab=a'), fresh, 'an address with a user is not kept');
+  assert.equal(a('http://127.0.0.1:16180/?tab=a', 16180, 'http://127.0.0.1:16180/'), 'http://127.0.0.1:16180/', 'no nonce in fresh: fresh unchanged');
+});
+
+// ---- the drift ----
+
+test('#6512: the Windows build refuses an exe older than its source', () => {
+  assert.match(BUILD, /git -C "\$REPO" merge-base --is-ancestor "\$LAUNCHER_SRC_AT" "\$LAUNCHER_EXE_AT" \|\| LAUNCHER_ORDER=\$\?/);
+  // Exit 1 is drift; anything else is git failing, and the cut stops on both rather than going on unchecked.
+  assert.match(BUILD, /if \[ "\$LAUNCHER_ORDER" = 1 \]; then[\s\S]*?exit 1\n  elif \[ "\$LAUNCHER_ORDER" != 0 \]; then[\s\S]*?exit 1\n  fi/);
+  const check = BUILD.indexOf('merge-base --is-ancestor "$LAUNCHER_SRC_AT"');
+  const copy = BUILD.indexOf('cp "$LAUNCHER" "$STAGE/Kosmos.exe"');
+  assert.ok(check !== -1 && copy > check, 'the order check must come before the exe is staged');
+});
+
+test('#6512: the committed Kosmos.exe is no older than KosmosLauncher.cs and the icon compiled into it (git order)', (t) => {
+  const shallow = spawnSync('git', ['-C', REPO, 'rev-parse', '--is-shallow-repository'], { encoding: 'utf8' });
+  if (shallow.status !== 0 || shallow.stdout.trim() !== 'false') { t.skip('no full git history here'); return; }
+  const last = (...files) => spawnSync('git', ['-C', REPO, 'log', '-1', '--format=%H', '--', ...files], { encoding: 'utf8' });
+  // The same inputs as tools/build-kosmos-windows.sh's LAUNCHER_INPUTS.
+  assert.match(BUILD, /LAUNCHER_INPUTS="tools\/windows\/KosmosLauncher\.cs assets\/kosmos\.ico"/, 'the build script checks other inputs than this test');
+  const src = last('tools/windows/KosmosLauncher.cs', 'assets/kosmos.ico');
+  const exe = last('tools/windows/Kosmos.exe');
+  if (src.status !== 0 || exe.status !== 0 || !src.stdout.trim() || !exe.stdout.trim()) { t.skip('no git history for the launcher here'); return; }
+  const r = spawnSync('git', ['-C', REPO, 'merge-base', '--is-ancestor', src.stdout.trim(), exe.stdout.trim()], { encoding: 'utf8' });
+  assert.equal(r.status, 0, 'KosmosLauncher.cs changed in ' + src.stdout.trim() + ' after Kosmos.exe was last rebuilt in ' + exe.stdout.trim()
+    + ': rebuild and re-sign it (tools/windows/README.md)');
+});
+
+// Not on a CI runner: its .NET Framework compiler is not the one the committed exe was built with on the Windows box
+// that signs it, and a different compiler build may lay the bytes out differently, which would read as a mismatch on
+// every PR with nothing any lane could do. The git-order test above is the CI check; this one is run on the box.
+test('#6512: verify-launcher.ps1 reproduces the committed Kosmos.exe from its source (on the Windows box)', WINDOWS_ONLY, (t) => {
+  if (process.env.GITHUB_ACTIONS) { t.skip('a CI runner: its compiler is not the build box\'s'); return; }
+  if (!fs.existsSync(csc)) { t.skip('no .NET Framework compiler on this machine'); return; }
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(REPO, 'tools', 'windows', 'verify-launcher.ps1')],
+    { encoding: 'utf8', windowsHide: true, timeout: 120000 });
+  assert.equal(r.status, 0, 'verify-launcher.ps1 says the committed exe does not match its source:\n' + r.stdout + r.stderr);
+  assert.match(r.stdout, /^OK: /m);
+});
