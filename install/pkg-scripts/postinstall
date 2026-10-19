@@ -215,15 +215,11 @@ else
        && /usr/bin/curl -fsSL --connect-timeout 20 -m 300 -o "$_pin_dir/setup" "$SETUP_URL"; then
       _pin_rc=0
       _pin_out="$("$_pin_helper" "$_pin_dir/manifest.json" "$_pin_dir/manifest.sig" "$_pin_v" "$_pin_floor")" || _pin_rc=$?
-      # 97 is the helper refusing the release; any other failure (a bad argument, a crash, a refused launch) means the
-      # check itself could not run. Both end the install.
+      # 97 is the helper refusing the release, rechecked below; any other failure (a bad argument, a crash, a refused
+      # launch) means the check itself could not run, and ends the install now.
       if [ "$_pin_rc" -ne 0 ] && [ "$_pin_rc" -ne 97 ]; then
         echo "Kosmos: this installer could not run its release check (status $_pin_rc), so nothing was installed." >&2
         exit 1
-      fi
-      if [ "$_pin_rc" -eq 97 ]; then
-        echo "Kosmos: the download did not check out against the signed Kosmos release (the line above says why), so nothing was installed." >&2
-        exit 97
       fi
       PIN_TARBALL="$(printf '%s\n' "$_pin_out" | /usr/bin/sed -n 's/^sha256=//p')"
       PIN_TMUX="$(printf '%s\n' "$_pin_out" | /usr/bin/sed -n 's/^tmux_sha256=//p')"
@@ -231,12 +227,18 @@ else
       _pin_setup_got="$(/usr/bin/shasum -a 256 "$_pin_dir/setup" | /usr/bin/awk '{print $1}')"
       # A mismatch can be a deploy caught half way (the installer and the release published a moment apart), so it is
       # rechecked on the same budget as a failed download, as the checksum path below does; one that persists refuses.
-      if [ -n "$_pin_setup_want" ] && [ "$_pin_setup_want" = "$_pin_setup_got" ] && [ -n "$PIN_TARBALL" ] && [ -n "$PIN_TMUX" ]; then
+      if [ "$_pin_rc" -eq 0 ] && [ -n "$_pin_setup_want" ] && [ "$_pin_setup_want" = "$_pin_setup_got" ] && [ -n "$PIN_TARBALL" ] && [ -n "$PIN_TMUX" ]; then
         break
       fi
-      _pin_why=mismatch
+      # A refused release (97) is rechecked like a mismatch: a deploy caught half way can serve a manifest and a
+      # signature that do not belong together for a moment. One that persists through the budget refuses.
+      if [ "$_pin_rc" -eq 97 ]; then _pin_why=refused; else _pin_why=mismatch; fi
     fi
     if [ "$_pin_n" -ge 5 ]; then
+      if [ "$_pin_why" = refused ]; then
+        echo "Kosmos: the download did not check out against the signed Kosmos release (the line above says why), so nothing was installed." >&2
+        exit 97
+      fi
       if [ "$_pin_why" = mismatch ]; then
         echo "Kosmos: the installer does not match its signed release, so it was NOT run and nothing was installed." >&2
         exit 97
