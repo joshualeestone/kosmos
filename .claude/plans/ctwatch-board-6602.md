@@ -33,7 +33,12 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
 - The switch route refuses a computer that is not enrolled (a leftover state dir is not set up), as the
   page shows it only then. A check that keeps failing says so ("has been failing lately"), apart from one
   that has gone quiet. The switch says it is saving (`aria-busy`) while a change is in flight.
-- The switch route is person-only (`isViaScreen`, 403 otherwise): an agent cannot use this switch. It can
+- The switch takes effect at the tunnel's next check, with no restart: kosmos-relay's `check_with` looks for
+  `ct-watch-off` on every check (read on relay main 16b8c2c9).
+- A finding and a lost earlier report together say both sentences.
+- The switch route is person-only (`isViaScreen`, 403 otherwise): an agent cannot use this switch. That
+  gate is the repo's existing speed bump (a local process that sends a browser header passes it), not a
+  wall; recorded for kosmos#6613 beside the Kosmos+-off path. It can
   still stop the check another way, by turning Kosmos+ off (`PUT /api/remote`, which is not person-only),
   and with Kosmos+ off the cannot-confirm sentences are quiet. A finding is still shown. Recorded for
   kosmos#6613 with the other Kosmos+-off gaps.

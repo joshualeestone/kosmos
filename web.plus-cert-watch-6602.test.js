@@ -74,6 +74,8 @@ test('a finding only for an earlier address says so; a lost report says so', () 
   assert.match(el('plus-cw-line').textContent, /this computer's address/);
   ctx.paintPlusCertWatch({ on: true, state: 'unknown', lost: true });
   assert.match(el('plus-cw-line').textContent, /could not be read/);
+  ctx.paintPlusCertWatch({ on: true, state: 'foreign', foreign: 1, lost: true });
+  assert.match(el('plus-cw-line').textContent, /did not ask for\..*could not be read/, 'a finding and a lost report are both said');
 });
 
 test('with Kosmos+ off, cannot-confirm is not said, but a finding still is', () => {
