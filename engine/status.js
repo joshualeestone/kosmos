@@ -8967,7 +8967,12 @@ function snapshot() {
        working screen over an idle report, #188), which is right for a look taken this tick and wrong for a remembered
        one: an agent whose Stop hook just said idle would read working off a look from before it stopped. So a held
        reading is first left out (as the failed look it stands in for), and stands in only when nothing else decides. */
-    let status = reconcileWith(scrapedNow ? scrapedStatus
+    /* #5805 review 9: EXCEPT a held Windows usage limit. It is the account's own refusal, not a remembered screen, so a
+       hook's automatic idle after the refused turn must not lift it on a failed look (that released the held backlog
+       into a capped session); reconcileReport still lets the agent's own newer report outrank it. The hold is ~15 s
+       and the token expires at the reset. */
+    const heldLimit = !scrapedNow && scrapedStatus.streamLimit === true && !disruptionRec;
+    let status = reconcileWith((scrapedNow || heldLimit) ? scrapedStatus
       : { ...scrapedStatus, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its state' });
     /* Nor while a restart is on record (#2019): the held reading is from before the restart, and the self-heal below
        would take it as the restart having come back and clear the record (or a shown failure, #4006). */

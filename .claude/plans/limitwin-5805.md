@@ -41,12 +41,20 @@ rateLimitType: five_hour|seven_day|seven_day_opus|seven_day_sonnet|seven_day_ove
   restart, since a carried limit would skip stateFor's reset expiry (the carry file may record one; it is not read
   back). A held limit reading is logged as "out of usage", not "idle" (review 8; arm and mutant). Without this, a box whose refused turns fire
   Stop would read idle and hold nothing: the 17-hour failure again.
+- engine/status.js (review 9): main's #5949 rule reconciles a REMEMBERED reading (a failed look) as unknown first, so a
+  hook's automatic idle decided the card and the held backlog was released into a capped session. A remembered Windows
+  usage limit (the account's refusal, not a remembered screen) is used directly instead; reconcileReport still lets the
+  agent's own newer report outrank it. Arm: a limit plus the Stop hook's idle, then a failed look, stays limited and
+  held (mutant fails it).
+- engine/win32streamstate.js (review 9): a refused request's own error message (is_api_error_message in Claude Code's
+  schema) does not count as reaching the model, and a result with api_error does not clear; so the limit no longer
+  depends on a refused turn's result carrying is_error true (arm and mutant).
 - engine/chat.js: limitHeldVerdict uses a Windows card's limitUntil first (reachedByChannel is true only for Windows
   panes), so the hold and the card agree on the reset (review 1). No Mac card changes.
 - No new control and no new wording on the page.
 
 ## Test
-engine/win32limit-5805.test.js, 25 arms, on the Windows runner's list (selectFiles picks it): the real publisher, a
+engine/win32limit-5805.test.js, 27 arms, on the Windows runner's list (selectFiles picks it): the real publisher, a
 real state file, the real capture and status.snapshot(), the real holds. A refusal plus a failed turn reads
 rate_limited with the stream's reset and the turn's sentence, and both holds hold with the card's reset; an allowed
 event, a warning event, or a successful real turn clears it; a local command's result does not, also after an
@@ -79,8 +87,9 @@ A real capped account on the Windows box. The fixture follows Claude Code's sche
 of the exact `result` sentence.
 
 ## Weakest premise (and one more, review 2)
-- The code depends on a refused turn's `result` carrying is_error true. The evidence is the installed binary (is_error
-  follows isApiErrorMessage), not a captured capped stream; if it were false, that turn's result would clear the limit.
+- Two independent guards now keep a refused turn from clearing its own limit: its error message does not count as
+  reaching the model (is_api_error_message), and its result carries is_error (review 9). Both are read from the
+  installed binary's schema, not from a captured capped stream.
 
 That a capped Windows session emits a rejected rate_limit_event at all in headless stream-json mode (the schema says
 the event carries status rejected for a refused request, and the box measured rate_limit_event arriving mid-turn, but
