@@ -311,3 +311,20 @@ test('#5805 Windows review 7: a refusal AFTER the agent\'s report wins, even the
     assert.equal(b.card().state, status.STATE.RATE_LIMITED, 'the latest refusal is newer than the report, so the account is capped now');
   } finally { b.done(); }
 });
+
+test('#5805 Windows review 8: a failed look after a limit reading keeps the limit, and the log says out of usage, not idle', () => {
+  const name = 'winheld';
+  const sid = 'sid-held';
+  const agents = [streaming(sid, 7600, 'cwd-' + name)];
+  const rec = recordOf({ [sid]: { name, runner: 'claude' } });
+  const lines = [];
+  let answer = null;
+  const cap = win32capture.make({ run: () => agents, record: rec, ttlMs: 0, streamState: () => answer, log: (n, ev, because) => lines.push([n, ev, because]) });
+  answer = 'limit ' + new Date(Date.now() + 3600e3).toISOString() + ' ' + new Date().toISOString() + ' five_hour';
+  assert.match(String(cap(name + ':0.0')), /^limit /, 'CONTROL: a good limit reading');
+  answer = null;
+  assert.match(String(cap(name + ':0.0')), /^limit /, 'a failed look keeps the limit');
+  const held = lines.find((l) => l[1] === 'status-read-failed');
+  assert.ok(held, 'the hold was logged: ' + JSON.stringify(lines));
+  assert.match(held[2], /keeps its last known state \(out of usage\)/, 'the log names the state the card shows');
+});
