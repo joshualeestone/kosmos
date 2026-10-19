@@ -17987,7 +17987,7 @@ const server = http.createServer(async (req, res) => {
            * contains the answered one's, and `includes` called that the same
            * question. Measured end to end through the real producers: buttons
            * drawn for "Do you want to proceed?", the pane redrew to `rm -rf
-           * /Users/josh/build` above the same Yes/No menu, both 409s passed,
+           * /Users/sam/build` above the same Yes/No menu, both 409s passed,
            * and "1" went through.
            *
            * The cursor problem is fixed where it belongs -- `questionAbove` now
@@ -22937,11 +22937,11 @@ const server = http.createServer(async (req, res) => {
     }
     // ⚠️ Containment on the RESOLVED path, expressed as "the relative route
     // from home does not climb". `startsWith(home)` is the wrong test twice
-    // over: `/Users/agentine` starts with `/Users/agent1`... only by accident of
+    // over: `/Users/alexandra` starts with `/Users/alex`... only by accident of
     // spelling, and it says nothing about a symlink.
     // ⚠️ CASE, on macOS: `realpath` resolves symlinks but does NOT canonicalise
-    // case on a case-insensitive volume, so `/users/agent1/x` stays lowercase
-    // and `path.relative('/Users/agent1', …)` yields a climb. The containment
+    // case on a case-insensitive volume, so `/users/alex/x` stays lowercase
+    // and `path.relative('/Users/alex', …)` yields a climb. The containment
     // check then refuses a path that is genuinely inside home. Left as-is
     // rather than case-folded: it FAILS CLOSED (a false refusal, never an
     // escape), the browser only ever hands back paths this route itself

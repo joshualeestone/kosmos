@@ -5968,8 +5968,8 @@ function transcriptFor(agentName, exactSession) {
  * 🔑 WHAT THIS USES INSTEAD IS SOMETHING KOSMOS ALREADY KNOWS. Claude Code
  * writes each transcript to `<root>/projects/<the-launch-directory>/<id>.jsonl`,
  * with the directory's path flattened — every character that is not a letter or
- * a digit becomes a dash. MEASURED, not assumed: `/Users/agent1/.openclaw-workspace`
- * is stored as `-Users-agent1--openclaw-workspace`, and the naive
+ * a digit becomes a dash. MEASURED, not assumed: `/Users/alex/.openclaw-workspace`
+ * is stored as `-Users-alex--openclaw-workspace`, and the naive
  * `[^A-Za-z0-9] -> -` reproduces it exactly, double dash and all. And the
  * supervisor launches every agent with `-c "$WORKDIR"`, one folder per agent,
  * created by `create.js`. So the folder is derivable from the agent's name.

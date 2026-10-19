@@ -1938,7 +1938,7 @@ function connect(dir, opts) {
      🛑 A SUPPLIED NAME NOW WINS (#1531, Josh's ruling 2(a)). The rule above is right
      exactly when the folder IS the agent's own, which is the case it was written
      for. It has no answer for a folder holding SEVERAL agents, or for a folder that
-     is a person rather than a project: `/Users/caseywinner` would name an agent
+     is a person rather than a project: `/Users/sampatel` would name an agent
      after its owner. When somebody types a name, that is a better answer than any
      path, and it is still one name rather than two because it is the name the job
      and the profile both take. */
