@@ -13,7 +13,7 @@
 # pkg's inputs against what the CURRENT source would build.
 #
 # The input identity is the sha256 of everything the build consumes that
-# decides the pkg's BEHAVIOUR (and, since #3643, who signs it): four paths.
+# decides the pkg's BEHAVIOUR (and, since #3643, who signs it): five paths.
 #   install/pkg-scripts/**        the postinstall (what runs)
 #   install/pkg-resources/**      the Welcome and Conclusion screens (what the
 #                                 person is told; #662/#663 live here)
@@ -24,6 +24,8 @@
 #                                 lived in the build script until it moved
 #                                 here, so a team switch must still make the
 #                                 next cut rebuild and re-sign the pkg
+#   install/pkg-verify/**         the release check the postinstall runs (#6576):
+#                                 its source and its floor
 # (The bundle identifier is baked in by the build script, which is hashed, so
 # it is not listed a second time here; a copy could drift from the real one.)
 # NOT the version (metadata, and the pkg is version-independent) and NOT the
@@ -116,8 +118,8 @@ _pkg_stream_assignments() {
 _pkg_stream_dir() {
   find . -name '.?*' -prune -o -type f -print | LC_ALL=C sort | while IFS= read -r f; do _pkg_stream_file "$f"; done
 }
-# The first input that cannot be hashed as it is, among the two dirs, the build
-# script and the signing identity, or nothing. NUL-delimited so a name with a space is one name.
+# The first input that cannot be hashed as it is, among the three dirs (scripts, resources, and the release check
+# when given), the build script and the signing identity, or nothing. NUL-delimited so a name with a space is one name.
 # Three shapes, because "all inputs or nothing" has to hold for each:
 #   a file that is not readable        cat would hash it as absent
 #   a directory that is not searchable find cannot enter it, its contents
@@ -141,7 +143,7 @@ _PKG_NL="$(printf '\nx')"; _PKG_NL="${_PKG_NL%x}"
 _pkg_has_newline() { case "$1" in *"$_PKG_NL"*) return 0;; esac; return 1; }
 _pkg_first_unreadable() {
   local d f
-  for d in "$1" "$2"; do
+  for d in "$1" "$2" ${5:+"$5"}; do   # #6576: the fifth argument is the release-check dir, checked like the other two
     # The ROOT itself first: cd into a mode-000 dir fails inside the
     # substitution below, which would report nothing and stream an empty
     # section (measured), the sha-over-less this function exists to refuse.

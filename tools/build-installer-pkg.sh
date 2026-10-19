@@ -6,12 +6,12 @@
 #
 # The package is PAYLOAD-FREE: it ships only a postinstall that runs the
 # current install/setup.sh (installkosmos.com/setup) as the console user.
-# Double-clicking opens macOS's own Installer UI — no Terminal, no paste, no
-# "Possible Malware" dialog — and because it carries NO Mach-O of ours, only
-# the PACKAGE is signed (Developer ID Installer), then notarised and stapled.
-# There is no codesign of executables and no inside-out dylib signing here;
-# that is the app-bundle path (#555's recipe), and this deliberately avoids it
-# by shipping nothing to sign but a shell script.
+# Double-clicking opens macOS's own Installer UI (no Terminal, no paste, no
+# "Possible Malware" dialog). The PACKAGE is signed (Developer ID Installer),
+# then notarised and stapled. Its scripts carry ONE executable of ours, the
+# release check kosmos-pkg-verify (#6576), which is codesigned (Developer ID
+# Application, hardened runtime) before pkgbuild; there is no app bundle and
+# no inside-out dylib signing here, which is the app-bundle path (#555).
 #
 # It is a DISTRIBUTION package (productbuild), not a bare component, so it
 # carries a Welcome and a Conclusion screen (#546/#662/#663 fresh-account
@@ -83,7 +83,7 @@ STAGED_SCRIPTS="$BUILD/scripts"
 mkdir -p "$STAGED_SCRIPTS"
 cp -R "$SCRIPTS/." "$STAGED_SCRIPTS/"
 echo "==> the release check (kosmos-pkg-verify): build, sign, verify"
-swiftc -target "arm64-apple-macos$(cat "$REPO/tools/macos-floor")" -O "$REPO/install/pkg-verify/main.swift" \
+xcrun swiftc -target "arm64-apple-macos$(cat "$REPO/tools/macos-floor")" -O "$REPO/install/pkg-verify/main.swift" \
   -o "$STAGED_SCRIPTS/kosmos-pkg-verify"
 codesign --force --options runtime --timestamp --sign "$APP_CERT" "$STAGED_SCRIPTS/kosmos-pkg-verify"
 codesign --verify --strict "$STAGED_SCRIPTS/kosmos-pkg-verify"

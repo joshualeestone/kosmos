@@ -3354,6 +3354,14 @@ fi
 # (exit 141, measured). Every pointer shape must degrade to the
 # versionless run, never to silence.
 TARGET_VERSION="$(printf '%s' "$_ptr" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)" || TARGET_VERSION=""
+# #6576: the .pkg checked one signed release and pinned its downloads; install exactly that version, not what the
+# pointer says a moment later (a promote in between would fetch a tarball the pins refuse). Only an a.b.c is taken.
+case "${KOSMOS_PINNED_VERSION:-}" in
+  '') ;;
+  *[!0-9.]*|.*|*.|*..*|*.*.*.*) die "the version the installer checked is not a version, so nothing was installed" ;;
+  *.*.*) TARGET_VERSION="$KOSMOS_PINNED_VERSION" ;;
+  *) die "the version the installer checked is not a version, so nothing was installed" ;;
+esac
 if [ -n "$TARGET_VERSION" ]; then
   printf '  This run installs Kosmos %s.\n' "$TARGET_VERSION"
 else

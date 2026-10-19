@@ -195,6 +195,15 @@ rm -rf "$T/install/pkg-resources/sub"
 chmod 000 "$T/install/pkg-resources"
 if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "an unsearchable input ROOT did not refuse (an empty section was hashed)"; else grep -q "unsearchable directory" "$T/err" && ok "an unsearchable input root refuses and says so" || bad "the refusal did not name the root: $(cat "$T/err")"; fi
 chmod 755 "$T/install/pkg-resources"
+# #6576: the release check dir is held to the same rule: an unreadable file in it, or the dir itself unsearchable,
+# refuses rather than hashing as if it were absent.
+chmod 000 "$T/install/pkg-verify/floor"
+if [ -r "$T/install/pkg-verify/floor" ]; then ok "SKIP: running as a user that reads mode-000 files, the unreadable release-check arm cannot be exercised here"
+elif pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "#6576: an unreadable file in the release check did not refuse (a sha over less)"; else grep -q "pkg-verify" "$T/err" && ok "#6576: an unreadable file in the release check refuses and names it" || bad "#6576: the refusal did not name the file: $(cat "$T/err")"; fi
+chmod 644 "$T/install/pkg-verify/floor"
+chmod 000 "$T/install/pkg-verify"
+if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "#6576: an unsearchable release-check dir did not refuse"; else grep -q "unsearchable directory" "$T/err" && ok "#6576: an unsearchable release-check dir refuses and says so" || bad "#6576: the refusal did not name the dir: $(cat "$T/err")"; fi
+chmod 755 "$T/install/pkg-verify"
 ln -s welcome.html "$T/install/pkg-resources/link.html"
 if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "a symlinked input did not refuse (it would hash as absent)"; else grep -q "symlink" "$T/err" && ok "a symlink among the inputs refuses and says so" || bad "the refusal did not name the symlink: $(cat "$T/err")"; fi
 rm -f "$T/install/pkg-resources/link.html"

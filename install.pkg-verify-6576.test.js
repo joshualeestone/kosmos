@@ -92,7 +92,7 @@ test('#6576: the helper refuses (97) a tampered manifest, another key, another v
     ['a manifest signed by another key', release(h, '0.7.60', SHAS, h.otherKey), '0.7.60', '0.7.57', /not signed by the Kosmos release key/],
     ['a signature that is not one', { manifest: good.manifest, sig: 'AAAA' }, '0.7.60', '0.7.57', /not signed by the Kosmos release key/],
     ['another version than the site offered', good, '0.7.61', '0.7.57', /not the 0\.7\.61 offered/],
-    ['a release older than the floor (an old signed release served again)', release(h, '0.7.56', SHAS), '0.7.56', '0.7.57', /older than this installer/],
+    ['a release older than the floor (an old signed release served again)', release(h, '0.7.56', SHAS), '0.7.56', '0.7.57', /older than the oldest release this installer accepts/],
     ['no tmux_sha256', release(h, '0.7.60', { setup_sha256: SHAS.setup_sha256, sha256: SHAS.sha256 }), '0.7.60', '0.7.57', /has no tmux_sha256/],
     ['an uppercase sha256 (not the manifest form)', release(h, '0.7.60', Object.assign({}, SHAS, { sha256: 'B'.repeat(64) })), '0.7.60', '0.7.57', /has no sha256/],
   ];
@@ -122,19 +122,19 @@ function siteWith(h, { setup, manifestTamper, noSig }) {
   if (!noSig) fs.writeFileSync(path.join(root, 'dist', 'kosmos-0.7.60-arm64.manifest.json.sig'), rel.sig);
   return { root, setupSha: hex(setupBytes) };
 }
-function runRootStep(h, site, { home, setupOverride, floor } = {}) {
+function runRootStep(h, site, { home, setupOverride, floor, prelude, sleep } = {}) {
   const scripts = fs.mkdtempSync(path.join(h.dir, 'scripts-'));
   fs.copyFileSync(h.bin, path.join(scripts, 'kosmos-pkg-verify'));
   fs.chmodSync(path.join(scripts, 'kosmos-pkg-verify'), 0o755);
   fs.writeFileSync(path.join(scripts, 'kosmos-pkg-floor'), (floor || '0.7.57') + '\n');
   if (setupOverride) fs.writeFileSync(path.join(site.root, 'setup'), setupOverride);
   const userHome = home || fs.mkdtempSync(path.join(h.dir, 'home-'));
-  const body = 'set -u\nUSER_HOME="$1"\nSETUP_URL="$2"\n' + liftRootStep()
-    + '\nprintf "PIN_SETUP_SHA=%s\\nPIN_TARBALL=%s\\nPIN_TMUX=%s\\n" "$([ -n "$PIN_SETUP" ] && /usr/bin/shasum -a 256 "$PIN_SETUP" | /usr/bin/awk \'{print $1}\')" "$PIN_TARBALL" "$PIN_TMUX"\n'
+  const body = 'set -u\nUSER_HOME="$1"\nSETUP_URL="$2"\n' + (prelude || '') + liftRootStep()
+    + '\nprintf "PIN_VERSION=%s\\n" "$PIN_VERSION"\nprintf "PIN_SETUP_SHA=%s\\nPIN_TARBALL=%s\\nPIN_TMUX=%s\\n" "$([ -n "$PIN_SETUP" ] && /usr/bin/shasum -a 256 "$PIN_SETUP" | /usr/bin/awk \'{print $1}\')" "$PIN_TARBALL" "$PIN_TMUX"\n'
     + 'printf "MODE=%s\\n" "$([ -n "$PIN_SETUP" ] && /usr/bin/stat -f %Lp "$PIN_SETUP")"\n';
   const script = path.join(scripts, 'postinstall');
   fs.writeFileSync(script, body);
-  return spawnSync('/bin/sh', [script, userHome, 'file://' + path.join(site.root, 'setup')], { encoding: 'utf8', timeout: 60000 });
+  return spawnSync('/bin/sh', [script, userHome, 'file://' + path.join(site.root, 'setup')], { encoding: 'utf8', timeout: 60000, env: Object.assign({}, process.env, { KOSMOS_PKG_RETRY_SLEEP: sleep || '0' }) });
 }
 
 test('#6576: a first install pins the signed release: the installer it hands over, and the Kosmos and tmux sha256', { skip: SKIP }, () => {
@@ -147,6 +147,22 @@ test('#6576: a first install pins the signed release: the installer it hands ove
   assert.match(r.stdout, new RegExp('PIN_TARBALL=' + 'b'.repeat(64) + '\n'));
   assert.match(r.stdout, new RegExp('PIN_TMUX=' + 'c'.repeat(64) + '\n'));
   assert.match(r.stdout, /MODE=644\n/, 'the person can read the checked installer');
+  assert.match(r.stdout, /PIN_VERSION=0\.7\.60\n/, 'the checked version is handed over, so setup.sh installs exactly it');
+});
+
+test('#6576: an installer that does not match is rechecked (a deploy caught half way), then refused if it persists', { skip: SKIP }, () => {
+  const h = buildHelper();
+  const a = runRootStep(h, siteWith(h, {}), { setupOverride: '#!/bin/sh\necho other\n' });
+  assert.equal(a.status, 97, a.stderr);
+  assert.equal((a.stderr.match(/does not match its signed release/g) || []).length, 1, 'one sentence, after the rechecks');
+  // The recheck is real: the right installer published a moment later is taken, not refused.
+  const site = siteWith(h, {});
+  const good = path.join(site.root, 'setup.good');
+  fs.copyFileSync(path.join(site.root, 'setup'), good);
+  fs.writeFileSync(path.join(site.root, 'setup'), '#!/bin/sh\necho half-published\n');
+  const b = runRootStep(h, site, { sleep: '1', prelude: '( /bin/sleep 1.5; /bin/cp "' + good + '" "' + path.join(site.root, 'setup') + '" ) &\n' });
+  assert.equal(b.status, 0, 'a mismatch that clears within the budget installs: ' + b.stderr);
+  assert.match(b.stdout, new RegExp('PIN_SETUP_SHA=' + site.setupSha + '\n'));
 });
 
 test('#6576: a tampered installer, a tampered manifest, or no signature ends the install before anything runs', { skip: SKIP }, () => {
@@ -165,14 +181,15 @@ test('#6576: a tampered installer, a tampered manifest, or no signature ends the
   assert.equal(fs.existsSync(ran), false, 'the tampered installer must never run');
 });
 
-test('#6576: an existing install (its verifier present) keeps its own check: the root step pins nothing', { skip: SKIP }, () => {
+test('#6576: an existing install is pinned too (its own checks still run inside setup.sh)', { skip: SKIP }, () => {
   const h = buildHelper();
   const home = fs.mkdtempSync(path.join(h.dir, 'home-installed-'));
   fs.mkdirSync(path.join(home, '.local/share/kosmos/app/engine'), { recursive: true });
   fs.writeFileSync(path.join(home, '.local/share/kosmos/app/engine/manifest-verify.js'), '// installed\n');
   const r = runRootStep(h, siteWith(h, {}), { home });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /PIN_SETUP_SHA=\nPIN_TARBALL=\nPIN_TMUX=\n/);
+  assert.match(r.stdout, /the installer matches signed release 0\.7\.60/);
+  assert.match(r.stdout, new RegExp('PIN_TARBALL=' + 'b'.repeat(64) + '\n'));
 });
 
 test('#6576: switched off (floor "off"), the root step says so, pins nothing and downloads nothing', { skip: SKIP }, () => {
@@ -181,7 +198,7 @@ test('#6576: switched off (floor "off"), the root step says so, pins nothing and
   fs.rmSync(path.join(site.root, 'dist'), { recursive: true, force: true });   // nothing to fetch: an off step must not try
   const r = runRootStep(h, site, { floor: 'off' });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /signed-release check for a first install is not switched on/);
+  assert.match(r.stdout, /the signed-release check is not switched on in this installer yet/);
   assert.match(r.stdout, /PIN_SETUP_SHA=\nPIN_TARBALL=\nPIN_TMUX=\n/);
 });
 
@@ -200,12 +217,12 @@ test('#6576: handed a checked installer, the person\'s shell runs THAT file with
   assert.ok(m, 'could not lift the inner script; postinstall moved, re-anchor this test');
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pkgpin-inner-6576-'));
   const checked = path.join(d, 'checked-setup');
-  fs.writeFileSync(checked, '#!/bin/sh\nprintf "RAN tarball=%s tmux=%s via=%s\\n" "$KOSMOS_PINNED_TARBALL_SHA256" "$KOSMOS_PINNED_TMUX_SHA256" "$KOSMOS_INSTALL_VIA"\nexit 7\n');
+  fs.writeFileSync(checked, '#!/bin/sh\nprintf "RAN tarball=%s tmux=%s version=%s via=%s\\n" "$KOSMOS_PINNED_TARBALL_SHA256" "$KOSMOS_PINNED_TMUX_SHA256" "$KOSMOS_PINNED_VERSION" "$KOSMOS_INSTALL_VIA"\nexit 7\n');
   // An unreachable address: the checked branch must not fetch the installer again.
   const url = 'file://' + path.join(d, 'no-such-setup');
-  const r = spawnSync('/bin/sh', ['-c', m.groups.inner, url, '0', checked, 'b'.repeat(64), 'c'.repeat(64)], { encoding: 'utf8', timeout: 60000 });
+  const r = spawnSync('/bin/sh', ['-c', m.groups.inner, url, '0', checked, 'b'.repeat(64), 'c'.repeat(64), '0.7.60'], { encoding: 'utf8', timeout: 60000 });
   assert.equal(r.status, 7, 'the checked installer ran and its status is the shell\'s: ' + r.stderr);
-  assert.equal(r.stdout, `RAN tarball=${'b'.repeat(64)} tmux=${'c'.repeat(64)} via=pkg\n`);
+  assert.equal(r.stdout, `RAN tarball=${'b'.repeat(64)} tmux=${'c'.repeat(64)} version=0.7.60 via=pkg\n`);
   // CONTROL: with no checked installer the shell keeps its own download path (and fails on the unreachable address).
   const ctl = spawnSync('/bin/sh', ['-c', m.groups.inner, url, '0', '', '', ''], { encoding: 'utf8', timeout: 60000, env: Object.assign({}, process.env, { KOSMOS_PKG_RETRY_MAX: '1', KOSMOS_PKG_RETRY_SLEEP: '0' }) });
   assert.notEqual(ctl.status, 7);
@@ -231,6 +248,36 @@ test('#6576: setup.sh holds a pinned download to its pin: none passes, equal pas
   assert.equal(run(sha.toUpperCase()).status, 1, 'a malformed pin refuses rather than reading as no pin');
   assert.equal(run(sha.slice(0, 63)).status, 1);
   fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('#6576: setup.sh checks each pinned download right after its checksum, before anything unpacks it', () => {
+  for (const [file, pin, what] of [['tmux.tar.gz', 'KOSMOS_PINNED_TMUX_SHA256', 'terminal manager'], ['kosmos.tar.gz', 'KOSMOS_PINNED_TARBALL_SHA256', 'Kosmos']]) {
+    const dl = SETUP.indexOf(`verify_download "$stage/${file}" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }\n`);
+    assert.ok(dl > 0, `the ${file} download moved; re-anchor this test`);
+    const next = SETUP.slice(SETUP.indexOf('\n', dl) + 1, SETUP.indexOf('\n', SETUP.indexOf('\n', dl) + 1));
+    assert.equal(next.trim(), `pinned_sha_ok "$stage/${file}" "\${${pin}:-}" "${what}" || { rm -rf "$stage"; return 1; }   # #6576`,
+      `the ${file} pin check must be the line right after its checksum`);
+    const fnStart = SETUP.lastIndexOf('\n}\n', dl);
+    const fnEnd = SETUP.indexOf('\n}\n', dl);
+    const unpack = SETUP.slice(fnStart, fnEnd).search(/\btar\s+-?x/);
+    const pinAt = SETUP.slice(fnStart, fnEnd).indexOf('pinned_sha_ok');
+    assert.ok(unpack === -1 || pinAt < unpack, `the ${file} pin check must come before it is unpacked`);
+  }
+});
+
+test('#6576: setup.sh installs the checked version, and refuses one that is not a.b.c', () => {
+  const start = SETUP.indexOf('case "${KOSMOS_PINNED_VERSION:-}" in');
+  const end = SETUP.indexOf('esac\n', start) + 5;
+  assert.ok(start > 0, 'the pinned-version case is gone from setup.sh');
+  const run = (v) => spawnSync('/bin/sh', ['-c', 'die() { echo "DIE $*"; exit 1; }\nTARGET_VERSION=from-pointer\n' + SETUP.slice(start, end) + '\necho "$TARGET_VERSION"'],
+    { encoding: 'utf8', env: Object.assign({}, process.env, { KOSMOS_PINNED_VERSION: v }) });
+  assert.equal(run('').stdout, 'from-pointer\n', 'no pin: the pointer decides, as before');
+  assert.equal(run('0.7.60').stdout, '0.7.60\n');
+  for (const bad of ['1.2', '0.7.', '.7.6', 'a.b.c', '0..7', '0.7.6;x', '0.7.60.1', '0.7.6 x']) {
+    const r = run(bad);
+    assert.equal(r.status, 1, bad);
+    assert.match(r.stdout, /^DIE the version the installer checked is not a version/, bad);
+  }
 });
 
 test.after(() => { if (built) fs.rmSync(built.dir, { recursive: true, force: true }); });
