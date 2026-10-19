@@ -127,6 +127,19 @@ stage; ln -s /nonexistent/elsewhere "$T/s/app/lnk"
 if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a symlink in the stage is refused (grep -r would not read through it)"
 else fail "a symlink in the stage must be refused"; fi
 
+stage; printf '#!/bin/sh\n# %s/x\n' "$H" > "$T/s/bin/kosmos"
+out="$(home_path_gate_tree "$T/s" "$H" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | /usr/bin/grep -qF "bin/kosmos"; then pass "a file under bin/ naming the home is refused and named (bin/ is read, not only app/)"
+else fail "bin/kosmos naming the home must be refused and named (rc=$rc): $out"; fi
+
+stage; ln -s /nonexistent/elsewhere "$T/s/bin/lnk"
+if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a symlink under bin/ is refused"
+else fail "a symlink under bin/ must be refused"; fi
+
+stage; printf '\xcf\xfa\xed\xfe /Users/someone-else/.cargo/x\0' > "$T/s/app/bin/.hidden"
+if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a hidden compiled file in app/bin/ is read too"
+else fail "a hidden compiled file in app/bin/ must be read"; fi
+
 B="$HERE/build-kosmos-bundle.sh"
 if /usr/bin/grep -qx 'home_path_gate_tree "$STAGE" || exit 1' "$B"; then pass "the bundle build still calls the gate"
 else fail "tools/build-kosmos-bundle.sh no longer calls home_path_gate_tree (the gate is unarmed)"; fi
