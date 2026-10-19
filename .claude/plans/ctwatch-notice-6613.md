@@ -21,9 +21,12 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
 - The slot is in the stack's `:empty { display: none }` rule like every other slot (an empty flex item spends one
   gap); a static test checks every slot in `#topnotes` has one.
 - Review puts the finding away, as #6315 ruled for the request notice ("Its close button or Review puts that set
-  away"), and focus goes to the pane's line. Rejected: dismissing only on close (Review is the person reading it).
+  away"), but only once the pane's line says the finding (a pane that did not paint keeps the notice), and focus goes
+  to that line. Rejected: dismissing only on close (Review is the person reading it).
+- With the check switched off, the card still raises a finding (a switch never hides one) and says the check is off.
 - The notice's words carry `role="status"` and are filled after the card is inserted, the login notice's pattern
-  (#3532); consistent with the stack, not separately measured with a screen reader.
+  (#3532); consistent with the stack, not separately measured with a screen reader. Owner of that measurement: April,
+  with VoiceOver at this card's design review, recorded on kosmos#6613 before it closes.
 - Follows Josh's #6315 ruling for the request notice ("Definitely have to have a way to dismiss it"): close puts
   away what was shown, a new one comes back. The Plus pane line is never put away, so a finding stays findable.
 - The key is a digest, not the report's strings, so nothing from the third party reaches the page.
@@ -41,5 +44,5 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
   finding is raised away from Kosmos+ as the fixed warning, Review opens Kosmos+ and puts it away; a clear check
   raises nothing (the control). Its lost scenario: Got it shows with the lost sentence, posts the marker it was
   shown, then goes, the pane says Noted., and focus is on the switch.
-- `node --test engine/cert-watch.test.js` (13), `web.cert-notice-6613.test.js` (11), `web.plus-cert-watch-6602.test.js`
+- `node --test engine/cert-watch.test.js` (13), `web.cert-notice-6613.test.js` (13), `web.plus-cert-watch-6602.test.js`
   (9), the `server.test.js` route test (by name). Mutant: the dismissed-key check removed, 2 notice tests red.

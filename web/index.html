@@ -52525,7 +52525,7 @@ function paintCwNote(cw) {
   const key = cw && cw.state === 'foreign' && typeof cw.key === 'string' && /^[0-9a-f]{16}$/.test(cw.key) ? cw.key : null;
   if (!key || onPlus || cwNoteAway().indexOf(key) !== -1) { CW_NOTE.key = null; CW_NOTE.sig = null; slot.textContent = ''; return; }
   const here = cw.foreign > 0 || !(cw.earlier > 0);   // this computer's address, or only an earlier one
-  const sig = key + (here ? ':here' : ':earlier');
+  const sig = key + (here ? ':here' : ':earlier') + (cw.on === true ? ':on' : ':off');
   if (CW_NOTE.sig === sig && slot.firstChild) return;   // unchanged: not rewritten, so it is not read out again
   CW_NOTE.key = key; CW_NOTE.sig = sig;
   const head = here
@@ -52534,7 +52534,8 @@ function paintCwNote(cw) {
   // role=status on the words, not the card, so the buttons are not read out with every announcement (#3532's rule).
   // The headline is set after the card is in; the small line comes with it, so a reader may say the headline only.
   slot.innerHTML = '<div class="utoast cwnote"><span class="udot" aria-hidden="true"></span>'
-    + '<div class="utxt" role="status"><b></b><small>Kosmos+ checks the public certificate logs for this computer.</small></div>'
+    + '<div class="utxt" role="status"><b></b><small>' + (cw.on === true ? 'Kosmos+ checks the public certificate logs for this computer.'
+      : 'The certificate check is off; this is what it found before.') + '</small></div>'
     + '<div class="uacts"><button type="button" class="uprime" data-cw="open">Review</button></div>'
     + '<button type="button" class="ux" data-cw="dismiss" aria-label="Close: certificate warning">&times;</button></div>';
   slot.querySelector('.utxt b').textContent = head;
@@ -52549,15 +52550,19 @@ async function pollCwNote() {
     const b = e.target && e.target.closest ? e.target.closest('[data-cw]') : null;
     if (!b) return;
     const open = b.getAttribute('data-cw') === 'open';
-    cwNoteDismiss();
+    if (!open) cwNoteDismiss();
     cwSlot.textContent = '';
-    /* Review puts the set away, as #6315's request notice does ("Its close button or Review puts that set away"). The
-       button it pressed is gone, so keyboard focus goes to the pane's own line, which says the finding. */
+    /* Review puts the set away, as #6315's request notice does ("Its close button or Review puts that set away"), but
+       only once the pane's own line says the finding: a pane that did not paint must not cost the person the notice.
+       The button it pressed is gone, so keyboard focus goes to that line. */
     if (open) {
       showTab('settings'); settingsGo('plus');
       Promise.resolve(paintPlus()).then(() => {
         const line = document.getElementById('plus-cw-line');
-        if (line && line.focus) { line.setAttribute('tabindex', '-1'); line.focus(); }
+        if (line && line.textContent) {
+          cwNoteDismiss();
+          if (line.focus) { line.setAttribute('tabindex', '-1'); line.focus(); }
+        }
       });
       return;
     }
