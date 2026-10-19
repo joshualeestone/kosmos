@@ -32,6 +32,11 @@ freshhandoff-6616). That connector then lists `fresh-signin` in `kosmos-tunnel c
 - **Above the first-run covers, pressable there** (z 80; exempt from the inert first run and its choice screen put on
   the page), and **hidden under the restart, update and account-switch screens** (the board is going away; those
   make the page inert, so an ask over them could be seen and not pressed).
+- **Nothing else draws above it at the foot** (measured 2026-10-19, review iteration 6): the page's full-cover layers
+  stop at z 70 (first-run choice, boot cover); the one layer above 80 is #voice-who (z 10000), a strip pinned to the
+  TOP of the screen; the page opens no dialog with showModal (0 uses), so nothing reaches the top layer.
+- **Every 403 is read as JSON** to find the one that asks: the board's refusals are small JSON bodies, and a body that
+  is not JSON is caught (tested). Accepted as a cost, not a hazard (review iterations 4 and 6).
 - **Shown first, words written after**, so a screen reader announces every refusal, the same sentence included; the
   alert is the sentence alone (role on the words, not the box with its two buttons; review iteration 5).
 - Decided, not done (review iteration 5 NITs): Not now leaves focus where the browser puts it; pressing Sign in again
