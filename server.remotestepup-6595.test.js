@@ -22,11 +22,16 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-confi
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
-process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';
+// A connector that says it strips the session headers (kosmos-relay sessioniat-6595's `capabilities` verb), so the
+// gate trusts them; the connector that does not is tested on the function below.
+const CONNECTOR = path.join(SANDBOX, 'kosmos-tunnel');
+fs.writeFileSync(CONNECTOR, '#!/bin/sh\n[ "$1" = capabilities ] && printf "session-headers\\n" && exit 0\nexit 1\n', { mode: 0o755 });
+process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_SECS } = require('./server');
+const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS } = require('./server');
+const remote = require('./engine/remote');
 
 let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
@@ -237,5 +242,30 @@ test('R01: every regex route naming a token, install, sign-in, import, restore o
       // And the SERVER's own pattern serves that path, so a renamed route cannot leave the gate's copy guarding nothing.
       assert.ok(new RegExp(r.slice(1, -1)).test(d.gated), r + ' does not serve ' + d.gated);
     }
+  }
+});
+
+test('R01: a connector that does not list session-headers cannot vouch, so even a fresh remote session is refused', () => {
+  const t = now();
+  const fresh = { method: 'POST', headers: { ...VIA_PLUS, 'x-kosmos-session-iat': String(t - 30), 'x-kosmos-session-second': '1' } };
+  assert.equal(remoteStepUpRefusal(fresh, '/api/agents', t, new Set(['session-headers'])), null, 'CONTROL: it lists it');
+  assert.equal(remoteStepUpRefusal(fresh, '/api/agents', t, new Set()), REMOTE_STEP_UP_CONNECTOR);
+  assert.equal(remoteStepUpRefusal(fresh, '/api/agents', t, new Set(['something-else'])), REMOTE_STEP_UP_CONNECTOR);
+  // A local request is never asked, whatever the connector says.
+  assert.equal(remoteStepUpRefusal({ method: 'POST', headers: PAGE }, '/api/agents', t, new Set()), null);
+});
+
+test('R01: the connector is asked once, by its capabilities verb, and one that cannot be run lists nothing', () => {
+  remote.resetConnectorCapabilitiesForTests();
+  assert.ok(remote.connectorCapabilities().has('session-headers'), 'the test connector lists session-headers');
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';
+  try {
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'kept once seen (an update restarts the board)');
+    remote.resetConnectorCapabilitiesForTests();
+    assert.equal(remote.connectorCapabilities().size, 0, 'a connector that fails the verb lists nothing');
+  } finally {
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = was;
+    remote.resetConnectorCapabilitiesForTests();
   }
 });

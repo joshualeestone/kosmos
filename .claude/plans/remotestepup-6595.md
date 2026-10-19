@@ -78,7 +78,15 @@ writes them only after verifying a token session. If a remote path existed that 
 set none of the forwarding headers, it would read as local and never be asked (Renet's stated limit, same here).
 
 ## Not covered
-- 🛑 MERGE ORDER, and it is the protection (review iteration 3; an earlier version of this line had it backwards).
+- ✅ THE CONNECTOR VOUCHES, OR NOTHING IS FRESH (review iteration 11, Renet's (5) in sessioniat-6595). The board asks
+  its own bundled connector `kosmos-tunnel capabilities` (once, kept; rechecked after ten minutes while missing) and
+  trusts the session headers only when it lists `session-headers`. An older connector, on any platform, lists
+  nothing, so every gated remote request is refused with `remote_step_up_unavailable`. That replaces merge order as
+  the protection: iteration 11 found the cut's stale-connector check runs for the Mac build only
+  (tools/release.sh), not the Windows one (tools/build-kosmos-windows.sh), so order alone could not keep an old
+  connector away. Merge order still matters for usability (before Renet's verb ships, no remote session can do a
+  gated thing), not for safety.
+- (History, superseded by the line above) MERGE ORDER (review iteration 3; an earlier version of this line had it backwards).
   A tunnel older than sessioniat-6595 passes client headers through, so behind it a remote browser can send both
   headers itself and pass the gate. The board cannot tell the tunnel's age. What protects it: the tunnel rides in the
   same bundle (an update swaps app/ whole), and a cut refuses a tunnel behind relay main

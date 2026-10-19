@@ -69,7 +69,7 @@ const fs = require('node:fs');
 const { envDelete, envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn, execFileSync } = require('node:child_process');
+const { spawn, execFileSync, spawnSync } = require('node:child_process');
 // Narrow test seam for setupRun's child lifecycle. The supervised tunnel uses
 // spawn directly and cannot be replaced through this seam.
 let setupSpawn = spawn;
@@ -127,6 +127,27 @@ const BIN = () => {
  * CreateProcess as one quoted argv (paths with spaces included), never through
  * cmd.exe, which would re-parse them. */
 const connectorSpawnOptions = (opts) => ({ ...opts, windowsHide: true });
+/* kosmos#6595 (R01): what this computer's connector says it does, one name per line from `kosmos-tunnel
+   capabilities`. The board trusts the session headers the gate writes only when the connector lists
+   "session-headers" (it strips client copies, kosmos-relay sessioniat-6595). A connector older than that verb, or one
+   that cannot be run, lists nothing, so its headers are never trusted: this is what makes an old connector fail
+   closed on every platform, whatever order things merge or ship in. Asked once and kept; a connector that lacked it
+   is asked again after ten minutes (it changes only with an update, which restarts the board anyway). */
+const CAPABILITIES_RECHECK_MS = 10 * 60 * 1000;
+let capabilitiesSeen = null;
+function connectorCapabilities(now = Date.now()) {
+  if (capabilitiesSeen && (capabilitiesSeen.caps.has('session-headers') || now - capabilitiesSeen.at < CAPABILITIES_RECHECK_MS)) {
+    return capabilitiesSeen.caps;
+  }
+  let caps = new Set();
+  try {
+    const r = spawnSync(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: 5000 }));
+    if (r.status === 0) caps = new Set(String(r.stdout || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+  } catch { /* cannot run: lists nothing */ }
+  capabilitiesSeen = { caps, at: now };
+  return caps;
+}
+function resetConnectorCapabilitiesForTests() { capabilitiesSeen = null; }
 /* The production addresses are the defaults (#648): a bundle needs nothing
  * baked for a Mac to reach the real relay and coordinator. Precedence: env
  * (tests, self-host), then the relay saved in remote.json, then production. */
@@ -3425,7 +3446,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+module.exports = { connectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,

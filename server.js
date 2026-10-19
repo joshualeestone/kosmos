@@ -4356,9 +4356,18 @@ const REMOTE_STEP_UP_CLOCK = Object.freeze({
   code: 'remote_step_up_clock',
   error: "This computer's clock is behind Kosmos+, so a fresh sign-in reads as from the future. Set this computer's clock to the right time, then try again.",
 });
+/* A connector that does not say it strips client copies of the session headers (an older one, on any platform)
+   cannot vouch for them, so nothing it forwards is fresh (review iteration 11: the cut's stale-connector check runs
+   for the Mac build only, so merge order alone could not keep an old connector away). */
+const REMOTE_STEP_UP_CONNECTOR = Object.freeze({
+  code: 'remote_step_up_unavailable',
+  error: "This computer's Kosmos+ connector cannot vouch for a fresh sign-in yet, so this cannot be done from a remote session. Do it at the computer, or update Kosmos.",
+});
 /* The refusal for this request, or null. One place, before any route reads a body. */
-function remoteStepUpRefusal(req, pathname, nowSecs) {
+function remoteStepUpRefusal(req, pathname, nowSecs, caps) {
   if (!needsRemoteStepUp(pathname, req.method) || !isRemoteRequest(req)) return null;
+  // Asked only for a remote request to a gated route, so no other request ever waits on the connector.
+  if (!(caps || remote.connectorCapabilities()).has('session-headers')) return REMOTE_STEP_UP_CONNECTOR;
   if (remoteSessionFresh(req.headers, nowSecs)) return null;
   const { second, iat } = remoteSessionHeaders(req.headers);
   if (second && iat !== null && iat - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
@@ -25378,7 +25387,7 @@ module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
-  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up
+  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test
