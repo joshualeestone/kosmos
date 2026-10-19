@@ -2,9 +2,9 @@
 require('./test-support/tmpscope');
 
 /**
- * O05: tools/lib/sbom.js derives a release's CycloneDX bill of materials from its signed manifest, the connector's
- * Cargo.lock and the tmux build's fetch lines. Most arms inject the git reads; the last runs the command line against
- * two small git repos it makes.
+ * O05: tools/lib/sbom.js derives a release's CycloneDX bill of materials from its signed manifest, the tmux bundle it
+ * shipped, the connector's Cargo.lock and the tmux build's fetch lines. Most arms inject the git reads and the bundle;
+ * the last runs the command line against two small git repos and a tarball it makes.
  *
  *   node --test tools.sbom-o05.test.js
  */
@@ -13,10 +13,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { execFileSync, spawnSync } = require('node:child_process');
 
 const SBOM_JS = path.join(__dirname, 'tools', 'lib', 'sbom.js');
-const { parseLock, closure, tmuxPins, build } = require(SBOM_JS);
+const { parseLock, closure, tmuxPins, parseTmuxVersion, build } = require(SBOM_JS);
 
 const SHA = (c) => c.repeat(64);
 const CRATES = 'registry+https://github.com/rust-lang/crates.io-index';
@@ -32,6 +33,8 @@ dependencies = [
  "kosmos-relay-proto",
  "rcgen 0.13.2",
  "rustls",
+ "windows-sys",
+ "windows_aarch64_gnullvm",
 ]
 
 [[package]]
@@ -86,7 +89,19 @@ version = "1.0.228"
 source = "${CRATES}"
 
 [[package]]
-name = "kosmos-relay"
+name = "windows-sys"
+version = "0.59.0"
+source = "${CRATES}"
+checksum = "${SHA('8')}"
+
+[[package]]
+name = "windows_aarch64_gnullvm"
+version = "0.52.6"
+source = "${CRATES}"
+checksum = "${SHA('9')}"
+
+[[package]]
+name = "kosmos-relay-server"
 version = "0.1.0"
 dependencies = [
  "axum",
@@ -104,6 +119,8 @@ name = "rustls"
 version = "9.9.9"
 source = "git+https://example.invalid/rustls"
 `;
+const WORKSPACE = '[workspace]\nresolver = "2"\nmembers = ["crates/proto", "crates/tunnel", "crates/relay"]\n';
+const MEMBER = (n) => `[package]\nname = "${n}"\nversion.workspace = true\n`;
 const TMUX = `#!/bin/bash
 TMUX_VERSION="3.5a"
 LIBEVENT_VERSION="2.1.12-stable"
@@ -114,13 +131,20 @@ UTF8PROC_SHA="${SHA('c')}"
 TMUX_URL="https://github.com/tmux/tmux/releases/download/\${TMUX_VERSION}/tmux-\${TMUX_VERSION}.tar.gz"
 LIBEVENT_URL="https://github.com/libevent/libevent/releases/download/release-\${LIBEVENT_VERSION}/libevent-\${LIBEVENT_VERSION}.tar.gz"
 UTF8PROC_URL="https://github.com/JuliaStrings/utf8proc/releases/download/v\${UTF8PROC_VERSION}/utf8proc-\${UTF8PROC_VERSION}.tar.gz"
+fetch() {
+  :
+}
 fetch tmux     "$TMUX_URL"     "$TMUX_SHA"
 fetch libevent "$LIBEVENT_URL" "$LIBEVENT_SHA"
+# fetch nothing "$X_URL" "$X_SHA" (a comment is not a call)
 fetch utf8proc "$UTF8PROC_URL" "$UTF8PROC_SHA"
 `;
+const VERSION = 'tmux:   tmux 3.5a\nbuilt:  2026-08-13T18:58:27Z\ntmux-src: 3.5a\nlibevent: 2.1.12-stable (core only)\nutf8proc: 2.9.0\nfloor:    13.5\n';
+const LIBS = ['bin/tmux', 'lib/libevent_core-2.1.7.dylib', 'lib/libutf8proc.3.dylib', 'VERSION'];
+const BUNDLE = { sha: SHA('0'), ...parseTmuxVersion(VERSION, LIBS) };
 const MANIFEST = {
-  manifest: 1, version: '0.7.60', arch: 'arm64', sha256: SHA('d'),
-  app: { commit: 'a'.repeat(40) }, node: { version: 'v24.19.0', download_sha256: SHA('e') },
+  manifest: 1, version: '0.7.60', arch: 'arm64', sha256: SHA('d'), tmux_sha256: SHA('0'),
+  app: { commit: 'a'.repeat(40), dirty: false }, node: { version: 'v24.19.0', download_sha256: SHA('e') },
   connector: { signed_sha256: SHA('f'), commit: 'b'.repeat(40) }, built: { at: '2026-10-19T17:00:00Z' },
 };
 const show = (files) => (repo, commit, file) => {
@@ -128,9 +152,13 @@ const show = (files) => (repo, commit, file) => {
   if (v === undefined) throw new Error(`no ${repo}:${commit}:${file}`);
   return v;
 };
-const files = (lock = LOCK, tmux = TMUX) => ({
-  [`R:${'b'.repeat(40)}:Cargo.lock`]: lock, [`K:${'a'.repeat(40)}:tools/build-tmux-from-source.sh`]: tmux });
-const sbom = (m = MANIFEST, f = files()) => build(m, { repo: 'K', relay: 'R', show: show(f) });
+const files = (lock = LOCK, tmux = TMUX, workspace = WORKSPACE) => {
+  const r = (f) => `R:${'b'.repeat(40)}:${f}`;
+  return { [r('Cargo.lock')]: lock, [r('Cargo.toml')]: workspace, [r('crates/proto/Cargo.toml')]: MEMBER('kosmos-relay-proto'),
+    [r('crates/tunnel/Cargo.toml')]: MEMBER('kosmos-tunnel-client'), [r('crates/relay/Cargo.toml')]: MEMBER('kosmos-relay-server'),
+    [`K:${'a'.repeat(40)}:tools/build-tmux-from-source.sh`]: tmux };
+};
+const sbom = (m = MANIFEST, f = files(), tmux = BUNDLE) => build(m, { repo: 'K', relay: 'R', tmux, show: show(f) });
 const comp = (b, ref) => b.components.find((c) => c['bom-ref'] === ref);
 const deps = (b, ref) => (b.dependencies.find((d) => d.ref === ref) || {}).dependsOn;
 
@@ -138,7 +166,7 @@ test('the crate list is the closure from the connector: transitive crates in, th
   const { deps: d } = closure(parseLock(LOCK), 'kosmos-tunnel-client');
   const got = d.map((p) => `${p.name}@${p.version}@${p.source === GIT ? 'git' : p.source ? 'crates' : 'path'}`).sort();
   assert.deepEqual(got, ['baz@1.0.0@git', 'kosmos-relay-proto@0.1.0@path', 'rcgen@0.13.2@crates', 'ring@0.17.14@crates',
-    'rustls@0.23.46@crates', 'serde@1.0.228@crates']);
+    'rustls@0.23.46@crates', 'serde@1.0.228@crates', 'windows-sys@0.59.0@crates', 'windows_aarch64_gnullvm@0.52.6@crates']);
   const b = sbom();
   assert.equal(comp(b, 'crate:rcgen@0.12.1'), undefined, 'the relay server\'s rcgen must not be listed');
   assert.equal(comp(b, 'crate:axum@0.8.4'), undefined);
@@ -153,20 +181,22 @@ test('a dependency with a version, or a version and source, resolves to exactly 
   assert.equal(baz[0].hashes, undefined, 'a git crate has no registry checksum');
 });
 
-test('an unresolvable or ambiguous dependency refuses rather than listing less', () => {
+test('an unresolvable or ambiguous dependency, or an unreadable dependency line, refuses rather than listing less', () => {
   const tunnel = (lock) => closure(parseLock(lock), 'kosmos-tunnel-client');
   assert.throws(() => tunnel(LOCK.replace('"rcgen 0.13.2"', '"rcgen 9.9.9"')), /cannot resolve dependency "rcgen 9.9.9"/);
   assert.throws(() => tunnel(LOCK.replace('"rcgen 0.13.2"', '"rcgen"')), /cannot resolve dependency "rcgen"/);
   assert.throws(() => tunnel(LOCK.replace(`"baz 1.0.0 (${GIT})"`, '"baz 1.0.0"')), /cannot resolve dependency "baz 1.0.0"/);
+  assert.throws(() => parseLock(LOCK.replace(' "rustls",\n', ' "rustls", # pinned\n')), /a dependency line this SBOM cannot read/);
 });
 
-test('a crate from a source the SBOM does not know refuses; a sparse crates.io crate is a cargo purl', () => {
-  const other = LOCK.replace(`name = "ring"\nversion = "0.17.14"\nsource = "${CRATES}"`,
-    'name = "ring"\nversion = "0.17.14"\nsource = "registry+https://example.invalid/index"');
-  assert.throws(() => sbom(MANIFEST, files(other)), /ring 0\.17\.14 comes from a source this SBOM does not know/);
-  const sparse = LOCK.replace(`name = "ring"\nversion = "0.17.14"\nsource = "${CRATES}"`,
-    'name = "ring"\nversion = "0.17.14"\nsource = "sparse+https://index.crates.io/"');
-  assert.equal(comp(sbom(MANIFEST, files(sparse)), 'crate:ring@0.17.14').purl, 'pkg:cargo/ring@0.17.14');
+test('a crate from an unknown source, or a sourceless crate outside the workspace, refuses', () => {
+  const ringFrom = (src) => LOCK.replace(`name = "ring"\nversion = "0.17.14"\nsource = "${CRATES}"`, `name = "ring"\nversion = "0.17.14"\nsource = "${src}"`);
+  assert.throws(() => sbom(MANIFEST, files(ringFrom('registry+https://example.invalid/index'))), /ring 0\.17\.14 comes from a source this SBOM does not know/);
+  assert.throws(() => sbom(MANIFEST, files(ringFrom(`${CRATES}-evil`))), /comes from a source this SBOM does not know/);
+  assert.equal(comp(sbom(MANIFEST, files(ringFrom('sparse+https://index.crates.io/'))), 'crate:ring@0.17.14').purl, 'pkg:cargo/ring@0.17.14');
+  const vendored = LOCK.replace(`name = "ring"\nversion = "0.17.14"\nsource = "${CRATES}"\nchecksum = "${SHA('3')}"`, 'name = "ring"\nversion = "0.17.14"');
+  assert.throws(() => sbom(MANIFEST, files(vendored)), /ring 0\.17\.14 has no source and is not a relay workspace member/);
+  assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, '[workspace]\nmembers = ["crates/*"]\n')), /members must be literal paths/);
 });
 
 test('a [[patch.unused]] table does not overwrite the package before it', () => {
@@ -177,48 +207,67 @@ test('a [[patch.unused]] table does not overwrite the package before it', () => 
   assert.ok(!pkgs.some((p) => p.version === '9.9.9'));
 });
 
-test('the dependency graph is each crate\'s DIRECT dependencies, not one flat list', () => {
+test('the dependency graph is each component\'s DIRECT dependencies, with an entry for every leaf', () => {
   const b = sbom();
-  assert.deepEqual(deps(b, 'connector'), ['crate:baz@1.0.0', 'crate:rcgen@0.13.2', 'crate:rustls@0.23.46',
-    'first-party:kosmos-relay-proto']);
+  assert.deepEqual(deps(b, 'kosmos'), ['connector', 'node', 'tmux-bundle']);
+  assert.deepEqual(deps(b, 'tmux-bundle'), ['tmux-part:tmux']);
+  assert.deepEqual(deps(b, 'tmux-part:tmux'), ['tmux-part:libevent', 'tmux-part:utf8proc']);
+  assert.deepEqual(deps(b, 'node'), []);
+  assert.deepEqual(deps(b, 'tmux-part:utf8proc'), []);
   assert.deepEqual(deps(b, 'crate:rustls@0.23.46'), ['crate:ring@0.17.14']);
   assert.deepEqual(deps(b, 'first-party:kosmos-relay-proto'), ['crate:serde@1.0.228']);
   assert.deepEqual(deps(b, 'crate:ring@0.17.14'), []);
-  assert.deepEqual(deps(b, 'kosmos'), ['node', 'tmux', 'libevent', 'utf8proc', 'connector']);
   const refs = new Set(['kosmos', ...b.components.map((c) => c['bom-ref'])]);
   for (const d of b.dependencies) for (const r of [d.ref, ...d.dependsOn]) assert.ok(refs.has(r), `dangling ${r}`);
+  for (const c of b.components) assert.ok(b.dependencies.some((d) => d.ref === c['bom-ref']), `no dependency entry for ${c['bom-ref']}`);
 });
 
-test('every tmux build input comes from the script\'s fetch lines, with its download url and source hash', () => {
+test('tmux and its libraries come from the shipped bundle, which must be the one the release signed', () => {
   const b = sbom();
-  assert.equal(comp(b, 'utf8proc').version, '2.9.0');
-  assert.deepEqual(comp(b, 'utf8proc').externalReferences, [{ type: 'distribution',
+  assert.deepEqual(comp(b, 'tmux-bundle').hashes, [{ alg: 'SHA-256', content: SHA('0') }]);
+  assert.equal(comp(b, 'tmux-part:libevent').version, '2.1.12-stable');
+  assert.equal(comp(b, 'tmux-part:ncurses'), undefined, 'the bundle names no ncurses, so none is listed');
+  assert.throws(() => sbom(MANIFEST, files(), { ...BUNDLE, sha: SHA('1') }), /not the one this release signed/);
+  assert.throws(() => sbom({ ...MANIFEST, tmux_sha256: undefined }), /tmux_sha256 are both required/);
+  assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, 'lib/libncursesw.6.dylib']), /libncursesw\.6\.dylib belongs to no library its VERSION names/);
+  assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, 'lib/libssl.3.dylib']), /libssl\.3\.dylib belongs to no library/);
+  assert.throws(() => parseTmuxVersion(VERSION.replace(/^tmux-src:.*$/m, ''), LIBS), /no tmux-src line/);
+});
+
+test('each part carries its source download only where the build script pins the version that shipped', () => {
+  const b = sbom();
+  assert.deepEqual(comp(b, 'tmux-part:utf8proc').externalReferences, [{ type: 'distribution',
     url: 'https://github.com/JuliaStrings/utf8proc/releases/download/v2.9.0/utf8proc-2.9.0.tar.gz',
     hashes: [{ alg: 'SHA-256', content: SHA('c') }] }]);
-  assert.equal(comp(b, 'tmux').cpe, 'cpe:2.3:a:tmux_project:tmux:3.5a:*:*:*:*:*:*:*');
-  assert.equal(comp(b, 'tmux').hashes, undefined, 'a source hash is not the shipped bytes');
+  assert.equal(comp(b, 'tmux-part:tmux').cpe, 'cpe:2.3:a:tmux_project:tmux:3.5a:*:*:*:*:*:*:*');
+  const drift = sbom(MANIFEST, files(LOCK, TMUX.replace('UTF8PROC_VERSION="2.9.0"', 'UTF8PROC_VERSION="2.10.0"')));
+  const u = comp(drift, 'tmux-part:utf8proc');
+  assert.equal(u.version, '2.9.0', 'the version is what shipped, not what the script pins');
+  assert.equal(u.externalReferences, undefined);
+  assert.deepEqual(u.properties, [{ name: 'kosmos:source-pin', value: 'the build script pins 2.10.0, the bundle has 2.9.0' }]);
   assert.equal(comp(b, 'node').externalReferences[0].url, 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-darwin-arm64.tar.gz');
   assert.deepEqual(comp(b, 'node').externalReferences[0].hashes, [{ alg: 'SHA-256', content: SHA('e') }]);
-  assert.throws(() => tmuxPins(TMUX.replace(/^UTF8PROC_VERSION=.*$/m, '')), /no version or url for utf8proc/);
-  assert.throws(() => tmuxPins(TMUX.replace(/^fetch .*$/gm, '')), /no fetch lines/);
-  assert.throws(() => tmuxPins(TMUX.replace('${TMUX_VERSION}/tmux', '${TMUX_RELEASE}/tmux')), /cannot expand/);
 });
 
-test('a fetch line in another shape, an unbraced variable or a missing source hash refuses rather than listing less', () => {
+test('a fetch call in another shape or position, a *_URL never fetched, an unexpanded variable or a missing hash refuses', () => {
+  assert.equal(tmuxPins(TMUX).length, 3, 'the definition and the comment are not calls');
   assert.throws(() => tmuxPins(TMUX + 'fetch ncurses $NCURSES_URL $NCURSES_SHA\n'), /a fetch line this SBOM cannot read: fetch ncurses/);
   assert.throws(() => tmuxPins(TMUX + 'fetch ncurses "${NCURSES_URL}" "${NCURSES_SHA}"\n'), /a fetch line this SBOM cannot read/);
+  assert.throws(() => tmuxPins(TMUX + '[ -n "$X" ] && fetch ncurses "$NCURSES_URL" "$NCURSES_SHA"\n'), /a fetch line this SBOM cannot read/);
+  assert.throws(() => tmuxPins(TMUX + 'if true; then fetch ncurses "$NCURSES_URL" "$NCURSES_SHA"; fi\n'), /a fetch line this SBOM cannot read/);
+  assert.throws(() => tmuxPins(TMUX + 'NCURSES_URL="https://x/n.tgz"\ncurl -o n.tgz "$NCURSES_URL"\n'), /NCURSES_URL is set but never fetched/);
   assert.throws(() => tmuxPins(TMUX.replace('download/${TMUX_VERSION}/', 'download/$TMUX_VERSION/')), /cannot expand/);
+  assert.throws(() => tmuxPins(TMUX.replace('TMUX_VERSION="3.5a"', 'TMUX_VERSION="${TMUX_VERSION:-3.5a}"')), /cannot expand/);
   assert.throws(() => tmuxPins(TMUX.replace(/^TMUX_SHA=.*$/m, 'TMUX_SHA=""')), /no recorded sha256 for tmux/);
   assert.throws(() => tmuxPins(TMUX.replace(/^TMUX_SHA=.*$/m, '')), /no recorded sha256 for tmux/);
-  const nested = tmuxPins(TMUX.replace('UTF8PROC_VERSION="2.9.0"', 'UTF8PROC_MAJOR="2"\nUTF8PROC_VERSION="2.9.0"')
-    .replace('download/v${UTF8PROC_VERSION}/', 'download/v${UTF8PROC_DIR}/') + 'UTF8PROC_DIR="${UTF8PROC_VERSION}"\n');
+  assert.throws(() => tmuxPins(TMUX.replace(/^fetch [a-z].*$/gm, '')), /no fetch lines/);
+  const nested = tmuxPins(TMUX.replace('download/v${UTF8PROC_VERSION}/', 'download/v${UTF8PROC_DIR}/') + 'UTF8PROC_DIR="${UTF8PROC_VERSION}"\n');
   assert.equal(nested.find((x) => x.name === 'utf8proc').url,
     'https://github.com/JuliaStrings/utf8proc/releases/download/v2.9.0/utf8proc-2.9.0.tar.gz');
-  assert.equal(tmuxPins(TMUX + 'fetch() {\n  :\n}\n').length, 3, 'the function definition is not a fetch line');
 });
 
 test('two reached crates with one name and version from two sources get distinct references', () => {
-  const both = LOCK.replace(' "rustls",\n]', ` "baz 1.0.0 (${CRATES})",\n "rustls",\n]`);
+  const both = LOCK.replace(' "rustls",\n', ` "baz 1.0.0 (${CRATES})",\n "rustls",\n`);
   const b = sbom(MANIFEST, files(both));
   const baz = b.components.filter((c) => c.name === 'baz').map((c) => c['bom-ref']).sort();
   assert.deepEqual(baz, [`crate:baz@1.0.0?source=${encodeURIComponent(GIT)}`, `crate:baz@1.0.0?source=${encodeURIComponent(CRATES)}`].sort());
@@ -226,16 +275,7 @@ test('two reached crates with one name and version from two sources get distinct
   assert.equal(deps(b, 'connector').filter((r) => r.startsWith('crate:baz@')).length, 2);
 });
 
-test('a version with a + is percent-encoded in the purl; a v3 lockfile reads the same', () => {
-  const plus = LOCK.replace('name = "serde"\nversion = "1.0.228"', 'name = "serde"\nversion = "1.0.228+build.1"')
-    ;
-  const s = sbom(MANIFEST, files(plus)).components.find((c) => c.name === 'serde');
-  assert.equal(s.version, '1.0.228+build.1');
-  assert.equal(s.purl, 'pkg:cargo/serde@1.0.228%2Bbuild.1');
-  assert.equal(JSON.stringify(sbom(MANIFEST, files(LOCK.replace('version = 4', 'version = 3')))), JSON.stringify(sbom()));
-});
-
-test('versions, hashes and purls; components in code-point order of their reference', () => {
+test('versions, hashes and purls; crates in CODE-POINT order, which a locale would change', () => {
   const b = sbom();
   assert.equal(b.bomFormat, 'CycloneDX');
   assert.equal(b.specVersion, '1.5');
@@ -247,9 +287,20 @@ test('versions, hashes and purls; components in code-point order of their refere
   assert.equal(comp(b, 'crate:serde@1.0.228').hashes, undefined, 'no checksum in the lock, no hash');
   assert.equal(comp(b, 'first-party:kosmos-relay-proto').purl, undefined);
   assert.deepEqual(comp(b, 'connector').hashes, [{ alg: 'SHA-256', content: SHA('f') }]);
-  const crateRefs = b.components.map((c) => c['bom-ref']).filter((r) => r.includes(':'));
-  assert.deepEqual(crateRefs, [...crateRefs].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0)));
-  assert.equal(b.components.length, 11, b.components.map((c) => c['bom-ref']).join(' '));
+  const crateRefs = b.components.map((c) => c['bom-ref']).filter((r) => r.startsWith('crate:'));
+  assert.deepEqual(crateRefs.slice(-2), ['crate:windows-sys@0.59.0', 'crate:windows_aarch64_gnullvm@0.52.6'],
+    '"-" (0x2d) sorts before "_" (0x5f) by code point');
+  assert.notDeepEqual(['crate:windows-sys@0.59.0', 'crate:windows_aarch64_gnullvm@0.52.6'].sort((x, y) => x.localeCompare(y, 'en')),
+    crateRefs.slice(-2), 'the control: en collation orders this pair the other way, so the arm can tell them apart');
+  assert.equal(b.components.length, 14, b.components.map((c) => c['bom-ref']).join(' '));
+});
+
+test('a version with a + is percent-encoded in the purl; a v3 lockfile reads the same', () => {
+  const plus = LOCK.replace('name = "serde"\nversion = "1.0.228"', 'name = "serde"\nversion = "1.0.228+build.1"');
+  const s = sbom(MANIFEST, files(plus)).components.find((c) => c.name === 'serde');
+  assert.equal(s.version, '1.0.228+build.1');
+  assert.equal(s.purl, 'pkg:cargo/serde@1.0.228%2Bbuild.1');
+  assert.equal(JSON.stringify(sbom(MANIFEST, files(LOCK.replace('version = 4', 'version = 3')))), JSON.stringify(sbom()));
 });
 
 test('the same release gives a byte-identical SBOM; another release a different version-8 serial', () => {
@@ -258,36 +309,50 @@ test('the same release gives a byte-identical SBOM; another release a different 
   assert.match(sbom().serialNumber, /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 });
 
-test('a manifest with no connector commit or no node version refuses', () => {
+test('a manifest with no connector commit, no node version or a dirty app refuses', () => {
   assert.throws(() => sbom({ ...MANIFEST, connector: { signed_sha256: SHA('f') } }), /no app or connector commit/);
   assert.throws(() => sbom({ ...MANIFEST, node: { download_sha256: SHA('e') } }), /no node version/);
+  assert.throws(() => sbom({ ...MANIFEST, app: { commit: 'a'.repeat(40), dirty: true } }), /dirty tree/);
 });
 
-test('the command line reads the two repos at the manifest\'s commits, and exits 2 on bad usage, 1 on a bad input', () => {
+test('the command line reads the repos at the manifest\'s commits and the bundle, to a file or stdout; exits 2 or 1', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-'));
   const git = (dir, ...a) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8' }).trim();
-  const repo = (name, file, text) => {
+  const repo = (name, tree) => {
     const dir = path.join(root, name);
-    fs.mkdirSync(path.join(dir, path.dirname(file)), { recursive: true });
+    fs.mkdirSync(dir, { recursive: true });
     git(dir, 'init', '-q');
-    fs.writeFileSync(path.join(dir, file), text);
-    git(dir, 'add', file);
+    for (const [f, text] of Object.entries(tree)) {
+      fs.mkdirSync(path.join(dir, path.dirname(f)), { recursive: true });
+      fs.writeFileSync(path.join(dir, f), text);
+      git(dir, 'add', f);
+    }
     git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'x');
     return { dir, commit: git(dir, 'rev-parse', 'HEAD') };
   };
-  const k = repo('kosmos', 'tools/build-tmux-from-source.sh', TMUX);
-  const r = repo('relay', 'Cargo.lock', LOCK);
+  const k = repo('kosmos', { 'tools/build-tmux-from-source.sh': TMUX });
+  const r = repo('relay', { 'Cargo.lock': LOCK, 'Cargo.toml': WORKSPACE, 'crates/proto/Cargo.toml': MEMBER('kosmos-relay-proto'),
+    'crates/tunnel/Cargo.toml': MEMBER('kosmos-tunnel-client'), 'crates/relay/Cargo.toml': MEMBER('kosmos-relay-server') });
+  const stage = path.join(root, 'bundle');
+  for (const f of LIBS) { fs.mkdirSync(path.join(stage, path.dirname(f)), { recursive: true }); fs.writeFileSync(path.join(stage, f), f === 'VERSION' ? VERSION : f); }
+  const tgz = path.join(root, 'tmux-arm64.tar.gz');
+  execFileSync('tar', ['-czf', tgz, '-C', stage, ...LIBS]);
+  const tsha = crypto.createHash('sha256').update(fs.readFileSync(tgz)).digest('hex');
   const mf = path.join(root, 'manifest.json');
-  fs.writeFileSync(mf, JSON.stringify({ ...MANIFEST, app: { commit: k.commit }, connector: { ...MANIFEST.connector, commit: r.commit } }));
+  fs.writeFileSync(mf, JSON.stringify({ ...MANIFEST, tmux_sha256: tsha, app: { commit: k.commit }, connector: { ...MANIFEST.connector, commit: r.commit } }));
   const out = path.join(root, 'sbom.json');
   const run = (...a) => spawnSync(process.execPath, [SBOM_JS, ...a], { encoding: 'utf8' });
-  const ok = run(mf, '--repo', k.dir, '--relay', r.dir, '--out', out);
+  const ok = run(mf, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, '--out', out);
   assert.equal(ok.status, 0, ok.stderr);
   const b = JSON.parse(fs.readFileSync(out, 'utf8'));
   assert.equal(comp(b, 'crate:rustls@0.23.46').version, '0.23.46');
-  assert.equal(comp(b, 'utf8proc').version, '2.9.0');
-  assert.equal(run(mf, '--repo', k.dir).status, 2);
-  const bad = run(mf, '--repo', r.dir, '--relay', r.dir);
+  assert.equal(comp(b, 'tmux-part:utf8proc').version, '2.9.0');
+  assert.deepEqual(comp(b, 'tmux-bundle').hashes, [{ alg: 'SHA-256', content: tsha }]);
+  const stdout = run(mf, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir);
+  assert.equal(stdout.status, 0, stdout.stderr);
+  assert.equal(stdout.stdout, fs.readFileSync(out, 'utf8'));
+  assert.equal(run(mf, '--repo', k.dir, '--relay', r.dir).status, 2, 'no --tmux');
+  const bad = run(mf, '--tmux', tgz, '--repo', r.dir, '--relay', r.dir);
   assert.equal(bad.status, 1);
-  assert.match(bad.stderr, /^sbom: /);
+  assert.match(bad.stderr, /^sbom: .* has no tools\/build-tmux-from-source\.sh at /);
 });
