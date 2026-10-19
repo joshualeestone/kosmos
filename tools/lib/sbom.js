@@ -331,47 +331,33 @@ function checkFirstParty(manifest, packageJson) {
 // import Apple's frameworks only. A Swift package, or another module, would be third-party code this does not list.
 const APPLE_MODULES = new Set(['Foundation', 'Cocoa', 'AppKit', 'WebKit', 'Network', 'ApplicationServices', 'AVFoundation', 'Speech',
   'UserNotifications', 'Security', 'CoreGraphics', 'CoreFoundation', 'CoreServices', 'Darwin', 'os', 'ServiceManagement',
-  'SwiftUI', 'Combine', 'IOKit', 'SystemConfiguration', 'UniformTypeIdentifiers', 'QuartzCore', 'CoreAudio']);
-// Swift source with its comments (// and /* */, which nest in Swift) blanked and its string literals emptied, so what
-// is left is code. Quotes are tracked, so a // inside a string is not a comment.
-function swiftCode(src) {
-  let out = '', i = 0, depth = 0;
-  while (i < src.length) {
-    const c = src[i], two = src.slice(i, i + 2);
-    if (depth) { if (two === '/*') { depth++; i += 2; } else if (two === '*/') { depth--; i += 2; } else { out += c === '\n' ? '\n' : ' '; i++; } continue; }
-    if (two === '/*') { depth = 1; i += 2; continue; }
-    if (two === '//') { while (i < src.length && src[i] !== '\n') i++; continue; }
-    if (c === '"') {
-      const triple = src.slice(i, i + 3) === '"""';
-      const end = triple ? '"""' : '"';
-      i += end.length;
-      while (i < src.length && src.slice(i, i + end.length) !== end) { if (src[i] === '\\') i++; if (src[i] === '\n') out += '\n'; i++; }
-      i += end.length; out += '""';
-      continue;
+  'SwiftUI', 'Combine', 'IOKit', 'SystemConfiguration', 'UniformTypeIdentifiers', 'QuartzCore', 'CoreAudio', 'Dispatch']);
+// The modules a Swift file imports, as the Swift compiler reads them (-emit-imported-modules). Reviews 15 to 17 each
+// found a way for a hand-written reading of Swift to miss an import (an access level, a lost quote in a raw string, a
+// comment before the import); the compiler is the one reader that cannot disagree with the compiler.
+function swiftcImports(swift) {
+  const dir = fs.mkdtempSync(require('path').join(require('os').tmpdir(), 'kosmos-sbom-swift-'));
+  try {
+    const src = require('path').join(dir, 'main.swift'), out = require('path').join(dir, 'imports');
+    fs.writeFileSync(src, swift);
+    try {
+      execFileSync('xcrun', ['swiftc', '-frontend', '-emit-imported-modules', src, '-o', out], { stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (e) {
+      throw new Error(`the Swift compiler could not read native-app/main.swift (xcrun swiftc is needed): ${String(e.stderr || e.message).split('\n')[0]}`);
     }
-    out += c; i++;
+    return fs.readFileSync(out, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
-  return out;
 }
 
-function checkNativeApp(manifest, swift) {
+function checkNativeApp(manifest, swift, readImports = swiftcImports) {
   const shipped = manifest.files.find((f) => f.path === 'app/bin/kosmos-app');
   if (!manifest.native_app || !SHA256.test(manifest.native_app.signed_sha256 || '') || !shipped || shipped.sha256 !== manifest.native_app.signed_sha256) {
     throw new Error('the manifest\'s app/bin/kosmos-app is not the Mac app it signed (native_app.signed_sha256)');
   }
-  // Every statement that mentions import, once comments are gone, must be one import in the plain shape; anything
-  // else (an access level, an attribute with arguments, a form this does not know) refuses rather than going unread.
-  // A second check on the RAW text, which does not depend on telling strings and comments apart (a scanner that loses
-  // track of a quote could hide an import): any import at the start of a statement must name an Apple module. It is
-  // stricter than Swift (a comment line that starts with "import X" refuses too), the safe direction.
-  for (const m of swift.matchAll(/(?:^|;)[ \t]*(?:@\w+(?:\([^)\n]*\))?\s+)*(?:(?:public|package|internal|fileprivate|private)\s+)?import\s+(?:(?:class|struct|enum|func|protocol|typealias|var|let)\s+)?([A-Za-z_][A-Za-z0-9_]*)/gm)) {
-    if (!APPLE_MODULES.has(m[1])) throw new Error(`native-app/main.swift imports ${m[1]}, which is not an Apple framework this SBOM knows`);
-  }
-  for (const stmt of swiftCode(swift).split(/[\n;]/)) {
-    if (!/\bimport\b/.test(stmt)) continue;
-    const m = stmt.match(/^\s*(?:@(?:preconcurrency|testable)\s+)?import\s+(?:(?:class|struct|enum|func|protocol|typealias|var|let)\s+)?([A-Za-z_][A-Za-z0-9_]*)(?:\.[A-Za-z_][A-Za-z0-9_]*)*\s*$/);
-    if (!m) throw new Error(`native-app/main.swift: an import this SBOM cannot read: ${stmt.trim()}`);
-    if (!APPLE_MODULES.has(m[1])) throw new Error(`native-app/main.swift imports ${m[1]}, which is not an Apple framework this SBOM knows`);
+  for (const mod of readImports(swift)) {
+    if (!APPLE_MODULES.has(mod)) throw new Error(`native-app/main.swift imports ${mod}, which is not an Apple framework this SBOM knows`);
   }
 }
 
@@ -386,7 +372,7 @@ const FORMAT = 'kosmos-sbom-1';
 // And this file's own bytes, so a change to the generator changes the id even if FORMAT was not bumped.
 const SELF_SHA = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex').slice(0, 16);
 
-function build(manifest, { repo, relay, tmux, show = gitShow }) {
+function build(manifest, { repo, relay, tmux, show = gitShow, readImports = swiftcImports }) {
   if (manifest.manifest !== 1) throw new Error(`manifest format ${manifest.manifest}: this SBOM reads format 1`);
   for (const k of Object.keys(manifest)) {
     if (!MANIFEST_KEYS.has(k)) throw new Error(`manifest has ${k}, a part this SBOM does not know (it would be left out)`);
@@ -419,7 +405,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
   // The shipped app/bin/kosmos-tunnel must be that crate's binary, or its closure is not the connector's.
   const tunnelToml = members.get(CONNECTOR_CRATE) || '';
   if (!/^\[\[bin\]\]\s*\nname\s*=\s*"kosmos-tunnel"/m.test(tunnelToml)) throw new Error(`relay: ${CONNECTOR_CRATE} does not build the kosmos-tunnel binary`);
-  checkNativeApp(manifest, show(repo, appCommit, 'native-app/main.swift'));
+  checkNativeApp(manifest, show(repo, appCommit, 'native-app/main.swift'), readImports);
   const pins = tmuxPins(show(repo, appCommit, 'tools/build-tmux-from-source.sh')).map((p) => p.name);
   for (const name of pins) {
     if (!tmux.versions[name]) throw new Error(`the build script fetches ${name}, but the tmux bundle's VERSION does not name it (linked statically and unrecorded?)`);
@@ -483,7 +469,7 @@ function uuidFrom(seed) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-module.exports = { parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, build };
+module.exports = { parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
 
 // A path as the file system resolves it (following a symlink), or as written when it does not exist yet.
 function realish(p) { try { return fs.realpathSync(p); } catch { return require('path').resolve(p); } }

@@ -17,7 +17,7 @@ const crypto = require('node:crypto');
 const { execFileSync, spawnSync } = require('node:child_process');
 
 const SBOM_JS = path.join(__dirname, 'tools', 'lib', 'sbom.js');
-const { parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, build } = require(SBOM_JS);
+const { parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build } = require(SBOM_JS);
 
 const SHA = (c) => c.repeat(64);
 const CRATES = 'registry+https://github.com/rust-lang/crates.io-index';
@@ -177,7 +177,9 @@ const files = (lock = LOCK, tmux = TMUX, workspace = WORKSPACE, pkg = PACKAGE, s
     [`K:${'a'.repeat(40)}:tools/build-tmux-from-source.sh`]: tmux, [`K:${'a'.repeat(40)}:package.json`]: pkg,
     [`K:${'a'.repeat(40)}:native-app/main.swift`]: swift };
 };
-const sbom = (m = MANIFEST, f = files(), tmux = BUNDLE) => build(m, { repo: 'K', relay: 'R', tmux, show: show(f) });
+// A stand-in for the compiler in the fixture arms: the fixtures import plain module names, one per line.
+const fixtureImports = (src) => [...src.matchAll(/^\s*(?:@\w+\s+)?import\s+(\w+)/gm)].map((m) => m[1]);
+const sbom = (m = MANIFEST, f = files(), tmux = BUNDLE) => build(m, { repo: 'K', relay: 'R', tmux, show: show(f), readImports: fixtureImports });
 const comp = (b, ref) => b.components.find((c) => c['bom-ref'] === ref);
 const deps = (b, ref) => (b.dependencies.find((d) => d.ref === ref) || {}).dependsOn;
 
@@ -331,7 +333,6 @@ test('a fetch call in another shape or position, or a *_URL never fetched, refus
   assert.deepEqual(tmuxPins(sameLine + '\nZLIB_URL="https://x/z.tgz"\n').map((x) => x.name), ['zlib', 'tmux', 'libevent', 'utf8proc'],
     'a call after the definition on its line is read');
   assert.throws(() => sbom(MANIFEST, files(LOCK, sameLine)), /the build script fetches zlib, but the tmux bundle's VERSION does not name it/);
-  assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, 'import Foundation; import Sparkle\n')), /imports Sparkle/);
   assert.throws(() => parseLock(LOCK.replace('name = "kosmos-tunnel-client"\nversion = "0.1.0"\ndependencies = [', 'name = "kosmos-tunnel-client"\nversion = "0.1.0"\ndependencies=[')),
     /a package line this SBOM cannot read: dependencies=\[/);
   assert.throws(() => sbom({ ...MANIFEST, built: { at: 'yesterday' } }), /built\.at is not a UTC time/);
@@ -425,24 +426,30 @@ test('native code: only the two named binaries in app/bin/ and the Mac app\'s ow
   assert.throws(() => sbom({ ...MANIFEST, files: MANIFEST.files.filter((f) => f.path !== 'runtime/bin/node') }), /ships no runtime\/bin\/node/);
 });
 
-test('the Mac app: its shipped binary is the one signed, and it imports Apple frameworks only', () => {
-  assert.ok(sbom(), 'Cocoa, WebKit, an attributed Network import and a commented one pass');
+test('the Mac app: its shipped binary is the one signed, and every module the compiler says it imports is Apple\'s', () => {
+  assert.ok(sbom(), 'the fixture imports Apple frameworks');
   assert.throws(() => sbom({ ...MANIFEST, native_app: { signed_sha256: SHA('d') } }), /app\/bin\/kosmos-app is not the Mac app it signed/);
   assert.throws(() => sbom({ ...MANIFEST, native_app: undefined }), /is not the Mac app it signed/);
-  for (const imp of ['import Sparkle', '@testable import Alamofire', 'import struct Sentry.Event', '  import Kingfisher',
-    'let u = "https://x"; import Sparkle']) {
-    assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + imp + '\n')), /native-app\/main\.swift imports \w+, which is not an Apple framework/, imp);
+  const reads = (mods) => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), readImports: () => mods });
+  assert.throws(() => reads(['Cocoa', 'Sparkle']), /native-app\/main\.swift imports Sparkle, which is not an Apple framework/);
+  assert.ok(reads(['Cocoa', 'Dispatch']));
+  let seen;
+  build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), readImports: (src) => { seen = src; return []; } });
+  assert.equal(seen, SWIFT, 'the reader is given native-app/main.swift at the app commit');
+});
+
+const HAS_SWIFTC = spawnSync('xcrun', ['--find', 'swiftc'], { encoding: 'utf8' }).status === 0;
+test('the real Swift compiler reads every import a hand-written scanner missed, and the real main.swift', { skip: !HAS_SWIFTC && 'no swiftc here' }, () => {
+  for (const [src, mod] of [['let s = #"\\"#\n/* x */ import Evil\nlet t = "y"\n', 'Evil'], ['let r = #/"/#\n/* x */ import Evil\n', 'Evil'],
+    ['@_spi(Private) import Sparkle\n', 'Sparkle'], ['public import Kingfisher\n', 'Kingfisher'], ['let u = "https://x"; import Sparkle\n', 'Sparkle'],
+    ['import struct Sentry.Event\n', 'Sentry'], ['import Cocoa; import Sparkle\n', 'Sparkle']]) {
+    assert.ok(swiftcImports('import Foundation\n' + src).includes(mod), src);
   }
-  for (const imp of ['public import Sparkle', 'internal import Sparkle', '@_spi(Private) import Sparkle', '/* x */ import Sparkle']) {
-    assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + imp + '\n')), /an import this SBOM cannot read|imports Sparkle/, imp);
-  }
-  for (const hide of ['let s = #"a"b"#\nimport Sparkle', 'let t = "\\(a["/*"])"\nimport Sparkle', 'let u = "a\\\nimport Sparkle']) {
-    assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + hide + '\n')), /imports Sparkle|an import this SBOM cannot read/, hide);
-  }
-  const quiet = SWIFT + '// the import-scan walk\nlet s = "import Sparkle // not code"\n/* the import Sparkle story\n   /* nested */ still a comment */\nlet m = """\n  see import Sparkle\n"""\n';
-  assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + 'let m = """\nimport Sparkle\n"""\n')), /imports Sparkle/,
-    'the raw check is stricter than Swift: an import at a line start inside a multi-line string refuses (the safe direction)');
-  assert.ok(sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, quiet)), 'comments and strings that say import are not imports');
+  const quiet = 'import Cocoa\n// import Sparkle\nlet s = "import Sparkle"\nlet m = """\nimport Sparkle\n"""\n';
+  assert.deepEqual(swiftcImports(quiet), ['Cocoa'], 'a comment or a string is not an import');
+  const real = fs.readFileSync(path.join(__dirname, 'native-app', 'main.swift'), 'utf8');
+  const mods = swiftcImports(real);
+  assert.ok(mods.length >= 5 && mods.includes('Cocoa') && mods.includes('WebKit'), mods.join(' '));
 });
 
 test('the connector crate must be the one that builds kosmos-tunnel, and there is one of it', () => {
@@ -563,11 +570,11 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   const tmux = readTmuxBundle(tgz);
   assert.equal(tmux.sha, crypto.createHash('sha256').update(fs.readFileSync(tgz)).digest('hex'));
   const manifest = { ...MANIFEST, tmux_sha256: tmux.sha, app: { commit: k.commit, dirty: false }, connector: { ...MANIFEST.connector, commit: r.commit } };
-  const b = build(manifest, { repo: k.dir, relay: r.dir, tmux });
+  const b = build(manifest, { repo: k.dir, relay: r.dir, tmux, readImports: fixtureImports });
   assert.equal(comp(b, 'crate:rustls@0.23.46').version, '0.23.46');
   assert.equal(comp(b, 'tmux-part:utf8proc').version, '2.9.0');
   assert.deepEqual(comp(b, 'tmux-bundle').hashes, [{ alg: 'SHA-256', content: tmux.sha }]);
-  assert.throws(() => build(manifest, { repo: r.dir, relay: r.dir, tmux }), /^Error: \/.*\/relay has no package\.json at [0-9a-f]{40} \(fetch it, or pass the right checkout\)$/);
+  assert.throws(() => build(manifest, { repo: r.dir, relay: r.dir, tmux, readImports: fixtureImports }), /^Error: \/.*\/relay has no package\.json at [0-9a-f]{40} \(fetch it, or pass the right checkout\)$/);
   const twice = path.join(root, 'twice.tar.gz');
   fs.mkdirSync(path.join(stage, 'x'), { recursive: true });
   fs.writeFileSync(path.join(stage, 'x', 'VERSION'), VERSION);
@@ -664,11 +671,20 @@ test('the command line end to end, against a copy of the tool that pins a test k
   const mf = path.join(root, 'm.json'), sg = path.join(root, 'm.json.sig'), out = path.join(root, 'sbom.json');
   fs.writeFileSync(mf, JSON.stringify(manifest));
   fs.writeFileSync(sg, crypto.sign(null, fs.readFileSync(mf), privateKey).toString('base64') + '\n');
+  // A stand-in xcrun on PATH, so this arm runs where there is no Swift compiler: it writes the -o file the way
+  // `swiftc -frontend -emit-imported-modules` does, one module per line.
+  const bin = path.join(root, 'bin');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'xcrun'), `#!${process.execPath}\nconst a = process.argv.slice(2), fs = require('fs');\n`
+    + `const src = a.find((x) => x.endsWith('.swift')), out = a[a.indexOf('-o') + 1];\n`
+    + `fs.writeFileSync(out, [...fs.readFileSync(src, 'utf8').matchAll(/^\\s*(?:@\\w+\\s+)?import\\s+(\\w+)/gm)].map((m) => m[1]).join('\\n') + '\\n');\n`);
+  fs.chmodSync(path.join(bin, 'xcrun'), 0o755);
+  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` };
   const run = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
-    '--repo', k.dir, '--relay', r.dir, '--out', out], { encoding: 'utf8' });
+    '--repo', k.dir, '--relay', r.dir, '--out', out], { encoding: 'utf8', env });
   assert.equal(run.status, 0, run.stderr);
-  assert.equal(fs.readFileSync(out, 'utf8'), JSON.stringify(build(manifest, { repo: k.dir, relay: r.dir, tmux }), null, 2) + '\n');
+  assert.equal(fs.readFileSync(out, 'utf8'), JSON.stringify(build(manifest, { repo: k.dir, relay: r.dir, tmux, readImports: fixtureImports }), null, 2) + '\n');
   const swapped = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
-    '--repo', r.dir, '--relay', k.dir], { encoding: 'utf8' });
+    '--repo', r.dir, '--relay', k.dir], { encoding: 'utf8', env });
   assert.equal(swapped.status, 1, 'the repo and relay swapped refuse');
 });
