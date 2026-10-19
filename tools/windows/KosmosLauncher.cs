@@ -1141,23 +1141,24 @@ class KosmosLauncher
     }
 
     // #6512: PURE. What the window does with the page's "signed out", as the Mac's signInAgainDecision: sign in
-    // again (SignInAgain, the same fresh ?boot= address a second double-click of Kosmos.exe loads); wait, inside
-    // the once-a-minute limit, so a sign-in the board does not take never reloads the window in a loop; or give
-    // up, once, when there is no board token to sign in with or SignInAgainTries sign-ins in a row brought no
-    // board read. After giving up the window stays out of it (Stay) until a board read works (the page's badge
-    // post), and the page's panel says to open Kosmos.exe again, which still signs in. `lastMs` is null before
-    // the first try.
+    // again (SignInAgain, the same fresh ?boot= address a second double-click of Kosmos.exe loads); wait, inside the
+    // once-a-minute limit, so a sign-in the board does not take never reloads the window in a loop; or give up, once,
+    // after SignInAgainTries sign-ins in a row brought no board read. After giving up the window stays out of it
+    // (Stay) until a board read works (the page's badge post), and the page's panel says to open Kosmos.exe again,
+    // which still signs in. `lastMs` is null before the first try.
+    // Two differences from the Mac, both deliberate. No `refused` input: the Mac reads a refusal from a kept
+    // `?token=`, and this window signs in with a single-use `?boot=` nonce, whose refusal leaves nothing to read; the
+    // three-try cap covers it, at up to about three minutes of tries. And no `haveToken` input: a board.token read
+    // that fails (missing, or a sharing violation while the board writes it, likeliest right at a restart) is not a
+    // give-up at once, as one unlucky read would then switch the sign-in off for good. Such a try finds no ?boot=
+    // address (open-board.js names one only with the token) and counts toward the same cap.
     internal enum SignInAgainStep { SignIn, Wait, GiveUp, Stay }
     internal const long SignInAgainMinGapMs = 60000;
     internal const int SignInAgainTries = 3;
-    // Unlike the Mac there is no `refused` input: the Mac reads a refusal from a kept `?token=`, and this window signs
-    // in with a single-use `?boot=` nonce, whose refusal leaves nothing to read. The three-try cap covers it, at up to
-    // about three minutes of tries. A board.token read that fails (a sharing violation while the board rewrites it)
-    // reads as no token and gives up at once, as on the Mac; a badge post or opening Kosmos.exe again undoes it.
-    internal static SignInAgainStep SignInAgainDecision(long nowMs, long? lastMs, bool haveToken, bool gaveUp, int triesWithoutRead)
+    internal static SignInAgainStep SignInAgainDecision(long nowMs, long? lastMs, bool gaveUp, int triesWithoutRead)
     {
         if (gaveUp) return SignInAgainStep.Stay;
-        if (!haveToken || triesWithoutRead >= SignInAgainTries) return SignInAgainStep.GiveUp;
+        if (triesWithoutRead >= SignInAgainTries) return SignInAgainStep.GiveUp;
         if (lastMs == null || nowMs - lastMs.Value >= SignInAgainMinGapMs) return SignInAgainStep.SignIn;
         return SignInAgainStep.Wait;
     }
@@ -1166,7 +1167,8 @@ class KosmosLauncher
     // was on, so a board restart does not throw them back to the front page. Only a page of this board (IsBoardAddress)
     // is kept, and only its path and query: the scheme, host and port stay open-board.js's `fresh` address, so the
     // session cookie lands on the host that minted the nonce. A `token`, `boot`, `signin` or `mode` item already in
-    // the kept page is dropped (`mode` because WithModeQuery adds its own), and fresh's `boot` nonce is added. Only
+    // the kept page is dropped (`mode` because WithModeQuery adds its own; names are compared decoded, as the board's
+    // URLSearchParams reads them), and fresh's `boot` nonce goes FIRST, so it is the one the board reads. Only
     // the nonce is taken from fresh: open-board.js --print-url names `/?boot=<nonce>` and nothing else. With no nonce
     // in fresh, or no board page to keep, it is `fresh` unchanged.
     internal static string SignInAgainAddress(string fresh, string page, int port)
@@ -1181,20 +1183,26 @@ class KosmosLauncher
         Uri pageUri;
         if (boot == null || page == null || !IsBoardAddress(page, port) || !Uri.TryCreate(page, UriKind.Absolute, out pageUri)
             || pageUri.UserInfo.Length > 0) return fresh;
-        StringBuilder query = new StringBuilder();
+        StringBuilder query = new StringBuilder(boot);
         foreach (string item in QueryItems(pageUri.Query))
         {
             int eq = item.IndexOf('=');
-            string name = eq < 0 ? item : item.Substring(0, eq);
+            string name = QueryName(eq < 0 ? item : item.Substring(0, eq));
             if (name == "token" || name == "boot" || name == "signin" || name == "mode") continue;
-            query.Append(item).Append('&');
+            query.Append('&').Append(item);
         }
-        query.Append(boot);
         UriBuilder b = new UriBuilder(freshUri);
         b.Path = pageUri.AbsolutePath;
         b.Query = query.ToString();
         b.Fragment = "";
         return b.Uri.AbsoluteUri;
+    }
+
+    // A query item's name as URLSearchParams reads it: `+` is a space, and %XX is decoded.
+    static string QueryName(string raw)
+    {
+        try { return Uri.UnescapeDataString(raw.Replace('+', ' ')); }
+        catch { return raw; }
     }
 
     // The `name=value` items of a URI's query (`?` and empty items dropped), as written: nothing is unescaped.
@@ -3612,9 +3620,11 @@ class BoardWindowForm : System.Windows.Forms.Form
     {
         if (mode == KosmosLauncher.ComputerMode.Connect || !navigatedToBoard || signingInAgain) return;
         long now = windowClock.ElapsedMilliseconds;
-        switch (KosmosLauncher.SignInAgainDecision(now, lastSignInAgainAt, TaskbarBadge.ReadBoardToken() != null, signInAgainGaveUp, signInsWithoutRead))
+        switch (KosmosLauncher.SignInAgainDecision(now, lastSignInAgainAt, signInAgainGaveUp, signInsWithoutRead))
         {
             case KosmosLauncher.SignInAgainStep.SignIn:
+                // Counted before SignInAgain runs, on purpose: a try that cannot navigate (no ?boot= address, no
+                // opener) is a fruitless sign-in too, and the cap is what stops it being tried for ever.
                 lastSignInAgainAt = now;
                 signInsWithoutRead++;
                 SignInAgain(page);

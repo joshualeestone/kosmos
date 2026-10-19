@@ -68,7 +68,8 @@ test('#6512: only the board\'s own page is heard, a connect computer is not, and
 
   const says = method('void PageSaysSignedOut(string page)');
   assert.match(says, /mode == KosmosLauncher\.ComputerMode\.Connect \|\| !navigatedToBoard \|\| signingInAgain\) return;/);
-  assert.match(says, /KosmosLauncher\.SignInAgainDecision\(now, lastSignInAgainAt, TaskbarBadge\.ReadBoardToken\(\) != null, signInAgainGaveUp, signInsWithoutRead\)/);
+  assert.match(says, /KosmosLauncher\.SignInAgainDecision\(now, lastSignInAgainAt, signInAgainGaveUp, signInsWithoutRead\)/);
+  assert.doesNotMatch(says, /ReadBoardToken/, 'one failed board.token read must not switch the sign-in off (it counts as a try instead)');
   const signIn = says.slice(says.indexOf('case KosmosLauncher.SignInAgainStep.SignIn:'), says.indexOf('case KosmosLauncher.SignInAgainStep.GiveUp:'));
   assert.ok(signIn.indexOf('lastSignInAgainAt = now;') !== -1 && signIn.indexOf('signInsWithoutRead++;') !== -1, 'a sign-in is not counted and timed');
   assert.ok(signIn.indexOf('SignInAgain(page);') > signIn.indexOf('signInsWithoutRead++;'), 'the sign-in is not the double-click path, back on the page that asked');
@@ -95,7 +96,7 @@ static class SigninProbe
         {
             long now = long.Parse(args[1]);
             long? last = args[2] == "none" ? (long?)null : long.Parse(args[2]);
-            Console.Write(KosmosLauncher.SignInAgainDecision(now, last, args[3] == "token", args[4] == "gaveup", int.Parse(args[5])));
+            Console.Write(KosmosLauncher.SignInAgainDecision(now, last, args[3] == "gaveup", int.Parse(args[4])));
             return 0;
         }
         return 2;
@@ -136,27 +137,29 @@ test('#6512: only { kosmosSignin: true } is the sign-in message', WINDOWS_ONLY, 
   }
 });
 
-test('#6512: sign in at once, then once a minute, give up after three fruitless tries or with no token, then stay out', WINDOWS_ONLY, (t) => {
+test('#6512: sign in at once, then once a minute, give up after three fruitless tries, then stay out', WINDOWS_ONLY, (t) => {
   if (!needsProbe(t)) return;
-  const d = (now, last, token, gaveUp, tries) => probe(['decide', String(now), last == null ? 'none' : String(last), token ? 'token' : 'none', gaveUp ? 'gaveup' : 'no', String(tries)]);
-  assert.equal(d(5000, null, true, false, 0), 'SignIn', 'the first sign-out signs in at once');
-  assert.equal(d(100000, 100000 - 59999, true, false, 1), 'Wait', 'under a minute since the last try: wait');
-  assert.equal(d(100000, 100000 - 60000, true, false, 1), 'SignIn', 'a minute later: again');
-  assert.equal(d(100000, 0, true, false, 2), 'SignIn', 'two sign-ins with no board read: one more');
-  assert.equal(d(100000, 0, true, false, 3), 'GiveUp', 'three sign-ins with no board read: give up');
-  assert.equal(d(100000, null, false, false, 0), 'GiveUp', 'no board token to sign in with: give up');
-  assert.equal(d(100000, 0, true, true, 0), 'Stay', 'after giving up: stay out of it until a board read works');
+  const d = (now, last, gaveUp, tries) => probe(['decide', String(now), last == null ? 'none' : String(last), gaveUp ? 'gaveup' : 'no', String(tries)]);
+  assert.equal(d(5000, null, false, 0), 'SignIn', 'the first sign-out signs in at once');
+  assert.equal(d(100000, 100000 - 59999, false, 1), 'Wait', 'under a minute since the last try: wait');
+  assert.equal(d(100000, 100000 - 60000, false, 1), 'SignIn', 'a minute later: again');
+  assert.equal(d(100000, 0, false, 2), 'SignIn', 'two sign-ins with no board read: one more');
+  assert.equal(d(100000, 0, false, 3), 'GiveUp', 'three sign-ins with no board read: give up');
+  assert.equal(d(100000, 100000 - 1000, false, 3), 'GiveUp', 'the cap is checked before the minute: a give-up is not put off');
+  assert.equal(d(100000, 0, true, 0), 'Stay', 'after giving up: stay out of it until a board read works');
+  assert.equal(d(100000, 0, true, 3), 'Stay', 'given up is checked first: no second give-up');
 });
 
 test('#6512: the page-asked sign-in comes back on the page the person was on, and only on this board', WINDOWS_ONLY, (t) => {
   if (!needsProbe(t)) return;
   const fresh = 'http://127.0.0.1:16180/?boot=N0nce';
   const a = (page, port = 16180, f = fresh) => probe(['address', f, page == null ? 'none' : page, String(port)]);
-  assert.equal(a('http://127.0.0.1:16180/?tab=projects&p=abc'), 'http://127.0.0.1:16180/?tab=projects&p=abc&boot=N0nce', 'the page and its query are kept');
-  assert.equal(a('http://127.0.0.1:16180/agent/a%20b?q=x%26y'), 'http://127.0.0.1:16180/agent/a%20b?q=x%26y&boot=N0nce', 'escapes are kept as written');
-  assert.equal(a('http://127.0.0.1:16180/agent/x?tab=chat#bottom'), 'http://127.0.0.1:16180/agent/x?tab=chat&boot=N0nce', 'the path is kept, the fragment is not');
-  assert.equal(a('http://127.0.0.1:16180/?token=OLD&boot=OLD&signin=failed&mode=run&tab=a'), 'http://127.0.0.1:16180/?tab=a&boot=N0nce', 'old sign-in items and mode are dropped');
-  assert.equal(a('http://localhost:16180/?tab=a'), 'http://127.0.0.1:16180/?tab=a&boot=N0nce', 'fresh keeps its own host, so the cookie lands where the nonce was minted');
+  assert.equal(a('http://127.0.0.1:16180/?tab=projects&p=abc'), 'http://127.0.0.1:16180/?boot=N0nce&tab=projects&p=abc', 'the page and its query are kept, the fresh nonce first');
+  assert.equal(a('http://127.0.0.1:16180/agent/a%20b?q=x%26y'), 'http://127.0.0.1:16180/agent/a%20b?boot=N0nce&q=x%26y', 'escapes are kept as written');
+  assert.equal(a('http://127.0.0.1:16180/agent/x?tab=chat#bottom'), 'http://127.0.0.1:16180/agent/x?boot=N0nce&tab=chat', 'the path is kept, the fragment is not');
+  assert.equal(a('http://127.0.0.1:16180/?token=OLD&boot=OLD&signin=failed&mode=run&tab=a'), 'http://127.0.0.1:16180/?boot=N0nce&tab=a', 'old sign-in items and mode are dropped');
+  assert.equal(a('http://localhost:16180/?tab=a'), 'http://127.0.0.1:16180/?boot=N0nce&tab=a', 'fresh keeps its own host, so the cookie lands where the nonce was minted');
+  assert.equal(a('http://127.0.0.1:16180/?bo%6Ft=OLD&%74oken=T&sign+in=x&tab=a'), 'http://127.0.0.1:16180/?boot=N0nce&sign+in=x&tab=a', 'encoded names are read as the board reads them');
   assert.equal(a(null), fresh, 'no page: the front page');
   assert.equal(a('http://127.0.0.1:9999/?tab=a'), fresh, 'another port is not this board');
   assert.equal(a('https://login.kosmosplus.com/x'), fresh, 'a Kosmos+ page is never the address the nonce goes to');

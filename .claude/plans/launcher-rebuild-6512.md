@@ -8,8 +8,8 @@ Card: #6512 (from the #6409 gap list, items B1 and B2).
 - tools/windows/KosmosLauncher.cs: the window hears the page's `{ kosmosSignin: true }` (web signedOutTellApp,
   #6449) from the board's own page only, and answers it with SignInAgain (the double-click path: a fresh `?boot=`
   address from open-board.js). Pure `SignInAgainDecision` mirrors the Mac's signInAgainDecision: sign in at once,
-  then at most once a minute; give up after 3 sign-ins with no board read or with no board token; then stay out
-  until a badge post (a board read that worked). Connect computers ignore it. No token in any address.
+  then at most once a minute; give up after 3 sign-ins with no board read; then stay out until a badge post (a board
+  read that worked). Connect computers ignore it. No token in any address.
 - tools/windows/Kosmos.exe: rebuilt with the README's csc flags and Authenticode-signed (Kosmos Agent Manager, Inc.).
   Carries #6437 and #6449 too.
 - tools/build-kosmos-windows.sh: refuses a cut when the last commit touching KosmosLauncher.cs or assets/kosmos.ico
@@ -37,6 +37,11 @@ Card: #6512 (from the #6409 gap list, items B1 and B2).
   `?signin=failed` means nothing to the Windows panel. The launcher keeps no log, so the give-up is not recorded.
   Weakest part: a stuck window is not diagnosable from logs. Would change if the launcher gains a log.
 - No `refused` input (the Mac reads it from a kept `?token=`; a `?boot=` nonce leaves nothing): the 3-try cap covers it.
+- No `haveToken` input either (the Mac gives up at once with no token): one failed board.token read, likeliest right
+  at a restart, would otherwise switch the sign-in off for good. A try without a token finds no `?boot=` address and
+  counts toward the same cap.
+- The kept page's query is filtered by decoded name (as the board's URLSearchParams reads it) and the fresh `boot`
+  goes first, so a stale `boot` in the page can never be the one the board reads.
 - The git-order check also runs as a test on every PR, not only at the cut: a source-only edit, even a comment, goes
   red until the Windows box rebuilds and re-signs the exe on that branch (written in tools/windows/README.md). That
   is the existing "rebuild in the same commit" rule, now enforced. Rejected: cut-time only (drift then surfaces on

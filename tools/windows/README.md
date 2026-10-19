@@ -427,7 +427,8 @@ comment-only edit to `KosmosLauncher.cs` counts: the git check cannot tell a
 comment from code, so commit the exe again with it (a rebuild of unchanged code
 still passes verify-launcher.ps1). A lane that cannot build on Windows hands the
 branch to the Windows box to rebuild and re-sign before it merges; it does not
-merge the source alone.
+merge the source alone. The test needs full history, which the CI workflows
+check out (`fetch-depth: 0`); in a shallow clone it skips, so keep that setting.
 
 **A rebuild drops the signature, so it must be re-signed in the same commit**
 (see [Signing](#signing)). An unsigned rebuild still passes the provenance check,
