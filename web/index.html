@@ -27417,8 +27417,8 @@ function accountQualifiers(list) {
       if (!qual || String(qual).toLowerCase() === 'main' || takenAlready(qual)) {
         /* 🔑 #2612: THE PROVIDER BEFORE THE PATH. A second default has no label
            (`list()` sets `label: null` for a default), so it fell straight to
-           `dir` and the screen read "Sign in again as josh@you.com
-           (/Users/josh/.codex)". `dir` is correct and unique; a filesystem path
+           `dir` and the screen read "Sign in again as sam@example.com
+           (/Users/sam/.codex)". `dir` is correct and unique; a filesystem path
            is a poor thing to announce to a screen reader. Defaults differ BY
            provider, which makes the provider the natural disambiguator here.
            ⚠️ AN UNKNOWN PROVIDER FALLS THROUGH TO `dir` RATHER THAN GUESSING.
@@ -28461,7 +28461,7 @@ async function paintAccounts(opts) {
          server `badge`, so before this it fell to the legacy fallback below and rendered
          that whole sentence in the pill span. The pill classes are `white-space: nowrap`,
          so a long sentence cannot wrap: it overflowed the pill and collided with the email
-         beside it -- Josh saw `jo$h@bookuio...in method is not yet checked live` on v0.6.50.
+         beside it -- Josh saw the sentence run into the email on v0.6.50.
          A subscription sign-in DOES exist here (the connected gate is auth_mode:chatgpt with
          a decodable identity), so the honest SHORT pill is the signed-in-unverified shape --
          a credential exists, not verified live -- mirroring the Claude signed_in_unverified
