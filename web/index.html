@@ -11708,7 +11708,6 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-headrow .toggle { flex: 0 0 42px; }
 /* kosmos#6602: the certificate check's switch, a quiet row under the status line. */
 #s-sec-plus .plus-cw-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-#s-sec-plus .plus-cw-row:not([hidden]) { display: flex; }
 #s-sec-plus .plus-cw-row .toggle { flex: 0 0 42px; }
 #s-sec-plus .plus-cw-row .fhint { margin: 0; }
 #s-sec-plus .plus-cw-line[data-state="foreign"] { color: var(--danger); font-weight: 600; }
@@ -51660,7 +51659,9 @@ async function paintPlus() {
       : (stat.state === 'up' ? 'Connected. Your address is on its way.'
         : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
   }
-  if (typeof paintPlusCertWatch === 'function') paintPlusCertWatch(r.certWatch);   // kosmos#6602
+  /* kosmos#6602. Reached only for a set-up computer (the not-enrolled branch above returns first), which is what
+     keeps the switch off a computer with no state dir. */
+  if (typeof paintPlusCertWatch === 'function') paintPlusCertWatch(r.certWatch);
   /* #4794: while this computer waits for one of the person's computers to allow it, the pairing code replaces the
      coordinator's sentence (paintPlusJoin). Anything else hides it. */
   if (typeof plusJoinTick === 'function') {   // the page tests lift paintPlus alone
@@ -52412,24 +52413,37 @@ document.getElementById('plus-switch').addEventListener('click', async () => {
    something: a finding, or a check that cannot confirm anything. Clear, never-run and off say nothing. */
 const PLUS_CW_WORDS = {
   foreign: 'Warning: the public certificate logs show a certificate for this computer\'s address that this computer did not ask for. Someone else may be able to pose as this computer.',
+  earlier: 'Warning: the public certificate logs show a certificate for an address this computer used before, that this computer did not ask for.',
+  lost: 'An earlier report of the daily check of the public certificate logs could not be read, so something it found may have been lost.',
   unknown: 'The daily check of the public certificate logs has not been able to confirm anything lately.',
+  off: ' The check is off.',
 };
+/* Which sentence: a finding is said even with the check off (switching it off must not hide one). */
+function plusCwSay(cw) {
+  let say = '';
+  if (cw.state === 'foreign') say = cw.foreign > 0 ? PLUS_CW_WORDS.foreign : PLUS_CW_WORDS.earlier;
+  else if (cw.on === true && cw.lost === true) say = PLUS_CW_WORDS.lost;
+  else if (cw.on === true && cw.state === 'unknown') say = PLUS_CW_WORDS.unknown;
+  if (say && cw.on !== true) say += PLUS_CW_WORDS.off;
+  return say;
+}
 function paintPlusCertWatch(cw) {
   const line = document.getElementById('plus-cw-line');
   const row = document.getElementById('plus-cw-row');
   if (!line || !row) return;
   if (!cw || typeof cw !== 'object') { line.hidden = true; line.textContent = ''; row.hidden = true; return; }
-  const say = cw.on === true ? (PLUS_CW_WORDS[cw.state] || '') : '';
+  const say = plusCwSay(cw);
   /* Rewritten only on a change, so a screen reader does not re-read it every poll. */
   if (line.textContent !== say) line.textContent = say;
   line.hidden = !say;
-  if (line.dataset) line.dataset.state = cw.on === true ? String(cw.state || '') : 'off';
+  if (line.dataset) line.dataset.state = String(cw.state || '');
   row.hidden = false;
   if (typeof paintSwitch === 'function') paintSwitch('plus-cw-switch', cw.on === true);
 }
 { const cwSw = document.getElementById('plus-cw-switch');
   if (cwSw) cwSw.addEventListener('click', async () => {
     /* The click means what the switch showed; unread does nothing (the #4080 rule for plus-switch). */
+    plusSay('');
     if (!cwSw.hasAttribute('aria-checked')) { paintPlus(); return; }
     const wantOn = cwSw.getAttribute('aria-checked') !== 'true';
     try {

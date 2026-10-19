@@ -11619,13 +11619,17 @@ test('the Plus state route carries the certificate check, and its switch writes 
     st = JSON.parse((await req('/api/remote')).body);
     assert.equal(st.certWatch.state, 'foreign');
     assert.equal(st.certWatch.foreign, 1);
+    const screen = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' };
     let r = await req('/api/remote/cert-watch', { method: 'PUT', body: JSON.stringify({ on: false }) });
+    assert.equal(r.status, 403, 'a switch change that did not come from the screen is refused');
+    assert.ok(!fsx.existsSync(px.join(dir, 'ct-watch-off')));
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: false }) });
     assert.equal(r.status, 200, r.body);
     assert.equal(JSON.parse(r.body).certWatch.on, false);
     assert.ok(fsx.existsSync(px.join(dir, 'ct-watch-off')));
-    r = await req('/api/remote/cert-watch', { method: 'PUT', body: JSON.stringify({ on: 'no' }) });
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: 'no' }) });
     assert.equal(r.status, 400, 'a switch that is not on or off is refused');
-    r = await req('/api/remote/cert-watch', { method: 'PUT', body: JSON.stringify({ on: true }) });
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: true }) });
     assert.equal(r.status, 200, r.body);
     assert.ok(!fsx.existsSync(px.join(dir, 'ct-watch-off')));
   } finally {

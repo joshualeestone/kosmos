@@ -10536,6 +10536,8 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* A security check's off switch is a person's setting: not an agent's (the isViaScreen class). */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
         const saved = remote.setCertWatch(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         sendJson(res, 200, { certWatch: remote.certWatch() });

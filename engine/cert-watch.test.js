@@ -19,7 +19,7 @@ test('the file names are the tunnel\'s (crates/tunnel/src/ctwatch.rs): change bo
 });
 
 test('no report yet is none, and on', () => {
-  assert.deepEqual(certWatchFrom(dir(), NOW), { on: true, state: 'none', foreign: 0, earlier: 0, beforeRecord: 0, checkedAt: null, failing: false });
+  assert.deepEqual(certWatchFrom(dir(), NOW), { on: true, state: 'none', foreign: 0, earlier: 0, beforeRecord: 0, checkedAt: null, failing: false, lost: false });
 });
 
 test('a recent clear is clear; the control: the same report, old, is unknown', () => {
@@ -28,6 +28,8 @@ test('a recent clear is clear; the control: the same report, old, is unknown', (
   assert.equal(certWatchFrom(d, NOW).state, 'clear');
   put(d, { state: 'clear', checked_at: S - 41 * 3600, foreign: [] });
   assert.equal(certWatchFrom(d, NOW).state, 'unknown');
+  put(d, { state: 'clear', checked_at: S - 40 * 3600, foreign: [] });
+  assert.equal(certWatchFrom(d, NOW).state, 'unknown', 'exactly two spacings is not current (the tunnel\'s rule)');
 });
 
 test('foreign entries, overflow and earlier findings are counted, and any of them is foreign', () => {
@@ -46,6 +48,7 @@ test('a damaged earlier report, a report that does not parse, or an unknown stat
   const d = dir();
   put(d, { state: 'clear', checked_at: S, damaged_report_at: S - 10 });
   assert.equal(certWatchFrom(d, NOW).state, 'unknown');
+  assert.equal(certWatchFrom(d, NOW).lost, true);
   put(d, '{"state": "cle');
   assert.equal(certWatchFrom(d, NOW).state, 'unknown');
   put(d, { state: 'fine', checked_at: S });
