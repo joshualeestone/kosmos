@@ -4,7 +4,7 @@
  * page and a code box in Kosmos. No terminal, no agy window, no menu.
  *
  * WHAT agy 1.2.11 DOES, MEASURED on Windows 11 with a throwaway --gemini_dir and never signed in
- * (C:\Users\joshu\work\agy-probe\L, 2026-09-26):
+ * (C:\Users\<user>\work\agy-probe\L, 2026-09-26):
  *   1. agy has no login command. Any print-mode run while signed out prints, on stderr:
  *        Authentication required. Please visit the URL to log in:
  *          https://accounts.google.com/o/oauth2/auth?access_type=offline&client_id=...

@@ -5959,7 +5959,7 @@ function transcriptFor(agentName, exactSession) {
  * READ that folder; nothing in this repo writes it.
  *
  * ⚠️ SO MEMORY HAS NEVER WORKED FOR ANYBODY WHO IS NOT US. Josh, 2026-08-21, on
- * a clean install: `ls: /Users/cabal/.claude/agent-registry/: No such file or
+ * a clean install: `ls: /Users/alex/.claude/agent-registry/: No such file or
  * directory`, and every agent on his board reading "Unknown". Not four agents
  * misbehaving — the normal case, on a machine without our fleet's scripts. The
  * development machine had a file the product depended on and did not create,
@@ -5968,7 +5968,7 @@ function transcriptFor(agentName, exactSession) {
  * 🔑 WHAT THIS USES INSTEAD IS SOMETHING KOSMOS ALREADY KNOWS. Claude Code
  * writes each transcript to `<root>/projects/<the-launch-directory>/<id>.jsonl`,
  * with the directory's path flattened — every character that is not a letter or
- * a digit becomes a dash. MEASURED, not assumed: `/Users/alex/.openclaw-workspace`
+ * a digit becomes a dash. For example `/Users/alex/.openclaw-workspace`
  * is stored as `-Users-alex--openclaw-workspace`, and the naive
  * `[^A-Za-z0-9] -> -` reproduces it exactly, double dash and all. And the
  * supervisor launches every agent with `-c "$WORKDIR"`, one folder per agent,

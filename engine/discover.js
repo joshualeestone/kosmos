@@ -20,7 +20,7 @@
  * with a `CLAUDE.md` that introduces an agent IS an agent, running or not.
  *
  * ⚠️ THE FOLDER NAME IS NOT THE PATH, and reading it as one is the obvious
- * shortcut. `~/work/workers/angel` is filed as `-Users-agent1-work-workers-angel`
+ * shortcut. `~/work/workers/angel` is filed as `-Users-alex-work-workers-angel`
  * -- every non-alphanumeric becomes a dash, so a path with a dash in it and one
  * with a slash arrive identical and there is no way back. The transcript's own
  * `cwd` is the only reliable answer, which is why this opens a file per folder

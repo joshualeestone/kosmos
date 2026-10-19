@@ -46,5 +46,50 @@ stage; rm -rf "$T/s/app"
 if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a stage with no app/ is refused (the gate cannot look)"
 else fail "a stage with no app/ must be refused"; fi
 
+# review 1 arms
+stage; printf "const r = path.relative('%s', p);\n" "$H" >> "$T/s/app/server.js"
+if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "the home followed by a quote (no slash) is refused"
+else fail "the home followed by a quote must be refused"; fi
+
+stage; printf 'x%s\0y' "$H" > "$T/s/app/bin/kosmos-tunnel"
+if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "the home followed by a NUL byte in a binary is refused"
+else fail "the home followed by a NUL must be refused"; fi
+
+stage; printf '// %s/x\n' "$(printf '%s' "$H" | tr '[:lower:]' '[:upper:]')" >> "$T/s/app/server.js"
+if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "the home in another case is refused (macOS volumes ignore case)"
+else fail "the home in another case must be refused"; fi
+
+stage; printf 'panicked at /Users/someone-else/.cargo/registry/src/a.rs\0' > "$T/s/app/bin/kosmos-tunnel"
+if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "an executable naming ANOTHER account's .cargo is refused (a connector built on another Mac)"
+else fail "another account's build folder in an executable must be refused"; fi
+
+stage; mkdir -p "$T/s/app/Kosmos.app/Contents/MacOS"; printf 'x /Users/other/work/kosmos/native-app/main.swift\0' > "$T/s/app/Kosmos.app/Contents/MacOS/Kosmos"
+if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "the app executable naming another account's work/ folder is refused"
+else fail "the app executable naming another account's work/ must be refused"; fi
+
+stage; printf '// for example /Users/alex/work/x\n' >> "$T/s/app/server.js"
+if home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a made-up /Users/<name>/work/ in a SOURCE comment is not refused (the any-account check reads executables only)"
+else fail "a made-up example in a source comment must not be refused"; fi
+
+if [ "$(id -u)" -ne 0 ]; then
+  stage; printf 'x %s/y\n' "$H" > "$T/s/app/locked.txt"; chmod 000 "$T/s/app/locked.txt"
+  if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a file the gate cannot read is refused, never passed"
+  else fail "an unreadable file must be refused"; fi
+  chmod 600 "$T/s/app/locked.txt"
+fi
+
+stage; rm -rf "$T/s/bin"
+if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a stage with no bin/ is refused"
+else fail "a stage with no bin/ must be refused"; fi
+
+stage; printf 'x %s/y\0' "$H" > "$T/s/app/bin/odd|name"
+out="$(home_path_gate_tree "$T/s" "$H" 2>&1)"
+if printf '%s' "$out" | /usr/bin/grep -qF "app/bin/odd|name"; then pass "an offending file whose name holds a | is still named"
+else fail "a | in a file name must not lose the list: $out"; fi
+
+B="$HERE/build-kosmos-bundle.sh"
+if /usr/bin/grep -qx 'home_path_gate_tree "$STAGE" || exit 1' "$B"; then pass "the bundle build still calls the gate"
+else fail "tools/build-kosmos-bundle.sh no longer calls home_path_gate_tree (the gate is unarmed)"; fi
+
 if [ "$fails" -ne 0 ]; then echo "$fails check(s) failed"; exit 1; fi
 echo "all checks passed"

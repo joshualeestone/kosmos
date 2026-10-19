@@ -17,8 +17,8 @@
  *      - UNSET                      -> bare `Claude Code-credentials`
  *      - SET to any value V         -> `Claude Code-credentials-<first 8 hex of sha256(V)>`
  *    An explicit CCD EQUAL to the default path (~/.claude) still uses the SUFFIXED entry, not
- *    the bare one. Measured on Agent1s: the gmail-slot bots set CLAUDE_CONFIG_DIR=/Users/
- *    agent1/.claude explicitly and read "...-2a1a4199" (sha256 of that path, expiry 09-29),
+ *    the bare one. Measured on a build Mac: the gmail-slot bots set CLAUDE_CONFIG_DIR=/Users/
+ *    <user>/.claude explicitly and read "...-2a1a4199" (sha256 of that path, expiry 09-29),
  *    while a CCD-UNSET process reads the bare entry (expiry 09-25). Same path, two different
  *    credentials, two different expiries. So the caller MUST pass the agent's REAL process
  *    CCD (undefined when unset), never a stored path that has lost the set-vs-unset bit.
