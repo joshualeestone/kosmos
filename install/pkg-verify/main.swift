@@ -13,6 +13,9 @@
 //          missing). The caller runs nothing.
 // Exit 2: called wrongly or a file could not be read; the caller runs nothing either.
 //
+// The keys and the floor are built into each .pkg: after a release-key rotation, a .pkg downloaded before it refuses
+// every release (97) and a fresh download of the .pkg is the way on.
+//
 // What it does not tell apart: a manifest names no channel, so a genuinely signed STAGING release at or above the
 // floor passes as well as a production one. It is still a release Kosmos signed, not someone else's code.
 import CryptoKit
@@ -86,6 +89,8 @@ guard let version = m["version"] as? String, let got = parseVersion(version) els
 // release served again by the download site is refused.
 guard version == args[3], got == want else { refuse("the signed release is \(version), not the \(args[3]) offered, so nothing was installed") }
 guard !isOlder(got, floor) else { refuse("the release offered (\(version)) is older than the oldest release this installer accepts, so nothing was installed") }
+// The postinstall fetched the arm64 manifest (the only build); the signed manifest must say so too.
+guard (m["arch"] as? String) == "arm64" else { refuse("the signed release manifest is not for this Mac (arm64)") }
 // Every field is checked before any is printed: a refusal prints nothing a caller could take as a pin.
 var lines: [String] = []
 for field in ["setup_sha256", "sha256", "tmux_sha256"] {

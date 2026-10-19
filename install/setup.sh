@@ -845,6 +845,9 @@ verify_download() {
 # A download that differs is not installed. No pin (the
 # install line, an update run by an installed copy, which checks the manifest itself): returns 0. A pin that is not
 # 64 hex characters refuses, rather than reading as no pin.
+# The .pkg reads the next line in a checked installer before handing it the pins: an installer without it would ignore
+# them and leave the Kosmos and tmux downloads unchecked, so the .pkg refuses to run it (kosmos#6576). Keep it exact.
+# kosmos-pkg-pins: honored
 pinned_sha_ok() {
   local file="$1" pin="$2" what="$3" got
   [ -n "$pin" ] || return 0

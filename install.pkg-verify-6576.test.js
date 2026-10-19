@@ -64,7 +64,7 @@ function buildHelper() {
 }
 const hex = (s) => crypto.createHash('sha256').update(s).digest('hex');
 function release(h, version, fields, key) {
-  const manifest = Buffer.from(JSON.stringify(Object.assign({ manifest: 1, version, files: {} }, fields)));
+  const manifest = Buffer.from(JSON.stringify(Object.assign({ manifest: 1, version, arch: 'arm64', files: {} }, fields)));
   const sig = crypto.sign(null, manifest, key || h.privateKey).toString('base64');
   return { manifest, sig };
 }
@@ -94,6 +94,7 @@ test('#6576: the helper refuses (97) a tampered manifest, another key, another v
     ['another version than the site offered', good, '0.7.61', '0.7.57', /not the 0\.7\.61 offered/],
     ['a release older than the floor (an old signed release served again)', release(h, '0.7.56', SHAS), '0.7.56', '0.7.57', /older than the oldest release this installer accepts/],
     ['no tmux_sha256', release(h, '0.7.60', { setup_sha256: SHAS.setup_sha256, sha256: SHAS.sha256 }), '0.7.60', '0.7.57', /has no tmux_sha256/],
+    ['a manifest for another architecture', release(h, '0.7.60', Object.assign({}, SHAS, { arch: 'x64' })), '0.7.60', '0.7.57', /not for this Mac/],
     ['the offered version spelled differently (0.7.060 for 0.7.60)', release(h, '0.7.060', SHAS), '0.7.60', '0.7.57', /not the 0\.7\.60 offered/],
     ['an uppercase sha256 (not the manifest form)', release(h, '0.7.60', Object.assign({}, SHAS, { sha256: 'B'.repeat(64) })), '0.7.60', '0.7.57', /has no sha256/],
   ];
@@ -115,7 +116,7 @@ function liftRootStep() {
 function siteWith(h, { setup, manifestTamper, noSig }) {
   const root = fs.mkdtempSync(path.join(h.dir, 'site-'));
   fs.mkdirSync(path.join(root, 'dist'));
-  const setupBytes = Buffer.from(setup || '#!/bin/sh\necho installing\n');
+  const setupBytes = Buffer.from(setup || '#!/bin/sh\n# kosmos-pkg-pins: honored\necho installing\n');
   const rel = release(h, '0.7.60', { setup_sha256: hex(setupBytes), sha256: 'b'.repeat(64), tmux_sha256: 'c'.repeat(64) });
   fs.writeFileSync(path.join(root, 'setup'), setupBytes);
   fs.writeFileSync(path.join(root, 'dist', 'latest.json'), JSON.stringify({ version: '0.7.60' }));
@@ -150,6 +151,17 @@ test('#6576: a first install pins the signed release: the installer it hands ove
   assert.match(r.stdout, new RegExp('PIN_TMUX=' + 'c'.repeat(64) + '\n'));
   assert.match(r.stdout, /MODE=644\n/, 'the person can read the checked installer');
   assert.match(r.stdout, /PIN_VERSION=0\.7\.60\n/, 'the checked version is handed over, so setup.sh installs exactly it');
+});
+
+test('#6576: a genuinely signed installer that does not honour the pins (an older release) is refused, whatever the floor', { skip: SKIP }, () => {
+  const h = buildHelper();
+  // Its sha256 is the signed setup_sha256, so everything else checks out; only the capability line is missing.
+  const r = runRootStep(h, siteWith(h, { setup: '#!/bin/sh\necho an older installer\n' }));
+  assert.equal(r.status, 97, r.stderr);
+  assert.match(r.stderr, /signed, but its installer cannot hold the downloads to it/);
+  assert.doesNotMatch(r.stdout, /PIN_SETUP_SHA=[0-9a-f]/);
+  // And the shipped setup.sh carries the line, exactly once, as a whole line.
+  assert.equal(SETUP.split('\n').filter((l) => l === '# kosmos-pkg-pins: honored').length, 1);
 });
 
 test('#6576: an installer that does not match is rechecked (a deploy caught half way), then refused if it persists', { skip: SKIP }, () => {
