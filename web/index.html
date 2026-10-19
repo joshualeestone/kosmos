@@ -52476,6 +52476,7 @@ function paintPlusCertWatch(cw, plusOn) {
     if (ack.dataset) ack.dataset.at = lostSaid ? String(cw.lostAt) : '';
   }
   if (typeof paintCwNote === 'function') paintCwNote(cw, plusOn);
+  // kosmos#6613: Review reads this state, synchronously, right after paintPlus resolves: keep it set here, in this paint.
   if (line.dataset) line.dataset.state = String(cw.state || '');
   row.hidden = false;
   if (typeof paintSwitch === 'function') paintSwitch('plus-cw-switch', cw.on === true);
