@@ -129,6 +129,12 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- (Review 34, stated rather than built.) The Swift compiler runs with the shell's environment, so DEVELOPER_DIR,
+  TOOLCHAINS, SDKROOT or SWIFT_* can choose which Xcode toolchain reads the imports (scrubbing them would break a
+  machine that needs DEVELOPER_DIR). The app and relay commits are checked to be 40-hex names that git reads, not
+  that the object is a commit; the manifest that names them is signed. The tmux binary's linked libraries (otool -L)
+  are not checked: the real bundle links only its own lib/ and /usr/lib, and a non-system library outside lib/ would
+  go unlisted.
 - DELIBERATE, so a future refusal is not read as a bug: a relay commit with a rust-toolchain(.toml), a .cargo folder,
   a symlink or a non-ASCII path anywhere refuses (reviews 27 and 28). If the relay adopts a toolchain file (for
   example to record `rustc -V`), this tool must learn to read it safely before it can vouch for that release.
@@ -171,8 +177,8 @@ real fix.
   signed commit returned another commit's file). Each git, cargo and xcrun call has a time limit.
   Review 33: Cargo runs with its working folder at / (the manifest path is absolute), because Cargo and rustup read
   config and toolchain files in every folder above their working folder, and one above the temp folder could name
-  the rustc Cargo runs (measured: it tried to execute one). An arm plants such a config above the temp folder; the
-  program never runs. tar is /usr/bin/tar with a time limit, and given the signed hash the bundle refuses before tar
+  the rustc Cargo runs (measured: it tried to execute one). An arm plants such a config above the temp folder AND in the
+  caller's working folder (review 34: the first version of the arm could not fail); the program never runs. tar is /usr/bin/tar with a time limit, and given the signed hash the bundle refuses before tar
   reads it.
   LIMIT: Cargo still reads config in CARGO_HOME (and in /.cargo), which is this machine's, and such config can name
   the rustc or a wrapper that Cargo runs.
