@@ -20,7 +20,8 @@ Card: #6512 (from the #6409 gap list, items B1 and B2).
 - tools.win-launcher-signin-6512.test.js: wiring; a compiled probe of IsSigninPageMessage, SignInAgainDecision and
   SignInAgainAddress (Windows); the git-order check over the source and the icon (red before the rebuild commit,
   green after; skipped in a shallow clone); verify-launcher.ps1 (Windows).
-- tools.win-launcher-board-proof-1765.test.js: ReadBoardToken() count 5 -> 6 (the new use only checks presence).
+- tools.win-launcher-board-proof-1765.test.js, tools.win-launcher-native.test.js: SignInAgain's new signature (the
+  ReadBoardToken() count stays 5: the page-asked sign-in reads no token itself).
 - tools.windows-computer-mode-4381.test.js: OnWebMessage shape allows the sign-in line after the connect return.
 
 ## Verified on the Windows box

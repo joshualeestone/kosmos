@@ -3573,7 +3573,9 @@ class BoardWindowForm : System.Windows.Forms.Form
     // ⚠️ Accepted cost: the page reloads to the board's front page, so text typed and not yet sent
     // is lost. That is what the Mac's Reload does too, and the person asked for Kosmos again.
     // #6512: `keepPage`, for a sign-in the page asked for (PageSaysSignedOut), is the page to come back to
-    // (KosmosLauncher.SignInAgainAddress); a double-click passes none and lands on the front page, as before.
+    // (KosmosLauncher.SignInAgainAddress); a double-click passes none and lands on the front page, as before. The
+    // not-confirmed branch below starts over and keeps no page; a page-asked sign-in never reaches it, as that
+    // window shows a NavigateToString page, which is not a board address and so is never heard.
     internal void SignInAgain(string keepPage = null)
     {
         // #4381: a connect computer has no board to sign in to; opening Kosmos again only brings this
