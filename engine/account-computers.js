@@ -76,37 +76,12 @@ function parseComputers(answer, domain) {
   return out;
 }
 
-/* Whether a computer's tunnel is up: any HTTP answer from https://<address>/ says
-   yes; a failure or a timeout says no. Resolves true or false, never throws. The
-   answer's body is never read, and the socket is closed at once. `opts.request`
-   and `opts.port` are test seams (http.request against a local server has the
-   same shape); production is https.request on 443. */
-function probeOnline(address, opts) {
-  const timeoutMs = (opts && opts.timeoutMs) || PROBE_TIMEOUT_MS;
-  const request = (opts && opts.request) || require('https').request;
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = (v) => { if (!done) { done = true; resolve(v); } };
-    let req;
-    try {
-      req = request(
-        Object.assign(
-          { method: 'HEAD', host: address, path: '/', timeout: timeoutMs, headers: { 'user-agent': 'kosmos-switcher' } },
-          opts && opts.port ? { port: opts.port } : {},
-        ),
-        (res) => { finish(true); res.resume(); req.destroy(); },
-      );
-    } catch { finish(false); return; }
-    req.on('timeout', () => { finish(false); req.destroy(); });
-    req.on('error', () => finish(false));
-    req.end();
-  });
-}
-
 /* kosmos#6585: online AND whether it can be switched to with no sign-in, from ONE request. A tunnel that takes
    #6406's ticket answers a read of TICKET_PROBE_PATH with 405 (it takes only POST there); an older one answers
    every path with its sign-in page (200), so it cannot take the instant switch and the page says so instead of
-   opening it. Any answer still means online, exactly as probeOnline. Resolves { online, instant }, never throws. */
+   opening it. Any HTTP answer means online (even a 404: the relay forwarded); a failure or a timeout means offline.
+   The body is never read and the socket is closed at once. `opts.request` and `opts.port` are test seams.
+   Resolves { online, instant }, never throws. */
 const TICKET_PROBE_PATH = '/_kosmos/ticket';
 function probeReach(address, opts) {
   const timeoutMs = (opts && opts.timeoutMs) || PROBE_TIMEOUT_MS;
@@ -171,4 +146,4 @@ async function fetchComputers(opts) {
   }
 }
 
-module.exports = { ROUTE, PROBE_TIMEOUT_MS, TICKET_PROBE_PATH, computerDomain, validAddress, parseComputers, probeOnline, probeReach, fetchComputers };
+module.exports = { ROUTE, PROBE_TIMEOUT_MS, computerDomain, validAddress, parseComputers, probeReach, fetchComputers };
