@@ -21,7 +21,7 @@ creation need a fresh authenticator code. This is the step-up half.
 
 ## Decided (reversible; each is one line in REMOTE_STEP_UP_EXACT)
 - **"Unsandboxed agent" is every agent.** Every Kosmos agent runs with an unsandboxed shell; there is no sandboxed
-  create option to exempt. So all three create routes are gated.
+  create option to exempt. So every create route is gated.
 - **Installing counts as update.** `/api/connect/start`, Antigravity's and Muse's installs download and run a
   provider's software, the class the update route's own comment names (review iteration 1).
 - **A sign-in counts as key entry.** It leaves a credential on this computer as surely as a pasted key does, so each
@@ -30,8 +30,9 @@ creation need a fresh authenticator code. This is the step-up half.
   the route is gated whole, not only when its body asks for imports (the gate runs before any body is read).
 - **Taking things away is not gated:** forgetting a token, signing a provider out (DELETE), checking for an update.
 - **A local request is never asked:** the person is at the computer.
-- **The refusal says what to do** (sign out on the page, sign in again with the authenticator code, retry within
-  10 minutes). The page shows the `error` it is given; no page change in this branch.
+- **The refusal says what to do** (sign out on the page and on the sign-in site, sign in again with the email code
+  and authenticator code, retry within 10 minutes; see the next section). The page shows the `error` it is given;
+  no page change in this branch.
 
 ## The fresh sign-in must really be fresh (Renet, 12:54)
 The gate's sign-in ends in a handoff that keeps the SOURCE sign-in site session's issue time. So signing out of
@@ -52,6 +53,8 @@ set none of the forwarding headers, it would read as local and never be asked (R
   agent is refused. Deploy order: tunnel first, then this board change.
 - A remote session can still ask an agent here to do these things; an agent's own request arrives without
   forwarding headers. Renet's plan names the same residual.
+- `POST /api/accounts/qwen/local/download` (a model download through Ollama, which the person installed themselves)
+  is not gated: it runs no new installer. Named here so the boundary is explicit.
 
 ## Tests
 `server.remotestepup-6595.test.js` (32), including a guard that every POST/PUT route whose path looks like a key,
@@ -60,4 +63,4 @@ token, sign-in, install, update or create is gated or exempt with a written reas
 stale time and with a malformed time, reaching nothing (the gate runs before the body is read); CONTROL: a fresh
 remote session and a local request pass on key routes (which then answer 400 for an unreadable body); update and
 agent creation pass arms tested on the function only, never run; the window's edges and malformed values.
-Mutations, run by hand: gate removed 13 red; freshness always true 15 red.
+Mutations, run by hand on the first version (17 tests): gate removed 13 red; freshness always true 15 red.
