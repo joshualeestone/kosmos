@@ -58,7 +58,7 @@ const CRATES_IO = new Set(['registry+https://github.com/rust-lang/crates.io-inde
 function gitEntry(repo, commit, file) {
   let out;
   try {
-    out = execFileSync('git', ['-C', repo, 'ls-tree', commit, '--', file], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    out = execFileSync('git', ['-C', repo, 'ls-tree', '--full-tree', commit, '--', file], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (e) {
     throw new Error(`${repo}: git could not list ${file} at ${commit}: ${String(e.stderr || e.message).split('\n')[0]}`);
   }
@@ -71,37 +71,40 @@ function gitEntry(repo, commit, file) {
 function gitList(repo, commit, dir) {
   let out;
   try {
-    out = execFileSync('git', ['-C', repo, 'ls-tree', '-z', '--name-only', commit, '--', ...(dir ? [dir] : [])], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    out = execFileSync('git', ['-C', repo, 'ls-tree', '--full-tree', '-z', '--name-only', commit, '--', ...(dir ? [dir] : [])], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (e) {
     throw new Error(`${repo}: git could not list ${dir || 'the root'} at ${commit}: ${String(e.stderr || e.message).split('\n')[0]}`);
   }
   return out.split('\0').filter(Boolean).map((n) => n.slice(dir.length));
 }
 
-// Review 24: the Cargo.lock is trusted only if no Cargo.toml can make Cargo build something else. The connector is
-// built WITHOUT --locked (relay tools/build-tunnel-release.sh), so a [patch] or [replace], a git dependency, or a path
-// dependency outside the workspace would re-resolve the build while the lock still names the registry crate. Only
-// dependency sections are read for path: [lib] and [[bin]] name source files. Fails closed: a path it cannot read
-// (an unquoted or multi-line value) refuses too.
-function checkTomls(top, members) {
-  const memberDirs = new Set([...members.values()].map((m) => m.dir));
-  const tomls = [['', 'Cargo.toml', top], ...[...members.values()].map((m) => [m.dir, `${m.dir}/Cargo.toml`, m.toml])];
-  for (const [base, name, raw] of tomls) {
-    const text = raw.replace(/#.*$/gm, '');
-    const bad = (why) => { throw new Error(`relay ${name}: ${why}; the Cargo.lock would not be what the connector builds`); };
-    if (/^\s*\[+\s*(patch|replace)\b/m.test(text)) bad('a [patch] or [replace] section');
-    let section = '';
-    for (const line of text.split('\n')) {
-      const h = line.match(/^\s*\[+\s*([^\]]+?)\s*\]+\s*$/);
-      if (h) { section = h[1]; continue; }
-      if (!/(^|\.)(dev-|build-)?dependencies(\.|$)/.test(section)) continue;
-      if (/\bgit\s*=/.test(line)) bad(`a git dependency (${line.trim()})`);
-      if (!/\bpath\s*=/.test(line)) continue;
-      const v = line.match(/\bpath\s*=\s*(["'])([^"'\n]*)\1/);
-      if (!v) bad(`a path dependency it cannot read (${line.trim()})`);
-      const to = require('path').posix.normalize(require('path').posix.join(base || '.', v[2])).replace(/\/$/, '');
-      if (!memberDirs.has(to)) bad(`a path dependency outside the workspace (${v[2]})`);
+// Review 25 (reviews 24 and 25 each beat a hand-written Cargo.toml reader): the Cargo.lock is trusted only if
+// CARGO agrees it is the resolution of the Cargo.toml files at that commit. The connector is built WITHOUT --locked
+// (relay tools/build-tunnel-release.sh), so a [patch], a git or path dependency, or a dependency missing from the lock
+// would re-resolve the build while the lock still names other crates. `cargo metadata --locked --offline` on the
+// commit's own tree refuses each of those. The tree is written with read-tree and checkout-index into a throwaway
+// index, not git archive, whose export-ignore and export-subst attributes can drop or rewrite files.
+function cargoLockAgrees(relay, commit) {
+  const os = require('os'), p = require('path');
+  const dir = fs.mkdtempSync(p.join(os.tmpdir(), 'kosmos-sbom-cargo-'));
+  try {
+    const env = { ...process.env, GIT_INDEX_FILE: p.join(dir, '.index') };
+    const tree = p.join(dir, 'tree') + '/';
+    try {
+      execFileSync('git', ['-C', relay, 'read-tree', commit], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+      execFileSync('git', ['-C', relay, 'checkout-index', '-a', '-f', `--prefix=${tree}`], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (e) {
+      throw new Error(`${relay}: git could not write the tree of ${commit}: ${String(e.stderr || e.message).split('\n')[0]}`);
     }
+    try {
+      execFileSync('cargo', ['metadata', '--locked', '--offline', '--format-version', '1', '--manifest-path', p.join(tree, 'Cargo.toml')],
+        { cwd: tree, stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (e) {
+      const why = String(e.stderr || e.message).split('\n').find((l) => /error/.test(l)) || String(e.message).split('\n')[0];
+      throw new Error(`relay at ${commit}: Cargo does not agree the Cargo.lock is what the Cargo.toml files resolve to (cargo is needed): ${why.trim()}`);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -339,7 +342,8 @@ const download = (url, sha) => [{ type: 'distribution', url, hashes: hashOf(sha)
 // Only names NVD actually has (checked 2026-10-19; it has none for utf8proc), and the version as NVD writes it
 // (libevent's "-stable" suffix is not part of it).
 const CPE = { node: 'nodejs:node.js', tmux: 'tmux_project:tmux', libevent: 'libevent_project:libevent', ncurses: 'gnu:ncurses' };
-const cpe = (name, version) => (CPE[name] ? `cpe:2.3:a:${CPE[name]}:${version.replace(/-stable$/, '')}:*:*:*:*:*:*:*` : undefined);
+// CPE 2.3 escapes any character other than letters, digits, '.', '_' and '-' with a backslash (review 25: a '+').
+const cpe = (name, version) => (CPE[name] ? `cpe:2.3:a:${CPE[name]}:${version.replace(/-stable$/, '').replace(/[^A-Za-z0-9._-]/g, '\\$&')}:*:*:*:*:*:*:*` : undefined);
 const SHA256 = /^[0-9a-f]{64}$/;
 
 // A crate's reference is name@version, unless two reached crates share both (Cargo allows one from crates.io and one
@@ -457,7 +461,7 @@ const FORMAT = 'kosmos-sbom-1';
 // And this file's own bytes, so a change to the generator changes the id even if FORMAT was not bumped.
 const SELF_SHA = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex').slice(0, 16);
 
-function build(manifest, { repo, relay, tmux, show = gitShow, list = gitList, readImports = swiftcImports }) {
+function build(manifest, { repo, relay, tmux, show = gitShow, list = gitList, lockAgrees = cargoLockAgrees, readImports = swiftcImports }) {
   if (manifest.manifest !== 1) throw new Error(`manifest format ${manifest.manifest}: this SBOM reads format 1`);
   for (const k of Object.keys(manifest)) {
     if (!MANIFEST_KEYS.has(k)) throw new Error(`manifest has ${k}, a part this SBOM does not know (it would be left out)`);
@@ -487,7 +491,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow, list = gitList, re
   const arch = manifest.arch;
   const { root, deps, edges } = closure(parseLock(show(relay, relayCommit, 'Cargo.lock')), CONNECTOR_CRATE);
   const members = workspaceMembers(show, relay, relayCommit);
-  checkTomls(show(relay, relayCommit, 'Cargo.toml'), members);
+  lockAgrees(relay, relayCommit);
   // A .cargo/config in the relay can point a crate at other code (paths, [source] replacement, vendoring) while the
   // Cargo.lock still names the registry crate, so any one refuses. The build machine's own ~/.cargo and CARGO_*
   // settings are a LIMIT: this cannot see them.
@@ -593,7 +597,7 @@ function uuidFrom(seed) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-module.exports = { SELF_SHA, gitShow, gitEntry, gitList, checkTomls, parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
+module.exports = { SELF_SHA, gitShow, gitEntry, gitList, cargoLockAgrees, tmuxCpeFor: cpe, parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
 
 // A path as the file system resolves it (following a symlink), or as written when it does not exist yet.
 function realish(p) { try { return fs.realpathSync(p); } catch { return require('path').resolve(p); } }
