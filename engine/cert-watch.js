@@ -50,7 +50,7 @@ function findingKey(raw) {
 const count = (v) => (Number.isInteger(v) && v >= 0 ? v : 0);
 const len = (v) => (Array.isArray(v) ? v.length : 0);
 /* Unix seconds as the tunnel writes them (an i64); a number with a fraction is floored, anything else is absent. */
-const secs = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : null);
+const secs = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 1 ? Math.floor(v) : null);
 
 /** What the check found, from `dir` at `nowMs`. Never throws. */
 function certWatchFrom(dir, nowMs) {
@@ -77,8 +77,8 @@ function certWatchFrom(dir, nowMs) {
   const damagedAt = secs(raw.damaged_report_at);
   /* kosmos#6613: a lost report a person has acknowledged (the same marker value) is no longer said. */
   const acked = damagedAt === null ? null
-    : (() => { try { return Number(fs.readFileSync(path.join(dir, LOST_ACK_FILE), 'utf8').trim()); } catch { return null; } })();
-  // A record that does not read as a number (empty, damaged) never matches, so the loss is said again: the safe way.
+    : (() => { try { const t = fs.readFileSync(path.join(dir, LOST_ACK_FILE), 'utf8').trim(); return /^\d+$/.test(t) ? Number(t) : null; } catch { return null; } })();
+  // A record that is not all digits (empty, damaged) reads as none and never matches, so the loss is said again.
   const lost = damagedAt !== null && acked !== damagedAt;
   if (lost && state === 'clear') state = 'unknown';
   return {

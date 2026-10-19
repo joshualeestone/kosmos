@@ -175,4 +175,7 @@ test('acknowledging a lost report quiets it for that marker only', () => {
   put(d, { state: 'clear', checked_at: S, damaged_report_at: S - 5 });
   assert.equal(certWatchFrom(d, NOW).lost, true, 'a later loss is said again');
   assert.equal(ackLostIn(d, 'x').ok, false);
+  fs.writeFileSync(path.join(d, LOST_ACK_FILE), '');
+  put(d, { state: 'clear', checked_at: S, damaged_report_at: S - 5 });
+  assert.equal(certWatchFrom(d, NOW).lost, true, 'an empty record is no acknowledgement');
 });
