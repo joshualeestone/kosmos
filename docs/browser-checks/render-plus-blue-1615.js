@@ -197,12 +197,13 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
       const el = document.querySelector('.plus-hero-h');
       if (!el || el.offsetParent === null) return { error: 'the hero heading is not shown' };
       const rg = document.createRange(); rg.selectNodeContents(el);
-      return { rects: Array.from(rg.getClientRects()).map((x) => ({ top: x.top, bottom: x.bottom })) };
+      return { fontPx: parseFloat(getComputedStyle(el).fontSize), rects: Array.from(rg.getClientRects()).map((x) => ({ top: x.top, bottom: x.bottom })) };
     });
     results.phoneHero = h;
     if (h.error) problems.push('phone 390: ' + h.error);
     else if (h.rects.length < 2) problems.push('phone 390: CONTROL: the hero heading did not wrap (' + h.rects.length + ' line), so the overlap read proves nothing');
-    else if (h.rects[1].top < h.rects[0].bottom - 1) problems.push('phone 390: #6557 the hero heading lines overlap by ' + Math.round(h.rects[0].bottom - h.rects[1].top) + 'px');
+    /* The line PITCH (top to top), not glyph boxes, which vary with the font: lines closer than the font size overlap. */
+    else if (h.rects[1].top - h.rects[0].top < h.fontPx) problems.push('phone 390: #6557 the hero heading lines are ' + Math.round(h.rects[1].top - h.rects[0].top) + 'px apart for a ' + h.fontPx + 'px font, so they overlap');
     await ctx.close();
   }
 
@@ -214,5 +215,5 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-plus-blue-1615: Plus turns the app blue + mounts its canvases on enter, and un-blues + tears down on leave (both schemes + reduced-motion; no leak to another section or tab); on Plus the meaning colours and the toast red are the navy-readable ones, its white fields keep the light red, and the dark fields of the sign-in wizard the coral.');
+  console.log('render-plus-blue-1615: Plus turns the app blue + mounts its canvases on enter, and un-blues + tears down on leave (both schemes + reduced-motion; at 390 the two lines of the hero heading do not overlap; no leak to another section or tab); on Plus the meaning colours and the toast red are the navy-readable ones, its white fields keep the light red, and the dark fields of the sign-in wizard the coral.');
 })().catch((e) => { console.error('FAIL  render-plus-blue-1615 threw: ' + (e && e.message || e)); process.exit(1); });
