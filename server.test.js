@@ -11609,6 +11609,7 @@ test('skills over the wire: global lists and adds; the agent write carries the e
 test('the Plus state route carries the certificate check, and its switch writes the tunnel\'s off file (kosmos#6602)', async () => {
   const fsx = require('fs'), osx = require('os'), px = require('path');
   const dir = fsx.mkdtempSync(px.join(osx.tmpdir(), 'cw-route-'));
+  /* Swept by this file's tmpscope. The default req() sends no sec-fetch-site, which is what the 403 arm relies on. */
   const prev = process.env.AGENT_WORKFORCE_TUNNEL_STATE;
   process.env.AGENT_WORKFORCE_TUNNEL_STATE = dir;
   try {
@@ -11620,7 +11621,10 @@ test('the Plus state route carries the certificate check, and its switch writes 
     assert.equal(st.certWatch.state, 'foreign');
     assert.equal(st.certWatch.foreign, 1);
     const screen = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' };
-    let r = await req('/api/remote/cert-watch', { method: 'PUT', body: JSON.stringify({ on: false }) });
+    let r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: false }) });
+    assert.equal(r.status, 400, 'a computer that is not set up has no switch to change');
+    for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fsx.writeFileSync(px.join(dir, f), 'x');
+    r = await req('/api/remote/cert-watch', { method: 'PUT', body: JSON.stringify({ on: false }) });
     assert.equal(r.status, 403, 'a switch change that did not come from the screen is refused');
     assert.ok(!fsx.existsSync(px.join(dir, 'ct-watch-off')));
     r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: false }) });

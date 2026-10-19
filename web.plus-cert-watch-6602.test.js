@@ -50,6 +50,8 @@ test('clear and never-run say nothing; unknown says it cannot confirm (the contr
   ctx.paintPlusCertWatch({ on: true, state: 'unknown' });
   assert.notEqual(el('plus-cw-line').textContent, '');
   assert.match(el('plus-cw-line').textContent, /not been able to confirm/);
+  ctx.paintPlusCertWatch({ on: true, state: 'unknown', failing: true });
+  assert.match(el('plus-cw-line').textContent, /has been failing lately/);
 });
 
 test('switched off: a finding is still said (with "the check is off"), nothing else is, and the switch shows off', () => {
@@ -88,6 +90,7 @@ test('with Kosmos+ off, cannot-confirm is not said, but a finding still is', () 
 function clickWorld(answer) {
   const listeners = {};
   const sw = { attrs: { 'aria-checked': 'true' }, hasAttribute(k) { return k in this.attrs; }, getAttribute(k) { return this.attrs[k] ?? null; },
+    setAttribute(k, v) { this.attrs[k] = String(v); }, removeAttribute(k) { delete this.attrs[k]; },
     addEventListener(t, fn) { listeners[t] = fn; } };
   const calls = [], said = [];
   let release;
@@ -101,17 +104,20 @@ function clickWorld(answer) {
   const end = SCRIPT.indexOf('/* The words of the code box (#729).', start);
   assert.ok(start > 0 && end > start, 'the switch handler moved; re-anchor this test');
   vm.runInNewContext(SCRIPT.slice(start, end), ctx);
-  return { click: listeners.click, calls, said, release };
+  return { click: listeners.click, calls, said, release, sw };
 }
 
 test('a click asks for the opposite of what the switch showed, once even when clicked twice', async () => {
   const w = clickWorld({ ok: true, json: async () => ({}) });
   const a = w.click(), b = w.click();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(w.sw.getAttribute('aria-busy'), 'true', 'saving is not said');
   w.release();
   await a; await b;
   assert.equal(w.calls.length, 1, 'a second click while one was in flight sent another request');
   assert.equal(w.calls[0].url, '/api/remote/cert-watch');
   assert.deepEqual(w.calls[0].body, { on: false });
+  assert.equal(w.sw.getAttribute('aria-busy'), null, 'still says saving after it finished');
 });
 
 test('a refused change says why', async () => {
