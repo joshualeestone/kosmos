@@ -31,12 +31,15 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
   editing the tunnel's report (it is the tunnel's file, written atomically on its own schedule).
 - Weakest premise: the notice is per browser (localStorage); another browser shows it again. Accepted: it errs
   toward telling, and the request notice works the same way.
+- After Got it, focus goes to the line when it still says something (a finding), else to the check's switch, and
+  the pane says "Noted." (an empty status line is no place to land).
 - Not in this branch (still kosmos#6613's remaining notes): the Kosmos+-off path an agent can use to stop the check,
   and `isViaScreen` being a speed bump. Both need a decision about `PUT /api/remote` itself, outside this card.
 
 ## Proof
 - Browser check `render-plus-panel-3829.js`, its certificate scenario: the notice's slot is first in the stack, a
   finding is raised away from Kosmos+ as the fixed warning, Review opens Kosmos+ and puts it away; a clear check
-  raises nothing (the control).
-- `node --test engine/cert-watch.test.js` (13), `web.cert-notice-6613.test.js` (9), `web.plus-cert-watch-6602.test.js`
+  raises nothing (the control). Its lost scenario: Got it shows with the lost sentence, posts the marker it was
+  shown, then goes, the pane says Noted., and focus is on the switch.
+- `node --test engine/cert-watch.test.js` (13), `web.cert-notice-6613.test.js` (11), `web.plus-cert-watch-6602.test.js`
   (9), the `server.test.js` route test (by name). Mutant: the dismissed-key check removed, 2 notice tests red.
