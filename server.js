@@ -23458,10 +23458,12 @@ function orgMemberCheckIfDue(now = Date.now()) {
   return oe.memberCheck().then((c) => {
     if (c && c.result === 'nocheap') ORG_MEMBER_CHECK_OFF = true;
     if (c && c.result === 'ended') {
-      // Review 1: the full ask decides. If it does not end the enrolment (the two answers disagree), the cheap check
-      // stops until restart, so a disagreement cannot run the full, policy-carrying ask every ten minutes.
-      return Promise.resolve(orgEnrollRefresh()).then(() => {
-        try { if (oe.readEnrollment()) ORG_MEMBER_CHECK_OFF = true; } catch { /* unread: left as it is */ }
+      // Review 1: the full ask decides. If it ANSWERED and the enrolment is still here (the two answers disagree), the
+      // cheap check stops until restart, so a disagreement cannot run the full, policy-carrying ask every ten minutes.
+      // Review 2: a full ask that got no clear answer (unreachable, unclear) latches nothing: the next cheap check asks
+      // again, or a network blip would cost the fast removal until restart.
+      return Promise.resolve(orgEnrollRefresh()).then((r) => {
+        try { if (r && r.ok === true && oe.readEnrollment()) ORG_MEMBER_CHECK_OFF = true; } catch { /* unread: left as it is */ }
       });
     }
     return undefined;

@@ -136,3 +136,15 @@ test('#6560 review 1: when the full ask does not confirm the cheap check\'s "end
   await orgMemberCheckIfDue(at + 20 * 60 * 1000 + 2);
   assert.equal(r.refreshes(), 1, 'a disagreement ran the full ask every ten minutes');
 });
+
+test('#6560 review 2: a full ask that gets no clear answer leaves the cheap check on (an unreachable coordinator must not latch it)', async (t) => {
+  const r = rig(t, () => ({ lite: true, member: false }));
+  let full = 0;
+  oe.refresh = async () => { full += 1; return { ok: false, because: 'unreachable' }; };   // the full ask could not be answered
+  const at = Date.now();
+  await orgMemberCheckIfDue(at);
+  assert.equal(full, 1, 'CONTROL: the cheap "ended" ran the full ask');
+  await orgMemberCheckIfDue(at + 10 * 60 * 1000 + 1);
+  assert.equal(full, 2, 'an unreachable full ask turned the cheap check off, so the removal waits for the hour');
+  assert.ok(r.sent.length >= 2, 'the cheap check was not asked again');
+});
