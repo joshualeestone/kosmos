@@ -68,11 +68,31 @@ RESOURCES="$REPO/install/pkg-resources"
 _insha="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input sha" >&2; exit 1; }
 echo "==> inputs: $_insha"
 
-echo "==> pkgbuild (payload-free component, scripts only)"
+# kosmos#6576: the release check a first install runs (install/pkg-verify). Built here, signed with the Developer ID
+# Application identity with the hardened runtime (notarization requires both for any executable in the package),
+# and staged beside the scripts with the floor it checks against: the oldest release it accepts, the first signed
+# one, a reviewed constant (install/pkg-verify/floor), NOT this build's version, which can run ahead of what the
+# production pointer serves. The package is no longer free of Mach-O: this one helper is the exception.
+APP_CERT="${KOSMOS_APP_CERT:-$KOSMOS_SIGN_APP_DEFAULT}"
+if ! security find-identity -v | grep -qF "$APP_CERT"; then
+  echo "FATAL: signing identity not found: $APP_CERT (the release check must be signed)" >&2
+  exit 1
+fi
+STAGED_SCRIPTS="$BUILD/scripts"
+mkdir -p "$STAGED_SCRIPTS"
+cp -R "$SCRIPTS/." "$STAGED_SCRIPTS/"
+echo "==> the release check (kosmos-pkg-verify): build, sign, verify"
+swiftc -target "arm64-apple-macos$(cat "$REPO/tools/macos-floor")" -O "$REPO/install/pkg-verify/main.swift" \
+  -o "$STAGED_SCRIPTS/kosmos-pkg-verify"
+codesign --force --options runtime --timestamp --sign "$APP_CERT" "$STAGED_SCRIPTS/kosmos-pkg-verify"
+codesign --verify --strict "$STAGED_SCRIPTS/kosmos-pkg-verify"
+cp "$REPO/install/pkg-verify/floor" "$STAGED_SCRIPTS/kosmos-pkg-floor"
+
+echo "==> pkgbuild (scripts only: the postinstall, its helpers, and the release check)"
 pkgbuild --nopayload \
   --identifier "$IDENTIFIER" \
   --version "$VERSION" \
-  --scripts "$SCRIPTS" \
+  --scripts "$STAGED_SCRIPTS" \
   "$BUILD/component.pkg"
 
 echo "==> distribution.xml (Welcome + Conclusion UI + bottom-left app logo)"
