@@ -25,43 +25,43 @@ Validation note, stated plainly: 6.0's baseline run and iteration 1's 6g run wer
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above
-- [WARNING] engine/account-computers.js:102 — any non-405 answer (a relay 502) read as an older Kosmos and refused the click --> FIXED (9861c603f1): only 405 and 200 decide; any other answer leaves instant unknown; 502/404/403 test rows
-- [WARNING] web/index.html switching screen — stranded over the page when the native app declines to go home --> FIXED (9861c603f1): screen removes itself after 15 s
-- [WARNING] web/index.html refusal — no way in to an older computer --> FIXED (9861c603f1): toast names the browser sign-in as the way in
-- [NIT] native-app/main.swift — address file read before the click check --> FIXED (9861c603f1)
-- [NIT] native-app/main.swift — a start in flight fell through to the sign-in page --> FIXED (9861c603f1): reaches backToThisComputer, which beeps
-- [NIT] web.computers-switcher-4648.test.js — pageshow teardown untested
+- [WARNING] engine/account-computers.js:102 - any non-405 answer (a relay 502) read as an older Kosmos and refused the click --> FIXED (9861c603f1): only 405 and 200 decide; any other answer leaves instant unknown; 502/404/403 test rows
+- [WARNING] web/index.html switching screen - stranded over the page when the native app declines to go home --> FIXED (9861c603f1): screen removes itself after 15 s
+- [WARNING] web/index.html refusal - no way in to an older computer --> FIXED (9861c603f1): toast names the browser sign-in as the way in
+- [NIT] native-app/main.swift - address file read before the click check --> FIXED (9861c603f1)
+- [NIT] native-app/main.swift - a start in flight fell through to the sign-in page --> FIXED (9861c603f1): reaches backToThisComputer, which beeps
+- [NIT] web.computers-switcher-4648.test.js - pageshow teardown untested
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 3 NITs
 **Self-generated:** 0 of the above
 **Duplicates of prior findings (confirmed resolved):** 1 (refusing an older computer, iteration 1)
-- [WARNING] engine/account-computers.js:80 — plan said the 405 side was source-only --> FIXED (043ec88c12): plan records the live measurements (405 from two current gates, 200 from the older one)
-- [WARNING] web/index.html:30896 — screen up to 15 s over a refused go-home --> DEFERRED: the page cannot be told (the app's bridges answer only its own board, by design); rare (an update or a start in flight); the cap bounds it
-- [CONVENTION] .claude/plans/switchk-6585.md — no timestamp in the plan name --> DEFERRED: matches this repo's practice (backhome-6411.md), and the gate finds plans by branch
-- [NIT] web/index.html — constant declared after its function --> FIXED (043ec88c12)
-- [NIT] engine/account-computers.js — offline result carried instant --> FIXED (043ec88c12)
-- [NIT] native-app/main.swift — two address-file reads per click --> FIXED (043ec88c12)
+- [WARNING] engine/account-computers.js:80 - plan said the 405 side was source-only --> FIXED (043ec88c12): plan records the live measurements (405 from two current gates, 200 from the older one)
+- [WARNING] web/index.html:30896 - screen up to 15 s over a refused go-home --> DEFERRED: the page cannot be told (the app's bridges answer only its own board, by design); rare (an update or a start in flight); the cap bounds it
+- [CONVENTION] .claude/plans/switchk-6585.md - no timestamp in the plan name --> DEFERRED: matches this repo's practice (backhome-6411.md), and the gate finds plans by branch
+- [NIT] web/index.html - constant declared after its function --> FIXED (043ec88c12)
+- [NIT] engine/account-computers.js - offline result carried instant --> FIXED (043ec88c12)
+- [NIT] native-app/main.swift - two address-file reads per click --> FIXED (043ec88c12)
 
 #### Iteration 3
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 4 WARNINGs, 1 CONVENTION, 2 NITs
 **Self-generated:** 0 of the above
-- [WARNING] web/index.html:30884 — on a phone the refusal toast sat under the open phone menu (a dead tap) --> FIXED (32f127b4cd): the phone menu closes first; unit test asserts it
-- [WARNING] web/index.html:30884 — toast gone after 2.6 s, too short for words with an address --> FIXED (32f127b4cd): msgToast takes an optional hold; this one holds 9 s
-- [WARNING] native-app/main.swift — going home depended on WebKit calling computersGo's script-made click a link click, never measured in the app --> FIXED (32f127b4cd): any main-frame navigation to the own address while on another computer goes home (10 selftest rows, expected 191); the wiring test pins that it is not keyed on linkActivated
-- [WARNING] web/index.html:30880 — the home row could be refused if its own gate answered 200 --> DEFERRED: the Mac app and its tunnel ship in one bundle, so a computer running this app has a ticket-taking gate
-- [CONVENTION] .claude/plans/switchk-6585.md:41 — wrong test count --> FIXED (32f127b4cd)
-- [NIT] web/index.html:30858 — screen during a refused go-home (same as iteration 2's deferral)
-- [NIT] web.computers-switcher-4648.test.js — no test for the pageshow teardown or the 15 s cap
+- [WARNING] web/index.html:30884 - on a phone the refusal toast sat under the open phone menu (a dead tap) --> FIXED (32f127b4cd): the phone menu closes first; unit test asserts it
+- [WARNING] web/index.html:30884 - toast gone after 2.6 s, too short for words with an address --> FIXED (32f127b4cd): msgToast takes an optional hold; this one holds 9 s
+- [WARNING] native-app/main.swift - going home depended on WebKit calling computersGo's script-made click a link click, never measured in the app --> FIXED (32f127b4cd): any main-frame navigation to the own address while on another computer goes home (10 selftest rows, expected 191); the wiring test pins that it is not keyed on linkActivated
+- [WARNING] web/index.html:30880 - the home row could be refused if its own gate answered 200 --> DEFERRED: the Mac app and its tunnel ship in one bundle, so a computer running this app has a ticket-taking gate
+- [CONVENTION] .claude/plans/switchk-6585.md:41 - wrong test count --> FIXED (32f127b4cd)
+- [NIT] web/index.html:30858 - screen during a refused go-home (same as iteration 2's deferral)
+- [NIT] web.computers-switcher-4648.test.js - no test for the pageshow teardown or the 15 s cap
 
 #### Iteration 4
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 new CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above
 **Duplicates:** 1 (plan name, deferred in iteration 2)
-**Converged** — no new actionable findings.
+**Converged** - no new actionable findings.
 
 ### Final Ledger
 
