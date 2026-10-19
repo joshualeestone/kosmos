@@ -38,7 +38,7 @@
  *   R20 signing out also drops a carried one-time note, a pending could-not-record check and the once-a-minute gate.
  *   R9  a leave refused while the words are needed says a parent is needed, not that Kosmos takes the terms on itself.
  *   R10 an Accept the next read contradicts (still wordsNeeded) says this computer could not record the words.
- *   W1  kosmos#6567: the board's leave refusal on another computer ("not your work Kosmos") reads in a family's words;
+ *   W1  kosmos#6567: the board's leave refusal on a stale joined screen ("not your work Kosmos") reads in a family's words;
  *       a company keeps its own (CONTROL).
  *   W2  kosmos#6567: the stopped note says "is no longer in" the family; a company keeps "the work Kosmos for" (CONTROL).
  *   F10 a family's words checked while the block was held open only by a line under it stay up, with the code above.
@@ -329,7 +329,7 @@ async function run(engineName) {
     // kosmos#6565: a family's joined line says "in", never the company wording "your work Kosmos for".
     chk(r4.say === 'This Kosmos is in The Rivera family.' && !r4.say.includes('work Kosmos'),
       E + ' R4 a family\u2019s joined line reads "This Kosmos is in" the family, with no "work Kosmos"', JSON.stringify(r4.say));
-    /* kosmos#6567: two sentences outside plusOrgIn. W1: the board's leave refusal on a member's other computer is a plain
+    /* kosmos#6567: two sentences outside plusOrgIn. W1: the board's leave refusal on a stale joined screen is a plain
        server sentence, said through plusOrgIn with the org the page left. W2: the stopped note, written once the record
        is gone, says "is no longer in" for a family (the engine keeps the kind, GET /api/org sends stoppedKind). Each
        beside a company CONTROL, which keeps the company's words. */
@@ -343,7 +343,7 @@ async function run(engineName) {
       await page.click('#plus-org-leave-yes');
       await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
       const w1 = await text('plus-org-msg');
-      chk(w1 === want, E + ' W1 #6567 ' + who + '\u2019s leave refused on another computer reads in its own words', JSON.stringify(w1));
+      chk(w1 === want, E + ' W1 #6567 ' + who + '\u2019s leave refused on a stale joined screen reads in its own words', JSON.stringify(w1));
       await page.evaluate(() => { window.__leaveAnswer = null; });
     }
     for (const [who, kind, want] of [['a family', 'family', 'This Kosmos is no longer in The Rivera family, so it has stopped reporting.'],
