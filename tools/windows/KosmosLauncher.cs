@@ -1130,6 +1130,34 @@ class KosmosLauncher
 
     internal const string PageModeMessageKey = "kosmosMode";
 
+    // #6512 (the Windows half of #6358): the page's { kosmosSignin: true } (web signedOutTellApp), sent when the
+    // board no longer knows this window's session (a board restart or update ends every one). Only `true` is the
+    // message; anything else is not.
+    internal const string PageSigninMessageKey = "kosmosSignin";
+    internal static bool IsSigninPageMessage(string json)
+    {
+        string raw = TaskbarBadge.JsonMember(json, PageSigninMessageKey);
+        return raw != null && raw.Trim() == "true";
+    }
+
+    // #6512: PURE. What the window does with the page's "signed out", as the Mac's signInAgainDecision: sign in
+    // again (SignInAgain, the same fresh ?boot= address a second double-click of Kosmos.exe loads); wait, inside
+    // the once-a-minute limit, so a sign-in the board does not take never reloads the window in a loop; or give
+    // up, once, when there is no board token to sign in with or SignInAgainTries sign-ins in a row brought no
+    // board read. After giving up the window stays out of it (Stay) until a board read works (the page's badge
+    // post), and the page's panel says to open Kosmos.exe again, which still signs in. `lastMs` is null before
+    // the first try.
+    internal enum SignInAgainStep { SignIn, Wait, GiveUp, Stay }
+    internal const long SignInAgainMinGapMs = 60000;
+    internal const int SignInAgainTries = 3;
+    internal static SignInAgainStep SignInAgainDecision(long nowMs, long? lastMs, bool haveToken, bool gaveUp, int triesWithoutRead)
+    {
+        if (gaveUp) return SignInAgainStep.Stay;
+        if (!haveToken || triesWithoutRead >= SignInAgainTries) return SignInAgainStep.GiveUp;
+        if (lastMs == null || nowMs - lastMs.Value >= SignInAgainMinGapMs) return SignInAgainStep.SignIn;
+        return SignInAgainStep.Wait;
+    }
+
     // Where a connect computer's window goes: the same origin the phone apps and the Mac load (#2854).
     internal const string KosmosPlusSignIn = "https://login.kosmosplus.com/";
 
@@ -3268,6 +3296,12 @@ class BoardWindowForm : System.Windows.Forms.Form
     // The --print-url answer, asked again each time Kosmos.exe is opened while this window is up.
     readonly Func<string> resolveBoardAddress;
     bool signingInAgain;
+    // #6512: the page's "signed out" (PageSaysSignedOut): when the window last signed itself in again, on this
+    // window's own clock; whether it gave up; and how many of its sign-ins in a row brought no board read.
+    readonly Stopwatch windowClock = Stopwatch.StartNew();
+    long? lastSignInAgainAt;
+    bool signInAgainGaveUp;
+    int signInsWithoutRead;
     // #1765: the opener refused to name an address (KosmosLauncher.NotConfirmed), so the window shows why and loads nothing.
     bool boardNotConfirmed;
 
@@ -3516,6 +3550,30 @@ class BoardWindowForm : System.Windows.Forms.Form
         });
         resolve.IsBackground = true;
         resolve.Start();
+    }
+
+    // #6512: the page says the board no longer knows this window's session (a board restart ends every one), so
+    // the window signs itself in again the way a second double-click of Kosmos.exe does (SignInAgain: a fresh
+    // ?boot= address from open-board.js, which checks the board before it uses the token, #1765), as the Mac app
+    // answers kosmosSignin. Paced and capped by SignInAgainDecision, so a sign-in that does not take never
+    // reloads the window in a loop. A connect computer has no board here to sign in to.
+    void PageSaysSignedOut()
+    {
+        if (mode == KosmosLauncher.ComputerMode.Connect || !navigatedToBoard || signingInAgain) return;
+        long now = windowClock.ElapsedMilliseconds;
+        switch (KosmosLauncher.SignInAgainDecision(now, lastSignInAgainAt, TaskbarBadge.ReadBoardToken() != null, signInAgainGaveUp, signInsWithoutRead))
+        {
+            case KosmosLauncher.SignInAgainStep.SignIn:
+                lastSignInAgainAt = now;
+                signInsWithoutRead++;
+                SignInAgain();
+                return;
+            case KosmosLauncher.SignInAgainStep.GiveUp:
+                signInAgainGaveUp = true;
+                return;
+            default:
+                return;
+        }
     }
 
     void NavigateToBoard()
@@ -3786,11 +3844,16 @@ class BoardWindowForm : System.Windows.Forms.Form
         if (chosen != null) { PageChoseMode(chosen); return; }
         // A connect computer shows no badge, whatever a board page still on screen says.
         if (mode == KosmosLauncher.ComputerMode.Connect) return;
+        // #6512: the page's { kosmosSignin: true }: this window is signed out (PageSaysSignedOut).
+        if (KosmosLauncher.IsSigninPageMessage(json)) { PageSaysSignedOut(); return; }
         int? waiting;
         if (!TaskbarBadge.ReadsAsPageMessage(json, out waiting)) return;
         pageSaidWaiting.Restart();
-        // A post is a board read that worked, so the window's miss count starts again.
+        // A post is a board read that worked, so the window's miss count starts again, and so does
+        // its sign-in count (#6512): the last sign-in took, or the window never needed one.
         badgeMisses = 0;
+        signInAgainGaveUp = false;
+        signInsWithoutRead = 0;
         ShowBadge(waiting, ++badgeAsked);
     }
 

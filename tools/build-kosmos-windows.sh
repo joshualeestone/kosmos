@@ -346,6 +346,28 @@ echo "==> the launcher will open http://127.0.0.1:$PORT_DEFAULT"
 LAUNCHER="$REPO/tools/windows/Kosmos.exe"
 [ -f "$LAUNCHER" ] || { echo "the committed launcher is missing: tools/windows/Kosmos.exe" >&2; exit 1; }
 
+# 🛑 #6512: A SOURCE CHANGE WITHOUT A REBUILD IS REFUSED. #6437 and #6449 changed
+# KosmosLauncher.cs "source only", and a cut from main would have shipped the
+# older binary without them, silently. A Mac cannot rebuild or byte-check the exe
+# (verify-launcher.ps1 is Windows-only), but it can see the ORDER of commits: the
+# last commit that touched the source must also be in the history of the last
+# commit that touched the exe (the same commit counts). If it is not, the exe is
+# older than its source. Without git history to read (an export, a shallow clone
+# missing those commits) this says so and goes on: it is a tripwire for drift,
+# not the provenance check, which stays verify-launcher.ps1.
+LAUNCHER_SRC_AT="$(git -C "$REPO" log -1 --format=%H -- tools/windows/KosmosLauncher.cs 2>/dev/null || true)"
+LAUNCHER_EXE_AT="$(git -C "$REPO" log -1 --format=%H -- tools/windows/Kosmos.exe 2>/dev/null || true)"
+if [ -n "$LAUNCHER_SRC_AT" ] && [ -n "$LAUNCHER_EXE_AT" ]; then
+  git -C "$REPO" merge-base --is-ancestor "$LAUNCHER_SRC_AT" "$LAUNCHER_EXE_AT" || {
+    echo "tools/windows/Kosmos.exe is older than tools/windows/KosmosLauncher.cs:" >&2
+    echo "the source changed in $LAUNCHER_SRC_AT, after the exe's last rebuild in $LAUNCHER_EXE_AT." >&2
+    echo "Rebuild and re-sign Kosmos.exe on the Windows box (tools/windows/README.md), and commit it." >&2
+    exit 1
+  }
+else
+  echo "note: no git history for the launcher here, so its source-vs-exe order is not checked (#6512)" >&2
+fi
+
 # 🛑 THE PORT IS BAKED INTO THE LAUNCHER AND READ OUT OF server.js HERE, so this
 # is the THIRD copy of one number and the one nobody can see. The launcher's
 # source names its own default; if server.js ever moves and the launcher is not
