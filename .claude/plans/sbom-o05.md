@@ -48,17 +48,19 @@ real fix.
 - **`tools.sbom-o05.test.js`:** 33 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
   must equal build()'s output byte for byte. Every rule added in reviews 1 to 11 has a mutant that fails an arm,
-  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven, eight, three, four, seven and six per
+  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven, eight, three, four, seven, six and five per
   round); the mutants of code later removed (the script's variable and url parsing) were retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
   split; review 10's signature length guard (crypto.verify refuses other lengths) and edge de-duplication.
-- **The Mac app is checked, not stated** (review 10): the shipped app/bin/kosmos-app must hash to the manifest's
-  signed native_app.signed_sha256, and native-app/main.swift at the app commit may import only Apple frameworks
-  (an allowlist); a Swift package or another module refuses. Review 15: comments and string literals are blanked
-  first (quote-aware, nested /* */), and any statement left that mentions import must be one import in the plain
-  shape, so an access-level import, an attribute with arguments or an unknown form refuses rather than going unread.
-  The real 7,600-line main.swift reads cleanly under it.
+- **The Mac app's source is checked** (reviews 10, 15, 16): native-app/main.swift at the app commit may import only
+  Apple frameworks (an allowlist), read two ways. (1) On the RAW text: any import at the start of a statement, after
+  an attribute or an access level, must name an Apple module; this does not depend on telling strings and comments
+  apart, so a scanner that loses track of a quote cannot hide one (review 16 showed three ways the second check alone
+  could), and it is stricter than Swift (an import at a line start inside a multi-line string refuses). (2) With
+  comments and strings blanked: any statement that mentions import must be one import in the plain shape. The real
+  7,600-line main.swift passes both. LIMIT (review 16): the shipped app/bin/kosmos-app is not tied to that source;
+  the manifest's native_app hash and its files entry are taken from the same file, so they agree by construction.
 - **The connector crate is the binary's crate:** the relay workspace member kosmos-tunnel-client must declare the
   [[bin]] kosmos-tunnel, and the lockfile must hold exactly one such package.
 - **The first-party claim is checked, not stated** (reviews 6 and 7): every path in the signed manifest's file list
@@ -88,9 +90,12 @@ real fix.
   (review 14) each version the VERSION file names must also be in the bytes of the binary or library it describes
   (3.5a in bin/tmux, 2.1.12-stable in libevent, 6.5 in ncurses, 2.9.0 in utf8proc, all true for 0.7.59): a stale or
   edited VERSION refuses. This is a string-presence check, not a proof of the version.
-- **The manifest's format is pinned** (review 14): format 1 only, and a top-level key this SBOM does not know refuses,
+- **The manifest's format is pinned** (reviews 14 and 16): format 1 only, and a key this SBOM does not know refuses, at
+  the top level and inside app, node, connector, native_app and built,
   so a future manifest that signs a new shipped part cannot produce an SBOM without it. The release and node versions
-  must be plain x.y.z. The SBOM names its generator (metadata.tools) and its output format is part of the serial.
+  must be plain x.y.z. The SBOM names its generator (metadata.tools); the serial includes its format and a hash of the generator's own
+  source, so a changed generator never reuses a document id. The tmux bundle is a file component (no version), so a
+  scanner sees tmux once, as its part.
 - **The connector and node are tied to shipped files:** the manifest must ship app/bin/kosmos-tunnel with the
   connector's signed sha256, and runtime/bin/node. Commits must be full shas, and the manifest must say `dirty: false`.
 - **The manifest's signature is verified** under the checkout's pinned keys (engine/manifest-verify.js) before
@@ -106,6 +111,7 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- macOS's own libraries (libSystem, libresolv, the Apple frameworks) are not listed: they are the operating system.
 - After the release key is rotated, a manifest signed only by the retired key refuses here (the checkout's KEYS are
   used), so an old release's SBOM is rebuilt from a checkout that still pins its key, or not at all.
 - The second native binary, app/Kosmos.app/Contents/MacOS/Kosmos (a re-signed copy of kosmos-app, so a different
@@ -122,8 +128,8 @@ real fix.
   construction (the bundle build lists every file of the same stage it packs, and refuses anything that is not a plain
   file; on an update the installed copy also checks every file against it). The shipped runtime/bin/node is not tied to the nodejs.org hash here; the bundle build checks
   it against nodejs.org's SHASUMS256 before packing.
-- Of the shipped files, only app/package.json, app/bin/kosmos-tunnel and app/bin/kosmos-app are tied by hash (to
-  git, the connector record and the Mac app record).
+- Of the shipped files, only app/package.json is tied by hash to an independent source (git). app/bin/kosmos-tunnel
+  and app/bin/kosmos-app agree with their manifest records, which the bundle build takes from the same files.
 - That the connector binary was built from the Cargo.lock at its recorded relay commit: the commit is the relay
   build's own record (its sidecar); this tool does not rebuild the connector to check it.
 - Node's own bundled libraries (V8, OpenSSL and so on) are not listed one by one. Node is one component, matched

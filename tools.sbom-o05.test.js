@@ -300,7 +300,8 @@ test('every vouched field: the release hash, node\'s purl, cpe and download, eac
   assert.equal(node.cpe, 'cpe:2.3:a:nodejs:node.js:24.19.0:*:*:*:*:*:*:*');
   assert.deepEqual(node.externalReferences, [{ type: 'distribution', url: 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-darwin-arm64.tar.gz',
     hashes: [{ alg: 'SHA-256', content: SHA('e') }] }]);
-  assert.equal(comp(b, 'tmux-bundle').type, 'application');
+  assert.equal(comp(b, 'tmux-bundle').type, 'file', 'the bundle is a file; its parts carry the versions');
+  assert.equal(comp(b, 'tmux-bundle').version, undefined);
   assert.equal(comp(b, 'connector').type, 'application');
   const tmux = comp(b, 'tmux-part:tmux');
   assert.equal(tmux.type, 'application');
@@ -435,7 +436,12 @@ test('the Mac app: its shipped binary is the one signed, and it imports Apple fr
   for (const imp of ['public import Sparkle', 'internal import Sparkle', '@_spi(Private) import Sparkle', '/* x */ import Sparkle']) {
     assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + imp + '\n')), /an import this SBOM cannot read|imports Sparkle/, imp);
   }
-  const quiet = SWIFT + '// the import-scan walk\nlet s = "import Sparkle // not code"\n/* import Sparkle\n   /* nested */ still a comment */\nlet m = """\nimport Sparkle\n"""\n';
+  for (const hide of ['let s = #"a"b"#\nimport Sparkle', 'let t = "\\(a["/*"])"\nimport Sparkle', 'let u = "a\\\nimport Sparkle']) {
+    assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + hide + '\n')), /imports Sparkle|an import this SBOM cannot read/, hide);
+  }
+  const quiet = SWIFT + '// the import-scan walk\nlet s = "import Sparkle // not code"\n/* the import Sparkle story\n   /* nested */ still a comment */\nlet m = """\n  see import Sparkle\n"""\n';
+  assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + 'let m = """\nimport Sparkle\n"""\n')), /imports Sparkle/,
+    'the raw check is stricter than Swift: an import at a line start inside a multi-line string refuses (the safe direction)');
   assert.ok(sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, quiet)), 'comments and strings that say import are not imports');
 });
 
@@ -517,6 +523,9 @@ test('a crate that depends back on the connector points at the connector compone
 test('the manifest format is pinned: another format, an unknown part or a malformed version refuses', () => {
   assert.throws(() => sbom({ ...MANIFEST, manifest: 2 }), /manifest format 2: this SBOM reads format 1/);
   assert.throws(() => sbom({ ...MANIFEST, cloudflared_sha256: SHA('1') }), /manifest has cloudflared_sha256, a part this SBOM does not know/);
+  assert.throws(() => sbom({ ...MANIFEST, node: { ...MANIFEST.node, icu_sha256: SHA('1') } }), /manifest node\.icu_sha256 is a part this SBOM does not know/);
+  assert.throws(() => sbom({ ...MANIFEST, connector: { ...MANIFEST.connector, helper_sha256: SHA('1') } }), /manifest connector\.helper_sha256/);
+  assert.throws(() => sbom({ ...MANIFEST, built: 'today' }), /manifest built is not an object/);
   assert.throws(() => sbom({ ...MANIFEST, version: '0.7.60/../x' }), /manifest version 0\.7\.60\/\.\.\/x is not a release version/);
   assert.throws(() => sbom({ ...MANIFEST, node: { ...MANIFEST.node, version: 'v24.19.0/../../evil:x' } }), /node version .* is not a version/);
   const b = sbom();

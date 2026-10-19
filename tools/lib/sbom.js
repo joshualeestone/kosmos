@@ -27,6 +27,9 @@
  * LIMIT: a library linked statically into tmux with neither a VERSION line nor a licence file is invisible here; so is a
  * static C library brought into the Mac app by a bridging header or a linker flag rather than an import, and the
  * second native binary (Kosmos.app/Contents/MacOS/Kosmos, a re-signed copy of kosmos-app) is accepted by name only.
+ * LIMIT: the Mac app's shipped binary is not tied to native-app/main.swift at the app commit: the manifest's
+ * native_app hash and its files entry for app/bin/kosmos-app are taken from the same file, so the Apple-only import
+ * check vouches for the source, not the binary (the same gap as the connector's commit).
  * LIMIT: a vendored third-party crate made a member of the relay workspace passes as first-party.
  * Out of scope: the provider tools (Claude Code, Codex and so on) Kosmos downloads later, when a person asks.
  * LIMIT: the release tarball itself is not read: its hash comes from the manifest. The manifest's file list is
@@ -358,6 +361,12 @@ function checkNativeApp(manifest, swift) {
   }
   // Every statement that mentions import, once comments are gone, must be one import in the plain shape; anything
   // else (an access level, an attribute with arguments, a form this does not know) refuses rather than going unread.
+  // A second check on the RAW text, which does not depend on telling strings and comments apart (a scanner that loses
+  // track of a quote could hide an import): any import at the start of a statement must name an Apple module. It is
+  // stricter than Swift (a comment line that starts with "import X" refuses too), the safe direction.
+  for (const m of swift.matchAll(/(?:^|;)[ \t]*(?:@\w+(?:\([^)\n]*\))?\s+)*(?:(?:public|package|internal|fileprivate|private)\s+)?import\s+(?:(?:class|struct|enum|func|protocol|typealias|var|let)\s+)?([A-Za-z_][A-Za-z0-9_]*)/gm)) {
+    if (!APPLE_MODULES.has(m[1])) throw new Error(`native-app/main.swift imports ${m[1]}, which is not an Apple framework this SBOM knows`);
+  }
   for (const stmt of swiftCode(swift).split(/[\n;]/)) {
     if (!/\bimport\b/.test(stmt)) continue;
     const m = stmt.match(/^\s*(?:@(?:preconcurrency|testable)\s+)?import\s+(?:(?:class|struct|enum|func|protocol|typealias|var|let)\s+)?([A-Za-z_][A-Za-z0-9_]*)(?:\.[A-Za-z_][A-Za-z0-9_]*)*\s*$/);
@@ -368,9 +377,14 @@ function checkNativeApp(manifest, swift) {
 
 const MANIFEST_KEYS = new Set(['manifest', 'version', 'arch', 'artifact', 'sha256', 'app', 'node', 'connector', 'native_app', 'built',
   'pinned_keys', 'setup_sha256', 'tmux_sha256', 'files']);
+const MANIFEST_PART_KEYS = { app: new Set(['commit', 'dirty']), node: new Set(['version', 'download_sha256']),
+  connector: new Set(['signed_sha256', 'input_sha256', 'commit']), native_app: new Set(['signed_sha256']),
+  built: new Set(['at', 'host', 'macos']) };
 const SEMVER = /^\d+\.\d+\.\d+$/;
 // The format of this SBOM's output; part of the serial number, so a changed generator never reuses a document id.
 const FORMAT = 'kosmos-sbom-1';
+// And this file's own bytes, so a change to the generator changes the id even if FORMAT was not bumped.
+const SELF_SHA = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex').slice(0, 16);
 
 function build(manifest, { repo, relay, tmux, show = gitShow }) {
   if (manifest.manifest !== 1) throw new Error(`manifest format ${manifest.manifest}: this SBOM reads format 1`);
@@ -378,6 +392,12 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
     if (!MANIFEST_KEYS.has(k)) throw new Error(`manifest has ${k}, a part this SBOM does not know (it would be left out)`);
   }
   for (const k of ['version', 'app', 'node', 'connector']) if (!manifest[k]) throw new Error(`manifest has no ${k}`);
+  for (const [part, keys] of Object.entries(MANIFEST_PART_KEYS)) {
+    const v = manifest[part];
+    if (v === undefined) continue;
+    if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new Error(`manifest ${part} is not an object`);
+    for (const k of Object.keys(v)) if (!keys.has(k)) throw new Error(`manifest ${part}.${k} is a part this SBOM does not know (it would be left out)`);
+  }
   if (!manifest.node.version) throw new Error('manifest has no node version');
   if (!SEMVER.test(manifest.version)) throw new Error(`manifest version ${manifest.version} is not a release version`);
   if (!SEMVER.test(manifest.node.version.replace(/^v/, ''))) throw new Error(`manifest node version ${manifest.node.version} is not a version`);
@@ -418,8 +438,8 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
     { type: 'framework', 'bom-ref': 'node', name: 'node', version: node, purl: `pkg:generic/nodejs/node@${encodeURIComponent(node)}`,
       cpe: cpe('node', node), description: `Node.js runtime, the official darwin-${arch} tarball`,
       externalReferences: download(`https://nodejs.org/dist/v${node}/node-v${node}-darwin-${arch}.tar.gz`, manifest.node.download_sha256) },
-    { type: 'application', 'bom-ref': 'tmux-bundle', name: `tmux-${arch}`, version: tmux.versions.tmux,
-      hashes: hashOf(manifest.tmux_sha256), description: 'the tmux bundle the release ships (tmux and the libraries it links)' },
+    { type: 'file', 'bom-ref': 'tmux-bundle', name: `tmux-${arch}.tar.gz`,
+      hashes: hashOf(manifest.tmux_sha256), description: 'the tmux bundle the release ships (tmux and the libraries it links, listed as its parts)' },
     tmuxPart('tmux'), ...libs.map(tmuxPart),
     { type: 'application', 'bom-ref': 'connector', name: CONNECTOR_CRATE, version: root.version,
       hashes: hashOf(manifest.connector.signed_sha256), description: `the Plus connector, kosmos-relay ${relayCommit}` },
@@ -427,7 +447,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
   ];
   return {
     bomFormat: 'CycloneDX', specVersion: '1.5', version: 1,
-    serialNumber: `urn:uuid:${uuidFrom(`${FORMAT}:${manifest.sha256}`)}`,
+    serialNumber: `urn:uuid:${uuidFrom(`${FORMAT}:${SELF_SHA}:${manifest.sha256}`)}`,
     metadata: {
       timestamp: builtAt(manifest),
       tools: { components: [{ type: 'application', name: 'kosmos tools/lib/sbom.js', version: FORMAT }] },
