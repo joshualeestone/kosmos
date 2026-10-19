@@ -24,7 +24,8 @@ const STALE_MS = 2 * 20 * 60 * 60 * 1000;
 
 const count = (v) => (Number.isInteger(v) && v >= 0 ? v : 0);
 const len = (v) => (Array.isArray(v) ? v.length : 0);
-const secs = (v) => (Number.isInteger(v) && v > 0 ? v : null);
+/* Unix seconds as the tunnel writes them (an i64); a number with a fraction is floored, anything else is absent. */
+const secs = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : null);
 
 /** What the check found, from `dir` at `nowMs`. Never throws. */
 function certWatchFrom(dir, nowMs) {
@@ -34,7 +35,7 @@ function certWatchFrom(dir, nowMs) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     /* A file that is there but does not parse is not "never checked". */
     const there = fs.existsSync(path.join(dir, REPORT_FILE));
-    return { on, state: there ? 'unknown' : 'none', foreign: 0, earlier: 0, beforeRecord: 0, checkedAt: null, failing: there, lost: false };
+    return { on, state: there ? 'unknown' : 'none', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, checkedAt: null, failing: there };
   }
   const foreign = len(raw.foreign) + count(raw.foreign_overflow);
   const earlier = len(raw.earlier_foreign) + count(raw.earlier_overflow);
@@ -44,7 +45,8 @@ function certWatchFrom(dir, nowMs) {
   if (foreign + earlier > 0) state = 'foreign';
   /* Both directions on purpose: a check dated far in the future (a skewed clock, a bad write) is not current either. */
   else if (state === 'clear' && (checkedAt === null || Math.abs(nowMs - checkedAt * 1000) >= STALE_MS)) state = 'unknown';
-  /* An earlier report could not be read and was kept aside by the tunnel: findings in it may be lost. */
+  /* An earlier report could not be read and was kept aside by the tunnel: findings in it may be lost. The tunnel
+     keeps the marker until a person has looked; acknowledging it from the board is kosmos#6613. */
   const lost = secs(raw.damaged_report_at) !== null;
   if (lost && state === 'clear') state = 'unknown';
   return {

@@ -26,12 +26,15 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
 - The switch route is person-only (`isViaScreen`, 403 otherwise): an agent cannot turn the check off.
 - A finding only for a previous address, and a lost (damaged) earlier report, each have their own
   sentence. Known gap: the tunnel asks the board to acknowledge a lost report (it stays until a person
-  has looked); this branch ships no acknowledge, so that sentence stays until the state dir changes.
+  has looked); this branch ships no acknowledge, so that sentence stays until the state dir changes. Owner: kosmos#6613.
 - Known gap, follow-up: a finding shows only in the Settings Plus pane. Nothing else on the screen (a
-  badge, a banner) raises it, so a person who never opens Settings never sees it. Next step after this
-  lands: surface a `foreign` state where the person already looks (the remote-access bar or a notice).
+  badge, a banner) raises it, so a person who never opens Settings never sees it. Next step (kosmos#6613):
+  surface a `foreign` state where the person already looks (the remote-access bar or a notice).
 - No acknowledge button yet: a finding stays until the tunnel's report changes. Rejected for now, a
   "dismiss" would hide a security finding with one click; revisit with a design review.
+- The status line is never hidden (a live region must be in the page when its first text arrives); empty, it
+  takes no room.
+- The report's field names and types are pinned by a sample shaped as kosmos-relay#459 writes it.
 - Wording is mine and reversible ("Warning: ... did not ask for. Someone else may be able to pose as this
   computer."). It does not tell the person what to do next, because there is no support path to name yet.
 

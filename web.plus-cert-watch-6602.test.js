@@ -34,7 +34,7 @@ function world() {
 test('a finding is said, in the warning state, and the switch shows on', () => {
   const { ctx, el } = world();
   ctx.paintPlusCertWatch({ on: true, state: 'foreign', foreign: 1 });
-  assert.equal(el('plus-cw-line').hidden, false);
+  assert.notEqual(el('plus-cw-line').textContent, '');
   assert.match(el('plus-cw-line').textContent, /did not ask for/);
   assert.equal(el('plus-cw-line').dataset.state, 'foreign');
   assert.equal(el('plus-cw-row').hidden, false);
@@ -45,22 +45,22 @@ test('clear and never-run say nothing; unknown says it cannot confirm (the contr
   const { ctx, el } = world();
   for (const state of ['clear', 'none']) {
     ctx.paintPlusCertWatch({ on: true, state });
-    assert.equal(el('plus-cw-line').hidden, true, state);
+    
     assert.equal(el('plus-cw-line').textContent, '', state);
   }
   ctx.paintPlusCertWatch({ on: true, state: 'unknown' });
-  assert.equal(el('plus-cw-line').hidden, false);
+  assert.notEqual(el('plus-cw-line').textContent, '');
   assert.match(el('plus-cw-line').textContent, /not been able to confirm/);
 });
 
 test('switched off: a finding is still said (with "the check is off"), nothing else is, and the switch shows off', () => {
   const { ctx, el } = world();
   ctx.paintPlusCertWatch({ on: false, state: 'foreign', foreign: 2 });
-  assert.equal(el('plus-cw-line').hidden, false);
+  assert.notEqual(el('plus-cw-line').textContent, '');
   assert.match(el('plus-cw-line').textContent, /did not ask for\..* The check is off\.$/);
   assert.equal(el('plus-cw-switch').getAttribute('aria-checked'), 'false');
   ctx.paintPlusCertWatch({ on: false, state: 'unknown' });
-  assert.equal(el('plus-cw-line').hidden, true);
+  assert.equal(el('plus-cw-line').textContent, '');
 });
 
 test('a finding only for an earlier address says so; a lost report says so', () => {
@@ -78,11 +78,11 @@ test('a finding only for an earlier address says so; a lost report says so', () 
 test('with Kosmos+ off, cannot-confirm is not said, but a finding still is', () => {
   const { ctx, el } = world();
   ctx.paintPlusCertWatch({ on: true, state: 'unknown' }, false);
-  assert.equal(el('plus-cw-line').hidden, true);
+  assert.equal(el('plus-cw-line').textContent, '');
   ctx.paintPlusCertWatch({ on: true, state: 'unknown', lost: true }, false);
-  assert.equal(el('plus-cw-line').hidden, true);
+  assert.equal(el('plus-cw-line').textContent, '');
   ctx.paintPlusCertWatch({ on: true, state: 'foreign', foreign: 1 }, false);
-  assert.equal(el('plus-cw-line').hidden, false);
+  assert.notEqual(el('plus-cw-line').textContent, '');
 });
 
 /* The click handler: lifted with its stubs, driven twice at once (the busy guard), and once refused. */
@@ -126,12 +126,13 @@ test('a refused change says why', async () => {
 test('an older server with no certWatch hides the line and the switch', () => {
   const { ctx, el } = world();
   ctx.paintPlusCertWatch(undefined);
-  assert.equal(el('plus-cw-line').hidden, true);
+  assert.equal(el('plus-cw-line').textContent, '');
   assert.equal(el('plus-cw-row').hidden, true);
 });
 
 test('paintPlus paints it, and the markup carries the line, the switch and its label', () => {
   assert.ok(SCRIPT.includes("paintPlusCertWatch(r.certWatch, r.on === true)"), 'paintPlus no longer paints the certificate check');
+  assert.match(PAGE, /<p class="fhint plus-cw-line" id="plus-cw-line" role="status"><\/p>/, 'the live line must stay in the page (not hidden) so its first text is announced');
   for (const id of ['plus-cw-line', 'plus-cw-row', 'plus-cw-switch', 'plus-cw-label']) assert.ok(PAGE.includes('id="' + id + '"'), id);
   assert.match(PAGE, /this sends the address to Cert Spotter/, 'the switch must say what it sends where');
 });

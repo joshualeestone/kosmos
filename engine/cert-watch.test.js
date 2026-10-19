@@ -20,7 +20,40 @@ test('the file names are the tunnel\'s (crates/tunnel/src/ctwatch.rs): change bo
 });
 
 test('no report yet is none, and on', () => {
-  assert.deepEqual(certWatchFrom(dir(), NOW), { on: true, state: 'none', foreign: 0, earlier: 0, beforeRecord: 0, checkedAt: null, failing: false, lost: false });
+  assert.deepEqual(certWatchFrom(dir(), NOW), { on: true, state: 'none', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, checkedAt: null, failing: false });
+});
+
+/* A report exactly as the tunnel writes one (kosmos-relay#459, crates/tunnel/src/ctwatch.rs check_with): every key it
+   writes, with the JSON types serde_json gives them. If the tunnel renames a key or changes a type, change this too. */
+const TUNNEL_SAMPLE = (checkedAt) => ({
+  address: 'mine.kosmosplus.com', earlier_foreign: [], earlier_overflow: 0, full_at: checkedAt,
+  foreign_overflow: 0, bad_ids: 0, unmatched: 0, cursor: '17000000000', before_record: 2,
+  before_record_sample: [{ id: '16000000000', cert_sha256: 'ab', pubkey_sha256: 'cd', not_before: '2026-09-01T00:00:00Z' }],
+  record_since: checkedAt - 86400, state: 'clear', foreign: [], checked_at: checkedAt,
+});
+
+test('a report shaped as the tunnel writes it reads as the tunnel meant', () => {
+  const d = dir();
+  put(d, TUNNEL_SAMPLE(S - 60));
+  const w = certWatchFrom(d, NOW);
+  assert.equal(w.state, 'clear');
+  assert.equal(w.checkedAt, S - 60);
+  assert.equal(w.beforeRecord, 2);
+  const f = TUNNEL_SAMPLE(S - 60);
+  f.state = 'foreign';
+  f.foreign = [{ id: '17000000001', cert_sha256: 'ef', pubkey_sha256: '11', dns_names: ['mine.kosmosplus.com'], not_before: '2026-10-19T01:00:00Z', not_after: '2027-01-17T00:00:00Z', revoked: false, found_at: S - 60 }];
+  put(d, f);
+  assert.equal(certWatchFrom(d, NOW).state, 'foreign');
+  assert.equal(certWatchFrom(d, NOW).foreign, 1);
+  const failing = TUNNEL_SAMPLE(S - 3600);
+  failing.error = 'the log search answered 429';
+  failing.error_at = S - 60;
+  put(d, failing);
+  assert.equal(certWatchFrom(d, NOW).failing, true);
+  put(d, { state: 'clear', checked_at: S - 60.5 });
+  assert.equal(certWatchFrom(d, NOW).checkedAt, S - 61, 'a fraction is floored, not refused');
+  put(d, { state: 'clear', checked_at: String(S) });
+  assert.equal(certWatchFrom(d, NOW).state, 'unknown', 'a string is not a time');
 });
 
 test('a recent clear is clear; the control: the same report, old, is unknown', () => {
