@@ -4278,6 +4278,43 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
   joinConfirm: Object.freeze({ code: 'remote_not_allowed', error: "Finishing this computer's join is done at the computer itself, not from a remote session." }),
   agentToken: Object.freeze({ code: 'remote_not_allowed', error: 'Agent tokens are made at the computer itself, not from a remote session.' }),
 });
+/* kosmos#6595 (R01, the step-up half; Splinter's ruling 09:44 2026-10-19): from a remote session, entering a key or
+   token, updating Kosmos, and making an agent (every agent here runs with an unsandboxed shell) need a FRESH sign-in
+   with the second factor. The Kosmos+ gate states the session it admitted in two headers it writes over any client
+   value and strips on every other path (kosmos-relay sessioniat-6595): x-kosmos-session-iat, the decimal second the
+   session's email code was proven, and x-kosmos-session-second, 1 when the second factor was. Missing or malformed
+   counts as NOT fresh, so a gate older than those headers asks for the step-up every time rather than never. A local
+   request is not asked: the person is at the computer. Taking things away (deleting a key, forgetting a token) is
+   not asked either. */
+const REMOTE_STEP_UP_SECS = 10 * 60;
+function remoteSessionFresh(headers, nowSecs) {
+  const h = headers || {};
+  if (h['x-kosmos-session-second'] !== '1') return false;
+  const raw = h['x-kosmos-session-iat'];
+  if (typeof raw !== 'string' || !/^[0-9]{1,12}$/.test(raw)) return false;
+  const age = nowSecs - Number(raw);
+  // Bounded both sides: an issue time ahead of this clock is fresh only within a minute of drift.
+  return age >= -60 && age <= REMOTE_STEP_UP_SECS;
+}
+const REMOTE_STEP_UP_EXACT = new Set([
+  'POST /api/update', 'POST /api/update/rollback', 'POST /api/connect/start',
+  'POST /api/accounts/openai', 'POST /api/accounts/claude/apikey', 'POST /api/accounts/gemini/apikey',
+  'POST /api/accounts/grok/apikey', 'POST /api/accounts/qwen', 'POST /api/cloudflare/token',
+  'POST /api/agents', 'POST /api/team', 'POST /api/connect-agent',
+]);
+function needsRemoteStepUp(pathname, method) {
+  if (REMOTE_STEP_UP_EXACT.has(method + ' ' + pathname)) return true;
+  return method === 'POST' && /^\/api\/svc\/[a-z0-9-]+\/token$/.test(pathname);
+}
+const REMOTE_STEP_UP = Object.freeze({
+  code: 'remote_step_up',
+  error: 'From a remote session this needs a fresh sign-in: sign out of Kosmos+ on this page, sign in again with your authenticator code, then try again within 10 minutes.',
+});
+/* The refusal for this request, or null. One place, before any route reads a body. */
+function remoteStepUpRefusal(req, pathname, nowSecs) {
+  if (!needsRemoteStepUp(pathname, req.method) || !isRemoteRequest(req)) return null;
+  return remoteSessionFresh(req.headers, nowSecs) ? null : REMOTE_STEP_UP;
+}
 /* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
    Kosmos+ reaches the board over loopback, which is why the header rule stays). */
 function ticketCallerHere(req) {
@@ -5614,6 +5651,12 @@ const server = http.createServer(async (req, res) => {
   const remoteRefusal = remoteWriteGuard(req, pathname);
   if (remoteRefusal) {
     sendJson(res, 403, { error: remoteRefusal });
+    return;
+  }
+  // kosmos#6595 (R01): a key, an update or a new agent from a remote session needs a fresh second-factor sign-in.
+  const stepUp = remoteStepUpRefusal(req, pathname, Math.floor(Date.now() / 1000));
+  if (stepUp) {
+    sendJson(res, 403, stepUp);
     return;
   }
 
@@ -25286,6 +25329,7 @@ module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
+  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test
