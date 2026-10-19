@@ -55,8 +55,8 @@ connector_currency_check() {
     echo "connector_currency: $relay is not a git checkout, so there is nothing to compare the connector with. Set KOSMOS_RELAY_REPO to the kosmos-relay checkout." >&2; return 1; }
   # An EXPLICIT refspec: a clone whose fetch refspec does not cover main (single-branch, or
   # narrowed by hand) would otherwise update only FETCH_HEAD and leave a stale origin/main,
-  # a false green (review 1). No prompt: a box without credentials must fail, not hang (GCM_INTERACTIVE is Git
-  # Credential Manager's own no-prompt switch, for the Windows build, #6628).
+  # a false green (review 1). No prompt: over HTTPS a box without credentials must fail, not hang (GCM_INTERACTIVE is
+  # Git Credential Manager's own no-prompt switch, for the Windows build, #6628).
   rc=0; out=$(GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git -C "$relay" fetch --quiet origin +refs/heads/main:refs/remotes/origin/main 2>&1) || rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "connector_currency: could not fetch kosmos-relay origin/main in $relay, so whether the connector is current is UNKNOWN (refused, not assumed):" >&2

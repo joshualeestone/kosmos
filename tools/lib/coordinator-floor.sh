@@ -86,7 +86,7 @@ coordinator_floor_check() {
     echo "coordinator_floor: could not read $url/v1/meta${_why:+ ($_why)}, so whether the coordinator carries what this connector needs is UNKNOWN; refused. Retry; if it persists, check $url/v1/meta by hand (the override does not cover this)." >&2
     [ "$curl_err" = /dev/null ] || rm -f "$curl_err"; return 1; }
   [ "$curl_err" = /dev/null ] || rm -f "$curl_err"
-  # Parsed as JSON (node, which release.sh already needs), the top-level "build" only; then held to its shapes.
+  # Parsed as JSON (node), the top-level "build" only; then held to its shapes.
   build="$(printf '%s' "$meta" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(typeof j.build==="string"?j.build:"")}catch{}' 2>/dev/null)"
   # The WHOLE value held to the shape (a bash match, not a line-wise grep: a value with a newline in it fails).
   if [ -n "$build" ] && [ "$build" != unknown ] && ! [[ "$build" =~ ^[0-9a-f]{7,40}(-dirty)?$ ]]; then
