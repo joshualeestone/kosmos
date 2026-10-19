@@ -212,7 +212,7 @@ else
     if [ -n "$_pin_v" ] \
        && /usr/bin/curl -fsSL --connect-timeout 20 -m 60 -o "$_pin_dir/manifest.json" "$_pin_base/kosmos-$_pin_v-arm64.manifest.json$_pin_bust" \
        && /usr/bin/curl -fsSL --connect-timeout 20 -m 60 -o "$_pin_dir/manifest.sig" "$_pin_base/kosmos-$_pin_v-arm64.manifest.json.sig$_pin_bust" \
-       && /usr/bin/curl -fsSL --connect-timeout 20 -m 300 -o "$_pin_dir/setup" "$SETUP_URL"; then
+       && /usr/bin/curl -fsSL --connect-timeout 20 -m 300 -o "$_pin_dir/setup" "$SETUP_URL$_pin_bust"; then
       _pin_rc=0
       _pin_out="$("$_pin_helper" "$_pin_dir/manifest.json" "$_pin_dir/manifest.sig" "$_pin_v" "$_pin_floor")" || _pin_rc=$?
       # 97 is the helper refusing the release, rechecked below; any other failure (a bad argument, a crash, a refused
@@ -246,8 +246,18 @@ else
       echo "Kosmos: the installer or its signed release could not be downloaded, so nothing was installed. It is safe to try again shortly." >&2
       exit 96
     fi
-    /bin/sleep "${KOSMOS_PKG_RETRY_SLEEP:-3}"
+    _pin_sleep="${KOSMOS_PKG_RETRY_SLEEP:-3}"
+    case "$_pin_sleep" in ""|*[!0-9]*) _pin_sleep=3 ;; esac
+    [ "$_pin_sleep" -le 10 ] || _pin_sleep=10
+    /bin/sleep "$_pin_sleep"
   done
+  # The pins mean something only to an installer that honours them. One that predates them would install the Kosmos
+  # and tmux downloads unchecked, so its signed bytes must carry the line that says it does (grepped AFTER its sha256
+  # matched the signed release, so the line is part of what was signed). A floor set too low fails closed here.
+  if ! /usr/bin/grep -qx "# kosmos-pkg-pins: honored" "$_pin_dir/setup"; then
+    echo "Kosmos: the release offered ($_pin_v) is signed, but its installer cannot hold the downloads to it, so nothing was installed." >&2
+    exit 97
+  fi
   /bin/chmod 644 "$_pin_dir/setup"
   PIN_SETUP="$_pin_dir/setup"
   PIN_VERSION="$_pin_v"
