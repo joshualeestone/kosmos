@@ -27,6 +27,9 @@ Follow-up to kosmos#6588 (tunnel side: kosmos-relay#459). Detail of the underlyi
 - A finding only for a previous address, and a lost (damaged) earlier report, each have their own
   sentence. Known gap: the tunnel asks the board to acknowledge a lost report (it stays until a person
   has looked); this branch ships no acknowledge, so that sentence stays until the state dir changes.
+- Known gap, follow-up: a finding shows only in the Settings Plus pane. Nothing else on the screen (a
+  badge, a banner) raises it, so a person who never opens Settings never sees it. Next step after this
+  lands: surface a `foreign` state where the person already looks (the remote-access bar or a notice).
 - No acknowledge button yet: a finding stays until the tunnel's report changes. Rejected for now, a
   "dismiss" would hide a security finding with one click; revisit with a design review.
 - Wording is mine and reversible ("Warning: ... did not ask for. Someone else may be able to pose as this
