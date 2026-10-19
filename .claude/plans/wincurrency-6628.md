@@ -29,8 +29,10 @@ Card: kosmos#6628. Assigned by Liu Kang (tmux UPDATE, 2026-10-19). Reviewer: Rai
   change the coordinator must have first. Adding only the currency half to Windows would make that the normal path,
   so the Windows build runs both, in the same order, with the same override (`KOSMOS_ALLOW_COORDINATOR_BEHIND=1`).
   It reads `/v1/meta` with curl (7.71 or later, for `--retry-all-errors`) and parses it with node. The Windows build
-  already needs both (it downloads with curl, and checks What's new with node), but the curl version on the Windows
-  release PC is not checked here: an older curl refuses the build, loudly. Beyond the card's literal ask, recorded so
+  already downloads with curl, but used node only for the What's new check, which `KOSMOS_CUT_NO_WHATS_NEW=1` skips:
+  node is now needed on every Windows build. The curl version on the Windows release PC is not checked here: an
+  older curl refuses the build, loudly. Its Windows wiring is tested by order only (the wiring arm); the check itself
+  is tested by tools/test-coordinator-floor-5037.sh with the same arguments release.sh passes. Beyond the card's literal ask, recorded so
   the reviewer can drop it.
 - **Order in the Windows build: currency before the signature check.** Kept: a stale connector is the likelier
   refusal at a cut, and the order is pinned by the wiring test. Swapping it (local signature check first, saves one

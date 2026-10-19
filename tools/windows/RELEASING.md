@@ -85,8 +85,9 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    Next, as on the Mac (#5037), it asks the coordinator serving traffic whether it already carries
    every relay change that connector needs deployed first (`tools/coordinator-floor`), and refuses
    if not; deploy the coordinator, or `KOSMOS_ALLOW_COORDINATOR_BEHIND=1` ships anyway. That step
-   reads the coordinator with `curl` (7.71 or later) and `node`, and refuses a shallow relay clone;
-   the override does not cover a coordinator it could not read.
+   reads the coordinator with `curl` (7.71 or later) and `node` (needed even with
+   `KOSMOS_CUT_NO_WHATS_NEW=1`), and refuses a shallow relay clone; the override does not cover a
+   coordinator it could not read.
 
 2. **Stage.** This checks that the zip's `Kosmos.exe` is byte for byte the committed launcher (and,
    on Windows, that its Authenticode signature is Valid), then uploads the versioned zip, its sidecar, and `latest-win-staging.json`

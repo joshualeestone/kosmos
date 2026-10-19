@@ -825,6 +825,8 @@ step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
 # fix), merged at 21:06: nothing compared the prebuilt with relay main. Refused here,
 # before the bump, so a stale connector costs a rebuild and not a cut. The same path
 # build-kosmos-bundle.sh reads at step 4. KOSMOS_ALLOW_STALE_TUNNEL=1 ships it on purpose.
+# Relay main must also hold tools/build-tunnel-release.sh: without it the answer is unknown, and that is refused even
+# with the override (#6628).
 connector_currency_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
   "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" || exit 1
 

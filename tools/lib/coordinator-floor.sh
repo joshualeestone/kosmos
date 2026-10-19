@@ -1,5 +1,6 @@
 #!/bin/bash
-# Bash only (substring expansion, here-docs into a read loop): sourced by release.sh (#!/bin/bash).
+# Bash only (substring expansion, here-docs into a read loop): sourced by release.sh (#!/bin/bash) and by
+# build-kosmos-windows.sh (#6628).
 # Does the coordinator serving traffic carry every relay change the connector a cut bundles needs? (#5037)
 #
 # WHY. Some relay changes put the connector and the coordinator in an order: the coordinator must be
@@ -75,10 +76,10 @@ coordinator_floor_check() {
     return 0
   fi
   # Two retries of ANY failure (DNS and refused connections included, which plain --retry skips): one network
-  # blip must not refuse a cut the override cannot rescue. curl 7.71+ (both cut Macs: 8.7.1).
+  # blip must not refuse a cut the override cannot rescue. curl 7.71+ (both cut Macs: 8.7.1; the Windows PC's is not checked here).
   # KOSMOS_COORDINATOR_RETRIES (default 2) exists for the tests, whose file:// "unreadable" arms would otherwise sleep.
   case "${KOSMOS_COORDINATOR_RETRIES:-2}" in ''|*[!0-9]*) echo "coordinator_floor: KOSMOS_COORDINATOR_RETRIES must be a number (got '${KOSMOS_COORDINATOR_RETRIES}'); refused." >&2; return 1 ;; esac
-  command -v node >/dev/null 2>&1 || { echo "coordinator_floor: node is not on PATH, so /v1/meta cannot be parsed; refused (release.sh needs node anyway)." >&2; return 1; }
+  command -v node >/dev/null 2>&1 || { echo "coordinator_floor: node is not on PATH, so /v1/meta cannot be parsed; refused." >&2; return 1; }
   local curl_err; curl_err="$(mktemp "${TMPDIR:-/tmp}/coordfloor-curl.XXXXXX")" || curl_err=/dev/null
   meta="$(curl -fsS -m 15 --retry "${KOSMOS_COORDINATOR_RETRIES:-2}" --retry-delay 2 --retry-all-errors "$url/v1/meta" 2>"$curl_err")" || {
     _why="$(tail -1 "$curl_err" 2>/dev/null)"
