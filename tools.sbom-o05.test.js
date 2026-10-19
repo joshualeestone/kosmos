@@ -228,8 +228,22 @@ test('a package key Cargo writes for a replaced crate (replace) refuses: the cra
 
 test('any #if in the Mac app refuses: several conditions read as the machine running this, not the build', () => {
   for (const c of ['#if canImport(Sparkle)', '#if swift(>=6.0)', '#elseif compiler(>=6)', '  #if os(macOS) && canImport(X)',
-    '#if hasFeature(BareSlashRegexLiterals)', '#if hasAttribute(retroactive)', '#if arch(arm64)', '#if DEBUG']) {
+    '#if hasFeature(BareSlashRegexLiterals)', '#if hasAttribute(retroactive)', '#if arch(arm64)', '#if DEBUG',
+    '/* c */ #if canImport(Sparkle)', 'let q = 1; #if canImport(Sparkle)']) {
     assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + c + '\nimport Sparkle\n#endif\n')), /has a conditional .* which this SBOM cannot read for the build machine/, c);
+  }
+});
+
+test('a lockfile value that is not a plain quoted string, or a package with no version, refuses', () => {
+  assert.throws(() => parseLock(LOCK.replace('name = "rustls"\nversion = "0.23.46"', "name = \"rustls\"\nversion = '0.23.46'")), /rustls version is not a plain quoted value/);
+  assert.throws(() => parseLock(LOCK.replace('name = "rustls"\nversion = "0.23.46"', 'name = "rustls"\nversion = "0.23.46" # pinned')), /rustls version is not a plain quoted value/);
+  assert.throws(() => parseLock(LOCK.replace('name = "rustls"\nversion = "0.23.46"\n', 'name = "rustls"\n')), /a package with no version/);
+});
+
+test('a .cargo/config in the relay, at its root or in a member, refuses: it can point a crate at other code', () => {
+  for (const at of ['.cargo/config.toml', '.cargo/config', 'crates/tunnel/.cargo/config.toml']) {
+    const f = files(); f[`R:${'b'.repeat(40)}:${at}`] = '[patch.crates-io]\nring = { path = "vendor/ring" }\n';
+    assert.throws(() => sbom(MANIFEST, f), new RegExp(`relay ${at.replace(/\./g, '\\.')} at the connector commit can change what the connector builds`), at);
   }
 });
 
