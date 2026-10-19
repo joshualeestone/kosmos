@@ -7,6 +7,8 @@
 #      anything that cannot continue a folder name (so /Users/sam is caught in `path.relative('/Users/sam', p)` but
 #      /Users/samantha is not a hit for /Users/sam), in any case (macOS volumes ignore case). Known gap: a home
 #      followed by a period, as at the end of a sentence, is not a hit, because a period can continue a folder name;
+#      nor is the home written another way: dash-encoded (-Users-<name>-, as agent folders are named) or as a
+#      Windows path. Build paths are neither, and comments carrying those forms are swept by hand (#6549);
 #   2. every compiled (Mach-O) file directly in app/bin/ and the app's Contents/MacOS/, for ANY account's build folders
 #      (/Users/<name>/.cargo/, .rustup/ or work/), because the connector may be built on another Mac and copied in.
 # A home it cannot use (empty, relative, the root or one component), a missing app/ or bin/, or a file it cannot

@@ -34,7 +34,8 @@ literally; another account's .cargo/ or work/ in a compiled file (64-bit and uni
 a symlink; an unusable home (empty $HOME, `/`, `//`, `/Users`, `/Users/`, relative); no app/ or no bin/. Not refused:
 runtime/; `/Users/zz-builderother`; `/Users/joXhnnx` for `/Users/jo.hn+x` (no wildcards); a made-up build folder in
 a source comment or in a script under app/bin/. A `|` in a file name is still named. The build still calls the gate.
-Mutants (review 4, and mine for the regex arms): each fix removed turns its arm red.
+Mutants (reviews 4 to 6, and mine): removing any of the named behaviours turns its arm red (30 of 34 mutants in
+review 6; the survivors are a redundant flag, an unreachable second rc check, and two cosmetic forms).
 Measured on stages built from the sources: this branch passes for /Users/agent1, /Users/mortalkombat, /Users/josh,
 /Users/joshu, /Users/sam and /Users/alex; CONTROL main's server.js and status.js are refused for /Users/agent1 and /Users/josh, files named.
 
@@ -53,6 +54,10 @@ KOSMOS_ALLOW_STALE_TUNNEL=1 the old connector gets past 1d and this gate refuses
 - Test files that still quote the old names: they do not ship (the bundle copies only non-test engine files).
 - Review 1 NIT, deferred: the tarball records the build account as each entry's owner (`agent1 staff`). Changing the
   owner fields is a different risk (an extraction as root would apply them), so it is not done here.
+
+## Known limits (stated in the gate's header)
+A home followed by a period, the dash-encoded form (-Users-<name>-) and a Windows path are not hits. Build paths take
+none of those forms; the comments that did were swept by hand.
 
 ## Weakest premise
 That nothing else staged legitimately contains the build user's home path. A local or CI build from a checkout under

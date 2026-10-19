@@ -62,6 +62,10 @@ stage; printf '\xcf\xfa\xed\xfe panicked at /Users/someone-else/.cargo/registry/
 if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a compiled file naming ANOTHER account's .cargo is refused (a connector built on another Mac)"
 else fail "another account's build folder in an executable must be refused"; fi
 
+stage; printf '\xcf\xfa\xed\xfe at /Users/someone-else/.rustup/toolchains/x/lib.rs\0' > "$T/s/app/bin/kosmos-tunnel"
+if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a compiled file naming another account's .rustup is refused"
+else fail "another account's .rustup in a compiled file must be refused"; fi
+
 stage; mkdir -p "$T/s/app/Kosmos.app/Contents/MacOS"; printf '\xca\xfe\xba\xbe x /Users/other/work/kosmos/native-app/main.swift\0' > "$T/s/app/Kosmos.app/Contents/MacOS/Kosmos"
 if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "the app executable naming another account's work/ folder is refused"
 else fail "the app executable naming another account's work/ must be refused"; fi
