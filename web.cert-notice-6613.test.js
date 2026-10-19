@@ -117,6 +117,7 @@ test('Review puts the finding away only once the pane says it', async () => {
       w.ctx.paintCwNote(FOUND);
       w.get('plus-cw-line').textContent = paneSays ? 'Warning: a finding.' : '';
       w.get('plus-cw-line').dataset.state = paneSays ? 'foreign' : '';
+      w.get('plus-cw-line').dataset.key = paneSays ? FOUND.key : '';
       w.get('plus-cw-switch').hidden = false;
       w.get('plus-flow').hidden = false;   // the pane is showing
     };
@@ -126,6 +127,25 @@ test('Review puts the finding away only once the pane says it', async () => {
     assert.equal(w.store['kosmos.cwnote.dismissed'] === FOUND.key, paneSays, paneSays ? 'the pane said it: put away' : 'CONTROL: a pane that did not paint keeps the notice');
     if (!paneSays) assert.ok(w.get('plus-cw-switch').focused, 'focus was left on nothing');
   }
+});
+
+test('Review does not put a finding away on a line left from an older finding set', async () => {
+  const w = noteWorld();
+  w.ctx.paintPlus = async () => {
+    w.ctx.paintCwNote(FOUND);
+    w.get('plus-cw-line').textContent = 'Warning: an older finding.';
+    w.get('plus-cw-line').dataset.state = 'foreign';
+    w.get('plus-cw-line').dataset.key = 'aaaaaaaaaaaaaaaa';
+    w.get('plus-flow').hidden = false;
+  };
+  w.ctx.paintCwNote(FOUND);
+  w.get('cwnote-slot').listeners.click({ target: { closest: () => ({ getAttribute: () => 'open' }) } });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.notEqual(w.store['kosmos.cwnote.dismissed'], FOUND.key);
+});
+
+test('the notice\'s Review is at finger size on a touch screen', () => {
+  assert.match(PAGE, /\.utoast\.cwnote \.uacts button \{ min-height: 44px; \}/);
 });
 
 test('a failed read of the board keeps the warning showing (no blink)', async () => {

@@ -6584,6 +6584,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
   :is(.apphead .tab, #agent-sort) { min-height: 44px; }
   /* #5407: the login notice's Refresh login, at finger size. */
   .utoast .uacts button.login-adv-go { min-height: 44px; }   /* the row's main Sign in again already is (review 4) */
+  /* kosmos#6613: the certificate notice's Review, at finger size too. */
+  .utoast.cwnote .uacts button { min-height: 44px; }
   /* #5225: in the one-screen layout the name's b clips its overflow (the ellipsis), which clipped the name's hit area to
      its 16px line. The b's clip box grows instead (padding taken back by a negative margin): 14px above and below, and
      10px to the left for a short name's area; nothing drawn moves. */
@@ -11715,6 +11717,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* The global .fhint:empty rule takes an empty hint out of the layout AND the accessibility tree; this live line
    must stay rendered while empty (no height, no margin), or its first text may not be announced. */
 #s-sec-plus .plus-cw-line:empty { display: block; margin: 0; }
+#s-sec-plus #plus-cw-ack { margin-top: 6px; }   /* kosmos#6613: not flush against the line or the switch row */
 #s-sec-plus .plus-cw-line[data-state="foreign"] { color: var(--danger); font-weight: 600; }
 /* #4744: one line (Josh, "lets make sure this all fits on one line"). The Settings column caps this panel at 544px on
    a desktop window, where the sentence at .9rem needs ~452px of the ~404 left beside Copy (measured). So the box
@@ -52469,6 +52472,7 @@ function paintPlusCertWatch(cw, plusOn) {
   if (!line || !row) return;
   if (!cw || typeof cw !== 'object') {
     line.textContent = ''; row.hidden = true;
+    if (line.dataset) { line.dataset.state = ''; line.dataset.key = ''; }
     const ack0 = document.getElementById('plus-cw-ack'); if (ack0) ack0.hidden = true;
     if (typeof paintCwNote === 'function') paintCwNote(null);   // so leaving Kosmos+ does not bring back an old finding
     return;
@@ -52485,7 +52489,7 @@ function paintPlusCertWatch(cw, plusOn) {
   }
   if (typeof paintCwNote === 'function') paintCwNote(cw, plusOn);
   // kosmos#6613: Review reads this state, synchronously, right after paintPlus resolves: keep it set here, in this paint.
-  if (line.dataset) line.dataset.state = String(cw.state || '');
+  if (line.dataset) { line.dataset.state = String(cw.state || ''); line.dataset.key = typeof cw.key === 'string' ? cw.key : ''; }
   row.hidden = false;
   if (typeof paintSwitch === 'function') paintSwitch('plus-cw-switch', cw.on === true);
 }
@@ -52581,7 +52585,9 @@ async function pollCwNote() {
       const land = () => {
         const line = document.getElementById('plus-cw-line'), sw = document.getElementById('plus-cw-switch');
         const flow = document.getElementById('plus-flow');
-        if (line && line.textContent && line.dataset && line.dataset.state === 'foreign' && !(flow && flow.hidden)) {
+        // This paint's finding set (data-key), not a line left from an earlier one by a paint that was cut short.
+        if (line && line.textContent && line.dataset && line.dataset.state === 'foreign' && line.dataset.key === shownKey
+          && !(flow && flow.hidden)) {
           cwNoteDismiss(shownKey);
           if (line.focus) { line.setAttribute('tabindex', '-1'); line.focus(); }
         } else if (sw && !sw.hidden && sw.focus) sw.focus();   // not said there: kept for the next poll; focus not lost
