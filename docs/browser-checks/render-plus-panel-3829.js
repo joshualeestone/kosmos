@@ -358,7 +358,8 @@ const STATES = {
           await page.route('**/api/remote/second-reset', async (route) => {
             try {
               await new Promise((r) => setTimeout(r, 700));
-              await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+              // #6611: the engine passes on what the coordinator cleared; a real reset of an enrolled factor says which.
+              await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"had":"totp"}' });
             } catch { await route.abort().catch(() => {}); }
           });
           await page.click('#plus-lost-open');

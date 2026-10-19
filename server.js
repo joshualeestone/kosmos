@@ -10885,7 +10885,8 @@ const server = http.createServer(async (req, res) => {
      relayed. The control under Plus is the design queue's; this is the seam. */
   if (pathname === '/api/remote/second-reset' && req.method === 'POST') {
     remote.secondReset()
-      .then((got) => sendJson(res, got.ok ? 200 : 400, got.ok ? { ok: true } : { error: got.because }))
+      // #6611: `had` passes through when the connector reported it (null: nothing was cleared).
+      .then((got) => sendJson(res, got.ok ? 200 : 400, got.ok ? { ok: true, ...(got.had !== undefined ? { had: got.had } : {}) } : { error: got.because }))
       .catch((err) => sendJson(res, 500, { error: 'we could not reset the second factor: ' + (err && err.message) }));
     return;
   }

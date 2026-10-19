@@ -1288,7 +1288,13 @@ async function secondReset() {
   }
   const r = await tracked(setupRun(['second', 'reset', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
   if (!r.ok) return { ok: false, because: r.because };
-  return { ok: true, because: null };
+  // #6611: the connector prints the coordinator's answer, {"ok":true,"had":"totp"|"sms"|null}. `had` is null when
+  // there was no factor to clear, and then no session ended (kosmos#6605), so the page must not say one did. An
+  // answer without it (an older connector) leaves `had` undefined: unknown, not "none".
+  const got = lastJsonLine(r.said);
+  const v = got && got.value && typeof got.value === 'object' ? got.value : null;
+  const had = v && Object.prototype.hasOwnProperty.call(v, 'had') ? (typeof v.had === 'string' ? v.had : null) : undefined;
+  return { ok: true, because: null, had };
 }
 
 /** The email step: ask the coordinator to send the code. */

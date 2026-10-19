@@ -51,6 +51,12 @@ const mode = process.env.FAKE_TUNNEL_MODE || '';
 // two keys made by two runs differ, as real ones do.
 const newFakeKey = () => (mode.includes('devkey-random') ? 'fake key ' + require('node:crypto').randomBytes(8).toString('hex') : 'fake key');
 const fakeKeyId = (bytes) => 'k1.' + require('node:crypto').createHash('sha256').update(bytes).digest('base64url').slice(0, 32);
+if (args[0] === 'second' && args[1] === 'reset') {
+  // #6611: the real connector prints the coordinator's answer. FAKE_SECOND_HAD picks it: a kind, 'null', or 'absent'.
+  const h = process.env.FAKE_SECOND_HAD || 'totp';
+  console.log(JSON.stringify(h === 'absent' ? { ok: true } : { ok: true, had: h === 'null' ? null : h }));
+  process.exit(0);
+}
 if (args[0] === 'setup' && args[1] === 'start') {
   if ((flag('--email') || '').includes('down')) {
     process.stderr.write('the coordinator is unreachable: connect refused\\n');
@@ -1397,6 +1403,12 @@ test('#733: a second-factor reset is the enrolled Mac\'s own signed request, and
   fs.rmSync(RECORD, { force: true });
   const yes = await remote.secondReset();
   assert.equal(yes.ok, true, yes.because);
+  assert.equal(yes.had, 'totp', '#6611: the kind the coordinator cleared is passed back');
+  process.env.FAKE_SECOND_HAD = 'null';
+  assert.equal((await remote.secondReset()).had, null, '#6611: nothing cleared reads as null, not as cleared');
+  process.env.FAKE_SECOND_HAD = 'absent';
+  assert.equal((await remote.secondReset()).had, undefined, '#6611: an answer without had is unknown, not none');
+  delete process.env.FAKE_SECOND_HAD;
   const call = recorded().find((c) => { const a = Array.isArray(c) ? c : c.args || []; return a.includes('second') && a.includes('reset'); });
   assert.ok(call, 'the reset never reached the connector: ' + JSON.stringify(recorded()));
   remote.resetForTests();
