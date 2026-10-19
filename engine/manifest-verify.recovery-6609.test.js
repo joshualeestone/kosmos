@@ -146,6 +146,16 @@ test('#6609: a list at exactly the floor is recorded, so a different list with t
   assert.match(r.why, /names other keys than the list 1/);
 });
 
+test('#6609: only a canonical seq name counts: a leading zero or a number past the largest seq is not a record', () => {
+  const h = home();
+  fs.mkdirSync(path.join(h, mv.KEY_LIST_STATE));
+  fs.writeFileSync(path.join(h, mv.KEY_LIST_STATE, 'seq-007.json'), JSON.stringify({ seq: 7, release_keys: [spki(rel1)] }));
+  fs.writeFileSync(path.join(h, mv.KEY_LIST_STATE, 'seq-9999999999.json'), JSON.stringify({ seq: 9999999999, release_keys: [spki(rel1)] }));
+  assert.deepEqual(mv.storedKeyList(h), { seq: mv.MIN_KEY_LIST_SEQ, keys: null });
+  const l = list({ release_keys: [spki(rel2)], seq: 2 });
+  assert.equal(mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: h, recoveryKeys: RK }).ok, true, 'neither name blocks a real list');
+});
+
 test('#6609: switched on, no install home is a refusal (the record is what stops rollback)', () => {
   const l = list({ release_keys: [spki(rel1)], seq: 2 });
   const r = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: '', recoveryKeys: RK });
