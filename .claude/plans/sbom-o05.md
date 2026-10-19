@@ -22,7 +22,8 @@ all the third-party code in the bundle.
 
 ## Why derived, not generated at build time
 Any served release's SBOM can be rebuilt later, on any machine, from its signed manifest. The manifest is signed, so
-the inputs are the ones the release vouched for. The same release always gives a byte-identical file (the serial
+the inputs are the ones the release vouched for. With the same generator, the same release always gives a
+byte-identical file (the serial
 number is derived from the tarball sha). LIMIT (review 5): the tmux bundle is served under one unversioned name, so
 an older release's SBOM can be rebuilt only while the bundle it shipped is still the one served (or kept); once tmux
 is rebuilt, the old release refuses on the hash, the safe direction. Publishing the SBOM at the cut (below) is the
@@ -45,10 +46,10 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 34 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 35 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
   must equal build()'s output byte for byte. Every rule added in reviews 1 to 11 has a mutant that fails an arm,
-  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven, eight, three, four, seven, six, five and three per
+  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three and five per
   round); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
@@ -57,8 +58,11 @@ real fix.
 - **The Mac app's imports are read by the Swift compiler** (decided after review 17). Reviews 15 to 17 each found a way
   past a hand-written reading of Swift (an access level, a raw string or regex literal that loses a quote, a comment
   before an import), the same pattern as the shell script; Swift really compiles each one. So the tool now asks
-  `xcrun swiftc -frontend -emit-imported-modules` for the modules native-app/main.swift imports, and every one must be
-  an Apple framework (an allowlist). Measured: the compiler lists Evil, Sparkle and Kingfisher from every shape the
+  `xcrun swiftc -frontend -emit-imported-modules -target arm64-apple-macos<floor>` (the floor read from
+  tools/macos-floor at the app commit, as the bundle build compiles) for the modules native-app/main.swift imports, and
+  every one must be an Apple framework (an allowlist). Review 18: without the target, an `#if arch(arm64)` import
+  would be skipped on an Intel Mac; the command-line arm's stand-in xcrun records its arguments, so a missing target
+  fails there on any machine. Measured: the compiler lists Evil, Sparkle and Kingfisher from every shape the
   hand-written readers missed, and exactly Cocoa, WebKit, Network, ApplicationServices, UserNotifications, Speech
   and AVFoundation from the real 0.7.59 file. Where no Swift compiler is installed the tool refuses with that reason
   (the release Macs have one). Tests: the fixture arms pass a simple stand-in reader, the command-line arm puts a
@@ -116,6 +120,8 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- `#if swift(...)` and `#if compiler(...)` in the Mac app follow the version of the Swift compiler on the machine
+  running this, not the build machine's.
 - macOS's own libraries (libSystem, libresolv, the Apple frameworks) are not listed: they are the operating system.
 - After the release key is rotated, a manifest signed only by the retired key refuses here (the checkout's KEYS are
   used), so an old release's SBOM is rebuilt from a checkout that still pins its key, or not at all.
