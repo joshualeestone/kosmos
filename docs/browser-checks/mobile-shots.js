@@ -141,7 +141,11 @@ const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
    value: today the only phoneOnly screen (nav-menu) keys on it. A desktop-only screen is skipped at phone sizes and
    at tablets under 960px: from 960px a tablet can show the one-screen view (and the desktop-only screens force it,
    openConsAgents), so it shoots those too, upright or sideways. */
-const skipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || (s.tablet && s.width > 896)) ? 'phone-only screen' : (sc.desktopOnly && !s.desktop && !(s.tablet && s.width >= 960) ? 'desktop-only screen' : ''));
+const sizeSkipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || (s.tablet && s.width > 896)) ? 'phone-only screen' : (sc.desktopOnly && !s.desktop && !(s.tablet && s.width >= 960) ? 'desktop-only screen' : ''));
+/* #6542: `needsData: '<set>'` on a screen whose subject only exists in that data set (tasks-decision needs a question
+   row, which only --data marketing has). Skipped, and listed as skipped with the reason, in any other run, rather than
+   timing out as an ERROR in every full sweep. */
+const skipWhy = (s, sc, data) => sizeSkipWhy(s, sc) || (sc.needsData && (data || 'sample') !== sc.needsData ? 'needs --data ' + sc.needsData : '');
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
 
@@ -1256,10 +1260,11 @@ const SCREENS = [
      board's own API and reused by every size and theme. tasks-subprojects groups by project with nothing picked;
      tasks-subproject-picked picks the long grandchild, so the closed select, crumb and title show it. */
   /* #6492: the Tasks view scrolled to the row waiting on the person (on a phone the tiles fill the first screen), so
-     its waiting line is in the shot. #6542: it waits for .tsk-waiting-who, which both forms of that line carry: the
-     merged one-line form (a question row with a known waiting age, as --data marketing has) and the who line alone
-     (a question row with no known age, as the default data has), so the shot works on either data set. */
-  { name: 'tasks-decision', owner: 'PigeonPete', go: async (page) => {
+     its waiting line is in the shot. #6542: only --data marketing has a question row (the default data has none), so
+     the screen says needsData and any other run lists it as skipped rather than timing out. It waits for
+     .tsk-waiting-who, which both forms of that line carry (the merged one-line form, for a row with a known waiting
+     age, and the who line alone), so a fixture change between the two forms does not break it. */
+  { name: 'tasks-decision', owner: 'PigeonPete', needsData: 'marketing', go: async (page) => {
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
     await page.waitForSelector('#tsk-groups .tsk-row .tsk-waiting-who', { state: 'attached', timeout: 8000 });
@@ -2493,8 +2498,8 @@ async function run() {
   }
   /* Nothing to shoot is not a pass: every requested screen is skipped at the sizes asked for (skipWhy:
      phone-only at desktop or a tablet over 56rem, desktop-only at a phone or a tablet under 960px). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
-  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !skipWhy(SIZES[sz], sc)).length, 0);
-  if (!planned) throw new Error('no shot would be taken: every requested screen is skipped at these sizes (phone-only at desktop or a tablet over 56rem, desktop-only at a phone or a tablet under 960px)');
+  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !skipWhy(SIZES[sz], sc, args.data)).length, 0);
+  if (!planned) throw new Error('no shot would be taken: every requested screen is skipped at these sizes (phone-only at desktop or a tablet over 56rem, desktop-only at a phone or a tablet under 960px) or needs another --data set (needsData, #6542)');
   // Test hook (tools.mobile-shots-desktop.test.js): report the plan and stop, before any browser or board.
   if (process.env.MSHOTS_PLAN_ONLY === '1') { console.log(`planned ${planned} screen(s) per theme and engine`); return 0; }
   const { chromium, webkit } = require('playwright');
@@ -2556,7 +2561,7 @@ async function run() {
             if (wedged) break;
             for (const sc of screens) {
               if (wedged) break;
-              const why = skipWhy(s, sc);
+              const why = skipWhy(s, sc, args.data);
               if (why) {
                 // The same shape as a shot row, so report.json stays one kind of entry.
                 skipped.push({ file: null, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: why });
