@@ -234,7 +234,8 @@ function verifyKeyList({ bytes, sig, recoveryKeys = RECOVERY_KEYS }) {
  * forward: files are only ever added, each in one step (written aside, then linked into place, which fails if that
  * seq is already there), and two checks running at once cannot take it backwards. The record is not signed: whoever
  * can write the install home can delete it, which drops this copy back to MIN_KEY_LIST_SEQ. */
-const SEQ_FILE = /^seq-(\d{1,10})\.json$/;
+// A canonical number only (no leading zero), within MAX_SEQ: the same seq one name, as a list can carry.
+const SEQ_FILE = /^seq-([1-9]\d{0,9})\.json$/;
 
 /** { seq, keys } of the highest list recorded (seq never below minSeq; keys null when nothing at or above it is
  * recorded), or null when that record is damaged, which is refused rather than read as none. */
@@ -243,7 +244,7 @@ function storedKeyList(home, minSeq = MIN_KEY_LIST_SEQ) {
   let names;
   try { names = fs.readdirSync(dir); } catch (e) { return e && e.code === 'ENOENT' ? { seq: minSeq, keys: null } : null; }
   let top = 0;
-  for (const n of names) { const m = SEQ_FILE.exec(n); if (m && Number(m[1]) > top) top = Number(m[1]); }
+  for (const n of names) { const m = SEQ_FILE.exec(n); if (m && Number(m[1]) <= MAX_SEQ && Number(m[1]) > top) top = Number(m[1]); }
   if (!top || top < minSeq) return { seq: minSeq, keys: null };
   try {
     const r = JSON.parse(fs.readFileSync(path.join(dir, `seq-${top}.json`), 'utf8'));
@@ -275,7 +276,10 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   const tmp = path.join(dir, `.seq-${v.seq}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`);
   try {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(tmp, JSON.stringify({ seq: v.seq, release_keys: v.keys }) + '\n', { mode: 0o600, flag: 'wx' });
+    // On disk before it is linked in, and the folder after: a crash must leave the record whole or absent, never
+    // linked but empty (which would read as damaged and refuse every list).
+    const fd = fs.openSync(tmp, 'wx', 0o600);
+    try { fs.writeSync(fd, JSON.stringify({ seq: v.seq, release_keys: v.keys }) + '\n'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     try { fs.linkSync(tmp, file); } catch (e) {
       if (!e || e.code !== 'EEXIST') throw e;
       // Another check recorded this seq first: it must name the same keys.
@@ -284,6 +288,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
         return { ok: false, why: `the release key list ${v.seq} names other keys than the list ${v.seq} this copy took` };
       }
     }
+    try { const dfd = fs.openSync(dir, 'r'); try { fs.fsyncSync(dfd); } finally { fs.closeSync(dfd); } } catch { /* a folder fsync is best effort */ }
   } catch {
     return { ok: false, why: 'this copy\'s record of the release key list could not be written' };
   } finally {

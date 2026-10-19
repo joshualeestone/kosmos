@@ -10,7 +10,8 @@
  * installed copies run, and prints the recovery key's public half so the person can see which key signed.
  * While RECOVERY_KEYS is still empty (before activation) any Ed25519 key would sign: compare the printed public half
  * with the one being built in before publishing the first list.
- * Exit 0 written and checked; 1 refused (a bad seq, a key that is not one, a duplicate, no key); 2 the private key on
+ * Exit 0 written and checked; 1 refused or not written (a bad seq, a key that is not one, a duplicate, no key, a
+ * folder that already holds a list as new, a write that failed, a list that did not check out); 2 the private key on
  * stdin is not an Ed25519 key. */
 const fs = require('fs');
 const path = require('path');
