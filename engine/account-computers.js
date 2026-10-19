@@ -81,7 +81,7 @@ function parseComputers(answer, domain) {
    every path with its sign-in page (200), so it cannot take the instant switch and the page says so instead of
    opening it. Any HTTP answer means online (even a 404: the relay forwarded); a failure or a timeout means offline.
    The body is never read and the socket is closed at once. `opts.request` and `opts.port` are test seams.
-   Resolves { online, instant }, never throws. */
+   Resolves { online, instant } or, for any other answer, { online } alone; never throws. */
 const TICKET_PROBE_PATH = '/_kosmos/ticket';
 function probeReach(address, opts) {
   const timeoutMs = (opts && opts.timeoutMs) || PROBE_TIMEOUT_MS;
@@ -97,7 +97,13 @@ function probeReach(address, opts) {
           { method: 'HEAD', host: address, path: TICKET_PROBE_PATH, timeout: timeoutMs, headers: { 'user-agent': 'kosmos-switcher' } },
           opts && opts.port ? { port: opts.port } : {},
         ),
-        (res) => { finish({ online: true, instant: res.statusCode === 405 }); res.resume(); req.destroy(); },
+        (res) => {
+          // Only the two measured answers decide. Anything else (a relay 502 while the tunnel reconnects, a 404)
+          // leaves `instant` unknown, so the page tries the ticket as it did before this probe existed.
+          const code = res.statusCode;
+          finish(code === 405 ? { online: true, instant: true } : code === 200 ? { online: true, instant: false } : { online: true });
+          res.resume(); req.destroy();
+        },
       );
     } catch { finish(no); return; }
     req.on('timeout', () => { finish(no); req.destroy(); });

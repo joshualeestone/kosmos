@@ -182,6 +182,13 @@ test('probeReach (#6585): a ticket-taking gate (405 on the ticket path) is insta
     assert.deepEqual(await ac.probeReach('127.0.0.1', opts(ticketing.address().port, 2000)), { online: true, instant: true });
     assert.deepEqual(seen, ['HEAD /_kosmos/ticket'], 'one HEAD of the ticket path, and nothing else');
     assert.deepEqual(await ac.probeReach('127.0.0.1', opts(older.address().port, 2000)), { online: true, instant: false });
+    // Any other answer is online with instant unknown: a relay 502 while a tunnel reconnects must not read as "older".
+    for (const code of [502, 404, 403]) {
+      const other = http.createServer((q, s) => { s.statusCode = code; s.end(); });
+      await new Promise((r) => other.listen(0, '127.0.0.1', r));
+      try { assert.deepEqual(await ac.probeReach('127.0.0.1', opts(other.address().port, 2000)), { online: true }, String(code)); }
+      finally { other.close(); }
+    }
     assert.deepEqual(await ac.probeReach('127.0.0.1', opts(closedPort, 2000)), { online: false, instant: false });
     let raceT;
     const bounded = await Promise.race([

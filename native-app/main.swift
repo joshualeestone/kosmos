@@ -3549,9 +3549,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
               let frame = navigationAction.targetFrame, frame.isMainFrame
         else { decisionHandler(.allow); return }
         // kosmos#6585: on another computer's page, a click to THIS computer's own address goes home (its own board)
-        // instead of opening a sign-in there. Same checks as View > Back to This Computer, which it calls.
-        if switchGoesHome(url, onAnotherComputer: isOnAnotherComputer(), clicked: navigationAction.navigationType == .linkActivated,
-                          ownPlusHost: ownKosmosPlusHost()), !boardStartInFlight {
+        // instead of opening a sign-in there. Same checks as View > Back to This Computer, which it calls: during a
+        // board start or an update it beeps or says so, and the page's switching screen comes down on its own.
+        // A click is checked first, so other navigations never read the address file here.
+        if navigationAction.navigationType == .linkActivated,
+           switchGoesHome(url, onAnotherComputer: isOnAnotherComputer(), clicked: true, ownPlusHost: ownKosmosPlusHost()) {
             logLine("#6585: a click to this computer's own address goes back to its board")
             decisionHandler(.cancel)
             backToThisComputer(nil)
