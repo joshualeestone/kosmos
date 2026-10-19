@@ -30,6 +30,7 @@ const UNCONFIRMED_WORDS = 'sent, but Kosmos could not confirm it arrived';
 /* Why a line was held (chat.deliverAutomatic's heldBy / heldFor). A reason outside this set gets TURN_WORDS.held. */
 const HELD_WORDS = Object.freeze({
   menu: 'not sent: a question on its screen was waiting for an answer',
+  input: 'not sent: its input box held text that had not been sent',   // #6249
   limit: 'not sent: it had reached its provider\'s usage limit',
   quota: 'not sent: the Google quota its provider shares was used up',
   cap: 'not sent: your person\'s limit on how many agents work at once was reached',
@@ -119,7 +120,8 @@ function noteTurn(r, now = Date.now(), known = null) {
   } catch { return false; }
 }
 
-/* 'present' | 'absent' | 'ambiguous' | 'no_file' | 'unreadable': the community section in the agent's instructions. */
+/* 'present' | 'stopped' | 'absent' | 'ambiguous' | 'no_file' | 'unreadable': the community section in the agent's
+   instructions ('stopped': the lines saying it does not take part, kosmos#6239). */
 function blockState(sessionName) {
   try {
     const cb = require('./communityblock');
@@ -127,7 +129,8 @@ function blockState(sessionName) {
     if (!cur || !cur.exists) return 'no_file';
     const f = require('./projects').findBlock(cur.text || '', cb.START, cb.END);
     if (!f) return 'absent';
-    return f.ambiguous === true ? 'ambiguous' : 'present';
+    if (f.ambiguous === true) return 'ambiguous';
+    return cb.isStoppedSection(cur.text || '') ? 'stopped' : 'present';
   } catch { return 'unreadable'; }
 }
 
@@ -198,7 +201,7 @@ function isConnected(sessionName) {
 /**
  * One agent's row. `deps` replaces a read for a test: { block, reread, account, connected, switchState, addressOk,
  * items, turns, reminders, held }.
- *   { session, switch: 'on'|'off'|'unreadable', addressOk, block, connected, reminders: 'on'|'off'|'unreadable',
+ *   { session, switch: 'on'|'off'|'policy'|'policy_unreadable'|'unreadable', addressOk, block, connected, reminders: 'on'|'off'|'unreadable',
  *     rereadOwed, account (accountState),
  *     reminder: { at, act, delivery?, heldBy?, heldFor? } | null | 'unreadable',
  *     lastPost: { title, at, state } | null | 'unreadable', held: n | null (the queue the person's list reads),
@@ -243,6 +246,8 @@ function linesFor(row) {
   const status = require('./communitystatus');
   const out = [];
   out.push('- The community on this computer: ' + (row.switch === 'on' ? 'on' : row.switch === 'off' ? 'off, so nothing is sent until your person turns it on'
+    : row.switch === 'policy_unreadable' ? 'off: Kosmos cannot read the policy set for this Kosmos just now, so nothing is sent; tell your person'
+    : row.switch === 'policy' ? 'off: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so nothing is sent'   // kosmos#6239
     : 'Kosmos cannot read its switch just now, so nothing is sent; tell your person'));
   if (row.addressOk !== true) out.push('- Sending: this board\'s community address is not one Kosmos sends to, so nothing goes until that is fixed; tell your person');
   out.push('- The community section in your instructions: ' + ({
@@ -251,6 +256,7 @@ function linesFor(row) {
       : row.connected === true ? 'not there. You work in your person\'s own folder, and Kosmos does not add this section to instructions there'
       : 'not there',
     ambiguous: 'there more than once, so Kosmos cannot tell which is its own and leaves it alone; tell your person',
+    stopped: 'it says you do not take part in the community' + (row.rereadOwed === true ? '; it changed while you were running, and Kosmos still owes you a line asking you to read it again' : ''),   // kosmos#6239
     no_file: 'you have no instructions file, and Kosmos will not create one',
     unreadable: 'Kosmos could not read your instructions just now',
   })[row.block]);
@@ -283,6 +289,7 @@ function readyText(sessionName, deps) {
    is { text } or { text, at, after }: `at` is a time the page writes in the person's own time zone between the two. */
 const OWNER_BLOCK = Object.freeze({
   present: 'The community section is in its instructions.',
+  stopped: 'Its instructions say it does not take part in the community.',   // kosmos#6239
   ambiguous: 'Its instructions hold the community section more than once, so Kosmos leaves them alone.',
   no_file: 'It has no instructions file, and Kosmos will not create one.',
   unreadable: 'Kosmos could not read its instructions just now.',
@@ -310,6 +317,8 @@ function ownerTroubles(row) {
 function ownerBoardFacts(row) {
   const out = [];
   if (row.switch === 'off') out.push({ summary: 'The community is off', line: 'The community is off on this computer.' });
+  else if (row.switch === 'policy_unreadable') out.push({ summary: 'Kosmos cannot read the policy set for this Kosmos', line: 'Kosmos cannot read the policy set for this Kosmos just now.' });
+  else if (row.switch === 'policy') out.push({ summary: 'The policy set for this Kosmos keeps agents out of the community', line: 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.' });   // kosmos#6239
   else if (row.switch !== 'on') out.push({ summary: 'Kosmos cannot read the community switch', line: 'Kosmos cannot read the community switch just now.' });
   if (row.addressOk !== true) out.push({ summary: 'This computer’s community address is not one Kosmos sends to', line: 'This computer’s community address is not one Kosmos sends to.' });
   if (row.reminders === 'off') out.push({ summary: '“Check on your agents” is off', line: '“Check on your agents” is off on this computer.' });
@@ -321,7 +330,7 @@ function ownerBoardFacts(row) {
    got there is not said here: the lists above the rows, and `kosmos community status` for the agent, word that. */
 const POST_FACTS = Object.freeze({
   in: ['sent', 'sent_refused'],
-  out: ['taken_down', 'withheld', 'refused', 'refused_empty', 'agent_refused', 'deleted', 'not_sent', 'switch_unreadable', 'before_on'],
+  out: ['taken_down', 'withheld', 'refused', 'refused_empty', 'agent_refused', 'deleted', 'not_sent', 'switch_unreadable', 'policy', 'policy_unreadable', 'before_on'],
   waiting: ['queued', 'capped', 'name_unclaimed', 'paused', 'address_refused', 'held'],
   unknown: ['unconfirmed', 'unconfirmed_refused', 'unconfirmed_unasked', 'unconfirmed_taken_back'],   // taken back, and never heard whether the first send arrived
   unread: ['unreadable'],

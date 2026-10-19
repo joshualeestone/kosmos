@@ -5,6 +5,16 @@ notifications on for real people. Push lives in the Kosmos phone apps only, not 
 (Josh, 2026-09-24). Five pieces have to line up: the coordinator, the tunnel, the board, the
 iOS app and the Android app.
 
+> **As shipped, 2026-10-17 (kosmos#6262 step 7).** The coordinator sends APNs for real since the relay main
+> `56d980fe` deploy (20:33 CDT; measured record on #3763). The env template sets the four `KOSMOS_APNS_*` values
+> and leaves `KOSMOS_PUSH` unset, so Steps 3 and 8 became one deploy and there is no log-only window. Web push is
+> unchanged (still on). The board's send lock has been open in source since #4220 (phonegate-4194, merged
+> 2026-09-28; the "merges only if Josh approves #4194" lines below are the earlier state) and is in the
+> production board (0.7.54). A phone gets a push once its app has registered and that Mac's Phone notifications
+> switch is on. To stop sending, use the kill switch in Step 3b. **Wherever the steps below describe
+> `KOSMOS_PUSH=log`, sending held back, or Step 8 as the moment sending starts, that is the earlier plan, kept for
+> the record.**
+
 Every step says who can do it:
 
 - **[Josh]**: needs Josh. That covers an account or key only he holds, a production change, or
@@ -14,6 +24,7 @@ Every step says who can do it:
 Every step also says how to check it worked and how to undo it. Do the steps in order. A step
 that fails stops the list: undo it, fix the cause, and start that step again.
 
+The dated 2026-10-17 notes were checked against kosmos-relay `main` at `56d980fe` and its deploy record on #3763.
 Facts here were re-read on 2026-09-27 from kosmos `main` at `1901b9e57`,
 kosmos-relay `main` at `ad43f2a0`, the live coordinator's `/v1/meta`, and the
 deploy rows on #3763. Both repos move on, so the named files and checks are
@@ -29,6 +40,9 @@ the durable references. Commit ids say exactly what was checked this time.
   notification-tap routing. Relay #170's Mac-offline answer is relay-server
   code, so it needs the separate relay deploy in Step 3c. Neither deploy ships
   #174's `gate.html`, which is tunnel code and waits for the Mac release.
+- **2026-10-17 (kosmos#6262): APNs is on as well.** The template now sets the four APNs settings and
+  `KOSMOS_PUSH` stays unset, so from the relay main `56d980fe` deploy the coordinator sends APNs for real beside
+  web push (Step 2's note). The bullet below is the earlier state, kept for the record.
 - **Production web push is real, while APNs registration remains off.**
   `coordinator/src/main.rs` selects `VapidSender` unless `KOSMOS_PUSH=log`.
   The four APNs settings remain commented in
@@ -38,7 +52,7 @@ the durable references. Commit ids say exactly what was checked this time.
   are relay #161's per-Mac asset links and #174's sign-in gate that preserves
   the waiting agent. phonegate-4194 sets `PHONE_APP_CAN_RECEIVE` to `true` in
   `engine/phonenotify.js`; it merges only if Josh approves #4194. A Mac release
-  carrying it shows the Phone notifications setting (off by default), with a
+  carrying it shows the Phone notifications setting (off by default then; on by default since kosmos#6488), with a
   line saying the phone app is in testing.
 - **Android vc3 is built and proven.** The signed `io.kosmos.app` versionCode 3,
   versionName 0.1.2 APK is in Liu Kang's Files. Evidence in
@@ -58,20 +72,19 @@ in Step 4.
 These have to exist before anything else. None of them is something an agent can create.
 
 **Apple.** Everything Apple for Kosmos comes from a new Apple Developer organisation,
-**Kosmos Agent Manager, Inc.** (the Kosmos legal entity), which is waiting for Apple's approval
-(Liu Kang, from Splinter and Josh, 2026-09-24). **Interim (2026-10-12):** until then a separate
-TestFlight app, `io.kosmos.app.preview`, is signed under the Stone Syndicate team (see "Interim" in
-Step 4). It is not transferred: Apple transfers only an app with a version released on the App Store.
-`io.kosmos.app` is never used under Stone Syndicate. Nothing else in this list waits on the approval,
-and development keeps testing against Kano's mock APNs meanwhile. Device builds now carry the preview
-id too, so on-device push against a local or staging coordinator needs `io.kosmos.app.preview` in that
-coordinator's `KOSMOS_APNS_BUNDLE_IDS`, and an APNs key from the Stone Syndicate team.
+**Kosmos Agent Manager, Inc.** (the Kosmos legal entity), which waited for Apple's approval
+(Liu Kang, from Splinter and Josh, 2026-09-24). **It is approved, and `io.kosmos.app` is registered
+there with Push Notifications on (2026-10-15, kosmos #6262).** The interim Stone Syndicate preview
+app (`io.kosmos.app.preview`, #4089) was never created and is dropped; `ios/Signing.xcconfig` now
+builds `io.kosmos.app` under the new team, and holds its Team ID. Development keeps testing
+against Kano's mock APNs until the APNs key exists.
 
-1. **Apple approves the Kosmos Agent Manager, Inc. developer org.** Josh confirms it is active and
-   notes its **Team ID**.
+1. **Apple approves the Kosmos Agent Manager, Inc. developer org.** Done; its Team ID is
+   `DEVELOPMENT_TEAM` in `ios/Signing.xcconfig` (#6262).
 2. **Register the App ID `io.kosmos.app` under that org, with Push Notifications turned on.**
-   - The bundle id is set in `ios/Signing.xcconfig` (`KOSMOS_BUNDLE_ID`, `io.kosmos.app.preview`
-     during the interim), and `io.kosmos.app` is what `KOSMOS_APNS_BUNDLE_IDS` allows (step 2).
+   Done 2026-10-15 (#6262). The App Store Connect app record is not created yet.
+   - The bundle id is set in `ios/Signing.xcconfig` (`KOSMOS_BUNDLE_ID`), and `io.kosmos.app` is
+     what `KOSMOS_APNS_BUNDLE_IDS` allows (step 2).
    - It becomes permanent once an App Store Connect app record exists. Josh creates that record
      under the same org. The seller name on it can be set only once.
 3. **Create the APNs authentication key (.p8) under that org.** Note its **Key ID**. The Team ID is
@@ -98,8 +111,7 @@ coordinator's `KOSMOS_APNS_BUNDLE_IDS`, and an APNs key from the Stone Syndicate
 **Check:**
 - `secrets-map.sh lookup <target>` finds the APNs key (the target name is whatever `/add-secret`
   records).
-- The App ID shows Push Notifications enabled in the Kosmos Agent Manager, Inc. account (the interim
-  preview app's, `io.kosmos.app.preview`, is in the Stone Syndicate account).
+- The App ID shows Push Notifications enabled in the Kosmos Agent Manager, Inc. account.
 - The push-enabled provisioning profile and its signing certificate (item 4) exist in that account.
 - Josh has said yes to items 1, 2, 5 and 6.
 
@@ -107,6 +119,14 @@ coordinator's `KOSMOS_APNS_BUNDLE_IDS`, and an APNs key from the Stone Syndicate
 record and its seller name cannot be undone, which is why item 2 is Josh's decision.
 
 ## Step 2. Put the APNs settings into the coordinator's env template [fleet]
+
+**What actually shipped, 2026-10-17 (kosmos#6262 step 7, Splinter's go; kosmos-relay apns-6262):** the four
+`KOSMOS_APNS_*` settings are real assignments in the relay's `deploy/kosmos-coordinator.env.template` (read the
+values there), and **`KOSMOS_PUSH` is not set at all**. So Steps 3 and 8 happen as one
+deploy: APNs sends for real from that deploy on, as web push already did. Nothing reaches a phone until the phone
+registers (the TestFlight app, signed in) and its computer's Phone notifications switch is on. The board's lock is open
+since #4220 set `PHONE_APP_CAN_RECEIVE` to true (2026-09-28). Deployed 2026-10-17 20:33 CDT as relay main
+`56d980fe`; the measured record is on #3763. The rest of this step is the earlier plan, kept for the record.
 
 **Turns on after:** the coordinator deploy in Step 3. A Mac release or APK
 cannot supply these server settings.
@@ -122,7 +142,8 @@ d05a90b). This step fills them in, and adds `KOSMOS_PUSH=log`.
   `INSTALL_ENV=1` deploy refuse, because that deploy will not drop a var the box has
   (`deploy/deploy-coordinator.sh`).
 
-Fill these in, and add `KOSMOS_PUSH`. Each APNs name becomes a real `NAME=value` line, never a
+Fill these in, and add `KOSMOS_PUSH` (as shipped: do NOT add `KOSMOS_PUSH`; see the note above). Each APNs name
+becomes a real `NAME=value` line, never a
 `#NAME=` line: the deploy reads `#NAME=` as "deliberately unset" and would drop a value already on
 the box (`deploy/deploy-coordinator.sh`: "Not #KEY= for KOSMOS_APNS_*"). Names are from
 `coordinator/src/apns.rs` and `coordinator/src/main.rs`.
@@ -133,7 +154,7 @@ the box (`deploy/deploy-coordinator.sh`: "Not #KEY= for KOSMOS_APNS_*"). Names a
 | `KOSMOS_APNS_KEY_ID` | from step 1 | The .p8 key's id. |
 | `KOSMOS_APNS_TEAM_ID` | from step 1 | The Apple team. |
 | `KOSMOS_APNS_KEY_PATH` | a file path on the box | Where the .p8 is read from. It is read from a file, never an env value, and never logged. |
-| `KOSMOS_PUSH` | `log` | Keeps every send to a log line for now. This one value covers both APNs and web push. |
+| `KOSMOS_PUSH` | `log` (earlier plan; as shipped it is NOT set) | Keeps every send to a log line for now. This one value covers both APNs and web push. |
 
 **Three traps, each checked before step 3** (Kano, verified against kosmos-relay #104):
 1. **`KOSMOS_APNS_BUNDLE_IDS` has no default.** If it is unset, every app registration gets a
@@ -141,12 +162,12 @@ the box (`deploy/deploy-coordinator.sh`: "Not #KEY= for KOSMOS_APNS_*"). Names a
    settings, never later.
    Check: the rendered env contains `KOSMOS_APNS_BUNDLE_IDS=io.kosmos.app`.
 2. **The team and the key must match.** `KOSMOS_APNS_TEAM_ID` is Kosmos Agent Manager, Inc.'s Team ID,
-   the team that signs `io.kosmos.app` (not the interim value in `ios/Signing.xcconfig`).
+   the team that signs `io.kosmos.app` (`DEVELOPMENT_TEAM` in `ios/Signing.xcconfig`).
    `KOSMOS_APNS_KEY_ID` and the .p8 must be a key made in that same team. A mismatch gets
    `InvalidProviderToken` from Apple on every send.
    Check: the Key ID and the Team ID both come from the same step 1 account.
 3. **`KOSMOS_PUSH=log` forces log-only whatever the key is.** Turning it off is its own step
-   (step 8), not part of this one.
+   (step 8), not part of this one. (As shipped it was never set, so there was nothing to turn off.)
 
 One .p8 covers both Apple's sandbox and production servers, so there is no separate development
 key.
@@ -174,6 +195,9 @@ probably cannot sit under `/root` or `/home`, and the service user must be able 
 
 ## Step 3. Deploy the coordinator with sending held back [Josh]
 
+**As shipped on 2026-10-17 (kosmos#6262): sending was not held back.** See Step 3b's note; this step and Step 8
+happened as one deploy.
+
 **Carries:** the coordinator portions of relay #169, #171, #172, #173 and
 #174, plus the APNs registration settings from Step 2. The #3763 rows are
 the deployment record. This does not carry relay #161 or #174's `gate.html`,
@@ -182,6 +206,8 @@ The content checks are `coordinator/src/lib.rs` for public-page compression,
 `coordinator/src/signin.html` for full-screen handoff behavior,
 `coordinator/src/push.rs` for real delivery and pruning, and
 `coordinator/src/sw.js` for notification-tap routing.
+
+**Done 2026-10-17 (relay main `56d980fe`, record on #3763); the paragraph below is the earlier state.**
 
 **Not done yet.** The coordinator has been deployed several times since this doc was written, but
 always with the template as it stands, so no deploy so far has held sending back or turned on app
@@ -202,6 +228,35 @@ No deploy step copies a key file, and the template only holds its path.
 - **Undo:** delete the file.
 
 ### 3b. Deploy
+
+**As shipped on 2026-10-17 (kosmos#6262):** run Step 3a first. The service reads the key once, at startup, and
+falls back to log-only if it cannot (the journal then says `apns: the APNs key file could not be read; notifications
+to the app are only logged`). A key placed or replaced after a deploy needs `systemctl restart kosmos-coordinator`.
+Then deploy with `INSTALL_ENV=1`. The check is the journal line
+`apns: sending with token auth` with `bundles=1` (`bundles=0` is trap 1), not the log-only line below. To send one
+test notice to an account's phones, run the box-only operator command as root, as the service's user with its env
+and sandbox:
+
+    systemd-run --wait --pipe -p User=kosmos-coordinator -p Group=kosmos-coordinator \
+      -p EnvironmentFile=/etc/kosmos-coordinator.env -p Environment=KOSMOS_DATA_DIR=/var/lib/kosmos-coordinator \
+      -p ProtectSystem=strict -p ProtectHome=yes -p ReadWritePaths=/var/lib/kosmos-coordinator \
+      -p UMask=0077 -p PrivateTmp=yes -p NoNewPrivileges=yes \
+      /usr/local/bin/kosmos-coordinator apns-test --email person@example.com
+
+Put the account's email in place of `person@example.com`. It prints a summary line (delivered, gone, refused or
+unreachable, skipped; "gone" means Apple said the token is dead and it was pruned), then one line per phone with
+Apple's answer, for example `refused (403 InvalidProviderToken)`,
+which is the team and key mismatch from Step 2's trap 2. A phone the person denied is skipped, not sent to.
+
+**To stop sending (the kill switch):** set `KOSMOS_PUSH=log` in the template and redeploy with `INSTALL_ENV=1`.
+That stops browser web push too, since one setting governs both, and `apns-test` then refuses to run (it is not a
+broken key). The box env now holds `KOSMOS_PUSH=log`, so to undo it later, mark the line as deliberately unset
+(`#KOSMOS_PUSH=`) rather than deleting it: the deploy's env check refuses to drop a value the box has that the
+template no longer names.
+
+Three items below are the earlier log-only plan and no longer apply: the "What this turns on" bullet, the "What this
+turns off" bullet, and the Check's `apns: log only` journal line (the line to see is the one above). Nothing is held
+back, and web push stays on. The rest of the Check and the whole Undo still apply.
 
 - **Command:** `INSTALL_ENV=1 bash deploy/deploy-coordinator.sh`, from a clean kosmos-relay
   `main`.
@@ -250,12 +305,15 @@ control. Record the live build and rollback anchor on #3763 when deployed.
 
 ## Step 4. Get the iOS app onto testers' phones [Josh for signing and upload; fleet for the build]
 
-**Carries:** a signed TestFlight build (the interim `io.kosmos.app.preview` build gets no push; see
-"Interim" below). For `io.kosmos.app`, it turns on native APNs registration
+**Carries:** a signed TestFlight build of `io.kosmos.app`. It turns on native APNs registration
 and tap handling on an iPhone after Step 3 allows the bundle id. It does not
 open the Mac's send lock or make Step 8's log-only coordinator send for real.
+(2026-10-17: there is no log-only window any more; the coordinator sends from the Step 3 deploy on.)
 
-**Interim, decided 2026-10-12 (kosmos #4089, option A):** TestFlight ships now as a separate app,
+**Superseded 2026-10-15 (kosmos #6262): no preview app was ever created, and the build is now
+`io.kosmos.app` under Kosmos Agent Manager, Inc.** The interim plan is kept below for the record.
+
+*Interim, decided 2026-10-12 (kosmos #4089, option A):* TestFlight ships now as a separate app,
 **`io.kosmos.app.preview`**, under the Stone Syndicate team (`ios/Signing.xcconfig` holds both),
 internal testers only. Apple transfers only an app with a version released on the App Store
 (App Transfer Criteria), so this app is never transferred: when #3643 is approved, the real app is
@@ -270,10 +328,10 @@ refused even registering an identifier; Admin, or App Manager with access to Cer
 Identifiers & Profiles, covers the automatic signing
 archive.sh uses).
 
-**Done now, before Apple's approval (kosmos #4089):**
-- **The Team ID has one home, `ios/Signing.xcconfig`** (`DEVELOPMENT_TEAM`, Stone Syndicate's
-  for now). The Xcode
-  project and the archive script both read it from there.
+**Done (kosmos #4089, #6262):**
+- **Xcode reads the Team ID from `ios/Signing.xcconfig`** (`DEVELOPMENT_TEAM`, Kosmos Agent
+  Manager, Inc.'s), and the archive script reads it there too. The archive script also holds that
+  team id as the only team it allows `io.kosmos.app` under, so a team change edits both.
 - **`ios/tools/archive.sh --build <N>`** archives, exports for App Store Connect
   (`ios/tools/ExportOptions.plist`) and checks the exported `.ipa`. `--upload` then sends that same
   checked file. Details are in `ios/README.md`, "Signing, archive and upload".
@@ -282,21 +340,20 @@ archive.sh uses).
   is signed by the team, with the bundle id, in `ios/Signing.xcconfig`.
 - **The app icon and the navy launch screen are in an asset catalog** (`ios/Kosmos/Assets.xcassets`,
   icon from `assets/Kosmos-1024.png`). It compiles on GitHub's macOS runner, and iOS CI checks the
-  built app carries both. It does not compile on the Mac mini until an iOS runtime is installed
-  there (`xcodebuild -downloadPlatform iOS`), which matters only for building on that Mac.
+  built app carries both. It also compiles on Agent1s, which has an iOS 26.5 simulator runtime
+  (#6262).
 
-**Waits on Apple approving the org (#3643):**
-- **Create the real app record for `io.kosmos.app` under the new org** [Josh: the seller name is
-  permanent, Step 1 item 2]. Not a transfer: the preview app cannot be transferred.
-- **Change `DEVELOPMENT_TEAM` and `KOSMOS_BUNDLE_ID` in `ios/Signing.xcconfig`** to the Kosmos Agent
-  Manager, Inc. Team ID and `io.kosmos.app`
-  [Josh supplies the id; fleet makes the change]. Two lines; signing is `Automatic`. Signing under
-  any other team gives device tokens the coordinator's key cannot send to.
-- **An App Store Connect API key under the new org** for the upload (`ASC_KEY_PATH`, `ASC_KEY_ID`,
-  `ASC_ISSUER_ID`), filed with `/add-secret` [Josh creates it, Admin or App Manager with access to Certificates, Identifiers & Profiles, for automatic
-  signing]. Without one,
-  `archive.sh` still exports and checks, and the checked `.ipa` goes up through Apple's Transporter
-  app.
+**Still to do under the new org:**
+- **Create the app record for `io.kosmos.app`** [Josh: the seller name is permanent, Step 1
+  item 2].
+- Done (#6262): **`DEVELOPMENT_TEAM` and `KOSMOS_BUNDLE_ID` in `ios/Signing.xcconfig`** are the new
+  team and `io.kosmos.app`. Signing under any other team gives device tokens the coordinator's key
+  cannot send to, and `archive.sh` refuses it.
+- Done (2026-10-15): **an App Store Connect API key under the new org** (Admin), filed with
+  `/add-secret` under the target `app-store-connect`. `archive.sh --upload`
+  takes it as `ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`. With that key, a real `archive.sh`
+  run creates the team's distribution certificate and App Store profile itself
+  (`-allowProvisioningUpdates`).
 
 **Setup (one time):**
 - The entitlement file `ios/Kosmos.entitlements` already asks for push
@@ -307,11 +364,15 @@ archive.sh uses).
 - **Version.** The code says `0.1.0`, build `1` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`).
   The version the store shows at submission is Josh's call. The build number must go up on every
   upload.
-- **Export compliance (encryption).** Not set in the code on purpose: it is a declaration to Apple
-  that Josh makes, in App Store Connect on upload (or later as `ITSAppUsesNonExemptEncryption` in
-  the build settings). The facts, read from `ios/Kosmos/` on 2026-09-25: the app talks to the
-  network only over HTTPS through Apple's own `URLSession` and `WKWebView`, keeps the session in the
-  iOS Keychain, and contains no encryption code of its own.
+- **Export compliance (encryption).** Set in the code since #6262: `ITSAppUsesNonExemptEncryption
+  = false` in `ios/Kosmos-Info.plist`, so a TestFlight upload does not stop at Apple's question. It
+  is item 1 of "First buildable slice" in kosmos #6262's card body (Splinter's brief). It is a
+  declaration to Apple, so it is
+  Josh's to change: every build carries its own answer, and removing the key makes App Store
+  Connect ask again on the next upload. The facts it rests on, read from `ios/Kosmos/` on 2026-09-25
+  and again on 2026-10-15: the app talks to the network only over HTTPS through Apple's own
+  `URLSession` and `WKWebView`, keeps the session in the iOS Keychain (`import Security`, the
+  system's storage, in `SessionKeychain.swift`), and contains no encryption code of its own.
 - **Push entitlement.** `ios/Kosmos.entitlements` says `aps-environment = development`, and the
   export for distribution is expected to set `production`. `archive.sh` checks the exported `.ipa`
   and stops before upload if it does not (`ios/tools/check-ipa-entitlements.sh`; by hand, unzip the
@@ -341,9 +402,9 @@ archive.sh uses).
     re-signs those builds, not yet measured.
 
 **On-device check:** use Sonya's single phone script on #4184,
-`android/phone-test-checklist.md`, once a signed iOS build exists. On the interim
-`io.kosmos.app.preview` builds its push steps ("Notify me on this phone", "Get a notification") cannot
-pass, by design: the coordinator refuses that bundle id. That is not a defect. That script
+`android/phone-test-checklist.md`, once a signed iOS build exists. Its push steps ("Notify me on
+this phone", "Get a notification") cannot pass until the coordinator holds the APNs key and allows
+`io.kosmos.app`. That script
 owns the user-visible sequence and screenshots. This guide only owns which
 deploy or release makes each capability available.
 
@@ -500,6 +561,10 @@ lacks `mac-request` (`tools/lib/connector-verbs.sh`), because turning phone
 notifications on needs it. So the tunnel from Step 6 must be the one inside
 this release.
 
+**As shipped (2026-10-17, kosmos#6262):** the coordinator already sends, so a phone that has registered gets the push
+as soon as its Mac's switch is on, and there is no Step 8 to plan behind this release. The paragraph below is the
+earlier plan.
+
 **Between this release and Step 8:** a user who turns the switch on reaches
 the coordinator, but no push reaches any phone, because the coordinator still
 runs `KOSMOS_PUSH=log`. The 30-minute needs_you email is not part of that: it can still arrive
@@ -523,7 +588,8 @@ KOSMOS_CUT_CHANNEL=staging bash tools/release.sh <version>
 **Check, on a staging install**
 (`curl -fsSL https://installkosmos.com/setup-staging | KOSMOS_UPDATE_CHANNEL=staging sh`):
 1. Settings, This computer, shows the "Phone notifications" section, with "Buzz my phone when
-   an agent needs me" and a "Turn on" button. It is off by default.
+   an agent needs me" and a "Turn on" button. It is off by default. (Since kosmos#6488 it turns on by itself once the
+   computer is connected, unless the person turned it off; this step is the earlier plan, kept for the record.)
 2. Pressing Turn on succeeds. It mints the Mac's notify credential through the new tunnel.
 3. Run the two staging gates in `docs/staging-channel.md`.
 
@@ -545,6 +611,10 @@ KOSMOS_CUT_CHANNEL=staging bash tools/release.sh <version>
 - A Mac back on the old board has the lock closed again and sends nothing.
 
 ## Step 8. Let the coordinator send [Josh]
+
+**Not needed as written (2026-10-17, kosmos#6262):** `KOSMOS_PUSH` was never set to log (see Step 2), so there is
+nothing to turn off. The coordinator sends from the Step 3 deploy on. Its check (below) still applies to that deploy;
+to stop sending, see the kill switch in Step 3b.
 
 **Carries:** a second coordinator env deploy. This turns APNs delivery from
 log-only to real sending after the apps and Mac release are ready. It changes
@@ -578,12 +648,12 @@ sequence here. Run only the portions whose carrier is live:
 - vc3 artifact steps after installing the APK from Liu Kang's Files;
 - coordinator-dependent steps after Step 3's deploy;
 - signed-out agent preservation after Steps 6 and 7's Mac/tunnel release;
-- real delivery after Step 8.
+- real delivery after Step 3's deploy (as shipped, 2026-10-17; the earlier plan said after Step 8).
 
 The relay's `docs/live-push-check.sh` remains a local Chrome web-push pipeline
 check. It has no APNs part and does not replace #4184's phone script.
 
-**Undo:** step 8's undo stops all sending.
+**Undo:** the kill switch in Step 3b stops all sending (it is the same change as Step 8's undo).
 
 ## Step 10. Public app releases [Josh]
 

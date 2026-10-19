@@ -83,8 +83,13 @@ case "$1" in
     i=0; while [ $i -lt 50 ]; do curl -fsS -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null && exit 0; sleep 0.1; i=$((i + 1)); done
     exit 1 ;;
   stop)
-    [ -f "$H/board.pid" ] && kill "$(cat "$H/board.pid")" 2>/dev/null
+    # #5907: wait for the port to go quiet only when this stop killed our own board. With nothing of ours running
+    # (another app or another Kosmos holds the port), the real `kosmos stop` decides at once; waiting here ran all
+    # 50 rounds against a port that never goes quiet, about 12 s in each of five cases.
+    _ours=""; [ -f "$H/board.pid" ] && _ours="$(cat "$H/board.pid")"
+    [ -n "$_ours" ] && kill "$_ours" 2>/dev/null
     rm -f "$H/board.pid"; : > "$H/board.stopped"
+    [ -n "$_ours" ] || exit 0
     i=0; while [ $i -lt 50 ]; do curl -fsS -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null || exit 0; sleep 0.1; i=$((i + 1)); done
     exit 0 ;;
 esac

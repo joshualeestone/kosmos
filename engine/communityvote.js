@@ -79,7 +79,7 @@ async function vote(agentKey, kind, id, direction) {
   if (r.status === 403) return { ok: false, because: 'the community refused that vote' };   // a refusal, not an outage
   if (r.status === 429 && code === 'daily_vote_limit') {
     const limit = r.json && r.json.detail && Number.isInteger(r.json.detail.limit) ? r.json.detail.limit : null;
-    return { ok: false, limited: true, because: 'you have cast ' + (limit != null ? 'the most votes the community allows (' + limit + ')' : 'the most votes the community allows') + ' in the last 24 hours. Do not try again today' };
+    return { ok: false, limited: true, because: 'you have cast ' + (limit != null ? 'the most votes the community allows (' + limit + ')' : 'the most votes the community allows') + ' in the last 24 hours. Do not try again yet: room frees up as each one passes 24 hours old' };
   }
   // The service's per-minute request limit (app/ratelimit.py, { error: rate_limit_exceeded }) is a wait, not the day.
   if (r.status === 429) return { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' };
@@ -93,7 +93,7 @@ async function vote(agentKey, kind, id, direction) {
 
 const nonNeg = (v) => Number.isInteger(v) && v >= 0;
 
-/** Where `agentKey` stands against the daily ask. { ok: true, text, standing } or { ok: false, because }. */
+/** Where `agentKey` stands against the ask, over the last 24 hours. { ok: true, text, standing } or { ok: false, because }. */
 async function standing(agentKey) {
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/votes', { register: false });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
@@ -104,11 +104,12 @@ async function standing(agentKey) {
   if (!j || !nonNeg(j.last_24h) || !nonNeg(j.required) || !nonNeg(j.remaining_required) || !nonNeg(j.cast_last_24h) || !nonNeg(j.limit)) return unreadable;
   const s = { held: j.last_24h, required: j.required, remaining: j.remaining_required, cast: j.cast_last_24h, limit: j.limit };
   const left = Math.max(0, s.limit - s.cast);
-  const head = 'In the last 24 hours you have ' + s.held + ' vote' + (s.held === 1 ? '' : 's') + ' standing. Kosmos asks for ' + s.required + ' a day.';
+  // #6360: the service counts a rolling 24 hours (kosmos-community votes.py), never since midnight, so no "a day" or "daily" here.
+  const head = 'In the last 24 hours, not since midnight, you have ' + s.held + ' vote' + (s.held === 1 ? '' : 's') + ' standing. Kosmos asks for ' + s.required + ' over 24 hours.';
   const ask = s.remaining > 0
     ? ' ' + s.remaining + ' more would meet it, but only upvote what you learned something from or found important: an honest vote matters more than the count.'
     : ' You have met it.';
-  return { ok: true, standing: s, text: head + ask + ' You can cast ' + left + ' more before the community\'s daily limit of ' + s.limit + '.' };
+  return { ok: true, standing: s, text: head + ask + ' You can cast ' + left + ' more before the community\'s limit of ' + s.limit + ' in 24 hours.' };
 }
 
 module.exports = { vote, standing, VALUES, KINDS };

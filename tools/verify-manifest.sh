@@ -12,10 +12,20 @@
 set -euo pipefail
 V="${1:?usage: verify-manifest.sh <version>}"
 BASE="${KOSMOS_BASE:-https://installkosmos.com/dist}"
+NODE="${KOSMOS_NODE:-node}"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 curl -fsSL "$BASE/kosmos-$V-arm64.manifest.json" -o "$T/m.json" || { echo "no manifest served for $V at $BASE (releases before #776 have none)"; exit 2; }
+# #6468 ask 2: the signature beside it. Required when KOSMOS_REQUIRE_SIG=1 (the release's own served check: every
+# release from signing on has one, and installs refuse an update without it); otherwise checked when served.
+if curl -fsSL "$BASE/kosmos-$V-arm64.manifest.json.sig" -o "$T/m.sig" 2>/dev/null; then
+  "$NODE" "$(dirname "${BASH_SOURCE[0]}")/lib/manifest-sign.js" verify "$T/m.json" "$T/m.sig" || { echo "SIGNATURE: the served .sig does not verify under a pinned key"; exit 1; }
+  echo "  signature verifies under a pinned key"
+elif [ "${KOSMOS_REQUIRE_SIG:-}" = 1 ]; then
+  echo "SIGNATURE: no kosmos-$V-arm64.manifest.json.sig served at $BASE; every checking install would refuse this update"; exit 1
+else
+  echo "  (no signature served; releases before #6468 have none)"
+fi
 curl -fsSL "$BASE/kosmos-$V-arm64.tar.gz" -o "$T/a.tar.gz"
-NODE="${KOSMOS_NODE:-node}"
 want="$("$NODE" -p 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).sha256' "$T/m.json")"
 got="$(shasum -a 256 "$T/a.tar.gz" | awk '{print $1}')"
 "$NODE" -e '
@@ -30,7 +40,7 @@ console.log(`  files     ${m.files.length}`);
 if [ "$want" != "$got" ]; then echo "MISMATCH: manifest says $want, served bytes are $got"; exit 1; fi
 echo "  artifact  sha256 matches the served bytes"
 mkdir -p "$T/x" && tar -xzf "$T/a.tar.gz" -C "$T/x"
-( cd "$T/x" && find bin app runtime VERSION -type f | LC_ALL=C sort | while read -r f; do printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "$f"; done ) > "$T/got.txt"
+( cd "$T/x" && find bin app runtime VERSION -type f | LC_ALL=C sort | while IFS= read -r f; do printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "$f"; done ) > "$T/got.txt"
 "$NODE" -e '
 const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
 process.stdout.write(m.files.map((f) => `${f.sha256}  ${f.path}`).join("\n") + "\n");

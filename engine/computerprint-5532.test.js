@@ -351,7 +351,45 @@ test('#5532 Windows: this PC\'s real print exists, is stable, and PowerShell rea
   const b = cp.printFor(SALT, ORG);
   assert.ok(b.send === 'print' && b.print === a, 'the print changed between two fresh reads on one PC');
   // Production's PowerShell read, for real, as on a PC whose policy blocks reg.exe: it must give the same print.
-  cp._testRunner(() => { throw new Error('Registry editing has been disabled by your administrator'); }, { platform: 'win32', fallback: 'real' });
+  // #6222: with a 25 s wait, because the question is the value, not speed: on a busy runner the read ran out of
+  // production's 10 s (the test failed at 10057 ms with no value). Worst case, with both earlier reads at their
+  // limits (reg.exe 5 s, then PowerShell 10 s, twice), is 15 + 15 + 25 = 55 s: under the runner's 60 s per-test cap
+  // with room to spare (that cap may not even fire on a synchronous test), and far inside its 20 minute file cap.
+  cp._testRunner(() => { throw new Error('Registry editing has been disabled by your administrator'); }, { platform: 'win32', fallback: 'real', fallbackTimeoutMs: 25000 });
   const c = cp._testFingerprint(SALT, ORG);
   assert.ok(c === a, 'the PowerShell fallback read a different value, or none');
+});
+
+test('#6222: _testRunner refuses a fallbackTimeoutMs that is not a positive whole number (never silently production\'s 10 s)', (t) => {
+  t.after(() => cp._testRunner());
+  for (const bad of ['45000', 4.5, 0, -1, null, NaN]) {
+    assert.throws(() => cp._testRunner(() => { throw new Error('blocked'); }, { platform: 'win32', fallback: 'real', fallbackTimeoutMs: bad }), TypeError, 'accepted ' + String(bad));
+  }
+  assert.doesNotThrow(() => cp._testRunner(() => { throw new Error('blocked'); }, { platform: 'win32', fallback: 'real', fallbackTimeoutMs: 30000 }));
+  // Given without fallback 'real' it would be ignored, so it throws there too.
+  assert.throws(() => cp._testRunner(() => { throw new Error('blocked'); }, { platform: 'win32', fallbackTimeoutMs: 30000 }), TypeError);
+  assert.throws(() => cp._testRunner(() => { throw new Error('blocked'); }, { platform: 'win32', fallback: () => 'x', fallbackTimeoutMs: 30000 }), TypeError);
+  assert.doesNotThrow(() => cp._testRunner(() => { throw new Error('blocked'); }, { platform: 'win32', fallback: 'real' }));
+});
+
+test('#6222: the wait reaches the real PowerShell read (30000 with the option, production\'s 10000 without)', (t) => {
+  // A fresh copy of the module with execFileSync intercepted: the real read path runs, nothing is spawned. 30000 here
+  // (and in the test above) is any valid wait, not the real test's setting.
+  const child = require('node:child_process');
+  const real = child.execFileSync;
+  const modPath = require.resolve('./computerprint');
+  const seen = [];
+  child.execFileSync = (file, args, opts) => {
+    if (/powershell\.exe$/i.test(String(file))) seen.push(opts && opts.timeout);
+    throw new Error('not run in this test');
+  };
+  delete require.cache[modPath];
+  t.after(() => { child.execFileSync = real; delete require.cache[modPath]; });
+  const fresh = require('./computerprint');
+  const blocked = () => { throw new Error('Registry editing has been disabled by your administrator'); };
+  fresh._testRunner(blocked, { platform: 'win32', fallback: 'real', fallbackTimeoutMs: 30000 });
+  fresh._testFingerprint(SALT, ORG);
+  fresh._testRunner(blocked, { platform: 'win32', fallback: 'real' });
+  fresh._testFingerprint(SALT, ORG);
+  assert.deepEqual(seen, [30000, 10000], 'the PowerShell read did not get the wait it was given');
 });

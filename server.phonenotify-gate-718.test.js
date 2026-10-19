@@ -51,6 +51,10 @@ test.before(async () => {
   phonenotify.setSender((url, headers, body) => sent.push(JSON.parse(body)));
   fs.mkdirSync(STATE, { recursive: true });
   for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(path.join(STATE, f), 'x');
+  // #6488: and Kosmos+ switched on here (remote.json), which sending needs as well as the sign-in.
+  const remoteFile = require('./engine/remote').FILE;
+  fs.mkdirSync(path.dirname(remoteFile), { recursive: true });
+  fs.writeFileSync(remoteFile, JSON.stringify({ on: true }));
   // A switch already on with a token, as if written before the gate closed.
   fs.writeFileSync(path.join(STATE, 'phone-notify.json'), JSON.stringify({ on: true, notifyId: 'n1', token: 'knt1_heldtoken0123' }));
 });
@@ -96,7 +100,10 @@ test('gate closed: the setting reads unavailable and off, whatever the file says
   phonenotify.setAvailableForTests(false);
   t.after(() => phonenotify.setAvailableForTests(phonenotify.PHONE_APP_CAN_RECEIVE));   // back to the shipped gate, whatever the order
   const st = await call('GET', '/api/phone-notify');
-  assert.deepEqual(st.json, { available: false, on: false, connected: true });
+  // #6254: the status shape carries the per-kind defaults in both branches (one shape for the Settings UI);
+  // while unavailable they are inert (available:false + on:false are the gate, kinds change nothing here).
+  assert.deepEqual(st.json, { available: false, on: false, connected: true,
+    kinds: { needsYou: true, postedMention: true, postedRoom: false, ready: true, replied: true }, offByChoice: false, defaultBecause: null });   // #6488
 });
 
 test('gate closed: turning on is refused and the tunnel never runs', async (t) => {

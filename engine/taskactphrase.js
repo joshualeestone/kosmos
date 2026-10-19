@@ -53,6 +53,11 @@ function phrase(ev, nameOfMember, opts) {
     /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
     case 'reviewer-set': return ev.person ? YOU + ' will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
+    case 'hold-stale': {   // #6209 part 3: an owner still working a held task in its room was asked about the hold
+      const who = nameOf(ev.told) || 'its owner';
+      return ev.reached === false ? 'Still on hold while ' + who + ' worked in its project room; Kosmos could not reach ' + who
+        : 'Still on hold while ' + who + ' worked in its project room; ' + who + ' was asked whether the hold still stands';
+    }
     case 'missed': {
       const runs = ev.more === true ? 'More than ' + ev.count + ' runs missed' : Number(ev.count) > 1 ? ev.count + ' runs missed' : 'A run was missed';
       if (ev.person) return runs + (agent ? '; the person reviews it' : '; you review it');
@@ -64,8 +69,11 @@ function phrase(ev, nameOfMember, opts) {
        worded for an agent, the person's own message is "the person's message", as "You" is "The person" above). */
     case 'kept-sent': case 'kept-dropped': {
       const to = nameOf(ev.to) || 'an agent';
-      const subject = ev.person === true ? (agent ? 'the person\u2019s message' : 'your message') : ev.from ? 'the message from ' + nameOf(ev.from) : 'a message';
-      const Subject = ev.person === true ? (agent ? 'The person\u2019s message' : 'Your message') : ev.from ? 'A message from ' + nameOf(ev.from) : 'A message';
+      // #6359: a built notice is named as the notice (the page's words), never as a message the conversation showed.
+      const subject = ev.built === true ? (ev.from ? 'the built notice from ' + nameOf(ev.from) : 'a built notice')
+        : ev.person === true ? (agent ? 'the person\u2019s message' : 'your message') : ev.from ? 'the message from ' + nameOf(ev.from) : 'a message';
+      const Subject = ev.built === true ? (ev.from ? 'The built notice from ' + nameOf(ev.from) : 'A built notice')
+        : ev.person === true ? (agent ? 'The person\u2019s message' : 'Your message') : ev.from ? 'A message from ' + nameOf(ev.from) : 'A message';
       const behind = ev.behind === true;
       if (ev.kind === 'kept-dropped') return Subject + ' to ' + to + ' was never sent: '
         + 'Kosmos kept it ' + (behind ? 'behind earlier messages' : 'while ' + to + ' was out of usage') + ' and could not send it within a day';
@@ -76,7 +84,7 @@ function phrase(ev, nameOfMember, opts) {
         : Subject + ' to ' + to + kept + 'was sent ' + when; }
     case 'closed': return 'Marked done';
     case 'undone': return ev.files === 1 ? 'One file’s changes undone' : 'File changes undone (' + (Number(ev.files) || 0) + ' files)';   // #5153 slice 4
-    case 'reopened': return 'Put back';
+    case 'reopened': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' put it back' : 'Put back') + (ev.why ? ': ' + own(ev.why) : ''); }   // #6157
     /* #3951: who marked it built and what was left; and why the mark went. */
     case 'built': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' marked it built' : 'Marked built') + (ev.note ? ': ' + own(ev.note) : ''); }
     case 'unbuilt': { if (ev.reason === 'new work') return 'No longer built: there is new work on it';

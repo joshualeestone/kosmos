@@ -543,41 +543,6 @@ function postTimesAll() {
   return out;
 }
 
-/* #5314: like postTimesAll, but ONLY status === 'published' rows: posts PUBLISHED on this board.
-   A held or quarantined post is on nobody's feed, so it must not read as "Last community post:
-   today". NOTE "published on the board" is not "synced to community.kosmosplus.com": the send layer
-   (communitysend / communitystatus) tracks that separately (sent / not_sent / before_on / withheld).
-   This card counts board-published posts, the source the card names (community/posts.json), and does
-   not distinguish that finer send-state. postTimesAll is left exactly as it is: the community nudge
-   counts posts of any status and keeps that meaning. KEEP THE READ, KEY, AND CORRUPT-SIDECAR LOGIC
-   BELOW IN SYNC WITH postTimesAll ABOVE (copied, not shared, so postTimesAll stays byte-identical
-   for the nudge). The time is receivedAt (the store keeps no separate publish time). Same null
-   (unreadable / corrupt sidecar) conditions as postTimesAll. */
-function publishedPostTimesAll() {
-  let posts;
-  try {
-    posts = JSON.parse(fs.readFileSync(postsFile(), 'utf8'));
-  } catch (e) {
-    if (!e || e.code !== 'ENOENT') return null;
-    posts = [];
-  }
-  if (!Array.isArray(posts)) return null;
-  try {
-    const base = path.basename(postsFile()) + '.corrupt-';
-    if (fs.readdirSync(dir()).some((f) => f.startsWith(base))) return null;
-  } catch { /* no folder at all: nothing was ever posted */ }
-  const out = new Map();
-  for (const p of posts) {
-    if (!p || typeof p !== 'object' || p.status !== 'published' || (p.author && p.author.type === 'user') || typeof p.receivedAt !== 'string') continue;
-    const who = (typeof p.agent === 'string' && p.agent ? p.agent
-      : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : '')).trim().toLowerCase();
-    if (!who) continue;
-    if (!out.has(who)) out.set(who, []);
-    out.get(who).push(p.receivedAt);
-  }
-  return out;
-}
-
 // #4287: a post's status and author type, or null when there is no such post.
 /**
  * #5574: which agent a board post or comment belongs to (its `agent`, the session name the board stored it under), ''
@@ -842,7 +807,7 @@ module.exports = {
   moderationQueue,
   toPublic,
   publishedPosts,
-  postedBy, postTimesAll, publishedPostTimesAll,
+  postedBy, postTimesAll,
   postMeta,
   // trust
   trustState,

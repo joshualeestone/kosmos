@@ -2856,7 +2856,8 @@ function updateCardDeps() {
  */
 function confirmModeDeps() {
   return "let UPD_CONFIRM_MODE = 'update'; let UC_UPDATE_TITLE = 'Update Kosmos?'; let UC_UPDATE_BODY = '';\n"
-    + pageFnSource('setUpdConfirmMode') + '\n' + pageFnSource('openUpdConfirm') + '\n';
+    + pageFnSource('setUpdConfirmMode') + '\n' + pageFnSource('openUpdConfirm') + '\n'
+    + pageFnSource('clearStopMoveOffers') + '\n';   // #6214: opening and closing the confirm clear a stop-the-move offer
 }
 
 test('#3953: a freshly created Grok agent comes up on the creation screen', async () => {
@@ -3446,15 +3447,13 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
       'st-agents': el(), 'st-working': el(), 'st-working-tile': el(), 'st-idle': el(),
       'st-blocked': el(), 'st-blocked-tile': el(),   // #5540
       'st-attn': el(), 'st-attn-tile': el(),
-      'st-attn-noproj': el(), 'st-attn-noproj-tile': el(),
       'st-off': el(), 'st-off-tile': el(),
     };
     // The slice INCLUDES every tile write (the summary test's lesson: a
     // harness that stops short of the write reconstructs the behaviour).
-    // #1898: end on the no-project tile's write, which sits just after the
-    // needs-you write, so both the parent and the drill-down tile are exercised.
+    // #6180: end on the needs-you tile's write (the No project tile that followed it is gone).
     const from = script.indexOf('const c = data.counts;');
-    const write = script.indexOf("document.getElementById('st-attn-noproj-tile').hidden = !c.needsYouUnattributed;");
+    const write = script.indexOf("document.getElementById('st-attn-tile').hidden = !c.needsYou;");
     const end = script.indexOf('\n', write) + 1;
     assert.ok(from > -1 && write > from && write < end,
       'the tile writes fell outside the extracted slice');
@@ -3555,20 +3554,9 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   const calm = drive(fleet.filter((a) => a.state !== 'needs_you'), { total: 6, needsYou: 0 });
   assert.equal(calm['st-attn-tile'].hidden, true,
     'the alert tile must hide at zero: a red-bordered zero teaches people to ignore red');
-  /* #1898: the no-project drill-down tile. It carries `needsYouUnattributed` and
-     hides at zero exactly like its parent. */
-  const noproj = drive(fleet, { total: 7, needsYou: 2, needsYouUnattributed: 1, notRunning: 0 });
-  assert.equal(noproj['st-attn-noproj'].textContent, '1', 'the no-project tile lost its count');
-  assert.equal(noproj['st-attn-noproj-tile'].hidden, false, 'a nonzero unattributed needs-you must show the no-project tile');
-  /* 🛑 CONTROL that returns the dangerous answer: a board whose needs_you are ALL
-     attributed to a project has a nonzero "Issue" but ZERO unattributed, so
-     the parent tile shows and the drill-down hides. Without the subset being its
-     own field this could not be told apart from the total. */
-  const attributedOnly = drive(fleet, { total: 7, needsYou: 2, needsYouUnattributed: 0, notRunning: 0 });
-  assert.equal(attributedOnly['st-attn-tile'].hidden, false, 'the parent needs-you tile still shows when some are attributed');
-  assert.equal(attributedOnly['st-attn-noproj-tile'].hidden, true, 'all needs_you attributed -> the no-project drill-down hides');
-  /* And the calm board hides BOTH: no needs_you at all means no no-project subset. */
-  assert.equal(calm['st-attn-noproj-tile'].hidden, true, 'a calm board hides the no-project tile too');
+  /* #6180 (Josh, 10-14: "people dont have to assign an agent to a project"): the No project tile is gone, so the
+     page writes no such tile on a good poll. */
+  assert.ok(!/st-attn-noproj/.test(script), 'the No project tile is back on the page');
 });
 
 test('a failed poll blanks the stats tiles instead of asserting the last fleet it saw', () => {
@@ -3604,9 +3592,6 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     // #5540: seeded with a last-success count and hidden, so "?" and showing are both measured transitions.
     'st-blocked': el('2'), 'st-blocked-tile': { textContent: '', hidden: true, innerHTML: '' },
     'st-attn-tile': { textContent: '', hidden: false, innerHTML: '' },
-    /* #1898: the no-project drill-down, seeded with a last-success count and
-       SHOWN, so the failed poll must blank it to `?` and hide it like its parent. */
-    'st-attn-noproj': el('1'), 'st-attn-noproj-tile': { textContent: '', hidden: false, innerHTML: '' },
     /* ⚠️ Seeded with a last-success number for the same presence-before-absence
        reason as the rest, and its tile is seeded HIDDEN: the not-running tile
        is the one that must come BACK on a failed poll, showing a question mark
@@ -3618,9 +3603,8 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
   const from = script.indexOf("checked.className = 'checked stamp stale';");
   /* #734: the summary slot is gone, so the failure path ends at the last
      tile it blanks; the slice still INCLUDES that write. */
-  // #1898: end on the no-project tile's blank, just after st-attn's, so the
-  // slice covers both tiles the failure path must blank.
-  const write = script.indexOf("getElementById('st-attn-noproj-tile').hidden = true;", from);
+  // #6180: end on the needs-you tile's blank (the No project tile that followed it is gone).
+  const write = script.indexOf("getElementById('st-attn-tile').hidden = true;", from);
   const end = script.indexOf('\n', write) + 1;
   assert.ok(from > -1 && write > from && write < end,
     'the failure-path tile blanking fell outside the extracted slice');
@@ -3660,14 +3644,12 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     'the failure card must reach both containers, whichever layout is up');
   assert.match(els.grid.innerHTML, /not the same as having none/,
     'the failure card stopped drawing the distinction it exists for');
-  for (const id of ['st-agents', 'st-working', 'st-idle', 'st-blocked', 'st-attn', 'st-attn-noproj']) {
+  for (const id of ['st-agents', 'st-working', 'st-idle', 'st-blocked', 'st-attn']) {
     assert.equal(els[id].textContent, '?',
       `${id} still asserts a count beside "we cannot see them" -- a headline number the failed poll cannot stand behind`);
   }
   assert.equal(els['st-attn-tile'].hidden, true,
     'the alert tile must hide on a blind poll: red is reserved for a known alarm');
-  assert.equal(els['st-attn-noproj-tile'].hidden, true,
-    '#1898: the no-project drill-down must hide on a blind poll too, for the same reason as its parent');
   assert.equal(els['st-working-tile'].hidden, false,
     '#2157: the Working tile (seeded hidden, as a prior known-zero tick left it) must come BACK on a blind poll showing "?", unlike the alert tile -- hiding it would claim none are working on the one poll that knows nothing');
   assert.equal(els['st-blocked-tile'].hidden, false, '#5540: a failed poll left the Waiting tile hidden, which says nobody is waiting');
@@ -4276,9 +4258,32 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
       assert.match(api.lrow(leo), new RegExp(piece), 'the list row lost its ' + piece + ' column');
     }
 
-    // The answer route: gated on the tie, labelled with its visible word.
+    // The answer route: gated on the tie. #6400 (Josh 2026-10-17): the pill says only "Issue", so the route is the
+    // card itself (data-answer on its root), reached by a click or by Enter on its name button.
     const ask = api.card(mara);
-    assert.match(ask, /ansgo/, 'the needs_you card lost its answer route');
+    assert.match(ask, /^<div class="acard[^>]* data-answer="mara"/, 'the needs_you card lost its answer route');
+    assert.doesNotMatch(ask, /Answer &rarr;|class="ansgo"/, 'the pill carries an Answer link again (#6400)');
+    assert.match(ask, /<button class="namego" type="button" aria-label="Answer mara’s question">/,
+      'the keyboard path to the answer route does not say it answers (#6400; it used to be the Answer button\'s name)');
+    assert.match(api.card({ ...mara, isNamedOurs: false }), /aria-label="Open mara"/, 'CONTROL: a card with no answer route opens');
+
+    // #6398: a rate-limited card and list row say only the pill; the sentence is the pill's hover and screen-reader
+    // text (and the agent's page), never drawn on the board. Stuck past the threshold: the long sentence.
+    const limited = { ...mara, state: 'rate_limited', stateConfidence: 'structured', stateReported: true,
+      stuckError: { stuck: true, state: 'rate_limited', forMs: 45 * 60000 } };
+    const drawn = (html) => html.replace(/ title="[^"]*"/g, '').replace(/<span class="vh">[^<]*<\/span>/g, '');
+    for (const [where, html] of [['card', api.card(limited)], ['row', api.lrow(limited)]]) {
+      assert.match(html, /title="Kosmos has seen this agent paused by a rate limit for about 45 minutes\./, where + ': the sentence is not the pill\'s hover text');
+      assert.match(html, /<span class="vh">\. Kosmos has seen this agent paused by a rate limit for about 45 minutes\./, where + ': a screen reader no longer hears the sentence');
+      assert.doesNotMatch(drawn(html), /paused by a rate limit|Usage limit/, where + ': the rate-limit sentence is drawn on the board again');
+    }
+    assert.match(api.card(limited), /<b>Rate Limit<\/b>/, 'the pill does not read Rate Limit');
+    assert.match(api.card({ ...limited, stuckError: null }), /<div class="atask"><\/div>/, 'a plain rate-limited card carries a sentence');
+    // CONTROL: a crash loop outranks the pill (Keeps stopping) and keeps its own sentence; no rate-limit hover on it.
+    const looping = api.card({ ...limited, crashLoop: { looping: true, count: 4 } });
+    assert.match(looping, /<b>Keeps stopping<\/b>/);
+    assert.match(looping, /restarted it 4 times/, 'a crash-looping rate-limited card lost its crash-loop sentence');
+    assert.doesNotMatch(looping, /<div class="astate[^"]*" title=/, 'a Keeps stopping pill carries the rate-limit hover');
     /* 🛑 WHERE THE ROUTE GOES, not just that it exists. Nothing tested the
        DESTINATION, which is how it went stale: the button was written when a
        project room was the only place a question could be answered, #119 put
@@ -4297,13 +4302,12 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
       'the answer button routes into a project room again, which is the screen it was moved off');
     assert.doesNotMatch(answerFrom, /showTab\('projects'\)/,
       'the answer button still switches to the Projects tab');
-    assert.match(ask, /aria-label="Answer /, 'the answer button accessible name lost its visible word');
     // The untied-needs_you shape cannot come through real routes (the
     // pipeline forces untied panes to unknown; that refusal is its own
     // tested fact elsewhere) -- so the gate's negative is driven by
     // perturbing the one field the gate reads, on an otherwise-real card.
-    assert.doesNotMatch(api.card({ ...mara, isNamedOurs: false }), /ansgo/,
-      'a borrowed-name card offers a button into a thread that will refuse it');
+    assert.doesNotMatch(api.card({ ...mara, isNamedOurs: false }), /data-answer=/,
+      'a borrowed-name card offers a route into a thread that will refuse it');
 
     // Hostile names render inert in both views. The controls aim at the two
     // real failure modes: a live tag in text position, and a quote breaking
@@ -5097,12 +5101,6 @@ test('the browser-layer fixes on this branch cannot be undone silently', () => {
     // an ink fill would pass every behavioural check.
     [/\.vt\.on \{ background: var\(--gold-bright\); color: #14161a; \}/,
      'the selected view-toggle state lost its gold (an ink fill inverts meaning in dark)'],
-    // The Answer control is the ONE card control whose function nothing
-    // else on the card duplicates (the card body opens detail, not the
-    // thread), so the undersized-target exceptions do not apply to it and
-    // it carries the retired .card-answer's SC 2.5.8 floor itself.
-    [/\.ansgo \{[^}]*min-height: 24px/,
-     'the Answer control lost its 24px minimum target (SC 2.5.8), shrinking back to a text-height target'],
     // The removed list's reassurance line is the sentence that makes the
     // light Remove confirmation honest; it rides inside paintRemoved's
     // generated html where no render drive currently reads it.
@@ -5713,9 +5711,10 @@ test('first run fails CLOSED: an unreadable answer shows no onboarding at all', 
     else if (script[k] === '}') { d -= 1; if (d === 0) { end = k + 1; break; } }
   }
   const body = script.slice(start, end);
-  assert.match(body, /catch\s*(\([^)]*\))?\s*\{\s*return;?\s*\}/,
-    'the fetch failure path no longer returns without opening anything');
-  assert.ok(body.indexOf('catch') < body.indexOf('frOpen'),
+  // The block catch that returns, not any `catch`: since #6188 a refusal's body is read with `.catch(() => {})` first.
+  const failReturn = body.match(/catch\s*(\([^)]*\))?\s*\{\s*return;?\s*\}/);
+  assert.ok(failReturn, 'the fetch failure path no longer returns without opening anything');
+  assert.ok(failReturn.index < body.indexOf('frOpen'),
     'frOpen is now reachable before the failure has been ruled out');
   assert.match(body, /state\.done\s*&&\s*!force/,
     'the done flag no longer decides whether to show this, so it shows every launch');
@@ -7885,6 +7884,7 @@ test('paintAddAgents shows the not-signed-in copy on a 403, and cannot-read othe
     pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = true; let BOARD_DEVICE_OFFLINE = false; let BOARD_SIGNED_OUT = false;\n')();
     assert.match(box.innerHTML, /not signed in/i, 'a 403 add-project view showed cannot-read, not the signin copy');
     assert.ok(!/cannot read the agents/i.test(box.innerHTML), 'the signin branch leaked the generic cannot-read copy');
+    assert.ok(!/You can still add the project/i.test(box.innerHTML), 'it promised a project the board\'s gate will refuse to create (#6358)');
     // CONTROL: flag OFF with the same failed read must show cannot-read.
     box.innerHTML = '';
     pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = false; let BOARD_DEVICE_OFFLINE = false; let BOARD_SIGNED_OUT = false;\n')();
@@ -7932,7 +7932,8 @@ test('paintAddAgents tells an offline device it is offline, and does not say the
       + 'const OFFLINE_SENTENCE = ' + JSON.stringify(pageConst('OFFLINE_SENTENCE')) + ';\n'
       + 'let LAST = []; let BOARD_LOOKED = true; let BOARD_LOOK_FAILED = "Load failed"; let BOARD_NEEDS_SIGNIN = false; let BOARD_SIGNED_OUT = false;\n';
     pageFunction('paintAddAgents', base + 'let BOARD_DEVICE_OFFLINE = true;\n')();
-    assert.match(box.innerHTML, /not connected to the internet/i, 'an offline device got another copy: ' + box.innerHTML);
+    // #6537: the top note says it is offline; this box says only that the board asks again by itself.
+    assert.match(box.innerHTML, /The board tries again by itself when you are online again/, 'an offline device got another copy: ' + box.innerHTML);
     assert.ok(!/You can still add the project/i.test(box.innerHTML), 'it promised a project an offline device cannot create');
     assert.ok(!/cannot read the agents on this computer/i.test(box.innerHTML), 'the offline branch blamed the Mac');
     // CONTROL: the flag off with the same failed read is cannot-read.
@@ -8282,7 +8283,7 @@ test('the card standoff, the confirm focus fallback, and the identical-write gua
     'ut-install': null,
     'upd-btn': { focus: () => focused.push('upd-btn') },
   };
-  global.document = { getElementById: (id) => els[id], contains: () => false };
+  global.document = { getElementById: (id) => els[id], contains: () => false, querySelectorAll: () => [] };   // #6214
   const close = new Function('document',
     "let UPD_CONFIRM_OPENER = { focus: () => { throw new Error('focused a removed node'); } };\n"
     /* closeUpdConfirm now resets the shared confirm to update mode (setUpdConfirmMode), so its subset
@@ -8324,7 +8325,7 @@ test("the card's Update arm opens the one shared confirm and records itself as o
     updconfirm: { hidden: true, dataset: {} },
     'uc-no': { focus: () => calls.push('uc-no-focus') },
   };
-  const doc = { getElementById: (id) => els[id] };
+  const doc = { getElementById: (id) => els[id], querySelectorAll: () => [] };   // #6214: the confirm clears stop offers
   // eslint-disable-next-line no-new-func
   const opener = await new Function('document', 'localStorage', 'fetch', 'renderUpdateToast', 'LAST_VERSION',
     'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false;\n'
@@ -11379,11 +11380,11 @@ test('community: /api/community-setting is ON by default, round-trips, and repor
   fs.rmSync(communityEngine.FILE, { force: true });
   const put = (on) => req('/api/community-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
   try {
-    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null },
+    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null, stopped: null },
       'the community switch is not ON by default with an unmeasured share (and, #4820, no notice field)');
     const off = await put(false);
     assert.equal(off.status, 200, off.body);
-    assert.deepEqual(JSON.parse(off.body), { on: false, ok: true, share: null });
+    assert.deepEqual(JSON.parse(off.body), { on: false, ok: true, share: null, stopped: null });
     assert.equal(JSON.parse((await req('/api/community-setting')).body).on, false, 'OFF did not persist');
     assert.equal(communityEngine.participating(), false, 'the gate the send layer reads still says participating');
     const on = await put(true);
@@ -11396,7 +11397,7 @@ test('community: /api/community-setting is ON by default, round-trips, and repor
     // draws could-not-read, never a confident Off (review 2: a route that always said ok passed before).
     fs.rmSync(communityEngine.FILE, { force: true });
     fs.mkdirSync(communityEngine.FILE, { recursive: true });
-    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: false, ok: false, share: null },
+    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: false, ok: false, share: null, stopped: null },
       'an unreadable community setting did not reach the page as could-not-read');
   } finally {
     fs.rmSync(communityEngine.FILE, { force: true, recursive: true });
@@ -11412,11 +11413,11 @@ test('community: #4820 an existing install is ON with no notice field, and notic
   try {
     assert.deepEqual(communityEngine.migrate(), { ok: true, wrote: true });
     const got = JSON.parse((await req('/api/community-setting')).body);
-    assert.deepEqual(got, { on: true, ok: true, share: null }, 'an existing install is not simply ON');
+    assert.deepEqual(got, { on: true, ok: true, share: null, stopped: null }, 'an existing install is not simply ON');
     assert.equal('noticeSeen' in got, false, 'the answer still carries the notice field');
     // A file an older board wrote while the notice was owed: still ON, still no field.
     fs.writeFileSync(communityEngine.FILE, JSON.stringify({ on: true, autopublishNoticeSeen: false }));
-    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null });
+    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null, stopped: null });
     const seen = await req('/api/community-setting/notice-seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     assert.notEqual(seen.status, 200, 'POST /api/community-setting/notice-seen still answers: ' + seen.body);
     // CONTROL: the route next to it still answers, so the refusal above is the removal, not a dead board.
@@ -11668,12 +11669,113 @@ test('kosmos#4794 (review): confirming a code and allowing a device are screen-o
     assert.equal(a.status, 403, 'devices/allow let a process through: ' + a.body);
     assert.match(JSON.parse(a.body).error, /Only a person at the Kosmos screen can allow a device/);
   }
+  /* #6353: Try again is screen-only too (a new attempt is a try; the press means a person is back). */
+  for (const [headers, extra] of [[notPage, {}], [agentPage, {}], [pageHeader, { token: 'f'.repeat(64) }]]) {
+    const t = await req('/api/remote/join/retry', { method: 'POST', headers, body: JSON.stringify({ ...extra }) });
+    assert.equal(t.status, 403, 'join/retry let a process through: ' + t.body);
+    assert.match(JSON.parse(t.body).error, /Only a person at the Kosmos screen can ask for a new code/);
+  }
+  /* Control: from the page it reaches joinRetry's own gate (this board is not enrolled), so the 403 is the guard. */
+  const viaPage = await req('/api/remote/join/retry', { method: 'POST', headers: pageHeader, body: '{}' });
+  assert.equal(viaPage.status, 400, viaPage.body);
+  assert.match(JSON.parse(viaPage.body).error, /finish the Plus sign-up first/);
+  /* kosmos#6404: "Check the code" is screen-only too (a fresh check is a try); control from the page reaches joinRecheck's
+     own gate. */
+  for (const [headers, extra] of [[notPage, {}], [agentPage, {}], [pageHeader, { token: 'f'.repeat(64) }]]) {
+    const t = await req('/api/remote/join/recheck', { method: 'POST', headers, body: JSON.stringify({ ...extra }) });
+    assert.equal(t.status, 403, 'join/recheck let a process through: ' + t.body);
+    assert.match(JSON.parse(t.body).error, /Only a person at the Kosmos screen can ask to check the code/);
+  }
+  const recheckViaPage = await req('/api/remote/join/recheck', { method: 'POST', headers: pageHeader, body: '{}' });
+  assert.equal(recheckViaPage.status, 400, recheckViaPage.body);
+  assert.match(JSON.parse(recheckViaPage.body).error, /finish the Plus sign-up first/);
   /* Control: deny and remove stay open to a process, so the 403 above is the allow guard and not the whole route.
      The 400 is the bad-id refusal (the id is deliberately invalid), not a success. */
   for (const verb of ['deny', 'remove']) {
     const r = await req('/api/remote/devices/' + verb, { method: 'POST', headers: notPage, body: JSON.stringify({ device_id: '../evil' }) });
     assert.equal(r.status, 400, verb + ' was refused as not-a-person: ' + r.body);
   }
+});
+
+test('kosmos#6406: a ticket to open another computer is only for this computer\'s own screen, never through Kosmos+', async () => {
+  // The app's page: a browser's header and this board's own loopback Origin (Node's fetch sends no Origin itself).
+  const page = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', origin: base };
+  const body = JSON.stringify({ address: 'tmnt.kosmosplus.com' });
+  for (const [what, headers, extra] of [
+    ['a process', { 'content-type': 'application/json' }, {}],
+    ['an agent token', { ...page, 'x-kosmos-agent-token': 'f'.repeat(64) }, {}],
+    ['an agent token in the body', page, { token: 'f'.repeat(64) }],
+    ['a phone through Kosmos+', { ...page, 'x-forwarded-host': 'laptop.kosmosplus.com', 'x-forwarded-for': '203.0.113.9' }, {}],
+    ['through Kosmos+, host only', { ...page, 'x-forwarded-host': 'laptop.kosmosplus.com' }, {}],
+    ['through Kosmos+, for only (the webhook path sets only this one)', { ...page, 'x-forwarded-for': '203.0.113.9' }, {}],
+  ]) {
+    const r = await req('/api/remote/open-ticket', { method: 'POST', headers, body: JSON.stringify({ address: 'tmnt.kosmosplus.com', ...extra }) });
+    assert.equal(r.status, 403, what + ' got a ticket: ' + r.body);
+    assert.match(JSON.parse(r.body).error, /Only the Kosmos app on this computer can open another computer directly/, what);
+  }
+  /* Review 4: "on this computer" is positive (loopback Host AND Origin, nothing forwarded), so a reverse proxy of the
+     person's own (AGENT_WORKFORCE_ALLOWED_HOSTS) that adds no header, or rewrites Host to loopback, still fails. */
+  const { madeOnThisComputer } = require('./server');
+  const here = { host: '127.0.0.1:16180', origin: 'http://127.0.0.1:16180' };
+  assert.equal(madeOnThisComputer(here), true, 'the app window on this computer');
+  assert.equal(madeOnThisComputer({ host: 'localhost:16180', origin: 'http://localhost:16180' }), true);
+  for (const [what, h] of [
+    ['a proxy name, no forwarded header', { host: 'board.example.com', origin: 'https://board.example.com' }],
+    ['a proxy that rewrites Host to loopback', { host: '127.0.0.1:16180', origin: 'https://board.example.com' }],
+    ['no Origin', { host: '127.0.0.1:16180' }],
+    ['no Host', { origin: 'http://127.0.0.1:16180' }],
+    ['x-forwarded-for', { ...here, 'x-forwarded-for': '203.0.113.9' }],
+    ['x-forwarded-host', { ...here, 'x-forwarded-host': 'laptop.kosmosplus.com' }],
+    ['Forwarded', { ...here, forwarded: 'for=203.0.113.9' }],
+    ['a look-alike name', { host: '127.0.0.1.evil.example', origin: 'http://127.0.0.1.evil.example' }],
+  ]) assert.equal(madeOnThisComputer(h), false, what);
+  /* Review 6: and the socket. The same headers from a socket elsewhere on the network are refused. */
+  const { ticketCallerHere } = require('./server');
+  assert.equal(ticketCallerHere({ socket: { remoteAddress: '127.0.0.1' }, headers: here }), true);
+  assert.equal(ticketCallerHere({ socket: { remoteAddress: '::ffff:127.0.0.1' }, headers: here }), true);
+  for (const peer of ['192.168.1.20', '10.0.0.5', undefined]) {
+    assert.equal(ticketCallerHere({ socket: { remoteAddress: peer }, headers: here }), false, String(peer));
+  }
+  assert.equal(ticketCallerHere({ socket: { remoteAddress: '127.0.0.1' }, headers: { ...here, 'x-forwarded-for': '1.2.3.4' } }), false);
+  /* Review 7: and the route uses that rule (the test server's socket is always loopback, so this is read from the
+     route's own source). */
+  const src = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+  const at = src.indexOf("pathname === '/api/remote/open-ticket'");
+  assert.ok(at > 0, 'the route moved');
+  assert.match(src.slice(at, at + 1200), /if \(!ticketCallerHere\(req\) \|\| !boardCookieHere\(req\) \|\| !isViaScreen\(req, body\)\)/);
+  /* Review 8: on a board that enforces its token, the board COOKIE is required (Kosmos+ strips it and sends the token
+     as a header instead); a header alone is refused, and a board that enforces nothing does not ask. */
+  const { boardCookieHere } = require('./server');
+  const on = { on: true, token: 't' };
+  const good = () => true;
+  assert.equal(boardCookieHere({ headers: { cookie: 'kosmos_board=t' } }, on, good), true, 'the app window');
+  assert.equal(boardCookieHere({ headers: { 'x-kosmos-board-token': 't' } }, on, good), false, 'a header alone (Kosmos+)');
+  assert.equal(boardCookieHere({ headers: {} }, on, good), false, 'nothing');
+  assert.equal(boardCookieHere({ headers: { cookie: 'kosmos_board=t' } }, on, () => false), false, 'a cookie that does not match');
+  assert.equal(boardCookieHere({ headers: {} }, { on: false, token: null }, good), true, 'a board that enforces nothing');
+  /* #6358: with the real gate, the cookie is a session and the gate falls back to a header or query token, so the cookie
+     is judged on its own: a live session counts; a made-up cookie beside a valid header or ?token= does not. */
+  const ba = require('./engine/boardauth');
+  const realGate = (r) => ba.tokenOk({ token: 't', req: r });
+  const sid = ba.mintSession('t');
+  assert.equal(boardCookieHere({ url: '/', headers: { cookie: 'kosmos_board=' + sid } }, on, realGate), true, 'a live session cookie');
+  assert.equal(boardCookieHere({ url: '/', headers: { cookie: 'kosmos_board=made-up', 'x-kosmos-board-token': 't' } }, on, realGate), false, 'a made-up cookie beside a valid header');
+  assert.equal(boardCookieHere({ url: '/?token=t', headers: { cookie: 'kosmos_board=made-up' } }, on, realGate), false, 'a made-up cookie beside a valid ?token=');
+  assert.equal(realGate({ url: '/', headers: { cookie: 'kosmos_board=made-up', 'x-kosmos-board-token': 't' } }), true, 'CONTROL: the gate itself takes that header, so only the cookie-alone judging refuses it');
+  /* Review 10: a page on another local port is refused too (the global cross-site guard compares the port). */
+  const otherPort = await req('/api/remote/open-ticket', { method: 'POST', headers: { ...page, origin: 'http://127.0.0.1:3000' }, body });
+  assert.equal(otherPort.status, 403, 'another local port got through: ' + otherPort.body);
+  /* An address no computer of the account can have is refused before the tunnel. */
+  for (const address of ['evil.example', '', 'tmnt.kosmosplus.com/x', '../x']) {
+    const r = await req('/api/remote/open-ticket', { method: 'POST', headers: page, body: JSON.stringify({ address }) });
+    assert.equal(r.status, 400, address + ': ' + r.body);
+    assert.match(JSON.parse(r.body).error, /not the address of one of your computers/, address);
+  }
+  /* CONTROL: the page on this computer reaches openTicket's own gate (this board is not enrolled), so the refusals above
+     are the guards and not the whole route. */
+  const ok = await req('/api/remote/open-ticket', { method: 'POST', headers: page, body });
+  assert.equal(ok.status, 400, ok.body);
+  assert.match(JSON.parse(ok.body).error, /finish the Plus sign-up first/);
 });
 
 test('the Allow seam (#567): pending is honest-empty off the switch, and the verbs refuse a bad id in words', async () => {
@@ -12435,8 +12537,16 @@ test('#5534 slice 4: the policy GET carries the company\'s AI policy, read-only,
     r = await req('/api/policy');
     assert.equal(r.status, 200);
     const got = JSON.parse(r.body);
-    assert.deepEqual(got.company, { name: 'Acme legal', chars: 39, opening: 'Never paste client names into a prompt.' });
+    // kosmos#6263: the entry carries the enrolled org's kind ('company' with no family record) for the page's words.
+    assert.deepEqual(got.company, { name: 'Acme legal', chars: 39, opening: 'Never paste client names into a prompt.', kind: 'company' });
     assert.equal(got.state, 'absent', 'the company entry was counted as one of the person\'s own');
+    // kosmos#6263: on a family's board the same entry says family (driven through the route, not the source).
+    const oe = require('./engine/orgenroll');
+    const rec = require('node:path').join(require('./engine/store').ROOT, oe.ENROLLMENT_FILE);
+    fsx.writeFileSync(rec, JSON.stringify({ org: { id: 'org_1', name: 'Rivera', slug: 'rivera', kind: 'family' }, role: 'member', world: 'a'.repeat(32) }));
+    try {
+      assert.equal(JSON.parse((await req('/api/policy')).body).company.kind, 'family');
+    } finally { fsx.rmSync(rec, { force: true }); }
   } finally { orgpolicy.clear(); }
 });
 

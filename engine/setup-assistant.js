@@ -107,11 +107,15 @@ function setupAssistantSeeded() {
  * create leaves no flag. Returns whether it stuck. A failed write would let a later
  * try create a SECOND guide (the seed falls back to "Josh AI" when "Josh" is taken),
  * so ensureGuide also keeps an in-process latch; across a restart with an unwritable
- * store, the flag cannot be trusted and nothing here can do better. */
+ * store, the flag cannot be trusted and nothing here can do better.
+ * #6432: saved through a temp and a rename (store.saveFlushed), never in place. A plain writeFileSync
+ * truncates first, so a reader in that window can see an empty file: guideName then returns null (a transient
+ * wrong answer), and a test that parses the file directly throws "Unexpected end of JSON input". That is the
+ * cause inferred from the code for the #6432 failures (a load run did not reproduce them), not an observed event. */
 function markSetupAssistantSeeded(meta) {
   try {
-    fs.writeFileSync(flagPath(),
-      JSON.stringify({ at: new Date().toISOString(), ...(meta || {}) }) + '\n', 'utf8');
+    store.saveFlushed(flagPath(),
+      JSON.stringify({ at: new Date().toISOString(), ...(meta || {}) }) + '\n');
     return true;
   } catch { return false; }
 }

@@ -59,6 +59,10 @@ function chk(ok, label, extra) {
   tasks.create(launch.id, { sentence: 'Book the podcast tour' });
   tasks.create(launch.id, { sentence: 'Order proof copies', who: 'ada' });
   tasks.create(launch.id, { sentence: 'Pick the launch date' });
+  /* #6481: a second project in view, so each row keeps its project line (with one project the rows leave it out) and
+     the click on a row's project name below still has a name to click. */
+  const news = projects.create({ name: 'Newsletter' });
+  tasks.create(news.id, { sentence: 'Clean up bounced addresses' });
   require('../../engine/store').writeSettings({ tasksTabShown: true });
 
   const server = await srv.start(0);

@@ -1657,3 +1657,19 @@ test('#4406: an empty kept previous version is not offered as one', () => {
   fs.writeFileSync(path.join(dir, 'CLAUDE.md.previous'), '# Kept\n\nWords from before, kept.\n');
   assert.equal(instructions.readPrevious(name).exists, true, 'CONTROL: a kept version with words is offered');
 });
+
+/* #6180: a write Kosmos marks quiet (taking an agent off its last project) is stored and given back as quiet by wroteBy,
+   through the real write and record; a write that is not quiet carries no mark. Runs the engine, not its source. */
+test('#6180: instructions.write keeps a quiet mark and wroteBy gives it back; an unmarked write has none', () => {
+  const quietFile = makeAgent('quiet-6180');
+  const seenQ = instructions.read('quiet-6180');
+  instructions.write('quiet-6180', REAL + '\nTaken off its last project.\n', seenQ.version, undefined,
+    { who: 'kosmos', because: 'Kosmos took it off its last project', quiet: true });
+  assert.deepEqual(instructions.wroteBy('quiet-6180', fs.statSync(quietFile).mtimeMs),
+    { who: 'kosmos', because: 'Kosmos took it off its last project', quiet: true }, 'the quiet mark was lost between write and wroteBy');
+  const loudFile = makeAgent('loud-6180');
+  const seenL = instructions.read('loud-6180');
+  instructions.write('loud-6180', REAL + '\nPut on a project.\n', seenL.version, undefined, { who: 'kosmos', because: 'Kosmos put it on Launch' });
+  const loud = instructions.wroteBy('loud-6180', fs.statSync(loudFile).mtimeMs);
+  assert.deepEqual(loud, { who: 'kosmos', because: 'Kosmos put it on Launch' }, 'CONTROL: an unmarked write gained a quiet mark');
+});

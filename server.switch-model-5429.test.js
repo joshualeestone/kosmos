@@ -254,7 +254,7 @@ test('#5534: under a company model list, a switch WITH a listed model goes throu
   try {
     r = await switchTo(name, { provider: 'anthropic' });
     assert.equal(r.status, 400, 'a model-less switch went through under a model list');
-    assert.match(String(r.body.because), /allows only some models on anthropic/);
+    assert.match(String(r.body.because), /allows only some models on Anthropic Claude/);
     assert.equal(store.readProfile(name).provider, 'google', 'a refused switch changed the provider');
     r = await switchTo(name, { provider: 'anthropic', model: 'opus55' });
     assert.equal(r.status, 200, 'a switch with the listed model was refused: ' + JSON.stringify(r.body));

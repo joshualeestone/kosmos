@@ -13,7 +13,7 @@
  * can show confidence rather than implying certainty it does not have.
  */
 
-const { execFileSync } = require('node:child_process');
+const { execFileSync, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -341,6 +341,27 @@ function shDetail(cmd, args, timeoutMs) {
     };
   }
 }
+/* #6173: shDetail's answer from execFile, the same four fields read the same way: a process that exited has a numeric
+   code, and one that never started (ENOENT) or was killed by the timeout has none, so `ran` keeps its meaning. */
+/* It always answers (#6173 review 5): SIGKILL at the limit, and a last timer 5 s after it, as remove.js's execAsync. */
+function shDetailAsync(cmd, args, timeoutMs) {
+  return new Promise((resolve) => {
+    const limit = timeoutMs || 5000;
+    let answered = false, hard = null;
+    const answer = (v) => { if (answered) return; answered = true; clearTimeout(hard); resolve(v); };
+    let child;
+    try {
+      child = execFile(cmd, args, { encoding: 'utf8', timeout: limit, killSignal: 'SIGKILL' }, (e, stdout, stderr) => {
+        if (!e) { answer({ ran: true, status: 0, out: stdout, err: '' }); return; }
+        const status = !e.killed && typeof e.code === 'number' ? e.code : null;   // killed at its limit: no code, on every platform
+        answer({ ran: status !== null, status, out: stdout ? String(stdout) : '', err: stderr ? String(stderr) : '' });
+      });
+    } catch { answer({ ran: false, status: null, out: '', err: '' }); return; }
+    hard = setTimeout(() => answer({ ran: false, status: null, out: '', err: '' }), limit + 5000);
+    if (hard.unref) hard.unref();
+    if (child && child.stdin) child.stdin.end();
+  });
+}
 
 /**
  * Did tmux ANSWER, and answer that there is nothing to list?
@@ -464,13 +485,40 @@ function oneLine(text, max) {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
-function tmuxPanes() {
+function tmuxPanes() { return driveShSync(tmuxPanesSteps()); }
+/* #6173: the same look without blocking the board's thread, for a restart that runs while the board keeps answering.
+   One body (tmuxPanesSteps) yields each tmux call and two drivers answer it, so the two can never read panes
+   differently. Only the re-pick search (tmuxRepick, after a version wall or a removed tmux) stays synchronous: it is
+   rare, and it is the same search the board's own poll would run. */
+function tmuxPanesAsync() { return driveShAsync(tmuxPanesSteps()); }
+function driveShSync(gen) {
+  let r = gen.next();
+  while (!r.done) r = gen.next(shDetail(r.value[0], r.value[1]));
+  return r.value;
+}
+async function driveShAsync(gen) {
+  let r = gen.next();
+  while (!r.done) r = gen.next(await shDetailAsync(r.value[0], r.value[1]));
+  return r.value;
+}
+function* tmuxPanesSteps() {
   TMUX_LAST_SEARCH = 'none';   // the detail line says only what a search in THIS look did
-  let got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
+  /* The binary that answered is recorded, not the one current when the answer lands: under the async driver the
+     board's own poll may re-pick tmux in between (#6173 review 2). */
+  let bin = tmuxBin();
+  let got = yield [bin, ['list-panes', '-a', '-F', PANE_FORMAT]];
   /* The wall, or the tmux itself gone (ran false and the file missing: a `brew uninstall`): either way another tmux may
      read the server. A run that timed out is also ran false but its file is there, so it starts no search. */
-  if (((got.ran && got.status !== 0 && isVersionWall(got)) || (!got.ran && tmuxGone())) && tmuxRepick()) got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
-  if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; TMUX_READ_BY = tmuxBin(); return got.out; }
+  /* #6190: this look's own search is kept here, read the moment its synchronous re-pick returns. The module's
+     TMUX_LAST_SEARCH can be reset by the board's own poll while the async driver awaits, so the detail line below
+     would otherwise be worded from another look's search. */
+  let searched = 'none';
+  if ((got.ran && got.status !== 0 && isVersionWall(got)) || (!got.ran && tmuxGone())) {
+    const switched = tmuxRepick();
+    searched = TMUX_LAST_SEARCH;
+    if (switched) { bin = tmuxBin(); got = yield [bin, ['list-panes', '-a', '-F', PANE_FORMAT]]; }
+  }
+  if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; TMUX_READ_BY = bin; return got.out; }
   // ⚠️ An empty STRING, not null. `readPanes('')` is zero panes and zero
   // rejects, which is the honest reading of "tmux answered, and there are no
   // sessions" — and it is a different value from the `null` that means we never
@@ -494,7 +542,7 @@ function tmuxPanes() {
      what came back"), it exists so that a cause reaches the screen instead of
      a terminal, and a cause with the actor removed is not a cause. The four
      sites marked here are all that channel. (Mona Lisa, 2026-08-22.) */
-  LAST_LOOK_PROBLEM = lookProblemFor(got, tmuxBin(), TMUX_LAST_SEARCH);
+  LAST_LOOK_PROBLEM = lookProblemFor(got, bin, searched);
   return null;
 }
 /** The tmux this board would run is not a file any more (it was removed after launch). */
@@ -508,7 +556,7 @@ function tmuxGone() {
 function isVersionWall(got) {
   return /server exited unexpectedly|protocol version mismatch/i.test(String((got && got.err) || '')) && !tmuxSaidNoServer(got);
 }
-/* 🔑 #2955: A DIFFERENT tmux OWNS THE SERVER, SO READ THROUGH THE ONE THAT CAN. Measured on Agent1s, 2026-10-01 13:42:
+/* 🔑 #2955: A DIFFERENT tmux OWNS THE SERVER, SO READ THROUGH THE ONE THAT CAN. Measured on a build Mac, 2026-10-01 13:42:
    the board picked the bundled 3.5a at launch (no server yet), and three seconds later the fleet's Homebrew 3.6a
    started the server; the launcher's pick is made once, so the board read no agent until a person repointed the
    bundled path. Now the board asks again when it meets the wall: the first tmux that can LIST the live server wins,
@@ -537,7 +585,7 @@ let TMUX_LAUNCHER_SEAM;   // undefined: the real one
 let TMUX_SWITCHED_TO = null;   // the last value tmuxRepick itself wrote
 let TMUX_CANDIDATES_SEAM = null;
 let TMUX_REPICK_MISSED_AT = 0;
-let TMUX_LAST_SEARCH = 'none';   // 'none' | 'not-allowed' | 'waiting' | 'found-nothing': for the detail line
+let TMUX_LAST_SEARCH = 'none';   // 'none' | 'not-allowed' | 'waiting' | 'found-nothing': what tmuxRepick last did; a look copies it at once (#6190)
 const TMUX_REPICK_WAIT_MS = 60000;
 /** Kosmos's own tmux, where the install lays it: this file is <KOSMOS_HOME>/app/engine/status.js and the bundle is
     <KOSMOS_HOME>/tmux/bin/tmux. The launcher does not export KOSMOS_HOME and the board's launchd job does not carry it,
@@ -623,7 +671,7 @@ function tmuxRepick() {
     ? process.env.KOSMOS_TMUX_KNOWN.split(/\s+/).filter(Boolean)
     : ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux'];
   const cands = (TMUX_CANDIDATES_SEAM || known).concat(ownTmux(), launcherPick());   // non-null here; a gone one is skipped
-  /* Once per real binary: on Agent1s the bundled path is a symlink to Homebrew's, so one tmux can appear three times
+  /* Once per real binary: on a build Mac the bundled path is a symlink to Homebrew's, so one tmux can appear three times
      here, each a blocking probe of up to 5 s. */
   const real = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
   const seen = new Set([real(current) || current]);
@@ -1642,6 +1690,114 @@ function capturePane(target, lines = 40) {
   return sh(tmuxBin(), ['capture-pane', '-p', '-J', '-t', target, '-S', `-${lines}`]);
 }
 
+/* ── #6249: text left in a Claude Code agent's input box ─────────────────── */
+/* The reader of the live input box in an ANSI capture (capture-pane -e); engine/chat.js uses it to confirm a line was
+   submitted, and the card below to show text left there. The screen it reads is described in chat.js (#6249). */
+const COMPOSER_RULE = /^─{10,}/;
+/* #6256 item 6: `dimIn` is the dim state the row starts in. tmux's capture writes an escape only where the style
+   changes, carried across row ends, so a dim run that wraps onto a second row has no escape of its own there. */
+function visibleWithoutDim(line, dimIn = false, state = null) {
+  let out = '';
+  let dim = dimIn;
+  const re = /\x1b\[([0-9;:]*)m/g;   // the colon form (38:5:246) too
+  let at = 0;
+  let m;
+  while ((m = re.exec(line)) !== null) {
+    if (!dim) out += line.slice(at, m.index);
+    /* ESC[m is a reset. ; separates parameters; : separates a parameter's own sub-parameters (4:2 is an underline
+       style, 38:2:...:r:g:b one colour), so a colon group is one parameter and only its first number is the code. */
+    const codes = (m[1].match(/[^;]+/g) || ['0']).map((g) => (g.includes(':') ? 'c' + (g.match(/\d+/) || ['0'])[0] : g));
+    for (let i = 0; i < codes.length; i += 1) {
+      const c = codes[i];
+      if (c.startsWith('c')) continue;   // a colon group (one parameter, never dim, never a reset)
+      if (c === '38' || c === '48' || c === '58') { i += codes[i + 1] === '5' ? 2 : 4; continue; }   // a colour's own numbers
+      if (c === '2') dim = true;
+      else if (c === '0' || c === '22') dim = false;
+    }
+    at = re.lastIndex;
+  }
+  if (!dim) out += line.slice(at);
+  if (state) state.dim = dim;
+  return out.replace(/\x1b\[[0-9;:?]*[A-Za-z]/g, '');   // any other escape
+}
+/* #6256 item 7: the rule under the box is found on the row's raw text (every escape removed, dim kept), so a theme
+   that drew the rule dim still ends the box there rather than merging the footer into it. */
+const rawRow = (line) => String(line).replace(/\x1b\[[0-9;:?]*[A-Za-z]/g, '');
+/* kosmos#6436: { rows: true } also answers how many rows the box draws (a scrolled box draws the pane's most). */
+function composerText(ansi, opts) {
+  if (typeof ansi !== 'string' || !ansi) return { ok: false };
+  const lines = ansi.split('\n');
+  const carry = { dim: false };
+  /* Review 2: the carry restarts at a row that begins with the box's ❯ (tmux would have written the dim-off before a
+     ❯ drawn plain), so a dim run left open higher in the scrollback can never make typed text in the box read as empty
+     (the dangerous direction: an empty-looking box is pasted into). */
+  const rows = lines.map((line) => visibleWithoutDim(line, rawRow(line).startsWith('\u276f') ? false : carry.dim, carry));
+  let at = -1;
+  for (let i = 0; i < rows.length; i += 1) if (rows[i].startsWith('❯ ') || rows[i] === '❯') at = i;
+  if (at < 0) return { ok: false };
+  const parts = [];
+  for (let i = at; i < rows.length && !COMPOSER_RULE.test(rawRow(lines[i])); i += 1) parts.push(rows[i]);
+  const text = parts.join(' ').replace(/^❯/, '').replace(/[\s ]+/g, ' ').trim();
+  return opts && opts.rows ? { ok: true, text, rows: parts.length } : { ok: true, text };
+}
+/* An ANSI capture of one pane (the colours say which text is dim), with its own seam for tests. */
+let ansiCapture = null;
+function setAnsiCapture(fn) { ansiCapture = typeof fn === 'function' ? fn : null; }
+function captureAnsi(target) {
+  if (ansiCapture) return ansiCapture(target);
+  return sh(tmuxBin(), ['capture-pane', '-e', '-p', '-t', target, '-S', '-200']);
+}
+/* What the plain capture shows after the live ❯ (the box), or '' for nothing, the placeholder or the queued hint:
+   those are dim, and dim cannot be seen without colours, so only something else is read again with them. */
+const BOX_DIM_ALONE = /^(Try ".*"|Press up to edit queued messages)$/;
+function plainBoxText(text) {
+  const rows = String(text == null ? '' : text).split('\n');
+  let at = -1;
+  for (let i = 0; i < rows.length; i += 1) if (rows[i].startsWith('\u276f\u00a0')) at = i;
+  if (at < 0) return '';
+  const parts = [];
+  for (let i = at; i < rows.length && !COMPOSER_RULE.test(rows[i]); i += 1) parts.push(rows[i]);
+  const t = parts.join(' ').replace(/^\u276f/, '').replace(/[\s\u00a0]+/g, ' ').trim();
+  return BOX_DIM_ALONE.test(t) ? '' : t;
+}
+/* How long text may sit in the box before the card says so: a person typing, or a line just placed and about to be
+   submitted, is not a stranded message. */
+const UNSENT_SHOW_MS = 3 * 60 * 1000;
+const unsentSeen = new Map();   // agent name -> { text, since }
+/* Round 1: agent name -> { plain, text }, the last colour read and the plain text it answered for. A box showing the
+   same thing as last pass (an idle agent's dim suggestion, say) is not captured again with colours. */
+const unsentRead = new Map();
+function resetUnsentForTests() { unsentSeen.clear(); unsentRead.clear(); }
+/* Round 1: agents no longer on the board lose their records, so one coming back under the name starts over. */
+function unsentSweep(names) {
+  const present = new Set(Array.from(names || [], String));
+  for (const m of [unsentSeen, unsentRead]) for (const k of [...m.keys()]) if (!present.has(k)) m.delete(k);
+}
+/* #6249: the card's unsentInput, { since } (ISO) once the same text has sat in a Claude agent's box UNSENT_SHOW_MS,
+   else null. The plain capture this pass already made decides whether to look; only a pane showing something there
+   is captured again with colours, and only when what it shows changed since the last colour read. */
+function unsentInputOf(pane, text, now = Date.now()) {
+  const name = pane && pane.name;
+  const claude = !!pane && (!pane.runner || pane.runner === 'claude')
+    && !isCodexCommand(pane.command) && !isGrokCommand(pane.command) && !isAntigravityCommand(pane.command);
+  const plain = claude ? plainBoxText(text) : '';
+  if (!plain) { unsentSeen.delete(name); unsentRead.delete(name); return null; }
+  let typed;
+  const last = unsentRead.get(name);
+  if (last && last.plain === plain) typed = last.text;
+  else {
+    let box;
+    try { box = composerText(captureAnsi(pane.target)); } catch { box = { ok: false }; }
+    typed = box.ok ? box.text : '';
+    if (box.ok) unsentRead.set(name, { plain, text: typed }); else unsentRead.delete(name);
+  }
+  if (!typed) { unsentSeen.delete(name); return null; }
+  const box = { text: typed };
+  const seen = unsentSeen.get(name);
+  if (!seen || seen.text !== box.text) { unsentSeen.set(name, { text: box.text, since: now }); return null; }
+  return now - seen.since >= UNSENT_SHOW_MS ? { since: new Date(seen.since).toISOString() } : null;
+}
+
 /**
  * Is a Claude process running in this pane at all?
  *
@@ -2606,7 +2762,7 @@ function claudePermissionPromptKind(text) {
    over "Esc to cancel · Tab to amend". A bare digit answers at once: 1 approved the write, 3 rejected it ("User
    rejected write to ...") and the agent went back to its prompt. Only the `wording` kind (claudePermissionPromptKind):
    a highlighted option in other wording may be one of Claude Code's own pickers, which is not pressed on a guess.
-   Returns { at, question, options: [{ n, label }], count, permission: true } or null. Refused (null): no footer within
+   Returns { at, question, options: [{ n, label, lasting? }], count, permission: true } or null. Refused (null): no footer within
    the last three non-blank lines, numbering that is not 1..count in order, not exactly one highlighted option, fewer than
    2 or more than 9 options (every answer is ONE key), or a control character in a label. A label wrapped onto
    indented next lines is joined into one whole option (the page shows and the key path checks the whole label). */
@@ -2649,13 +2805,13 @@ function claudePermissionPrompt(text) {
   if (wrap.length) return null;   // indented text directly under the question, above the first option
   if (q < 0 || opts.length < 2 || opts.length > 9 || selected !== 1) return null;
   if (opts.some((o, k) => o.n !== k + 1)) return null;
-  /* Review 5 (decided, reversible): only the options that decide THIS request are answerable, "Yes" and the "No" one.
-     The others ("Yes, and don't ask again for ...", "Yes, and switch to auto mode", "Yes, and switch to accept edits")
-     save a lasting choice in the agent's settings or session, and the rule for those is #5051's: never a one-tap button,
-     so a mis-tap on a phone cannot change what the agent may do from now on. They stay on screen in the question text. */
-  const answerable = opts.filter((o) => o.label === 'Yes' || /^No\b/.test(o.label));
-  if (answerable.length !== 2 || answerable[0].label !== 'Yes') return null;
-  return { at: q, question: lines[q].trim(), options: answerable, count: opts.length, permission: true };
+  /* #6172 (a person, via Josh 10-14): every option the prompt lists is answerable, so "Yes, and don't ask again for ..."
+     can be chosen from the page. The ones other than "Yes" and the "No" one save a lasting choice in the agent's settings
+     or session (an allow rule, auto mode, accept edits), so they are marked `lasting`: the page asks once more before it
+     sends one, and the POST refuses one sent without that confirmation (#6054 review 5's mis-tap guard, kept). */
+  if (opts[0].label !== 'Yes' || opts.filter((o) => /^No\b/.test(o.label)).length !== 1) return null;
+  const options = opts.map((o) => (o.label === 'Yes' || /^No\b/.test(o.label) ? o : { ...o, lasting: true }));
+  return { at: q, question: lines[q].trim(), options, count: opts.length, permission: true };
 }
 /* #6054: a menu the agent page may answer by key: the question menu, or a permission prompt. Only for answering by a
    pressed number. Closing with Escape stays the question menu's alone: on a permission prompt Escape means No. */
@@ -5858,7 +6014,7 @@ function transcriptFor(agentName, exactSession) {
  * READ that folder; nothing in this repo writes it.
  *
  * ⚠️ SO MEMORY HAS NEVER WORKED FOR ANYBODY WHO IS NOT US. Josh, 2026-08-21, on
- * a clean install: `ls: /Users/cabal/.claude/agent-registry/: No such file or
+ * a clean install: `ls: /Users/<user>/.claude/agent-registry/: No such file or
  * directory`, and every agent on his board reading "Unknown". Not four agents
  * misbehaving — the normal case, on a machine without our fleet's scripts. The
  * development machine had a file the product depended on and did not create,
@@ -5867,8 +6023,8 @@ function transcriptFor(agentName, exactSession) {
  * 🔑 WHAT THIS USES INSTEAD IS SOMETHING KOSMOS ALREADY KNOWS. Claude Code
  * writes each transcript to `<root>/projects/<the-launch-directory>/<id>.jsonl`,
  * with the directory's path flattened — every character that is not a letter or
- * a digit becomes a dash. MEASURED, not assumed: `/Users/agent1/.openclaw-workspace`
- * is stored as `-Users-agent1--openclaw-workspace`, and the naive
+ * a digit becomes a dash. For example `/Users/example/.openclaw-workspace`
+ * is stored as `-Users-example--openclaw-workspace`, and the naive
  * `[^A-Za-z0-9] -> -` reproduces it exactly, double dash and all. And the
  * supervisor launches every agent with `-c "$WORKDIR"`, one folder per agent,
  * created by `create.js`. So the folder is derivable from the agent's name.
@@ -7442,7 +7598,13 @@ function paneRoster() {
   //
   // The two functions still are not one, because this one is deliberately
   // stricter about a PARTIAL answer: see the note below.
-  const out = paneSource ? paneSource() : tmuxPanes();
+  return paneRosterFrom(paneSource ? paneSource() : tmuxPanes());
+}
+/* #6173: the same roster from a tmux look that does not block the board's thread (an account move's restarts). */
+async function paneRosterAsync() {
+  return paneRosterFrom(paneSource ? paneSource() : await tmuxPanesAsync());
+}
+function paneRosterFrom(out) {
   if (out === null || out === undefined) {
     throw new Error('we could not see what is running on this computer');
   }
@@ -8599,6 +8761,7 @@ function snapshot() {
   // #5805 3b review 2: agents gone from this pass are no longer captured (not on an empty read: a failed listing must
   // not make every limit row read late).
   if (panes.length) limitCaptureSweep(panes.map((pane) => pane.name));
+  if (panes.length) unsentSweep(panes.map((pane) => pane.name));   // #6249 round 1 (not on an empty read, as above)
   const agents = panes.map((pane) => {
     const text = capturePane(pane.target);
     /* #5949: a Windows agent's state can be its LAST GOOD reading, held through a short gap in
@@ -9159,6 +9322,8 @@ function snapshot() {
          claudeLimitUntil), so the card can say when: "Looks like a usage limit until <time>" (every Claude card is a
          screen reading today; a reported one would say "Out of usage until"). Null for any other card or an unread line. */
       limitUntil: claudeLimitUntilIso(pane, status),
+      /* #6249: text has sat unsent in its input box for a few minutes ({ since }), else null. */
+      unsentInput: unsentInputOf(pane, text),
       /* #5959 slice 2: when it was last seen working, for the health line on its page (see lastWorkedOf). */
       lastWorked: lastWorkedOf(pane),
       because: status.because,
@@ -9337,7 +9502,12 @@ function needsPerson(a) {
     // of an absent field is the silent-`undefined` defect that test-support/fleet.js's strict proxy throws on; the
     // hasOwnProperty check handles the absence explicitly instead of relying on `undefined` coercion. (agentNeedsAttention
     // needs no guard: it runs over wire rows that always carry stuckError, never bare snapshot rows.)
-    || (Object.prototype.hasOwnProperty.call(a, 'stuckError') && Boolean(a.stuckError) && a.stuckError.stuck === true));
+    || (Object.prototype.hasOwnProperty.call(a, 'stuckError') && Boolean(a.stuckError) && a.stuckError.stuck === true)
+    // #5154 slice B: a Kosmos helper (quota resume / idle nudge / first-reply nudge) gave up on this agent and
+    // said so only in a log -- now it counts as needing the person. Like stuckError, ownBound is NOT normalised
+    // into snapshot()'s shape (server.js attaches it via ownbounds.peek only to the /api/status rows, where
+    // `raised` can be true), so the read is GUARDED on presence for the same bare-snapshot-row reason.
+    || (Object.prototype.hasOwnProperty.call(a, 'ownBound') && Boolean(a.ownBound) && a.ownBound.raised === true));
 }
 /**
  * The numbers on the summary line, for a given set of cards.
@@ -9367,14 +9537,9 @@ function countAgents(agents, unreadableLines, unreadableSamples) {
        `reconnect` is set (the /api/status route; snapshot()'s own counts never see one), and
        needs_trust rows are built by the route after this, so it adds those itself. */
     needsYou: agents.filter(needsPerson).length,
-    /* #1898: of those needs_you, how many named NO project (`stateProject`
-       null). A needs_you without `--project` lights no project tile, so it is
-       the easy-to-miss case a person scanning the Projects board never sees; the
-       Agents-page tile that reads this makes the omission legible. Fleet-level
-       and computed over the same (removed-agents-filtered) board as `needsYou`,
-       so it is a subset of that count -- the per-project `needsYouUnattributed`
-       in engine/projects.js is the same idea scoped to a project's members. */
-    needsYouUnattributed: agents.filter((a) => a.state === STATE.NEEDS_YOU && a.stateProject === null).length,
+    /* #6180 (Josh, 10-14): no fleet count of needs-you agents that named no project. Its only reader was the Agents
+       board's "No project" chip, removed because an agent need not be on a project; the per-project
+       `needsYouUnattributed` in engine/projects.js stays. */
     unknown: agents.filter((a) => a.state === STATE.UNKNOWN).length,
     /* ⚠️ "we tried to read a transcript and could not", which is why a
        paneless agent is not counted here. Its context is absent by
@@ -9517,11 +9682,31 @@ function sessionText(now) {
   return SESSION_CACHE.text;
 }
 
-function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
+function sessionStartedAtFromTmux(sessionName, now = Date.now(), opts = {}) {
   const want = String(sessionName == null ? '' : sessionName);
   if (!want) return null;
   let text;
-  try { text = sessionText(now); } catch { return null; }
+  /* #6174: `fresh` reads tmux now and neither uses nor writes the two-second cache, for a caller that must see the
+     session as it is after an action it just took (the account move), without handing other readers its moment. */
+  try { text = opts && opts.fresh === true ? (sessionSource ? sessionSource() : tmuxSessions()) : sessionText(now); } catch { return null; }
+  return sessionStartIn(text, want);
+}
+/* #6173: the fresh read without blocking the board's thread, for the several-agents move (Liu Kang m5607): the same
+   list-sessions through execFile, parsed by the same lines. */
+async function tmuxSessionsAsync() {
+  const got = await shDetailAsync(tmuxBin(), ['list-sessions', '-F', SESSION_FORMAT]);
+  if (got.ran && got.status === 0) return got.out;
+  if (tmuxSaidNoServer(got)) return '';
+  return null;
+}
+async function sessionStartedAtFromTmuxAsync(sessionName) {
+  const want = String(sessionName == null ? '' : sessionName);
+  if (!want) return null;
+  let text;
+  try { text = sessionSource ? sessionSource() : await tmuxSessionsAsync(); } catch { return null; }
+  return sessionStartIn(text, want);
+}
+function sessionStartIn(text, want) {
   if (text === null || text === undefined) return null;
   for (const line of String(text).split('\n')) {
     if (!line) continue;
@@ -9539,6 +9724,7 @@ function sessionStartedAtFromTmux(sessionName, now = Date.now()) {
 }
 
 module.exports = {
+  composerText, unsentInputOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
   waitingTotal,   // #3996: the Dock badge's number
@@ -9550,7 +9736,7 @@ module.exports = {
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
   swarmField,   // #3564: exported so the meter's owner test is tested through the real folder search
-  countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
+  countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, paneRosterAsync, sessionStartedAtFromTmuxAsync, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
   rank, paneOrder, modelDisplayName, readGeminiSession, readIdentity, transcriptFor, readCodexContext, readCodexSession, claudeAccountDirOf, ownsFor,
@@ -9574,6 +9760,7 @@ module.exports = {
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
   setPaneSource, setPaneCapture, stateIsRemembered, setCreatedSource, createdKeys, createdKeysStrict, tmuxSaidNoServer, lookProblemFor,
   // #2955: the version-wall switch, and its test seams (excused by name in engine.reachable.test.js).
+  _tmuxPanesStepsForTests: tmuxPanesSteps,   // #6190: lets a test interleave another look between two steps
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */

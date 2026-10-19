@@ -13,10 +13,12 @@ test('#4588 part 3: a card held by the shared pool says so, with the pool\'s res
   const until = new Date(Date.now() + 3600e3).toISOString(); // ahead of now: the page says a past time is stale
   const hhmm = new Date(Date.parse(until)).toLocaleString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
   const held = { state: 'rate_limited', stateConfidence: 'structured', stateReported: true, poolUntil: until, quotaUntil: null };
-  assert.equal(reasonOf(held, { noQuote: true }), 'Waiting for the shared Google quota, reported to reset at ' + hhmm + '.');
+  // #6398: a card says only its pill (Rate Limit); the sentence is the agent's own page and the pill's hover text.
+  assert.equal(reasonOf(held, { card: true }), '', 'a rate-limited card carries a sentence again (#6398)');
+  assert.equal(reasonOf(held), 'Waiting for the shared Google quota, reported to reset at ' + hhmm + '.');
   const own = { ...held, poolUntil: null, quotaUntil: until };
-  assert.equal(reasonOf(own, { noQuote: true }), 'Usage limit reached. The Google quota resets at ' + hhmm + '.', 'CONTROL');
+  assert.equal(reasonOf(own), 'Usage limit reached. The Google quota resets at ' + hhmm + '.', 'CONTROL');
   assert.equal(reasonOf({ state: 'idle', poolUntil: until }), '', 'only a paused card says it');
   const past = new Date(Date.now() - 60e3).toISOString();
-  assert.equal(reasonOf({ ...held, poolUntil: past }, { noQuote: true }), 'Waiting for the shared Google quota.', 'a past poolUntil: the shared-quota line with no time');
+  assert.equal(reasonOf({ ...held, poolUntil: past }), 'Waiting for the shared Google quota.', 'a past poolUntil: the shared-quota line with no time');
 });

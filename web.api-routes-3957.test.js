@@ -55,7 +55,7 @@ const SERVED_ELSEWHERE = {
 const CANARIES = ['/api/accounts', '/api/federation/invite', '/api/federation/join', '/api/remote/devices/x', '/api/update/rollback'];
 
 /* Measured 2026-09-26 on main. Growth reds; shrinking is fine (lower these when it happens). */
-const UNREAD_CEILING = 19; // -1 (#4720): tcPortrait reads /api/catalogue/portrait now (a literal), not a static path from the catalogue.
+const UNREAD_CEILING = 21; // -1 (#4720): tcPortrait reads /api/catalogue/portrait now (a literal), not a static path from the catalogue. +1 (#6173): moveAccountAgents' limited() helper fetches its url argument; both its callers pass literals (/api/agents/account and /api/agents/account-moves/${id}), which are read and checked as helper calls. +1 (#6254): toggleKind PUTs the shared API const (/api/phone-notify) for the per-kind phone-notify switches, a second non-literal fetch of the same endpoint the master toggle() already fetches; the route is read and checked via load()'s and toggle()'s own calls.
 const UNREADABLE_CEILING = 1;
 
 /* A lexical mask over a source text: CODE, COMMENT (JS and HTML), STRING (inside a string literal),

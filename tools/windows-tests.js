@@ -50,6 +50,7 @@ const ALSO = ['agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'p
   'projects.linuxopen-5881.test.js',   // #5881: its Linux arms and its Mac and Windows controls run there (the Windows one through a spy); the stand-in arm skips
   'accounts.fsync-5434.test.js',   // #5434 slice 2: the account stores' saves must work on Windows too
   'store.fsync-5434.test.js',   // #5434 slice 4: store.js's profile, settings and picture saves, on Windows too
+  'orgkeypin-5686.test.js',   // #5686 b1-mac: the company-key pin is written and checked on Windows too (its 0600 check skips there)
   'allowance.fsync-5434.test.js',   // #5434 slice 5: the account folder's weekly files, on Windows too
   'create.codexfsync-5434.test.js',   // #5434 slice 7: the codex config.toml rewrite, on Windows too
   'create.codexlock-5434.test.js',    // #5434 slice 8: one lock for the codex config.toml writers; the trust append flushed
@@ -76,18 +77,27 @@ const ALSO = ['agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'p
   'sendertoken.prune-ended-5208.test.js',   // kosmos#5208: sealing, compacting and deleting files a reader may hold open, on Windows too
   'restoresink.test.js',   // #5536: the restore sink's Windows duties (Unicode names, link on NTFS, junction refusal) are measured here
   'accounts.wiredefaulthooks-5612.test.js',   // #5612: the default account's reporting hooks, wired on the real win32 platform
-  'computerprint-5532.test.js'];   // #5532: the computer print's real-registry arm reads this runner's registry
+  'computerprint-5532.test.js',   // #5532: the computer print's real-registry arm reads this runner's registry
+  'orgenroll-5531.test.js'];   // #6113: its owner-only checks skip and its unreadable-id arm swaps the file for a folder on Windows
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.
 const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
   'test-support.remove-tree.test.js',
-  'tools.cleanup-fixture-tokens-5418.test.js'];   // #5418 ask 2: the cleanup tool must plan and remove the same way on Windows
+  'tools.cleanup-fixture-tokens-5418.test.js',   // #5418 ask 2: the cleanup tool must plan and remove the same way on Windows
+  'engine.reachable.test.js'];   // #5548: its caller keys are posix so a module is not its own caller; measured red here before
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'engine/remote-mode-6548.test.js': 'its win32 branch skips every arm: it checks POSIX file modes (0600 under three umasks), which Windows does not have; the write it tests keeps 0o600, which Windows reads only as not read-only (#6548).',
+  'engine/agykeep-5812.test.js': 'its win32 host branch only skips the real-agy arm (a Mac CLI against a fake Gemini API; Kosmos runs no agy agents on Windows); the bridge\'s Windows paths are tested through its platform seam on every non-Windows host',
+  'engine/codexhooks-5812.test.js': 'its win32 branch only skips the real-Codex arm; the hook it tests is installed by the Mac supervisor only (#5812 item 2), and the Windows codex launch is a separate slice',
+  'engine/grokkeep-5812.test.js': 'its win32 host branch only skips the real-grok arm (a Mac CLI against a fake model); the bridge\'s Windows paths are tested through its platform seam on every non-Windows host',
   'engine/signedoutaccounts-5948.test.js': 'its win32 branches (#5948) only skip the chmod-000 and symlink arms; its other arms use POSIX-spelled fixture paths, and its logic (paths plus file reads) is covered on the Mac and Linux',
   'engine/usage-world-5532.test.js': 'its win32 branches (#5532) only skip the chmod and symlink arms; the usage scan it tests reads Claude transcripts the same way on both, and engine/usage.test.js is not run on Windows either',
   'engine/agentbrowser.test.js': 'its win32 branch only skips a read-only-folder arm; the file describes macOS',
+  'server.builtsha-6330.test.js': 'its win32 branches (#6330 slice 2) only skip the two Mac CLI arms (install/kosmos is bash); the Windows CLI\'s --file is tested in tools.windows-kosmos-cli-570.test.js, and the engine and route arms run everywhere',
+  'test-support.stray-processes.test.js': 'its six ps-based tests skip on win32 (killUnderScope reads ps, which Windows has not, and does nothing there); its pure names() test runs on the Mac and Linux (#6362)',
+  'test-support.tmpscope.test.js': 'its win32 branches (#6362) only skip the locked-folder arm (POSIX permissions) and the left-running-child arm (bash and POSIX signals); tmpscope itself is plain node fs and its other arms run on the Mac and Linux',
   'engine/status.codex-model-switch-4416.test.js': 'the guard it tests is Mac-only by design: it compares a rollout with the launch plist\'s mtime, and a Windows Scheduled Task has no file to compare',
   'engine/geminisettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
   'engine/communitysend.test.js': 'its win32 branch (#5431) only skips a POSIX file-mode arm',
@@ -98,6 +108,7 @@ const HOST_BRANCH_EXCLUDED = {
   'engine/securewrite.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',
   'engine/sendertoken.test.js': 'POSIX file-mode assertions, measured red on Windows (#1777)',
   'server.remote-bind-1112.test.js': 'its win32 branch (#4845) only picks which created-agent source a test puts back, mirroring server.js (createdroster off Windows); the file was never run on Windows and boots the Mac board',
+  'server.allowance-3946.test.js': 'its win32 branch (#6108) only answers the Windows arm of weeklyBlocked, a single platform check in server.js; its other arms build POSIX settings fixtures and link a real account folder by symlink, which Windows allows only with a privilege',
   'server.engine-restart-4408.test.js': 'its win32 branch only skips the restart arm, whose stubs pin the Mac arms (launchctl, the installed CLI); the Windows arm is boardrestart-2238.test.js\'s',
 };
 

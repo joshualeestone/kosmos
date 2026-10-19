@@ -70,7 +70,7 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   CompanyName is still left out. The certificate's subject is now known
   (Kosmos Agent Manager, Inc.), but setting `AssemblyCompany` is a source change,
   so it means a rebuild and a re-sign; it is a follow-up of its own. The version is the **launcher's** own (`LauncherVersion`, currently
-  8.0.0.0), not the app's. This binary is copied unchanged into every release, so
+  8.1.0.0), not the app's. This binary is copied unchanged into every release, so
   an app version stamped into it would be wrong from the next release on.
 
 ## Kosmos's own window (#1118)
@@ -85,8 +85,9 @@ WebView2 Runtime, pointed at the same local board.
   window ends only the window. The board and the agents run under their own tasks, as on the Mac.
 - **Signing in** is `open-board.js`'s job, as it is for the browser (#2007). With `--print-url`
   it hands the signed-in address (a single-use boot nonce) to the window over a private pipe
-  instead of opening a browser. The board answers with its persistent cookie, which the window
-  keeps in its own web profile, `%LOCALAPPDATA%\Kosmos\WebView2`.
+  instead of opening a browser. The board answers with a session cookie, which the window
+  keeps in its own web profile, `%LOCALAPPDATA%\Kosmos\WebView2`. A board restart ends that session (#6358); until
+  Kosmos.exe answers the page's sign-in request, double-clicking Kosmos.exe again signs the window back in.
 - **One window per board.** A second double-click brings the open window forward (restoring it if
   minimised) instead of opening another, and signs it in again with a fresh address from the same
   `--print-url` path, so "double-click Kosmos.exe again" (the zip's READ ME) also rescues a window
@@ -138,7 +139,7 @@ a running exe and a folder holding a loaded DLL (measured on the box).
 **Off on main.** `FirstRunChoice` in `KosmosLauncher.cs` is the release switch, the twin of the
 Mac's `kosmosFirstRunChoice`. Off, the mode file is never read and every computer runs agents
 exactly as before. The Mac's turned on with #4382, its connect computers' update look. This one
-turns on once a connect Windows computer can update itself (the Windows half of #4382, in #4381).
+stays off until it is turned on on purpose: a connect Windows computer can now update and roll back by itself (below), which is what it waited on.
 
 With it on, the choice is one word in `%LOCALAPPDATA%\Kosmos\mode` (`run`, `connect` or `both`),
 read with the Mac's rules byte for byte: no file is `unset`, anything else (a `\r\n` ending, a byte
@@ -157,6 +158,25 @@ order mark, a read error) is `unreadable` and asks again. Only `Kosmos.exe` writ
   back on and opens `Kosmos.exe` again.
 - **Updates** (`engine/win32apply.js`): H7, H8, the resumers and the post-exit restart start no
   board unless the mode file is absent or reads `run` or `both`.
+- **A connect computer updates and rolls back with no board** (#4382, the Windows half). The window
+  runs `app\engine\win32connectupdate.js` with the bundle's node once its stop of the board is done,
+  then once a day while it is open, and an hour after a look that could not reach the release host
+  or was refused for now (another update under way, say).
+  That file runs the board's own look and consent (`engine/update-ifnewer.js`, `latest-win.json`),
+  and the board's own updater and rollback (`win32update.begin` / `rollbackToPrevious`), held to the
+  connect computer's preconditions (the mode file reads `connect`, nothing answers on the port) in
+  place of the board task's. Updates on (no `autoupdate.json`, or one that says on): it installs, and the window offers
+  a Restart; it never restarts unasked. Updates off: a bar over the page and the system menu offer
+  "Update Kosmos to X", and nothing installs until the person picks it. After an update the menu
+  offers "Roll back Kosmos to X" (asked first). An update or rollback the person picked closes the
+  window and opens the `Kosmos.exe` now in the folder. A newer download run on a connect computer
+  (`--apply --from`, and `setup.ps1`) takes the same connect preconditions. Every run leaves the
+  board stopped, and with no board to stop issues no `/End` at all. A rollback is offered only to a
+  build that itself carries `win32connectupdate.js` (so launcher 8.1 or later): an older one would
+  start agents here and could never update again. No look runs while an installed update waits for
+  its Restart, and "Run agents" waits while the updater's files show an update on its way. What each
+  answer does is decided by pure functions (`AfterConnectUpdate` and its neighbours), tested through
+  a probe compiled beside the launcher (`tools.windows-connect-update-4382.test.js`).
 - A launch that sets `PORT` never touches the logon task, which serves another port.
 
 ## What it does as an installer (win32-installer-native)

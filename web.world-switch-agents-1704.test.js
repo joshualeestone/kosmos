@@ -166,11 +166,12 @@ async function runSwitch(agents, responseBody) {
   const src = `let WORLDSW_SWITCHING = false;
 ${platformLayer}
 ${NOTE}
+${slice('clearStopMoveOffers')}
 ${SWITCH}
-return worldswSwitch(_id, _name, _agents);`;
+return worldswSwitch(_id, _name, _agents);`;   // #6214: a switch clears an earlier stop-the-move offer
   // eslint-disable-next-line no-new-func
   await new Function('document', 'fetch', 'worldsFetch', 'worldswFocusTrigger', 'worldswReconnect', '_id', '_name', '_agents', src)(
-    { getElementById: (id) => els[id] }, fetchStub, async () => {}, () => {}, async () => {}, 'w2', 'Side Project', agents,
+    { getElementById: (id) => els[id], querySelectorAll: () => [] }, fetchStub, async () => {}, () => {}, async () => {}, 'w2', 'Side Project', agents,
   );
   return { posted, msg: els['worldsw-restart-msg'].textContent };
 }

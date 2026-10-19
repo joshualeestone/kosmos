@@ -99,7 +99,17 @@ _ti_box_clear() {
 }
 # #4498: both checks wait together, so a cut that ends while a suite is still running is not a start.
 kosmos_wait_until_clear "a full install-harness run" _ti_box_clear || exit 1
-SB="$(mktemp -d)"
+# #4298 follow-up (the 0.7.51 cut's step 4b, 10-15): macOS's TMPDIR ENDS IN '/', so "$TMPDIR/x" has '//'. setup.sh
+# squeezes repeated slashes out of KOSMOS_HOME before hashing it into the board's login-job label; this harness hashes
+# "$SB/home" as written (BOARD_LABEL_SUFFIX), so with '//' in $SB the two name different plists and every login-job
+# check fails. Strip the trailing slash so $SB carries none.
+# Squeezed the way setup.sh squeezes (so a '//' inside TMPDIR is fixed, not refused), then the trailing '/' dropped;
+# an empty result (TMPDIR=/) falls back to /tmp rather than templating at the filesystem root.
+_ti_tmp="$(printf '%s' "${TMPDIR:-/tmp}" | /usr/bin/tr -s '/')"
+_ti_tmp="${_ti_tmp%/}"
+[ -n "$_ti_tmp" ] || _ti_tmp=/tmp
+SB="$(mktemp -d "$_ti_tmp/test-install.XXXXXXXXXX")"
+case "$SB" in *//*) rmdir "$SB" 2>/dev/null; echo "test-install: the sandbox path $SB has '//' in it; refusing (setup.sh would hash it differently)" >&2; exit 1 ;; esac
 # ---- ONE Claude Code for every sandbox home (#736) --------------------------
 # setup.sh's "Kosmos needs Claude Code and this Mac does not have it" step runs
 # Anthropic's real installer into any home without one: 345 MB downloaded per
@@ -255,8 +265,19 @@ EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/.world-confirmed.json ./Kosmos/bin/agent
 KOSMOS_DEFAULT_PORT="$(sed -n 's/^  _kosmos_default_port=\([0-9][0-9]*\)$/\1/p' "$HERE/install/setup.sh" | head -1)"
 [ -n "$KOSMOS_DEFAULT_PORT" ] || { echo "FAIL: could not read the default port out of install/setup.sh" >&2; exit 1; }
 [ "$(/usr/bin/id -u)" = 501 ] || echo "WARN: this harness is not running as uid 501 -- KOSMOS_DEFAULT_PORT ($KOSMOS_DEFAULT_PORT, the pinned-primary value) will not match this account's own derived port for the checks below that assume it does" >&2
+# #6457: busy means something is LISTENING on the port, not that it answered HTTP within a second. The cut host's own
+# board, the same pid before and after, missed a 1 s curl 5 times in 6 at load 39, read as "free" after the run, and
+# failed a 0.7.56 cut. lsof names the listener; a TCP connect covers one lsof cannot see (another account's), and the
+# kernel completes a connect even when the process is too loaded to answer. Busy/free, not the pid: a board restart
+# (a new pid) is #5831's check below, kept out of the release gate on purpose. lsof is called by name on purpose, so
+# tools/test-install-portprobe-6457.sh can stub it to prove the connect arm alone; a missing lsof leaves that arm.
+# Not covered by either arm, as before with curl: another account's board bound only to ::1.
+_ti_port_busy() {   # <port>: 0 if something is listening on it
+  [ -n "$(lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null)" ] && return 0
+  /usr/bin/nc -z -G 3 127.0.0.1 "$1" >/dev/null 2>&1
+}
 DEFAULT_PORT_BEFORE=free
-curl -s -m 1 -o /dev/null "http://127.0.0.1:$KOSMOS_DEFAULT_PORT/" 2>/dev/null && DEFAULT_PORT_BEFORE=busy
+_ti_port_busy "$KOSMOS_DEFAULT_PORT" && DEFAULT_PORT_BEFORE=busy
 # #5831: the port check above cannot see a RESTART: launchd has a kicked board answering again within a second,
 # so "busy before, busy after" passes. The process is what changes, so that is what is recorded: the pid and
 # start time of the real com.kosmos.board job, or empty when the job has no running process (not loaded, or
@@ -284,7 +305,7 @@ LIVE_BOARD_SEEN=yes
 # ⚠️ 4460-4499 IS DELIBERATELY NOWHERE NEAR THE DEFAULT. Anything this suite
 # leaks must be litter rather than something a real install would find.
 PORT=4460
-while curl -s -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; do
+while _ti_port_busy "$PORT"; do   # #6457: a loaded board on 4460 must read taken, not free
   PORT=$((PORT + 1))
   [ "$PORT" -lt 4500 ] || { echo "FAIL: no free port found in 4460-4499" >&2; exit 1; }
 done
@@ -303,9 +324,9 @@ done
 # the real shared file is never touched. Scoped to accounts/home resolution, NOT
 # $HOME, so nothing else that reads $HOME is repointed.
 export KOSMOS_HOME="$SB/home" AGENT_WORKFORCE_HOME="$SB/home" KOSMOS_BIN_DIR="$SB/bin" KOSMOS_APP_DIR="$SB/apps"
-# #4449: the read-only app ships OFF by default (an older installer cannot lift it) and is on for this harness, so
-# every install below exercises it; the Applications probe's install runs with it off to check the default.
-export KOSMOS_READONLY_APP=1
+# #4449: the installed app is read-only, on by default since #4455. The switch is UNSET here, not set to 1, so
+# every install below (the part a cut's gate runs included) measures the default people get (#6149).
+unset KOSMOS_READONLY_APP
 export KOSMOS_PROFILE_FILE="$SB/zprofile"
 # SHELL pinned for determinism only (belt and suspenders): with
 # KOSMOS_PROFILE_FILE exported above, setup.sh's non-zsh hedge is
@@ -451,9 +472,9 @@ closing_checks() {
   chk "no sandbox path registered with LaunchServices" "! grep -qF \"$SB\" \"$LSDUMP\""
   chk "sysnever still untouched at the end" "[ \"\$(stat -f %Fm \"$SB/sysnever\")\" = \"$SYSNEVER_MTIME\" ] && [ -z \"\$(ls -A \"$SB/sysnever\")\" ]"
 
-  echo "== nothing was left answering on the product's default port =="
+  echo "== nothing was left listening on the product's default port =="
   DEFAULT_PORT_AFTER=free
-  curl -s -m 1 -o /dev/null "http://127.0.0.1:$KOSMOS_DEFAULT_PORT/" 2>/dev/null && DEFAULT_PORT_AFTER=busy
+  _ti_port_busy "$KOSMOS_DEFAULT_PORT" && DEFAULT_PORT_AFTER=busy   # #6457: listening, not answering in time
   # Same shape as the real-folders checks below: it reports the BEFORE state too,
   # because a machine that already had a board there is not this run's doing.
   chk "port $KOSMOS_DEFAULT_PORT is as we found it (was: $DEFAULT_PORT_BEFORE)" "[ \"$DEFAULT_PORT_AFTER\" = \"$DEFAULT_PORT_BEFORE\" ]"
@@ -1082,7 +1103,7 @@ chk "a pre-existing backup halts the edit (profile untouched)" "cmp -s \"$SB/zpr
 chk "the preserved backup survives byte-identical" "[ \"\$(cat \"$SB/zprofile.kosmos-uninstall-backup\")\" = 'PRESERVED FROM AN EARLIER RUN' ]"
 chk "the halt names the backup in its note" "grep -q 'already exists from an earlier run' \"$SB/uninstall3.log\""
 rm -f "$SB/zprofile.kosmos-uninstall-backup" "$SB/zprofile.before-halt"
-chk "port released (uninstall stopped the board itself)" "! curl -s -m 1 -o /dev/null http://127.0.0.1:$PORT/"
+chk "port released (uninstall stopped the board itself)" "! _ti_port_busy $PORT"   # #6459: listening, not answering in a second (a loaded board is not released)
 
 echo "== the download path (file:// origin, no local-copy shortcut) =="
 # The local-copy branch above never runs reachable(), verify_download() or
@@ -1126,42 +1147,79 @@ if cp "$HERE/dist/tmux-arm64.tar.gz" "$HERE/dist/tmux-arm64.tar.gz.sha256" \
     chk "the versioned artifact name was fetched" "grep -q \"kosmos-$BUNDLE_V-arm64.tar.gz\" \"$SB/pinned.log\""
     chk "the read-back states what is on disk" "grep -q \"on disk now: Kosmos $BUNDLE_V\" \"$SB/pinned.log\""
 
-    echo "== a connect computer updates with no board (#4382) =="
-    # The Mac app runs `kosmos update --if-newer` on a computer that connects to agents elsewhere, whose
-    # board is stopped on purpose. The real installer, from this release host, over an install made to
-    # look older (its package.json says 0.0.1, so the pointer's $BUNDLE_V is newer). setupUrl() is the
-    # base's sibling /setup, so the installer is published there.
-    cp "$SETUP" "$SB/setup"
-    printf 'connect\n' > "$SB/home/mode"
-    # As the person: the verb refuses an agent, and this harness is often run from an agent's pane.
-    _as_person="env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE"
-    "$SB/bin/kosmos" stop > /dev/null 2>&1 || true
-    chk "CONTROL: the connect computer's board is down before the look" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
-    _pkg="$SB/home/app/package.json"
-    # #4449: this harness installs with KOSMOS_READONLY_APP=1, so the fixture lifts that for its own edit first (a
-    # failed redirect here would end the whole run under set -e with no tally). The next update replaces app/.
-    _older() { chmod u+w "$SB/home/app" "$_pkg" && sed 's/"version":[[:space:]]*"[^"]*"/"version": "0.0.1"/' "$_pkg" > "$_pkg.t" && mv "$_pkg.t" "$_pkg"; }
-    _older
-    chk "CONTROL: the install now reads as older" "grep -q '\"version\": \"0.0.1\"' \"$_pkg\""
-    # Updates off: offered, nothing installed, the board stays down.
-    mkdir -p "$SB/data/Kosmos"
-    printf '{"on":false}\n' > "$SB/data/Kosmos/autoupdate.json"
-    RC=0; UPD="$($_as_person "$SB/home/bin/kosmos" update --if-newer 2>"$SB/update-off.err")" || RC=$?
-    chk "updates off: the look exits 0" "rc_ok $RC"
-    chk "updates off: it offers $BUNDLE_V and installs nothing" "[ \"\$(printf '%s' \"$UPD\" | tail -1)\" = \"newer $BUNDLE_V\" ] && grep -q '\"version\": \"0.0.1\"' \"$_pkg\""
-    chk "updates off: the board stays stopped" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
-    # Updates on (no file, as on a connect computer whose Settings live on the other computer): installs.
-    rm -f "$SB/data/Kosmos/autoupdate.json"
-    RC=0; UPD="$($_as_person "$SB/home/bin/kosmos" update --if-newer 2>"$SB/update-on.err")" || RC=$?
-    chk "updates on: the look installs, exit 0" "rc_ok $RC && [ \"\$(printf '%s' \"$UPD\" | tail -1)\" = \"updated $BUNDLE_V\" ]"
-    chk "updates on: $BUNDLE_V is what is on disk now" "grep -q \"\\\"version\\\": *\\\"$BUNDLE_V\\\"\" \"$_pkg\""
-    chk "updates on: the installer ran on the connect path" "grep -q 'connects to agents on another computer, so Kosmos is not started here' \"$SB/home/logs/install.log\""
-    chk "updates on: the board stays stopped after the update" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/ && [ -e \"$SB/home/board.stopped\" ]"
-    chk "updates on: the attempt is recorded for a board started later (code 0, no in-flight marker)" "grep -q '^0 ' \"$SB/home/logs/install.status\" && [ ! -e \"$SB/home/logs/install.started\" ]"
-    # Nothing newer now: the same look says so and runs nothing.
-    RC=0; UPD="$($_as_person "$SB/home/bin/kosmos" update --if-newer 2>/dev/null)" || RC=$?
-    chk "up to date: the look says current and exits 0" "rc_ok $RC && [ \"\$(printf '%s' \"$UPD\" | tail -1)\" = \"current $BUNDLE_V\" ]"
-    rm -f "$SB/home/mode" "$SB/setup"
+    # #6468 ask 2: this is an UPDATE over the install above, so its installed copy holds the update to a signed
+    # manifest. NEVER the release key here (round 7: this harness runs on any branch, on any Mac, and a real signature
+    # on a test tree is a trusted update for every install). A throwaway ed25519 key instead: the sandboxed install's
+    # verifier is set to pin it (as install.manifest-sig-6468.test.js does), and the manifest is signed with it.
+    _mansig=no
+    _iv="$SB/home/app/engine/manifest-verify.js"
+    if [ -f "$HERE/dist/kosmos-arm64.manifest.json" ] && [ -f "$_iv" ]; then
+      cp "$HERE/dist/kosmos-arm64.manifest.json" "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json"
+      chmod u+w "$SB/home/app" "$SB/home/app/engine" "$_iv" 2>/dev/null || true
+      if node -e '
+        const c = require("crypto"), fs = require("fs");
+        const [iv, m, sig, tm, st] = process.argv.slice(1);
+        const { privateKey, publicKey } = c.generateKeyPairSync("ed25519");
+        const pub = publicKey.export({ type: "spki", format: "der" }).toString("base64");
+        const src = fs.readFileSync(iv, "utf8");
+        const out = src.replace(/const KEYS = \[[\s\S]*?\];/, "const KEYS = [" + JSON.stringify(pub) + "];");
+        if (out === src) process.exit(4);
+        fs.writeFileSync(iv, out);
+        // #6473: the update now holds tmux to the manifest too; a local build made before its tmux pair existed
+        // records none, so name the pair this sandbox serves (the bytes the update will fetch).
+        const mj = JSON.parse(fs.readFileSync(m, "utf8"));
+        // #6468 ask 3 likewise for the installer, only when the build recorded none (a value that differs is a real
+        // bundle/installer mismatch, and the refusal is the right answer).
+        const h = (f) => c.createHash("sha256").update(fs.readFileSync(f)).digest("hex");
+        let changed = false;
+        if (!mj.tmux_sha256 && tm) { mj.tmux_sha256 = h(tm); changed = true; }
+        if (!mj.setup_sha256 && st) { mj.setup_sha256 = h(st); changed = true; }
+        if (changed) fs.writeFileSync(m, JSON.stringify(mj, null, 1) + "\n");
+        fs.writeFileSync(sig, c.sign(null, fs.readFileSync(m), privateKey).toString("base64") + "\n");
+      ' "$_iv" "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json" "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json.sig" "$SB/dist/tmux-arm64.tar.gz" "$SETUP"; then _mansig=yes; fi
+    fi
+    if [ "$_mansig" = yes ]; then
+      echo "== a connect computer updates with no board (#4382) =="
+      # The Mac app runs `kosmos update --if-newer` on a computer that connects to agents elsewhere, whose
+      # board is stopped on purpose. The real installer, from this release host, over an install made to
+      # look older (its package.json says 0.0.1, so the pointer's $BUNDLE_V is newer). setupUrl() is the
+      # base's sibling /setup, so the installer is published there.
+      cp "$SETUP" "$SB/setup"
+      printf 'connect\n' > "$SB/home/mode"
+      # As the person: the verb refuses an agent, and this harness is often run from an agent's pane.
+      _as_person="env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE"
+      "$SB/bin/kosmos" stop > /dev/null 2>&1 || true
+      chk "CONTROL: the connect computer's board is down before the look" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+      _pkg="$SB/home/app/package.json"
+      # #4449: this harness installs with the app read-only (the default), so the fixture lifts that for its own edit first (a
+      # failed redirect here would end the whole run under set -e with no tally). The next update replaces app/.
+      _older() { chmod u+w "$SB/home/app" "$_pkg" && sed 's/"version":[[:space:]]*"[^"]*"/"version": "0.0.1"/' "$_pkg" > "$_pkg.t" && mv "$_pkg.t" "$_pkg"; }
+      _older
+      chk "CONTROL: the install now reads as older" "grep -q '\"version\": \"0.0.1\"' \"$_pkg\""
+      # Updates off: offered, nothing installed, the board stays down.
+      mkdir -p "$SB/data/Kosmos"
+      printf '{"on":false}\n' > "$SB/data/Kosmos/autoupdate.json"
+      RC=0; UPD="$($_as_person "$SB/home/bin/kosmos" update --if-newer 2>"$SB/update-off.err")" || RC=$?
+      chk "updates off: the look exits 0" "rc_ok $RC"
+      chk "updates off: it offers $BUNDLE_V and installs nothing" "[ \"\$(printf '%s' \"$UPD\" | tail -1)\" = \"newer $BUNDLE_V\" ] && grep -q '\"version\": \"0.0.1\"' \"$_pkg\""
+      chk "updates off: the board stays stopped" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+      # Updates on (no file, as on a connect computer whose Settings live on the other computer): installs.
+      rm -f "$SB/data/Kosmos/autoupdate.json"
+      RC=0; UPD="$($_as_person "$SB/home/bin/kosmos" update --if-newer 2>"$SB/update-on.err")" || RC=$?
+      chk "updates on: the look installs, exit 0" "rc_ok $RC && [ \"\$(printf '%s' \"$UPD\" | tail -1)\" = \"updated $BUNDLE_V\" ]"
+      chk "updates on: $BUNDLE_V is what is on disk now" "grep -q \"\\\"version\\\": *\\\"$BUNDLE_V\\\"\" \"$_pkg\""
+      chk "updates on: the installer ran on the connect path" "grep -q 'connects to agents on another computer, so Kosmos is not started here' \"$SB/home/logs/install.log\""
+      chk "updates on: the board stays stopped after the update" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/ && [ -e \"$SB/home/board.stopped\" ]"
+      chk "updates on: the attempt is recorded for a board started later (code 0, no in-flight marker)" "grep -q '^0 ' \"$SB/home/logs/install.status\" && [ ! -e \"$SB/home/logs/install.started\" ]"
+      # Nothing newer now: the same look says so and runs nothing.
+      RC=0; UPD="$($_as_person "$SB/home/bin/kosmos" update --if-newer 2>/dev/null)" || RC=$?
+      chk "up to date: the look says current and exits 0" "rc_ok $RC && [ \"\$(printf '%s' \"$UPD\" | tail -1)\" = \"current $BUNDLE_V\" ]"
+      rm -f "$SB/home/mode" "$SB/setup"
+    else
+      echo "SKIP the connect-computer update (#4382): the build left no manifest, or the install no verifier, to sign for (#6468)"
+      SKIPS=$((SKIPS + 1))
+    fi
+    rm -f "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json" "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json.sig"
     "$SB/bin/kosmos" stop > /dev/null 2>&1 || true
     sh -s -- --uninstall < "$SETUP" > /dev/null 2>&1 || true
     # (b) THE WEDGE ITSELF: the pointer moves ahead while the only bytes
@@ -1228,8 +1286,8 @@ export KOSMOS_HOME="$SB/home2" KOSMOS_BIN_DIR="$SB/bin2"
 # override present (SYS_APP_DIR) and no profile named, the profile gate
 # must SKIP -- this is the arm that stops a harness run writing the
 # operator's real ~/.zprofile (leaked once, 2026-08-18, before the gate).
-RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" KOSMOS_READONLY_APP= sh > "$SB/probe1.log" 2>&1 || RC=$?
-chk "#4449: by default (the switch unset) the installed app stays writable, as before" "[ -w \"$SB/home2/app/server.js\" ] && [ -w \"$SB/home2/app/engine\" ]"
+RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" env -u KOSMOS_READONLY_APP sh > "$SB/probe1.log" 2>&1 || RC=$?
+chk "#4455: by default (the switch unset) the installed app is read-only" "[ -f \"$SB/home2/app/server.js\" ] && [ ! -w \"$SB/home2/app/server.js\" ] && [ ! -w \"$SB/home2/app/engine\" ] && [ ! -w \"$SB/home2/app\" ]"
 chk "the profile gate skipped: no zprofile written under the sandbox HOME" "[ ! -e \"$SBH/.zprofile\" ]"
 chk "probe install exits 0" "rc_ok $RC"
 chk "app landed in the system folder" "[ -x \"$SYS_OK/Kosmos.app/Contents/MacOS/Kosmos\" ]"
@@ -1242,11 +1300,23 @@ chk "the success closing line is pinned" "grep -q '^  Kosmos is running\\.\$' \"
 chk "#2073: fresh install launched the app (not a browser)" "[ \"\$(wc -l < \"$SB/opened.log\" 2>/dev/null | tr -d ' ')\" = \"1\" ] && grep -q \"Kosmos.app\" \"$SB/opened.log\" && ! grep -q \"127.0.0.1:$PORT\" \"$SB/opened.log\""
 
 # The update run through the same probe env must NOT open the browser.
-# #4449: this update runs with the harness's KOSMOS_READONLY_APP=1 on purpose (only the install above checks the
-# default), so it also updates a WRITABLE app into a read-only one; its uninstall later lifts it.
-RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe1b.log" 2>&1 || RC=$?
+# #4455: this update runs with KOSMOS_READONLY_APP=0, the off switch, over the read-only app the install above
+# left: it must lift that app, replace it, and leave the new one WRITABLE. Its uninstall later removes it.
+RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" KOSMOS_READONLY_APP=0 sh > "$SB/probe1b.log" 2>&1 || RC=$?
 chk "probe update exits 0" "rc_ok $RC"
+chk "#4455: KOSMOS_READONLY_APP=0 still leaves the app writable (the off switch)" "[ -w \"$SB/home2/app/server.js\" ] && [ -w \"$SB/home2/app/engine\" ] && [ -w \"$SB/home2/app\" ]"
 chk "update did not open the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"1\" ]"
+# #4455: a second update, the switch UNSET, over the app the =0 update above left WRITABLE. That is the shape
+# every install from before this release has at its first update afterwards. It must end read-only.
+# #6149 point 8: a refusal record left by an earlier refused update is removed once a swap goes through. Planted here,
+# checked after this update (the CONTROL proves the plant landed, so its absence afterwards is the swap's doing).
+mkdir -p "$SB/home2/logs" && printf 'why=locked\nat=%s\nts=2026-01-01T00:00:00Z\npart=app\n' "$SB/home2/app/x" > "$SB/home2/logs/update-refused"
+chk "CONTROL #6149: a stale refusal record is planted before the update" "[ -f \"$SB/home2/logs/update-refused\" ]"
+RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" env -u KOSMOS_READONLY_APP sh > "$SB/probe1c.log" 2>&1 || RC=$?
+chk "probe second update exits 0" "rc_ok $RC"
+chk "#6149: an update that goes through removes the earlier refusal record" "[ ! -e \"$SB/home2/logs/update-refused\" ]"
+chk "#4455: an update over a writable app leaves the new app read-only" "[ -f \"$SB/home2/app/server.js\" ] && [ ! -w \"$SB/home2/app/server.js\" ] && [ ! -w \"$SB/home2/app/engine\" ] && [ ! -w \"$SB/home2/app\" ]"
+chk "second update did not open the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"1\" ]"
 KOSMOS_HOME="$SB/home2" "$SB/bin2/kosmos" stop > /dev/null 2>&1 || true
 
 export KOSMOS_HOME="$SB/home3" KOSMOS_BIN_DIR="$SB/bin3"
@@ -1900,7 +1970,7 @@ echo "== the open gate's sandbox belt, and a file-shadowed Applications =="
 # install with the suppressor CLEARED must still not open. Without this
 # pass the belt could be deleted and the suite would stay green, because
 # every other override pass inherits the global KOSMOS_NO_OPEN.
-chk "port free before the belt pass (a leaked board here makes the belt assertion vacuous)" "! curl -s -m 1 -o /dev/null http://127.0.0.1:$PORT/"
+chk "port free before the belt pass (a leaked board here makes the belt assertion vacuous)" "! _ti_port_busy $PORT"   # #6459: listening, not answering in a second (a loaded board is not released)
 OPENED_LINES_BEFORE="$(wc -l < "$SB/opened.log" | tr -d ' ')"
 export KOSMOS_HOME="$SB/home18" KOSMOS_BIN_DIR="$SB/bin18"
 RC=0; cat "$SETUP" | KOSMOS_APP_DIR="$SB/apps18" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/belt.log" 2>&1 || RC=$?
@@ -1965,12 +2035,12 @@ echo "== #883: a sandboxed KOSMOS_HOME derives its own board label and env roots
 wait_port_free() {
   local i
   for i in $(seq 1 30); do
-    curl -fsS -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null || return 0
+    _ti_port_busy "$PORT" || return 0   # #6459: free means nothing listens, not "no 2xx within a second"
     sleep 0.5
   done
   lsof -nP -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | xargs -r kill -9 2>/dev/null || true
   for i in $(seq 1 10); do
-    curl -fsS -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null || return 0
+    _ti_port_busy "$PORT" || return 0   # #6459: free means nothing listens, not "no 2xx within a second"
     sleep 0.5
   done
   return 1
@@ -2521,7 +2591,7 @@ D918_NOARGS
 
 # Scenario A's scratch directory is deleted DIRECTLY -- exactly the walk
 # convention #918 is about, never running --uninstall against it.
-# #4449: its app may be read-only (KOSMOS_READONLY_APP, on for this harness), so a direct delete lifts that first, as a person deleting the folder by
+# #4449: its app may be read-only (the default since #4455), so a direct delete lifts that first, as a person deleting the folder by
 # hand would have to (a plain rm -rf is refused inside it, and under set -e that ended this whole harness).
 chmod -R u+w "$D918_KHOME_A" 2>/dev/null || true
 rm -rf "$D918_KHOME_A"

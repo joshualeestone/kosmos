@@ -242,7 +242,8 @@ function chk(ok, label, extra) {
       LAST[0] = { ...real, stateReported: true, because: 'finished responding' };
       openDetail(sn);
       const reported = read();
-      // Reported AND rate_limited: the noQuote path keeps the engine sentence beside the bubble.
+      // Reported AND rate_limited: the detail header keeps the engine sentence beside the bubble (#6118 removed
+      // the noQuote opt-out; the detail bubble already took this unquoted path).
       LAST[0] = { ...real, stateReported: true, because: 'finished the analysis',
                   state: 'rate_limited', stateConfidence: 'scraped' };
       openDetail(sn);

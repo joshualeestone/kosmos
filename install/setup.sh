@@ -338,6 +338,62 @@ sealed_requirement() {
   # An implicit requirement (the usual case, Developer ID or ad-hoc) prints as a comment: "# designated => ...".
   /usr/bin/codesign -d -r- "$ours" 2>&1 | /usr/bin/sed -n 's/^#* *designated => //p'
 }
+# #6468 ask 1: an update must come from whoever signed the build already installed. Each signed part of the new build
+# in the stage ($1) must satisfy the designated requirement of the same part installed at $2: the identifier and the
+# signing team, read from the installed copy, so no Team ID is spelled here (runtime/bin/node is Node's own team, the
+# rest are ours). Runs BEFORE anything in the stage is run. A part the installed copy does not have is not checked
+# (the stage's own gates refuse a missing node or connector, and the app falls back to wrapping kosmos-app, which is).
+# An installed part that is ad-hoc signed (a local or test build) or unsigned has no release signer to hold the new one
+# to, so it is not checked and the run says so once; an installed part whose signature cannot be READ is a refusal.
+# A folder on a part's path that is a symlink is refused too (codesign would follow it to the installed files).
+# LIMIT: this holds the signed BINARIES to their signer, nothing else. The app's JS, bin/kosmos and anything node
+# loads are covered by the signed manifest (#6468 ask 2), an older genuine release passes this check (the manifest's
+# version binding covers that), and the check is only as trusted as the copy of this script that runs it (ask 3).
+# RECOVERY when a genuine release changes a part's signer: every install refuses it, the install line included (it
+# finds the installed copy too), so such a release must first ship one that relaxes the check for that part. The
+# refusal does not tell the person to uninstall and reinstall: a fresh install has no copy to hold the update to, so
+# that is exactly the way around this check for a forged build. KNOWN GAP: a swap interrupted after the old app/ was
+# removed leaves those parts missing, and the rerun holds only the runtime to its signer.
+update_signer_ok() {
+  local stage="$1" dest="$2" part req deep d desc unheld=""
+  for part in app/Kosmos.app runtime/bin/node app/bin/kosmos-tunnel app/bin/kosmos-app; do
+    [ -e "$dest/$part" ] || [ -L "$dest/$part" ] || continue
+    if [ -L "$dest/$part" ]; then unheld="$unheld $part"; continue; fi
+    # Matched on codesign's own lines, never on the whole output (which carries the path).
+    desc="$(/usr/bin/codesign -dv "$dest/$part" 2>&1)" || :
+    case "
+$desc
+" in
+      *": code object is not signed at all
+"*|*"
+Signature=adhoc
+"*) unheld="$unheld $part"; continue ;;
+    esac
+    req="$(/usr/bin/codesign -d -r- "$dest/$part" 2>&1 | /usr/bin/sed -n 's/^#* *designated => //p')" || req=""
+    case "$req" in
+      ''|*cdhash*)
+        info "this install's $part signature could not be read, so the update was not installed"
+        return 1 ;;
+    esac
+    d="$part"
+    while [ "$d" != "${d%/*}" ]; do
+      d="${d%/*}"
+      if [ -L "$stage/$d" ]; then
+        info "the update's $d is a link, so it was not installed"
+        return 1
+      fi
+    done
+    if [ ! -e "$stage/$part" ] && [ ! -L "$stage/$part" ]; then continue; fi
+    deep=""; case "$part" in *.app) deep="--deep";; esac
+    # shellcheck disable=SC2086  # $deep is one flag or nothing
+    if [ -L "$stage/$part" ] || ! /usr/bin/codesign --verify $deep --strict "-R=$req" "$stage/$part" >/dev/null 2>&1; then
+      info "the update's $part is not signed by the same developer as this install, so it was not installed. Nothing on this computer was changed; please report this."
+      return 1
+    fi
+  done
+  [ -z "$unheld" ] || info "this install was not signed for release (local build or older:$unheld), so the update's signatures were not checked"
+  return 0
+}
 # Does the account's own config (slice 1, write_install_config) name THIS install? Same anchored match as the
 # uninstall's removal of that file.
 sealed_serves_this_install() {
@@ -741,8 +797,11 @@ LOG="$LOG_DIR/install.log"
 # a never-touched Mac we want to test the INSTALLER, not the CDN, so
 # KOSMOS_TMUX_SRC and KOSMOS_SRC can point at local files carried over on a
 # thumb drive. Same code path, one variable different.
-# KOSMOS_READONLY_APP=1 leaves the installed app/ folder read-only after an install or update (#4449). Off by
-# default; #4455 turns it on once every installer in circulation can lift it.
+# The installed app/ folder is left read-only after an install or update (#4449; on by default since #4455).
+# KOSMOS_READONLY_APP=0 leaves it writable, as before. Only 0 is off: unset, EMPTY, or any other value is on,
+# and a value other than 0 or 1 is said aloud (#6149).
+# It is read on EACH run and kept nowhere: the board's own updater runs this file with the board's environment,
+# so unless the board itself was started with =0, an app left writable is read-only again after its next update.
 KOSMOS_RELEASE_BASE="${KOSMOS_RELEASE_BASE:-https://installkosmos.com/dist}"
 
 # ⚠️ EVERY DOWNLOAD IS CHECKSUM-VERIFIED before anything is extracted. The
@@ -778,6 +837,97 @@ verify_download() {
     return 1
   fi
   return 0
+}
+
+# #6468 ask 2: a downloaded update must match its SIGNED release manifest before anything in it runs. The check is made
+# by the INSTALLED copy (its own node running its own engine/manifest-verify.js, which pins the release's public
+# keys), never by the new build or by this script, so an install that has the check holds every later update to it.
+# Two phases, one per call: `pre` BEFORE the tarball is unpacked (signature, version, not older than installed, the
+# tarball's sha), so a hostile archive never reaches tar; `post` after unpacking (every file, exactly). $1 the phase,
+# $2 the stage (its tarball at $2/kosmos.tar.gz), $3 the installed home. The manifest and its .sig (the versioned,
+# immutable names release.sh publishes) are fetched into a private folder OUTSIDE the stage, which the archive can
+# therefore never plant a link in; `post` (or any refusal) removes it. An install with no verifier (from before
+# this, or not a Kosmos home yet) has nothing to check with, and says so. The verifier runs with NODE_OPTIONS unset.
+# LIMITS: the tmux bundle is fetched and run before this, checked only against its unsigned .sha256; the manifest
+# does not name a channel, so a signed staging build newer than the install passes on a prod install.
+_UM_DIR=""   # never inherited: it names the folder holding the fetched manifest between the two phases
+_UM_NOKEY="" # never inherited: set when pre found no pinned key (exit 3), so post carries on as pre said
+_UM_SAID=""  # never inherited: the "not checked" line was already said this run (early, then pre)
+update_manifest_ok() {
+  # #6473: phase "early" runs before fetch_tmux: it fetches the manifest and checks only its signature and version
+  # (tarball "-"), and keeps it in _UM_DIR so fetch_tmux can hold tmux to it and "pre" need not fetch it again.
+  local phase="$1" stage="$2" dest="$3" v rc=0 out arg tb
+  [ -f "$dest/app/engine/manifest-verify.js" ] && [ -f "$dest/runtime/bin/node" ] && [ -x "$dest/runtime/bin/node" ] || {
+    # Skipped, not refused: re-running the installer is the documented repair for a damaged install. Said truly.
+    if { [ "$phase" = early ] || { [ "$phase" = pre ] && [ -z "${_UM_SAID:-}" ]; }; } && [ -e "$dest/app" ]; then
+      _UM_SAID=yes
+      if [ -f "$dest/app/engine/manifest-verify.js" ]; then
+        info "this install's own runtime is missing, so it cannot check the update's manifest; the update goes on unchecked"
+      else
+        info "this install predates signed releases, so the update's manifest is not checked"
+      fi
+    fi
+    return 0; }
+  # Round 1 (#6473): this runs the INSTALLED copy, which can be older than this installer. One that does not list
+  # "early" (manifest-verify capabilities line) cannot do the signature-only check or the tmux check, so early is
+  # skipped: pre fetches the manifest itself, as before, and the terminal manager goes unchecked this once.
+  if [ "$phase" = early ] && ! /usr/bin/grep -Eq "manifest-verify capabilities:( [a-z0-9-]+)* early( |\$)" "$dest/app/engine/manifest-verify.js"; then
+    info "this install checks the update's own files, but not yet its terminal manager download (it will after this update)"
+    return 0
+  fi
+  v="${TARGET_VERSION:-}"
+  if [ -z "$v" ]; then
+    info "could not read which version to install, so the update could not be checked and was not installed"
+    return 1
+  fi
+  if [ "$phase" = early ] || { [ "$phase" = pre ] && [ -z "$_UM_DIR" ] && [ -z "$_UM_NOKEY" ]; }; then
+    _UM_NOKEY=""
+    _UM_DIR="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/kosmos-manifest.XXXXXX")" || { _UM_DIR=""; info "could not make a folder to check the update in, so it was not installed"; return 1; }
+    curl -fsL -m 30 "$KOSMOS_RELEASE_BASE/kosmos-$v-$ARCH.manifest.json" -o "$_UM_DIR/manifest.json" 2>/dev/null \
+      && curl -fsL -m 30 "$KOSMOS_RELEASE_BASE/kosmos-$v-$ARCH.manifest.json.sig" -o "$_UM_DIR/manifest.sig" 2>/dev/null || {
+      rm -rf "$_UM_DIR"; _UM_DIR=""
+      info "the update's signed manifest could not be downloaded, so it was not installed. Wait a minute and try again."
+      return 1; }
+  fi
+  case "$phase" in
+    early) arg="-"; tb="-" ;;
+    pre)   [ -z "$_UM_NOKEY" ] || return 0
+           [ -n "$_UM_DIR" ] && [ -f "$_UM_DIR/manifest.json" ] || { info "the update's signed manifest went missing, so it was not installed"; return 1; }
+           arg="-"; tb="$stage/kosmos.tar.gz" ;;
+    *)     [ -z "$_UM_NOKEY" ] || { _UM_NOKEY=""; return 0; }
+           [ -n "$_UM_DIR" ] && [ -f "$_UM_DIR/manifest.json" ] || {
+             [ -z "$_UM_DIR" ] || rm -rf "$_UM_DIR"; _UM_DIR=""
+             info "the update's signed manifest went missing, so it was not installed"; return 1; }
+           arg="$stage"; tb="$stage/kosmos.tar.gz" ;;
+  esac
+  out="$(env -u NODE_OPTIONS "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" "$_UM_DIR/manifest.json" \
+    "$_UM_DIR/manifest.sig" "$tb" "$arg" "$v" "$dest" 2>&1)" || rc=$?
+  if [ "$phase" = post ] || [ "$rc" != 0 ]; then rm -rf "$_UM_DIR"; _UM_DIR=""; fi
+  case "$rc" in
+    0) return 0 ;;
+    3) [ "$phase" = post ] || _UM_NOKEY=yes
+       info "$out, so the update's manifest (and its terminal manager) is not checked"; return 0 ;;
+    # Only the verifier's own one-line reason is shown; anything else (node itself failing) gets a plain sentence.
+    1) case "$out" in *"
+"*|''|node:*) out="the update could not be checked" ;; esac
+       info "$out, so it was not installed"; return 1 ;;
+    *) info "the update could not be checked, so it was not installed"; return 1 ;;
+  esac
+}
+# #6473: hold the downloaded tmux bundle ($1) to the tmux_sha256 of the manifest phase "early" kept, using the installed
+# copy at $2. Nothing to hold it to (no verifier installed, or no key pinned): returns 0, as the manifest check does.
+update_tmux_ok() {
+  local tgz="$1" dest="$2" rc=0 out
+  [ -n "$_UM_DIR" ] && [ -f "$_UM_DIR/manifest.json" ] || return 0
+  out="$(env -u NODE_OPTIONS "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" tmux "$_UM_DIR/manifest.json" \
+    "$_UM_DIR/manifest.sig" "$tgz" "${TARGET_VERSION:-}" "$dest" 2>&1)" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    *) case "$out" in *"
+"*|''|node:*) out="the terminal manager could not be checked" ;; esac
+       rm -rf "$_UM_DIR"; _UM_DIR=""
+       info "$out, so it was not installed"; return 1 ;;
+  esac
 }
 
 # A HEAD probe first, and a one-byte ranged GET before refusing: some static
@@ -1165,7 +1315,10 @@ fetch_tmux() {
     # is the failure this whole file is written against.
     curl -fL --progress-bar "$url" -o "$stage/tmux.tar.gz" || { rm -rf "$stage"; return 1; }
     verify_download "$stage/tmux.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
-    tar -xzf "$stage/tmux.tar.gz" -C "$stage" || { rm -rf "$stage"; return 1; }
+    # #6473: held to the signed manifest (fetched by update_manifest_ok early) before tar or anything in it runs.
+    if [ "$(uname -s)" = "Darwin" ] && ! update_tmux_ok "$stage/tmux.tar.gz" "$KOSMOS_HOME"; then rm -rf "$stage"; return 1; fi
+    # #6562: never apply the archive's recorded owner, whoever runs this (a root install on Linux would).
+    tar -xzf "$stage/tmux.tar.gz" --no-same-owner -C "$stage" || { rm -rf "$stage"; return 1; }
     rm -f "$stage/tmux.tar.gz"
   fi
   [ -f "$stage/bin/tmux" ] && [ -x "$stage/bin/tmux" ] || { rm -rf "$stage"; return 1; }
@@ -1202,6 +1355,8 @@ install_kosmos() {
   mkdir -p "$stage" || { rm -rf "$stage"; return 1; }
   local from_network=no
   if [ -n "${KOSMOS_SRC:-}" ]; then
+    # #6473: a manifest fetched early (for a network tmux) has no further use with a local copy here.
+    [ -z "$_UM_DIR" ] || { rm -rf "$_UM_DIR"; _UM_DIR=""; }
     info "using local copy: $KOSMOS_SRC"
     [ -d "$KOSMOS_SRC" ] || { rm -rf "$stage"; return 1; }
     cp -R "$KOSMOS_SRC/." "$stage/" || { rm -rf "$stage"; return 1; }
@@ -1293,7 +1448,18 @@ install_kosmos() {
     _kp_emit downloaded
     verify_download "$stage/kosmos.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
     _kp_emit installing
-    tar -xzf "$stage/kosmos.tar.gz" -C "$stage" || { rm -rf "$stage"; return 1; }
+    # #6468 ask 2: held to the installed copy's signed-manifest check, the archive itself before tar reads it and every
+    # unpacked file before anything runs. Not on Linux (its updates are not built or signed here yet).
+    if [ "$(uname -s)" = "Darwin" ] && ! update_manifest_ok pre "$stage" "$dest"; then
+      rm -rf "$stage"
+      return 1
+    fi
+    # #6562: never apply the archive's recorded owner, whoever runs this (a root install on Linux would).
+    tar -xzf "$stage/kosmos.tar.gz" --no-same-owner -C "$stage" || { [ -z "$_UM_DIR" ] || rm -rf "$_UM_DIR"; _UM_DIR=""; rm -rf "$stage"; return 1; }
+    if [ "$(uname -s)" = "Darwin" ] && ! update_manifest_ok post "$stage" "$dest"; then
+      rm -rf "$stage"
+      return 1
+    fi
     rm -f "$stage/kosmos.tar.gz"
   fi
   # ⚠️ THE STAGE IS VERIFIED, THEN SWAPPED. On the update path the old
@@ -1329,6 +1495,12 @@ install_kosmos() {
   if [ "$(uname -s)" != "Linux" ]; then
     [ -f "$stage/app/bin/kosmos-tunnel" ] && [ -x "$stage/app/bin/kosmos-tunnel" ] || { rm -rf "$stage"; return 1; }
   fi
+  # #6468: a downloaded update must be signed like the installed build BEFORE anything in it runs (the probe below
+  # runs the new node). Not on Linux (no codesign) and not for a local KOSMOS_SRC copy (a developer's own tree).
+  if [ "$from_network" = yes ] && [ "$(uname -s)" = "Darwin" ] && ! update_signer_ok "$stage" "$dest"; then
+    rm -rf "$stage"
+    return 1
+  fi
   # The runtime must RUN here, the same probe the tmux bundle gets: a
   # binary that will not load fails silently and baffling, and the floor
   # gate upstream makes that unlikely, not impossible.
@@ -1338,18 +1510,122 @@ install_kosmos() {
     return 1
   fi
   local part
+  # BEGIN #4455 lift-then-check
   # #4449: the previous install may have left `app` read-only (KOSMOS_READONLY_APP, below), and rm -rf cannot
   # remove files from a folder nobody may write to, so every part is made writable again before the swap starts.
-  # Harmless on a part that never was read-only. A chmod that fails is tolerated here on purpose: with the switch
-  # off (the default) nothing was locked, so the swap below behaves as it always has. Refusing before anything is
-  # removed when a locked part cannot be unlocked is a condition of turning the switch on (#4455).
+  # Harmless on a part that never was read-only.
+  # #4455: ALL THREE are lifted and checked BEFORE ANY is removed. The swap below removes them one at a time, so a
+  # part that cannot be removed used to be found only after `bin` was already gone: half an install and a paused
+  # board. The lift gives the owner back read and search as well as write (u+rwX): rm needs all three on a folder
+  # to empty it. Two things then still keep rm from removing a part, and each has its own check:
+  #   a locked or append-only file or folder (the Finder's Locked box, chflags uchg). chmod does NOT report
+  #     these: it leaves a file that is already writable alone and exits 0 (measured; the first version of this
+  #     check asked only after a failed chmod and let a locked file through). So every part is searched, on macOS.
+  #   a folder with something in it that this user may not read, write or search. Only possible where the lift
+  #     failed, so only those parts are walked (a `test` per folder is slow on a big tree and the usual update
+  #     never pays it). An EMPTY such folder is not stuck: rm removes it through its parent. "May search" is asked
+  #     as "does <folder>/. exist", which needs the search bit to answer; the usual spelling of that test is the
+  #     one tools/test-installer-runnable-guard.sh reserves for runnable FILES, and it cannot judge one on a folder.
+  # A chmod that fails is not by itself a reason to refuse: a file somebody else owns, in a folder this user may
+  # write to, is removed fine.
+  # 🛑 NEVER GIVE THESE TWO ASSIGNMENTS A FALLBACK THAT CLEARS THE VARIABLE (`|| _stuck_at=""`). find exits non-zero
+  # when it meets a folder it cannot read, which under this script's pipefail fails the whole pipeline AFTER the
+  # stuck path was printed, and the first version's fallback then threw that path away and the update went on
+  # (review 1, measured). What was printed is what counts; the status says nothing. The `|| true` inside each
+  # substitution only keeps a failed search from ending the script if this is ever called without `||` after it.
+  # NOT caught ahead of time: a deny-delete ACL, another user's file in a sticky folder, an immutable file on Linux
+  # where lsattr cannot read the filesystem, and an immutable Kosmos folder itself (the parent of the three parts).
+  # A refusal also leaves logs/update-refused for the board (#6149 point 8); a swap that goes through removes it.
+  local _lift_failed="" _stuck_at="" _stuck_why="" _stuck_part="" _stuck_names="" _found="" _refusedf="" _p="" _app_was_locked=no
+  # Sampled BEFORE the lift, for the refusal below: an app that was read-only is left read-only again. By the
+  # folder's own mode bit, not `[ -w ]`: that asks whether THIS run may write, which is always yes for root, and a
+  # root run would then leave a read-only app open after a refusal (review 4). A sample that cannot be taken
+  # (no find, a folder that cannot be read) counts as read-only, on purpose: it is used only after a refusal,
+  # where the wrong guess in that direction locks an app that was open, never the other way round.
+  if [ -d "$dest/app" ] && [ -z "$(find "$dest/app" -maxdepth 0 -perm -u+w 2>/dev/null || true)" ]; then _app_was_locked=yes; fi
   for part in bin app runtime; do
-    [ -d "$dest/$part" ] && chmod -R u+w "$dest/$part" 2>/dev/null || true
+    [ -d "$dest/$part" ] || continue
+    chmod -R u+rwX "$dest/$part" 2>/dev/null || _lift_failed="$_lift_failed $part"
   done
+  if [ "$(uname -s)" = "Darwin" ]; then
+    # Every part is searched, not only up to the first hit, so the advice below names every locked part and the
+    # next try is not refused again on another one (#6149 review 2).
+    for part in bin app runtime; do
+      [ -d "$dest/$part" ] || continue
+      # /usr/bin/find, not the first find on PATH: a GNU find (Homebrew findutils) has no -flags, and its error
+      # would read as "nothing locked" (#6149).
+      _found="$(/usr/bin/find "$dest/$part" \( -flags +uchg -o -flags +schg -o -flags +uappnd -o -flags +sappnd \) -print 2>/dev/null | sed -n '1p' || true)"
+      [ -n "$_found" ] || continue
+      [ -n "$_stuck_at" ] || _stuck_at="$_found"
+      _stuck_why=locked
+      _stuck_part="$_stuck_part '$dest/$part'"
+      _stuck_names="$_stuck_names $part"
+    done
+  elif command -v lsattr >/dev/null 2>&1; then
+    # #6149 point 9: Linux's own lock, a file marked immutable or append-only (chattr +i, +a). chmod cannot clear it
+    # and rm cannot remove it, so it is searched for here as the macOS flags are above. A filesystem lsattr cannot
+    # read (tmpfs, some overlays) prints nothing and is not refused, as before.
+    # -d first: the part folder itself (-R lists only what is inside it). -a: dot-files too; it also lists each
+    # folder's . and .. entries, which are skipped. The flag match is lowercase on purpose: i and a are the locks,
+    # while the uppercase I (indexed folder, on nearly every ext4 folder) and A (no access time) are harmless.
+    # lsattr opens each file to read its flags (find on macOS only stats them), so this costs more on a big tree.
+    for part in bin app runtime; do
+      [ -d "$dest/$part" ] || continue
+      _found="$( { lsattr -d "$dest/$part"; lsattr -Ra "$dest/$part"; } 2>/dev/null | awk '$1 ~ /^[-a-zA-Z]+$/ && $1 ~ /[ia]/ { sub(/^[^ ]+ /, ""); if ($0 ~ /\/\.\.?$/) next; print; exit }' || true)"
+      [ -n "$_found" ] || continue
+      [ -n "$_stuck_at" ] || _stuck_at="$_found"
+      _stuck_why=immutable
+      _stuck_part="$_stuck_part '$dest/$part'"
+      _stuck_names="$_stuck_names $part"
+    done
+  fi
+  for part in $_lift_failed; do
+    [ -z "$_stuck_at" ] || break
+    _stuck_at="$(find "$dest/$part" -type d ! -empty ! \( -exec test -r {} \; -exec test -w {} \; -exec test -e {}/. \; \) -print 2>/dev/null | sed -n '1p' || true)"
+    [ -z "$_stuck_at" ] || _stuck_why=permissions
+  done
+  if [ -n "$_stuck_at" ]; then
+    info "the installed Kosmos cannot be replaced, because this cannot be removed:"
+    info "  $_stuck_at"
+    if [ "$_stuck_why" = locked ]; then
+      # The search above refuses on all four flags, so the line clears both a person can set (locked, append-only)
+      # on the one part that is stuck, not the whole Kosmos folder (#6149 review 1).
+      info "It is locked. Unlock it with this line in Terminal:"
+      info "  chflags -R nouchg,nouappnd$_stuck_part"
+      info "If it is still refused, the lock was set by an administrator, who can clear it with:"
+      info "  sudo chflags -R noschg,nosappnd$_stuck_part"
+      info "then paste the install line again."
+    elif [ "$_stuck_why" = immutable ]; then
+      info "It is marked immutable or append-only, which only an administrator can clear, with this line:"
+      info "  sudo chattr -R -i -a$_stuck_part"
+      info "then paste the install line again."
+    else
+      info "This account may not change that folder. Give it back to this account, then paste the install line again."
+    fi
+    info "Nothing was removed."
+    # #6149 point 8: the reason, for the board. install.log is read by nobody on an update the board started, so the
+    # refusal leaves a small record beside it. Best-effort: a record that cannot be written never stops the refusal.
+    _refusedf="${LOG_DIR:-$dest/logs}/update-refused"
+    {
+      mkdir -p "${_refusedf%/*}" &&
+      { printf 'why=%s\nat=%s\nts=%s\n' "$_stuck_why" "$_stuck_at" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        for _p in $_stuck_names; do printf 'part=%s\n' "$_p"; done; } > "$_refusedf.tmp" &&
+      mv "$_refusedf.tmp" "$_refusedf"
+    } 2>/dev/null || rm -f "$_refusedf.tmp" 2>/dev/null || true
+    # The lift above opened the app to look. An app that was read-only before it is made read-only again, so a
+    # refused update does not leave it open to an agent's edit. One that was writable (an install from before
+    # #4455, or KOSMOS_READONLY_APP=0) is left writable: a refusal changes nothing about how the install was.
+    if [ "$_app_was_locked" = yes ]; then chmod -R a-w "$dest/app" 2>/dev/null || true; fi
+    rm -rf "$stage"
+    return 1
+  fi
+  # END #4455 lift-then-check
   for part in bin app runtime; do
     rm -rf "$dest/$part" || { rm -rf "$stage"; return 1; }
     mv "$stage/$part" "$dest/$part" || { rm -rf "$stage"; return 1; }
   done
+  # #6149 point 8: the swap went through, so an earlier refusal no longer describes this install.
+  rm -f "${LOG_DIR:-$dest/logs}/update-refused" 2>/dev/null || true
   # The bundle's VERSION record rides along (what shipped, traceable to a
   # binary); optional so an older bundle without one still installs.
   if [ -f "$stage/VERSION" ]; then
@@ -1357,19 +1633,27 @@ install_kosmos() {
     mv "$stage/VERSION" "$dest/VERSION" || { rm -rf "$stage"; return 1; }
   fi
   rm -rf "$stage"
-  # #4449: with KOSMOS_READONLY_APP=1 the installed app is left read-only, so an agent's edit is refused rather
-  # than changing the board every agent on this computer runs on (a tester's board went stale that way). OFF by
-  # default, see the stop sign below. Folders too, not only files: an editor
+  # #4449: the installed app is left read-only, so an agent's edit is refused rather
+  # than changing the board every agent on this computer runs on (a tester's board went stale that way). ON by
+  # default since #4455, see below. Folders too, not only files: an editor
   # writes a temp file beside the target and renames it over, which a read-only file alone does not stop
   # (measured, the card). Nothing writes under app/ at runtime (measured on a live install); this updater is its one
   # writer and lifts it for its own swap (above). Mode bits only: an ACL that allows writing is left as it is.
-  # 🛑 OFF UNTIL EVERY INSTALLER IN CIRCULATION CAN LIFT IT (review iteration 1): an installer from before #4449
-  # (a rollback of /setup, or a cache still serving the last one) cannot remove a read-only app, so its update would
-  # die with the board paused. This release ships the lifting (above, and in uninstall); a later release turns this
-  # on by default (follow-up card). KOSMOS_READONLY_APP=1 turns it on now (test-install does).
-  if [ "${KOSMOS_READONLY_APP:-0}" = 1 ]; then
+  # 🛑 IT WAS OFF FOR ONE RELEASE ON PURPOSE (#4449 review iteration 1): an installer from before #4449 cannot
+  # remove a read-only app, so its update would die with the board paused. 0.7.45 was the first /setup served to
+  # people that can lift it (above, and in uninstall), from 2026-10-13; it is on from the release that carries #4455.
+  # STILL TRUE: a /setup or /setup-staging rolled back to before 0.7.45, meeting an install this one locked, fails that way. The
+  # way out for that person is the lift by hand, `chmod -R u+w` on the app folder, then the install line again.
+  # KOSMOS_READONLY_APP=0 leaves the app writable (anything but 0, or unset, is on).
+  # BEGIN #4455 lock
+  case "${KOSMOS_READONLY_APP:-1}" in
+    0|1) ;;
+    *) info "note: KOSMOS_READONLY_APP is set to something other than 0 or 1; only 0 turns the read-only app off, so it stays on" ;;
+  esac
+  if [ "${KOSMOS_READONLY_APP:-1}" != 0 ]; then
     chmod -R a-w "$dest/app" 2>/dev/null || info "note: the Kosmos app folder could not be made read-only; the install is otherwise complete"
   fi
+  # END #4455 lock
   # 🛑 THE READ-BACK IS THE PROOF. Every claim above is about what this
   # run DID; this is the only line that looks at what the destination
   # HOLDS. A landed version that differs from the run's target means some
@@ -1431,7 +1715,12 @@ start_log() {
     # awk, not tee: one reader, two shapes. `print` goes to the console
     # verbatim; the file copy is prefixed with the run id. fflush both ways,
     # or the file trails the console by a buffer and a crash loses the tail.
-    awk -v id="$$" -v logfile="$LOG" '{ print "[" id "] " $0 >> logfile; fflush(logfile); print; fflush() }' < "$_pipe" &
+    # #6563: KOSMOS_LOG_FILE_ONLY=1 (set by `kosmos update`, whose console already goes into this same file) keeps
+    # the file copy and drops the console copy, so each line is logged once. Unset, a person piping this sees it all.
+    awk -v id="$$" -v logfile="$LOG" -v fileonly="${KOSMOS_LOG_FILE_ONLY:-0}" '{ print "[" id "] " $0 >> logfile; fflush(logfile); if (fileonly != "1") { print; fflush() } }' < "$_pipe" &
+    # Read once, then gone (review 1): a board or agent this run starts must not inherit it, or an installer someone
+    # later runs from that pane by hand would print nothing.
+    unset KOSMOS_LOG_FILE_ONLY
     exec > "$_pipe" 2>&1
     rm -f "$_pipe"
   fi
@@ -3348,11 +3637,26 @@ _kosmos_mode_read() {
 # (the app starts the board and asks at its next launch), so it gets its own words (review round 29).
 _kosmos_off_why() {
   if [ "$_kosmos_mode_word" = connect ]; then printf 'while this computer connects to agents on another computer'
+  elif _kosmos_off_for_foreign; then printf "until you run 'kosmos start' (another Kosmos was using port %s)" "$PORT"
   else printf "until this computer's setup is chosen in the Kosmos app"; fi
+}
+# #4676: the board is off ONLY because the pause left another install's board on the port, and the choice
+# is now run or both (the person chose to run during this update). An unreadable choice keeps its own
+# words: it is off for that reason too, and "run kosmos start" would start a board nobody chose.
+_kosmos_off_for_foreign() {
+  [ "${_kosmos_pause_left_foreign:-no}" = yes ] || return 1
+  case "$_kosmos_mode_word" in run|both) return 0 ;; esac
+  return 1
 }
 _kosmos_board_decide() {
   _kosmos_mode_read
   if _kosmos_mode_keeps_board_off; then _kosmos_board_off=yes; else _kosmos_board_off=no; fi
+  # #4676: the pause left another install's board on the port (a connect computer). If the choice has
+  # become run or both since, this run still starts nothing there: a start would call that board ours
+  # ("already running"), and a busy one would meet the #3079 reclaim under KOSMOS_RECLAIM_BUSY=1, which
+  # kills a same-user Kosmos listener, and another install by the same person is exactly that. The
+  # board stays off (board.stopped) and the lines below say why and what to do.
+  if [ "${_kosmos_pause_left_foreign:-no}" = yes ]; then _kosmos_board_off=yes; fi
 }
 _kosmos_mode_keeps_board_off() {
   [ "$_kosmos_mode_file" = yes ] || return 1
@@ -3469,6 +3773,8 @@ _kosmos_clear_own_marker() {
 }
 _kosmos_on_exit() {
   _kosmos_exit_rc=$?
+  # #6473: the signed manifest an early check fetched, on any exit before pre or post removed it.
+  [ -z "${_UM_DIR:-}" ] || /bin/rm -rf "$_UM_DIR" 2>/dev/null || true
   if [ "$_kosmos_exit_rc" -ne 0 ]; then _kosmos_put_board_back || true; _kosmos_clear_own_marker || true; fi
 }
 trap '_kosmos_on_exit' EXIT
@@ -3478,6 +3784,14 @@ trap 'exit 1' HUP TERM
 # END #4818 put-back
 
 _kosmos_board_decide
+# #4676: set when the pause left ANOTHER install's board on the port (a connect computer, below). The
+# gone-by-port wait then waits only on a listener of ours, and every later start or restart point in this
+# run declines to act on that port, however the choice reads by then (the one exception: a board of OURS
+# found up at the last reading, on a computer chosen to run, is treated as running).
+# ⚠️ THIS RUN ONLY. A computer chosen to run during the update is left with board.stopped while the other
+# board holds the port; the next start (the app's, or 'kosmos start') meets that board as any start does,
+# including the #3079 reclaim of a busy same-user Kosmos. That is #4679, not this card.
+_kosmos_pause_left_foreign=no
 if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   if _kosmos_mode_keeps_board_off; then info "making sure Kosmos is paused for the update"; else info "pausing Kosmos for the update"; fi
   # #4818: MEANT to be running before the pause, so a failed run puts it back: no board.stopped and a mode that runs
@@ -3553,6 +3867,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         # computer's only way to update, fail every time on a shared Mac (review round 19).
         if _kosmos_mode_keeps_board_off; then
           info "another Kosmos is answering on port $PORT; it is not this install's, and this install does not start a board here now, so it is left alone"
+          _kosmos_pause_left_foreign=yes
         else
           die "Another Kosmos is answering on port $PORT, but this install's own board is not running -- so 'kosmos stop' would do nothing and the update cannot pause it. That board belongs to a different install or account on this computer. Quit it, or reinstall on a free port by running the install line with KOSMOS_PORT set to a different number."
         fi
@@ -3576,6 +3891,13 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # (the exact after-state found on Josh's machine, 2026-08-24: a board
   # outside launchd's supervision on the prior version). A survivor is
   # named by pid. No lsof on this Mac degrades to the probe above.
+  # #4676: when the pause just left another install's board here on purpose, only a listener that IS
+  # this install's server (a full-path ps match on the command, anchored on the space before the path)
+  # keeps the update waiting. The
+  # other board is the listener this wait would otherwise find, and telling the person to kill it broke
+  # the promise printed above (a connect computer on a shared Mac could never update). A listener of
+  # ours still counts: the pause's own-board check reads board.pid, so our live board behind a stale
+  # pidfile lands in the carve-out too (the false negative named above), and must not be updated under.
   if command -v lsof >/dev/null 2>&1; then
     # Ten seconds of grace: a node board draining on a busy Mac can hold
     # the listener a few seconds past the stop, and a die here on an
@@ -3595,6 +3917,28 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
       if [ -z "$_pids" ]; then
         if [ "$_lsofrc" -gt 1 ] || [ -n "$(printf '%s\n' "$_lsofout" | sed '/^$/d')" ]; then _lsofbad=yes; fi
         break
+      fi
+      # #4676: once lsof has given a clean numeric reading, narrow to only a listener that IS this
+      # install's server (a full-path ps match on the command, anchored on the space before the path, so it is
+      # stricter than the pause's own-board check at the carve-out, which matches the path without that anchor) when the pause left another
+      # install's board here on purpose. The other board is the listener this wait would otherwise find,
+      # and telling the person to kill it broke the promise printed above (a connect computer on a shared
+      # Mac could never update). A listener of ours still counts: the pause's own-board check reads
+      # board.pid, so our live board behind a stale pidfile lands in the carve-out too (the false negative
+      # named above), and must not be updated under. Done AFTER the _lsofbad check above (which reads the
+      # UNFILTERED lsof output), so narrowing to none-of-ours reads as "the only listener is the foreign
+      # board, proceed", never as a failed port check.
+      if [ "${_kosmos_pause_left_foreign:-no}" = yes ]; then
+        _ours=""
+        for _p in $_pids; do
+          case "$(/bin/ps -ww -p "$_p" -o command= 2>/dev/null || true)" in
+            # Anchored on the space before the path (node's argv is `<node> <abs path>`, as install/kosmos
+            # launches it), so another install whose path merely ENDS in ours is not read as ours.
+            *" $KOSMOS_HOME/app/server.js"*) _ours="$_ours $_p" ;;
+          esac
+        done
+        _pids="${_ours# }"
+        if [ -z "$_pids" ]; then break; fi
       fi
       _tries=$((_tries + 1)); sleep 1
     done
@@ -3648,6 +3992,11 @@ else
   # URL (the binaries inside carry ad-hoc signatures; nothing here is Apple-
   # signed, and saying "signed" would overclaim). Kept as a function so the
   # clean-machine test can point it at a local file.
+# #6473: on an update, fetch and check the target's signed manifest BEFORE tmux, so tmux is held to it too (a local
+# KOSMOS_TMUX_SRC and KOSMOS_SRC both: nothing comes from the network, nothing to check).
+if [ "$(uname -s)" = "Darwin" ] && { [ -z "${KOSMOS_TMUX_SRC:-}" ] || [ -z "${KOSMOS_SRC:-}" ]; }; then
+  update_manifest_ok early "" "$KOSMOS_HOME" || die "Could not check the update against its signed release. The line above says why."
+fi
 fetch_tmux "$KOSMOS_HOME/tmux" || die "Could not set up the terminal manager. The lines above say why, and whether trying again can help."
 fi
 ok
@@ -4734,6 +5083,8 @@ if [ "$_kosmos_board_off" = yes ]; then
   : > "$KOSMOS_HOME/board.stopped" 2>/dev/null || true
   if [ "$_kosmos_mode_word" = connect ]; then
     step "This computer connects to agents on another computer, so Kosmos is not started here."
+  elif _kosmos_off_for_foreign; then
+    step "Another Kosmos was using port $PORT when this update started, so this computer's board was not started. Quit that one, then run 'kosmos start'; or run the install line again with KOSMOS_PORT set to a free number."
   else
     step "This computer's setup choice could not be read, so Kosmos is not started here. The Kosmos app will ask again when you open it."
   fi
@@ -5143,7 +5494,7 @@ else
   # Everything else about this install works; the person loses exactly one
   # thing, and the thing they would do instead is the thing they already do.
   info "note: could not write $_board_plist, so Kosmos will not start itself after a restart."
-  [ "$_kosmos_mode_word" = connect ] || info "Opening the Kosmos icon starts it, as it always has."
+  [ "$_kosmos_mode_word" = connect ] || _kosmos_off_for_foreign || info "Opening the Kosmos icon starts it, as it always has."
 fi
 
 # #2955: THE BOARD WATCHDOG login job.
@@ -5301,6 +5652,15 @@ fi
 # next login; stop writes board.stopped. An unreadable one is left as it is: the app started it to
 # ask. The summary below then describes this reading.
 _kosmos_board_decide
+# #4676: the other board is gone and ours is up (started by hand or by the app during this run), on a
+# computer chosen to run: nothing is off any more. Lift the marker so launchd supervises it. Its own
+# standalone if, before the connect-stop chain: _kosmos_off_for_foreign (run|both) and the connect-stop
+# (connect) are mutually exclusive, so splitting them keeps the behaviour and leaves the connect-stop a
+# standalone if that the install-static guard pins (Liu Kang's ruling m5672).
+if _kosmos_off_for_foreign && [ "$BOARD_OURS" = yes ]; then
+  _kosmos_board_off=no
+  rm -f "$KOSMOS_HOME/board.stopped" 2>/dev/null || true
+fi
 if [ "$_kosmos_mode_word" = connect ] && [ "$BOARD_OURS" = yes ]; then
   "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   if ! curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then BOARD_OURS=no; fi
@@ -5358,6 +5718,10 @@ elif [ "$_kosmos_board_off" = "yes" ]; then
   if [ "$_kosmos_mode_word" = connect ]; then
     printf '\n  Kosmos is installed. No board of this install runs here, on purpose: this computer connects to agents on another computer.\n'
     printf '  Open the Kosmos app from your Applications folder.\n\n'
+  elif _kosmos_off_for_foreign; then
+    # #4676: chosen to run during this update, but another install's board held the port.
+    printf '\n  Kosmos is installed, but its board was not started: another Kosmos on this computer was using port %s when this update started.\n' "$PORT"
+    printf "  Quit that one, then run 'kosmos start'. Or run the install line again with KOSMOS_PORT set to a free number.\n\n"
   else
     printf '\n  Kosmos is installed. No board was started, because this computer'"'"'s setup choice could not be read.\n'
     printf '  Open the Kosmos app from your Applications folder and it will ask how to set up this computer.\n\n'
@@ -5455,8 +5819,9 @@ printf '  To remove it later:  curl -fsSL https://installkosmos.com/setup | sh -
 # token and appends ?token= itself, the board sets the cookie, and server.js seeds the reauth
 # marker on that redemption -- so a normal update, WHEN THE APP WAS NOT ALREADY RUNNING, launches
 # once and then _open_gate stops. Gated on a marker beside board.token so it fires on the FIRST
-# update carrying this fix and never again (Max-Age 400 days; one seed carries every later update
-# forward -- the "no launch per update" property). Enforcing-only: `-s board.token` present and
+# update carrying this fix and never again (one seed carries every later update forward -- the "no launch per
+# update" property). The marker only stops the extra launch: since #6358 a restart (an update included) ends the
+# browser session, and the running app signs its own window in again. Enforcing-only: `-s board.token` present and
 # non-empty is setup.sh's reading of enforced().
 # ⚠️ RUNNING-APP EDGE, ACCEPTED: if the app is ALREADY running at update time, `open Kosmos.app`
 # is an AppKit REOPEN that only re-shows the window -- no ?token= bootstrap, no seed, so the gate
@@ -5589,7 +5954,7 @@ PLIST
     else printf '  note: Kosmos could not be opened automatically; open the Kosmos app from your Applications folder.\n\n'; fi
   fi
   # #2030: the repair marker is NOT seeded here (setup.sh could only see the launch
-  # DISPATCHED, never REDEEMED); it is written server-side when a durable cookie is
+  # DISPATCHED, never REDEEMED); it is written server-side when a sign-in cookie is
   # truly taken (engine/boardauth.js seedReauthMarker, from server.js's bootstrap
   # handler) -- #2073: on the app's `?token=` redemption, and still on a `?boot=`.
   # #2073: this block LAUNCHES THE NATIVE APP (no mint, no `?boot=` browser dashboard)

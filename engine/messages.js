@@ -56,6 +56,24 @@ const crypto = require('node:crypto');
 const { externalName, INVISIBLE, byCodePoint } = require('./externalname');
 const { execFileSync } = require('node:child_process');
 const chat = require('./chat');
+/* #6256 item 2: a message left unsent in its recipient's input box, by the number chat gave its remembered line, until
+   a later delivery or one of chat's retries sends it (the hook below writes the follow-up row). */
+const unsentPending = new Map();   // seq -> { id, from, to, at }
+/* kosmos#6436: chat keeps a remembered line up to a day from when it was last seen in the box, so a row waits a day; a line
+   still unsent after that, or one remembered across a board restart (it carries no number), gets no follow-up row. */
+const UNSENT_PENDING_MS = 24 * 60 * 60 * 1000;
+function noteUnsent(seq, row) {
+  const now = Date.now();
+  for (const [k, v] of unsentPending) if (now - v.at > UNSENT_PENDING_MS) unsentPending.delete(k);
+  unsentPending.set(seq, { ...row, at: now });
+}
+chat.setEarlierSubmittedHook((seq, at) => {
+  const row = unsentPending.get(seq);
+  for (const [k, v] of unsentPending) if (Date.now() - v.at > UNSENT_PENDING_MS) unsentPending.delete(k);   // review 3
+  if (!row) return;   // a line some other sender left (a nudge, a room post): it has no message row to follow
+  unsentPending.delete(seq);
+  appendLog({ kind: 'unsent-submitted', of: row.id, from: row.from, to: row.to, at });
+});
 const roomhold = require('./roomhold');   // #4624
 const store = require('./store');
 const limits = require('./limits');
@@ -229,6 +247,9 @@ const SPILL_HEAD = 200;
 const NOT_AN_END = /^(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|inc|corp|ltd|co|no|nos|fig|vol|dept|approx|est|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|gen|sen|rep|gov|pres|capt|lt|col|sgt|rev|hon|mt|ft|ave|rd|blvd|univ|al|cf|ca|ch|sec|eq|ex|pp|ref)\.$/i;
 /* Never end a cut on the first half of a two-unit character (an emoji), which would type a broken character. */
 const wholeChars = (s) => (/[\uD800-\uDBFF]$/.test(s) ? s.slice(0, -1) : s);
+/* A list number ("1."), a dotted form ("e.g.", "U.S."), a single initial ("J."), or a known abbreviation: the word does
+   not end a sentence where the head picks its cut. (The request's sentenceAt uses a stricter form of it.) */
+const notAnEnd = (last) => /^\(?\d+[.)]$/.test(last) || /\..*[.!?]$/.test(last) || /^[A-Za-z]\.$/.test(last) || NOT_AN_END.test(last);
 function spillHead(text) {
   const t = String(text);
   const words = (t.match(/\S+/g) || []).length;
@@ -240,7 +261,7 @@ function spillHead(text) {
     const upto = t.slice(0, m.index + 1).trim();
     const last = upto.slice(upto.lastIndexOf(' ') + 1);
     /* A list number ("1."), a dotted form ("e.g.", "U.S."), a single initial ("J."), or a known abbreviation. */
-    if (/^\(?\d+[.)]$/.test(last) || /\..*[.!?]$/.test(last) || /^[A-Za-z]\.$/.test(last) || NOT_AN_END.test(last)) continue;
+    if (notAnEnd(last)) continue;
     /* Review 4: a spilled message always goes on past its first sentence, so the head always ends in an ellipsis. A
        word this list misses can then never pass a fragment off as the whole message; the list only picks a better cut. */
     if (upto.length >= 20) { head = upto + ' \u2026'; break; }
@@ -254,9 +275,100 @@ function spillHead(text) {
   }
   return { head, words };
 }
-function spillLine(text, file) {
+/* #6065 N1 (0.7.48 report: Gemini and Meta still had long room posts arrive shortened): where a post is still
+   shortened, its preview carries the request (Josh: "put the request in the preview").
+   - Where it names you: the first sentence that names this member, at the positions mentionedMembers recorded
+     (`namedAt`, exactly what the room read as a mention). Not called a request: a mention can be a thank-you.
+   - A question in it: otherwise the first question past the head, for a reader the post is to (`questions`). A ?
+     counts after a word and before a space or the end, with any closing quote, bracket or ! between, so not one
+     partway through a link.
+   - A sentence that ends inside the head is skipped for the next one; one the opening cut only started is quoted.
+   - At most REQUEST_MAX characters plus an ellipsis, cut at a whole word. A sentence past the cap keeps at most
+     REQUEST_LEAD characters before its mention or question; one whose mention is within that lead of its start is cut
+     from the start, so a request near its far end can still be dropped.
+   A sentence runs from the end of the one before to its own end (sentenceAt). The head picks its cut by a looser rule
+   (before a capital, notAnEnd), so the two can disagree on a lowercase sentence start; "already in the head" is by
+   position, so at worst a sentence is quoted that the head also shows. Both callers pass chat.cleanMessage's text,
+   which has no line breaks, so a list with no punctuation reads as one sentence. */
+const REQUEST_MAX = 300;
+const REQUEST_LEAD = 100;   // how much of a long sentence is kept before its mention or question
+function sentenceAt(t, at) {
+  /* A sentence ends at . ! or ? with any closing quote or bracket after it, then a space or the end, and both ends of
+     the request use this one rule (review 13). A full stop does not end one after an abbreviation: a known one
+     (NOT_AN_END), a list number, a dotted word of two or more pieces of one or two letters (e.g., p.m., U.S.), or a
+     capital initial (J.). Stricter than the head's notAnEnd on purpose (review 14): a filename, domain, version or
+     ellipsis (config.yaml., v1.2., wait...) does end a sentence here, or the next one would be quoted too. */
+  const BOUND = /[.!?]["')\]]*(?=\s|$)/g;
+  // The abbreviation rule is about a full stop: a ? or ! after a dotted word (a link ending in ?) still ends one.
+  const abbrev = (w) => /^\(?\d+[.)]$/.test(w) || /^(?:[A-Za-z]{1,2}\.){2,}$/.test(w) || /^[A-Z]\.$/.test(w) || NOT_AN_END.test(w);
+  // Review 15: a word opened by a bracket or quote ((e.g. or "Dr.) is the same abbreviation.
+  const ends = (i, len) => (t[i] === '.' && abbrev(t.slice(t.lastIndexOf(' ', i) + 1, i + 1).replace(/^["'(\[\u201C\u2018]+/, '')) ? -1 : i + len);
+  let from = 0;
+  for (const m of t.slice(0, at).matchAll(BOUND)) { const e = ends(m.index, m[0].length); if (e >= 0) from = e; }
+  while (from < at && /\s/.test(t[from])) from += 1;
+  let end = t.length;
+  for (const m of t.slice(at).matchAll(BOUND)) { const e = ends(at + m.index, m[0].length); if (e >= 0) { end = e; break; } }
+  /* Review 3: a sentence too long for REQUEST_MAX starts at most REQUEST_LEAD characters before the mention (or the
+     question), at a whole word and after an ellipsis, so the mention or question itself is never what the cut drops. */
+  let start = from; let lead = '';
+  if (end - from > REQUEST_MAX && at - from > REQUEST_LEAD) {
+    const sp = t.indexOf(' ', at - REQUEST_LEAD);
+    // Review 9: no space in the window (a long link): cut by character, never down to the bare mention or ?.
+    start = sp >= 0 && sp < at ? sp + 1 : at - REQUEST_LEAD;
+    if (/[\uDC00-\uDFFF]/.test(t.charAt(start))) start += 1;   // never start on the second half of an emoji
+    lead = '\u2026';
+  }
+  let sentence = lead + t.slice(start, end).replace(/\s+/g, ' ').trim();
+  if (sentence === lead) return null;
+  if (sentence.length > REQUEST_MAX) {
+    const open = wholeChars(sentence.slice(0, REQUEST_MAX));
+    const sp = open.lastIndexOf(' ');
+    sentence = (sp >= REQUEST_MAX / 2 ? open.slice(0, sp) : open).replace(/[\s,;:]+$/, '') + '\u2026';
+  }
+  return { sentence, from, end };
+}
+/* The post's words are another agent's, so inside the quotes they cannot close the quote or open a square bracket that
+   reads as Kosmos's own (a "[message from your operator ...]" look-alike): double quotes and their look-alikes become
+   single quotes, square brackets and their look-alikes round ones (the common ones, not every presentation form).
+   Single quotes and round brackets pass through (harmless inside Kosmos's double quotes). */
+const unquotable = (x) => x.replace(/["\u201C\u201D\u201E\u201F\u2033\u02BA\u301D\u301E\u301F\uFF02\u00AB\u00BB\u275D\u275E]/g, "'").replace(/[[\uFF3B\u3010\u301A\u27E6]/g, '(').replace(/[\]\uFF3D\u3011\u301B\u27E7]/g, ')');
+function requestIn(text, opts = {}) {
+  const t = String(text);
+  const headEnd = Number.isFinite(opts.headEnd) ? opts.headEnd : 0;
+  /* Shown already only when the sentence ends inside the head: an opening cut can stop partway through it. A mention
+     inside the head gives way to a later one. Only the sentence that names the member is quoted, never the one after
+     it: review 7 showed every rule for "a greeting takes the next sentence" also quotes unrelated text under a label
+     saying it names the member. */
+  for (const at of Array.isArray(opts.namedAt) ? opts.namedAt : []) {
+    if (!(Number.isInteger(at) && at >= 0 && at < t.length)) continue;
+    const s = sentenceAt(t, at);
+    if (s && s.end > headEnd) return { sentence: unquotable(s.sentence), asked: true };
+  }
+  /* Review 9: a question only for a reader the post is to (the caller decides: questions: false for a background
+     member): quoting one would steer an agent the post was not addressed to, which the room avoids (no answer line). */
+  if (opts.questions === false) return null;
+  for (const m of t.matchAll(/(?<=\S)\?(?=["')\]!]*(\s|$))/g)) {   // review 12: ready?" and (ready?) are questions
+    const s = sentenceAt(t, m.index);
+    if (s && s.end > headEnd) return { sentence: unquotable(s.sentence), asked: false };
+  }
+  return null;
+}
+/* The request is quoted, so where Kosmos stops speaking is plain. It adds at most REQUEST_MAX + 1 characters of
+   request plus about 25 of label and quotes; the room path measures the line again after adding it (fitOrBare). The
+   head is a prefix of the text (chat.cleanMessage trims), so a sentence ending before the head's end is in it. The
+   head itself is still the post's own words, unquoted, as before this change. */
+/* Review 12/13: the request is added after the spill decision, so the line is measured again with what follows it
+   (the room's catch-up and held posts): it goes with the request when that fits, else without (`bare()`). With
+   chat.MAX_TEXT at 10000 and a spilled line well under 1000 characters this is a guard, not an expected path. */
+function fitOrBare(withRequest, bare, after = '') {
+  return spillsAt(withRequest + after) ? bare() : withRequest;
+}
+function spillLine(text, file, opts = {}) {
   const { head, words } = spillHead(text);
-  return head + ' (long message, ' + words + (words === 1 ? ' word' : ' words') + '; the full text is in your own folder at ' + file + ')';
+  const headEnd = head.replace(/\s*\u2026$/, '').trimEnd().length;
+  const req = requestIn(text, { ...opts, headEnd });
+  return head + ' (long message, ' + words + (words === 1 ? ' word' : ' words') + '; the full text is in your own folder at ' + file + ')'
+    + (req ? (req.asked ? ' Where it names you: "' : ' A question in it: "') + req.sentence + '"' : '');
 }
 /* The ceiling past which a body is a document, not a message (spill
    relaxes chat's cap, never the idea of one). The log itself has no
@@ -269,7 +381,8 @@ const MAX_BODY = 64 * 1024;
 
 /* The valve budgets live in engine/limits.js now -- ONE dial the person
    owns (2026-08-18): each pair gets perHour exchanges an hour, each room
-   four times that in arrivals, and the window is an hour because that is
+   four times that in arrivals as a floor (scaled with the room's size by
+   roomCap, kosmos#6420), and the window is an hour because that is
    the unit on the screen. The split that matters: crossing a budget
    ALWAYS logs the tell (stopped: true|false on the row); the setting
    decides only whether the send is also refused. The default equals the
@@ -281,7 +394,11 @@ const MAX_BODY = 64 * 1024;
    the room), at the recorded 4x allowance over the pair budget
    (Splinter: a deliberate allowance, not parity -- the room is the
    visible collaboration surface). Both budgets derive from the one
-   dial in engine/limits.js. Operator posts count nothing. */
+   dial in engine/limits.js. Operator posts count nothing. kosmos#6420
+   scales the room's budget with its size (roomCap): from three to nine
+   members, posts per hour stay at the three-member count (each post still
+   costs its reach; a pair keeps the dial's own budget); past nine the
+   budget stops growing, so the cost is bounded. */
 
 /* Every envelope marker this module can mint, refused inside any BODY on
    any path: a body carrying one would read, on a recipient's screen, as
@@ -529,6 +646,7 @@ let runner = null;
 function setRunner(fn) { runner = fn; }
 function resetForTests() {
   runner = null;
+  unsentPending.clear();   // #6256 item 2
   /* #562: the reader's memory goes too. A test that rewrites the log file
      in place -- same size, same millisecond -- is the one writer the
      inode/size/mtime invalidation cannot see; production never does that
@@ -839,6 +957,49 @@ function record() {
   return { ok: true, rows: cache.rows.concat(fragRows), parsed: cache.parsed.concat(fragParsed) };
 }
 
+/* #6341: when a project's room last had a post (an agent's, the person's, or one from outside), as epoch ms; null when
+   it has had none, undefined when the log could not be read. Kosmos's own notes do not count: a Recommender note
+   repeated in a quiet room must not make the room look live. The newest post per project is kept incrementally against
+   the reader's memory, so rows are scanned once while that memory stands (a re-parsed log is scanned again); each call
+   still pays record()'s own copy of the rows. */
+let LAST_POST = null; // { rows, n, map }
+function lastPostAt(projectId) {
+  const got = record();
+  if (!got.ok) return undefined;   // could not read: not "no post" (the caller counts the room as live)
+  const rows = READ_CACHE ? READ_CACHE.rows : [];
+  if (!LAST_POST || LAST_POST.rows !== rows || LAST_POST.n > rows.length) LAST_POST = { rows, n: 0, map: new Map() };
+  const bump = (map, r) => {
+    if (!r || (r.kind !== 'post' && r.kind !== 'external') || typeof r.project !== 'string') return;
+    const t = Date.parse(r.at);
+    if (Number.isFinite(t) && t > (map.get(r.project) || 0)) map.set(r.project, t);
+  };
+  for (; LAST_POST.n < rows.length; LAST_POST.n++) bump(LAST_POST.map, rows[LAST_POST.n]);
+  let best = LAST_POST.map.get(String(projectId)) || null;
+  // A half-appended last line is read for this answer only, as record() itself does.
+  const tail = new Map();
+  for (const r of got.rows.slice(rows.length)) bump(tail, r);
+  const t = tail.get(String(projectId));
+  if (t && (!best || t > best)) best = t;
+  return best;
+}
+
+/* #6341: does this project's room already hold a Recommender note about this agent with these words, written since
+   `sinceMs`? `{ asked }` (the sessions that note asked) when it does, false when not. Read from the log on disk, so it
+   survives a board restart, which the Recommender's own memory does not. */
+function recommenderNoted(projectId, session, because, sinceMs) {
+  const got = record();
+  if (!got.ok) return false;
+  // The latest matching note (review 7): it is the room's current word on who was asked.
+  let hit = null;
+  for (let i = got.rows.length - 1; i >= 0 && !hit; i--) {
+    const r = got.rows[i];
+    if (r && r.kind === 'note' && r.project === String(projectId) && r.rec
+      && r.rec.stuck === session && r.rec.because === because && Date.parse(r.at) >= sinceMs) hit = r;
+  }
+  // Review 5: who that note asked, so the playbook can say whether replies may be waiting (an empty list asked nobody).
+  return hit ? { asked: Array.isArray(hit.rec.asked) ? hit.rec.asked.slice() : [] } : false;
+}
+
 /** The fields each kind demands. An unknown kind is KEPT -- dropping what
     this version does not yet understand is the same lie by subtraction. */
 function rowShaped(m) {
@@ -906,6 +1067,11 @@ function rowShaped(m) {
   /* #5805 slice 2a: a kept `kosmos msg` message typed after its recipient's reset, or dropped a day past it; `of` is the
      held message row's id. */
   if (m.kind === 'held-delivered' || m.kind === 'held-dropped') {
+    return str(m.of) && str(m.from) && str(m.to);
+  }
+  /* #6256 item 2: a message row that says `unsubmitted` (left in the recipient's input box) was sent by a later
+     delivery to that agent, which pressed Enter on it; `of` is that message row's id. */
+  if (m.kind === 'unsent-submitted') {
     return str(m.of) && str(m.from) && str(m.to);
   }
   /* #2255: a reaction EVENT, exactly what react() writes. Given its own rule
@@ -1080,13 +1246,44 @@ function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0
      stopped !== false in that project, later than the post); dropped only when it is not addressed to the member;
    - and, in its `evenIfAsked` Set (R2, 10-05 user diagnostic: a session woken on 10-05 for 10-02 and 10-03 posts it
      had handled), dropped even when it names the member: one the member ANSWERED (its own post in that room with
-     replyTo = that id; a room post, not a direct message), or a post older than HELD_ASKED_MAX_MS from the post itself.
+     replyTo = that id; a room post, not a direct message), one in the rows a default room read shows before another
+     member's post the member answered there (N7), or a post older than HELD_ASKED_MAX_MS from the post itself.
    The stale age counts from the post, or from the member's quota pause's end when there was one; the day rule
    counts from the post even then, so a pause of days does not deliver days-old asks. (#5805: roomhold.withoutStale
    keeps back an ask a Claude usage limit held; `answered`, the ids the member answered, tells the two apart.)
    An id not in the record yet (a post still being delivered) is none of these. `member`: whose held ids these are. Every post stays in the room. */
 const HELD_TELL_MAX_MS = 2 * 60 * 60 * 1000;
 const HELD_ASKED_MAX_MS = 24 * 60 * 60 * 1000;
+/* How many rows `kosmos room` shows when not given -n (server.js reads it from here). */
+const ROOM_READ_ROWS = 40;
+/* The row kinds that read shows: kept equal to server.js's room-read filter by roomhold-stale-4926.test.js. */
+const ROOM_READ_KINDS = Object.freeze(['post', 'valve', 'note', 'external', 'refused']);
+/* #4926 N7 diagnostic (round 1: facts, not a verdict): for each id, the member's own posts in that room after it, oldest
+   first, as { id, cites } (cites: the post id it replies to, or null), at most AFTER_MAX of them, plus how many there
+   were in all. A reader with the room open then judges whether the member answered it (a later post that cites it, or
+   one that plainly answers it without citing). After = later in the log's own order (the order posts were written), so
+   two posts in one millisecond are still ordered. An id not in the record is left out. One pass. Never throws. */
+const AFTER_MAX = 10;
+function memberAfter(projectId, ids, member, log) {
+  const out = {};
+  try {
+    const rows = Array.isArray(log) ? log : readLog();
+    const want = new Set(ids || []);
+    const open = [];   // the wanted ids seen so far, in log order
+    for (const r of rows) {
+      if (!r || r.kind !== 'post' || r.project !== projectId) continue;
+      if (want.has(r.id) && !(r.id in out)) { out[r.id] = { after: [], total: 0 }; open.push(r.id); continue; }
+      if (r.from !== member || !open.length) continue;
+      const cites = typeof r.replyTo === 'string' ? r.replyTo : null;
+      for (const id of open) {
+        const o = out[id];
+        o.total += 1;
+        if (o.after.length < AFTER_MAX) o.after.push({ id: String(r.id), cites });
+      }
+    }
+  } catch { return {}; }   // a diagnostic: nothing is said rather than something false
+  return out;
+}
 function staleHeld(projectId, ids, log, now, member) {
   const out = new Set();
   out.evenIfAsked = new Set();
@@ -1102,6 +1299,44 @@ function staleHeld(projectId, ids, log, now, member) {
       if (r.kind === 'valve' && r.stopped !== false) { const v = Date.parse(r.at); if (Number.isFinite(v) && v > stoppedAt) stoppedAt = v; }
       if (member && r.kind === 'post' && r.from === member && typeof r.replyTo === 'string') answered.add(r.replyTo);
     }
+    /* N7 (10-13 19:31Z, a Meta seat): the member answered a whole round in ONE reply, to the round's newest post, and
+       the round's other posts were told to it again as new. So a reply to another's post X also answers the posts
+       before X that any default room read showing X, made before the member's first reply to X, showed (assuming the
+       reply followed such a read, the rule's premise): the
+       ROOM_READ_ROWS - 1 rows before X, less one for each row after X and before that reply, of the kinds the read
+       shows, in the order it shows them (server.js). Outside rows count as full slots; the read skips outside rows past
+       its cap, so it reaches further back than that, never less far. */
+    const covered = new Set();
+    const firstReply = new Map();
+    if (answered.size && rows.some((r) => r && r.kind === 'post' && r.project === projectId && want.has(r.id))) {
+      for (const r of rows) {
+        if (!r || r.kind !== 'post' || r.project !== projectId || r.from !== member || !answered.has(r.replyTo)) continue;
+        const v = Date.parse(r.at);
+        if (Number.isFinite(v) && (!firstReply.has(r.replyTo) || v < firstReply.get(r.replyTo))) firstReply.set(r.replyTo, v);
+      }
+    }
+    if (firstReply.size) {
+      const kinds = new Set(ROOM_READ_KINDS);
+      const room = rows.filter((r) => r && r.project === projectId && kinds.has(r.kind))
+        .sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));   // the read's own order (server.js)
+      const firstWanted = room.findIndex((y) => y.kind === 'post' && want.has(y.id));
+      room.forEach((x, i) => {
+        if (firstWanted < 0 || i <= firstWanted || x.kind !== 'post' || !answered.has(x.id) || x.from === member) return;
+        const xAt = Date.parse(x.at);
+        const replyAt = firstReply.get(x.id);
+        if (!(replyAt > xAt)) return;   // no read before the reply could have shown X
+        let after = 0;   // rows after X a read before the reply could have shown; an unreadable time counts
+        // The break assumes string order is time order, as for the board's toISOString stamps.
+        for (let j = i + 1; j < room.length && after < ROOM_READ_ROWS; j += 1) {
+          if (Date.parse(room[j].at) >= replyAt) break;
+          after += 1;
+        }
+        for (let j = Math.max(0, i - (ROOM_READ_ROWS - 1 - after)); j < i; j += 1) {
+          const y = room[j];
+          if (y.kind === 'post' && Date.parse(y.at) < xAt) covered.add(y.id);
+        }
+      });
+    }
     for (const r of rows) {
       if (!r || r.kind !== 'post' || r.project !== projectId || !want.has(r.id)) continue;
       const at = Date.parse(r.at);
@@ -1112,8 +1347,9 @@ function staleHeld(projectId, ids, log, now, member) {
       const until = member && r.heldUntil && typeof r.heldUntil === 'object' ? Date.parse(r.heldUntil[member]) : NaN;
       const from = Number.isFinite(until) && until > at ? until : at;
       if (t - from > HELD_TELL_MAX_MS || stoppedAt > at) out.add(r.id);
-      if (answered.has(r.id)) out.answered.add(r.id);
-      if (answered.has(r.id) || t - at > HELD_ASKED_MAX_MS) { out.add(r.id); out.evenIfAsked.add(r.id); }
+      const handled = answered.has(r.id) || covered.has(r.id);
+      if (handled) out.answered.add(r.id);
+      if (handled || t - at > HELD_ASKED_MAX_MS) { out.add(r.id); out.evenIfAsked.add(r.id); }
     }
   } catch { /* nothing is dropped */ }
   return out;
@@ -1394,7 +1630,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const spill = spillInto(toName, id, cleaned);   // #4447: the recipient's own Inbox
     if (!spill.file) return refuse(toName, 'that message is long enough to need a file, and ' + spill.because);
     spillFile = spill.file;
-    body = spillLine(cleaned, spillFile);   // #5706
+    body = spillLine(cleaned, spillFile);   // #5706 (a DM line has nothing typed after it, so no re-measure: see fitOrBare)
   }
   const envelope = prefix + body;
   /* #5805 slice 2a: the recipient is out of usage (slice 1's hold): typed now, the message would land on its limit
@@ -1445,8 +1681,11 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
      fields are the screens' contract; kind and state ride along so a
      conversation view can mark the unconfirmed case honestly. */
     const isQueued = sent.queued === true;
-    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: sent.state, ...(isQueued ? { queued: true } : {}) });
-    return { state: sent.state, ...(isQueued ? { queued: true } : {}), ...(sent.paneNote ? { paneNote: sent.paneNote } : {}), because: sent.because || null, id, at };
+    /* #6249: a line the board saw left in the recipient's input box, unsent, says so in the log and the answer. */
+    const unsent = sent.unsubmitted === true ? { unsubmitted: true } : {};
+    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: sent.state, ...(isQueued ? { queued: true } : {}), ...unsent });
+    if (sent.unsubmitted === true && Number.isInteger(sent.unsentSeq)) noteUnsent(sent.unsentSeq, { id, from, to: toName });   // #6256 item 2
+    return { state: sent.state, ...(isQueued ? { queued: true } : {}), ...unsent, ...(sent.paneNote ? { paneNote: sent.paneNote } : {}), because: sent.because || null, id, at };
   };
   const sent = deliverToPane(toName, envelope, roster);
   return sent && typeof sent.then === 'function' ? trackInFlight(msgKey, sent.then(finish)) : finish(sent);
@@ -1504,8 +1743,9 @@ async function tellHeldDropped(entry, roster) {
    kept from then are still waiting, so it never arrives ahead of them. null: not held, type it now. Otherwise the
    outcome the route reports for that agent: held when kept, could_not when it could not be kept (and was not typed).
    `from` is the sending agent's name, or '' for the person (or an agent the route could not name). `where` (#5842,
-   optional): { projectId, task, person }, the task the line belongs to and whether the person sent it from the screen,
-   kept with it so its outcome is recorded in that task's conversation. Never throws: a throw before a hold is found types it
+   optional): { projectId, task, person, kind }, the task the line belongs to and whether the person sent it from the
+   screen, kept with it so its outcome is recorded in that task's conversation. #6359: kind 'built' is the built
+   notice of `kosmos task built`, not a task message, and its later notices say so. Never throws: a throw before a hold is found types it
    (as an unreadable limit verdict does for `kosmos msg`); one after a hold is found refuses it, untyped. */
 function keepTaskLine(toName, line, roster, from, about, where) {
   let decided = false;   // a hold was found: from here a failure must not fall through to typing
@@ -1536,9 +1776,22 @@ function keepTaskLine(toName, line, roster, from, about, where) {
     signinNow = !behind && hold.heldFor === 'signin';
     // The drop clock: the printed reset, or now when that is already past (as for `kosmos msg`).
     const dropFrom = Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : at;
+    /* #6359 review 1: a new built notice for the same task, from the same sender, replaces one still kept (a new note
+       marks it again), once it is decided this one is kept: the stale note is not typed ahead of the current one, and
+       one mark takes one place in the queue. One the sweep is typing now (or has typed) is left to finish. Removed
+       before the add, so it frees its place for the new one; if the add then fails, the sender is told this one was not
+       kept, and the old one is gone without a drop notice (the write that just succeeded makes that rare). */
+    if (where && where.kind === 'built') {
+      const prior = limitqueue.readEntries(qName);
+      if (prior.ok) for (const e of prior.entries) {
+        if (e.built === true && e.projectId === where.projectId && e.task === where.task && e.from === String(from || '')
+          && !limitqueue.isTyping(e.id) && !limitqueue.isDone(e.id)) limitqueue.remove(qName, e.id);
+      }
+    }
     const id = 'k' + crypto.randomBytes(6).toString('hex');
     const why = limitqueue.addOrWhy(qName, { id, kind: limitqueue.TASK_KIND, from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind, signin: !behind && hold.heldFor === 'signin',
-      projectId: where && where.projectId, task: where && where.task, person: !!(where && where.person === true) });
+      projectId: where && where.projectId, task: where && where.task, person: !!(where && where.person === true),
+      built: !!(where && where.kind === 'built') });
     if (why) {
       const cause = why === 'sender-cap' ? limitqueue.MAX_PER_SENDER + ' messages from this sender are kept for it already'
         : why === 'agent-cap' ? limitqueue.MAX_KEPT + ' messages are kept for it already' : 'its queue could not be read or written';
@@ -1561,7 +1814,9 @@ function recordTaskLineOutcome(entry, v, dropped) {
   // `behind`: kept behind earlier messages rather than for a usage reset, so the page does not speak of a reset.
   // `person`: the person sent it from the screen. An empty `from` alone is not that: an agent the route could not name
   // also arrives with none.
-  const flags = { ...(entry.behind === true ? { behind: true } : {}), ...(entry.person === true ? { person: true } : {}) };
+  const flags = { ...(entry.behind === true ? { behind: true } : {}), ...(entry.person === true ? { person: true } : {}),
+    // #6359: a built notice, which the conversation shows as the built mark, not as a message.
+    ...(entry.built === true ? { built: true } : {}) };
   return require('./taskchat').record(entry.projectId, entry.task, dropped
     ? { kind: 'kept-dropped', to: String(entry.to || ''), from: String(entry.from || ''), ...flags }
     : { kind: 'kept-sent', to: String(entry.to || ''), from: String(entry.from || ''), state: String((v && v.state) || ''), ...flags });
@@ -1575,9 +1830,16 @@ async function tellTaskLineDropped(entry, roster) {
   let told = entry.person === true ? 'nobody (the person sent it)' : 'nobody (no sender named)';
   if (entry.from) {
     // The task page's words (engine/taskactphrase.js): a line kept behind earlier messages names no usage limit.
-    const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it '
-      + (entry.behind === true ? 'behind earlier messages' : 'while ' + entry.to + (entry.signin === true ? ' was signed out' : ' was out of usage'))
-      + ' and could not send it within a day. Send it again if it still matters.';
+    const kept = (entry.behind === true ? 'behind earlier messages' : 'while ' + entry.to + (entry.signin === true ? ' was signed out' : ' was out of usage'));
+    /* #6359: a built notice is not a message to send again (the same mark again tells nobody), so its sender is
+       pointed at `kosmos msg`, which reaches this agent whether it was told as an assignee or as a parent task's holder
+       (a task message reaches only the task's own assignees). Nothing is said about the mark itself: a day on, it may
+       have been cleared or the task closed. */
+    const line = entry.built === true
+      ? '[from Kosmos] Your built notice in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it ' + kept
+        + ' and could not send it within a day. To tell ' + entry.to + ' now, use kosmos msg ' + entry.to + '.'
+      : '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it ' + kept
+        + ' and could not send it within a day. Send it again if it still matters.';
     try { v = await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { v = null; }
     told = entry.from + ', delivery=' + ((v && v.state) || 'could_not');
   }
@@ -1773,22 +2035,27 @@ function mentionedMembers(cleaned, recipients, roster) {
     }
   }
   const mentioned = new Set();
+  // #6065 N1: where in the text each member was named (the @), in order, so a shortened post's preview can quote the
+  // sentence the room itself read as naming it (requestIn); one definition of a mention, never a second matcher.
+  const namedAt = new Map();
   const ambiguous = new Map();
   const ambiguousWords = new Set();   // every spelling, for the log row; the note groups them by name
   for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
     const token = m[2];
-    if (recipients.includes(token)) { mentioned.add(token); continue; }
+    const at = m.index + m[1].length;
+    const name = (member) => { mentioned.add(member); if (!namedAt.has(member)) namedAt.set(member, []); namedAt.get(member).push(at); };
+    if (recipients.includes(token)) { name(token); continue; }
     const stripped = token.replace(/[._-]+$/, '');
-    if (stripped && stripped !== token && recipients.includes(stripped)) { mentioned.add(stripped); continue; }
+    if (stripped && stripped !== token && recipients.includes(stripped)) { name(stripped); continue; }
     const key = mentionKey(token);
     const hit = byKey.get(key);
-    if (hit && hit.size === 1) mentioned.add([...hit][0]);
+    if (hit && hit.size === 1) name([...hit][0]);
     else if (hit) {
       ambiguousWords.add(stripped || token);
       if (!ambiguous.has(key)) ambiguous.set(key, { word: stripped || token, members: [...hit].sort() });
     }
   }
-  return { mentioned, ambiguous, ambiguousWords, shown };
+  return { mentioned, ambiguous, ambiguousWords, shown, namedAt };
 }
 
 /* #4653: the sentence that tells a sender an @-word named more than one member, so it asked none of them
@@ -2145,7 +2412,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      ("Johnny Cage") is reachable as `@JohnnyCage`, never as `@Johnny`. The
      page (web/index.html pjMentionResolve) paints blue by this same rule, and
      web.mention-parity-4642.test.js runs one set of fixtures through both. */
-  const { mentioned, ambiguous, ambiguousWords, shown } = mentionedMembers(cleaned, recipients, roster);
+  const { mentioned, ambiguous, ambiguousWords, shown, namedAt } = mentionedMembers(cleaned, recipients, roster);
   const note4653 = ambiguous.size ? ambiguousNote(ambiguous, mentioned, shown) : '';
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
@@ -2167,13 +2434,113 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      busy room with the limit off would otherwise re-read its task files on every post). Each post over the cap
      (refused, or let through on the allowance) lists the task-chats folder and reads every file of this project
      written since countFrom, synchronously. */
-  let allowed = lim.roomArrivalsPerWindow;
+  const roomBudget = roomCap(lim, recipients.length);   // #6420: scaled to the room, so a bigger room is not held sooner
+  let allowed = roomBudget;
+  let progressFrom = null;   // #6420: the allowance as read once here, handed to the clear-time reading below
   if (lim.on && operator !== true && arrivals + charged > allowed) {
     /* #5260: a file in the project's folder changed since countFrom is a step forward too, each file once, in the
        same bounded allowance (engine/projects.js changedFileTimes). Read only when task steps alone do not already
        earn the most there is. #5800: the count lives in roomProgressAllowance, shared with roomHeld. */
-    allowed += roomProgressAllowance(projectId, lim, now, countFrom)(countFrom);
+    progressFrom = roomProgressAllowance(projectId, roomBudget, now, countFrom);
+    allowed += progressFrom(countFrom);
   }
+  /* #4934 / #5967: STOP PASSING ON A RUN OF ACKNOWLEDGEMENT-ONLY POSTS, sooner than
+     the volume valve below. The volume valve counts arrivals; two agents trading
+     "agreed" and "acknowledged" about a settled decision fill a room with noise well
+     under that cap (a user's Windows room traded eleven before it fired). This is a
+     SEPARATE, earlier trigger on the trailing run of consecutive acknowledgement-only
+     posts since countFrom -- the SAME reset point the volume valve uses, so an
+     operator post or a reopen clears it exactly as it clears the arrival budget. A
+     post with any new facts is content (chat.acknowledgementOnly is false) and RESETS
+     the run, so the volume valve below, and ordinary back-and-forth with real content,
+     are left exactly as they were. The incoming ack is also refused only in a BACK-AND-FORTH,
+     not a poll: only when the incoming post's OWN sender already appears in the trailing run,
+     so it is continuing a loop it is already part of (the sender logic below). Distinct senders
+     each answering a question once -- "everyone ready?" -> four "yes"es -- are a poll, and
+     dropping one of those would lose a message someone asked for, so a poll is delivered and
+     only a true loop is stopped.
+
+     THIS IS NOT A ROOM HOLD (review round 2, PM Liu Kang). It refuses only the
+     ack-only post that would extend the run; the very next post carrying content gets
+     ackRun 0 and is delivered at once. So it must neither SAY nor RECORD a hold:
+       - a DISTINCT code `ack_only` (not room_held), so the CLI tells the agent to post
+         something new, which goes straight through -- not that the room is paused for
+         an hour until the person is brought in, which is false and would make an agent
+         sit on real content (the dangerous direction this trigger exists to prevent);
+       - an honest person-facing `because`;
+       - deliberately NO valve row and NO refused row. A `stopped` valve row feeds the
+         held-tell staleness check and roomHeld() (volume-only today), so writing one
+         would make roomHeld and the person's feed report a hold that does not exist; a
+         ROOM_HELD_REFUSAL refused row is read by the volume path's who-was-refused
+         dedup (#315) as a prior volume hold, and would swallow a later genuine one.
+         #315's silent-blocked concern does not apply here: the agent is not held, it is
+         told plainly to post content, which it can do at once.
+     Nothing is kept (id null) and nothing is typed, exactly as #4967's refusal; only
+     the false hold is removed.
+
+     GATED ON THE ROOM BEING UNDER ITS VOLUME BUDGET (review round 3, blind review). The
+     ack_only copy promises the next content post "goes through straight away"; that holds
+     only when the room is not already over the volume cap. If it IS over, even a content
+     post is refused by the volume valve below with the honest room_held, so emitting
+     ack_only here would be the same false promise this change exists to remove. So when the
+     room is at or over budget we skip this block and let the volume valve return the genuine
+     hold; the ack trigger fires only in a room still under its arrival budget. (The gate
+     uses THIS post's `charged`; a later content post that reaches strictly more recipients
+     -- e.g. it @-names a swarm-off member -- could tip the volume valve at the exact
+     boundary and be held. That is a one-recipient edge, and the room_held it then gets is
+     itself honest, so the gate does not carry slack for it.) */
+  if (lim.on && operator !== true && arrivals + charged <= allowed) {
+    // The run is over EVERY room message since countFrom, federated `external` posts (a
+    // person or agent from OUTSIDE this machine) included: an external post is classified
+    // by its text like any other, so outside CONTENT breaks the run (the room just got
+    // something new, even though it does not move countFrom) and an outside acknowledgement
+    // extends it. Operator posts are excluded, since they move countFrom.
+    const ackPosts = log
+      .filter((m) => m && ((m.kind === 'post' && !m.operator) || m.kind === 'external')
+        && m.project === projectId && Date.parse(m.at) >= countFrom)
+      .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    // Only LOCAL prior senders matter for the back-and-forth test. This incoming post is ALWAYS a
+    // local agent (operator posts are excluded above; a federated `external` row is never the
+    // incoming post here), so it "continues the run" only when that SAME local agent -- its
+    // sessionName -- already posted in the trailing run. An external row is a different party even
+    // when its display `from` equals a local agent's sessionName, so it is counted toward the run
+    // LENGTH (ackRun) but NOT toward who-is-repeating: comparing only local sessionName to local
+    // sessionName needs no namespacing and cannot be fooled by an outsider's display name. (A loop
+    // conducted only by outside parties is therefore never stopped by this early trigger, since it
+    // is never the incoming local post; it is left to the volume valve below.)
+    let ackRun = 0;
+    const priorLocalSenders = [];
+    for (let i = ackPosts.length - 1; i >= 0; i -= 1) {
+      if (!chat.acknowledgementOnly(ackPosts[i].text)) break;
+      ackRun += 1;
+      if (ackPosts[i].kind !== 'external' && typeof ackPosts[i].from === 'string' && ackPosts[i].from !== '') {
+        priorLocalSenders.push(ackPosts[i].from);
+      }
+    }
+    // This incoming post, not yet in the log: it extends the run only if it, too, is
+    // acknowledgement-only; otherwise it is content and the run is broken (0).
+    const incomingIsAck = chat.acknowledgementOnly(stored);
+    ackRun = incomingIsAck ? ackRun + 1 : 0;
+    // Refuse this incoming ack ONLY when its OWN sender is CONTINUING the run: its sessionName
+    // already appears earlier in the trailing run, so it is adding yet another acknowledgement to a
+    // back-and-forth it is already part of. A sender posting its FIRST ack in the run is ANSWERING,
+    // not looping -- a person or agent asked the room "everyone ready?" and this is one fighter's
+    // reply -- so it is delivered even when OTHERS have already repeated. Refusing a first-time
+    // answerer because someone ELSE looped would drop an answer the room asked for and record
+    // nothing of it, the dangerous direction this trigger exists to avoid (review round 2, PM Liu
+    // Kang; and the blind round that found gating on "any repeat anywhere in the run" punished the
+    // next arrival rather than the repeater). Two agents trading acks are still caught: the
+    // trader's own next ack repeats its earlier one.
+    const incomingContinuesLoop = incomingIsAck && typeof from === 'string' && from !== '' && priorLocalSenders.includes(from);
+    if (ackRun >= ACK_RUN_LIMIT && incomingContinuesLoop) {
+      const because = 'Kosmos stopped passing on agreement-only replies here; '
+        + 'posts with something new still go through.';
+      // No valve row and no refused row: see the block comment above. The ack-only
+      // post is quietly not forwarded; the next content post flows straight through.
+      return { state: chat.DELIVERY.COULD_NOT, code: 'ack_only', because, id: null, at, outcomes: null };
+    }
+  }
+
   if (operator !== true && arrivals + charged > allowed) {
     const because = lim.on
       ? 'This conversation went back and forth for a while without landing, '
@@ -2218,7 +2585,20 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       } catch { /* the record is best-effort; the verdict is not */ }
       // #4934: a code, so the CLI can tell the agent what this refusal means for its text (nothing was kept; do not send
       // it another way) without reading the person-facing sentence above.
-      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, id: null, at, outcomes: null };
+      /* #6420: and WHEN the volume limit lifts (only this valve: the pair limit and the duplicate check are their own
+         refusals), so the agent is told a time, not "about an hour" whatever the room did. Read by roomHeldRead, the
+         function behind the room's own "should lift by": counted posts age out oldest first, and the progress
+         allowance shrinks as its steps leave the hour. Read for THIS post's size, so it agrees with the room's own
+         reading when the sizes match (that one reads the latest post's). An estimate, so the CLI says "about".
+         The fields are left off when there is no time to give: a row dated after now (counted here, not by
+         roomHeldRead) can leave no reading at all, and a post bigger than the whole budget fits no wait (below the
+         ceiling roomCap's cap is at least a post's own recipients, so that takes a room past it: 162 members or
+         more at the lowest dial). A post that reaches nobody (charged 0) is read at
+         the latest post's size. */
+      const heldNow = roomHeldRead(projectId, now, lim, log, charged, progressFrom, recipients.length);
+      const clearsAt = heldNow && heldNow.until ? heldNow.until : null;
+      const clears = clearsAt === null ? {} : { clearsAt, clearsInMinutes: Math.max(1, Math.ceil((Date.parse(clearsAt) - now) / 60000)) };
+      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, ...clears, id: null, at, outcomes: null };
     }
   }
 
@@ -2370,6 +2750,16 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        line: taken now (so an idle flush cannot tell them too) and put back if this arrival is not typed. */
     const heldIds = roomhold.withoutStale(projectId, roomhold.take(name, projectId), (p, ids) => staleHeld(p, ids, log, undefined, name), name);   // #4926
     takenHeld[name] = heldIds;   // review 6: put back by typingBroke if this member throws before its typing path
+    /* #4926 N7 diagnostic: the member's own posts since each held post, read now (before typing); the line is written
+       with the outcome in finish (round 2: never as told before it is). */
+    let carriedAfter = null;
+    if (heldIds.length) {
+      try { carriedAfter = memberAfter(projectId, heldIds.map(roomhold.plainId), name, log); } catch { carriedAfter = null; }
+    }
+    const logCarried = (state) => {
+      if (!heldIds.length) return;
+      try { process.stdout.write(roomhold.carriedLine(name, projectId, heldIds.map(roomhold.plainId), carriedAfter, state)); } catch { /* never breaks a send */ }
+    };
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     /* #6065: the post is typed whole unless this member's whole line (envelope, catch-up, held posts) would be longer
        than chat types (spillsAt); only then does its full text go into this member's own Inbox (#4447) and the line
@@ -2385,7 +2775,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         return null;
       }
       spilled[name] = spill.file;
-      envelope = wrap(spillLine(cleaned, spill.file));   // #5706
+      // #6065 N1: the preview carries the request to this member: where the room's resolver read it as named.
+      /* Review 10: a question is quoted to every reader the post is to: the union of who gets the answer line (an
+         operator post, a named member) and whom the hold treats as asked (asksIt: a named member, or the author of
+         the post this replies to); never to a background member. */
+      const isTo = operator === true || mentioned.has(name) || Boolean(answered && answered.operator !== true && answered.from === name);
+      envelope = fitOrBare(wrap(spillLine(cleaned, spill.file, { namedAt: namedAt.get(name) || [], questions: isTo })),   // #5706
+        () => wrap(spillLine(cleaned, spill.file, { namedAt: [], questions: false })), catchUp + heldLine);
     }
     const finish = (sent) => {
       /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu, or #5805 a usage limit), nothing typed. The post is kept for this member like a #4624
@@ -2406,11 +2802,14 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
           if (typeof sent.heldUntil === 'string') heldUntil[name] = sent.heldUntil;
           // #5805: for withoutStale's day rule, every ask this arrival put back, not only the new post.
           if (sent.heldBy === 'limit') roomhold.noteLimit(name, projectId, [...(asksIt ? [id] : []), ...heldIds.filter(roomhold.isAddressed)], sent.limitReset);
+          if (sent.heldBy === 'input') roomhold.noteInput(name, projectId, id);   // #6256 item 1: told once its box reads empty
           reached += 1;
         } else outcomes[name] = chat.DELIVERY.COULD_NOT;
+        logCarried('held');   // #4926 N7: put back, so not told
         return sent;
       }
       outcomes[name] = sent.state;
+      logCarried(sent.state);   // #4926 N7: told unless COULD_NOT (then put back below)
       if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
       else {
         roomhold.restore(name, projectId, heldIds);
@@ -2419,7 +2818,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       return sent;
     };
     // A throw or rejection from the typing path is not a told member either: put the held ids back.
-    const putBack = (err) => { roomhold.restore(name, projectId, heldIds); throw err; };
+    const putBack = (err) => {
+      // #4926 N7 (round 3): typing started and threw, so the held posts may have been pasted; they go back regardless.
+      if (typingStarted.has(name)) logCarried('may-have');
+      roomhold.restore(name, projectId, heldIds);
+      throw err;
+    };
     /* #4588 PR B: the person's own post is typed at once (never held); a colleague's post, addressed or not, is an
        automatic sender from this member's side, so it goes through the gate that holds it while a Gemini (Antigravity)
        member is paused on the shared Google quota.
@@ -2530,6 +2934,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
     return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
+      /* #6254: whether this post answers one the PERSON wrote (operator), the one signal the phone-notify
+         `posted` seam needs from here (the route has no other way to know; the person is never an @mention).
+         A boolean, never the posts' words. Only present on a reply, so an ordinary post's answer is unchanged. */
+      ...(answered ? { repliesToPerson: answered.operator === true } : {}),
       /* #4653: an ambiguous @-word reached nobody as a request; the sender is told, in these words. It stays
          the LAST key: kosmos post reads it anchored on the end of the answer. */
       ...(note4653 ? { ambiguousNote: note4653 } : {}) };
@@ -3026,6 +3434,14 @@ function messageIdOf(value) {
    adding the agent to the project would end: the room offers the person the add on that row. Best effort: a failed
    write loses the row, never the verdict. Shared by the room post's refusal and the board's task-write refusals. */
 const ROOM_HELD_REFUSAL = 'the room was going back and forth without landing, so Kosmos was holding it for the person';
+// #4934 / #5967: Kosmos stops passing on an acknowledgement-only post once a trailing run
+// of this many consecutive acknowledgement-only posts (chat.acknowledgementOnly) is reached,
+// sooner than the volume valve. This is NOT a room hold: it refuses only the ack-only post;
+// the next post with content is delivered at once (see the block in sendPost). A content post
+// resets the run. A short run is a normal thread close; a run this long with no new facts is
+// the loop a user's Windows room hit (eleven "agreed"/"acknowledged" posts before the volume
+// valve fired). Reversible constant.
+const ACK_RUN_LIMIT = 4;
 function logRoomRefusal({ from, project, because, at, doing, addable }) {
   if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway
   const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
@@ -3175,8 +3591,8 @@ function reopenForOwnPost(projectId, row) {
    - the next post's charge, taken as the latest counted post's (a room post costs one arrival per member it reaches);
      a member switched off or added since changes it;
    - `until`, when enough counted posts age out for such a post to land, counting only steps already taken, so
-     further work moving can end the hold sooner. Null when one post alone is over the budget (only the person can
-     end that hold).
+     further work moving can end the hold sooner. Null when no wait fits a post of that size, as when a caller
+     passes no room size (the dial's own budget) and the latest post reached more members than that.
    Returns { at, because, until } (at and because are the latest valve row's since countFrom, or null) or null.
    The allowance reads task and file times, so it is read only for a room already over its plain budget, and the
    answer is kept for HELD_MEMO_MS per room while the record has not grown, so the page's poll does not re-read the
@@ -3184,8 +3600,10 @@ function reopenForOwnPost(projectId, row) {
 const HELD_MEMO_MS = 4000;
 /* Keyed on the record's row count: the log is append-only, so a changed record is a longer one. Were it ever trimmed to
    the same length with new rows, a stale answer could stand for HELD_MEMO_MS, as a hint, never a gate. */
-const HELD_MEMO = new Map();   // project id -> { t, rows, out }
-function roomHeld(project, now) {
+const HELD_MEMO = new Map();   // project id -> { t, rows, size, out } (#6420: an answer is for one room size)
+/* #6420: `roomRecipients`, the room's members less one, so the hold is read at the room's own scaled budget
+   (roomCap), as the valve that would refuse the next post reads it. Without it, the dial's own room budget. */
+function roomHeld(project, now, roomRecipients) {
   const projectId = String(project == null ? '' : project).trim();
   if (!projectId) return null;
   const at = Number.isFinite(now) ? now : Date.now();
@@ -3194,13 +3612,18 @@ function roomHeld(project, now) {
   const rec = record();
   if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
   const memo = HELD_MEMO.get(projectId);
-  if (memo && memo.rows === rec.rows.length && at >= memo.t && at - memo.t < HELD_MEMO_MS) return memo.out;
-  const out = roomHeldRead(projectId, at, lim, rec.rows);
+  const size = Number.isInteger(roomRecipients) && roomRecipients > 0 ? roomRecipients : null;
+  if (memo && memo.rows === rec.rows.length && memo.size === size && at >= memo.t && at - memo.t < HELD_MEMO_MS) return memo.out;
+  const out = roomHeldRead(projectId, at, lim, rec.rows, undefined, undefined, size);
   if (HELD_MEMO.size > 200) HELD_MEMO.clear();
-  HELD_MEMO.set(projectId, { t: at, rows: rec.rows.length, out });
+  HELD_MEMO.set(projectId, { t: at, rows: rec.rows.length, size, out });
   return out;
 }
-function roomHeldRead(projectId, at, lim, rows) {
+/* `charge`: the size of the post asking (#6420, a refused post's own recipients); without it, the latest post's.
+   `progressFrom`: the allowance as the caller already read it for this same moment (#6420: sendPost's refusal, so a
+   refused post reads the task and file times once); without it, read here.
+   `roomRecipients`: the room's members less one, for its cap (roomCap); without it, the dial's own room budget. */
+function roomHeldRead(projectId, at, lim, rows, charge, progressFrom, roomRecipients) {
   let lastOperatorAt = 0;
   for (const m of rows) {
     if (!m || m.project !== projectId) continue;
@@ -3220,19 +3643,41 @@ function roomHeldRead(projectId, at, lim, rows) {
     else if (m.kind === 'post' && !m.operator) counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
   }
   counted.sort((a, b) => a.t - b.t);
-  const charge = Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
+  const size = Number.isInteger(charge) && charge > 0 ? charge : Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
   let arrivals = counted.reduce((n, c) => n + c.n, 0);
-  const cap = lim.roomArrivalsPerWindow;
-  if (arrivals + charge <= cap) return null;
-  const allowanceFrom = roomProgressAllowance(projectId, lim, at, countFrom);
-  if (arrivals + charge <= cap + allowanceFrom(countFrom)) return null;
+  const cap = roomCap(lim, roomRecipients);
+  if (arrivals + size <= cap) return null;
+  const allowanceFrom = typeof progressFrom === 'function' ? progressFrom : roomProgressAllowance(projectId, cap, at, countFrom);
+  if (arrivals + size <= cap + allowanceFrom(countFrom)) return null;
   let freeAt = null;
   for (const c of counted) {
     arrivals -= c.n;
     /* When c ages out the window starts at c.t, and only steps from then on still earn room. */
-    if (arrivals + charge <= cap + allowanceFrom(c.t)) { freeAt = c.t + lim.windowMs; break; }
+    if (arrivals + size <= cap + allowanceFrom(c.t)) { freeAt = c.t + lim.windowMs; break; }
   }
   return { at: band ? band.at : null, because: band ? band.because : null, until: freeAt === null ? null : new Date(freeAt).toISOString() };
+}
+
+/* #6420: a room's recipients for its cap, from its stored members, as the valve counts them: removed agents dropped
+   (_roomMembers), then the poster. undefined when the removed list cannot be read (the reader keeps the dial's budget). */
+function roomRecipientsOf(members) {
+  const room = _roomMembers(Array.isArray(members) ? members.filter((m) => typeof m === 'string' && m) : []);
+  return room.ok ? Math.max(0, room.members.length - 1) : undefined;
+}
+/* #6420: THE ROOM'S ARRIVAL BUDGET, SCALED TO THE ROOM. The dial's room budget (perHour x ROOM_FACTOR, #75) counts
+   arrivals, one per member a post reaches, so a bigger room got fewer posts: at the default dial a three-member room
+   was held after 40 posts an hour and a six-member room after 16, which held a real six-agent workflow for doing its
+   work (feedback 2026-10-17). Multiplied by the room's recipients over a three-member room's two, so a room of up to
+   nine members gets the posts a three-member room gets (40 an hour at the default dial); never less than the dial's,
+   and never more than four times it (ROOM_SCALE_MAX), so a very large room's cost is bounded (a twenty-member room
+   at the highest dial gets 1600 arrivals an hour, not 3800).
+   The acknowledgement loop guard still stops agreement loops after a few posts. Weakest premise: arrivals cost grows
+   with the room (a six-member room can now take 200 arrivals an hour, not 80; 400 with task progress, not 160). One
+   function for every reader. */
+const ROOM_SCALE_MAX = 4;   // #6420: a room of nine (eight recipients) and above
+function roomCap(lim, roomRecipients) {
+  const r = Number.isFinite(roomRecipients) && roomRecipients > 0 ? roomRecipients : 0;
+  return Math.round(lim.roomArrivalsPerWindow * Math.min(ROOM_SCALE_MAX, Math.max(1, r / 2)));
 }
 
 /* #4786 / #5260: the extra room a project earns by work moving since countFrom, the valve's allowance. Reads the task
@@ -3240,8 +3685,7 @@ function roomHeldRead(projectId, at, lim, rows) {
    can ask it again for a later window start without reading again. Each first-time task step and each changed file
    (files read only when task steps alone do not already earn the most there is) adds a quarter of the cap, up to the
    cap. */
-function roomProgressAllowance(projectId, lim, now, since) {
-  const cap = lim.roomArrivalsPerWindow;
+function roomProgressAllowance(projectId, cap, now, since) {
   const taskTimes = require('./taskchat').progressTimes(projectId, now, since).filter((t) => t >= since);
   let fileTimes = null;
   return (from) => {
@@ -3382,7 +3826,8 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
   const room = _roomMembers(members.filter(ok));
   if (!room.ok) return { ok: false, nudged: [] };
   let held = null;
-  try { held = roomHeld(projectId, now); } catch { held = null; }
+  // #6420: the room's own budget; room.members is already _roomMembers' list, so its size is roomRecipientsOf's
+  try { held = roomHeld(projectId, now, Math.max(0, room.members.length - 1)); } catch { held = null; }
   if (held) return { ok: true, nudged: [], held: true };
   let offHere = new Set();
   try {
@@ -3416,19 +3861,23 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
 function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
 
 module.exports = {
+  lastPostAt, recommenderNoted,   // #6341
   spillLimit,   // #6065: the longest line typed whole
+  spillLine, requestIn, fitOrBare,   // #6065 N1: the shortened line, its request, and the re-measure (tests)
   HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped, tellHeldDropped,   // kosmos#5805 slice 2a
   keepTaskLine, tellTaskLineDropped, recordTaskLineOutcome,   // kosmos#5805: task messages; #5842: their outcome on the task
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
   logRoomRefusal,       // kosmos#5752 slice 3
   nudgeOwnComputerPost, ownPostNudges, OWN_POST_NUDGE_GAP_MS, reopenForOwnPost,   // #5902
   _resetOwnPostNudgesForTests: resetOwnPostNudgesForTests,   // #5732
-  staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS,
+  staleHeld, memberAfter, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS, ROOM_READ_ROWS, ROOM_READ_KINDS,
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
   _sendWithDelivery: sendWithDelivery,
   _nextIdForTests: nextIdForTests, // #4888
   _sendPostWithDelivery: sendPostWithDelivery,
+  roomCap,   // #6420: the room's budget, scaled to its size (the browser check fills it)
+  roomRecipientsOf,   // #6420: the room route and the browser check size a room as the valve does
   setSenderTextFilter, filteredText, // #3769
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,

@@ -340,6 +340,35 @@ test('#5949 code that acts because an agent is idle waits for a fresh look, not 
   assert.deepEqual(sweep({ ...card, screenRead: 'remembered' }), [], 'the sweep types nothing into a pane whose idle is remembered');
 });
 
+test('#5949 the overdue-summary reminder (#6209) waits for a fresh look too, not a remembered idle', () => {
+  const nudge = require('./summarydue-nudge');
+  const fleet = require('../test-support/fleet');
+  const board = fleet.install([fleet.agent('sumheld', { state: 'idle' })], { strict: false });
+  let card;
+  try { card = { ...board.card('sumheld'), state: 'idle', runner: 'claude' }; } finally { board.restore(); }
+  const now = Date.parse('2026-10-15T12:00:00Z');
+  const H = 3600 * 1000;
+  const dir = nodePath.join(SANDBOX, 'sumheld-folder', 'summaries');
+  fs.mkdirSync(dir, { recursive: true });
+  const f = nodePath.join(dir, '2026-10-15-06.md');
+  fs.writeFileSync(f, 'what moved\n');
+  fs.utimesSync(f, (now - 6 * H) / 1000, (now - 6 * H) / 1000);   // six hours stale
+  const beats = [];
+  for (let t = now - 7 * H; t <= now - 10 * 60000; t += 10 * 60000) beats.push({ state: 'working', at: t });
+  const sweep = (c) => {
+    const typed = [];
+    const seen = new Map();
+    nudge.sweepOnce({ roster: [c], book: new Map(), now, screen: () => null, paused: () => ({ paused: false }),
+      prompted: { get: (k) => (seen.has(k) ? seen.get(k) : null), set: (k, v) => { seen.set(k, v); return true; } },
+      folder: () => nodePath.join(SANDBOX, 'sumheld-folder'), history: () => [...beats, { state: 'idle', at: now - 5 * 60000 }],
+      deliver: (session) => { typed.push(session); return { state: 'placed' }; },
+      DELIVERY: { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' } });
+    return typed;
+  };
+  assert.deepEqual(sweep(card), [card.sessionName], 'CONTROL: a fresh idle agent with a stale summary is told');
+  assert.deepEqual(sweep({ ...card, screenRead: 'remembered' }), [], 'the reminder typed into a pane whose idle is remembered');
+});
+
 test('#5949 the carry is aged on when a state was last SEEN: an agent idle all morning still carries', () => {
   const store = memoryLastState({});
   let t = Date.parse('2026-10-12T08:00:00Z');

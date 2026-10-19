@@ -30,7 +30,7 @@
  * enrolled with a company AND its words accepted here), and never while a run is still going (a tick then is skipped, not queued). Pauses:
  *   backup_off (Kosmos+ answers 404 backup_off while company backup is off) -> no request for a day;
  *   overAllowance -> none until the next week starts (the allowance is per week).
- * A reason a person must act on (refusedState, missing, unreadableKeyFile, overAllowance) is said once (deps.say) until
+ * A reason a person must act on (refusedState, missing, unreadableKeyFile, orgKeyRefused, overAllowance) is said once (deps.say) until
  * it changes or a run succeeds, never every hour. Never throws.
  */
 const path = require('path');
@@ -194,7 +194,7 @@ function startTick(deps) {
       } else state.blind = 0;
       if (r.refusal && r.refusal.code === 'backup_off') state.pausedUntil = now() + DAY;
       else if (r.overAllowance) state.pausedUntil = nextWeekStart(now());
-      const act = r.refusedState ? 'refusedState' : r.missing ? 'missing' : r.unreadableKeyFile ? 'unreadableKeyFile' : r.overAllowance ? 'overAllowance' : null;
+      const act = r.refusedState ? 'refusedState' : r.missing ? 'missing' : r.unreadableKeyFile ? 'unreadableKeyFile' : r.orgKeyRefused ? 'orgKeyRefused' : r.overAllowance ? 'overAllowance' : null;
       // Cleared by any run that ends without a reason a person acts on (review 7), so one that comes back is said again.
       if (r.ok || !act) state.said = null;
       else if (act && state.said !== act) { state.said = act; say(typeof r.because === 'string' && r.because ? r.because : 'it did not run, and did not say why'); }

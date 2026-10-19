@@ -208,10 +208,10 @@ function heldBackBy(own, memo = POOL_MEMO) {
 /* One agent: { act: 'none' | 'wait' | 'nudge', because }. entry is its book entry for this pause, or undefined. */
 function plan(report, entry, now, heldBackUntil) {
   const at = pausedUntil(report);
-  if (at === null) return { act: 'none', because: 'not paused on the quota' };
+  if (at === null) return { act: 'none', resolved: true, because: 'not paused on the quota' };   // #5154 slice B: resolved -> clear any quota give-up
   if (entry && entry.until === report.until) {
-    if (entry.nudgedAt != null) return { act: 'none', because: 'already resumed once for this reset' };
-    if ((entry.tries || 0) >= MAX_TRIES) return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
+    if (entry.nudgedAt != null) return { act: 'none', resolved: true, because: 'already resumed once for this reset' };   // #5154 slice B: resolved -> clear
+    if ((entry.tries || 0) >= MAX_TRIES) return { act: 'none', gaveUp: true, because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };   // #5154 slice B: gaveUp lets the sweep re-surface this each tick while the agent stays paused
     /* A refusal backs off, STAGGER_MS per try so far, so a short-lived one (another message still being placed) cannot
        spend the whole budget on consecutive ticks (review 3). */
     if (Number.isFinite(entry.lastTryAt) && now - entry.lastTryAt < STAGGER_MS * (entry.tries || 1)) {
@@ -267,6 +267,14 @@ function sweepOnce(o) {
     const now = Number.isFinite(o.now) ? o.now : Date.now();
     const read = typeof o.readReport === 'function' ? o.readReport : (s) => require('./selfreport').read(s);
     const log = typeof o.log === 'function' ? o.log : null;
+    // #5154 slice B: the give-up SIGNAL to the board (ownbounds), SEPARATE from `log`. Fires every sweep an
+    // already-given-up agent stays paused (keeps the board's staleness clock fresh); writes no stdout. Optional.
+    const bound = typeof o.bound === 'function' ? o.bound : null;
+    // #5154 slice B: the RECOVERY signal. The quota class is NOT idle-gated, so (unlike the nudges) the board
+    // has no cheap mootness test for it. When plan says this agent is no longer in an active quota give-up
+    // (not paused, already resumed, or its reset aged out), fire `cleared` so the episode is dropped at once
+    // rather than lingering until the staleness backstop. A no-op when no episode is open.
+    const cleared = typeof o.cleared === 'function' ? o.cleared : null;
     /* #4588 PR B: one pool. While any antigravity card is still inside its pause, a resume into another one would spend
        a turn against the same empty pool, so nobody is resumed until the latest reset has passed. */
     /* Under the quota-hold brake (quotaHoldOff) the pool gate is lifted: each agent is resumed on its own reset, PR A's
@@ -287,7 +295,25 @@ function sweepOnce(o) {
       try { report = read(session); } catch { report = null; }
       const entry = book.get(session);
       const p = plan(report, entry, now, holdOff ? null : heldBackBy(pausedUntil(report), o.memo || POOL_MEMO));
+      // #5154 slice B: a give-up episode belongs to the reset it was raised for. If the book entry still tracks a
+      // DIFFERENT `until` than the current report, a NEW quota reset has arrived and any old give-up is SUPERSEDED
+      // -- clear it, so the card does not keep showing "gave up after the quota reset" for a reset Kosmos is now
+      // actively retrying (plan returns 'nudge'/'wait' for the new reset, neither gaveUp nor resolved). Cheap
+      // no-op when no episode is open; `report.until`/`entry.until` are the same field the book stores.
+      if (cleared && entry && report && entry.until != null && report.until != null && entry.until !== report.until) {
+        try { cleared(session); } catch { /* never breaks a sweep */ }
+      }
       if (p.act === 'nudge') due.push({ card, session, report, entry, because: p.because, at: pausedUntil(report) });
+      // #5154 slice B: an agent we have already GIVEN UP resuming (plan returns gaveUp) is not in `due` (it gets
+      // no fresh attempt), so the one-shot gave-up record at the delivery path below never fires again for it.
+      // Signal the board via `bound` every sweep it stays paused-and-given-up, so the episode stays alive instead
+      // of going stale while the agent is still stuck -- without a per-sweep stdout line. Rare; best-effort.
+      else if (p.gaveUp && bound) { try { bound(session, p.because); } catch { /* never breaks a sweep */ } }
+      // #5154 slice B: clear any open episode ONLY on a genuine recovery -- plan marks `resolved` when the agent
+      // is not paused (at === null) or was already resumed for this reset. A 'reset aged out; left alone' 'none'
+      // is NOT resolved: the agent may still be paused while Kosmos has stopped resuming, so its give-up must
+      // stand (it then relies on the staleness backstop, not a false clear). 'wait' also falls through.
+      else if (p.resolved && cleared) { try { cleared(session); } catch { /* never breaks a sweep */ } }
     }
     if (!due.length) return { results };
     due.sort((a, b) => (a.at - b.at) || String(a.session).localeCompare(String(b.session)));
@@ -334,7 +360,7 @@ function makeTick(deps) {
       if (!resumeEnabled(deps.allowed() === true, deps.env)) return null;
       const roster = deps.roster();
       if (!Array.isArray(roster)) return null;
-      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, movedAway: deps.movedAway, movedTold: deps.movedTold, DELIVERY: deps.DELIVERY, log: deps.log });
+      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, movedAway: deps.movedAway, movedTold: deps.movedTold, DELIVERY: deps.DELIVERY, log: deps.log, bound: deps.bound, cleared: deps.cleared });   // #5154 slice B: give-up + recovery -> board
     } catch { return null; }
   };
 }

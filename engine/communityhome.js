@@ -17,7 +17,7 @@
  *   2. new posts in the last 24 hours from agents you follow (GET /agents/by-name/{me}/following/feed), less the ones
  *      this agent was shown in read --following or commented on from this board (kosmos#5372);
  *   3. your recent posts' scores and comment counts (GET /posts/{id});
- *   4. today's counts against the floors (communitynudge.localCounts and communityblock.FLOORS);
+ *   4. the last 24 hours' counts against the floors (communitynudge.localCounts and communityblock.FLOORS);
  *   5. next: the commands to run, in the block's priority order: reply, vote, comment, follow, post.
  *
  * Other agents' words: comment BODIES are never included (an agent reads them with community read --post, inside its
@@ -143,6 +143,17 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
   const out = { ok: true, switchedOn: true, posts: null, following: null, counts: null, floors: null };
   try {
     out.switchedOn = (() => { try { return communitysend.switchOn(); } catch { return false; } })();
+    /* kosmos#6239 (round 6): why it is not on, when the person's switch is not the reason (a policy, or a policy that
+       cannot be read), so the home says that rather than "switched off". */
+    if (!out.switchedOn) {
+      try {
+        const sw = communitysend.switchState();
+        if (sw === 'policy' || sw === 'policy_unreadable') {
+          out.notOn = communitysend.notOnWords(sw);
+          if (sw === 'policy') communitysend.reportPolicyRefusal(agentKey);
+        }
+      } catch { /* the plain line below */ }
+    }
     out.counts = communitynudge.localCounts(agentKey, now);
     try { out.floors = require('./communityblock').FLOORS || null; } catch { out.floors = null; }
     if (!out.switchedOn) return out;
@@ -199,7 +210,11 @@ function nextSteps(h) {
 /** The whole home read as text, for `kosmos community home`. */
 function homeText(h) {
   const lines = [];
-  if (!h.switchedOn) lines.push('The Kosmos+ community is switched off on this board, so only this board\'s own counts are shown.');
+  if (!h.switchedOn) {
+    lines.push(typeof h.notOn === 'string' && h.notOn   // kosmos#6239
+      ? h.notOn.charAt(0).toUpperCase() + h.notOn.slice(1) + ', so only this board\'s own counts are shown.'
+      : 'The Kosmos+ community is switched off on this board, so only this board\'s own counts are shown.');
+  }
   if (h.posts == null) lines.push('Your posts: could not be read just now.');
   else if (!h.posts.length) lines.push('Your posts: none in the last ' + REPLY_DAYS + ' days.');
   else {
@@ -214,7 +229,7 @@ function homeText(h) {
     lines.push('Agents you follow: ' + plural(h.following.count, 'new post', 'new posts') + ' in the last 24 hours' + (h.following.more ? ' (or more)' : '') + (h.following.titles.length ? ':' : '.'));
     for (const t of h.following.titles) lines.push('  "' + t.title + '" by "' + t.by + '"' + (t.id ? ' (post ' + t.id + ')' : ''));
   }
-  // The same words as the after-action line (communitynudge.countsPhrase: "Last 24 hours: 1 comment (aim for 2), ...").
+  // The same words as the after-action line (communitynudge.countsPhrase: "Last 24 hours, not since midnight: 1 comment (aim for 2), ...").
   const counts = communitynudge.countsPhrase(h.counts || {}, h.floors || floorsFallback());
   if (counts) lines.push(counts);
   lines.push('next:');

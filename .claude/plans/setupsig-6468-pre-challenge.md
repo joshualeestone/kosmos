@@ -1,0 +1,39 @@
+---
+pre_challenge: true
+method: challenge-loop
+branch: setupsig-6468
+diff_hash: 0a329a96f5bc67dd6bc7067bbe4617d8c4a49ab6da77b8fbf74442b256f60b75
+validation: passed
+subdir_audit: passed
+timestamp: 2026-10-18T11:30:55Z
+iterations: 2
+converged: true
+---
+
+## [CHALLENGE-LOOP] Summary
+
+**Iterations:** 2 blind reviews, opus then sonnet
+**Converged:** Yes (iteration 2, sonnet: NITs only)
+**Total findings:** 0 BLOCKERs, 3 WARNINGs, about 9 NITs
+**Fixed:** 1 WARNING and the NITs | **Deferred:** 2 WARNINGs as cards #6473, #6474 | **Asked (awaiting user):** 0
+
+Stacked on manifestsig-6468 (PR #6472); the hash is against origin/main, the gate's base.
+Validation after rebasing onto origin/manifestsig-6468: install.setup-sig-6468 (9), cli.update-ifnewer-4382 (15), engine/update.test.js (26), install.manifest-sig-6468 (31) all pass. Shell guards (installer-runnable-guard, install-static, kosmos-help-exit0, addr-reclaim, msg-newlines) pass. A sweep of every test reading install/kosmos, engine/update or manifest-verify: 14 failures that fail identically on a clean origin/main in this shell (environmental). Mutants: refusal removed (2 red), NODE_OPTIONS kept (red), stdin passed through (red).
+
+## Final ledger
+### Iteration 1 (opus): 0 BLOCKERs, 3 should-fix
+- [WARNING] exit 3 (no key pinned, or a manifest without setup_sha256) ran the installer unchecked; a cut gone
+  wrong would let a site run any installer (FIXED: run-setup refuses on 3; the cli arm flipped to "runs nothing")
+- [WARNING] the tmux bundle is fetched, checked only against a same-host sha, and run before the manifest check
+  (DEFERRED as card #6473: needs its own manifest field and an earlier fetch; stated as a limit)
+- [WARNING] the .pkg postinstall runs the site installer with only a same-host sha (DEFERRED as card #6474)
+- [NIT] 97 wording now says try again (FIXED), stale curl|sh comments (FIXED), the liveExec label (FIXED), arm64
+  coupling noted (FIXED), two source-text tests (ACCEPTED: the cli arms run the real path end to end)
+### Iteration 2 (sonnet): no BLOCKER or WARNING findings (converged)
+- [NIT] an empty home is now an explicit refusal (FIXED + arm); an installer exiting 97 itself is reported as 1 (FIXED + arm)
+
+Post-convergence change 06:45 (from the #6473/#6474 reviews): refusal messages say "Kosmos:" not "kosmos update:" (the .pkg runs it too), and verifySetup reads setup_sha256 from the manifest bytes the signature covered (verify now hands them back) instead of re-reading the file. 54/54 across the three manifest suites.
+
+Post-convergence change 06:52 (from the #6474 review): run-setup returns 96 for a failed download (retryable) and 97 for a refusal; the board words 96 as "could not be downloaded"; the run-setup command line is marked frozen (shipped .pkgs call newer installed copies). 51/51.
+
+Rebased 07:24 onto main after #6472 merged (clean, 8 commits). Revalidated: the 205 test files reading the touched files, 3926 pass, 14 fail, all 14 the environmental set that fails identically on a clean main in this shell; the four ask suites 81/81; installer runnable-guard 0 failures. Rehashed against origin/main.

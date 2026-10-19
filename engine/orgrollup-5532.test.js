@@ -429,7 +429,7 @@ test('#5532 rollup review 7: a refresh keeps the accepted words (found by the ha
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
   accept(root, ['agent names'], true);
   await oe.refresh({ root, remote: c });
-  assert.deepEqual(oe.acceptedConsent({ root }), { reports: ['agent names'], usageConsented: true, policyConsented: false, everyKosmosConsented: false }, 'a refresh lost the accepted words, so the rollup would stop with no reason given');
+  assert.deepEqual(oe.acceptedConsent({ root }), { reports: ['agent names'], usageConsented: true, policyConsented: false, everyKosmosConsented: false, everyKosmosUsageConsented: false, capConsented: false }, 'a refresh lost the accepted words, so the rollup would stop with no reason given');
 });
 
 test('#5532 wiring: the words are found only for the hash on the record, and only while it may report', async (t) => {
@@ -453,7 +453,7 @@ test('#5532 wiring: the real enroll path remembers the words shown, and usage is
     const c = coordinator();
     const r0 = await oe.enroll('ACME-JOIN-1234', true, { root, remote: c, consentHash: HASH, consent: { reports: lines, backsUp: [], readers: ['you'], never: [] } });
     assert.equal(r0.ok, true, JSON.stringify(r0));
-    assert.deepEqual(oe.acceptedConsent({ root }), { reports: lines, usageConsented: usage, policyConsented: false, everyKosmosConsented: false }, JSON.stringify(lines));
+    assert.deepEqual(oe.acceptedConsent({ root }), { reports: lines, usageConsented: usage, policyConsented: false, everyKosmosConsented: false, everyKosmosUsageConsented: false, capConsented: false }, JSON.stringify(lines));
   }
 });
 
@@ -965,4 +965,171 @@ test('#5534 slice 2 review 3: end to end with the real policy module, an expired
   await r.tick({ root, remote: c, sources: sources(), now: Date.UTC(2026, 9, 7, 12) });
   const body = c.sent.find((x) => x.route === r.ROUTE).body;
   assert.deepEqual([body.policyVersion, body.policyRefused], [2, false], 'the real module reported an expired copy of the policy in force as a refusal');
+});
+
+test('#6309: the month\'s usage against the cap leaves only under words naming the cap, for this company\'s cap, once known', async (t) => {
+  const POLICY_ONLY = ['agent names', "which version of your company's policy this Kosmos has applied, and whether it refused one your company sent"];
+  const NAMED = [...POLICY_ONLY, "how much of the family's monthly AI cap this computer has used this month, when the family's policy sets one"];
+  const CAP = { usage_cap: { monthly_tokens: 1000, warn_pct: 80, tz: 'UTC' } };
+  const send = async (lines, { org: whose, count } = {}) => {
+    const root = world(t);
+    const c = coordinator();
+    await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+    accept(root, lines);
+    const orgId = oe.readEnrollment({ root }).org.id;
+    const asked = [];
+    const usagecap = { capReport: (policy, now) => { asked.push([policy, now]); return count || { capped: true, used: 850, cap: 1000, pct: 85, warn: true, over: false, tz: 'UTC', complete: true, known: true, month: '2026-10' }; } };
+    const op = { refresh: () => ({ applied: { org: whose || orgId, version: 3, policy: CAP }, refused: null }) };
+    await r.tick({ root, remote: c, sources: sources(), orgpolicy: op, usagecap, now: Date.UTC(2026, 9, 7, 12) });
+    const sent = c.sent.find((x) => x.route === r.ROUTE);
+    assert.ok(sent, 'premise: a rollup was sent');
+    return { body: sent.body, asked };
+  };
+  const named = await send(NAMED);
+  assert.deepEqual(named.body.policyUsage, { used: 850, cap: 1000, warn: true, over: false, month: '2026-10' }, 'CONTROL: under words naming the policy, the usage is sent');
+  assert.deepEqual(named.asked, [[CAP, Date.UTC(2026, 9, 7, 12)]], 'counted against the policy in force, at the tick\'s clock');
+  const without = await send(['agent names, the AI provider and model each uses']);
+  assert.equal('policyUsage' in without.body, false, 'the usage left under words that do not name the policy');
+  const policyOnly = await send(POLICY_ONLY);
+  assert.equal(policyOnly.body.policyVersion, 3, 'CONTROL: the policy version still goes under its own words');
+  assert.equal('policyUsage' in policyOnly.body, false, 'the usage left under words naming only the policy version');
+  assert.deepEqual(policyOnly.asked, [], 'the month was counted under words that do not name it');
+  const foreign = await send(NAMED, { org: 'org_other' });
+  assert.equal('policyUsage' in foreign.body, false, 'another company\'s cap was reported to this one');
+  // A count not known yet on a first report: the policy goes now without a count (nothing was reported to clear), and
+  // the count follows when known. A repeat of a policy already reported is the next test's case.
+  const short = await send(NAMED, { count: { capped: true, used: 10, cap: 1000, pct: 1, warn: false, over: false, tz: 'UTC', complete: false, known: false } });
+  assert.equal('policyUsage' in short.body, false, 'a count still catching up was sent as the month');
+  assert.equal(short.body.policyVersion, 3, 'a new policy waited on the count');
+  // Still catching up but held up by the month's saved count (a restart): a true lower bound, so it goes.
+  const floored = await send(NAMED, { count: { capped: true, used: 900, cap: 1000, pct: 90, warn: true, over: false, tz: 'UTC', complete: false, known: true, month: '2026-10' } });
+  assert.deepEqual(floored.body.policyUsage, { used: 900, cap: 1000, warn: true, over: false, month: '2026-10' }, 'a restarted board blanked the count it already knew');
+  const none = await send(NAMED, { count: { capped: false } });
+  assert.equal('policyUsage' in none.body, false, 'no cap, and usage was sent');
+});
+
+test('#6309: a tick whose count is not known yet sends what it last sent, so the parent\'s row is not cleared', async (t) => {
+  const NAMED = ['agent names', "which version of your company's policy this Kosmos has applied, and whether it refused one your company sent",
+    "how much of the family's monthly AI cap this computer has used this month, when the family's policy sets one"];
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root, NAMED);
+  const orgId = oe.readEnrollment({ root }).org.id;
+  const op = { refresh: () => ({ applied: { org: orgId, version: 3, policy: { usage_cap: { monthly_tokens: 1000, warn_pct: 80, tz: 'UTC' } } }, refused: null }) };
+  let count = { capped: true, used: 850, cap: 1000, pct: 85, warn: true, over: false, tz: 'UTC', complete: true, known: true, month: '2026-10' };
+  const usagecap = { capReport: () => count };
+  const T0 = Date.UTC(2026, 9, 7, 12);
+  await r.tick({ root, remote: c, sources: sources(), orgpolicy: op, usagecap, now: T0 });
+  const sent = () => c.sent.filter((x) => x.route === r.ROUTE).map((x) => x.body);
+  assert.deepEqual(sent()[0].policyUsage, { used: 850, cap: 1000, warn: true, over: false, month: '2026-10' }, 'CONTROL: the first daily carries the count');
+  // A restart that has no saved count: the count is not known.
+  count = { capped: true, used: 3, cap: 1000, pct: 0, warn: false, over: false, tz: 'UTC', complete: false, known: false, month: '2026-10' };
+  await r.tick({ root, remote: c, sources: sources(), orgpolicy: op, usagecap, now: T0 + r.CHANGE_MIN_MS + 1000 });
+  assert.equal(sent().length, 1, 'an unknown count moved the signature and made a change send');
+  await r.tick({ root, remote: c, sources: sources(), orgpolicy: op, usagecap, now: T0 + 24 * 60 * 60 * 1000 });
+  const next = sent()[1];
+  assert.ok(next, 'premise: the next daily went');
+  assert.deepEqual([next.policyVersion, next.policyUsage], [3, { used: 850, cap: 1000, warn: true, over: false, month: '2026-10' }],
+    'the daily with an unknown count did not repeat the last count, so the coordinator would clear the parent\'s row');
+  // A NEW policy while the count is unknown goes at once, without a count (the old version must not be repeated).
+  const op4 = { refresh: () => ({ applied: { org: orgId, version: 4, policy: { usage_cap: { monthly_tokens: 2000, warn_pct: 80, tz: 'UTC' } } }, refused: null }) };
+  await r.tick({ root, remote: c, sources: sources(), orgpolicy: op4, usagecap, now: T0 + 24 * 60 * 60 * 1000 + r.CHANGE_MIN_MS + 1000 });
+  const v4 = sent()[sent().length - 1];
+  assert.deepEqual([v4.policyVersion, 'policyUsage' in v4], [4, false], 'a new policy waited on the count, or went with the old count');
+});
+
+test('#6309: reaching the heads-up or the cap is a change; the count moving is not; a bad shape is left out', () => {
+  const base = { world: 'w', agents: [{ name: 'Leo', state: 'idle' }], projects: [] };
+  const sig = (x) => r.signature(r.build(Object.assign({ reason: 'change' }, base, x)));
+  const u = (used, warn, over) => ({ policyUsage: { used, cap: 1000, warn, over, month: '2026-10' } });
+  assert.equal(sig(u(100, false, false)), sig(u(700, false, false)), 'the count moving made a change');
+  assert.notEqual(sig(u(700, false, false)), sig(u(800, true, false)), 'reaching the heads-up was not a change');
+  assert.notEqual(sig(u(800, true, false)), sig(u(1000, true, true)), 'reaching the cap was not a change');
+  const crypto = require('node:crypto');
+  assert.equal(sig({}), crypto.createHash('sha256').update(JSON.stringify([['Leo'], []])).digest('hex'), 'a board with no cap got a new signature');
+  for (const bad of [{ used: -1, cap: 1000, warn: false, over: false }, { used: 1.5, cap: 1000, warn: false, over: false },
+    { used: 1, cap: 0, warn: false, over: false }, { used: 1, cap: 1000, warn: 'yes', over: false }, { used: 1, cap: 1000 },
+    { used: 1, cap: 1000, warn: false, over: false }, { used: 1, cap: 1000, warn: false, over: false, month: '2026-13' }, 'x', null]) {
+    assert.equal('policyUsage' in r.build({ world: 'w', policyUsage: bad }), false, JSON.stringify(bad));
+  }
+});
+
+test('#5532 sender: under words naming usage, usage is read once for a send and not at all when nothing is due', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root, ['agent names', 'how many tokens the sessions launched in your agents\' folders used each day'], true);
+  const T0 = Date.UTC(2026, 9, 7, 12);
+  let reads = 0;
+  let gathers = 0;
+  const base = sources();
+  const src = sources({
+    snapshot: () => { gathers += 1; return base.snapshot(); },
+    usageByDay: async () => { reads += 1; return { byDay: { '2026-10-07': { 'claude-opus-4-1': { input_tokens: 9 } } }, complete: true }; },
+  });
+  const first = await r.tick({ root, remote: c, sources: src, now: T0 });
+  assert.equal(first.sent, true, JSON.stringify(first));
+  assert.equal(reads, 1, 'usage was not read exactly once for the send');
+  const body = c.sent.filter((x) => x.route === r.ROUTE)[0].body;
+  assert.deepEqual(body.usage.map((u) => [u.model, u.input]), [['claude-opus-4-1', 9]], JSON.stringify(body.usage));
+  assert.equal(body.usageWithheld, false);
+  // Past the change window, so the tick gathers and decides on the signature (nothing changed), not on the window.
+  const second = await r.tick({ root, remote: c, sources: src, now: T0 + r.CHANGE_MIN_MS + 60e3 });
+  assert.equal(second.sent, false, 'CONTROL: nothing was due: ' + JSON.stringify(second));
+  assert.equal(gathers, 2, 'CONTROL: the second tick did not gather, so it never reached the decision');
+  assert.equal(reads, 1, 'usage was read on a tick that sent nothing');
+});
+
+test('#5532 sender: under words that do not name usage, a send reads none; a failed read is withheld, never 0', async (t) => {
+  const T0 = Date.UTC(2026, 9, 7, 12);
+  // Words that name no usage: the send goes, and the reader is never called.
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root, ['agent names'], false);
+  let reads = 0;
+  const counted = sources({ usageByDay: async () => { reads += 1; return { byDay: {}, complete: true }; } });
+  const sent = await r.tick({ root, remote: c, sources: counted, now: T0 });
+  assert.equal(sent.sent, true, 'CONTROL: the send went: ' + JSON.stringify(sent));
+  assert.equal(reads, 0, 'usage was read under words that do not name it');
+  // Words that do, and a reader that fails: the body says withheld, not "no usage".
+  const root2 = world(t);
+  const c2 = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root: root2, remote: c2 });
+  accept(root2, ['agent names', 'how many tokens the sessions launched in your agents\' folders used each day'], true);
+  const failing = sources({ usageByDay: async () => { throw new Error('scan failed'); } });
+  const res = await r.tick({ root: root2, remote: c2, sources: failing, now: T0 });
+  assert.equal(res.sent, true, JSON.stringify(res));
+  const body = c2.sent.filter((x) => x.route === r.ROUTE)[0].body;
+  assert.deepEqual(body.usage, []);
+  assert.equal(body.usageWithheld, true, 'a failed usage read was sent as zero usage');
+});
+
+test('#5532 sender: a usage read slower than the wait goes out as withheld on a real send', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root, ['agent names', 'how many tokens the sessions launched in your agents\' folders used each day'], true);
+  const slow = sources({ usageByDay: () => new Promise(() => {}) });
+  const t0 = Date.now();
+  const res = await r.tick({ root, remote: c, sources: slow, now: Date.UTC(2026, 9, 7, 12), usageReadMs: 20 });
+  assert.ok(Date.now() - t0 < 10000, 'the tick did not use the wait it was given');
+  assert.equal(res.sent, true, JSON.stringify(res));
+  const body = c.sent.filter((x) => x.route === r.ROUTE)[0].body;
+  assert.equal(body.usageWithheld, true, 'a read that never answered was not withheld on the send');
+  assert.deepEqual(body.usage, []);
+});
+
+test('#5532: another Kosmos\'s usage needs ONE accepted line naming both every Kosmos and usage', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  const EVERY_ONLY = 'the agent, project and activity lines above from every Kosmos on this computer, not only this one';
+  const USAGE_ONLY = 'how many tokens the sessions launched in your agents\' folders used each day';
+  const BOTH = 'the agent, project, activity and token use lines above from every Kosmos on this computer, not only this one';
+  accept(root, [USAGE_ONLY, EVERY_ONLY], true);
+  assert.equal(oe.acceptedConsent({ root }).everyKosmosUsageConsented, false, 'two lines, each naming one half, read as one line naming both');
+  accept(root, [USAGE_ONLY, BOTH], true);
+  assert.equal(oe.acceptedConsent({ root }).everyKosmosUsageConsented, true, 'CONTROL: the line naming both was not read');
 });

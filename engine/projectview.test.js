@@ -639,22 +639,49 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
 
   // The report: written in the morning round, idle from then, woken by a request a minute ago. 331 min on the clock,
   // 6 + 1 min of work: current.
-  const woken = hist([['working', 400], ['idle', 325], ['working', 1]]);
+  // A Claude turn heartbeats `working` once a minute while it runs tools (install/kosmos-report-hook.sh), so the turn
+  // from 400 to 325 min ago leaves a row each minute; #5635 F2 (0.7.50) counts a working row for at most 30 min.
+  const beats = (from, to) => Array.from({ length: from - to }, (_, i) => ['working', from - i]);
+  const woken = hist([...beats(400, 325), ['idle', 325], ['working', 1]]);
   const r = v.workExcused(stale(331), claude, woken, NOW);
   assert.equal(r.state, 'worked', 'the seat woken after a quiet afternoon read stale');
   assert.equal(r.workMinutes, 7);
   // Short prompted turns while otherwise idle (the latest idle report moves on, which idleExcused cannot see past).
   const idleNow = Object.assign({}, claude, { state: 'idle' });
   assert.equal(v.workExcused(stale(900), idleNow, hist([['idle', 890], ['working', 600], ['idle', 590], ['working', 300], ['idle', 280]]), NOW).state, 'worked');
-  // Review 3: the board reads it busy now, so the time since its last (idle) report is work: 30 + 280 min, stale.
-  assert.equal(v.workExcused(stale(900), claude, hist([['idle', 890], ['working', 600], ['idle', 590], ['working', 300], ['idle', 280]]), NOW).state, 'stale');
+  // 0.7.48 (Josh 2026-10-14): only REPORTED work counts; the board reading it busy now adds nothing. Same timeline, shown
+  // working: 40 min of reported work (900 to 890 before the first report counts, then 600 to 590 and 300 to 280),
+  // current (review 3's "the board's read wins" is replaced).
+  const busyScreen = v.workExcused(stale(900), claude, hist([['idle', 890], ...beats(600, 590), ['idle', 590], ...beats(300, 280), ['idle', 280]]), NOW);
+  assert.equal(busyScreen.state, 'worked');
+  assert.equal(busyScreen.workMinutes, 40);
+  // The 0.7.48 Grok repro: wrote its summary while working, idle since, shown working at the check: current.
+  const grokNow = Object.assign({}, mark, { runner: 'grok' });
+  const g = v.workExcused(stale(480), grokNow, hist([['working', 485], ['idle', 478]]), NOW);
+  assert.equal(g.state, 'worked', 'a seat with no reported work since its summary read stale because the screen read busy');
+  assert.equal(g.workMinutes, 2);
+  assert.equal(g.turnsOnly, undefined, 'a runner that reports working was given the turn-ends-only wording');
+  // CONTROL: a reported busy stretch still counts to now (working since 300 min ago): stale.
+  assert.equal(v.workExcused(stale(480), grokNow, hist([['working', 485], ['idle', 478], ['working', 300]]), NOW).state, 'stale');
   // Review 3: an operator's clear is not the agent stopping; it changes nothing (working from 400 to now: stale).
-  const cleared = () => { const a = [{ state: 'working', at: at(400) }, { state: 'idle', at: at(325), by: 'operator' }]; a.truncated = false; return a; };
+  // The agent keeps heartbeating working through the clear (it never stopped), as a real Claude turn does (#5635 F2 0.7.50).
+  const cleared = () => { const a = [...beats(400, 0).map(([state, m]) => ({ state, at: at(m) })), { state: 'idle', at: at(325), by: 'operator' }].sort((x, y) => x.at - y.at); a.truncated = false; return a; };
   assert.equal(v.workExcused(stale(331), idleNow, cleared, NOW).state, 'stale', 'an operator clear read as the agent stopping');
-  assert.equal(v.workExcused(stale(331), idleNow, hist([['working', 400], ['idle', 325]]), NOW).state, 'worked', 'CONTROL: the agent\'s own idle');
+  // Review 2 (#5635 F2 0.7.50): the heartbeats above make that stale with or without the operator filter, so the filter is
+  // pinned here on a runner whose working is not capped (grok): working from 400 to now, cleared by a person at 325.
+  const clearedOnly = () => { const a = [{ state: 'working', at: at(400) }, { state: 'idle', at: at(325), by: 'operator' }]; a.truncated = false; return a; };
+  assert.equal(v.workExcused(stale(331), Object.assign({}, idleNow, { runner: 'grok' }), clearedOnly, NOW).state, 'stale', 'an operator clear read as the agent stopping (grok)');
+  // CONTROL, on grok too (review 7: on Claude the capped working adds nothing either way): the agent's own idle at 325
+  // ends the stretch, 6 min after the summary; without it the working runs on to now and reads stale.
+  const grokIdle = Object.assign({}, idleNow, { runner: 'grok' });
+  const own = v.workExcused(stale(331), grokIdle, hist([['working', 400], ['idle', 325]]), NOW);
+  assert.equal(own.state, 'worked', 'CONTROL: the agent\'s own idle');
+  assert.equal(own.workMinutes, 6);
+  assert.equal(v.workExcused(stale(331), grokIdle, hist([['working', 400]]), NOW).state, 'stale', 'CONTROL: no idle, the working runs on');
   // CONTROL: more than four hours of work since: stale. 331 min, idle for only 60 of them.
-  assert.equal(v.workExcused(stale(331), claude, hist([['working', 400], ['idle', 200], ['working', 140]]), NOW).state, 'stale');
-  // A wait for a person counts as work (errs toward stale).
+  assert.equal(v.workExcused(stale(331), claude, hist([...beats(400, 200), ['idle', 200], ...beats(140, 0)]), NOW).state, 'stale');
+  // A wait for a person counts as work (errs toward stale); the 325 min of needs_you alone makes this stale, the capped
+  // working before it adds nothing.
   assert.equal(v.workExcused(stale(331), claude, hist([['working', 400], ['needs_you', 325]]), NOW).state, 'stale');
   // No report at or before the summary: the stretch up to the first one counts as work (300 min here): stale.
   assert.equal(v.workExcused(stale(600), claude, hist([['idle', 300]]), NOW).state, 'stale');
@@ -666,18 +693,50 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   // No history, an unreadable one, a runner that reports idle only, no runner, an untied member: unchanged.
   assert.equal(v.workExcused(stale(331), claude, () => null, NOW).state, 'stale');
   assert.equal(v.workExcused(stale(331), claude, () => { throw new Error('x'); }, NOW).state, 'stale');
-  for (const runner of ['codex', null, 'someday-runner']) {
+  // 0.7.48 GPT repro (codex reports turn ends only): one turn ended since the summary (the one that wrote it), shown
+  // working now: current, with no reported work. CONTROL: a later turn has ended too: stale (its length is unknown).
+  const gpt = Object.assign({}, mark, { runner: 'codex' });
+  const gr = v.workExcused(stale(1100), gpt, hist([['idle', 1095]]), NOW);
+  assert.equal(gr.state, 'worked', 'the GPT seat idle all night read stale');
+  assert.equal(gr.workMinutes, 0);
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 40]]), NOW).state, 'stale');
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1200]]), NOW).state, 'worked', 'no turn ended since: current');
+  assert.equal(gr.turnsOnly, true);
+  // Bounded: past six rhythms (24 h) of clock time a turn-ends-only summary is not excused, so a seat whose turn-end
+  // reports stopped arriving cannot read current for ever. CONTROL: the 18 h repro above is under it.
+  assert.equal(v.workExcused(stale(1500), gpt, hist([]), NOW).state, 'stale', 'a codex seat with no turn ends read current past the cap');
+  assert.equal(v.workExcused(stale(1400), gpt, hist([]), NOW).state, 'worked');
+  // A busy report it filed itself after the summary is reported work: stale.
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['working', 600]]), NOW).state, 'stale', 'a codex seat\'s own working report was ignored');
+  // The busy row is the only reason here (one turn end): selfreport refuses the automatic idle while such a wait stands.
+  for (const st of ['needs_you', 'blocked']) assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], [st, 600]]), NOW).state, 'stale', 'a codex seat\'s own ' + st + ' was not read as work');
+  // ...and answered by an operator clear (filtered out), it still counts.
+  const answered = () => { const a = [{ state: 'idle', at: at(1095) }, { state: 'needs_you', at: at(600) }, { state: 'idle', at: at(500), by: 'operator' }]; a.truncated = false; return a; };
+  assert.equal(v.workExcused(stale(1100), gpt, answered, NOW).state, 'stale', 'an answered wait stopped counting as work');
+  // An automatic idle and a manual one at the same turn end are one turn (within 2 min); 3 min apart are two.
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1094]]), NOW).state, 'worked', 'a duplicate idle at the same turn end counted as a later turn');
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1092]]), NOW).state, 'stale', 'CONTROL: two turn ends 3 min apart');
+  // The window chains: idles each 1.5 min after the one before are one turn end even 3 min after the first (measured
+  // from the first instead, the last would be a second turn: stale). One 3 min after the last is a second.
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1093.5], ['idle', 1092]]), NOW).state, 'worked');
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1094], ['idle', 1093], ['idle', 1090]]), NOW).state, 'stale');
+  // An operator's clear is not a turn end; a cut history that starts after the summary is unknown (left stale).
+  const gptOp = () => { const a = [{ state: 'idle', at: at(1095) }, { state: 'idle', at: at(40), by: 'operator' }]; a.truncated = false; return a; };
+  assert.equal(v.workExcused(stale(1100), gpt, gptOp, NOW).state, 'worked', 'an operator clear counted as a turn end');
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095]], true), NOW).state, 'stale', 'a cut history starting after the summary was read');
+  for (const runner of [null, 'someday-runner']) {
     assert.equal(v.workExcused(stale(331), Object.assign({}, mark, { runner }), woken, NOW).state, 'stale', 'excused runner ' + runner);
   }
   assert.equal(v.workExcused(stale(331), Object.assign({}, claude, { tied: false }), woken, NOW).state, 'stale');
   // Review 1: rows out of time order (a clock stepped back) are read in time order. Idle at 325 then working from 300 to
   // now is 6 + 300 min of work: stale. Read in file order, the step back subtracts 25 min and it read 6 min: current.
-  assert.equal(v.workExcused(stale(331), claude, hist([['working', 300], ['idle', 325]]), NOW).state, 'stale');
-  assert.equal(v.workExcused(stale(331), claude, hist([['working', 1], ['idle', 325], ['working', 400]]), NOW).workMinutes, 7, 'CONTROL: sorted, the report timeline');
+  // A grok member (no cap), so the 30-minute cap cannot make this pass with the sort removed (review 4).
+  assert.equal(v.workExcused(stale(331), Object.assign({}, claude, { runner: 'grok' }), hist([['working', 300], ['idle', 325]]), NOW).state, 'stale');
+  assert.equal(v.workExcused(stale(331), claude, hist([['working', 1], ['idle', 325], ...beats(400, 325)]), NOW).workMinutes, 7, 'CONTROL: sorted, the report timeline');
   // Boundaries: a report exactly at the summary is its state then; one after now is not read; stopped is not work.
   assert.equal(v.workExcused(stale(331), idleNow, hist([['idle', 331]]), NOW).workMinutes, 0);
   assert.equal(v.workExcused(stale(331), idleNow, hist([['idle', 331], ['working', -30]]), NOW).workMinutes, 0, 'a report from the future was read');
-  assert.equal(v.workExcused(stale(331), idleNow, hist([['working', 400], ['stopped', 325], ['idle', 200]]), NOW).workMinutes, 6);
+  assert.equal(v.workExcused(stale(331), idleNow, hist([...beats(400, 325), ['stopped', 325], ['idle', 200]]), NOW).workMinutes, 6);
   // Review 3: a cut tail is judged by its first row in the file, before the sort (a clock stepped back).
   assert.equal(v.workExcused(stale(331), idleNow, hist([['idle', 300], ['idle', 400]], true), NOW).state, 'stale', 'a cut tail starting after the summary was read');
   // Review 4: an operator clear as the tail's first row still marks where the tail starts.
@@ -717,7 +776,8 @@ test('#5635 F2: a working member woken after a quiet stretch reads current for t
   const raw = { id: 'wk2', name: 'Work Time', folder: '/p/wk2', agents: ['mark'], tasks: [] };
   const described = projects.describe(raw, BOARD.agents, [raw]);
   const folder = agentFolder('mark-wk2', [['2026-09-29-11.md', 331]]);
-  const rows = [{ state: 'working', at: NOW - 400 * 60000 }, { state: 'idle', at: NOW - 325 * 60000 }, { state: 'working', at: NOW - 60000 }];
+  // Heartbeats once a minute through the turn, as a real Claude turn files them (#5635 F2, 0.7.50: each counts for at most 30 min).
+  const rows = [...Array.from({ length: 75 }, (_, i) => ({ state: 'working', at: NOW - (400 - i) * 60000 })), { state: 'idle', at: NOW - 325 * 60000 }, { state: 'working', at: NOW - 60000 }];
   const view = (readHistory) => v.overviewOf(described, BOARD.agents, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }),
     readReport: () => ({ found: true, state: 'working', at: new Date(NOW - 60000).toISOString() }), readHistory });
   const text = v.renderShow({ project: view(() => rows) }).join('\n');
@@ -731,5 +791,103 @@ test('#5635 F2: a working member woken after a quiet stretch reads current for t
   // Review 4: no work since reads as such, not "under a minute".
   const zero = v.renderShow({ project: { ...view(() => rows), members: [{ ...view(() => rows).members[0], summary: { ...view(() => rows).members[0].summary, workMinutes: 0 } }] } }).join('\n');
   assert.match(zero, /summary: current: no reported work since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, zero);
+  // 0.7.48: a turn-ends-only runner (codex) says what it can know, not a measurement it cannot make.
+  const turns = v.renderShow({ project: { ...view(() => rows), members: [{ ...view(() => rows).members[0], summary: { ...view(() => rows).members[0].summary, workMinutes: 0, turnsOnly: true } }] } }).join('\n');
+  // End to end: a codex member through overviewOf's whole chain (idleExcused, quietExcused, workExcused, idleNoted).
+  const codexDesc = { ...described, agents: described.agents.map((m) => ({ ...m, runner: 'codex', state: 'idle' })) };
+  const cx = v.overviewOf(codexDesc, BOARD.agents, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }),
+    readReport: () => ({ found: true, state: 'idle', at: new Date(NOW - 320 * 60000).toISOString() }),
+    readHistory: () => { const a = [{ state: 'idle', at: NOW - 320 * 60000 }]; a.truncated = false; return a; } });
+  const cxText = v.renderShow({ project: cx }).join('\n');
+  assert.equal(cx.members[0].summary.turnsOnly, true, JSON.stringify(cx.members[0].summary));
+  assert.match(cxText, /summary: current: no later turn has ended since it was written/, cxText);
+  assert.match(turns, /summary: current: no later turn has ended since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, turns);
   assert.ok(![0x2014, 0x2013].some((c) => text.includes(String.fromCharCode(c))), 'a dash in product copy');
+});
+
+test('#5635 F2 (0.7.50, the Claude seat): a trailing working with nothing after it counts at most 30 minutes, not 18 hours', () => {
+  const at = (minAgo) => NOW - minAgo * 60000;
+  const hist = (rows) => () => rows.map(([state, minAgo]) => ({ state, at: at(minAgo) }));
+  const raw = { id: 'f2', name: 'F2', folder: '/p/f2', agents: ['mark'], tasks: [] };
+  const mark = projects.describe(raw, BOARD.agents, [raw]).agents.find((m) => m.sessionName === 'mark');
+  const claude = Object.assign({}, mark, { runner: 'claude', state: 'unknown' });
+  // Summary at 19:03Z; reports working 21:51:38, idle 21:51:55, working 21:51:56; nothing for 18 h after.
+  const last = 18 * 60;
+  const wrote = last + 168;   // 2 h 48 min before the last report
+  const summary = { state: 'stale', file: 'summaries/2026-10-14-19.md', at: new Date(at(wrote)).toISOString(), ageMinutes: wrote };
+  // The turn that wrote the summary heartbeated just before it; then the three reports at 21:51.
+  const rows = [['working', wrote + 1], ['working', last + 0.3], ['idle', last + 0.02], ['working', last]];
+  const r = v.workExcused(summary, claude, hist(rows), NOW);
+  assert.equal(r.state, 'worked', 'the idle night still counted as work: ' + JSON.stringify(r));
+  // The heartbeat before the summary counts to its cap (29 min after the summary), the trailing working its 30: about an
+  // hour (2 x 30 less under a minute), pinned to the minute so a cap off by one is seen.
+  assert.ok(r.workMinutes >= 59 && r.workMinutes <= 60, 'not about two 30-minute caps of work: ' + r.workMinutes);
+  // Review 5: only Claude is capped; every other runner (including Antigravity, whose heartbeat depends on platform and
+  // hooks) keeps the old reading, so the same night stays stale for each.
+  for (const runner of ['antigravity', 'gemini', 'muse']) {
+    assert.equal(v.workExcused(summary, Object.assign({}, claude, { runner }), hist(rows), NOW).state, 'stale', runner + ' was capped');
+  }
+  // CONTROL: a runner whose working marks a turn's START (grok here) is not capped: the same night stays stale.
+  assert.equal(v.workExcused(summary, Object.assign({}, claude, { runner: 'grok' }), hist(rows), NOW).state, 'stale');
+  // Review 6: the cap runs from the report's own time, not from each stretch's start: a working filed 120 min before the
+  // summary, then nothing until an idle after it, adds nothing.
+  const early = v.workExcused(summary, claude, hist([['working', wrote + 120], ['idle', wrote - 60]]), NOW);
+  assert.ok((early.workMinutes || 0) < 1, 'a working long before the summary was counted after it: ' + JSON.stringify(early));
+  // CONTROL: a wait is long by nature and is not capped: a trailing needs_you for 18 h stays stale.
+  assert.equal(v.workExcused(summary, claude, hist([['working', last + 0.3], ['needs_you', last]]), NOW).state, 'stale');
+});
+
+test('#6329: a stale summary says which rule kept it stale (reported work past the rhythm, or turns that ended)', () => {
+  const at = (minAgo) => NOW - minAgo * 60000;
+  const stale = (minAgo) => ({ state: 'stale', file: 'summaries/2026-09-29-11.md', at: new Date(at(minAgo)).toISOString(), ageMinutes: minAgo });
+  const hist = (rows) => { const a = rows.map(([state, minAgo]) => ({ state, at: at(minAgo) })); a.truncated = false; return () => a; };
+  const raw = { id: 'wk', name: 'Work Time', folder: '/p/wk', agents: ['mark'], tasks: [] };
+  const mark = projects.describe(raw, BOARD.agents, [raw]).agents.find((m) => m.sessionName === 'mark');
+  assert.ok(mark && mark.present && mark.tied, 'fixture');
+  // Reported work past the rhythm: working at the write (2 min), idle, then working since 300 min ago: 302 min.
+  const grok = Object.assign({}, mark, { runner: 'grok' });
+  const w = v.workExcused(stale(480), grok, hist([['working', 485], ['idle', 478], ['working', 300]]), NOW);
+  assert.equal(w.state, 'stale');
+  assert.equal(w.workedSince, 302);
+  // A runner that reports turn ends only: two turns have ended since it was written.
+  const codex = Object.assign({}, mark, { runner: 'codex' });
+  const c = v.workExcused(stale(480), codex, hist([['idle', 470], ['idle', 200]]), NOW);
+  assert.equal(c.state, 'stale');
+  assert.equal(c.turnsSince, 1, 'the writing turn was counted as a later one');
+  // CONTROL: one turn ended (the writing turn) reads current, as before, with no reason attached.
+  const one = v.workExcused(stale(480), codex, hist([['idle', 470]]), NOW);
+  assert.equal(one.state, 'worked');
+  assert.equal(one.turnsSince, undefined);
+  // The line names it; a stale summary with nothing measured keeps the old words.
+  const line = (summary) => v.renderShow({ project: { id: 'wk', name: 'Work Time', members: [{ name: 'mark', present: true, state: 'working', summary }] } })
+    .find((l) => l.includes('summary:'));
+  assert.match(line(w), /older than the 4-hour rhythm \(summaries\/2026-09-29-11\.md, 8h 0m ago; 5h 2m of reported work since it was written\)$/);
+  assert.match(line(c), /; 1 more turn has ended after the one that wrote it\)$/);
+  assert.match(line(stale(480)), /older than the 4-hour rhythm \(summaries\/2026-09-29-11\.md, 8h 0m ago\)$/);
+  // A wait is counted (errs toward stale) but is not reported WORK: a trailing needs_you for 6 h, and no report before
+  // the write (the gap counts too). Neither line may say "reported work".
+  const waited = v.workExcused(stale(480), grok, hist([['idle', 470], ['needs_you', 360]]), NOW);
+  assert.equal(waited.state, 'stale');
+  assert.equal(waited.workAllReported, false);
+  // 6h 10m: the 10 min before the first report count too (no report before the write), plus the 6 h wait.
+  assert.match(line(waited), /; 6h 10m counted as working or waiting since it was written\)$/);
+  assert.doesNotMatch(line(waited), /reported work/);
+  const gap = v.workExcused(stale(480), grok, hist([['idle', 200]]), NOW);
+  assert.equal(gap.state, 'stale');
+  assert.equal(gap.workAllReported, false);
+  assert.match(line(gap), /counted as working or waiting since it was written\)$/, 'the reason was not printed at all');
+  assert.doesNotMatch(line(gap), /reported work/, 'a stretch with no report was called reported work');
+  // The turn-ends-only runner's two other exits say what decided them.
+  const busyAfter = v.workExcused(stale(480), codex, hist([['idle', 470], ['needs_you', 300]]), NOW);
+  assert.match(line(busyAfter), /; it reported working or a wait since it was written\)$/);
+  const old = v.workExcused(stale(26 * 60), codex, hist([['idle', 1500]]), NOW);
+  assert.match(line(old), /; written more than 24 hours ago, and this agent reports only when a turn ends, so the board no longer counts its turns\)$/);
+  // Plural: three turn ends, two after the writing one.
+  const two = v.workExcused(stale(480), codex, hist([['idle', 470], ['idle', 300], ['idle', 100]]), NOW);
+  assert.match(line(two), /; 2 more turns have ended after the one that wrote it\)$/);
+  // Reported work alone past the rhythm reads as reported work, even with a short wait counted too.
+  const mixed = v.workExcused(stale(480), grok, hist([['working', 485], ['idle', 478], ['working', 300], ['needs_you', 10]]), NOW);
+  assert.match(line(mixed), /; 4h 52m of reported work since it was written\)$/);
+  // Combined with the idle note idleNoted adds: both clauses, in order.
+  assert.match(line(Object.assign({}, w, { idleMinutes: 60 })), /; 5h 2m of reported work since it was written; idle since 1h 0m ago\)$/);
 });

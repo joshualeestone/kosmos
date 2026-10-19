@@ -429,10 +429,110 @@ func isBoardPage(_ page: URL?, board: (host: String, port: Int)?) -> Bool {
         let label = page.host?.lowercased().split(separator: ".").first.map(String.init) ?? ""
         return !kosmosPlusReservedLabels.contains(label)
     }
-    guard let board = board, page.user == nil, let scheme = page.scheme?.lowercased(),
+    return isOwnBoardPage(page, board: board)
+}
+
+/// #6411: PURE, for --kosmos-app-mode-selftest. Whether the page on screen is THIS app's own board: the host and
+/// port it loaded (`board`; nil on a connect computer), not another computer reached through Kosmos+ (#6406).
+/// Only there are the page's Settings this computer's. isBoardPage reads it for its own-board half.
+func isOwnBoardPage(_ page: URL?, board: (host: String, port: Int)?) -> Bool {
+    guard let page = page, let board = board, page.user == nil, let scheme = page.scheme?.lowercased(),
           scheme == "http" || scheme == "https", let host = page.host?.lowercased()
     else { return false }
     return host == board.host.lowercased() && (page.port ?? (scheme == "https" ? 443 : 80)) == board.port
+}
+
+/// #6411: PURE, for --kosmos-app-mode-selftest. Whether the Settings on the page on screen are THIS computer's:
+/// its own board (isOwnBoardPage), or its own Kosmos+ address (`ownPlusHost`, from ownKosmosPlusHost), which is
+/// where another computer's switcher sends a person back to (#6406). Any other computer's address is not.
+func isOwnSettingsPage(_ page: URL?, board: (host: String, port: Int)?, ownPlusHost: String?) -> Bool {
+    if isOwnBoardPage(page, board: board) { return true }
+    // isKosmosPlusURL holds the scheme, user, port and name rules for a Kosmos+ address; this adds only "its own".
+    guard let page = page, let own = ownPlusHost?.lowercased(), isKosmosPlusURL(page),
+          let host = page.host?.lowercased()
+    else { return false }
+    return host == own
+}
+
+/// #6411: PURE, for --kosmos-app-mode-selftest. Whether the window shows ANOTHER computer: a Kosmos+ computer
+/// page (isBoardPage, which leaves out the Kosmos+ service sites) that is not this computer's own (isOwnSettingsPage).
+/// Only then does View > Back to This Computer show.
+func showsAnotherComputer(_ page: URL?, board: (host: String, port: Int)?, ownPlusHost: String?) -> Bool {
+    guard let page = page, isKosmosPlusURL(page) else { return false }
+    return isBoardPage(page, board: board) && !isOwnSettingsPage(page, board: board, ownPlusHost: ownPlusHost)
+}
+
+/// #6411: what began a board start (loadBoard), which decides how its failure or hang says to try again.
+/// launch: the app opening. reload: any start after a View > Reload (#965). backHome: View > Back to This Computer.
+enum BoardStartOrigin: String { case launch, reload, backHome }
+
+/// #6411: PURE, for --kosmos-app-mode-selftest. How to try a board start again, said once for the failure alert and
+/// the watchdog. Cmd-R starts the board again only where Reload reaches loadBoard. A start from Back to This Computer
+/// runs while the window still shows another computer, where Cmd-R usually just reloads that computer's page (only
+/// if that reload's navigation fails does handleNavigationFailure fall through to loadBoard once, through
+/// recoverOnReloadFailure, and start the board), so the way to try again is the same item.
+func boardStartRetry(_ origin: BoardStartOrigin) -> String {
+    origin == .backHome
+        ? "choose View > Back to This Computer (Cmd-Shift-H) to try again"
+        : "press Cmd-R (View > Reload) to try again"
+}
+
+/// #6411: PURE, for --kosmos-app-mode-selftest. What the "could not start" alert advises after it says what went
+/// wrong. A launch suggests installing again; a press (Reload, #965) suggests trying again first, since a mid-session
+/// failure can be a moment's port conflict or an upgrade window, then installing again if it keeps failing. A start
+/// from Back to This Computer says the same, differing ONLY in the retry step (boardStartRetry): choose that item
+/// again, not Cmd-R, which reloads the other computer. One string serves both, so they cannot drift. Which origin
+/// to advise with is decided when the message is shown (boardStartAdviceOrigin).
+func boardStartFailureRemedy(_ origin: BoardStartOrigin) -> String {
+    let fixes = "usually fixes this: open installkosmos.com and click Download for macOS. Your agents and settings stay on this computer; installing again does not remove them."
+    switch origin {
+    case .launch: return "Installing it again \(fixes)"
+    case .reload, .backHome: return "This can be temporary: click OK, then \(boardStartRetry(origin)). If it keeps failing, installing it again \(fixes)"
+    }
+}
+
+/// #6411: PURE, for --kosmos-app-mode-selftest. The origin whose advice a failed or hung start gives, decided when
+/// the alert or watchdog message is shown. "Choose Back to This Computer again" rests on the item still being shown:
+/// after a failed start from it the window normally still shows the other computer (committedPageURL unchanged). When
+/// it is not, the advice would point at a hidden item, so it is Reload's, which applies to the page on screen:
+/// - the person moved to a page of this computer's own board: Cmd-R reloads it or starts the board; right.
+/// - the address file now marks the page as this computer's own: Cmd-R reloads that page; harmless.
+/// - the mode became connect: the start's RESULT is dropped (its completion returns before any alert), but
+///   switchToConnect neither clears boardStartInFlight nor bumps boardStartGeneration, so a start still hung at
+///   300 s still shows the watchdog alert, with Reload's advice (isOnAnotherComputer is false in connect). Older
+///   behaviour, and barely reachable from this item; harmless.
+/// - the page process ended (committedPageURL is nil): two steps, not one. Reasoned from WebKit behaviour, not
+///   measured: the ended page keeps backForwardList.currentItem and loadBoard reset lastLoadFailed, so Cmd-R
+///   reloads the OTHER computer's page, which brings View > Back to This Computer back, and choosing it then starts
+///   the board. Kept so for a case this rare: a one-step answer needs a change to how a crashed page is handled.
+/// Launch and Reload advice does not depend on the item.
+func boardStartAdviceOrigin(_ origin: BoardStartOrigin, itemShown: Bool) -> BoardStartOrigin {
+    origin == .backHome && !itemShown ? .reload : origin
+}
+
+/// #6411: this computer's own Kosmos+ address, as the board keeps it (engine/remote.js address(): `address` in
+/// AGENT_WORKFORCE_TUNNEL_STATE when set, else the store's remote/ folder); nil when it has none. The override is
+/// read from THIS app's environment, which a board started with it does not hand over (a test and development
+/// setup): there the default file is read instead, so that setup's own Kosmos+ address may be refused, or another
+/// install's address on the same account accepted. Read when asked, never cached: it appears when Kosmos+ is set up and goes when this computer is forgotten.
+func ownKosmosPlusHost() -> String? {
+    let env = ProcessInfo.processInfo.environment
+    let file: URL?
+    if let dir = env["AGENT_WORKFORCE_TUNNEL_STATE"], !dir.isEmpty {
+        file = URL(fileURLWithPath: dir).appendingPathComponent("address")
+    } else {
+        file = storeFileURL("remote/address")
+    }
+    guard let f = file else { return nil }
+    return ownPlusHostFrom(try? String(contentsOf: f, encoding: .utf8))
+}
+
+/// #6411: PURE, for --kosmos-app-mode-selftest. The host in the board's `address` file as written (a bare host,
+/// perhaps with a newline): trimmed and lowercased, nil when there is no file or nothing in it.
+func ownPlusHostFrom(_ raw: String?) -> String? {
+    guard let raw = raw else { return nil }
+    let host = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return host.isEmpty ? nil : host
 }
 
 /// #5167: PURE, for --kosmos-app-mode-selftest. Whether the board's page says a refusal of this download
@@ -757,6 +857,16 @@ func logLine(_ s: String) {
             FileManager.default.createFile(atPath: logFilePath, contents: data)
         }
     }
+}
+
+/* #5481: a line that must be readable on a person's Mac. logLine writes only the test harness's file, and a real Mac has
+   no /tmp/kosmos-app-test, so its lines are recorded nowhere there; this also writes macOS's unified log (read with
+   log show --last 1d --predicate 'process == "Kosmos"'). 🛑 ONLY for lines built from fixed words, states, counts and
+   times: never a URL (the board URL carries its token, #1946), a page title, a file name, a path or anything a person
+   or a page wrote. The unified log is kept for days and any admin on the Mac can read it. A test pins its callers. */
+func logToSystem(_ s: String) {
+    NSLog("%@", s)
+    logLine(s)
 }
 
 // #1946: the board authenticates the loopback bind so another macOS account
@@ -1380,6 +1490,24 @@ func scanUnderGrant() -> Bool {
 let kRelaunchHandoffEnvKey = "KOSMOS_RELAUNCH_HANDOFF"
 let kRelaunchHandoffTTL: TimeInterval = 30  // a relaunch's fresh copy launches within a second or two
 
+/* #6158: A RESTART NOBODY ASKED FOR NEVER TAKES FOCUS. The silent restart onto a new version runs while another app
+   is in front once the Mac has had no input for relaunchQuietSeconds, and an agent driving the iOS Simulator from a
+   script makes no input, so the new copy (opened activating, then activating itself at launch) took focus from the
+   simulator mid-verification, once per new version. The fresh copy of such a restart is opened without activating and
+   is told so in its launch environment; it then does not activate itself either. A restart the person pressed Restart
+   for, or one made while Kosmos was already in front, comes to the front as before. */
+let kRelaunchQuietEnvKey = "KOSMOS_RELAUNCH_QUIET"
+/// Whether a relaunch may bring the fresh copy to the front: only if the person asked, or Kosmos was already in front.
+func relaunchMayActivate(asked: Bool, wasActive: Bool) -> Bool { asked || wasActive }
+/// One-shot, as the handoff: read, then unset, so the board this copy starts (it copies the environment) and any later
+/// relaunch never inherit it. Unlike the handoff it has no token-file fallback: if the environment did not arrive, the
+/// open itself still did not activate (conf.activates), and only this copy's own activate would bring it forward.
+func consumeQuietRelaunch() -> Bool {
+    let quiet = ProcessInfo.processInfo.environment[kRelaunchQuietEnvKey] == "1"
+    unsetenv(kRelaunchQuietEnvKey)
+    return quiet
+}
+
 // The handoff token file, resolved the SAME way boardTokenValue() resolves its dir, so
 // the exiting instance and the fresh copy (same user, same env) agree on the path.
 func relaunchHandoffURL() -> URL? {
@@ -1483,6 +1611,83 @@ func tokenizedBoardURL(_ urlString: String) -> URL? {
         comps.queryItems = items
     }
     return comps.url ?? URL(string: urlString)
+}
+
+/// #6358: PURE, for --kosmos-app-mode-selftest. Whether the page's "signed out" message signs the window in again
+/// now. The board ends every browser session when it restarts, and the app, which reads board.token itself, signs
+/// back in by loading the board with `?token=`. At most once per `signInAgainMinGap`, so a token the board refuses
+/// does not reload the window in a loop. `last` is nil when the app has not tried yet.
+let signInAgainMinGap: TimeInterval = 60
+func shouldSignInAgain(now: TimeInterval, last: TimeInterval?) -> Bool {
+    guard let last = last else { return true }
+    return now - last >= signInAgainMinGap
+}
+
+/// #6358: PURE, for --kosmos-app-mode-selftest. The page the window signs in again on, as the address the board
+/// token is then added to. Only this board's OWN origin (plain http, its host and port, no user) keeps the page the
+/// person was on; anything else, a Kosmos+ page included (isBoardPage counts those as board pages), becomes the board's
+/// front page, so the token is never added to an address that is not this board. A `token`, `signin` or `boot` item
+/// already in the kept page is dropped, so the token added next is the one in board.token now, not one the address
+/// carried.
+func signInAgainPage(_ committed: URL?, board: (host: String, port: Int)) -> String {
+    let front = "http://\(board.host):\(board.port)/"
+    guard let u = committed, u.user == nil, u.password == nil, u.scheme?.lowercased() == "http",
+          let host = u.host?.lowercased(), host == board.host.lowercased(), (u.port ?? 80) == board.port,
+          var comps = URLComponents(url: u, resolvingAgainstBaseURL: false)
+    else { return front }
+    if let items = comps.queryItems {
+        let kept = items.filter { $0.name != "token" && $0.name != "signin" && $0.name != "boot" }
+        comps.queryItems = kept.isEmpty ? nil : kept
+    }
+    return comps.url?.absoluteString ?? front
+}
+
+/// #6358: PURE, for --kosmos-app-mode-selftest. Whether the board REFUSED the window's last sign-in, from the board's
+/// own answer: an accepted `?token=` is redirected to the clean address, a refused one is not, so the page the window
+/// committed on this board still carries `token=`. A board that was down never commits a page at all (the board's
+/// service worker leaves sign-in navigations to the network), which is no refusal. And only a refusal of the token
+/// held NOW counts: if board.token changed since (rotated, or rewritten by a start), one more sign-in may work.
+func signInWasRefused(_ committed: URL?, board: (host: String, port: Int), current: String?) -> Bool {
+    guard let current = current, let u = committed, u.scheme?.lowercased() == "http",
+          u.host?.lowercased() == board.host.lowercased(), (u.port ?? 80) == board.port,
+          let items = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems else { return false }
+    return items.contains { $0.name == "token" && $0.value == current }
+}
+
+/// #6358: PURE, for --kosmos-app-mode-selftest. What the app does with the page's "signed out": sign in again; wait
+/// (inside the once-a-minute limit); or give up, once, when the board refused the sign-in (signInWasRefused), there
+/// is no board token to sign in with, or `signInAgainTries` sign-ins in a row brought no good read (accepted, but the
+/// window still ends up signed out, so another would only reload it for nothing). Giving up loads a page that says to quit and reopen Kosmos; the app then stays
+/// out of it until a board read works (the page's badge post), which in practice means Kosmos is reopened.
+enum SignInAgain { case signIn, wait, giveUp, stay }
+let signInAgainTries = 3
+func signInAgainDecision(now: TimeInterval, last: TimeInterval?, refused: Bool, haveToken: Bool, gaveUp: Bool,
+                         triesWithoutRead: Int = 0) -> SignInAgain {
+    if gaveUp { return .stay }
+    if refused || !haveToken || triesWithoutRead >= signInAgainTries { return .giveUp }
+    return shouldSignInAgain(now: now, last: last) ? .signIn : .wait
+}
+
+/* #6358: the page's "this window is signed out" message. Only the board's own page is heard, as for the badge
+   below: a page from anywhere else cannot make the window load the board with its token. */
+final class SigninMessageProxy: NSObject, WKScriptMessageHandler {
+    weak var owner: AppDelegate?
+    init(_ owner: AppDelegate) { self.owner = owner }
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, let owner else { return }
+        let origin = message.frameInfo.securityOrigin
+        guard owner.isBoardOrigin(host: origin.host, port: origin.port, scheme: origin.protocol) else { return }
+        owner.pageSaysSignedOut()
+    }
+}
+
+/// #6358: PURE, for --kosmos-app-mode-selftest. A URL as the app's log may show it: a `token` query item (the one
+/// tokenizedBoardURL adds) reads `token=hidden`, and everything else is kept.
+func urlForLog(_ url: URL) -> String {
+    guard var comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+          let items = comps.queryItems, items.contains(where: { $0.name == "token" }) else { return url.absoluteString }
+    comps.queryItems = items.map { $0.name == "token" ? URLQueryItem(name: "token", value: "hidden") : $0 }
+    return comps.url?.absoluteString ?? "(a board address)"
 }
 
 /* #3996: the page's waiting count, handed to the app. A separate object held WEAKLY to the app:
@@ -1667,7 +1872,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
                                          mic: AVCaptureDevice.authorizationStatus(for: .audio), settingsId: settingsId)
         awaitingAllow = outcome.keepOpen
         // Says on the first real use whether the switch was seen without a relaunch (unmeasured until then).
-        logLine("voice: back from Settings (" + settingsPane + ", \(Int(Date().timeIntervalSince(at))) s): speech " + Self.statusName(SFSpeechRecognizer.authorizationStatus())
+        logToSystem("voice: back from Settings (" + settingsPane + ", \(Int(Date().timeIntervalSince(at))) s): speech " + Self.statusName(SFSpeechRecognizer.authorizationStatus())
                 + ", microphone " + Self.statusName(AVCaptureDevice.authorizationStatus(for: .audio)) + " -> " + (outcome.event?["kind"] ?? (outcome.keepOpen ? "still open" : "closed")))
         if let event = outcome.event { emit(event) }
     }
@@ -1775,7 +1980,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         let asked = Date()
         SFSpeechRecognizer.requestAuthorization { status in
             DispatchQueue.main.async {
-                logLine("voice: speech permission " + Self.statusName(speechBefore) + " -> " + Self.statusName(status) + " in \(Int(Date().timeIntervalSince(asked) * 1000)) ms")
+                logToSystem("voice: speech permission " + Self.statusName(speechBefore) + " -> " + Self.statusName(status) + " in \(Int(Date().timeIntervalSince(asked) * 1000)) ms")
                 guard mine == self.session else { return }
                 guard status == .authorized else { self.refuse(Self.speechRefusal(status)); return }
                 let micBefore = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -1940,11 +2145,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // false and the next press on the wrong branch.
     private var boardLoadNavigation: WKNavigation?
     // #965: after the first user reload, every board start is user-initiated
-    // (nothing but launch and Reload call loadBoard). The failure alert
+    // (loadBoard's callers: launch, Reload (and its navigation-failure
+    // fall-through), runAgentsHere, a connect choice that could not be
+    // saved, and Back to This Computer). The failure alert
     // reads differently for a press than for a launch: a press suggests
     // retrying before it suggests reinstalling. Never reset -- launch
-    // happens once, before any press can.
+    // happens once, before any press can. #6411: Back to This Computer also
+    // calls loadBoard, and marks its own start (boardStartFromBackHome),
+    // since this flag stays true after any Reload.
     private var boardRecoveryIsUserInitiated = false
+    // #6411: the next loadBoard was asked for by View > Back to This Computer. Set by backToThisComputer just before
+    // it calls loadBoard; loadBoard reads it into that start's origin and clears it before any of its returns, so it
+    // belongs to exactly one start whichever way that start ends (it cannot outlive an early return, which never
+    // sets boardStartInFlight). Main-thread only.
+    private var boardStartFromBackHome = false
     // #965: a board start is already running on the background queue; reload
     // requests are ignored until it resolves, so two Cmd-R presses (or the
     // test seam firing during a slow boot) cannot race two `kosmos start`
@@ -1998,6 +2212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // EXCEPT a #2094 self-update relaunch, which hands us a one-shot handoff signal so
         // it is not mistaken for a duplicate (deduping there would quit to nothing).
         let handoff = consumeFreshRelaunchHandoff()
+        let launchedQuietly = consumeQuietRelaunch()   // #6158: a restart nobody asked for, made behind another app
         let other = otherRunningInstance()
         if shouldDeferToExistingInstance(handoff: handoff, otherRunning: other != nil) {
             logLine("#2124: another Kosmos instance is already running; activating it and exiting this duplicate")
@@ -2037,7 +2252,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         } else {
             loadBoard()
         }
-        NSApp.activate(ignoringOtherApps: true)
+        // #6158: a quiet restart stays behind the app the person (or an agent's simulator run) is using.
+        if launchedQuietly { logLine("#6158: restarted onto a new version behind another app; not taking focus") }
+        else { NSApp.activate(ignoringOtherApps: true) }
         if computerMode != .connect {
             // #2125 slice 3: keep the native Accessibility verdict fresh for the first-run
             // gate (spawned under the bundled tmux; see startA11yTrustChecks). Best-effort
@@ -2357,6 +2574,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func loadBoard() {
+        // #6411: what began THIS start, captured and the marker cleared first, before anything below can leave this
+        // function. Captured now, as the alert wording belongs to what triggered this attempt, not to the flags when
+        // the start resolves (boardStartAdvice still checks, when it shows, that the item is there to choose).
+        let origin: BoardStartOrigin = boardStartFromBackHome ? .backHome : (boardRecoveryIsUserInitiated ? .reload : .launch)
+        boardStartFromBackHome = false
         // #4356: every way into here (launch, Reload's fall-through, a navigation failure's one-shot)
         // would run `kosmos start`, which clears board.stopped. None of them may on a connect computer.
         guard computerMode != .connect else {
@@ -2390,7 +2612,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 showStartupFailureAlert(detail: "The address \(urlString) is not a valid URL.")
                 return
             }
-            logLine("LOADING \(url.absoluteString) (KOSMOS_URL override, test path)")
+            logLine("LOADING \(urlForLog(url)) (KOSMOS_URL override, test path)")   // #6358: never the token
             /* #3996: the page on the chosen board still feeds the Dock badge (its origin is the board);
                the app's own poll needs the resolved port, so it stays off here. */
             if let host = url.host { badgeOrigin = (host, url.port ?? Self.defaultPort(url.scheme)) }
@@ -2431,9 +2653,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         boardStartInFlight = true
         boardStartGeneration += 1
         let generation = boardStartGeneration
-        // Captured NOW: the alert wording belongs to what triggered THIS
-        // attempt, not to whatever the flag says when the start resolves.
-        let userInitiated = boardRecoveryIsUserInitiated
+        // The alert wording follows `origin`, captured at the top of this
+        // function for THIS attempt (#6411).
         // Watchdog: if the start never resolves (the drain in startBoard can
         // block past the child's exit if a future grandchild inherits stderr
         // -- see the comment there), a permanently-true flag would make every
@@ -2479,12 +2700,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 // failure could surface a "could not start" alert over a
                 // page the user has long since reloaded to health. Cost: a
                 // late lone SUCCESS is also dropped -- acceptable, the user's
-                // next Cmd-R reaches the now-running board anyway.
+                // next retry reaches the now-running board anyway (Cmd-R, or
+                // View > Back to This Computer for a start from that item,
+                // as the alert below says: boardStartRetry).
                 self.boardStartGeneration += 1
                 // Say so; a silent blank window is the failure mode this
                 // whole feature exists to end. Neutral headline: the start
                 // did not conclusively fail, it is being given up on.
-                self.showStartupFailureAlert(detail: "Kosmos is taking unusually long to start. Click OK, then press Cmd-R (View > Reload) to try again.", title: "Kosmos is still starting")
+                let advise = self.boardStartAdvice(for: origin)
+                self.showStartupFailureAlert(detail: "Kosmos is taking unusually long to start. Click OK, then \(boardStartRetry(advise)).", title: "Kosmos is still starting")
             }
         }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -2534,23 +2758,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     // Bash launcher wording verbatim, including its ONE distinction:
                     // "your Kosmos" only for a different account opening its OWN
                     // install (isOwnAccount == false); the generic "Kosmos" for
-                    // every other failure, override included. A USER-INITIATED
-                    // retry (Cmd-R, #965) suggests trying again before it
-                    // suggests reinstalling -- a mid-session failure can be a
-                    // moment's port conflict or an upgrade window, and
-                    // "reinstall" as the first remedy is launch-path advice.
+                    // every other failure, override included. The remedy after it
+                    // follows what began this start (boardStartFailureRemedy: launch,
+                    // Reload #965, or Back to This Computer #6411).
                     let whose = resolved.isOwnAccount ? "Kosmos" : "your Kosmos"
-                    let remedy = userInitiated
-                        ? "This can be temporary: click OK, then press Cmd-R (View > Reload) to try again. If it keeps failing, installing it again usually fixes this"
-                        : "Installing it again usually fixes this"
-                    self.showStartupFailureAlert(detail: "Something went wrong while \(whose) was starting. \(remedy): open installkosmos.com and click Download for macOS. Your agents and settings stay on this computer; installing again does not remove them.")
+                    let advise = self.boardStartAdvice(for: origin)
+                    self.showStartupFailureAlert(detail: "Something went wrong while \(whose) was starting. \(boardStartFailureRemedy(advise))")
                 case .alreadyRunningOrStarted:
                     let urlString = "http://127.0.0.1:\(resolved.port)"
                     guard let url = self.withModeQuery(tokenizedBoardURL(urlString)) else {
                         self.showStartupFailureAlert(detail: "The address \(urlString) is not a valid URL.")
                         return
                     }
-                    logLine("LOADING \(url.absoluteString)")
+                    logLine("LOADING \(urlForLog(url))")   // #6358: never the token
                     self.boardLoadNavigation = self.webView.load(URLRequest(url: url))
                 }
             }
@@ -2764,6 +2984,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Settings… (Cmd-,) opens the page's own Settings, which on a connect computer is the OTHER
         // computer's; hidden there, as the plan says this computer's settings are not on that page.
         items.first(where: { $0.action == #selector(AppDelegate.openSettings(_:)) })?.isHidden = computerMode == .connect
+        updateBackHomeItem()
+    }
+
+    /// #6411: whether the window is on another computer. True in any mode but connect (run, both, or not chosen
+    /// yet): a connect computer has no board of its own to go back to. Read at every commit, every switch through
+    /// updateRunAgentsItem (to connect, and Run agents here), and when the page goes away; each read reads the small
+    /// address file (ownKosmosPlusHost), never a cached copy.
+    private func isOnAnotherComputer() -> Bool {
+        computerMode != .connect && showsAnotherComputer(committedPageURL, board: badgeOrigin, ownPlusHost: ownKosmosPlusHost())
+    }
+
+    /// #6411: the origin a failed or hung board start advises with, read when its message is shown: the one place
+    /// that pairs boardStartAdviceOrigin with whether View > Back to This Computer is shown right now.
+    private func boardStartAdvice(for origin: BoardStartOrigin) -> BoardStartOrigin {
+        boardStartAdviceOrigin(origin, itemShown: isOnAnotherComputer())
+    }
+
+    private func updateBackHomeItem() {
+        let view = NSApp.mainMenu?.items.first(where: { $0.submenu?.title == "View" })?.submenu
+        view?.items.first(where: { $0.action == #selector(AppDelegate.backToThisComputer(_:)) })?.isHidden = !isOnAnotherComputer()
+    }
+
+    /// #6411: View > Back to This Computer. Loads this computer's own board the way a launch does (loadBoard: the
+    /// board is found running, or started, and its page loaded) in place of the other computer's page.
+    @objc func backToThisComputer(_ sender: Any?) {
+        // Checked again: the item was shown for the page at its last commit, and the address file can change since,
+        // so a press when the window is no longer on another computer beeps. The item also stays shown while a board
+        // start is in flight (nothing hides it then), and a press during one beeps too: the start is already under way.
+        guard isOnAnotherComputer(), !boardStartInFlight else {
+            NSSound.beep(); logLine("backToThisComputer: refused (not on another computer, or a start is in flight)"); return
+        }
+        // runAgentsHere's update hold (updateLookInFlight, and the install marker under modeHome): no board start while
+        // an update is copying files in (#4382). Not its stopsInFlight check, which applies only in connect, where
+        // this item is refused anyway.
+        let updating = updateLookInFlight || (modeHome.map { Self.installUnderWay(kosmosHome: $0) } ?? false)
+        guard !updating else {
+            logLine("backToThisComputer: refused for now, an update is still running")
+            showStartupFailureAlert(detail: "Kosmos is still updating on this computer. Try again when it has finished.", title: "One moment")
+            return
+        }
+        window.makeKeyAndOrderFront(nil)
+        logLine("backToThisComputer: loading this computer's board")
+        // Marked as this start's origin: if it fails or hangs, the alert says to choose this item again. Cmd-R would
+        // usually just reload the other computer's page (it starts the board only if that reload's navigation fails,
+        // through handleNavigationFailure's one fall-through to loadBoard). boardRecoveryIsUserInitiated cannot keep
+        // that wording away (it is never reset, so it is true after any Reload). The failure keeps Reload's fallback
+        // (if it keeps failing, install again); only the retry step differs. loadBoard reads and clears the marker.
+        // If the item has gone by the time the message shows, the advice is Reload's, for the page then on screen
+        // (each way the item goes, and the two-step case, in boardStartAdviceOrigin).
+        boardStartFromBackHome = true
+        loadBoard()
     }
 
     // MARK: #4382: a connect computer keeps itself current, with no board
@@ -3661,6 +3932,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let config = WKWebViewConfiguration()
         // #3996: the page hands the app its waiting count each time it polls the board.
         config.userContentController.add(BadgeMessageProxy(delegate), name: "kosmosBadge")
+        // #6358: the page says this window's board session ended (the board restarted).
+        config.userContentController.add(SigninMessageProxy(delegate), name: "kosmosSignin")
         // #4356: the first screen's choice (web/index.html frChoose).
         config.userContentController.add(ModeMessageProxy(delegate), name: "kosmosMode")
         // #4409: the mic button's bridge. Its presence is how the page knows it may draw the button.
@@ -4395,6 +4668,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }.resume()
     }
 
+    /// #6358: the board no longer knows this window's session. Load the board's page again with `?token=` (read from
+    /// board.token now, so a rotated token is used), which the board answers with a new session. Not on a connect
+    /// computer (it has no local board here), and at most once per signInAgainMinGap. The URL is never logged: it
+    /// carries the token.
+    private var lastSignInAgainAt: TimeInterval?
+    private var signInAgainGaveUp = false
+    private var signInsWithoutRead = 0
+    /// #6358: a board read that worked (the page's badge post) ends a give-up and the count of fruitless sign-ins.
+    func boardAnsweredForSignIn() { signInAgainGaveUp = false; signInsWithoutRead = 0 }
+    func pageSaysSignedOut() {
+        guard computerMode != .connect, let board = badgeOrigin else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let token = boardTokenValue()   // read once, so the refusal check and the sign-in use the same token
+        let refused = signInWasRefused(committedPageURL, board: board, current: token)
+        switch signInAgainDecision(now: now, last: lastSignInAgainAt, refused: refused, haveToken: token != nil,
+                                   gaveUp: signInAgainGaveUp, triesWithoutRead: signInsWithoutRead) {
+        case .stay:
+            return
+        case .wait:
+            logLine("#6358: the page is still signed out; not signing in again within \(Int(signInAgainMinGap))s")
+            return
+        case .giveUp:
+            signInAgainGaveUp = true
+            logLine(token == nil ? "#6358: there is no board token to sign in with; showing the could-not-sign-in page"
+                    : refused ? "#6358: the board refused the window's sign-in; showing the could-not-sign-in page"
+                    : "#6358: \(signInAgainTries) sign-ins brought no board read; showing the could-not-sign-in page")
+            if let url = URL(string: "http://\(board.host):\(board.port)/?signin=failed") { webView.load(URLRequest(url: url)) }
+            return
+        case .signIn:
+            break
+        }
+        lastSignInAgainAt = now   // systemUptime stops while the Mac sleeps: the throttle only ever waits longer
+        signInsWithoutRead += 1
+        // signInAgainPage keeps the page only on this board's own origin, so the token is never added elsewhere.
+        guard boardTokenValue() != nil, let url = tokenizedBoardURL(signInAgainPage(committedPageURL, board: board)) else {
+            logLine("#6358: the page is signed out and there is no board token to sign in with; not reloading")
+            return
+        }
+        logLine("#6358: the page is signed out; signing the window in again")
+        webView.load(URLRequest(url: url))
+    }
+
     /// Whether a page origin is this app's board (127.0.0.1 on the resolved port), for BadgeMessageProxy.
     // The scheme only resolves WebKit's port 0; it is not part of the trust check (the board is plain http).
     func isBoardOrigin(host: String, port: Int, scheme: String? = nil) -> Bool {
@@ -4415,6 +4730,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            app's miss count starts again (round 7): misses from before a stretch the page fed do not
            add up to a later "three in a row". */
         badgeMisses = 0
+        boardAnsweredForSignIn()   // #6358: a read that worked proves the window's last sign-in
         if badgeReadFailing { badgeReadFailing = false; logLine("dock badge: the board answers again (through the page)") }
         badgeAsked += 1
         showBadge(Self.badgeLabel(fromCount: body), asked: badgeAsked)
@@ -4851,9 +5167,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            does NOT mistake this deliberate relaunch for a duplicate and defer back to
            this (exiting) instance -- which would quit to nothing. Two channels, either
            suffices: the launch ENVIRONMENT (handed directly to the new process, no disk),
-           preserving the current environment and adding the one key; and a token FILE
-           written just below as a fallback. A normal user launch carries neither. */
-        conf.environment = ProcessInfo.processInfo.environment
+           preserving the current environment and adding the handoff key (the merge below); and a
+           token FILE written just below as a fallback. A normal user launch carries neither.
+           #6158: before that merge, a restart nobody asked for, made while another app is in front, opens the fresh
+           copy without activating it and tells it so with the quiet key (relaunchMayActivate). The quiet key is
+           removed first, so it is only ever this restart's answer. */
+        let mayActivate = relaunchMayActivate(asked: asked, wasActive: NSApp.isActive)
+        conf.activates = mayActivate
+        logLine("relaunch: the fresh copy opens " + (mayActivate ? "in front" : "behind the front app, not taking focus (#6158)"))
+        var relaunchEnv = ProcessInfo.processInfo.environment
+        relaunchEnv.removeValue(forKey: kRelaunchQuietEnvKey)
+        if !mayActivate { relaunchEnv[kRelaunchQuietEnvKey] = "1" }
+        conf.environment = relaunchEnv
             .merging([kRelaunchHandoffEnvKey: String(Date().timeIntervalSince1970)]) { _, new in new }
         writeRelaunchHandoffToken()
         NSWorkspace.shared.openApplication(at: target, configuration: conf) { app, err in
@@ -5014,6 +5339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         logLine("WEB CONTENT PROCESS TERMINATED (blank window until reload)")
         voice?.hostCancel("page process ended")   // #4409 (review 3): no page is left to show the mic is on
         committedPageURL = nil   // #5167: no page is on screen to save downloads from
+        updateBackHomeItem()   // #6411
     }
 
     /// #4409 (review 3): a new page (a reload, a navigation) starts with every mic drawn off, so the old page's
@@ -5021,6 +5347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         voice?.hostCancel("new page loaded")
         committedPageURL = webView.backForwardList.currentItem?.url   // #5167: the origin a download must share (moves only at a commit)
+        updateBackHomeItem()   // #6411: shown only while the window is on another computer
         pageCommits += 1   // #5167: an Allow asked before this commit does not count for the new page
     }
 
@@ -5131,7 +5458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             NSSound.beep()
             logLine("reload: ignored, a board start is already in flight")
         case .reload:
-            logLine("reload: webView.reload() of \(webView.url?.absoluteString ?? "<committed page>")")
+            logLine("reload: webView.reload() of \(webView.url.map(urlForLog) ?? "<committed page>")")   // #6358: never the token
             recoverOnReloadFailure = true
             reloadNavigation = webView.reload()
             if reloadNavigation == nil {
@@ -5395,6 +5722,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                                     action: #selector(AppDelegate.reloadBoard(_:)), keyEquivalent: "r")
         reloadItem.target = reloadTarget
         viewMenu.addItem(reloadItem)
+        /* #6411: since #6406 the window can show another computer, and the only way home was that computer's own
+           switcher (to this computer's Kosmos+ address, a sign-in there once) or quitting. Shown only while the
+           window is on another computer (updateBackHomeItem); hidden from the start, so a window on this computer
+           never offers it. A hidden item's key equivalent is ignored (NSMenuItem.h), so the shortcut works exactly
+           while the item shows; the action still checks again, in case what it was shown for has changed since. */
+        let homeItem = NSMenuItem(title: "Back to This Computer",
+                                  action: #selector(AppDelegate.backToThisComputer(_:)), keyEquivalent: "h")
+        homeItem.keyEquivalentModifierMask = [.command, .shift]
+        homeItem.target = reloadTarget
+        homeItem.isHidden = true
+        viewMenu.addItem(homeItem)
 
         // ── Window ────────────────────────────────────────────────────────
         let windowMenuItem = NSMenuItem()
@@ -5468,6 +5806,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // #4356: hidden on a connect computer (updateRunAgentsItem), and refused here too, in case its
         // Cmd-, still fires: the page's Settings there are the OTHER computer's.
         guard computerMode != .connect else { NSSound.beep(); return }
+        /* #6411: since #6406 a run or both Mac can show ANOTHER computer in this window, and its Settings tab is
+           that computer's while this menu reads as this computer's. Refused the same way unless the window is on this
+           computer: its own board, or its own Kosmos+ address (where the other computer's switcher sends a person
+           back). Before the first page commits there is no page to drive, so that refuses too. The refusal comes
+           before the window is brought forward: a hidden window stays hidden and beeps. */
+        guard isOwnSettingsPage(committedPageURL, board: badgeOrigin, ownPlusHost: ownKosmosPlusHost()) else {
+            NSSound.beep(); logLine("openSettings: refused, the window is not on this computer"); return
+        }
         /* ⚠️ THE WINDOW MAY BE HIDDEN. ⌘W (new on this branch) routes through
            `windowShouldClose`, which orders the window out and returns false --
            the app keeps running with no window on screen. Switching a tab on an
@@ -6599,6 +6945,27 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     }
     ran += 6
 
+    /* #6158: a restart nobody asked for, behind another app, never takes focus; the flag that says so is one-shot. */
+    var quietBad = 0
+    func quietCheck(_ ok: Bool, _ what: String) {
+        if !ok { quietBad += 1 }
+        print((ok ? "PASS  " : "FAIL  ") + "quiet: " + what)
+    }
+    quietCheck(!relaunchMayActivate(asked: false, wasActive: false), "a restart nobody asked for, behind another app, does not take focus")
+    quietCheck(relaunchMayActivate(asked: true, wasActive: false), "the person pressed Restart: the fresh copy comes to the front")
+    quietCheck(relaunchMayActivate(asked: false, wasActive: true), "Kosmos was already in front: it stays in front")
+    setenv(kRelaunchQuietEnvKey, "1", 1)
+    quietCheck(consumeQuietRelaunch(), "a fresh copy told it was a quiet restart reads it")
+    quietCheck(!consumeQuietRelaunch() && ProcessInfo.processInfo.environment[kRelaunchQuietEnvKey] == nil,
+               "and only once: the board it starts never inherits it")
+    setenv(kRelaunchQuietEnvKey, "0", 1)
+    quietCheck(!consumeQuietRelaunch(), "only the value 1 means quiet")
+    if quietBad > 0 {
+        print("\nstale-check: a restart nobody asked for would take focus, or its flag lingers (#6158)")
+        exit(1)
+    }
+    ran += 6
+
     /* 🛑 #2094: THE RELAUNCH TARGET, AS ROWS. Josh's window ran a stale 0.6.26
        bundle against a 0.6.27 board; offerRelaunch reopened Bundle.main (that same
        stale bundle) forever. pickFresh chooses the installed copy that carries the
@@ -6695,6 +7062,72 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     mode(Array("".utf8), .unreadable, "AN EMPTY FILE ASKS AGAIN, it does not become run")
     mode(Array("unset".utf8), .unreadable, "unset is not a stored choice")
     mode([0xff, 0xfe], .unreadable, "bytes that are not text")
+    // #6358: the sign-in-again throttle.
+    func again(_ now: TimeInterval, _ last: TimeInterval?, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = shouldSignInAgain(now: now, last: last)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got ? "again      " : "wait       ") + why)
+    }
+    again(100, nil, true, "never tried: sign in again")
+    again(100, 100 - signInAgainMinGap + 1, false, "tried under a minute ago: wait (a refused token must not loop)")
+    again(100, 100 - signInAgainMinGap, true, "a minute since the last try: again")
+    // #6358: what the log may show of a board address.
+    func logged(_ s: String, _ want: String, _ why: String) {
+        ran += 1
+        let got = URL(string: s).map(urlForLog) ?? "(not a URL)"
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "log        " + why + (got == want ? "" : " -- got " + got))
+    }
+    logged("http://127.0.0.1:16180/?token=abc123", "http://127.0.0.1:16180/?token=hidden", "the token is hidden")
+    logged("http://127.0.0.1:16180/?first-run=1&token=abc123&mode=run", "http://127.0.0.1:16180/?first-run=1&token=hidden&mode=run", "other items are kept")
+    logged("http://127.0.0.1:16180/", "http://127.0.0.1:16180/", "no token: unchanged")
+    // #6358: the page the window signs in again on: never an address that is not this board.
+    func againOn(_ s: String?, _ want: String, _ why: String) {
+        ran += 1
+        let got = signInAgainPage(s.flatMap { URL(string: $0) }, board: ("127.0.0.1", 16180))
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "again on   " + why + (got == want ? "" : " -- got " + got))
+    }
+    againOn("http://127.0.0.1:16180/?tab=projects#p1", "http://127.0.0.1:16180/?tab=projects#p1", "this board's page is kept")
+    againOn("https://amy.kosmosplus.com/", "http://127.0.0.1:16180/", "A KOSMOS+ PAGE IS NOT THIS BOARD: the front page, never the token on a remote host")
+    againOn("http://127.0.0.1:16200/", "http://127.0.0.1:16180/", "another port is not this board")
+    againOn("http://user@127.0.0.1:16180/", "http://127.0.0.1:16180/", "a user in the address is refused")
+    againOn(nil, "http://127.0.0.1:16180/", "no committed page: the front page")
+    againOn("http://127.0.0.1:16180/?tab=a&token=OLD", "http://127.0.0.1:16180/?tab=a", "a stale token in the page is dropped (board.token's is added next)")
+    againOn("http://127.0.0.1:16180/?signin=failed", "http://127.0.0.1:16180/", "the could-not-sign-in marker is dropped")
+    againOn("http://127.0.0.1:16180/?boot=N&tab=a", "http://127.0.0.1:16180/?tab=a", "a stale boot= is dropped too")
+    func decide(_ last: TimeInterval?, _ refused: Bool, _ haveToken: Bool, _ gaveUp: Bool, _ want: SignInAgain, _ why: String) {
+        ran += 1
+        let got = signInAgainDecision(now: 1000, last: last, refused: refused, haveToken: haveToken, gaveUp: gaveUp)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "decide     " + why)
+    }
+    decide(nil, false, true, false, .signIn, "first sign-out: sign in")
+    decide(1000 - signInAgainMinGap, false, true, false, .signIn, "a minute later, not refused (a second restart): sign in again")
+    decide(1000 - 1, false, true, false, .wait, "within the minute, not refused: wait")
+    decide(1000 - 1, true, true, false, .giveUp, "THE BOARD REFUSED THE SIGN-IN: give up once, no reload loop")
+    decide(nil, false, false, false, .giveUp, "no board token to sign in with: give up, say what to do")
+    decide(1000 - signInAgainMinGap, true, true, true, .stay, "after giving up: stay out of it")
+    func tries(_ n: Int, _ want: SignInAgain, _ why: String) {
+        ran += 1
+        let got = signInAgainDecision(now: 1000, last: 1000 - signInAgainMinGap, refused: false, haveToken: true, gaveUp: false, triesWithoutRead: n)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "tries      " + why)
+    }
+    tries(signInAgainTries - 1, .signIn, "two accepted sign-ins with no read yet: try once more")
+    tries(signInAgainTries, .giveUp, "THREE ACCEPTED SIGN-INS AND STILL NO READ: give up, not a reload every minute forever")
+    func refusedOn(_ s: String?, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = signInWasRefused(s.flatMap { URL(string: $0) }, board: ("127.0.0.1", 16180), current: "T")
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "refused?   " + why)
+    }
+    refusedOn("http://127.0.0.1:16180/?tab=a&token=T", true, "the board kept ?token= (no redirect): refused")
+    refusedOn("http://127.0.0.1:16180/?tab=a", false, "redirected to the clean address: accepted")
+    refusedOn("https://amy.kosmosplus.com/?token=T", false, "another origin says nothing about this board")
+    refusedOn(nil, false, "nothing committed (the board was down): not a refusal")
+    refusedOn("http://127.0.0.1:16180/?token=OLD", false, "a refusal of an older token: board.token changed since, so try once more")
     func link(_ s: String, _ clicked: Bool, _ want: ConnectLink, _ why: String) {
         ran += 1
         let got = URL(string: s).map { connectLinkDecision(for: $0, clicked: clicked) }
@@ -6803,6 +7236,109 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     if connectBoard { bad += 1 }
     print((connectBoard ? "FAIL  board      " : "PASS  not        ") + "a connect computer has no board of its own to save from")
     board(nil, false, "no page yet")
+    func own(_ s: String?, _ mine: (host: String, port: Int)?, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = isOwnBoardPage(s.flatMap { URL(string: $0) }, board: mine)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got ? "own board" : "not own").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    let here = (host: "127.0.0.1", port: 16180)
+    own("http://127.0.0.1:16180/?tab=agents", here, true, "this computer's own board: its Settings are this computer's")
+    own("https://josh.kosmosplus.com/#kst=abc", here, false, "ANOTHER COMPUTER IN THE WINDOW (#6406): ITS SETTINGS ARE NOT THIS COMPUTER'S")
+    own("http://127.0.0.1:3000/", here, false, "another local server is not this board")
+    own("http://localhost:16180/", here, false, "the board is the host it was loaded as")
+    own("http://127.0.0.1:16180/", nil, false, "a connect computer has no board of its own")
+    own(nil, here, false, "no page committed yet")
+    own("http://u@127.0.0.1:16180/", here, false, "a user part on the board's address is not the board")
+    own("ftp://127.0.0.1:16180/", here, false, "only http or https")
+    own("https://127.0.0.1/", (host: "127.0.0.1", port: 443), true, "https with no port is port 443")
+    own("http://localhost:16180/", (host: "LocalHost", port: 16180), true, "the loaded host in any case")
+    func settings(_ s: String, _ ownPlus: String?, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = isOwnSettingsPage(URL(string: s), board: here, ownPlusHost: ownPlus)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got ? "ours" : "not ours").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    settings("https://home.kosmosplus.com/?tab=agents", "home.kosmosplus.com", true, "this computer's own Kosmos+ address: where the way back lands")
+    settings("https://HOME.kosmosplus.com/", "home.kosmosplus.com", true, "its host in any case")
+    settings("https://josh.kosmosplus.com/", "home.kosmosplus.com", false, "ANOTHER COMPUTER'S ADDRESS IS NOT THIS COMPUTER'S SETTINGS")
+    settings("https://home.kosmosplus.com/", nil, false, "no address of its own (never set up, or forgotten): a Kosmos+ page is not ours")
+    settings("http://home.kosmosplus.com/", "home.kosmosplus.com", false, "an http address is not a Kosmos+ page")
+    settings("https://home.kosmosplus.com:8443/", "home.kosmosplus.com", false, "nor is one on another port")
+    settings("https://u@home.kosmosplus.com/", "home.kosmosplus.com", false, "nor one with a user part")
+    settings("https://evil.example/", "evil.example", false, "A FILE NAMING A HOST THAT IS NOT A KOSMOS+ ADDRESS ACCEPTS NOTHING")
+    settings("http://127.0.0.1:16180/", nil, true, "CONTROL: the own board, with no address of its own")
+    settings("http://127.0.0.1:16180/", "home.kosmosplus.com", true, "CONTROL: the own board, with an address of its own")
+    settings("http://127.0.0.1:3000/", "home.kosmosplus.com", false, "ANOTHER LOCAL SERVER IS NOT OURS (the own-board half says no)")
+    settings("https://home.kosmosplus.com/", "HOME.kosmosplus.com", true, "the file's host in any case")
+    func file(_ raw: String?, _ want: String?, _ why: String) {
+        ran += 1
+        let got = ownPlusHostFrom(raw)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "address".padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    file("home.kosmosplus.com\n", "home.kosmosplus.com", "the board's file as written: a bare host and a newline")
+    file("  HOME.kosmosplus.com  ", "home.kosmosplus.com", "trimmed and lowercased")
+    file("\n", nil, "an empty file is no address")
+    file(nil, nil, "no file is no address")
+    func away(_ s: String?, _ ownPlus: String?, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = showsAnotherComputer(s.flatMap { URL(string: $0) }, board: here, ownPlusHost: ownPlus)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got ? "away" : "home").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    away("https://amy.kosmosplus.com/", "home.kosmosplus.com", true, "ANOTHER COMPUTER: Back to This Computer shows")
+    away("https://amy.kosmosplus.com/", nil, true, "another computer, with Kosmos+ never set up here")
+    away("https://home.kosmosplus.com/", "home.kosmosplus.com", false, "this computer's own Kosmos+ address is home")
+    away("http://127.0.0.1:16180/?tab=agents", "home.kosmosplus.com", false, "this computer's own board is home")
+    away("https://login.kosmosplus.com/", "home.kosmosplus.com", false, "Kosmos+ sign-in is not a computer")
+    away("https://example.com/", "home.kosmosplus.com", false, "a foreign site is not another computer")
+    away(nil, "home.kosmosplus.com", false, "no page yet")
+    // #6411: how a failed or hung board start says to try again, by what began it (one row per origin, each
+    // reading both boardStartRetry, the watchdog's advice, and boardStartFailureRemedy, the failure alert's).
+    func retry(_ origin: BoardStartOrigin, _ ok: Bool, _ why: String) {
+        ran += 1
+        if !ok { bad += 1 }
+        print((ok ? "PASS  " : "FAIL  ") + origin.rawValue.padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    // Each row's checks are named Bools, combined at the end, to keep every expression small for the compiler.
+    let launchRetry = boardStartRetry(.launch), launchFix = boardStartFailureRemedy(.launch)
+    let launchWatchdogCmdR = launchRetry.contains("press Cmd-R (View > Reload)")
+    let launchSaysInstall = launchFix.hasPrefix("Installing it again usually fixes this")
+    let launchNoCmdR = !launchFix.contains("Cmd-R")
+    retry(.launch, launchWatchdogCmdR && launchSaysInstall && launchNoCmdR,
+          "a launch: the watchdog says Cmd-R, the failure says install again")
+    let reloadRetry = boardStartRetry(.reload), reloadFix = boardStartFailureRemedy(.reload)
+    let reloadWatchdogCmdR = reloadRetry.contains("press Cmd-R (View > Reload)")
+    let reloadTriesFirst = reloadFix.hasPrefix("This can be temporary: click OK, then press Cmd-R (View > Reload) to try again.")
+    let reloadThenInstall = reloadFix.contains("If it keeps failing, installing it again usually fixes this")
+    retry(.reload, reloadWatchdogCmdR && reloadTriesFirst && reloadThenInstall,
+          "after a Reload: try Cmd-R again first, then install again")
+    let homeRetry = boardStartRetry(.backHome), homeFix = boardStartFailureRemedy(.backHome)
+    let homeWatchdogItem = homeRetry.contains("choose View > Back to This Computer (Cmd-Shift-H)")
+    let homeWatchdogNoCmdR = !homeRetry.contains("Cmd-R")
+    let homeFixItem = homeFix.contains("Back to This Computer")
+    let homeFixInstall = homeFix.contains("install")
+    let homeFixNoCmdR = !homeFix.contains("Cmd-R")
+    let homeFixAsReload = homeFix.replacingOccurrences(of: homeRetry, with: reloadRetry) == reloadFix
+    let homeWatchdogOK = homeWatchdogItem && homeWatchdogNoCmdR
+    let homeFixOK = homeFixItem && homeFixInstall && homeFixNoCmdR && homeFixAsReload
+    retry(.backHome, homeWatchdogOK && homeFixOK,
+          "BACK TO THIS COMPUTER: choose it again, never Cmd-R (it reloads the other computer); else the same as Reload")
+    // #6411: the advice follows the item: a back-home start whose item has gone (the page process ended)
+    // advises Reload.
+    func advise(_ origin: BoardStartOrigin, _ shown: Bool, _ want: BoardStartOrigin, _ why: String) {
+        ran += 1
+        let got = boardStartAdviceOrigin(origin, itemShown: shown)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + got.rawValue.padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    advise(.backHome, true, .backHome, "a back-home start, item shown: choose it again")
+    advise(.backHome, false, .reload, "A BACK-HOME START WHOSE ITEM HAS GONE: Cmd-R (brings the item back), not a hidden item")
+    advise(.launch, true, .launch, "a launch, item shown: unchanged")
+    advise(.launch, false, .launch, "a launch, item hidden: unchanged")
+    advise(.reload, true, .reload, "a Reload, item shown: unchanged")
+    advise(.reload, false, .reload, "a Reload, item hidden: unchanged")
     func dest(_ suggested: String, _ taken: Set<String>, _ want: String, _ why: String) {
         ran += 1
         let dir = URL(fileURLWithPath: "/D", isDirectory: true)
@@ -6896,7 +7432,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 112   // #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 181   // #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

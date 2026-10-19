@@ -116,7 +116,7 @@ function chk(ok, label, extra) {
       visible: vis(box),
       below: !!(b && p && b.top >= p.bottom - 1),
       overlap: !!(b && p && b.left < p.right && b.right > p.left),
-      rows: [...document.querySelectorAll('#d-files-list .pj-doc')].map((r) => ({ name: r.dataset.doc, meta: (r.querySelector('.pj-doc-w') || {}).textContent || '' })),
+      rows: [...document.querySelectorAll('#d-files-list .pj-doc')].map((r) => ({ name: r.dataset.doc, meta: (r.querySelector('.pj-doc-w') || {}).textContent || '', title: r.title || '' })),
       msg: (document.getElementById('d-files-msg') || {}).textContent || '',
       finder: vis(document.getElementById('d-files-finder')),
       all: vis(document.getElementById('d-files-all')),
@@ -141,7 +141,7 @@ function chk(ok, label, extra) {
       chk(va.agent.size === va.project.size && va.agent.weight === va.project.weight && parseFloat(va.agent.size) < 13,
         `${tag} #4570: View All is the project page's small link (same size and weight)`, JSON.stringify(va));
       chk(JSON.stringify(a.rows.map((r) => r.name)) === JSON.stringify(['report.pdf', 'older-notes.md']), `${tag} April's files are listed newest first`, JSON.stringify(a.rows));
-      chk(a.rows.length > 0 && /·/.test(a.rows[0].meta) && /\d+(\.\d+)?\s?(B|KB|MB)$/.test(a.rows[0].meta), `${tag} a row shows a date and a size`, JSON.stringify(a.rows[0]));
+      chk(a.rows.length > 0 && !/·/.test(a.rows[0].meta) && /^\d+(\.\d+)?\s?(B|KB|MB)$/.test(a.rows[0].meta) && /, changed \S/.test(a.rows[0].title), `${tag} #6497: a row in the narrow panel shows the size only, and its hover text says when it changed`, JSON.stringify(a.rows[0]));
       /* #3994 (Josh 2026-09-26): the Files block sits in the same white container as the project page's
          Files panel (it wears that panel's class): the surface colour, a 12px radius and the panel's
          padding, and it stands out from the column behind it. The list still fits inside it. */

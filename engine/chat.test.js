@@ -101,6 +101,10 @@ function fakeTmux(answers, opts) {
       if (probeSeq && probeSeq.length) return probeSeq.shift();
       return probe;
     }
+    /* #6249: the input-box read (capture-pane -e) before the paste and after the Enter is answered apart from the
+       script too, as the probe is, and by default with a blank screen: no box to read, so the verdict is the one
+       these tests were written for. engine/chat.composer-6249.test.js drives the box itself. */
+    if (args[0] === 'capture-pane' && args.includes('-e')) return { ran: true, spawnFailed: false, status: 0, out: (opts && opts.box) || '', err: '' };
     return answers.length ? answers.shift() : { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
   };
   fn.calls = calls;
@@ -358,8 +362,11 @@ test('a good send PASTES the text then presses Enter, both pinned to the exact p
     // screen is also read first (is its question menu up?), which is read-only too.
     const firstKey = tmux.calls.findIndex((c) => c[0] === 'set-buffer' || c[0] === 'paste-buffer' || c[0] === 'send-keys');
     const before = tmux.calls.slice(0, firstKey).map((c) => c[0]);
-    // Exactly: the floor's screen read (a needs_you card), then the pane check, then the first keystroke.
-    assert.deepEqual(before, ['capture-pane', 'display-message'], 'the reads before the first keystroke changed: ' + before.join(','));
+    // Exactly: the floor's screen read (a needs_you card), then the pane check, then #6249's input-box read (a
+    // capture-pane -e: is anything already in the box?), then the first keystroke.
+    const named = tmux.calls.slice(0, firstKey).map((c) => (c[0] === 'capture-pane' && c.includes('-e') ? 'capture-pane -e' : c[0]));
+    assert.deepEqual(named, ['capture-pane', 'display-message', 'capture-pane -e'], 'the reads before the first keystroke changed: ' + named.join(','));
+    assert.deepEqual(before.slice(0, 2), ['capture-pane', 'display-message']);
   });
 });
 
@@ -3361,4 +3368,66 @@ test('#4557 defaultAgentFor: in a deeper chart the TOP opens the room, not a mid
     { mid: 'top1', m1: 'mid', m2: 'mid', m3: 'mid', t2a: 'top2' })), 'top1');
   // A cycle has no root: it falls to most reports, then list order, and never throws.
   assert.equal(chat.defaultAgentFor(membersFor(['p', 'q'], { p: 'q', q: 'p' })), 'p');
+});
+
+/* #4934 / #5967: acknowledgementOnly is the pure classifier the room's ack-loop
+   hold is judged by. The whole design risk is a word list that would hold a real
+   "agreed, and here is the number" post, so the escapes are tested as hard as the
+   positives. */
+test('#4934: acknowledgementOnly matches whole-post acknowledgements, case- and punctuation-insensitively', () => {
+  for (const s of [
+    'agreed', 'acknowledged', 'ok', 'yes', 'confirmed', 'sounds good', 'will do',
+    'noted', 'sounds good to me', 'yes, agreed', 'confirmed, thanks',
+    // case and trailing punctuation must not matter (the fleet's most repeated false zero)
+    'AGREED.', 'Agreed', 'Thanks!!', 'THANKS', 'OK.', 'Confirmed!', 'YES',
+    // a SINGLE leading @mention is stripped before judging the words (a reply addressing
+    // one colleague is still an ack); a further/non-leading mention is content (arm below)
+    '@Kano agreed', '@Sub-Zero ok',
+    // an acknowledgement emoji, alone or with a word
+    '👍', 'thanks 👍',
+  ]) {
+    assert.equal(chat.acknowledgementOnly(s), true, 'should be acknowledgement-only: ' + JSON.stringify(s));
+  }
+});
+
+test('#4934: acknowledgementOnly lets a post with new facts escape, by a word outside the lexicon OR a new-info signal', () => {
+  for (const s of [
+    // the named failure to avoid: "agreed, and here is the number: 42" escapes TWICE
+    // over (words outside the lexicon AND a digit) -- prove each escape alone, too.
+    'agreed, and here is the number: 42',
+    'agreed, and here is the number',        // words outside the lexicon alone
+    'ok 42',                                 // a digit alone
+    'agreed, the cost is $5',                // currency
+    'agreed, it is 100% done',               // percent (and a digit)
+    'agreed, what about the edge case?',     // a question
+    'agreed, run `kosmos start`',            // inline code
+    'agreed, he said "ship it"',             // a quoted span
+    'agreed, see https://x.io',              // a url
+    'agreed, the fix is in engine/foo.js',   // a path / filename.ext
+    'let us ship the new valve logic today', // ordinary content, no ack words
+    'fix it', 'do it now',                   // short but not acknowledgement
+    'do it', 'got it',                       // a directive / object-reference, not agreement ("it" is out of the lexicon)
+    'confirm',                               // a bare request to confirm is content ("confirmed"/"confirms" are the ack)
+    'acknowledge',                           // a bare request to acknowledge is content ("acknowledged"/"ack"/"acked" are the ack) -- review round 2
+    'done',                                  // a status report, not agreement: "done" answering "is it ready?" is content the room may need -- review round 2
+    'agreed and here are six more words past the cap', // over the brevity cap
+    '', '   ', '@Kano',                      // nothing said, or only a leading mention
+    // a @mention BEYOND the single leading one pulls a colleague in -> a new-info signal
+    'ok @Raiden', '@Alice @Bob ok',
+    // the dangerous direction, guarded: a word in ANY script that is not in the lexicon is
+    // content. A Latin-only trim would strip these to empty and call real non-English
+    // content an acknowledgement (which would refuse it with nothing stored).
+    '同意', 'Принято',
+    'こんにちは', '我不同意这个方案',
+    // a symbol that is not a listed acknowledgement emoji is content, not skippable noise:
+    // it can carry meaning (often negation), so "ok ❌" must not be held as an agreement --
+    // whether the symbol is spaced OR glued to the word ("ok❌" trims to "ok" otherwise).
+    'ok ❌', 'yes ✗', 'agreed ⚠️', 'agreed \u{1F680}',
+    'ok❌', 'agreed✗', 'thanks⚠',
+    // a question is content in any script: the ASCII '?', the full-width CJK '？' and the
+    // Arabic '؟' all escape, so a non-English question is never mistaken for an ack.
+    'ok?', 'ok？', 'agreed？', 'ok؟',
+  ]) {
+    assert.equal(chat.acknowledgementOnly(s), false, 'should be content (escape): ' + JSON.stringify(s));
+  }
 });

@@ -47,6 +47,15 @@ const HOOK_EVENTS = Object.freeze([
   'StopCancelled', 'StopFailure', 'SessionEnd',
 ]);
 
+/* #5812 item 3: the tool hook, apart from HOOK_EVENTS (which the test pins to the bridge's report states): grok runs it
+   just before search_replace or write, and the bridge asks the board to keep a copy and note the writer. MEASURED on
+   grok 1.0.41 (card comment 6222103286, and the anchored form in review 1): the matcher is a regex over the tool name;
+   anchored, it fires for write and search_replace and not for read_file (a "" matcher fires for read_file, the
+   control). Anchored, so a tool whose name merely contains these does not start the bridge.
+   NOT on win32 (review 1): the payload of a Windows grok was never measured, so the Windows form of the file carries
+   the lifecycle hooks only, as before. */
+const TOOL_EVENT = 'PreToolUse';
+const TOOL_MATCHER = '^(search_replace|write)$';
 /* The dedup key: any command containing this stem is "ours". Same doctrine as
    geminisettings.MARKER, kept for symmetry and for a future reader inspecting the
    file, even though our own dedicated file rarely needs it. */
@@ -99,17 +108,19 @@ function unsafeForCommand(s, plat) {
 /* One event's definition: a single command hook running the bridge. The shape
    matches grok's hook schema (`{ hooks: [{ type, command }] }` under an event name),
    identical to Claude Code's and gemini's. */
-function definitionFor(bridgePath, opts) {
-  return { hooks: [{ type: 'command', command: commandFor(bridgePath, opts) }] };
+function definitionFor(bridgePath, opts, matcher) {
+  const def = { hooks: [{ type: 'command', command: commandFor(bridgePath, opts) }] };
+  return matcher === undefined ? def : { matcher, ...def };
 }
 
 /* The full desired content of our hook file: the top-level `hooks` object grok reads
    from a `$GROK_HOME/hooks/*.json` file, with every event in HOOK_EVENTS wired to the
-   bridge. This fully defines our file (no merge), so equality against it is the
+   bridge, and (#5812, not on win32) the PreToolUse tool hook. This fully defines our file (no merge), so equality against it is the
    idempotence test. Exported for the test. */
 function desiredContent(bridgePath, opts) {
   const hooks = {};
   for (const event of HOOK_EVENTS) hooks[event] = [definitionFor(bridgePath, opts)];
+  if (((opts && opts.platform) || process.platform) !== 'win32') hooks[TOOL_EVENT] = [definitionFor(bridgePath, opts, TOOL_MATCHER)];
   return { hooks };
 }
 
@@ -120,7 +131,7 @@ function entryIsOurs(entry) {
 
 /**
  * Ensure our grok report-hook file at hookFilePath wires every lifecycle event to
- * the bridge. Idempotent by content (we own the file). Returns { prepared:true,
+ * the bridge, and (#5812, not on win32) the PreToolUse tool hook. Idempotent by content (we own the file). Returns { prepared:true,
  * changed } or { prepared:false, because } in a sentence -- never throws for an
  * expected shape, because the caller (create.js at birth) fails soft: a hook file it
  * could not prepare costs the agent a self-report, not its existence, which is the
@@ -222,4 +233,4 @@ function ensurePrepared(hookFilePath, bridgePath, opts) {
   return { prepared: true, changed: true };
 }
 
-module.exports = { HOOK_EVENTS, MARKER, commandFor, unsafeForCommand, definitionFor, desiredContent, entryIsOurs, ensurePrepared };
+module.exports = { HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, commandFor, unsafeForCommand, definitionFor, desiredContent, entryIsOurs, ensurePrepared };

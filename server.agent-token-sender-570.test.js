@@ -99,7 +99,11 @@ test('the post and react routes resolve a token sender through the same helper',
   /* #1704 PR2: the route hands the token sender to sendRoomPostAsAgent (shared
      with the outbox drain), which refuses a token that did not resolve after the
      project check and otherwise passes it to sendPost. Pin both halves. */
-  assert.match(post, /sendRoomPostAsAgent\(\{[^}]*sender: senderFromAgentToken\(req, body, roster\)/);
+  /* #6254 hoisted the token sender to `const postSender` (so the posted-notification seam can name the same
+     poster) and hands it to sendRoomPostAsAgent as `sender`. Same call, same token-before-pane invariant; both
+     halves pinned so a future change cannot quietly drop the token path. */
+  assert.match(post, /const postSender = senderFromAgentToken\(req, body, roster\);/);
+  assert.match(post, /sendRoomPostAsAgent\(\{[^}]*sender: postSender\b/);
   const shared = src.slice(src.indexOf('function sendRoomPostAsAgent('), src.indexOf('function agentBelongsToThisKosmos('));
   assert.match(shared, /if \(sender && !sender\.ok\) return \{ state: 'could_not', because: sender\.because \}/);
   assert.match(shared, /\(asynchronousDelivery \? messages\.sendPostAsync : messages\.sendPost\)\(\{[^}]*\bsender,/);
@@ -170,7 +174,11 @@ test('msg, post and react: never exempt for a network peer or with NO credential
      Measured in server.reply-channel-5805.test.js. */
   /* #6071 added POST /api/toolfail, a WRITE (the report hook's digest of a failed tool call): its handler resolves the
      caller with resolveAgentSender, token first, exactly as POST /api/report does, and counts only for that agent. */
-  assert.deepEqual(routes, ['GET /api/community/read', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'POST /api/agent/reply-channel', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail', 'POST /api/undo/keep', 'POST /api/whoami'],
+  /* kosmos#6506 ruling 3 added GET /api/tasks/mine, a READ: its handler identifies the caller from the header
+     token (sendertoken.resolveName) and returns ONLY that agent's own open tasks across its projects, refusing a
+     missing/unknown/ambiguous token and never reading a name from the request; measured in
+     server.tasks-mine-6506.test.js. */
+  assert.deepEqual(routes, ['GET /api/community/read', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/tasks/mine', 'POST /api/agent/reply-channel', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail', 'POST /api/undo/keep', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every write added here must be checked to identify its caller from the header token');
   /* #4491 slice 3: the parameterized routes, pinned exactly like the set. */
   const patterns = (src.match(/const AGENT_TOKEN_ROUTE_PATTERNS = \[[^\n]*\];/) || [''])[0];

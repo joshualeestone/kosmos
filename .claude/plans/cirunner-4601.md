@@ -1,0 +1,142 @@
+# cirunner-4601: the setup script that makes Agent1s the self-hosted CI runner (#4601)
+
+Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 comment 6154688503, part 2.
+
+## What
+- `tools/ci-runner-setup.sh`: Baron's `ci-mini-setup.sh` (#5488 part b) generalised and moved into the repo. Stages
+  preflight, create-user, install, register, verify, machine-settings. DRY RUN BY DEFAULT: a change either goes
+  through `act` (which prints `WOULD:` unless `--apply` is given) or sits after a stage's own dry-run return
+  (install, register).
+- `tools/test-ci-runner-setup-4601.sh`, registered in `test:shell`: stubs on PATH for every changing command and
+  every machine read, a sandbox HOME, and a CONTROL per stage with `--apply` that must reach the stubs.
+
+## Decisions
+- In the repo, not `~/.cache/claude-handoffs/baron-jobs/`: reviewed, on main on migration day, not tied to the
+  home folder that is leaving.
+- The suite lock: the run markers are per-HOME, but the name arm (`pgrep -fl`, no `-u`) sees any user's
+  run-tests.sh. So nothing new is needed except that no `KOSMOS_` variable is set in the runner's `.env`; install
+  refuses one. Residual recorded on the card, not changed: queue wait 105 min against the CI job's 45-min timeout.
+- `KOSMOS_CI_RUNNER` is read, never written. `KOSMOS_CI_SHELL_SHARDS` refuses preflight and verify when it names a
+  shard test.yml would route (1/2 or 2/2); any other value, empty included, routes none and is reported as such.
+- The registration token comes on stdin and reaches config.sh as `ACTIONS_RUNNER_INPUT_TOKEN`, never argv.
+  Settled from source (CommandSettings.cs, read in review): the runner reads every ACTIONS_RUNNER_INPUT_ variable,
+  masks it as a secret, and clears it from its environment.
+- The runner package is trusted on first fetch: checked against the sha256 its own release publishes, which
+  catches a damaged download, not a compromised release (as Baron's script had it). The guard is pinned harder.
+- Auto-login stays a printed System Settings step: the CLI form needs the password in argv.
+
+## Not in scope
+Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
+
+## Proof
+- Test: 158 ok. One hundred and eight mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+  token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
+  no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
+  swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
+  check, no restart trap after a stop, the runner dir taken from HOME; then a failed restart unreported, the
+  package left behind; then an API failure read as a race, labels unguarded, export KOSMOS_ missed; then an
+  empty variable read as unset, any value refused; then the runner's own node counted as a leftover, verify
+  blind to .env, a false 'no jobs' line, register before install; then .path not written, .path unchecked;
+  then an allow list that clears every job, pgrep and crontab failures read as none, .env mode dropped; then a
+  failed Runner.Worker pgrep read as idle, any gh error read as unset; then the package sha check removed, a bare
+  `launchctl list`, the services block unbounded; then a retitled `tmux: server` missed; then Apple's own agents
+  counted, a 404 trusted without a control, unwired hooks, hook files unchecked, no GUI-session check, df unchecked;
+  then gh stderr merged into a value, a .path mismatch a problem again, the admin STOP removed; then runsvc.sh not
+  refreshed, no Listener wait, unreadable groups read as standard, and my own intermediate one-liner that skipped
+  the admin STOP when is_admin succeeded; then a hidden runner dir read as missing, a duplicate hook key missed;
+  then FileVault matched by glob, no Command Line Tools check, an allow list read as a grep option, the old Listener
+  taken for a new one, an unchecked guard reported clear, the owner note printed twice; then register without a
+  wired guard; then an allow list matching every label, allowed jobs not named, register's hook-file refusal; then
+  a probe string a narrow allow list could match, an 'export PATH' line kept by the .env merge; then no
+  manageruid check, a partial download kept, register without a Listener wait; then register over an existing
+  service; then the job-started hook not calling the guard (the reviewer's own mutation), the owner-home check
+  removed, the restart trap left armed; then job-completed's RUNNER_TEMP gate opened, its temp path wrong, register
+  without the KOSMOS_ check; then the runner row unsorted, busy read from any runner, an empty df read as 0 GiB;
+  then shards_check routing 'all' or splitting on commas only (both caught by the parity test), the guard pin
+  unchecked, the temp's dotfiles kept; then the same-account refusal by name and by uid removed; then an unpinned
+  guard reported clear, the runner name unvalidated; then a false 'GiB free' beside a df refusal, an empty services
+  block read as no jobs; then preflight run as another account reporting clear (reproduced: 'preflight: clear' as
+  kosmos-ci), a missing hook dir read as unchecked, install's commit format unchecked; then the Listener wait
+  comparing the first pid only, no note on temp leftovers, a closed home counted twice; then register taking a
+  hand-started Listener as the service's, a pgrep failure in the wait read as no Listener; then (after the rebase
+  onto origin/main, which conflicted only in package.json) verify blind to a rewritten hook, install taking extra
+  arguments, and the guard call dropped from job-started; then hooks written in place, a hook reaching pkill; then
+  a test helper called before its definition, which the test now catches in its own stderr; then register over a
+  runner configured already).
+- How kosmos-ci gets the script once the owner's home is 700: fetch it raw at the install commit and match its
+  sha256 to `git show <commit>:tools/ci-runner-setup.sh` on the owner's side. The two forms gave the same sha256 for
+  tools/ci-runner-job-guard.sh at origin/main (measured 06:31).
+- preflight refuses while the owner's home is readable by group or other: kosmos-ci is in staff, and /Users/agent1
+  is 750 (measured 06:16). On migration day: chmod 700 /Users/agent1. Not done now; nothing touches this Mac.
+- The test runs the installed job-started hook against stand-ins, with job-cleanup.sh replaced by a marker first,
+  because the real one ends every tmux and node process of the user running it.
+- install and register --apply also require `launchctl manageruid` to be the caller's uid: `sudo -iu` or `su` from
+  the owner's GUI reads Aqua but acts on the owner's session. manageruid measured on Agent1s (501 = id -u); its value
+  under sudo -iu is reasoned, not measured.
+- register --apply refuses unless .env wires both hooks exactly once and every hook file is executable: a runner
+  must never go online on a public repo without its guard.
+- verify exits 3, not 0, when it could not make a check (a home it cannot read): whether the job guard is wired is
+  what it exists to say.
+- After a restart, install waits up to KOSMOS_CI_START_WAIT_S (30) for a Runner.Listener: svc.sh start is a
+  launchctl load and succeeds for a service that dies at once. It refreshes ./runsvc.sh from bin/ when the runner
+  is a service, as svc.sh install does, since a self-updated runner's versioned dirs are replaced by the unpack.
+- Apple ships agents outside com.apple.* (com.openssh.ssh-agent): preflight skips any label whose plist is in
+  /System/Library/LaunchAgents. On Agent1s at 05:20 that was the only one, and the count went from 72 to 71.
+- install and register --apply refuse unless `launchctl managername` is Aqua: svc.sh reads and drives the caller's
+  session. preflight does NOT gate on it, because a tmux pane here reads Background and still sees the GUI domain.
+- preflight reads `launchctl print gui/<uid>`, not `launchctl list`: a bare list reads the caller's session, which
+  over ssh is not the owner's GUI. Measured 05:10 on Agent1s from a tmux pane whose session is Background: both
+  forms give the same 72 non-Apple jobs, so `launchctl managername` cannot gate it.
+- Deferred: the compare API is unauthenticated (60 an hour). It refuses, naming a possible rate limit, and a bearer
+  token would sit in curl's argv.
+- Deferred: job-completed.sh empties _work/_temp after JOB_COMPLETED. Baron's hook, and the mini has run
+  jobs with it since 10-07. Revised here (dotfiles swept too, comments corrected): the sweep itself was never run on
+  the mini, only in the test's sandbox runner layout.
+- Deferred: anonymous launchd labels (0x..., [..]) as false refusals. 0 of 72 such labels on Agent1s at 05:04,
+  the failure is a refusal, and KOSMOS_CI_ALLOW_JOBS covers it.
+- The jobs' PATH lives in two files: `.env`, and `.path`, which config.sh's env.sh fills from its own shell and
+  runsvc.sh exports. Settled from source (Runner.Listener Program.cs LoadAndSetEnv, read 05:23): the Listener sets
+  every .env line over the exported environment, so .env wins. register still writes .path to match; verify notes
+  a mismatch rather than refusing. The same reader takes the text before "=" as the name, so an `export KOSMOS_`
+  line is inert; install refuses it anyway.
+- The runner's service host is node (actions/runner runsvc.sh runs externals/node24/bin/node RunnerService.js),
+  so verify reads `ps -o args` and excludes RunnerService.js. The cleanup hook's `pkill -x node` does not reach it
+  because it is the hook's ancestor and macOS pkill skips ancestors without -a; that is why the mini stays online.
+- Live dry run on Agent1s, 04:27 CDT: preflight refuses on exactly the three step-0 conditions (72 launchd jobs,
+  crontab, live suites) and passes every machine check, autorestart included; verify against kosmos-ci-mini is
+  clear on the API rows. The runbook's 81 counts the owner's open GUI apps too (`application.*` labels, 9 here),
+  which preflight now ignores, since they are not jobs and Terminal is always one of them.
+- tar over a self-updated runner (bin/externals symlinked to versioned dirs) replaces the symlinks with plain dirs
+  of the new release: measured by a reviewer in a sandbox with bsdtar, not by me; the real 2.338.0 tarball lists
+  ./bin/ and ./externals/ as directory entries.
+- The jq programs gh --jq runs are defined once (JQ_VAR, jq_busy, jq_row) and printed by a read-only `jq-programs`
+  stage, which the test runs through /usr/bin/jq against canned API JSON; the gh stub alone never executed them.
+  Live verify against kosmos-ci-mini after the move: row, busy and both variables read correctly (06:37).
+- tmux and pwsh remedies are `brew install` as the Homebrew owner: Baron's build scripts install into ~/.local, which
+  the check does not read, and the engine looks for tmux at the fixed /opt/homebrew/bin path.
+- shards_check is held to test.yml by test: the real decide-step body (extracted as test-ci-runner-route-5488.sh
+  does) runs on twelve values, and preflight must refuse exactly the ones it routes.
+- verify never needs kosmos-ci signed in to gh: its API half runs as the owner. kosmos-ci's home stays 750 so the
+  owner can read the file half; a gh token in kosmos-ci's home would be readable by every admitted job.
+- Every stage refuses, dry or not, when the CI user is the owner by name or by uid: the cleanup hook ends every tmux
+  and node process of the CI user, which would be the agents'.
+- verify exits 3 when no KOSMOS_CI_GUARD_SHA is given: a guard a job could have rewritten is not checked until it is
+  compared with the install pin.
+- preflight, create-user and verify refuse outright when not run as the owner: they read the caller's own launchd
+  domain, crontab and gh, so as another account a dry run would judge the wrong state.
+- On the first live job after migration, check _work/_temp is empty once the job ends: the sweep has only run in
+  the test's sandbox. verify notes leftovers there while the runner is idle.
+- The hook texts live in one function (hook_body): install writes from it and verify compares each installed hook
+  with it byte for byte, so a job that rewrites job-started.sh to skip the guard is a problem, not a pinned guard.
+- Rebased onto origin/main 07:29 (81 commits): package.json conflicted twice and took main's line plus this branch's
+  two commands; the three files of this branch were byte-identical to the pre-rebase head.
+- Deferred: anchoring verify's RunnerService.js exclusion on $RUNNER_DIR. The real service host's argv is relative
+  (runsvc.sh runs ./externals/node24/bin/node ./bin/RunnerService.js from the runner dir), so an absolute anchor
+  would count the runner's own node as a leftover on every idle runner. Spoofing the name needs a job the guard
+  already admitted.
+- Files are written beside their target and renamed in (put), so a hook write that fails partway leaves the old hook
+  whole: an empty job-started.sh exits 0, so a restarted runner would otherwise run jobs with no guard.
+- The test runs every installed hook under env -i with only the stub PATH and asserts no pkill call reached the stub.
+- register refuses a runner already configured (.runner): config.sh refuses to configure again until
+  ./config.sh remove, whatever --replace says (actions/runner ConfigurationManager, per review). A comment I wrote in
+  iteration 30 said a re-run would take the name over through --replace; it was wrong and is deleted.

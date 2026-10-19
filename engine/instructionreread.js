@@ -31,6 +31,9 @@ const path = require('node:path');
 const GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_PER_PASS = 3;   // lines typed per pass; the timer delivers the rest
 const lastOf = (debt) => (Number.isFinite(debt.last) ? debt.last : debt.at);
+/* kosmos#5636 F7a, for whoever adds a section here: lineFor tells the agent the notice is not itself a task. A section
+   whose text is a standing do-X-daily rule (as the community's post-a-day minimum is) can still read as due now, so give
+   it its own clause in lineFor, as the community has. */
 const SECTIONS = Object.freeze({
   community: 'the section headed "The Kosmos+ community"',
   // kosmos#5635 review 5: no "with your person's OK": a board-start update had none, and the agent may repeat this.
@@ -44,10 +47,23 @@ const SECTIONS = Object.freeze({
   /* kosmos#5320: the projects block (engine/projects.js, rewritten by syncAgent on task and membership changes) carries
      rules a running agent started without, such as `kosmos project pause` (#4982). */
   projects: 'the section headed "Your projects"',
-  // kosmos#5534 slice 3: the AI policies block (the company's from its Kosmos policy, and the person's own).
-  policy: 'the section headed "Your company\'s AI policy" (or "Your company\'s AI policies")',
+  // kosmos#5534 slice 3: the AI policies block (the company's from its Kosmos policy, and the person's own). Used only
+  // when policy.headingsHere cannot be read (kosmos#6270: the person's own policies are "Your AI policy").
+  policy: 'the section headed "Your AI policy" (or "Your AI policies", "Your company\'s AI policy" or "Your company\'s AI policies")',
 });
 
+/* kosmos#6263 board review 3: the policy section by the headings this Kosmos's blocks carry (engine/policy.js
+   headingsHere), so a family's agent is sent to the family's headings or "Your AI policy", not to the company's. The
+   agent's file carries one of the headings the line names. */
+function policySection() {
+  let names;
+  try { names = require('./policy').headingsHere(); } catch { return SECTIONS.policy; }
+  if (names.length < 2) return SECTIONS.policy;   // defensive: every kind has four headings today (kosmos#6270)
+  const q = names.map((n) => `"${n}"`);
+  const rest = q.slice(1);
+  const tail = rest.length === 1 ? rest[0] : rest.slice(0, -1).join(', ') + ' or ' + rest[rest.length - 1];
+  return `the section headed ${q[0]} (or ${tail})`;
+}
 function file() { return path.join(require('./store').ROOT, 'instruction-reread.json'); }
 /* When a re-read line was typed into each agent, the last day of them: the community turn treats the turn such a line
    woke as Kosmos's own, never as the agent's work (communityturn.workedSince). { session: [ms, ...] }. One writer: the
@@ -174,13 +190,30 @@ function oweEach(told, owed, section, now = Date.now()) {
 }
 
 /* The one line for an agent's debt, naming every section it owes. */
-function lineFor(sections) {
+function lineFor(sections, { communityStopped = false } = {}) {
   const named = (Array.isArray(sections) ? sections : []).filter((s) => Object.prototype.hasOwnProperty.call(SECTIONS, s));
   if (!named.length) return null;
-  const list = named.map((s) => SECTIONS[s]);
+  const list = named.map((s) => (s === 'policy' ? policySection() : SECTIONS[s]));
   const what = list.length === 1 ? list[0] : list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
+  /* kosmos#5636 F7a: the line is a notice, not a task. Suspected, not confirmed (see the plan): on a 0.7.48 test board
+     an agent got a prompt to post with no community turn that day, plausibly from reading the community section's
+     post-a-day rule as asked now. So, apart from the reading, the line is not itself a task. The agent (idle when this
+     is typed, passOnce) follows the new text wherever it applies, so a working rule that says to take the next thing
+     still moves it. When the community section is named, one clause scopes itself to now: no taking part because of
+     this notice, and the new community text applies the next time the agent takes part. It names no community duty, so
+     it sends nobody to check one. No double quotes in the text added here (the section names carry them by design): the #5304 test
+     reads quoted text as section headings. */
+  /* kosmos#6239: under a policy that keeps agents out of the community, the section now says the agent does not take
+     part, so the line says that, not "the next time you take part". */
+  const community = !named.includes('community') ? ''
+    : communityStopped === true
+      ? 'Its Kosmos+ community section now says you do not take part in the community: from now on, do not. '
+      : 'Do not take part in the Kosmos+ community now because of this notice, even with a daily minimum still open there; '
+        + 'its new text applies the next time you take part. ';
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
-    + 'What it says now replaces anything you read there when you started.';
+    + 'What it says now replaces anything you read there when you started. '
+    + community
+    + 'Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies.';
 }
 
 /*
@@ -246,7 +279,9 @@ async function passOnce(o) {
       let ok = false;
       try { ok = o.allowed() === true; } catch { ok = false; }
       if (!ok) break;
-      const line = lineFor(on);
+      let stoppedNow = false;
+      if (typeof o.communityStopped === 'function') { try { stoppedNow = o.communityStopped() === true; } catch { stoppedNow = false; } }
+      const line = lineFor(on, { communityStopped: stoppedNow });
       /* The pass awaits each send, so the reading above can be seconds old: read the roster again and check THIS card
          is still idle just before typing (and hand chat that fresh roster). */
       if (tried >= (Number.isInteger(o.max) ? o.max : MAX_PER_PASS)) break;

@@ -139,6 +139,49 @@ function isAutoPermissionWait(standing) {
     && standing.by === 'auto';
 }
 
+/* #6209 reviews 10 and 11: the StopFailure kinds that pass on their own (the hook's text, any case). Claude Code's
+   documented kinds are rate_limit, authentication_failed, billing_error, invalid_request, server_error,
+   max_output_tokens and unknown, so server_error is the one that matches today; the others here are defensive, for a
+   version that names an overload or a timeout. `unknown` and the hook's fallback ("an api error") are not on the list:
+   they may need someone to act, so they keep their block (a stated residual). */
+const TRANSIENT_PROVIDER_BLOCK = /^provider api \((server_error|overloaded_error|overloaded|timeout|api_error|network_error|connection_error)\)$/i;
+
+/* #6209: an AUTOMATIC provider block (Claude Code's StopFailure hook: blocked on "provider api (...)", by auto). A turn
+   that then ends normally (the Stop hook's automatic idle) proves the provider answered again, so that idle clears it;
+   the mid-turn working heartbeat does not (the turn could still fail). A deliberate blocked is never this. */
+function isAutoProviderBlock(standing) {
+  return !!standing
+    && standing.found === true
+    && standing.state === 'blocked'
+    && standing.by === 'auto'
+    /* Reviews 7 and 10: only the kinds a later successful turn really ends (a server error, an overload, a timeout, a
+       network failure). Everything else (a usage limit or a sign-in, held by #5805 and #5948; billing; a bad request)
+       needs someone to act, and whether a turn ending on it fires Stop is not measured, so it keeps its block. */
+    && TRANSIENT_PROVIDER_BLOCK.test(String(standing.on || ''));
+}
+
+/* #6209 review 1: true when a line under a standing automatic provider block is a wait on a person that an automatic
+   idle may not clear: any blocked/needs_you (deliberate, unmarked, or another automatic blocked) but an automatic
+   permission prompt. */
+function hidesWait(w) {
+  if (!w || !w.found || !WAITING_ON_A_PERSON.includes(w.state)) return false;
+  return !(w.state === 'needs_you' && w.by === 'auto');
+}
+
+/* #6209: what the trailing run of automatic provider blocks covered, read exactly as read() would have read the record
+   just before the run (reviews 1 and 5: one window and one set of rules, so project carry, the cut-tail rule, until
+   and askedAt agree): { wait } (read()'s reading, found or not), or { unknown: true } when the record cannot be read
+   or the run reaches the front of a cut tail. */
+function lineUnderProviderBlock(sessionName) {
+  const tail = readTail(sessionName);
+  if (!tail.rows) return { unknown: true };
+  const rows = tail.rows;
+  let i = rows.length - 1;
+  while (i >= 0 && isAutoProviderBlock({ found: true, ...rows[i] })) i -= 1;
+  if (i < 0) return tail.cut ? { unknown: true } : { wait: { found: false } };
+  return { wait: latestOf(rows.slice(0, i + 1), tail.cut) };
+}
+
 /* #4569 fix 4: { n, yours } when the value is a sane queue count on a working report, else undefined (not written). */
 function waitingOf(state, w) {
   if (state !== 'working' || !w || typeof w !== 'object') return undefined;
@@ -255,11 +298,14 @@ function record(sessionName, entry) {
          `needs_you` clobber;
        - a legacy line with no mark (by:null), whose provenance is unknown and so
          stays protected as before;
-       - an AUTO `blocked` (a StopFailure provider outage): machine-written but it
-         does NOT auto-resolve, so an auto idle/working must not clear it. Keying
-         only on `by` would have dropped this protection silently -- the outage
-         would vanish on the next PreToolUse heartbeat while still unresolved
-         (caught in review; #2456 measured needs_you, never blocked).
+       - an AUTO `blocked` (a StopFailure provider outage): machine-written, and
+         an auto WORKING must not clear it. Keying only on `by` would have dropped
+         this protection silently -- the outage would vanish on the next PreToolUse
+         heartbeat while still unresolved (caught in review; #2456 measured
+         needs_you, never blocked). #6209: an auto IDLE does clear it (the Stop of a
+         turn that ended normally proves the provider answered), unless the block
+         had replaced a wait on a person, which keeps the block (review 7);
+         only for the transient kinds (TRANSIENT_PROVIDER_BLOCK).
      An AGENT re-reporting its own `needs_you` is by:'agent' (entry.auto is
      falsey), so it still lands and can always update its own question; a
      permission prompt fired when nothing is waiting still shows, because there is
@@ -267,10 +313,26 @@ function record(sessionName, entry) {
      today -- a provider outage should surface even over a standing wait. */
   if (entry.auto === true && (state === 'idle' || state === 'working' || state === 'needs_you')) {
     const standing = read(sessionName);
+    /* #6209: a turn that ended normally after a provider failure. The provider answered again, so its automatic block
+       is over and an automatic idle clears it, unless the block had replaced a wait on a person (anything but an
+       automatic permission prompt) or what it replaced is unknown (an unreadable record, a run of blocks past the tail
+       read): then the block stays, as before #6209. */
+    if (state === 'idle' && isAutoProviderBlock(standing)) {
+      const under = lineUnderProviderBlock(sessionName);
+      if (under.unknown) {
+        return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider and Kosmos could not tell what that block replaced, so an automatic idle did not overwrite it' };
+      }
+      if (hidesWait(under.wait)) {
+        /* Review 7: re-showing the covered wait drew a defect every round (re-dating, project carry, a left project),
+           so it was removed: the block stays, as before #6209, and the wait under it is the stated residual. */
+        return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider over another wait, so an automatic idle did not overwrite it' };
+      }
+    }
     const standingIsAutoPermissionWait = isAutoPermissionWait(standing);
     const standingIsProtectedWait = standing.found === true
       && WAITING_ON_A_PERSON.includes(standing.state)
-      && !standingIsAutoPermissionWait;
+      && !standingIsAutoPermissionWait
+      && !(state === 'idle' && isAutoProviderBlock(standing));   // #6209: handled above (cleared, or the block kept)
     if (standingIsProtectedWait) {
       return {
         recorded: false,
@@ -364,24 +426,9 @@ function record(sessionName, entry) {
   return { recorded: true, at };
 }
 
-/**
- * The latest run's latest report, raw. `found:false` means the agent has
- * never reported (or the record is unreadable, with its own sentence), and
- * the caller falls back to whatever it does today -- an agent that never
- * adopted the verb renders exactly as before, which is the no-regression
- * rule the #253 comment promises.
- *
- * A `started` line begins a run; only the latest run speaks for the current
- * state, so yesterday's `stopped` never shadows today's work. Within the
- * window, file order is report order: one server process appends
- * serially, which is the ordering guarantee, and a seq field would be a
- * second copy of the same fact.
- *
- * ⚠️ Every field is null when unknown, never a default (codexsession's
- * rule): a defaulted `at` would give a stale report a fresh timestamp,
- * which is exactly the lie the decay rule exists to catch.
- */
-function read(sessionName) {
+/* #6209 review 5: the record's tail as rows, shared by read() and lineUnderProviderBlock so both see one window.
+   { rows, cut } or { found: false, because }. */
+function readTail(sessionName) {
   let file;
   try { file = fileFor(sessionName); } catch { return { found: false, because: NO_READING.NEVER_REPORTED }; }
   let fd;
@@ -407,6 +454,23 @@ function read(sessionName) {
   } finally {
     try { fs.closeSync(fd); } catch { /* already gone */ }
   }
+  const rows = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let row;
+    try { row = JSON.parse(line); } catch { continue; } // one bad line must not eat the record
+    if (!row || typeof row !== 'object') continue;
+    if (!STATES.includes(row.state)) {
+      process.stderr.write('selfreport: unknown state ' + JSON.stringify(row.state) + ', line skipped\n');
+      continue;
+    }
+    rows.push(row);
+  }
+  return { rows, cut };
+}
+
+/* #6209 review 5: what read() reports for these rows (the tail, or a prefix of it), pure. */
+function latestOf(rows, cut) {
   let latest = null;
   /* #763: the project carried forward. A report that names a project sets the
      agent's current one; later reports that name none inherit it (the
@@ -425,15 +489,7 @@ function read(sessionName) {
   let runAt = null;
   let parsed = 0;
   let runFromFirst = false;   // the run began at the first line read: when the tail is cut, its start is unknown
-  for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    let row;
-    try { row = JSON.parse(line); } catch { continue; } // one bad line must not eat the record
-    if (!row || typeof row !== 'object') continue;
-    if (!STATES.includes(row.state)) {
-      process.stderr.write('selfreport: unknown state ' + JSON.stringify(row.state) + ', line skipped\n');
-      continue;
-    }
+  for (const row of rows) {
     /* Later lines simply replace earlier ones; a `started` needs no reset
        logic for "latest", but it matters that it REPLACES rather than
        merges: nothing from the previous run may leak into this one. */
@@ -496,18 +552,45 @@ function read(sessionName) {
   };
 }
 
+/**
+ * The latest run's latest report, raw. `found:false` means the agent has
+ * never reported (or the record is unreadable, with its own sentence), and
+ * the caller falls back to whatever it does today -- an agent that never
+ * adopted the verb renders exactly as before, which is the no-regression
+ * rule the #253 comment promises.
+ *
+ * A `started` line begins a run; only the latest run speaks for the current
+ * state, so yesterday's `stopped` never shadows today's work. Within the
+ * window, file order is report order: one server process appends
+ * serially, which is the ordering guarantee, and a seq field would be a
+ * second copy of the same fact.
+ *
+ * ⚠️ Every field is null when unknown, never a default (codexsession's
+ * rule): a defaulted `at` would give a stale report a fresh timestamp,
+ * which is exactly the lie the decay rule exists to catch.
+ */
+function read(sessionName) {
+  const tail = readTail(sessionName);
+  if (!tail.rows) return tail;
+  return latestOf(tail.rows, tail.cut);
+}
+
+/* #6209: `tailBytes` lets one reader look further back than TAIL_BYTES (the summary-overdue sweep, whose question is
+   about hours of work, which a busy agent's 64 KB does not hold). Clamped to [TAIL_BYTES, HISTORY_MAX_BYTES]. */
+const HISTORY_MAX_BYTES = 4 * 1024 * 1024;
 /* kosmos#5297 (#5296): the states and times in the same bounded tail read() looks at, oldest first, for a caller that
    asks WHEN an agent was busy rather than what it is doing now (communityturn: has it worked since its last post).
    Same skips as read(): an unknown state or a bad line is left out. null when there is no record or it cannot be read,
    so "never reported" is never mistaken for "reported idle". `truncated` on the array is true when older rows exist
    beyond the tail. */
-function history(sessionName) {
+function history(sessionName, tailBytes) {
   let text;
   let cut = false;
+  const tail = Number.isInteger(tailBytes) && tailBytes > TAIL_BYTES ? Math.min(tailBytes, HISTORY_MAX_BYTES) : TAIL_BYTES;
   try {
     const file = fileFor(sessionName);
     const size = fs.statSync(file).size;
-    const start = Math.max(0, size - TAIL_BYTES);
+    const start = Math.max(0, size - tail);
     const fd = fs.openSync(file, 'r');
     try {
       const buf = Buffer.alloc(size - start);
@@ -563,5 +646,5 @@ function blockedOwnerNote(state, owner, opts) {
   return isPerson ? BLOCKED_PERSON_NOTE : '';
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean,
+module.exports = { STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, DIR, NO_READING, TAIL_BYTES, HISTORY_MAX_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean, finalOf,
   blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE };

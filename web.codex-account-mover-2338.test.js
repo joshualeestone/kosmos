@@ -154,12 +154,19 @@ test('CONTROL: a Claude account that does NOT share memory is not offered (the p
 
 /* --- the route sentence is honest about codex history, which does NOT travel -- */
 test('the account route tells a codex move the truth: files/projects travel, Codex chat stays behind', () => {
+  /* #6173: the sentence moved out of the route into engine/accountmove.js, so the one-agent route and the
+     several-agents one word it from one place. The route must still use it. */
   const i = SERVER.indexOf("const acctRoute = pathname.match(/^\\/api\\/agent\\/([^/]+)\\/account$/);");
   assert.ok(i > -1, 'the account route moved; re-anchor this test');
-  const body = SERVER.slice(i, i + 3200);
+  assert.match(SERVER.slice(i, i + 3200), /accountmove\.sentence\(name, wrote, back, removal\.OUTCOME\.RESTARTED\)/,
+    'the account route no longer words its answer through the shared sentence');
+  const MOVE = fs.readFileSync('engine/accountmove.js', 'utf8');
+  const j = MOVE.indexOf('function sentence(');
+  assert.ok(j > -1, 'the move sentence moved; re-anchor this test');
+  const body = MOVE.slice(j, j + 3200);
   // #3566: the per-home test now covers Gemini and Grok as well as Codex; it is keyed on
   // a provider -> chat-word map, and a Claude account (no entry) keeps the Claude sentence.
-  assert.match(body, /\(\{ openai: 'Codex', google: 'Gemini', xai: 'Grok', alibaba: 'Qwen' \}\)\[String\(wrote\.account\.provider \|\| ''\)\.toLowerCase\(\)\]/,
+  assert.match(body, /\(\{ openai: 'Codex', google: 'Gemini', xai: 'Grok', alibaba: 'Qwen' \}\)\[String\(account\.provider \|\| ''\)\.toLowerCase\(\)\]/,
     'the route no longer distinguishes a per-home (Codex/Gemini/Grok/Qwen) account move from a Claude one');
   assert.match(body, /const isPerHomeMove = !!moveChatWord;/,
     'the per-home sentence is no longer chosen by the chat-word map');

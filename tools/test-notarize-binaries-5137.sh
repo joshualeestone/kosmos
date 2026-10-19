@@ -14,7 +14,7 @@ passes=0
 ok()  { echo "  PASS  $1"; passes=$((passes + 1)); }
 bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
-WORK="$(mktemp -d)"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/test-notarize-binaries-5137.XXXXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 unset KOSMOS_NOTARIZE KOSMOS_NOTARY_KEY_ID KOSMOS_NOTARY_ISSUER KOSMOS_NOTARY_PROBE_BIN NT_HISTORY NT_TAIL NT_FIRST_WAIT NT_RAWLOG NT_NOID_TIMES NT_LOG_FAIL NT_LOG_FAIL_TIMES NT_LOG_EMPTY_TIMES NT_ISSUE_HASH NT_MESSAGE   # an operator's export must not change the arms
 

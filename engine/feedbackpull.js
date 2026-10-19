@@ -12,7 +12,8 @@
  * NOTHING joined the last two: the blobs sit in the store and triage cannot see
  * them. THIS is that join. `pull` lists the feedback blobs, fetches each JSON
  * record, and writes it as a `.md` file (feedback.js's exact frontmatter+body
- * shape) into a directory `kosmos feedback triage --dir` then reads unchanged.
+ * shape) into a directory `kosmos feedback triage` then reads unchanged (with no
+ * --dir when it is this default folder, #6265).
  *
  * 🔑 TOKEN VIA secrets-map, NOT env or a hard-coded path. The blob token is a
  * credential; it is read through `secrets-map.sh value <target>` so the map is
@@ -183,6 +184,17 @@ function toMarkdown(rec) {
     '',
   ].join('\n');
   return header + String(rec && rec.body == null ? '' : rec.body).replace(/\s*$/, '') + '\n';
+}
+
+/* kosmos#6265: the line a pull ends with. The default folder is what a plain `kosmos feedback triage` reads. */
+function nextLine(dir, platform = process.platform) {
+  /* Review 5/6: triage's own comparison (feedback.samePath: the OS's spelling, case folded on Windows), and a path
+     quoted when it holds anything but plain path characters, so the line can be pasted. */
+  if (!dir || require('./feedback').samePath(dir, defaultDir())) return 'next: kosmos feedback triage';
+  /* Review 6/7: anything beyond plain path characters is single-quoted for the shell that will read it: on Windows
+     PowerShell (an inner ' doubled; a backslash is a plain path character there), elsewhere a POSIX shell (an inner '
+     closed and reopened; a backslash is quoted, since bash would drop it). */
+  return 'next: kosmos feedback triage --dir ' + require('./feedback').shellArg(dir, platform);
 }
 
 /** A collision-free, human-legible filename. The date leads (so `ls` sorts by
@@ -390,7 +402,7 @@ async function runCli(argv, opts) {
     const t = a.shift();
     if (t === '--help' || t === '-h') {
       process.stdout.write('usage: node engine/feedbackpull.js [--dir <path>]\n'
-        + 'Pulls collected feedback reports into <path> (default: the data root) as triage-readable .md files.\n');
+        + 'Pulls collected feedback reports into <path> (default: collected-feedback under the data root, which triage reads with no --dir) as triage-readable .md files.\n');
       return 0;
     }
     if (t === '--dir') {
@@ -427,6 +439,6 @@ if (require.main === module) {
 
 module.exports = {
   pull, runCli, setTransport, token, toMarkdown, fileName,
-  FEEDBACK_TOKEN_TARGET, PREFIX, defaultDir, blobApi, DEFAULT_BLOB_API,
+  FEEDBACK_TOKEN_TARGET, PREFIX, defaultDir, nextLine, blobApi, DEFAULT_BLOB_API,
   defaultList, defaultGet, tokenMayGoTo, summaryLines,
 };

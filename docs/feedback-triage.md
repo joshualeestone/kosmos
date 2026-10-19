@@ -25,13 +25,16 @@ decides.
 
 ## The steps
 
-1. **Ingest.** Reports live in the local feedback store (`engine/feedback.js`,
-   under the data root). When the send layer (kosmos#2037 Slice 3) is built,
-   received reports from testers land in a directory; point the tool at it with
-   `--dir`. Until then the tool reads this machine's own store. `--dir` reads
-   only `*.md` files in the directory (matching the store's format); a report
-   with any other extension is skipped without a note, so the send layer should
-   land tester reports as `.md`.
+1. **Ingest.** `kosmos feedback pull` brings the reports installs sent down
+   into `collected-feedback` under the data root. With no `--dir`, triage reads
+   that folder when it holds any reports, and otherwise this machine's own
+   reports (the local feedback store, `engine/feedback.js`). Every run that
+   reads says on stderr which folder it read (kosmos#6265). `--dir` reads
+   another folder; `--dir` naming this machine's own store reads it as the
+   store (as the default does when nothing is pulled); a missing store is
+   refused.
+   Only `*.md` files are read; a report with any other extension is skipped
+   without a note.
 
 2. **Triage (agent-assisted).** Run:
 

@@ -804,7 +804,7 @@ function tapProbe4663(skip) {
       await phonePage.goto(PAGE);
       // Conversation first on a phone, in the DOM (reading order == tab order, #1017), and back
       // after Members/Files once the window is wider than a phone.
-      const order = () => phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : 'other')).join(','));
+      const order = () => phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : (c.matches('aside.pjcol') ? 'tasks' : 'other'))).join(','));
       const order375 = await order();
       chk(order375.startsWith('room,'), `[phone] the conversation is first in the DOM at 375px`, order375);
       // Turning a phone mid-post reorders the columns. The conversation column (the composer's)
@@ -823,7 +823,9 @@ function tapProbe4663(skip) {
           .observe(document.querySelector('.pj3'), { childList: true });
         const t = document.getElementById('pj-post'); if (!t) return 'no #pj-post'; t.focus(); return document.activeElement === t ? 'pj-post' : 'not focusable';
       });
-      await phonePage.setViewportSize({ width: 800, height: 800 });
+      // A phone turned: wide and short. (800x800 on a touchscreen is an upright tablet since #6107, which has its
+      // own order, measured in the tablet arm below.)
+      await phonePage.setViewportSize({ width: 800, height: 400 });
       await phonePage.waitForTimeout(100);
       const focusedWide = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
       const orderTurned = await order();   // the move really happened in this same turn
@@ -831,7 +833,7 @@ function tapProbe4663(skip) {
       await phonePage.waitForTimeout(100);
       const focusedBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
       chk(focusedBefore === 'pj-post' && focusedWide === 'pj-post' && focusedBack === 'pj-post', `[phone] turning the phone keeps the composer focused across the move`, `${focusedBefore} -> ${focusedWide} -> ${focusedBack}`);
-      const orderBack = await phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => (c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : 'other'))).join(','));
+      const orderBack = await phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => (c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : (c.matches('aside.pjcol') ? 'tasks' : 'other')))).join(','));
       const midRemoved = await phonePage.evaluate(() => window.__midRemoved);
       // Control: the reorder must actually have happened both ways (back at 375 now), or "never removed" is vacuous.
       chk(midRemoved === 0 && order375.startsWith('room,') && orderTurned.startsWith('members-files,room') && orderBack.startsWith('room,'), `[phone] the conversation column never leaves the page while the phone turns (the Members/Files column moves instead)`, `removed=${midRemoved} turned=${orderTurned} back=${orderBack}`);
@@ -850,7 +852,7 @@ function tapProbe4663(skip) {
         b.hidden = false; b.style.display = 'inline-block'; b.focus();
         return document.activeElement === b ? 'pj-add-member' : 'not focusable';
       });
-      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.setViewportSize({ width: 800, height: 400 });
       await phonePage.waitForTimeout(100);
       const splitWide = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
       const splitOrder = await order();
@@ -860,6 +862,106 @@ function tapProbe4663(skip) {
       chk(splitFocus === 'pj-add-member' && splitWide === 'pj-add-member' && splitBack === 'pj-add-member' && splitOrder.startsWith('members-files,room'),
         `[phone] a control focused in Members/Files keeps its focus when the phone turns`, `${splitFocus} -> ${splitWide} -> ${splitBack} (order ${splitOrder})`);
       await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); if (window.__splitUndo) window.__splitUndo(); });
+      // #6107: the Tasks column moves too (to the top on an upright tablet). A control focused in it (New task) keeps
+      // its focus when the phone becomes a tablet and back, the same promise Members/Files keeps above.
+      const tasksFocus = await phonePage.evaluate(() => {
+        const undo = []; window.__tasksUndo = () => { for (const u of undo.reverse()) u(); };
+        const b = document.getElementById('pj-newtask'); if (!b) return 'no #pj-newtask';
+        for (let el = b; el && el !== document.body; el = el.parentElement) {
+          const was = [el.hidden, el.hasAttribute('inert'), el.style.display];
+          undo.push(() => { el.hidden = was[0]; if (was[1]) el.setAttribute('inert', ''); el.style.display = was[2]; });
+          el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block';
+        }
+        b.focus(); return document.activeElement === b ? 'pj-newtask' : 'not focusable';
+      });
+      await phonePage.setViewportSize({ width: 834, height: 1194 });
+      await phonePage.waitForTimeout(100);
+      const tasksTablet = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      const tasksOrder = await order();
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const tasksBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      chk(tasksFocus === 'pj-newtask' && tasksTablet === 'pj-newtask' && tasksBack === 'pj-newtask' && tasksOrder.startsWith('tasks,'),
+        `[tablet] #6107: a control focused in Tasks keeps its focus when the column moves to the top and back`, `${tasksFocus} -> ${tasksTablet} -> ${tasksBack} (order ${tasksOrder})`);
+      await phonePage.evaluate(() => { const b = document.getElementById('pj-newtask'); if (b) b.blur(); if (window.__tasksUndo) window.__tasksUndo(); });
+      // #6107: an upright tablet (iPad 11-inch, 834x1194, touch). Tasks moves to the top, then the conversation, then
+      // Members/Files, all by DOM; the conversation column still never leaves the page, so a focused composer stays.
+      // Control: back at 375 the phone order returns with Tasks last again, so the tablet order is not the page's default.
+      const tabletArm = await phonePage.evaluate(() => {
+        window.__midRemoved = 0;
+        const t = document.getElementById('pj-post'); if (!t) return 'no #pj-post'; t.focus(); return document.activeElement === t ? 'pj-post' : 'not focusable';
+      });
+      await phonePage.setViewportSize({ width: 834, height: 1194 });
+      await phonePage.waitForTimeout(100);
+      const tabletOrder = await order();
+      const tabletFocus = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      // #6107: the Tasks row on the tablet. Six stand-in task cards (removed after) so the row has something to scroll:
+      // it runs sideways, scrolls inside itself without widening the page, and a focused card's ring (2px at a 2px
+      // offset) is drawn inside the scroller, which clips whatever overflows it.
+      const tkRow = await phonePage.evaluate(() => {
+        const list = document.getElementById('pj-tasklist');
+        if (!list) return { error: 'no #pj-tasklist' };
+        // The static page shows no project: un-hide the list's ancestors (as the New task arm does) and put them back.
+        const unhide = [];
+        for (let el = list; el && el !== document.body; el = el.parentElement) {
+          unhide.push([el, el.hidden, el.hasAttribute('inert'), el.style.display]);
+          el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block';
+        }
+        // Whatever the list holds (an empty-state line, say) is set aside, so the first stand-in card starts at the
+        // scroller's own edge, and put back after.
+        const kept = [...list.childNodes]; kept.forEach((n) => n.remove());
+        let out = { error: 'probe threw before measuring' };
+        try {
+        for (let i = 0; i < 6; i += 1) { const b = document.createElement('button'); b.type = 'button'; b.className = 'tkcard tk-probe'; b.textContent = 'Task ' + (i + 1) + ': a stand-in card with a title long enough to wrap'; list.appendChild(b); }
+        const first = list.querySelector('.tk-probe');
+        first.focus();
+        // The ring's reach, read from the page's own .tkcard:focus-visible rule: a computed outline after a scripted
+        // focus depends on whether the browser counts that focus as visible, which is not what is being measured.
+        let ring = 0;
+        for (const sh of document.styleSheets) {
+          let rules; try { rules = sh.cssRules; } catch { continue; }
+          // From the `outline` shorthand's own text: it carries var(--label), and a shorthand with var() leaves its
+          // longhands (outline-width among them) reading as empty in the CSSOM.
+          for (const r of rules) if (r.selectorText && /\.tkcard:focus-visible\b/.test(r.selectorText)) {
+            const m = /([\d.]+)px/.exec(r.style.getPropertyValue('outline') || r.style.outlineWidth || '');
+            if (m) ring = Math.max(ring, parseFloat(m[1]) + (parseFloat(r.style.outlineOffset) || 0));
+          }
+        }
+        const L = list.getBoundingClientRect(); const C = first.getBoundingClientRect();
+        out = { dir: getComputedStyle(list).flexDirection, scrolls: list.scrollWidth > list.clientWidth + 1,
+          pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth /* layout width: a mobile viewport zooms out, so innerWidth grows with an overflow */, ring,
+          roomTop: Math.round(C.top - L.top), roomLeft: Math.round(C.left - L.left), focused: document.activeElement === first };
+        // A card further along, focused: the browser scrolls it into view, and its ring must still clear the scroller's
+        // left edge (scroll-padding), not only the first card's at scrollLeft 0.
+        const fourth = list.querySelectorAll('.tk-probe')[3];
+        fourth.scrollIntoView({ block: 'nearest', inline: 'start' }); fourth.focus();
+        const L4 = list.getBoundingClientRect(); const C4 = fourth.getBoundingClientRect();
+        out.scrolledBy = Math.round(list.scrollLeft); out.roomLeft4 = Math.round(C4.left - L4.left);
+        fourth.blur(); list.querySelectorAll('.tk-probe').forEach((n) => n.remove()); list.scrollLeft = 0;
+        return out;
+        } catch (e) {
+          out = { error: 'probe threw: ' + String((e && e.message) || e) };
+          return out;
+        } finally {
+          // Put the page back whatever happened above: the stand-ins out, the list's own nodes in, the ancestors re-hidden.
+          if (document.activeElement && document.activeElement.classList.contains('tk-probe')) document.activeElement.blur();
+          list.querySelectorAll('.tk-probe').forEach((n) => n.remove()); list.scrollLeft = 0;
+          kept.forEach((n) => list.appendChild(n));
+          for (const [el, h, inert, disp] of unhide.reverse()) { el.hidden = h; if (inert) el.setAttribute('inert', ''); el.style.display = disp; }
+          out.restored = list.childNodes.length === kept.length && kept.every((n, i) => list.childNodes[i] === n);
+        }
+      });
+      chk(!tkRow.error && tkRow.dir === 'row' && tkRow.scrolls && tkRow.pageFits && tkRow.focused && tkRow.ring > 0
+        && tkRow.roomTop >= tkRow.ring && tkRow.roomLeft >= tkRow.ring && tkRow.scrolledBy > 0 && tkRow.roomLeft4 >= tkRow.ring && tkRow.restored,
+        `[tablet] #6107: the Tasks row runs sideways, scrolls inside itself, leaves the page its width, and a focus ring fits at the start and after a scroll`, JSON.stringify(tkRow));
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const tabletBack = await order();
+      const tabletMidRemoved = await phonePage.evaluate(() => window.__midRemoved);
+      chk(tabletArm === 'pj-post' && tabletFocus === 'pj-post' && tabletMidRemoved === 0 && tabletOrder === 'tasks,room,members-files' && tabletBack === 'room,members-files,tasks',
+        `[tablet] #6107: an upright tablet puts Tasks first, then the room, then Members/Files, by DOM, and the composer keeps its focus through the move`,
+        `${tabletOrder} (back at 375: ${tabletBack}), focus ${tabletArm} -> ${tabletFocus}, room column removed ${tabletMidRemoved}x`);
+      await phonePage.evaluate(() => { const t = document.getElementById('pj-post'); if (t) t.blur(); });
       // #4663: on a touchscreen the project page's small controls (drawn 22 to 28px) take a tap across at least 36px
       // on each, and none of those areas takes any part of a neighbouring control (the first task and file included).
       const taps = await phonePage.evaluate(tapProbe4663);
@@ -1018,14 +1120,25 @@ function tapProbe4663(skip) {
       const tip375 = await tipWalk();
       chk(!tip375.error && tip375.places === 4 && tip375.steps.length === 4 && tip375.steps.every(stepOk(375)),
         `[phone] every step of the project tip is a pointing card, on screen, with its area on screen`, JSON.stringify(tip375));
+      // 800x800 on a touchscreen is the tablet layout since #6107 (Tasks first), so this walks the tip there.
       await phonePage.setViewportSize({ width: 800, height: 800 });
       await phonePage.waitForTimeout(100);
       const tip800 = await tipWalk();
       chk(!tip800.error && tip800.places === 4 && tip800.steps.length === 4 && tip800.steps.every(stepOk(800)),
-        `[wide] every step of the project tip is a pointing card, on screen, wider than a phone`, JSON.stringify(tip800));
+        `[tablet 800x800] every step of the project tip is a pointing card, on screen, in the tablet layout`, JSON.stringify(tip800));
+      // And the wide single-column layout (Members/Files, room, Tasks), which a touch screen in landscape under 960px
+      // still gets: 900x700 is wider than a phone, landscape (so not the upright-tablet room) and under the one-screen
+      // floor (so not the #6107 landscape-tablet layout either, which starts at 960px).
+      await phonePage.setViewportSize({ width: 900, height: 700 });
+      await phonePage.waitForTimeout(100);
+      const tipWideOrder = await order();
+      const tipWide = await tipWalk();
+      chk(tipWideOrder === 'members-files,room,tasks' && !tipWide.error && tipWide.places === 4 && tipWide.steps.length === 4 && tipWide.steps.every(stepOk(900)),
+        `[wide] every step of the project tip is a pointing card, on screen, in the wide single-column layout`, JSON.stringify({ order: tipWideOrder, tip: tipWide }));
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
-      await phonePage.setViewportSize({ width: 800, height: 800 });
+      // Wide and short (a phone on its side): 800x800 on a touchscreen is an upright tablet since #6107 (tablet arm above).
+      await phonePage.setViewportSize({ width: 800, height: 400 });
       await phonePage.waitForTimeout(100);
       const order800 = await order();
       chk(order800.startsWith('members-files,room'), `[wide] wider than a phone, it goes back after Members/Files`, order800);
@@ -1660,6 +1773,9 @@ function tapProbe4663(skip) {
     const tabletPageErrors = watchErrors(tabletPage);
     try {
       await tabletPage.addInitScript(() => {
+        // #6107: a touch tablet held sideways keeps its own layout, defaulting to one screen; this arm measures the
+        // TAB layout at 1180, so it chooses tabs on the tablet first (the one-screen arms below choose it explicitly).
+        try { localStorage.setItem('kosmos-tablet-layout', 'tabs'); } catch { /* a file page may refuse storage */ }
         window.setInterval = () => 0;
         window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
       });
@@ -1692,6 +1808,8 @@ function tapProbe4663(skip) {
       // 15 fields render at 1180 (measured, both engines; others sit in views hidden at that width).
       chk(!tablet.error && tablet.hoverNone && tablet.fields >= 12 && tablet.at16 === tablet.fields && tablet.outside.length === 0,
         `[tablet 1180/touch] at 16px every field stays inside its nearest container, one view at a time`, JSON.stringify(tablet));
+      await tabletPage.waitForFunction(() => document.documentElement.hasAttribute('data-layout'), null, { timeout: 8000 }).catch(() => {});
+      chk((await tabletPage.evaluate(() => document.documentElement.getAttribute('data-layout'))) === 'tabs', '[tablet 1180/touch] precondition: the tablet chose tabs (#6107), so the TAB arms below measure the tab layout');
       // #4663 on a touchscreen tablet in the TAB layout (the static page's own layout at 1180).
       const ttaps = await tabletPage.evaluate(tapProbe4663);
       chk(ttaps.out.length === 6 && ttaps.out.every((x) => !x.error && x.reach), `[tablet 1180/touch tabs] #4663: all six small project controls take a tap across at least 36px`, JSON.stringify(ttaps.out));
@@ -1700,8 +1818,9 @@ function tapProbe4663(skip) {
       chk(tabletPageErrors.length === 0, '[tablet] no script errors on the page', tabletPageErrors.join(' | '));
       await tabletPage.close();
     }
-    // #4663 in the ONE-SCREEN layout on a touchscreen tablet, set as the dark/consolidated arm above sets it (the
-    // static page does not choose it by itself). Back (its crumb row is display:none) and + Add member (the Members
+    // #4663 in the ONE-SCREEN layout on a touchscreen tablet, at sideways sizes the page now opens on one screen
+    // by itself (#6107: a touch tablet at 960px+); the attribute set below, as the dark/consolidated arm above sets it,
+    // only makes sure of it. Back (its crumb row is display:none) and + Add member (the Members
     // card is display:none here, #3218) are not shown in this layout, so both are left out rather than forced
     // visible (forcing Members visible also reflows the Files card); the other four must all take their 36px tap.
     for (const w of [960, 1024, 1180]) {   // 960: the narrowest width the one-screen layout (and these rules) exist at

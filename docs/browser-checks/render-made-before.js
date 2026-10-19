@@ -94,6 +94,28 @@ function chk(ok, label, extra) {
     });
     chk(!fit.over, 'the longer sentence fits the card without overflowing', JSON.stringify(fit));
 
+    // #6516: the Agents LIST does not repeat the sentence in Rick's model cell (it keeps it for a screen reader); Bob's
+    // cell still shows his model (CONTROL). The card above still wears it.
+    await page.click('[data-scope="agents"] .vt[data-layout="list"]');
+    await page.waitForSelector('.lrow[data-agent="rick"]', { timeout: 8000 });
+    const lists = await page.evaluate(() => {
+      const cell = (who) => document.querySelector('.lrow[data-agent="' + who + '"] .lmodel');
+      const r = cell('rick'); const b = cell('bob');
+      // .vh clips its text rather than removing its box, so innerText still returns it: what is SHOWN is the cell's text
+      // with its .vh spans removed, and the one .vh span must be the 1px box .vh makes (review 1).
+      const shown = (el) => { if (!el) return null; const c = el.cloneNode(true); c.querySelectorAll('.vh').forEach((v) => v.remove()); return c.textContent.trim(); };
+      const vh = r && r.querySelector('.vh');
+      const box = vh ? vh.getBoundingClientRect() : null;
+      return { rickShown: shown(r), rickText: r ? r.textContent.trim() : null, rickVhOnly: !!(r && r.children.length === 1 && vh),
+        rickVhBox: box ? [Math.round(box.width), Math.round(box.height)] : null, rickVhDisplay: vh ? getComputedStyle(vh).display : null, bobShown: shown(b) };
+    });
+    chk(lists.rickShown === '' && lists.rickVhOnly && !!lists.rickVhBox && lists.rickVhBox[0] === 1 && lists.rickVhBox[1] === 1 && lists.rickVhDisplay !== 'none',
+      '#6516 the list cell shows nothing for a never-recorded agent (its only child is the 1x1 .vh span, not display:none, which would hide it from a screen reader too)', JSON.stringify(lists));
+    chk(lists.rickText === 'Made before Kosmos recorded this', '#6516 and keeps the ruled sentence for a screen reader', JSON.stringify(lists));
+    chk(!!lists.bobShown && lists.bobShown !== 'Made before Kosmos recorded this', '#6516 CONTROL: a recorded agent\'s list cell still shows its model', JSON.stringify(lists));
+    await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
+    await page.waitForSelector('[data-agent="rick"] .amodel', { timeout: 8000 });
+
     // Rick's panel: explainer visible with the way in, picker refused pre-click.
     await page.click('[data-agent="rick"]');
     await page.waitForSelector('#panel-detail:not([hidden])');

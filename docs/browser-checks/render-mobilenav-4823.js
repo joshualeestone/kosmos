@@ -143,6 +143,7 @@ const teardownFails = [];
     };
     const open = async (host, theme, opts) => {
       const ctx = await browser.newContext(Object.assign({ viewport: { width: 430, height: 932 }, colorScheme: theme, hasTouch: true, serviceWorkers: 'block' }, opts || {}));
+      await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {} });   // #6403: the switcher's one-time tip is not this check's subject
       if (engine === 'webkit' && host === 'remote.test') {
         // remote.test answered by the same board on loopback; the Host header stays remote.test, which the board accepts.
         // Self-contained (kosmos#5921): this route outlives the page at teardown, so a fetch or fulfil it cannot finish
@@ -356,6 +357,9 @@ const teardownFails = [];
         await settled(page);
         await page.click('[data-pnav-go="settings"]');
         await settled(page);
+        // #6107: this page has touch, and a touch screen held sideways at 960px+ opens on one screen by default; this arm
+        // measures today's tabbed board, so it chooses tabs on the tablet before widening.
+        await page.evaluate(() => { try { localStorage.setItem('kosmos-tablet-layout', 'tabs'); } catch { /* storage refused */ } });
         await page.setViewportSize({ width: 1280, height: 900 });
         await page.waitForFunction(() => document.getElementById('pnav').hidden && BOARD_LAYOUT === 'grid', null, { timeout: 3000 }).catch(() => {});
         l = await look(page);

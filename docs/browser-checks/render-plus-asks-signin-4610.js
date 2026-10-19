@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-asks askcard plus-ask-rows plus-state1 plus-state2 plus-flow plus-chip
+// Browser-check-surface: plus-asks askcard plus-ask-rows plus-state1 plus-state2 plus-flow plus-chip asknote-x
 // (#2518) the tokens this check asserts: where Kosmos+ device requests render on the Plus screen right after sign-in,
 // and (kosmos#5786) what each request card says about where its code is.
 /* #4610 (Josh, 2026-09-29 12:50, a brand-new Kosmos+ account in the Mac app): "these should have rendered in the same
@@ -52,7 +52,11 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       page.on('pageerror', (e) => errs.push(e.message));
       const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
       await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? REMOTE : { ok: true })));
-      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: PENDING, email: 'you@example.com', self_device_id: 'd-self' })));
+      /* #6315: the served list is the check's to change; it then polls (pollAsk), so the page's own 5-second poll can
+         only ever serve the same list. */
+      const cur = { list: PENDING };
+      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: cur.list, email: 'you@example.com', self_device_id: 'd-self' })));
+      const serve = async (list) => { cur.list = list; await page.evaluate(() => pollAsk()); await page.waitForTimeout(100); };
       await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [] })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
@@ -120,6 +124,111 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       await page.waitForTimeout(200);
       const other = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ').trim(), cards: document.querySelectorAll('#askcard .askreq').length }));
       chk(other.shown && /2 devices want to connect to your Kosmos\./.test(other.text) && other.cards === 0, '[' + W + '] CONTROL: elsewhere the top card is the one-line notice, not the cards', JSON.stringify(other));
+      /* #6315 (Josh, 19:41): the notice can be dismissed, and Review clears it too; a new request brings it back. */
+      const shownNote = () => page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden && !!document.querySelector('#askcard .asknote'), x: !!document.querySelector('#askcard .asknote-x') }));
+      const n0 = await shownNote();
+      chk(n0.shown && n0.x, '[' + W + '] #6315 the notice has a dismiss button', JSON.stringify(n0));
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      chk(!(await shownNote()).shown, '[' + W + '] #6315 dismiss hides the notice');
+      const foc = await page.evaluate(() => { const a = document.activeElement; return a && a.matches && a.matches('#tabs [aria-selected="true"], [aria-controls="tabs"]') && !!a.offsetParent; });
+      chk(foc === true, '[' + W + '] #6315 after dismiss, keyboard focus is on a visible control for the current view, not the page body');
+      await serve(PENDING.slice(1));
+      chk(!(await shownNote()).shown, '[' + W + '] #6315 one of the dismissed requests answered elsewhere: the notice stays away (nothing new)');
+      await serve(PENDING);
+      await page.evaluate(() => paintAsk());
+      chk(!(await shownNote()).shown, '[' + W + '] #6315 a repaint keeps it hidden (same requests)');
+      const WITH_NEW = PENDING.concat([{ device_id: 'd-new', name: 'iPad · Safari', code: 'K2-P9', first_seen: now() }]);
+      await serve(WITH_NEW);
+      const n1 = await shownNote();
+      chk(n1.shown, '[' + W + '] #6315 CONTROL: a new request brings the notice back', JSON.stringify(n1));
+      /* The record is never cleared on an empty list: the same requests after a blip stay put away. */
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      await serve([]);
+      await serve(WITH_NEW);
+      chk(!(await shownNote()).shown, '[' + W + '] #6315 a list that read empty for a moment does not undo the dismissal (the same requests)');
+      /* The same device asking again later (a newer first_seen) is a new request. */
+      await serve(WITH_NEW.map((d) => (d.device_id === 'd-safari' ? Object.assign({}, d, { first_seen: now() + 5 }) : d)));
+      chk((await shownNote()).shown, '[' + W + '] #6315 the same device asking again (newer first_seen) shows the notice');
+      /* kosmos#6417: a joining computer keeps ONE row (one first_seen) across every attempt. A new code is a new attempt
+         and brings the notice back; its code going empty (a code lapsing after ten minutes, or a wait the tunnel gives)
+         is not a new request and keeps it put away. */
+      const COMP = { device_id: 'computer:ab12', name: 'laptop', joining_computer: 'laptop', code: '135 246', first_seen: now() - 3600 };
+      const withComp = (c) => WITH_NEW.concat([Object.assign({}, COMP, c)]);
+      await serve(withComp({}));
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      await serve(withComp({}));
+      chk(!(await shownNote()).shown, '[' + W + '] #6417 CONTROL: the same computer on the same code stays put away');
+      await serve(withComp({ code: '' }));
+      chk(!(await shownNote()).shown, '[' + W + '] #6417 the code lapsing (no new request) keeps it put away');
+      await serve(withComp({ code: '', code_wait: 'another_computer' }));
+      chk(!(await shownNote()).shown, '[' + W + '] #6417 a wait with no code keeps it put away');
+      // A different computer whose id starts with the dismissed one's, asking with no code yet: never put away, it shows
+      // (an empty code counts as put away only through the same row's own dismissed codes).
+      const OTHER = { device_id: 'computer:ab1', name: 'desktop', joining_computer: 'desktop', code: '', first_seen: now() - 60 };
+      await serve(withComp({ code: '', code_wait: 'another_computer' }).concat([OTHER]));
+      chk((await shownNote()).shown, '[' + W + '] #6417 another computer with no code yet, never put away, shows the notice');
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      await serve(withComp({ code: '531 642' }));
+      chk((await shownNote()).shown, '[' + W + '] #6417 the same computer with a new code (asking again) brings the notice back');
+      /* Kept across a reload, and another tab's dismissal applies here (read from storage each paint). */
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.evaluate(async () => { showTab('agents'); await pollAsk(); paintAsk(); });
+      const loaded = await page.evaluate(() => ASK.devices.length > 0);
+      chk(loaded && !(await shownNote()).shown, '[' + W + '] #6315 a dismissal is kept across a reload (the list loaded first)', String(loaded));
+      await page.evaluate(() => { localStorage.removeItem('kosmos.asknote.dismissed'); paintAsk(); });
+      chk((await shownNote()).shown, '[' + W + '] #6315 CONTROL: with storage and this tab\'s record both empty (a fresh load), the notice shows');
+      await page.evaluate(() => { localStorage.setItem('kosmos.asknote.dismissed', ASK.noteKeys.join('\n')); paintAsk(); });
+      chk(!(await shownNote()).shown, '[' + W + '] #6315 another tab\'s dismissal (written to storage) hides the notice here');
+      await page.evaluate(() => { localStorage.removeItem('kosmos.asknote.dismissed'); paintAsk(); });
+      /* A browser this computer just connected, arriving after the requests were put away, brings the notice back
+         about itself, not about the dismissed requests. */
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      // Set, paint and read in one step: the page's own poll (which serves no connected_here) could clear ASK.here between.
+      const hn = await page.evaluate(() => { ASK.here = { device_id: 'd-here', at: Math.floor(Date.now() / 1000), name: 'Mac · Safari' }; ASK.hereGone = ''; paintAsk();
+        return { shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ') }; });
+      chk(hn.shown && /on this computer is connected/.test(hn.text) && !/want/.test(hn.text), '[' + W + '] #6315 a new connected-here browser is what the returning notice names', JSON.stringify(hn));
+      await page.evaluate(() => { ASK.here = null; localStorage.removeItem('kosmos.asknote.dismissed'); ASK.noteDismissed = []; paintAsk(); });
+      /* A connected-here browser behind a waiting request is not named, so a dismiss does not put it away: once the
+         request is gone, its line (the way to its Undo) shows. */
+      const hr = await page.evaluate(() => {
+        ASK.here = { device_id: 'd-here2', at: Math.floor(Date.now() / 1000), name: 'Mac · Safari' }; ASK.hereGone = ''; paintAsk();
+        const x = document.querySelector('#askcard .asknote-x'); if (x) { x.focus(); x.click(); }
+        // Right after the close: the browser it did not name is what the notice now says (decided, see the plan), and
+        // keyboard focus stays on the notice (its close button), not moved off a notice still showing.
+        const after = document.getElementById('askcard').innerText.replace(/\s+/g, ' ');
+        const focusOnNotice = !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#askcard'));
+        const keep = ASK.devices; ASK.devices = []; paintAsk();
+        const r = { after, focusOnNotice, shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ') };
+        ASK.devices = keep; ASK.here = null; localStorage.removeItem('kosmos.asknote.dismissed'); ASK.noteDismissed = []; paintAsk();
+        return r;
+      });
+      chk(hr.focusOnNotice === true, '[' + W + '] #6315 after that close, keyboard focus stays on the notice that is still showing', JSON.stringify(hr));
+      chk(/on this computer is connected/.test(hr.after) && !/want/.test(hr.after), '[' + W + '] #6315 closing the request line moves the notice on to the connected-here browser it had not named', JSON.stringify(hr));
+      chk(hr.shown && /on this computer is connected/.test(hr.text), '[' + W + '] #6315 a connected-here browser not named when dismissed still shows once the request is gone', JSON.stringify(hr));
+      /* Storage that throws: the dismissal still holds in this tab. */
+      await page.evaluate(() => { Storage.prototype.__set = Storage.prototype.setItem; Storage.prototype.__get = Storage.prototype.getItem;
+        Storage.prototype.setItem = () => { throw new Error('quota'); }; Storage.prototype.getItem = () => { throw new Error('denied'); }; });
+      await serve(WITH_NEW.concat([{ device_id: 'd-tv', name: 'TV · Safari', code: 'Z3-Q1', first_seen: now() }]));
+      const nS = await shownNote();
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      await page.evaluate(() => paintAsk());
+      chk(nS.shown && !(await shownNote()).shown, '[' + W + '] #6315 with storage throwing, a dismissal still holds in this tab', JSON.stringify(nS));
+      await page.evaluate(() => { Storage.prototype.setItem = Storage.prototype.__set; Storage.prototype.getItem = Storage.prototype.__get; });
+      await serve(WITH_NEW.concat([{ device_id: 'd-car', name: 'Car · Safari', code: 'Y7-R2', first_seen: now() }]));
+      await page.click('#askcard .asknote [data-ask="open"]');
+      await page.waitForTimeout(200);
+      await page.evaluate(() => { showTab('agents'); paintAsk(); });
+      await page.waitForTimeout(150);
+      const offPlus = await page.evaluate(() => typeof plusOnScreen === 'function' && !plusOnScreen());
+      chk(offPlus && !(await shownNote()).shown, '[' + W + '] #6315 after Review the notice does not come back on another view (the page did leave Kosmos+)', String(offPlus));
       chk(errs.length === 0, '[' + W + '] no page errors', errs.join(' | '));
       await page.close();
     }

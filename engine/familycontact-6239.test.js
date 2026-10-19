@@ -1,0 +1,346 @@
+'use strict';
+/**
+ * kosmos#6239 (first Kosmos+Kids slice): what `outside_contact: { enabled: false }` stops on the board, through the
+ * policy as orgpolicy applies it (a signed bundle, as a company or a parent pushes it). The community: every sender
+ * reads communitysend.switchState(), which says 'policy', and the person's switch is left as they set it. The agent's
+ * instructions: the community block gives way to the lines saying it does not take part (Josh, 2026-10-15 10:45).
+ * Shared rooms: no seat is started and a running one is let go, the link kept.
+ *
+ *   node --test engine/familycontact-6239.test.js
+ */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { EventEmitter } = require('node:events');
+const { PassThrough } = require('node:stream');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-familycontact-6239-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_TUNNEL_STATE = path.join(SANDBOX, 'tunnel');
+fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
+fs.mkdirSync(process.env.AGENT_WORKFORCE_TUNNEL_STATE, { recursive: true });
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const orgpolicy = require('./orgpolicy');
+const communitysend = require('./communitysend');
+const communityswitch = require('./communityswitch');
+const cb = require('./communityblock');
+const projects = require('./projects');
+const federation = require('./federation');
+const fedseats = require('./fedseats');
+
+test.after(() => { fedseats.stopAll(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+
+const coordinator = crypto.generateKeyPairSync('ed25519');
+const PINNED = coordinator.publicKey.export({ format: 'jwk' }).x;
+let version = 0;
+/* Push `policy` as the coordinator signs it, and apply it as the board does. */
+function apply(policy) {
+  const now = Math.floor(Date.now() / 1000);
+  version += 1;
+  const body = 'KST1.' + Buffer.from(JSON.stringify({ typ: 'org_policy', v: 1, org: 'org-1', version, iat: now - 10, exp: now + 86400, policy })).toString('base64url');
+  fs.writeFileSync(orgpolicy.BUNDLE(), body + '.' + crypto.sign(null, Buffer.from(body, 'ascii'), coordinator.privateKey).toString('base64url'));
+  const r = orgpolicy.refresh({ now, pinned: PINNED });
+  assert.equal(r.refused, null, 'the test policy did not apply: ' + r.refused);
+}
+const STOP = { outside_contact: { enabled: false } };
+const OPEN = { outside_contact: { enabled: true } };
+
+function agentFile(name, text) {
+  const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), text);
+  return path.join(dir, 'CLAUDE.md');
+}
+const AVA = '# Ava\n\nAva helps with homework and keeps notes on what was asked.\n';
+const inner = (text) => {
+  const f = projects.findBlock(text, cb.START, cb.END);
+  return f && !f.ambiguous ? text.slice(f.start + cb.START.length, f.end - cb.END.length).trim() : null;
+};
+
+test('#6239: under the policy the community reads as stopped by it, with its own words, and the switch stays the person\'s', () => {
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  try {
+    apply(OPEN);
+    assert.equal(communitysend.switchState(), 'on', 'CONTROL: contact allowed');
+    apply(STOP);
+    assert.equal(communitysend.switchState(), 'policy');
+    assert.equal(communitysend.switchOn(), false);
+    assert.equal(communitysend.notOnWords('policy'), 'the Kosmos+ community is off on this board: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers');
+    const w = communitysend.willSend('Scout', Date.now(), 'post');
+    assert.deepEqual([w.sends, w.why], [false, 'policy']);
+    assert.match(communitysend.notSendingWords('post', 'policy'), /policy set for this Kosmos/);
+    assert.match(communitysend.notSendingWords('comment', 'policy'), /policy set for this Kosmos/);
+    // A switch that cannot be read keeps its own words; the person's OFF reads as the policy (round 7: never "turn it on").
+    communitysend.setSwitch(() => ({ on: false, ok: false }));
+    assert.equal(communitysend.switchState(), 'unreadable');
+    communitysend.setSwitch(() => ({ on: false, ok: true }));
+    assert.equal(communitysend.switchState(), 'policy');
+  } finally { communitysend.setSwitch(null); apply(OPEN); }
+});
+
+test('#6239: a policy read that throws sends nothing, in its own words, and the agent CLI is refused with the policy\'s words', async () => {
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  communitysend.setContact(() => { throw new Error('boom'); });
+  try {
+    assert.equal(communitysend.switchState(), 'policy_unreadable');
+    assert.equal(communitysend.notOnWords('policy_unreadable'), 'the Kosmos+ community is off on this board: Kosmos cannot read the policy set for this Kosmos just now (tell your person)');
+    assert.doesNotMatch(communitysend.notOnWords('policy_unreadable'), /switch|keeps agents out/, 'a policy fault read as the switch file, or as a policy');
+    assert.deepEqual([communitysend.willSend('Scout', Date.now(), 'post').why], ['policy_unreadable']);
+    assert.match(communitysend.notSendingWords('post', 'policy_unreadable'), /cannot read the policy/);
+  } finally { communitysend.setContact(null); }
+  const ae = require('./agentevents');
+  const real = ae.recordRefusal; const seen = [];
+  ae.recordRefusal = (ev) => { seen.push(ev); return { queued: true }; };
+  try {
+    apply(STOP);
+    const r = await communitysend.agentCall('Scout', 'GET', '/agents/me/posts');
+    assert.equal(r.ok, false);
+    assert.match(r.because, /policy set for this Kosmos/);
+    const cr = require('./communityread');
+    const rd = await cr.read({ reader: 'Rex' });
+    assert.equal(rd.ok, false);
+    // Round 4: the read's own suffix lands on a clause, never after a sentence.
+    assert.equal(rd.because, 'the Kosmos+ community is off on this board: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so nothing was read');
+    assert.deepEqual(seen, [{ agent: 'Scout', rule: 'outside-contact' }, { agent: 'Rex', rule: 'outside-contact' }], 'a refused act was not reported');
+    apply(OPEN);
+    const c = await communitysend.agentCall('Scout', 'GET', '/agents/me/posts');
+    assert.doesNotMatch(String(c.because), /policy set for this Kosmos/, 'CONTROL: allowed, refused for another reason or none');
+  } finally { ae.recordRefusal = real; communitysend.setSwitch(null); apply(OPEN); }
+});
+
+test('#6239: participating() is false under the policy, with the switch file ON', () => {
+  communityswitch.setOn(true);
+  apply(OPEN);
+  assert.equal(communityswitch.participating(), true, 'CONTROL');
+  apply(STOP);
+  assert.equal(communityswitch.participating(), false);
+  assert.equal(communityswitch.read().on, true, 'the person\'s switch was changed');
+  apply(OPEN);
+});
+
+test('#6239: the community block gives way to the "you do not take part" lines, and comes back when allowed', () => {
+  const f = agentFile('ava', AVA);
+  apply(OPEN);
+  assert.equal(cb.tellAgent('ava', true).state, projects.TOLD.TOLD);
+  assert.match(inner(fs.readFileSync(f, 'utf8')), /Your person has you taking part/, 'CONTROL: the block is there');
+  apply(STOP);
+  // A restart reads participating() (false under the policy) and tells the agent.
+  assert.equal(cb.tellAgent('ava', communityswitch.participating()).changed, true);
+  const text = fs.readFileSync(f, 'utf8');
+  assert.equal(inner(text), cb.stoppedBody().trim());
+  assert.match(text, /You do not take part in the Kosmos\+ community/);
+  assert.match(text, /Do not post, comment, reply, vote, follow or endorse there/);
+  assert.doesNotMatch(text, /kosmos community post/, 'the posting command is still in its instructions');
+  assert.ok(text.startsWith(AVA), 'the person\'s own text was touched');
+  // The switch OFF without the policy removes the section, as before.
+  apply(OPEN);
+  const off = cb.tellAgent('ava', false);
+  assert.equal(off.state, projects.TOLD.TOLD, JSON.stringify(off) + ' ' + JSON.stringify(orgpolicy.contactAllows()));
+  assert.equal(inner(fs.readFileSync(f, 'utf8')), null, 'CONTROL: the person\'s OFF removes it');
+  cb.tellAgent('ava', true);
+  assert.match(inner(fs.readFileSync(f, 'utf8')), /Your person has you taking part/);
+});
+
+test('#6239: the board-start refresh tells every agent of ours under the policy, and nobody without it while off', (t) => {
+  // A real card from test-support/fleet (fixture-discipline), inside this file's sandbox.
+  const fleet = require('../test-support/fleet');
+  const board = fleet.install([fleet.agent('bea')]);
+  t.after(() => board.restore());
+  const card = board.agents.find((c) => c.isNamedOurs === true);
+  assert.ok(card, 'CONTROL: the fleet gave a card of ours: ' + JSON.stringify(board.agents.map((c) => c.sessionName)));
+  const f = agentFile(card.sessionName, '# Bea\n\nBea answers the family calendar questions.\n');
+  const roster = [card];
+  apply(OPEN);
+  assert.deepEqual(cb.refreshEveryone(roster, false), [], 'CONTROL: switch off, no policy: nothing written');
+  apply(STOP);
+  const told = cb.refreshEveryone(roster, communityswitch.participating());
+  assert.equal(told.length, 1);
+  assert.equal(told[0].changed, true);
+  assert.equal(told[0].rulesChanged, true, 'the agent is not told to read its instructions again');
+  assert.equal(inner(fs.readFileSync(f, 'utf8')), cb.stoppedBody().trim());
+  apply(OPEN);
+});
+
+function fakeChild() {
+  const c = new EventEmitter();
+  c.stdin = new PassThrough();
+  c.stdout = new PassThrough();
+  return c;
+}
+test('#6239: no shared-room seat under the policy; a running one is let go and the link kept', async () => {
+  const spawned = [];
+  fedseats.stopAll();
+  fedseats.configure({
+    spawnSeat: (edge) => { const c = fakeChild(); spawned.push(c); return c; },
+    macRequest: async () => ({ ok: false, because: 'no' }),
+    recordExternal: () => {}, onStatus: () => {}, enrolled: () => true, projectExists: () => true,
+    projectCreatedAt: () => undefined, note: () => {},
+  });
+  federation.recordLink('proj-m', { role: 'member', edge_id: 'edge-1' });
+  apply(OPEN);
+  await fedseats.ensure('proj-m');
+  assert.equal(spawned.length, 1, 'CONTROL: a seat starts while contact is allowed');
+  apply(STOP);
+  await fedseats.ensureAll();
+  assert.equal(fedseats.statusOf('proj-m'), null, 'the running seat was not let go');
+  assert.equal(await fedseats.ensure('proj-m'), null);
+  assert.equal(spawned.length, 1, 'a seat was started under the policy');
+  assert.ok(federation.linkFor('proj-m'), 'the link was dropped');
+  apply(OPEN);
+  await fedseats.ensure('proj-m');
+  assert.equal(spawned.length, 2, 'the room did not come back once allowed');
+  fedseats.stopAll();
+});
+
+test('#6239: a policy record that cannot be read closes contact instead of reading as no policy (round 2)', () => {
+  apply(STOP);
+  const file = orgpolicy.APPLIED();
+  const good = fs.readFileSync(file, 'utf8');
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  try {
+    fs.writeFileSync(file, '{ not json');
+    assert.throws(() => orgpolicy.contactAllows(), 'a corrupt record read as no policy');
+    assert.equal(communitysend.switchState(), 'policy_unreadable');
+    assert.equal(communityswitch.participating(), false);
+    assert.equal(fedseats.contactStopped(), true);
+    // A read that fails (here EISDIR), not only one that does not parse.
+    fs.rmSync(file); fs.mkdirSync(file);
+    assert.throws(() => orgpolicy.contactAllows(), 'an unreadable record read as no policy');
+    assert.equal(communitysend.switchState(), 'policy_unreadable');
+    // Half a record is a fault too.
+    fs.rmSync(file, { recursive: true }); fs.writeFileSync(file, JSON.stringify({ version: 3 }));
+    assert.throws(() => orgpolicy.contactAllows(), 'half a record read as no policy');
+    fs.rmSync(file, { recursive: true });
+    assert.deepEqual(orgpolicy.contactAllows(), { ok: true }, 'CONTROL: no record at all is no policy');
+    assert.equal(communitysend.switchState(), 'on', 'CONTROL');
+  } finally { communitysend.setSwitch(null); fs.rmSync(file, { recursive: true, force: true }); fs.writeFileSync(file, good); apply(OPEN); }
+});
+
+test('#6239: a computer that left its company has no policy: the record clear() leaves opens everything again (round 3)', () => {
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  try {
+    apply(STOP);
+    assert.equal(communitysend.switchState(), 'policy', 'CONTROL: the policy is in force first');
+    orgpolicy.clear();
+    const rec = JSON.parse(fs.readFileSync(orgpolicy.APPLIED(), 'utf8'));
+    assert.ok(rec && rec.marks && !('policy' in rec), 'CONTROL: clear() left the marks-only record this test is about: ' + JSON.stringify(rec));
+    assert.deepEqual(orgpolicy.contactAllows(), { ok: true });
+    assert.deepEqual(orgpolicy.quietAllows(), { ok: true });
+    assert.equal(communitysend.switchState(), 'on');
+    assert.equal(communityswitch.participating(), communityswitch.read().on === true);
+    assert.equal(fedseats.contactStopped(), false);
+  } finally { communitysend.setSwitch(null); apply(OPEN); }
+});
+
+test('#6239: a policy read fault ends the period, as an unreadable switch does, and so does the policy (round 5)', async () => {
+  const stateFile = communitysend._paths.stateFile();
+  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+  const since = new Date().toISOString();
+  fs.writeFileSync(stateFile, JSON.stringify({ since }) + '\n');
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  communitysend.setSender(() => { throw new Error('this test sends nothing'); });
+  try {
+    communitysend.setContact(() => { throw new Error('a passing read error'); });
+    assert.equal(communitysend.switchState(), 'policy_unreadable', 'CONTROL');
+    await communitysend.sweep();
+    assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, undefined, 'a fault kept the period, so items every status line called gone could still go');
+    fs.writeFileSync(stateFile, JSON.stringify({ since }) + '\n');
+    communitysend.setContact(() => ({ ok: false, because: 'stopped' }));
+    await communitysend.sweep();
+    assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, undefined, 'the policy did not end the period');
+    fs.writeFileSync(stateFile, JSON.stringify({ since }) + '\n');
+    communitysend.setContact(() => ({ ok: true }));
+    await communitysend.sweep();
+    assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, since, 'CONTROL: allowed, the period stays');
+  } finally { communitysend.setContact(null); communitysend.setSwitch(null); communitysend.setSender(null); }
+});
+
+test('#6239: the community home says the policy or the fault, not "switched off", and the person\'s OFF still says off (round 6)', async () => {
+  const home = require('./communityhome');
+  try {
+    communitysend.setSwitch(() => ({ on: true, ok: true }));
+    apply(STOP);
+    const h = await home.homeFor('Scout');
+    assert.match(home.homeText(h), /^The Kosmos\+ community is off on this board: the policy set for this Kosmos keeps agents out of the Kosmos\+ community and out of projects shared with other computers, so only this board's own counts are shown\./);
+    assert.doesNotMatch(home.homeText(h), /switched off/);
+    communitysend.setContact(() => { throw new Error('boom'); });
+    assert.match(home.homeText(await home.homeFor('Scout')), /^The Kosmos\+ community is off on this board: Kosmos cannot read the policy set for this Kosmos just now/);
+    communitysend.setContact(null);
+    apply(OPEN);
+    communitysend.setSwitch(() => ({ on: false, ok: true }));
+    assert.match(home.homeText(await home.homeFor('Scout')), /^The Kosmos\+ community is switched off on this board/, 'CONTROL: the person\'s OFF');
+  } finally { communitysend.setContact(null); communitysend.setSwitch(null); apply(OPEN); }
+});
+
+test('#6239: the stopped lines are not the community rules: block state, the handoff ask, the re-read line (round 7)', () => {
+  const ready = require('./communityready');
+  const handoff = require('./autohandoff-sweep');
+  const ir = require('./instructionreread');
+  const f = agentFile('cy', '# Cy\n\nCy keeps the reading list for the family.\n');
+  apply(OPEN);
+  communityswitch.setOn(true);
+  cb.tellAgent('cy', true);
+  assert.equal(ready.blockState('cy'), 'present', 'CONTROL: the rules');
+  assert.equal(cb.isStoppedSection(fs.readFileSync(f, 'utf8')), false, 'CONTROL');
+  apply(STOP);
+  cb.tellAgent('cy', communityswitch.participating());
+  assert.equal(cb.isStoppedSection(fs.readFileSync(f, 'utf8')), true);
+  assert.equal(ready.blockState('cy'), 'stopped');
+  assert.match(ready.linesFor({ ...ready.rowFor('cy'), block: 'stopped' }).join('\n'), /The community section in your instructions: it says you do not take part in the community/);
+  // The policy lifts with the switch on: the stopped lines stay until a restart, and nothing asks it to take part.
+  apply(OPEN);
+  assert.equal(handoff.communityFor('cy').participating, false, 'the handoff ask read the stopped lines as the rules');
+  const line = ir.lineFor(['community'], { communityStopped: true });
+  assert.match(line, /Its Kosmos\+ community section now says you do not take part in the community: from now on, do not\./);
+  assert.doesNotMatch(line, /the next time you take part/);
+  assert.match(ir.lineFor(['community']), /the next time you take part/, 'CONTROL: the line without the policy');
+});
+
+test('#6239: with the person\'s switch OFF the policy still reads as the policy, so nobody is told to turn it on (round 7)', () => {
+  communitysend.setSwitch(() => ({ on: false, ok: true }));
+  try {
+    apply(STOP);
+    assert.equal(communitysend.switchState(), 'policy');
+    communitysend.setContact(() => { throw new Error('boom'); });
+    assert.equal(communitysend.switchState(), 'off', 'a fault over the person\'s OFF is still their OFF');
+    communitysend.setContact(null);
+    apply(OPEN);
+    assert.equal(communitysend.switchState(), 'off', 'CONTROL');
+  } finally { communitysend.setContact(null); communitysend.setSwitch(null); apply(OPEN); }
+});
+
+test('#6239: an agent act that meets the policy ends the ON period at once, not at the next sweep (round 8)', () => {
+  const stateFile = communitysend._paths.stateFile();
+  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+  const since = new Date().toISOString();
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  try {
+    apply(OPEN);
+    fs.writeFileSync(stateFile, JSON.stringify({ since }) + '\n');
+    communitysend.willSend('Scout', Date.now(), 'post');
+    assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, since, 'CONTROL: allowed, the period stays');
+    apply(STOP);
+    assert.equal(communitysend.willSend('Scout', Date.now(), 'post').why, 'policy');
+    assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, undefined, 'the period outlived a refused act');
+  } finally { communitysend.setSwitch(null); apply(OPEN); }
+});
+
+test('#6239: a policy read that keeps failing over the person\'s OFF is logged once, not on every read (round 9)', () => {
+  const lines = [];
+  const real = console.error;
+  console.error = (l) => { lines.push(String(l)); };
+  communitysend.setSwitch(() => ({ on: false, ok: true }));
+  communitysend.setContact(() => { throw new Error('boom'); });
+  try {
+    apply(OPEN); communitysend.setContact(null); communitysend.switchState();   // a good read first, so the latch starts clear
+    communitysend.setContact(() => { throw new Error('boom'); });
+    communitysend.switchState(); communitysend.switchState(); communitysend.switchState();
+  } finally { console.error = real; communitysend.setContact(null); communitysend.setSwitch(null); }
+  assert.equal(lines.filter((l) => /cannot read the policy set for this Kosmos/.test(l)).length, 1, JSON.stringify(lines));
+});

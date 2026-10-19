@@ -273,16 +273,66 @@ function list() {
     .reverse();
 }
 
+/* kosmos#6265: the folder `kosmos feedback pull` writes the collected reports into. Read lazily, so this module does
+   not load the pull's code until a triage runs. */
+function pulledDir() { return require('./feedbackpull').defaultDir(); }
+/* Review 1: a regular .md file, not anything named like one (a subdirectory x.md is skipped by the reader). */
+function hasReports(folder) {
+  let names;
+  try { names = fs.readdirSync(folder); } catch { return false; }
+  /* stat follows a link, as the reader's readFileSync does (review 3), so the two agree on what counts. */
+  return names.some((n) => { if (!/\.md$/.test(n)) return false; try { return fs.statSync(path.join(folder, n)).isFile(); } catch { return false; } });
+}
+/* This computer's own reports, through the store's reader (readBody drops the per-writer section markers, #5317). */
+function readOwn(since, reports) {
+  for (const date of list()) {
+    if (since && date < since) continue;
+    reports.push({ date, body: readBody(date) });
+  }
+}
+/* #6265: a path as a pasteable command argument for the shell that will read it: PowerShell on Windows (an inner '
+   doubled; a backslash is a plain path character), a POSIX shell elsewhere (an inner ' closed and reopened). A path
+   starting with - gets ./ so it cannot read as an option. Used by both suggested commands (review 9). */
+function shellArg(p, platform = process.platform) {
+  let s = String(p);
+  if (s.startsWith('-')) s = './' + s;
+  const plain = platform === 'win32' ? /^[\w./:\\@-]+$/ : /^[\w./:@-]+$/;
+  if (plain.test(s)) return s;
+  return platform === 'win32' ? "'" + s.replace(/'/g, "''") + "'" : "'" + s.replace(/'/g, "'\\''") + "'";
+}
+/* The OS's own spelling of each path (realpathSync.native), compared without case on Windows, so a --dir that names
+   the store with other capitals or slashes is still the store. Also feedbackpull.nextLine's comparison. */
+function samePath(a, b) {
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+  const fold = (p) => (process.platform === 'win32' ? real(p).toLowerCase() : real(p));
+  return fold(a) === fold(b);
+}
+const newest = (reports) => reports.map((r) => r.date).filter(Boolean).sort().pop() || null;
+/* The reports in one folder of .md files, oldest first (a pulled folder, or a --dir). */
+function readFolder(folder, since, reports, notes) {
+  let names;
+  try { names = fs.readdirSync(folder); } catch { return false; }
+  for (const name of names.filter((n) => /\.md$/.test(n)).sort()) {
+    let raw;
+    try { raw = fs.readFileSync(path.join(folder, name), 'utf8'); } catch { notes.push('skipping unreadable report: ' + name); continue; }
+    const date = /^\d{4}-\d{2}-\d{2}\.md$/.test(name) ? name.slice(0, -3) : frontmatterDate(raw);
+    if (since && (date === null || date < since)) continue;
+    reports.push({ date, body: stripFrontmatter(raw) });
+  }
+  return true;
+}
 /**
- * The reports `kosmos feedback triage` reads (#2246): the store, or a directory of
- * collected or tester reports (`--dir`), optionally only those on or after
- * `since`. ONE reader for both CLIs (install/kosmos and the Windows
+ * The reports `kosmos feedback triage` reads (#2246), optionally only those on or
+ * after `since`: a directory (`--dir`); with none, the folder `kosmos feedback pull`
+ * fills when it holds a report file, else this computer's own store (#6265).
+ * ONE reader for both CLIs (install/kosmos and the Windows
  * tools/windows/kosmos-cli.js), so the two cannot disagree about which reports a
  * digest covers (win32-cli-verbs).
  *
- * Returns { ok, reports: [{date, body}], notes, because }. `notes` are the
- * per-file skips (a subdirectory named x.md, a file that cannot be read), which
- * the caller prints and carries on past; `ok:false` is a refusal (a bad --since,
+ * Returns { ok, reports: [{date, body}], notes, read, because }. `read` is the folder
+ * read (a --dir naming this computer's own store reads it as the store). `notes` are the per-file skips (a subdirectory named x.md, a file that cannot
+ * be read) and one line naming the folder read, which the caller prints on stderr and
+ * carries on past; `ok:false` is a refusal (a bad --since,
  * an unreadable --dir), whose `because` the caller prints before exiting 2.
  *
  * A --dir file named `YYYY-MM-DD.md` takes its day from the name; any other name
@@ -296,23 +346,36 @@ function reportsForTriage(opts) {
   const notes = [];
   if (since && !isDateKey(since)) return { ok: false, because: '--since must be YYYY-MM-DD', reports: [], notes };
   const reports = [];
-  if (o.dir) {
-    let names;
-    try { names = fs.readdirSync(o.dir); } catch { return { ok: false, because: 'cannot read --dir: ' + o.dir, reports: [], notes }; }
-    for (const name of names.filter((n) => /\.md$/.test(n)).sort()) {
-      let raw;
-      try { raw = fs.readFileSync(path.join(o.dir, name), 'utf8'); } catch { notes.push('skipping unreadable report: ' + name); continue; }
-      const date = /^\d{4}-\d{2}-\d{2}\.md$/.test(name) ? name.slice(0, -3) : frontmatterDate(raw);
-      if (since && (date === null || date < since)) continue;
-      reports.push({ date, body: stripFrontmatter(raw) });
-    }
-  } else {
-    for (const date of list()) {
-      if (since && date < since) continue;
-      reports.push({ date, body: readBody(date) });
-    }
+  if (o.dir && samePath(o.dir, dir())) {
+    /* Review 3: --dir naming this computer's own store reads it as the default did, not as a plain folder (newest
+       first, as the store lists it). Review 5: a missing store is still refused, as any unreadable --dir is. */
+    if (!fs.existsSync(dir())) return { ok: false, because: 'cannot read --dir: ' + o.dir, reports: [], notes };
+    readOwn(since, reports);
+    notes.push('triage read this computer\'s own reports in ' + dir());
+    return { ok: true, reports, notes, read: dir() };
   }
-  return { ok: true, reports, notes };
+  if (o.dir) {
+    if (!readFolder(o.dir, since, reports, notes)) return { ok: false, because: 'cannot read --dir: ' + o.dir, reports: [], notes };
+    notes.push('triage read the reports in ' + o.dir);
+    return { ok: true, reports, notes, read: o.dir };
+  }
+  /* kosmos#6265: with no --dir, the reports `kosmos feedback pull` collected are what a triage is for, so their folder
+     is read when it holds any; only when it does not are this computer's own daily reports read. Either way the run
+     says which folder it read (stderr in both commands), so a triage after a pull can never silently read old data. */
+  const pulled = pulledDir();
+  const pulledThere = hasReports(pulled);
+  if (pulledThere && readFolder(pulled, since, reports, notes)) {
+    const last = newest(reports);
+    /* Review 5: --since can leave nothing of the pulled folder; the note says so, so an empty digest is not a mystery. */
+    /* Review 7: report files that all failed to read are not "undated". */
+    const what = !reports.length && since ? 'none on or after ' + since : !reports.length ? 'none could be read' : last ? 'newest dated ' + last : 'none dated';
+    notes.push('triage read the pulled reports in ' + pulled + ' (kosmos feedback pull fills it; ' + what + '); --dir ' + shellArg(dir()) + ' reads this computer\'s own');
+    return { ok: true, reports, notes, read: pulled };
+  }
+  readOwn(since, reports);
+  /* Review 2: a pulled folder that held reports but could not be read (gone between the two looks) says so. */
+  notes.push('triage read this computer\'s own reports in ' + dir() + ': ' + (pulledThere ? 'the pulled reports in ' + pulled + ' could not be read' : 'there are no pulled reports in ' + pulled + ' (kosmos feedback pull fetches them)'));
+  return { ok: true, reports, notes, read: dir() };
 }
 
-module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage };
+module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };

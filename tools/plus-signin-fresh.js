@@ -253,12 +253,17 @@ async function finish(a) {
   // Forget whenever a register was TRIED: one that timed out here may still have finished on the
   // board, and the engine's forget also retires a half-registered identity.
   if (registerTried) {
-    const f = await b.post('/api/remote/forget', {}, FORGET_MS);
+    let f = await b.post('/api/remote/forget', {}, FORGET_MS);
+    /* kosmos#6389: a retire with no answer keeps the key on the board (kept). The step still fails below, but the
+       board under test is not left registered: it is removed from the board only, and the detail says so. */
+    const kept = f.status === 200 && f.json && f.json.kept === true;
+    if (kept) f = await b.post('/api/remote/forget', { anyway: true }, FORGET_MS);
     const nothing = f.status === 200 && f.json.retired !== true && /nothing to retire/i.test(String(f.json.because || ''));
     steps.push(f.status === 200 && f.json.retired === true ? { id: 'forget', result: 'pass' }
       : nothing ? { id: 'forget', result: 'pass', detail: 'the register wrote nothing, so there was nothing to retire' }
       : f.status === 0 ? { id: 'forget', result: 'fail', detail: 'no answer from the board to the forget; the retire may still complete: check the seed account' }
-      : { id: 'forget', result: 'fail', detail: 'the throwaway registration was not retired: ' + String((f.json && (f.json.because || f.json.error)) || f.status) });
+      : { id: 'forget', result: 'fail', detail: 'the throwaway registration was not retired: ' + String((f.json && (f.json.because || f.json.error)) || f.status)
+        + (kept && f.status === 200 ? ' (Kosmos+ did not answer, so it was then removed from the board only: check the seed account)' : '') });
   } else {
     await b.post('/api/remote/signin-cancel', {}, CLEANUP_MS);
   }

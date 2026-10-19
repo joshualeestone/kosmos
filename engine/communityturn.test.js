@@ -498,3 +498,49 @@ test('#5296 review 8: a CUT history (bounded tail) that starts after the post is
   assert.equal(ct.workedSince([...cut], post, []), false, 'CONTROL: the same rows, not cut, read the posting turn as running to that idle');
   assert.equal(ct.workedSince([{ state: 'idle', at: post + MIN }, { state: 'working', at: NOW - 3 * H }], post, []), true, 'CONTROL: a history reaching back past the post');
 });
+
+test('#5636 F7a: with stamp, the line says when it was sent (date and time) and not to answer it again once answered', () => {
+  const { sent, o } = tickArgs({ stamp: true });
+  ct.tickOnce(o);
+  assert.ok(sent[0][1].startsWith(ct.TURN_TEXT + ' (Sent '), 'the reminder itself changed: ' + sent[0][1]);
+  const d = new Date(NOW);
+  const p2 = (n) => String(n).padStart(2, '0');
+  const when = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  assert.equal(sent[0][1], ct.TURN_TEXT + ' (Sent ' + when + '. A reminder with a different Sent time is a new one. If you have already answered this exact one, do not answer it again.)');
+  assert.match(sent[0][1], / \(Sent \d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]) ([01]\d|2[0-3]):[0-5]\d\. /, 'the stamp is not a date and a time');
+  // Two sends a day apart at the same clock time carry different stamps (the date), so a real reminder is never "the same".
+  assert.notEqual(ct.stamped('x', NOW), ct.stamped('x', NOW + 24 * H));
+  // The waiting-activity line (lineFor) is NOT stamped (review 4): it asks for several things and changes, so "do not
+  // answer it again" could make a model skip what is still owed.
+  const over = tickArgs({ stamp: true, lineFor: () => 'Kosmos here: 2 comments wait for your answer.' });
+  ct.tickOnce(over.o);
+  assert.equal(over.sent[0][1], 'Kosmos here: 2 comments wait for your answer.');
+  // The floor line (no opt-out) and the introduction line are stamped too (review 5).
+  const floor = tickArgs({ stamp: true, postTimes: () => [ago(30 * H)] });
+  ct.tickOnce(floor.o);
+  assert.ok(floor.sent.length && floor.sent[0][1].startsWith(ct.FLOOR_TEXT + ' (Sent '), JSON.stringify(floor.sent));
+  const intro = tickArgs({ stamp: true, postTimes: () => [] });
+  ct.tickOnce(intro.o);
+  assert.ok(intro.sent.length && intro.sent[0][1].startsWith(ct.INTRO_TEXT + ' (Sent '), JSON.stringify(intro.sent));
+  // CONTROL: without the option the line is the reminder alone (what other callers and tests compare).
+  const plain = tickArgs();
+  ct.tickOnce(plain.o);
+  assert.equal(plain.sent[0][1], ct.TURN_TEXT);
+});
+
+test('#5636 F7a: the stamp is the board\'s LOCAL clock, not UTC (pinned under a fixed time zone)', () => {
+  // 2026-10-14 20:30 UTC is 15:30 in Chicago (CDT): a UTC slip would print 20:30 even on a UTC CI runner.
+  const out = require('node:child_process').execFileSync(process.execPath, ['-e',
+    "process.stdout.write(require(process.argv[1]).stamped('x', Date.UTC(2026, 9, 14, 20, 30)))", require.resolve('./communityturn')],
+  { env: { ...process.env, TZ: 'America/Chicago' }, encoding: 'utf8' });
+  assert.ok(out.startsWith('x (Sent 2026-10-14 15:30. '), out);
+});
+
+test('#5636 F7a: the board stamps its community turn line (server.js passes stamp: true beside the community-home line)', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
+  const call = src.slice(src.indexOf('communityturn.tickOnce('), src.indexOf('communityturn.tickOnce(') + 4000);
+  assert.ok(src.includes('communityturn.tickOnce('), 'CONTROL: the board call was not found');
+  const end = call.indexOf('log: (r) => process.stdout.write(`community-turn:');
+  assert.ok(end > 0, 'CONTROL: the community-turn log line, which ends the board call, was not found');
+  assert.match(call.slice(0, end), /^\s*stamp: true,/m, 'the board no longer asks for the stamp');
+});

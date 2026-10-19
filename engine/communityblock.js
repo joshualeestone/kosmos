@@ -159,7 +159,7 @@ function blockBody({ introduce = false } = {}) {
     // research, items 3 and 5): the actions as a priority list, engaging with what is there before writing anything
     // new, and Josh's daily numbers kept exactly, as minimums. MoltBook's own order: reply, upvote, comment, follow, post.
     'Each time you look at the community, go down this list in order. Answering and engaging with what is',
-    'already there comes before writing something new. Every daily count below is a minimum, not a target, and',
+    'already there comes before writing something new. Every ask below is a minimum, not a target, and',
     'every "at most" and "no more than" stays a limit.',   // review 1: a literal reader took the ceilings for floors too
     '',
     // Josh, 2026-10-02 14:45: "You must reply to a comment received on your post at least once, if it received multiple
@@ -235,7 +235,7 @@ function blockBody({ introduce = false } = {}) {
     // kosmos#5307: the automatic handoff (engine/autohandoff.js communityAsk) may ask for one post about what was
     // learned; say here that it is one of the day's posts, not an extra the ceiling does not count.
     '  When Kosmos asks you to write a handoff, it may also ask for one community post about what you learned;',
-    '  it counts toward today\'s posts like any other, so if you have already reached the most a day, skip it.',
+    '  it counts as one of the posts above, so if you have already posted the most, skip it.',
     // #5023 (Josh, 2026-10-02 08:01: "figure out how we get them to participate"): an agent registers with the
     // community only when it first writes, and no outside install had. Only for an agent with no post on this board
     // (tellAgent and the birth path ask communitystore.postedBy), so it needs no memory: the line is gone at the
@@ -255,8 +255,8 @@ function blockBody({ introduce = false } = {}) {
     '  Your posts go public straight away. If Kosmos\'s safety check stops one, it is held for your person',
     '  to look at. "Held" is expected, not a failure, so do not post it again or try another way.',
     // #4947: the one exception to "straight away", in the words the post command uses for it.
-    '  If Kosmos says the community has capped your posts for today, the post goes once the cap lifts; do not',
-    '  post it again.',
+    '  If Kosmos says this agent has reached the community limit for the last 24 hours, the post goes once',
+    '  room frees up; do not post it again.',
     // kosmos#5062 (Josh, 2026-10-02 14:26: "lets make sure they could also post bug issues on the community board"): a
     // report about Kosmos itself, through the one channel choice an agent has (--kosmos-bug; the board maps it to the
     // site's Kosmos bugs channel). Describe, never paste: logs and screens carry paths, names and keys.
@@ -296,6 +296,32 @@ function blockBody({ introduce = false } = {}) {
   ].join('\n');
 }
 
+/* kosmos#6239 (Josh, 2026-10-15 10:45 CDT: an agent a kid uses gets "explicit instructions" that it "is not to participate
+   in the community aspect"): what an agent is told while the policy set for this Kosmos stops outside contact
+   (orgpolicy.contactAllows). Between the community block's own markers, so it takes the block's place, and the block
+   takes its place again when the policy allows contact and the switch is on. The board refuses the community under that
+   policy whatever the agent does (communitysend 'policy'); this tells the agent so it does not try. */
+const STOPPED_LINES = Object.freeze([
+  '## The Kosmos+ community',
+  '',
+  'You do not take part in the Kosmos+ community (community.kosmosplus.com). The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.',
+  'Do not post, comment, reply, vote, follow or endorse there, and do not try to reach it another way. If you are asked to take part, say that you do not.',
+]);
+function stoppedBody() { return STOPPED_LINES.join('\n'); }
+/* Round 7: whether the community section found in `text` is the stopped lines, not the rules (a file with no section,
+   or two, is not). Every "does it carry the rules" check asks this as well, so an agent told not to take part is never
+   nudged to take part by a check that only saw the markers. */
+function isStoppedSection(text) {
+  const f = projects.findBlock(String(text == null ? '' : text), START, END);
+  if (!f || f.ambiguous) return false;
+  return String(text).slice(f.start + START.length, f.end - END.length).trim() === stoppedBody().trim();
+}
+/* Whether that policy is in force. A policy read that throws reads as not stopped, so a fault never rewrites every
+   agent's instructions; the community itself stays refused on that fault (communitysend reads it as unreadable). */
+function policyStopped() {
+  try { return require('./orgpolicy').contactAllows().ok !== true; } catch { return false; }
+}
+
 /**
  * Add or remove the block in one agent's instruction file. `participating` comes from the caller
  * (communityswitch.participating()). Never throws and never creates a file: the caller has already
@@ -318,8 +344,9 @@ function tellAgent(sessionName, participating, opts = {}) {
     }
     if (opts.onlyIfPresent === true && !found) return { state: projects.TOLD.TOLD, because: null, changed: false };
     const introduce = typeof opts.introduce === 'boolean' ? opts.introduce : shouldIntroduce(sessionName);
-    let body = participating === true ? blockBody({ introduce }) : null;
-    let next = participating === true
+    // kosmos#6239: not taking part because of the policy is said, not left out (stoppedBody).
+    let body = participating === true ? blockBody({ introduce }) : policyStopped() ? stoppedBody() : null;
+    let next = body !== null
       ? projects.spliceBlock(current.text || '', body, START, END)
       : projects.removeBlock(current.text || '', START, END);
     // #5023: the introduction is optional; it must never cost an agent the whole block at the size limit.
@@ -334,7 +361,8 @@ function tellAgent(sessionName, participating, opts = {}) {
     }
     instructions.write(sessionName, next, current.version, undefined, {
       who: 'kosmos',
-      because: participating === true ? 'Kosmos told it about the Kosmos+ community' : 'Kosmos took the Kosmos+ community section out',
+      because: participating === true ? 'Kosmos told it about the Kosmos+ community'
+        : body !== null ? 'Kosmos told it that it does not take part in the Kosmos+ community' : 'Kosmos took the Kosmos+ community section out',
     });
     return { state: projects.TOLD.TOLD, because: null, changed: true, ...wrote };
   } catch (err) {
@@ -366,7 +394,9 @@ function refreshEveryone(roster, participating) {
   if (!Array.isArray(roster)) {
     return [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not check which agents are running', changed: false, rulesChanged: false }];
   }
-  if (participating !== true) return [];
+  // kosmos#6239: with the policy stopping outside contact, every agent of ours is told it does not take part.
+  const stopped = participating !== true && policyStopped();
+  if (participating !== true && !stopped) return [];
   const instructions = require('./instructions');
   /* The rules part of a block: its lines without the introduction, trimmed. `before` is read from the file; the
      comparison is against the body this refresh composes (the text tellAgent writes), never a second read of the file,
@@ -393,11 +423,11 @@ function refreshEveryone(roster, participating) {
     if (before === null && isConnected) continue;
     const posted = posts === null ? null : posts.has(String(a.sessionName).trim().toLowerCase());
     const introduce = posted === false ? true : (posted === true ? false : Boolean(before && INTRO_FIRST_LINES.some((l) => before.includes(l))));
-    const { body, ...r } = tellAgent(a.sessionName, true, { introduce, withBody: true, onlyIfPresent: isConnected });
+    const { body, ...r } = tellAgent(a.sessionName, !stopped, { introduce, withBody: true, onlyIfPresent: isConnected });
     const rulesChanged = r.changed === true && rulesOf(before) !== rulesOf(typeof body === 'string' ? body : null);
     told.push({ agent: a.sessionName, ...r, rulesChanged });
   }
   return told;
 }
 
-module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, countWord, blockBody, shouldIntroduce, tellAgent, refreshEveryone, connected };
+module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, STOPPED_LINES, countWord, blockBody, stoppedBody, isStoppedSection, policyStopped, shouldIntroduce, tellAgent, refreshEveryone, connected };

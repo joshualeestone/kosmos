@@ -12,7 +12,7 @@ set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 HOOK="$HERE/.githooks/pre-commit"
 REGION="$(sed -n '/# PIPE-LINT-BEGIN/,/# PIPE-LINT-END/p' "$HOOK")"
-T="$(mktemp -d)"
+T="$(mktemp -d "${TMPDIR:-/tmp}/test-precommit-pipe-lint-4911.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 fails=0
 ok()  { printf 'ok   %s\n' "$1"; }

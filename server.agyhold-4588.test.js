@@ -266,6 +266,7 @@ const AUTOMATIC = [
   ['assigner ask', 'give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster, from }),', /ask:\s*\(session, text, roster\)\s*=>\s*chat\.deliverAutomatic\(session, text, roster\)/],
   ['agent-nudge', 'book: AGENT_NUDGE_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],
   ['stalereport-nudge', 'book: STALEREPORT_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],   // #5959 slice 3
+  ['summarydue-nudge', 'book: SUMMARYDUE_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],   // #6209 part 2
 ];
 
 for (const [name, anchor, re] of AUTOMATIC) {

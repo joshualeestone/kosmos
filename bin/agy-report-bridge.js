@@ -8,7 +8,7 @@
  * agent's tmux pane and so inherit TMUX_PANE, the identity /api/report resolves; that is not yet
  * measured under the supervisor (release check #1), which is why throttleKey has fallbacks.
  *
- * 📌 MEASURED on Agent1s 2026-09-26 (agy 1.2.x, a real print-mode turn with capture hooks):
+ * 📌 MEASURED on a build Mac 2026-09-26 (agy 1.2.x, a real print-mode turn with capture hooks):
  *   PreInvocation -> PostInvocation -> Stop, in that order; every payload carries conversationId,
  *   workspacePaths, transcriptPath and modelName; Stop adds fullyIdle, terminationReason and error.
  * agy's payload does NOT name its own event, so the hook passes the event name as argv[2]
@@ -30,7 +30,8 @@
  *                    lets only ask_question reach this answer. The question is agy's own tool
  *                    schema: args.questions[].question.
  *   PostToolUse   -> working, ONLY for `ask_question`: the person answered, the turn goes on.
- *   Everything else in PreToolUse/PostToolUse is NOT hooked: PreToolUse is agy's permission gate,
+ *   (#5812: on agy 1.2.17+, PreToolUse also runs before write_to_file and replace_file_content, for the keep; the
+ *   answer for them is ASK, as below.) Everything else in PreToolUse/PostToolUse is NOT hooked: PreToolUse is agy's permission gate,
  *                    and a hook per tool is a node start inside agy's blocking loop.
  *   needs_you     -> only from a real ask_question; never from an idle loop (#4006).
  *
@@ -83,6 +84,32 @@ function answerFor(eventName, payload) {
   if (eventName !== 'PreToolUse') return '{}';
   const name = payload && payload.toolCall && payload.toolCall.name;
   return name === ASK_TOOL ? ALLOW : ASK;
+}
+
+/* #5812 item 4: just before agy writes (write_to_file) or edits (replace_file_content) a file, the board is asked to
+   keep a copy (#5153, only while the person's undo switch is on) and to note which agent is about to write it (the
+   board finds the agent by the folder, workspacePaths[0]; agy's conversationId never matches the Claude transcript ids
+   it also looks at, so the session is carried but not what decides).
+   Written only for agy 1.2.17 or newer (engine/agyhooks.js MIN_FILE_TOOL_HOOKS). MEASURED on agy 1.2.17 (card comment 6225769167): PreToolUse carries
+   toolCall.name, toolCall.args.TargetFile (absolute), conversationId and workspacePaths (the agent's folder; there is
+   no cwd field). The keep body is { path, cwd: workspacePaths[0], session: conversationId }. Null (nothing sent) for
+   any other event or tool, a relative or missing path, a control character, and on win32 a UNC path or folder (the
+   board resolves the path synchronously). `platform` is a seam. */
+const KEEP_TOOLS = new Set(['write_to_file', 'replace_file_content']);
+const KEEP_TIMEOUT_MS = 3000;   // the other hooks' bound; agy's handler timeout is HANDLER_TIMEOUT_S (5 s)
+function keepRequestFor(eventName, payload, platform) {
+  if (eventName !== 'PreToolUse' || !payload || typeof payload !== 'object') return null;
+  const call = payload.toolCall && typeof payload.toolCall === 'object' ? payload.toolCall : {};
+  if (!KEEP_TOOLS.has(call.name)) return null;
+  const args = call.args && typeof call.args === 'object' ? call.args : {};
+  const file = typeof args.TargetFile === 'string' ? args.TargetFile : '';
+  const cwd = Array.isArray(payload.workspacePaths) && typeof payload.workspacePaths[0] === 'string' ? payload.workspacePaths[0] : '';
+  if (!file || /[\u0000-\u001f\u007f]/.test(file + cwd)) return null;
+  const win = (platform || process.platform) === 'win32';
+  const P = win ? require('node:path').win32 : require('node:path').posix;
+  if (win && (/^[\\/]{2}/.test(file) || /^[\\/]{2}/.test(cwd))) return null;
+  if (!P.isAbsolute(file) || (win && /^[\\/]/.test(file))) return null;
+  return { path: file, cwd, session: typeof payload.conversationId === 'string' ? payload.conversationId : '' };
 }
 
 /* Whose throttle this is: the pane, else the agent's launch token (hashed), else the process that
@@ -296,6 +323,54 @@ function holdStdioFds(fsMod = require('node:fs'), devNull = require('node:os').d
   return filled;
 }
 
+/* The headers a call to the board carries: the agent's token, the board token unless token-only, the world header.
+   #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and the agent's own token, the board token is not read: POST
+   /api/report and POST /api/undo/keep both take the agent's token (undo/keep narrows it to the agent's own sessions). */
+function boardHeaders(env) {
+  const headers = { 'content-type': 'application/json' };
+  const token = String(env.KOSMOS_AGENT_TOKEN || '').trim();
+  if (/^[0-9a-f]+$/.test(token)) headers['x-kosmos-agent-token'] = token;
+  const engine = engineDir();
+  if (!(headers['x-kosmos-agent-token'] && env.KOSMOS_AGENT_TOKEN_ONLY === '1')) try {
+    const boardTok = require(require('node:path').join(engine, 'boardauth')).readToken();
+    if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
+  } catch { /* a missed board token must never become a failed turn */ }
+  try {
+    const launchidentity = require(require('node:path').join(engine, 'launchidentity'));
+    headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(env);
+  } catch { /* a missed world header must never become a failed turn */ }
+  return headers;
+}
+/* #1765: a token goes only to a listener that proves it already holds it (engine/boardproof.js). Another account can
+   listen on this port while the board is down. Proven through the same fetch the send uses. An engine without that
+   module (older than this file), or none found at all, or one that fails to load,
+   cannot check, and the send goes ahead as before. `timeoutMs` bounds the proof; each
+   caller gives it at most half its own bound and sends in what is left, so the proof never adds to that bound. */
+async function mayCarry(port, headers, fetchImpl, timeoutMs) {
+  let bp;
+  try { bp = require(require('node:path').join(engineDir(), 'boardproof')); } catch { return true; }
+  return bp.mayCarryTokensTo(`http://127.0.0.1:${port}`, headers, { fetchImpl: fetchImpl || fetch, timeoutMs });
+}
+
+/* #5812: one keep call, bounded at KEEP_TIMEOUT_MS; never throws. `fetchImpl` is a seam. The answer's body is not
+   read: this bridge ends with process.exit (the finally below main), so a board that sends its headers and stalls
+   its body cannot hold agy's hook, unlike the Codex and Grok bridges, which must read it under their timer. */
+async function postKeep(body, env, fetchImpl) {
+  const doFetch = fetchImpl || fetch;
+  const port = Number(env.KOSMOS_PORT) || 16180;
+  const headers = boardHeaders(env);   // #1765: built once, so the token sent is the token proven
+  // #1765: one deadline for the proof and the keep (see mayCarry).
+  const deadline = Date.now() + KEEP_TIMEOUT_MS;
+  if (!(await mayCarry(port, headers, doFetch, Math.floor(KEEP_TIMEOUT_MS / 2)))) return;
+  const left = deadline - Date.now();
+  if (left <= 0) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), left);
+  await Promise.resolve()
+    .then(() => doFetch(`http://127.0.0.1:${port}/api/undo/keep`, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal }))
+    .catch(() => { /* a missed keep must never stop the edit */ })
+    .finally(() => clearTimeout(timer));
+}
 async function main() {
   /* agy reads our stdout as the hook's answer. Every event but PreToolUse: first, always. PreToolUse's answer
      depends on the tool, so it waits for the payload (readStdin gives up after STDIN_TIMEOUT_MS, inside agy's
@@ -307,6 +382,16 @@ async function main() {
   let payload = null;
   try { payload = JSON.parse(raw || ''); } catch { /* the event name alone still reports */ }
   if (eventName === 'PreToolUse') answer(answerFor(eventName, payload));
+  /* #5812 item 4: a file about to be written. The answer above (ASK) is already out; agy waits for this process to
+     exit before it runs the tool, so the keep still lands before the write. Bounded (postKeep), and no report follows
+     (reportFor maps no tool but ask_question). */
+  const keep = keepRequestFor(eventName, payload);
+  if (keep) {
+    await new Promise((resolve) => setImmediate(resolve));
+    holdStdioFds();
+    await postKeep(keep, process.env);
+    return;
+  }
   const mapped = reportFor(eventName, payload, Date.now());
   if (!mapped) return;
   // #4612: a working report that newly carries an answer is not a repeat, so the answer is part of the key.
@@ -314,29 +399,20 @@ async function main() {
   if (!shouldSend(mapped.state, Date.now(), process.env, waitKey)) return;
 
   const port = Number(process.env.KOSMOS_PORT) || 16180;
-  const headers = { 'content-type': 'application/json' };
-  const token = String(process.env.KOSMOS_AGENT_TOKEN || '').trim();
-  if (/^[0-9a-f]+$/.test(token)) headers['x-kosmos-agent-token'] = token;
-  const engine = engineDir();
-  /* #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and the agent's own token above, the report goes with that
-     token alone and the board token is not read (POST /api/report takes the agent's token; the same switch slice 7 gives the two CLIs, on its own branch until it merges). */
-  if (!(headers['x-kosmos-agent-token'] && process.env.KOSMOS_AGENT_TOKEN_ONLY === '1')) try {
-    const boardTok = require(require('node:path').join(engine, 'boardauth')).readToken();
-    if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
-  } catch { /* a missed board token must never become a failed turn */ }
-  try {
-    const launchidentity = require(require('node:path').join(engine, 'launchidentity'));
-    headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(process.env);
-  } catch { /* a missed world header must never become a failed turn */ }
-
+  const headers = boardHeaders(process.env);   // review 3: one header builder for the report and the keep
   /* #5576: hold a free fd 0 to 2 so the request's socket cannot take one. One turn of the loop first, so a close of
      fd 0 left pending by the stdin handling (a handle close lands a phase later) is done before the guard looks
      (review 2). PREMISE: whatever frees fd 0 has done so by then (the Linux trace showed it free already at fetch
      begin); a close that lands while the request is opening is not covered. */
   await new Promise((resolve) => setImmediate(resolve));
   holdStdioFds();
+  // #1765: one deadline for the proof and the report (see mayCarry).
+  const deadline = Date.now() + TIMEOUT_MS;
+  if (!(await mayCarry(port, headers, undefined, Math.floor(TIMEOUT_MS / 2)))) return;
+  const left = deadline - Date.now();
+  if (left <= 0) return;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), left);
   await fetch(`http://127.0.0.1:${port}/api/report`, {
     method: 'POST', headers, body: JSON.stringify(buildBody(mapped.state, mapped.text, process.env, mapped.waiting, mapped.final, mapped.until)), signal: controller.signal,
   }).catch(() => { /* a missed report must never become a failed turn */ })
@@ -352,4 +428,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { STATE_FOR_EVENT, LAUNCH_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, quotaResetMs, reportFor, buildBody, engineDir, holdStdioFds };
+module.exports = { keepRequestFor, postKeep, KEEP_TOOLS, KEEP_TIMEOUT_MS, STATE_FOR_EVENT, LAUNCH_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, quotaResetMs, reportFor, buildBody, engineDir, holdStdioFds };

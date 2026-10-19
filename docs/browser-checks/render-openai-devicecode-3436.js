@@ -87,7 +87,8 @@ async function arm(browser, { platform, where, start, status, width }) {
     const shown = (el) => !!el && !el.hidden && getComputedStyle(el).display !== 'none';
     const code = $(p + '-openai-sub-code');
     const open = $(p + '-openai-sub-open');
-    const how = document.querySelector('#' + p + '-openai-sub-step [data-win-copy="openaiSubHow"]');
+    // #6521: the first-run panel has its own key (its sentence leaves out what the step's lead already says).
+    const how = document.querySelector('#' + p + '-openai-sub-step [data-win-copy="' + (p === 'fr' ? 'frOpenaiSubHow' : 'openaiSubHow') + '"]');
     return {
       openShown: shown($(p + '-openai-sub-open-row')) && shown(open),
       openHref: open ? open.getAttribute('href') : null,

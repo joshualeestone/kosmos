@@ -631,6 +631,44 @@ if git -C "$REPO" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
 fi
 git -C "$REPO" log --oneline -8 | cat
 
+step "== 1a-floor. the setup floor on the pair this cut re-publishes untouched (kosmos#6149) =="
+# A cut's site deploy (step 8) re-publishes the OTHER channel's pointer and installer as the site holds them. This is a
+# fail-fast, seconds in, on the site's origin/main (fetched; the checkout if the fetch fails), so a site below the floor
+# refuses before anything is built; the export check before the deploy reads the bytes actually published and is the
+# authority. Every floor refusal here (the knob, the override-only version check, the own installer, the untouched
+# pair) ends in exit 1, and
+# tools/test-setup-floor-6149.sh pins each by source.
+. "$REPO/tools/lib/setup-floor.sh" || { echo "could not load tools/lib/setup-floor.sh"; exit 1; }
+_floor_knob="KOSMOS_SETUP_FLOOR_TEST / KOSMOS_SETUP_FLOOR_LOWER are set: they lower the setup floor for test fixtures and must never reach a cut -- refusing"
+[ -z "${KOSMOS_SETUP_FLOOR_TEST:-}${KOSMOS_SETUP_FLOOR_LOWER:-}" ] || { echo "$_floor_knob"; exit 1; }
+# This cut's OWN version: #4075's forward-only rule refuses a cut older than this checkout's package.json, which is
+# ASSUMED past 0.7.45 wherever this step exists (only a hand revert of package.json breaks that; the export check
+# before vercel still refuses then, a stated limit), so only its override can name a version below the floor. Check that case
+# (the release-gate fixtures cut 0.6.x without the override, on purpose). What reaches users is checked below too: the
+# installer, the untouched pair, and the export before vercel.
+[ "$_allow_jump" != 1 ] || kosmos_setup_floor_ok "this cut's version (KOSMOS_ALLOW_VERSION_JUMP is set)" "$V" || exit 1
+kosmos_setup_floor_installer_ok "this cut's install/setup.sh" "$REPO/install/setup.sh" || exit 1
+# Read origin/main's copies (what the cut's fresh-main site commit will carry), not a checkout that may be behind:
+# fetch, then lay the four files out in a scratch dir (removed after). If the fetch fails, check the checkout, and say so.
+_floor_site="$SITE"; _floor_tmp=""
+if git -C "$SITE" fetch -q origin 2>/dev/null && git -C "$SITE" rev-parse -q --verify origin/main >/dev/null; then
+  _floor_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-floor-site.XXXXXX")" || { echo "could not make a scratch dir for the setup floor check"; exit 1; }
+  mkdir -p "$_floor_tmp/dist" || { echo "could not make a scratch dir for the setup floor check"; rm -rf "$_floor_tmp"; exit 1; }
+  for _f in dist/latest.json dist/latest-staging.json setup setup-staging; do
+    if git -C "$SITE" cat-file -e "origin/main:$_f" 2>/dev/null; then   # present: it must read, or the cut refuses
+      git -C "$SITE" show "origin/main:$_f" > "$_floor_tmp/$_f" 2>/dev/null || { echo "the site's origin/main has $_f but it could not be read -- refusing (setup floor, kosmos#6149)"; rm -rf "$_floor_tmp"; exit 1; }
+    else
+      echo "(the site's origin/main has no $_f: nothing to check for it here)"
+    fi
+  done
+  _floor_site="$_floor_tmp"
+else
+  echo "(could not fetch the site's origin/main; checking the checkout at $SITE as it is)"
+fi
+_floor_hint="(fix what it named as docs/staging-channel.md, 'Repairing a site the floor refuses', says, then commit and push the site: this step reads its origin/main)"
+kosmos_setup_floor_site_untouched_ok "the site (origin/main, or the checkout if it could not be fetched)" "$_floor_site" "$CUT_CHANNEL" || { echo "$_floor_hint"; [ -z "$_floor_tmp" ] || rm -rf "$_floor_tmp"; exit 1; }
+[ -z "$_floor_tmp" ] || rm -rf "$_floor_tmp"
+# ---- (end of step 1a-floor's checks; the lines down to step 1b's banner still log under the 1a-floor label) ----
 # ⚠️ LAST IN STEP 1, NOT FIRST, AND THE ORDER IS LOAD-BEARING. Placed before
 # the divergence guard this pre-empts it, and a cut from a diverged tree then
 # refuses with "no versions entry" instead of naming the stranded commits --
@@ -748,6 +786,39 @@ fi
 # starts mid-cut, or a submission still unfinished after its two 30-minute waits), the same exposure
 # the build already has.
 notarize_probe_credentials || exit 1
+# #6468 ask 2: step 4b signs the release manifest; every install from this release on refuses an update whose
+# manifest is not signed by a key engine/manifest-verify.js pins. So the key must resolve AND be pinned, here,
+# before the bump. Resolved through the secrets map (kosmos-manifest-signing), never printed. Checked against the
+# checkout's pinned list; step 2b freezes the shipping tree from this same commit, and the sign step checks again.
+KOSMOS_MANIFEST_KEY="$("${KOSMOS_SECRETS_MAP_BIN:-$HOME/.claude/scripts/secrets-map.sh}" path kosmos-manifest-signing 2>/dev/null)" || KOSMOS_MANIFEST_KEY=""
+# KOSMOS_MANIFEST_KEY_PROBE_BIN (tests only, like KOSMOS_NOTARY_PROBE_BIN): replaces this check and says it did. Step 4b
+# still signs with the resolved key, so a cut with it set cannot publish without a real one.
+if [ -n "${KOSMOS_MANIFEST_KEY_PROBE_BIN:-}" ]; then
+  echo "manifest-signing key PASSED THROUGH KOSMOS_MANIFEST_KEY_PROBE_BIN, NOT probed. Unset it for a real cut."
+  "$KOSMOS_MANIFEST_KEY_PROBE_BIN" || exit 1
+elif [ -z "$KOSMOS_MANIFEST_KEY" ] || ! node "$REPO/tools/lib/manifest-sign.js" check "$KOSMOS_MANIFEST_KEY"; then
+  echo "the release manifest-signing key (secrets map target kosmos-manifest-signing) is missing or not pinned (#6468). A release cut without it would be refused by every install."; exit 1
+fi
+# #6468 round 7: the checkout's KEYS say what the NEXT release accepts. What decides whether this release installs is
+# what the releases already out there accept: each signed manifest records its pinned_keys. So the key must be one
+# that BOTH channels' currently served release pins (when that release checks signatures at all). Read from the site's
+# origin/main, which is what is served.
+if [ -z "${KOSMOS_MANIFEST_KEY_PROBE_BIN:-}" ]; then
+  _srv_dir="$(mktemp -d)"; _srv=()
+  git -C "$SITE" fetch -q origin main 2>/dev/null || { echo "could not fetch the site to read what is served (#6468)"; rm -rf "$_srv_dir"; exit 1; }
+  for _ptr in latest.json latest-staging.json; do
+    _pm="$(git -C "$SITE" show "origin/main:dist/$_ptr" 2>/dev/null | sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)" || _pm=""
+    [ -n "$_pm" ] || continue
+    case "$_pm" in */*|*..*) echo "the served $_ptr names an odd manifest '$_pm' (#6468)"; rm -rf "$_srv_dir"; exit 1 ;; esac
+    git -C "$SITE" show "origin/main:dist/$_pm" > "$_srv_dir/$_ptr.manifest.json" 2>/dev/null \
+      || { echo "the served $_ptr names $_pm, which the site does not hold (#6468)"; rm -rf "$_srv_dir"; exit 1; }
+    _srv+=("$_srv_dir/$_ptr.manifest.json")
+  done
+  if [ "${#_srv[@]}" -gt 0 ] && ! node "$REPO/tools/lib/manifest-sign.js" check-served "$KOSMOS_MANIFEST_KEY" "${_srv[@]}"; then
+    echo "the manifest-signing key is not one the releases now served accept (#6468): installs would refuse this cut. Ship a release that pins it first."; rm -rf "$_srv_dir"; exit 1
+  fi
+  rm -rf "$_srv_dir"
+fi
 
 step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
 # 0.6.95 bundled a prebuilt kosmos-tunnel from 19:00 and missed relay #145 (the #3832 HSTS
@@ -918,7 +989,13 @@ DEPLOYED=0
 # uncommitted at the new version, and the pair that made cut 5 refuse).
 trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
 REPO="$BUILD"
-release_freeze_notice "$SHA" "$BUILD"
+release_freeze_notice "$SHA" "$BUILD" "$V" "$CUT_CHANNEL"
+# kosmos#6149: the installer this cut publishes is the FROZEN tree's. Step 1a-floor checked the checkout's copy, and the
+# shared checkout can be fast-forwarded between step 1 and the sha capture (see above), so check it here too, after
+# the freeze and before the build and the site push.
+# Step 2's version-bump push comes BEFORE this (the freeze follows it): a refusal here, after a fast-forward brought
+# in an installer without the marker, leaves the bump on origin (a stated limit).
+kosmos_setup_floor_installer_ok "the frozen install/setup.sh this cut publishes" "$BUILD/install/setup.sh" || exit 1
 step "== 2b-ii. the What's new highlights, again, in the tree that ships (#3955) =="
 # The shared checkout can move between step 1 and the freeze (two cuts in a row were fast-forwarded
 # mid-run on 2026-08-24, per step 2b), so the file 1b-ii read is checked again as FROZEN. A refusal here
@@ -1191,7 +1268,31 @@ fi
 
 
 step "== 4. build =="
+# #6473: the served tmux pair goes into dist BEFORE the build, so the manifest the build writes (and this cut signs)
+# records its sha256 and installs can hold tmux to it. A tmux rebuild must therefore ride with a cut: republishing the
+# pair between cuts makes every checking install refuse updates until the next one.
+[ -f "$SITE/dist/tmux-arm64.tar.gz" ] && [ -f "$SITE/dist/tmux-arm64.tar.gz.sha256" ] || { echo "no tmux bundle pair in $SITE/dist (a fresh site checkout has none: fetch the served pair from ${HOST:-https://installkosmos.com}/dist/tmux-arm64.tar.gz and .sha256 into $SITE/dist, or build one with tools/build-tmux-bundle.sh); the build cannot record it"; exit 1; }
+mkdir -p "$REPO/dist" && cp "$SITE/dist/tmux-arm64.tar.gz" "$SITE/dist/tmux-arm64.tar.gz.sha256" "$REPO/dist/"
+# Round 1 (#6473): the tmux pair has ONE served path for prod and staging, while each manifest records the tmux of
+# its own cut. So a cut that brings a DIFFERENT tmux makes every checking install on the other channel (and any
+# pointer rolled back) refuse updates until it catches up. Refuse that unless it is meant: KOSMOS_CUT_NEW_TMUX=1,
+# and then move the other channel to this cut soon.
+_tm_served="$(curl -fsSL -m 20 "${HOST:-https://installkosmos.com}/dist/tmux-arm64.tar.gz.sha256" 2>/dev/null | awk 'NR==1{print $1}')" || _tm_served=""
+_tm_local="$(awk 'NR==1{print $1}' "$REPO/dist/tmux-arm64.tar.gz.sha256")"
+if [ -z "$_tm_served" ]; then
+  echo "could not read the served tmux pair to compare with this cut's (#6473); not cutting blind"; exit 1
+elif [ "$_tm_served" != "$_tm_local" ]; then
+  if [ "${KOSMOS_CUT_NEW_TMUX:-}" = 1 ]; then
+    echo "   NOTE: this cut serves a NEW tmux bundle ($_tm_local, served now $_tm_served). Installs on the other channel refuse updates until it is promoted to the same cut (#6473)."
+  else
+    echo "this cut would serve a different tmux bundle ($_tm_local) from the one served now ($_tm_served). Installs on the other channel would refuse updates until they reach this cut (#6473). Set KOSMOS_CUT_NEW_TMUX=1 to cut it on purpose."; exit 1
+  fi
+fi
 ( cd "$REPO" && bash tools/build-kosmos-bundle.sh dist )
+_tm_want="$(awk 'NR==1{print $1}' "$REPO/dist/tmux-arm64.tar.gz.sha256")"
+_tm_got="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).tmux_sha256 || ""' "$REPO/dist/kosmos-arm64.manifest.json")"
+[ -n "$_tm_want" ] && [ "$_tm_want" = "$_tm_got" ] && [ "$(shasum -a 256 < "$REPO/dist/tmux-arm64.tar.gz" | awk '{print $1}')" = "$_tm_want" ] \
+  || { echo "the build's manifest does not record the tmux bundle this cut serves (#6473): manifest '${_tm_got}', pair '${_tm_want}'"; exit 1; }
 
 step "== 4b. a real install from the bundle just built, sandboxed, before anything is served (#624) =="
 # 🛑 EVERY EARLIER CHECK MEASURED THE BYTES. Step 3 ran the suite, 9b proves
@@ -1310,6 +1411,10 @@ fi
 # few KB per release that says what produced the served bytes. The tarballs
 # themselves stay untracked (48 MB each, and they prove only that bytes existed).
 cp "$REPO/dist/kosmos-arm64.manifest.json" "$SITE/dist/kosmos-$V-arm64.manifest.json"
+# #6468 ask 2: its signature, over the exact bytes served, beside it and committed with it. Installs check it with the
+# copy of engine/manifest-verify.js they already have before anything in an update runs.
+node "$REPO/tools/lib/manifest-sign.js" sign "$KOSMOS_MANIFEST_KEY" "$SITE/dist/kosmos-$V-arm64.manifest.json" "$SITE/dist/kosmos-$V-arm64.manifest.json.sig" || {
+  echo "could not sign the release manifest (#6468); nothing is published"; exit 1; }
 # ⚠️ THE VERSIONED NAME IS THE ONE A CACHE CANNOT LIE ABOUT. The plain
 # name is one URL across every release, and an edge cache satisfied an
 # update from it with the PRIOR release's bytes and matching checksum
@@ -1519,7 +1624,7 @@ step "== 7b. the site's release files are committed and pushed BEFORE they deplo
 # #2036: the CHANNEL pointer ($POINTER_FILE). In the default staging channel this
 # is dist/latest-staging.json; dist/latest.json (prod) is deliberately NOT in the set,
 # so prod stays at its prior version until promote-channel.sh flips it.
-_site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json $SETUP_FILE $SETUP_FILE.sha256 versions.html"
+_site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json dist/kosmos-$V-arm64.manifest.json.sig $SETUP_FILE $SETUP_FILE.sha256 versions.html"
 _site_commit_msg="$V: the $CUT_CHANNEL pointer ($POINTER_FILE), installer and versions entry"
 # 🛑 #2276/#2278/#2286: BUILD THE RELEASE COMMIT ON THE FRESHLY-FETCHED origin/main,
 # never on the shared local main. Agents merge chaoskosmos-site PRs through GitHub
@@ -1587,7 +1692,7 @@ for _p in $_site_paths; do
   [ "$_p" = versions.html ] && continue
   git -C "$SITE" checkout -- "$_p" 2>/dev/null || true
 done
-rm -f "$SITE/dist/kosmos-$V-arm64.manifest.json"
+rm -f "$SITE/dist/kosmos-$V-arm64.manifest.json" "$SITE/dist/kosmos-$V-arm64.manifest.json.sig"
 # #5032: likewise a first staging cut's /setup-staging pair, untracked locally until the checkout catches up.
 for _p in "$SETUP_FILE" "$SETUP_FILE.sha256"; do
   git -C "$SITE" ls-files --error-unmatch "$_p" >/dev/null 2>&1 || rm -f "$SITE/$_p"
@@ -1635,6 +1740,11 @@ _site_export="$BUILD_ROOT/site-export"
 # it LANDING. The card that prompted both was filed by a careful reader who had
 # only this line to go on.
 site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }
+# kosmos#6149: this deploy publishes BOTH pointers and BOTH installers at the site commit, including the prod ones a
+# staging cut does not touch: none of them may be older than the setup floor.
+# (setup-floor.sh was loaded at step 1a-floor and is not sourced again: its functions are already defined, and REPO
+# is the frozen tree now.)
+kosmos_setup_floor_tree_ok "the release's site export" "$_site_export" || { echo "nothing was deployed"; exit 1; }
 # The filter that ACTUALLY ships is the export's; 3c read HEAD's early, and
 # the sha can have moved since. Same evaluator, same refusal, on the real file.
 set +e; _dep_dropped="$(pkg_upload_filter_excludes "$_site_export/.vercelignore")"; _dep_frc=$?; set -e
@@ -1823,7 +1933,7 @@ step "== 9d. the served manifest answers for the served bytes (#776) =="
 # after the fact: a cut is not done until the served bytes are the ones the
 # build recorded. Small cuts, many times a day (Josh, 2026-08-25), is exactly
 # when a check that depends on someone being awake stops happening.
-if ! bash "$REPO/tools/verify-manifest.sh" "$V"; then
+if ! KOSMOS_REQUIRE_SIG=1 bash "$REPO/tools/verify-manifest.sh" "$V"; then
   echo "THE SERVED MANIFEST DOES NOT ANSWER FOR THE SERVED BYTES. The pointer is live; what it points at is not what the build recorded. Do not announce this cut; read the mismatch above."
   exit 1
 fi

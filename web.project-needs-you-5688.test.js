@@ -163,3 +163,29 @@ test('#5692: a red row whose need is not about this project is named too, after 
   // Without the row builder (an older caller), only the counted rows.
   assert.equal(pjNeedsNotice([sam]), '');
 });
+
+/* #6341 (Josh, 10-16 19:43: "there's not really a way to really dismiss it"): every row gets Dismiss, carrying the reason
+   the row shows; a member the engine marked quiet is not listed again among the red rows the count skips. */
+test('#6341: every counted row has a Dismiss naming the agent and carrying its reason', () => {
+  const html = pjNeedsNotice([m('elon', 'question', 'Elon'), m('sam', 'crash_loop', 'Sam')]);
+  // A question's key carries its words (built from because when the engine's needsYouKey is absent): never a bare
+  // "question", which the board refuses (review 9).
+  assert.match(html, /data-pn-dismiss="elon" data-pn-reason="question:[^"]*" aria-label="Dismiss Elon">Dismiss<\/button>/);
+  const keyed = pjNeedsNotice([{ ...m('elon', 'question', 'Elon'), needsYouKey: 'question:Which logo?' }]);
+  assert.match(keyed, /data-pn-reason="question:Which logo\?"/, 'the engine\'s needsYouKey is what is sent');
+  assert.match(html, /data-pn-dismiss="sam" data-pn-reason="crash_loop" aria-label="Dismiss Sam">Dismiss<\/button>/);
+  assert.equal((html.match(/data-pn-dismiss=/g) || []).length, 2, 'one Dismiss per row');
+  assert.equal((html.match(/data-pn-open=/g) || []).length, 2, 'CONTROL: Open (or Answer) is still on every row');
+});
+
+test('#6341: an uncounted red row is dismissed as "elsewhere"; a quiet member is not listed again', () => {
+  const red = () => true;
+  const also = { ...m('mark', null, 'Mark'), state: 'needs_you', stateProject: 'other-project' };
+  let html = pjNeedsNotice([also], red);
+  assert.match(html, /data-pn-dismiss="mark" data-pn-reason="elsewhere"/, 'CONTROL: the red row is listed, with its Dismiss');
+  // The engine hid it (dismissed here, or the project is paused): the page must not bring it back as "also".
+  html = pjNeedsNotice([{ ...also, needsYouQuiet: { reason: 'elsewhere', because: 'dismissed' } }], red);
+  assert.equal(html, '', 'a dismissed member came back among the uncounted red rows');
+  html = pjNeedsNotice([{ ...m('demis', null, 'Demis'), needsYouQuiet: { reason: 'stuck_rate', because: 'usage' } }], red);
+  assert.equal(html, '', 'an agent out of usage was listed on the project (Josh 19:47: on the agent only)');
+});

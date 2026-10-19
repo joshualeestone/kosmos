@@ -42,11 +42,11 @@ function chk(ok, label, extra) {
 
 const CASES = [
   { key: 'notice', adv: [{ agents: ['renettilley'], daysLeft: 4, severity: 'notice', expired: false }],
-    text: /An agent’s login expires in 4 days/, cls: 'notice', who: /renettilley/ },
+    text: /An agent’s login expires in 4 days/, no: /Sign in again/, cls: 'notice', who: /renettilley/ },
   { key: 'warn', adv: [{ agents: ['angel', 'donnie'], daysLeft: 2, severity: 'warn', expired: false }],
-    text: /2 agents’ login expires in 2 days/, cls: 'warn', who: /angel, donnie/ },
+    text: /2 agents’ login expires in 2 days/, no: /Sign in again/, cls: 'warn', who: /angel, donnie/ },
   { key: 'urgent', adv: [{ agents: ['leo'], daysLeft: 0, severity: 'urgent', expired: false }],
-    text: /An agent’s login expires today/, cls: 'urgent', who: /leo/ },
+    text: /An agent’s login expires today/, no: /Sign in again/, cls: 'urgent', who: /leo/ },
   { key: 'expired', adv: [{ agents: ['mona'], daysLeft: -1, severity: 'urgent', expired: true }],
     text: /An agent’s login has expired/, cls: 'urgent', who: /mona/ },
   /* #5164 (account-e, 2026-10-03): the login ended at 06:58 but its agents worked until 13:18 on the access token they
@@ -94,6 +94,8 @@ const CASES = [
         const txt = await pg.$eval('#login-adv-slot', (el) => el.innerText);
         chk(c.text.test(txt), c.key + ': headline reads right', JSON.stringify(txt));
         chk(c.who.test(txt), c.key + ': the affected agents are named', JSON.stringify(txt));
+        // #6520: not yet expired, the Refresh login button is the instruction; no sentence repeats it.
+        if (c.no) chk(!c.no.test(txt), c.key + ': no sign-in sentence beside Refresh login (#6520)', JSON.stringify(txt));
         const hasCls = await pg.$eval('#login-adv-slot .login-adv', (el, cls) => el.classList.contains(cls), c.cls);
         chk(hasCls, c.key + ': severity class is .' + c.cls, 'classList');
       }

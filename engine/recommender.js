@@ -139,7 +139,7 @@ function step({ prev, roster, setting, members, now }) {
       // RETRY: the asks already went out and the playbook reached nothing. Re-deliver the
       // playbook only (never a second note or ask), charge no budget, stop after the cap.
       if (rec.attempts >= MAX_DELIVERY_ATTEMPTS) continue;
-      toConvene.push({ key, ...s, peers: rec.peers || [], asked: rec.asked || [], retry: true });
+      toConvene.push({ key, ...s, peers: rec.peers || [], asked: rec.asked || [], retry: true, alreadyNoted: rec.alreadyNoted === true, alreadyNotedAsked: rec.alreadyNotedAsked });
       continue;
     }
     if (now - rec.firstSeen < GRACE_MS) continue;
@@ -153,7 +153,8 @@ function step({ prev, roster, setting, members, now }) {
   }
   // An item no longer stuck is kept for an hour after it was acted on, so a card that flaps
   // for a tick (or the same question asked again soon) is not convened a second time. After
-  // that, or if it was never acted on, it is dropped and the same words are a new item.
+  // that, or if it was never acted on, it is dropped and the same words are a new item (whose room note is
+  // not written again while the room already holds it, #6341: only its playbook goes out).
   for (const [key, rec] of base.items) {
     if (!items.has(key) && rec && rec.noted && now - rec.notedAt < HOUR_MS) items.set(key, rec);
   }
@@ -206,7 +207,13 @@ function playbookText(item, setting) {
   const peers = asked.length ? asked.map((p) => p.name).join(' and ') : '';
   const lines = [
     'Recommender (Kosmos): you reported being stuck on "' + item.because + '".',
-    peers
+    item.alreadyNoted
+      // #6341 review 2: the room already holds this note from an earlier convening, so its replies, if any, are there.
+      // Review 5: an earlier note that asked nobody is said as that, so the agent does not wait for replies.
+      ? (item.alreadyNotedAsked === false
+        ? 'Kosmos noted this in the project room earlier; nobody else could be asked then, so decide it yourself now.'
+        : 'Kosmos noted this in the project room earlier and asked the others then. Read the room for their replies, then decide.')
+      : peers
       ? 'I asked ' + peers + ' for one reply each in the project room. Give them a few minutes, then decide.'
       : (item.peers.length
         ? 'None of the other members of this project could be reached, so decide it yourself now.'
@@ -225,7 +232,7 @@ function playbookText(item, setting) {
  * the playbook naming the peers who were reached. On a retry: the playbook only.
  * @returns {{next: object, acted: Array<object>}}
  */
-function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIVERY, heldUntil, reserve, release }) {
+function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIVERY, heldUntil, reserve, release, alreadyNoted }) {
   const out = step({ prev, roster, setting, members, now });
   const acted = [];
   const send = (session, text) => {
@@ -246,6 +253,22 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
       acted.push({ session: item.session, name: item.name, project: item.project, retry: item.retry, noteLanded: null, asked: [], verdict: 'held' });
       continue;
     }
+    /* #6341 (Josh, 10-16: the same "X is stuck" line twice in a room, hours apart): this step's memory lives only while
+       the board runs, so a restart forgot a note it had written and wrote it again. The room itself is on disk: when it
+       already holds this note (same stuck agent, same words), the note is not written again and nobody is asked again;
+       the stuck agent still gets its playbook (review 1: only the room's repeat was the complaint). Optional, as
+       heldUntil is. After the held check (review 7), so a held item does not read the log every tick. */
+    // A retry keeps what the first attempt learned (review 3: its playbook must not say nobody could be reached).
+    let noted = item.retry ? item.alreadyNoted === true : false;
+    // Review 5: whether that earlier note asked anyone; null when the caller only says it exists.
+    let askedBefore = item.retry ? (item.alreadyNotedAsked === undefined ? null : item.alreadyNotedAsked) : null;
+    if (!item.retry && typeof alreadyNoted === 'function') {
+      let got = false;
+      try { got = alreadyNoted(item.project, item.session, item.because, now); } catch { got = false; }
+      noted = got === true || Boolean(got && typeof got === 'object');
+      askedBefore = got && typeof got === 'object' && Array.isArray(got.asked) ? got.asked.length > 0 : null;
+      if (noted) { const rec = out.next.items.get(item.key); if (rec) { rec.alreadyNoted = true; rec.alreadyNotedAsked = askedBefore; } }
+    }
     /* #4588 ask 3 review 9: the stuck agent's Gemini cap slot is reserved BEFORE the peer asks, so a peer's ask cannot
        take the only slot and leave the agent that needs help held, with an attempt spent. Given back if its playbook
        reaches nothing. Optional, so a caller without the cap behaves exactly as before. */
@@ -253,7 +276,7 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
     if (typeof reserve === 'function') { try { slot = reserve(item.session); } catch { slot = null; } }
     let asked = item.asked || [];
     let noteLanded = null;
-    if (!item.retry) {
+    if (!item.retry && !noted) {
       // A held peer is not typed into (not asked); it stays in item.peers, so the playbook says it could not be reached.
       asked = item.peers.filter((p) => !isHeld(p.session) && send(p.session, peerAskText(item)) === DELIVERY.PLACED);
       /* #4423: the note's facts (who is stuck, who was asked, by session) ride beside its sentence, so the room can
@@ -261,11 +284,11 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
       const rec = { stuck: item.session, asked: asked.map((p) => p.session), because: item.because };
       try { noteLanded = roomNote(item.project, roomNoteText({ ...item, asked }), { recommender: rec }) !== false; } catch { noteLanded = false; }
     }
-    const verdict = send(item.session, playbookText({ ...item, asked }, setting));
+    const verdict = send(item.session, playbookText({ ...item, asked, alreadyNoted: noted, alreadyNotedAsked: askedBefore }, setting));
     if (verdict !== DELIVERY.PLACED && verdict !== DELIVERY.UNCONFIRMED && typeof release === 'function') { try { release(slot); } catch { /* the slot lapses on its own */ } }
     markAttempt(out.next, item.key, verdict, DELIVERY, item.retry ? undefined : asked, now);
     acted.push({ session: item.session, name: item.name, project: item.project, retry: item.retry,
-      noteLanded, asked: asked.map((p) => p.session), verdict });
+      noteLanded, asked: asked.map((p) => p.session), verdict, ...(noted ? { alreadyNoted: true } : {}) });
   }
   return { next: out.next, acted };
 }

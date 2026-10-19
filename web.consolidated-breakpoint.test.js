@@ -24,7 +24,7 @@ const SCRIPT = PAGE.slice(PAGE.lastIndexOf('<script>'));
 const FN = SCRIPT.slice(SCRIPT.indexOf('function railFoldsApply('), SCRIPT.indexOf('function railFoldsApply(') + 1400);
 
 test('railFoldsApply computes "narrow" from the fold width, not the min width -- the two are different thresholds', () => {
-  assert.match(FN, /const narrow = layoutConsolidated\(\) && window\.innerWidth < CONSOLIDATED_FOLD_WIDTH;/,
+  assert.match(FN, /const narrow = layoutConsolidated\(\) && window\.innerWidth < CONSOLIDATED_FOLD_WIDTH && !\(window\.matchMedia && window\.matchMedia\(CONSOLIDATED_TABLET_OPEN_MQ\)\.matches\);/,
     'the auto-fold condition is gone, reads the wrong width, or no longer requires the view to actually be consolidated first');
 });
 

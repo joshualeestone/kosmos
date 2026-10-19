@@ -533,6 +533,13 @@ function viaOf(made) {
   if (made && made.via === 'assigner') return 'assigner';
   return 'screen';
 }
+/* #6103: the agent that made a move, when a process caller was named (as `addedBy` is for an add); null otherwise.
+   A move from the screen or by the Assigner has its own provenance in `via`, and names no agent. Capped at WHO_MAX,
+   the longest `who` a part takes: a longer value is no agent's name, so nothing is recorded rather than a cut one. */
+function movedByOf(made) {
+  const by = made && made.via === 'process' && typeof made.by === 'string' ? made.by.trim() : '';
+  return by && by.length <= WHO_MAX ? by : null;
+}
 
 /** Every process-originated part write in the last hour, across all
  * projects: parts added, and parts moved to somebody. Answers the count and
@@ -673,6 +680,9 @@ function assignPart(projectId, n, partId, who, made) {
       if (hookNo) throw new Error(hookNo);
       if (!moved) return x;
       const y = { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() };
+      /* #6103: `movedBy` (movedByOf). Any move clears the last one, so it never names an agent that did not make this move. */
+      const by = movedByOf(made);
+      if (by) y.movedBy = by; else delete y.movedBy;
       /* #5382: `movedFrom`, who a failover move took the part from (the receiver's line names it; any other move clears it).
          `owedTell`, every agent the failover took this part from that has not yet been TOLD (engine/failovertell.js), kept
          on the part so the obligation survives a restart, a setting change and a long pause (review 8). A failover move
@@ -693,7 +703,10 @@ function assignPart(projectId, n, partId, who, made) {
   // Only a real move is recorded: a resubmit of the current assignee (moved
   // false) changed nothing and types no pane line, so it leaves no transcript
   // line either. `who: null` is a real event -- somebody was taken off.
-  if (moved) taskchat.record(projectId, Number(n), { kind: 'assigned', partId: Number(partId), who: whoKey });
+  if (moved) {
+    const by = movedByOf(made);
+    taskchat.record(projectId, Number(n), { kind: 'assigned', partId: Number(partId), who: whoKey, ...(by ? { by } : {}) });   // #6103
+  }
   recordDroppedForWork(projectId, n, task);
   return { ok: true, task, changed: moved };
 }
@@ -766,7 +779,11 @@ const BUILT_NOTE_MAX = 300;
 /* Thrown inside projects.mutate's callback to leave the store unwritten (review round 15: mutate writes the whole
    store even when the callback changes nothing, so a looping repeat mark rewrote it on every call). */
 const NO_WRITE = Symbol('no write');
-const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote'];
+const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote', 'builtFingerprint',
+  'builtFingerprintBy'];
+/* #6330 slice 2: a built mark can carry the deliverable's fingerprint, so the next agent can check it has the exact
+   thing delivered. The CLI hashes the file; the board only checks the shape (the algorithm is named in the value). */
+const FINGERPRINT_RE = /^sha256:[0-9a-f]{64}$/;
 function withoutBuilt(t) {
   if (!t || !BUILT_FIELDS.some((k) => k in t)) return t;
   const rest = { ...t };
@@ -785,12 +802,20 @@ function withoutBuilt(t) {
  *   builtFreesAll          the person marked it: the Assigner frees every agent on it. Not an unnamed caller
  *                          (review round 11: that gave a caller that would not name itself more power than one that
  *                          did); an unnamed mark frees nobody, and the person can free them from the screen
- * The same mark again (same marker, same note) records nothing (`changed: false`). `refusePersonMark` refuses a
+ *   builtFingerprint       (#6330) the deliverable's "sha256:<hex>", from an agent's `fingerprint`
+ *   builtFingerprintBy     who sent it. Another named agent's mark without one (the checker's) and the person's mark
+ *                          keep it; the sender's own mark without one drops it, as that is a new version sent without
+ *                          its fingerprint (review 5: keeping it presented the old one as current), and so does an
+ *                          unnamed agent's (review 6). A clear drops both
+ * The same mark again (same marker, same note, same fingerprint) records nothing (`changed: false`). `refusePersonMark` refuses a
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
  */
-function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false } = {}) {
+function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null } = {}) {
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
+  const print = fingerprint == null ? '' : fingerprint;
+  // Only a string of the shape: String() would make ['sha256:...'] one (review 1), and '' is not one (review 3).
+  if (fingerprint != null && !(typeof print === 'string' && FINGERPRINT_RE.test(print))) return { ok: false, because: 'a fingerprint is "sha256:" followed by 64 lowercase hex characters' };
   /* #5705 review 3: format characters (zero-width and the like) are not a note, so a note of only those is none. Checked
      on a copy (review 4): the stored note keeps them, as an emoji or a right-to-left name needs them. */
   const saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
@@ -815,9 +840,17 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
          for that note, and now a bare mark is refused. The person's mark from the screen never is. After the
          person-mark refusal (review 1), so an agent hears the real answer first. */
       if (!isPerson && !saidSomething && Array.isArray(t.doneWhen) && t.doneWhen.length) { unsaid = t.doneWhen.length; throw NO_WRITE; }
-      /* The same mark again (same marker, same note) changes no field and records nothing (review round 3: a looping
+      /* The same mark again (same marker, same note, same fingerprint) changes no field and records nothing (review round 3: a looping
          agent re-marking wrote a history line each time), and writes nothing (review round 15). */
-      if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said) {
+      /* #6330 slice 2: the fingerprint describes the deliverable, so another agent's mark without one (the checker's,
+         review 3) keeps it; its sender's own mark without one drops it (review 5), as above. */
+      /* The person's mark keeps it (they did not change the file); an unnamed agent's drops it, as it cannot be told
+         from an unnamed sender and a dropped fingerprint is safer than a false match (review 6: null matched null). */
+      const keep = !print && t.builtAt && t.builtFingerprint && (isPerson || (who !== null && (t.builtFingerprintBy || null) !== who));
+      const kept = print || (keep ? t.builtFingerprint : '');
+      const keptBy = print ? who : (keep ? t.builtFingerprintBy || null : null);
+      if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
+        && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who)) {
         same = true; changed = t; throw NO_WRITE;
       }
       const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];
@@ -827,6 +860,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         ...(isPerson ? { builtByPerson: true } : {}), builtWho,
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
+        ...(kept ? { builtFingerprint: kept, builtFingerprintBy: keptBy } : {}),
       };
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
@@ -875,12 +909,18 @@ function close(projectId, n) {
   return setClosed(projectId, n, new Date().toISOString());
 }
 
-/** Reopen: the undo of the one human verb. */
-function reopen(projectId, n) {
-  return setClosed(projectId, n, null);
+/** Reopen: the undo of the one human verb. #6157: who put it back (`by`, an agent its token named; `person`, the
+ * screen) and why, recorded on the `reopened` line so the history says it. A reason over REOPEN_WHY_MAX is refused, never cut. */
+const REOPEN_WHY_MAX = 300;
+function reopen(projectId, n, { by = null, person = false, why = '' } = {}) {
+  const said = typeof why === 'string' ? why.replace(/\s+/g, ' ').trim() : '';
+  if (said.length > REOPEN_WHY_MAX) throw new Error(`keep the reason to ${REOPEN_WHY_MAX} characters or fewer`);
+  const isPerson = person === true;
+  const who = !isPerson && typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
+  return setClosed(projectId, n, null, { ...(who ? { by: who } : {}), ...(isPerson ? { person: true } : {}), ...(said ? { why: said } : {}) });
 }
 
-function setClosed(projectId, n, closedAt) {
+function setClosed(projectId, n, closedAt, said = {}) {
   let changed;
   // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
   let transition = 0;
@@ -911,7 +951,7 @@ function setClosed(projectId, n, closedAt) {
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
   });
-  if (transition) taskchat.record(projectId, changed.number, { kind: transition > 0 ? 'closed' : 'reopened' });
+  if (transition) taskchat.record(projectId, changed.number, transition > 0 ? { kind: 'closed' } : { kind: 'reopened', ...said });   // #6157
   if (heldDropped) taskchat.record(projectId, changed.number, { kind: 'hold-cleared', via: 'close' });
   if (repeatDropped) taskchat.record(projectId, changed.number, { kind: 'repeat-cleared', via: 'close' });
   return changed;
@@ -1436,6 +1476,7 @@ function partsOf(task) {
       ...(part.createdAt ? { createdAt: part.createdAt } : {}),
       ...(part.movedVia ? { movedVia: part.movedVia } : {}),
       ...(part.movedAt ? { movedAt: part.movedAt } : {}),
+      ...(typeof part.movedBy === 'string' && part.movedBy ? { movedBy: part.movedBy } : {}),   // #6103: carried, or the next write erases it
       /* #5382: who a failover move took the part from. Carried like the provenance above: without it every reader
          (server movedAwayFrom) saw nothing, and the next write to the task erased it from the store. */
       ...(part.movedFrom ? { movedFrom: part.movedFrom } : {}),
@@ -1747,7 +1788,25 @@ function cardsNeedingPerson(task, roster, members) {
     && status.needsPerson(card)
     /* Only a question names a project. A trust wait or a connection given up on is about the agent itself,
        so it counts on every task the agent holds, as it does on the project page (#3726). */
-    && (card.state === status.STATE.NEEDS_YOU ? card.stateProject === task.projectId : true));
+    && (card.state === status.STATE.NEEDS_YOU ? card.stateProject === task.projectId : true)
+    /* #6341 (Josh, 10-16 19:47: "a couple agents were out of usage but that should never show in the project, only on
+       the agent"): an agent that is only out of usage does not put its tasks in Needs your decision either. */
+    // Review 6: only when nothing else needs the person; a second, real reason beside the rate limit still counts.
+    && projects.needsYouReasonPastUsage({ ...card, present: true, tied: true }, task.projectId) !== 'stuck_rate');
+}
+
+/**
+ * #6157: WHO put this task in Needs your decision, and why: one `{ who, reason }` per card that makes waitingOnPerson
+ * true (the same cards, so the hint and the red can never disagree), in roster order. `reason` is the project page's
+ * code for the same thing (projects.needsYouReasonPastUsage: question, trust, gave_up, crash_loop, stuck_auth,
+ * own_bound, other; never stuck_rate, which #6341 leaves out), so the page words it as the project's Issue list does. A card is a roster row, not a member row:
+ * it is present by being on the roster and tied by isNamedOurs, which cardsNeedingPerson already required.
+ */
+function waitingOnOf(task, roster, members) {
+  return cardsNeedingPerson(task, roster, members).map((card) => ({
+    who: card.sessionName,
+    reason: projects.needsYouReasonPastUsage({ ...card, present: true, tied: true }, task.projectId) || 'other',
+  }));
 }
 
 /**
@@ -1799,8 +1858,9 @@ function lastActivityOf(projectId, task) {
       try { events = taskchat.read(projectId, task.number) || []; } catch { events = []; }
       /* kosmos#4787 slice 3 (review 5): Kosmos's own note that a run was MISSED is not activity: a dead job must not sort
          as freshly active under "Quietest first". #5842: nor is its note that a kept message was dropped (nothing
-         happened for a day); one sent is, since work went out to an agent (confirmed or not). */
-      for (const e of events) if (!(e && (e.kind === 'missed' || e.kind === 'kept-dropped'))) consider(e && e.at);
+         happened for a day); one sent is, since work went out to an agent (confirmed or not). #6209: nor is its note that
+         an owner was asked about a held task's hold (the task did not move). */
+      for (const e of events) if (!(e && (e.kind === 'missed' || e.kind === 'kept-dropped' || e.kind === 'hold-stale'))) consider(e && e.at);
     }
   }
   return newest;
@@ -2080,8 +2140,8 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   return out.slice(0, 3);
 }
 
-module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, waitingOnPerson, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
+module.exports = { create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+  taskState, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };

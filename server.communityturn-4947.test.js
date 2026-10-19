@@ -87,7 +87,10 @@ test('#5297: the board runs instructionreread.passOnce on a timer with the idle 
   assert.match(fn, /isIdle:\s*\(c\)\s*=>\s*require\('\.\/engine\/agentnudge'\)\.nudgeableCard\(c\)/, 'the pass is not given the idle-card gate');
   assert.match(fn, /seenIdle:\s*INSTRUCTION_REREAD_IDLE_SEEN/);
   assert.match(fn, /allowed:\s*\(\)\s*=>\s*require\('\.\/engine\/agentnudge'\)\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\),/, 'live execution and the brake do not gate the line');
-  assert.match(fn, /sectionOn:\s*\(section\)\s*=>\s*section !== 'community' \|\| \(communityswitch\.participating\(\) === true && heartbeatSetting\.read\(\)\.on === true\)/, 'a community re-read can go out with Community or the Prompter off');
+  /* kosmos#6239: or, with the Prompter on, the policy keeps agents out of the community: the section then says the agent
+     does not take part, and that is owed to it as much (communityblock.policyStopped; the line says so). */
+  assert.match(fn, /sectionOn:\s*\(section\)\s*=>\s*section !== 'community' \|\| \(\(communityswitch\.participating\(\) === true \|\| require\('\.\/engine\/communityblock'\)\.policyStopped\(\)\) && heartbeatSetting\.read\(\)\.on === true\)/, 'a community re-read can go out with Community or the Prompter off');
+  assert.match(fn, /communityStopped:\s*\(\)\s*=>\s*require\('\.\/engine\/communityblock'\)\.policyStopped\(\)/, 'the line is not told the policy stopped the community');
   assert.match(fn, /recordSent:\s*\(session, at\)\s*=>\s*ir\.recordSent\(session, at\)/);
   assert.match(fn, /stoodDown:\s*\(session\)\s*=>\s*require\('\.\/engine\/replynudge'\)\.stoodDown\(session, projects\.readAll\(\)\)/, 'a paused agent can be woken by the re-read line');
   assert.match(fn, /deliver:\s*\(session, line, r\)\s*=>\s*chat\.deliverAutomaticAsync\(session, line, r, undefined, undefined\)/);

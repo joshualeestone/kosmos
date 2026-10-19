@@ -185,6 +185,28 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
   await run('dark', { scheme: 'dark', reduced: false });
   await run('reduced-motion', { scheme: 'light', reduced: true });
 
+  /* #6557: at phone width the hero heading wraps to two lines, and it once inherited a fixed 16px line-height, so the
+     lines overlapped by 14px. CONTROL: the heading must actually wrap here, or "no overlap" is true of one line. */
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await ctx.newPage();
+    await page.goto('file://' + PAGE);
+    const h = await page.evaluate(async () => {
+      showTab('settings'); settingsGo('plus');
+      await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+      const el = document.querySelector('.plus-hero-h');
+      if (!el || el.offsetParent === null) return { error: 'the hero heading is not shown' };
+      const rg = document.createRange(); rg.selectNodeContents(el);
+      return { fontPx: parseFloat(getComputedStyle(el).fontSize), rects: Array.from(rg.getClientRects()).map((x) => ({ top: x.top, bottom: x.bottom })) };
+    });
+    results.phoneHero = h;
+    if (h.error) problems.push('phone 390: ' + h.error);
+    else if (h.rects.length < 2) problems.push('phone 390: CONTROL: the hero heading did not wrap (' + h.rects.length + ' line), so the overlap read proves nothing');
+    /* The line PITCH (top to top), not glyph boxes, which vary with the font: lines closer than the font size overlap. */
+    else if (h.rects[1].top - h.rects[0].top < h.fontPx) problems.push('phone 390: #6557 the hero heading lines are ' + Math.round(h.rects[1].top - h.rects[0].top) + 'px apart for a ' + h.fontPx + 'px font, so they overlap');
+    await ctx.close();
+  }
+
   await browser.close();
 
   console.log('  ' + JSON.stringify(results));
@@ -193,5 +215,5 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-plus-blue-1615: Plus turns the app blue + mounts its canvases on enter, and un-blues + tears down on leave (both schemes + reduced-motion; no leak to another section or tab); on Plus the meaning colours and the toast red are the navy-readable ones, its white fields keep the light red, and the dark fields of the sign-in wizard the coral.');
+  console.log('render-plus-blue-1615: Plus turns the app blue + mounts its canvases on enter, and un-blues + tears down on leave (both schemes + reduced-motion; at 390 the two lines of the hero heading do not overlap; no leak to another section or tab); on Plus the meaning colours and the toast red are the navy-readable ones, its white fields keep the light red, and the dark fields of the sign-in wizard the coral.');
 })().catch((e) => { console.error('FAIL  render-plus-blue-1615 threw: ' + (e && e.message || e)); process.exit(1); });

@@ -52,6 +52,20 @@ test('lineFor names every owed section, the community one by its own heading', (
   assert.ok(ir.lineFor(['community']).includes('"' + heading + '"'));
   const both = ir.lineFor(['community', 'rules']);
   assert.ok(both.includes(heading) && both.includes('the working rules'));
+  // #5636 F7a: a notice, not a task. Every section alone and all at once: the reading is asked first, then the line
+  // says it is not itself a task while the new text applies wherever it does (a rule saying take the next thing still
+  // moves the idle agent); the notice never names posting or Kosmos's internal words.
+  const every = Object.keys(ir.SECTIONS);
+  for (const l of [...every.map((k) => ir.lineFor([k])), ir.lineFor(every)]) {
+    assert.match(l, /Read .+ in it now\. What it says now replaces anything you read there when you started\. .*Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies\.$/, l);
+    assert.doesNotMatch(l, /\bpost/i, 'the notice itself names posting: ' + l);
+    assert.doesNotMatch(l, /community turn/i, 'the notice uses Kosmos\'s internal name, which agents never see: ' + l);
+  }
+  // The community clause scopes itself to now and keeps the new community text in force; only when that section is named.
+  for (const l of [ir.lineFor(['community']), both, ir.lineFor(every)]) {
+    assert.match(l, /started\. Do not take part in the Kosmos\+ community now because of this notice, even with a daily minimum still open there; its new text applies the next time you take part\. Apart from that reading/, l);
+  }
+  for (const k of every.filter((x) => x !== 'community')) assert.doesNotMatch(ir.lineFor([k]), /community/i, 'a notice naming ' + k + ' mentions the community');
   assert.equal(ir.lineFor([]), null);
   assert.equal(ir.lineFor(['bogus']), null);
 });

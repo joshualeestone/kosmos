@@ -100,7 +100,14 @@ function readStdin() {
   return new Promise((resolve) => {
     let data = '';
     let done = false;
-    const finish = () => { if (!done) { done = true; resolve(data); } };
+    /* #5812: stdin is let go once read (or on the bound). A stdin left open would otherwise keep this process alive
+       after its call is sent, and grok's edit waits for the hook to end (the Codex hook's review 1). */
+    const finish = () => {
+      if (done) return;
+      done = true;
+      try { process.stdin.destroy(); } catch { /* already gone */ }
+      resolve(data);
+    };
     try {
       process.stdin.setEncoding('utf8');
       process.stdin.on('data', (chunk) => { data += chunk; });
@@ -190,18 +197,34 @@ function engineDir(here) {
   return null;
 }
 
-async function main() {
-  const raw = await readStdin();
-  let event;
-  try { event = JSON.parse(raw || ''); } catch { return; }
+/* #5812 item 3: just before grok edits (search_replace) or writes (write) a file, the board is asked to keep a copy
+   (#5153, only while the person's undo switch is on) and to note which agent is about to write it, as the Claude,
+   Gemini and Codex hooks do. MEASURED on grok 1.0.41 (card comment 6222103286), against the real CLI and a local fake
+   model: PreToolUse carries Claude-style snake_case fields beside grok's camelCase ones; tool_name, tool_input.file_path
+   (search_replace: relative to the workspace or absolute; write: absolute), cwd and session_id. The board resolves the
+   path against ITS OWN folder, so a relative one is made absolute here against cwd. Null (nothing sent) for any other
+   event or tool, no path, a relative path with no folder, a control character (it would name a different file), and
+   on win32 a UNC or device path or folder: the board resolves the path synchronously, and a slow or vanished share
+   would stall it (#6033 refuses the same). `platform` is a seam. */
+const KEEP_TOOLS = new Set(['search_replace', 'write']);
+const KEEP_TIMEOUT_MS = 3000;   // the keep's own bound, after the 2 s stdin bound: about 5 s in all, near grok's own 5 s hook cutoff (grok lets the edit through on a timeout)
+function keepRequestFor(event, platform) {
+  if (!event || typeof event !== 'object' || event.hook_event_name !== 'PreToolUse') return null;
+  if (!KEEP_TOOLS.has(event.tool_name)) return null;
+  const input = event.tool_input && typeof event.tool_input === 'object' ? event.tool_input : {};
+  const file = typeof input.file_path === 'string' ? input.file_path : '';
+  const cwd = typeof event.cwd === 'string' ? event.cwd : '';
+  if (!file || /[\u0000-\u001f\u007f]/.test(file + cwd)) return null;
+  const win = (platform || process.platform) === 'win32';
+  const P = win ? require('node:path').win32 : require('node:path').posix;
+  if (win && (/^[\\/]{2}/.test(file) || /^[\\/]{2}/.test(cwd))) return null;
+  if (win && /^[\\/]/.test(file)) return null;   // review 1: rooted with no drive, the board would read it on its own drive
+  if (!P.isAbsolute(file) && !P.isAbsolute(cwd)) return null;
+  return { path: P.isAbsolute(file) ? file : P.resolve(cwd, file), cwd, session: typeof event.session_id === 'string' ? event.session_id : '' };
+}
 
-  const mapped = reportFor(event, process.env);
-  if (!mapped) return;
-  const { state, text } = mapped;
-
-  const port = Number(process.env.KOSMOS_PORT) || 16180;
-  const body = JSON.stringify(buildBody(state, text, process.env));
-
+/* The headers every POST to the board carries: the report and (#5812) the keep call. */
+function headersFor(env, readBoardToken) {
   /* Present the launch token when we have one (the supervisor mints it per launch
      and puts it in the pane env). Same hex shape-test as the sibling bridges: a
      partial write or a stray warning on stdout must not turn a working report into
@@ -209,7 +232,7 @@ async function main() {
      agent launched before the mint has no token here and is identified by its pane
      exactly as before. */
   const headers = { 'content-type': 'application/json' };
-  const token = String(process.env.KOSMOS_AGENT_TOKEN || '').trim();
+  const token = String(env.KOSMOS_AGENT_TOKEN || '').trim();
   if (/^[0-9a-f]+$/.test(token)) headers['x-kosmos-agent-token'] = token;
 
   /* Also present the board token (the same-account credential an enforcing board
@@ -219,8 +242,8 @@ async function main() {
   const engine = engineDir();
   /* #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and the agent's own token above, the report goes with that
      token alone and the board token is not read (POST /api/report takes the agent's token; the same switch slice 7 gives the two CLIs, on its own branch until it merges). */
-  if (!(headers['x-kosmos-agent-token'] && process.env.KOSMOS_AGENT_TOKEN_ONLY === '1')) try {
-    const boardTok = require(require('node:path').join(engine, 'boardauth')).readToken();
+  if (!(headers['x-kosmos-agent-token'] && env.KOSMOS_AGENT_TOKEN_ONLY === '1')) try {
+    const boardTok = readBoardToken ? readBoardToken() : require(require('node:path').join(engine, 'boardauth')).readToken();
     if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
   } catch { /* a missed board token must never become a failed turn */ }
 
@@ -228,18 +251,60 @@ async function main() {
      rather than refusing the report as a stranger's. Same guard as above. */
   try {
     const launchidentity = require(require('node:path').join(engine, 'launchidentity'));
-    headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(process.env);
+    headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(env);
   } catch { /* a missed world header must never become a failed turn */ }
+  return headers;
+}
 
+/* #1765: a token goes only to a listener that proves it already holds it (engine/boardproof.js). Another account can
+   listen on this port while the board is down. Proven through the same fetch the send uses. An engine without that
+   module (older than this file), or none found at all, or one that fails to load,
+   cannot check, and the send goes ahead as before. `timeoutMs` bounds the proof. */
+async function mayCarry(port, headers, fetchImpl, timeoutMs) {
+  let bp;
+  try { bp = require(require('node:path').join(engineDir(), 'boardproof')); } catch { return true; }
+  return bp.mayCarryTokensTo(`http://127.0.0.1:${port}`, headers, { fetchImpl: fetchImpl || fetch, timeoutMs });
+}
+
+/* POST one body to the board, bounded, the answer read under the same timer (a board that sent its headers and
+   stalled its body would otherwise hold the hook: the Codex hook's review 3); never throws. */
+async function post(port, route, headers, body, timeoutMs, fetchImpl) {
+  const doFetch = fetchImpl || fetch;
+  // #1765: one deadline for the proof and the send, so the proof never adds to the hook's bound. The proof gets at
+  // most half of it (as the CLI's does); the send gets what is left, and nothing is sent when nothing is left.
+  const deadline = Date.now() + timeoutMs;
+  if (!(await mayCarry(port, headers, doFetch, Math.max(1, Math.floor(timeoutMs / 2))))) return;
+  const left = deadline - Date.now();
+  if (left <= 0) return;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  await fetch(`http://127.0.0.1:${port}/api/report`, {
-    method: 'POST',
-    headers,
-    body,
-    signal: controller.signal,
-  }).catch(() => { /* a missed report must never become a failed turn */ })
+  const timer = setTimeout(() => controller.abort(), left);
+  await Promise.resolve()
+    .then(() => doFetch(`http://127.0.0.1:${port}${route}`, { method: 'POST', headers, body, signal: controller.signal }))
+    .then((res) => (res && typeof res.text === 'function' ? res.text() : null))
+    .catch(() => { /* a missed call must never become a failed turn */ })
     .finally(() => clearTimeout(timer));
+}
+
+async function main(io) {
+  const o = io || {};
+  const env = o.env || process.env;
+  const raw = o.input !== undefined ? o.input : await readStdin();
+  let event;
+  try { event = JSON.parse(raw || ''); } catch { return; }
+  const port = Number(env.KOSMOS_PORT) || 16180;
+
+  /* #5812: a file about to be written. Nothing is printed: grok runs the tool when the hook answers nothing. */
+  const keep = keepRequestFor(event, o.platform);
+  if (keep) {
+    await post(port, '/api/undo/keep', headersFor(env, o.readBoardToken), JSON.stringify(keep), o.keepTimeoutMs || KEEP_TIMEOUT_MS, o.fetchImpl);
+    return;
+  }
+
+  const mapped = reportFor(event, env);
+  if (!mapped) return;
+  const { state, text } = mapped;
+  const body = JSON.stringify(buildBody(state, text, env));
+  await post(port, '/api/report', headersFor(env, o.readBoardToken), body, TIMEOUT_MS, o.fetchImpl);
 }
 
 /* Run only when invoked directly (as grok's hook does); when required as a module
@@ -248,4 +313,4 @@ if (require.main === module) {
   main().catch(() => { /* same rule as the top: never break the agent */ });
 }
 
-module.exports = { STATE_FOR_EVENT, PER_TURN_ENV, reportFor, buildBody, engineDir };
+module.exports = { STATE_FOR_EVENT, PER_TURN_ENV, reportFor, buildBody, engineDir, keepRequestFor, headersFor, main, KEEP_TIMEOUT_MS };

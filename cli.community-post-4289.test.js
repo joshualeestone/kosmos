@@ -119,7 +119,7 @@ test('#5435: a published post the board will not send prints the board\'s reason
 test('#4939: a published post that cannot go yet says it goes when it can', () => withStubBoard(async (port) => {
   const later = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(later.code, 0, later.stdout + later.stderr);
-  assert.match(later.stdout, /It cannot go to the community yet \(this agent is capped for today, or its community name is held by an earlier try\), so Kosmos sends it when it can/);
+  assert.match(later.stdout, /It cannot go to the community yet \(this agent has reached the community limit for the last 24 hours, or its community name is held by an earlier try\), so Kosmos sends it when it can/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'p4', sends: true, later: true } }));
 test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a post without it sends no such field', () => withStubBoard(async (port, seen) => {
   const a = await runCli(['community', 'post', '--kosmos-bug', '--topic', 'Board shows idle', 'what I did, what happened'], envFor(port));

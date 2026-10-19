@@ -63,20 +63,11 @@ test('the link is actually pointed somewhere at paint time', () => {
      which is a route to nowhere that looks exactly like a route. */
   const paint = page.lift(SCRIPT, 'paintPlus');
   assert.match(paint, /plus-site-link/, 'paintPlus never reaches for the link');
-  /* #1615: the design specifies `/+?from=app` ("one page, one parameter") and THAT ROUTE
-     DOES NOT SERVE YET. Measured live with a negative control: /plus -> 200 (10305 bytes),
-     /+?from=app -> 404 (8498), a nonsense path -> 404 (8498), byte-identical, so /+ is the
-     generic 404. A link labelled "Join Kosmos+" landing there misleads, which is the one
-     thing this card's ship-it-unwired rule does NOT permit.
-     ⚠️ SO THIS ASSERTS `/plus` AND THAT IS TEMPORARY. It is pinned to the path that
-     currently SERVES, not to the path that is RIGHT. When the `/+` rewrite lands in
-     chaoskosmos-site (Angel's), this assertion and the page should move together, and this
-     comment is here so whoever does it knows the pin was deliberate rather than the
-     designed target having been forgotten.
-     The RULE underneath is unchanged and is why the test exists: the href is built from
-     KOSMOS_SITE and must not stay "#", a route to nowhere that looks exactly like a route. */
-  assert.match(paint, /KOSMOS_SITE \+ '\/plus'/,
-    'the link is not pointed at a path that serves');
+  /* #1615: the design's target, `/+?from=app`. The rule underneath: the href is built from KOSMOS_SITE and
+     must not stay "#", a route to nowhere that looks exactly like a route. */
+  assert.match(paint, /KOSMOS_SITE \+ '\/\+\?from=app'/,
+    'the link is not pointed at the designed /+?from=app');
+  assert.doesNotMatch(paint, /KOSMOS_SITE \+ '\/plus'/, 'paintPlus still points a link at the old /plus');
   assert.doesNotMatch(paint, /site\.href = '#'/, 'the link was left pointing at nothing');
 });
 

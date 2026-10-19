@@ -192,7 +192,7 @@ function secureStateDir() {
 
 /* What read() answers when there is no file, or none it can use: every field at its empty value, in ONE place, so a
    field added to read() cannot be missing from one of the four early answers (kosmos#5995: computer_name was). */
-const blankSettings = (ok) => ({ on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, computer_name: null, ok });
+const blankSettings = (ok) => ({ on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, computer_name: null, forget_kept: '', ok });
 
 /** Off until somebody turns it on. `relay` may be stored here so a
     self-hoster can point at their own relay without an env var. */
@@ -257,6 +257,9 @@ function read() {
        showed or cleared it ('' is a choice: send no name of theirs). null when they never did, and then the name comes
        from the computer. Read by thisComputerDeviceName(), the one place every path that names this computer asks. */
     computer_name: typeof parsed.computer_name === 'string' ? parsed.computer_name : null,
+    /* kosmos#6389: why the last Remove was kept (it could not reach Kosmos+), so a reload still says it is not removed.
+       '' when there is none. Cleared by a Remove that finishes and by switching on. */
+    forget_kept: typeof parsed.forget_kept === 'string' ? parsed.forget_kept : '',
     ok: true,
   };
 }
@@ -558,6 +561,7 @@ function write(patch, opts) {
   if (current.ok === false && !(opts && opts.repair === true)) return { ok: false, because: UNREADABLE, unreadable: true };
   const next = { ...current, ...patch };
   delete next.ok;
+  if (patch.on === true) next.forget_kept = '';   // kosmos#6389: whatever switches Plus on, a kept Remove's note goes
   /* A repair starts from the defaults (the damaged file could not be read), so it would drop this computer's sign-in
      device id. If this process already minted one (signinDeviceId holds it in memory when its own write is refused
      on the damaged file), keep it: otherwise a sign-in on a damaged file repairs the file with no id, and the next
@@ -588,7 +592,12 @@ function write(patch, opts) {
   let fd = null;
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    fd = fs.openSync(tmp, 'w');
+    /* kosmos#6548: owner-only, like board.token: the file holds the account's email and this computer's device ids.
+       The open's mode keeps it owner-only (a umask only narrows it); the fchmod restores the owner's own read and
+       write bits if a strict umask took them, so the board can still read the file it saved. Not securewrite.writeSecret:
+       this writer keeps its own unique temp names and sweepStaleTemps, which that helper does not. */
+    fd = fs.openSync(tmp, 'w', 0o600);
+    try { fs.fchmodSync(fd, 0o600); } catch { /* the open's own mode stands */ }
     fs.writeSync(fd, JSON.stringify(next) + '\n');
     fs.fsyncSync(fd);
     const closing = fd; fd = null;   // never closed twice, even if this close throws
@@ -1151,11 +1160,16 @@ async function assistantChat(body) {
 /** Forget this Mac (#793): retire it at the coordinator while its key still
  * exists, THEN destroy the key. Order is the whole point: after the state
  * dir is gone the Mac cannot speak for itself and only a signed-in phone
- * can retire it (a dead sandbox, a wiped laptop). Retire is best-effort and
- * its outcome is reported, never hidden: a coordinator that could not be
- * reached still leaves the Mac forgotten HERE, and the answer says the
- * address may still show on the account page until it is removed there. */
-async function forget() {
+ * can retire it (a dead sandbox, a wiped laptop). Its outcome is reported,
+ * never hidden. kosmos#6389: a retire that got no answer (offline, timed out, a
+ * server error) KEEPS the key, as clearHalfIdentity does, and answers kept: the
+ * computer is not removed yet. Wiping it
+ * there left the name held on the account with nothing here able to free it.
+ * Only `anyway` (the person chose to remove it from this computer only, told
+ * the cost) wipes after such a retire. A kept Remove has still ended what forget() ends first: a sign-in or company
+ * setup in progress and an open browser secret. A final refusal is wiped as before:
+ * keeping a key Kosmos+ will never accept would say "try again" forever. */
+async function forget({ anyway = false } = {}) {
   // #3827: a sign-in in flight ends with the Mac's identity. Cancel it (its register
   // must not turn the switch back on), and WAIT for a register already out, so what
   // is retired and wiped below includes it; otherwise it writes a fresh identity
@@ -1167,8 +1181,9 @@ async function forget() {
   // when something is already broken. kosmos#5422 adds a sixth, the wait on key-making calls (a minute, below).
   //
   // One forget at a time: a second (a double click, two tabs, a retried request)
-  // gets the first one's answer instead of retiring the same Mac beside it.
-  if (forgetInFlight) return forgetInFlight;
+  // gets the first one's answer instead of retiring the same Mac beside it. kosmos#6389: except that a second
+  // asking `anyway` does not settle for a first one's kept: it runs once the first has ended.
+  if (forgetInFlight) return anyway ? forgetInFlight.then((got) => (got && got.kept ? forget({ anyway: true }) : got)) : forgetInFlight;
   signinEpoch += 1;
   signinSession = null;
   companySetup = null;   // kosmos#5628 review 1: a forgotten Mac keeps no half-made company setup (nor its secret)
@@ -1191,7 +1206,7 @@ async function forget() {
         await Promise.race([Promise.allSettled([...deviceIdInFlight]), new Promise((ok) => { timer = setTimeout(ok, keyCallWaitMs()); })]);
         clearTimeout(timer);
       }
-      return await forgetNow();
+      return await forgetNow(anyway);
     } finally {
       forgetting = false;
       forgetInFlight = null;
@@ -1201,26 +1216,39 @@ async function forget() {
 }
 let forgetInFlight = null;
 
-async function forgetNow() {
+async function forgetNow(anyway) {
   const was = { enrolled: enrolled(), address: address() };
   // A register killed mid-certificate (or any partial one) has registered the Mac
   // at the coordinator and left its key and id here, without the certificate
   // enrolled() needs. It can still sign a retire, so it is retired too.
   const canRetire = was.enrolled || halfRegistered();
+  const wasOn = read().on === true;   // kosmos#6389: a kept answer tells the account about this switch-off
   stopChild();
   // Off before the retire wait, not after: nothing may bring this Mac online on
   // the key being retired (the ensure tick, a stale page).
-  write({ on: false, vouched: {} }, { repair: true });   // kosmos#5786 (b): a forgotten computer keeps no notes
+  write({ on: false }, { repair: true });
   /* kosmos#5995: computer_name is NOT cleared here, on purpose. It is the person's own choice of what to call this
      computer, not a note about a sign-in, and the next sign-in's box is filled with it. (On a damaged file this
      write starts from the defaults, so the choice is lost with everything else.) Pinned in remote.test.js. */
+  const flipBefore = flipPending;   // kosmos#6389: put back if the identity is kept
   flipPending = false;   // kosmos#4743: a flip not yet told belonged to the identity being forgotten
   let retired = false;
   let because = null;
   if (canRetire) {
     const r = await retireHere();
-    retired = r.ok === true;
-    because = r.ok ? null : retireReason(r);
+    retired = r.ok === true || retiredAlready(r);
+    because = retired ? null : retireReason(r);
+    // kosmos#6389: no answer is "not now". The key stays, so a later Remove can still sign the retire. Plus stays off
+    // (written above): the person asked for this computer to go, so it does not come back online by itself.
+    if (!retired && !anyway && retireTransient(r)) {
+      stopChild();
+      // The switch-off is queued like any flip (kosmos#4743) and goes on the next poll: busy() stops this ask while
+      // forgetting.
+      if (wasOn || flipBefore) { flipPending = true; askAfterFlip(); }
+      const keptBecause = 'this computer is not removed yet, because your Kosmos+ account could not be reached or did not answer (' + because + ')';
+      write({ forget_kept: keptBecause });
+      return { ok: false, kept: true, retired: false, address: was.address, because: keptBecause };
+    }
   }
   try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* best effort; enrolled() re-reads */ }
   try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
@@ -1230,7 +1258,7 @@ async function forgetNow() {
      federation UI) true for the NEXT account that has not signed in yet -- a leak
      of a member-only feature to a non-member. A real sign-in re-caches the new
      account's standing; until then, unknown -> not a member. */
-  write({ ...r, on: false, standing: '' }, { repair: true });
+  write({ ...r, on: false, standing: '', vouched: {}, forget_kept: '' }, { repair: true });   // kosmos#5786 (b): a forgotten computer keeps no notes
   // kosmos#5422: only now, after the repairs above put this process's ids back into remote.json (which keeps them, so
   // the old rows stay this computer's own), is what this process held let go.
   heldIdentity = null;
@@ -1675,6 +1703,10 @@ async function companyComplete(name, acceptTerms, second) {
 const LEGACY_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const KEYED_ID = /^k1\.[A-Za-z0-9_-]{32}$/;
 const DEVICE_ID = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32})$/;
+/* #6315: a request can also be another of the person's computers asking to join, and the coordinator names that
+   request by a minted id, `computer:<the joining computer's id>` (kosmos-relay MINTED_PREFIX, kosmos#4681). The colon kept every such request out of the list, so no second computer could ever be
+   allowed. Requests and their answers take any of the three shapes; this computer's OWN device ids stay DEVICE_ID. */
+const REQUEST_ID = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32}|computer:[0-9a-f]{32})$/;
 const DEVICE_NAME = /^[^\n\r]{1,60}$/;
 function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
 /* #4610 (Josh, 12:50, a brand-new account was shown older requests): a new identity does not inherit the old one's
@@ -1774,10 +1806,10 @@ function allowSelfQuietly() {
    the coordinator serves the page that reads S, so a compromised coordinator could vouch for one device of its own
    inside the window (kosmos-relay docs/coordinator-api.md, device-vouch).
    What it does not prove: who is sitting at this computer. Anyone who can open its browser can also press Allow.
-   The browser is opened only once the snapshot holds a phone or browser request from the last VOUCH_RECENT_S, so an
-   app-only sign-up never gets a stray sign-in tab. That recency is the coordinator's first_seen, so a coordinator can
-   also make the tab open inside the window; the tab carries S only in its fragment, and allowing still needs the vouch.
-   A joining computer is never allowed this way: computers pair by
+   The browser is opened only once the snapshot holds a phone or browser sign-in from the last VOUCH_RECENT_S
+   (in `signins` or `devices`, kosmos#6407), so an app-only sign-up never gets a stray sign-in tab. That recency is the
+   coordinator's first_seen, so a coordinator can also make the tab open inside the window; the tab carries S only in
+   its fragment, and allowing still needs the vouch. A joining computer is never allowed this way: computers pair by
    code (#4794, Baron's tunnel review). */
 const VOUCH_WINDOW_MS = 10 * 60 * 1000;
 const VOUCH_RECENT_S = 30 * 60;
@@ -1822,8 +1854,13 @@ function startVouch() {
   vouchTimer = setInterval(vouchTick, VOUCH_POLL_MS);
   if (vouchTimer.unref) vouchTimer.unref();
 }
-/* The rows a vouch may allow: valid ids, not this computer's own sign-ins, not a device the person said Not me to, and
-   never a computer (a joining one carries joining_computer, or a code wait). null while there is no snapshot. */
+/* From one read of the snapshot, two lists through the same filter: valid ids, not this computer's own sign-ins, not a
+   device the person said Not me to, and never a computer (a joining one carries joining_computer, or a code wait).
+   `devices`: the rows a vouch may allow. `signins` (kosmos#6407): the phone and browser rows of the tunnel's pending
+   list before its knock filter (id and first_seen), read only to decide whether to open the tab, never matched for an
+   allow. `devices` holds only what knocked at this computer's gate, and the sign-in that arms the tab usually happened
+   on the website, so it is in `signins` only. A tunnel that predates the field writes none: an empty list. null while
+   there is no snapshot. */
 function vouchRows() {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return null; }
@@ -1832,10 +1869,13 @@ function vouchRows() {
   const selves = ownDeviceIds(settings);
   // A device the person said Not me to is never allowed this way; they can still Allow it by hand.
   const denied = settings.denied || {};
-  return raw.devices.filter((d) => d && DEVICE_ID.test(String(d.device_id || '')) && !selves.includes(String(d.device_id))
+  /* #6315: DEVICE_ID, not REQUEST_ID, on purpose: a minted computer: id never qualifies, so a computer is never
+     allowed by a vouch even on a row that carries no joining_computer. */
+  const keep = (d) => d && DEVICE_ID.test(String(d.device_id || '')) && !selves.includes(String(d.device_id))
     && !Object.prototype.hasOwnProperty.call(denied, String(d.device_id))
     && !notMeDuringVouch.has(String(d.device_id))   // a Not me the tunnel refused writes no `denied`
-    && (d.joining_computer === undefined || d.joining_computer === null) && !d.code_wait);
+    && (d.joining_computer === undefined || d.joining_computer === null) && !d.code_wait;
+  return { devices: raw.devices.filter(keep), signins: (Array.isArray(raw.signins) ? raw.signins : []).filter(keep) };
 }
 function vouchMatches(secret, d) {
   if (typeof d.vouch !== 'string') return false;
@@ -1850,11 +1890,13 @@ function vouchTick() {
   const v = vouchState;
   if (!v) return;
   if (Date.now() > v.until || v.epoch !== selfEpoch || !enrolled() || !read().on || inState(HELD_FILE)) { stopVouch(); return; }
-  const rows = vouchRows();
-  if (!rows) return;
+  const lists = vouchRows();
+  if (!lists) return;
+  const rows = lists.devices;
   if (!v.opened) {
     const now = Math.floor(Date.now() / 1000);
-    if (!rows.some((d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S)) return;
+    const recent = (d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S;
+    if (!rows.some(recent) && !lists.signins.some(recent)) return;
     v.opened = true;   // armed before the opener runs, so it is never re-run; one still running after 5 s is not an
     // error (runCompanyOpener), it just logs nothing. The window still bounds S.
     // The window is NOT restarted here: Josh ruled on a secret that lives ~10 minutes from the app sign-in (10-10 19:04).
@@ -1886,6 +1928,15 @@ function vouchTick() {
   Promise.resolve()
     .then(() => deviceAllow(id, name || undefined))
     .then((r) => {
+      if (r && !r.ok && r.listed) {
+        /* kosmos#6286: Kosmos+ did not take this allow (its ack got a 404), yet the tunnel's entry stands. The row
+           matched here as waiting a moment ago, so it was refused since (Not me, or a deny elsewhere): an automatic
+           allow takes its entry back and stops, whether or not the Not me was pressed on this computer. */
+        if (vouchState === v) stopVouch();
+        return deviceRemove(id).then((rr) => {
+          if (!rr || !rr.ok) process.stderr.write('kosmos+: a device Kosmos+ did not take could not be removed again (' + String((rr && rr.because) || 'no answer') + '); remove it under Devices\n');
+        });
+      }
       if (!r || !r.ok) {
         // Only the tunnel's refusals count: a busy register or Forget is waited out. (A setup-not-finished refusal is
         // not counted either, but the next tick's !enrolled() ends S: it fails closed rather than waiting.)
@@ -1943,7 +1994,7 @@ function recentlyVouched(settings = read()) {
 }
 /* kosmos#4794: the reasons kosmos-tunnel's devices.rs gives for a joining computer's empty code (pairing.rs wait_reason,
    plus was_a_computer). Anything else is dropped rather than shown. */
-const CODE_WAITS = new Set(['attempts_used', 'asked_another_computer', 'another_computer', 'daily_limit', 'wait_a_few_minutes', 'was_a_computer']);
+const CODE_WAITS = new Set(['attempts_used', 'asked_another_computer', 'another_computer', 'daily_limit', 'wait_a_few_minutes', 'was_a_computer', 'code_ran_out']);   // #6383: code_ran_out
 /* kosmos#4794: a computer's pairing code is two groups of three digits with one space, "482 915" (kosmos-relay
    crates/proto/src/pairsas.rs sas(): format!("{:03} {:03}")); the tunnel compares it exactly. A phone's match code never is. */
 const JOIN_CODE = /^\d{3} \d{3}$/;
@@ -1963,7 +2014,7 @@ function pendingDevices() {
      Kosmos+. Its id is remote.json's device_id (the page used it only to relabel the row). Not listed, not counted. */
   const selves = ownDeviceIds(settings);
   const devices = list
-    .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
+    .filter((d) => d && REQUEST_ID.test(String(d.device_id || '')))
     .filter((d) => !selves.includes(String(d.device_id)))
     .map((d) => ({
       device_id: String(d.device_id),
@@ -1973,7 +2024,7 @@ function pendingDevices() {
       /* kosmos#4773/#4637: the waiting computer's name when the request is another of the person's own computers
          joining (the coordinator's `joining_computer`), else null for a phone or a browser. A computer name only. */
       // Lowercased first, as the coordinator names computers (signinRegister does the same), so "Josh-PC" keeps its wording.
-      // 🛑 It softens the page's prompt ("Allow it if <name> shows this same code"), so the coordinator must set it from its OWN
+      // 🛑 It changes the page's heading and the Allow button's spoken name (#6404, #6522), so the coordinator must set it from its OWN
       // record of the person's signed-in computer (#4773), never from anything the requesting device says about itself.
       joining_computer: typeof d.joining_computer === 'string' && NAME_RULE.test(d.joining_computer.trim().toLowerCase()) ? d.joining_computer.trim().toLowerCase() : null,
       /* When this Mac last said no to this id, or 0: the re-ask sentence. */
@@ -1981,7 +2032,14 @@ function pendingDevices() {
       /* kosmos#4794: why a joining computer's code is still "" (the tunnel's wait_reason, or was_a_computer), from a
          fixed list so the page words each one; null while the code is shown or being worked out. */
       code_wait: CODE_WAITS.has(d.code_wait) ? d.code_wait : null,
-    }));
+      /* kosmos#6404: an allowed computer asking to finish its code check here (the tunnel's recheck row): Allow only
+         confirms the typed code, Not me only drops the check. */
+      recheck: d.recheck === true,
+    }))
+    /* #6315: a minted computer: id is a computer whatever else the row says. Without a usable joining_computer name
+       (the coordinator stops naming it once its lineage is no longer waiting, or the name fails NAME_RULE) it would be
+       drawn as a phone whose Allow can never work, so it is shown the way a former computer is: Allow off, Not me. */
+    .map((d) => (d.device_id.startsWith('computer:') && !d.joining_computer ? { ...d, code: '', code_wait: d.code_wait || 'was_a_computer' } : d));
   // kosmos#5786 (b): the device just allowed automatically is not also shown as waiting while the tunnel's snapshot
   // still lists it (until its next poll).
   const here = recentlyVouched(settings);
@@ -2025,7 +2083,7 @@ function deviceArgs(verb, id, withCoordinator) {
   return args;
 }
 function checkId(id) {
-  return typeof id === 'string' && DEVICE_ID.test(id) ? null : { ok: false, because: 'that is not a device we know' };
+  return typeof id === 'string' && REQUEST_ID.test(id) ? null : { ok: false, because: 'that is not a device we know' };
 }
 /** The devices this Mac lets in, joined with the sidecar (name, when let
     in, last used). Not enrolled means none, without asking the binary. */
@@ -2035,8 +2093,9 @@ async function devicesList() {
   if (!r.ok) return r;
   const list = r.data && Array.isArray(r.data.devices) ? r.data.devices : [];
   const vouched = read().vouched || {};
+  /* #6315: REQUEST_ID here too, so Remove accepts every id shape a request can have. */
   return { ok: true, because: null, data: { devices: list
-    .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
+    .filter((d) => d && REQUEST_ID.test(String(d.device_id || '')))
     .map((d) => ({
       device_id: String(d.device_id),
       name: typeof d.name === 'string' && d.name.trim() ? d.name.trim().slice(0, 60) : null,
@@ -2060,16 +2119,28 @@ function vouchedFor(vouched, d) {
   const allowed = Number(d.allowed_at) || 0;
   return !allowed || Math.abs(allowed - at) <= 600;   // a tunnel that sends no allowed_at cannot be checked
 }
+/** kosmos#6286: the tunnel's `account_ack` when the coordinator holds no sign-in with the id an Allow named. */
+const UNKNOWN_DEVICE = 'unknown_device';
+/** kosmos#6286: what the person reads when Kosmos+ holds no sign-in with the id they allowed. */
+const UNKNOWN_WORDS = 'Kosmos+ holds no sign-in waiting with that id (it was refused, or never asked). It is on this computer\'s list of devices you let in: remove it there if you did not mean to allow it.';
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
     coordinator; a failed ack heals on the tunnel's next poll and the allow
-    stands. `name` is the kind the phone gave, recorded for the list. */
+    stands. The coordinator's 404 (kosmos#6286) does not heal: it holds no
+    such sign-in, so this is a refusal that says the entry is on the list.
+    `name` is the kind the phone gave, recorded for the list. */
 async function deviceAllow(id, name, code) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  /* #6315: a minted computer: id is always a computer, and a computer is allowed only with the code both screens
+     show; without one the tunnel could take it as a phone (when it has no record of it as a computer) and put the id on
+     this computer's gate. */
+  if (id.startsWith('computer:') && !(typeof code === 'string' && JOIN_CODE.test(code))) {
+    return { ok: false, because: 'code_pending' };   // the page words it: the code is still being worked out
+  }
   const args = deviceArgs('allow', id, true);
   if (typeof name === 'string' && DEVICE_NAME.test(name.trim())) args.push('--name', name.trim());
-  /* kosmos#4794: Allow for another of the person's computers carries the code the person was shown here; the tunnel
+  /* kosmos#4794: Allow for another of the person's computers carries the code the person typed here (#6404); the tunnel
      refuses it unless it is the code this computer worked out with that one (and ignores it for a phone). */
   if (typeof code === 'string' && JOIN_CODE.test(code)) args.push('--code', code);
   const r = await tracked(setupRun(args, null, retireTimeoutMs()));
@@ -2081,7 +2152,17 @@ async function deviceAllow(id, name, code) {
     if (/\bsas_mismatch:/.test(said)) return { ok: false, because: 'code_changed' };
     if (/\bsas_pending:/.test(said)) return { ok: false, because: 'code_pending' };
   }
-  return parseSaid(r);
+  const got = parseSaid(r);
+  /* kosmos#6286: the coordinator holds no sign-in with that id (its ack answered 404: refused, or never asked), so
+     Kosmos+ did not take this Allow. The tunnel keeps the entry on this computer's list (its own), so the person is
+     told both, as a refusal, never as allowed. Not "nobody was let in": a device the account refused that still holds
+     a live sign-in could pass this computer's gate while it is on the list. A joining computer's 404 does not
+     answer this (its pairing trust stands). */
+  if (got.ok && got.data && got.data.account_ack === UNKNOWN_DEVICE) {
+    // `listed`: the entry stands on this computer's list, so a caller that must take it back (the vouch path) can.
+    return { ok: false, because: UNKNOWN_WORDS, listed: true };
+  }
+  return got;
 }
 /** Say no: the coordinator drops the request and the phone is told. Writes
     nothing on this Mac; a fresh sign-in may ask again. */
@@ -2091,7 +2172,9 @@ async function deviceDeny(id) {
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   if (vouchState || vouchAllowingId === id) notMeDuringVouch.add(id);   // kosmos#5786 (b)
   const r = parseSaid(await tracked(setupRun(deviceArgs('deny', id, true), null, retireTimeoutMs())));
-  if (r.ok) {
+  /* kosmos#6404: the tunnel says when it only dropped a code check from a computer already allowed ("check"): nothing was
+     refused, so nothing is noted (a later request from that computer must not read "You said no to this computer"). */
+  if (r.ok && !(r.data && r.data.check === true)) {
     const denied = { ...read().denied, [id]: Math.floor(Date.now() / 1000) };
     /* Bounded: the newest 50, so a file cannot grow without limit. */
     const keep = Object.entries(denied).sort((a, b) => b[1] - a[1]).slice(0, 50);
@@ -2161,7 +2244,7 @@ const computerName = (v) => (typeof v === 'string' && NAME_RULE.test(v.trim().to
 /* A tunnel from before slice 1 has no `join` verb: clap refuses it with exit 2 before doing anything. */
 function joinUnsupported(r) {
   const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
-  return !r.ok && r.code === 2 && /unrecognized subcommand '?join'?/.test(said);
+  return !r.ok && r.code === 2 && /unrecognized subcommand '?(join|retry)'?/.test(said);   // #6353: retry is newer than join
 }
 /** One pairing round, then what the page may show: held, the code (or ""), whom it was asked of, and the
     failed / confirmed / confirm_expired states. Not enrolled means not joining, without asking the binary. */
@@ -2186,6 +2269,13 @@ async function joinStatus() {
     failed: d.failed === true,
     confirmed: d.confirmed === true,
     confirm_expired: d.confirm_expired === true,
+    /* #6353: the last code ran out and no new one comes until the person presses Try again here. */
+    needs_retry: d.needs_retry === true,
+    /* kosmos#6404: allowed, but its code ran out before The codes match was pressed here: the person can ask for one
+       fresh code check (joinRecheck); and while that check runs. */
+    can_recheck: d.can_recheck === true,
+    rechecking: d.rechecking === true,
+    recheck_with: computerName(d.recheck_with) || null,
   } };
 }
 /** "The codes match": the person says the code on this screen is the one on the other computer. Local only; the
@@ -2208,6 +2298,68 @@ async function joinConfirm(code) {
   const d = got.data || {};
   if (d.confirmed !== true) return { ok: false, because: 'the code was not confirmed' };
   return { ok: true, because: null, data: { confirmed: true, with: computerName(d.with) } };
+}
+
+/** #6353, "Try again": the last code ran out, so allow ONE new attempt (the next round starts it). Local only. The
+    tunnel refuses when no code ran out or every try is used; both are tagged for the page to word. */
+async function joinRetry() {
+  { const b = busy(); if (b) return b; }
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  const r = await tracked(setupRun(['join', 'retry', '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
+  if (joinUnsupported(r)) {
+    const noRetry = /unrecognized subcommand '?retry'?/.test((String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, ''));
+    return { ok: false, because: noRetry ? 'this version of Kosmos cannot ask for a new code yet' : 'this version of Kosmos cannot pair computers yet' };
+  }
+  if (!r.ok) {
+    const said = String(r.stderr || '') + '\n' + String(r.because || '');
+    if (/\bnothing_to_retry:/.test(said)) return { ok: false, because: 'nothing_to_retry' };
+    if (/\battempts_used:/.test(said)) return { ok: false, because: 'attempts_used' };
+  }
+  const got = parseSaid(r);
+  if (!got.ok) return got;
+  if (!got.data || got.data.retry !== true) return { ok: false, because: 'that did not go through' };
+  return { ok: true, because: null, data: { retry: true } };
+}
+
+/* kosmos#6406 step 2: a ticket that opens another of this account's computers in this computer's app window with no
+   sign-in (kosmos-tunnel open-ticket: signed with this computer's key, for that computer's origin only, good for two
+   minutes, once). The other computer takes it only if it trusts this computer's key; the server route asks for one
+   only for a request made on this computer's own screen. `address` is the other computer's host, already checked. */
+async function openTicket(address) {
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  // Its own short limit: the page opens the plain address after 8 s anyway (a ticket is local work, no network).
+  const r = await tracked(setupRun(['open-ticket', '--state-dir', STATE_DIR(), '--to', 'https://' + address], null, 15000));
+  const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
+  if (!r.ok && r.code === 2 && /unrecognized subcommand '?open-ticket'?/.test(said)) {
+    return { ok: false, because: 'this version of Kosmos cannot open another computer directly yet' };
+  }
+  const got = parseSaid(r);
+  // A fixed sentence for any other failure (review 7): the tunnel's own words (a path, a spawn error) stay here.
+  if (!got.ok) return { ok: false, because: 'that did not go through' };
+  const t = got.data && got.data.ticket;
+  if (typeof t !== 'string' || !/^[A-Za-z0-9_-]{20,2048}$/.test(t)) return { ok: false, because: 'that did not go through' };
+  return { ok: true, because: null, data: { ticket: t } };
+}
+
+/** kosmos#6404, "Check the code": this computer was allowed, but its code ran out before The codes match was pressed
+    here, so it does not trust the other computer yet. Asks for ONE fresh code check with it (the next round starts it).
+    Local only. The tunnel refuses when there is nothing to check or every try is used; both are tagged. */
+async function joinRecheck() {
+  { const b = busy(); if (b) return b; }
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  const r = await tracked(setupRun(['join', 'recheck', '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
+  const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
+  if (!r.ok && r.code === 2 && /unrecognized subcommand '?(join|recheck)'?/.test(said)) {
+    return { ok: false, because: 'this version of Kosmos cannot check the code again yet' };
+  }
+  if (!r.ok) {
+    if (/\bnothing_to_recheck:/.test(said)) return { ok: false, because: 'nothing_to_recheck' };
+    if (/\battempts_used:/.test(said)) return { ok: false, because: 'attempts_used' };
+  }
+  const got = parseSaid(r);
+  if (!got.ok) return got;
+  if (!got.data || got.data.recheck !== true) return { ok: false, because: 'that did not go through' };
+  return { ok: true, because: null, data: { recheck: true } };
 }
 
 /* ---- Sign in THIS computer (#3149 journey 2). The in-app wizard replaces the
@@ -2971,10 +3123,31 @@ function retireReason(r) {
   const line = lines.find((l) => /Kosmos\+ /.test(l)) || String((r && r.because) || 'no reason given');
   return line.replace(/^Error:\s*/, '').replace(/:\s*<[\s\S]*$/, '').slice(0, 200);
 }
+/* kosmos#6390: Kosmos+ refused this computer's retire because it was retired already (removed on the account page).
+   That is the outcome a retire asks for, not a failure. The coordinator keeps the code (mac_retired) off the wire, so
+   this reads its sentence (relay auth.rs: "this computer was retired"; "this Mac" is the older wording), and only for a
+   401 on the retire route itself. The relay pins that sentence on its side (fedroom.rs
+   the_coordinators_retired_answer_is_final_here, person_copy_4628.rs); nothing in this repo reads auth.rs, so a
+   reworded sentence would bring back the old message here, never a wrong "retired". engine/fedseats.js
+   MAC_LEVEL_REFUSAL matches the same sentence among others; a reword changes both. */
+function retiredAlready(r) {
+  const said = String((r && r.stderr) || '');
+  // One line, as the tunnel writes a refusal (refusal_error): its prefix ("this Mac", or "this computer" on Windows), a
+  // sentence starting with the coordinator's words, then the status and the route, all on that line.
+  return /^(?:Error: )?Kosmos\+ refused this (?:Mac|computer): this (?:computer|Mac) was retired\b[^\n]*\(HTTP 401 on \/v1\/mac\/retire\)\s*$/m.test(said);
+}
 /* The one retire of this Mac at Kosmos+, signed with its own key. */
 const retireHere = () => setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs());
 // 408 and 429 are "not now", not "no": retried like a server error.
 const RETIRE_TRANSIENT = /unreachable|did not answer in time|could not be started|\(HTTP (5\d\d|408|429) on |answered (5\d\d|408|429) for /i;
+/* The line of a failed retire that says it may work a moment later, or null. Named from what the tunnel prints
+   (crates/tunnel coordinator.rs signed_request: "Kosmos+ unreachable for", "(HTTP <code> on", "Kosmos+ answered
+   <code> for") and from setupRun's own answers. The whole output, not only its last line: a gateway's HTML error
+   page is many lines, and its last one ("</html>") says nothing. */
+function retireTransient(r) {
+  if (!r || r.ok) return null;
+  return String((r.stderr || '') + '\n' + (r.because || '')).split('\n').find((l) => RETIRE_TRANSIENT.test(l)) || null;
+}
 /* Retires a half identity before a new register. Answers why the retire failed
    (the coordinator may still hold that earlier attempt), or null. */
 async function clearHalfIdentity() {
@@ -2989,12 +3162,8 @@ async function clearHalfIdentity() {
   // error) may work a moment later, and only this key can do it: keep it, and the
   // caller says try again. Anything else is final (Kosmos+ refused this Mac, a
   // key this computer cannot read), so it is wiped: keeping it would say "try
-  // again" forever. Named from what the tunnel prints (crates/tunnel
-  // coordinator.rs signed_request: "Kosmos+ unreachable for", "(HTTP <code> on",
-  // "Kosmos+ answered <code> for") and from setupRun's own answers.
-  // The whole output, not only its last line: a gateway's HTML error page is many
-  // lines, and its last one ("</html>") says nothing.
-  const transient = r.ok ? null : String((r.stderr || '') + '\n' + (r.because || '')).split('\n').find((l) => RETIRE_TRANSIENT.test(l));
+  // again" forever. Forget makes the same split (kosmos#6389).
+  const transient = retireTransient(r);
   if (transient) {
     process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ yet (' + transient.trim() + '); kept, so a retry can\n');
     return { kept: retireReason(r) };
@@ -3068,6 +3237,8 @@ const BOUGHT_STATES = new Set(['in_use', 'free', 'pending']);
 // The switch read, the list read and setupRun's close grace after the binary exits, together, leave at least a second
 // of the page's PLUS_ASK_TIMEOUT_MS (engine/remote.test.js asserts it against web/index.html).
 const ADDR_META_MS = 1500, ADDR_READ_MS = 10200;
+// kosmos#6314: a price.display the page may show: a short currency mark, an amount, and a period ("$20/month", "$19.99/3 months").
+const PRICE_SHAPE = /^[^\s\d<>"'&]{1,3}\d{1,7}(?:[.,]\d{1,3})?\/(?:(?:day|week|month|year)|[2-9] (?:day|week|month|year)s|1[0-2] (?:day|week|month|year)s)$/;
 let addressesInFlight = null;   // { token, run }: one read at a time per sign-in; a second caller of the SAME one shares it
 async function signinAddresses(opts) {
   const token = signinSession && typeof signinSession.token === 'string' ? signinSession.token : null;
@@ -3118,7 +3289,12 @@ async function signinAddressesOnce(opts) {
       first_free: typeof x.first_free === 'boolean' ? x.first_free : (x.bought_at === null && x.grandfathered === false) }));
   const buy = body && typeof body.buy_url === 'string' && /^https:\/\/[^\s"'<>]+$/.test(body.buy_url) ? body.buy_url : '';
   const here = enrolled() ? String(address() || '').split('.')[0] : '';
-  return { ok: true, because: null, data: { live: true, addresses: rows, buy_url: buy, this_name: NAME_RULE.test(here) ? here : '' } };
+  /* kosmos#6314: what one more computer costs, as Stripe says it (the coordinator's price.display, "$20/month"), so
+     the page can say so before it sends anyone to pay, without keeping a number of its own. Only an amount over a
+     plain period passes; anything else (none sent, Stripe unread, an odd shape) is '' and the page says no figure. */
+  const said = body && body.price && typeof body.price.display === 'string' ? body.price.display : '';
+  const price = PRICE_SHAPE.test(said) ? said : '';
+  return { ok: true, because: null, data: { live: true, addresses: rows, buy_url: buy, price, this_name: NAME_RULE.test(here) ? here : '' } };
 }
 
 async function signinRegister(name) {
@@ -3239,7 +3415,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,
@@ -3279,6 +3455,9 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   deviceAllow,
   joinStatus,
   joinConfirm,
+  joinRetry,
+  openTicket,
+  joinRecheck,
   deviceDeny,
   deviceRemove,
   /* #988: ONE derivation of each of these, for the same reason the #790 comment
@@ -3317,6 +3496,7 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
+  vouchAllowingIdForTests: () => vouchAllowingId,   // kosmos#6407
   vouchUntilForTests: () => (vouchState ? vouchState.until : 0),
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },

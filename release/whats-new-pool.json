@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.47",
+  "lastProd": "0.7.54",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -87,11 +87,12 @@
     },
     {
       "title": "Quiet runs of a recurring task roll up",
-      "line": "Runs of a recurring task that found nothing new, or repeated the same note, fold into one row; its card says when something last changed.",
+      "line": "Runs of a recurring task that found nothing new fold into one row in its history; the task says when something last changed.",
       "icon": "list",
       "rank": 10,
       "since": "0.7.32",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.50"
     },
     {
       "title": "Idle agents hear which scheduled run is due",
@@ -99,7 +100,8 @@
       "icon": "tasks",
       "rank": 11,
       "since": "0.7.34",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.54"
     },
     {
       "title": "The home row counts waiting agents",
@@ -180,7 +182,8 @@
       ],
       "rank": 10.5,
       "since": "0.7.37",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.53"
     },
     {
       "title": "Reply to Claude questions by number",
@@ -382,7 +385,8 @@
       ],
       "rank": 5,
       "since": "0.7.47",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.49"
     },
     {
       "title": "Long task and room messages arrive whole",
@@ -390,7 +394,8 @@
       "icon": "tasks",
       "rank": 10.8,
       "since": "0.7.47",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.53"
     },
     {
       "title": "Moved agents keep your imports answer",
@@ -417,7 +422,8 @@
       "icon": "shield",
       "rank": 6.5,
       "since": "0.7.48",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.49"
     },
     {
       "title": "An agent's page shows the imports question",
@@ -425,7 +431,8 @@
       "icon": "chat",
       "rank": 7,
       "since": "0.7.48",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.49"
     },
     {
       "title": "The Agents list fits a narrow window",
@@ -433,7 +440,8 @@
       "icon": "list",
       "rank": 9.2,
       "since": "0.7.48",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.50"
     },
     {
       "title": "Agents are told how to finish a task",
@@ -449,6 +457,296 @@
       "icon": "chat",
       "rank": 16.5,
       "since": "0.7.48",
+      "status": "pending"
+    },
+    {
+      "title": "The Kosmos app itself is read-only",
+      "line": "The installed Kosmos app is read-only, so an agent's edit to the app your agents run on is refused.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 16,
+      "since": "0.7.49",
+      "status": "pending"
+    },
+    {
+      "title": "See a Claude account's weekly usage",
+      "line": "Settings, AI Models can show a Claude account's weekly usage, which of this computer's agents run on it, and a way to move them.",
+      "icon": "list",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 4.5,
+      "since": "0.7.49",
+      "status": "shown",
+      "shownIn": "0.7.49"
+    },
+    {
+      "title": "A project says when goal planning is stuck",
+      "line": "A project's page says when Kosmos could not get an agent to plan toward its goal. It tries again; a project task gets work going sooner.",
+      "icon": "tasks",
+      "rank": 8.5,
+      "since": "0.7.49",
+      "status": "shown",
+      "shownIn": "0.7.49"
+    },
+    {
+      "title": "Kosmos has its own iPad layouts",
+      "line": "Sideways at full width, an iPad shows Agents and Projects side by side (View is set per iPad); upright, most put agent cards two across.",
+      "icon": "phone",
+      "rank": 3,
+      "since": "0.7.49",
+      "status": "shown",
+      "shownIn": "0.7.50"
+    },
+    {
+      "title": "Decision tasks say who needs you",
+      "line": "A task in Needs Your Decision now names the agent waiting on you, when one is, and why.",
+      "icon": "tasks",
+      "rank": 6,
+      "since": "0.7.50",
+      "status": "shown",
+      "shownIn": "0.7.50"
+    },
+    {
+      "title": "A restart after an update stops taking focus",
+      "line": "From the next update on, when Kosmos restarts itself onto a new version while another app is in front, it no longer takes focus.",
+      "icon": "spark",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 9,
+      "since": "0.7.50",
+      "status": "shown",
+      "shownIn": "0.7.50"
+    },
+    {
+      "title": "ChatGPT plan limits in Settings",
+      "line": "Settings, AI Models now shows a ChatGPT sign-in's limits as Codex last reported them, one meter per limit.",
+      "icon": "spark",
+      "rank": 2,
+      "since": "0.7.51",
+      "status": "shown",
+      "shownIn": "0.7.51"
+    },
+    {
+      "title": "Accounts on your other computers",
+      "line": "Settings, AI Models opened from a computer's Kosmos+ address now also lists your other computers' Claude accounts and their agents.",
+      "icon": "list",
+      "rank": 5,
+      "since": "0.7.51",
+      "status": "shown",
+      "shownIn": "0.7.51"
+    },
+    {
+      "title": "Stop an account move",
+      "line": "A move of several agents to another account can now be stopped; agents it had not reached keep their old account.",
+      "icon": "swarm",
+      "rank": 7,
+      "since": "0.7.51",
+      "status": "shown",
+      "shownIn": "0.7.53"
+    },
+    {
+      "title": "More permission choices as buttons",
+      "line": "A Claude agent's permission question now shows every choice as a button. One that lasts, like \"don't ask again\", needs a second press.",
+      "icon": "shield",
+      "rank": 4,
+      "since": "0.7.51",
+      "status": "shown",
+      "platforms": [
+        "mac"
+      ],
+      "shownIn": "0.7.51"
+    },
+    {
+      "title": "Projects are optional",
+      "line": "Taking an agent off its last project no longer puts a warning sign on it, and a new team's Project is optional.",
+      "icon": "list",
+      "rank": 6,
+      "since": "0.7.51",
+      "status": "shown",
+      "shownIn": "0.7.51"
+    },
+    {
+      "title": "Claude's 5-hour limit in Settings",
+      "line": "Settings, AI Models now shows a Claude account's 5-hour limit under its weekly one: how much is used and when it resets.",
+      "icon": "spark",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 3,
+      "since": "0.7.51",
+      "status": "shown",
+      "shownIn": "0.7.51"
+    },
+    {
+      "title": "No typing behind unsent text",
+      "line": "Kosmos no longer types behind unsent text in a Claude agent's box, and sends its own unsent line first with the next message.",
+      "icon": "chat",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 1.5,
+      "since": "0.7.52",
+      "status": "shown",
+      "shownIn": "0.7.53"
+    },
+    {
+      "title": "A second computer can be allowed",
+      "line": "A computer you add to your Kosmos+ account now shows its request to be allowed on your first one, once that one has this update.",
+      "icon": "shield",
+      "rank": 1.2,
+      "since": "0.7.53",
+      "status": "shown",
+      "shownIn": "0.7.53"
+    },
+    {
+      "title": "Add a computer one step at a time",
+      "line": "Adding a computer to Kosmos+ now shows what it costs before you pay and notices your payment by itself, and no longer asks you to name it.",
+      "icon": "shield",
+      "rank": 1.1,
+      "since": "0.7.54",
+      "status": "shown",
+      "shownIn": "0.7.54"
+    },
+    {
+      "title": "Undo covers Codex and Antigravity agents",
+      "line": "With undo on, Codex and Antigravity file tool edits now keep a copy, and a project's Files page usually names the agent that made them.",
+      "icon": "tasks",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 2,
+      "since": "0.7.54",
+      "status": "shown",
+      "shownIn": "0.7.54"
+    },
+    {
+      "title": "The restart check says what it could not check",
+      "line": "When the Agents tab cannot tell whether some agents come back after a restart, it now says which ones, instead of leaving them out.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 9,
+      "since": "0.7.54",
+      "status": "shown",
+      "shownIn": "0.7.54"
+    },
+    {
+      "title": "A long Meta Muse answer says it was cut",
+      "line": "A Meta Muse agent answer too long to show in full now ends by saying so, instead of stopping mid-sentence.",
+      "icon": "chat",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 15.5,
+      "since": "0.7.54",
+      "status": "pending"
+    },
+    {
+      "title": "Old project summaries say why",
+      "line": "A project member summary marked as old now says what kept it old: time working or waiting, or turns ended, since it was written.",
+      "icon": "tasks",
+      "rank": 16.8,
+      "since": "0.7.54",
+      "status": "pending"
+    },
+    {
+      "title": "A monthly AI cap for families",
+      "line": "Parents can now set a monthly cap on a child's Claude use in the family console; at the cap, Kosmos takes no new messages for its agents.",
+      "icon": "shield",
+      "rank": 3,
+      "since": "0.7.54",
+      "status": "shown",
+      "shownIn": "0.7.54"
+    },
+    {
+      "title": "Add several computers in one sitting",
+      "line": "With both Macs on this version, Kosmos+ pairing allows 10 code tries per computer and 20 answers a day, and a stuck pair can finish.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 1,
+      "since": "0.7.55",
+      "status": "pending"
+    },
+    {
+      "title": "Close the join notice",
+      "line": "The notice that a computer wants to join your Kosmos+ account now has a close button, and stays away until a new request comes in.",
+      "icon": "shield",
+      "rank": 1.6,
+      "since": "0.7.55",
+      "status": "pending"
+    },
+    {
+      "title": "Quiet projects stop flagging you",
+      "line": "Paused projects and agents out of usage no longer mark a project as an Issue, and every row in a project's needs-you list can be dismissed.",
+      "icon": "tasks",
+      "rank": 2.5,
+      "since": "0.7.55",
+      "status": "pending"
+    },
+    {
+      "title": "An agent marking a task built tells the others",
+      "line": "When an agent marks a task built, Kosmos now tells the task's other agents and whoever holds the task above it.",
+      "icon": "tasks",
+      "rank": 3,
+      "since": "0.7.56",
+      "status": "pending"
+    },
+    {
+      "title": "Simpler agent cards",
+      "line": "Agent cards are simpler: Rate Limit shows as a status, the community post line is gone, and you click a card with a question to answer it.",
+      "icon": "swarm",
+      "rank": 2,
+      "since": "0.7.56",
+      "status": "pending"
+    },
+    {
+      "title": "A team map for each project",
+      "line": "In the Separate tabs view, a project's Members card has a Team map: who reports to whom, what each member holds, who handed work to whom.",
+      "icon": "swarm",
+      "rank": 4,
+      "since": "0.7.55",
+      "status": "pending"
+    },
+    {
+      "title": "A way back to this computer",
+      "line": "In the Kosmos app, View, Back to This Computer (Command Shift H) returns the window to this computer after you open another.",
+      "icon": "phone",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 2.6,
+      "since": "0.7.57",
+      "status": "pending"
+    },
+    {
+      "title": "Joining says why it waits",
+      "line": "A computer joining your Kosmos+ account now says, after a minute with no code, that your other computer adds one at a time.",
+      "icon": "shield",
+      "rank": 2.8,
+      "since": "0.7.57",
+      "status": "pending"
+    },
+    {
+      "title": "Phone notifications start on",
+      "line": "Phone notifications to the Kosmos phone app (still in testing) now start on once this computer is connected to Kosmos+. An off stays off.",
+      "icon": "phone",
+      "rank": 1,
+      "since": "0.7.58",
+      "status": "pending"
+    },
+    {
+      "title": "Less repeated text",
+      "line": "Notices, setup and adding a computer drop lines that repeated what was already on screen.",
+      "icon": "swarm",
+      "rank": 2.55,
+      "since": "0.7.59",
       "status": "pending"
     }
   ]

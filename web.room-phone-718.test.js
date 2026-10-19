@@ -44,7 +44,7 @@ const outsideMedia = (q) => { let t = html; MEDIA.filter((b) => b.query === '(' 
 
 test('on a phone the conversation comes first IN THE DOM, never by CSS order (#1017)', () => {
   // A visual-only reorder splits reading order from tab order; the browser check measures the
-  // real DOM order at 375 and 800 (render-room-msgbox-2806, phone arm).
+  // real DOM order at 375, 800x400 and 834x1194 (render-room-msgbox-2806, phone and tablet arms).
   const phone = blocks('max-width: 30rem');
   assert.match(phone, /#pj-room\.thread \{/, 'the phone block was found (an empty block would make the next line vacuous)');
   // No CSS order on either column, in any rule anywhere on the page.
@@ -55,9 +55,34 @@ test('on a phone the conversation comes first IN THE DOM, never by CSS order (#1
   // The Members/Files column is what moves. The conversation column holds the composer, and
   // moving it would blur the composer (iOS does not restore the keyboard for a scripted focus).
   // Anchored to its branch: a swap of the phone and wide moves must fail here, not only in the browser.
-  assert.match(html, /if \(window\.matchMedia\(PJ_PHONE_MQ\)\.matches\) \{\n    if \(mid\.nextElementSibling !== split\) mid\.after\(split\);\n  \} else if \(mid\.previousElementSibling !== split\) \{\n    grid\.insertBefore\(split, mid\);\n  \}/);
+  assert.match(html, /if \(window\.matchMedia\(PJ_PHONE_MQ\)\.matches \|\| tablet\) \{\n    if \(mid\.nextElementSibling !== split\) mid\.after\(split\);\n  \} else if \(mid\.previousElementSibling !== split\) \{\n    grid\.insertBefore\(split, mid\);\n  \}/);
   assert.doesNotMatch(html, /grid\.insertBefore\(mid,|split\.after\(mid\)/);
   assert.match(html, /pjPhoneMq\.addEventListener\('change', pjPhoneOrder\)/);
+});
+
+test('an upright tablet moves the room by DOM too: Tasks first, then the conversation (#6107)', () => {
+  const q = html.match(/const PJ_TABLET_MQ = '([^']+)';/);
+  assert.ok(q, 'PJ_TABLET_MQ is declared');
+  // What the query says, not only that the copies agree: a touch screen (a mouse in a tall window keeps the desktop
+  // layout) held upright (landscape waits on its own design).
+  assert.match(q[1], /\(hover: none\) and \(pointer: coarse\)/, 'the tablet query requires a touch screen');
+  assert.match(q[1], /\(orientation: portrait\)/, 'the tablet query requires portrait');
+  const tablet = MEDIA.filter((b) => b.query === q[1]).map((b) => b.body).join('\n');
+  // The CSS block with the script's exact query holds the room's tablet rules (the swipe row of tasks).
+  assert.match(tablet, /#pj-tasklist \{ flex-direction: row;/, 'the room tablet rules live under PJ_TABLET_MQ');
+  // The agent cards' tablet block is the same tablet, so it must carry the same query (written three times by value).
+  assert.match(tablet, /#grid\.cards \{ grid-template-columns: repeat\(auto-fill, minmax\(min\(100%, 330px\), 1fr\)\);/, 'the card tablet rules live under PJ_TABLET_MQ too');
+  // Reading order follows the DOM: the same no-CSS-order rule as the phone, for the tablet block.
+  assert.doesNotMatch(tablet, /\border\s*:/);
+  // Tasks moves to the front on a tablet and back to the end otherwise; the conversation column never moves.
+  assert.match(html, /if \(tablet\) \{ if \(grid\.firstElementChild !== tasks\) grid\.insertBefore\(tasks, grid\.firstElementChild\); \}\n    else if \(grid\.firstElementChild === tasks\) grid\.append\(tasks\);/);
+  assert.match(html, /pjTabletMq\.addEventListener\('change', pjPhoneOrder\)/);
+  // placeLook can run before the room's const queries exist; it waits on a hoisted var set right after them (a
+  // typeof check on a const in its dead zone would still throw).
+  assert.match(html, /const PJ_TABLET_MQ = '[^']+';\n(?:\/\/[^\n]*\n)*var PJ_ORDER_READY = true;/);
+  assert.match(html, /\n  if \(PJ_ORDER_READY\) pjPhoneOrder\(\);\n\}\nfunction lookToggleClick\(\)/);
+  // Not in the consolidated view or the new look, which place Tasks themselves.
+  assert.match(html, /const tablet = window\.matchMedia\(PJ_TABLET_MQ\)\.matches && !document\.body\.classList\.contains\('consolidated'\)\n    && document\.documentElement\.dataset\.look !== 'new';/);
 });
 
 test("the script's phone and touch queries are the CSS blocks' exact queries", () => {

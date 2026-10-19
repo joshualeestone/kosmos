@@ -398,6 +398,20 @@ ptr_setup_sha() { printf '%s' "$1" | sed -n 's/.*"setup_sha256":[[:space:]]*"\([
 ptr_versioned() { printf '%s' "$1" | sed -n 's/.*"versioned":[[:space:]]*"\([^"]*\)".*/\1/p'; }
 # The version inside a Windows zip NAME (kosmos-<version>-win-x64.zip), empty if it is not that shape.
 win_zip_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p'; }
+# kosmos#6149 point 1: the rollback floor. The COMMITTED Mac pointers are what this deploy serves, so neither may name
+# a build older than the setup floor (tools/lib/setup-floor.sh); the installers are checked with them on the export.
+. "$REPO/tools/lib/setup-floor.sh"   # as this script's other libs (a failed . fails closed: set -eu ends the run)
+# Absent is not unreadable: a pointer the commit HAS but that could not be read is refused, not skipped.
+CSJ=""
+if git -C "$SITE" cat-file -e "$H:dist/latest-staging.json" 2>/dev/null; then
+  CSJ=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) && [ -n "$CSJ" ] \
+    || { echo "deploy-site: $H has dist/latest-staging.json but it could not be read -- refusing (setup floor, kosmos#6149); nothing was deployed"; exit 1; }
+fi
+if git -C "$SITE" cat-file -e "$H:dist/latest.json" 2>/dev/null && [ -z "$CJ" ]; then
+  echo "deploy-site: $H has dist/latest.json but it could not be read -- refusing (setup floor, kosmos#6149); nothing was deployed"; exit 1
+fi
+[ -z "$CJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest.json" "$CJ" || exit 1
+[ -z "$CSJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest-staging.json" "$CSJ" || exit 1
 
 # #2571: DERIVE the current Windows versioned zip name from latest-win.json, the same way ART is
 # learned from latest.json above -- replacing the stale hardcoded $WINZIP (kosmos-0.6.24, while
@@ -757,6 +771,8 @@ echo "deploy-site: fetched and verified the current live GITIGNORED artifacts in
 # the first read of $HOST as well as after the deploy.)
 EXPORT=$(mktemp -d "${TMPDIR:-/tmp}/deploy-site.XXXXXX")
 site_deploy_export "$SITE" "$EXPORT" "$H" || { echo "deploy-site: site_deploy_export failed -- nothing deployed"; rm -rf "$EXPORT"; exit 1; }
+# kosmos#6149: the export IS what vercel publishes: no pointer and no installer in it older than the setup floor.
+kosmos_setup_floor_tree_ok "deploy-site's export" "$EXPORT" || { echo "deploy-site: nothing deployed"; rm -rf "$EXPORT"; exit 1; }
 
 # --- 3) HONEST-MARKER check: the export MUST have carried the critical artifacts ----
 # If it did not, the .kosmos-release-export marker would be a rubber stamp and the deploy

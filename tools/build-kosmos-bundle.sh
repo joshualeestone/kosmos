@@ -400,6 +400,7 @@ menu:Edit
   item:Select All	shortcut:cmd+a	action:selectAll:	target:-
 menu:View
   item:Reload	shortcut:cmd+r	action:reloadBoard:	target:set
+  item:Back to This Computer	shortcut:cmd+shift+h	action:backToThisComputer:	target:set
 menu:Window
   item:Minimize	shortcut:cmd+m	action:performMiniaturize:	target:-
   item:Zoom	shortcut:-	action:performZoom:	target:-
@@ -899,6 +900,11 @@ chmod +x "$STAGE/runtime/bin/node"
 # eighteen releases while the gate stood here, pointed at one file.
 . "$(dirname "${BASH_SOURCE[0]}")/lib/floor-gate.sh"
 floor_gate_tree "$STAGE"
+# #6549: nothing under app/ or bin/ may name this Mac's home folder (the connector's compiler paths once did, hundreds
+# of times), and no compiled file there may name any account's build folders.
+. "$(dirname "${BASH_SOURCE[0]}")/lib/home-path-gate.sh"
+home_path_gate_tree "$STAGE" || exit 1
+echo "==> nothing under app/ or bin/ names a build Mac's home folder (#6549)"
 
 # ---- smoke test -------------------------------------------------------------
 # ⚠️ THE STAGED TREE IS WHAT GETS TESTED, not the repo, AND A REAL REQUEST IS
@@ -1015,7 +1021,12 @@ notarize_binaries "$STAGE/app/bin/kosmos-app" "$STAGE/app/bin/kosmos-tunnel" "$S
 echo "==> packing"
 TARBALL_OUT="$OUT/kosmos-$ARCH.tar.gz"
 rm -f "$TARBALL_OUT"
-tar -czf "$TARBALL_OUT" -C "$STAGE" bin app runtime VERSION
+# #6562: store a neutral owner NAME (the numeric ids still come from disk; install/setup.sh extracts with
+# --no-same-owner, so no install applies a recorded owner), and refuse a tarball that still records this Mac's account.
+tar -czf "$TARBALL_OUT" --uname kosmos --gname staff -C "$STAGE" bin app runtime VERSION
+. "$(dirname "${BASH_SOURCE[0]}")/lib/tar-owner-gate.sh"
+tar_owner_gate "$TARBALL_OUT" || exit 1
+echo "==> the tarball records no build account as owner (#6562)"
 # ⚠️ The .sha256 is what install/setup.sh verifies before extracting; a
 # tarball published without it refuses to install, on purpose.
 ( cd "$OUT" && shasum -a 256 "$(basename "$TARBALL_OUT")" > "$(basename "$TARBALL_OUT").sha256" )
@@ -1032,7 +1043,36 @@ tar -czf "$TARBALL_OUT" -C "$STAGE" bin app runtime VERSION
 # (tools/verify-manifest.sh). Everything here the build already knew.
 MANIFEST_OUT="$OUT/kosmos-$ARCH.manifest.json"
 _pkg_version="$(KOSMOS_PKG="$STAGE/app/package.json" "$STAGE/runtime/bin/node" -p 'JSON.parse(require("fs").readFileSync(process.env.KOSMOS_PKG,"utf8")).version')"
-( cd "$STAGE" && find bin app runtime VERSION -type f | LC_ALL=C sort | while read -r f; do printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "$f"; done ) > "$OUT/.files.$$"
+# #6468: installs check every file against this list, so the list must describe the tree exactly. It cannot list a
+# symlink (find -type f skips it, the installed verifier refuses it), and a name with a newline in it would split
+# into two lines. The rule is stricter than that on purpose, so the build, tools/verify-manifest.sh and
+# engine/manifest-verify.js agree by construction: every name is plain (letters, digits and . _ / @ + = , ~ % # ( ) -,
+# no spaces) under bin/, app/ or runtime/, or VERSION itself. The 0.7.56 bundle's 362 names all are.
+# kosmos_bundle_odd_names lists every offender IN FULL (no head inside a pipe: under pipefail a SIGPIPE would fail the
+# pipeline and a fallback would throw the names away, measured with 3000 names). tools/test-bundle-names-6468.sh runs it.
+kosmos_bundle_odd_names() {   # <stage>; prints offenders, one per line (a missing stage or part is one too)
+  [ -d "$1" ] || { echo "no stage at $1"; return 0; }
+  local part
+  for part in bin app runtime VERSION; do [ -e "$1/$part" ] || echo "missing: $part"; done
+  # A newline anywhere in a path splits it into lines that can each look plain, so it is found by name, not by line.
+  ( cd "$1" && { find bin app runtime VERSION -name $'*\n*' -print0 2>/dev/null | tr '\n\0' ' \n' | sed 's/^/a name with a newline in it: /'
+                 find bin app runtime VERSION ! -type f ! -type d 2>/dev/null | sed 's/^/not a plain file: /'
+                 find bin app runtime VERSION -type f 2>/dev/null | LC_ALL=C grep -vE '^((bin|app|runtime)/[A-Za-z0-9._/@+=,~%#()-]+|VERSION)$' | sed 's/^/name the manifest cannot carry: /'; } ) || true
+}
+_odd="$(kosmos_bundle_odd_names "$STAGE")"
+[ -z "$_odd" ] || { echo "FAIL: the bundle holds names the signed manifest cannot list exactly (#6468), first ones:" >&2; printf '%s\n' "$_odd" | sed -n '1,5p' >&2; exit 1; }
+# The keys installs of this build will accept go in its signed manifest (pinned_keys). An empty list would make the
+# next cut refuse its own key with a misleading sentence, so a failed read stops the build here instead.
+# 0.7.57 cut (12:00): STAGE is RELATIVE (dist/kosmos-bundle), and require() of a bare relative path is a PACKAGE
+# lookup, not a file, so this failed only inside a cut (an absolute path by hand worked). The path is made absolute in
+# the shell AND resolved in node, and the error is shown, not dropped (dropping it hid the cause for a whole cut).
+# tools.pinned-keys-read.test.js runs these lines with a relative STAGE.
+_pk_file="$(cd "$STAGE/app/engine" && pwd)/manifest-verify.js"
+_pk_err="$(mktemp "${TMPDIR:-/tmp}/kosmos-pinned-keys.XXXXXX")"
+KM_PINNED_KEYS="$("$STAGE/runtime/bin/node" -e 'process.stdout.write(JSON.stringify(require(require("path").resolve(process.argv[1])).KEYS))' "$_pk_file" 2>"$_pk_err")" || KM_PINNED_KEYS=""
+case "$KM_PINNED_KEYS" in ''|'[]') echo "FAIL: could not read the pinned keys from app/engine/manifest-verify.js (#6468):" >&2; sed -n '1,8p' "$_pk_err" >&2; rm -f "$_pk_err"; exit 1 ;; esac
+rm -f "$_pk_err"
+( cd "$STAGE" && find bin app runtime VERSION -type f | LC_ALL=C sort | while IFS= read -r f; do printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "$f"; done ) > "$OUT/.files.$$"
 KOSMOS_MANIFEST_OUT="$MANIFEST_OUT" KOSMOS_MANIFEST_FILES="$OUT/.files.$$" \
 KM_VERSION="$_pkg_version" KM_ARCH="$ARCH" KM_ARTIFACT="$(basename "$TARBALL_OUT")" \
 KM_SHA="$(awk '{print $1}' "$TARBALL_OUT.sha256")" \
@@ -1040,11 +1080,14 @@ KM_APP_COMMIT="$_app_commit" KM_APP_DIRTY="$_app_dirty" \
 KM_NODE_VERSION="$("$STAGE/runtime/bin/node" --version)" KM_NODE_SHA="${NODE_SHA:-unknown}" \
 KM_TUNNEL_SIGNED="${_tunnel_sha:-unknown}" KM_TUNNEL_INPUT="${_tunnel_in:-unknown}" KM_TUNNEL_COMMIT="${_tunnel_src:-unknown}" \
 KM_NATIVE_APP_SIGNED="${_app_bin_sha:-unknown}" \
+KM_PINNED_KEYS="$KM_PINNED_KEYS" \
+KM_SETUP_SHA="$(shasum -a 256 "$REPO/install/setup.sh" | awk '{print $1}')" \
+KM_TMUX_SHA="$( [ -f "$OUT/tmux-$ARCH.tar.gz.sha256" ] && awk 'NR==1{print $1}' "$OUT/tmux-$ARCH.tar.gz.sha256" )" \
 KM_BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" KM_HOST="$(hostname -s 2>/dev/null || echo '?')" KM_MACOS="$(sw_vers -productVersion 2>/dev/null || echo '?')" \
 "$STAGE/runtime/bin/node" -e '
 const fs = require("fs"); const e = process.env;
 const files = fs.readFileSync(e.KOSMOS_MANIFEST_FILES, "utf8").trim().split("\n").filter(Boolean)
-  .map((l) => { const [sha, ...p] = l.split(/\s+/); return { path: p.join(" "), sha256: sha }; });
+  .map((l) => ({ path: l.slice(66), sha256: l.slice(0, 64) }));   // "<64 hex>  <name>", the name taken exactly (#6468)
 const m = {
   manifest: 1,
   version: e.KM_VERSION, arch: e.KM_ARCH, artifact: e.KM_ARTIFACT, sha256: e.KM_SHA,
@@ -1053,6 +1096,13 @@ const m = {
   connector: { signed_sha256: e.KM_TUNNEL_SIGNED, input_sha256: e.KM_TUNNEL_INPUT, commit: e.KM_TUNNEL_COMMIT },
   native_app: { signed_sha256: e.KM_NATIVE_APP_SIGNED },
   built: { at: e.KM_BUILT, host: e.KM_HOST, macos: e.KM_MACOS },
+  // #6468: the keys that installs of THIS build accept, so a later cut can check its key against what is served.
+  pinned_keys: JSON.parse(e.KM_PINNED_KEYS || "[]"),
+  // #6468 ask 3: the installer this release publishes (/setup, /setup-staging), checked before an update runs it.
+  setup_sha256: e.KM_SETUP_SHA,
+  // #6473: the tmux bundle served beside this release (release.sh copies the served pair into dist before step 4);
+  // absent from a local build that has no tmux pair, which no release ships (release.sh checks it is here).
+  ...(e.KM_TMUX_SHA ? { tmux_sha256: e.KM_TMUX_SHA } : {}),
   files,
 };
 fs.writeFileSync(e.KOSMOS_MANIFEST_OUT, JSON.stringify(m, null, 1) + "\n");

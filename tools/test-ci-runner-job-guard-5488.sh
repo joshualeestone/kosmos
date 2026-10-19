@@ -6,7 +6,7 @@
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 GUARD="$HERE/ci-runner-job-guard.sh"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/test-ci-runner-job-guard-5488.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 fails=0
 pass() { printf 'ok   %s\n' "$1"; }
 fail() { printf 'FAIL %s\n' "$1"; fails=$((fails + 1)); }

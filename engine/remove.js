@@ -46,7 +46,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, execFile } = require('node:child_process');
 const create = require('./create');
 const launchidentity = require('./launchidentity'); // #1704: this board's Kosmos, and the key separator
 const win32job = require('./win32job'); // #570: the Scheduled Task that stands in for a launchd job
@@ -92,6 +92,10 @@ const REMOVED_FILE = path.join(store.ROOT, REMOVED_FILENAME);
  */
 let DRY_RUN = process.env.AGENT_WORKFORCE_DRY_RUN === '1';
 let runner = null;
+/* #6173: the async driver's seam, the async twin of `runner`: (file, args, opts) -> Promise of run()'s answer. Unset,
+   the async driver uses execFile when commands are live, and `run` itself otherwise (a runner, dry-run, the gate). */
+let asyncRunner = null;
+function setAsyncRunner(fn) { asyncRunner = fn || null; }
 
 /* #4964: an injected runner also turns the restart's unload wait off (its print would answer "loaded" forever);
    a test that models launchd's unload sets AGENT_WORKFORCE_UNLOAD_WAIT_MS to get it back. */
@@ -108,7 +112,7 @@ function setDryRun(on) {
 
 /* Test seam (#1598): back to a clean fail-closed state (no runner, explicit
    dry-run flag off) so a test can exercise the live-execution gate itself. */
-function resetForTests() { runner = null; DRY_RUN = false; lastRetryWaitAt = 0; lastBootstrap = null; unloadWaits = []; }
+function resetForTests() { runner = null; asyncRunner = null; DRY_RUN = false; lastRetryWaitAt = 0; lastBootstrap = null; unloadWaits = []; RESTARTING.clear(); HELD.clear(); }
 
 /**
  * #2570: can a caller BELIEVE an outcome from this module?
@@ -170,7 +174,7 @@ function retryWait() {
    get the wait the bootout race needs. Accepted, because a board frozen for N waits is worse than a second try
    that may not help; those agents still end on the failed card. */
 /* #4964: how long a restart waits, after bootout, for launchd to finish unloading the job before it bootstraps.
-   MEASURED on Agent1s (0.7.16): the bootout returned at once, the job then sat in `state = SIGTERMed` for 4.5 s
+   MEASURED on a build Mac (0.7.16): the bootout returned at once, the job then sat in `state = SIGTERMed` for 4.5 s
    while its supervisor shut down, and only then was gone. A bootstrap sent into that gap answers 5 ("already
    loaded", success), `launchctl print` still answers for the dying job, so the restart is "confirmed" and the
    #4006 second try never runs; the job then unloads and nothing brings the agent back. That is every
@@ -193,7 +197,7 @@ const UNLOAD_PRINT_TIMEOUT_MS = 2000;
 /* The wait blocks this whole process (restart is synchronous, in a route), so a burst (the class-1 sweep restarts
    every flagged agent in one tick) must not freeze the board for N waits: at most UNLOAD_BURST_MS of waiting in any
    UNLOAD_BURST_WINDOW_MS. A restart past that allowance does not wait, and the restart does not trust a bootstrap
-   that answered "already loaded" while the old job was still held (restartInner), so it ends PARTIAL, on the
+   that answered "already loaded" while the old job was still held (restartSteps), so it ends PARTIAL, on the
    failed card, rather than as a RESTARTED with no job. The trade-off, stated: past the allowance (a long class-1
    sweep) an agent is left stopped and on the failed card, where before it was left stopped under a false
    RESTARTED. PARTIAL here does not mean nothing changed. */
@@ -206,7 +210,7 @@ function unloadAllowance(now) {
   unloadWaits = unloadWaits.filter((w) => now - w.at < UNLOAD_BURST_WINDOW_MS);
   return Math.max(0, cap - unloadWaits.reduce((n, w) => n + w.ms, 0));
 }
-/* Gone only on launchd's own "no such service": 113, `Could not find service` (MEASURED on Agent1s). Any other
+/* Gone only on launchd's own "no such service": 113, `Could not find service` (MEASURED on a build Mac). Any other
    failure of print (a timeout, a launchctl error) says nothing about the job, so it is not read as gone. */
 function printSaysGone(out) {
   if (!out || out.ok !== false) return false;
@@ -219,25 +223,36 @@ function waitUnloaded(label) {
   if (base <= 0) return true;   // no wait asked for: not even a look (the scripted tests' call lists stay exact)
   const started = Date.now();
   const budget = Math.min(base, unloadAllowance(started));
-  let gone = false;
-  for (;;) {
-    const left0 = budget - (Date.now() - started);
-    const out = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${label}`],
-      { timeout: Math.max(200, Math.min(UNLOAD_PRINT_TIMEOUT_MS, left0)) });   // a print never carries the wait far past its budget
-    if (out && out.dryRun) { gone = true; break; }
-    if (printSaysGone(out)) { gone = true; break; }
-    const left = budget - (Date.now() - started);
-    if (left <= 0) break;
-    sleepMs(Math.min(UNLOAD_POLL_MS, left));
-  }
+  const gone = driveSync(unloadSteps(label, budget));
   const spent = Date.now() - started;
   if (spent > 0) unloadWaits.push({ at: started, ms: spent });
   return gone;
 }
+/* #6173: the same wait for the async driver. It blocks nothing, so it takes the whole wait and neither spends nor is
+   limited by the burst allowance above, which exists only because the synchronous wait freezes the board. */
+async function waitUnloadedAsync(label, ctl) {
+  const base = unloadWaitMs();
+  if (base <= 0) return true;
+  return driveAsync(unloadSteps(label, base), ctl);   // the restart's own abandon reaches its polls too (review 4)
+}
+/* The polls of one unload wait: true once launchd no longer holds `label`, false if it still does at `budget`. */
+function* unloadSteps(label, budget) {
+  const started = Date.now();
+  for (;;) {
+    const left0 = budget - (Date.now() - started);
+    const out = yield { exec: ['/bin/launchctl', ['print', `gui/${process.getuid()}/${label}`],
+      { timeout: Math.max(200, Math.min(UNLOAD_PRINT_TIMEOUT_MS, left0)) }] };   // a print never carries the wait far past its budget
+    if (out && out.dryRun) return true;
+    if (printSaysGone(out)) return true;
+    const left = budget - (Date.now() - started);
+    if (left <= 0) return false;
+    yield { sleep: Math.min(UNLOAD_POLL_MS, left) };
+  }
+}
 /* #4964: did the last Mac bootstrap really load a job (answer 0)? Right after a bootout whose job was still held, an
    "already loaded" (5) is the dying job, not a new one. */
-function bootstrapLoadedNew() {
-  return Boolean(lastBootstrap && lastBootstrap.ok === true);
+function bootstrapLoadedNew(boot = lastBootstrap) {
+  return Boolean(boot && boot.ok === true);
 }
 
 
@@ -265,6 +280,93 @@ function run(file, args, opts) {
     return { ok: false, code: err && typeof err.status === 'number' ? err.status : null,
       stdout: text(err && err.stdout), stderr: text(err && err.stderr) };
   }
+}
+
+/**
+ * #6173: ONE RESTART BODY, TWO DRIVERS. The restart is written as a generator that yields every command and every
+ * wait instead of running them; a driver answers each yield.
+ *
+ *   driveSync   run() (execFileSync) and Atomics.wait: exactly what every caller had before, burst cap included.
+ *   driveAsync  execFile and timers: the board's thread is free between and during the commands. An account move's
+ *               restarts use it, so moving many agents does not freeze the board once per agent.
+ *
+ * Yields: { exec: [file, args, opts] } -> run()'s answer; { sleep: ms }; { unload: label } -> gone?;
+ * { retry: true } (the #4006 wait); { roster: true } -> status.paneRoster().
+ * A driver that throws answering a yield throws INTO the generator, so a try in the body sees it as before.
+ */
+function answerSync(y) {
+  if (y.exec) return run(y.exec[0], y.exec[1], y.exec[2]);
+  if (y.sleep !== undefined) return sleepMs(y.sleep);
+  if (y.unload !== undefined) return waitUnloaded(y.unload);
+  if (y.retry) return retryWait();
+  if (y.roster) return status.paneRoster();
+  throw new Error('a restart step yielded something no driver answers');
+}
+async function answerAsync(y, ctl) {
+  if (y.exec) return runAsync(y.exec[0], y.exec[1], y.exec[2]);
+  if (y.sleep !== undefined) return new Promise((r) => setTimeout(r, Math.max(0, y.sleep)));
+  if (y.unload !== undefined) return waitUnloadedAsync(y.unload, ctl);
+  if (y.retry) { const ms = relaunchRetryMs(); return new Promise((r) => setTimeout(r, ms)); }
+  if (y.roster) return status.paneRosterAsync();
+  throw new Error('a restart step yielded something no driver answers');
+}
+function driveSync(gen) {
+  let r = gen.next();
+  while (!r.done) {
+    let answer;
+    try { answer = answerSync(r.value); } catch (err) { r = gen.throw(err); continue; }
+    r = gen.next(answer);
+  }
+  return r.value;
+}
+async function driveAsync(gen, ctl) {
+  let r = gen.next();
+  /* Abandoned at its cap (restartAsync): an answer that came in late, or a throw, is not acted on, and no further
+     command is sent, so a restart given up on can never bootstrap after its hold was released. Checked at the top of
+     every turn, so the throw path is covered too (review 3). */
+  const stop = () => { try { gen.return(); } catch { /* nothing to finish */ } return null; };
+  while (!r.done) {
+    if (ctl && ctl.abandoned) return stop();
+    let answer;
+    let failed = null;
+    try { answer = await answerAsync(r.value, ctl); } catch (err) { failed = { err }; }
+    if (ctl && ctl.abandoned) return stop();
+    r = failed ? gen.throw(failed.err) : gen.next(answer);
+  }
+  return r.value;
+}
+/* run() through execFile: the same answer shape, exit code and output kept. A runner, dry-run or the closed gate go
+   through run() itself (no live command runs there, so nothing blocks), unless a test injected an async runner. */
+function runAsync(file, args, opts) {
+  if (asyncRunner) return Promise.resolve(asyncRunner(file, args, opts));
+  if (runner || DRY_RUN || !liveExec.liveExecutionAllowed()) return Promise.resolve(run(file, args, opts));
+  return execAsync(file, args, opts);
+}
+/* The live half of runAsync, apart so a test can run a real process through it (the gate keeps runAsync off it there). */
+/* ⚠️ IT ALWAYS ANSWERS (#6173 review 5). An abandoned restart keeps its hold until its in-flight command ends, and a
+   held agent holds board restarts and updates, so "every command is bounded" has to be true: the limit kills with
+   SIGKILL (a SIGTERM can be ignored), and a last timer answers even if the process's pipes never close (a child that
+   left a grandchild holding them), so the answer comes within the limit plus 5 s whatever the process does. */
+const EXEC_HARD_GRACE_MS = 5000;
+function execAsync(file, args, opts) {
+  return new Promise((resolve) => {
+    const text = (v) => (v == null ? '' : String(v)).slice(0, 2000);
+    const limit = (opts && opts.timeout) || 20000;
+    let answered = false, hard = null;
+    const answer = (v) => { if (answered) return; answered = true; clearTimeout(hard); resolve(v); };
+    let child;
+    try {
+      child = execFile(file, args, { encoding: 'utf8', timeout: limit, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
+        if (!err) { answer({ ok: true, stdout }); return; }
+        /* Killed at its limit: no exit code, on every platform (Windows reports a terminated process as exit 1, which
+           would read as a real answer; review 7). */
+        answer({ ok: false, code: !err.killed && typeof err.code === 'number' ? err.code : null, stdout: text(stdout), stderr: text(stderr) });
+      });
+    } catch (err) { answer({ ok: false, code: null, stdout: '', stderr: text(err && err.message) }); return; }
+    hard = setTimeout(() => answer({ ok: false, code: null, stdout: '', stderr: 'it did not answer within its time limit' }), limit + EXEC_HARD_GRACE_MS);
+    if (hard.unref) hard.unref();
+    if (child && child.stdin) child.stdin.end();
+  });
 }
 
 /* ── the record of what has been removed ─────────────────────────────────── */
@@ -513,23 +615,32 @@ function jobOps(platform) {
       stopNow: (name, job) => Boolean(win32job.end(name, job && job.worldId).ok),
       enable: (name, job) => Boolean(win32job.enable(name, job && job.worldId).ok),
       startNow: (name, job) => Boolean(win32job.start(name, job && job.worldId).ok),
-      /* #3431: a GENUINE running-state check now exists. The prior version confirmed only that
-         the task was REGISTERED (win32job.status), which proves the task EXISTS, not that a
-         supervisor came up -- so the win32 analog of Nora (a /Run that reports ok but whose
-         process never starts) would still read as loaded. `win32job.running` polls the
-         supervisor-authored liveness signal (win32streamstate.liveIdentity) against the
-         pre-restart baseline, which is the real analog of the Mac's `launchctl print` probe:
-         it catches a start that took at the task level but never produced a running process.
-         `beforeRestart` captures that baseline before the /End+/Run relaunch so a dying
-         supervisor's leftover state file is not mistaken for the new one. */
-      loaded: (name, job, before) => win32job.running(name, job && job.worldId, { before }).ok,
-      /* The pre-restart liveness identity, so `loaded` can tell the NEW supervisor from a
+      /* The pre-restart liveness identity, so the `loaded` step can tell the NEW supervisor from a
          leftover state file the old one wrote. win32-only; the Mac arm has no such op and
-         restartInner passes null there. */
+         restartSteps passes null there. #3431's genuine running-state check (liveness, not mere
+         task registration) now lives entirely in the `loaded` STEP below (win32job.runningSteps);
+         the sync `loaded` act was dead -- restartSteps always prefers the step form via `act`. */
       beforeRestart: (name) => require('./win32streamstate').liveIdentity(name),
       /* The Mac asks whether the plist is still on disk; the analog is whether
          the task is still registered. Same question, different substrate. */
       startableGone: (name, job) => win32job.status(name, job && job.worldId).registered !== true,
+      /* #6183: the same restart acts as STEPS (the Mac/Linux analog). restartSteps prefers these when present, so
+         BOTH drivers use them: the async restart runs them with runAsync off the board's thread, AND the sync
+         restart drives them with driveSync -- so a win32 restart's schtasks now route through remove.js's
+         run()/runAsync on both paths, where the sync arm above used win32job's/win32stop's own runners. That is the
+         restart executor unifying across the two drivers; the plain sync acts above are NOT the restart's acts any
+         more, they remain only for removeInner and other non-restart callers (world-switch, register), whose
+         behaviour is unchanged. endSteps/startSteps clear PRESENCE_MEMO as win32job.run() does, so presence() is
+         not left stale after a step-driven stop/start. Each step yields its schtasks call (stopNow/startNow) or its
+         liveness waits (loaded yields { sleep } between state-file reads), which the driver answers; the generators
+         normalize the result to win32job's shape and share the sync functions' parsers (endedOk/startedOk/idAccepts),
+         so the two cannot drift. Each wraps the generator's { ok } to the Boolean restartSteps records as `r !== false`.
+         win32 has no diagnose/waitUnloaded step, as the sync arm has none. */
+      steps: {
+        stopNow: function* (name, job) { const r = yield* win32job.endSteps(name, job && job.worldId); return Boolean(r && r.ok); },
+        startNow: function* (name, job) { const r = yield* win32job.startSteps(name, job && job.worldId); return Boolean(r && r.ok); },
+        loaded: function* (name, job, before) { const r = yield* win32job.runningSteps(name, job && job.worldId, { before }); return Boolean(r && r.ok); },
+      },
     };
   }
   if ((platform || process.platform) === 'linux') {
@@ -537,7 +648,7 @@ function jobOps(platform) {
     /* #4918 review 6: every systemctl here goes through THIS module's run(), as the Mac arm's launchctl does, so
        setRunner, setDryRun / AGENT_WORKFORCE_DRY_RUN and the live-execution gate all hold on Linux too. */
     lj.ensureRuntimeDir();
-    const via = (body) => lj.runWith((file, args) => run(file, args, { timeout: 30000 }), body);
+    const via = (body) => lj.runWith((file, args) => run(file, args, { timeout: lj.SYSTEMCTL_TIMEOUT_MS }), body);
     // The job's world: its own worldId, else read back from the unit name a removal record kept (review 8).
     const wid = (job) => (job && job.worldId !== undefined) ? job.worldId
       : (job && job.label && lj.worldFromUnitName(job.label) !== null) ? lj.worldFromUnitName(job.label) : undefined;
@@ -562,6 +673,21 @@ function jobOps(platform) {
           status: st,
         };
       },
+      /* #6183: the same acts as steps, for the restart body's async driver (the Mac's `steps: MAC_STEPS` analog). The
+         sync acts above stay for removeInner and other sync callers; restartSteps prefers these when present. Each
+         step yields its systemctl call, which THIS module's run()/runAsync answers -- the same executor the sync acts
+         reach through `via` (lj.runWith(run, ...)), so a dry run and the live gate hold here too. loadedSteps always
+         yields is-active and reads a dry run as loaded from the per-result dryRun flag (engine/linuxwiring-4918
+         pins this), so an injected runner always sees the command, which the async driver's proof depends on. */
+      steps: {
+        stopNow: (name, job) => lj.stopSteps(name, wid(job)),
+        startNow: (name, job) => lj.startOnlySteps(name, wid(job)),
+        loaded: (name, job) => lj.loadedSteps(name, wid(job)),   // a dry run is answered as loaded inside the step (its run() returns dryRun)
+        diagnose: function* (name, job) {
+          const status = yield* lj.statusSteps(name, wid(job));
+          return { label: lj.unitName(name, wid(job)), unitExists: fs.existsSync(lj.unitPath(name, wid(job))), status };
+        },
+      },
     };
   }
   return {
@@ -571,28 +697,14 @@ function jobOps(platform) {
       const off = run('/bin/launchctl', ['disable', `gui/${process.getuid()}/${job.label}`]);
       return Boolean(off && off.ok !== false);
     },
-    stopNow: (name, job) => {
-      const out = run('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${job.label}`]);
-      // 3 is launchd for "no such service", which is the end state we wanted.
-      return Boolean(out && (out.ok !== false || out.code === 3));
-    },
+    stopNow: (name, job) => driveSync(MAC_STEPS.stopNow(name, job)),
     /* #4964: bootout returns before the job is gone; the restart waits for that before it bootstraps. */
     waitUnloaded: (name, job) => waitUnloaded(job.label),
     enable: (name, record) => {
       const on = run('/bin/launchctl', ['enable', `gui/${process.getuid()}/${record.label}`]);
       return Boolean(on && on.ok !== false);
     },
-    startNow: (name, record) => {
-      /* ⚠️ Only bootstrap a plist that is still there. Somebody may have removed
-         it by hand while the agent was off the board, and bootstrapping a file
-         that is gone fails in a way worth reporting rather than hiding -- the
-         enable still stands, so a later start by their own tooling works. */
-      if (!record.plist || !fs.existsSync(record.plist)) { lastBootstrap = null; return true; }
-      const up = run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, record.plist]);
-      lastBootstrap = up ? { ok: up.ok !== false, code: up.code == null ? null : up.code, stderr: up.stderr || '', stdout: up.stdout || '' } : null;   // #4006: for diagnose
-      // 5 is launchd for "already loaded", which is the end state we wanted.
-      return Boolean(up && (up.ok !== false || up.code === 5));
-    },
+    startNow: (name, record) => driveSync(MAC_STEPS.startNow(name, record)),
     /* #3418: is the job actually LOADED right now? A bootstrap returning 0 is NOT the same as
        the job being loaded. Nora's launchd job was "registered on disk but never loaded" after
        a restart -- bootout removed it, the bootstrap did not truly reload it, and nothing
@@ -600,26 +712,52 @@ function jobOps(platform) {
        KeepAlive left to revive it. `launchctl print gui/<uid>/<label>` exits non-zero for a
        label launchd does not hold loaded (measured), which is exactly the question the restart
        path must ask -- "is it loaded?" -- rather than startableGone's "is the plist on disk?". */
-    loaded: (name, record) => {
-      const out = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${record.label}`]);
-      return Boolean(out && out.ok !== false);
-    },
+    loaded: (name, record) => driveSync(MAC_STEPS.loaded(name, record)),
     startableGone: (name, record) => !record.plist || !fs.existsSync(record.plist),
     /* #4006: when a restart's job did not load, what launchd said: the last bootstrap's code and
        output, and `launchctl print` of the job now. Kept in the failed disruption record. */
-    diagnose: (name, record) => {
-      const printed = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${record.label}`]);
-      return {
-        label: record.label || null,
-        plistExists: Boolean(record.plist && fs.existsSync(record.plist)),
-        bootstrap: lastBootstrap,
-        /* On success only the code: print's stdout carries the job's environment block. */
-        print: printed ? { ok: printed.ok !== false, code: printed.code == null ? null : printed.code,
-          text: printed.ok !== false ? '' : String(printed.stderr || printed.stdout || '').slice(0, 2000) } : null,
-      };
-    },
+    diagnose: (name, record) => driveSync(MAC_STEPS.diagnose(name, record)),
+    steps: MAC_STEPS,   // #6173: the same acts as steps, for the restart body (both drivers)
   };
 }
+
+/* #6173: the Mac's restart acts as steps that yield each launchctl call. The sync ops above drive these same steps, so
+   there is one body per act. */
+const MAC_STEPS = {
+  *stopNow(name, job) {
+    const out = yield { exec: ['/bin/launchctl', ['bootout', `gui/${process.getuid()}/${job.label}`]] };
+    // 3 is launchd for "no such service", which is the end state we wanted.
+    return Boolean(out && (out.ok !== false || out.code === 3));
+  },
+  *startNow(name, record) {
+    /* ⚠️ Only bootstrap a plist that is still there. Somebody may have removed
+       it by hand while the agent was off the board, and bootstrapping a file
+       that is gone fails in a way worth reporting rather than hiding -- the
+       enable still stands, so a later start by their own tooling works. */
+    if (!record.plist || !fs.existsSync(record.plist)) { lastBootstrap = null; return true; }
+    const up = yield { exec: ['/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, record.plist]] };
+    lastBootstrap = up ? { ok: up.ok !== false, code: up.code == null ? null : up.code, stderr: up.stderr || '', stdout: up.stdout || '' } : null;   // #4006: for diagnose
+    // 5 is launchd for "already loaded", which is the end state we wanted.
+    return Boolean(up && (up.ok !== false || up.code === 5));
+  },
+  *loaded(name, record) {
+    const out = yield { exec: ['/bin/launchctl', ['print', `gui/${process.getuid()}/${record.label}`]] };
+    return Boolean(out && out.ok !== false);
+  },
+  /* `boot`: this restart's own bootstrap answer. Under the async driver another restart can run between the
+     bootstrap and this print and overwrite `lastBootstrap`, so the restart body passes the one it kept. */
+  *diagnose(name, record, boot = lastBootstrap) {
+    const printed = yield { exec: ['/bin/launchctl', ['print', `gui/${process.getuid()}/${record.label}`]] };
+    return {
+      label: record.label || null,
+      plistExists: Boolean(record.plist && fs.existsSync(record.plist)),
+      bootstrap: boot,
+      /* On success only the code: print's stdout carries the job's environment block. */
+      print: printed ? { ok: printed.ok !== false, code: printed.code == null ? null : printed.code,
+        text: printed.ok !== false ? '' : String(printed.stderr || printed.stdout || '').slice(0, 2000) } : null,
+    };
+  },
+};
 
 /**
  * Ending the agent's own session, per platform -- the act the job-level ops
@@ -659,22 +797,29 @@ function sessionOps(platform, tmuxBin) {
     return {
       win32: true,
       end: (session) => Boolean(win32stop.end(session).ok),
+      /* #6183: the session close as a step, for the restart body's async driver. win32stop.endSteps resolves the
+         pid (a read) then yields the taskkill, which remove.js's runAsync runs off the board's thread; wrap its
+         { ok } to the Boolean the sync `end` returns (restartSteps records a step ok as `r !== false`). */
+      endSteps: function* (session) { const r = yield* win32stop.endSteps(session); return Boolean(r && r.ok); },
     };
   }
   const tmux = tmuxBin || process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
+  /* #6173: one body as steps (each tmux call yielded), driven synchronously for `end`. */
+  function* endSteps(session) {
+    // ⚠️ `=`-anchored, and the exit code carried: tmux answers 1 for a session
+    // that is not there, which is success for our purposes.
+    const r = yield { exec: [tmux, ['kill-session', '-t', `=${session}`]] };
+    if (!(r && (r.ok !== false || r.code === 1))) return false;
+    // ⚠️ Look again. The kill's own answer is not evidence the session has
+    // gone, and this is the check that stops a removal or a restart being
+    // reported over a live agent.
+    const still = yield { exec: [tmux, ['has-session', '-t', `=${session}`]] };
+    return Boolean(still && still.ok === false && still.code === 1);
+  }
   return {
     win32: false,
-    end: (session) => {
-      // ⚠️ `=`-anchored, and the exit code carried: tmux answers 1 for a session
-      // that is not there, which is success for our purposes.
-      const r = run(tmux, ['kill-session', '-t', `=${session}`]);
-      if (!(r && (r.ok !== false || r.code === 1))) return false;
-      // ⚠️ Look again. The kill's own answer is not evidence the session has
-      // gone, and this is the check that stops a removal or a restart being
-      // reported over a live agent.
-      const still = run(tmux, ['has-session', '-t', `=${session}`]);
-      return Boolean(still && still.ok === false && still.code === 1);
-    },
+    end: (session) => driveSync(endSteps(session)),
+    endSteps,
   };
 }
 
@@ -744,10 +889,12 @@ function jobFor(name, platform, worldId) {
  */
 const FOUND = { NONE: 'none', OURS: 'ours', UNTIED: 'untied', UNKNOWN: 'unknown' };
 
-function sessionFor(name) {
+function sessionFor(name) { return driveSync(sessionForSteps(name)); }
+/* #6173: as steps, so the async driver reads the panes without blocking (status.paneRosterAsync). */
+function* sessionForSteps(name) {
   const clean = create.cleanName(name);
   try {
-    const card = status.paneRoster().find((p) => p.sessionName === clean);
+    const card = (yield { roster: true }).find((p) => p.sessionName === clean);
     if (!card) return { kind: FOUND.NONE, session: null };
     /**
      * ⚠️ NO FALLBACK TO THE AGENT'S NAME, and this is the one place in the
@@ -817,6 +964,7 @@ function recordRemoval(clean, job, stopped, shownAs, leftRunningByChoice) {
   try { require('./observed').forgetAgent(clean); } catch { /* #5959 slice 2: nor the old name's last-seen time */ }
   try { require('./stuckterminal').forget(clean); } catch { /* #5154 slice C: and its stuck-terminal anchor, so a recreate never inherits the old clock */ }
   try { require('./toolloop').forget(clean); } catch { /* #6071: nor a run of repeated tool failures */ }
+  try { require('./ownbounds').forget(clean); } catch { /* #5154 slice B: and its own-bound give-up episodes */ }
   try { require('./liveness').forget(clean); } catch { /* #5957 slice 3: and its last report */ }
   try { require('./instructionadds').forget(clean); } catch { /* #5293 review 1: and its waiting addition and Undo record */ }
   try { revoked = sendertoken.revoke(clean); } catch (e) { revoked = { ok: false, because: (e && e.message) || 'threw' }; }
@@ -1959,8 +2107,31 @@ function restoreInner(name, platform) {
  * command reports success, including `has-session`), so a dry run actually
  * lands on a partial whose text describes work that did not happen.
  */
-function remove(name, opts) { return markDryRun(removeInner(name, opts)); }
-function restore(name, opts) { return markDryRun(restoreInner(name, opts && opts.platform)); }
+/* #6173 review: refused while an account move holds the agent, as a sync restart is. A removal between the move's
+   bootout and bootstrap would have its disabled job asked to load again; refusing is one sentence, measured or not. */
+function remove(name, opts) {
+  const busy = busyRefusal(name);
+  if (busy) return busy;
+  return markDryRun(removeInner(name, opts));
+}
+function restore(name, opts) {
+  /* kosmos#6239 (round 2): putting a removed agent back starts it, so a restore the person asked for (`quiet: true`)
+     is refused in the policy's quiet hours, as Start is (restart above). */
+  if (opts && opts.quiet === true) {
+    let q = { ok: true };
+    try { const op = require('./orgpolicy'); op.inForce(); q = op.quietAllows(); /* a fresh bundle first, then the strict read */ } catch { q = { ok: true }; }
+    if (q.ok !== true) {
+      try { require('./agentevents').recordRefusal({ agent: create.cleanName(name), rule: 'quiet-hours' }); } catch { /* not reported */ }
+      return { outcome: OUTCOME.REFUSED, steps: [], because: `it was not put back: ${q.because}`, quiet: true };
+    }
+    /* kosmos#6309: and not at the policy's monthly usage cap, as for quiet hours. A fault reads as open. Not reported as an
+       agent event: the coordinator has no rule word for the cap. */
+    let c = { ok: true };
+    try { c = require('./usagecap').capAllows(); } catch { c = { ok: true }; }
+    if (c.ok !== true) return { outcome: OUTCOME.REFUSED, steps: [], because: `it was not put back: ${c.because}`, capped: true };
+  }
+  return markDryRun(restoreInner(name, opts && opts.platform));
+}
 
 /**
  * Start an agent's session over, so it reads its instructions again.
@@ -1991,7 +2162,7 @@ function restore(name, opts) { return markDryRun(restoreInner(name, opts && opts
  * pane merely borrowing the name is somebody else's work, and killing it would
  * be the most destructive thing this product can do to a bystander.
  */
-function restartInner(name, cause, platform, startIfDead) {
+function* restartSteps(name, cause, platform, startIfDead) {
   const clean = create.cleanName(name);
   const unsafe = unsafeToActOn(clean);
   if (unsafe) return { outcome: OUTCOME.REFUSED, because: unsafe, steps: [] };
@@ -2008,7 +2179,7 @@ function restartInner(name, cause, platform, startIfDead) {
     };
   }
 
-  const found = sessionFor(clean);
+  const found = yield* sessionForSteps(clean);
   /* #3410: a FULLY-DEAD agent (no live session) is no longer REFUSED -- it is STARTED. This is
      the state Josh's never-connected agents and Nora are in (server.js builds them
      state:'stopped', session:null = FOUND.NONE), and it is the primary population the "Start this
@@ -2068,9 +2239,12 @@ function restartInner(name, cause, platform, startIfDead) {
   if (!(DRY_RUN && !runner)) disruption.begin(clean, cause);
 
   const steps = [];
-  const step = (label, fn) => {
+  /* #6173: a step is a generator (its commands yielded), so `yield* step(...)`. An act a platform does not provide
+     as a step (a removal-path disable, or win32's absent diagnose) runs as before inside `now`, synchronously under
+     either driver. */
+  const step = function* (label, gen) {
     try {
-      const r = fn();
+      const r = yield* gen;
       steps.push({ label, ok: r !== false });
       return r !== false;
     } catch {
@@ -2078,6 +2252,9 @@ function restartInner(name, cause, platform, startIfDead) {
       return false;
     }
   };
+  const now = function* (fn) { return fn(); };   // yields nothing: the act runs as it always has
+  const act = (k, ...a) => (ops.steps && ops.steps[k] ? ops.steps[k](...a) : now(() => ops[k](...a)));
+  let boot = null;   // this restart's own last bootstrap answer (#6173: lastBootstrap is shared between restarts)
 
   const session = found.session;   // null when fromDead: there is no session to close
   /* #4289: the Kosmos community block is added or removed HERE, at a restart, with the Community switch
@@ -2088,7 +2265,7 @@ function restartInner(name, cause, platform, startIfDead) {
   try {
     const participating = require('./communityswitch').participating();
     const told = require('./communityblock').tellAgent(clean, participating);
-    if (told.state !== require('./projects').TOLD.TOLD) steps.push({ label: `could not ${participating ? 'add' : 'remove'} the Kosmos+ community section (${told.because})`, ok: false });
+    if (told.state !== require('./projects').TOLD.TOLD) steps.push({ label: `could not ${participating ? 'add' : require('./communityblock').policyStopped() ? 'write the line saying it does not take part in' : 'remove'} the Kosmos+ community section (${told.because})`, ok: false });   // kosmos#6239
   } catch { /* never stops a restart */ }
   /* The kill and its look-again live in `sessionOps` -- one dispatch shared with
      `removeInner`, which is what gives this path a win32 arm. Restart is the
@@ -2098,7 +2275,9 @@ function restartInner(name, cause, platform, startIfDead) {
      #3410: a fully-dead agent has no session, so there is nothing to close -- skip straight to
      the relaunch (which bootstraps the launchd job). `ended` is vacuously true there; the kill
      runs only for a live (FOUND.OURS) agent. */
-  const ended = fromDead ? true : step('closed its window', () => sessionOps(platform).end(session));
+  const sops = sessionOps(platform);
+  const ended = fromDead ? true
+    : yield* step('closed its window', sops.endSteps ? sops.endSteps(session) : now(() => sops.end(session)));
 
   if (!ended) {
     /* #2019: the kill failed, so the agent is still running the older
@@ -2157,19 +2336,21 @@ function restartInner(name, cause, platform, startIfDead) {
   let held = false;
   let firstLoadedNew = false;
   let stopped = false;
-  const relaunched = step('asked it to start again now', () => {
-    stopped = ops.stopNow(clean, job);
-    if (ops.waitUnloaded) held = stopped ? !ops.waitUnloaded(clean, job) : true;
+  const relaunched = yield* step('asked it to start again now', (function* () {
+    stopped = yield* act('stopNow', clean, job);
+    if (ops.waitUnloaded) held = stopped ? !(yield { unload: job.label }) : true;
     /* #4918 review 8: on Linux a refused stop leaves the old service running, and the start that follows is a no-op
        on an active unit, so is-active would answer for the OLD one. Held, as the Mac's refused bootout is. */
     if (ops.linux) held = !stopped;
-    const started = ops.startNow(clean, job);
-    firstLoadedNew = bootstrapLoadedNew();
+    const started = yield* act('startNow', clean, job);
+    boot = lastBootstrap;
+    firstLoadedNew = bootstrapLoadedNew(boot);
     return started;
-  });
+  })());
   /* Held: only a bootstrap that really answered 0 is a new job. "Already loaded" is the dying job, and no bootstrap at
      all (a launch file that is gone: startNow returns true without one) leaves print answering for the dying job. */
-  const heldAnswer = () => !ops.win32 && held && (ops.linux || !bootstrapLoadedNew());
+  const heldAnswer = () => !ops.win32 && held && (ops.linux || !bootstrapLoadedNew(boot));
+  const confirmLoaded = function* () { if (heldAnswer()) return false; return yield* act('loaded', clean, job, before); };
   /* #3418: bootstrap can return 0 without the job actually loading, so CONFIRM it is loaded
      rather than trusting the OS call -- this is the exact check that would have caught Nora
      (job registered on disk, not loaded). Routed through step() and short-circuited on a dead
@@ -2177,20 +2358,22 @@ function restartInner(name, cause, platform, startIfDead) {
      rendered to the person verbatim, so a plain bootstrap failure must not read as two separate
      failures), and the check gets the same try/catch every other op in this function has. The
      verdict gates on `loaded` directly, not on `steps`. */
-  let loaded = relaunched && step('confirmed its job is loaded', () => !heldAnswer() && ops.loaded(clean, job, before));
+  let loaded = relaunched && (yield* step('confirmed its job is loaded', confirmLoaded()));
   /* #4006: one more try before giving up, after launchd has had a moment to finish the unload.
      Josh's Grok agent (2026-09-26) was the second #3418-class case: a restart whose job did not
      reload, while a bootstrap by hand minutes later worked at once. Only when the file is still
      there (a missing one cannot be bootstrapped at all). */
   if (!loaded && !ops.win32 && !ops.startableGone(clean, job)) {   // the Mac's bootout/bootstrap race; on Linux a second start is harmless
-    retryWait();
-    const again = step('asked it to start once more', () => {
+    yield { retry: true };
+    const again = yield* step('asked it to start once more', (function* () {
       /* #4964: and again before the second bootstrap, unless the first one loaded a new job: then launchd holds OURS
          (a print that failed once sent us here), and waiting would only time out on it and call it the dying one. */
-      if (ops.waitUnloaded) held = firstLoadedNew ? false : stopped ? !ops.waitUnloaded(clean, job) : true;
-      return ops.startNow(clean, job);
-    });
-    loaded = again && step('confirmed its job is loaded on the second try', () => !heldAnswer() && ops.loaded(clean, job, before));
+      if (ops.waitUnloaded) held = firstLoadedNew ? false : stopped ? !(yield { unload: job.label }) : true;
+      const started = yield* act('startNow', clean, job);
+      boot = lastBootstrap;
+      return started;
+    })());
+    loaded = again && (yield* step('confirmed its job is loaded on the second try', confirmLoaded()));
   }
 
   if (!loaded) {
@@ -2201,7 +2384,10 @@ function restartInner(name, cause, platform, startIfDead) {
        clearing it, so the card says the restart did not come back (needs_you) until the agent is
        running again, instead of a quiet "not running"; and keep what launchd said. */
     let diagnostics = null;
-    try { diagnostics = ops.diagnose ? ops.diagnose(clean, job) : null; } catch { diagnostics = null; }
+    try {
+      diagnostics = ops.steps && ops.steps.diagnose ? yield* ops.steps.diagnose(clean, job, boot)
+        : ops.diagnose ? ops.diagnose(clean, job) : null;
+    } catch { diagnostics = null; }
     /* The Mac only: a Windows row has no pane-side clear for a failed record (status reads it paneless), so it
        keeps today's clear there. */
     /* A START of a never-run or fully-dead agent is not a restart that did not come back: the route says what
@@ -2272,7 +2458,164 @@ function restartInner(name, cause, platform, startIfDead) {
   };
 }
 
-function restart(name, cause, opts) { return markDryRun(restartInner(name, cause, opts && opts.platform, opts && opts.startIfDead)); }
+/* #6173: the agents an async restart is working on right now. A sync restart (or a removal) of one of them is refused
+   rather than run alongside it: two bootout/bootstrap pairs interleaved on one job is the #3418 class (an agent left
+   unloaded). */
+const RESTARTING = new Set();
+/* Whether any async restart still has a command in flight: what a board restart must wait for (server.js). */
+function restartingNow() { return RESTARTING.size > 0; }
+/* #6173 review 1: and the agents a move has not reached yet. A sync restart of one of those ran, and the move then
+   restarted it again a minute later; so a move holds every agent it will restart until it has done that one. */
+const HELD = new Set();
+function holdForMove(names) { for (const n of names) HELD.add(create.cleanName(n)); }
+function releaseFromMove(name) { HELD.delete(create.cleanName(name)); }
+/* Whether a move holds the agent or is restarting it now: what the class-1 sweep asks before it restarts one. */
+function heldByMove(name) { const clean = create.cleanName(name); return HELD.has(clean) || RESTARTING.has(clean); }
+function busyRefusal(name, { held = true } = {}) {
+  const clean = create.cleanName(name);
+  if (!RESTARTING.has(clean) && !(held && HELD.has(clean))) return null;
+  const shown = (() => { try { return status.readIdentity(clean).displayName || clean; } catch { return clean; } })();
+  return {
+    outcome: OUTCOME.REFUSED,
+    steps: [],
+    because: `${shown} is part of an account move that has not finished with it yet, so we left it alone. Try again when that has finished.`,
+  };
+}
+
+function restart(name, cause, opts) {
+  const busy = busyRefusal(name);
+  if (busy) return busy;
+  /* kosmos#6239: a start or restart the PERSON asked for (`quiet: true`, the Start and Restart routes) is refused in the
+     policy's quiet hours, and reported to whoever set it. Restarts the board makes itself (a provider or model change,
+     an account move) are not: they finish a change already made. A policy read that throws does not refuse. */
+  if (opts && opts.quiet === true) {
+    let q = { ok: true };
+    try { const op = require('./orgpolicy'); op.inForce(); q = op.quietAllows(); /* a fresh bundle first, then the strict read */ } catch { q = { ok: true }; }
+    if (q.ok !== true) {
+      try { require('./agentevents').recordRefusal({ agent: create.cleanName(name), rule: 'quiet-hours' }); } catch { /* not reported */ }
+      return { outcome: OUTCOME.REFUSED, steps: [], because: `it was not started: ${q.because}`, quiet: true };
+    }
+    /* kosmos#6309: and not at the policy's monthly usage cap, as for quiet hours. A fault reads as open. Not reported as an
+       agent event: the coordinator has no rule word for the cap. */
+    let c = { ok: true };
+    try { c = require('./usagecap').capAllows(); } catch { c = { ok: true }; }
+    if (c.ok !== true) return { outcome: OUTCOME.REFUSED, steps: [], because: `it was not started: ${c.because}`, capped: true };
+  }
+  return markDryRun(driveSync(restartSteps(name, cause, opts && opts.platform, opts && opts.startIfDead)));
+}
+
+/**
+ * #6173: the same restart without blocking the board's thread: every job/session command through execFile and every
+ * wait on a timer. Same outcomes and sentences as `restart`. Every platform's restart acts are written as steps now --
+ * the Mac (#6173), Linux (#6230) and Windows (#6183) -- so this drives them all off the board's thread.
+ */
+/* #6173 (Liu Kang m5496): what bounds one async restart, whatever a step does. Each command already has its own limit
+   (20 s, a tmux look 5 s), the unload wait its 25 s budget and the retry wait 2 s; this cap also covers a step whose
+   answer never comes at all. A move holds updates and board restarts, so it must end.
+   Review 4: 300 s, above a slow but healthy restart (two unload waits, two bootstraps and their checks, the retry and
+   the tmux calls come to about 250 s at every limit), so the cap cuts only a restart that is stuck. And the cap stops
+   the WAITING, not the hold: the agent stays refused to a sync restart or removal until its last command has really
+   ended (each is bounded by its own execFile limit), so nothing can interleave with a command still in flight. */
+const ASYNC_RESTART_CAP_MS = 300 * 1000;
+function asyncRestartCapMs() {
+  const v = Number(process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS);   // a test's seam; production keeps 300 s
+  return Number.isFinite(v) && v > 0 ? v : ASYNC_RESTART_CAP_MS;
+}
+
+async function restartAsync(name, cause, opts) {
+  const busy = busyRefusal(name, { held: false });   // the move that holds it is the one restarting it
+  if (busy) return busy;
+  const clean = create.cleanName(name);
+  const cap = asyncRestartCapMs();
+  const ctl = { abandoned: false };
+  let timer = null;
+  RESTARTING.add(clean);
+  try {
+    const capped = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        ctl.abandoned = true;
+        /* It may have stopped the old job and not loaded the new one: if it got as far as recording the restart, the
+           card says the restart did not come back (needs a look), never that it is fine. */
+        try { if (disruption.read(clean).found) disruption.fail(clean, { abandonedAfterMs: cap }); } catch { /* never fatal */ }
+        resolve({
+          outcome: OUTCOME.PARTIAL,
+          steps: [],
+          because: `its restart did not finish within ${Math.round(cap / 1000)} seconds, so we stopped waiting for it`,
+        });
+      }, cap);
+    });
+    const driven = driveAsync(restartSteps(name, cause, opts && opts.platform, opts && opts.startIfDead), ctl)
+      .then((v) => (ctl.abandoned ? null : markDryRun(v)));
+    /* The hold ends when the driven restart has really ended, not at the cap (review 4): a command it sent before the
+       cap may still be running, and a sync restart beside it is the #3418 interleave. */
+    const release = () => { clearTimeout(timer); RESTARTING.delete(clean); };
+    driven.then(release, release);   // attached before the race, so it runs before restartAsync answers
+    const out = await Promise.race([driven, capped]);
+    return out || (await capped);
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
+
+/* #6231 item 7: the win32 put-back run OFF the board's thread, mirroring restartAsync. A stopped move puts every
+   unreached agent back, and on Windows each put-back is a few schtasks calls; run synchronously inside the stop
+   route they hold the board thread for up to the whole batch. This drives create.restoreAccountSteps (the win32
+   put-back as step generators) through driveAsync so the board stays responsive, bounded by the same cap as a
+   restart. The hold ends when the drive has REALLY ended, not at the cap (the same #3418 interleave guard
+   restartAsync keeps): a schtasks it issued before the cap may still be running, so the agent stays in RESTARTING
+   until the last command settles. Resolves a create.OUTCOME-shaped result ({outcome, because, account}); the cap
+   resolves a REFUSED-shaped one so the move words it as a partial ("still on the old account until it restarts").
+   win32-only: linux/mac put-backs write a local file and are driven synchronously by create.restoreAccount. */
+async function putBackAsync(name, dir) {
+  const clean = create.cleanName(name);
+  const cap = asyncRestartCapMs();
+  const ctl = { abandoned: false };
+  let timer = null;
+  /* The hold is taken BEFORE the try, and the catch deliberately does not release it (the
+     `driven.then(release, release)` below owns that). That is safe ONLY because nothing between
+     here and that `.then` can throw synchronously: restoreAccountSteps is a generator function
+     (calling it just builds an iterator, it does not run the body) and driveAsync is async (it
+     returns a promise, so a synchronous throw inside it rejects that promise instead). If a
+     future change put a synchronous throw on that path, the hold would leak -- move the add past
+     it or release in the catch. */
+  RESTARTING.add(clean);
+  try {
+    const capped = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        ctl.abandoned = true;
+        /* `capped: true` tells accountmove the outcome is UNKNOWN, not a confirmed failure: driveAsync checks
+           abandonment only between turns, so an in-flight /Create may land AFTER the cap fires, putting the agent
+           back though we stopped waiting. accountmove words this as unconfirmed rather than "still on the new
+           account" (#6231 item 7). */
+        resolve({
+          outcome: create.OUTCOME.REFUSED,
+          capped: true,
+          because: `putting it back did not finish within ${Math.round(cap / 1000)} seconds, so we stopped waiting for it`,
+        });
+      }, cap);
+    });
+    const driven = driveAsync(create.restoreAccountSteps(name, dir), ctl)
+      .then((v) => (ctl.abandoned ? null : v));
+    const release = () => { clearTimeout(timer); RESTARTING.delete(clean); };
+    driven.then(release, release);   // attached before the race, so the hold ends when the drive really ends
+    const out = await Promise.race([driven, capped]);
+    if (out) return out;
+    /* out is falsy only when `driven` won the race carrying null. Normally that is the abandon case, where the cap
+       already resolved `capped`, so awaiting it returns the REFUSED at once. But `release()` cleared the timer the
+       moment `driven` settled, so if a FUTURE restoreAccountSteps path ever returned a falsy value WITHOUT
+       abandonment, `capped` would never resolve and `await capped` would hang forever -- leaving the move running
+       and the board frozen to Update/restart. Guard it rather than depend on that invariant two modules away. */
+    if (ctl.abandoned) return await capped;
+    return { outcome: create.OUTCOME.REFUSED, because: `putting ${clean || name} back did not return a result` };
+  } catch (err) {
+    /* Clear the timer and rethrow. RESTARTING is deliberately NOT cleared here: the `driven.then(release, release)`
+       above owns the hold's release, so it ends when the drive really ends (a rejection runs its reject arm) --
+       clearing it here too would risk a double-release and read as the right place to manage the hold. */
+    clearTimeout(timer);
+    throw err;
+  }
+}
 
 /**
  * Drops an agent's removal record, and nothing else.
@@ -2308,6 +2651,8 @@ function forget(name) {
 module.exports = {
   plan,
   restart,
+  restartAsync,   // #6173: an account move's restarts, without blocking the board's thread
+  putBackAsync,   // #6231 item 7: a stopped move's win32 put-backs, without blocking the board's thread
   unsafeToActOn,
   isHidden,
   hidesCard,   // #2651: the ONE board-visibility predicate, so server.js stops re-implementing it
@@ -2323,6 +2668,13 @@ module.exports = {
   jobOps,   // #570: exported so the win32 job-act dispatch is assertable from a Mac
   sessionOps, // #570: same, for the session-ending dispatch both remove and restart share
   setRunner,
+  setAsyncRunner,   // #6173: the async driver's command seam
+  holdForMove,      // #6173: engine/accountmove.js holds the agents it has yet to restart
+  releaseFromMove,
+  heldByMove,       // #6173 review 2: the class-1 sweep leaves a held agent to the move
+  restartingNow,    // #6173 review 4: a board restart waits for every async restart's last command
+  moveRefusal: (name) => busyRefusal(name),   // #6173 review 4: the provider and model routes refuse before writing
+  _execAsyncForTests: execAsync,   // #6173 review 1: the real execFile half of runAsync
   resetUnloadWaitsForTests: () => { unloadWaits = []; },   // #4964: the burst ledger only
   setDryRun,
   resetForTests,

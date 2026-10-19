@@ -70,7 +70,8 @@ test('#5949 the words are the page\'s own: no engine text, no em dash', () => {
 });
 
 test('#5949 the grid card, the list row and the agent page all carry it; the remembered mark is drawn by CSS', () => {
-  assert.match(pageFnSource('card'), /<div class="astate st-\$\{m\.st\}"\$\{typeof stateReadAttrs === 'function' \? stateReadAttrs\(a\) : ''\}>/);
+  /* The card's pill also carries a rate-limit hover (#6398): one title attribute holds both sentences. */
+  assert.match(pageFnSource('card'), /<div class="astate st-\$\{m\.st\}"\$\{typeof stateReadAttrs === 'function' \? stateReadAttrs\(a, rateLimitSay\(a\)\) : rateLimitTitle\(a\)\}>/);
   assert.match(pageFnSource('lrow'), /<div class="lstate"\$\{typeof stateReadAttrs === 'function' \? stateReadAttrs\(a\) : ''\}>/);
   const detail = pageFnSource('paintDetailState');
   assert.match(detail, /workingSampleIsStale\(card\) \? \{ \.\.\.card, state: 'idle', stateEvidence: '', stateRead: '' \}/, 'no mark on a state the stale-sample rule replaced');
@@ -79,4 +80,12 @@ test('#5949 the grid card, the list row and the agent page all carry it; the rem
   assert.match(detail, /delete dst\.dataset\.read; dst\.removeAttribute\('title'\);/);
   assert.match(RAW, /\.detail-state\[data-read="remembered"\]::after \{ content: ' · when last seen';/);
   assert.match(RAW, /\.acard \.astate\[data-read="remembered"\], \.lstate\[data-read="remembered"\] \{ opacity: \.7; \}/);
+});
+
+test('#5949 with #6398: a remembered rate-limited pill has ONE title holding both sentences; either alone stands', () => {
+  const both = lifted.stateReadAttrs({ state: 'rate_limited', stateRead: 'remembered' }, 'Paused by a rate limit.');
+  assert.equal((both.match(/ title=/g) || []).length, 1, 'two title attributes on one element: ' + both);
+  assert.match(both, / data-read="remembered" title="Paused by a rate limit\. Kosmos could not check on this agent just now/);
+  assert.equal(lifted.stateReadAttrs({ state: 'rate_limited' }, 'Paused by a rate limit.'), ' title="Paused by a rate limit."', 'a fresh rate-limited pill keeps its own hover');
+  assert.equal(lifted.stateReadAttrs({ state: 'idle' }, ''), '', 'nothing to say adds nothing');
 });

@@ -68,6 +68,10 @@ function engineDir(here) {
    the room-sized window install/kosmos gives it (-m 120); everything else -m 15. */
 const REQUEST_TIMEOUT_MS = 15000;
 const POST_TIMEOUT_MS = 120000;
+/* #1765: the board check before a token goes gets half the request's bound, within these (install/kosmos's
+   KOSMOS_PROOF_MIN_S and KOSMOS_PROOF_MAX_S); the request then gets what is left. */
+const PROOF_MIN_MS = 500;
+const PROOF_MAX_MS = 15000;
 // #4580: the pause before the one retry of a send whose reply was cut; KOSMOS_RETRY_PAUSE_MS (the injected env) is the test seam.
 function retryPauseMs(env) { const v = (env && env.KOSMOS_RETRY_PAUSE_MS) || ''; return /^\d+$/.test(v) ? Number(v) : 1000; }
 
@@ -87,10 +91,11 @@ const USAGE = {
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
+  handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a sha256 for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
   inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
-    'Usage: kosmos task <list|add|assign|close|message|activity|built|done-when|hold|unhold|repeat|ran|told>',
+    'Usage: kosmos task <list|add|assign|close|reopen|message|activity|built|done-when|hold|unhold|repeat|ran|told>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
@@ -99,10 +104,12 @@ const USAGE = {
     '  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody',
     '      --part <part-number>                                     which part, when the task has several',
     '  kosmos task close <project-id> <task-number>                  close one (number is from list)',
+    '  kosmos task reopen <project-id> <task-number> ["why"]        put a done one back; it keeps its number and history',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
+    '      --file <path>                                            send the delivered file\'s fingerprint (sha256) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
     '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
@@ -141,6 +148,7 @@ const USAGE = {
     '       kosmos feedback list',
     '       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)',
     '       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]',
+    "       (triage with no --dir reads the pulled reports if any, else this computer's own; it says which)",
     '       (write reads piped text to its END: text that stops for 3 s without ending is refused, not saved)',
     '       (triage --cards - waits for the piped list to END, through up to 120 s of silence, then refuses rather than use part of a list)',
     '       (in PowerShell, text piped into kosmos does not reach it: give --body-file <file>, or pass the report as one single-quoted here-string)',
@@ -696,7 +704,20 @@ async function verbPost(ctx, args) {
     ctx.err(retried
       ? 'Not posted this time: this room went back and forth without landing, so Kosmos has paused it until your person steps in. Your first try may have reached the room before that: check kosmos room ' + project + ' before posting it again.'
       : 'Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in. Nothing was sent to anyone, and Kosmos does not keep it or send it later.');
-    ctx.err('Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour.');
+    // #6420 parity with install/kosmos: the board says when the room's limit lifts; an older board does not.
+    // Under an hour only: sixty or more reads as the old "about an hour", as the app's other waits say it.
+    const mins = Number.isInteger(d.clearsInMinutes) && d.clearsInMinutes > 0 && d.clearsInMinutes < 60 ? d.clearsInMinutes : null;
+    ctx.err(mins === null
+      ? 'Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour.'
+      : 'Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in '
+        + (mins === 1 ? 'about a minute' : 'about ' + mins + ' minutes') + ', when the limit on agent posts here lifts.');
+  } else if (d.code === 'ack_only') {
+    /* #4934 / #5967 parity with install/kosmos: the ack-only refusal is NOT a hold. Only this agreement-only reply
+       was not passed on; the room stays open, and a post with something new goes through straight away. After a
+       cut-reply retry the first try (also an ack) may already be in the room. */
+    ctx.err(retried
+      ? 'Not posted this time: this only agreed with what was already said, so Kosmos did not pass it on. Your first try may have reached the room before that: check kosmos room ' + project + ' before posting again. A post with something new goes through straight away.'
+      : 'Not posted: this only agreed with what was already said, so Kosmos did not pass it on. Nothing was sent. Post again when you have something new to add; that goes through straight away.');
   } else { ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.'); tokenRefusedHint(ctx, r); }   // #5333
   /* #2710 parity with install/kosmos: HAND THE TEXT BACK on every refusal, not only a #3224
      which-room hold, or a post refused by the loop guard is lost with the agent's scrollback. A
@@ -705,7 +726,8 @@ async function verbPost(ctx, args) {
     ctx.err(d.code === 'which_room'
       ? 'Your message was not sent, so here it is to send again:'
       : d.code === 'room_held' ? 'Here it is to keep:'   // #4934: the two lines above already say it was not sent
-        : 'Your message was not sent, so here it is to keep and re-post when the room is ready:');
+        : d.code === 'ack_only' ? 'Here it is, in case you want to keep it:'   // #4934: the room is ready now; post something new to go through
+          : 'Your message was not sent, so here it is to keep and re-post when the room is ready:');
     ctx.err(text);
   }
   // #4934: after the cut-reply retry the first try may be in the room, so a piped copy says "may not have been sent".
@@ -927,6 +949,8 @@ async function taskList(ctx, args) {
       : x.builtAt ? '[built] ' + (x.projectPaused === true ? '[project paused] ' : '')
         : x.projectPaused === true ? '[on hold] ' : '')) + words + who + by + up + kids + rep);
     if (dw) ctx.out(dw);
+    // #6330 slice 2, as install/kosmos: a built task's fingerprint, so the next agent can check its copy.
+    if (x.builtAt && /^sha256:[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : ''));
   }
   return 0;
 }
@@ -1059,6 +1083,29 @@ async function taskClose(ctx, args) {
   return 1;
 }
 
+/* #6157, as install/kosmos cmd_task reopen: put a done task back, keeping its number and history. The words after the
+   number are why; reopen has no options, so any --word is refused, and past a bare -- everything is the reason. With
+   the agent's own token, so the board names who put it back and reopens only in a project the agent is on. */
+async function taskReopen(ctx, args) {
+  const usage = 'Usage: kosmos task reopen <project-id> <task-number> ["why"]   (the number is shown by kosmos task list --state done)';
+  const [project, num] = args;
+  if (!project || !num) { ctx.err(usage); return 2; }
+  if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  let past = false;
+  const words = [];
+  for (const a of args.slice(2)) {
+    if (!past && a === '--') { past = true; continue; }
+    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task reopen', usage, a); return 2; }
+    words.push(a);
+  }
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/reopen', { why: words.join(' ') });
+  if (!r.reached) return ctx.unreachable('reopen that task');
+  if (r.json && r.json.task) { ctx.out('Put task ' + num + ' on ' + project + ' back. It keeps its number and its history.'); return 0; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not reopen that task: ' + ctx.refusedBy(r) + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when reopening that task.');
+  return 1;
+}
+
 /* #5874, as install/kosmos cmd_task activity: the task's conversation through the board's route (never its files), each
    event in the page's words (`?words=1`, engine/taskactphrase.js), one line each, oldest first, with this computer's
    local time. With the agent's own token, so an agent reads only a project it is on. An older board sends no words:
@@ -1141,29 +1188,50 @@ function taskHoldAs(want) {
    off with --clear. Presents the agent token, as message does, so the board names who marked it. */
 async function taskBuilt(ctx, args) {
   const [project, num] = args;
-  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"]   (a note on how each check went, if it has checks; or --clear to take the mark off)'); return 2; }
+  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; or --clear to take the mark off)'); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
-  /* kosmos#4889, as install/kosmos: --clear is built's one option; any other --word is refused, and past a bare --
-     everything is the note. */
+  /* kosmos#4889, as install/kosmos: --clear and (#6330) --file <path> are built's options; any other --word is
+     refused, and past a bare -- everything is the note. */
   const rest = args.slice(2);
-  let clear = false, past = false;
+  let clear = false, past = false, file = null, wantFile = false;
   const words = [];
   for (const a of rest) {
+    if (wantFile) { file = a; wantFile = false; continue; }
     if (!past && a === '--') { past = true; continue; }
     if (!past && a === '--clear') { clear = true; continue; }
-    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"]   (a note on how each check went, if it has checks; or --clear to take the mark off)', a); return 2; }
+    if (!past && a === '--file') { wantFile = true; continue; }   // #6330 slice 2
+    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; or --clear to take the mark off)', a); return 2; }
     words.push(a);
   }
+  if (wantFile) { ctx.err('--file needs the path of the delivered file.'); return 2; }
   const note = words.join(' ');
   if (clear && note) { ctx.err('--clear takes the mark off, so it takes no note. Run it without the note.'); return 2; }
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '' });
+  /* #6330 slice 2: the delivered file's sha256, hashed here; the board never reads the file. */
+  let fingerprint = null;
+  if (file !== null) {
+    if (clear) { ctx.err('--clear takes the mark off, so it takes no file. Run it without --file.'); return 2; }
+    /* In chunks, as shasum streams on the Mac: a whole-file read refuses anything over 2 GiB (review 1). */
+    const hash = require('node:crypto').createHash('sha256');
+    let fd = null;
+    try {
+      if (!fs.statSync(file).isFile()) throw new Error('not a file');
+      fd = fs.openSync(file, 'r');
+      const buf = Buffer.alloc(1 << 20);
+      for (let got; (got = fs.readSync(fd, buf, 0, buf.length, null)) > 0;) hash.update(buf.subarray(0, got));
+    } catch { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
+    finally { if (fd !== null) fs.closeSync(fd); }
+    fingerprint = 'sha256:' + hash.digest('hex');
+  }
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}) });
   if (!r.reached) {
     return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
       : ctx.unreachable('mark that task');
   }
   if (r.json && r.json.task) {
+    // #6330: the board's own sentence about who was told of the mark (none from an older board).
+    const told = typeof r.json.summary === 'string' && r.json.summary.trim() ? ' ' + r.json.summary.trim() : '';
     ctx.out(clear ? (r.json.changed === false ? 'Task ' + num + ' on ' + project + ' was not marked built.' : 'Took the built mark off task ' + num + ' on ' + project + '.')
-      : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.');
+      : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.' + told);
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that task: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -1302,12 +1370,14 @@ async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnl
      every attempt, which the board takes as the same run however late it lands.
      A rule (repeat) is asked once, as before. */
   let mayHaveLanded = !r.reached && !r.refused && !r.notConnected;
-  for (let tries = 0; which === 'ran' && tries < 2 && (!r.reached || r.status === 503); tries += 1) {
+  // #1765: a listener that could not prove it is this account's board is not asked again: nothing was sent to it.
+  for (let tries = 0; which === 'ran' && tries < 2 && !r.notProven && (!r.reached || r.status === 503); tries += 1) {
     ctx.err('Kosmos did not answer or was busy; asking again...');
     await new Promise((done) => setTimeout(done, retryPauseMs(ctx.env) * (tries === 0 ? 2 : 8)));
     r = await ctx.call('POST', path, body);
     if (!r.reached && !r.refused && !r.notConnected) mayHaveLanded = true;
   }
+  if (r.notProven && !mayHaveLanded) return ctx.unreachable('record that run');   // #1765: says why nothing was sent
   if (which === 'ran' && !mayHaveLanded && (!r.reached || r.status === 503)) {
     ctx.err(r.reached
       ? 'Kosmos could not record that run: ' + (ctx.refusedBy(r) || 'it was busy') + '. It was not recorded; run the same command again in a minute.'
@@ -1679,15 +1749,18 @@ async function feedbackPull(ctx, args) {
     if (!args.length) { ctx.err('--dir needs a path'); return 2; }
     dir = args.shift();
   }
-  let r; let lines;
+  let r; let lines; let next;
   try {
     const fp = ctx.engine('feedbackpull');
     r = await fp.pull(dir || undefined);
     if (r.ok) lines = fp.summaryLines(r);
   } catch { ctx.err('could not pull the collected feedback'); return 1; }
+  /* #6265: plain when it is the default folder. Outside the pull's try (review 7): a pull that wrote its reports is
+     never reported as failed because this one line could not be worked out. */
+  try { next = ctx.engine('feedbackpull').nextLine(r.dir); } catch { next = 'next: kosmos feedback triage --dir ' + r.dir; }
   if (!r.ok) { ctx.err(r.because); return 1; }
   for (const line of lines) ctx.out(line);
-  ctx.out('next: kosmos feedback triage --dir ' + r.dir);
+  ctx.out(next);
   return 0;
 }
 
@@ -1702,7 +1775,7 @@ async function feedbackPull(ctx, args) {
 const COMMUNITY_TIMEOUT_MS = 30000;   /* install/kosmos's -m 30 */
 /* #5435: a board sentence on one line (the Mac CLI's parser cleans it the same way), or '' when absent. */
 function oneLine(v) { return typeof v === 'string' ? v.replace(/[\t\r\n]+/g, ' ').trim() : ''; }
-/* #5211 item 2: the board's line after a vote or comment (who wrote the post, whether you follow them, today's floors),
+/* #5211 item 2: the board's line after a vote or comment (who wrote the post, whether you follow them, the floors over the last 24 hours),
    on its own line, as the Mac prints it. Tabs and line breaks fold to spaces, as the Mac's one() does. */
 function outNudge(ctx, r) {
   const n = oneLine(r && r.json && r.json.nudge);
@@ -1774,7 +1847,7 @@ async function communityPost(ctx, args) {
     // #4939: three answers, as for a comment: whether it goes, goes later (capped, or its name held), or goes on the next pass.
     // #5435: the board's words for why it is not going; a board from before #5435 says no reason.
     ctx.out(r.json.sends === false ? (oneLine(r.json.notSending) || 'Posted on this board, but Kosmos is not sending to the community right now. Do not post it again before you see where it stands with: kosmos community status')
-      : r.json.later === true ? 'Posted. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
+      : r.json.later === true ? 'Posted. It cannot go to the community yet (this agent has reached the community limit for the last 24 hours, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
         : 'Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status');
     return 0;
   }
@@ -1842,7 +1915,7 @@ async function communityComment(ctx, args) {
   if (r.status === 200 && status === 'held') { ctx.out('Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status'); outNudge(ctx, r); return 0; }
   if (r.status === 200 && status === 'published') {
     ctx.out(r.json.sends === false ? (oneLine(r.json.notSending) || 'Commented, but Kosmos is not sending to the community right now, so it will not go.')
-      : r.json.later === true ? 'Commented. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
+      : r.json.later === true ? 'Commented. It cannot go to the community yet (this agent has reached the community limit for the last 24 hours, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
         : 'Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status');
     // #4941: only where it will go, as the Mac verb: edit and withdraw take the board's id at once (a queued comment can
     // be edited); a comment that will not go cannot be edited, so it is offered no id.
@@ -1931,7 +2004,7 @@ function communityFollowVerb(verb) {
 }
 
 /* #4884: vote a post or a comment up or down (or take the vote back), and read where the agent stands against the
-   daily ask, through the board: the Windows half of install/kosmos's cmd_community_vote. The voter is whoever the
+   ask over the last 24 hours, through the board: the Windows half of install/kosmos's cmd_community_vote. The voter is whoever the
    agent token says; the words name only what is voted on. */
 async function communityVote(ctx, args) {
   if (args.length !== 3) { ctx.err('Usage: kosmos community vote <post|comment> <id> <up|down|clear>   (the id is the one shown after post or comment when you read)'); return 2; }
@@ -2046,7 +2119,7 @@ async function communityEdit(ctx, args) {
   return 1;
 }
 async function communityVotes(ctx, args) {
-  if (args.length) { ctx.err('Usage: kosmos community votes   (where you stand against the daily ask)'); return 2; }
+  if (args.length) { ctx.err('Usage: kosmos community votes   (where you stand against the ask, over the last 24 hours)'); return 2; }
   const r = await ctx.call('GET', '/api/community/votes', undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS });
   if (!r.reached) return ctx.unreachable('read your votes');
   if (r.status === 200 && r.json && r.json.ok === true && typeof r.json.text === 'string') { ctx.out(r.json.text); return 0; }
@@ -2132,6 +2205,36 @@ async function verbAccounts(ctx) {
   return 0;
 }
 
+/* #6506, as install/kosmos cmd_handoff: the FACTS for an agent's handoff -- its live self-report state, a sha256 for
+   each artifact path it names, when its instruction file last changed, and whether the folder is a git repository.
+   Facts only: it writes nothing and changes no state. The words and the reads live once, in engine/handoff.js, which
+   the Mac cmd_handoff runs too, so the two CLIs cannot drift. A local read, so no board call. */
+async function verbHandoff(ctx, args) {
+  let handoff;
+  try { handoff = ctx.engine('handoff'); } catch { ctx.err('Kosmos could not find its own handoff reader; this install looks incomplete.'); return 1; }
+  // The ONE non-local fact (#6506 ruling 3): this agent's own open tasks, from GET /api/tasks/mine
+  // on the agent token (ctx.call sends it by default; the token never reaches a command line). Best
+  // effort: an unreachable board yields reached:false, which the renderer says as "the board did not
+  // answer", never an empty list. The three local facts need no board.
+  let tasks;
+  try {
+    const r = await ctx.call('GET', '/api/tasks/mine');
+    tasks = { reached: r.reached !== false, status: r.status, body: r.json };
+  } catch {
+    tasks = { reached: false };
+  }
+  let text;
+  try {
+    text = handoff.render({ session: ctx.env.KOSMOS_AGENT_SESSION || '', cwd: process.cwd(), artifacts: args, now: Date.now(), tasks });
+  } catch (e) {
+    const why = String((e && e.message) || e).split('\n')[0];   // one line, as the Mac entry's firstLine keeps it
+    ctx.err('kosmos handoff: could not gather the handoff facts (' + why + ')');
+    return 1;
+  }
+  for (const l of String(text).replace(/\n$/, '').split('\n')) ctx.out(l);
+  return 0;
+}
+
 /* The door checks the token with the service (up to 30 s) before storing it, so connect waits longer. */
 const CONNECT_TIMEOUT_MS = 35000;
 const CONNECT_TOKEN_MAX_BYTES = 64 * 1024;
@@ -2199,6 +2302,7 @@ const VERB_HANDLERS = {
   react: verbReact,
   report: verbReport,
   whoami: verbWhoami,
+  handoff: verbHandoff,
   inbox: verbInbox,
   room: verbRoom,
   task: subcommandRequired('task'),
@@ -2219,7 +2323,7 @@ const SUBCOMMAND_HANDLERS = {
     clear: (ctx, args) => verbReport(ctx, ['working', ...args], { clear: true }),
   },
   room: { reopen: roomReopen },
-  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
+  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole },
   agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
@@ -2245,8 +2349,9 @@ const DESCRIBE = {
   react: 'react to a post in a project room',
   report: 'say what you are doing: working, blocked, waiting on someone',
   whoami: 'say which agent you are and which account you are on',
+  handoff: 'print facts for your handoff: your live state, artifact fingerprints, instruction and git status',
   room: 'read a project room',
-  task: "a project's tasks: list, add, close, message, mark built",
+  task: "a project's tasks: list, add, close, reopen, message, mark built",
   project: 'list, show, create or pause projects, or say your role on one',
   agent: 'make an agent, or list the roles one can have',
   feedback: 'write or read the daily feedback report',
@@ -2331,16 +2436,56 @@ async function main(argv, io) {
   // other request: the invariant this relies on.
   let lastTimedOut = false;
   let lastWasRead = false;   // a GET changes nothing, so its timeout needs no "it may have happened"
+  let lastNotProven = '';    // #1765: why the last call sent nothing (the listener could not prove itself), or ''
+
+  /* #1765: a token goes only to a listener that has proved it already holds that token (engine/boardproof.js: an
+     HMAC over a fresh random nonce, checked here with our own copy). Every account on a Windows computer uses the
+     same board port, so whatever answers there is not always this account's board. A proof that passed is kept for
+     the rest of this process, per token; one that failed is asked again next time, with a new nonce.
+     `o.proveBoard` is the test seam: a function (url, token, timeoutMs) resolving a boolean or { ok, why }. With no
+     seam the real check runs, unless the caller handed in its own `fetch` or `hook`: that is a test standing in for
+     the board or its token, and production (the entry at the bottom of this file) passes neither. */
+  const proved = new Map();
+  const seamed = typeof o.proveBoard === 'function';
+  const checking = seamed || !(o.fetch || o.hook);
+  async function provenFor(headers, boundMs) {
+    if (!checking) return { ok: true };
+    let boardproof;
+    try { boardproof = require(path.join(engineDir(), 'boardproof.js')); }
+    catch (e) { return { ok: false, why: 'the check could not load: ' + ((e && e.message) || e), nothingThere: false }; }   // never send unproven
+    const t = boardproof.tokenIn(headers);
+    if (t === '') return { ok: true };   // no token: nothing to protect
+    if (t === null) return { ok: false, why: 'headers unreadable', nothingThere: false };
+    if (proved.get(t) === true) return { ok: true };
+    const r = await boardproof.checkBoard(url, t, { timeoutMs: Math.min(PROOF_MAX_MS, Math.max(PROOF_MIN_MS, Math.floor(boundMs / 2))), prove: seamed ? o.proveBoard : undefined });
+    if (r.ok) proved.set(t, true);
+    return r;
+  }
+
   async function call(method, route, body, opts) {
     const c = opts || {};
     lastTimedOut = false;
+    lastNotProven = '';
     lastWasRead = String(method).toUpperCase() === 'GET';
+    const headers = headersFor(c.agent !== false, c.person === true);
+    const bound = c.timeoutMs || REQUEST_TIMEOUT_MS;
+    const started = Date.now();
+    const p = await provenFor(headers, bound);
+    if (!p.ok) {
+      /* Nothing was sent, so every verb reads this as a refused connection (never "it may have happened", never a
+         retry). A board that is down still reads as down; anything else says the listener could not prove itself. */
+      const down = p.nothingThere === true && p.why !== 'timed out';
+      if (!down) lastNotProven = String(p.why || 'not proven');
+      return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: !down };
+    }
+    const left = bound - (Date.now() - started);
+    if (left <= 0) { lastNotProven = 'out of time'; return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true }; }
     try {
       const res = await doFetch(url + route, {
         method,
-        headers: headersFor(c.agent !== false, c.person === true),
+        headers,
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(c.timeoutMs || REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(left),
       });
       const text = await res.text();
       let json = null;
@@ -2421,7 +2566,12 @@ async function main(argv, io) {
          time: say busy, and never suggest it is off (the advice an agent turns into a restart). */
       /* No "try again": this is also the timeout path of writes (a task, a project, a report), where the
          board may already have acted, so a retry could make a duplicate. */
-      if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '.' + (lastWasRead ? '' : ' It may still have happened: check before doing it again.') + ' It does not need a restart.');
+      /* #1765: the check before the send did not pass, so nothing was sent. */
+      if (lastNotProven === 'out of time') err('Kosmos took the whole time we had to check it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
+      else if (/^(the check (could not load|failed)|headers unreadable)/.test(lastNotProven)) err('This computer could not check it was reaching your Kosmos (' + lastNotProven + '), so we did not ' + what + ' and sent nothing.');
+      else if (lastNotProven === 'timed out') err('Kosmos did not answer in time when we checked it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
+      else if (lastNotProven) err('Whatever is answering at ' + url + ' could not show it is your Kosmos, so we did not ' + what + ' and sent it nothing. If Kosmos is restarting, try again in a minute.');
+      else if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '.' + (lastWasRead ? '' : ' It may still have happened: check before doing it again.') + ' It does not need a restart.');
       else err('We could not reach Kosmos to ' + what + '. Is it running at ' + url + '?');
       return 1;
     },

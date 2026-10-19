@@ -75,10 +75,30 @@ test('a valid header token PROCEEDS past the guard', async () => {
   assert.notEqual(r.code, 302, 'a header token needs no cookie bootstrap');
 });
 
-test('a valid cookie token PROCEEDS past the guard', async () => {
-  const r = await hit('/api/status', { headers: { cookie: `kosmos_board=${TOK}` } });
+test('#6358: the session cookie a ?token= bootstrap sets PROCEEDS past the guard', async () => {
+  const boot = await hit(`/?token=${TOK}`);
+  const m = (boot.setCookie || '').match(/kosmos_board=([0-9a-f]{64});/);
+  assert.ok(m, 'the bootstrap sets a session cookie: ' + boot.setCookie);
+  const r = await hit('/api/status', { headers: { cookie: `kosmos_board=${m[1]}` } });
   assert.notEqual(r.code, 403);
   assert.notEqual(r.code, 302);
+});
+
+test('#6358: the board token itself in a cookie is REFUSED (a cookie only ever carries a session)', async () => {
+  assert.equal((await hit('/api/status', { headers: { cookie: `kosmos_board=${TOK}` } })).code, 403);
+});
+
+test('#6358: a cookie that still holds the token (given before sessions) is ENDED on sight; another value is left alone', async () => {
+  const old = await hit('/api/status', { headers: { cookie: `kosmos_board=${TOK}` } });
+  assert.match(old.setCookie || '', /^kosmos_board=; HttpOnly; SameSite=Strict; Path=\/; Max-Age=0$/, 'the token cookie is ended: ' + old.setCookie);
+  const shell = await hit('/', { headers: { cookie: `kosmos_board=${TOK}` } });
+  assert.match(shell.setCookie || '', /Max-Age=0/, 'ended on the public shell too, the first thing an old tab loads');
+  const other = await hit('/api/status', { headers: { cookie: 'kosmos_board=not-a-token-here' } });
+  assert.ok(!/kosmos_board=;/.test(other.setCookie || ''), 'a cookie that is no token here (another board\'s) is not touched');
+  const boot = await hit(`/?token=${TOK}`);
+  const sid = (boot.setCookie || '').match(/kosmos_board=([0-9a-f]{64});/)[1];
+  const live = await hit('/api/status', { headers: { cookie: `kosmos_board=${sid}` } });
+  assert.ok(!/kosmos_board=;/.test(live.setCookie || ''), 'a live session is never ended');
 });
 
 test('a valid ?token= on a GET nav BOOTSTRAPS: 302, cookie set, token stripped from the URL', async () => {

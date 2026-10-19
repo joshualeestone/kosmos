@@ -12,9 +12,11 @@
  * useful on a free model with nothing to bill.
  *
  * The dial is PER CONVERSATION, not global: each PAIR gets `perHour`
- * exchanges an hour; each ROOM gets four times that in arrivals (the
- * recorded 4x allowance: the room is the visible collaboration
- * surface). The default equals the previously hard-coded rate exactly,
+ * exchanges an hour; each ROOM gets at least four times that in
+ * arrivals (the recorded 4x allowance: the room is the visible
+ * collaboration surface). kosmos#6420 scales a room's budget with its
+ * size, up to four times that floor for a room of nine or more
+ * (engine/messages.js roomCap). The default equals the previously hard-coded rate exactly,
  * so shipping this On changes nothing for existing fleets.
  *
  * ⚠️ An unreadable or malformed file fails toward ON at the default:

@@ -429,6 +429,7 @@ function sweepOnce(o) {
   const isTrustDialogEvidence = o && o.isTrustDialogEvidence;
   const deps = { trustAgentFolder: o && o.trustAgentFolder, restart: o && o.restart, RESTARTED: o && o.RESTARTED };
   const log = (o && typeof o.log === 'function') ? o.log : null;
+  const heldByMove = o && o.heldByMove;   // #6173: remove.heldByMove
   const results = [];
   for (const agent of roster) {
     const session = agent && agent.sessionName;   // the KEY the executor + loop-guard use
@@ -442,6 +443,13 @@ function sweepOnce(o) {
       results.push({ session, name: display, act: plan.act, because: plan.because });
       // escalate is logged too: it is the "a person should look" divergence signal.
       if (plan.act === 'escalate' && log) { try { log({ name: display, session, act: 'escalate', handled: false, because: plan.because, arm: standing && standing.arm, prompt: standing && standing.prompt }); } catch { /* logging never breaks a sweep */ } }
+      continue;
+    }
+    /* #6173 review 2: an agent an account move holds is restarted by the move itself (which clears the dialog), and a
+       restart here would be refused. Counting that refusal as an attempt escalated a dialog the move was about to
+       clear, so it waits: no attempt, no trust write. */
+    if (typeof heldByMove === 'function' && heldByMove(session)) {
+      results.push({ session, name: display, act: 'wait', because: 'an account move will restart it' });
       continue;
     }
     // Record the attempt regardless of the outcome: a restart that throws or refuses still

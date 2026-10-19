@@ -52,8 +52,10 @@ test('#5959 slice 2: lastOk keeps the newest OK through a later rejection, and n
 
 test('#5959 slice 2: a provider or account switch forgets the name too, before its restart', () => {
   const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  for (const why of ['provider', 'account']) {
-    const restart = src.indexOf("removal.restart(name, '" + why + "')");
+  // #6174: the account route restarts through restartForMove (which calls removal.restart(name, 'account')).
+  assert.ok(/\(deps\.restart \|\| removal\.restart\)\(name, 'account'\)/.test(src), 'CONTROL: restartForMove does not restart for an account move');
+  for (const [why, anchor] of [['provider', "removal.restart(name, 'provider')"], ['account', 'restartForMove(name, fromDir)']]) {
+    const restart = src.indexOf(anchor);
     assert.ok(restart > 0, 'CONTROL: the ' + why + ' restart was not found');
     const route = src.slice(0, restart + 600);
     const call = /^\s*try \{ observed\.forgetAgent\(name\); \}/m;

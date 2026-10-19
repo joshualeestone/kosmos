@@ -124,7 +124,7 @@ function firstContact(thread, pause) {
  */
 function plan(card, fc, entry, now) {
   if (nudged(entry)) return { act: 'none', because: 'already reminded once' };
-  if (spent(entry)) return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
+  if (spent(entry)) return { act: 'none', gaveUp: true, because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };   // #5154 slice B: gaveUp lets the sweep surface this on the board
   if (!card || card.state !== 'idle') return { act: 'none', because: 'not idle' };
   /* #5949: a remembered idle (held through a failed look) is not evidence it is idle now; typing into the pane waits a
      few seconds for a fresh look, as the Assigner and the limit release do. */
@@ -161,12 +161,62 @@ function sweepOnce(o) {
     const channelFor = typeof o.replyChannel === 'function' ? o.replyChannel : (s) => require('./replychannel').forAgent(s);
     const log = typeof o.log === 'function' ? o.log : null;
     const say = (r) => { if (log) { try { log(r); } catch { /* never breaks a sweep */ } } };
+    // #5154 slice B: the give-up SIGNAL to the board (ownbounds), SEPARATE from `say`/`log`. Fires every sweep
+    // the agent is given up (keeps the board's staleness clock fresh); writes no stdout. Optional: unset in tests.
+    const bound = typeof o.bound === 'function' ? o.bound : null;
+    // #5154 slice B: the RECOVERY signal. A spent book entry is NEVER deleted on its own, so if the agent
+    // answers its first message by another route (a reply-channel, out of Kosmos's sight) the entry stays spent
+    // forever. Without this, `bound` would fire every sweep on a healthy idle agent that no longer owes a reply.
+    const cleared = typeof o.cleared === 'function' ? o.cleared : null;
     for (const card of o.roster) {
       const session = card && card.sessionName;
       if (!session) continue;
       const entry = book.get(session);
-      // The cheap conjuncts first, so a thread file is read only for an idle agent still in budget.
-      if (nudged(entry) || spent(entry) || card.state !== 'idle' || require('./status').stateIsRemembered(card)) continue;   // #5949
+      // The cheap conjuncts first, so a thread file is read only for an idle agent still in budget. Split from
+      // the original single `continue` so the give-up case can be surfaced -- the control flow is identical
+      // (each arm still continues); only the #5154-B say is new.
+      if (nudged(entry)) continue;                        // already reminded once: not a give-up
+      if (spent(entry)) {
+        // #5154 slice B: gave up reminding this agent. But the give-up is REAL only while the agent STILL owes
+        // its first reply: the book entry is not deleted when the obligation resolves, so an agent that answered
+        // by another route stays spent. So read firstContact here (the same owes-check the nudge path uses) and
+        // raise via `bound` ONLY while it still owes. If it no longer owes, the give-up is resolved -- clear the
+        // episode (`cleared`) and DROP the stale entry so the sweep stops re-raising it. Only while idle; a
+        // non-idle agent's give-up is mooted on the board (isMoot). `bound` writes no stdout (unlike `say`).
+        if (card.state === 'idle') {
+          let pzS = null;
+          try { pzS = pauseFor(session); } catch { pzS = null; }
+          if (pzS && pzS.paused === true) {
+            // #4354: a switched-off swarm -- the normal path leaves it alone. Neither raise nor clear: it may
+            // come back owing, so do not drop the episode; the STALE_MS backstop covers a persistent pause.
+          } else {
+            let declaredS = null;
+            try { declaredS = channelFor(session); } catch { declaredS = null; }
+            if (declaredS) {
+              // #5805: the agent answers its person on a declared reply-channel, out of Kosmos's sight -- the
+              // normal path never nudges it, so a give-up is moot. Resolve it: clear and drop the stale entry.
+              book.delete(session);
+              if (cleared) { try { cleared(session); } catch { /* best-effort */ } }
+            } else {
+              let fcS = null;
+              try { fcS = firstContact(read(session), pzS); } catch { fcS = null; }
+              if (fcS && fcS.state === 'owes') {
+                if (bound) { try { bound(session, 'gave up after ' + MAX_TRIES + ' tries that reached nothing'); } catch { /* best-effort */ } }
+              } else if (fcS && fcS.state === 'clear') {
+                // DEFINITELY no longer owes: resolved -- clear the episode and drop the stale spent entry. Only on
+                // a definite 'clear': an INDETERMINATE read (fcS null = the thread read threw, or 'unknown' =
+                // unreadable) must NEITHER raise nor clear -- clearing on uncertainty would drop a possibly-real
+                // give-up AND re-arm the nudge (breaking "one nudge ever"). The indeterminate case leaves the
+                // entry and relies on the STALE_MS backstop, matching isMoot's refusal to moot on 'unknown'.
+                book.delete(session);
+                if (cleared) { try { cleared(session); } catch { /* best-effort */ } }
+              }
+            }
+          }
+        }
+        continue;
+      }
+      if (card.state !== 'idle' || require('./status').stateIsRemembered(card)) continue;   // #5949: a remembered idle is not a fresh look
       /* #4354: a switched-off swarm is left alone before anything is read or tried: its pane refuses the text, and
          each refusal would spend one of MAX_TRIES, leaving it never nudged once it runs again. */
       let pz = null;
@@ -198,7 +248,7 @@ function sweepOnce(o) {
       try { const r = o.deliver(session, NUDGE_TEXT, o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = r && (r.heldFor === 'signin' ? 'signin' : r.heldBy); }
       catch (err) { state = 'threw: ' + String((err && err.message) || err); }
       /* #4588 PR B: held (the shared Google quota, the Gemini cap, #5743 an answer awaited on its screen, or #5805 a usage limit), nothing typed: no try is spent, so the nudge still comes after the reset. */
-      if (held) { results.push({ session, name: display, act: heldBy === 'menu' ? 'menu-held' : heldBy === 'signin' ? 'signin-held' : heldBy === 'limit' ? 'limit-held' : 'quota-held', delivered: false, delivery: state, because: p.because + (heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'signin' ? '; held while it is signed out (#5948)' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota') }); continue; }
+      if (held) { results.push({ session, name: display, act: heldBy === 'input' ? 'input-held' : heldBy === 'menu' ? 'menu-held' : heldBy === 'signin' ? 'signin-held' : heldBy === 'limit' ? 'limit-held' : 'quota-held', delivered: false, delivery: state, because: p.because + (heldBy === 'input' ? '; held while its input box holds text not yet sent (#6249)' : heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'signin' ? '; held while it is signed out (#5948)' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota') }); continue; }
       const D = o.DELIVERY || {};
       const delivered = D.PLACED != null && state === D.PLACED;
       const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
@@ -229,7 +279,7 @@ function makeTick(deps) {
       if (!Array.isArray(roster)) return null;
       return sweepOnce({
         roster, book: deps.book, now: deps.now ? deps.now() : Date.now(),
-        thread: deps.thread, paused: deps.paused, replyChannel: deps.replyChannel, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
+        thread: deps.thread, paused: deps.paused, replyChannel: deps.replyChannel, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log, bound: deps.bound, cleared: deps.cleared,   // #5154 slice B: give-up + recovery -> board
       });
     } catch { return null; }
   };

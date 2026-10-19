@@ -3,7 +3,7 @@
 /**
  * #3568: pre-answer Antigravity's folder-trust question for an agent's folder.
  *
- * Measured 2026-09-25 on Agent1s (agy 1.2.11, signed in): on every NEW folder agy stops at
+ * Measured 2026-09-25 on a build Mac (agy 1.2.11, signed in): on every NEW folder agy stops at
  * "Do you trust the contents of this project?", even with --dangerously-skip-permissions, and it
  * has no launch flag to skip it (gemini has --skip-trust, grok --trust). It records the answer per
  * exact folder in ~/.gemini/antigravity-cli/settings.json as `trustedWorkspaces` (the agy dir is

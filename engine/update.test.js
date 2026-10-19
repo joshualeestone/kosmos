@@ -242,6 +242,49 @@ test('a look that finds a newer version installs it when the switch is on', asyn
   assert.equal(started(), 1, 'the switch is on and a newer version went uninstalled');
 });
 
+test('#6173: an automatic install waits while an account move runs, and the next look installs', async () => {
+  const started = autoSetup({ latest: '99.0.0', pref: { on: true, ok: true }, root: INSTALL_ROOT });
+  let moving = true;
+  update.setAutoDefer(() => moving);
+  try {
+    await update.refresh();
+    assert.equal(started(), 0, 'the install (which restarts the board) started under an account move');
+    moving = false;
+    update.resetCache();
+    await update.refresh();
+    assert.equal(started(), 1, 'the install never came once the move had finished');
+  } finally { update.setAutoDefer(null); }
+});
+
+test('#6173 Liu Kang m5496: a move whose restart never answers still ends at its cap, and the update it held then installs', async () => {
+  const accountmove = require('./accountmove');
+  const started = autoSetup({ latest: '99.0.0', pref: { on: true, ok: true }, root: INSTALL_ROOT });
+  update.setAutoDefer(() => accountmove.busy());   // half of the board's wiring: server.js also waits on remove.restartingNow (remove.test.js)
+  const held = new Set();
+  try {
+    const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, {
+      moveRefusal: () => null,   // #6190: the move now refuses an agent when no hold check is given
+      setAccount: () => ({ outcome: 'changed', account: { email: 'spare@example.com' } }),
+      REFUSED: 'refused', forget: () => {}, RESTARTED: 'restarted',
+      restartAsync: () => new Promise(() => {}),   // a step that never returns
+      hold: (names) => names.forEach((n) => held.add(n)), release: (n) => held.delete(n),
+      agentCapMs: 100,
+    });
+    assert.equal(accountmove.busy(), true);
+    await update.refresh();
+    assert.equal(started(), 0, 'an update installed (and restarted the board) under a running move');
+    await out.done;
+    assert.equal(accountmove.busy(), false, 'the move never ended');
+    assert.deepEqual([...held], [], 'the cap left an agent held');
+    const al = accountmove.read(out.body.id).agents[0];
+    assert.equal(al.outcome, 'partial', 'an agent whose restart never answered was said as moved');
+    assert.match(al.because, /could not start it again: its restart did not answer within/);
+    update.resetCache();
+    await update.refresh();
+    assert.equal(started(), 1, 'the update the move held never installed once it ended');
+  } finally { update.setAutoDefer(null); accountmove.resetForTests(); }
+});
+
 test('the switch off means the same look installs nothing', async () => {
   const started = autoSetup({ latest: '99.0.0', pref: { on: false, ok: true }, root: INSTALL_ROOT });
   await update.refresh();
@@ -392,12 +435,18 @@ test('the installer URL is a positional parameter, never interpolated into the s
      added `; rm -f "$4"` and the marker positional so the shell removes the
      in-flight marker on finish -- a surviving marker means an interrupted
      install). The URL is still $1 and still never interpolated. */
-  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s\\n" "\$code" "\$3" > "\$2"; if \[ "\$4" != \/dev\/null \]; then rm -f "\$4"; fi',\s*'sh',\s*setupUrl\(\)/,
+  /* #6468 ask 3: no `curl | sh` any more. $5 (this node) runs $6 (the installed engine/manifest-verify.js) run-setup with
+     the URL ($1), the release base ($7), the target version ($8) and the installed home ($9): it checks the installer
+     against the signed manifest and only then runs it. Every value is still its own positional. */
+  assert.match(call, /'-c',\s*'"\$5" "\$6" run-setup "\$1" "\$7" "\$8" "\$9"; code=\$\?; printf "%s %s\\n" "\$code" "\$3" > "\$2"; if \[ "\$4" != \/dev\/null \]; then rm -f "\$4"; fi',\s*'sh',\s*setupUrl\(\)/,
     'the installer command is no longer the reviewed shape: ' + call);
+  assert.ok(!/\|\s*sh\b/.test(call.slice(call.indexOf("'-c'"), call.indexOf("'sh',"))), 'the installer is piped into sh again: ' + call);
+  assert.ok(/startedMarker,\s*process\.execPath,\s*path\.join\(__dirname, 'manifest-verify\.js'\),\s*releaseBase\(\),\s*target,\s*installedRoot\(\) \|\| ''\]/.test(SRC),
+    'the verifier, base, version and home no longer ride as positionals $5 to $9');
   /* The three trailing positionals, asserted on the wider source since the
      slice above stops at the URL: the status file is $2, the stamp is $3, the
      marker is $4, none interpolated. */
-  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt,\s*startedMarker\]/.test(SRC),
+  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt,\s*startedMarker,/.test(SRC),
     'the status file, the start stamp and the marker no longer ride as positionals');
 
   /* And the unsafe shapes, by name. A template literal or a concatenation

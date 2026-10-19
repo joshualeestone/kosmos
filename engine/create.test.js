@@ -4511,6 +4511,30 @@ test('an account that keeps its own history is refused, and the refusal says wha
     'a refused move still wrote the file');
 });
 
+test('#6214: a stopped move puts an agent back on the account it ran on, without the checks for a new destination', WIN_TASK_STUB, () => {
+  const { home } = seedAccounts();
+  const name = 'putback';
+  recorder();
+  create.setDryRun(false);
+  create.createAgent({ ...BINS, name, role: 'pm', model: 'opus' });
+  /* The agent ran on an account that keeps its own history (setAccount refuses it as a destination). A move saved
+     another account and was stopped before its turn: the way back must not be refused for that, or the agent moves
+     at its next restart anyway. */
+  const solo = nodePath.join(home, '.claude-solo');
+  assert.equal(create.setAccount(name, solo).outcome, create.OUTCOME.REFUSED, 'PRECONDITION: setAccount refuses it');
+  const out = create.restoreAccount(name, solo);
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  assert.equal(cfgOf(name), solo);
+  assert.equal(plannedModel(name), 'claude-opus-5', 'the put-back dropped the model');
+  /* null is the default account: the key is removed, and the sentence can name it. */
+  const back = create.restoreAccount(name, null);
+  assert.equal(back.outcome, create.OUTCOME.CREATED, back.because);
+  assert.equal(cfgOf(name), null);
+  assert.equal(back.account && back.account.isDefault, true);
+  assert.equal(create.restoreAccount('neverexisted', null).outcome, create.OUTCOME.REFUSED, 'an agent Kosmos did not start');
+  assert.equal(create.restoreAccount('../x', null).outcome, create.OUTCOME.REFUSED, 'a name Kosmos does not act on');
+});
+
 test('an account we do not know, and an agent Kosmos did not start, are both refused', WIN_TASK_STUB, () => {
   seedAccounts();
   const name = 'refusals';
@@ -6177,7 +6201,7 @@ test('each refusal sentence exists exactly once, so no site can reintroduce a co
      left the suite GREEN. Counting the CONSTANT'S USES closes that direction, and all
      seven sites then go red. */
   for (const [sentence, constant, uses] of [
-    ['that is not a name we can act on', 'REFUSE_NAME', 3],
+    ['that is not a name we can act on', 'REFUSE_NAME', 4],   // +1 (#6214): restoreAccount
     ['pick a provider from the list', 'REFUSE_PROVIDER', 2],
     ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 6],
   ]) {
@@ -6879,13 +6903,13 @@ test('#5534: a company policy in force refuses creating or switching an agent on
   try {
     const r = create.createAgent({ ...BINS, name: 'policyblocked', role: 'pm', provider: 'openai' });
     assert.equal(r.outcome, create.OUTCOME.REFUSED, r.because);
-    assert.match(r.because, /policy does not allow openai/);
+    assert.match(r.because, /policy does not allow OpenAI for new agents/);
     assert.equal(fs.existsSync(nodePath.join(process.env.AGENT_WORKFORCE_WORKERS || '', 'policyblocked')), false, 'a refused agent left a folder');
     const ok = create.createAgent({ ...BINS, name: 'policyok', role: 'pm' });
     assert.equal(ok.outcome, create.OUTCOME.CREATED, 'CONTROL: an allowed provider is created: ' + ok.because);
     const sw = create.setProvider('policyok', 'openai', BINS);
     assert.equal(sw.outcome, create.OUTCOME.REFUSED, 'a switch onto a disallowed provider went through');
-    assert.match(sw.because, /policy does not allow openai/);
+    assert.match(sw.because, /policy does not allow OpenAI for new agents/);
     // Models: the policy lists one Claude model by its full id; its key is accepted for it, another model is not.
     fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
       policy: { providers_allowed: ['anthropic'], models_allowed: { anthropic: ['claude-sonnet-5'] } } }));
@@ -6904,7 +6928,7 @@ test('#5534: a company policy in force refuses creating or switching an agent on
       policy: { providers_allowed: ['anthropic', 'openai'], models_allowed: { anthropic: ['opus'] } } }));
     const noModel = create.createAgent({ ...BINS, name: 'policydefault', role: 'pm' });
     assert.equal(noModel.outcome, create.OUTCOME.REFUSED, 'a model-less Claude agent was created under a model list');
-    assert.match(noModel.because, /allows only some models on anthropic/);
+    assert.match(noModel.because, /allows only some models on Anthropic Claude/);
   } finally {
     fs.rmSync(orgpolicy.APPLIED(), { force: true });
   }
@@ -6923,7 +6947,7 @@ test('#5534 review 2/3: Gemini without a model is its pinned default, and a swit
   try {
     const g = create.policyAllows('google', '');
     assert.equal(g.ok, false);
-    assert.match(g.because, /does not allow the model gemini-2\.5-flash on google/, 'Gemini without a model was not asked about its pinned default');
+    assert.match(g.because, /does not allow the model gemini-2\.5-flash on Google Gemini \(API key\)/, 'Gemini without a model was not asked about its pinned default');
     assert.equal(create.policyAllows('xai', '').ok, true, 'CONTROL: a provider with no list needs no model');
     assert.equal(create.policyAllows('google', 'gemini-2.5-pro').ok, true, 'CONTROL: the listed Gemini model');
     fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
@@ -6937,7 +6961,7 @@ test('#5534 review 2/3: Gemini without a model is its pinned default, and a swit
     assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
     const noPick = create.setProvider('switchpick', 'anthropic', BINS);
     assert.equal(noPick.outcome, create.OUTCOME.REFUSED, 'a switch onto the default model, which the list leaves out, went through');
-    assert.match(noPick.because, /allows only some models on anthropic/);
+    assert.match(noPick.because, /allows only some models on Anthropic Claude/);
     const picked = create.setProvider('switchpick', 'anthropic', { ...BINS, model: ' opus ' });
     assert.match(String(picked.because), /already runs on/, 'CONTROL: a switch with a listed model got past the policy: ' + picked.because);
   } finally {
@@ -6960,7 +6984,7 @@ test('#5534 review 4: a Gemini agent set back to its default is the pinned model
     assert.equal(create.policyAllows('xai', '').ok, true, 'Grok without a model runs its pinned default, which is listed');
     fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,
       policy: { providers_allowed: null, models_allowed: { google: ['gemini-2.5-pro'], xai: ['grok-9'] } } }));
-    assert.match(String(create.policyAllows('xai', '').because), /does not allow the model grok-4\.6 on xai/);
+    assert.match(String(create.policyAllows('xai', '').because), /does not allow the model grok-4\.6 on xAI Grok/);
     assert.equal(create.setModel(name, '').outcome, create.OUTCOME.REFUSED, 'CONTROL: the default, now unlisted, is refused');
     const realAllows = orgpolicy.allows;
     orgpolicy.allows = () => { throw new Error('policy code broke'); };

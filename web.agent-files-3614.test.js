@@ -89,7 +89,7 @@ test('#3757: no files (a folder not made yet, or an empty one) shows no Files se
   }
 });
 
-test('files render as rows with name, date and size; the rest are counted', async () => {
+test('files render as rows with name and size (#6497: the date is the hover text); the rest are counted', async () => {
   const h = harness(() => ({ ok: true, total: 3, stamp: 's1', files: [
     { name: 'report.pdf', size: 2048, modified: '2026-09-20T10:00:00Z' },
     { name: 'notes.md', size: 10, modified: '2026-09-19T10:00:00Z' },
@@ -100,7 +100,14 @@ test('files render as rows with name, date and size; the rest are counted', asyn
   assert.equal(rows[0].dataset.doc, 'report.pdf');
   assert.equal(rows[0].parts[0].textContent, 'report.pdf');
   assert.match(rows[0].parts[1].textContent, /2048 B$/);
-  assert.match(rows[0].parts[1].textContent, /·/, 'no date shown');
+  // #6497 (Mona's noise pass): the narrow panel shows the size only, so the names get the room; the date is kept as
+  // the row's hover text. The Files screen (View All) keeps it on the row (below).
+  assert.doesNotMatch(rows[0].parts[1].textContent, /·/, 'the narrow panel still shows a date on the row');
+  const day = new Date('2026-09-20T10:00:00Z').toLocaleDateString();
+  assert.equal(rows[0].title, 'report.pdf, changed ' + day, 'the date is no longer anywhere on the row');
+  const fs2 = harness(() => ({ ok: true, total: 1, files: [{ name: 'report.pdf', size: 2048, modified: '2026-09-20T10:00:00Z' }] }));
+  await fs2.api.paintAgentFilesAll('ana');
+  assert.equal(fs2.el['d-filesall-list'].children[0].parts[1].textContent, day + ' · 2048 B', 'CONTROL: the Files screen keeps the date on the row');
   assert.equal(h.el['d-files-msg'].textContent, '');
   assert.equal(h.el['d-files'].hidden, false, 'an agent with files does not show the section');
   assert.equal(h.el['d-files-all'].hidden, false, '#3757: more files than listed, and no View All');

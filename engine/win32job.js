@@ -119,13 +119,13 @@ function rememberTaskSpec(name, worldId, answer) {
 /* 🔑 The runner swap clears it too. Without this a stubbed answer outlives the
    stub and the NEXT test reads the previous one's task, which is the kind of
    cross-test leak that reads as a flake rather than as a cache. It also clears
-   the `running()` seams (liveness + clock), mirroring the spec-cache clear, so a
+   the `runningSteps()` seams (liveness + clock), mirroring the spec-cache clear, so a
    stubbed liveness or fake clock cannot outlive the runner it was set up beside. */
 function setRunner(fn) {
   runFn = typeof fn === 'function' ? fn : null;
   TASK_SPEC_CACHE.clear();
   PRESENCE_MEMO.clear();
-  livenessFn = null; nowFn = null; sleepFn = null;
+  livenessFn = null; nowFn = null;
 }
 
 /* Whether a schtasks call made now would either go to an injected runner or is
@@ -139,6 +139,23 @@ function commandsAreReal() { return !!runFn || liveExec.liveExecutionAllowed(); 
    Worded to match neither NO_SUCH_TASK nor a success, so every reader classifies
    it as "we could not look" and concludes nothing. */
 const REFUSED_IN_TEST = 'schtasks is never run from a test process that has installed no runner';
+
+/* #6183: the timeout for every schtasks.exe call this module makes -- run()'s own execFileSync and the async
+   restart step generators (endSteps/startSteps), which route the command through engine/remove.js's run(), so the
+   two forms share one value and cannot drift on it. */
+const SCHTASKS_TIMEOUT_MS = 20000;
+
+/* #6183: remove.js's run()/runAsync answer a step's { exec } with { ok, stdout, stderr, code }, but this module's
+   parsers read `out` (the shape run() above produces). Normalize a step result to that shape so ONE parse serves
+   both the sync acts and their async step twins, and they cannot drift. A failure carries stderr (then stdout);
+   the exit code is preserved for parsers that read it. */
+function win32StepResult(r) {
+  return {
+    ok: Boolean(r && r.ok),
+    out: String((r && (r.ok ? r.stdout : (r.stderr || r.stdout))) || ''),
+    code: r && r.code,
+  };
+}
 
 /**
  * May a real schtasks be spawned from THIS process? ONE answer for every module that
@@ -182,7 +199,7 @@ function run(args) {
        once per agent by a screen that polls every five seconds, which would turn
        one honest answer into a stream of alarming lines about nothing. */
     const out = cp.execFileSync('schtasks.exe', args, {
-      encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf8', timeout: SCHTASKS_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
     });
     return { ok: true, out: String(out || '') };
   } catch (e) {
@@ -383,7 +400,12 @@ function taskXml(spec, env) {
  * idempotent -- re-registering after a spec change is how an account flip or a
  * model change takes effect at the next logon.
  */
-function install(spec) {
+/* #6231 item 7: the pre-work of `install` -- everything up to (not including) the `/Create /F` spawn --
+   extracted so the sync `install` and the async `installSteps` SHARE it and cannot drift (the #6183 "one
+   parse, two call shapes" discipline, applied to the write side). Returns an early `{ ok: false, because }`
+   refusal, or `{ ok: true, args, task, cleanup }`: `args` is the `/Create` argv, `task` the registered name,
+   `cleanup` unlinks the transient xml (the caller runs it in a `finally`, as install()'s own finally did). */
+function installPlan(spec) {
   const s = spec || {};
   if (!s.name || !s.cwd) return { ok: false, because: 'a job needs an agent name and a folder' };
   /* 🔑 #1704: THE WORLD IS DECIDED ONCE, HERE, and the task name, the task line
@@ -425,19 +447,56 @@ function install(spec) {
      in the `finally`. Nothing durable points at it, so it carries none of the
      ephemeral-path hazard the anchor exists to solve. */
   const xmlAt = path.join(os.tmpdir(), 'kosmos-task-' + process.pid + '-' + Date.now() + '.xml');
-  let r;
+  const cleanup = () => { try { fs.unlinkSync(xmlAt); } catch { /* best effort; it is in the temp root */ } };
+  const task = taskName(s.name, world);
   try {
-    try {
-      fs.writeFileSync(xmlAt, Buffer.from('﻿' + taskXml({ ...s, world, node: anchor.node, supervisor: anchor.boot }, s.env), 'utf16le'));
-    } catch (e) {
-      return { ok: false, because: 'we could not write the startup job definition (' + ((e && e.message) || 'no detail') + ')' };
-    }
-    r = run(['/Create', '/F', '/TN', taskName(s.name, world), '/XML', xmlAt]);
-  } finally {
-    try { fs.unlinkSync(xmlAt); } catch { /* best effort; it is in the temp root */ }
+    fs.writeFileSync(xmlAt, Buffer.from('﻿' + taskXml({ ...s, world, node: anchor.node, supervisor: anchor.boot }, s.env), 'utf16le'));
+  } catch (e) {
+    cleanup();
+    return { ok: false, because: 'we could not write the startup job definition (' + ((e && e.message) || 'no detail') + ')' };
   }
+  return { ok: true, args: ['/Create', '/F', '/TN', task, '/XML', xmlAt], task, cleanup };
+}
+
+/* The one parse of a `/Create /F` result ({ ok, out }), shared by the sync `install` and the async
+   `installSteps` so they cannot drift on what counts as a registered job. */
+function installResult(r, task) {
   if (!r.ok) return { ok: false, because: 'we could not register the startup job (' + (r.out || 'no detail').trim().split('\n')[0] + ')' };
-  return { ok: true, task: taskName(s.name, world) };
+  return { ok: true, task };
+}
+
+/**
+ * Register (or re-register) the at-logon job for one agent.
+ *
+ * `/F` overwrites an existing task of the same name, which is what makes this
+ * idempotent -- re-registering after a spec change is how an account flip or a
+ * model change takes effect at the next logon.
+ */
+function install(spec) {
+  const plan = installPlan(spec);
+  if (!plan.ok) return plan;
+  let r;
+  try { r = run(plan.args); } finally { plan.cleanup(); }
+  return installResult(r, plan.task);
+}
+
+/* #6231 item 7: `install` as an async step -- the put-back's job write run OFF the board's thread under the
+   async driver (engine/remove.js's runner answers the yielded `{ exec }`), the way `endSteps`/`startSteps` do
+   their own schtasks. Mirrors `install()` command-for-command through the SHARED installPlan/installResult, so
+   the two forms cannot diverge on the pre-work or the parse. Clears PRESENCE_MEMO before the mutating spawn
+   exactly as `run()` does on a non-`/Query` call (the step bypasses `run()`), and only on the spawn path -- an
+   early refuse from installPlan never reaches `run()` in the sync form either. The `finally` unlinks the
+   transient xml on every path past the write, as install()'s own finally does -- including a driver
+   `.return()` abandon at the cap, where it may unlink while the `/Create` schtasks is still reading it; that is
+   safe, because an abandoned put-back's outcome is already worded as unconfirmed (remove.js `capped: true`). */
+function* installSteps(spec) {
+  const plan = installPlan(spec);
+  if (!plan.ok) return plan;
+  PRESENCE_MEMO.clear();
+  let r;
+  try { r = win32StepResult(yield { exec: ['schtasks.exe', plan.args, { timeout: SCHTASKS_TIMEOUT_MS }] }); }
+  finally { plan.cleanup(); }
+  return installResult(r, plan.task);
 }
 
 /**
@@ -470,6 +529,16 @@ function enable(name, worldId) {
   return { ok: true };
 }
 
+/* The parse `end` reads from a schtasks /End result ({ ok, out }), in ONE place so the sync `end` and the async
+   `endSteps` cannot drift. A task that is not running is the end state we wanted -- the same posture the Mac takes
+   toward launchd's exit 3 ("no such service"). */
+function endedOk(r) {
+  if (!r.ok && !/not running|cannot find|does not exist/i.test(r.out || '')) {
+    return { ok: false, because: 'we could not stop it now (' + (r.out || '').trim().split('\n')[0] + ')' };
+  }
+  return { ok: true };
+}
+
 /**
  * End the RUNNING instance -- launchd's `bootout`, and the other half of a stop.
  *
@@ -482,12 +551,21 @@ function enable(name, worldId) {
  * window between the two cannot bring it back).
  */
 function end(name, worldId) {
-  const r = run(['/End', '/TN', taskName(name, worldId)]);
-  /* A task that is not running is the end state we wanted -- the same posture the
-     Mac takes toward launchd's exit 3 ("no such service"). */
-  if (!r.ok && !/not running|cannot find|does not exist/i.test(r.out || '')) {
-    return { ok: false, because: 'we could not stop it now (' + (r.out || '').trim().split('\n')[0] + ')' };
-  }
+  return endedOk(run(['/End', '/TN', taskName(name, worldId)]));
+}
+/* #6183: `end` as an async step. Yields the schtasks /End to engine/remove.js's run()/runAsync (off the board's
+   thread under the async driver) and reads the SAME endedOk parse via the result-shape normalizer. It clears
+   PRESENCE_MEMO up front exactly as run() does on a mutating call (the step bypasses run(), so presence() would
+   otherwise serve a stale answer for the memo's TTL after a step-driven stop). Mirrors end() command-for-command. */
+function* endSteps(name, worldId) {
+  PRESENCE_MEMO.clear();
+  const r = yield { exec: ['schtasks.exe', ['/End', '/TN', taskName(name, worldId)], { timeout: SCHTASKS_TIMEOUT_MS }] };
+  return endedOk(win32StepResult(r));
+}
+
+/* The parse `start` reads from a schtasks /Run result, shared by the sync `start` and the async `startSteps`. */
+function startedOk(r) {
+  if (!r.ok) return { ok: false, because: 'we could not start it again now (' + (r.out || '').trim().split('\n')[0] + ')' };
   return { ok: true };
 }
 
@@ -497,96 +575,89 @@ function end(name, worldId) {
  * next signed in, which is not what "start it again" says.
  */
 function start(name, worldId) {
-  const r = run(['/Run', '/TN', taskName(name, worldId)]);
-  if (!r.ok) return { ok: false, because: 'we could not start it again now (' + (r.out || '').trim().split('\n')[0] + ')' };
-  return { ok: true };
+  return startedOk(run(['/Run', '/TN', taskName(name, worldId)]));
+}
+/* #6183: `start` as an async step; mirrors start() command-for-command through remove.js's runner. Clears
+   PRESENCE_MEMO up front as run() does on a mutating call (the step bypasses run()). */
+function* startSteps(name, worldId) {
+  PRESENCE_MEMO.clear();
+  const r = yield { exec: ['schtasks.exe', ['/Run', '/TN', taskName(name, worldId)], { timeout: SCHTASKS_TIMEOUT_MS }] };
+  return startedOk(win32StepResult(r));
 }
 
 /* The liveness seam, alongside the command seam above and cleared with it (see
    setRunner). A test injects the supervisor-authored identity source so the
-   fleet's Macs can drive `running()` exactly as they drive the rest of this
+   fleet's Macs can drive `runningSteps()` exactly as they drive the rest of this
    module. Production reads the real state file. */
 let livenessFn = null;
 function setLiveness(fn) { livenessFn = typeof fn === 'function' ? fn : null; }
-/* 🔑 THE CLOCK SEAM, AND WHY IT IS A SEPARATE ONE. `running()` polls, so its
-   `now`/`sleep` are injectable on the opts as well -- but its one production
-   caller (remove.js's `loaded` closure) forwards only `before`, never the clock.
-   So a test that drives the probe THROUGH remove cannot ride the clock in on
-   opts, and without this it would sleep the full deadline (12s) in real time.
-   This lets such a test fake time so no real time passes; cleared with the
-   runner, like the liveness seam. */
+/* 🔑 THE CLOCK SEAM, AND WHY IT IS A SEPARATE ONE. `runningSteps()` polls, so its
+   `now` is injectable on the opts as well -- but its one production caller
+   (remove.js's `loaded` step) forwards only `before`, never the clock. So a test
+   that drives the probe THROUGH remove cannot ride the clock in on opts; this
+   module-level seam lets such a test fake time so no real time passes. The poll's
+   wait is a yielded { sleep } the async driver answers, so only `now` is seamed
+   here. Cleared with the runner, like the liveness seam. */
 let nowFn = null;
-let sleepFn = null;
-function setRunningClock(now, sleep) {
+function setRunningClock(now) {
   nowFn = typeof now === 'function' ? now : null;
-  sleepFn = typeof sleep === 'function' ? sleep : null;
 }
 
-/* A bounded synchronous sleep, in-family with this file's blocking execFileSync
-   calls: `running()` is synchronous so every caller reports rather than awaits.
-   `Atomics.wait` on a throwaway SharedArrayBuffer parks this thread for `ms`
-   without a busy-loop. A platform without SharedArrayBuffer falls through, and
-   the deadline still bounds the loop. */
-function sleepSync(ms) {
-  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, ms | 0)); }
-  catch { /* no SharedArrayBuffer; the deadline still terminates the loop */ }
+/* Whether a liveness identity proves the supervisor came up: a live pid, and (for a restart) a session id
+   different from the pre-restart baseline. ONE place for the `runningSteps` poll's acceptance test. #6183. */
+function idAccepts(id, isAlive, before) {
+  return Boolean(id && isAlive(id.pid) && (before == null || id.sessionId !== before.sessionId));
 }
 
 /**
- * Is this agent's SUPERVISOR actually up after a start? The win32 analog of the
- * Mac's `launchctl print` "loaded" probe (#3431).
+ * Is this agent's SUPERVISOR actually up after a start, as an async step? The win32
+ * analog of the Mac's `launchctl print` "loaded" probe (#3431, #6183).
  *
- * 🛑 WHY `status().registered` IS NOT ENOUGH. That only proves the TASK EXISTS,
- * never that a process came up: a `/Run` that returned ok can leave no supervisor
- * running, which is the win32 shape of Nora (#3418) -- a restart reporting success
- * over an agent that silently vanished. So this reads the LIVENESS signal instead:
- * `win32streamstate.liveIdentity(name)`, the `{ pid, sessionId }` the supervisor
- * itself authors into its state file, polled with a timeout.
+ * 🛑 WHY `status().registered` IS NOT ENOUGH. That only proves the TASK EXISTS, never
+ * that a process came up: a `/Run` that returned ok can leave no supervisor running,
+ * which is the win32 shape of Nora (#3418) -- a restart reporting success over an agent
+ * that silently vanished. So this reads the LIVENESS signal instead:
+ * `win32streamstate.liveIdentity(name)`, the `{ pid, sessionId }` the supervisor itself
+ * authors into its state file, polled with a timeout. NOT schtasks "Status: Running":
+ * that text is localized (the very thing this file avoids everywhere else) and it
+ * false-positives on the conhost wrapper the instant `/Run` fires, before the node
+ * under it has come up.
  *
- * 🛑 NOT schtasks "Status: Running". That text is localized (the very thing this
- * file avoids everywhere else), and it false-positives on the conhost wrapper the
- * instant `/Run` fires, before the node under it has come up.
+ * 🔑 DISCRIMINATED AGAINST A PRE-RESTART BASELINE. A dying supervisor can leave its OWN
+ * state file behind, so a live-looking identity that still names the session that was
+ * there BEFORE the relaunch is not evidence the new one came up. `before` (the identity
+ * read before `/End`+`/Run`) is rejected: an accepted identity must be alive AND carry a
+ * session id different from the baseline (or there was no baseline, a fully-dead start).
+ * The acceptance test is the shared idAccepts, the one place that judgement lives.
  *
- * 🔑 DISCRIMINATED AGAINST A PRE-RESTART BASELINE. A dying supervisor can leave its
- * OWN state file behind, so a live-looking identity that still names the session
- * that was there BEFORE the relaunch is not evidence the new one came up. `before`
- * (the identity read before `/End`+`/Run`) is rejected: an accepted identity must
- * be alive AND carry a session id different from the baseline (or there was no
- * baseline, a fully-dead start).
- *
- * Injectable deps with production defaults, lazy-required as this file already does
- * for win32argv; the module-level seams (setLiveness / setRunningClock) are the
- * fallback so a caller that forwards only `before` can still be driven from a test:
- *   - `liveIdentity` reads the supervisor-authored identity (default win32streamstate)
- *   - `isAlive` is the one pid-liveness reading the rest of the lane uses (win32orphan.pidAlive)
- *   - `now` / `sleep` drive the poll
- *   - `before` is the baseline identity, or null for a fully-dead start
- * `deadlineMs` is conservative on purpose; it is injectable and the orchestrator
- * will tune the production default from a real-box measurement of supervisor
- * start latency. This synchronous poll is intentional and in-family with the
- * blocking execFileSync calls above.
+ * The liveness signal is a STATE-FILE read (liveIdentity + pidAlive), not a command, so
+ * there is nothing to shell: the generator reads it in-line (cheap, non-blocking) and
+ * yields { sleep: intervalMs } between polls, so the async driver answers each wait with
+ * a timer, off the board's thread. The FIRST read happens before any yield, so an
+ * already-live pid returns at once with no spurious wait. Injectable deps default to the
+ * real sources (lazy-required as this file already does for win32argv); `now` falls back
+ * to the module-level setRunningClock seam so a caller that forwards only `before` can
+ * still fake the clock from a test, and `before` is the baseline identity or null for a
+ * fully-dead start. The loop is bounded by its own deadline and, under the async driver,
+ * by the driver's abandon check and the 300 s restart cap.
  *
  * Returns { ok: true } once the supervisor is confirmed up, or
  * { ok: false, because: '<plain sentence>' } on timeout.
  */
-function running(name, worldId, opts) {
+function* runningSteps(name, worldId, opts) {
   const o = opts || {};
   const liveIdentity = o.liveIdentity || livenessFn || require('./win32streamstate').liveIdentity;
   const isAlive = o.isAlive || require('./win32orphan').pidAlive;
   const now = o.now || nowFn || Date.now;
-  const sleep = o.sleep || sleepFn || sleepSync;
   const before = o.before || null;
   const intervalMs = Number.isFinite(o.intervalMs) ? o.intervalMs : 250;
   const deadlineMs = Number.isFinite(o.deadlineMs) ? o.deadlineMs : 12000;
 
   const start = now();
   for (;;) {
-    const id = liveIdentity(name);
-    if (id && isAlive(id.pid) && (before == null || id.sessionId !== before.sessionId)) {
-      return { ok: true };
-    }
+    if (idAccepts(liveIdentity(name), isAlive, before)) return { ok: true };
     if (now() - start >= deadlineMs) return { ok: false, because: 'its supervisor did not come up' };
-    sleep(intervalMs);
+    yield { sleep: intervalMs };
   }
 }
 
@@ -1008,6 +1079,17 @@ function taskEnabledFromQuery(r) {
   return enabledFromTaskXml(taskXmlFromQuery(r));
 }
 
+/* #6231 item 7: `taskEnabled` as an async step -- the put-back's "keep its switch" read run off the board's
+   thread. Yields the one `/Query /XML` to engine/remove.js's runner and decodes it through the SAME
+   `taskEnabledFromQuery` (= enabledFromTaskXml . taskXmlFromQuery) the sync path uses, so the enabled flag a
+   reinstall preserves cannot differ between the sync and step forms. A read (`/Query`), so it does NOT clear
+   PRESENCE_MEMO -- `run()` clears only on a mutating call, and the sync `taskEnabled` reads through `run` the
+   same way. Same three return shapes as `taskEnabled`. */
+function* taskEnabledSteps(name, worldId) {
+  const r = yield { exec: ['schtasks.exe', ['/Query', '/TN', taskName(name, worldId), '/XML'], { timeout: SCHTASKS_TIMEOUT_MS }] };
+  return taskEnabledFromQuery(win32StepResult(r));
+}
+
 function enabledFromTaskXml(read) {
   if (!read.known || !read.registered) return read;
   const settings = /<Settings>([\s\S]*?)<\/Settings>/.exec(read.xml);
@@ -1031,8 +1113,8 @@ function configDirFor(name) {
 
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
-  install, disable, enable, end, start, running, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
-  cachedTaskSpec, taskEnabled, taskEnabledFromQuery, csvFields, commandsAreReal, REFUSED_IN_TEST,
+  install, installSteps, disable, enable, end, start, endSteps, startSteps, runningSteps, win32StepResult, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
+  cachedTaskSpec, taskEnabled, taskEnabledFromQuery, taskEnabledSteps, csvFields, commandsAreReal, REFUSED_IN_TEST,
   schtasksMayRunInThisProcess,
   setRunner, setAnchorer, setLiveness, setRunningClock, setPresenceTtl, PRESENCE_TTL_MS,
 };

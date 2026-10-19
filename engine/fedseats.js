@@ -56,7 +56,7 @@ const INBOUND_ROWS_PER_DAY = 2000;
 const MAX_POST_LINE = 16 * 1024;
 /* The connector's final refusals that are about this Mac or its account, not
    the connection (kosmos-relay fedroom.rs FINAL_REFUSALS). */
-const MAC_LEVEL_REFUSAL = /unknown mac|this (?:mac|computer) was retired|account gone|not set up for kosmos\+/i;   // #4645: either wording of the retired answer
+const MAC_LEVEL_REFUSAL = /unknown mac|this (?:mac|computer) was retired|account gone|not set up for kosmos\+/i;   // #4645: either wording of the retired answer (engine/remote.js retiredAlready matches the same sentence with its own regex)
 /* #5193: a member's edge revoked by the owner, told in one plain sentence. The connector's own
    reason for it reads "...that connection has been revoked. Ask to be re-invited. (HTTP 409 on
    /v1/mac/federation/room-ticket)", which shows a raw path and says "ask" twice. */
@@ -1086,6 +1086,9 @@ async function ensure(projectId, edges) {
      test's sandbox out (it has none); this is the same stated opt-in the board's other outward sweeps wait for, so a
      test that fakes an enrollment still reaches no room. After every local check above (review 1), before the seat. */
   if (typeof deps.allowed === 'function' && !deps.allowed()) return null;
+  /* kosmos#6239: a policy that stops outside contact keeps every shared room closed: a running seat is let go and none
+     is started. The link stays, so the room comes back on the first pass after the policy allows it again. */
+  if (contactStopped()) { stop(projectId); return null; }
   let s = seats.get(projectId);
   if (link.ended) {
     if (!s) { s = { child: null, edge: null, status: null, backoff: RESTART_START_MS, timer: null, ended: link.ended, stopped: false, starting: false }; seats.set(projectId, s); }
@@ -1125,6 +1128,8 @@ async function ensure(projectId, edges) {
       edge = got.none ? { own: link.ref } : got.edge;
     }
     if (s.stopped || s.child) return s.status;
+    // kosmos#6239 (round 2): the policy may have arrived during the awaits above.
+    if (contactStopped()) { stop(projectId); return null; }
     spawnFor(projectId, edge);
     return statusOf(projectId);
   } finally {
@@ -1161,6 +1166,14 @@ function stop(projectId) {
   if (s.joinCheckTimer) clearTimeout(s.joinCheckTimer);   // #5285
   if (s.child) letGo(s.child);
   seats.delete(projectId);
+}
+
+/* kosmos#6239: whether the policy set for this Kosmos stops outside contact (orgpolicy.contactAllows). A read that
+   throws counts as stopped: a room missed for one pass comes back on the next, a room left open cannot be taken back. */
+function contactStopped() { return contactState() !== 'open'; }
+/* 'open' | 'policy' | 'unreadable' (round 4: a fault is worded as one, not as the policy). */
+function contactState() {
+  try { return require('./orgpolicy').contactAllows().ok === true ? 'open' : 'policy'; } catch { return 'unreadable'; }
 }
 
 /** Try an own room refused earlier this session again, on the person's explicit ask. */
@@ -1642,4 +1655,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };
+module.exports = { contactStopped, contactState, farSide, retryOwn, rotateForRevoked, afterRemove, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, SENT_LOG_MAX, REVOKE_SENT_SKEW_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW, HELD_POSTS_MAX };

@@ -346,18 +346,32 @@ if (args[0] === 'devices') {
   }
   // kosmos#5786 (b): a deny the tunnel refuses, and an allow that takes a while.
   if (verb === 'deny' && mode.includes('deny-fails')) { process.stderr.write('error: the coordinator refused\\n'); process.exit(1); }
+  // kosmos#6404: Not me on a code check: the tunnel drops only the check and says so.
+  if (verb === 'deny' && mode.includes('deny-check')) { console.log(JSON.stringify({ denied: true, device_id: flag('--device-id'), check: true })); process.exit(0); }
   if (verb === 'allow' && mode.includes('slow-allow')) { const until = Date.now() + 1500; while (Date.now() < until) { /* wait */ } }
   // kosmos#5786 (b): an allow the tunnel refuses (the vouch path's retry cap).
   if (verb === 'allow' && mode.includes('allow-fails')) { process.stderr.write('error: the coordinator refused\\n'); process.exit(1); }
+  if (verb === 'allow' && mode.includes('allow-unknown')) { console.log(JSON.stringify({ allowed: true, acked: false, account_ack: 'unknown_device', device_id: flag('--device-id') })); process.exit(0); }
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
   process.exit(0);
 }
 // #3827: a retire that hangs (a dead network).
 if (args[0] === 'retire' && mode.includes('hung-retire')) { const until = Date.now() + 15000; while (Date.now() < until) { /* wait */ } }
 if (args[0] === 'retire' && mode.includes('slow-retire')) { const until = Date.now() + 2500; while (Date.now() < until) { /* wait */ } }
-// A definite refusal: Kosmos+ answered, and it will not retire this key.
+// A definite refusal: Kosmos+ answered, and it will not retire this key. (Its sentence is the older "this Mac was retired"
+// wording, which Forget reads as retired since kosmos#6390; the sign-in tests that use it go through clearHalfIdentity.)
 // The tunnel's own sentences for a retire (crates/tunnel coordinator.rs signed_request).
 if (args[0] === 'retire' && mode.includes('retire-refused')) { process.stderr.write('Error: Kosmos+ refused this Mac: this Mac was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
+// kosmos#6390 controls: each keeps all but one part of the match (the sentence, the status, the route).
+// The Windows build's prefix (crates/tunnel words.rs REFUSED_PREFIX: "this computer"), and a gateway's line that carries
+// the sentence under another prefix.
+if (args[0] === 'retire' && mode.includes('retire-win-already')) { process.stderr.write('Error: Kosmos+ refused this computer: this computer was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/retire)\\r\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-gateway-retired')) { process.stderr.write('Error: Kosmos+ answered 401 for /v1/mac/retire: this computer was retired (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-401-route')) { process.stderr.write('Error: Kosmos+ refused this Mac: this computer was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/request)\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-401-other')) { process.stderr.write('Error: Kosmos+ refused this Mac: signature does not verify (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-403-retired')) { process.stderr.write('Error: Kosmos+ refused this Mac: this computer was retired; set Kosmos up again to give it a new key (HTTP 403 on /v1/mac/retire)\\n'); process.exit(1); }
+// kosmos#6390: the coordinator's sentence for a computer removed on the account page (relay auth.rs).
+if (args[0] === 'retire' && mode.includes('retire-already')) { process.stderr.write('Error: Kosmos+ refused this Mac: this computer was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
 if (args[0] === 'retire' && mode.includes('retire-down')) { process.stderr.write('Error: Kosmos+ unreachable for /v1/mac/retire: connection refused\\n'); process.exit(1); }
 if (args[0] === 'retire' && mode.includes('retire-429')) { process.stderr.write('Error: Kosmos+ refused this Mac: too many requests; wait a minute (HTTP 429 on /v1/mac/retire)\\n'); process.exit(1); }
 // A gateway's error page: the tunnel prints the raw body, many lines, when it is not the API's JSON.
@@ -430,6 +444,20 @@ async function registerSent() {
     { timeoutMs: 5000, stepMs: 25, describe: () => 'fixture: the register was never sent' },
   );
 }
+
+/* #6140 review 3: the kill steps below stop a register by its bound, and the fake writes the key and id only once it
+   has started. On a loaded box the kill can land first, leaving no half identity; the later steps would then red on a
+   precondition that names the wrong cause. So each kill is checked to have left key and id with no certificate. */
+function halfHere() {
+  const d = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
+  // remote.js halfRegistered(): key and id, not held (enrolment.js HELD_FILE), no certificate.
+  return ['mac_id', 'mac_key'].every((f) => fs.existsSync(nodePath.join(d, f)))
+    && !fs.existsSync(nodePath.join(d, require('./enrolment').HELD_FILE)) && !fs.existsSync(nodePath.join(d, 'tls.crt'));
+}
+const HALF_MSG = 'fixture: the kill landed before the half identity was written (a loaded box: #6140)';
+/* #6140 review 5: the kill step's bound. The partial-register fake writes key and id and then hangs 15 s, so any
+   bound well under 15 s still kills it AFTER the write; 1.5 s let a slow spawn on a loaded box kill it before. */
+const KILL_BOUND_MS = '5000';
 
 function recorded() {
   try { return fs.readFileSync(RECORD, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); }
@@ -1171,6 +1199,32 @@ test('allow drives the binary with the Mac-first verb, the id and the kind; a ba
   assert.ok(call.includes('--coordinator'), 'allow forgot the coordinator, so the phone would never be told');
 });
 
+test('kosmos#6286: an allow the coordinator answers "no such sign-in" is a refusal, never allowed', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'allow-unknown';
+  try {
+    const r = await remote.deviceAllow('family-web-cb519c', 'iPhone');
+    assert.equal(r.ok, false, 'an allow of an id the coordinator does not hold read as allowed');
+    assert.match(r.because, /^Kosmos\+ holds no sign-in waiting with that id \(it was refused, or never asked\)\. It is on this computer's list/);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  // CONTROL: the same call with the tunnel's ordinary answer is still allowed.
+  const ok = await remote.deviceAllow('dev-9', 'iPhone');
+  assert.equal(ok.ok, true, ok.because);
+});
+
+test('kosmos#6404: Not me on a code check notes no refusal (the tunnel says it only dropped the check)', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'deny-check';
+  try {
+    const r = await remote.deviceDeny('dev-chk');
+    assert.equal(r.ok, true, r.because);
+    assert.equal((remote.read().denied || {})['dev-chk'], undefined, 'a check was noted as a refusal');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  // CONTROL: an ordinary Not me is noted.
+  assert.equal((await remote.deviceDeny('dev-ctl')).ok, true);
+  assert.ok(remote.read().denied['dev-ctl'] > 1700000000, 'the control No was not recorded');
+});
+
 test('deny remembers the No, so a re-ask from the same id carries when this Mac said no', async () => {
   const dir = enrol();
   const r = await remote.deviceDeny('dev-9');
@@ -1237,8 +1291,10 @@ test('#4824: a Remove whose connector is killed on the timeout is not reported a
     const r = await remote.deviceRemove('dev-1');
     assert.equal(r.ok, true, r.because);
     assert.equal(r.data.timed_out, true);
-    // CONTROL: a refusal that is not a timeout still fails.
+    // CONTROL: a refusal that is not a timeout still fails. #6140: room to answer, or a loaded box turns the refusal
+    // into the timeout this arm's first half tests (removeAnswer reads that as removed).
     process.env.FAKE_TUNNEL_MODE = 'devices-fail';
+    process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '20000';
     assert.equal((await remote.deviceRemove('dev-1')).ok, false);
   } finally {
     delete process.env.FAKE_DEVICE_HANG_MS;
@@ -1944,7 +2000,7 @@ test('kosmos#5422: an older tunnel after a key moves the id in use only once the
 test('kosmos#5422: finishing an unfinished earlier sign-in keeps the device key (no new device next time)', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'partial-register devkey';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   const keyFile = nodePath.join(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), 'signin-device.key');
   try {
     await remote.signinStart('her@example.com');
@@ -1952,7 +2008,8 @@ test('kosmos#5422: finishing an unfinished earlier sign-in keeps the device key 
     const before = fs.readFileSync(keyFile, 'utf8');
     const beforeIno = fs.statSync(keyFile).ino;
     assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
-    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
+    assert.ok(halfHere(), HALF_MSG);
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '20000';   // #6140
     process.env.FAKE_TUNNEL_MODE = 'devkey';
     fs.rmSync(RECORD, { force: true });
     assert.equal((await remote.signinRegister('hers')).ok, true);
@@ -2365,15 +2422,17 @@ test('#3827: a register that hangs cannot hang Forget: both are bounded', async 
 test('#3827: a register killed after writing the key and id (mid-certificate) is still retired by Forget', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'partial-register';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
-    // on a loaded machine. Retires stay short so a hung one still ends quickly.
-    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
+    // on a loaded machine, and so does a retire that must answer (#6140: at 1.5 s it
+    // timed out under full-suite load, and a timed-out retire keeps the half identity).
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '20000';   // #6140
     assert.equal(remote.enrolled(), false, 'fixture: no certificate, so not enrolled');
     fs.rmSync(RECORD, { force: true });
     const got = await remote.forget();
@@ -2465,11 +2524,144 @@ test('#3827: a retire that hangs cannot hang Forget', async () => {
     const got = await remote.forget();
     assert.ok(Date.now() - t0 < 8000, 'Forget waited out a hung retire (' + (Date.now() - t0) + 'ms)');
     assert.equal(got.retired, false, 'a retire killed by its bound was reported as done');
-    assert.equal(remote.enrolled(), false, 'the Mac is still forgotten here');
+    // kosmos#6389: a retire with no answer removed nothing, so the key that can still sign it stays.
+    assert.equal(got.kept, true, 'a timed-out retire wiped the only key that can free the name: ' + JSON.stringify(got));
+    assert.equal(remote.enrolled(), true, 'the key went with a retire that got no answer');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
   }
+});
+
+test('#6389: Remove with no network keeps the key and says not removed yet, and Remove again retires and wipes it', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  // The identity's own notes, and a fresh standing stamp: a kept Remove keeps the first and sets the second back.
+  const seeded = { ...JSON.parse(fs.readFileSync(remote.FILE, 'utf8')), vouched: { 'dev-keep': { at: 1 } }, standing_at: Date.now() };
+  fs.writeFileSync(remote.FILE, JSON.stringify(seeded));
+  assert.equal(remote.read().on, true, 'fixture: the switch was on before Remove');
+  process.env.FAKE_TUNNEL_MODE = 'retire-down';
+  try {
+    fs.rmSync(RECORD, { force: true });
+    const got = await remote.forget();
+    assert.equal(got.ok, false, 'an unreachable retire was answered as done');
+    assert.equal(got.kept, true);
+    assert.equal(got.retired, false);
+    assert.match(got.because, /not removed yet/, got.because);
+    assert.match(got.because, /could not be reached/, got.because);
+    assert.doesNotMatch(got.because, /forgotten here|may still show/, 'a kept computer was described as forgotten: ' + got.because);
+    assert.equal(got.address, 'hers.kosmos.invalid', 'the kept answer did not say which address');
+    assert.equal(remote.enrolled(), true, 'the key was wiped although Kosmos+ never heard the retire');
+    assert.equal(remote.read().on, false, 'a computer the person asked to remove came back on');
+    assert.ok(remote.read().vouched['dev-keep'], 'a kept identity lost its "on this computer" notes');
+    assert.equal(remote.read().forget_kept, got.because, 'a reload would not know this Remove was kept');
+    // The off is a flip the account must hear about: the stamp is set back past the off cadence, so the next poll asks.
+    assert.ok(Date.now() - remote.read().standing_at > 12 * 60 * 60 * 1000, 'the switch-off was never queued to be told: ' + remote.read().standing_at);
+    assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'fixture: one retire was tried');
+    // The network back: Remove again signs the retire with the kept key, and only then wipes it.
+    delete process.env.FAKE_TUNNEL_MODE;
+    fs.rmSync(RECORD, { force: true });
+    const again = await remote.forget();
+    assert.equal(again.ok, true);
+    assert.equal(again.retired, true, 'the retry did not retire: ' + again.because);
+    assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'the retry did not sign a retire');
+    assert.equal(remote.enrolled(), false, 'the key survived a retire that worked');
+    assert.equal(remote.read().forget_kept, '', 'a Remove that finished still says it was kept');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+  }
+});
+
+test('#6389: switching back on clears the kept note, and switching off does not', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'retire-down';
+  try {
+    assert.equal((await remote.forget()).kept, true, 'fixture: kept');
+    assert.equal(remote.setOn(false).ok, true);
+    assert.notEqual(remote.read().forget_kept, '', 'switching off (still paused) cleared the kept note');
+    assert.equal(remote.setOn(true).ok, true);
+    assert.equal(remote.read().forget_kept, '', 'switched back on, the kept note stayed');
+    // The note is cleared where the file is written (any { on: true }), so only a write that switches on clears it.
+    const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+    fs.writeFileSync(remote.FILE, JSON.stringify({ ...f, on: false, forget_kept: 'kept earlier' }));
+    remote.setRelay('127.0.0.1:9444');   // a write that does not switch on
+    assert.equal(remote.read().forget_kept, 'kept earlier', 'a write that does not switch on cleared the note');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; remote.setOn(false); }
+});
+
+test('#6389: a kept Remove on a damaged remote.json repairs the file and still keeps the key', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  fs.writeFileSync(remote.FILE, '{"on": true, "relay": "rel');
+  assert.equal(remote.read().ok, false, 'fixture: the file is damaged');
+  process.env.FAKE_TUNNEL_MODE = 'retire-down';
+  try {
+    const got = await remote.forget();
+    assert.equal(got.kept, true, 'a damaged file turned a kept Remove into something else: ' + JSON.stringify(got));
+    assert.equal(remote.enrolled(), true, 'the key went with a retire that got no answer');
+    const after = remote.read();
+    assert.notEqual(after.ok, false, 'the kept path left remote.json damaged');
+    assert.equal(after.on, false);
+    assert.deepEqual(after.vouched, {});
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+});
+
+test('#6389: Remove from this computer only from a second tab, during a plain Remove that is kept, still wipes', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'slow-retire,retire-down';
+  try {
+    const plain = remote.forget();
+    const anyway = remote.forget({ anyway: true });
+    const [a, b] = await Promise.all([plain, anyway]);
+    assert.equal(a.kept, true, 'fixture: the plain Remove was kept');
+    assert.notEqual(b.kept, true, 'the second tab\'s anyway was answered with the first tab\'s kept');
+    assert.equal(b.ok, true);
+    assert.equal(remote.enrolled(), false, 'anyway from a second tab left the key');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+});
+
+test('#6389: Remove from this computer only (anyway) wipes the key after a retire with no answer, and says what is left', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'retire-5xx';
+  try {
+    fs.rmSync(RECORD, { force: true });
+    const got = await remote.forget({ anyway: true });
+    assert.equal(got.ok, true);
+    assert.notEqual(got.kept, true, 'anyway was ignored');
+    assert.equal(got.retired, false);
+    assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'anyway skipped the retire; it is still tried first');
+    assert.match(got.because, /may still show on your account page/, got.because);
+    assert.equal(remote.enrolled(), false, 'anyway kept the key');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+});
+
+test('#6389: a retire Kosmos+ refused outright is final: Remove wipes the key, never "try again" forever', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  // A 401 on the retire route for a reason other than "already retired" (#6390's control): definite, and not gone yet.
+  process.env.FAKE_TUNNEL_MODE = 'retire-401-other';
+  try {
+    const got = await remote.forget();
+    assert.equal(got.ok, true);
+    assert.notEqual(got.kept, true, 'a definite refusal was kept for a retry that can never work');
+    assert.equal(got.retired, false);
+    assert.equal(remote.enrolled(), false, 'a key Kosmos+ refused was kept');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
 });
 
 test('#3827: the older Settings setup is refused while a register is in flight', async () => {
@@ -2489,15 +2681,17 @@ test('#3827: the older Settings setup is refused while a register is in flight',
 test('#3827: a register after one cut off mid-certificate retires the half identity first, with no dead end', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'partial-register';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
-    // on a loaded machine. Retires stay short so a hung one still ends quickly.
-    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
+    // on a loaded machine, and so does a retire that must answer (#6140: at 1.5 s it
+    // timed out under full-suite load, and a timed-out retire keeps the half identity).
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '20000';   // #6140
     delete process.env.FAKE_TUNNEL_MODE;
     fs.rmSync(RECORD, { force: true });
     const again = await remote.signinRegister('hers');
@@ -2565,7 +2759,7 @@ test('#3827: every sign-in step and the Settings setup are refused while a Forge
 test('#3827: a half identity whose retire gets no answer is kept, the register waits, and a retry retires it', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'partial-register';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   const logged = [];
   const orig = process.stderr.write;
   try {
@@ -2573,8 +2767,10 @@ test('#3827: a half identity whose retire gets no answer is kept, the register w
     await remote.signinVerify('her@example.com', '111111');
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
-    // on a loaded machine. Retires stay short so a hung one still ends quickly.
+    // on a loaded machine. The retire stays at 1.5 s for the hung retire below, whose timeout
+    // is what this arm tests; the retry after it gets 20 s (#6140), since that retire must answer.
     process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
     process.env.FAKE_TUNNEL_MODE = 'hung-retire';
     fs.rmSync(RECORD, { force: true });
@@ -2587,6 +2783,7 @@ test('#3827: a half identity whose retire gets no answer is kept, the register w
     assert.ok(logged.some((l) => /could not be retired/.test(l)), 'the failed retire was silent: ' + JSON.stringify(logged));
     // The key was kept, so a retry (the network back) retires it and registers.
     delete process.env.FAKE_TUNNEL_MODE;
+    process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '20000';   // #6140: the retry's retire must answer (1.5 s was only for the hung one)
     fs.rmSync(RECORD, { force: true });
     const retry = await remote.signinRegister('hers');
     assert.equal(retry.ok, true, 'the retry hit a dead end: ' + retry.because);
@@ -2606,12 +2803,14 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
   const orig = process.stderr.write;
   const halfThen = async (mode) => {
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
-    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
-    // on a loaded machine. Retires stay short so a hung one still ends quickly.
-    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
+    // on a loaded machine, and so does a retire that must answer (#6140: at 1.5 s it
+    // timed out under full-suite load, and a timed-out retire keeps the half identity).
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '20000';   // #6140
     process.env.FAKE_TUNNEL_MODE = mode;
     return remote.signinRegister('hers');
   };
@@ -2666,15 +2865,17 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
 test('#3827: the Settings setup also retires a half identity before it registers', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'partial-register';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
-    // on a loaded machine. Retires stay short so a hung one still ends quickly.
-    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
+    // on a loaded machine, and so does a retire that must answer (#6140: at 1.5 s it
+    // timed out under full-suite load, and a timed-out retire keeps the half identity).
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '20000';   // #6140
     delete process.env.FAKE_TUNNEL_MODE;
     await remote.setupStart('her@example.com');
     fs.rmSync(RECORD, { force: true });
@@ -2850,7 +3051,7 @@ test('#3827: after a Sign out, a stale Try again at the same name does not switc
 
 test('#3827: the Settings setup gets the same stranded-name answer', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   const orig = process.stderr.write;
   try {
     process.stderr.write = () => true;
@@ -2858,9 +3059,11 @@ test('#3827: the Settings setup gets the same stranded-name answer', async () =>
     await remote.signinVerify('her@example.com', '111111');
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
     assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
-    // on a loaded machine. Retires stay short so a hung one still ends quickly.
-    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
+    // on a loaded machine, and so does a retire that must answer (#6140: at 1.5 s it
+    // timed out under full-suite load, and a timed-out retire keeps the half identity).
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '20000';   // #6140
     await remote.setupStart('her@example.com');
     process.env.FAKE_TUNNEL_MODE = 'retire-refused,setup-409';
     const r = await remote.setupComplete('123456', 'hers');
@@ -2870,12 +3073,13 @@ test('#3827: the Settings setup gets the same stranded-name answer', async () =>
     // #4645: the same in the wording the coordinator can move to, from the same stranded start.
     process.env.FAKE_TUNNEL_MODE = '';
     await remote.forget();
-    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
     assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture (computer wording): the register was killed by its bound');
-    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000';
+    assert.ok(halfHere(), HALF_MSG);
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '20000';   // #6140: said here, not left over
     await remote.setupStart('her@example.com');
     process.env.FAKE_TUNNEL_MODE = 'retire-refused,setup-409-computer';
     const rNew = await remote.setupComplete('123456', 'hers');
@@ -3045,7 +3249,7 @@ test('#3827: a tunnel restart while a register is out does not start a tunnel on
 });
 test('#3827: the Settings setup also keeps a half identity whose retire got no answer', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   const orig = process.stderr.write;
   try {
     process.stderr.write = () => true;
@@ -3053,9 +3257,11 @@ test('#3827: the Settings setup also keeps a half identity whose retire got no a
     await remote.signinVerify('her@example.com', '111111');
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
     assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     // Only the kill needs the short bound; a register expected to succeed gets room
-    // on a loaded machine. Retires stay short so a hung one still ends quickly.
-    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '1500';
+    // on a loaded machine, and so does a retire that must answer (#6140: at 1.5 s it
+    // timed out under full-suite load, and a timed-out retire keeps the half identity).
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000'; process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '20000';   // #6140
     await remote.setupStart('her@example.com');
     process.env.FAKE_TUNNEL_MODE = 'retire-502html';
     fs.rmSync(RECORD, { force: true });
@@ -3100,12 +3306,13 @@ test('#3827: a Settings setup in flight blocks the in-app register, turning on a
 
 test('#3827: a Sign out during the half-identity retire means the register is never sent', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = KILL_BOUND_MS;
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
     process.env.FAKE_TUNNEL_MODE = 'partial-register';
     assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
+    assert.ok(halfHere(), HALF_MSG);
     process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000';
     process.env.FAKE_TUNNEL_MODE = 'slow-retire';
     fs.rmSync(RECORD, { force: true });
@@ -3133,9 +3340,47 @@ test('#3827: a Forget whose retire meets a gateway error page says why in one re
   try {
     const got = await remote.forget();
     assert.equal(got.retired, false);
+    assert.equal(got.kept, true, 'kosmos#6389: a gateway error is "not now", so the key is kept');
     assert.match(got.because, /Kosmos\+ answered 502 for \/v1\/mac\/retire/, got.because);
     assert.doesNotMatch(got.because, /<\/?html|Error:/, 'the answer carried the raw page: ' + got.because);
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
+});
+
+test('#6390: a Forget whose retire is refused because the computer was already removed counts as retired', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  // Both wordings of the coordinator's answer: "this computer was retired", and the older "this Mac was retired".
+  for (const mode of ['retire-already', 'retire-refused', 'retire-win-already']) {
+    if (mode !== 'retire-already') {
+      await remote.signinStart('her@example.com');
+      await remote.signinVerify('her@example.com', '111111');
+      assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered again (' + mode + ')');
+    }
+    process.env.FAKE_TUNNEL_MODE = mode;
+    try {
+      const got = await remote.forget();
+      assert.equal(got.retired, true, mode + ': a computer already removed on the account page read as not retired');
+      assert.equal(got.because, null, mode + ': the person was told the account could not be updated: ' + got.because);
+    } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  }
+  // CONTROLS: a refusal missing one part of the match is still a failure, said as one: a 401 on the retire route for
+  // another reason (the sentence), the retired sentence under another status (the status) or for another route (the
+  // route) or under a gateway's prefix (the prefix), and a plain 429 (none of it).
+  for (const mode of ['retire-401-other', 'retire-403-retired', 'retire-401-route', 'retire-gateway-retired', 'retire-429']) {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered again (' + mode + ')');
+    process.env.FAKE_TUNNEL_MODE = mode;
+    try {
+      const got = await remote.forget();
+      assert.equal(got.retired, false, mode + ' read as retired');
+      // kosmos#6389: a 429 is "not now": the key is kept and the person is told it is not removed yet. The rest are final.
+      if (mode === 'retire-429') { assert.equal(got.kept, true, mode + ': kept for a retry'); assert.match(got.because, /not removed yet/, mode + ': ' + got.because); }
+      else assert.match(got.because, /could not be updated/, mode + ': ' + got.because);
+    } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  }
 });
 
 test('#3827: a Sign out during a register that then fails leaves a Mac that was on, on', async () => {
@@ -3840,6 +4085,26 @@ test('#4756: live, the list is read through the tunnel binary with the session o
   } finally { remote.resetForTests(); }
 });
 
+test('#6314: the price of one more computer reaches the page as Stripe says it, and only in an amount-per-period shape', async () => {
+  process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES = '1';
+  try {
+    await signedIn();
+    const read = async (price) => {
+      fs.writeFileSync(ADDR_ANSWER, JSON.stringify(Object.assign({}, BOUGHT, price === undefined ? {} : { price })));
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, true, r.because);
+      return r.data.price;
+    };
+    assert.equal(await read({ amount: 2000, currency: 'usd', interval: 'month', display: '$20/month' }), '$20/month');
+    assert.equal(await read({ display: '$19.99/3 months' }), '$19.99/3 months');
+    assert.equal(await read(null), '', 'Stripe unread (price null) must read as no figure');
+    assert.equal(await read(undefined), '', 'an older coordinator with no price must read as no figure');
+    assert.equal(await read({ display: '<b>$20</b>/month' }), '', 'markup in the price reached the page');
+    assert.equal(await read({ display: 'free for now' }), '', 'words that are not an amount per period reached the page');
+    assert.equal(await read({ display: 20 }), '', 'a number where the text belongs reached the page');
+  } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
+});
+
 test('#4756 review: first_free reaches the page, from the server field when sent, else only from bought_at null and grandfathered false', async () => {
   process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES = '1';
   const r = (name, extra) => Object.assign({ name, address: name + '.kosmos.invalid', state: 'in_use' }, extra);
@@ -4272,7 +4537,7 @@ async function vouchSignedIn(name) {
   assert.equal(reg.ok, true, reg.because);
   const secret = remote.vouchSecretForTests();
   assert.ok(secret && /^[A-Za-z0-9_-]{43}$/.test(secret), 'premise: a sign-in mints a 43-character secret');
-  const plant = (devices) => fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices }));
+  const plant = (devices, signins) => fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify(signins ? { devices, signins } : { devices }));
   return { secret, plant };
 }
 const nowS = () => Math.floor(Date.now() / 1000);
@@ -4387,6 +4652,60 @@ test('#5786 (b): a secret ends on Sign out and on switching off, and an old requ
   remote.setOn(false);
 });
 
+test('kosmos#6407: a recent sign-in that never knocked here (in signins only) still opens the connect tab; this computer\'s own and a Not me one do not', async () => {
+  let r = await vouchSignedIn('vouchsign1');
+  // Premise for every refusal below: each id is one the filter would otherwise take (the engine's DEVICE_ID), so it is
+  // refused for the reason named, not for its shape. dev-web, the CONTROL, has the same shape and is taken.
+  const SHAPE = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32})$/;
+  const own = remote.read().device_id;
+  for (const id of [own, 'dev-refused', 'dev-old', 'dev-web']) assert.match(String(id), SHAPE, 'premise: ' + id + ' has the shape of a device id');
+  assert.ok(remote.ownDeviceIds().includes(own), 'premise: the sign-in id of this computer is one of its own ids');
+  // This computer's own sign-in, fresh: never "the person, a moment ago" (an app-only sign-in opens no tab).
+  r.plant([], [{ device_id: own, first_seen: nowS() - 30 }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'this computer\'s own sign-in opened the browser');
+  // A device the person said Not me to, fresh: not either.
+  const denied = { ...JSON.parse(fs.readFileSync(remote.FILE, 'utf8')) };
+  denied.denied = { 'dev-refused': nowS() };
+  fs.writeFileSync(remote.FILE, JSON.stringify(denied));
+  r.plant([], [{ device_id: 'dev-refused', first_seen: nowS() - 30 }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'a Not me device\'s sign-in opened the browser');
+  // A computer row, by its labels (a wrong tunnel could send one in signins): never "the person". The ids
+  // have a device id's shape, so each is refused for its label, not its shape.
+  for (const row of [{ device_id: 'dev-joining', joining_computer: 'tmnt' }, { device_id: 'dev-codewait', code_wait: 'another_computer' }]) {
+    assert.match(row.device_id, SHAPE, 'premise: ' + row.device_id + ' has the shape of a device id');
+    r.plant([], [{ ...row, first_seen: nowS() - 30 }]);
+    remote.vouchTickForTests();
+    assert.equal(remote.vouchOpenedUrlForTests(), '', row.device_id + ': a computer row opened the browser');
+  }
+  // An old one (an hour ago): not either.
+  r.plant([], [{ device_id: 'dev-old', first_seen: nowS() - 3600 }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'an hour-old sign-in opened the browser');
+  // CONTROL: a browser signed in on the website a minute ago, which never knocked here (devices is empty).
+  r.plant([], [{ device_id: 'dev-web', first_seen: nowS() - 60 }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'a recent website sign-in did not open the connect tab');
+  // signins only opens the tab: a row there carrying the right vouch is never what gets allowed. CONTROL below: the
+  // same vouch on a row in devices is allowed.
+  const vouch = require('node:crypto').createHmac('sha256', r.secret).update('dev-web').digest('base64url');
+  // Premise: the secret is live and nothing is mid-allow, so this tick does try the rows (it returns early otherwise).
+  assert.ok(remote.vouchSecretForTests(), 'premise: the secret is still live');
+  assert.equal(remote.vouchAllowingIdForTests(), '', 'premise: no allow is out before this tick');
+  r.plant([], [{ device_id: 'dev-web', first_seen: nowS() - 60, vouch }]);
+  remote.vouchTickForTests();
+  // Decided in the tick itself: an allow would be out now. Then as long as the CONTROL below is given to land.
+  assert.equal(remote.vouchAllowingIdForTests(), '', 'an allow started for a row in signins');
+  for (let i = 0; i < 50; i++) await new Promise((ok) => setTimeout(ok, 100));
+  assert.ok(!allowsOf().includes('dev-web'), 'a row in signins was allowed by its vouch');   // allowsOf() lists every recorded allow, this computer's own sign-in grant among them, so ask for dev-web by name
+  r.plant([{ device_id: 'dev-web', name: 'Mac · Safari', first_seen: nowS() - 60, code: 'VR-D6', vouch }], []);
+  remote.vouchTickForTests();
+  for (let i = 0; i < 50 && !allowsOf().includes('dev-web'); i++) await new Promise((ok) => setTimeout(ok, 100));
+  assert.ok(allowsOf().includes('dev-web'), 'CONTROL: the same vouch on a devices row was not allowed');
+  remote.setOn(false);
+});
+
 test('#5786 (b): a register Try again with no sign-in session does not mint a new secret (no local re-open)', async () => {
   const { secret } = await vouchSignedIn('vouchretry');
   // The same name again, Kosmos+ on, no code steps: the already-this-computer path answers, and mints nothing.
@@ -4426,6 +4745,22 @@ test('#5786 (b): a device the person said Not me to is never allowed by a vouch,
     for (let i = 0; i < 5; i += 1) { remote.vouchTickForTests(); await until(() => tries() >= Math.min(i + 1, 3), 'try ' + (i + 1)); await new Promise((res) => setTimeout(res, 60)); }
     assert.equal(tries(), 3, 'a refused allow was tried more than three times');
     assert.equal(remote.vouchSecretForTests(), null, 'the secret stayed live after three refused allows');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  remote.setOn(false);
+});
+
+test('kosmos#6286: an automatic allow Kosmos+ does not take (refused meanwhile, e.g. Not me) is taken back out and stops', async () => {
+  const removesOf = () => recorded().filter((x) => x[0] === 'devices' && x[1] === 'remove').map((x) => x[x.indexOf('--device-id') + 1]);
+  process.env.FAKE_TUNNEL_MODE = 'allow-unknown';
+  try {
+    const { secret, plant } = await vouchSignedIn('vouchunknown');
+    plant([{ device_id: 'dev-unk', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+    remote.vouchTickForTests();
+    plant([{ device_id: 'dev-unk', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-unk') }]);
+    remote.vouchTickForTests();
+    await until(() => removesOf().includes('dev-unk'), 'the entry Kosmos+ did not take was removed');
+    assert.equal(allowsOf().filter((x) => x === 'dev-unk').length, 1, 'an allow Kosmos+ refused was tried again');
+    assert.equal(remote.vouchSecretForTests(), null, 'the secret stayed live after Kosmos+ refused the device');
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
   remote.setOn(false);
 });

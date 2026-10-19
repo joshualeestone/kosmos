@@ -131,7 +131,7 @@ test('removeOne takes one and keeps the rest in order; the last removal leaves a
   policy.clear();
 });
 
-test('the #479 single record migrates: first entry, default name, stable id, and NO rewrite of the block (#685)', () => {
+test('the #479 single record migrates: first entry, the neutral migrated name (#6273), stable id, and a body that is #479\'s but for its heading (#685, #6270)', () => {
   // A v1 record written by the shipped build, planted byte-for-byte.
   // #1856: policy.FILE now lives under the Kosmos leaf; this test writes it
   // DIRECTLY (no policy.add() first), so make its dir -- otherwise it only passed
@@ -144,37 +144,112 @@ test('the #479 single record migrates: first entry, default name, stable id, and
   const got = policy.read();
   assert.equal(got.state, 'saved');
   assert.equal(got.policies.length, 1);
-  assert.equal(got.policies[0].name, policy.DEFAULT_NAME);
+  assert.equal(got.policies[0].name, policy.MIGRATED_NAME, '#6273: the person\'s own migrated policy is named as a company\'s');
   assert.equal(got.policies[0].id, policy.read().policies[0].id,
     'the migrated id is not stable across reads, so a GET and the POST acting on it race');
 
-  /* 🔑 The migration property: with exactly one policy the block body is
-     byte-identical to what #479 wrote, so the fleet's instruction files are
-     not rewritten on the day nothing about their one policy changed. */
-  const v1Body = [
-    '## Your company\'s AI policy',
+  /* 🔑 The migration property (#685): with exactly one policy the block body
+     is what #479 wrote, so a migration does not rewrite the fleet's files.
+     #6270 changed its heading once, on purpose (a person's own policy is
+     "Your AI policy"); everything under the heading is still #479's bytes. */
+  const v1Rest = [
     '',
     'Added by the person you work for on 2026-08-23. Follow it in everything you do; where it conflicts with any other instruction here, the policy wins.',
     '',
     'Cite your sources.',
-  ].join('\n');
-  assert.equal(policy.blockBody(got.policies[0]), v1Body,
+  ];
+  assert.equal(policy.blockBody(got.policies[0]), ['## Your AI policy', ...v1Rest].join('\n'),
     'the single-policy block changed shape, so migration rewrites every agent\'s file');
 
   // The first mutation persists the v2 shape and keeps the migrated entry.
   policy.add({ name: 'Branding', text: 'B.', source: 'pasted' });
   const rec = JSON.parse(fs.readFileSync(policy.FILE, 'utf8'));
-  assert.equal(rec.version, 2);
-  assert.equal(rec.policies[0].name, policy.DEFAULT_NAME);
+  assert.equal(rec.version, 3, '#6273: the record is not marked as written by a build that names the migrated entry');
+  assert.equal(rec.policies[0].name, policy.MIGRATED_NAME);
   assert.equal(rec.policies[1].name, 'Branding');
   policy.clear();
+});
+
+/* #6273: a record migrated BEFORE the name changed already holds "Company AI policy" on disk (the v2 shape), so a new
+   constant alone never reaches it. It is renamed on read, only for the migration's fixed id and that exact name. */
+test('#6273 a stored migrated entry named "Company AI policy" reads as "AI policy"; a name the person chose is kept', () => {
+  const plant = (policies) => {
+    fs.mkdirSync(path.dirname(policy.FILE), { recursive: true });
+    fs.writeFileSync(policy.FILE, JSON.stringify({ version: 2, policies }, null, 2) + '\n');
+  };
+  const p1 = { id: 'p1', name: 'Company AI policy', text: 'Cite your sources.', source: 'pasted', savedAt: '2026-08-23T00:00:00Z' };
+  const legal = { id: 'abc123', name: 'Legal', text: 'The legal words.', source: 'https://example.com/legal', savedAt: '2026-09-01T00:00:00Z' };
+  try {
+    plant([p1, legal]);
+    const got = policy.read();
+    assert.equal(got.state, 'saved');
+    assert.deepEqual(got.policies.map((p) => p.name), ['AI policy', 'Legal'], 'the migrated entry still wears the company\'s name');
+    assert.equal(got.policies[0].id, 'p1', 'the rename moved the id, so a GET and the POST acting on it race');
+    const body = policy.bodyFor(got.policies);
+    assert.ok(body.includes('### AI policy'), 'the stacked block does not head it "AI policy"');
+    assert.ok(!body.includes('### Company AI policy'), 'the stacked block still tells agents a company owns it');
+    // Read is side-effect free; the next mutation persists the new name, as the v1 migration does.
+    assert.equal(JSON.parse(fs.readFileSync(policy.FILE, 'utf8')).policies[0].name, 'Company AI policy', 'read rewrote the record');
+    policy.add({ name: 'Branding', text: 'B.', source: 'pasted' });
+    assert.equal(JSON.parse(fs.readFileSync(policy.FILE, 'utf8')).policies[0].name, 'AI policy', 'the next mutation did not persist it');
+
+    // Review 1: once this build has written the record, a rename BACK to "Company AI policy" is the person's and sticks.
+    policy.rename('p1', 'Company AI policy');
+    assert.equal(JSON.parse(fs.readFileSync(policy.FILE, 'utf8')).version, 3);
+    assert.equal(policy.read().policies[0].name, 'Company AI policy', 'a rename the person made was reverted on read');
+
+    // Review 2: a record from a LATER build (version 4) is never treated as older than this one.
+    plant([p1, legal]);
+    const v4 = JSON.parse(fs.readFileSync(policy.FILE, 'utf8')); v4.version = 4; fs.writeFileSync(policy.FILE, JSON.stringify(v4));
+    assert.equal(policy.read().policies[0].name, 'Company AI policy', 'a newer build\'s record was renamed as if it were old');
+
+    // CONTROL: an entry the person named "Company AI policy" has a random id, and keeps its name.
+    plant([{ ...legal, id: 'def456', name: 'Company AI policy' }, legal]);
+    assert.equal(policy.read().policies[0].name, 'Company AI policy', 'a name the person chose was rewritten');
+
+    // When another entry already wears "AI policy", the migrated one keeps its name rather than collide.
+    plant([p1, { ...legal, name: 'ai POLICY' }]);
+    assert.deepEqual(policy.read().policies.map((p) => p.name), ['Company AI policy', 'ai POLICY'], 'two entries now share one name');
+
+    // Review 5: a save while that clash holds keeps the record old (version 2), so once the clash is gone the rename
+    // still applies. Writing version 3 there would have made "Company AI policy" permanent.
+    const versionOnDisk = () => JSON.parse(fs.readFileSync(policy.FILE, 'utf8')).version;
+    policy.add({ name: 'Branding', text: 'B.', source: 'pasted' });
+    assert.equal(versionOnDisk(), 2, 'an unrelated save during the clash marked the old name as the person\'s choice');
+    policy.removeOne(legal.id);
+    assert.equal(versionOnDisk(), 2, 'removing the clashing entry marked the old name as the person\'s choice');
+    assert.deepEqual(policy.read().policies.map((p) => p.name), ['AI policy', 'Branding'], 'with the clash gone, the migrated entry still wears the company\'s name');
+
+    // Review 7: the natural way out of a clash is renaming the OTHER entry; that save stays old, and p1 is then renamed.
+    plant([p1, { ...legal, name: 'AI policy' }]);
+    policy.rename(legal.id, 'Legal');
+    assert.equal(versionOnDisk(), 2, 'renaming the clashing entry marked p1\'s old name as the person\'s choice');
+    assert.deepEqual(policy.read().policies.map((p) => p.name), ['AI policy', 'Legal'], 'with the clash renamed away, p1 kept the company\'s name');
+
+    // Review 7: renaming p1 to the name it already wears (spaces collapse to it) saves nothing, so it stays pending.
+    plant([p1, { ...legal, name: 'AI policy' }]);
+    policy.rename('p1', 'Company  AI   policy');
+    assert.equal(versionOnDisk(), 2, 'a rename to the same name settled p1\'s old name for good');
+
+    // Re-ingesting p1's words during a clash keeps its name, so it stays pending (version 2).
+    plant([p1, { ...legal, name: 'AI policy' }]);
+    policy.add({ id: 'p1', text: 'New words.', source: 'pasted' });
+    assert.equal(versionOnDisk(), 2, 're-ingesting p1 during the clash marked the old name as the person\'s choice');
+
+    // Renaming p1 itself during a clash is the person's choice: saved as theirs (version 3), and it sticks.
+    plant([p1, { ...legal, name: 'AI policy' }]);
+    policy.rename('p1', 'Our policy');
+    assert.equal(versionOnDisk(), 3, 'a rename the person made to p1 was not saved as theirs');
+    policy.rename(legal.id, 'Legal');
+    assert.equal(policy.read().policies[0].name, 'Our policy', 'a name the person gave p1 was reverted once the clash went');
+  } finally { policy.clear(); }
 });
 
 test('the stacked block: one heading, the conflict sentence once, each policy a named section in order (#685)', () => {
   policy.add({ name: 'Legal', text: 'The legal words.', source: 'https://example.com/legal' });
   policy.add({ name: 'Branding', text: 'The branding words.', source: 'pasted' });
   const body = policy.stackedBody(policy.read().policies);
-  assert.match(body, /^## Your company's AI policies\n/);
+  assert.match(body, /^## Your AI policies\n/);
   assert.match(body, /the policies win/);
   assert.equal((body.match(/win/g) || []).length, 1, 'the conflict sentence is said more than once');
   const legalAt = body.indexOf('### Legal');
@@ -204,7 +279,7 @@ test('tellAgent writes the block for a tied agent, stacks when plural, clear rem
   try {
     assert.equal(policy.tellAgent('casey', roster).state, projects.TOLD.TOLD);
     const one = fs.readFileSync(bootFile('casey'), 'utf8');
-    assert.ok(one.includes(policy.START) && one.includes("company's AI policy") && one.includes('Cite your sources.'));
+    assert.ok(one.includes(policy.START) && one.includes('## Your AI policy\n') && one.includes('Cite your sources.'));
     assert.ok(!one.includes('### Legal'), 'a single policy was written in the stacked shape, rewriting the fleet');
     assert.ok(one.includes('Do the work well'), 'the agent\'s own words survived');
 
@@ -212,7 +287,7 @@ test('tellAgent writes the block for a tied agent, stacks when plural, clear rem
     policy.add({ name: 'Branding', text: 'Use the brand voice.', source: 'pasted' });
     assert.equal(policy.tellAgent('casey', roster).state, projects.TOLD.TOLD);
     const two = fs.readFileSync(bootFile('casey'), 'utf8');
-    assert.ok(two.includes("company's AI policies") && two.includes('### Legal') && two.includes('### Branding'));
+    assert.ok(two.includes('## Your AI policies\n') && two.includes('### Legal') && two.includes('### Branding'));
     assert.ok(two.includes('Cite your sources.') && two.includes('Use the brand voice.'));
     assert.equal(two.split(policy.START).length, 2, 'the stack arrived as more than one managed block');
 
@@ -229,6 +304,30 @@ test('tellAgent writes the block for a tied agent, stacks when plural, clear rem
     assert.equal(r.state, projects.TOLD.COULD_NOT);
     assert.match(r.because, /exactly this name/);
   } finally {
+    fleet.uninstall && fleet.uninstall();
+  }
+});
+
+test('#6270: an agent holding the old company heading over its own policy is rewritten once, then left alone', () => {
+  policy.add({ name: 'Legal', text: 'Cite your sources.', source: 'pasted' });
+  const saved = policy.read().policies[0];
+  // The block as it stood before #6270: the same body under the company's heading.
+  const oldBody = policy.blockBody(saved).replace(/^## Your AI policy\n/, '## Your company\'s AI policy\n');
+  assert.notEqual(oldBody, policy.blockBody(saved), 'the old block was not built, so this test proves nothing');
+  plantAgent('casey', projects.spliceBlock(BOOT, oldBody, policy.START, policy.END));
+  const roster = fleet.install([fleet.agent('casey', { state: 'idle' })]).agents;
+  try {
+    const first = policy.tellAgent('casey', roster);
+    assert.equal(first.changed, true, 'the old heading was not rewritten, so no re-read is owed');
+    const after = fs.readFileSync(bootFile('casey'), 'utf8');
+    assert.ok(after.includes('## Your AI policy\n') && !after.includes("company's"), after);
+    // A second board start: nothing to write, so no second re-read is owed.
+    const second = policy.tellAgent('casey', roster);
+    assert.equal(second.state, projects.TOLD.TOLD);
+    assert.notEqual(second.changed, true, 'a settled block was written again');
+    assert.equal(fs.readFileSync(bootFile('casey'), 'utf8'), after);
+  } finally {
+    policy.clear();
     fleet.uninstall && fleet.uninstall();
   }
 });

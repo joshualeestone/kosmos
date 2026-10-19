@@ -11,13 +11,16 @@
 # the app compiles and links for the simulator with signing off (Debug and
 # Release), both built apps carry the four permission strings, the app icon and
 # the navy launch screen (#4089), an unsigned device archive builds, the
-# exported-app push check can fail as well as pass, and archive.sh's signing
-# settings checks refuse what they should. It does NOT certify running
+# exported-app push check can fail as well as pass, archive.sh's signing
+# settings checks refuse what they should, neither the Release app nor the
+# archive carries the App Store screenshot switch (a Release build WITH it is the
+# control that must fail, #6262), and the hand-signing mode's export options and
+# archive arguments are right (with a stand-in xcodebuild). It does NOT certify running
 # on a simulator or device, a signed build or export, or APNs delivery.
 #
 # The asset catalog (icon, launch colour) only compiles on a Mac with an iOS
-# simulator runtime installed; the runner has one, the Mac mini does not yet, so
-# this workflow is where the icon and launch screen are proven (#4089).
+# simulator runtime installed. The runner has one, so this workflow is where the
+# icon and launch screen are proven (#4089).
 
 name: ios
 
@@ -107,6 +110,27 @@ jobs:
             CODE_SIGNING_ALLOWED=NO archive
           test -d "$RUNNER_TEMP/Kosmos.xcarchive/Products/Applications/Kosmos.app"
 
+      # #6262: the store build never carries the App Store screenshot switch (ios/store/shoot-app.sh's
+      # KOSMOS_STORE_SHOTS). Checked on the Release app and the archive's app, and shown able to fail on a REAL
+      # Release build made with the switch (the configuration that ships, optimised), so a renamed or inlined marker
+      # cannot make the check pass by finding nothing.
+      # (archive.sh runs the same check on the exported .ipa before upload, inside check-ipa-entitlements.sh.)
+      - name: No screenshot switch in the store build
+        run: |
+          set -o pipefail
+          for app in ios/build/Release-iphonesimulator/Kosmos.app "$RUNNER_TEMP/Kosmos.xcarchive/Products/Applications/Kosmos.app"; do
+            ios/tools/check-no-shots-flag.sh "$app" | tee "$RUNNER_TEMP/shots-flag.log"
+            grep -q '^VERDICT: PASS' "$RUNNER_TEMP/shots-flag.log"
+          done
+          xcodebuild -project ios/Kosmos.xcodeproj -target Kosmos -sdk iphonesimulator -configuration Release \
+            CODE_SIGNING_ALLOWED=NO SYMROOT="$RUNNER_TEMP/shots-sym" OBJROOT="$RUNNER_TEMP/shots-obj" \
+            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=KOSMOS_STORE_SHOTS' build
+          if ios/tools/check-no-shots-flag.sh "$RUNNER_TEMP/shots-sym/Release-iphonesimulator/Kosmos.app" > "$RUNNER_TEMP/shots-ctl.log"; then
+            echo "the check passed an app built with the switch"; exit 1
+          fi
+          # The found-it line, not the bare verdict: a missing executable also fails, and would prove nothing.
+          grep -q 'was built with KOSMOS_STORE_SHOTS' "$RUNNER_TEMP/shots-ctl.log"
+
       # #4089: the check archive.sh runs before any upload, shown able to fail.
       - name: Exported-app push check (production aps-environment)
         run: |
@@ -114,8 +138,8 @@ jobs:
           ios/tools/test-check-ipa-entitlements.sh | tee "$RUNNER_TEMP/ipa-check.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/ipa-check.log"
 
-      # #4089: archive.sh's signing settings checks, including that io.kosmos.app is never built under the
-      # interim Stone Syndicate team (Apple cannot transfer an app never released on the App Store).
+      # #4089, #6262: archive.sh's signing settings checks, including that io.kosmos.app is built only under
+      # Kosmos Agent Manager, Inc.'s team, and the hand-signing mode (export-options.sh and archive.sh's wiring).
       - name: Archive signing settings refuse what they should
         run: |
           set -o pipefail

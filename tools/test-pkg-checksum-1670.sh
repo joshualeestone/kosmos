@@ -23,7 +23,7 @@ PY3=/usr/bin/python3; "$PY3" -c '' >/dev/null 2>&1 || PY3=python3
 "$PY3" -c '' >/dev/null 2>&1 || { echo "FAIL  no runnable python3: /usr/bin/python3 and python3 on PATH both failed to start (the /usr/bin shim exits 69 until the Xcode license is accepted, #3578)"; exit 1; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
-T="$(mktemp -d)"; trap 'rm -rf "$T"; [ -n "${SRV:-}" ] && kill "$SRV" 2>/dev/null' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/test-pkg-checksum-1670.XXXXXXXXXX")"; trap 'rm -rf "$T"; [ -n "${SRV:-}" ] && kill "$SRV" 2>/dev/null' EXIT
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
@@ -48,7 +48,7 @@ pass "lifted the verification out of the shipped postinstall"
 WWW="$T/www"; mkdir -p "$WWW"
 # The fake installer also records the directory it was run from (#4319), so an arm can check the
 # verify directory is gone afterwards. macOS mktemp -d ignores TMPDIR, so the path cannot be predicted.
-printf '#!/bin/sh\ntouch "%s/RAN"\ndirname "$0" > "%s/DIR"\n' "$T" "$T" > "$WWW/setup"
+printf '#!/bin/sh\ntouch "%s/RAN"\nprintf x >> "%s/RANS"\ndirname "$0" > "%s/DIR"\n' "$T" "$T" "$T" > "$WWW/setup"
 GOOD=$(/usr/bin/shasum -a 256 "$WWW/setup" | /usr/bin/awk '{print $1}')
 cd "$WWW" || exit 1
 "$PY3" -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
@@ -83,7 +83,15 @@ URL="http://127.0.0.1:$PORT/setup"
 # in a REAL install `sudo -u -H` strips them, so production keeps the 5/3 default.
 # The refuse arms below therefore complete instantly instead of waiting ~12s each.
 export KOSMOS_PKG_RETRY_SLEEP=0 KOSMOS_PKG_RETRY_MAX=4
-run_arm() { rm -f "$T/RAN" "$T/DIR"; /bin/sh -c "$(cat "$INNER")" "$URL" 0 2>&1; }
+# #6474: HOME is sandboxed. The lifted block hands off to an INSTALLED Kosmos at $HOME/.local/share/kosmos when it has
+# a verifier, so the real HOME would make these arms depend on (and run against) this Mac's own install.
+# #6507: for the WHOLE test, not only run_arm. ARM 4 and CONTROL #4319 ran the block directly with the real HOME, so on a
+# Mac whose own install had the verifier (Mortals at 0.7.57) they took the hand-off and went red; a Mac on an older
+# install passed. Exported here, every arm, present and future, starts in the empty sandbox; run_arm still points an arm
+# at its own fake install through ARM_HOME.
+mkdir -p "$T/nohome"
+export HOME="$T/nohome"
+run_arm() { rm -f "$T/RAN" "$T/RANS" "$T/DIR"; HOME="${ARM_HOME:-$T/nohome}" /bin/sh -c "$(cat "$INNER")" "$URL" 0 2>&1; }
 # #4319: the verify directory the installer ran from must be gone once the run ends.
 verify_dir_gone() {
   _vd=$(cat "$T/DIR" 2>/dev/null)
@@ -124,6 +132,104 @@ if [ "$rc" -ne 0 ] && [ ! -f "$T/RAN" ]; then pass "an ABSENT checksum refuses a
 else fail "an absent checksum must refuse AND not run (rc=$rc, ran=$([ -f "$T/RAN" ] && echo yes || echo no))"; fi
 if has "$out" "could not download the installer or its published checksum"; then pass "and says it could not DOWNLOAD/check, a different sentence from a mismatch"; else fail "and distinguishes the two causes: $out"; fi
 if has "$out" "safe to try again"; then pass "and this one IS safe to retry, so it says so"; else fail "and says a retry is safe here: $out"; fi
+
+# --- ARMS 5 (#6474): an EXISTING install holds the installer to its signed release ----------------
+# A fake installed home whose verifier pins a throwaway key, and the origin serving dist/latest.json plus the version's
+# manifest and .sig. The checksum gate above still runs first (both arms here have a matching .sha256).
+printf '%s  setup\n' "$GOOD" > "$WWW/setup.sha256"
+IH="$T/ihome"; K="$IH/.local/share/kosmos"; mkdir -p "$K/app/engine" "$K/runtime/bin" "$WWW/dist"
+ln -sf "$(command -v node)" "$K/runtime/bin/node"
+printf '{"version":"1.2.0"}\n' > "$K/app/package.json"
+node -e '
+const c = require("crypto"), fs = require("fs");
+const [repo, k, www, setup] = process.argv.slice(1);
+const { privateKey, publicKey } = c.generateKeyPairSync("ed25519");
+const pub = publicKey.export({ type: "spki", format: "der" }).toString("base64");
+const src = fs.readFileSync(repo + "/engine/manifest-verify.js", "utf8");
+const out = src.replace(/const KEYS = \[[\s\S]*?\];/, "const KEYS = [" + JSON.stringify(pub) + "];");
+if (out === src) process.exit(4);
+// Every hand-off call is recorded, and the first FAIL96 calls answer 96 (a failed download), so the retry can be seen.
+const tap = "const __t = require(\"fs\"); __t.appendFileSync(" + JSON.stringify(k + "/../HANDOFF") + ", \"x\"); "
+  + "{ const f = " + JSON.stringify(k + "/../FAIL96") + "; let n = 0; try { n = +__t.readFileSync(f, \"utf8\"); } catch {} "
+  + "if (n > 0) { __t.writeFileSync(f, String(n - 1)); process.stderr.write(\"Kosmos: the signed manifest could not be downloaded, so the installer was not run.\\n\"); process.exit(96); } }\n";
+fs.writeFileSync(k + "/app/engine/manifest-verify.js", tap + out);
+const sign = (sha) => {
+  const m = www + "/dist/kosmos-1.2.3-arm64.manifest.json";
+  fs.writeFileSync(m, JSON.stringify({ manifest: 1, version: "1.2.3", arch: "arm64", setup_sha256: sha, files: [] }) + "\n");
+  fs.writeFileSync(m + ".sig", c.sign(null, fs.readFileSync(m), privateKey).toString("base64") + "\n");
+};
+fs.writeFileSync(k + "/../signer.pem", privateKey.export({ type: "pkcs8", format: "pem" }), { mode: 0o600 });
+fs.writeFileSync(www + "/dist/latest.json", JSON.stringify({ version: "1.2.3" }) + "\n");
+sign(c.createHash("sha256").update(fs.readFileSync(setup)).digest("hex"));
+' "$REPO" "$K" "$WWW" "$WWW/setup" || { fail "ARMS 5: could not build the fake signed install"; }
+HO="$IH/.local/share/HANDOFF"; F96="$IH/.local/share/FAIL96"
+rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$T/RANS" 2>/dev/null)" = x ] && [ "$(cat "$HO" 2>/dev/null)" = x ]; then pass "ARM 5a (installer ran exactly once): an existing install checks the installer against its signed release (the hand-off ran once), then runs it"
+else fail "ARM 5a: the signed, matching installer must run THROUGH the installed copy (rc=$rc, hand-off calls=$(cat "$HO" 2>/dev/null)): $out"; fi
+# ARM 5d: a 96 (a download that failed) is retried, and the second try runs it.
+rm -f "$HO"; printf 1 > "$F96"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$T/RANS" 2>/dev/null)" = x ] && [ "$(cat "$HO" 2>/dev/null)" = xx ]; then pass "ARM 5d (installer ran exactly once): a failed download (96) is retried, and the retry runs it"
+else fail "ARM 5d: a 96 must be retried (rc=$rc, hand-off calls=$(cat "$HO" 2>/dev/null)): $out"; fi
+# ARM 5g: a 96 that never clears ends after the retry budget with the safe-to-retry sentence, and nothing ran.
+rm -f "$HO"; printf 99 > "$F96"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 96 ] && [ ! -f "$T/RAN" ] && [ "$(cat "$HO" 2>/dev/null)" = "$(printf %${KOSMOS_PKG_RETRY_MAX}s | tr " " x)" ] && has "$out" "safe to try again"; then pass "ARM 5g: a download that keeps failing stops after the retry budget, says a retry is safe, runs nothing"
+else fail "ARM 5g: a persistent 96 (rc=$rc, hand-off calls=$(cat "$HO" 2>/dev/null)): $out"; fi
+rm -f "$F96"
+# ARM 5h: an unreadable pointer (latest.json missing) is a failed download (96, retried), never a refusal (97).
+mv "$WWW/dist/latest.json" "$WWW/dist/latest.json.away"
+rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 96 ] && [ ! -f "$T/RAN" ] && [ ! -e "$HO" ] && has "$out" "safe to try again"; then pass "ARM 5h: an unreadable pointer is retried as a failed download and ends safe-to-retry, nothing run"
+else fail "ARM 5h: an unreadable pointer must be a 96 (rc=$rc, hand-off=$([ -e "$HO" ] && echo yes || echo no)): $out"; fi
+mv "$WWW/dist/latest.json.away" "$WWW/dist/latest.json"
+# Re-sign (with the same pinned key) a manifest naming OTHER installer bytes: the published checksum still matches,
+# the signature is good, and only the signed installer hash differs.
+node -e '
+const fs = require("fs"); const m = process.argv[1] + "/dist/kosmos-1.2.3-arm64.manifest.json";
+const j = JSON.parse(fs.readFileSync(m, "utf8")); j.setup_sha256 = "f".repeat(64); fs.writeFileSync(m, JSON.stringify(j) + "\n");
+const c = require("crypto");
+fs.writeFileSync(m + ".sig", c.sign(null, fs.readFileSync(m), c.createPrivateKey(fs.readFileSync(process.argv[2]))).toString("base64") + "\n");
+' "$WWW" "$IH/.local/share/signer.pem"
+rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 97 ] && [ ! -f "$T/RAN" ] && has "$out" "this Mac already has Kosmos, and its own check refused this installer"; then pass "ARM 5b (exit 97, the .pkg sentence): an installer the signed release does not name is NOT run, though its checksum matches"
+else fail "ARM 5b: a mismatch with the signed release must refuse and not run (rc=$rc, ran=$([ -f "$T/RAN" ] && echo yes || echo no)): $out"; fi
+if has "$out" "does not match its signed release, so the installer was not run"; then pass "ARM 5b: and says the installer does not match its signed release"; else fail "ARM 5b: and says why: $out"; fi
+if [ "$(cat "$HO" 2>/dev/null)" = x ]; then pass "ARM 5b: a refusal (97) is not retried (the hand-off ran exactly once)"; else fail "ARM 5b: a refusal must run the hand-off once and not again (calls=$(cat "$HO" 2>/dev/null))"; fi
+# ARM 5e: an installed node that will not RUN (a broken install being repaired) keeps the checksum path.
+mv "$K/runtime/bin/node" "$K/runtime/bin/node.real"; printf '#!/bin/sh\nexit 1\n' > "$K/runtime/bin/node"; chmod +x "$K/runtime/bin/node"
+rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 0 ] && [ -f "$T/RAN" ] && [ ! -e "$HO" ]; then pass "ARM 5e: a broken installed node keeps the checksum path, so the .pkg still repairs it"
+else fail "ARM 5e: a node that will not run must keep the checksum path (rc=$rc, hand-off=$([ -e "$HO" ] && echo yes || echo no)): $out"; fi
+rm -f "$K/runtime/bin/node"; mv "$K/runtime/bin/node.real" "$K/runtime/bin/node"
+# ARM 5i (review 4): a HALF-WRITTEN package.json that a pattern would pass, and a TRUNCATED verifier that still names
+# run-setup, both keep the checksum path (the installed node parses the one and syntax-checks the other).
+mv "$K/app/package.json" "$K/app/package.json.real"; printf '{"name":"kosmos","version":"1.2.0",' > "$K/app/package.json"
+rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$T/RANS" 2>/dev/null)" = x ] && [ ! -e "$HO" ]; then pass "ARM 5i: a half-written package.json keeps the checksum path"
+else fail "ARM 5i: a half-written package.json must keep the checksum path (rc=$rc): $out"; fi
+mv "$K/app/package.json.real" "$K/app/package.json"
+cp "$K/app/engine/manifest-verify.js" "$T/mv.real"; head -c 4000 "$T/mv.real" > "$K/app/engine/manifest-verify.js"; printf '\n// run-setup\nfunction (' >> "$K/app/engine/manifest-verify.js"
+rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$T/RANS" 2>/dev/null)" = x ] && [ ! -e "$HO" ]; then pass "ARM 5j: a truncated verifier keeps the checksum path"
+else fail "ARM 5j: a truncated verifier must keep the checksum path (rc=$rc): $out"; fi
+cp "$T/mv.real" "$K/app/engine/manifest-verify.js"
+# ARM 5k (review 5): valid JSON whose version is not x.y.z keeps the checksum path (the regex, not only the parse).
+mv "$K/app/package.json" "$K/app/package.json.real"; printf '{"name":"kosmos","version":"1.2"}\n' > "$K/app/package.json"
+rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$T/RANS" 2>/dev/null)" = x ] && [ ! -e "$HO" ]; then pass "ARM 5k: a version that is not x.y.z keeps the checksum path"
+else fail "ARM 5k: a non x.y.z version must keep the checksum path (rc=$rc): $out"; fi
+mv "$K/app/package.json.real" "$K/app/package.json"
+# ARM 5f: an installed version that will not READ keeps the checksum path too.
+mv "$K/app/package.json" "$K/app/package.json.real"; printf '{\n' > "$K/app/package.json"
+rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 0 ] && [ -f "$T/RAN" ] && [ ! -e "$HO" ]; then pass "ARM 5f: an unreadable installed version keeps the checksum path"
+else fail "ARM 5f: an unreadable package.json must keep the checksum path (rc=$rc): $out"; fi
+mv "$K/app/package.json.real" "$K/app/package.json"
+# CONTROL: the same broken manifest, but the install has no verifier: the checksum path runs as before.
+rm -f "$K/app/engine/manifest-verify.js"
+out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 0 ] && [ -f "$T/RAN" ]; then pass "ARM 5c CONTROL: with no installed verifier the checksum path runs, so 5b refused on the signed check"
+else fail "ARM 5c: with no verifier the checksum path must run (rc=$rc): $out"; fi
+rm -rf "$IH" "$WWW/dist"
 
 # --- ARM 4: a TRANSIENT mismatch (half-published window) then a MATCH RUNS --
 # The 2026-09-15 hardening: a single-shot check turned a transient CDN/half-publish

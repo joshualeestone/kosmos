@@ -24,7 +24,8 @@
  * you (the card's third point). #4926: a held post that asks nothing of you and has gone stale (older than
  * messages.HELD_TELL_MAX_MS, counted from a quota pause's end for a quota hold, or the room's loop guard stopped the
  * conversation after it) is dropped from that line instead (withoutStale): it is still in the room. #4926 R2: so is one
- * that asks something of you, once you have answered it in the room or it is over a day old (messages.staleHeld).
+ * that asks something of you, once you have answered it, or a later post of another member's that it sat a few rows
+ * before and that you answered (N7), or it is over a day old (messages.staleHeld).
  *
  * Left exactly as before: the person's posts (to the room or to you), any post that @-names you, and
  * every agent whose latest report is neither a fresh `working` nor `idle` (needs_you, blocked, stopped, never
@@ -123,6 +124,33 @@ function limitKept(name, projectId, id, now = Date.now()) {
 }
 
 function off(env) { return !!(env && env.AGENT_WORKFORCE_ROOM_HOLD_OFF === '1'); }
+
+/* #6256 item 1: the posts held because text sat in a member's input box (#6249, heldBy 'input'), by member, project
+   and id. No wake may come for those (a person can clear the box by hand with no turn), so flushReleased tells the
+   projects still holding one once the box reads empty. Only those projects: a plain post the #4624 idle hold kept in
+   another project still waits for the next wake. Kept in memory: after a restart they wait for the next wake. */
+const inputHeld = new Map();   // name -> Map(projectId -> Set(plain id))
+function noteInput(name, projectId, id) {
+  if (!name || !projectId || !id) return;
+  const byProject = inputHeld.get(String(name)) || new Map();
+  const ids = byProject.get(String(projectId)) || new Set();
+  ids.add(plainId(String(id)));
+  byProject.set(String(projectId), ids);
+  inputHeld.set(String(name), byProject);
+}
+/* The projects that still hold one of the member's input-held posts; notes for posts gone since are dropped. */
+function inputProjects(name) {
+  const byProject = inputHeld.get(String(name));
+  if (!byProject) return [];
+  const live = [];
+  for (const [p, ids] of [...byProject]) {
+    const still = new Set(heldIn(String(name), p).map(plainId).filter((x) => ids.has(x)));
+    if (still.size) { byProject.set(p, still); live.push(p); } else byProject.delete(p);
+  }
+  if (!byProject.size) inputHeld.delete(String(name));
+  return live;
+}
+function forgetInput(name) { inputHeld.delete(String(name)); }
 
 /* #4588 PR B: a post held because the member is an Antigravity agent paused on the shared Google quota may @-name
    the member (an agent's post is an automatic sender there, addressed or not). Its id is kept with this mark, so the
@@ -282,6 +310,7 @@ function dropShown(name, projectId, shownIds) {
 
 /* The member was removed: nothing held for it is told to anyone who later takes its name. */
 function forget(name) {
+  forgetInput(name);   // #6256 item 1
   try { fs.rmSync(limitFileFor(name), { force: true }); } catch { /* the held file is what matters */ }
   try { fs.rmSync(fileFor(name), { force: true }); return true; } catch { return false; }
 }
@@ -318,8 +347,9 @@ function clauseFor(projectId, shown, ids) {
    caller decides, messages.staleHeld says older than HELD_TELL_MAX_MS or the room's loop guard has stopped it since) is
    dropped rather than told: hours later, or after the room was stopped, it woke agents into one more short reply after
    the person had asked for quiet. A held post that names the member and asks for an answer is told unless the member
-   has answered it in that room, or it is over a day old (#4926 R2, staleHeld's evenIfAsked). The post
-   itself is in the room either way (kosmos room shows it). Without `stale`, nothing is dropped. */
+   has answered it, or a later post of another member's that it sat a few rows before (N7), or it is over a day old
+   (#4926 R2, staleHeld's evenIfAsked). The post itself is in the room either way (kosmos room shows it). Without
+   `stale`, nothing is dropped. */
 function withoutStale(projectId, ids, stale, name) {
   if (!ids.length || typeof stale !== 'function') return ids;
   let gone;
@@ -340,7 +370,7 @@ function withoutStale(projectId, ids, stale, name) {
   });
   // Review 7 (Opus): a drop is said, so "why did my agent never hear about mN" has an answer in the board's log.
   if (kept.length < ids.length) {
-    const why = (x) => (asked.has(plainId(x)) ? 'answered or a day old' : 'stale');
+    const why = (x) => (asked.has(plainId(x)) ? 'answered, shown before a post the member answered, or a day old' : 'stale');
     try { process.stdout.write('room-hold: ' + (name || '?') + ' dropped ' + (ids.length - kept.length) + ' held post(s) in ' + projectId + ' (' + ids.filter((x) => !kept.includes(x)).map((x) => x + ': ' + why(x)).join(', ') + ')\n'); } catch { /* never breaks a flush */ }
   }
   return kept;
@@ -350,10 +380,11 @@ function withoutStale(projectId, ids, stale, name) {
    typing path (chat.deliverAsync). An id is cleared only once its line was typed (anything but
    COULD_NOT), so a pane that could not take it keeps it for the next arrival; a stale one (#4926, withoutStale) is
    cleared without being told. Never throws. */
-async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly }) {
+async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly, afterOf, only }) {
   const out = [];
   if (off(env)) return out;
   for (const projectId of heldProjects(name)) {
+    if (Array.isArray(only) && !only.includes(projectId)) continue;   // #6256 item 1: the projects named, the rest untouched
     /* #5805: the Claude retry (flushReleased) tells only a project holding an ask a usage limit kept (limitKept), and
        only once it survives the staleness rule; any other project is left untouched (not taken and rewritten every
        minute, #4797) for the member's next wake. */
@@ -364,6 +395,10 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     if (askedOnly === true && !ids.some(limitAsk)) { restore(name, projectId, ids); continue; }
     let shown = projectId;
     try { shown = shownOf(projectId) || projectId; } catch { /* the id reads fine */ }
+    /* #4926 N7 diagnostic: the member's own posts since each post told, read BEFORE the line is typed (so a reply the
+       member posts in that moment is not counted). Best effort: a failed read logs nothing extra. */
+    let after = null;
+    if (typeof afterOf === 'function') { try { after = afterOf(projectId, ids.map(plainId), name) || null; } catch { after = null; } }
     let state;
     let capped = false;
     let limitUntil = null;
@@ -378,7 +413,7 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     // #5805: a usage limit held this flush: its ids keep their marks, and the reset is recorded for withoutStale.
     if (limitUntil) noteLimit(name, projectId, ids.filter(isAddressed), limitUntil);
     if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, capped ? ids.map((x) => (isAddressed(x) ? x : cappedId(plainId(x)))) : ids);
-    out.push({ projectId, n: ids.length, state });
+    out.push({ projectId, n: ids.length, state, ...(after ? { after } : {}) });
   }
   return out;
 }
@@ -388,13 +423,30 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
    is held too and its ids are put back, with no further idle report until the agent's next turn. So once a minute,
    each of our antigravity agents that still holds posts and is not in a fresh `working` turn is flushed through the
    same gated path (a held verdict puts the ids back again). `isAgy` picks those cards; #5805 adds a Claude member
-   holding an ask a usage limit kept (see the loop). Every other #4624 hold is exactly as before. Never throws. */
-async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale }) {
+   holding an ask a usage limit kept (see the loop), and #6256 a project holding a post that text in a Claude member's
+   input box held, once the box reads empty (see the loop). Every other #4624 hold is exactly as before. Never throws. */
+async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale, afterOf, boxEmpty }) {
   const out = [];
   if (off(env)) return out;
   for (const card of Array.isArray(roster) ? roster : []) {
     try {
       if (!card || !card.sessionName) continue;
+      /* #6256 item 1: the projects still holding a post that text in this member's input box held are told once the box
+         reads empty, when the member is not in a fresh working turn, can be typed into, and no usage limit or sign-out
+         holds it (accountHeldVerdict: a try then would only be refused and its ids put back, every minute, #4797). Until
+         then, or when the box cannot be read, those posts wait as before. A minute that tells them skips the rest of this
+         loop for the member (the agy and #5805 paths); anything they hold is looked at again a minute later. */
+      const inName = String(card.sessionName);
+      const inProjects = typeof boxEmpty === 'function' ? inputProjects(inName) : [];
+      if (inProjects.length && !workingNow(readReport, inName, now, decayMs)) {
+        const chatMod = require('./chat');
+        if (chatMod.addressable(inName, roster).ok === true && !chatMod.accountHeldVerdict(inName, roster) && boxEmpty(card) === true) {
+          const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: inProjects });
+          inputProjects(inName);   // drop the notes for posts now told
+          for (const d of done) out.push({ name: inName, why: 'input', ...d });
+          continue;
+        }
+      }
       const agy = isAgy(card);
       // Read from the card before any file: only a capped or released Claude card has anything for #5805 below.
       // (chat and status are required here, not at the top: chat requires roomhold, so a top-level require would cycle.)
@@ -449,7 +501,7 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
          skipped. */
       const agyquota = require('./agyquota');
       if (agyquota.heldForAgy(name, roster, now, agyquota.POOL_MEMO, env || process.env) != null) continue;   // #4588 ask 3: the cap too
-      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly: !agy })) out.push({ name, ...d });
+      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly: !agy, afterOf })) out.push({ name, ...d });
     } catch { /* the posts stay held for the next minute */ }
   }
   return out;
@@ -463,7 +515,34 @@ function toldLine(name, d, after = '') {
   const DELIVERY = require('./chat').DELIVERY;
   return !d.state || d.state === DELIVERY.COULD_NOT
     ? `room-hold: ${name} could not yet be told of ${d.n} held post(s) in ${d.projectId} (delivery=${d.state || 'none'})\n`
-    : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}\n`;
+    : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}${afterNote(d.after)}\n`;
+}
+/* #4926 N7 diagnostic: "; since each, the member's own posts here: m12: m13 (cites nothing), m15 (replies to m14);
+   m16: none". Ids only, never text. `total` past the ones listed is said as "+N more". */
+function afterNote(after) {
+  if (!after || typeof after !== 'object') return '';
+  const one = ([id, o]) => {
+    if (!/^m\d+$/.test(id) || !o || !Array.isArray(o.after)) return null;
+    if (!o.after.length) return id + ': none';
+    const listed = o.after.filter((a) => a && /^m\d+$/.test(a.id))
+      .map((a) => a.id + (a.cites && /^m\d+$/.test(a.cites) ? ' (replies to ' + a.cites + ')' : ' (cites nothing)'));
+    const more = Number.isInteger(o.total) && o.total > o.after.length ? ' +' + (o.total - o.after.length) + ' more' : '';
+    return id + ': ' + listed.join(', ') + more;
+  };
+  const parts = Object.entries(after).map(one).filter(Boolean);
+  return parts.length ? '; since each, the member\'s own posts here: ' + parts.join('; ') : '';
+}
+/* #4926 N7 (round 1): held posts that ride on a live arrival (messages.js) are told without a flush line; this says so
+   in the flush's words, with the arrival's outcome (round 2): told only when typed, "could not yet be told" when held
+   or refused (the ids were put back), so a telling is never counted that did not happen. */
+function carriedLine(name, projectId, ids, after, state) {
+  const DELIVERY = require('./chat').DELIVERY;
+  // Round 3: typing started and threw, so they may have reached the member, and were put back to be told again.
+  if (state === 'may-have') return `room-hold: ${name} may have been told of ${ids.length} held post(s) in ${projectId} on an arrival there (typing threw after it started), put back${afterNote(after)}\n`;
+  const told = state && state !== 'held' && state !== DELIVERY.COULD_NOT;
+  return told
+    ? `room-hold: ${name} told of ${ids.length} held post(s) in ${projectId} on an arrival there, delivery=${state}${afterNote(after)}\n`
+    : `room-hold: ${name} could not yet be told of ${ids.length} held post(s) in ${projectId} on an arrival there (delivery=${state || 'none'})\n`;
 }
 
-module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept };
+module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };

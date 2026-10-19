@@ -43,8 +43,10 @@ const EVENTS = [
   { kind: 'reviewer-set', person: true }, { kind: 'reviewer-set', who: 'leo-discord' }, { kind: 'reviewer-set' }, { kind: 'reviewer-cleared' },
   { kind: 'missed', count: 3, more: true, person: true }, { kind: 'missed', count: 2, told: 'mara-discord' },
   { kind: 'missed', count: 1, told: 'leo-discord', reached: false }, { kind: 'missed', count: 1 },
+  { kind: 'hold-stale', told: 'mara-discord', reached: true }, { kind: 'hold-stale', told: 'leo-discord', reached: false },
   { kind: 'said', who: 'mara-discord', text: 'on it' }, { kind: 'said', text: 'from the board' }, { kind: 'said' },
   { kind: 'closed' }, { kind: 'undone', files: 1 }, { kind: 'undone', files: 4 }, { kind: 'undone' }, { kind: 'reopened' },
+  { kind: 'reopened', by: 'mara-discord', why: 'it came back' }, { kind: 'reopened', person: true }, { kind: 'reopened', person: true, why: 'closed by mistake' }, { kind: 'reopened', by: 'leo-discord' },   // #6157
   { kind: 'built', person: true, note: 'shipped' }, { kind: 'built', by: 'mara-discord' }, { kind: 'built' },
   { kind: 'unbuilt', reason: 'new work' }, { kind: 'unbuilt', reason: 'it repeats', person: true }, { kind: 'unbuilt', reason: 'it repeats' },
   { kind: 'unbuilt', by: 'leo-discord' }, { kind: 'unbuilt', person: true }, { kind: 'unbuilt' },
@@ -55,6 +57,11 @@ const EVENTS = [
   { kind: 'kept-dropped', to: 'mara-discord', from: '', person: true },
   { kind: 'kept-dropped', to: 'mara-discord', from: 'leo-discord', behind: true },
   { kind: 'kept-dropped', to: '', from: '' },
+  // #6359: a kept built notice, sent and dropped, named or not.
+  { kind: 'kept-sent', to: 'mara-discord', from: 'leo-discord', state: 'placed', built: true },
+  { kind: 'kept-sent', to: 'mara-discord', from: 'leo-discord', state: 'unconfirmed', built: true },
+  { kind: 'kept-dropped', to: 'mara-discord', from: 'leo-discord', built: true },
+  { kind: 'kept-dropped', to: 'mara-discord', from: '', built: true },
   { kind: 'something-added-later' },
 ];
 
@@ -98,4 +105,16 @@ test('#5874 review 2: worded for an agent, every free text a person or agent wro
   assert.equal(a({ kind: 'repeat-set', words: 'daily at 09:00' }), 'Set to repeat daily at 09:00');
   // CONTROL: the page's words for the same events are unquoted (the parity test above holds them).
   assert.equal(pagePhrase({ kind: 'part-added', sentence: 'x. Marked done' }), 'A part added: x. Marked done');
+});
+
+test('#6359: a kept built notice is named as the notice, never as a message the conversation did not show', () => {
+  const p = (ev) => phrase(ev, (sn) => NAMES[sn] || null);
+  assert.equal(p({ kind: 'kept-sent', to: 'mara-discord', from: 'leo-discord', state: 'placed', built: true }),
+    'The built notice from Leo to Mara, kept while Mara was out of usage, was sent once Mara was back');
+  assert.equal(p({ kind: 'kept-dropped', to: 'mara-discord', from: 'leo-discord', built: true }),
+    'The built notice from Leo to Mara was never sent: Kosmos kept it while Mara was out of usage and could not send it within a day');
+  assert.equal(p({ kind: 'kept-sent', to: 'mara-discord', from: 'leo-discord', state: 'unconfirmed', built: true }),
+    'Kosmos tried to send the built notice from Leo to Mara once Mara was back, but could not confirm Mara got it');
+  // CONTROL: the same entry without the mark is still a message.
+  assert.match(p({ kind: 'kept-sent', to: 'mara-discord', from: 'leo-discord', state: 'placed' }), /^A message from Leo to Mara/);
 });

@@ -12,7 +12,7 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 FILES="install/kosmos install/setup.sh install/kosmos-report-hook.sh"
 fails=0
 # Every scratch file below lands in one folder, removed by an EXIT trap (a normal end, a failure or a TERM; a KILL cannot be trapped).
-_tmproot="$(mktemp -d)" || { echo "installer runnable-guard: could not make a scratch folder"; exit 1; }
+_tmproot="$(mktemp -d "${TMPDIR:-/tmp}/test-installer-runnable-guard.XXXXXXXXXX")" || { echo "installer runnable-guard: could not make a scratch folder"; exit 1; }
 trap 'rm -rf "$_tmproot"' EXIT
 export TMPDIR="$_tmproot"
 pass() { echo "PASS  $1"; }
@@ -20,7 +20,7 @@ fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
 
 # 1. THE CLASS, demonstrated with a control that can produce the dangerous answer:
 #    a directory with the execute bit passes bare [ -x ] but not [ -f ] && [ -x ].
-_td="$(mktemp -d)"; mkdir -p "$_td/kosmos"; chmod +x "$_td/kosmos"
+_td="$(mktemp -d "${TMPDIR:-/tmp}/test-installer-runnable-guard.XXXXXXXXXX")"; mkdir -p "$_td/kosmos"; chmod +x "$_td/kosmos"
 if [ -x "$_td/kosmos" ]; then pass "a +x directory passes bare [ -x ] (the bug this card is about)"
 else fail "control: [ -x DIR ] should be true on a +x directory, so the fix below means something"; fi
 if [ -f "$_td/kosmos" ] && [ -x "$_td/kosmos" ]; then
@@ -209,7 +209,7 @@ fi
 # 3. CONTROL: the scan can produce the dangerous answer for EACH form it claims
 #    to cover -- an unquoted positive AND a negated test both get flagged. This
 #    is what proves the widened scan is not vacuous for a form.
-_ctl="$(mktemp)"
+_ctl="$(mktemp "${TMPDIR:-/tmp}/test-installer-runnable-guard.XXXXXXXXXX")"
 {
   printf '  if [ -x /opt/some/bin/thing ]; then :; fi\n'
   printf '  if [ ! -x "$SOME/bin/thing" ]; then :; fi\n'
@@ -222,7 +222,7 @@ rm -f "$_ctl"
 # 4. #5913: each listed folder test is excused in its own file after its own line, once, and nothing else is.
 _nl=$(printf '%s\n' "$FOLDER_SEARCH_TESTS" | grep -c .)
 [ $((_nl % 3)) -eq 0 ] && [ "$_nl" -ge 3 ] && pass "the folder test list holds $((_nl / 3)) entries of three lines" || fail "the folder test list is not entries of three lines ($_nl lines)"
-_cdir="$(mktemp -d)"; mkdir -p "$_cdir/install"
+_cdir="$(mktemp -d "${TMPDIR:-/tmp}/test-installer-runnable-guard.XXXXXXXXXX")"; mkdir -p "$_cdir/install"
 # rel <entry> <line within it>: one line of one list entry.
 rel() { printf '%s\n' "$FOLDER_SEARCH_TESTS" | sed -n "$((($1 - 1) * 3 + $2))p"; }
 # Each entry, written as it appears in its file (indented, a blank and a comment line between), in a scratch tree.
@@ -247,7 +247,7 @@ else fail "a stale listed folder test was not reported: $_out"; fi
 rm -rf "$_cdir"
 # Every listed test after any other line, or alone, IN ITS OWN LISTED FILE (so only the line before differs), with its
 # own line but in another file, and every unlisted folder test, is flagged. flagged <file> <text>: scan <text> as <file>.
-_cdir="$(mktemp -d)"; mkdir -p "$_cdir/install"
+_cdir="$(mktemp -d "${TMPDIR:-/tmp}/test-installer-runnable-guard.XXXXXXXXXX")"; mkdir -p "$_cdir/install"
 _n=0; _total=0
 flagged() {
   _total=$((_total + 1)); printf '%s\n' "$2" > "$_cdir/$1"
@@ -283,7 +283,7 @@ if [ "$(cd "$_cdir" && awk "$_scan" install/a-first.sh "$(rel 1 1)" 2>/dev/null 
 else fail "a listed test at the top of a file was excused by the last line of the file before it"; fi
 rm -rf "$_cdir"
 # A negated [ ! -x P ] is never excused, even when listed: a scan with a list naming one still flags it.
-_ctl="$(mktemp)"; printf '  true\n  [ -d "$Q" ] && [ ! -x "$Q" ] || return 0\n' > "$_ctl"
+_ctl="$(mktemp "${TMPDIR:-/tmp}/test-installer-runnable-guard.XXXXXXXXXX")"; printf '  true\n  [ -d "$Q" ] && [ ! -x "$Q" ] || return 0\n' > "$_ctl"
 _neg_list="$(printf '%s\n' "$_ctl" 'true' '[ -d "$Q" ] && [ ! -x "$Q" ] || return 0')"
 if [ "$(FOLDER_SEARCH_TESTS="$_neg_list" awk "$_scan" "$_ctl" 2>/dev/null | grep -c .)" -eq 1 ]; then pass "a listed negated [ ! -x ] is still flagged (only [ -x ] can be listed)"
 else fail "a listed negated [ ! -x ] was excused"; fi
@@ -291,7 +291,7 @@ else fail "a listed negated [ ! -x ] was excused"; fi
 #    shapes the installer uses are not. _old is the rule before #5986, kept here so every must-flag line is shown
 #    to pass it: a control that the old rule also fails would prove nothing about the change.
 _old='{ l=$0; s=l; while (match(s, /\[ -x ("[^"]+"|[^] ]+) \]/)) { p=substr(s,RSTART,RLENGTH); sub(/^\[ -x /,"",p); sub(/ \]$/,"",p); if (index(l,"[ -f " p " ]")==0) print "x"; s=substr(s,RSTART+RLENGTH) } t=l; while (match(t, /\[ ! -x ("[^"]+"|[^] ]+) \]/)) { p=substr(t,RSTART,RLENGTH); sub(/^\[ ! -x /,"",p); sub(/ \]$/,"",p); if (index(l,"[ ! -f " p " ]")==0) print "x"; t=substr(t,RSTART+RLENGTH) } }'
-_ctl="$(mktemp)"
+_ctl="$(mktemp "${TMPDIR:-/tmp}/test-installer-runnable-guard.XXXXXXXXXX")"
 _flags=0; _nflag=0
 while IFS= read -r _l; do
   [ -n "$_l" ] || continue

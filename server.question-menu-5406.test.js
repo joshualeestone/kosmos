@@ -320,11 +320,11 @@ test('#5406 slice C + #6054: a permission prompt draws its buttons, and a press 
     chat.setDryRun(false); chat.setPauser(() => {});
     const back = await (await fetch(`${base}/api/agent/casey/thread`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
     assert.equal(back.asking, true, 'premise: the prompt reads as asking');
-    // #6054 review 5: Yes and No only (option 2 saves a lasting choice and is not a button).
-    assert.ok(Array.isArray(back.options) && back.options.length === 2, 'premise: the prompt reads as Yes and No: ' + JSON.stringify(back.options));
+    // #6172: every option is a button; option 2 saves a lasting choice, so it is marked and needs the page's second press.
+    assert.ok(Array.isArray(back.options) && back.options.length === 3 && back.options[1].lasting === true && !back.options[2].lasting, 'premise: the prompt reads as Yes, the lasting option and No: ' + JSON.stringify(back.options));
     // #6054: it is offered as buttons now (status.claudePermissionPrompt), and a press is its option's bare digit.
     assert.ok(back.asked, 'the permission prompt was not offered as answer buttons');
-    const r = await post({ text: '3', chose: back.options[1].label, asked: back.asked });
+    const r = await post({ text: '3', chose: back.options[2].label, asked: back.asked });
     assert.equal(r.status, 200, JSON.stringify(r.json));
     assert.deepEqual(calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]), ['3'], 'the press did not go out as the bare 3');
     assert.equal(calls.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer').length, 0, 'the press was pasted');

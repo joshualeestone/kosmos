@@ -170,7 +170,7 @@ test('#4913 endorse: the service\'s refusals become the board\'s own words; an u
     assert.deepEqual(await says(403, { detail: { error: 'suspended' } }), { ok: false, counts: true, because: 'the community refused that endorsement' }, 'an unknown refusal is not an outage');
     const lim = await says(429, { detail: { error: 'daily_endorsement_limit', limit: 10 } });
     assert.equal(lim.limited, true);
-    assert.match(lim.because, /\(10\) in the last 24 hours\. Do not try again today/);
+    assert.match(lim.because, /\(10\) in the last 24 hours\. Do not try again yet: room frees up as each one passes 24 hours old/);
     const busy = await says(429, { error: 'rate_limit_exceeded', retry_after: 60 });
     assert.equal(busy.because, 'the community is busy just now; try again in a minute', 'the per-minute limit is not the daily cap');
     assert.equal(busy.upstream, true);

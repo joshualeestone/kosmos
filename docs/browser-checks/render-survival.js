@@ -59,6 +59,7 @@ function chk(ok, label, extra) {
     const txt = wrap ? (await wrap.innerText()) : '';
     chk(/will not come back if you restart/.test(txt), theme + ': it says what is wrong');
     chk(/brigitte/.test(txt), theme + ': it names the agent');
+    chk(!/so they stop when/.test(txt), theme + ': the body does not repeat the headline (#6518)');
     chk(!/Later|Dismiss/i.test(txt), theme + ': there is no dismiss on a state with a remedy');
 
     /* ⚠️ ABOVE THE CARDS. It is a fact about the whole fleet, and a person who
@@ -74,6 +75,7 @@ function chk(ok, label, extra) {
     const after = await pg.innerText('#restart-wrap');
     chk(/Done\./.test(after), theme + ': pressing it reports back', after.slice(0, 60).replace(/\n/g, ' '));
     chk(/brigitte/.test(after), theme + ': the report is per agent, not a total');
+    chk(!/will bring these back/.test(after), theme + ': the report says starts at login once, on each row (#6518)');
 
     await pg.screenshot({ path: path.join(OUT, 'survival-' + theme + '.png'), fullPage: false });
     chk(errs.length === 0, theme + ': no console errors', errs.join(' | '));

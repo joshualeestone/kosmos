@@ -19,6 +19,10 @@
  *             says "Asked 12 days ago", and its "Answered, clear this" is a focusable button that POSTs the agent's
  *             clear-selfreport route and repaints the thread without the question. SHOT_5943=<file.png> saves it.
  *
+ *   LASTING   #6172: a permission prompt whose option 2 saves a lasting choice ("Yes, and don't ask again for: cd *"): all
+ *             three are buttons; the first press of 2 posts nothing and arms it (said, drawn, and kept by a repaint), the
+ *             second posts { lasting: true }; No goes on one press (CONTROL). SHOT_6172=<file.png> saves it armed.
+ *
  * HEADLESS-safe (DOM-state assertions only). SHOT=<file.png> saves the light CHOICES arm's thread.
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-dmchoices-5406.js
  */
@@ -33,7 +37,12 @@ const row = (reported) => ({ id: 'needs-you-question:april', at: null, text: QUE
 const base = { olderCount: 0, historyBecause: null, historyUnfilable: false, owes: null, presence: 'on', presenceBecause: null,
   asking: true, question: { text: QUESTION }, questionBecause: null, codexHooks: null, answerNote: null };
 const OPTIONS = [{ n: 1, label: 'Apple' }, { n: 2, label: 'Banana' }, { n: 3, label: 'Cherry' }];
+/* #6172: Claude Code's permission prompt as the server serves it (status.claudePermissionPrompt), the card's own option 2. */
+const PERM = ' Bash command\n\n cd /tmp\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. Yes, and don’t ask again for: cd *\n   3. No';
+const PERM_OPTIONS = [{ n: 1, label: 'Yes' }, { n: 2, label: 'Yes, and don’t ask again for: cd *', lasting: true }, { n: 3, label: 'No' }];
 const ARMS = {
+  lasting: { ...base, question: { text: PERM }, options: PERM_OPTIONS, asked: 'cd /tmp',
+    messages: [{ id: 'needs-you-question:april', at: null, text: PERM, from: 'april', delivery: null, kind: 'question', reported: false }] },
   choices: { ...base, messages: [row(false)], options: OPTIONS, asked: 'Which fruit do you want?' },
   'no-menu': { ...base, messages: [row(false)], options: null, asked: null },
   /* Served WITH options and asked, so only the page's own reported-row guard can keep the buttons off. */
@@ -89,7 +98,7 @@ async function run() {
         await page.evaluate(() => paintTalk('april', 'April'));
         await page.waitForTimeout(150);
         const seen = await page.evaluate(() => {
-          const q = [...document.querySelectorAll('#d-dmthread .msg')].find((m) => /Which fruit/.test(m.textContent));
+          const q = [...document.querySelectorAll('#d-dmthread .msg')].find((m) => /Which fruit|Do you want to proceed/.test(m.textContent));
           const btns = q ? [...q.querySelectorAll('.dmchoices .dmchoice')] : [];
           const all = document.querySelectorAll('#d-dmthread .dmchoice').length;
           return { question: !!q, inBubble: btns.length, all, labels: btns.map((b) => b.textContent.replace(/\s+/g, ' ').trim()),
@@ -97,7 +106,83 @@ async function run() {
             overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
         });
         check(`[${theme}] ${arm}: the question bubble is drawn`, seen.question, JSON.stringify(seen));
-        if (arm === 'choices') {
+        if (arm === 'lasting') {
+          check(`[${theme}] lasting: all three options are buttons, labelled with the prompt's words`, seen.all === 3
+            && seen.labels.join('|') === '1 Yes|2 Yes, and don’t ask again for: cd *|3 No', JSON.stringify(seen.labels));
+          await page.locator('#d-dmthread .dmchoice[data-n="2"]').click();
+          await page.waitForTimeout(100);
+          const armed = await page.evaluate(() => ({ posted: window.__posted.length,
+            armed: !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed'),
+            say: (document.querySelector('#d-dmthread .dmchoices-msg') || {}).textContent || '' }));
+          check(`[${theme}] lasting: the first press sends nothing and asks for a second`, armed.posted === 0 && armed.armed
+            && /Press it again to choose it/.test(armed.say), JSON.stringify(armed));
+          const kept = await page.evaluate(async () => { await paintTalk('april', 'April');
+            return !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed'); });
+          check(`[${theme}] lasting: a repaint between the presses keeps it armed`, kept);
+          if (theme === 'light' && process.env.SHOT_6172) await page.locator('#d-dmthread').screenshot({ path: process.env.SHOT_6172 });
+          await page.waitForTimeout(700);   // past the gap: a confirm, not the same gesture
+          await page.locator('#d-dmthread .dmchoice[data-n="2"]').click();
+          await page.waitForTimeout(150);
+          const sent = await page.evaluate(() => window.__posted);
+          check(`[${theme}] lasting: the second press sends 2 with lasting`, sent.length === 1 && sent[0].text === '2' && sent[0].lasting === true
+            && sent[0].chose === 'Yes, and don’t ask again for: cd *', JSON.stringify(sent));
+          // Review 1: a double-click (two presses in one gesture) arms and does not send.
+          await page.evaluate(async () => { window.__posted = []; DM_CHOICE_ANSWERED.delete('april'); DM_CHOICE_ARMED = null; await paintTalk('april', 'April'); });
+          await page.locator('#d-dmthread .dmchoice[data-n="2"]').dblclick();
+          await page.waitForTimeout(150);
+          const dbl = await page.evaluate(() => ({ posted: window.__posted.length, armed: !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed') }));
+          check(`[${theme}] lasting: a double-click arms and sends nothing`, dbl.posted === 0 && dbl.armed, JSON.stringify(dbl));
+          // Review 1: armed on one question, a press after the question changed (same layout) arms again and sends nothing.
+          const moved = await page.evaluate(async () => {
+            const keep = window.__fx;
+            window.__fx = { ...keep, asked: 'cd /var' };
+            await paintTalk('april', 'April');
+            const out = { armedAfterChange: !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed') };
+            window.__keep6172 = keep;
+            return out;
+          });
+          await page.waitForTimeout(700);
+          await page.locator('#d-dmthread .dmchoice[data-n="2"]').click();
+          await page.waitForTimeout(150);
+          const changed = await page.evaluate(async () => { const out = { posted: window.__posted.length,
+            armed: !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed') };
+            window.__fx = window.__keep6172; DM_CHOICE_ARMED = null; await paintTalk('april', 'April'); return out; });
+          check(`[${theme}] lasting: a changed question is not confirmed by a press armed on the old one`, !moved.armedAfterChange
+            && changed.posted === 0 && changed.armed, JSON.stringify({ ...moved, ...changed }));
+          // Review 2: when the window ends, the screen stops saying armed (here shortened to 400 ms), even after a repaint.
+          const lapsed = await page.evaluate(async () => {
+            window.__posted = []; DM_CHOICE_ANSWERED.delete('april'); DM_CHOICE_ARMED = null; DM_CHOICE_ARM_MS = 400;
+            try {
+              await paintTalk('april', 'April');
+              document.querySelector('#d-dmthread .dmchoice[data-n="2"]').click();
+              await paintTalk('april', 'April');
+              const before = !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed');
+              await new Promise((r) => setTimeout(r, 600));
+              return { before, after: !!document.querySelector('#d-dmthread .dmchoice.armed'),
+                note: (document.querySelector('#d-dmthread .dmchoices-msg') || {}).textContent || '', posted: window.__posted.length };
+            } finally { DM_CHOICE_ARM_MS = 15000; DM_CHOICE_ARMED = null; }
+          });
+          check(`[${theme}] lasting: an arm that lapses stops showing as armed`, lapsed.before && !lapsed.after && lapsed.note === '' && lapsed.posted === 0, JSON.stringify(lapsed));
+          // Review 3: a held Enter. Its first keydown arms; its repeats, even past the gap, do not confirm.
+          await page.evaluate(async () => { window.__posted = []; DM_CHOICE_ANSWERED.delete('april'); DM_CHOICE_ARMED = null; await paintTalk('april', 'April'); });
+          await page.locator('#d-dmthread .dmchoice[data-n="2"]').focus();
+          await page.keyboard.down('Enter');
+          await page.waitForTimeout(700);
+          await page.keyboard.down('Enter');   // a second down with no up: the browser's repeat (e.repeat true)
+          await page.keyboard.down('Enter');
+          await page.keyboard.up('Enter');
+          await page.waitForTimeout(150);
+          const held = await page.evaluate(() => ({ posted: window.__posted.length, armed: !!document.querySelector('#d-dmthread .dmchoice[data-n="2"].armed') }));
+          check(`[${theme}] lasting: a held Enter arms and its repeats send nothing`, held.posted === 0 && held.armed, JSON.stringify(held));
+          await page.evaluate(() => { DM_CHOICE_ARMED = null; });
+          // CONTROL: No is not lasting, so one press sends it, without lasting.
+          await page.evaluate(async () => { window.__posted = []; DM_CHOICE_ANSWERED.delete('april'); await paintTalk('april', 'April'); });
+          await page.locator('#d-dmthread .dmchoice[data-n="3"]').click();
+          await page.waitForTimeout(150);
+          const no = await page.evaluate(() => window.__posted);
+          check(`[${theme}] lasting: No goes on one press, without lasting (CONTROL)`, no.length === 1 && no[0].text === '3' && no[0].lasting === undefined, JSON.stringify(no));
+          await page.evaluate(() => { DM_CHOICE_ANSWERED.delete('april'); });
+        } else if (arm === 'choices') {
           check(`[${theme}] choices: three buttons inside the question's bubble, in order`, seen.inBubble === 3 && seen.all === 3
             && seen.labels.join('|') === '1 Apple|2 Banana|3 Cherry', JSON.stringify(seen.labels));
           check(`[${theme}] choices: a labelled group, every button focusable`, seen.group && seen.focusable);

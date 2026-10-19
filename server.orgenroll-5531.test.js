@@ -76,7 +76,7 @@ test('#5531: from the screen, a decline sends nothing and records nothing; a pre
 
 test('#5531: GET /api/org reports this world\'s own record, and only one that names this world', async () => {
   const none = await call('/api/org', { method: 'GET', headers: SCREEN });
-  assert.deepEqual(none.json, { enrolled: false, reporting: false, reportingWait: null, stoppedFor: null, leaveRefused: null, leaveRefusedUndo: false, org: null, role: null, enrolledAt: null });
+  assert.deepEqual(none.json, { enrolled: false, reporting: false, reportingWait: null, wordsNeeded: false, reportingRequired: false, stoppedFor: null, leaveRefused: null, leaveRefusedUndo: false, org: null, role: null, enrolledAt: null });
   const world = oe.worldId();
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world, enrolledAt: '2026-10-07T00:00:00.000Z' }));
   const yes = await call('/api/org', { method: 'GET', headers: SCREEN });
@@ -89,6 +89,20 @@ test('#5531: GET /api/org reports this world\'s own record, and only one that na
   assert.equal(other.json.enrolled, false, 'a record naming another world read as enrolled here');
   assert.equal(other.json.org, null, "another world's company was shown here");
   fs.rmSync(enrollmentFile(), { force: true });
+});
+
+test('#6367: /api/org says reportingRequired from the applied policy, for this world\'s enrollment only', async (t) => {
+  const applied = path.join(store.ROOT, 'org-policy-applied.json');
+  t.after(() => { fs.rmSync(enrollmentFile(), { force: true }); fs.rmSync(applied, { force: true }); });
+  const world = oe.worldId();
+  const enroll = (w) => fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world: w, enrolledAt: '2026-10-07T00:00:00.000Z' }));
+  const policy = (required) => fs.writeFileSync(applied, JSON.stringify({ version: 1, policy: { telemetry: { required } } }));
+  enroll(world); policy(true);
+  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reportingRequired, true, 'the applied policy requires reports');
+  policy(false);
+  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reportingRequired, false, 'CONTROL: required false');
+  enroll('f'.repeat(32)); policy(true);
+  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reportingRequired, false, 'not the enrolled Kosmos here: nothing is said');
 });
 
 test('#5531 review 3: an accepted join needs the ticket a screen got from a preview; without it nothing is sent', async () => {
@@ -295,7 +309,7 @@ test('#5531 review 14: a page on another website cannot leave, join or preview (
   assert.deepEqual(sent, [], 'a cross-site request reached the company');
 });
 
-test('#5531 review 26: an unknown join is asked about every few minutes while its marker exists, not only daily (start() source pin)', () => {
+test('#5531 review 26: an unknown join is asked about every few minutes while its marker exists, not only hourly (start() source pin)', () => {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const ms = src.match(/const ORG_UNSURE_MS = ([0-9* ]+);/);
   assert.ok(ms, 'no short follow-up interval for an unknown join');
@@ -505,7 +519,8 @@ test('#5531 follow-up: a joined Kosmos with no consent recorded reviews the word
   const pv = await call('/api/org/preview', { body: { review: true }, headers: SCREEN });
   assert.equal(pv.json.ok, true, JSON.stringify(pv.json));
   assert.equal(pv.json.review, true);
-  assert.deepEqual(pv.json.org, { name: 'Acme', slug: 'acme' }, 'the page got more than the company\'s name and slug');
+  // kosmos#6239: and its kind (a family's words are shown before it joins); never its id.
+  assert.deepEqual(pv.json.org, { name: 'Acme', slug: 'acme', kind: 'company' }, 'the page got more than the company\'s name, slug and kind');
   assert.ok(typeof pv.json.ticket === 'string' && pv.json.ticket, 'no ticket for the review');
   const ok = await call('/api/org/enroll', { body: { accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
   assert.equal(ok.json.ok, true, JSON.stringify(ok.json));
@@ -544,7 +559,7 @@ test('#5670: the board\'s company refresh sends nothing unless live execution is
   const realRefresh = oe.refresh;
   let calls = 0;
   oe.refresh = async () => { calls += 1; };
-  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); try { require('./server')._orgRefreshResetForTests(); } catch { /* not loaded */ } fs.rmSync(enrollmentFile(), { force: true }); });
   live.resetForTests();
   orgEnrollRefresh();
   assert.equal(calls, 0, 'an enrolled board refreshed (sent to its company) without live execution');
@@ -579,4 +594,434 @@ test('#5670 review 2: the real start arms live execution before it calls start()
   assert.ok(arm > 0, 'CONTROL: the real start arms live execution');
   assert.ok(go > 0, 'CONTROL: the real start calls start()');
   assert.ok(arm < go, 'the real start calls start() before it arms live execution, so the at-start refresh would be skipped');
+});
+
+test('#6232: an enrolled board asks its company hourly, not daily, and a board in no company still sends nothing', (t) => {
+  // The interval: an hour bounds how long a removed member's idle board keeps the company's policy. Not shorter: the
+  // coordinator's status answer carries the signed policy and asks to be polled on the order of hours.
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const m = /const ORG_REFRESH_MS = ([0-9 *]+);/.exec(src);
+  assert.ok(m, 'CONTROL: ORG_REFRESH_MS is no longer a plain product of numbers');
+  const ms = m[1].split('*').reduce((a, x) => a * Number(x.trim()), 1);
+  assert.ok(ms <= 60 * 60 * 1000, 'an enrolled board asks its company only every ' + ms / 60000 + ' minutes: a removed member keeps the policy that long');
+  assert.ok(ms >= 30 * 60 * 1000, 'an enrolled board asks every ' + ms / 60000 + ' minutes: more often than the coordinator\'s policy-carrying answer is meant for');
+  // Review 3: checked on the clock every few minutes (a Mac's timers stop while it sleeps), not by a one-hour timer.
+  assert.match(src, /setInterval\(\(\) => \{ orgRefreshIfDue\(\); \}, ORG_REFRESH_CHECK_MS\)/, 'the hourly ask is not checked on the clock');
+  assert.doesNotMatch(src, /setInterval\(orgEnrollRefresh, ORG_REFRESH_MS\)/, 'a one-hour timer is back: a Mac asleep past the hour waits up to another hour');
+  // In no company (no enrollment, no pending Leave, no unknown join), with live execution armed: nothing is sent.
+  const live = require('./engine/live-execution');
+  const { orgEnrollRefresh } = require('./server');
+  fs.rmSync(enrollmentFile(), { force: true });
+  assert.ok(!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown(), 'CONTROL: the fixture is a board in no company');
+  const realRefresh = oe.refresh;
+  let calls = 0;
+  oe.refresh = async () => { calls += 1; };
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); try { require('./server')._orgRefreshResetForTests(); } catch { /* not loaded */ } });
+  live.allowLiveExecution();
+  try { orgEnrollRefresh(); } finally { live.resetForTests(); }
+  assert.equal(calls, 0, 'a board in no company asked a company (every board would, hourly)');
+});
+
+test('#6232 review 3: the hourly ask is measured on the clock (a sleep past the hour asks at the next check; a clock set back is due)', async (t) => {
+  const live = require('./engine/live-execution');
+  const { orgEnrollRefresh, orgRefreshIfDue, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();   // review 6: this test does not depend on the one before it
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realRefresh = oe.refresh;
+  let calls = 0;
+  oe.refresh = async () => { calls += 1; return { ok: true, enrolled: true }; };   // answered: the hour applies
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); try { require('./server')._orgRefreshResetForTests(); } catch { /* not loaded */ } fs.rmSync(enrollmentFile(), { force: true }); });
+  live.allowLiveExecution();
+  const H = 60 * 60 * 1000;
+  try {
+    const at = Date.now();
+    await orgEnrollRefresh();
+    assert.equal(calls, 1, 'CONTROL: an enrolled board with live execution did not ask');
+    await orgRefreshIfDue(at + H - 60 * 1000);
+    assert.equal(calls, 1, 'asked before the hour was up');
+    await orgRefreshIfDue(at + 9 * H);   // a laptop that slept for nine hours: the first check after waking asks
+    assert.equal(calls, 2, 'a board whose hour passed (asleep) did not ask at the next check');
+    await orgRefreshIfDue(Date.now() + 60 * 1000);
+    assert.equal(calls, 2, 'asked again a minute after asking');
+    await orgRefreshIfDue(Date.now() - 5 * H);   // the clock was set back
+    assert.equal(calls, 3, 'a clock set back held the ask off');
+  } finally { live.resetForTests(); }
+});
+
+test('#6232 review 4: an ask with no clear answer is asked again after the retry, not a whole hour later; an answered one waits the hour', async (t) => {
+  const live = require('./engine/live-execution');
+  const { orgEnrollRefresh, orgRefreshIfDue, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();   // review 6: this test does not depend on the one before it
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realRefresh = oe.refresh;
+  let calls = 0;
+  let answer = { ok: false, because: 'not checked' };   // the company did not answer
+  oe.refresh = async () => { calls += 1; return answer; };
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); try { require('./server')._orgRefreshResetForTests(); } catch { /* not loaded */ } fs.rmSync(enrollmentFile(), { force: true }); });
+  live.allowLiveExecution();
+  const M = 60 * 1000;
+  try {
+    const at = Date.now();
+    await orgEnrollRefresh();
+    assert.equal(calls, 1, 'CONTROL: the first ask was not sent');
+    await orgRefreshIfDue(at + 10 * M);
+    assert.equal(calls, 1, 'a failed ask was retried sooner than the retry wait (a refused leave would be resent every check)');
+    await orgRefreshIfDue(at + 16 * M);
+    assert.equal(calls, 2, 'a failed ask waited the whole hour: a removed member keeps the policy that much longer');
+    // Review 5: a second miss in a row waits twice as long (30 minutes from that ask), so a state that never clears
+    // costs no more than the hourly ask in the end.
+    const at1 = Date.now();
+    await orgRefreshIfDue(at1 + 20 * M);
+    assert.equal(calls, 2, 'a second miss in a row was asked again after 15 minutes: the wait does not grow');
+    await orgRefreshIfDue(at1 + 31 * M);
+    assert.equal(calls, 3, 'a second miss in a row waited longer than 30 minutes');
+    answer = { ok: true, enrolled: true };   // answered
+    const at2 = Date.now();
+    await orgEnrollRefresh();
+    assert.equal(calls, 4, 'CONTROL: the answered ask was not sent');
+    await orgRefreshIfDue(at2 + 30 * M);
+    assert.equal(calls, 4, 'an answered ask was asked again before the hour');
+    // An answered ask starts the misses over: the next miss is retried after 15 minutes again.
+    answer = { ok: false, because: 'not checked' };
+    const at3 = Date.now();
+    await orgEnrollRefresh();
+    assert.equal(calls, 5, 'CONTROL: the ask after the answered one was not sent');
+    await orgRefreshIfDue(at3 + 16 * M);
+    assert.equal(calls, 6, 'after an answered ask the next miss did not start again at 15 minutes');
+  } finally { live.resetForTests(); }
+});
+
+test('#6232 review 5: an older ask finishing late without an answer does not move the clock a newer ask set', async (t) => {
+  const live = require('./engine/live-execution');
+  const { orgEnrollRefresh, orgRefreshIfDue, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();   // review 6: this test does not depend on the one before it
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realRefresh = oe.refresh;
+  const realNow = Date.now;
+  const pending = [];
+  let calls = 0;
+  // The first two asks wait to be answered by hand; any later one (the one the check must NOT send) answers at once.
+  oe.refresh = () => { calls += 1; if (pending.length >= 2) return Promise.resolve({ ok: true, enrolled: true }); return new Promise((res) => pending.push(res)); };
+  t.after(() => { oe.refresh = realRefresh; Date.now = realNow; live.resetForTests(); _orgRefreshResetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  live.allowLiveExecution();
+  const M = 60 * 1000;
+  const T = realNow() + 10 * 60 * M;
+  try {
+    Date.now = () => T;
+    const first = orgEnrollRefresh();
+    Date.now = () => T + 5 * M;
+    const second = orgEnrollRefresh();
+    assert.equal(calls, 2, 'CONTROL: both asks were not sent');
+    pending[1]({ ok: true, enrolled: true });   // the newer ask is answered
+    await second;
+    pending[0]({ ok: false, because: 'not checked' });   // the older one ends late, with no answer
+    await first;
+    Date.now = realNow;
+    await orgRefreshIfDue(T + 5 * M + 30 * M);
+    assert.equal(calls, 2, 'the older ask\'s miss moved the clock the newer, answered ask set');
+  } finally { Date.now = realNow; live.resetForTests(); }
+});
+
+test('#6232 review 6: right after a miss (due in 15 minutes), a clock set back by less than that still asks', async (t) => {
+  const live = require('./engine/live-execution');
+  const { orgEnrollRefresh, orgRefreshIfDue, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realRefresh = oe.refresh;
+  let calls = 0;
+  oe.refresh = async () => { calls += 1; return { ok: false, because: 'not checked' }; };
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); try { require('./server')._orgRefreshResetForTests(); } catch { /* not loaded */ } fs.rmSync(enrollmentFile(), { force: true }); });
+  live.allowLiveExecution();
+  const M = 60 * 1000;
+  try {
+    await orgEnrollRefresh();   // the first miss: the next ask is due in 15 minutes
+    assert.equal(calls, 1, 'CONTROL: the first ask was not sent');
+    const at = Date.now();
+    await orgRefreshIfDue(at + 5 * M);
+    assert.equal(calls, 1, 'CONTROL: asked again before the retry wait');
+    await orgRefreshIfDue(at - 30 * M);   // the clock went back half an hour
+    assert.equal(calls, 2, 'a clock set back by less than the retry wait held the ask off');
+  } finally { live.resetForTests(); }
+});
+
+test('#6232 review 10: when this board\'s enrollment ends (any path), its agents are handed the change; another Kosmos\'s ending is not theirs', (t) => {
+  const policy = require('./engine/policy');
+  const store = require('./engine/store');
+  const { companyPolicySync, orgEnrollmentEnded, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const realEntry = policy.companyEntry;
+  const realSync = policy.syncEveryone;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
+  let syncs = 0;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return []; };
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); });
+  companyPolicySync();   // records the company text the agents hold
+  entry = null;          // the ending cleared the applied policy
+  orgEnrollmentEnded(path.join(store.ROOT, 'another-kosmos'));
+  assert.equal(syncs, 0, 'another Kosmos\'s ending re-handed this board\'s agents their policy');
+  orgEnrollmentEnded(store.ROOT + path.sep);   // review 14: another spelling of this board's own root
+  assert.equal(syncs, 1, 'this board\'s enrollment ended and its agents kept the company\'s AI policy text');
+  // Wired at start: the board registers it with engine/orgenroll.js.
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /onEnrollmentEnded\(orgEnrollmentEnded\)/, 'start() no longer registers orgEnrollmentEnded');
+  // Review 17: a fresh join (the join route) starts its retries over.
+  assert.match(src, /ORG_REFRESH_MISSES = 0;[^\n]*\n\s*const fetched = orgEnrollRefresh\(\);/, 'the join route no longer resets the misses before its first ask');
+});
+
+test('#6232 review 12: an ending hands the agents the change once, whether or not the listener was told', async (t) => {
+  const live = require('./engine/live-execution');
+  const policy = require('./engine/policy');
+  const store = require('./engine/store');
+  const { orgEnrollRefresh, orgEnrollmentEnded, companyPolicySync, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  const enroll = () => fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realRefresh = oe.refresh;
+  const realEntry = policy.companyEntry;
+  const realSync = policy.syncEveryone;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
+  let syncs = 0;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return []; };
+  t.after(() => { oe.refresh = realRefresh; policy.companyEntry = realEntry; policy.syncEveryone = realSync; live.resetForTests(); _orgRefreshResetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  live.allowLiveExecution();
+  try {
+    // The company's clear answer: the refresh tells the listener from inside, as engine/orgenroll.js does.
+    companyPolicySync();   // records the text the agents hold
+    enroll();
+    oe.refresh = async () => { entry = null; orgEnrollmentEnded(store.ROOT); return { ok: true, enrolled: false, stopped: true }; };
+    await orgEnrollRefresh();
+    assert.equal(syncs, 1, 'an ending told to the listener handed the agents the change ' + syncs + ' times, not once');
+    // A pending Leave sent again ends it without telling the listener: the ask's own hand-over is the one.
+    _orgRefreshResetForTests();
+    entry = { name: 'Acme', text: 'Use only approved tools.' };
+    companyPolicySync();
+    enroll();
+    oe.refresh = async () => { entry = null; return { ok: true, enrolled: false, stopped: true }; };
+    await orgEnrollRefresh();
+    assert.equal(syncs, 2, 'an ending the listener was not told about left the agents on the company\'s text');
+  } finally { live.resetForTests(); }
+});
+
+test('#6232 review 16: an ask that left the board in no company is not a miss (a later join retries from 15 minutes)', async (t) => {
+  const live = require('./engine/live-execution');
+  const { orgEnrollRefresh, orgRefreshIfDue, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  const enroll = () => fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realRefresh = oe.refresh;
+  let calls = 0;
+  let answer;
+  oe.refresh = async () => { calls += 1; if (answer.end) fs.rmSync(enrollmentFile(), { force: true }); return answer.r; };
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); _orgRefreshResetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  live.allowLiveExecution();
+  const M = 60 * 1000;
+  try {
+    // A miss first (the count goes up), then an ask that ends the enrollment for want of an id (ok: false).
+    enroll();
+    answer = { r: { ok: false, because: 'not checked' } };
+    await orgEnrollRefresh();
+    answer = { end: true, r: { ok: false, because: 'This Kosmos has no id of its own.', enrolled: false } };
+    await orgEnrollRefresh();
+    assert.equal(calls, 2, 'CONTROL: the two asks were not sent');
+    // A later join whose first ask goes unanswered retries after 15 minutes, not 30.
+    enroll();
+    answer = { r: { ok: false, because: 'not checked' } };
+    await orgEnrollRefresh();
+    const at = Date.now();
+    await orgRefreshIfDue(at + 16 * M);
+    assert.equal(calls, 4, 'after an ending, a later join\'s first miss waited longer than 15 minutes (the old misses counted)');
+  } finally { live.resetForTests(); }
+});
+
+test('#6232 review 18: end to end, a real refresh the company answers "gone" reaches the board\'s registered listener, and its agents are handed the change', async (t) => {
+  const policy = require('./engine/policy');
+  const { companyPolicySync, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realEntry = policy.companyEntry;
+  const realSync = policy.syncEveryone;
+  let syncs = 0;
+  // What the agents are handed follows the applied policy, as the real companyEntry does: gone once the ending clears it.
+  let held = { name: 'Acme', text: 'Use only approved tools.' };
+  policy.companyEntry = () => (oe.readEnrollment() ? held : null);
+  policy.syncEveryone = () => { syncs += 1; return []; };
+  // Review 19: no registration here. The listener this test reaches is the one start() registered (test.before), so
+  // a start() that stopped registering it fails this test.
+  t.after(() => {
+    policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests();
+    fs.rmSync(enrollmentFile(), { force: true });
+    fs.rmSync(path.join(store.ROOT, 'org-stopped.json'), { force: true });   // the ending's "stopped" note (engine/orgenroll.js STOPPED_FILE)
+  });
+  companyPolicySync();   // records the company text the agents hold
+  assert.ok(oe.readEnrollment(), 'CONTROL: the board is not enrolled');
+  // The real refresh (this board's own root), against a coordinator that says the member is gone.
+  const gone = { macRequest: async (m, route) => (route === oe.ROUTES.status ? { ok: true, data: { member: false } } : { ok: false, because: 'not asked' }) };
+  const r = await oe.refresh({ remote: gone });
+  assert.equal(oe.readEnrollment(), null, 'CONTROL: the removal did not end the enrollment: ' + JSON.stringify(r));
+  assert.equal(syncs, 1, 'the ending did not reach the board\'s registered listener, so the agents kept the company\'s text');
+});
+
+/* #6240: the no-company hand-over retry. After an enrollment ends, an agent that could not be told keeps the
+   company AI-policy text; once nothing is enrolled orgEnrollRefresh returns before companyPolicySync, so the
+   stuck agent was left on the old text until a board restart (the #6232 review-11 residual). The retry
+   (companyPolicyRetryIfOwed) rides the five-minute orgRefreshIfDue tick and re-hands it at most hourly until the
+   agent is told. These drive companyEntry + syncEveryone the way the #6232 tests do and count syncEveryone calls.
+   No live execution is allowed, so orgEnrollRefresh is inert here and the only companyPolicySync calls are the
+   retry's own. */
+test('#6240: a stuck agent after an ending is re-handed the cleared policy, at most once an hour, until it is told', (t) => {
+  const HOUR = 60 * 60 * 1000, MIN = 60 * 1000;
+  const TOLD = require('./engine/projects').TOLD;
+  const policy = require('./engine/policy');
+  const { companyPolicySync, orgRefreshIfDue, orgEnrollmentEnded, companyPolicyClearOwed, _orgRefreshResetForTests } = require('./server');
+  const live = require('./engine/live-execution');
+  _orgRefreshResetForTests(); live.resetForTests();
+  // Pin the assumption these tests rest on: orgEnrollRefresh is inert because live execution is OFF, so the
+  // only companyPolicySync calls are the retry's own. If a future change flips that, fail loudly right here.
+  assert.ok(!live.liveExecutionAllowed(), 'these tests need live execution OFF (so orgEnrollRefresh is inert)');
+  const realEntry = policy.companyEntry, realSync = policy.syncEveryone;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
+  let syncs = 0;
+  let stuck = true;   // the one agent that could not be told at the ending
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return stuck ? [{ agent: 'ava', state: TOLD.COULD_NOT, because: 'its session is gone' }] : []; };
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); live.resetForTests(); });
+
+  companyPolicySync();            // records the company text the agents hold; the first call does not sync
+  assert.equal(syncs, 0, 'the first call only records the seen text, it does not sync');
+  entry = null;                   // the ending cleared the applied policy
+  orgEnrollmentEnded(store.ROOT); // the ending hands the change over: syncEveryone runs, the stuck agent is not told
+  assert.equal(syncs, 1, 'the ending ran the hand-over once');
+  assert.ok(companyPolicyClearOwed(), 'a clear is still owed: an agent kept the old company text');
+
+  // The five-minute tick retries the owed hand-over, but at most once an hour.
+  const T = 10 * HOUR;
+  orgRefreshIfDue(T);
+  assert.equal(syncs, 2, 'the first due tick retried the hand-over');
+  orgRefreshIfDue(T + 5 * MIN);
+  assert.equal(syncs, 2, 'a second tick within the hour did not retry again (bounded to hourly)');
+  orgRefreshIfDue(T + 20 * MIN);
+  assert.equal(syncs, 2, 'still within the hour: no extra retry');
+
+  // After the hour, one more retry, and this time the agent is finally told, so the clear is no longer owed.
+  stuck = false;
+  orgRefreshIfDue(T + HOUR + MIN);
+  assert.equal(syncs, 3, 'after the hour the hand-over retried once more');
+  assert.ok(!companyPolicyClearOwed(), 'the agent was told, so nothing is owed now');
+
+  // It self-terminates: no further retries once the agent is told, however many ticks pass.
+  orgRefreshIfDue(T + 3 * HOUR);
+  orgRefreshIfDue(T + 5 * HOUR);
+  assert.equal(syncs, 3, 'the retry stopped once the agent was told (self-terminating)');
+});
+
+test('#6240: a board that never joined a company is quiet, the tick never retries', (t) => {
+  const HOUR = 60 * 60 * 1000;
+  const policy = require('./engine/policy');
+  const { companyPolicySync, orgRefreshIfDue, companyPolicyClearOwed, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const realEntry = policy.companyEntry, realSync = policy.syncEveryone;
+  let syncs = 0;
+  policy.companyEntry = () => null;   // never a company
+  policy.syncEveryone = () => { syncs += 1; return []; };
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); });
+
+  companyPolicySync();   // records: the seen text is null (no company), no sync
+  assert.ok(!companyPolicyClearOwed(), 'nothing is owed on a board that never joined a company');
+  orgRefreshIfDue(10 * HOUR);
+  orgRefreshIfDue(20 * HOUR);
+  assert.equal(syncs, 0, 'a never-joined board ran no hand-over');
+});
+
+test('#6240: a board whose company text was already cleared and fully told stays quiet', (t) => {
+  const HOUR = 60 * 60 * 1000;
+  const policy = require('./engine/policy');
+  const { companyPolicySync, orgRefreshIfDue, companyPolicyClearOwed, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const realEntry = policy.companyEntry, realSync = policy.syncEveryone;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
+  let syncs = 0;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return []; };   // every agent is told (no stuck row)
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); });
+
+  companyPolicySync();   // records the company text (seen = the company string), no sync
+  entry = null;          // the ending cleared the applied policy
+  companyPolicySync();   // the hand-over: every agent told, so the seen text clears to null
+  assert.equal(syncs, 1, 'the hand-over ran once and told everyone');
+  assert.ok(!companyPolicyClearOwed(), 'nothing is owed once the clear reached every agent');
+  orgRefreshIfDue(10 * HOUR);
+  orgRefreshIfDue(20 * HOUR);
+  assert.equal(syncs, 1, 'an already-cleared board ran no extra retry');
+});
+
+test('#6240: a company re-applied while a clear was owed turns the retry quiet again', (t) => {
+  const HOUR = 60 * 60 * 1000;
+  const TOLD = require('./engine/projects').TOLD;
+  const policy = require('./engine/policy');
+  const { companyPolicySync, orgRefreshIfDue, orgEnrollmentEnded, companyPolicyClearOwed, _orgRefreshResetForTests } = require('./server');
+  const live = require('./engine/live-execution');
+  _orgRefreshResetForTests(); live.resetForTests();
+  const realEntry = policy.companyEntry, realSync = policy.syncEveryone;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
+  let syncs = 0;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return [{ agent: 'ava', state: TOLD.COULD_NOT, because: 'its session is gone' }]; };
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); live.resetForTests(); });
+
+  companyPolicySync();            // records the company text
+  entry = null;                   // ending with a stuck agent: a clear is owed
+  orgEnrollmentEnded(store.ROOT);
+  assert.ok(companyPolicyClearOwed(), 'control: a clear is owed after the stuck ending');
+  entry = { name: 'Acme', text: 'Use only approved tools.' };   // the board rejoins a company before any retry
+  assert.ok(!companyPolicyClearOwed(), 'a re-applied company means nothing is owed (companyEntry is non-null)');
+  const before = syncs;
+  orgRefreshIfDue(10 * HOUR);
+  assert.equal(syncs, before, 'the no-company retry stays quiet while a company is applied (the hourly ask owns that case)');
+});
+
+test('#6240: the no-company retry is wired into orgRefreshIfDue, so a refactor cannot silently drop it from the tick', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  // The five-minute tick itself (setInterval(() => orgRefreshIfDue(), ORG_REFRESH_CHECK_MS)) is pinned by the
+  // #6232 test above; this pins that orgRefreshIfDue still calls the retry, so it keeps riding that tick.
+  // Match from the function name to the call; `companyPolicyRetryIfOwed(now)` (the call) appears before its
+  // definition `companyPolicyRetryIfOwed(now = Date.now())`, so the first hit is the call inside orgRefreshIfDue.
+  assert.match(src, /function orgRefreshIfDue\b[\s\S]*?companyPolicyRetryIfOwed\(now\)/,
+    'orgRefreshIfDue no longer calls companyPolicyRetryIfOwed: the no-company retry would never run on the tick');
+});
+
+test('#6240: a clock set back before the last retry counts as due, so a wrong clock cannot hold the retry off', (t) => {
+  const HOUR = 60 * 60 * 1000, MIN = 60 * 1000;
+  const TOLD = require('./engine/projects').TOLD;
+  const policy = require('./engine/policy');
+  const { companyPolicySync, orgRefreshIfDue, orgEnrollmentEnded, _orgRefreshResetForTests } = require('./server');
+  const live = require('./engine/live-execution');
+  _orgRefreshResetForTests(); live.resetForTests();
+  assert.ok(!live.liveExecutionAllowed(), 'needs live execution OFF so orgEnrollRefresh is inert');
+  const realEntry = policy.companyEntry, realSync = policy.syncEveryone;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
+  let syncs = 0;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return [{ agent: 'ava', state: TOLD.COULD_NOT, because: 'its session is gone' }]; };   // always stuck, so the clear stays owed
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); live.resetForTests(); });
+
+  companyPolicySync();            // records the company text
+  entry = null;                   // ending with a stuck agent: a clear is owed and stays owed
+  orgEnrollmentEnded(store.ROOT);
+  assert.equal(syncs, 1, 'the ending ran the hand-over once');
+  const T = 10 * HOUR;
+  orgRefreshIfDue(T);
+  assert.equal(syncs, 2, 'the first due tick retried');
+  orgRefreshIfDue(T + 5 * MIN);
+  assert.equal(syncs, 2, 'within the hour: no retry');
+  // Clock set back a full day, before the last retry at T. The old `now < ORG_POLICY_RETRY_AT` gate would hold
+  // this off for the whole set-back; it must instead count as due and retry (mirrors orgRefreshIfDue, #6232 rev 3).
+  orgRefreshIfDue(T - 24 * HOUR);
+  assert.equal(syncs, 3, 'a clock set back before the last retry must retry, not be held off for the set-back');
 });

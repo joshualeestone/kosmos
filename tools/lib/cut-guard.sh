@@ -496,8 +496,37 @@ _kosmos_suite_candidates() {
   kosmos_running_lines tools/run-tests.sh   # #5470: the shared anchored match (0 lines, 1 none, 2 could not tell)
 }
 
+# #6334: one suite is ONE run, however many processes carry its command line (a bash subshell keeps its parent's), so
+# a count of live suites keeps only the candidates with no other candidate above them. A candidate that is gone by now
+# is dropped rather than counted as a root of its own (its parent can no longer be read). Reads and prints
+# `pid command`. Pipes, not here-documents: bash 3.2 writes a here-document to a temp file.
+_kosmos_suite_roots() {
+  local lines pids line pid other is_child
+  lines="$(cat)"
+  pids="$(printf '%s\n' "$lines" | while IFS= read -r line; do [ -n "$line" ] && printf '%s\n' "${line%% *}"; done)"
+  printf '%s\n' "$lines" | while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pid="${line%% *}"
+    _kosmos_pid_gone "$pid" && continue
+    is_child=0
+    for other in $pids; do
+      [ "$other" != "$pid" ] || continue
+      _kosmos_pid_is_self_or_descendant "$pid" "$other" && { is_child=1; break; }
+    done
+    [ "$is_child" = 1 ] && continue
+    _kosmos_pid_gone "$pid" && continue   # exited during the walk (its parent read as empty): not a suite of its own
+    printf '%s\n' "$line"
+  done
+}
+
+# kosmos_refuse_if_suite_live <what> [override] [others-allowed]: refuses while a suite runs. The third argument (#6334,
+# default 0) is how many OTHER live suites this run may start beside; only tools/run-tests.sh passes one (from
+# KOSMOS_SUITE_MAX), so an install harness and a queued-heavy turn still wait until no suite runs. (A release cut
+# does not call this at all.)
 kosmos_refuse_if_suite_live() {
   local what="${1:-this run}" override="${2:-KOSMOS_HARNESS_IGNORE_SUITE=1 runs anyway}" probe="${KOSMOS_SUITE_PROBE:-}" out rc self
+  local allowed="${3:-0}" n
+  case "$allowed" in ''|*[!0-9]*) allowed=0 ;; esac
   self="${KOSMOS_SUITE_SELF_PID:-$$}"
   # The source differs (the seam or the real name arm); everything after it is shared, so the
   # probe arms in tools/test-cut-guard.sh exercise the same code a live read does, and the real
@@ -524,6 +553,15 @@ kosmos_refuse_if_suite_live() {
     echo "could not tell whether a test suite is running (the probe exited $rc); refusing to guess for $what. $override." >&2
     return 1
   fi
+  if [ "$rc" -eq 0 ] && [ -n "$out" ] && [ "$allowed" -gt 0 ]; then
+    local roots; roots="$(printf '%s\n' "$out" | _kosmos_suite_roots || true)"
+    if [ -n "$roots" ]; then out="$roots"; fi   # empty roots: count the list as it was
+    n="$(printf '%s\n' "$out" | grep -c . || true)"
+    [ "$n" -le "$allowed" ] && return 0
+    local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"
+    echo "$n test suites (tools/run-tests.sh) are already running on this Mac ($detail), and $what starts beside at most $allowed (a limit of $((allowed + 1)); for tools/run-tests.sh it comes from KOSMOS_SUITE_MAX or the suite-max file, #6334). Wait for one to finish, or $override." >&2
+    return 1
+  fi
   if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
     local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"
     echo "a test suite (tools/run-tests.sh) is already running on this Mac ($detail); $what boots real boards on test ports and checks that they let go of them, and a suite beside it can make those checks red for reasons that are not the change. Wait for the suite to finish (bash tools/heavy-gate.sh --twice --quiet-box says when the box is quiet), or $override. On a busy Mac a suite is often running, so expect to wait rather than to override." >&2
@@ -541,7 +579,8 @@ kosmos_refuse_if_suite_live() {
 #
 # 🔑 THE SUITE QUEUE, because a waiting run-tests.sh is still a run-tests.sh process. Without it:
 #   1. two suites waiting on a third would each see the other as live, and both give up at the bound;
-#   2. two suites freed by the same finish would start together, the overlap this exists to stop.
+#   2. two suites freed by the same finish would start together, past the limit this exists to keep
+#      (#6334: KOSMOS_SUITE_MAX).
 # So a waiting suite writes suitewait.<pid> (line 1 "<epoch> <pid>", line 2 its command, line 3 its start time in
 # the writer's local form and, since #4574, line 4 the same in UTC and the C locale; the same recycled-pid check as the
 # run markers), the suite check skips a waiter (and its direct subshells),
@@ -577,7 +616,7 @@ kosmos_refuse_if_suite_live() {
 # pass explicitly), plus #5332's KOSMOS_WAIT_KEEP_MARK, which is queued-heavy's alone and listed so no child
 # inherits it. run-tests.sh unsets them once its wait has read them, and test-cut-guard.sh starts without them, so
 # no test inherits a caller's (one list, used by both).
-KOSMOS_WAIT_CONTROL_VARS="KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_IGNORE_MACHINE_CLAIM KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP KOSMOS_QUEUE_CLASS KOSMOS_WAIT_KEEP_MARK"
+KOSMOS_WAIT_CONTROL_VARS="KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_IGNORE_MACHINE_CLAIM KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP KOSMOS_QUEUE_CLASS KOSMOS_WAIT_KEEP_MARK KOSMOS_SUITE_MAX"
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
 # _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command, and a matching
@@ -676,9 +715,9 @@ kosmos_mark_suite_waiting() {
 kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null; return 0; }
 
 # #4609 light lane: a run declared light (KOSMOS_QUEUE_CLASS=light: one browser check, one focused test file) goes ahead
-# of heavy waiters (full suites, cargo runs, pushes), still ONE run at a time: the class changes the order, never how
-# many hold the box. A heavy waiter that has waited KOSMOS_QUEUE_STARVE_S (default 2700 s, 45 minutes) goes ahead
-# of the light ones, so a stream of light runs cannot hold a suite back for ever. Measured before this (2026-09-30
+# of heavy waiters (full suites, cargo runs, pushes): the class changes the order, never how many hold the box
+# (one turn, or since #6334 up to KOSMOS_SUITE_MAX suites started directly). A heavy waiter that has waited
+# KOSMOS_QUEUE_STARVE_S (default 2700 s, 45 minutes) goes ahead of the light ones, so a stream of light runs cannot hold a suite back for ever. Measured before this (2026-09-30
 # 10:07): 22 waiters, 19 of them one-offs that hold the box 7 to 200 s, queued behind suites that hold it 15 to 20 min.
 # #5272: KOSMOS_QUEUE_CLASS=canary is the main canary (a full suite on origin/main's tip, the backstop for merges that
 # skip a re-run). It waits first among waiters (_kosmos_queue_rank), one canary at a time (_kosmos_suite_waiters_ahead),

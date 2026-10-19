@@ -214,13 +214,12 @@ function check(name, pass, detail) {
       } catch (e) {
         captureErr = String((e && e.message) || e);
       }
-      /* The REAL coordinator payload shape (kosmos-relay VapidSender): who/what/
-         where, never content -- {kind, agent, project, id, address}. sw.js must
-         DERIVE the notification from these fields. Delivering {title,body} here
-         instead would route through sw.js's explicit-title fallback and prove
-         nothing about the mapping the live push actually depends on (the exact
-         hand-rolled-fixture-answers-a-different-question trap). No title/body in
-         the fixture, on purpose, so the derive path is what is under test. */
+      /* The coordinator payload without a title -- {kind, agent, project, id, address}: what
+         the live coordinator sends until kosmos-relay pushwords-6487 (kosmos#6487) is deployed,
+         and what an older coordinator keeps sending after. sw.js must DERIVE the notification
+         from these fields, so the derive path is what is under test here. The payload WITH the
+         coordinator's own title and body (shown as it is, no body added) is pinned in
+         web.sw-718.test.js. */
       await cdp.send('ServiceWorker.deliverPushMessage', {
         origin,
         registrationId,
@@ -276,7 +275,7 @@ function check(name, pass, detail) {
   check('the push handler called showNotification with the mapped notification (observed in the worker)',
     !!call && (calls || []).length === 1 &&
       call.title === 'Scorpion needs you' &&
-      call.body === 'In Kosmos Inside Out' &&
+      call.body === 'in Kosmos Inside Out' &&
       call.url === TAP_URL,
     captureErr || JSON.stringify(calls).slice(0, 240));
   /* How that call settled. Headed it must RESOLVE. Headless Chromium keeps
@@ -312,13 +311,98 @@ function check(name, pass, detail) {
   if (HEADED) {
     const hit = shown.find((n) =>
       n.title === 'Scorpion needs you' &&
-      n.body === 'In Kosmos Inside Out' &&
+      n.body === 'in Kosmos Inside Out' &&
       n.url === TAP_URL);
     check('the delivered coordinator push produced the mapped notification', !!hit,
       JSON.stringify(shown).slice(0, 240));
   } else {
     console.log('SKIP  the delivered coordinator push produced the mapped notification (headed-only: headless Chromium denies notification permission, so nothing is shown; the handler call is asserted above)');
   }
+
+  /* --- #6254: the per-kind sub-switches, under the master above ------------- */
+  /* WHY HERE AND NOT ONLY A SOURCE TEST. web.phone-notify-718.test.js already
+     drives paintKinds/toggleKind through a fake DOM, so the control flow is
+     covered. What a source test cannot see is that the real markup in web/index.html
+     actually carries the container, the five buttons (with their data-kind and the
+     default aria-pressed the page ships), and that the client exposes the toggle --
+     and that the client's OWN paint unhides the block and paints each button from
+     the board's `kinds` in a real browser. That is the gap this block closes.
+
+     Two parts. STATIC facts first, read off the live board page -- true whatever
+     the board's phone-notify state is, because the markup is always present (the
+     section is hidden when unavailable, not removed). Then a DYNAMIC arm: a fresh
+     context with the service worker BLOCKED (so the fetch hits the mock, not a
+     cached worker response) and /api/phone-notify mocked, so the client's real
+     paintKinds runs against a known state -- master on paints+shows, master off
+     hides (cf. render-found-undo.js's mocked-route pattern). */
+  const PN_DEFAULT_PRESSED = { needsYou: 'true', replied: 'true', postedMention: 'true', ready: 'true', postedRoom: 'false' };
+  const kindWiring = await page.evaluate((names) => {
+    const out = { fn: typeof window.kosmosPhoneNotifyKindToggle, box: !!document.getElementById('phone-notify-kinds'), btns: {} };
+    for (const n of names) {
+      const b = document.getElementById('pn-kind-' + n);
+      out.btns[n] = b ? { present: true, dataKind: b.getAttribute('data-kind'), pressed: b.getAttribute('aria-pressed') } : { present: false };
+    }
+    return out;
+  }, Object.keys(PN_DEFAULT_PRESSED));
+  check('#6254: the client exposes kosmosPhoneNotifyKindToggle()', kindWiring.fn === 'function', kindWiring.fn);
+  check('#6254: the per-kind switch block is in the page', kindWiring.box);
+  for (const n of Object.keys(PN_DEFAULT_PRESSED)) {
+    const b = kindWiring.btns[n];
+    check(`#6254: pn-kind-${n} is present with data-kind=${n} and default aria-pressed=${PN_DEFAULT_PRESSED[n]}`,
+      b.present && b.dataKind === n && b.pressed === PN_DEFAULT_PRESSED[n], JSON.stringify(b));
+  }
+
+  const pnCtx = await browser.newContext({ viewport: { width: 1280, height: 1400 }, serviceWorkers: 'block' });
+  const pnPage = await pnCtx.newPage();
+  const pnErrors = [];
+  pnPage.on('pageerror', (e) => pnErrors.push(String(e.message)));
+  /* replied OFF, the rest as default on -- so a button that painted the markup
+     default instead of the board's `kinds` (replied would stay On) fails below. */
+  let pnState = { available: true, on: true, connected: true, kinds: { needsYou: true, replied: false, postedMention: true, ready: true, postedRoom: false } };
+  await pnPage.route('**/api/phone-notify', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pnState) }));
+  await pnPage.goto(BASE + '/', { waitUntil: 'load' });
+  if (await pnPage.$('#firstrun:not([hidden])')) { await pnPage.keyboard.press('Escape'); await pnPage.waitForTimeout(300); }
+  const shownOn = await pnPage.waitForFunction(() => { const b = document.getElementById('phone-notify-kinds'); return !!b && !b.hidden; }, null, { timeout: 8000 }).then(() => true, () => false);
+  check('#6254: with the master on + connected, the per-kind block is shown', shownOn);
+  const painted = await pnPage.evaluate((names) => {
+    const o = {};
+    for (const n of names) { const b = document.getElementById('pn-kind-' + n); o[n] = b ? { pressed: b.getAttribute('aria-pressed'), text: b.textContent } : null; }
+    return o;
+  }, Object.keys(pnState.kinds));
+  const wantPaint = { needsYou: 'true', replied: 'false', postedMention: 'true', ready: 'true', postedRoom: 'false' };
+  const paintMiss = Object.keys(wantPaint).filter((n) =>
+    !(painted[n] && painted[n].pressed === wantPaint[n] && painted[n].text === (wantPaint[n] === 'true' ? 'On' : 'Off')));
+  check('#6254: each sub-switch paints from the board kinds (On/Off + aria-pressed), not the markup default',
+    paintMiss.length === 0, paintMiss.map((n) => n + '=' + JSON.stringify(painted[n])).join(' '));
+
+  // Visual record of the expanded section (set PN_SHOT to a writable path to capture it).
+  if (process.env.PN_SHOT) { try { const sec = await pnPage.$('#phone-notify'); if (sec) await sec.screenshot({ path: process.env.PN_SHOT }); } catch (_e) {} }
+
+  // Master off -> the block hides again (same page, a fresh GET).
+  pnState = { available: true, on: false, connected: true, kinds: pnState.kinds };
+  await pnPage.reload({ waitUntil: 'load' });
+  if (await pnPage.$('#firstrun:not([hidden])')) { await pnPage.keyboard.press('Escape'); await pnPage.waitForTimeout(300); }
+  await pnPage.waitForTimeout(400);
+  const hiddenOff = await pnPage.evaluate(() => { const b = document.getElementById('phone-notify-kinds'); return b ? b.hidden : null; });
+  check('#6254: with the master off, the per-kind block is hidden', hiddenOff === true, JSON.stringify(hiddenOff));
+
+  // #6488: the sentence under the switch follows whether the off was the person's choice, connected or not.
+  for (const [st, want] of [
+    [{ available: true, on: false, connected: true, kinds: pnState.kinds }, 'Not on yet. It turns on by itself, or press Turn on now.'],
+    [{ available: true, on: false, connected: true, offByChoice: true, kinds: pnState.kinds }, 'Off. Press Turn on to turn it on.'],
+    [{ available: true, on: false, connected: false, kinds: pnState.kinds }, 'This turns on by itself once Kosmos+ is on for this computer.'],
+    [{ available: true, on: false, connected: false, offByChoice: true, kinds: pnState.kinds }, 'Off. You can turn it on once Kosmos+ is on for this computer.'],
+  ]) {
+    pnState = st;
+    await pnPage.reload({ waitUntil: 'load' });
+    if (await pnPage.$('#firstrun:not([hidden])')) { await pnPage.keyboard.press('Escape'); await pnPage.waitForTimeout(300); }
+    const said = await pnPage.waitForFunction((w) => { const m = document.getElementById('phone-notify-msg'); return !!m && m.textContent === w; }, want, { timeout: 8000 })
+      .then(() => want, () => pnPage.evaluate(() => { const m = document.getElementById('phone-notify-msg'); return m ? m.textContent : null; }));
+    check('#6488: ' + (st.connected ? 'connected' : 'not connected') + ', off' + (st.offByChoice ? ' by choice' : ', never touched') + ': the sentence says so',
+      said === want, JSON.stringify(said));
+  }
+  check('#6254: no page errors while painting the sub-switches', pnErrors.length === 0, pnErrors.join(' | ').slice(0, 160));
+  await pnCtx.close();
 
   check('no page errors', errors.length === 0, errors.join(' | ').slice(0, 160));
   await browser.close();

@@ -20,14 +20,18 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  setTokenFileForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s path for agy\'s sign-in file, so engine/agyusage-6176.test.js and server.agyusage-6176.test.js can stand a file in for it; production checks the real path in the person\'s home folder.',
+  setStoppedFileForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s record that asking stopped after a failed run, so engine/agyusage-6176.test.js can show it outlives a restart without touching the person\'s Kosmos folder (production refuses it in a test process).',
+  setKillMsForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s kill time for a hung agy run, which engine/agyusage-6176.test.js shortens to reach the cap path in milliseconds instead of fifty seconds.',
+  latestForTests: 'test seam (#6309): engine/usagecap.js\'s last count from its worker thread, so engine/usagecap-6309.test.js can wait for the real worker to post before asking the gate. Production reads the same `latest` inside capInForce.',
   resetLiveCacheForTest: 'test seam (#5977): engine/qwenaccounts.js clears the remembered endpoint answers (a minute for an unreachable one), so engine/qwenaccounts-5977.test.js and engine/qwen-review2-5977.test.js can change the fake endpoint between checks. Production keeps the cache.',
   _readState: 'engine/agentevents.js (#5683 slice 1, review 37): the state reader, so engine/agentevents-5683.test.js can check that a bad queue entry or send size is dropped on read without a tick in between (a tick drained the queue and hid the check).',
   _enrollmentKey: 'engine/agentevents.js (#5683 slice 3, rebase onto slice 1): the key a state is kept under, so engine/manipcheck-5683.test.js can write a queued state under exactly the key the tick computes rather than a second copy of its format (a copy in the old \'|\' form reset every state and emptied the queue).',
   _defaultSources: 'engine/agentevents.js (#5683 slice 1, review 17): the board\'s real sources, so engine/agentevents-5683.test.js can check its guard-in-force test against a folder guardTokenOnlyFolder actually wrote (a stub would agree with itself).',
   _callFiles: 'engine/agentevents.js (#5683 slice 1, challenge loop after the rebase): which transcripts hold unanswered calls in memory, so engine/agentevents-5683.test.js can check a file with none is dropped.',
+  _resetUsageScanForTests: 'engine/orgrollup.js (kosmos#5532): forgets the last finished usage scan and drops a pending one, so engine/orgrollup-scope-5532.test.js can show a later send using an abandoned scan from a clean start.',
   _resetOwnPostNudgesForTests: 'engine/messages.js (#5732): clears the per-agent gap between own-computer nudges, so engine/messages.test.js can show a burst is one line per agent and that the gap reopens.',
   _chainWaitMs: 'engine/communitysend.js (#5623 Rule 2): a read-only view of agentCall\'s chain wait (chainWaitMs stays private), so engine/replynudge.assign-5623.test.js pins that every bad waitMs falls back to AGENT_WAIT_MS and that a caller omitting it keeps the old wait; agentCall itself is the production caller.',
-  worldUsageByModel: 'engine/usage.js (#5532 E0.3): the scoped usage reader for the company rollup, landed and tested on its own first (as chunkBuffer above). Its caller is engine/orgrollup.js on the rollup branch, which reads it only under the consent words; remove this excuse when that lands.',
   pdfText: 'engine/attachtext.js (#6098 review 1): the in-thread PDF path (the JS reader then PDFKit) that engine/attachtext-6098.test.js drives directly; render runs the same two halves split across its worker and the main thread (pdfTextJs in the worker, pdfAfter after it).',
   setWorkerLimits: 'engine/attachtext.js (#6098 review 2): a test seam, the conversion worker\'s time and memory limits, which engine/attachtext-6098.test.js shortens to reach the timeout path without waiting 30 s.',
   setPdfkit: 'engine/attachtext.js (#6098): a test seam, the macOS PDFKit reader, which engine/attachtext-6098.test.js replaces so nothing shells out to osascript and the fallback order can be counted.',
@@ -41,6 +45,12 @@ const EXCUSED = {
   _setReadPagesMs: 'test seam (#5636 F7c): engine/communityfollow.js sets how long into a Following read an older page may still start, so engine/communityfollow.test.js can prove the read-time bound without waiting ten seconds. Production keeps 10 s.',
   setRunner: 'test seam: injects the tmux runner',
   problemOf: 'engine/win32roster.js (#5949): turns a failed claude agents --json read into the cause the agent log names; the readers call it inside the module, and engine/win32capture.hold-5949.test.js runs it on the error shapes measured on Windows (a sync buffer overflow also carries SIGTERM, so a signal test alone misnames it as a timeout).',
+  _tmuxPanesStepsForTests: 'test seam (#6190): engine/status.js\'s one tmux look body, so engine/status.test.js can step it and run the board\'s own poll between two steps, which is the await the async driver makes. Production reaches it through tmuxPanes and tmuxPanesAsync.',
+  _execAsyncForTests: 'test seam (#6173 review 1): engine/remove.js\'s real execFile half of runAsync, which the live gate keeps every test off, so engine/remove.test.js runs a real process through it and checks the exit code, output, missing command and time limit that launchctl callers read. Production reaches it through runAsync.',
+  setAsyncRunner: 'test seam (#6173): engine/remove.js\'s twin of setRunner for restartAsync, answering each launchctl call with a promise, so engine/remove.test.js drives the async restart without a real launchd and can count how often the board\'s thread turned meanwhile. Production uses execFile.',
+  setUnsentRetryScheduler: 'test seam (kosmos#6436): engine/chat.js\'s scheduler for the retries on a line left unsent, so engine/chat.unsent-6436.test.js runs each retry by hand instead of waiting 30 seconds to 5 minutes. Production uses a real unref\'d timer.',
+  restartUnsentForTests: 'test seam (kosmos#6436): drops engine/chat.js\'s in-memory record of a line left unsent while keeping its file, which is what a board restart does, so engine/chat.unsent-6436.test.js can show the line is still pressed after one.',
+  vouchAllowingIdForTests: 'test seam (kosmos#6407): engine/remote.js\'s device an automatic allow is out for, so engine/remote.test.js can show in the same tick that a vouch on a signins row starts no allow. Production reads vouchAllowingId inside vouchTick and the Not me paths.',
   setCompanyOpenCommandForTests: 'test seam (#5628 slice 2b-ui): engine/remote.js runs this command instead of the system opener (open, rundll32 or xdg-open) for the company sign-in page, so engine/remote.test.js drives the REAL spawn and exit-code path with true and false, never a browser. Production uses the platform opener.',
   setCompanyOpenSourceForTests: 'test seam (#5889): engine/remote.js judges the company sign-in opener by this platform and environment instead of the real ones, so engine/remote.test.js can prove the allowlist and the Linux display check on any runner.',
   resetCompactNotesForTests: 'test seam (kosmos#5208): engine/sendertoken.js lets the once-per-process compaction notes be said again, so engine/sendertoken.prune-ended-5208.test.js can check one is said exactly once whatever ran earlier in that process',
@@ -147,6 +157,7 @@ const EXCUSED = {
   setTransport: 'test seam (#2296): injects the blob list/get transport so engine/feedbackpull.js tests never hit the network or the real secrets map. Named here because "setTransport" is unique to this file; production pull() uses the default fetch transport.',
   setTimeoutMs: 'test seam (#4287): engine/communitysend.js shortens its request timeout so the slow-server test fails in two seconds instead of hanging the suite; production keeps the default.',
   setSwitch: 'test seam (#4287): engine/communitysend.js takes a stand-in for engine/communityswitch.js, which is #4288 and not built yet, so the send tests can turn sending on; production reads the real module.',
+  setContact: 'test seam (kosmos#6239): engine/communitysend.js takes a stand-in for the policy\'s outside-contact read (orgpolicy.contactAllows), so the family tests can make that read throw or refuse without writing a damaged record; production reads the real one.',
   setAgentWaitMs: 'test seam (#4774): engine/communitysend.js shortens how long agentCall waits for the board, so the follow tests reach the timeout arm in 100 ms; production keeps AGENT_WAIT_MS.',
   _registration: 'test seam (#4922): engine/communitysend.js lets engine/communitysend.test.js see what a registration would carry (whether install_group goes for a removed or folder-gone agent) without a sweep; production calls registration() inside ensureRegistered.',
   _installGroupRetry: 'test seam (#4922): engine/communitysend.js sets how long the install-group pass pauses after a failure and clears its pauses (the whole-pass pause, the hour-long unknown-field window, and where the next pass starts), so engine/communitysend.test.js runs its retry tests sweep by sweep and pins each pause itself with an hour; production keeps 15 minutes.',
@@ -192,6 +203,7 @@ const EXCUSED = {
   // genuine caller existing, not the sweep. (forgetKey and unwireApiKeyHelper were
   // already reachable via server.js's failed-store cleanup.)
   _spillHead: 'test seam (#5706): engine/messages.js\'s summary of a long message (its first sentence or opening, and its word count), so the head rule can be pinned without a board. Production reaches it through spillLine at both spill sites (send and sendPost).',
+  liveSessionIds: '#6358, pending: the board proof route (boardproof-1765) answers for browser sessions through it, which is the other half of #6358. Remove this excuse when server.js calls it.',
   setSoonWaitMs: 'test seam (#5636 F4): engine/readjobs.js shortens the few-second wait a soon=1 read answers within, so a test can see "still reading" without waiting four seconds. Production keeps SOON_WAIT_MS.',
   _reset: 'test seam (#5636 F4): engine/readjobs.js forgets every read in flight or kept, so each test starts clean. Production never clears them; they go when handed out or after KEEP_MS.',
   _size: 'test seam (#5636 F4): engine/readjobs.js says how many reads it is tracking, so a test can see a delivered answer was not kept. Production never asks.',
@@ -210,6 +222,10 @@ const SEAMS_5548 = {
   // #5805 slice 3: forgets every first-seen time of a dateless usage-limit line, so each test in
   // engine/limituntil-5805.test.js (and slice 3b's) starts clean. Production never clears them.
   resetLimitFirstSeenForTests: 'engine/status.js',
+  // #6249: the colour capture of the input box (engine/status.unsent-6249.test.js answers it with real screens) and
+  // the reset of each agent's first-seen unsent text. Production captures with tmux and never clears the record.
+  setAnsiCapture: 'engine/status.js',
+  resetUnsentForTests: 'engine/status.js',
   // #5805 slice 2a: whether a kept message is being typed this moment, or was typed and its removal failed, so
   // engine/limitmsg-5805.test.js can see the claim and the done record; the sweep and Send now anyway read the sets
   // themselves (claimedNow / done), never these.
@@ -227,6 +243,7 @@ const SEAMS_5548 = {
   setLastFileForTests: 'engine/agystatus.js',
   _lock: 'engine/agytrust.js',
   _setNonceClock: 'engine/boardauth.js',
+  _resetSessions: 'engine/boardauth.js',
   setInstalledCli: 'engine/boardrestart.js',
   setBoardOps: 'engine/boardrestart.js',
   setUid: 'engine/boardrestart.js',
@@ -282,7 +299,6 @@ const TRIAGED_5548 = {
   ALLOWED_TOOLS: ['engine/orgchartcodex.js', TEST_SEAM + ' (the hardening policy list the capture test asserts; nothing in the module reads it)'],
   deriveCatalog: ['engine/orgchartcodex.js', TEST_SEAM + ' (a wrapper over catalogFor for the capture test; production calls catalogFor)'],
   offeredTools: ['engine/orgchartcodex.js', TEST_SEAM + ' (asserted by the capture test; nothing in the module calls it)'],
-  parentOf: ['engine/tasks.js', ACCESSOR + ' (treeOf(p).up; the screen reads the tree through allTasks rows)'],
   childrenOf: ['engine/tasks.js', ACCESSOR + ' (treeOf(p).under)'],
   subtaskProgress: ['engine/tasks.js', ACCESSOR + ' (treeOf(p).progress; the screen shows "N of M subtasks done" from the row)'],
   whyNoReader: ['engine/orgchartfile.js', ACCESSOR + ' (lastWhy; production reads readerAndWhy)'],
@@ -306,23 +322,27 @@ const TRIAGED_5548 = {
 const engineDir = path.join(__dirname, 'engine');
 const engineFiles = fs.readdirSync(engineDir).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'));
 
-/* Every non-test source a caller could live in. */
+/* Every non-test source a caller could live in. #5548 (#6113 item 3): every key is posix, because findOrphans compares
+   it with a module's posix rel to skip the module's own file; a path.join key is engine\x.js on Windows, never equal,
+   so every module counted as its own caller: the windows job measured all 31 TRIAGED_5548 names as "gaining a caller",
+   and by the same cause the guard could find no orphan there (reasoned, not measured).
+   Reads and stats go through path.join(__dirname, key), which takes the posix key on Windows too. */
 const CALLER_FILES = [
-  ...engineFiles.map((f) => path.join('engine', f)),
+  ...engineFiles.map((f) => path.posix.join('engine', f)),
   'server.js',
-  path.join('web', 'index.html'),
-  path.join('install', 'kosmos'),
-  path.join('install', 'setup.sh'),
-  ...fs.readdirSync(path.join(__dirname, 'tools')).map((f) => path.join('tools', f)),
-  ...fs.readdirSync(path.join(__dirname, 'test-support')).map((f) => path.join('test-support', f)),
+  'web/index.html',
+  'install/kosmos',
+  'install/setup.sh',
+  ...fs.readdirSync(path.join(__dirname, 'tools')).map((f) => path.posix.join('tools', f)),
+  ...fs.readdirSync(path.join(__dirname, 'test-support')).map((f) => path.posix.join('test-support', f)),
   // #5548 slice 2: bin/ holds real callers (bin/class1-autohandle.js calls sweepClass1; bin/agent-supervisor.sh calls
   // sendertoken.retireLauncher in a node -e), which this sweep could not see.
-  ...fs.readdirSync(path.join(__dirname, 'bin')).map((f) => path.join('bin', f)),
+  ...fs.readdirSync(path.join(__dirname, 'bin')).map((f) => path.posix.join('bin', f)),
 ].filter((f) => { try { return fs.statSync(path.join(__dirname, f)).isFile(); } catch { return false; } });
 
 const read = (f) => { try { return fs.readFileSync(path.join(__dirname, f), 'utf8'); } catch { return ''; } };
 const testFiles = [
-  ...fs.readdirSync(engineDir).filter((f) => f.endsWith('.test.js')).map((f) => path.join('engine', f)),
+  ...fs.readdirSync(engineDir).filter((f) => f.endsWith('.test.js')).map((f) => path.posix.join('engine', f)),
   ...fs.readdirSync(__dirname).filter((f) => f.endsWith('.test.js')).map((f) => f),
 ];
 const testBlob = testFiles.map(read).join('\n');
@@ -452,12 +472,20 @@ function findOrphans(modules, callerSources, tests, skip) {
    a trailing # after code: agent-supervisor.sh carries JS inside node -e '...', where a # can be code). Done here, not
    where sources is built, because codeOnly's REGEX_AFTER is declared below that line. */
 for (const s2 of sources) {
-  if (!/^bin[\/\\]/.test(s2.f)) continue;
+  if (!/^bin\//.test(s2.f)) continue;
   s2.text = s2.f.endsWith('.js') ? codeOnly(s2.text) : s2.text.split('\n').map((l) => (/^\s*#/.test(l) ? '' : l)).join('\n');
 }
 
 // posix keys, so the file-keyed lists compare the same on Windows (#5548 review 2)
-const engineModules = engineFiles.map((f) => ({ rel: path.posix.join('engine', f), text: read(path.join('engine', f)) }));
+const engineModules = engineFiles.map((f) => ({ rel: path.posix.join('engine', f), text: read(path.posix.join('engine', f)) }));
+
+/* Only Windows can fail this (path.join already gives / on a Mac or Linux), so the windows job is what arms it. */
+test('#5548: every engine module is a caller file under the same key, so findOrphans can skip its own file', () => {
+  const keys = new Set(sources.map((s2) => s2.f));
+  const missing = engineModules.map((m) => m.rel).filter((r) => !keys.has(r));
+  assert.deepEqual(missing, [], 'caller keys and module keys are spelled differently (a path.join key on Windows), so every module counts as its own caller');
+  assert.ok(sources.every((s2) => !s2.f.includes('\\')), 'a caller key holds a backslash');
+});
 
 /* EXCUSED is by name (an excuse covers the name wherever it is exported); SEAMS_5548 and TRIAGED_5548 are by file, so a pending
    name cannot cover a new orphan of the same name in another module (#5548 review 1). */
@@ -477,6 +505,7 @@ const NO_LITERAL_EXPORTS = {
   'engine/doctrine-past.js': 'module.exports = blocks (an array of retired doctrine text, data not functions)',
   'engine/github.js': 'module.exports = Object.assign(makeDoor({...}), ...) (a connection door built by a factory)',
   'engine/vercel.js': 'module.exports = Object.assign(makeDoor({...}), ...) (a connection door built by a factory)',
+  'engine/usagecap-worker.js': 'no module.exports (#6309: a worker thread engine/usagecap.js starts by path; it talks by messages)',
 };
 
 test('#5548: the guard reads every engine exports block', () => {
@@ -543,12 +572,16 @@ test('#5548 self-test: a one-line exports block, a comment mention and a string 
   // review 2: a regex at the start of a template ${} is a regex, so its quote does not hide the code after it
   const tre = 'function viaTemplate() {}\nfunction user(s) { return `${/\'/.test(s) ? viaTemplate() : 0}`; }\nmodule.exports = { viaTemplate, user };\n';
   assert.deepEqual(findOrphans([{ rel: 'engine/t.js', text: tre }], [{ f: 'server.js', text: 'user()' }], 'viaTemplate() user()', () => false), []);
+  // #5548 (#6113 item 3): the module's own file is in the caller list, as it is for real; it must not count as a caller
+  const own = 'function selfOnly() {}\nmodule.exports = { selfOnly };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/s.js', text: own }], [{ f: 'engine/s.js', text: own }], 'selfOnly()', () => false), ['engine/s.js exports selfOnly'],
+    'a module counted as its own caller hides every orphan');
   const multi2 = 'function lonelyExport() {}\nmodule.exports = {\n  lonelyExport, // lonelyExport\n};\n';
   assert.deepEqual(findOrphans([{ rel: 'engine/m.js', text: multi2 }], [], 'lonelyExport()', () => false), ['engine/m.js exports lonelyExport']);
 });
 
 test('#5548 slice 2 review 1: a bin/ comment naming an export does not count as a call', () => {
-  const sh = sources.find((s2) => /^bin[\/\\]agent-supervisor\.sh$/.test(s2.f));
+  const sh = sources.find((s2) => /^bin\/agent-supervisor\.sh$/.test(s2.f));
   assert.ok(sh, 'fixture: bin/agent-supervisor.sh is a caller file');
   assert.ok(/retireLauncher/.test(sh.text), 'CONTROL: its real call (inside node -e) survives the comment strip');
   assert.ok(!/^\s*#/m.test(sh.text), 'no full-line comment is left in a bin shell script');

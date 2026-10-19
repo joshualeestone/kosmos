@@ -137,6 +137,13 @@ V="$(read_field version)"; SHA="$(read_field sha256)"; ARTIFACT="$(read_field "$
 # corruption threat model -- anyone who can write the pointer can write latest.json -- but cheap.
 reject_pathy() { case "$2" in *"/"*|*".."*) echo "promote-channel: the staging pointer's $1 ('$2') is not a bare filename - refusing" >&2; exit 1 ;; esac; }
 reject_pathy "$ARTIFACT_FIELD" "$ARTIFACT"
+# kosmos#6149 point 1 (after the bare-filename check, before any write): prod must never be pointed at a Mac build older than the setup floor; the installer prod serves beside it is checked below.
+if [ "$FAMILY" = mac ]; then
+  . "$(dirname "$0")/lib/setup-floor.sh" || { echo "promote-channel: cannot load tools/lib/setup-floor.sh" >&2; exit 1; }
+  # The snapshot's own bytes (what is copied to prod), so a doubled key is refused here too: readers of a doubled key
+  # disagree about which build it names.
+  kosmos_setup_floor_pointer_ok "the staging pointer being promoted" "$(cat "$SNAP")" || exit 1
+fi
 [ -n "$V" ] && [ -n "$SHA" ] && [ -n "$ARTIFACT" ] || { echo "promote-channel: $STAGING is missing version/sha256/$ARTIFACT_FIELD - not a usable pointer" >&2; exit 1; }
 
 # THE SAME-BYTES INVARIANT, checked before the gate and before any promote: the artifact
@@ -178,6 +185,16 @@ if [ "$FAMILY" = mac ] && [ -n "$PTR_SETUP" ]; then
   [ "$_sw" = "$_sg" ] \
     || { echo "promote-channel: setup-staging.sha256 names '${_sw:-nothing}', not the setup-staging bytes $_sg - refusing; nothing was written." >&2; exit 1; }
   SETUP_STAGING="$_sg"
+  # kosmos#6149: setup-staging is about to become /setup: it must know the read-only app (before any write).
+  kosmos_setup_floor_installer_ok "setup-staging (about to become /setup)" "$SITE/setup-staging" || exit 1
+# (No /setup in the site at all: nothing here to check; deploy-site's export check covers whatever is published.)
+elif [ "$FAMILY" = mac ] && [ -f "$SITE/setup" ]; then
+  # kosmos#6149: no installer named, so prod keeps its /setup beside the promoted pointer: the COMMITTED one (what a
+  # deploy serves) must know the read-only app too. Checked before the gates (minutes), and nothing re-checks its bytes
+  # before the write (setup-staging's are held by its sha re-check there); deploy-site's export check is the authority.
+  git -C "$SITE" ls-files --error-unmatch setup >/dev/null 2>&1 && git -C "$SITE" diff --quiet HEAD -- setup \
+    || { echo "promote-channel: $SITE/setup is not committed or differs from its committed copy, so it is not what prod serves - refusing; nothing was written." >&2; exit 1; }
+  kosmos_setup_floor_installer_ok "the /setup prod keeps serving" "$SITE/setup" || exit 1
 fi
 
 
@@ -187,6 +204,39 @@ if [ "$FAMILY" = mac ]; then
   MANIFEST="$(read_field manifest)"
   reject_pathy manifest "$MANIFEST"
   [ -n "$MANIFEST" ] && [ -f "$SITE/dist/$MANIFEST" ] || { echo "promote-channel: the staging pointer advertises manifest '${MANIFEST:-<none>}', which is not in $SITE/dist - refusing to promote a pointer to a missing manifest" >&2; exit 1; }
+  # #6468 ask 2: a prod install running a release that ships engine/manifest-verify.js refuses any update whose
+  # manifest is not signed by a pinned key, so promoting such a version past those installs would strand them.
+  # A .sig that is there must verify; a missing one refuses once the release prod serves NOW checks signatures
+  # (a version cut before signing can still be promoted over a prod that does not check them).
+  _sign_js="$(cd "$(dirname "$0")" && pwd)/lib/manifest-sign.js"
+  if [ -f "$SITE/dist/$MANIFEST.sig" ]; then
+    node "$_sign_js" verify "$SITE/dist/$MANIFEST" "$SITE/dist/$MANIFEST.sig" >/dev/null \
+      || { echo "promote-channel: $MANIFEST.sig does not verify under a pinned key - refusing; every checking install would refuse this update (#6468)" >&2; exit 1; }
+    # Round 7: and under the keys prod's CURRENT release pins, which is what its installs check with.
+    _cur="$(sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SITE/dist/$PROD_NAME" 2>/dev/null | head -1)" || _cur=""
+    if [ -n "$_cur" ]; then
+      reject_pathy manifest "$_cur"
+      _vu=0; [ -f "$SITE/dist/$_cur" ] && { node "$_sign_js" verify-under "$SITE/dist/$MANIFEST" "$SITE/dist/$MANIFEST.sig" "$SITE/dist/$_cur" >/dev/null || _vu=$?; } || _vu=2
+      case "$_vu" in
+        0) : ;;
+        1) echo "promote-channel: $MANIFEST.sig is not signed by a key prod's current release ($_cur) accepts - refusing; its installs would refuse this update (#6468)" >&2; exit 1 ;;
+        *) echo "promote-channel: prod's current manifest ($_cur) cannot be read to tell which keys its installs accept - refusing (#6468)" >&2; exit 1 ;;
+      esac
+    fi
+  else
+    _prod_manifest="$(sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SITE/dist/$PROD_NAME" 2>/dev/null | head -1)" || _prod_manifest=""
+    [ -z "$_prod_manifest" ] || reject_pathy manifest "$_prod_manifest"
+    if [ -n "$_prod_manifest" ]; then
+      # A prod pointer that names a manifest promote cannot read is "cannot tell", which refuses: reading it as "prod
+      # does not check signatures" would strand every install that does.
+      _ns=0; [ -f "$SITE/dist/$_prod_manifest" ] && { node "$_sign_js" needs-sig "$SITE/dist/$_prod_manifest" || _ns=$?; } || _ns=2
+      case "$_ns" in
+        1) : ;;
+        0) echo "promote-channel: $MANIFEST has no .sig, and the release prod serves now ($_prod_manifest) checks signatures - refusing; its installs would refuse this update (#6468)" >&2; exit 1 ;;
+        *) echo "promote-channel: $MANIFEST has no .sig, and prod's current manifest ($_prod_manifest) cannot be read to tell whether its installs check signatures - refusing (#6468)" >&2; exit 1 ;;
+      esac
+    fi
+  fi
 
   # THE EXPERIENCE GATE (#2063). 0 = a fresh session can use the board -> promote; 1 = the
   # board is provably broken for a fresh session (#2023) -> refuse, never forceable; 2 =

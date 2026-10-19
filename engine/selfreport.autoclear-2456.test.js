@@ -116,9 +116,9 @@ test('#2456 CONTROL: an AGENT working still clears its own needs_you (a real res
 /* ---- The regression the fix must NOT introduce: an AUTO blocked stays protected ---- */
 
 test('#2456: an automatic working does NOT clear a standing AUTO blocked (StopFailure provider outage)', () => {
-  // The StopFailure hook writes blocked (auto) on a provider API outage. Unlike a
-  // permission needs_you, it does NOT auto-resolve, so an auto working/idle must not
-  // clear it. Keying the guard on `by` alone would have dropped this protection.
+  // The StopFailure hook writes blocked (auto) on a provider API outage. An auto working
+  // (mid-turn) must not clear it; #6209: the Stop idle of a turn that ended normally does.
+  // Keying the guard on `by` alone would have dropped this protection.
   const who = 'auto-blocked-outage';
   assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (rate_limit)', owner: 'provider', auto: true }).recorded, true);
   assert.equal(selfreport.read(who).by, 'auto', 'the StopFailure block is machine-written');
@@ -128,11 +128,29 @@ test('#2456: an automatic working does NOT clear a standing AUTO blocked (StopFa
   assert.equal(selfreport.read(who).state, 'blocked');
 });
 
-test('#2456: an automatic idle does NOT clear a standing AUTO blocked either', () => {
+test('#2456 / #6209: an automatic idle (a turn that ended normally) DOES clear a standing AUTO provider blocked', () => {
+  // #6209: a user's agent read blocked for six days after a brief provider error. StopFailure fires instead of Stop for a
+  // failed turn, so a later Stop (auto idle) proves a turn succeeded: the provider block is over.
   const who = 'auto-blocked-idle';
-  assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (500)', owner: 'provider', auto: true }).recorded, true);
-  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false);
-  assert.equal(selfreport.read(who).state, 'blocked');
+  assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, true, 'a normal turn end did not clear the provider block');
+  assert.equal(selfreport.read(who).state, 'idle');
+});
+
+test('#6209: an automatic idle still does NOT clear a DELIBERATE blocked, nor an auto block not about the provider', () => {
+  const mine = 'deliberate-blocked-6209';
+  // Review 11: a passing kind, so only the writer check (by auto) can refuse it.
+  assert.equal(selfreport.record(mine, { state: 'blocked', on: 'provider api (server_error)', because: 'the provider keeps failing', owner: 'provider' }).recorded, true);
+  assert.notEqual(selfreport.read(mine).by, 'auto', 'fixture: the agent wrote this block itself');
+  assert.equal(selfreport.record(mine, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'an auto idle erased the agent\'s own block');
+  assert.equal(selfreport.read(mine).state, 'blocked');
+  // CONTROL: the agent's own idle still clears its own block, as before.
+  assert.equal(selfreport.record(mine, { state: 'idle', because: 'back at it' }).recorded, true);
+  assert.equal(selfreport.read(mine).state, 'idle');
+  // An auto blocked not about the provider (no "provider api (" on it) is not this rule.
+  const other = 'auto-blocked-other-6209';
+  assert.equal(selfreport.record(other, { state: 'blocked', on: 'something else', owner: 'someone', auto: true }).recorded, true);
+  assert.equal(selfreport.record(other, { state: 'idle', because: 'finished responding', auto: true }).recorded, false);
 });
 
 test('#2456: an automatic needs_you does NOT clobber a standing AUTO blocked', () => {
@@ -158,4 +176,101 @@ test('#2456: a legacy standing needs_you with no `by` mark is treated as DELIBER
   const autoWork = selfreport.record(who, { state: 'working', because: 'running', auto: true });
   assert.equal(autoWork.recorded, false, 'an auto working cleared a legacy (unknown-provenance) wait');
   assert.equal(selfreport.read(who).state, 'needs_you');
+});
+
+test('#6209 review 1: a provider error over a deliberate question, then a normal turn end, keeps the question red (not idle)', () => {
+  const who = 'question-then-outage-6209';
+  const asked = selfreport.record(who, { state: 'needs_you', because: 'which domain should I use?' });
+  assert.equal(asked.recorded, true);
+  assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
+  const end = selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true });
+  assert.equal(end.recorded, false, 'a normal turn end erased the block AND the question under it');
+  assert.notEqual(selfreport.read(who).state, 'idle', 'the card read idle with a question still unanswered');
+  // Review 7: the block stays over the question (as before #6209); nothing re-shows it.
+  assert.equal(selfreport.read(who).state, 'blocked');
+  // CONTROL: the same sequence with a permission prompt (an auto needs_you) under the block does clear.
+  const perm = 'perm-then-outage-6209';
+  assert.equal(selfreport.record(perm, { state: 'needs_you', because: 'asking permission to use Bash: ls', auto: true }).recorded, true);
+  assert.equal(selfreport.record(perm, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
+  assert.equal(selfreport.record(perm, { state: 'idle', because: 'finished responding', auto: true }).recorded, true);
+});
+
+test('#6209 review 1: a legacy unmarked provider block (no `by`) is not cleared by an automatic idle', () => {
+  const who = 'legacy-provider-6209';
+  const file = selfreport.fileFor(who);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  // Review 11: a passing kind, so only the missing writer mark can refuse it.
+  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'blocked', on: 'provider api (server_error)', owner: 'provider', at: new Date().toISOString() }) + '\n');
+  assert.equal(selfreport.read(who).state, 'blocked', 'fixture: the legacy line reads');
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'an unmarked block was cleared');
+});
+
+test('#6209 review 2: several provider blocks in a row over a question still keep it; a started line between clears', () => {
+  const who = 'question-then-outages-6209';
+  assert.equal(selfreport.record(who, { state: 'needs_you', because: 'which domain should I use?' }).recorded, true);
+  for (const kind of ['server_error', 'timeout', 'server_error']) {
+    assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider', auto: true }).recorded, true);
+  }
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'a run of blocks hid the question from the check');
+  assert.equal(selfreport.read(who).state, 'blocked', 'the block over the question was cleared');
+  // A new run (started) between the question and the block: nothing deliberate is under the block, so it clears.
+  const fresh = 'started-then-outage-6209';
+  assert.equal(selfreport.record(fresh, { state: 'needs_you', because: 'an old question' }).recorded, true);
+  assert.equal(selfreport.record(fresh, { state: 'started' }).recorded, true);
+  // Several blocks in a row over the start: the whole run is skipped to find what is under it, so this still clears.
+  for (const kind of ['server_error', 'timeout']) {
+    assert.equal(selfreport.record(fresh, { state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider', auto: true }).recorded, true);
+  }
+  assert.equal(selfreport.record(fresh, { state: 'idle', because: 'finished responding', auto: true }).recorded, true, 'a run of blocks was read as a wait under itself');
+});
+
+test('#6209 review 2: when the run of blocks reaches the front of the tail read, what is under it is unknown and the block stays', () => {
+  const who = 'long-outage-6209';
+  const file = selfreport.fileFor(who);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const at = new Date().toISOString();
+  const block = JSON.stringify({ v: 1, state: 'blocked', on: 'provider api (server_error)', owner: 'provider', by: 'auto', at }) + '\n';
+  let text = JSON.stringify({ v: 1, state: 'needs_you', because: 'a question far back', by: 'agent', at }) + '\n';
+  while (text.length < selfreport.TAIL_BYTES + 4 * block.length) text += block;
+  fs.writeFileSync(file, text);
+  assert.equal(selfreport.read(who).state, 'blocked', 'fixture: the standing line is the block');
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'an unknown line under the block was taken as nothing');
+});
+
+test('#6209: a block over a long run of the same question keeps the block', () => {
+  const who = 'cut-question-6209';
+  const file = selfreport.fileFor(who);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const at = new Date().toISOString();
+  const q = JSON.stringify({ v: 1, state: 'needs_you', because: 'the same question', by: 'agent', at }) + '\n';
+  let text = '';
+  while (text.length < selfreport.TAIL_BYTES + 4 * q.length) text += q;
+  text += JSON.stringify({ v: 1, state: 'blocked', on: 'provider api (server_error)', owner: 'provider', by: 'auto', at }) + '\n';
+  fs.writeFileSync(file, text);
+  const end = selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true });
+  assert.equal(end.recorded, false, 'the block over a question was cleared');
+  assert.equal(selfreport.read(who).state, 'blocked');
+});
+
+test('#6209 reviews 7 and 10: only the transient kinds clear; usage-limit, sign-in, billing and the rest keep their block', () => {
+  // Review 10: everything but the transient kinds keeps its block (billing and a bad request need someone to act).
+  for (const kind of ['rate_limit', 'authentication_failed', 'Rate_Limit', 'billing_error', 'invalid_request', 'max_output_tokens', '500']) {
+    const who = 'kind-' + kind + '-6209';
+    assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider', auto: true }).recorded, true);
+    assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, kind + ' was cleared by an automatic idle');
+  }
+  // CONTROL: a transient kind clears.
+  const ok = 'kind-overloaded-6209';
+  assert.equal(selfreport.record(ok, { state: 'blocked', on: 'provider api (overloaded_error)', owner: 'provider', auto: true }).recorded, true);
+  assert.equal(selfreport.record(ok, { state: 'idle', because: 'finished responding', auto: true }).recorded, true);
+});
+
+test('#6209 review 9: an automatic working (mid-turn) does not clear a clearable provider block either', () => {
+  const who = 'working-over-server-error-6209';
+  assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
+  const hb = selfreport.record(who, { state: 'working', because: 'running Bash', auto: true });
+  assert.equal(hb.recorded, false, 'a mid-turn heartbeat cleared a provider block');
+  assert.equal(selfreport.read(who).state, 'blocked');
+  // CONTROL: the turn's normal end does clear it.
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, true);
 });

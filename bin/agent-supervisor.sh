@@ -72,7 +72,7 @@ CLAUDE="${3:?the path to claude is required}"
 TMUX_BIN="${4:?the path to tmux is required}"
 # 🔑 #2955: IF A DIFFERENT tmux OWNS THE SERVER, USE THE ONE THAT CAN READ IT. Two tmux versions cannot share a socket:
 # the older client answers "server exited unexpectedly" (tmux 3.5a) or "protocol version mismatch" and sees nothing.
-# Measured on Agent1s, 2026-10-01 13:42: the fleet's Homebrew 3.6a owned the socket and Kosmos's bundled 3.5a could
+# Measured on a build Mac, 2026-10-01 13:42: the fleet's Homebrew 3.6a owned the socket and Kosmos's bundled 3.5a could
 # read no agent. This job's tmux path was baked into its plist when the agent was made, and plists are never rewritten,
 # so the choice is made here, each time the job starts, by asking: the first tmux that can LIST the live server wins.
 # The board makes the same choice the same way (engine/status.js, tmuxRepick), so both land on one tmux per socket.
@@ -1014,6 +1014,7 @@ if [ -z "$adopt" ]; then
     # supervisor has an engine-path pointer, so this works from both a checkout
     # and the Application Support copy. No engine means no account-home fallback.
     _codex_runtime_home=""
+    _codex_home_shared=0   # #5812 review 5: set when the private home turned out to be the account home itself
     if [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ]; then
       _codex_runtime_home="$("$NODE_BIN" -e '
         try { process.stdout.write(require(process.argv[1]).forSession(process.argv[2])); }
@@ -1090,6 +1091,7 @@ if [ -z "$adopt" ]; then
       _codex_source_physical="$(cd "$EFFECTIVE_CODEX_HOME" 2>/dev/null && pwd -P || true)"
       if [ -n "$_codex_runtime_physical" ] && [ "$_codex_runtime_physical" = "$_codex_source_physical" ]; then
         say "$SESSION: refused a private Codex home that resolves to the selected account home"
+        _codex_home_shared=1
       elif [ "${#ENDPOINT_ARGS[@]}" -gt 0 ]; then
         # #5977: an endpoint account has no OpenAI sign-in to link, and an old link must not survive a switch to one.
         rm -f -- "$_codex_runtime_auth" 2>/dev/null || true
@@ -1157,6 +1159,41 @@ if [ -z "$adopt" ]; then
     # engine/codex-docbytes-4477.test.js; the Windows launch computes it from that constant.
     # A -c always wins, so a person's own higher value in ~/.codex/config.toml is lowered to this.
     DOCBYTES_CFG="project_doc_max_bytes=524288"
+    # #5812 item 2: the PreToolUse hook that tells the board which files a Codex agent is about to edit (the undo copy,
+    # #5153, and "changed by" on a project file). engine/codexhooks.js writes it, with the trust record Codex needs before
+    # it will run it, into the agent's PRIVATE home (#4592). Codex has hooks on by default and, in the TUI, STOPS on an
+    # untrusted hook ("Hooks need review"), so the install runs only for the one Codex version its trust hash was verified
+    # for (codexhooks.js HASH_VERIFIED_FOR) and removes its hooks.json whenever it cannot vouch for the record: a failure
+    # launches the agent with no hook, as before, never on the review screen (unless an old hooks.json of ours cannot be
+    # deleted, in a 0700 home Kosmos owns).
+    # Review 5: never into a home that resolved to the person's own account home (their Codex Desktop's, perhaps).
+    if [ "${_codex_home_shared:-0}" = 1 ]; then
+      say "$SESSION: its file-edit hook was not set up (its Codex home is the account's own); undo copies and changed-by will miss its edits"
+      # Review 6: a hooks.json of ours left there by an earlier launch goes too.
+      if [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ]; then
+        "$NODE_BIN" -e 'try { require(process.argv[1]).removeOurs(process.argv[2]); } catch (_) {}' "$_eng/codexhooks.js" "$EFFECTIVE_CODEX_HOME" 2>/dev/null || true
+      fi
+    elif [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ] && [ -n "${EFFECTIVE_CODEX_HOME:-}" ]; then
+      # Review 6, measured: `codex --version` writes <CODEX_HOME>/tmp/arg0 every run, so it runs against the private home.
+      # Review 7: with node's folder on PATH (an npm codex is `#!/usr/bin/env node`, and the pane gets that folder too),
+      # and codex itself at most 5 s (bash 3.2 has no timeout): a stalled first exec must not hold the launch. The whole
+      # process GROUP is killed at 5 s, not just the program: a child still holding the output pipe would keep $(...)
+      # waiting (measured by its test). Not covered: a child that leaves the group (setsid) after codex has exited on its
+      # own. No answer is an empty version, which means no hook (a slow first exec after an update costs that launch its
+      # hook, and says so).
+      _codex_ver="$(CODEX_HOME="$EFFECTIVE_CODEX_HOME" PATH="$PATH:$(dirname "$NODE_BIN")" perl -e '
+        my $p = fork; die unless defined $p;
+        if (!$p) { setpgrp(0, 0); exec @ARGV; exit 127 }
+        local $SIG{ALRM} = sub { kill "KILL", -$p; exit 1 };
+        alarm 5; waitpid($p, 0); exit($? >> 8)
+      ' "$CLAUDE" --version 2>/dev/null | head -n 1)"
+      _codex_ver="${_codex_ver#codex-cli }"
+      if ! _hooks_why="$("$NODE_BIN" "$_eng/codexhooks.js" install "$EFFECTIVE_CODEX_HOME" "$BRIDGE" "$_codex_ver" 2>&1 >/dev/null)"; then
+        say "$SESSION: its file-edit hook was not set up (${_hooks_why:-no reason given}); undo copies and changed-by will miss its edits"
+      fi
+      unset _hooks_why _codex_ver
+    fi
+    unset _codex_home_shared
       # Answer codex's update notice before the pane starts (#1315). Creation
       # dismisses the version current when the agent was MADE; this dismisses
       # whatever is current NOW, which is what stops an EXISTING agent meeting a

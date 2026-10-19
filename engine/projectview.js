@@ -34,10 +34,14 @@ const FUTURE_SLACK_MINUTES = 5;
  *   expected to write, so stale is a fact to read, not a fault); none: no summaries yet; unreadable: we
  *   could not look (the reader must not take that as none).
  */
-/* #5635 0.7.33: a stale summary of a member the board reads as rate limited now carries limitedNow (idleNoted).
+/* #6329: a summary workExcused leaves stale carries what decided it: workedSince (minutes counted as work, with
+   workAllReported when working reports stand behind all of it), turnsSince (turns after the writing one), waitedSince or
+   untimed (turn-ends-only runners).
+   #5635 0.7.33: a stale summary of a member the board reads as rate limited now carries limitedNow (idleNoted).
    overviewOf may then mark a stale summary 'idle', with idleKind ('idle' or 'started'), idleSince and idleMinutes
    (#4581 N10, idleExcused), or 'quiet', with quietSince and quietMinutes (#4581 R9, quietExcused), or 'worked', with
-   workMinutes (#5635 F2, workExcused). Not the member's
+   workMinutes (#5635 F2, workExcused; a turn-ends-only runner also carries turnsOnly, and its 0 minutes mean
+   unmeasured, not none). Not the member's
    own state, which also reads 'idle'. */
 function summaryFreshness(folder, nowMs) {
   const none = { state: 'none', file: null, at: null, ageMinutes: null };
@@ -127,13 +131,21 @@ function openTasks(tasks) {
    Known: Antigravity and Muse report their launch as an `idle` (no turn yet), so a restarted one reads "when it went
    idle" where a Claude member reads "when this session started"; it cannot hide a gap (review 4). */
 const REPORTS_WORKING = new Set(['claude', 'gemini', 'grok', 'antigravity', 'muse']);
+// #5635 F2 (0.7.48): runners whose only reports are turn ends (idle), so their work can be counted in turns, not timed.
+const REPORTS_TURN_ENDS = new Set(['codex']);
+const TURN_END_SAME_MS = 2 * 60000;   // idle reports this close together are the same turn ending
+// A turn-ends-only summary is never excused past this much clock time: it bounds a seat whose turn-end reports stopped
+// arriving (no rows read as no turns). Six rhythms; the 0.7.48 GPT repro was 18 hours.
+const TURN_ENDS_CAP_MS = 6 * SUMMARY_RHYTHM_HOURS * 3600000;
 function idleExcused(summary, member, readReport, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
   /* Review 4/5: only a runner known to REPORT working too, so a newer working report always replaces an old idle. Codex
      reports idle and nothing else (bin/codex-report-bridge.js), and a paneless member (Windows, remote) carries no
      runner at all; for either, an older idle after an unfinished turn would hide hours of unsummarised work. An
-     allowlist, so a runner added later is not excused until someone checks its bridge. */
+     allowlist, so a runner added later is not excused until someone checks its bridge.
+     NOTE: workExcused (#5635 F2, 0.7.48) does excuse codex by counting turn ends, accepting that cost on Josh's ask;
+     this function stays strict because it says "idle since", which a running turn would make false. */
   if (!REPORTS_WORKING.has(member.runner)) return summary;
   let rep = null;
   try { rep = readReport(member.sessionName); } catch { rep = null; }
@@ -210,26 +222,55 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
   return { ...summary, state: 'quiet', quietKind, quietSince: new Date(endedAt).toISOString(), quietMinutes: Math.max(0, Math.round((now - endedAt) / 60000)) };
 }
 
+/* kosmos#5635 F2 (0.7.50): how long one Claude `working` report counts as work. Infinity for any other runner (see
+   workExcused). Review 2: the same cap summarydue-nudge.js puts on a working gap (WORK_GAP_CAP_MS, 30 min): the same value,
+   anchored differently (here at the report's own time, there at the previous row; the nudge counts nothing after the
+   last report, this counts up to the cap); the board's 5-minute decay (status.js) undercounted a long tool call or a long stretch of
+   thinking, neither of which heartbeats. Read lazily (summarydue-nudge requires this module); 30
+   minutes if it cannot be read. */
+function workingCapMs(member) {
+  if (!member || member.runner !== 'claude') return Infinity;
+  let cap = 30 * 60 * 1000;
+  try { const c = require('./summarydue-nudge').WORK_GAP_CAP_MS; if (Number.isFinite(c) && c > 0) cap = c; } catch { /* 30 minutes */ }
+  return cap;
+}
+
 /* kosmos#5635 F2 (five-family reports on 0.7.45 and 0.7.46): every seat wrote a summary in the morning, went idle, and was
    woken by a request five hours later; at the first minute of that new work the board read all five "older than the
    4-hour rhythm". idleExcused only helps a member idle NOW, and its latest idle report moves on with every short
    prompted turn, so a working member, or one that answered a community prompt, fell back to clock time. The rhythm is a
    summary every four hours of WORK, so this measures exactly that: the time the member's own reports show it working
    since the summary was written. At or under the rhythm, the summary reads 'worked' with workMinutes.
-   - Only a runner that reports working too (REPORTS_WORKING): for one that reports idle only, idle rows would read as
-     no work at all.
+   FIRST, the rule's limit (0.7.48, Josh: "no reported work since its last summary reads current whatever its state at
+   the moment"): only reported work is counted, so a member whose working report was lost reads current however long it
+   has really been working; the "errs toward stale" points below hold only for what was reported.
+   - A runner that reports working too (REPORTS_WORKING) is timed. One that reports turn ends only (REPORTS_TURN_ENDS,
+     codex) is counted in turns instead (below); any other runner is left as it was.
    - Busy is any report but idle, started and stopped (as communityturn's workedSince), so a wait (needs_you, blocked,
-     a provider failure) counts as work: it errs toward stale.
+     a provider failure) counts as work: it errs toward stale. (For codex only a wait reported after the summary counts.)
    - The stretch before the member's first report after the summary is counted as work unless an earlier report shows
      what it was doing then; a history cut short (selfreport's bounded tail) that starts after the summary is unknown,
      and leaves the summary as it was.
    - Known, as for idleExcused: reports reach the store only while the board runs, so work while it was down reads as
-     whatever the last report said, and with no cap on the clock age (decided in the plan) that holds however long the
-     outage. Unlike idleExcused this also applies to a member working now. */
+     whatever the last report said, and with no cap on the clock age for the timed runners (decided in the plan; turn-
+     ends-only runners are capped by TURN_ENDS_CAP_MS) that holds however long the
+     outage, except for a Claude member since 0.7.50: its last working counts at most WORK_GAP_CAP_MS (30 min), so
+     hours worked through an outage read as half an hour (errs toward current; #5635 F2). Unlike idleExcused this also applies to a member working now.
+   - Since 0.7.48 (Josh): the board's read of the screen adds nothing (the limit stated first, above). */
 function workExcused(summary, member, readHistory, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied) return summary;
-  if (!REPORTS_WORKING.has(member.runner)) return summary;
+  const reportsWorking = REPORTS_WORKING.has(member.runner);
+  /* #5635 F2 (0.7.48 five-family report, Josh 2026-10-14): a runner that reports turn ends only (codex) cannot be timed;
+     it reads current while at most one turn has ended since the summary was written (the turn that wrote it), and
+     stale once a later turn has ended. Known costs, chosen over never excusing it (the GPT repro): a later turn still
+     running reads current however long it runs, and so does the writing turn itself when no turn has ended since; so
+     does an agent in a blocked or needs-you wait standing from before the summary was written (selfreport refuses the
+     automatic idle then) or one whose turn-end
+     reports stopped arriving (bounded by TURN_ENDS_CAP_MS); a short prompted turn ending, or a manual idle report,
+     makes it stale again; and if the writing turn's idle lands BEFORE the summary's time (clock skew, a late write), the
+     next turn's idle is taken for it, so two real turns read as one. */
+  if (!reportsWorking && !REPORTS_TURN_ENDS.has(member.runner)) return summary;
   let rows = null;
   try { rows = readHistory(member.sessionName); } catch { rows = null; }
   if (!Array.isArray(rows)) return summary;
@@ -246,21 +287,70 @@ function workExcused(summary, member, readHistory, nowMs) {
   // Review 1: in time order (stable, so equal times keep file order); a clock stepped back must not shorten the work.
   const valid = kept.map((r, i) => ({ r, i })).sort((a, b) => (a.r.at - b.r.at) || (a.i - b.i)).map((x) => x.r);
   const busy = (st) => st !== 'idle' && st !== 'started' && st !== 'stopped';
+  if (!reportsWorking) {
+    if (now - wroteAt > TURN_ENDS_CAP_MS) return { ...summary, untimed: true };   // #6329: too old to time from turn ends
+    const after = valid.filter((r) => r.at > wroteAt);
+    // A busy report it filed itself (kosmos report working, needs_you, blocked) is reported work: left stale, even when
+    // the wait has since been answered (errs toward stale).
+    if (after.some((r) => busy(r.state))) return { ...summary, waitedSince: true };   // #6329: its own busy or wait report
+    // Idle rows within TURN_END_SAME_MS of the one before are one turn end (an automatic idle and a manual one together);
+    // a real second turn that short is counted with the first, the window's known cost. The window chains (each idle is
+    // measured from the one before), so a run of idles each under 2 min apart is one turn end.
+    let turnsEnded = 0; let lastIdle = -Infinity;
+    for (const r of after) {
+      if (r.state !== 'idle') continue;
+      if (r.at - lastIdle > TURN_END_SAME_MS) turnsEnded += 1;
+      lastIdle = r.at;
+    }
+    // #6329: when it stays stale, the count that decided it travels with it, so the line can say why.
+    // turnsEnded counts the turn that wrote the summary, so the later turns are one fewer (it inherits the caveat above:
+    // if the writing turn's idle landed before the summary's time, this is one too many).
+    return turnsEnded <= 1 ? { ...summary, state: 'worked', workMinutes: 0, turnsOnly: true } : { ...summary, turnsSince: turnsEnded - 1 };
+  }
   let state = null;   // what the member was doing at wroteAt: its last report at or before it; none known reads as busy
-  for (const r of valid) { if (r.at <= wroteAt) state = r.state; }
+  let stateAt = NaN;  // when that report was filed (the cap below runs from it)
+  for (const r of valid) { if (r.at <= wroteAt) { state = r.state; stateAt = r.at; } }
+  /* kosmos#5635 F2 (0.7.50 five-family report, Josh 2026-10-15, the Claude seat): its reports went working, idle,
+     working within two seconds and then nothing for 18 hours, and that last `working` counted all 18 as work. A Claude
+     member heartbeats `working` on its tool calls (once a minute at most), so a working report with nothing after it
+     says little past that; for it, a working stretch counts at most to that report's time plus workingCapMs (30 min, the
+     cap summarydue-nudge.js already puts on a working gap). Only Claude: other runners can file one automatic working at a turn's
+     START, so capping theirs would drop hours of real work. Antigravity heartbeats like Claude only on a Mac with its
+     hooks installed (not in a git project; not on Windows), which this reader cannot tell apart, so it is not capped:
+     an interrupted Antigravity turn can still count a night as work (a known gap, review 5). Waits
+     (needs_you, blocked) are not capped: they are long by nature. Known cost, in the direction Josh's 0.7.48 rule already
+     takes (only reported work counts): one tool call or a stretch of thinking longer than 30 min with no heartbeat
+     between (a subagent's tool calls most likely heartbeat too, so its run is usually counted) is counted only to the cap. A Claude member whose report hook is
+     missing or failing files working only by hand, and each such report also counts only to the cap. Known cost
+     the other way (review 8): the hook sends reports in the background and the board stamps arrival, so a turn's last
+     heartbeat can land just after its idle (the F2 night may be that); each such turn adds up to the cap (WORK_GAP_CAP_MS) of
+     work that did not happen, where it used to add all the time to the next report. */
+  const cap = workingCapMs(member);
+  const span = (st, at, a, b) => (st === 'working' && Number.isFinite(cap) && Number.isFinite(at) ? Math.max(0, Math.min(b, at + cap) - a) : b - a);
   let from = wroteAt;
   let worked = 0;
+  let reportedWorking = 0;   // #6329: the part of `worked` that `working` reports stand behind (not waits, not unknown)
+  const add = (st, ms) => { worked += ms; if (st === 'working') reportedWorking += ms; };
   for (const r of valid) {
     if (r.at <= wroteAt) continue;
-    if (state === null || busy(state)) worked += r.at - from;
+    if (state === null || busy(state)) add(state, span(state, stateAt, from, r.at));
     state = r.state;
+    stateAt = r.at;
     from = r.at;
   }
-  /* Review 3: the board's own read wins over a reported idle (#1995), so a member it shows busy now is working since its
-     last report, whatever that report said. */
-  const busyNow = member.state !== 'idle';   // any read but idle (rate limited, unknown too): errs toward stale
-  if (state === null || busy(state) || busyNow) worked += now - from;
-  if (worked > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
+  /* #5635 F2 (0.7.48 five-family report, Josh 2026-10-14: "a seat with no reported work since its last summary reads
+     current whatever its state at the moment of the check"): only REPORTED work counts. The time since the last report
+     is work only when that report says busy (or there is none); the board's read of the screen right now does not add
+     to it. This replaces review 3's rule that the board's busy read wins (#1995). */
+  if (state === null || busy(state)) add(state, span(state, stateAt, from, now));
+  /* #6329: stale because more than the rhythm was counted as work since it was written. Said as reported work only when
+     `working` reports stand behind all of it; waits and stretches with no report are counted too (errs toward stale),
+     and then the line says so instead. */
+  if (worked > SUMMARY_RHYTHM_HOURS * 3600000) {
+    // Reported work alone past the rhythm is said as such, even if waits were counted too.
+    const byReports = reportedWorking > SUMMARY_RHYTHM_HOURS * 3600000;
+    return { ...summary, workedSince: Math.ceil((byReports ? reportedWorking : worked) / 60000), workAllReported: byReports || reportedWorking >= worked };
+  }
   // Review 5: rounded up, so any reported work reads as at least a minute, never as none.
   return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.ceil(worked / 60000)) };
 }
@@ -311,7 +401,8 @@ function idleNoted(summary, member, readReport, nowMs) {
  * { state: 'idle', idleKind: 'idle'|'started', idleSince, idleMinutes } when it was current as the member stopped, or
  * (#4581 R9, quietExcused) { state: 'quiet', quietKind: 'own'|'project', quietSince, quietMinutes } when it was current
  * as its own tasks here, or the project's, ended, or (#5635 F2, workExcused) { state: 'worked', workMinutes } when the
- * member's reports show at most the rhythm of work since it was written.
+ * member's reports show at most the rhythm of work since it was written (for a turn-ends-only runner, at most the turn
+ * that wrote it has ended: { turnsOnly: true, workMinutes: 0 }).
  */
 function overviewOf(p, roster, o) {
   const opts = o || {};
@@ -391,7 +482,14 @@ function listOf(described) {
       /* Members waiting on the person at all, whichever project their question is about: the project's own
          summary.needsYou counts only questions tied to this project, and an agent whose question is not tied
          to any is still waiting (measured: a Codex member asking read 0 there). */
-      needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you').length,
+      /* #6341: not a member the person quieted on THIS project: a row they dismissed here (whichever project its question
+         is about: dismissing it here is their word that this project's list should not carry it), or any member of a
+         paused or archived project except one asking about another project, which still waits. A quiet room drops none:
+         this count is "waiting on the person at all, whichever project", and an idle room says nothing about that. */
+      needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you'
+        // Review 7: a paused project does not drop a question about ANOTHER project ('elsewhere'): that one still waits.
+        && !(m.needsYouQuiet && (m.needsYouQuiet.because === 'dismissed'
+          || (m.needsYouQuiet.because === 'paused' && m.needsYouQuiet.reason !== 'elsewhere')))).length,
       tasks: openTasks(p.tasks),
     };
   });
@@ -478,7 +576,15 @@ const SUMMARY_WORDS = {
       return (s.idleKind === 'started' ? 'last written more than ' + SUMMARY_RHYTHM_HOURS + ' hours before this session started (' : 'last written more than ' + SUMMARY_RHYTHM_HOURS + ' hours before it went idle (') + one(s.file) + ', ' + ago(s.ageMinutes)
         + (s.idleKind === 'started' ? '; started ' + ago(s.idleMinutes) + ' and idle since then)' : '; idle since ' + ago(s.idleMinutes) + ')');
     }
-    return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes)
+    /* #6329: which rule fired, when it is known: reported work past the rhythm since it was written, or (a runner that
+       reports turn ends only) turns that have ended since. Otherwise the line says only what was measured, as before. */
+    const why = Number.isFinite(s.workedSince)
+      ? (s.workAllReported ? '; ' + span(s.workedSince) + ' of reported work since it was written'
+        : '; ' + span(s.workedSince) + ' counted as working or waiting since it was written')
+      : Number.isFinite(s.turnsSince) ? '; ' + (s.turnsSince === 1 ? '1 more turn has' : s.turnsSince + ' more turns have') + ' ended after the one that wrote it'
+        : s.waitedSince ? '; it reported working or a wait since it was written'
+          : s.untimed ? '; written more than ' + (TURN_ENDS_CAP_MS / 3600000) + ' hours ago, and this agent reports only when a turn ends, so the board no longer counts its turns' : '';
+    return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + why
       + (Number.isFinite(s.idleMinutes) ? (s.idleReported ? (s.idleKind === 'started' ? '; last reported starting ' : '; last reported idle ') : s.idleKind === 'started' ? '; idle since this session started ' : '; idle since ') + ago(s.idleMinutes) : '') + ')';   // review 3: as before for every runner
   },
   // #4581 N10: the rhythm is while working; this one was current when the member went idle.
@@ -486,7 +592,7 @@ const SUMMARY_WORDS = {
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
     : 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
   // #5635 F2: the rhythm is four hours of work, and the member's reports show less than that since it was written.
-  worked: (s) => 'current: ' + (s.workMinutes > 0 ? span(s.workMinutes) + ' of reported work' : 'no reported work') + ' since it was written ('
+  worked: (s) => 'current: ' + (s.turnsOnly ? 'no later turn has ended' : s.workMinutes > 0 ? span(s.workMinutes) + ' of reported work' : 'no reported work') + ' since it was written ('
     + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   // #4581 R9: the project has no open task; this summary was current when its last task ended.
   quiet: (s) => (s.quietKind === 'own' ? 'current when its own tasks here ended' : 'current when work on the project\'s tasks ended')

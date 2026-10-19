@@ -28,8 +28,9 @@ function harness(answers, opts = {}) {
     }
     return Promise.resolve(a);
   };
-  const f = front.createFront({ workspace: '/w', sessionId: '11111111-2222-4333-8444-555555555555', runTurn, report: (s) => reports.push(s), write: (t) => { out += t; }, ...opts });
-  return { f, calls, reports, out: () => out, pending, stops };
+  const logged = [];   // #5636 F7a / #6065 N1: kept in memory, so no test writes a log into a real folder
+  const f = front.createFront({ workspace: '/w', sessionId: '11111111-2222-4333-8444-555555555555', runTurn, report: (s) => reports.push(s), write: (t) => { out += t; }, log: (w, t, at, arrived) => logged.push({ w, t, at, arrived, turnsBefore: calls.length }), ...opts });
+  return { f, calls, reports, out: () => out, pending, stops, logged };
 }
 const OK = (text) => ({ ok: true, text, because: null });
 /* A turn that is never stopped never ends, so a broken Stop must fail here rather than hang the file. */
@@ -446,6 +447,7 @@ test('#4569 review round 5: a stop note Muse refuses as busy (the stopped turn s
   await within(h.f.drained(), 'the retried note never finished');
   const notes = h.calls.filter((c) => /^\[Kosmos: your operator asked you to stop/.test(c.prompt));
   assert.equal(notes.length, 3, 'the note was not tried again after a busy answer');
+  assert.equal(h.logged.filter((l) => /^\[Kosmos: your operator asked you to stop/.test(l.t)).length, 1, '#5636: a retried note is one log line');
   assert.ok(!h.out().includes(run.BUSY), 'a busy answer the retry recovered from was printed as a failure');
   assert.match(h.out(), /Stopped\./);
   // CONTROL: an ordinary message refused as busy is not retried (only a stop note is).
@@ -598,6 +600,34 @@ test('#4612: an idle report after a turn that finished with words carries its an
     g.f.feed(OP('x') + '\r'); await g.f.drained();
     assert.equal(f[f.length - 1], null, label + ' was carried as an answer');
   }
+});
+
+/* #6319: a DM answer longer than the copy's limit ends with a marker, and the board's own cap keeps the marker. */
+test('#6319: an over-limit DM answer is cut with a marker that survives the board, never mid-sentence with nothing said', async () => {
+  const selfreport = require('./selfreport');
+  const long = 'word '.repeat(1200).trim();   // 5999 characters
+  const sent = [];
+  const h = harness([OK(long)], { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed(OP('tell me everything') + '\r');
+  await h.f.drained();
+  const final = sent[sent.length - 1][1];
+  assert.ok(final && typeof final.text === 'string', 'no answer was carried');
+  const chars = Array.from(final.text);
+  assert.ok(chars.length <= front.FINAL_MAX, 'the copy is over the limit: ' + chars.length);
+  assert.ok(final.text.endsWith(front.FINAL_CUT_MARK), 'the cut copy does not end with the marker: ...' + final.text.slice(-80));
+  assert.ok(long.startsWith(final.text.slice(0, -front.FINAL_CUT_MARK.length)), 'the kept part is not the start of the answer');
+  // Two caps sit on the way to the DM: the report bridge's (bin/agy-report-bridge.js) and the board's (selfreport
+  // finalOf). The marker must survive both, in that order.
+  const bridged = require('../bin/agy-report-bridge').reportFor('Stop', { kosmosFinal: final }).final;
+  assert.ok(bridged && bridged.text.endsWith(front.FINAL_CUT_MARK), 'the report bridge cut the marker off');
+  const kept = selfreport.finalOf('idle', bridged);
+  assert.ok(kept && kept.text.endsWith(front.FINAL_CUT_MARK), 'the board cut the marker off');
+  // CONTROL: at the limit exactly, nothing is cut and no marker is added; astral characters count as one each.
+  const exact = 'y'.repeat(front.FINAL_MAX);
+  assert.equal(front.finalCopy(exact), exact);
+  const emoji = '\u{1F600}'.repeat(front.FINAL_MAX);
+  assert.equal(front.finalCopy(emoji), emoji, 'a 4000-emoji answer is 4000 characters, not 8000 UTF-16 units');
+  assert.ok(front.finalCopy(emoji + 'z').endsWith(front.FINAL_CUT_MARK), 'one character over is cut and marked');
 });
 
 test('#4612: the reporter sends the answer as kosmosFinal; the bridge puts it on a Stop or a working report, never agy\'s own', () => {
@@ -876,4 +906,386 @@ test('#4603 R7: the front keeps the model while the turn still runs, so whoami c
   assert.equal(kept(), 'muse-spark-7', 'the model was not kept until the turn ended');
   h.pending[0]({ ok: true, text: 'done', model: 'muse-spark-7' });
   await h.f.drained();
+});
+
+// ---- #5636 F7a / #6065 N1: one log line per message the front runs into Muse
+const fsx = require('node:fs');
+const pathx = require('node:path');
+
+test('#5636 F7a: every message the front runs is handed to the log, once, before its turn', async () => {
+  const h = harness([OK('one'), OK('two')]);
+  h.f.feed('first\r');
+  h.f.feed('second\r');
+  await within(h.f.drained(), 'the turns never finished');
+  assert.deepEqual(h.logged.map((l) => [l.w, l.t]), [['/w', 'first'], ['/w', 'second']]);
+  // Before: when each line was logged, only the earlier turns had run.
+  assert.deepEqual(h.logged.map((l) => l.turnsBefore), [0, 1]);
+  assert.ok(h.logged.every((l) => /^\d{4}-\d{2}-\d{2}T/.test(l.at) && /^\d{4}-\d{2}-\d{2}T/.test(l.arrived)), 'each line is dated twice');
+});
+
+test('#5636 F7a: a line that waited behind a long turn keeps the time it arrived, before the time it ran', async () => {
+  const h = harness(['hold', OK('two')]);
+  h.f.feed('long job\r');
+  h.f.feed('waiting line\r');
+  await new Promise((r) => setTimeout(r, 150));   // a wide gap: the assertion keeps 30 ms, so load cannot flake it
+  h.pending[0]({ ok: true, text: 'done', because: null });
+  await within(h.f.drained(), 'never drained');
+  const w = h.logged.find((l) => l.t === 'waiting line');
+  assert.ok(Date.parse(w.arrived) + 30 <= Date.parse(w.at), 'arrived ' + w.arrived + ' ran ' + w.at);
+});
+
+test('#5636 F7a: a community reminder records its Sent stamp; an unstamped one records none', () => {
+  const ct = require('./communityturn');
+  const stamped = ct.stamped(ct.TURN_TEXT, new Date(2026, 9, 15, 9, 41).getTime());
+  const r = front.turnRecord(stamped, 'T');
+  assert.equal(r.sent, '2026-10-15 09:41');
+  assert.equal(r.kind, 'other');
+  assert.match(r.opening, /^Kosmos here: your last post in the Kosmos\+ community/);
+  // CONTROL: the same words without a stamp (an older build, or a second sender) record no Sent time.
+  assert.equal(front.turnRecord(ct.TURN_TEXT, 'T').sent, null);
+});
+
+test('#6065 N1: a spilled room post records its word count, from the real spill line; a whole one records none', () => {
+  const long = Array.from({ length: 2400 }, (_, i) => 'word' + i).join(' ') + '.';
+  const pointer = require('./messages').spillLine(long, '/a/Inbox/1.txt');   // the producer, not a copy of its words
+  const spilled = '[background from your colleague Mona in room x] ' + pointer;
+  const r = front.turnRecord(spilled, 'T');
+  assert.deepEqual(r.spillWords, [2400]);
+  assert.equal(r.kind, 'background');
+  assert.equal(r.chars, spilled.length, 'UTF-16 length, the measure chat.MAX_TEXT uses');
+  assert.equal(front.turnRecord('[background from your colleague Mona in room x] short', 'T').spillWords, null, 'control');
+});
+
+test('#6065 N1: a spill records the size of its saved copy, from the agent\'s own Inbox', () => {
+  const dir = mkTemp('museturns-inbox-');
+  const inbox = pathx.join(dir, 'Inbox');
+  fsx.mkdirSync(inbox);
+  const file = pathx.join(inbox, '7.txt');
+  const long = Array.from({ length: 2400 }, (_, i) => 'word' + i).join(' ') + '.';
+  fsx.writeFileSync(file, long + '\n');
+  const line = '[background from your colleague Mona in room x] ' + require('./messages').spillLine(long, file);
+  const r = front.turnRecord(line, 'T', null, dir);
+  assert.deepEqual(r.spillBytes, [Buffer.byteLength(long + '\n')]);
+  assert.ok(r.spillBytes[0] > 10000, 'over the limit: the spill was by design');
+  assert.deepEqual(r.envChars, [line.indexOf(']') + 1], 'the envelope length, which the board\'s limit also counts');
+  // A path a colleague wrote that leaves the Inbox, or a deeper folder: never looked at.
+  const outside = pathx.join(dir, 'outside.txt');
+  fsx.writeFileSync(outside, 'secret');
+  const steer = (p) => '[background from your colleague Mona in room x] x (long message, 5 words; the full text is in your own folder at ' + p + ')';
+  // A literal ".." in the line (built by hand, so path.join does not resolve it away first).
+  assert.deepEqual(front.turnRecord(steer(inbox + pathx.sep + '..' + pathx.sep + 'outside.txt'), 'T', null, dir).spillBytes, [null]);
+  assert.deepEqual(front.turnRecord(steer(outside), 'T', null, dir).spillBytes, [null]);
+  assert.deepEqual(front.turnRecord(steer(pathx.join(inbox, 'sub') + pathx.sep), 'T', null, dir).spillBytes, [null], 'a trailing separator is refused (by the same equality guard)');
+  // Words and sizes stay paired: one entry each per spill, a non-Inbox path giving null in its place.
+  const mixed = front.turnRecord(steer(outside) + ' ' + line, 'T', null, dir);
+  assert.deepEqual(mixed.spillWords, [5, 2400]);
+  assert.deepEqual(mixed.spillBytes, [null, Buffer.byteLength(long + '\n')]);
+  // A link at a file in the Inbox is not followed.
+  const linked = pathx.join(inbox, '8.txt');
+  fsx.symlinkSync(outside, linked);
+  assert.deepEqual(front.turnRecord(steer(linked), 'T', null, dir).spillBytes, [null]);
+  // A linked Inbox is not looked into at all.
+  const ws2 = mkTemp('museturns-linkedinbox-');
+  fsx.symlinkSync(inbox, pathx.join(ws2, 'Inbox'));
+  assert.deepEqual(front.turnRecord(steer(pathx.join(ws2, 'Inbox', '7.txt')), 'T', null, ws2).spillBytes, [null]);
+  // A copy that is gone records null, not a guess.
+  fsx.rmSync(file);
+  assert.deepEqual(front.turnRecord(line, 'T', null, dir).spillBytes, [null]);
+});
+
+test('#6065 N1: a busy digest records how many posts it held and every spill in it', () => {
+  const ms = require('./messages');
+  const p1 = '[background from your colleague A in room x] ' + ms.spillLine(Array(300).fill('a').join(' ') + '.', '/a/Inbox/1.txt');
+  const p2 = '[background from your colleague B in room x] ' + ms.spillLine(Array(500).fill('b').join(' ') + '.', '/a/Inbox/2.txt');
+  const h = harness(['hold', OK('digest done')]);
+  h.f.feed('first job\r');
+  h.f.feed(p1 + '\r');
+  h.f.feed(p2 + '\r');
+  h.pending[0]({ ok: true, text: 'first done', because: null });
+  return within(h.f.drained(), 'never drained').then(() => {
+    assert.equal(h.logged.length, 2, 'one line for the first turn and one for the digest');
+    const r = front.turnRecord(h.logged[1].t, 'T');
+    assert.equal(r.digestPosts, 2);
+    assert.deepEqual(r.spillWords, [300, 500]);
+    // Each post's own envelope, not the digest header's.
+    assert.deepEqual(r.envChars, [p1.indexOf(']') + 1, p2.indexOf(']') + 1]);
+    assert.ok(r.opening && !r.opening.startsWith('[background'), 'the opening is the first post\'s words, not an envelope: ' + r.opening);
+  });
+});
+
+test('#5636 F7a: a stop note is logged once, and the person\'s words in it stay out', async () => {
+  const h = harness(['hold', OK('stopped')]);
+  h.f.feed('long job\r');
+  h.f.feed('[message from your operator Josh] fix [x] privately now\r');
+  h.f.feed('[message from your operator Josh] stop\r');
+  await within(h.f.drained(), 'never drained');
+  const notes = h.logged.filter((l) => l.t.startsWith('[Kosmos: your operator asked you to stop'));
+  assert.equal(notes.length, 1, 'the stop note is one line');
+  assert.equal(typeof notes[0].arrived, 'string', 'the stop note carries the stop request\'s arrival');
+  const r = front.turnRecord(notes[0].t, 'T');
+  assert.equal(r.opening, undefined);
+  assert.ok(!JSON.stringify(r).includes('privately'), 'the person\'s dropped words are not in the record');
+});
+
+test('#5636 F7a: a line dropped by Escape leaves no arrival for a later identical line', async () => {
+  const h = harness(['hold', OK('again')]);
+  h.f.feed('long job\r');
+  h.f.feed('same words\r');
+  await new Promise((r) => setTimeout(r, 40));
+  h.f.stop();   // Escape: the waiting "same words" is dropped
+  await within(h.f.drained(), 'the stop never settled');
+  const before = Date.now();
+  h.f.feed('same words\r');
+  await within(h.f.drained(), 'never drained');
+  const w = h.logged.filter((l) => l.t === 'same words');
+  assert.equal(w.length, 1, 'only the second copy ran');
+  assert.ok(Date.parse(w[0].arrived) >= before - 5, 'it carries its own arrival, not the dropped copy\'s: ' + w[0].arrived);
+});
+
+test('#5636 F7a: a second stop while the first note runs: its note records an arrival, and what it drops leaves none', async () => {
+  // Turns 0 and 1 hold: the long job, then the first stop's note, still running when the second stop comes.
+  const h = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  h.f.feed('[message from your operator Josh] stop\r');
+  await within(new Promise((r) => { const t = setInterval(() => { if (h.calls.length === 2) { clearInterval(t); r(); } }, 5); }), 'the first note never started');
+  h.f.feed('[message from your operator Josh] the in-between words\r');
+  await new Promise((r) => setTimeout(r, 30));
+  h.f.feed('[message from your operator Josh] stop\r');   // the second stop: drops the in-between words
+  h.pending[1]({ ok: true, text: 'stopped', because: null });
+  await within(h.f.drained(), 'never drained');
+  const again = h.logged.filter((l) => l.t.startsWith('[Kosmos: your operator asked you to stop again'));
+  assert.equal(again.length, 1, 'the second stop note ran once');
+  assert.equal(typeof again[0].arrived, 'string', 'it carries its arrival');
+  // The dropped in-between message left no arrival behind: the same words sent later carry their own.
+  const before = Date.now();
+  h.f.feed('[message from your operator Josh] the in-between words\r');
+  await within(h.f.drained(), 'never drained');
+  const later = h.logged.filter((l) => l.t === '[message from your operator Josh] the in-between words');
+  assert.equal(later.length, 1);
+  assert.ok(Date.parse(later[0].arrived) >= before - 5, 'it carries its own arrival: ' + later[0].arrived);
+});
+
+test('#5636 F7a: a digest is dated by its oldest post, and its folded posts leave no arrival behind', async () => {
+  const bg = (n) => '[background from your colleague A in room x] post ' + n;
+  const h = harness(['hold', OK('digest'), OK('again')]);
+  h.f.feed('long job\r');
+  h.f.feed(bg(1) + '\r');
+  const firstAt = Date.now();
+  await new Promise((r) => setTimeout(r, 40));
+  h.f.feed(bg(2) + '\r');   // folded into the digest behind post 1
+  h.pending[0]({ ok: true, text: 'done', because: null });
+  await within(h.f.drained(), 'never drained');
+  const digest = h.logged.find((l) => l.t.startsWith('[Kosmos: 2 room posts'));
+  assert.ok(digest, 'the two posts ran as one digest');
+  assert.ok(Date.parse(digest.arrived) <= firstAt + 5, 'dated by the oldest post: ' + digest.arrived);
+  // The same words as the folded post, sent again later, carry their own arrival (a gap makes a stale one visible).
+  await new Promise((r) => setTimeout(r, 40));
+  const before = Date.now();
+  h.f.feed(bg(2) + '\r');
+  await within(h.f.drained(), 'never drained');
+  const again = h.logged.filter((l) => l.t === bg(2));
+  assert.equal(again.length, 1);
+  assert.ok(Date.parse(again[0].arrived) >= before - 5, 'not the folded copy\'s arrival: ' + again[0].arrived);
+});
+
+test('#5636 F7a: a line the first stop drops leaves no arrival for the same words later', async () => {
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  h.f.feed('waiting words\r');
+  await new Promise((r) => setTimeout(r, 40));
+  h.f.feed('[message from your operator Josh] stop\r');   // the first stop: drops "waiting words"
+  await within(h.f.drained(), 'never drained');
+  const before = Date.now();
+  h.f.feed('waiting words\r');
+  await within(h.f.drained(), 'never drained');
+  const w = h.logged.filter((l) => l.t === 'waiting words');
+  assert.equal(w.length, 1, 'only the resent copy ran');
+  assert.ok(Date.parse(w[0].arrived) >= before - 5, 'it carries its own arrival: ' + w[0].arrived);
+});
+
+test('#5636 F7a: with no log passed (as main() runs it), the front writes the real log file', async () => {
+  const ws = mkTemp('museturns-wired-');
+  try {
+    const f = front.createFront({ workspace: ws, sessionId: '11111111-2222-4333-8444-555555555555',
+      runTurn: () => Promise.resolve(OK('done')), report: () => {}, write: () => {} });
+    f.feed('[message from your colleague Mona] hello there\r');
+    await within(f.drained(), 'never drained');
+    const lines = fsx.readFileSync(front.turnLogFile(ws), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.equal(lines.length, 1);
+    assert.match(lines[0].opening, /hello there/);
+    assert.equal(typeof lines[0].arrived, 'string');
+    assert.equal(typeof lines[0].tz, 'number');
+  } finally { fsx.rmSync(ws, { recursive: true, force: true }); }
+});
+
+test('#5636 F7a: a throwing log stops nothing, and is called once per message', async () => {
+  const order = [];
+  const h = harness([OK('a'), OK('b')], { log: () => { order.push('log'); throw new Error('disk full'); } });
+  const run = h.f;
+  run.feed('one\r');
+  run.feed('two\r');
+  await within(run.drained(), 'a throwing log stopped the queue');
+  assert.equal(h.calls.length, 2, 'both turns ran');
+  assert.equal(order.length, 2, 'one log call per message');
+});
+
+test('#5636 F7a: the log writes only where git ignores it, and never into a hard link', () => {
+  const ws = mkTemp('museturns-');
+  try {
+    front.logTurn(ws, 'first', 'A');
+    const ig = pathx.join(ws, '.kosmos', '.gitignore');
+    assert.deepEqual(fsx.readFileSync(ig, 'utf8').trim().split('\n'), ['muse-turns.log', 'muse-turns.log.1'], 'it names its own files');
+    assert.ok(fsx.existsSync(front.turnLogFile(ws)), 'and the line is written');
+    // Someone else's .gitignore that does not name the log: not edited, and nothing written.
+    fsx.writeFileSync(ig, 'notes/\n');
+    fsx.rmSync(front.turnLogFile(ws));
+    front.logTurn(ws, 'second', 'B');
+    assert.equal(fsx.readFileSync(ig, 'utf8'), 'notes/\n', 'their file is untouched');
+    assert.ok(!fsx.existsSync(front.turnLogFile(ws)), 'nothing written where git might carry it');
+    // Both names, then any negation (one naming the log, or a wildcard): not ignored, nothing written.
+    for (const neg of ['!muse-turns.log', '!*.log', '!*']) {
+      fsx.writeFileSync(ig, 'muse-turns.log\nmuse-turns.log.1\n' + neg + '\n');
+      front.logTurn(ws, 'negated', 'B3');
+      assert.ok(!fsx.existsSync(front.turnLogFile(ws)), neg + ' un-ignores it, so nothing is written');
+    }
+    // A .gitignore that is a link (to a file naming both) is refused: nothing written.
+    const realIg = pathx.join(ws, 'real-gitignore');
+    fsx.writeFileSync(realIg, 'muse-turns.log\nmuse-turns.log.1\n');
+    fsx.rmSync(ig);
+    fsx.symlinkSync(realIg, ig);
+    front.logTurn(ws, 'linked ignore', 'B1');
+    assert.ok(!fsx.existsSync(front.turnLogFile(ws)), 'a linked .gitignore is not trusted');
+    fsx.unlinkSync(ig);
+    // One that names only the main file: the .1 copy would not be ignored, so nothing is written.
+    fsx.writeFileSync(ig, 'muse-turns.log\n');
+    front.logTurn(ws, 'only one name', 'B2');
+    assert.ok(!fsx.existsSync(front.turnLogFile(ws)), 'nothing written when the .1 copy is not ignored');
+    fsx.writeFileSync(ig, 'muse-turns.log\nmuse-turns.log.1\n');
+    // A hard link at the file: the other name never receives a line.
+    const other = pathx.join(ws, 'other.txt');
+    fsx.writeFileSync(other, '');
+    fsx.linkSync(other, front.turnLogFile(ws));
+    front.logTurn(ws, 'third', 'C');
+    assert.equal(fsx.readFileSync(other, 'utf8'), '', 'a hard link received nothing');
+    // A full hard-linked file with rotation blocked: the other name is never cut.
+    fsx.writeFileSync(other, 'y'.repeat(front.TURN_LOG_MAX + 1));
+    fsx.mkdirSync(front.turnLogFile(ws) + '.1');
+    front.logTurn(ws, 'fourth', 'D');
+    assert.equal(fsx.statSync(other).size, front.TURN_LOG_MAX + 1, 'the hard link\'s other name was not truncated');
+  } finally { fsx.rmSync(ws, { recursive: true, force: true }); }
+});
+
+test('#5636 F7a: logTurn writes nothing through a linked .kosmos, into a fifo or link, or for a relative workspace', () => {
+  const ws = mkTemp('museturns-');
+  const elsewhere = mkTemp('museturns-other-');
+  try {
+    front.logTurn(pathx.join(ws, 'gone', 'ws'), 'x', 'A');
+    assert.ok(!fsx.existsSync(pathx.join(ws, 'gone')), 'a workspace that is not there is not created');
+    front.logTurn('relative/ws', 'x', 'A');
+    assert.ok(!fsx.existsSync(pathx.join('relative', 'ws')), 'a relative workspace is never written');
+    fsx.symlinkSync(elsewhere, pathx.join(ws, '.kosmos'));
+    front.logTurn(ws, 'x', 'A');
+    assert.deepEqual(fsx.readdirSync(elsewhere), [], 'nothing written through a linked .kosmos');
+    fsx.unlinkSync(pathx.join(ws, '.kosmos'));
+    fsx.mkdirSync(pathx.join(ws, '.kosmos'));
+    const target = pathx.join(elsewhere, 'target');
+    fsx.writeFileSync(target, '');
+    fsx.symlinkSync(target, front.turnLogFile(ws));
+    front.logTurn(ws, 'x', 'A');
+    assert.equal(fsx.readFileSync(target, 'utf8'), '', 'nothing written through a link at the file');
+    // A fifo (only where mkfifo exists; a machine without it skips this arm).
+    fsx.unlinkSync(front.turnLogFile(ws));
+    let fifo = false;
+    try { require('node:child_process').execFileSync('mkfifo', [front.turnLogFile(ws)], { stdio: 'ignore' }); fifo = true; } catch { fifo = false; }
+    if (fifo) {
+      const t0 = Date.now();
+      front.logTurn(ws, 'x', 'A');   // a blocking open would hang the test here
+      assert.ok(Date.now() - t0 < 2000, 'a fifo did not hang the log');
+    }
+  } finally { fsx.rmSync(ws, { recursive: true, force: true }); fsx.rmSync(elsewhere, { recursive: true, force: true }); }
+});
+
+
+test('#5636 F7a: tz is the local offset, west of UTC negative (a fixed zone, so a UTC machine still checks the sign)', () => {
+  const was = process.env.TZ;
+  try {
+    process.env.TZ = 'America/Chicago';
+    assert.equal(front.turnRecord('x', '2026-01-15T12:00:00Z').tz, -360, 'Chicago in winter is UTC-6');
+  } finally { if (was === undefined) delete process.env.TZ; else process.env.TZ = was; }
+});
+
+test('#5636 F7a: an allowlisted line holding the person\'s envelope later keeps no opening', () => {
+  const r = front.turnRecord('[background from your colleague Mona in room x] she wrote [message from your operator Josh] my plan', 'T');
+  assert.equal(r.opening, undefined);
+  assert.ok(!JSON.stringify(r).includes('my plan'));
+});
+
+test('#6065 N1: a room post answering another keeps its own words, not the quoted ones', () => {
+  // The shape messages.js builds for a room reply: tag inside the bracket, then the quote, then the body.
+  const line = '[background from your colleague Mona \u00b7 m3 \u00b7 answers m2 by Renet, posted 2:02 PM \u00b7 project Q4] '
+    + '(answering: "the quoted first words") the release notes are ready';
+  const r = front.turnRecord(line, 'T');
+  assert.match(r.opening, /^the release notes are ready/);
+  assert.ok(!r.opening.includes('quoted'), 'the quoted words are not the opening');
+});
+
+test('#5636 F7a: a community reminder keeps its own start, even with a "]" inside it', () => {
+  const r = front.turnRecord('Kosmos here: [community] your last post was 3 hours ago or more.', 'T');
+  assert.match(r.opening, /^Kosmos here: \[community\] your last post/);
+});
+
+test('#5636 F7a: a reply with an empty body keeps no opening (never the quoted words)', () => {
+  const line = '[background from your colleague Mona \u00b7 m3 \u00b7 answers m2, posted 2:02 PM] (answering: "the quoted words") ';
+  const r = front.turnRecord(line, 'T');
+  assert.equal(r.opening, undefined);
+  assert.ok(!JSON.stringify(r).includes('quoted'));
+});
+
+test('#5636 F7a: an opening is cut on whole characters', () => {
+  const r = front.turnRecord('Kosmos here: ' + '\u{1F600}'.repeat(80), 'T');
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(r.opening.replace(/\.\.\.$/, '')), 'no lone high surrogate at the cut');
+});
+
+test('#5636 F7a: a task line quoting the person keeps no opening', () => {
+  const r = front.turnRecord('[Kosmos: you were given task 12 in "Q4": rewrite the pricing page for the board. Say when it is done.]', 'T');
+  assert.equal(r.opening, undefined);
+  assert.ok(!JSON.stringify(r).includes('pricing'));
+});
+
+test('#5636 F7a: words typed straight into the pane (no envelope) keep no opening', () => {
+  const r = front.turnRecord('my private plan for the launch', 'T');
+  assert.equal(r.opening, undefined);
+  assert.ok(!JSON.stringify(r).includes('private'));
+  // CONTROL: a colleague's addressed message keeps its opening.
+  assert.match(front.turnRecord('[message from your colleague Mona] the build is green', 'T').opening, /build is green/);
+});
+
+test('#5636 F7a: the person\'s own words stay out of the log', () => {
+  const r = front.turnRecord('[message from your operator Josh] my private plan for the launch', 'T');
+  assert.equal(r.kind, 'operator');
+  assert.equal(r.opening, undefined);
+  assert.ok(!JSON.stringify(r).includes('private plan'));
+});
+
+test('#5636 F7a: logTurn appends JSON lines in .kosmos, moves a full file aside, and never throws', () => {
+  const ws = mkTemp('museturns-');
+  try {
+    front.logTurn(ws, 'Kosmos here: hello', 'A');
+    front.logTurn(ws, 'Kosmos here: again', 'B');
+    const file = front.turnLogFile(ws);
+    const lines = fsx.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.deepEqual(lines.map((l) => [l.at, l.opening]), [['A', 'Kosmos here: hello'], ['B', 'Kosmos here: again']]);
+    fsx.writeFileSync(file, 'x'.repeat(front.TURN_LOG_MAX + 1));
+    front.logTurn(ws, 'after', 'C');
+    assert.ok(fsx.existsSync(file + '.1'), 'the full file moved aside');
+    assert.equal(JSON.parse(fsx.readFileSync(file, 'utf8')).at, 'C');
+    // A folder that cannot be written: no throw.
+    assert.doesNotThrow(() => front.logTurn(pathx.join(file, 'not-a-dir'), 'x', 'D'));
+    // A folder at .1 blocks the move aside: the log is cut instead, and still written.
+    fsx.rmSync(file + '.1', { force: true });
+    fsx.mkdirSync(file + '.1');
+    fsx.writeFileSync(file, 'x'.repeat(front.TURN_LOG_MAX + 1));
+    front.logTurn(ws, 'still', 'E');
+    assert.equal(JSON.parse(fsx.readFileSync(file, 'utf8')).at, 'E', 'logging went on past a blocked rotation');
+  } finally { fsx.rmSync(ws, { recursive: true, force: true }); }
 });

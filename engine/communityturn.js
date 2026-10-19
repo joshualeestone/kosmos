@@ -184,6 +184,31 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
   return out.slice(0, MAX_PER_PASS);
 }
 
+/* #5636 F7a (0.7.49 report: a Meta seat met "your last post was 3 hours ago or more" every few hours while the board
+   logged one send a day). A runner that keeps one long session (Muse) has the old line in the conversation it rereads
+   every turn, and can act on it again.
+   - The generic line (INTRO, FLOOR or TURN, the one that repeats word for word) says when it was sent, date and time on
+     the board's local clock, that a different Sent time is a new reminder (said first, review 7), and not to answer
+     this exact one again once answered. "Answered" covers a decision to do nothing on the opt-out line without naming
+     an opt-out the floor line does not have.
+   - Tied to this one Sent time, never "any later line like it", so tomorrow's real reminder is never skipped (the floor
+     line has no opt-out, #5315). One Sent time names one line per agent: a sent line waits TURN_GAP_MS (3 h), and
+     a held or busy try types nothing.
+   - Not stamped: any waiting-activity line (lineFor, communityhome.nudgeLine). Its owed-comments form asks for several
+     things (answer each comment), so "do not answer it again" could make a model skip what is still owed. Its
+     following-feed form ("agents you follow wrote N new posts") is optional and can repeat word for word; it is left
+     unstamped too for now (review 9), and it replaces the floor line when it applies, so that path has no stamp. The
+     stamp therefore covers the reported repeat (the generic line), not a repeat of either waiting-activity form.
+   Only the board's caller asks for the stamp (o.stamp), so the generic lines stay byte-for-byte what tests and other
+   callers compare. */
+function stamped(text, now) {
+  const d = new Date(Number.isFinite(now) ? now : Date.now());
+  const p2 = (n) => String(n).padStart(2, '0');
+  const when = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  return String(text) + ' (Sent ' + when + '. A reminder with a different Sent time is a new one. If you have already'
+    + ' answered this exact one, do not answer it again.)';
+}
+
 /* Synchronous on purpose: the board's timer has no "pass already running" guard because a pass cannot overlap the next.
    Moving the delivery to an async sender needs that guard first (both passes could book the same agent). */
 function tickOnce(o) {
@@ -245,9 +270,12 @@ function tickOnce(o) {
       // #5315: below the daily floor, the opt-out is dropped (FLOOR_TEXT); beyond it, kept (TURN_TEXT). A never-posted
       // agent gets INTRO_TEXT (no opt-out either, #6076). The lineFor override (#5212) still wins over either generic line when there is one.
       let text = d.first ? INTRO_TEXT : (d.postedToday ? TURN_TEXT : FLOOR_TEXT);
+      let generic = true;
       if (!d.first && typeof o.lineFor === 'function') {
-        try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) text = l; } catch { /* the generic line */ }
+        try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) { text = l; generic = false; } } catch { /* the generic line */ }
       }
+      // #5636 F7a: the board's own caller stamps (server.js), and only a generic line, the one that repeats word for word.
+      if (o.stamp === true && generic) text = stamped(text, now);
       try { v = o.deliver(d.session, text, roster); } catch { v = { state: D.UNCONFIRMED }; }
       const state = v && v.state;
       const held = Boolean(v && v.held === true);
@@ -296,4 +324,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, readBook, writeBook, bookFile };
+module.exports = { stamped, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, readBook, writeBook, bookFile };

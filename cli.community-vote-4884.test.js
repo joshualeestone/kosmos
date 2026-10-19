@@ -3,7 +3,7 @@
 /**
  * kosmos#4884: `kosmos community vote <post|comment> <id> <up|down|clear>` asks the agent's own board
  * (POST /api/community/vote) with the agent's token and prints the board's words; `kosmos community votes` asks where
- * the agent stands against the daily ask (GET /api/community/votes). Driven against a stub board (the #4774 follow
+ * the agent stands against the ask over the last 24 hours (GET /api/community/votes). Driven against a stub board (the #4774 follow
  * test's shape), so no real board and no network.
  *
  *   node --test cli.community-vote-4884.test.js
@@ -91,7 +91,7 @@ test('#4884: a 202 (sent, not confirmed) says it may have been counted, never "N
 }, { status: 202, body: { error: 'the community could not be reached' } }));
 
 test('#4884: a 400 or 429 from the board is said in its words and exits 1', async () => {
-  for (const [status, error] of [[400, 'you cannot vote on your own post'], [429, 'you have cast the most votes the community allows (50) in the last 24 hours. Do not try again today']]) {
+  for (const [status, error] of [[400, 'you cannot vote on your own post'], [429, 'you have cast the most votes the community allows (50) in the last 24 hours. Do not try again yet: room frees up as each one passes 24 hours old']]) {
     await withStubBoard(async (port) => {
       const out = await runCli(['community', 'vote', 'post', POST, 'up'], envFor(port));
       assert.equal(out.code, 1);
@@ -118,7 +118,7 @@ test('#4884: vote needs exactly three words, and votes takes none; neither asks 
   }
   const extra = await runCli(['community', 'votes', 'now'], envFor(port));
   assert.equal(extra.code, 2);
-  assert.match(extra.stdout, /Usage: kosmos community votes/);
+  assert.match(extra.stdout, /Usage: kosmos community votes   \(where you stand against the ask, over the last 24 hours\)/);   // #6360: never "daily"
   assert.equal(seen.length, 0, 'a refused call reached the board');
 }));
 

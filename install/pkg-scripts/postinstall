@@ -279,6 +279,46 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
    # shell, and the trap removes the directory without changing that status.
    # A signal sent to this shell alone (not its process group) now ends this shell and not
    # setup, which runs on from its open file. Nothing in a normal install does that.
+   # kosmos#6474: AN EXISTING INSTALL HOLDS THE INSTALLER TO ITS SIGNED RELEASE, as an in-app update does (#6468).
+   # When this user already has Kosmos at the default home and its verifier knows run-setup, that installed copy
+   # downloads the installer and the signed manifest of the version prod serves, checks one against the other, and
+   # only then runs it. A first install has no installed copy to check with, so it keeps the checksum above (the
+   # .pkg is notarized; checking a signature without one needs a native verifier, see the card). Keep this block
+   # free of apostrophes: it is inside the single-quoted argument above.
+   h="$HOME/.local/share/kosmos"
+   # The checksum gate above still runs first, on purpose: an existing install is held to BOTH (the hand-off downloads
+   # the installer again and checks it against the signed release). Conservative, not an oversight.
+   # (Measured in review 4: a pattern match let a half-written package.json and a truncated verifier through, so the
+   # installed node itself parses the one and syntax-checks the other: the same tests the hand-off needs to work.)
+   # The installed node must RUN and the installed version must READ (a broken install being repaired keeps the
+   # checksum path: no weaker than a first install). run-setup answers 96 when a download failed, which a retry can
+   # fix (a half-published deploy), so 96 is retried on the same bounded budget as the checksum above; 97 means it
+   # was refused (the installer or its manifest did not check out, or this Mac already has a NEWER Kosmos than the
+   # site offers), which a retry cannot change, so it ends here with one sentence. Any other status is the answer.
+   if [ -f "$h/app/engine/manifest-verify.js" ] && [ -f "$h/runtime/bin/node" ] && [ -x "$h/runtime/bin/node" ] \
+      && /usr/bin/grep -q run-setup "$h/app/engine/manifest-verify.js" \
+      && "$h/runtime/bin/node" --check "$h/app/engine/manifest-verify.js" >/dev/null 2>&1 \
+      && "$h/runtime/bin/node" -e "process.exit(/^[0-9]+[.][0-9]+[.][0-9]+\$/.test(String(JSON.parse(require(\"fs\").readFileSync(process.argv[1], \"utf8\")).version)) ? 0 : 1)" "$h/app/package.json" >/dev/null 2>&1; then
+     base="${0%/*}/dist"
+     n=0
+     while :; do
+       n=$((n + 1))
+       v=$(/usr/bin/curl -fsSL --connect-timeout 20 -m 60 "$base/latest.json" 2>/dev/null | /usr/bin/sed -n "s/.*\"version\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | /usr/bin/head -1) || v=""
+       # An unreadable pointer is a failed download too (96), never a refusal: a blip must not end the install.
+       if [ -z "$v" ]; then src=96
+       else src=0; "$h/runtime/bin/node" "$h/app/engine/manifest-verify.js" run-setup "$0" "$base" "$v" "$h" || src=$?; fi
+       if [ "$src" -eq 97 ]; then
+         echo "Kosmos: this Mac already has Kosmos, and its own check refused this installer (the line above says why), so nothing was changed. If it says this Mac is newer than the version offered, there is nothing to repair." >&2
+         exit 97
+       fi
+       [ "$src" -eq 96 ] || exit "$src"
+       if [ "$n" -ge "$_rmax" ]; then
+         echo "Kosmos: the installer or its signed release could not be downloaded, so nothing was changed. It is safe to try again shortly." >&2
+         exit 96
+       fi
+       /bin/sleep "$_rsleep"
+     done
+   fi
    /bin/sh "$d/setup"' "$SETUP_URL" "$PAGE_OPENED"
 rc=$?
 

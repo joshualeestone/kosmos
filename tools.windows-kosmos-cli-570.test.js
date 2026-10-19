@@ -214,6 +214,18 @@ test('#2710 parity: a post refused for any reason hands the text back (not only 
   assert.match(held.err, /here it is to send again/, 'a which-room hold keeps its own wording');
 });
 
+test('#6420 parity: a held room\'s refusal says when the limit lifts', async () => {
+  const r = await run(['post', 'proj-1', 'x'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'held', clearsInMinutes: 17 } } }));
+  assert.match(r.err, /or reopened it, or in about 17 minutes, when the limit on agent posts here lifts\./);
+  assert.doesNotMatch(r.err, /about an hour/);
+  const one = await run(['post', 'proj-1', 'x'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'held', clearsInMinutes: 1 } } }));
+  assert.match(one.err, /or in about a minute, when the limit on agent posts here lifts\./);
+  for (const bad of [0, '17', 2.5, null, 60, 75]) {   // not 1 to 59 whole minutes: the old words, about an hour
+    const r2 = await run(['post', 'proj-1', 'x'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'held', clearsInMinutes: bad } } }));
+    assert.match(r2.err, /or in about an hour\./, 'clearsInMinutes ' + JSON.stringify(bad) + ' was said as a time');
+  }
+});
+
 test('#4934 parity: a loop-guard refusal (code room_held) says nothing was kept and not to send it another way', async () => {
   const r = await run(['post', 'proj-1', 'a long substantive update'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.' } } }));
   assert.equal(r.code, 1);
@@ -435,6 +447,49 @@ test('no verb, or an unknown one, is a usage error', async () => {
   assert.equal((await run(['start'])).code, 2, 'the board is Kosmos.exe; this command has no start');
 });
 
+test('#6330: task built prints the board\'s sentence about who was told; an older board sends none and nothing is claimed', async () => {
+  const older = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true } }));
+  assert.equal(older.code, 0);
+  assert.equal(older.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark.');
+  const said = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true, delivered: [], summary: 'Told zed.' } }));
+  assert.equal(said.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark. Told zed.');
+});
+
+test('#6330 slice 2: task built --file sends the file\'s sha256 and keeps the path out of the note; a missing file, --file with no path, and --file with --clear never reach the board', async () => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-builtsha-win-'));
+  try {
+    const file = path.join(dir, 'deliverable.txt');
+    fs.writeFileSync(file, 'the delivered thing\n');
+    const want = 'sha256:' + require('node:crypto').createHash('sha256').update('the delivered thing\n').digest('hex');
+    const ok = await run(['task', 'built', 'proj/1', '4', 'merged', '--file', file], () => ({ body: { task: { number: 4 }, changed: true } }));
+    assert.equal(ok.code, 0, ok.err);
+    assert.equal(ok.calls[0].body.fingerprint, want);
+    assert.equal(ok.calls[0].body.note, 'merged', 'the path leaked into the note');
+    const none = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true } }));
+    assert.equal('fingerprint' in none.calls[0].body, false, 'CONTROL: a mark without --file sent a fingerprint');
+    for (const [argv, said] of [[['--file', path.join(dir, 'missing')], /cannot read that file/], [['--file'], /--file needs the path/], [['--file', ''], /cannot read that file/], [['--clear', '--file', file], /takes no file/]]) {
+      const r = await run(['task', 'built', 'proj/1', '4', ...argv]);
+      assert.equal(r.code, 2, argv.join(' ') + ': ' + r.err);
+      assert.match(r.err, said, 'refused for another reason');
+      assert.equal(r.calls.length, 0, argv.join(' ') + ' reached the board');
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('#6330 slice 2: task list prints a built task\'s fingerprint and who sent it; an unbuilt task or a bad value prints none', async () => {
+  const fp = 'sha256:' + 'a'.repeat(64);
+  const r = await run(['task', 'list', 'proj'], () => ({ body: { tasks: [
+    { number: 1, sentence: 'Ship it', builtAt: '2026-10-17T00:00:00Z', builtFingerprint: fp, builtFingerprintBy: 'mona' },
+    { number: 2, sentence: 'Not built', builtFingerprint: fp },
+    { number: 3, sentence: 'Odd value', builtAt: '2026-10-17T00:00:00Z', builtFingerprint: 'sha256:xyz' },
+  ] } }));
+  assert.equal(r.code, 0, r.err);
+  const lines = r.out.split('\n').filter((l) => l.includes('fingerprint'));
+  assert.deepEqual(lines, ['    fingerprint ' + fp + ', sent by mona'], r.out);
+});
+
 // ── win32-cli-verbs: task message, room reopen, feedback, --help ────────────
 
 test('task message: POST .../task/<n>/message with the Mac\'s body AND the agent token; ok -> 0; refusal -> 1; timeout -> 3', async () => {
@@ -464,10 +519,10 @@ test('task message: a missing part or a non-number task is a usage error that se
   }
 });
 
-test('an unknown task subcommand lists all thirteen, as install/kosmos does', async () => {
+test('an unknown task subcommand lists all fourteen, as install/kosmos does', async () => {
   const r = await run(['task', 'reassign', 'p1']);
   assert.equal(r.code, 2);
-  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | assign | close | message | activity | built | done-when | hold | unhold | repeat | ran | told');   // assign: #4914; repeat, ran: #4787; told: #5836; activity: #5874
+  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | assign | close | reopen | message | activity | built | done-when | hold | unhold | repeat | ran | told');   // reopen: #6157; assign: #4914; repeat, ran: #4787; told: #5836; activity: #5874
 });
 
 test('#4771 task hold / unhold: POST .../task/<n>/hold with {onHold} and the board token; a non-number is a usage error sent nowhere', async () => {
@@ -705,6 +760,7 @@ test('#3878: Windows feedback pull prints the shared summary through the engine 
   const engine = { feedbackpull: {
     pull: async () => ({ ok: true, written: 1, skipped: 2, unreadable: 2, lastGetError: 'blob GET HTTP 403', total: 3, dir: 'C:/fb' }),
     summaryLines: realFp.summaryLines,
+    nextLine: realFp.nextLine,
   } };
   const out = []; const err = [];
   const code = await cli.main(['feedback', 'pull'], { env: {}, hook: hookStub, engine, out: (s) => out.push(s), err: (s) => err.push(s),

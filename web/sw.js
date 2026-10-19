@@ -108,6 +108,11 @@ self.addEventListener('fetch', (event) => {
   // network untouched, so a cached account response can never be served.
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/v1/')) return;
 
+  /* #6358: a sign-in navigation (?token= / ?boot=) is left to the network alone. With the cached shell as a
+     fallback, a sign-in that met a down board would commit at the sign-in address, and the Mac app reads a page
+     still carrying token= as the board refusing it. Without the worker, a down board commits nothing. */
+  if (req.mode === 'navigate' && (url.searchParams.has('token') || url.searchParams.has('boot'))) return;
+
   /* App-shell navigations: network-first so an online open always gets the
      freshest board (the whole app is one no-store HTML file), falling back to
      the cached shell only when offline. */
@@ -165,15 +170,21 @@ self.addEventListener('fetch', (event) => {
 });
 
 /* The coordinator's sender (kosmos-relay VapidSender) posts who/what/where and
-   never content, so the payload is {kind, agent, project, id, address, session} -- NOT
-   {title, body}. `kind` is one of posted|replied|needs_you; `address` is the
-   person's own Mac host ("<mac>.<domain>", no scheme) so a tap opens her board.
-   We render a plain-language line from those fields, still preferring an
-   explicit title/body if some future producer sends one. */
+   never content: {title, body|null, kind, agent, project, id, address, session}.
+   kosmos#6487: the coordinator makes the words itself (kosmos-relay push.rs
+   notice_text) and sends them as title and body (body null when there is no
+   project), so a title wins and is shown as it is. An older coordinator sends no
+   title; then the words come from `kind` (posted|replied|needs_you|ready, #6254
+   added posted and ready) with the table below, which matches the kosmos#6487
+   catalog's Wording table. An unknown kind gets the generic headline, so a new kind
+   is never dropped. `address` is the person's own Mac host ("<mac>.<domain>", no
+   scheme) so a tap opens her board. */
 const KIND_HEADLINE = {
   needs_you: 'needs you',
-  posted: 'posted an update',
+  posted: 'posted',
   replied: 'replied',
+  // #6254: a task marked built -- work waiting for the person's check.
+  ready: 'has work ready for you',
 };
 
 /* Where notificationclick should land. Built ONLY from the coordinator's
@@ -260,20 +271,20 @@ function notificationFor(event) {
     // defensive; it costs one line to never drop a push over a shape surprise.
     if (!data || typeof data !== 'object') data = {};
   }
-  let title = (typeof data.title === 'string' && data.title) ? data.title : '';
-  let body = (typeof data.body === 'string' && data.body) ? data.body : '';
-  if (!title || !body) {
-    const agent = (typeof data.agent === 'string' && data.agent) ? data.agent : 'An agent';
-    const headline = KIND_HEADLINE[data.kind] || 'has an update';
-    if (!title) title = agent + ' ' + headline;
-    if (!body) {
-      body = (typeof data.project === 'string' && data.project)
-        ? ('In ' + data.project)
-        : 'Open Kosmos to see what happened.';
-    }
+  // #6487: a title from the coordinator is shown as it is, with its body only when it sent one (it sends none when
+  // there is no project). Without a title, the words come from the kind alone (a body sent without a title is not
+  // used): "<Agent> <verb>", and "in <Project>" or no body; an unknown kind is "<Agent> has something for you".
+  let title = (typeof data.title === 'string' && data.title.trim()) ? data.title : '';
+  let body = (typeof data.body === 'string' && data.body.trim()) ? data.body : '';
+  if (!title) {
+    const agent = (typeof data.agent === 'string' && data.agent.trim()) ? data.agent : 'An agent';
+    // Own keys only, so a kind such as "toString" is not read from the prototype.
+    const known = Object.prototype.hasOwnProperty.call(KIND_HEADLINE, data.kind);
+    title = agent + ' ' + (known ? KIND_HEADLINE[data.kind] : 'has something for you');
+    body = known && typeof data.project === 'string' && data.project ? 'in ' + data.project : '';
   }
   const options = {
-    body: body,
+    body: body || undefined,
     icon: data.icon || '/icons/kosmos-192.png',
     badge: data.badge || '/icons/kosmos-192.png',
     // Distinct events show as distinct notifications (tag by event id), so a

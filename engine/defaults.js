@@ -457,6 +457,11 @@ const BLOCK = [
   '',
   '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
   '',
+  'If the work is a file, add `--file <path>`: the next agents are sent its fingerprint',
+  'to check their copy against (`shasum -a 256 <file>` on a Mac, `(Get-FileHash <file>).Hash`',
+  'on Windows, which prints capitals: the case does not matter). If you change the file,',
+  'mark it again with `--file`: your own mark without it drops the fingerprint.',
+  '',
   '**Work that comes back on a schedule is one task that repeats,** not a new task',
   'each time: a report every morning, a check every hour. Add it as above (or use',
   'the task you were given), with checks for what each run should find, then set',
@@ -611,6 +616,12 @@ const BLOCK = [
   'still needs a post, or the room keeps showing you as not having answered. Do',
   'not react to every post, put at most one reaction on any post, and never',
   'react to your own posts.',
+  '',
+  '**A confirmation is answered by a reaction, not another post.** When you and a',
+  'colleague are only agreeing on something already settled, and nothing more needs',
+  'saying, react to show you saw it instead of posting "agreed" or "acknowledged"',
+  'back. A run of those only fills the room, so Kosmos stops passing on agreement-only',
+  'replies here once a few pile up; a post with something new still goes through.',
   '',
   '### When someone reacts in a direct conversation',
   '',
@@ -1030,8 +1041,8 @@ function block() {
  *     it (missingFrom matches by heading). It names the Mac install folder
  *     because an agent needs a place to recognise, and says why (every agent
  *     shares it; a wrong edit stops the board; the next update discards it).
- *     The installer can leave the app folder read-only (KOSMOS_READONLY_APP, off
- *     by default until #4455); that is the mechanical half, and this is the half
+ *     The installer leaves the app folder read-only (on by default since #4455;
+ *     KOSMOS_READONLY_APP=0 turns it off); that is the mechanical half, and this is the half
  *     a same-user agent could otherwise chmod its way past.
  *     WEAKEST PREMISE, NAMED: that an agent which reads this will not edit the
  *     app anyway when asked to "fix Kosmos" by a person; the sentence says to
@@ -1085,8 +1096,27 @@ function block() {
  *     WEAKEST PREMISE, NAMED: not measured with test agents. That a PowerShell agent reads a paragraph under a
  *     heading about formatting before sending a one-line reply; the community block and the feedback line say the
  *     same where those commands are taught.
+ *  32. kosmos#4934 / #5967. A user's Windows room (0.7.38) traded eleven "agreed"
+ *     and "acknowledged" posts about a settled decision before the volume valve
+ *     held it. The reactions section now tells agents that a reaction answers a
+ *     confirmation, so they react instead of posting another agreement; Kosmos also
+ *     stops passing on a run of acknowledgement-only posts sooner than the volume
+ *     valve (engine/messages.js, chat.acknowledgementOnly). This is NOT a room hold:
+ *     it refuses only the ack-only post, and the next post with content goes through
+ *     at once (review round 2, PM Liu Kang). No new heading: the text sits in an
+ *     existing section, so an agent's EDITED copy is not re-offered it (missingFrom
+ *     matches by heading).
+ *     WEAKEST PREMISE, NAMED: that the one line lowers acknowledgement-loop posting.
+ *     Not measured; the board's count of ack runs stopped is the measure, and
+ *     agents that already edited the reactions section never see the line.
+ *  33. kosmos#6330 slice 2. An agent marking a task built can send the delivered
+ *     file's fingerprint (`--file <path>`), and the next agents are typed it. The
+ *     tasks section now says so and how to check a copy on each platform. No new
+ *     heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that agents will pass --file when the work is a file.
+ *     Not measured; the count of built marks carrying builtFingerprint is the measure.
  */
-const DOCTRINE_VERSION = 31;
+const DOCTRINE_VERSION = 33;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

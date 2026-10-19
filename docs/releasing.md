@@ -244,6 +244,23 @@ cut's sha before it starts waiting:
   others stay unverified unless you repeat them, so say so where you record the release. On a staging
   cut, confirm prod's `latest.json` and `/setup` did not move.
 
+  **Hold automatic site deploys for the promote (kosmos#6305).** The site-deploy backstop (kosmos#6266, a job on
+  Mortals) asks GitHub for a site deploy whenever the site's main is ahead of what is served. Before promoting, set
+  the hold, and clear it once the promote is served and checked:
+
+  ```
+  gh variable set SITE_DEPLOY_HOLD --repo joshualeestone/chaoskosmos-site --body "promoting <V>"
+  gh variable delete SITE_DEPLOY_HOLD --repo joshualeestone/chaoskosmos-site
+  ```
+
+  While it is set, the backstop asks nothing and its last tick says `held: <reason>`. It holds ONLY the backstop. The
+  site's deploy workflow does not read the variable, so its own runs still deploy site main during a hold: a push to
+  the site repo, its 15-minute schedule, and a manual run. Do not push to the site or run its workflow during a
+  promote; its schedule is best effort and may still fire. If the
+  variable cannot be read (the backstop's gh login lost access), the backstop holds too, every tick, until that read
+  works again; its last tick says so. A forgotten hold stops automatic site deploys, so clear it in the same sitting;
+  `gh variable list --repo joshualeestone/chaoskosmos-site` shows whether one is set.
+
   **Before any promote, put the site checkout back to what is served, in this order.**
   1. **The tracked files, from origin.** Step 7b and the trap leave the checkout behind origin's main:
      its local `dist/latest-staging.json` (or `latest.json`) still names the PREVIOUS version, and
@@ -447,8 +464,10 @@ Ctrl-C ends that wait safely.
 4. **The tree must hold still.** Every attempt freezes to the sha at its start
    and takes ~25 minutes; a merge that lands mid-cut cannot be in it, and a page
    check that reads the live checkout can go red on it. Attempt six died on a
-   Settings change that merged at minute three. When a cut has to land, call a
-   merge freeze for its duration, and lift it the moment `latest.json` flips.
+   Settings change that merged at minute three. So every cut holds merges for its
+   duration, and the hold lifts the moment the cut's pointer flips
+   (`latest-staging.json` for a staging cut, `latest.json` for prod) or the cut is
+   called off. The cut's own banner at step 2b says so (#6130).
 
 A red at any step is read, not retried. Of the seven, four found real defects
 (a caution that had vanished from the product, a bundle expectation frozen at

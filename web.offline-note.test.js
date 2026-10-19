@@ -315,14 +315,20 @@ test('nothing outside the poll ever paints it', () => {
      Measured by adding exactly that and watching all nine stay green.
 
      🔑 So the claim is about WHERE the calls are, not about what one call does.
-     Both live inside `tick`: one on the success path, one in the catch. A third
-     anywhere else is a decision to draw this without a failed poll behind it. */
+     Two live inside `tick`: one on the success path, one in the catch. Since
+     #6537 the projects poll holds the other two (loadProjects draws it from its
+     catch when the device is offline, and its one take-down rule clears it when
+     the device is online), because the shortened offline boxes lean on the
+     note. One anywhere else is a decision to draw this without a failed poll
+     behind it. */
   const body = page.lift(SCRIPT, 'tick');
   const inTick = (body.match(/paintOfflineNote\(/g) || []).length;
+  const inProjects = (page.lift(SCRIPT, 'loadProjects').match(/paintOfflineNote\(/g) || []).length;
   const inPage = (SCRIPT.match(/paintOfflineNote\(/g) || []).length;
   assert.equal(inTick, 2, 'the poll no longer both draws and clears the note');
-  assert.equal(inPage - 1, inTick,
-    'something outside the poll calls it, so the note can appear with no failed poll behind it');
+  assert.equal(inProjects, 2, 'the projects poll no longer both draws and clears the offline note');
+  assert.equal(inPage - 1, inTick + inProjects,
+    'something outside the two polls calls it, so the note can appear with no failed poll behind it');
 });
 
 test('#718 state 1: coming back online asks again at once, for the agents and the projects', () => {

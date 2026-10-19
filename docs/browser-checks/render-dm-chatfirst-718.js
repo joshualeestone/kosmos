@@ -510,10 +510,14 @@ function measure() {
       for (const [sww, swh] of [[375, 667], [320, 568]]) {
         const page = await browser.newPage({ viewport: { width: sww, height: swh } });
         const serrs = []; page.on('pageerror', (e) => serrs.push(e.message));
+        await page.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {} });   // #6403: the switcher's one-time tip is not this check's subject
         await page.addInitScript(() => {
           const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
           window.setInterval = () => 0;
-          window.fetch = async (url) => { const u = String(url); if (u.includes('/thread')) return enc(window.__fx); if (u.includes('avatar')) return new Response('', { status: 404 }); return enc({}); };
+          /* #6396: the top-left name shows only with another computer on the account, so this arm (which measures it) has two. */
+          const two = { ok: true, domain: 'kosmosplus.example', computers: [{ name: 'studio-laptop', address: 'studio-laptop.kosmosplus.example', this: true, online: true },
+            { name: 'desk-mini', address: 'desk-mini.kosmosplus.example', this: false, online: true }] };
+          window.fetch = async (url) => { const u = String(url); if (u.includes('/thread')) return enc(window.__fx); if (u.includes('/api/remote/computers')) return enc(two); if (u.includes('avatar')) return new Response('', { status: 404 }); return enc({}); };
         });
         await page.goto(PAGE);
         await page.evaluate((f) => { window.__fx = f; const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; document.querySelectorAll('body > *').forEach((el) => { el.inert = false; }); SWARMS_ON = true; LAST = [{ sessionName: 'april', name: 'April', status: 'working', isNamedOurs: true, nameDerived: true, swarm: { maxHelpers: 4, activeHelpers: 2, metered: true } }]; openDetail('april', 'talk'); }, FX);
@@ -638,6 +642,9 @@ function measure() {
         const page = await ctx.newPage();
         const errs = []; page.on('pageerror', (e) => errs.push(e.message));
         await page.addInitScript(() => {
+          // #6107: a touch screen sideways at 960px+ (1024x768 here) opens on one screen by default; these arms measure
+          // the tabbed root they always have, so the tablet's own choice is tabs.
+          try { localStorage.setItem('kosmos-tablet-layout', 'tabs'); } catch { /* storage refused */ }
           const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
           window.setInterval = () => 0;
           window.fetch = async (url) => { const u = String(url); if (u.includes('/thread')) return enc(window.__fx); if (u.includes('avatar')) return new Response('', { status: 404 }); return enc({}); };

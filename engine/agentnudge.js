@@ -62,6 +62,7 @@ function openParts(session, projects) {
   for (const p of Array.isArray(projects) ? projects : []) {
     /* #4771: nothing in a paused project, and no task on hold, is the agent's work to be nudged about. */
     if (!p || p.archived === true || require('./projects').isPaused(p)) continue;
+    let tree = null;   // #6421: built once per project, only when one of this agent's open parts is found
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (tasks.isOnHold(t)) continue;
       if (require('./taskrepeat').waitingForNextRun(t)) continue;   // #4787: between runs a repeating task holds no work
@@ -90,7 +91,20 @@ function openParts(session, projects) {
             due = { dueWords: tr.whenWords(at), ...(at > slot ? { dueEarlier: true } : {}), ...(by !== null ? { byWords: tr.whenWords(by) } : {}) };
           }
         }
-        out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due });
+        /* #6421 (10-17 feedback: a delivered parent whose subtasks were built, not closed, was nudged with no reason): the
+           subtasks' counts, so the line says built ones wait for the person and what is left. */
+        /* Not for a repeating task: it is never marked built (setBuilt refuses it; review 1). */
+        if (!tree && !t.repeat) tree = tasks.treeOf(p);
+        const k = t.repeat ? { total: 0 } : tree.progress(t.number);
+        /* Another open part (someone else's, or nobody's) means the task is not this agent's alone to mark (review 1:
+           setBuilt marks the whole task, so "mark it built" would declare a colleague's unfinished part built). */
+        /* Its own second part is not another's (review 2), and nor is the part of a colleague who has already marked the
+           task built: marking never closes a part, so theirs reads open though they are done (review 3). */
+        const markedBy = t.builtAt && Array.isArray(t.builtWho) ? t.builtWho : [];
+        const others = prog.parts.some((y) => y.who !== session && !y.closedAt && !markedBy.includes(y.who));
+        const checks = Array.isArray(t.doneWhen) ? t.doneWhen.length : 0;
+        const subs = k.total > 0 && k.built > 0 ? { subs: { done: k.done, built: k.built, total: k.total, others, checks } } : {};
+        out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due, ...subs });
       }
     }
   }
@@ -124,8 +138,25 @@ function nudgeText(part) {
       + ', then record it with kosmos task ran '
       + (id ? id + ' ' + part.n : '<project-id> <task-number>') + ' (add --unchanged if it found nothing new).'
     : '';
+  /* #6421: a parent whose subtasks are built says why it is still open. Built is waiting for the person to check and
+     close, not unfinished; with nothing below left unfinished, the next step is the parent's own mark. */
+  const s = part.subs;
+  const sub = s && s.built > 0
+    ? (() => {
+      const left = s.total - s.done - s.built;   // built never counts a closed subtask (tasks.treeOf isBuilt)
+      const are = (c) => (c === 1 ? ' is' : ' are');
+      const waiting = ' built, waiting for the person to check and close ' + (s.built === 1 ? 'it' : 'them');
+      if (left > 0) return ' ' + s.built + ' of its ' + s.total + ' subtasks' + are(s.built) + ' built, waiting for the person; ' + left + are(left) + ' not finished.';
+      const all = ' Every subtask under it is closed or built (' + s.built + are(s.built) + waiting + ')';
+      if (s.others === true) return all + ', and another part of it (someone else\'s, or nobody\'s) is still open, so it is not yours alone to mark built.';
+      /* In brackets, so a full stop after it is not copied into the command (as setBuilt's own example; review 1). */
+      /* "When", not "if": the fixed "Pick it up" follows, so the two read as one order of work (review 2). */
+      return all + ', so when your own part of it is done, mark it built (kosmos task built '
+        + (id ? id + ' ' + part.n : '<project-id> <task-number>') + (s.checks > 0 ? ' \'<how its checks went>\'' : '') + ').';   // a note only asked for with checks (review 3)
+    })()
+    : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
-    + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '.' + due + ' Pick it up, or if you are waiting on something, '
+    + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '.' + due + sub + ' Pick it up, or if you are waiting on something, '
     /* #5318: two states, two machines. blocked is a wait nobody chases (another agent, a deploy, a review); only
        needs_you is escalated (recommender.js, after its grace). Offering blocked alone sent person-blocked work there,
        where it went inert (0.7.22, a real install). The question is in SINGLE quotes: unquoted, a ? stops zsh with "no
@@ -147,7 +178,7 @@ function nudgeableCard(a) {
  */
 function plan(card, parts, entry, now, intervalMs, ask) {
   if (entry && entry.nudgedAt != null) return { act: 'none', because: 'already nudged in this stall' };
-  if (entry && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
+  if (entry && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) return { act: 'none', gaveUp: true, because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };   // #5154 slice B: gaveUp lets the sweep surface this on the board
   if (!nudgeableCard(card)) return { act: 'none', because: 'not an idle card of ours' };
   if (!ask || ask.to !== 'idle') return { act: 'none', because: 'the Prompter did not read it as idle' };
   if (ask.from === 'working') return { act: 'none', because: 'went idle this interval; asked at the next one' };
@@ -173,6 +204,10 @@ function sweepOnce(o) {
     const intervalMs = Number.isFinite(o.intervalMs) && o.intervalMs > 0 ? o.intervalMs : 15 * 60 * 1000;
     const next = o.next instanceof Map ? o.next : new Map();
     const say = (r) => { if (typeof o.log === 'function') { try { o.log(r); } catch { /* never breaks a pass */ } } };
+    // #5154 slice B: the give-up SIGNAL to the board (ownbounds), SEPARATE from `say`/`log` (which stays the
+    // deliberate once-at-give-up stdout line, never per-sweep). `bound` fires every sweep the agent is given up,
+    // so the board's staleness clock stays fresh; it writes no stdout. Optional: unset in tests and anywhere not wired.
+    const bound = typeof o.bound === 'function' ? o.bound : null;
     releaseClosed(book, next);
     // The board-wide hour, for Agent Communication's limit.
     while (sent.length && now - sent[0] >= HOUR_MS) sent.shift();
@@ -187,6 +222,12 @@ function sweepOnce(o) {
       try {
         const entry = book.get(session);
         const p = plan(card, openParts(session, o.projects), entry, now, intervalMs, ask);
+        // #5154 slice B: the nudge gave up (tries exhausted). Signal the board via `bound` (not `say`), so the
+        // give-up surfaces on the card without the sweep otherwise just `continue`-ing past it, and without a
+        // per-sweep stdout line. Gated on `card.state === 'idle'` (like firstreply): a nudge give-up only applies
+        // to an idle agent, so this avoids writing a record for a spent-but-working agent that isMoot would just
+        // clear (churn with no push). `bound` fires every idle sweep it stays given up, keeping the clock fresh.
+        if (p.gaveUp && bound && card.state === 'idle') { try { bound(session, p.because); } catch { /* best-effort: a board-signal failure never breaks the sweep */ } }
         if (p.act !== 'nudge') continue;
         const text = nudgeText(p.part);
         if (sent.length >= cap) { say({ name: display, session, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
@@ -196,7 +237,7 @@ function sweepOnce(o) {
         try { const r = o.deliver(session, text, o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = r && (r.heldFor === 'signin' ? 'signin' : r.heldBy); }
         catch (err) { state = 'threw: ' + String((err && err.message) || err); }
         /* #4588 PR B: held (the shared Google quota, the Gemini cap, #5743 an answer awaited on its screen, or #5805 a usage limit), nothing typed: no try is spent and nothing counts toward the hour. */
-        if (held) { results.push({ session, name: display, act: heldBy === 'menu' ? 'menu-held' : heldBy === 'signin' ? 'signin-held' : heldBy === 'limit' ? 'limit-held' : 'quota-held', delivered: false, delivery: state, because: p.because + (heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'signin' ? '; held while it is signed out (#5948)' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota'), task: p.part.n }); continue; }
+        if (held) { results.push({ session, name: display, act: heldBy === 'input' ? 'input-held' : heldBy === 'menu' ? 'menu-held' : heldBy === 'signin' ? 'signin-held' : heldBy === 'limit' ? 'limit-held' : 'quota-held', delivered: false, delivery: state, because: p.because + (heldBy === 'input' ? '; held while its input box holds text not yet sent (#6249)' : heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'signin' ? '; held while it is signed out (#5948)' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota'), task: p.part.n }); continue; }
         const D = o.DELIVERY || {};
         const delivered = D.PLACED != null && state === D.PLACED;
         const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
@@ -268,7 +309,7 @@ function prompterTick(o) {
       out.nudged = sweepOnce({
         toAsk, next: o.outcome.next, roster: o.roster, projects: records, book: o.book, sent: o.sent,
         now: Number.isFinite(o.now) ? o.now : Date.now(), intervalMs: Number(setting.intervalMinutes) * 60 * 1000, limit,
-        deliver: o.deliver, DELIVERY: o.DELIVERY, log: o.log,
+        deliver: o.deliver, DELIVERY: o.DELIVERY, log: o.log, bound: o.bound,   // #5154 slice B: give-up -> board
       }).results;
     }
   } catch { /* never throws into the tick */ }

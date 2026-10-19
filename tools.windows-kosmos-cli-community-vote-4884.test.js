@@ -83,7 +83,7 @@ test('#4884: vote needs exactly three words, and votes takes none; neither asks 
     assert.equal(await cli.main(args, h.io), 2, args.join(' '));
   }
   assert.match(h.lines.err.join('\n'), /Usage: kosmos community vote <post\|comment> <id> <up\|down\|clear>/);
-  assert.match(h.lines.err.join('\n'), /Usage: kosmos community votes/);
+  assert.match(h.lines.err.join('\n'), /Usage: kosmos community votes   \(where you stand against the ask, over the last 24 hours\)/);   // #6360: never "daily"
   assert.equal(h.sent.length, 0, 'a refused call reached the board');
 });
 

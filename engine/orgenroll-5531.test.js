@@ -69,7 +69,9 @@ test('#5531 done-when: enrolling world A sends nothing about world B, and every 
   await org.refresh({ root: a, remote });
   const all = JSON.stringify(remote.sent);
   assert.ok(!all.includes(idB), 'world B was named to the coordinator: ' + all);
-  assert.ok(!all.includes(b), "world B's folder appeared in a payload");
+  // #6113: JSON doubles a Windows path's backslashes, so look for the escaped form too (the folder-name check below
+  // also catches it).
+  assert.ok(!all.includes(b) && !all.includes(JSON.stringify(b).slice(1, -1)), "world B's folder appeared in a payload");
   assert.ok(!all.includes('worldB') && !all.includes('worldA'), 'a world folder name appeared in a payload');
   for (const r of remote.sent) {
     assert.equal(r.method, 'POST', 'the tunnel signs only POSTs with a JSON body: ' + JSON.stringify(r));
@@ -157,9 +159,15 @@ test('#5531: the world id is minted once, kept, owner-only, and the enrollment f
   const { a } = sandbox(t);
   const id1 = org.worldId({ root: a }); const id2 = org.worldId({ root: a });
   assert.equal(id1, id2, 'the id changed between reads');
-  assert.equal(fs.statSync(path.join(a, org.WORLD_ID_FILE)).mode & 0o777, 0o600);
+  /* #6113: Windows keeps no POSIX mode (a file asked for 0600 reads back 0666), so these two checks mean nothing
+     there and run on Mac and Linux only. In a real install on Windows the files sit in the person's own %APPDATA%
+     (engine/store.js; an AGENT_WORKFORCE_HOME or AGENT_WORKFORCE_DATA override moves them), and Windows' default
+     permissions on a profile are expected to keep them to that person, SYSTEM and Administrators. That is reasoned
+     from Windows' documented defaults, not measured (an icacls read is asked for on #6113). */
+  const posix = process.platform !== 'win32';
+  if (posix) assert.equal(fs.statSync(path.join(a, org.WORLD_ID_FILE)).mode & 0o777, 0o600);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
-  assert.equal(fs.statSync(path.join(a, org.ENROLLMENT_FILE)).mode & 0o777, 0o600);
+  if (posix) assert.equal(fs.statSync(path.join(a, org.ENROLLMENT_FILE)).mode & 0o777, 0o600);
 });
 
 test('#5531: the coordinator\'s public error codes are said in plain words; an unknown error is a fixed sentence', async (t) => {
@@ -168,7 +176,7 @@ test('#5531: the coordinator\'s public error codes are said in plain words; an u
   const used = await org.preview('ACME-JOIN-1234', { root: a, remote: said('HTTP 400: {"because":"org_code_used"}') });
   assert.equal(used.code, 'org_code_used'); assert.equal(used.because, org.SAY.org_code_used);
   const dom = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: said('403 org_wrong_domain') });
-  assert.match(dom.because, /own email address/);
+  assert.equal(dom.because, org.SAY.org_wrong_domain); assert.match(dom.because, /different email address/);   // kosmos#6251: said for a company or a family
   const odd = await org.preview('ACME-JOIN-1234', { root: a, remote: said('the tunnel program did not answer in time') });
   assert.equal(odd.code, null); assert.match(odd.because, /could not be checked through Kosmos\+/);   // review 4: an unknown error is a fixed sentence, the raw line goes to the log
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });   // leave is sent only from the work Kosmos
@@ -295,7 +303,7 @@ test('#5531 review 2: joining again after an unconfirmed leave clears it, so the
   assert.ok(!remote.sent.slice(before).some((x) => x.route === org.ROUTES.leave), 'the old leave was sent');
 });
 
-test('#5531 review 2: the daily pass and a leave run one at a time, so a pass that read "enrolled" cannot write the record back after the leave', async (t) => {
+test('#5531 review 2: the hourly pass and a leave run one at a time, so a pass that read "enrolled" cannot write the record back after the leave', async (t) => {
   const { a } = sandbox(t);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
   let release;
@@ -413,11 +421,20 @@ test('#5531 review 9: an unreadable local world id is an unclear answer, and a c
   const { a } = sandbox(t);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
   const idFile = path.join(a, org.WORLD_ID_FILE);
-  fs.chmodSync(idFile, 0o000);   // there, but unreadable (review 14 made a MISSING file mean stale; this one is not)
-  t.after(() => { try { fs.chmodSync(idFile, 0o600); } catch { /* removed with the sandbox */ } });
+  /* There, but unreadable (review 14 made a MISSING file mean stale; this one is not). #6113: chmod 000 does not stop
+     a read on Windows, nor for root, so in those two cases the id file is swapped for a folder of the same name,
+     which readFileSync refuses (EISDIR) on Mac, Linux and Windows (Node documents it; measured on a Mac only). Root
+     swaps rather than skipping, so the unreadable arm still runs there. Elsewhere the permission form this review
+     wrote is kept. */
+  const asFolder = process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0);
+  const kept = fs.readFileSync(idFile);
+  const unreadable = () => { if (asFolder) { fs.rmSync(idFile); fs.mkdirSync(idFile); } else fs.chmodSync(idFile, 0o000); };
+  const readable = () => { if (asFolder) { fs.rmSync(idFile, { recursive: true, force: true }); fs.writeFileSync(idFile, kept, { mode: 0o600 }); } else fs.chmodSync(idFile, 0o600); };
+  t.after(() => { try { readable(); } catch { /* removed with the sandbox */ } });
+  unreadable();
   await org.refresh({ root: a, remote: { macRequest: async () => ({ ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: 'e'.repeat(32), thisComputer: true } } }) } });
   assert.ok(fs.existsSync(path.join(a, org.ENROLLMENT_FILE)), 'an unreadable local id was read as the company moving on');
-  fs.chmodSync(idFile, 0o600);
+  readable();
   assert.equal(org.stoppedFor({ root: a }), null);
   const errs = []; const orig = console.error; console.error = (m) => errs.push(String(m)); t.after(() => { console.error = orig; });
   await org.preview('Secret-Code-7777', { root: a, remote: { macRequest: async () => ({ ok: false, because: 'HTTP 502 for SECRET-CODE-7777' }) } });
@@ -802,7 +819,7 @@ test('#5531 review 33: an unanswered retry between the undo and the last-admin r
     if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ORG, role: 'admin', enrolled: { computer: 'c2', world: body.world, thisComputer: false } } };
     return { ok: false, because: 'offline' }; } };
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co, consentHash: HASH });
-  // One daily pass that gets no clear answer (the step review 31's test did not cover).
+  // One hourly pass that gets no clear answer (the step review 31's test did not cover).
   await org.refresh({ root: a, remote: { macRequest: async () => ({ ok: false, because: 'offline' }) } });
   assert.equal(org.leavePending({ root: a }), true, 'CONTROL: the undo is still pending');
   await org.refresh({ root: a, remote: here(a, { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) }) });
@@ -1023,14 +1040,20 @@ test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and acc
   const r = await org.reviewHere({ root: a, remote: withConsent() });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.review, true); assert.equal(r.move, true);
-  assert.deepEqual(r.org, ORG);
+  assert.deepEqual(r.org, { ...ORG, kind: 'company' });   // kosmos#6239: a coordinator that names no kind is a company's
   assert.deepEqual(r.consent.reports, org.cleanConsent(CONSENT).reports);
   // Another company's words are never shown as this record's (the account moved companies since).
   const other = await org.reviewHere({ root: a, remote: withConsent({ org: { id: 'org_2', name: 'Other', slug: 'other' } }) });
   assert.equal(other.ok, false, 'another company\'s consent was offered for this record: ' + JSON.stringify(other));
+  assert.equal(other.code, 'org_not_named', 'kosmos#6239: the screen holds the words back only on this code');
   // Named elsewhere: not this world's words to accept.
   const elsewhere = await org.reviewHere({ root: a, remote: withConsent({ enrolled: { computer: 'c9', world: 'f'.repeat(32), thisComputer: false } }) });
   assert.equal(elsewhere.ok, false, 'a world the company does not name here was offered a review');
+  assert.equal(elsewhere.code, 'org_not_named');
+  // An unclear answer (no world in it) is not "not named": no code, so the screen keeps offering the words.
+  const unclear = await org.reviewHere({ root: a, remote: withConsent({ enrolled: { computer: 'c9' } }) });
+  assert.equal(unclear.ok, false);
+  assert.equal(unclear.code, undefined, 'an unclear status was given the not-named code: ' + JSON.stringify(unclear));
   assert.equal(r.served, SERVED, 'the review does not carry the company\'s hash, so accepting could not record the words there');
   // No hash the board can echo: accepting could not make it report, so it is not offered (review 1).
   const noHash = await org.reviewHere({ root: a, remote: withConsent({ consentHash: undefined }) });
@@ -1147,4 +1170,68 @@ test('#5791: when the company changes its words, the board takes the new ones on
   const r2 = await org.reacceptWords(opts);
   assert.equal(r2.ok, false, JSON.stringify(r2));
   assert.equal(sent.slice(n).filter((x) => x.route === org.ROUTES.enroll).length, 0, 'an enroll was sent with no hash to echo');
+});
+
+test('#6232 review 10: an enrollment ending tells onEnrollmentEnded once, with that Kosmos\'s root; a refresh with nothing enrolled tells nothing', async (t) => {
+  const { a } = sandbox(t);
+  const state = {};
+  const remote = fakeRemote(state);
+  const ended = [];
+  const off = org.onEnrollmentEnded((root) => ended.push(root));
+  t.after(off);
+  const pv = await org.preview('ACME-JOIN-1234', { root: a, remote });
+  assert.ok(pv && pv.ok !== false, 'CONTROL: the code did not preview: ' + JSON.stringify(pv));
+  const j = await org.enroll('ACME-JOIN-1234', true, { root: a, remote });
+  assert.ok(org.isEnrolledHere({ root: a }), 'CONTROL: the world did not enroll: ' + JSON.stringify(j));
+  assert.deepEqual(ended, [], 'joining told the listener an enrollment ended');
+  state.member = false; state.world = null;   // the admin removed this member
+  await org.refresh({ root: a, remote });
+  assert.equal(org.isEnrolledHere({ root: a }), false, 'CONTROL: the removal did not end the enrollment');
+  assert.deepEqual(ended, [a], 'the ending did not tell the listener, with this Kosmos\'s root, exactly once');
+  await org.refresh({ root: a, remote });
+  assert.deepEqual(ended, [a], 'a refresh with nothing enrolled told the listener again');
+  // A Leave with nothing enrolled clears locally (clearEnrollment with no record): not an ending to tell.
+  const lv = await org.leave({ root: a, remote });
+  assert.ok(lv && lv.localOnly === true, 'CONTROL: the leave did not take the nothing-enrolled path: ' + JSON.stringify(lv));
+  assert.deepEqual(ended, [a], 'clearing with nothing enrolled told the listener an enrollment ended');
+});
+
+test('#6232 review 11: a Leave the company refuses (last admin) tells no listener; a listener that throws does not stop an ending', async (t) => {
+  const { a } = sandbox(t);
+  const ended = [];
+  // The throwing listener first (review 13): listeners run in the order added, so only a later one can show that one
+  // listener's throw does not stop the rest.
+  const offThrow = org.onEnrollmentEnded(() => { throw new Error('a broken listener'); });
+  const off = org.onEnrollmentEnded((root) => ended.push(root));
+  t.after(() => { off(); offThrow(); });
+  const state = {};
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote(state) });
+  assert.ok(org.isEnrolledHere({ root: a }), 'CONTROL: the world did not enroll');
+  // The Leave clears first and is then refused: the enrollment stands, and nothing ended.
+  const r = await org.leave({ root: a, remote: here(a, { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) }) });
+  assert.equal(r.still, true, 'CONTROL: the leave was not refused as the last admin');
+  assert.ok(org.isEnrolledHere({ root: a }), 'CONTROL: the refused leave did not put the enrollment back');
+  assert.deepEqual(ended, [], 'a Leave the company refused told the listener the enrollment ended');
+  // A removal then ends it: the broken listener throws, and the ending still completes and the other listener hears.
+  state.member = false; state.world = null;
+  await org.refresh({ root: a, remote: fakeRemote(state) });
+  assert.equal(org.isEnrolledHere({ root: a }), false, 'a throwing listener stopped the ending');
+  assert.deepEqual(ended, [a], 'the ending did not reach the other listener');
+});
+
+test('#6232 review 13: an enrollment ending because this Kosmos has no id of its own tells the listener too', async (t) => {
+  const { a } = sandbox(t);
+  const ended = [];
+  const off = org.onEnrollmentEnded((root) => ended.push(root));
+  t.after(off);
+  const state = {};
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote(state) });
+  assert.ok(org.isEnrolledHere({ root: a }), 'CONTROL: the world did not enroll');
+  const idFile = 'org-world-id';   // engine/orgenroll.js WORLD_ID_FILE
+  assert.ok(fs.existsSync(path.join(a, idFile)), 'CONTROL: no world id file at ' + idFile);
+  fs.rmSync(path.join(a, idFile), { force: true });
+  const r = await org.refresh({ root: a, remote: fakeRemote(state) });
+  assert.match(String(r.because), /no id of its own/, 'CONTROL: the refresh did not take the no-id path: ' + JSON.stringify(r));
+  assert.equal(org.readEnrollment({ root: a }), null, 'CONTROL: the stale record was not cleared');
+  assert.deepEqual(ended, [a], 'an ending for want of an id did not tell the listener');
 });

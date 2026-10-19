@@ -16,7 +16,7 @@ pass=0; fail=0
 ok() { echo "PASS  $1"; pass=$((pass+1)); }
 bad() { echo "FAIL  $1"; fail=$((fail+1)); }
 
-T="$(mktemp -d)"; LIVE_PID=""; trap '[ -n "$LIVE_PID" ] && kill "$LIVE_PID" 2>/dev/null; rm -rf "$T"' EXIT   # review 2: never leave the listener
+T="$(mktemp -d "${TMPDIR:-/tmp}/test-board-log-tail-5231.XXXXXXXXXX")"; LIVE_PID=""; trap '[ -n "$LIVE_PID" ] && kill "$LIVE_PID" 2>/dev/null; rm -rf "$T"' EXIT   # review 2: never leave the listener
 RUN_DIR="$T/run"; mkdir -p "$RUN_DIR"
 DEAD_PORT="$(node -e 'const s=require("node:net").createServer();s.listen(0,"127.0.0.1",()=>{process.stdout.write(String(s.address().port));s.close()})')"
 OTHER_PORT="$(node -e 'const s=require("node:net").createServer();s.listen(0,"127.0.0.1",()=>{process.stdout.write(String(s.address().port));s.close()})')"

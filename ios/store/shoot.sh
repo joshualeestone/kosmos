@@ -1,14 +1,16 @@
 #!/bin/bash
-# Takes the iOS App Store screenshots (#718): the real board UI on a throwaway
-# board seeded with the clean store fleet (docs/browser-checks/mobile-shots.js
-# --data store), at the 6.9-inch iPhone size App Store Connect requires
-# (1320x2868), in WebKit, light and dark. Then drops the alpha channel (App
-# Store Connect rejects it) and files each shot as screenshots/<theme>/NN-name.png.
+# NOT THE STORE SET any more (#6262): ios/store/shoot-app.sh takes that from the app itself, at the required
+# sizes. This one still shows the board's phone layout in a desktop WebKit, and files into the folder you name
+# (or a new temp folder, printed), never into ios/store/screenshots/.
+#
+# It shoots the board UI on a throwaway board seeded with the clean store fleet
+# (docs/browser-checks/mobile-shots.js --data store) at 1320x2868, in WebKit, light
+# and dark, drops the alpha channel, and files each shot as <out>/<theme>/NN-name.png.
 #
 # WebKit is an engine approximation of the iPhone app's web view, not the app.
 # It is a heavy run: pass the fleet heavy-run gate before starting it.
 #
-# Usage: NODE_PATH=$HOME/work/pw-runtime/node_modules ios/store/shoot.sh
+# Usage: NODE_PATH=$HOME/work/pw-runtime/node_modules ios/store/shoot.sh [out-dir]
 # Ends with one VERDICT: line; no verdict line means it did not finish.
 set -u -o pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -30,10 +32,15 @@ if grep -q '| ERROR\|OVERFLOW\|page error' "$raw/report.md"; then
   echo "VERDICT: FAIL (a shot errored or overflowed; nothing filed)"; exit 1
 fi
 
-python3 - "$raw" "$here/screenshots" "${order[@]}" <<'PY'
+out="${1:-$(mktemp -d "${TMPDIR:-/tmp}/ios-webkit-shots-XXXXXX")}"
+python3 - "$raw" "$out" "$here/screenshots" "${order[@]}" <<'PY'
 import sys, os, glob
 from PIL import Image
-raw, dest, order = sys.argv[1], sys.argv[2], sys.argv[3:]
+raw, dest, store, order = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+# Never into the store set, including a folder there that does not exist yet (realpath needs no folder).
+d, st = os.path.realpath(dest), os.path.realpath(store)
+if d == st or d.startswith(st + os.sep):
+    sys.exit('not into the store set (ios/store/screenshots); the store set comes from shoot-app.sh')
 themes = ('light', 'dark')
 srcs = {(t, n): os.path.join(raw, f'{n}--appstore--{t}--webkit.png') for t in themes for n in order}
 missing = [s for s in srcs.values() if not os.path.exists(s)]
@@ -56,7 +63,8 @@ for theme in themes:
         os.remove(old)
     for f in sorted(os.listdir(os.path.join(stage, theme))):
         os.replace(os.path.join(stage, theme, f), os.path.join(d, f))
-        print('filed', f'screenshots/{theme}/{f}', Image.open(os.path.join(d, f)).size)
+        print('filed', f'{theme}/{f}', Image.open(os.path.join(d, f)).size)
 PY
 [ $? = 0 ] || { echo "VERDICT: FAIL (filing the shots failed)"; exit 1; }
+echo "filed under $out"
 echo "VERDICT: PASS"

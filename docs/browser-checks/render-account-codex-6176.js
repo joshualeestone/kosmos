@@ -1,0 +1,293 @@
+'use strict';
+
+/**
+ * kosmos#6176 slices 2 and 3: a ChatGPT sign-in (OpenAI) row in Settings > AI Models shows its plan limits as Codex last
+ * reported them, one meter per window; a Grok subscription (xai) row shows its weekly usage as Grok last logged it, drawn
+ * the same way (the Grok claims are listed below the Codex ones).
+ *
+ * Drives the real paintAccounts() against a stubbed /api/accounts (no board), in Chromium and WebKit, at desktop and
+ * phone width, inside the real Settings panel, with the page clock pinned at noon. The claims, each one able to fail:
+ *  - a row with two windows draws two meters, named by length: "64% of its 5-hour limit used · resets <time> · Codex
+ *    last reported it 2 minutes ago" then the weekly one;
+ *  - a 1440-minute window is called "1-day";
+ *  - at 82% a window warns "Close to its 5-hour limit." and never suggests a move; at 100% "At its weekly limit until ...";
+ *  - a window whose reset has passed is not drawn; a row with no report says so plainly;
+ *  - an API-key row (no limits field) and an older board's row draw nothing;
+ *  - at 390 px nothing scrolls sideways.
+ * #6176 slice 3: a Grok (xai) subscription row draws its weekly window the same way ("Grok last reported it ..."); one
+ * with no reading says so naming Grok; a Grok API-key row draws nothing; a Grok window past its reset on a list left
+ * open is read again and goes.
+ * #6176 slice 4: the Antigravity row draws Gemini's five-hour and weekly windows ("Antigravity last reported it"), says so
+ * with no reading, and its meter goes at its reset on a list left open.
+ * Then the timer that takes a window's meter away at its reset on a list left open (Chromium, page clock installed,
+ * read counts asserted): the read at a reset; a reset passed in another section; a weekly window alone (no six-hourly
+ * read); a window more than six hours out (a wake timer, no read before its reset); a stray five-hour reading on an
+ * OpenAI row (no read).
+ *
+ *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-account-codex-6176.js
+ *
+ * HEADED by default; HEADED=0 on a machine with no console session.
+ */
+
+const nodePath = require('node:path');
+let pw;
+try { pw = require('playwright'); }
+catch { console.log('render-account-codex-6176: playwright is not on NODE_PATH - SKIPPED, not passed.'); process.exit(0); }
+
+const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
+const H = 3600e3, now = (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d.getTime(); })();
+/* #6312: a page clock moved hours ahead in hops of six fake minutes. One runFor across hours fires every page timer
+   in turn (19 real minutes for seven fake hours on CI); a hop fires each due timer once, so a timer that re-arms
+   every six minutes or more still fires on each hop. */
+const hops = async (pg, ms, step = 6 * 60e3) => { for (let t = 0; t < ms; t += step) await pg.clock.fastForward(Math.min(step, ms - t)); };
+const conn = { state: 'connected', badge: 'working', checkedLive: true, because: 'it reached ChatGPT', observedAt: now - 9000, observedAgeMs: 9000 };
+const openai = (id, extra) => ({ provider: 'openai', providerName: 'OpenAI', email: id + '@example.com', label: id, dir: '/home/.codex-' + id,
+  name: null, isDefault: false, authMode: 'chatgpt', keyTail: null, connection: conn, offerable: true, ...extra });
+const win = (pct, mins, resetsAt) => ({ usedPct: pct, windowMinutes: mins, resetsAt });
+// #6176 slice 3: a Grok (xai) row draws its subscription's usage the same way, from Grok's own billing log.
+const grok = (id, extra) => ({ provider: 'xai', providerName: 'Grok', email: id + '@example.com', label: id, dir: '/home/.grok-' + id,
+  name: null, isDefault: false, authMode: 'subscription', keyTail: null, connection: conn, offerable: true, ...extra });
+// #6176 slice 4: the Gemini-on-a-Google-subscription row (one per computer, no folder) draws Antigravity's reading.
+const agy = (extra) => ({ provider: 'antigravity', providerName: 'Gemini', email: null, label: null, dir: null, name: null, isDefault: false,
+  authMode: 'antigravity', keyTail: null, connection: { state: 'connected', checkedLive: false, checkedAt: now - H, badge: 'signed_in_unverified' }, ...extra });
+const ACCOUNTS = [
+  grok('gsub', { limits: { windows: [win(67, 10080, now + 50 * H)], plan: 'SuperGrok', at: now - 3 * H } }),
+  grok('gnone', { limits: null }),
+  grok('gkey', { authMode: 'apikey', email: null, keyTail: 'GKEY' }),
+  openai('two', { limits: { windows: [win(64, 300, now + 2 * H), win(30, 10080, now + 50 * H)], plan: 'prolite', at: now - 2 * 60e3 } }),
+  openai('day', { limits: { windows: [win(10, 1440, now + 5 * H)], plan: 'plus', at: now - 60e3 } }),
+  openai('warn', { limits: { windows: [win(82, 300, now + H)], plan: 'plus', at: now - 60e3 } }),
+  openai('full', { limits: { windows: [win(100, 10080, now + 50 * H)], plan: 'plus', at: now - 60e3 } }),
+  openai('over', { limits: { windows: [win(99, 300, now - 60e3), win(20, 10080, now + 50 * H)], plan: 'plus', at: now - 6 * H } }),
+  openai('none', { limits: null }),
+  openai('key', { authMode: 'apikey', email: null, keyTail: 'KEYX' }),
+  openai('old', {}),
+];
+delete ACCOUNTS[ACCOUNTS.length - 1].limits;
+
+const fails = [];
+const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fails.push(label); };
+
+(async () => {
+  for (const engine of ['chromium', 'webkit']) {
+    let browser;
+    try { browser = await pw[engine].launch({ headless: process.env.HEADED === '0' }); }
+    catch (err) { say(false, '[' + engine + '] could not start a browser', err && err.message ? err.message.split('\n')[0] : String(err)); continue; }
+    for (const [w, h] of [[1100, 900], [390, 844]]) {
+      const tag = '[' + engine + ' ' + w + ']';
+      const page = await browser.newPage({ viewport: { width: w, height: h }, locale: 'en-US', timezoneId: Intl.DateTimeFormat().resolvedOptions().timeZone });   // the same zone as Node's noon
+      await page.clock.setFixedTime(new Date(now));
+      const errs = []; page.on('pageerror', (e) => { if (!/due to access control checks/.test(e.message)) errs.push(e.message); });
+      await page.goto('file://' + PAGE);
+      const r = await page.evaluate(async ({ accounts }) => {
+        const realFetch = window.fetch;
+        window.fetch = (u, opts) => (String(u).indexOf('/api/accounts') !== -1 ? Promise.resolve({ ok: true, json: async () => ({ accounts }) }) : realFetch(u, opts));
+        if (typeof paintAccounts !== 'function') return { error: 'paintAccounts is not a function' };
+        await paintAccounts();
+        const list0 = document.getElementById('set-accounts');
+        for (let el = list0; el && el !== document.body; el = el.parentElement) {
+          if (el.hidden) el.hidden = false;
+          if (getComputedStyle(el).display === 'none') el.style.display = 'block';
+        }
+        const panel = list0.closest('.panel');
+        for (const other of document.querySelectorAll('.panel')) if (other !== panel && !other.contains(panel)) other.style.display = 'none';
+        const out = {};
+        for (const a of accounts) {
+          const b = document.querySelector('#set-accounts .acct-box[data-acct-dir="' + a.dir + '"]');
+          const u = b && b.querySelector('.acct-usage');
+          out[a.label] = b ? {
+            meters: u ? [...u.querySelectorAll('.acct-usage-codex')].map((m) => ({ fill: m.querySelector('.bar i').style.width, line: m.querySelector('.acct-usage-line').textContent.trim(), h: m.getBoundingClientRect().height })) : [],
+            warns: u ? [...u.querySelectorAll('.acct-usage-warn')].map((x) => x.textContent.trim()) : [],
+            nones: u ? [...u.querySelectorAll('.acct-usage-none')].map((x) => x.textContent.trim()) : [],
+            usage: !!u,
+            move: !!b.querySelector('.acct-move'),   // Claude's move control (#6108): never on an OpenAI row
+          } : null;
+        }
+        out.sideways = document.documentElement.scrollWidth > window.innerWidth + 1;
+        return out;
+      }, { accounts: ACCOUNTS });
+      if (r.error) { say(false, tag + ' ' + r.error); await page.close(); continue; }
+      const T = '\\d{1,2}:\\d{2}\\s?[AP]M';
+      const two = r.two;
+      say(two && two.meters.length === 2 && two.meters[0].fill === '64%' && two.meters[1].fill === '30%' && two.meters.every((m) => m.h > 0), tag + ' two windows: two meters, in the order Codex gives them', JSON.stringify(two && two.meters.map((m) => m.fill)));
+      say(two && new RegExp('^64% of its 5-hour limit used · resets ' + T + ' · Codex last reported it 2 minutes ago$').test(two.meters[0] && two.meters[0].line || ''), tag + ' the 5-hour line: figure, reset time, and when Codex reported it', JSON.stringify(two && two.meters[0] && two.meters[0].line));
+      say(two && /^30% of its weekly limit used · resets (Mon|Tue|Wed|Thu|Fri|Sat|Sun) /.test(two.meters[1] && two.meters[1].line || ''), tag + ' the weekly line names its reset day', JSON.stringify(two && two.meters[1] && two.meters[1].line));
+      say(r.day && /^10% of its 1-day limit used/.test(r.day.meters[0] && r.day.meters[0].line || ''), tag + ' a 1440-minute window is a 1-day limit', JSON.stringify(r.day && r.day.meters));
+      say(r.warn && r.warn.warns.length === 1 && r.warn.warns[0] === 'Close to its 5-hour limit.' && !r.warn.move && !r.full.move, tag + ' at 82% it warns, with no move (no move control on a warning or full row)', JSON.stringify(r.warn && { warns: r.warn.warns, move: r.warn.move, fullMove: r.full && r.full.move }));
+      say(r.full && r.full.warns.length === 1 && new RegExp('^At its weekly limit until (Mon|Tue|Wed|Thu|Fri|Sat|Sun) ' + T + '\\.$').test(r.full.warns[0]), tag + ' at 100% it says until when', JSON.stringify(r.full && r.full.warns));
+      say(r.over && r.over.meters.length === 1 && /weekly/.test(r.over.meters[0].line), tag + ' a window whose reset has passed is not drawn', JSON.stringify(r.over && r.over.meters));
+      say(r.none && r.none.meters.length === 0 && r.none.nones[0] === 'No current usage reading for this sign-in. Codex reports it while an agent on it is working.', tag + ' no report: said plainly', JSON.stringify(r.none));
+      say(r.key && !r.key.usage, tag + ' an API-key row draws nothing (a key has no plan limits)', JSON.stringify(r.key));
+      // #6176 slice 3: Grok rows.
+      say(r.gsub && r.gsub.meters.length === 1 && r.gsub.meters[0].fill === '67%' && /^67% of its weekly limit used · resets (Mon|Tue|Wed|Thu|Fri|Sat|Sun) .* · Grok last reported it 3 hours ago$/.test(r.gsub.meters[0].line || ''), tag + ' a Grok subscription: its weekly figure, its reset, and that Grok reported it', JSON.stringify(r.gsub && r.gsub.meters));
+      say(r.gnone && r.gnone.meters.length === 0 && r.gnone.nones[0] === 'No current usage reading for this sign-in. Grok reports it now and then while it runs.', tag + ' a Grok subscription with no reading: said plainly, naming Grok', JSON.stringify(r.gnone));
+      say(r.gkey && !r.gkey.usage, tag + ' a Grok API key draws nothing (Grok gives a key no billing reading)', JSON.stringify(r.gkey));
+      say(r.old && !r.old.usage, tag + ' an older board (no limits field) draws nothing', JSON.stringify(r.old));
+      if (w === 390) say(!r.sideways, tag + ' nothing scrolls sideways');
+      say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
+      await page.close();
+    }
+    await browser.close();
+  }
+  /* A list left open across a Codex window's reset is read again just after it, and that window's meter goes while the
+     weekly one stays (the same timer as Claude's five-hour line). The page clock is installed so it can run forward. */
+  {
+    const browser = await pw.chromium.launch({ headless: process.env.HEADED === '0' });
+    const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await page.clock.install({ time: new Date(now) });
+    await page.goto('file://' + PAGE);
+    const rows = [openai('soon', { limits: { windows: [win(70, 300, now + 10 * 60e3), win(30, 10080, now + 50 * H)], plan: 'plus', at: now - 60e3 } })];
+    const before = await page.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+      return [...document.querySelectorAll('#set-accounts .acct-usage-codex')].map((m) => m.dataset.resets && m.querySelector('.acct-usage-line').textContent.trim().slice(0, 30));
+    }, rows);
+    await page.clock.runFor(11 * 60e3); await page.waitForTimeout(300);
+    const after = await page.evaluate(() => ({ lines: [...document.querySelectorAll('#set-accounts .acct-usage-codex .acct-usage-line')].map((x) => x.textContent.trim().slice(0, 30)), reads: window.__reads }));
+    say(before.length === 2 && before.every(Boolean) && after.reads === 2 && after.lines.length === 1 && /weekly/.test(after.lines[0]),
+      '[chromium open] a Codex window past its reset on a list left open is read again and goes; the weekly one stays', JSON.stringify({ before, after }));
+    // #6176 slice 3 (review 1): a Grok window arms the same timer; past its reset on a list left open, it is read again and goes.
+    const pg = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await pg.clock.install({ time: new Date(now) });
+    await pg.goto('file://' + PAGE);
+    const gBefore = await pg.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+      return document.querySelectorAll('#set-accounts .acct-usage-codex').length;
+    }, [grok('gsoon', { limits: { windows: [win(67, 10080, now + 10 * 60e3)], plan: 'SuperGrok', at: now - H } })]);
+    await pg.clock.runFor(11 * 60e3); await pg.waitForTimeout(300);
+    const gAfter = await pg.evaluate(() => ({ meters: document.querySelectorAll('#set-accounts .acct-usage-codex').length, reads: window.__reads }));
+    say(gBefore === 1 && gAfter.reads === 2 && gAfter.meters === 0, '[chromium open] a Grok window past its reset on a list left open is read again and goes', JSON.stringify({ gBefore, gAfter }));
+    await pg.close();
+    // #6176 slice 4: the Antigravity row (no folder, one per computer) draws Gemini's windows as Antigravity reported
+    // them, says so when there is no reading, and its five-hour meter goes at its reset on a list left open.
+    const pa = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await pa.clock.install({ time: new Date(now) });
+    await pa.goto('file://' + PAGE);
+    const show = async (accounts) => pa.evaluate(async (accounts) => {
+      window.__reads = 0;
+      if (!window.__realFetch) window.__realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : window.__realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+      const u = document.querySelector('#set-accounts .acct-usage');
+      return { lines: u ? [...u.querySelectorAll('.acct-usage-codex .acct-usage-line')].map((x) => x.textContent.trim()) : [],
+        nones: u ? [...u.querySelectorAll('.acct-usage-none')].map((x) => x.textContent.trim()) : [] };
+    }, accounts);
+    const aNone = await show([agy({ limits: null })]);
+    say(aNone.lines.length === 0 && aNone.nones[0] === 'No current usage reading from Antigravity for this sign-in.', '[chromium open] the Antigravity row with no reading says so, naming Antigravity', JSON.stringify(aNone));
+    const aAsk = await show([agy({ limits: null, connection: { state: 'connected', checkedLive: false, checkedAt: now - H, badge: 'signed_in_unverified', liveCheckPending: true } })]);
+    say(aAsk.nones[0] === 'Asking Antigravity for its usage.', '[chromium open] while a reading is on its way, the Antigravity row says so', JSON.stringify(aAsk));
+    const aStop = await show([agy({ limits: null, usageStopped: true })]);
+    say(aStop.nones[0] === 'Antigravity could not report usage. Sign in again to ask it again.', '[chromium open] after a failed reading, the Antigravity row says what to do', JSON.stringify(aStop));
+    const aStopOld = await show([agy({ usageStopped: true, limits: { windows: [win(40, 10080, now + 50 * H)], plan: null, at: now - 3 * H } })]);
+    say(aStopOld.lines.length === 1 && aStopOld.nones[0] === 'Antigravity could not report usage. Sign in again to ask it again.', '[chromium open] stopped with an earlier reading: the meter stays and the row still says the asking stopped', JSON.stringify(aStopOld));
+    const aTwo = await show([agy({ limits: { windows: [win(25, 300, now + 10 * 60e3), win(1, 10080, now + 50 * H)], plan: null, at: now - 2 * 60e3 } })]);
+    say(aTwo.lines.length === 2 && /^25% of its 5-hour limit used · resets .* · Antigravity last reported it 2 minutes ago$/.test(aTwo.lines[0]) && /^1% of its weekly limit used/.test(aTwo.lines[1]),
+      '[chromium open] the Antigravity row draws its five-hour and weekly windows, and says Antigravity reported them', JSON.stringify(aTwo));
+    // A pending Antigravity reading keeps the list being read for up to 56 s (agy can take 50 s), not the 21 s other checks get.
+    const pend = { state: 'connected', checkedLive: false, checkedAt: now - H, badge: 'signed_in_unverified', liveCheckPending: true };
+    await show([agy({ limits: null, connection: pend })]);
+    await pa.evaluate(() => { window.__reads = 0; });
+    for (let i = 0; i < 20; i++) { await pa.clock.runFor(3600); await pa.waitForTimeout(40); }
+    const aReads = await pa.evaluate(() => window.__reads);
+    say(aReads >= 12 && aReads <= 17, '[chromium open] a pending Antigravity reading is followed for about 56 s, not 21 s', 'reads=' + aReads);
+    // The same when the read that finds it pending came at the cap (a reset or retry read, review 7).
+    await pa.evaluate(() => { window.__reads = 0; });
+    for (let i = 0; i < 20; i++) { await pa.clock.runFor(3600); await pa.waitForTimeout(40); }   // let the first budget run out
+    await pa.evaluate(() => { window.__reads = 0; });
+    await pa.evaluate(() => paintAccounts({ followUp: ACCT_FOLLOWUP.max }));
+    for (let i = 0; i < 20; i++) { await pa.clock.runFor(3600); await pa.waitForTimeout(40); }
+    const capReads = await pa.evaluate(() => window.__reads);
+    say(capReads >= 12 && capReads <= 18, '[chromium open] a pending Antigravity reading found by a read at the cap is still followed for about 56 s', 'reads=' + capReads);
+    await show([agy({ limits: { windows: [win(25, 300, now + 10 * 60e3), win(1, 10080, now + 50 * H)], plan: null, at: now - 2 * 60e3 } })]);
+    await pa.evaluate(() => { window.__reads = 0; });
+    await pa.clock.runFor(11 * 60e3); await pa.waitForTimeout(300);
+    const aAfter = await pa.evaluate(() => ({ lines: document.querySelectorAll('#set-accounts .acct-usage-codex').length, reads: window.__reads }));
+    say(aAfter.reads === 1 && aAfter.lines === 1, '[chromium open] an Antigravity window past its reset on a list left open is read again and goes', JSON.stringify(aAfter));
+    await pa.close();
+    // The reset passes while another Settings section is open (the list hidden): back on AI Models, the meter goes.
+    const p2 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p2.clock.install({ time: new Date(now) });
+    await p2.goto('file://' + PAGE);
+    await p2.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+      settingsGo('you');
+    }, rows);
+    await p2.clock.runFor(12 * 60e3); await p2.waitForTimeout(200);
+    const away = await p2.evaluate(() => window.__reads);
+    await p2.evaluate(() => settingsGo('accounts'));
+    await p2.clock.runFor(2e3); await p2.waitForTimeout(300);
+    const back = await p2.evaluate(() => ({ lines: document.querySelectorAll('#set-accounts .acct-usage-codex').length, reads: window.__reads }));
+    say(away === 1 && back.reads === 2 && back.lines === 1, '[chromium open] a Codex reset that passed in another section: back on AI Models it is read again and goes', JSON.stringify({ away, back }));
+    await p2.close();
+    // Only a weekly window (days out): a list left open is not read again every six hours for it.
+    const p3 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p3.clock.install({ time: new Date(now) });
+    await p3.goto('file://' + PAGE);
+    await p3.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, [openai('weekonly', { limits: { windows: [win(30, 10080, now + 50 * H)], plan: 'plus', at: now - 60e3 } })]);
+    await hops(p3, 7 * H); await p3.clock.runFor(5e3); await p3.waitForTimeout(300);   // #6312: hops, see hops()
+    const week = await p3.evaluate(() => window.__reads);
+    say(week === 1, '[chromium open] a weekly window alone arms no six-hourly read', 'reads=' + week);
+    await p3.close();
+    // A window resetting further out than six hours, on a list nobody touches, still goes at its reset (a wake timer arms
+    // six hours before it, without reading), and nothing is read before then.
+    const p4 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p4.clock.install({ time: new Date(now) });
+    await p4.goto('file://' + PAGE);
+    await p4.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, [openai('dayonly', { limits: { windows: [win(40, 1440, now + 8 * H)], plan: 'plus', at: now - 60e3 } })]);
+    await hops(p4, 7 * H + 50 * 60e3); await p4.clock.runFor(5e3); await p4.waitForTimeout(200);   // #6312: hops, see hops()
+    const early4 = await p4.evaluate(() => window.__reads);
+    await p4.clock.runFor(15 * 60e3); await p4.waitForTimeout(300);
+    const late4 = await p4.evaluate(() => ({ lines: document.querySelectorAll('#set-accounts .acct-usage-codex').length, reads: window.__reads }));
+    say(early4 === 1 && late4.reads === 2 && late4.lines === 0, '[chromium open] a window more than six hours out still goes at its reset on an untouched list, with no read before', JSON.stringify({ early4, late4 }));
+    await p4.close();
+    // An OpenAI row that happened to carry a five-hour reading draws no five-hour line, so its reset must cost no read.
+    const p5 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p5.clock.install({ time: new Date(now) });
+    await p5.goto('file://' + PAGE);
+    await p5.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, [openai('stray', { limits: null, fiveHour: { usedPct: 50, resetsAt: now + 10 * 60e3, at: now - 60e3 } })]);
+    await p5.clock.runFor(12 * 60e3); await p5.waitForTimeout(300);
+    const r5 = await p5.evaluate(() => window.__reads);
+    say(r5 === 1, '[chromium open] a five-hour reading on a row that does not draw one arms no read', 'reads=' + r5);
+    await p5.close();
+    await browser.close();
+  }
+  console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nall good');
+  process.exit(fails.length ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(1); });

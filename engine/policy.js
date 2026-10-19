@@ -1,7 +1,7 @@
 'use strict';
 
 /* Why this module writes an agent's file, for the stale marker (#323). */
-const WROTE_WHY = 'Kosmos updated the company AI policy';
+const WROTE_WHY = 'Kosmos updated the AI policies';
 
 /**
  * The company's AI policies, held once and handed to every agent (#479,
@@ -65,12 +65,17 @@ const NAME_MAX = 60;
    the file with the agent's own words and every other managed block. */
 const BLOCK_MAX = 128 * 1024;
 
-/* 🔑 The name the migrated single policy wears (#685). Josh's model is that
-   a policy's name says who MANDATES it, and the one policy that predates
-   names was mandated by nobody nameable -- it is simply the company's. Not
-   an example row: it only ever appears wrapping a policy the person
-   actually saved, and they can rename it. */
+/* 🔑 The company policy's fallback name: companyEntry() uses it when the company's ai_policy has no usable name, where
+   "Company AI policy" is true. It is no longer the name a migrated record is given (#6273, MIGRATED_NAME below). */
 const DEFAULT_NAME = 'Company AI policy';
+
+/* #6273: the name a migrated #479 record wears. #685 named it DEFAULT_NAME, on Josh's model that a policy's name says
+   who mandates it and the one policy that predates names "is simply the company's". That held while no company policy
+   existed. Since #5534 the company's real policy arrives separately (companyEntry) and falls back to DEFAULT_NAME, so
+   the person's own migrated entry wearing the same name could put two "### Company AI policy" headings in one stack,
+   one of them owned by nobody's company. Every entry in policy.json is the person's own (problem() takes only a pasted or URL source),
+   so it now wears the neutral name; DEFAULT_NAME stays the company policy's fallback, where it is true. */
+const MIGRATED_NAME = 'AI policy';
 
 function clean(value) {
   const s = String(value == null ? '' : value)
@@ -100,27 +105,39 @@ function problem({ name, text, source } = {}) {
 function newId() { return crypto.randomBytes(12).toString('hex'); }
 
 /* The v1 record was ONE policy, shaped {text, source, savedAt} (#479). It
-   migrates as the first entry of the list, named DEFAULT_NAME, under a
+   migrates as the first entry of the list, named MIGRATED_NAME (#6273), under a
    FIXED id -- deterministic because migration happens lazily on read, and
    an id that changed between a GET and the POST acting on it would make
    the screen's rename and remove race their own listing. The first
    mutation persists the migrated shape. */
 const MIGRATED_ID = 'p1';
 
+/* #6273: the record's version. 3 means written by a build that already names the migrated entry MIGRATED_NAME,
+   so a "Company AI policy" on p1 in a version-3 record was chosen by the person and stays. An older reader looks only at
+   `policies`, so a downgrade still reads it. */
+const RECORD_VERSION = 3;
+
 function entriesOf(rec) {
   if (rec && typeof rec === 'object' && Array.isArray(rec.policies)) {
     return rec.policies;
   }
   if (rec && typeof rec === 'object' && typeof rec.text === 'string') {
-    return [{ id: MIGRATED_ID, name: DEFAULT_NAME, text: rec.text, source: rec.source, savedAt: rec.savedAt }];
+    return [{ id: MIGRATED_ID, name: MIGRATED_NAME, text: rec.text, source: rec.source, savedAt: rec.savedAt }];
   }
   return null;
 }
 
-function persist(policies) {
+/* #6273: true while p1 still wears DEFAULT_NAME only because read() could not rename it (another entry wears
+   MIGRATED_NAME). Such a save stays version 2, so the record is still "old" and the rename applies once the clash is
+   gone; writing version 3 here would make the false owner permanent. */
+function renameStillPending(current, policies) {
+  return current.renamePending === true && policies.some((p) => p.id === MIGRATED_ID && p.name === DEFAULT_NAME);
+}
+
+function persist(policies, stillOld = false) {
   fs.mkdirSync(path.dirname(FILE), { recursive: true });
   // #5434 slice 17: flushed before it replaces the file (store.saveFlushed), so a crash cannot leave it zero-filled.
-  store.saveFlushed(FILE, JSON.stringify({ version: 2, policies }, null, 2) + '\n');
+  store.saveFlushed(FILE, JSON.stringify({ version: stillOld ? 2 : RECORD_VERSION, policies }, null, 2) + '\n');
 }
 
 /**
@@ -161,6 +178,18 @@ function read() {
       savedAt: (typeof e.savedAt === 'string') ? e.savedAt : null,
     });
   }
+  /* #6273: a record migrated before the name changed still holds "Company AI policy" on its p1 entry. Renamed on read
+     (persisted by the next mutation, as the v1 migration is) only for that fixed id and that exact name, and only in a
+     record written before #6273 (once a version-3 record holds it, the person chose it, so a rename back to
+     it sticks). An entry the person named themselves has a random id. Kept when another entry already wears
+     MIGRATED_NAME, so no two collide. The company's policy is deliberately NOT in that check: skipping the
+     rename for it would let the next save keep "Company AI policy" for good in a version-3 record, the false owner
+     beside a real one. Two near-equal headings are told apart by their provenance lines, which stay true. */
+  const old = !(typeof rec.version === 'number' && rec.version >= RECORD_VERSION) && policies.find((p) => p.id === MIGRATED_ID && p.name === DEFAULT_NAME);
+  if (old && policies.some((p) => p !== old && p.name.toLowerCase() === MIGRATED_NAME.toLowerCase())) {
+    return { state: 'saved', policies, because: null, renamePending: true };   // saves keep it old (renameStillPending)
+  }
+  if (old) old.name = MIGRATED_NAME;
   return { state: 'saved', policies, because: null };
 }
 
@@ -171,10 +200,11 @@ function refuseOversizedStack(policies) {
   // #5534 slice 3: judged with the company's entry too, since every agent is handed both.
   const company = companyEntry();
   const all = company ? [company, ...policies] : policies;
-  const body = all.length === 1 ? blockBody(all[0]) : stackedBody(all);
+  const kind = orgKindNow();
+  const body = all.length === 1 ? blockBody(all[0], kind) : stackedBody(all, kind);
   if (Buffer.byteLength(body, 'utf8') > BLOCK_MAX) {
     throw new Error(company
-      ? 'together with your company\'s AI policy, these policies would be larger than an agent\'s instructions can hold; shorten this one, or remove one first'
+      ? inOrgKind('together with your company\'s AI policy, these policies would be larger than an agent\'s instructions can hold; shorten this one, or remove one first', kind)
       : 'together these policies would be larger than an agent\'s instructions can hold; shorten this one, or remove one first');
   }
 }
@@ -193,7 +223,7 @@ function refuseOversizedStack(policies) {
  *
  * A new policy is NAMED, always. The nameless form that served the
  * single-policy screen went with that screen (#701, Mona Lisa's word);
- * DEFAULT_NAME remains only as the name the migrated #479 record wears.
+ * MIGRATED_NAME is the name the migrated #479 record wears (#6273); DEFAULT_NAME is the company policy's fallback.
  */
 function add({ id, name, text, source } = {}) {
   const current = read();
@@ -210,7 +240,7 @@ function add({ id, name, text, source } = {}) {
     if (bad) throw new Error(bad);
     policies[at] = entry;
     refuseOversizedStack(policies);
-    persist(policies);
+    persist(policies, renameStillPending(current, policies));
     return entry;
   }
 
@@ -224,7 +254,7 @@ function add({ id, name, text, source } = {}) {
   entry.id = newId();
   policies.push(entry);
   refuseOversizedStack(policies);
-  persist(policies);
+  persist(policies, renameStillPending(current, policies));
   return entry;
 }
 
@@ -240,9 +270,13 @@ function rename(id, name) {
   if (current.policies.some((p, i) => i !== at && p.name.toLowerCase() === next.toLowerCase())) {
     throw new Error('another policy already wears that name');
   }
+  // #6273: the same name again changes nothing, so nothing is saved (a save would also settle a pending rename of p1).
+  if (next === current.policies[at].name) return current.policies[at];
   const policies = current.policies.slice();
   policies[at] = { ...policies[at], name: next };
-  persist(policies);
+  // Renaming p1 to anything else moves it off DEFAULT_NAME, so it is saved as theirs (version 3); renaming another entry
+  // keeps a pending rename of p1 pending.
+  persist(policies, renameStillPending(current, policies));
   return policies[at];
 }
 
@@ -255,7 +289,7 @@ function removeOne(id) {
   const policies = current.policies.slice();
   policies.splice(at, 1);
   if (policies.length === 0) { clear(); return null; }
-  persist(policies);
+  persist(policies, renameStillPending(current, policies));
   return current.policies[at];
 }
 
@@ -266,12 +300,41 @@ function clear() {
   }
 }
 
+/* kosmos#6263: a sentence about the org's policy, said as a family's when this Kosmos is enrolled to a family, and
+   unchanged for a company's. Required here, not at the top: orgenroll reaches this file through orgpolicy. */
+function orgKindNow() { return require('./orgenroll').kindHere(); }
+// Board review 2: a block reads the kind once (orgKindNow) and passes it down, so its heading and lines agree.
+function inOrgKind(text, kind = orgKindNow()) { return require('./orgenroll').inKind(kind, text); }
+/* The block's heading. It names the org only when the org's policy is in the block: the person's own policies alone
+   are "Your AI policy", on every Kosmos (kosmos#6270; #6263 board review 1 did this for a family's first). */
+function heading(plural, hasOrgEntry, kind) {
+  if (!hasOrgEntry) return plural ? '## Your AI policies' : '## Your AI policy';
+  const org = plural ? '## Your company\'s AI policies' : '## Your company\'s AI policy';
+  return kind === 'family' ? inOrgKind(org, kind) : org;
+}
+
+/* kosmos#6263 board review 3: every heading a block can carry on this Kosmos, without "## ", from heading() itself, so
+   the re-read line (engine/instructionreread.js) names the section the agent actually has. */
+function headingsHere(kind = orgKindNow()) {
+  // The person's own headings first (kosmos#6270): a block of only their policies is the common case.
+  const all = [heading(false, false, kind), heading(true, false, kind), heading(false, true, kind), heading(true, true, kind)];
+  return [...new Set(all.map((h) => h.replace(/^## /, '')))];
+}
+
+/* Board review 5: a sentence about "your company's AI policies" said elsewhere (create's step label), by heading()'s
+   rule: the org's only when the org's policy is in force (the family's on a family's Kosmos); otherwise "your AI
+   policies" (kosmos#6270). */
+function aboutPolicies(text, kind = orgKindNow(), hasOrgPolicy = !!companyEntry()) {
+  if (!hasOrgPolicy) return String(text).replace(/\byour company's AI polic/g, 'your AI polic');
+  return kind === 'family' ? inOrgKind(text, kind) : text;
+}
+
 /** One policy's provenance line, shared by both block shapes. */
-function fromLine(policy) {
+function fromLine(policy, kind = orgKindNow()) {
   const when = policy.savedAt ? policy.savedAt.slice(0, 10) : 'an unknown date';
   /* No version or date (review 1): a new company policy that changes only its provider list must not rewrite every
      agent's file and owe every running agent a re-read for the same words. */
-  if (policy.source === COMPANY_SOURCE) return 'Set by your company in its Kosmos policy.';
+  if (policy.source === COMPANY_SOURCE) return inOrgKind('Set by your company in its Kosmos policy.', kind);
   return policy.source === 'pasted'
     ? `Added by the person you work for on ${when}.`
     : `From ${policy.source}, fetched ${when}.`;
@@ -280,18 +343,18 @@ function fromLine(policy) {
 /**
  * The block, provenance first, in the voice the agent reads.
  *
- * ⚠️ THE SINGLE-POLICY BODY IS BYTE-IDENTICAL TO WHAT #479 SHIPPED, and that
- * is a migration property, not nostalgia: every agent on every machine
- * already carries this exact block, and `tellAgent` only writes when the
- * splice changes the file -- so going plural must not rewrite the whole
- * fleet's instruction files on the day nothing about their one policy
- * changed. The stacked shape appears only once a second policy exists.
+ * ⚠️ `tellAgent` only writes when the splice changes the file, so any change
+ * to these bytes rewrites the instruction file of every agent that carries
+ * the block, at the next board start, and owes each running agent a re-read.
+ * #685 kept #479's single-policy body for that reason; #6270 changed its
+ * heading once, on purpose, for a person's own policy ("Your AI policy").
+ * The stacked shape appears only once a second policy exists.
  */
-function blockBody(policy) {
+function blockBody(policy, kind = orgKindNow()) {
   return [
-    '## Your company\'s AI policy',
+    heading(false, policy.source === COMPANY_SOURCE, kind),
     '',
-    `${fromLine(policy)} Follow it in everything you do; where it conflicts with any other instruction here, the policy wins.`,
+    `${fromLine(policy, kind)} Follow it in everything you do; where it conflicts with any other instruction here, the policy wins.`,
     '',
     clean(policy.text),
   ].join('\n');
@@ -305,14 +368,14 @@ function blockBody(policy) {
  * members. Names are the person's words, already neutralised, held to one
  * line; they become `###` headings under the block's own `##`.
  */
-function stackedBody(policies) {
+function stackedBody(policies, kind = orgKindNow()) {
   const parts = [
-    '## Your company\'s AI policies',
+    heading(true, policies.some((p) => p && p.source === COMPANY_SOURCE), kind),
     '',
     'Follow them in everything you do; where they conflict with any other instruction here, the policies win.',
   ];
   for (const p of policies) {
-    parts.push('', `### ${cleanName(p.name)}`, '', fromLine(p), '', clean(p.text));
+    parts.push('', `### ${cleanName(p.name)}`, '', fromLine(p, kind), '', clean(p.text));
   }
   return parts.join('\n');
 }
@@ -422,7 +485,7 @@ function syncEveryone(roster) {
 }
 
 module.exports = {
-  add, rename, removeOne, clear, read, effective, companyEntry, bodyFor, blockBody, stackedBody, tellAgent, syncEveryone,
+  add, rename, removeOne, clear, read, effective, companyEntry, bodyFor, blockBody, stackedBody, tellAgent, syncEveryone, headingsHere, aboutPolicies,
   COMPANY_ID,
-  START, END, TEXT_MAX, NAME_MAX, BLOCK_MAX, DEFAULT_NAME, FILE,
+  START, END, TEXT_MAX, NAME_MAX, BLOCK_MAX, DEFAULT_NAME, MIGRATED_NAME, FILE,
 };

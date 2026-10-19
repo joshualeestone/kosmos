@@ -265,6 +265,152 @@ test('#4918 review 8: a Linux restart whose stop systemd refused is never report
   assert.notEqual(r.outcome, remove.OUTCOME.RESTARTED, 'a refused stop reported as a restart: ' + JSON.stringify(r));
 });
 
+/* #6183: the Linux restart acts are now STEPS the async driver runs with execFile (engine/remove.js jobOps(linux)
+   `steps`), so an account move's restarts do not block the board once per agent, as #6173 did for the Mac. These two
+   prove it by ROUTING, not by a wall-clock measurement: an async restart sends every systemctl through the ASYNC
+   (execFile) runner and none through the synchronous (execFileSync) one, which is the only runner that can hold the
+   board; the sync control then shows the same restart through the sync runner DOES hold the board (an Atomics.wait
+   park stands in for execFileSync's blocking time). The routing is a deterministic proof where a responsiveness
+   threshold would only approximate it and flake on a shared box. */
+function linuxRestartFixture(name) {
+  const create = require('./create');
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  const unit = linuxjob.unitPath(name);
+  fs.writeFileSync(unit, '[Service]\nExecStart="/bin/bash" "/x/agent-supervisor.sh" "' + name + '" "/w" "/usr/bin/claude" "/usr/bin/tmux" "/w/start.log"\n');
+  return { unit, workdir: create.workerDir(name) };
+}
+// stop/daemon-reload/start succeed; is-active reports the unit up so the loaded check passes on the first try.
+function linuxRestartAnswer(cmd, args) {
+  if (cmd === 'systemctl' && args[1] === 'is-active') return { ok: true, stdout: 'active\n' };
+  return { ok: true, stdout: '' };
+}
+function blockMs6183(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, ms | 0)); }
+
+test('#6183: an async Linux restart sends every systemctl through the async runner, never the synchronous one', async (t) => {
+  const name = 'asynclin';
+  const status = require('./status');
+  const { unit, workdir } = linuxRestartFixture(name);
+  status.setPaneSource(() => '');   // empty board: a fromDead start, no session to close -- the job acts still run
+  const sync = [], acalls = [];
+  remove.setRunner((cmd, args) => { sync.push([cmd, ...args]); return { ok: false, code: 99 }; });   // the blocking (execFileSync) runner: must never be asked
+  remove.setAsyncRunner(async (cmd, args) => { acalls.push([cmd, ...args]); return linuxRestartAnswer(cmd, args); });
+  t.after(() => {
+    remove.setRunner(null); remove.setAsyncRunner(null); status.setPaneSource(null);
+    require('./disruption').clear(name);
+    fs.rmSync(unit, { force: true }); fs.rmSync(workdir, { recursive: true, force: true });
+  });
+  const out = await remove.restartAsync(name, 'account', { platform: 'linux', startIfDead: true });
+  assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+  // The proof the board does not freeze is the ROUTING, not a timing measurement. A command holds the board only by
+  // going through the synchronous (execFileSync) runner; the async runner is execFile, which does not. So an empty
+  // `sync` is a deterministic proof nothing ran inline, and the sync control below proves the other half: the same
+  // restart through the sync runner DOES hold the board.
+  assert.deepEqual(sync, [], 'a command went through the blocking runner');
+  const systemctl = acalls.filter((c) => c[0] === 'systemctl').map((c) => c[2]);
+  assert.deepEqual(systemctl, ['stop', 'daemon-reload', 'start', 'is-active'], 'the restart acts, all through the async runner');
+});
+
+test('#6183 control: a synchronous Linux restart holds the board for the whole of its systemctl calls', (t) => {
+  const name = 'synclin';
+  const status = require('./status');
+  const { unit, workdir } = linuxRestartFixture(name);
+  status.setPaneSource(() => '');
+  remove.setRunner((cmd, args) => { blockMs6183(25); return linuxRestartAnswer(cmd, args); });   // execFileSync's blocking time, injected
+  t.after(() => {
+    remove.setRunner(null); status.setPaneSource(null);
+    require('./disruption').clear(name);
+    fs.rmSync(unit, { force: true }); fs.rmSync(workdir, { recursive: true, force: true });
+  });
+  let fired = 0;
+  const iv = setInterval(() => { fired++; }, 5);
+  const started = Date.now();
+  const out = remove.restart(name, 'account', { platform: 'linux', startIfDead: true });
+  const took = Date.now() - started;
+  clearInterval(iv);
+  assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+  assert.equal(fired, 0, 'a timer fired during a synchronous restart: the board was not actually held');
+  assert.ok(took >= 75, 'the sync restart took ' + took + ' ms, too little to show the board was held');   // >= 3 of 4 x 25 ms
+});
+
+/* #6183: drive a Linux restart step generator synchronously (these generators carry no {sleep} waits), collecting the
+   exec specs it yields and feeding each the given answer. Returns the generator's return value and the specs sent, so
+   a test can assert BOTH what the step decided and which systemctl commands it asked to run. */
+function driveLinSteps(gen, answerExec) {
+  const sent = [];
+  let res = gen.next();
+  while (!res.done) {
+    assert.ok(res.value && Array.isArray(res.value.exec), 'a Linux step yielded a non-exec: ' + JSON.stringify(res.value));
+    sent.push(res.value.exec);   // [file, args, opts]
+    res = gen.next(answerExec(res.value.exec));
+  }
+  return { ret: res.value, sent };
+}
+
+test('#6183: loadedSteps yields is-active and reads a dry run as loaded (the command still reaches the runner)', () => {
+  // A dry run is answered loaded WITHOUT skipping the is-active yield, so an injected runner always sees the command
+  // -- the property remove.js's steps.loaded comment calls out, and the one the async proof depends on.
+  const u = linuxjob.unitName('dryagent', undefined);
+  const dry = driveLinSteps(linuxjob.loadedSteps('dryagent', undefined), () => ({ dryRun: true }));
+  assert.equal(dry.ret, true, 'a dry run was not read as loaded');
+  assert.deepEqual(dry.sent.map((e) => e[1]), [['--user', 'is-active', u]], 'is-active was not yielded under a dry run');
+  assert.equal(driveLinSteps(linuxjob.loadedSteps('upagent', undefined), () => ({ ok: true, stdout: 'active\n' })).ret, true, 'an active unit was not read as loaded');
+  assert.equal(driveLinSteps(linuxjob.loadedSteps('downagent', undefined), () => ({ ok: true, stdout: 'inactive\n' })).ret, false, 'an inactive unit was read as loaded');
+});
+
+test('#6183: startOnlySteps whose daemon-reload fails returns false and never yields start', () => {
+  const r = driveLinSteps(linuxjob.startOnlySteps('reloadfail', undefined),
+    (exec) => (exec[1][1] === 'daemon-reload' ? { ok: false, stderr: 'boom' } : { ok: true, stdout: '' }));
+  assert.equal(r.ret, false, 'a failed daemon-reload was treated as a successful start');
+  assert.deepEqual(r.sent.map((e) => e[1][1]), ['daemon-reload'], 'start was yielded after a failed reload');
+});
+
+test('#6183: a sandboxed board yields no systemctl command from any restart step (never acts on a real unit by name)', () => {
+  linuxjob.setSystemdDirForTests(null);
+  const savedDir = process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  const launch = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-linuxwiring-sandbox-'));
+  process.env.AGENT_WORKFORCE_LAUNCH = launch;
+  const refuse = () => { throw new Error('a sandboxed step asked the runner to run a real systemctl command'); };
+  try {
+    assert.equal(driveLinSteps(linuxjob.stopSteps('sb', undefined), refuse).sent.length, 0, 'stopSteps yielded a command in the sandbox');
+    assert.equal(driveLinSteps(linuxjob.startOnlySteps('sb', undefined), refuse).sent.length, 0, 'startOnlySteps yielded a command in the sandbox');
+    assert.equal(driveLinSteps(linuxjob.loadedSteps('sb', undefined), refuse).sent.length, 0, 'loadedSteps yielded a command in the sandbox');
+    assert.equal(driveLinSteps(linuxjob.statusSteps('sb', undefined), refuse).sent.length, 0, 'statusSteps yielded a command in the sandbox');
+  } finally {
+    delete process.env.AGENT_WORKFORCE_LAUNCH;
+    if (savedDir !== undefined) process.env.AGENT_WORKFORCE_SYSTEMD_DIR = savedDir;
+    linuxjob.setSystemdDirForTests(() => unitDir);
+    fs.rmSync(launch, { recursive: true, force: true });
+  }
+});
+
+test('#6183: each restart step builds the exact same systemctl argv (and timeout) as its sync twin -- cannot drift', (t) => {
+  const name = 'parity';
+  // Record what argv the sync functions hand the module runner. A canned "active" answer drives the multi-command
+  // acts (startOnly: reload then start; status: is-active then is-enabled) all the way through.
+  const recorded = [];
+  linuxjob.setRunnerForTests((cmd, args) => { recorded.push([cmd, ...args]); return { ok: true, stdout: 'active\n' }; });
+  t.after(() => linuxjob.setRunnerForTests((cmd, args) => { calls.push([cmd, ...args]); return answer(cmd, args); }));   // restore the before() runner
+  const syncArgv = {}, syncRet = {};
+  for (const act of ['stop', 'startOnly', 'loaded', 'status']) { recorded.length = 0; syncRet[act] = linuxjob[act](name, undefined); syncArgv[act] = recorded.slice(); }
+  // The steps yield { exec: ['systemctl', args, { timeout }] }; flatten to the same [cmd, ...args] shape, and pin the
+  // timeout against the shared constant (the reviewer's "{timeout} could drift undetected" case).
+  const stepArgvOf = (gen) => {
+    const { sent } = driveLinSteps(gen, () => ({ ok: true, stdout: 'active\n' }));
+    for (const e of sent) assert.equal(e[2] && e[2].timeout, linuxjob.SYSTEMCTL_TIMEOUT_MS, 'a step used a timeout other than SYSTEMCTL_TIMEOUT_MS');
+    return sent.map((e) => [e[0], ...e[1]]);
+  };
+  assert.deepEqual(stepArgvOf(linuxjob.stopSteps(name, undefined)), syncArgv.stop, 'stopSteps argv drifted from stop');
+  assert.deepEqual(stepArgvOf(linuxjob.startOnlySteps(name, undefined)), syncArgv.startOnly, 'startOnlySteps argv drifted from startOnly');
+  assert.deepEqual(stepArgvOf(linuxjob.loadedSteps(name, undefined)), syncArgv.loaded, 'loadedSteps argv drifted from loaded');
+  assert.deepEqual(stepArgvOf(linuxjob.statusSteps(name, undefined)), syncArgv.status, 'statusSteps argv drifted from status');
+  // Return-value parity for the two acts whose parse lives INSIDE the function (loaded, status): the sync and the step
+  // now share one parser (activeOrActivating / statusOf), so a drift in the ==='active'/'enabled' test would surface
+  // here, not only in the argv. stop/startOnly are excluded: their verdict is classified by the caller, not inside.
+  assert.equal(driveLinSteps(linuxjob.loadedSteps(name, undefined), () => ({ ok: true, stdout: 'active\n' })).ret, syncRet.loaded, 'loadedSteps verdict drifted from loaded');
+  assert.deepEqual(driveLinSteps(linuxjob.statusSteps(name, undefined), () => ({ ok: true, stdout: 'active\n' })).ret, syncRet.status, 'statusSteps verdict drifted from status');
+});
+
 test('#4918 review 8: a removal record that kept only the unit name acts on THAT world\'s unit', (t) => {
   remove.setRunner((cmd, args) => { calls.push([cmd, ...args]); return { ok: true, stdout: '' }; });
   t.after(() => remove.setRunner(null));

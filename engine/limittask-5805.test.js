@@ -389,3 +389,67 @@ test('#5948: a dropped line kept while its agent was signed out tells the sender
     assert.match(told[0], /never reached casey: Kosmos kept it while casey was signed out and could not send it within a day\./);
   });
 });
+
+/* #6359: a built mark's line (`kosmos task built`) kept for an agent out of usage is the built notice, not a task
+   message: kept with that mark, recorded on its task as the notice, and on a drop its sender is pointed at
+   `kosmos task message`, since marking it built again with the same note tells nobody. */
+const BUILT = (task) => ({ ...WHERE(task), person: false, kind: 'built' });
+
+test('#6359: a built notice is kept with its mark; a task message is not', async () => {
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    messages.keepTaskLine('casey', LINE, board.agents, 'leo', ABOUT, BUILT(21));
+    messages.keepTaskLine('casey', LINE + ' again', board.agents, 'leo', ABOUT, WHERE(22));
+    const [built, msg] = kept();
+    assert.equal(built.built, true);
+    assert.ok(!('built' in msg), 'CONTROL: a task message was marked as a built notice');
+  });
+});
+
+test('#6359: a kept built notice typed after the reset is recorded on its task as the notice', async () => {
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    messages.keepTaskLine('casey', LINE, board.agents, 'leo', ABOUT, BUILT(23));
+  });
+  await withFleet(undefined, 'idle', async (board) => {
+    assert.equal((await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }))).length, 1);
+  });
+  assert.deepEqual(outcomes(23).map((e) => [e.kind, e.from, e.built]), [['kept-sent', 'leo', true]]);
+});
+
+test('#6359: a dropped built notice tells its sender it was the notice and how to reach the agent now', async () => {
+  const old = new Date(Date.now() - limitqueue.DROP_AFTER_MS - 60e3).toISOString();
+  // As keepTaskLine stores it: a task entry with the built mark (`kind` stays the queue's task kind).
+  limitqueue.add('casey', { id: 'k6359', kind: 'task', from: 'leo', envelope: LINE, about: ABOUT, at: old, reset: old, ...WHERE(24), built: true });
+  limitqueue.add('casey', { id: 'k6359m', kind: 'task', from: 'leo', envelope: LINE + ' m', about: ABOUT, at: old, reset: old, ...WHERE(25) });
+  await withFleet(undefined, 'idle', async (board, tmux) => {
+    const out = captureStdout();
+    try {
+      await limitqueue.flush(board.agents, limitqueue.sweepHooks({ chat, messages }));
+      await until(() => out.lines.filter((l) => /task line k6359m? for casey/.test(l)).length === 2);
+    } finally { out.restore(); }
+    const told = tmux.pastedTo('leo');
+    assert.equal(told.length, 2, 'the sender was not told of both');
+    const notice = told.find((t) => /Your built notice/.test(t));
+    assert.ok(notice, 'the built notice was told as a message: ' + told.join(' | '));
+    assert.match(notice, /Your built notice in task 7 in Launch never reached casey: Kosmos kept it while casey was out of usage and could not send it within a day\. To tell casey now, use kosmos msg casey\.$/);
+    // Review 1: nothing about the mark itself (a day on it may be cleared, or the task closed), and no task message,
+    // which would not reach an agent told as a parent task's holder.
+    assert.doesNotMatch(notice, /still marked built|kosmos task message/);
+    assert.doesNotMatch(notice, /Send it again/);
+    // CONTROL: the task message dropped beside it keeps its own words.
+    assert.ok(told.some((t) => /Your message in task 7 in Launch never reached casey: .* Send it again if it still matters\./.test(t)), told.join(' | '));
+  });
+  assert.deepEqual(outcomes(24).map((e) => [e.kind, e.built]), [['kept-dropped', true]]);
+  assert.deepEqual(outcomes(25).map((e) => [e.kind, e.built]), [['kept-dropped', undefined]]);
+});
+
+test('#6359 review 1: a new built notice for the same task replaces the one still kept; another task\'s and a task message stay', async () => {
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    messages.keepTaskLine('casey', LINE + ' first note', board.agents, 'leo', ABOUT, BUILT(31));
+    messages.keepTaskLine('casey', LINE + ' other task', board.agents, 'leo', ABOUT, BUILT(32));
+    messages.keepTaskLine('casey', LINE + ' a message', board.agents, 'leo', ABOUT, WHERE(31));
+    messages.keepTaskLine('casey', LINE + ' mona built it', board.agents, 'mona', ABOUT, BUILT(31));   // review 2: another sender
+    messages.keepTaskLine('casey', LINE + ' second note', board.agents, 'leo', ABOUT, BUILT(31));
+    const lines = kept().map((e) => e.envelope.replace(LINE + ' ', ''));
+    assert.deepEqual(lines.sort(), ['a message', 'mona built it', 'other task', 'second note'], 'kept: ' + JSON.stringify(lines));
+  });
+});

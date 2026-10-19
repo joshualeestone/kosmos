@@ -341,8 +341,8 @@ KOSMOS_QUEUE_CLASS=heavy
 # test-install.sh asks the mirror question (kosmos_refuse_if_suite_live) before it starts.
 # A cut's own suite (it holds the live claim) stands down: the cut asked at its start, and its own
 # install gate runs only after this suite ends.
-# #4498: nor beside ANOTHER suite (three full suites overlapped on Mortals on 2026-09-28, because
-# plain `heavy-gate --twice` does not count a suite). A suite inside a test (a node --test ancestor or
+# #4498: nor beside more than KOSMOS_SUITE_MAX - 1 other suites (#6334; three full suites overlapped
+# on Mortals on 2026-09-28, because plain `heavy-gate --twice` does not count a suite). A suite inside a test (a node --test ancestor or
 # the kt sandbox, the #4259 fixture rule) is part of the suite that started it, not a second one.
 # Both checks WAIT rather than refuse: every 30 s, in a queue so the oldest waiting suite goes
 # first, giving up when no waiter ahead has left for 105 minutes, whatever the blocker, and in any
@@ -353,12 +353,44 @@ KOSMOS_QUEUE_CLASS=heavy
 # nothing else is passed through), so it has no --no-wait flag.
 # Whether this run asks about other suites at all is decided once: the override and the inside-a-test rule skip the
 # suite check AND the queue (review 1), so neither can wait behind a waiting suite either.
+# #6334: up to KOSMOS_SUITE_MAX suites at once (default 2), so this run starts beside one other. Measured 2026-10-16 on
+# the 12-core Mac: two full suites side by side on one commit both passed (21287 tests, 0 failures, shell stages too),
+# about 34 minutes each against 30 alone; that one pair, with nothing else running beside it, showed no port fight. Only
+# this suite-beside-suite check reads it: an install harness and a queued-heavy turn still wait until no suite runs,
+# which beside a staggered pair can take longer than beside one suite (their own bound still applies). A release cut
+# asks about no suite at all: its claim stops new ones, and up to KOSMOS_SUITE_MAX already running finish beside it.
+# KOSMOS_SUITE_MAX is read for THIS run's start only (KOSMOS_SUITE_MAX=1: this run waits until no other suite runs;
+# a later run reading the default can still start beside it, so it does not keep the Mac to itself). Unset or empty is 2. A value must be 1 to 3 digits and not 0; anything else
+# reads as 1 (so 0003 is 1). 999 lets this run start beside up to 998 others; the file below, when present, still caps it.
+# The Mac-wide cap is a file, suite-max in the run-marker dir (~/.cache/kosmos-run-markers/suite-max), read by every
+# run that has this code, whatever its own tree: `echo 1 > ~/.cache/kosmos-run-markers/suite-max` puts them all back to
+# one at a time without a rebase. It can only lower the limit; unreadable or junk reads as 1.
+_rt_suite_max_of() {   # <value> -> a whole number from 1 to 999 ("08" is not octal; 0 and junk read as 1)
+  local v="$1"
+  case "$v" in ''|*[!0-9]*|????*) v=1 ;; esac
+  v=$((10#$v)); [ "$v" -ge 1 ] || v=1
+  printf '%s' "$v"
+}
+# The variable is read once here (it is unset before the tests); the file is read again on every poll of the wait
+# (_rt_box_clear), so a run already queued obeys a cap written while it waits.
+_rt_suite_own_max="$(_rt_suite_max_of "${KOSMOS_SUITE_MAX:-2}")"
+_rt_suite_max_now() {
+  local m="$_rt_suite_own_max" f cap
+  if command -v _kosmos_marker_dir >/dev/null 2>&1; then
+    f="$(_kosmos_marker_dir)/suite-max"
+    if [ -e "$f" ]; then
+      cap="$(_rt_suite_max_of "$(head -1 "$f" 2>/dev/null | tr -d '[:space:]')")"
+      if [ "$cap" -lt "$m" ]; then m="$cap"; fi
+    fi
+  fi
+  printf '%s' "$m"
+}
 _rt_suite_check=1
 { [ "${KOSMOS_TESTS_IGNORE_SUITE:-0}" = 1 ] || _kosmos_pid_is_test_fixture "$$" "$0"; } 2>/dev/null && _rt_suite_check=0
 _rt_box_clear() {
   kosmos_refuse_if_machine_claimed "this test run" || return 1
   if [ "$_rt_suite_check" = 1 ]; then
-    kosmos_refuse_if_suite_live "this test run" "KOSMOS_TESTS_IGNORE_SUITE=1 runs anyway" || return 1
+    kosmos_refuse_if_suite_live "this test run" "KOSMOS_TESTS_IGNORE_SUITE=1 runs anyway" "$(($(_rt_suite_max_now) - 1))" || return 1
   fi
   if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
     kosmos_refuse_if_harness_live "this test run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway" || return 1

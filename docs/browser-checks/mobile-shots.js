@@ -38,7 +38,8 @@
  * of the stress-test sample (no stopped agent, no overlong names, no code
  * block); --scale device saves at the device's pixels, not CSS pixels. The
  * App Store size is `appstore` (440x956 at 3x, which is 1320x2868): it is not in
- * the default sweep. ios/store/shoot.sh is the one command for the iOS set.
+ * the default sweep. The iOS store set now comes from the app itself (ios/store/shoot-app.sh, #6262), which
+ * boots this board with --keep --data store --remote and opens it in the iOS simulator.
  *
  * 🛑 NEVER THE LIVE BOARD, AND NEVER THIS MAC'S ACCOUNTS. The board below is
  * started here, on a free port, with every data root in a temp dir and a fake
@@ -60,8 +61,8 @@
  * ADDING YOUR SCREENS: append to SCREENS below. Each entry is
  *   { name, owner, go: async (page, data) => { ...navigate to the screen... } }
  * plus `noServiceWorker: true` if `go` stubs a request with page.route, and
- * `phoneOnly: true` if the screen exists only at a phone width (the desktop size skips it), and
- * `desktopOnly: true` if it exists only at a desktop width (the phone sizes skip it; the consolidated
+ * `phoneOnly: true` if the screen exists only at a phone width (the desktop size and tablets over 56rem skip it), and
+ * `desktopOnly: true` if it exists only at a desktop width (the phone sizes and tablets under 960px skip it; the consolidated
  * view, for one, starts at 960px).
  * One board serves every screen of a run, so a `go` that writes to the board's server store (a PUT, a
  * saved setting) must undo it in `after` (settings-recommender does, #4545), or it changes every screen
@@ -82,6 +83,16 @@ const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+// #6205: bound every browser/context close so a dead engine fails the run in seconds instead of hanging it.
+const { closeContextBounded, closeBrowserBounded, childPidsOf, withTimeout, CTX_CLOSE_MS } = require('./lib-bounded-close.js');
+/* kosmos#6543: a fresh engine after this many screens. WebKit (playwright 1.62.1, webkit build 2336, on a Mac) stops
+   navigating in the 64th context of one browser: that goto never sends a request (none open, none sent) and times
+   out on 'load', and the close after it wedges (the #6205 hang). Measured on a two-line static page with no Kosmos in
+   it (63 loads, then a timeout on every one); Chromium loaded 72 of 72 the same way. A full run opens about 70 webkit
+   contexts per size, so the same screens failed every run (first-run-model and agent-files at se, light). Every engine
+   is relaunched, not only webkit: one rule is simpler, and a relaunch costs about a second. Well under 63, so a
+   screen that opens a page or two of its own cannot reach the limit. */
+const CONTEXTS_PER_ENGINE = 40;
 
 const REPO = path.resolve(__dirname, '..', '..');
 
@@ -97,6 +108,18 @@ const SIZES = {
   android360: { width: 360, height: 800, dpr: 3, label: 'narrow Android' },
   // The 6.9-inch iPhone screenshot App Store Connect requires: 1320x2868 at --scale device.
   appstore: { width: 440, height: 956, dpr: 3, label: 'App Store 6.9-inch' },
+  /* #6107: tablets, touch and not desktop, so the tap and field audits run. Not in the default sweep.
+     tab8 is a small Android tablet (about 600 wide), the size that got the phone layout widened before #6107. */
+  tab8: { width: 600, height: 960, dpr: 2, label: 'small Android tablet', tablet: true },
+  tab8land: { width: 960, height: 600, dpr: 2, label: 'small Android tablet, landscape', tablet: true },
+  ipadmini: { width: 744, height: 1133, dpr: 2, label: 'iPad mini', tablet: true },
+  ipadminiland: { width: 1133, height: 744, dpr: 2, label: 'iPad mini, landscape', tablet: true },
+  ipad11: { width: 834, height: 1194, dpr: 2, label: 'iPad Pro 11-inch', tablet: true },
+  ipad11land: { width: 1194, height: 834, dpr: 2, label: 'iPad Pro 11-inch, landscape', tablet: true },
+  ipad13: { width: 1024, height: 1366, dpr: 2, label: 'iPad Pro 13-inch', tablet: true },
+  /* The landscape sizes (tab8land, ipadminiland, ipad11land) are touch screens held sideways at 960px+, so the board
+     opens there on the one-screen view (#6107), as a real tablet does: a screen whose go waits on the tabbed
+     Agents tab panel times out at those sizes unless MSHOTS_TABLET_LAYOUT=tabs is set (#boardbar shows in both layouts). They are opt-in, not in the sweep. */
   // claude-setup#100 (/design-shots): a computer screen, so one sanctioned run shoots a change at
   // desktop and phone. No touch and no mobile viewport, and the tap and field-font audits (phone
   // rules) are skipped for it. Not in the default sweep.
@@ -120,6 +143,17 @@ function fetchBoard(route) {
   return route.fetch({ url: boardUrl(route.request().url()), headers });
 }
 const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
+/* Why a screen is not shot at a size, or '' when it is. A tablet (#6107) is a touch size like a phone, but a
+   phone-only screen (the #burger menu, shown up to 56rem and hidden above) does not exist on a wider tablet; tab8,
+   the iPad mini and the 11-inch iPad upright (600, 744, 834px) all still show it. The 896 below is that 56rem by
+   value: today the only phoneOnly screen (nav-menu) keys on it. A desktop-only screen is skipped at phone sizes and
+   at tablets under 960px: from 960px a tablet can show the one-screen view (and the desktop-only screens force it,
+   openConsAgents), so it shoots those too, upright or sideways. */
+const sizeSkipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || (s.tablet && s.width > 896)) ? 'phone-only screen' : (sc.desktopOnly && !s.desktop && !(s.tablet && s.width >= 960) ? 'desktop-only screen' : ''));
+/* #6542: `needsData: '<set>'` on a screen whose subject only exists in that data set (tasks-decision needs a question
+   row, which only --data marketing has). Skipped, and listed as skipped with the reason, in any other run, rather than
+   timing out as an ERROR in every full sweep. */
+const skipWhy = (s, sc, data) => sizeSkipWhy(s, sc) || (sc.needsData && (data || 'sample') !== sc.needsData ? 'screen that needs --data ' + sc.needsData : '');
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
 
@@ -170,8 +204,9 @@ const newLook = async (page) => {
 /* #4594: the consolidated view without writing it. The page reads its layout from GET /api/style (paintStyles, also
    on later polls), so a page-only applyLayout was undone mid-shot; saving it with PUT /api/style would change the
    one board every later screen of this run is shot on. So the READ is stubbed in this screen's own context (gone
-   with it) to say consolidated, and the page reloads. Screens that call this set noServiceWorker. */
-async function openConsAgents(page) {
+   with it) to say consolidated (stubConsolidatedStyle), and openConsAgents reloads the page. Screens that stub it set
+   noServiceWorker. */
+async function stubConsolidatedStyle(page) {
   /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
      its late rejection is caught instead of crashing the check after it passed. */
   await page.route('**/api/style', async (r) => {
@@ -184,6 +219,12 @@ async function openConsAgents(page) {
       return await r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
     } catch { await r.abort().catch(() => {}); }
   });
+}
+async function openConsAgents(page) {
+  await stubConsolidatedStyle(page);
+  // #6107: on a sideways tablet the tablet's own choice wins over the board's, so it says one screen too (a run with
+  // MSHOTS_TABLET_LAYOUT=tabs would otherwise keep these screens on tabs).
+  await page.evaluate(() => { try { localStorage.setItem('kosmos-tablet-layout', 'consolidated'); } catch { /* storage refused */ } });
   await page.reload({ waitUntil: 'load' });   // 'load', per this file's rule; the next line is the real readiness signal
   await page.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 8000 });
   /* The board's own boot can activate a project AFTER this opens Agents, which closes the Agents view
@@ -227,14 +268,15 @@ async function connectPending(page) {
   await page.route('**/api/remote/devices/allow', (r) => { devices = devices.filter((d) => d.device_id !== 'd-sample-pc'); return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
 }
 /* #4794: the computer WAITING to be allowed (Settings > Kosmos+), with the pairing code worked out. */
-async function joinWaiting(page) {
+async function joinWaiting(page, confirmed, retry) {
   const remote = { configured: true, on: true, ok: true, enrolled: true, email: 'owner@example.com', status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
   await page.route('**/api/remote', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(r.request().method() === 'GET' ? remote : { ok: true }) }));
   /* The devices list reads its own answer; unfaked, the throwaway board says on:false and the shot showed "Plus is off"
      beside a switch that is on. A computer waiting to be allowed has its switch on and no devices yet. */
   await page.route('**/api/remote/devices', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pending: [], allowed: [], email: 'owner@example.com', on: true }) }));
   await page.route('**/api/remote/join', (r) => r.fulfill({ status: 200, contentType: 'application/json',
-    body: JSON.stringify({ supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false }) }));
+    body: JSON.stringify({ supported: true, held: true, join_code: retry ? '' : '482 915', on: 'homemac', asked_of: ['homemac'], failed: false, confirmed: !!confirmed,
+      confirm_expired: !!retry, needs_retry: !!retry }) }));
 }
 /* #5531: a connected computer, for Settings > Kosmos+ > Your company. The company's answers are stand-ins in the shape
    of #5530's contract; the consent words are the sample the contract carries. */
@@ -362,11 +404,64 @@ async function subprojectFixture(page, data) {
   return made;
 }
 
+/* #5444: the projects read with one project changed by `edit(proj)`, so a screen can show a state the throwaway board
+   cannot reach on its own. Only the read is faked; the board is not changed, so no `after` is needed. */
+async function editProjects(page, projectId, edit) {
+  await page.route('**/api/projects', async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    // #6022: keep the fetch AND the answer inside one try, so a context teardown
+    // between them aborts the route instead of crashing the check.
+    try {
+      const res = await route.fetch();
+      const body = await res.json();
+      for (const proj of body.projects || []) if (proj.id === projectId) edit(proj);
+      await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    } catch { await route.abort().catch(() => {}); }
+  });
+}
+/* #5444: open the seed's project, then its task 1's page. */
+async function openTaskOne(page, projectId) {
+  await openTab(page, 'projects');
+  await page.click(`#pj-list .pj-row[data-project="${projectId}"]`);
+  await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+  await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
+}
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
   /* #5018: the login-expiry notice floating over the page under the header, with its account line, the agents'
      given names and its X. The advisory is stubbed onto this screen's own /api/status reads (gone with it). */
+  /* #6320: the restart panel naming agents whose login job could not be checked, alone and beside the fixable list.
+     /api/register is stubbed on this screen's own page with made-up names from the sample fleet. */
+  { name: 'restart-unknown', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/register', (route) => route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, missing: [], unknown: ['pixel-moss', 'cleo-park'],
+        agents: [{ name: 'pixel-moss', shownAs: 'Pixel' }, { name: 'cleo-park', shownAs: 'Cleo' }] }) })
+      : route.continue());
+    await at(page, '');
+    await page.waitForSelector('#restart-wrap [data-survival-unknown]', { state: 'visible', timeout: 15000 });
+  } },
+  { name: 'restart-both', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/register', (route) => route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, missing: ['roo-lane'], unknown: ['cleo-park'],
+        agents: [{ name: 'roo-lane', shownAs: 'Roo' }, { name: 'cleo-park', shownAs: 'Cleo' }] }) })
+      : route.continue());
+    await at(page, '');
+    await page.waitForSelector('#restart-wrap [data-survival-unknown]', { state: 'visible', timeout: 15000 });
+  } },
+  { name: 'restart-both-done', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/register', (route) => route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, missing: ['roo-lane'], unknown: ['cleo-park'],
+        agents: [{ name: 'roo-lane', shownAs: 'Roo' }, { name: 'cleo-park', shownAs: 'Cleo' }] }) })
+      : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, results: [{ name: 'roo-lane', shownAs: 'Roo', ok: true, started: true }] }) }));
+    await at(page, '');
+    await page.waitForSelector('#restart-wrap [data-survival-fix]', { state: 'visible', timeout: 15000 });
+    await page.click('#restart-wrap [data-survival-fix]');
+    // #6320: the report that replaces the panel still says which agents could not be checked. Wait for the REPORT
+    // (the button gone and "Done." there), since the unknown line was already on the panel before the click.
+    await page.waitForFunction(() => { const w = document.getElementById('restart-wrap');
+      return w && !w.querySelector('[data-survival-fix]') && /Done\./.test(w.innerText) && !!w.querySelector('[data-survival-unknown]'); }, null, { timeout: 15000 });
+  } },
   { name: 'login-notice', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     const adv = [{ agents: ['roo-lane', 'pixel-moss', 'cleo-park'], names: ['Roo', 'Pixel', 'Cleo'], provider: 'Claude', service: 'Claude Code-credentials',
       email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
@@ -408,6 +503,23 @@ const SCREENS = [
     await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
     await page.waitForSelector('#reboot-slot .utoast.reboot', { state: 'visible', timeout: 12000 });
   } },
+  /* #6160: the streak by the K mark. A throwaway board is on day 1 (no note), so /api/streak is stubbed on this
+     screen's own page to a 12-day streak: once with the day's note showing, once with the label shown by hovering
+     the mark. The counting itself is engine/streak-6160.test.js's. */
+  { name: 'streak-congrats', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/streak', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }));
+    await at(page, '');
+    await page.waitForSelector('#streak-slot .utoast.streak', { state: 'visible', timeout: 12000 });
+  } },
+  { name: 'streak-hover', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/streak', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: false }) }));
+    await at(page, '');
+    await page.waitForSelector('#kstreak:not([hidden])', { state: 'attached', timeout: 12000 });
+    // A touch size has no hover (the label is gated on (hover: hover)); there it shows the way a long press does.
+    if (await page.evaluate(() => matchMedia('(hover: hover)').matches)) await page.hover('#klink');
+    else await page.evaluate(() => document.getElementById('kstreak').classList.add('show'));
+    await page.waitForFunction(() => getComputedStyle(document.getElementById('kstreak')).opacity === '1', null, { timeout: 5000 });
+  } },
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
   // phoneOnly: the menu button (#burger) exists only at phone widths, so the desktop size skips it.
@@ -438,58 +550,6 @@ const SCREENS = [
   { name: 'agents-list', owner: 'Raiden', go: async (page) => {
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
     await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
-  } },
-  /* #5314: the "Last community post" line on agent cards, which the throwaway board cannot show on
-     its own (the community switch is off, so every card is the switch-off case). This screen STUBS
-     /api/status (gone with it, via `after`) to set the rendered fields directly on a few agents, so
-     it shows how the line LOOKS at desktop and phone; it does NOT exercise the server reader (the
-     unit tests cover that). Seeds the four states the card shows: a post today, one a few days ago, one
-     that never posted, and a held-only agent, which shows "No community posts yet" (the string the
-     published-only reader produces, since a held post is not published). The held-only and
-     never-posted seeds are the same rendered string by design. */
-  { name: 'community-card-5314', owner: 'Kano', noServiceWorker: true, go: async (page) => {
-    const now = Date.now();
-    const iso = (d) => new Date(now - d * 86400000).toISOString();
-    const seed = [
-      { communityOn: true, lastCommunityPost: 'Last community post: today', lastCommunityPostAt: iso(0) },
-      { communityOn: true, lastCommunityPost: 'Last community post: 3 days ago', lastCommunityPostAt: iso(3) },
-      { communityOn: true, lastCommunityPost: 'No community posts yet', lastCommunityPostAt: null },
-      { communityOn: true, lastCommunityPost: 'No community posts yet', lastCommunityPostAt: null },
-    ];
-    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
-       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
-    await page.route('**/api/status', async (route) => {
-      try {
-        const res = await route.fetch();
-        const d = await res.json();
-        if (Array.isArray(d.agents)) d.agents.forEach((a, i) => { if (seed[i]) Object.assign(a, seed[i]); });
-        await route.fulfill({ response: res, body: JSON.stringify(d), headers: { ...res.headers(), 'content-type': 'application/json' } });
-      } catch { await route.abort().catch(() => {}); }
-    });
-    await at(page, '');
-    // The default board view already shows the .acard agents grid (like the agents-list and
-    // allow-card screens, which use .acard with no tab switch), so no openTab here.
-    await page.waitForSelector('.acard .acommunity', { state: 'visible', timeout: 12000 });
-    // The shot is viewport-only (no fullPage, see the capture at page.screenshot below), and the
-    // community line sits at the BOTTOM of each card, below the fold at every phone width. The
-    // first 16 shots framed only the top of the screen and never showed the line (Sonya's m4641).
-    // Scroll the first line (the "today" card) to the middle of the viewport so the shot frames it;
-    // the verify below asserts it actually landed in view, so a re-render that reset scroll fails
-    // the shot loudly instead of silently producing a line-less image.
-    await page.$eval('.acard .acommunity', (el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
-    await page.waitForTimeout(400);
-  }, after: async (page) => { await page.unroute('**/api/status').catch(() => {}); },
-  verify: async (page) => {
-    const texts = await page.$$eval('.acard .acommunity', (els) => els.map((e) => e.textContent.trim()));
-    if (!texts.some((t) => t === 'Last community post: today')) throw new Error('community-card-5314: the "today" line did not render: ' + JSON.stringify(texts));
-    if (!texts.some((t) => t === 'No community posts yet')) throw new Error('community-card-5314: the "No community posts yet" line did not render: ' + JSON.stringify(texts));
-    // A shot is only useful if the line is in the CAPTURED viewport, not merely in the DOM below the
-    // fold (m4641). Assert the first .acommunity is wholly within the viewport the screenshot took.
-    const seen = await page.$eval('.acard .acommunity', (el) => {
-      const r = el.getBoundingClientRect();
-      return { top: r.top, bottom: r.bottom, h: window.innerHeight, ok: r.top >= 0 && r.bottom <= window.innerHeight };
-    });
-    if (!seen.ok) throw new Error('community-card-5314: the community line is not within the captured viewport (top ' + Math.round(seen.top) + ', bottom ' + Math.round(seen.bottom) + ', viewport height ' + seen.h + '); the shot would not show it');
   } },
   { name: 'agent-page', owner: 'Raiden', go: async (page, data) => {
     await at(page, '?agent=' + data.chatAgent);
@@ -559,7 +619,20 @@ const SCREENS = [
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
-    await page.evaluate(() => { const r = document.querySelector('#pj-room'); if (r) r.scrollIntoView({ block: 'start' }); });
+    await page.evaluate(() => {
+      const r = document.querySelector('#pj-room');
+      if (!r) return;
+      r.scrollIntoView({ block: 'start' });
+      /* #6262: block 'start' puts the project's heading (above the thread) under the sticky top bar on a phone (the App
+         Store shot showed the title cut in half), which no person sees on opening a room. Step back by whatever bar is
+         pinned over the top edge; a full-screen overlay is not a bar. */
+      let el = document.elementFromPoint(Math.round(innerWidth / 2), 2), pinned = 0;
+      for (; el && el !== document.body; el = el.parentElement) {
+        const pos = getComputedStyle(el).position;
+        if (pos === 'fixed' || pos === 'sticky') { const b = el.getBoundingClientRect(); if (b.height < innerHeight / 2) pinned = b.bottom; break; }
+      }
+      if (pinned > 0) window.scrollBy(0, -(pinned + 8));
+    });
     /* #5782: the click on the project row leaves the pointer where the room's first message lands, so every shot showed
        that message's hover bar. Park it in the corner, as the other screens here do. */
     await page.mouse.move(1, 1);
@@ -572,6 +645,20 @@ const SCREENS = [
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForFunction(() => { const b = document.querySelector('#pj-head-pause'); return b && !b.hidden && /Pause/.test(b.textContent); }, null, { timeout: 8000 });
+  } },
+  /* #6501: the project page with task 1 marked built, so its card reads "Task 1 (built)" and "Built, waiting for you to check
+     it". Marked from the page (as the person) and cleared after, so no later screen shoots it built. */
+  { name: 'project-built', owner: 'PigeonPete', go: async (page, data) => {
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/built', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('project-built: could not mark task 1 built (status ' + st + ')');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-tasklist .tkcard-built', { state: 'visible', timeout: 15000 });
+    // On a phone the Tasks column is below the room: bring the built card into the shot.
+    await page.evaluate(() => document.querySelector('#pj-tasklist .tkcard-built').closest('.tkcard').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(300);
+  }, after: async (page, data) => {
+    await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/built', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }), data.projectId);
   } },
   { name: 'project-paused', owner: 'Mona Lisa', go: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
@@ -773,8 +860,29 @@ const SCREENS = [
   }, after: async (page) => { await page.unroute('**/api/community/ready'); } },
   /* #4794: the computer waiting to be allowed shows the same code and "The codes match". */
   { name: 'plus-join', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await joinWaiting(page); await at(page, '?tab=settings&sec=plus');
-    await page.waitForFunction(() => /Check that homemac shows this same code/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => /Type this code there, then press Allow/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
   } },
+  /* kosmos#6314: the same waiting computer after "The codes match": the next action leads; #6404: the code stays large (it is typed there). */
+  { name: 'plus-join-matched', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await joinWaiting(page, true); await at(page, '?tab=settings&sec=plus');
+    await page.waitForFunction(() => /type this code on homemac, your other computer, and press Allow/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
+  } },
+  /* kosmos#6353: the same waiting computer after its code ran out: nothing restarts by itself, so it offers Try again. */
+  { name: 'plus-join-retry', owner: 'Angel', noServiceWorker: true, go: async (page) => { await joinWaiting(page, false, true); await at(page, '?tab=settings&sec=plus');
+    await page.waitForFunction(() => /A new code is needed to finish pairing/.test((document.getElementById('plus-join') || {}).innerText || '') && !!document.getElementById('plus-join-retry'), null, { timeout: 10000 });
+  } },
+  /* kosmos#6314: signed in on an account whose one computer is in use: "Add this computer to your account", with the
+     price as Stripe gives it. Reached with the page's own functions; the list is a stand-in with the route's shape. */
+  { name: 'plus-add-computer', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-state2', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => {
+      for (const id of ['plus-state1', 'plus-state3']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+      PLUS_SIGNIN_ACTIVE = true;
+      document.getElementById('plus-state2').hidden = false;
+      plusSiBoughtPick({ addresses: [{ name: 'first', address: 'first.kosmosplus.com', state: 'in_use', first_free: true }], buy_url: 'https://login.kosmosplus.com/signin', price: '$20/month' });
+    });
+    await page.waitForFunction(() => /Each computer you add is \$20 a month/.test((document.getElementById('plus-si-bought-none') || {}).innerText || ''), null, { timeout: 8000 });
+  }, after: async (page) => { await plusSigningInEnd(page); } },
   /* #5785: the sign-in card while this computer connects (the register step): the big K loader above "Signing in...",
      the "Connecting this computer as <name>.kosmosplus.com..." line under it. Put in that state with the page's own
      functions (no coordinator here); the loader is the real one, caught mid-animation. The sign-in flags are set as a
@@ -805,6 +913,7 @@ const SCREENS = [
   }, after: async (page) => { await plusSigningInEnd(page); await page.unroute('**/api/remote/computer-name'); } },
   { name: 'connect-connected', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]', { state: 'visible', timeout: 8000 });
+    await page.fill('#askcode-d-sample-pc', '482 915');   // #6404: the code typed from the joining computer
     await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]');
     await page.waitForFunction(() => /windowsbox is connected\./.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
   } },
@@ -823,6 +932,12 @@ const SCREENS = [
     await at(page, '?tab=settings&sec=advanced');
     await page.waitForSelector('#look-toggle', { state: 'visible', timeout: 8000 });
   } },
+  /* #6514: the Diagnostics row, below the fold on both sizes, so its Save diagnostics link is in the shot. */
+  { name: 'settings-diagnostics', owner: 'Angel', go: async (page) => {
+    await at(page, '?tab=settings&sec=advanced');
+    await page.waitForSelector('#diag-save', { state: 'visible', timeout: 8000 });
+    await page.$eval('#diag-row', (el) => el.scrollIntoView({ block: 'center' }));
+  } },
   { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
@@ -830,7 +945,7 @@ const SCREENS = [
   /* #5407: AI Models with a login inside the notice's window (warning edge, its line, Sign in again as the gold main
      action), an ended one, and a good one (green, the control), as the server sends them; only the account list is
      stubbed, with example.com accounts. */
-  { name: 'settings-accounts-expiring', owner: 'Renet Tilley', go: async (page) => {
+  { name: 'settings-accounts-expiring', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => {
     const DAY = 86400000;
     const row = (email, dir, conn) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email, label: email, dir,
       organization: null, isDefault: false, keyTail: null, memoryShared: true, offerable: true, apiKey: false,
@@ -849,10 +964,30 @@ const SCREENS = [
       await page.waitForSelector('#set-accounts .acct-box.acct-land', { state: 'visible', timeout: 5000 });
     }
   } },
+  /* #6176: AI Models with each Claude account's weekly AND five-hour readings: one with both (the second line under the
+     first), one close to its five-hour limit, and one with only a weekly reading (the control). Only the account list
+     is stubbed, with example.com accounts. */
+  { name: 'settings-accounts-fivehour', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    // A pinned afternoon, so the shot always shows the time-only reset form, whatever hour it is taken.
+    const H = 3600000, now = (() => { const d = new Date(); d.setHours(15, 0, 0, 0); return d.getTime(); })();
+    await page.clock.setFixedTime(new Date(now));
+    const row = (email, dir, extra) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email, label: email, dir,
+      organization: null, isDefault: false, keyTail: null, memoryShared: true, offerable: true, apiKey: false,
+      connection: { state: 'connected', badge: 'working', checkedLive: true, plan: null }, agentsHere: { names: [], complete: true }, ...extra });
+    const accounts = [
+      row('work@example.com', '/home/.claude-work', { weekly: { usedPct: 41, resetsAt: now + 60 * H, at: now - H }, fiveHour: { usedPct: 64, resetsAt: now + 2 * H, at: now - 3 * 60000 } }),
+      row('busy@example.com', '/home/.claude-busy', { weekly: { usedPct: 22, resetsAt: now + 90 * H, at: now - H }, fiveHour: { usedPct: 86, resetsAt: now + H, at: now - 60000 } }),
+      row('quiet@example.com', '/home/.claude-quiet', { weekly: { usedPct: 9, resetsAt: now + 120 * H, at: now - 5 * H }, fiveHour: null }),
+    ];
+    await page.route((u) => new URL(u).pathname === '/api/accounts', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ accounts }) }));
+    await at(page, '?tab=settings&sec=accounts');
+    await page.waitForSelector('#set-accounts .acct-usage-five', { state: 'visible', timeout: 12000 });
+  } },
   /* #5977: Add a provider, Qwen picked: the address and model fields (labelled), and the panel for Qwen on this
      computer. The Ollama route is stubbed (needs_model: Ollama has qwen2.5:7b, Kosmos's 16k copy is not made yet), so
      the shot never depends on this Mac's own Ollama. */
-  { name: 'settings-add-qwen', owner: 'PigeonPete', go: async (page) => {
+  { name: 'settings-add-qwen', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => {
     const local = page.__qwenLocal || { state: 'needs_model', because: 'Ollama has qwen2.5:7b', model: 'kosmos-qwen2.5-7b-16k:latest', download: null };
     await page.route((u) => new URL(u).pathname === '/api/accounts/qwen/local', (route) => route.fulfill({
       status: 200, contentType: 'application/json', body: JSON.stringify(local) }));
@@ -867,14 +1002,14 @@ const SCREENS = [
     await page.waitForSelector('#acct-qwen-local', { state: 'visible', timeout: 8000 });
   } },
   /* #5977: the same step while qwen2.5:7b downloads (the bar, and the sentence written once). */
-  { name: 'settings-add-qwen-downloading', owner: 'PigeonPete', go: async (page, data) => {
+  { name: 'settings-add-qwen-downloading', owner: 'PigeonPete', noServiceWorker: true, go: async (page, data) => {
     page.__qwenLocal = { state: 'needs_download', because: 'Ollama does not have qwen2.5:7b yet', model: 'kosmos-qwen2.5-7b-16k:latest',
       download: { running: true, completed: 1.9e9, total: 4.7e9, ok: null, because: '' } };
     await SCREENS.find((s) => s.name === 'settings-add-qwen').go(page, data);
     await page.waitForSelector('#acct-qwen-local-bar', { state: 'visible', timeout: 8000 });
   } },
   /* #5407 (Mona Lisa asked for one shot of it): the same list, arrived at from the notice's Refresh login. */
-  { name: 'settings-accounts-landed', owner: 'Renet Tilley', go: async (page, data) => {
+  { name: 'settings-accounts-landed', owner: 'Renet Tilley', noServiceWorker: true, go: async (page, data) => {
     page.__landOnSoon = true;
     await SCREENS.find((s) => s.name === 'settings-accounts-expiring').go(page, data);
   } },
@@ -941,6 +1076,28 @@ const SCREENS = [
     await page.click('button.vt[data-layout="org"]');
     await page.waitForSelector('button.vt[data-layout="org"][aria-pressed="true"]', { timeout: 5000 });
   } },
+  /* kosmos#6349: the consolidated rail's project notice, capped and with more below, so its bottom fades. Grown from
+     copies of the notice's own row (no invented markup) until it outruns the cap; the layout is applied, not saved, and
+     every screen starts on a freshly loaded board; the style read is stubbed (stubConsolidatedStyle). Desktop only: the consolidated view exists at >= 960px. */
+  { name: 'rail-notice-more', owner: 'Angel', desktopOnly: true, noServiceWorker: true, go: async (page, data) => {
+    await stubConsolidatedStyle(page);   // a later style read says consolidated too, so it cannot undo the layout mid-shot
+    // #6107: on a sideways tablet the tablet's own choice wins over the board's, so it says one screen too (as openConsAgents).
+    await page.evaluate(() => { try { localStorage.setItem('kosmos-tablet-layout', 'consolidated'); } catch { /* storage refused */ } });
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.evaluate(() => applyLayout('consolidated', true));
+    await page.waitForFunction(() => { const b = document.getElementById('alist-pj-notice'); return !!(b && b.querySelector('.pnotice')); }, null, { timeout: 8000 });
+    await page.evaluate(() => {
+      const box = document.getElementById('alist-pj-notice'), row = box.querySelector('.pnotice');
+      box.setAttribute('aria-live', 'off');
+      for (let n = 0; n < 30 && box.scrollHeight <= box.clientHeight * 1.6; n++) box.appendChild(row.cloneNode(true));
+    });
+    await page.waitForFunction(() => document.getElementById('alist-pj-notice').hasAttribute('data-more'), null, { timeout: 5000 });
+  }, verify: async (page) => {   // at the shot: still the consolidated layout, still faded
+    const ok = await page.evaluate(() => document.documentElement.getAttribute('data-layout') === 'consolidated'
+      && document.getElementById('alist-pj-notice').hasAttribute('data-more'));
+    if (!ok) throw new Error('rail-notice-more: the shot is not of a faded rail notice in the consolidated layout');
+  } },
   /* #4594: the consolidated view's Agents column and its Grid / Org chart segmented control. The
      consolidated view exists only at >= 960px, so these are desktop-only. */
   { name: 'cons-agents', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
@@ -965,6 +1122,18 @@ const SCREENS = [
     const focused = await page.evaluate(() => !!document.activeElement && document.activeElement.dataset.conslay === 'org'
       && document.activeElement.matches(':focus-visible'));
     if (!focused) throw new Error('the focus shot lost its focus ring (Org chart is not focused-visible)');
+  } },
+  /* kosmos#6324: the team map from the consolidated layout's Agents rail head, open, for the project. Desktop only, as
+     the consolidated view is. Opening the project closes the Agents view openConsAgents opened, which is the point. */
+  { name: 'cons-teammap-6324', owner: 'April', desktopOnly: true, noServiceWorker: true, go: async (page, data) => {
+    await openConsAgents(page);
+    await page.evaluate((id) => { PJ_TEAMMAP_OPEN.delete(String(id)); openProject(id); }, data.projectId);
+    await page.waitForFunction(() => { const b = document.getElementById('alist-teammap-btn'); return b && !b.hidden && b.getClientRects().length > 0; }, null, { timeout: 8000 });
+    await page.click('#alist-teammap-btn', { timeout: 5000 });
+    await page.waitForFunction(() => { const m = document.getElementById('alist-teammap'); return m && !m.hidden && m.querySelector('.pjtm-node'); }, null, { timeout: 5000 });
+  }, verify: async (page) => {
+    const ok = await page.evaluate(() => { const m = document.getElementById('alist-teammap'); return !!m && !m.hidden && m.getClientRects().length > 0 && !!m.querySelector('.pjtm-node'); });
+    if (!ok) throw new Error('the rail team map is not open with its members');
   } },
   { name: 'create-agent', owner: 'unowned', go: async (page) => {
     // A real tap (visible, not covered), the way a phone user reaches it; a hidden button fails the shot.
@@ -1087,10 +1256,47 @@ const SCREENS = [
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
   } },
+  /* #6482: the status groups themselves, scrolled to: on a phone the tiles fill the first screen, so the plain tasks
+     shot never shows a group heading. */
+  { name: 'tasks-groups', owner: 'Angel', go: async (page) => {
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#tsk-groups .tsk-grp h3', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.querySelector('#tsk-groups .tsk-grp').scrollIntoView({ block: 'start' }));
+  } },
   /* #3029: subprojects on the Tasks view, named by their chain. Two subprojects both called Launch (one under the
      fixture project, one under a new Book B) and a long grandchild, each with a task; made ONCE per run through the
      board's own API and reused by every size and theme. tasks-subprojects groups by project with nothing picked;
      tasks-subproject-picked picks the long grandchild, so the closed select, crumb and title show it. */
+  /* #6492: the Tasks view scrolled to the row waiting on the person (on a phone the tiles fill the first screen), so
+     its waiting line is in the shot. #6542: only --data marketing has a question row (the default data has none), so
+     the screen says needsData and any other run lists it as skipped rather than timing out. It waits for
+     .tsk-waiting-who, which both forms of that line carry (the merged one-line form, for a row with a known waiting
+     age, and the who line alone), so a fixture change between the two forms does not break it. */
+  { name: 'tasks-decision', owner: 'PigeonPete', needsData: 'marketing', go: async (page) => {
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.waitForSelector('#tsk-groups .tsk-row .tsk-waiting-who', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => { const r = document.querySelector('#tsk-groups .tsk-row .tsk-waiting-who').closest('.tsk-row'); r.scrollIntoView({ block: 'center' }); });
+    await page.waitForTimeout(300);
+  } },
+  /* #6480: a sub-project's page, where the trail above the heading ("Parent / Launch") still shows; the control for
+     project-head, where a top-level project's lone crumb is hidden in today's look. */
+  { name: 'subproject-head', owner: 'PigeonPete', go: async (page, data) => {
+    const ids = await subprojectFixture(page, data);
+    await openTab(page, 'projects');
+    // The page read its projects before the fixture was made: read them again, then open the sub-project.
+    await page.evaluate(async (id) => { await loadProjects(); openProject(id); }, ids.launchA);
+    try {
+      await page.waitForFunction(() => { const c = document.getElementById('pj-crumb'); return !!c && !!c.querySelector('.pj-crumb-lead') && c.getClientRects().length > 0; }, null, { timeout: 8000 });
+    } catch (e) {   // say what was on screen instead, so a failed shot can be put right
+      const seen = await page.evaluate(() => {
+        const c = document.getElementById('pj-crumb'), n = document.getElementById('pj-one-name');
+        return { cur: typeof PJ_CURRENT === 'undefined' ? 'n/a' : PJ_CURRENT, view: typeof PJ_VIEW === 'undefined' ? 'n/a' : PJ_VIEW,
+          crumb: c ? c.innerHTML.slice(0, 160) : null, crumbRects: c ? c.getClientRects().length : null, name: n ? n.textContent : null };
+      });
+      throw new Error('subproject-head: no sub-project trail on screen ' + JSON.stringify(seen) + ' (wanted ' + ids.launchA + ')');
+    }
+  } },
   { name: 'tasks-subprojects', owner: 'Mona Lisa', go: async (page, data) => {
     await subprojectFixture(page, data);
     await at(page, '?tab=tasks');
@@ -1186,6 +1392,51 @@ const SCREENS = [
   }, after: async (page, data) => {   // put the task back to a one-off, so no later screen shows the rule
     const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }).then((r) => r.status), data.projectId);
     if (st !== 200) throw new Error('could not clear the repeat rule after the shot (' + st + ')');
+  } },
+  /* #5444: Token Usage while it reads (the #5362 spinner beside the reading line). The usage read is held open, so
+     the shot is the loading state and never the figures. */
+  { name: 'usage-loading', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/usage*', () => {});   // never answered: the page stays on its reading line
+    await at(page, '?tab=settings&sec=usage');
+    await page.waitForSelector('#usage-msg .spin', { state: 'visible', timeout: 8000 });
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => document.getElementById('usage-msg').innerText);
+    if (!/Reading the transcripts/.test(t)) throw new Error('Token Usage is not on its reading line: ' + JSON.stringify(t));
+  } },
+  /* #5444 (#4787 slice 2): a daily task whose rule was set three days ago and has never run, so its line leads with
+     the missed runs in red. The fields come from the engine's own taskrepeat.fieldsOf, so the words are the board's. */
+  { name: 'task-missed', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    const taskrepeat = require(path.join(REPO, 'engine', 'taskrepeat'));
+    await editProjects(page, data.projectId, (proj) => {
+      for (const t of proj.tasks || []) {
+        if (t.number !== 1) continue;
+        t.repeat = taskrepeat.normalise({ every: 'day', at: '09:00' });
+        t.repeatSetAt = new Date(Date.now() - 3 * 864e5).toISOString();
+        Object.assign(t, taskrepeat.fieldsOf(t));
+      }
+    });
+    await openTaskOne(page, data.projectId);
+    await page.waitForSelector('#tk-repeat-line.missed:not([hidden])', { timeout: 8000 });
+    await page.evaluate(() => document.getElementById('tk-repeat-row').scrollIntoView({ block: 'center' }));
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => document.getElementById('tk-repeat-line').innerText);
+    if (!/^Missed /.test(t)) throw new Error('the repeat line does not lead with a missed run: ' + JSON.stringify(t));
+  } },
+  /* #5444 (#5287): a joined project's header, with who shared it and what they wrote. The owner name is invented. */
+  { name: 'project-shared', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    await editProjects(page, data.projectId, (proj) => {
+      proj.shared = { owner: 'harbourstudio', description: 'Our spring range, from first sketches to the shop pages.' };
+      // As the join route makes it (server.js /api/federation/join: made via 'screen'), so the header shows no
+      // "Made by an agent ... on this computer" line, which a project joined from another computer never has.
+      proj.made = { via: 'screen', by: null };
+    });
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-shared:not([hidden])', { state: 'visible', timeout: 8000 });
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => document.getElementById('pj-one-shared').innerText);
+    if (!t.includes('Shared by harbourstudio.kosmosplus.com.')) throw new Error('the project header does not say who shared it: ' + JSON.stringify(t));
+    if (await page.isVisible('#pj-one-made')) throw new Error('a joined project shows a Made by line it would not have');
   } },
   /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
   { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {
@@ -1431,7 +1682,13 @@ const SCREENS = [
      lines out again, as the #5752 screen above does. */
   { name: 'project-room-held-5800', owner: 'Angel', go: async (page, data) => {
     const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
-    const cap = require(path.join(REPO, 'engine', 'limits')).caps().roomArrivalsPerWindow;
+    /* #6420: the room's budget scales with its size (engine/messages.js roomCap), so the seed fills THIS project's
+       budget, sized as the room route and the valve size it (messages.roomRecipientsOf). */
+    const msgs = require(path.join(REPO, 'engine', 'messages'));
+    const proj = require(path.join(REPO, 'engine', 'projects')).readAll().find((x) => x && x.id === data.projectId);
+    if (!proj) throw new Error('#6420: the seeded project ' + data.projectId + ' is not in the registry, so its budget cannot be read');
+    const size = msgs.roomRecipientsOf(proj.agents);
+    const cap = msgs.roomCap(require(path.join(REPO, 'engine', 'limits')).caps(), size);
     const to = Array.from({ length: cap }, (_, i) => 'member' + (i + 1));
     const ago = (min) => new Date(Date.now() - min * 60 * 1000).toISOString();
     data.heldLines = [
@@ -1442,6 +1699,8 @@ const SCREENS = [
         stopped: true, at: ago(4) }),
     ];
     fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), data.heldLines.join('\n') + '\n');
+    // The premise, checked here rather than read off a later timeout: the room reads held at its own size.
+    if (!msgs.roomHeld(data.projectId, Date.now(), size)) throw new Error('#6420: the seed did not hold the room at its own budget (' + cap + ')');
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-held [data-reopen-room]', { state: 'visible', timeout: 10000 });
@@ -1475,6 +1734,57 @@ const SCREENS = [
     const kept = fs.readFileSync(file, 'utf8').split('\n').filter((l) => !data.heldLines.includes(l));
     fs.writeFileSync(file, kept.join('\n'));
     data.heldLines = null;
+  } },
+  /* #6178: Settings > AI Models with "On your other computers". That section reads each other computer only from this
+     computer's own Kosmos+ address over https, so this screen serves the board at https://laptop.kosmosplus.com (a
+     route onto the throwaway board) and answers three made-up other computers: studio with two example.com accounts
+     (82%, and one with no reading) and an agent on each, workshop behind its gate (this browser not let in), oldmac
+     with a Kosmos from before #6178. Nothing here is real, and nothing reaches the network. */
+  { name: 'settings-accounts-other', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page) => {
+    const board = new URL(page.url()).origin;
+    const HOME = 'https://laptop.kosmosplus.com';
+    const now = Date.now();
+    const computers = { ok: true, domain: 'kosmosplus.com', computers: [
+      { name: 'laptop', address: 'laptop.kosmosplus.com', this: true, online: true, updating: false, lastSeen: Math.floor(now / 1000) },
+      { name: 'studio', address: 'studio.kosmosplus.com', this: false, online: true, updating: false, lastSeen: Math.floor(now / 1000) },
+      { name: 'workshop', address: 'workshop.kosmosplus.com', this: false, online: true, updating: false, lastSeen: Math.floor(now / 1000) },
+      { name: 'oldmac', address: 'oldmac.kosmosplus.com', this: false, online: true, updating: false, lastSeen: Math.floor(now / 1000) },
+    ] };
+    const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-credentials': 'true', vary: 'Origin', 'content-type': 'application/json' };
+    const studio = {
+      checkedAt: new Date(now).toISOString(),
+      agents: [
+        { sessionName: 'ada', name: 'Ada', state: 'working', runner: 'claude', acct: 'a0' },
+        { sessionName: 'roo', name: 'Roo', state: 'idle', runner: 'claude', acct: 'a1' },
+      ],
+      accountsWeekly: [
+        { key: 'a0', email: 'person@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: now + 3 * 864e5, at: now - 3600e3 }, blocked: null },
+        { key: 'a1', email: 'work@example.com', weekly: null, blocked: null },
+      ],
+    };
+    await page.route(HOME + '/**', async (r) => {
+      try {   // #6022: a late answer after close is caught, not a crash
+        const u = new URL(r.request().url());
+        if (u.pathname === '/api/remote/computers') return await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(computers) });
+        const resp = await r.fetch({ url: board + u.pathname + u.search });
+        return await r.fulfill({ response: resp });
+      } catch { await r.abort().catch(() => {}); }
+    });
+    await page.route('https://studio.kosmosplus.com/**', (r) => r.fulfill({ status: 200, headers: cors, body: JSON.stringify(studio) }));
+    await page.route('https://workshop.kosmosplus.com/**', (r) => r.fulfill({ status: 401, headers: cors, body: '{}' }));
+    await page.route('https://oldmac.kosmosplus.com/**', (r) => r.fulfill({ status: 200, headers: cors, body: JSON.stringify({ agents: [] }) }));
+    await page.goto(HOME + '/?tab=settings&sec=accounts', { waitUntil: 'load' });
+    if (await page.$('#firstrun:not([hidden])')) await page.keyboard.press('Escape');
+    await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 8000 });
+    await page.waitForFunction(() => document.querySelectorAll('#set-other .ao-acct').length >= 2
+      && /older Kosmos/.test(document.getElementById('set-other').textContent), null, { timeout: 20000 });
+    await page.evaluate(() => document.getElementById('set-other-wrap').scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(400);
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => (document.getElementById('set-other') || {}).textContent || '');
+    for (const want of ['82% of its weekly limit used', 'Its agents on studio: Ada', 'not let in on workshop', 'oldmac has an older Kosmos']) {
+      if (!t.includes(want)) throw new Error('the other computers section does not say "' + want + '"');
+    }
   } },
 ];
 
@@ -1634,14 +1944,14 @@ DATA_SETS.marketing = {
        limitFor (status.js), so the reading is the one a real card would carry. A codex row carries the window codex
        reports; a gemini row says its window is assumed, as the engine's own Gemini reader does; a muse row carries
        no reading at all, because Kosmos does not read Muse's memory yet (status.js, the Muse pane's context). */
-    cleo: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 305000, postedDaysAgo: 1 },
-    dana: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 590000, postedDaysAgo: 0 },
-    eli: { modelName: 'GPT 5.2', runner: 'codex', tokens: 84000, ceiling: 400000, postedDaysAgo: 0 },
-    farah: { model: 'claude-haiku-5-5', modelName: 'Claude Haiku 5.5', tokens: 110000, postedDaysAgo: 3 },
-    maya: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 485000, postedDaysAgo: 0 },
-    theo: { modelName: 'Gemini 3 Pro', runner: 'gemini', tokens: 140000, ceiling: 1048576, assumed: true, postedDaysAgo: 2 },   // the engine's assumed Gemini window (status.js GEMINI_TEXT_WINDOW)
-    iris: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 665000, postedDaysAgo: 1 },
-    ravi: { runner: 'muse', postedDaysAgo: 5 },   // no name (modelLine says Meta Muse) and no reading: Kosmos does not read Muse's memory
+    cleo: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 305000 },
+    dana: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 590000 },
+    eli: { modelName: 'GPT 5.2', runner: 'codex', tokens: 84000, ceiling: 400000 },
+    farah: { model: 'claude-haiku-5-5', modelName: 'Claude Haiku 5.5', tokens: 110000 },
+    maya: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 485000 },
+    theo: { modelName: 'Gemini 3 Pro', runner: 'gemini', tokens: 140000, ceiling: 1048576, assumed: true },   // the engine's assumed Gemini window (status.js GEMINI_TEXT_WINDOW)
+    iris: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 665000 },
+    ravi: { runner: 'muse' },   // no name (modelLine says Meta Muse) and no reading: Kosmos does not read Muse's memory
   },
   commitments: {
     dana: 'Task 1 of Launch the spring catalogue: copy for pages 9 to 12, once the photos are in',
@@ -1663,20 +1973,12 @@ function busyCards(body, busy) {
     const assumed = lim ? lim.assumed : b.assumed === true;
     const raw = Math.round((b.tokens / ceiling) * 100);   // measuredResult's arithmetic: clamp the percent, flag the excess
     const percent = Math.min(100, raw);
-    // Counted as reached only when every line it asks for can show: a community line needs the community on.
-    const lineCanShow = !Number.isInteger(b.postedDaysAgo) || c.communityOn !== false;
-    if (lineCanShow) BUSY_SEEN.add(key);
+    BUSY_SEEN.add(key);
     if (b.modelName) { c.modelName = b.modelName; c.plannedModelName = b.modelName; }   // modelLine reads the planned one on a stopped card
     // A Muse card with no model of its own says "Meta Muse" (modelLine's fallback); the sandbox's seeded Claude model
     // must not stand in for it.
     else if (b.runner === 'muse') { c.modelName = null; c.plannedModelName = null; }
     if (b.runner) c.runner = b.runner;   // modelLine names a codex agent's model without the Claude prefix
-    if (Number.isInteger(b.postedDaysAgo) && c.communityOn !== false) {
-      // The server's own wording for the card's community line (server.js, lastCommunityPost).
-      const d = b.postedDaysAgo;
-      c.lastCommunityPost = 'Last community post: ' + (d <= 0 ? 'today' : d === 1 ? 'yesterday' : d + ' days ago');
-      c.lastCommunityPostAt = new Date(Date.now() - d * 86400000).toISOString();
-    }
     c.context = b.runner === 'muse'
       ? { tokens: null, percent: null, confidence: 'none', notYet: false, because: 'Kosmos does not read how full Muse\u2019s memory is yet' }
       : { tokens: b.tokens, percent, overCeiling: raw > 100, notYet: false, ceiling, ceilingAssumed: assumed,
@@ -2186,6 +2488,10 @@ async function run() {
   if (COVER_CONTROL && !['overlay', 'spill'].includes(COVER_CONTROL)) {
     throw new Error('MSHOTS_COVER_CONTROL must be overlay or spill, not ' + COVER_CONTROL);
   }
+  // #6107: the same for the sideways-tablet layout choice: a typo would silently shoot one screen.
+  if (process.env.MSHOTS_TABLET_LAYOUT && !['tabs', 'consolidated'].includes(process.env.MSHOTS_TABLET_LAYOUT)) {
+    throw new Error('MSHOTS_TABLET_LAYOUT must be tabs or consolidated, not ' + process.env.MSHOTS_TABLET_LAYOUT);
+  }
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
   const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
   // The overlay control is planted by allow-card and (#5800) project-room-held-5800 only; spill by allow-card only. On
@@ -2198,10 +2504,10 @@ async function run() {
   if (COVER_CONTROL === 'spill' && args.sizes.every((sz) => SIZES[sz].desktop)) {
     throw new Error('MSHOTS_COVER_CONTROL=spill needs a phone size');
   }
-  /* Nothing to shoot is not a pass: every requested screen is skipped at the sizes asked for (phone-only at desktop,
-     desktop-only at a phone). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
-  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop ? sc.phoneOnly : sc.desktopOnly)).length, 0);
-  if (!planned) throw new Error('no shot would be taken: every requested screen is skipped at these sizes (phone-only at desktop, desktop-only at a phone)');
+  /* Nothing to shoot is not a pass: every requested screen is skipped at the sizes asked for (skipWhy:
+     phone-only at desktop or a tablet over 56rem, desktop-only at a phone or a tablet under 960px, or a screen whose needsData is another --data set, #6542). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
+  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !skipWhy(SIZES[sz], sc, args.data)).length, 0);
+  if (!planned) throw new Error('no shot would be taken: every requested screen is skipped at these sizes (phone-only at desktop or a tablet over 56rem, desktop-only at a phone or a tablet under 960px) or needs another --data set (needsData, #6542)');
   // Test hook (tools.mobile-shots-desktop.test.js): report the plan and stop, before any browser or board.
   if (process.env.MSHOTS_PLAN_ONLY === '1') { console.log(`planned ${planned} screen(s) per theme and engine`); return 0; }
   const { chromium, webkit } = require('playwright');
@@ -2241,14 +2547,34 @@ async function run() {
     const ctxData = await seed(board.base, board.roots);
     await preflight(board.base);
     for (const en of args.engines) {
-      const browser = await engines[en].launch();
+      /* #6205: the engine's own pid(s), so a wedged close can be force-killed by pid (never a pattern). Playwright's
+         Browser from launch() exposes no process(), so read node's child table across the launch (this loop is
+         sequential, so the only lasting new child is the engine); closeBrowserBounded reaps that pid's whole process
+         tree, since webkit/firefox launch through a wrapper and the real engine is a grandchild.
+         Two reads after the launch, intersected (#6205 review): the engine persists in both, while each childPidsOf's
+         own transient `ps` child (ps -A lists itself as our child, then exits) differs between reads, so it drops out. */
+      const launchEngine = async () => {
+        const childrenBefore = childPidsOf(process.pid);
+        const b = await engines[en].launch();
+        const after1 = childPidsOf(process.pid);
+        const after2 = childPidsOf(process.pid);
+        return { b, pids: after1.filter((p) => after2.includes(p) && !childrenBefore.includes(p)) };
+      };
+      let { b: browser, pids: enginePids } = await launchEngine();
+      let contextsOnEngine = 0;   // kosmos#6543: see CONTEXTS_PER_ENGINE
+      // #6205 (review): once a close times out, this browser is wedged; stop using it and let the finally force-kill
+      // the engine, rather than opening another context on it (an unbounded newContext would reintroduce the hang).
+      let wedged = false;
       try {
         for (const sz of args.sizes) {
+          if (wedged) break;
           const s = SIZES[sz];
           for (const theme of args.themes) {
+            if (wedged) break;
             for (const sc of screens) {
-              if (s.desktop ? sc.phoneOnly : sc.desktopOnly) {
-                const why = s.desktop ? 'phone-only screen' : 'desktop-only screen';
+              if (wedged) break;
+              const why = skipWhy(s, sc, args.data);
+              if (why) {
                 // The same shape as a shot row, so report.json stays one kind of entry.
                 skipped.push({ file: null, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: why });
                 console.log(`skip  ${sc.name}--${sz}--${theme}--${en}: a ${why}`);
@@ -2257,13 +2583,42 @@ async function run() {
               /* A fresh context per screen: the board remembers choices (layout,
                  open sections) in localStorage, and one screen's clicks must not
                  decide what the next screen looks like. */
-              const ctx = await browser.newContext({
-                viewport: { width: s.width, height: s.height }, deviceScaleFactor: s.dpr,
-                // isMobile is Chromium-only in Playwright (WebKit refuses it); both get touch on a phone.
-                isMobile: !s.desktop && en === 'chromium', hasTouch: !s.desktop, colorScheme: theme,
-                // A page.route stub needs the service worker off in WebKit (see allow-card).
-                ...(sc.noServiceWorker || DATA.connected ? { serviceWorkers: 'block' } : {}),
-              });
+              // kosmos#6543: a fresh engine before this one reaches the context count WebKit stops navigating at.
+              if (contextsOnEngine >= CONTEXTS_PER_ENGINE) {
+                await closeBrowserBounded(browser, enginePids);
+                browser = null;   // closed: the finally below must not close it again if the relaunch throws
+                ({ b: browser, pids: enginePids } = await launchEngine());
+                contextsOnEngine = 0;
+              }
+              contextsOnEngine++;
+              let ctx;
+              try {
+                // #6205 (review): bound newContext too. A wedged browser hangs here unbounded otherwise; a timeout
+                // means the engine is dead, so abandon this engine and let the finally force-kill it.
+                ctx = await withTimeout(browser.newContext({
+                  viewport: { width: s.width, height: s.height }, deviceScaleFactor: s.dpr,
+                  // isMobile is Chromium-only in Playwright (WebKit refuses it); both get touch on a phone.
+                  isMobile: !s.desktop && en === 'chromium', hasTouch: !s.desktop, colorScheme: theme,
+                  // A page.route stub needs the service worker off in WebKit (see allow-card).
+                  ...(sc.noServiceWorker || DATA.connected ? { serviceWorkers: 'block' } : {}),
+                }), CTX_CLOSE_MS, 'browser.newContext()');
+              } catch (e) {
+                // Only a TIMEOUT is the wedge this bounds. A real newContext rejection (an option the engine
+                // refuses, a crashed engine) is not a hang, so it propagates out of the run as it did before this
+                // change (#6205 review), rather than being relabelled "did not return" and hidden.
+                if (!e || !e.timedOut) throw e;
+                console.log('FLAG  mobile-shots: ' + en + ' newContext timed out (wedged engine); abandoning this engine');
+                errors++;
+                wedged = true;
+                break;
+              }
+              /* #6107: MSHOTS_TABLET_LAYOUT=tabs (or consolidated) sets a sideways tablet's own layout choice before the
+                 page loads, so the tabbed board can be shot on a landscape iPad too (its default is one screen). */
+              if (process.env.MSHOTS_TABLET_LAYOUT) {
+                // Only when nothing is chosen yet: an init script re-runs on every reload, and a screen that sets its own
+                // choice before reloading (openConsAgents) must keep it.
+                await ctx.addInitScript((v) => { try { if (!localStorage.getItem('kosmos-tablet-layout')) localStorage.setItem('kosmos-tablet-layout', v); } catch { /* storage refused */ } }, process.env.MSHOTS_TABLET_LAYOUT);
+              }
               /* --remote (kosmos#5510): every request to the made-up Kosmos+ host is answered by the throwaway board
                  itself, so the page's own address is not loopback (kplusRemote() true -> html.kremote) while every
                  byte still comes from this board. Registered FIRST so the stubs below, registered after it, win
@@ -2284,6 +2639,10 @@ async function run() {
                 });
               }
               await ctx.addInitScript((t) => { try { localStorage.setItem('kosmos-theme', t); } catch { /* no storage */ } }, theme);
+              // #6403: the switcher's one-time tip is not part of any screen here. This runs on every load, so a screen that
+              // wants the tip clears the key after load and then drives a one-computer read followed by a two-computer
+              // read (the tip shows on the first change to two computers in a page, which the boot read has already made).
+              await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch { /* no storage */ } });
               const page = await ctx.newPage();
               const pageErrors = [];
               page.on('pageerror', (e) => pageErrors.push(String(e)));
@@ -2324,7 +2683,7 @@ async function run() {
                 }
                 if (!s.desktop) { fit = await fitOf(page); audited = true; }
               } catch (e) {
-                if (e.leak) { await ctx.close(); throw e; }
+                if (e.leak) { await closeContextBounded(ctx); throw e; }
                 errors++;
                 note = 'ERROR ' + String(e.message || e).split('\n')[0];
               }
@@ -2351,7 +2710,7 @@ async function run() {
               const inReport = hitsIn(JSON.stringify(fit) + ' ' + note);
               if (inReport.length) {
                 try { fs.rmSync(path.join(out, file), { force: true }); } catch { /* best effort */ }
-                await ctx.close();
+                await closeContextBounded(ctx);
                 const err = new Error('LEAK GUARD: this screen\'s report would carry real data (' + inReport.length + ' hits, e.g. '
                   + inReport[0] + '). Its shot is deleted. Stopping with no further shots.');
                 err.leak = true;
@@ -2361,11 +2720,19 @@ async function run() {
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
                 + (!audited ? '  phone audits: n/a'
                   : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}  covers: ${(fit.covers || []).length}`));
-              await ctx.close();
+              // #6205 (review): a timed-out close means this browser is wedged. Count it as an error (so a partial
+              // shot set with screens dropped cannot read as green, like the newContext-wedge path above), log it,
+              // and stop the engine so the next newContext does not hang.
+              if (!(await closeContextBounded(ctx))) {
+                console.log('FLAG  mobile-shots: ' + en + ' context close wedged after ' + file + '; abandoning this engine');
+                errors++;
+                wedged = true;
+                break;
+              }
             }
           }
         }
-      } finally { await browser.close(); }
+      } finally { if (browser) await closeBrowserBounded(browser, enginePids); }
     }
     if (args.keep) {
       console.log(`\n--keep: the throwaway board stays up at ${board.base} (data in ${board.roots.DATA}); Ctrl-C to stop.`);
@@ -2387,7 +2754,7 @@ async function run() {
   const md = ['# Mobile screenshots', '',
     `Throwaway board with the ${args.data} data set. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone. Phone audits read n/a where they did not run (the desktop size, or a screen that errored).`, '',
     `Shots: ${rows.filter((r) => r.file).length}${rows.some((r) => !r.file) ? ` (plus ${rows.filter((r) => !r.file).length} deleted by its verify)` : ''}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
-    `Skipped (phone-only at the desktop size, desktop-only at a phone size): ${skipped.length ? skipped.map((k) => `${k.screen}--${k.size}--${k.theme}--${k.engine}`).join(', ') : 'none'}.`, '',
+    `Skipped (phone-only at the desktop size, desktop-only at a phone size, or a screen that needs another --data set): ${skipped.length ? skipped.map((k) => `${k.screen}--${k.size}--${k.theme}--${k.engine} (${k.skipped})`).join(', ') : 'none'}.`, '',
     `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px | covers |`, '|---|---|---|---|---|---|---|---|---|---|',
     ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file || '(deleted)'} | ${r.note.replace(/\|/g, '/')} | ${r.audited ? r.taps.length : 'n/a'} | ${r.audited ? r.fields.length : 'n/a'} | ${r.audited ? (r.covers || []).length : 'n/a'} |`)];
   fs.writeFileSync(path.join(out, 'report.md'), md.join('\n') + '\n');
@@ -2398,7 +2765,7 @@ async function run() {
   if (errors) { console.error(`FAIL  mobile-shots: ${errors} shot(s) could not be taken; see the ERROR lines above`); return 2; }
   /* #6051: a busy agent no status read ever matched would have shot as "Not yet read" without a word: fail instead. */
   const unmatched = DATA.busy && rows.some((r) => !r.skipped) ? Object.keys(DATA.busy).filter((k) => !BUSY_SEEN.has(k)) : [];
-  if (unmatched.length) { console.error('FAIL  mobile-shots: the busy table never reached ' + unmatched.join(', ') + ' (no status card matched them, or their community line could not show because the community is off); those cards are not as the busy table says'); return 2; }
+  if (unmatched.length) { console.error('FAIL  mobile-shots: the busy table never reached ' + unmatched.join(', ') + ' (no status card matched them); those cards are not as the busy table says'); return 2; }
   if (args.strict && overflowCount) { console.error(`FAIL  mobile-shots: ${overflowCount} shot(s) overflow sideways; see the FLAG lines above`); return 1; }
   return 0;
 }

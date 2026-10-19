@@ -102,6 +102,85 @@ test('#3226 nudge text names the reply verb the CLI ships and has no em dash', (
   assert.match(cli, /^\s*inbox\)\s+shift; cmd_inbox "\$@"/m, 'install/kosmos dispatches the inbox verb the nudge names');
 });
 
+test('#5154-B: plan flags gaveUp only out of tries; the sweep fires `bound` for a spent IDLE agent, never a working one', () => {
+  // plan: gaveUp is set ONLY on the out-of-tries (spent) branch.
+  assert.equal(nudge.plan(idleCard(), owesFirst(), { nudgedAt: null, tries: nudge.MAX_TRIES }, NOW).gaveUp, true, 'out of tries -> gaveUp');
+  assert.ok(!nudge.plan(idleCard(), owesFirst(), { nudgedAt: NOW - 1000 }, NOW).gaveUp, 'already reminded is not a give-up');
+  assert.ok(!nudge.plan(idleCard(), owesFirst(), undefined, NOW).gaveUp, 'a fresh due nudge is not a give-up');
+  // sweep: a spent book entry fires `bound` for an idle agent, and does NOT for the same agent while working
+  // (the give-up is moot once it is no longer idle -- the board's IDLE_ONLY mootness relies on this).
+  const s = idleCard().sessionName;
+  const spentBook = () => new Map([[s, { nudgedAt: null, tries: nudge.MAX_TRIES }]]);
+  const boundIdle = [];
+  nudge.sweepOnce({ roster: rosterOf('idle'), book: spentBook(), now: NOW, thread: () => ({ messages: [personRow()] }),
+    deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY, bound: (sess) => boundIdle.push(sess) });
+  assert.deepEqual(boundIdle, [s], 'bound fires once for the spent idle agent');
+  const boundWorking = [];
+  nudge.sweepOnce({ roster: rosterOf('working'), book: spentBook(), now: NOW, thread: () => ({ messages: [personRow()] }),
+    deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY, bound: (sess) => boundWorking.push(sess) });
+  assert.deepEqual(boundWorking, [], 'bound does NOT fire for a spent-but-working agent');
+});
+
+test('#5154-B: a spent firstreply entry is raised only while the agent still OWES a reply; once it does not, it clears', () => {
+  const s = idleCard().sessionName;
+  // still owes (person message, no agent reply): the give-up is raised, not cleared.
+  const boundO = []; const clearedO = [];
+  nudge.sweepOnce({ roster: rosterOf('idle'), book: new Map([[s, { nudgedAt: null, tries: nudge.MAX_TRIES }]]), now: NOW,
+    thread: () => ({ messages: [personRow()] }), deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY,
+    bound: (sess) => boundO.push(sess), cleared: (sess) => clearedO.push(sess) });
+  assert.deepEqual(boundO, [s], 'while it still owes, the give-up is raised');
+  assert.deepEqual(clearedO, [], 'and not cleared');
+  // no longer owes (the agent answered by another route -> an agent row in the thread, fc.state === "clear"):
+  // the give-up is cleared and the stale spent entry is dropped, instead of firing forever on a healthy agent.
+  const book = new Map([[s, { nudgedAt: null, tries: nudge.MAX_TRIES }]]);
+  const boundD = []; const clearedD = [];
+  nudge.sweepOnce({ roster: rosterOf('idle'), book, now: NOW,
+    thread: () => ({ messages: [personRow(), agentRow(s)] }), deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY,
+    bound: (sess) => boundD.push(sess), cleared: (sess) => clearedD.push(sess) });
+  assert.deepEqual(boundD, [], 'once it no longer owes, the give-up is NOT raised');
+  assert.deepEqual(clearedD, [s], 'it is cleared (recovered)');
+  assert.equal(book.has(s), false, 'and the stale spent entry is dropped');
+});
+
+test('#5154-B: a spent firstreply give-up on an agent with a declared reply-channel is cleared, not raised', () => {
+  const s = idleCard().sessionName;
+  const book = new Map([[s, { nudgedAt: null, tries: nudge.MAX_TRIES }]]);
+  const bound = []; const cleared = [];
+  // the agent answers its person on a declared reply-channel (out of Kosmos's sight): the normal path never
+  // nudges it, so a give-up is moot. The thread still reads 'owes', so without the channel guard it would raise.
+  nudge.sweepOnce({ roster: rosterOf('idle'), book, now: NOW, thread: () => ({ messages: [personRow()] }),
+    replyChannel: () => 'slack', deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY,
+    bound: (x) => bound.push(x), cleared: (x) => cleared.push(x) });
+  assert.deepEqual(bound, [], 'a declared-channel agent is not raised');
+  assert.deepEqual(cleared, [s], 'it is cleared (resolved out of sight)');
+  assert.equal(book.has(s), false, 'and the stale spent entry is dropped');
+});
+
+test('#5154-B: a spent firstreply give-up on a PAUSED (switched-off) agent is neither raised nor cleared', () => {
+  const s = idleCard().sessionName;
+  const book = new Map([[s, { nudgedAt: null, tries: nudge.MAX_TRIES }]]);
+  const bound = []; const cleared = [];
+  nudge.sweepOnce({ roster: rosterOf('idle'), book, now: NOW, thread: () => ({ messages: [personRow()] }),
+    paused: () => ({ paused: true }), deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY,
+    bound: (x) => bound.push(x), cleared: (x) => cleared.push(x) });
+  assert.deepEqual(bound, [], 'a switched-off agent is not raised (cannot nudge it)');
+  assert.deepEqual(cleared, [], 'nor cleared -- it may come back owing; STALE_MS backstops a persistent pause');
+  assert.equal(book.has(s), true, 'the entry is kept');
+});
+
+test('#5154-B: an INDETERMINATE firstreply read (unknown/threw) neither raises nor clears a spent give-up', () => {
+  const s = idleCard().sessionName;
+  const book = new Map([[s, { nudgedAt: null, tries: nudge.MAX_TRIES }]]);
+  const bound = []; const cleared = [];
+  // the thread read yields an unknown firstContact (null messages): the obligation cannot be determined. The
+  // give-up must NOT be cleared (that would drop a possibly-real signal and re-arm the nudge), nor raised.
+  nudge.sweepOnce({ roster: rosterOf('idle'), book, now: NOW, thread: () => null,
+    deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY, bound: (x) => bound.push(x), cleared: (x) => cleared.push(x) });
+  assert.deepEqual(bound, [], 'an indeterminate read does not raise');
+  assert.deepEqual(cleared, [], 'and does not clear (fail toward keeping the signal)');
+  assert.equal(book.has(s), true, 'the spent entry is kept, not dropped/re-armed');
+});
+
 function sweepWith(opts) {
   const sent = [];
   const logs = [];

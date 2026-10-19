@@ -54,6 +54,27 @@ const SCENARIOS = {
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('paying', 'pending')] },
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('paying', 'free')] },
   ], auto: null },
+  // kosmos#6314: all in use, with Stripe's price: the panel says what adding this computer costs. Then the person pays on
+  // the website and comes back to this window: its focus checks again by itself and takes the one paid address.
+  'paid-by-focus': { lists: [
+    { ok: true, live: true, this_name: '', buy_url: BUY, price: '$20/month', addresses: [row('first', 'in_use')] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, price: '$20/month', addresses: [row('first', 'in_use'), row('paid', 'free')] },
+  ], auto: null },
+  // kosmos#6314: ONE free address is taken with no click; that register fails offline: Try again on it, and it is
+  // never taken by itself a second time.
+  'auto-offline': { offline: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
+  // kosmos#6314: the page's own re-read leaves the focus where the person put it (disabling the focused Check again
+  // would drop it to the page), and finding still nothing, leaves the panel as it was.
+  'quiet-keeps-focus': { lists: [
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] },
+  ], auto: null, readDelays: [0, 1500] },
+  // kosmos#6314: the page's own re-read finds TWO paid addresses: the add panel gives way to the list, nothing is taken
+  // by itself, and the focus that was on Check again moves to the list's first button rather than falling to the page.
+  'quiet-to-list': { lists: [
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
+  ], auto: null },
   off: { lists: [{ ok: true, live: false }], auto: 'first' },
   unreachable: { lists: [null], auto: 'first' },   // the engine route refuses: the step as before
   'first-computer': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'free')] }], auto: 'first' },
@@ -66,21 +87,21 @@ const SCENARIOS = {
   // The same beside computers that are all on BOUGHT addresses (a lost only computer replaced): still free, name step.
   'app-free-beside-bought': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('spare', 'in_use', { first_free: false })] }], auto: null },
   // An app-made account whose free first address is in use (a live computer on a name it has not bought): a purchase.
-  'app-slot-used': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { first_free: true }), row('spare', 'free')] }], auto: null },
+  'app-slot-used': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { first_free: true }), row('spare', 'free'), row('other', 'free')] }], auto: null },
   // The slot is taken between the read and the register: the 402 goes to the list rather than keeping a name step
   // where no name can work.
   'app-free-then-taken': { account: '', notbought: 'mymac', lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] },
-    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { first_free: true }), row('spare', 'free')] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { first_free: true }), row('spare', 'free'), row('other', 'free')] },
   ], auto: null },
   // Review: the re-read after a typed name's 402 shows its wait, and leaves no Finish to press into it.
   'app-free-finish-during-reread': { account: '', notboughtFirst: 'mymac', readDelays: [0, 2500], lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] },
-    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { first_free: true }), row('spare', 'free')] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { first_free: true }), row('spare', 'free'), row('other', 'free')] },
   ], auto: null },
   // An app-made account whose free first address exists unused (its computer was retired): the list offers it, and no
   // name step could make another.
-  'app-first-free-retired': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'free', { first_free: true })] }], auto: null },
+  'app-first-free-retired': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'free', { first_free: true }), row('other', 'free')] }], auto: null },
   // A typed name taken by someone else keeps the name step, as before: a typed name is not a pick from the list.
   'app-free-typed-taken': { account: '', refuse: 'mymac', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] }], auto: null },
   // Check again that finds the switch now off takes the step as before, not a list that can never work.
@@ -91,7 +112,7 @@ const SCENARIOS = {
   // Check again that cannot reach the service stays on the panel and says so; it never falls back to the account's address.
   'recheck-fails': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] }, null], auto: null },
   // The read is slow: the code step is gone at once (its spent code cannot be sent again) and the step says it is checking.
-  'slow-read': { delay: 2500, lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
+  'slow-read': { delay: 2500, lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] }], auto: null },
   // A re-read after the sign-in has ended goes to the Start over panel, not a list that can no longer work.
   'recheck-expired': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] }, { error: 'your sign-in has ended; start again from the email' }], auto: null },
   // A re-read that finds the account's own address free again takes the step as before, with the list gone.
@@ -101,9 +122,9 @@ const SCENARIOS = {
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] }, null,
   ], auto: null },
   // A pick that cannot reach the service is not a refusal: the address is still theirs, and Try again retries it.
-  'pick-offline': { offline: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
+  'pick-offline': { offline: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] }], auto: null },
   // A pick that fails for a reason that is not "taken" (a certificate) is not a refusal either: Try again, same address.
-  'pick-cert-fail': { certfail: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
+  'pick-cert-fail': { certfail: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] }], auto: null },
   // The account's own address still waiting for payment is not bought yet: the list with its waiting line, no register.
   'own-pending': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'pending')] }], auto: null },
   // A pick that failed offline, then was taken by another computer before Try again: back to the list, not Try again forever.
@@ -112,10 +133,10 @@ const SCENARIOS = {
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'in_use'), row('other', 'free')] },
   ], auto: null },
   // A retire that failed with a 409 is not "that address is taken": Try again on the same address.
-  'pick-retire-409': { retire409: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
+  'pick-retire-409': { retire409: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] }], auto: null },
   // The first read fails, so the old step registers to the account's address; another computer holds it, and the
   // refusal goes to the list (read again) rather than Try again on an address that can never work.
-  'unread-then-refused': { refuse: 'first', lists: [null, { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
+  'unread-then-refused': { refuse: 'first', lists: [null, { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] }], auto: null },
   // The account's own address reads free, but another computer takes it first: the refusal goes to the list, and the
   // address is not registered to again even if a re-read still says it is free.
   'own-free-taken': { refuse: 'first', lists: [
@@ -124,14 +145,14 @@ const SCENARIOS = {
   ], auto: null },
   // This computer's own stale sign-in holds the picked address: not a refusal, so Try again on it (after removing the
   // stale entry on the website) works, and the address is never banished.
-  'pick-own-stale': { stale: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
+  'pick-own-stale': { stale: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] }], auto: null },
   // The first read fails and the person TYPES a name that is taken: that keeps the name step (not the list), as before.
   'unread-typed-taken': { account: '', refuse: 'mine', lists: [null], auto: null },
   // The list cannot be read twice running: the panel keeps saying so, never "none waiting" (nothing was read).
   'unread-twice': { refuse: 'first', lists: [null, null, null], auto: null },
   // The first read fails, the account has no address, and a typed name is refused as not bought: that proves the
   // switch is on, so the list (or the way to buy one) replaces a name step where no name can work.
-  'unread-typed-notbought': { account: '', notbought: 'mine', lists: [null, { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('spare', 'free')] }], auto: null },
+  'unread-typed-notbought': { account: '', notbought: 'mine', lists: [null, { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('spare', 'free'), row('other', 'free')] }], auto: null },
   // A refused pick is not offered by the re-read that follows it, but a person's own Check again may offer it again
   // once it is free (its computer retired).
   'refused-then-freed': { refuse: 'spare', lists: [
@@ -193,6 +214,9 @@ const visible = (page, sel) => page.evaluate((s) => {
       const regs = [];
       let asked = 0;
       await open(page);
+      // kosmos#6314: the add panel's own re-reads (the 10 s tick and window focus) would make the exact read counts below
+      // depend on timing; the scenarios that test them switch them back on first.
+      await page.evaluate(() => { window.__kosmosPlusAutoOff = true; });
       await page.route('**/api/remote/signin-**', (route, req) => {
         const p = new URL(req.url()).pathname;
         // #6027: some answers are sent late (setTimeout below), so each one catches its own rejection after close.
@@ -258,16 +282,17 @@ const visible = (page, sel) => page.evaluate((s) => {
       } else if (key === 'none') {
         chk(await visible(page, '#plus-si-bought-none'), `[${key}] with none free it says so`);
         chk(/waiting for its payment/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] a pending purchase is named as waiting for its payment`);
+        chk(!/\$\d/.test(await page.textContent('#plus-si-bought-none')), `[${key}] with no price from Stripe, no figure is invented`);
         chk(/If this computer used to be first\.kosmosplus\.com, retire it on your account page first/.test(await page.textContent('#plus-si-bought-none-hint')), `[${key}] and says how to free the account's address if it was this computer's`, await page.textContent('#plus-si-bought-none-hint'));
         chk((await page.getAttribute('#plus-si-bought-buy', 'href')) === BUY, `[${key}] the buy link is the coordinator's`, await page.getAttribute('#plus-si-bought-buy', 'href'));
         chk(!(await visible(page, '#plus-si-name-field')), `[${key}] no field to type a name`);
         await page.screenshot({ path: path.join(OUT, 'plus-bought-none-light.png') });
         await page.click('#plus-si-bought-recheck');
-        await page.waitForSelector('#plus-si-bought-list button[data-bought="paying"]', { state: 'visible', timeout: 5000 }).catch(() => {});
+        await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
         chk(asked === 2, `[${key}] Check again asks again`, String(asked));
-        chk(await visible(page, '#plus-si-bought-list button[data-bought="paying"]'), `[${key}] and offers the address once it is confirmed`);
+        // kosmos#6314 (Josh 11:28, "it should have just pushed me through"): the one address now paid for is taken with no click.
+        chk(regs.length === 1 && regs[0] === 'paying', `[${key}] and takes the one address now paid for, with no pick`, JSON.stringify(regs));
         chk(!(await visible(page, '#plus-si-bought-none')), `[${key}] the none panel goes`);
-        chk(regs.length === 0, `[${key}] nothing registered without a pick`);
       }
       else if (key === 'slow-read') {
         chk(await visible(page, '#plus-si-bought-list button[data-bought="spare"]'), `[${key}] then the list`);
@@ -303,7 +328,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(regs.length === 1 && regs[0] === 'first', `[${key}] the old step tried the account's address once`, JSON.stringify(regs));
         chk(asked === 2, `[${key}] then read the list again`, String(asked));
         const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
-        chk(JSON.stringify(btns) === JSON.stringify(['spare']), `[${key}] and offers the free address`, JSON.stringify(btns));
+        chk(JSON.stringify(btns) === JSON.stringify(['spare', 'other']), `[${key}] and offers the free address`, JSON.stringify(btns));
         chk(!(await visible(page, '#plus-si-register-go')), `[${key}] not Try again on the held address`);
       } else if (key === 'own-free-taken') {
         await page.waitForSelector('#plus-si-bought-list button[data-bought="spare"]', { state: 'visible', timeout: 8000 }).catch(() => {});
@@ -321,11 +346,11 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(asked === 1, `[${key}] the list is not read again for a typed name`, String(asked));
       } else if (key === 'unread-twice') {
         await page.waitForSelector('#plus-si-bought-none', { state: 'visible', timeout: 8000 }).catch(() => {});
-        chk(/could not list the addresses/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] after the refusal, the panel says the list could not be read`);
+        chk(/could not check your account/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] after the refusal, the panel says the list could not be read`);
         await page.click('#plus-si-bought-recheck');
         await page.waitForTimeout(800);
         chk(asked === 3, `[${key}] Check again asked again`, String(asked));
-        chk(/could not list the addresses/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] and a second failure still says so, not "none waiting"`, await page.textContent('#plus-si-bought-none-lead'));
+        chk(/could not check your account/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] and a second failure still says so, not "none waiting"`, await page.textContent('#plus-si-bought-none-lead'));
       } else if (key === 'unread-typed-notbought') {
         await page.waitForSelector('#plus-si-name', { state: 'visible', timeout: 8000 }).catch(() => {});
         await page.fill('#plus-si-name', 'mine');
@@ -333,9 +358,21 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.waitForSelector('#plus-si-bought-list button[data-bought="spare"]', { state: 'visible', timeout: 8000 }).catch(() => {});
         chk(await visible(page, '#plus-si-bought-list button[data-bought="spare"]'), `[${key}] a typed name refused as not bought goes to the list`);
         chk(!(await visible(page, '#plus-si-name-field')), `[${key}] and the name step, where no name can work, is gone`);
+      } else if (key === 'paid-by-focus') {
+        chk(await visible(page, '#plus-si-bought-none'), `[${key}] all in use: the add panel shows`);
+        chk(/Add this computer to your account/.test(await page.textContent('#plus-si-title')), `[${key}] headed as adding this computer`, await page.textContent('#plus-si-title'));
+        const lead = await page.textContent('#plus-si-bought-none-lead');
+        chk(/Each computer you add is \$20 a month\./.test(lead), `[${key}] and says what it costs, in Stripe's figure`, lead);
+        chk(/^Add this computer$/.test((await page.textContent('#plus-si-bought-buy')).trim()), `[${key}] the button adds this computer`, await page.textContent('#plus-si-bought-buy'));
+        chk(asked === 1 && regs.length === 0, `[${key}] nothing asked again or registered yet`, asked + ' ' + JSON.stringify(regs));
+        await page.evaluate(() => { window.__kosmosPlusAutoOff = false; window.dispatchEvent(new Event('focus')); });   // back from the website
+        await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+        chk(asked === 2, `[${key}] coming back to the window checked again with no press`, String(asked));
+        chk(JSON.stringify(regs) === '["paid"]', `[${key}] and took the one paid address with no pick`, JSON.stringify(regs));
       } else if (key === 'refused-then-freed') {
-        await page.click('#plus-si-bought-list button[data-bought="spare"]');
+        // kosmos#6314: the one free address is taken with no click; refused, it is not taken by itself again.
         await page.waitForSelector('#plus-si-bought-none', { state: 'visible', timeout: 8000 }).catch(() => {});
+        chk(JSON.stringify(regs) === '["spare"]', `[${key}] the one free address was taken with no click, once`, JSON.stringify(regs));
         chk(await visible(page, '#plus-si-bought-none'), `[${key}] the re-read after the refusal does not offer it`);
         await page.click('#plus-si-bought-recheck');
         await page.waitForSelector('#plus-si-bought-list button[data-bought="spare"]', { state: 'visible', timeout: 8000 }).catch(() => {});
@@ -354,6 +391,37 @@ const visible = (page, sel) => page.evaluate((s) => {
         const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
         chk(JSON.stringify(btns) === JSON.stringify(['other']), `[${key}] the refused retry goes back to the list, without the taken address`, JSON.stringify(btns));
         chk(!(await visible(page, '#plus-si-register-go')), `[${key}] not Try again forever`);
+      } else if (key === 'quiet-keeps-focus') {
+        await page.focus('#plus-si-bought-recheck');
+        await page.evaluate(() => { window.__kosmosPlusAutoOff = false; window.dispatchEvent(new Event('focus')); });
+        await page.waitForTimeout(600);   // mid-read (the answer is held 1.5 s)
+        const mid = await page.evaluate(() => ({ id: document.activeElement && document.activeElement.id, off: document.getElementById('plus-si-bought-recheck').disabled }));
+        await page.waitForTimeout(1500);
+        const after = await page.evaluate(() => ({ id: document.activeElement && document.activeElement.id, none: !document.getElementById('plus-si-bought-none').hidden }));
+        chk(asked === 2, `[${key}] coming back to the window re-read the list`, String(asked));
+        chk(mid.id === 'plus-si-bought-recheck' && mid.off === false, `[${key}] during the page's own read the focus stays on Check again, which stays pressable`, JSON.stringify(mid));
+        chk(after.id === 'plus-si-bought-recheck' && after.none, `[${key}] and after it, the panel and the focus are as they were`, JSON.stringify(after));
+        // A person's own Check again that still finds nothing keeps them on Check again (a second Enter must not pay).
+        await page.evaluate(() => { window.__kosmosPlusAutoOff = true; });
+        await page.click('#plus-si-bought-recheck');
+        await page.waitForTimeout(2200);
+        const manual = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        chk(asked === 3 && manual === 'plus-si-bought-recheck', `[${key}] a person's Check again that finds nothing leaves the focus on Check again`, asked + ' ' + manual);
+      } else if (key === 'quiet-to-list') {
+        await page.focus('#plus-si-bought-recheck');
+        await page.evaluate(() => { window.__kosmosPlusAutoOff = false; window.dispatchEvent(new Event('focus')); });
+        await page.waitForSelector('#plus-si-bought-list button[data-bought="spare"]', { state: 'visible', timeout: 8000 }).catch(() => {});
+        const f = await page.evaluate(() => document.activeElement && document.activeElement.getAttribute('data-bought'));
+        chk(asked === 2 && regs.length === 0, `[${key}] coming back re-read the list and took nothing by itself (two to pick from)`, asked + ' ' + JSON.stringify(regs));
+        chk(f === 'spare', `[${key}] the focus moved to the list's first address, not to the page`, String(f));
+      } else if (key === 'auto-offline') {
+        await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 8000 }).catch(() => {});
+        await page.waitForTimeout(1500);   // room for a second automatic register, which must not come
+        chk(JSON.stringify(regs) === '["spare"]', `[${key}] the one free address was taken with no click, once`, JSON.stringify(regs));
+        chk((await page.textContent('#plus-si-register-go')).trim() === 'Try again', `[${key}] the offline failure offers Try again`);
+        await page.click('#plus-si-register-go');
+        await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+        chk(JSON.stringify(regs) === '["spare","spare"]', `[${key}] the person's Try again succeeds`, JSON.stringify(regs));
       } else if (key === 'pick-offline' || key === 'pick-cert-fail' || key === 'pick-retire-409' || key === 'pick-own-stale') {
         await page.click('#plus-si-bought-list button[data-bought="spare"]');
         await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 8000 }).catch(() => {});
@@ -373,7 +441,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       } else if (key === 'app-slot-used') {
         chk(!(await visible(page, '#plus-si-name-field')), `[${key}] no name field: the free first address is in use`);
         const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
-        chk(JSON.stringify(btns) === JSON.stringify(['spare']), `[${key}] the bought address is offered`, JSON.stringify(btns));
+        chk(JSON.stringify(btns) === JSON.stringify(['spare', 'other']), `[${key}] the bought address is offered`, JSON.stringify(btns));
         chk(regs.length === 0, `[${key}] nothing registered by itself`, JSON.stringify(regs));
       } else if (key === 'app-free-then-taken') {
         await typeName(page, key);

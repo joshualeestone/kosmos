@@ -174,3 +174,24 @@ test('#1885: an unknown agent name is answered honestly, not as a connected acco
   assert.equal(r.body.ok, false);
   assert.match(r.body.because || '', /which account this agent runs on/);
 });
+
+/* #6095 review 5: plugin reach decides "a default-account agent" from the account /api/status gives a card. A test
+   that typed that shape by hand ({ dir: null }) passed while the real card ({ dir: <home>/.claude, isDefault: true })
+   never reached the new code. This takes the account from the SERVER's own lookup, so the shape cannot drift. */
+test('#6095: the real default account is read as default, and its pinned session decides plugin reach', () => {
+  const { accountForAgent, attachPluginReach } = require('./server');
+  const acct = accountForAgent('boss', accounts.list());
+  assert.equal(acct.isDefault, true, 'the producer marks the default account');
+  assert.equal(acct.dir, nodePath.join(HOME, '.claude'), 'and gives it the person\'s own folder, not null');
+  let asked = null;
+  const rows = [{ runner: 'claude', account: acct, session: 'boss' }];
+  attachPluginReach(rows, { personHome: HOME, sessionDirs: (n) => { asked = n; return new Map([['boss', nodePath.join(HOME, '.claude-aria')]]); } });
+  assert.deepEqual(asked, ['boss'], 'a default agent built by the server IS asked about');
+  // Judged as ANOTHER folder: with nothing installed here the evidence gate answers no-evidence (the board shows
+  // nothing), which only the separate-folder path produces; the default path answers 'reaches'.
+  assert.deepEqual(rows[0].reach, { reaches: null, reason: 'no-evidence' }, 'judged as another folder: ' + JSON.stringify(rows[0].reach));
+  // CONTROL: the same agent, a clean session, reads as before.
+  const clean = [{ runner: 'claude', account: accountForAgent('boss', accounts.list()), session: 'boss' }];
+  attachPluginReach(clean, { personHome: HOME, sessionDirs: () => new Map([['boss', '']]) });
+  assert.deepEqual(clean[0].reach, { reaches: true, reason: 'reaches' });
+});

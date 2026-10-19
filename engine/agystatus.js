@@ -7,7 +7,7 @@
  *    in ~/.local/bin/agy; Kosmos runs that installer on a press, see install()). Cheap.
  *  - SIGNED IN: agy keeps its Google sign-in to itself (no file Kosmos can read) and has no status
  *    command, so the only test is to ask it something. A one-line prompt in print mode, run in a
- *    throwaway folder: measured 2026-09-25 on Agent1s, signed in it answered "ok" in 2 to 5 s, from a
+ *    throwaway folder: measured 2026-09-25 on a build Mac, signed in it answered "ok" in 2 to 5 s, from a
  *    folder agy had never seen and without adding it to agy's trusted folders; signed out the same
  *    command waited about 60 s and failed. So: "ok" within the cap is signed in; anything else is
  *    NOT a confident signed-out, it is "could not confirm" (it may be the network, or a slow Mac).
@@ -159,6 +159,9 @@ function remember(r) {
   const file = lastFile();
   if (!file) return;
   const rec = { signedIn: r.signedIn === true, at: new Date().toISOString() };
+  /* #6176 slice 4: any confident answer starts the usage reading afresh, deliberately, same account or not: it may be a
+     new Google account, and it is what lets a stopped reading resume. Only explicit checks and sign-ins get here. */
+  try { require('./agyusage').clear(); } catch { /* none */ }
   try { fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 }); fs.writeFileSync(file, JSON.stringify(rec), { mode: 0o600 }); } catch { /* best effort */ }
 }
 /** { signedIn, at } from the last confident answer, or null if there has been none. */
@@ -168,7 +171,10 @@ function lastKnown() {
   try { const r = JSON.parse(fs.readFileSync(file, 'utf8')); return r && typeof r.signedIn === 'boolean' ? r : null; } catch { return null; }
 }
 /** Forget it (Remove on the account row): Kosmos stops listing it; agy's own sign-in is untouched. */
-function forget() { const file = lastFile(); if (!file) return; try { fs.rmSync(file, { force: true }); } catch { /* none */ } }
+function forget() {
+  try { require('./agyusage').clear(); } catch { /* none */ }   // #6176 slice 4: no reading outlives the row
+  const file = lastFile(); if (!file) return; try { fs.rmSync(file, { force: true }); } catch { /* none */ }
+}
 /* No email on the row (review round 4): ~/.gemini/google_accounts.json is the Gemini CLI's own
    sign-in, not Antigravity's, and Antigravity keeps no account file Kosmos can read. A person
    signed in to the two as different Google accounts would have seen the wrong one. */
@@ -248,5 +254,5 @@ function setOpenerForTests(fn) { openTerminal = fn; }
 function setRunnerForTests(fn) { runAgy = fn; }
 
 REAL.runAgy = runAgy; REAL.openTerminal = openTerminal; REAL.runInstall = runInstall;
-module.exports = { resetForTests, allowSandboxInstallForTests, installed, installedForScreen, offered, supported, check, openForSignIn, install, setRunnerForTests, setOpenerForTests, setInstallerForTests, setPlatformForTests, setWin32InstallerForTests, PROMPT, INSTALL_URL,
+module.exports = { platform, resetForTests, allowSandboxInstallForTests, installed, installedForScreen, offered, supported, check, openForSignIn, install, setRunnerForTests, setOpenerForTests, setInstallerForTests, setPlatformForTests, setWin32InstallerForTests, PROMPT, INSTALL_URL,
   remember, lastKnown, forget, setLastFileForTests };

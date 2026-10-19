@@ -12,7 +12,7 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/test-browser-gate-cut-claim-1398.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"; mkdir -p "$HOME"
 export KOSMOS_RUN_MARKER_DIR="$T/markers"; mkdir -p "$T/markers"   # no real cut's claim can leak in
 mkdir -p "$T/nopw"

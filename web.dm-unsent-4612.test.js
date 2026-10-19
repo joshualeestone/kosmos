@@ -37,8 +37,8 @@ test('#4612: an owed thread with an unsent answer says so and shows the answer, 
 });
 
 test('#4612: without an unsent answer the line is exactly as before (CONTROL)', () => {
-  assert.equal(api.dmOwesLine({ state: 'owes', lastHeardAt: OLD }), '<p class="dmnone">Nothing back yet.</p>');
+  assert.equal(api.dmOwesLine({ state: 'owes', lastHeardAt: OLD }), '<p class="dmnone dmquiet">Nothing back yet.</p>');
   assert.equal(api.dmOwesLine({ state: 'owes', lastHeardAt: NEW }), '', 'the two-minute grace was lost');
-  assert.equal(api.dmOwesLine({ state: 'owes', lastHeardAt: OLD, unsent: { text: '' } }), '<p class="dmnone">Nothing back yet.</p>');
+  assert.equal(api.dmOwesLine({ state: 'owes', lastHeardAt: OLD, unsent: { text: '' } }), '<p class="dmnone dmquiet">Nothing back yet.</p>');
   assert.equal(api.dmOwesLine({ state: 'clear' }), '');
 });

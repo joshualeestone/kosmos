@@ -53,10 +53,10 @@ test('#2618: the in-tab layout picker and the Styles tab are gone; the header fl
   assert.doesNotMatch(SCRIPT, /getElementById\('style-theme'\)\.addEventListener/, 'the theme-select change handler is gone');
   // The header flipper survives, still wired to applyLayout over /api/style.
   assert.ok((PAGE.match(/data-layout-switch="/g) || []).length >= 2, 'the header flipper (two segments) survives');
-  assert.match(SCRIPT, /applyLayout\(r\.layout, apply\)/, 'paintStyles still applies the saved layout on load');
+  assert.match(SCRIPT, /STYLE_LAYOUT = r\.layout === 'consolidated' \? 'consolidated' : 'tabs';\s*applyLayout\(deviceLayout\(STYLE_LAYOUT\), apply\);/, 'paintStyles still applies the saved layout on load (through the #6107 per-device rule)');
 });
 
-test('the root attribute is written from the engine\'s answer, and a click only asks the engine', () => {
+test('the root attribute is written from the engine\'s answer, and a click only asks the engine (off a sideways tablet, #6107)', () => {
   const fn = SCRIPT.slice(SCRIPT.indexOf('function applyLayout('), SCRIPT.indexOf('function applyStyle('));
   assert.match(fn, /document\.documentElement\.setAttribute\('data-layout', want\)/);
   assert.match(fn, /const want = layout === 'consolidated' \? 'consolidated' : 'tabs'/, 'anything but consolidated is the tabs');
@@ -67,7 +67,18 @@ test('the root attribute is written from the engine\'s answer, and a click only 
   // and falls back to the pressed segment.
   assert.match(click, /applyLayout\(\(r && r\.layout\) \|\| want, true\)/, 'the header flipper applies via applyLayout (engine answer, falling back to the pressed segment)');
   assert.doesNotMatch(click, /setAttribute\('data-layout'/, 'the click writes the root attribute directly');
-  assert.match(SCRIPT, /applyLayout\(r\.layout, apply\);/, 'paintStyles does not carry the layout');
+  assert.match(SCRIPT, /applyLayout\(deviceLayout\(STYLE_LAYOUT\), apply\);/, 'paintStyles does not carry the layout');
+});
+
+test('#6107: a sideways tablet still gets its layout when the board read fails, and keeps a press storage refused', () => {
+  // A failed /api/style read on a sideways touch tablet applies the device rule (tabs as the board's answer), so it
+  // does not stay on the tabbed boot paint.
+  assert.match(SCRIPT, /if \(!r && ticket === STYLE_REQ && tabletLandscape\(\)\) \{ applyLayout\(deviceLayout\('tabs'\), apply\); return; \}/, 'the failed-read branch for a sideways tablet is gone');
+  // The press is kept in memory before the storage write, so a refused write still keeps it for the session...
+  assert.match(SCRIPT, /TABLET_LAYOUT_MINE = want;\s*try \{ localStorage\.setItem\(TABLET_LAYOUT_KEY, want\); \} catch/, 'the tablet press is no longer kept when storage refuses it');
+  // ...and deviceLayout reads that session choice first.
+  const dl = SCRIPT.slice(SCRIPT.indexOf('function deviceLayout('), SCRIPT.indexOf('function deviceLayout(') + 600);
+  assert.match(dl, /let mine = TABLET_LAYOUT_MINE;/, 'deviceLayout no longer prefers this session\'s press');
 });
 
 test('the mode is gated on width and on the two tabs it merges; Settings stays a whole page', () => {
@@ -379,4 +390,21 @@ test('piece ten: the + sits at the card heads and the minus on the member rows, 
   // lands in grid-column 2 rather than spanning -- the point this assertion guards.
   assert.match(block, /body\.consolidated \.pj3 #pj-newtask \{ grid-column: 2; grid-row: 1; width: 22px; height: 22px;[^}]*font-size: 0;/, 'the + rule outranks the card\'s span-all rule (it lost once, and sat over the label)');
   assert.doesNotMatch(src, /id="pj-newtask" type="button" style=/, 'the inline margin moved to CSS so the mode can restyle it');
+});
+
+test('#6107: a landscape touch tablet keeps its own layout, defaulting to the one-screen view; the board setting is untouched', () => {
+  // The rule's query: touch, sideways, and wide enough for the one-screen view (its own 960px floor).
+  assert.match(SCRIPT, /const CONSOLIDATED_TABLET_OPEN_MQ = '\(hover: none\) and \(pointer: coarse\) and \(orientation: landscape\) and \(min-width: 1100px\)';/, 'the open-rail rule is touch, sideways, 1100px and up');
+  assert.match(SCRIPT, /const TABLET_LAYOUT_MQ = '\(hover: none\) and \(pointer: coarse\) and \(orientation: landscape\) and \(min-width: 960px\)';/);
+  const dev = SCRIPT.slice(SCRIPT.indexOf('function deviceLayout('), SCRIPT.indexOf('function applyLayout('));
+  // Off a landscape tablet the board's setting stands; on one, the tablet's own choice, the one-screen view by default.
+  assert.match(dev, /if \(!tabletLandscape\(\)\) return boardLayout;/);
+  assert.match(dev, /return mine === 'tabs' \? 'tabs' : 'consolidated';/);
+  // The header toggle on such a tablet stores locally and returns BEFORE the PUT, so the Mac's layout never moves.
+  const click = SCRIPT.slice(SCRIPT.indexOf("closest('[data-layout-switch]')"));
+  const tab = click.indexOf('if (tabletLandscape()) {'), put = click.indexOf("method: 'PUT'");
+  assert.ok(tab > 0 && put > tab, 'the tablet branch comes before the board PUT');
+  assert.match(click.slice(tab, put), /TABLET_LAYOUT_MINE = want;\n    try \{ localStorage\.setItem\(TABLET_LAYOUT_KEY, want\);[\s\S]*applyLayout\(want, true\);\n    return;/);
+  // Turning the tablet re-applies the rule.
+  assert.match(SCRIPT, /tlq\.addEventListener\('change', \(\) => \{ if \(STYLE_TRIED\) applyLayout\(deviceLayout\(STYLE_LAYOUT \|\| 'tabs'\), true\); \}\)/);
 });

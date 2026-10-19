@@ -1,16 +1,15 @@
-// The ONE place the Apple Team ID lives (kosmos #4089, #718).
+// Where Xcode reads the Apple Team ID (kosmos #4089, #718, #6262). tools/archive.sh also holds the
+// same Team ID, as the only team it allows io.kosmos.app under: a team change edits both files.
 //
 // The Xcode project reads it from here (this file is the app target's base configuration), and
 // tools/archive.sh reads it from here for the export.
 //
-// 864QZ69GF2 is Stone Syndicate LLC, for an interim TestFlight app only (Josh, 2026-10-12, #4089):
-// internal testers, under its own bundle id below, instead of waiting on Apple's approval of Kosmos
-// Agent Manager, Inc. (#3643). Apple cannot transfer an app never released on the App Store, so the
-// real app is created fresh under that org as io.kosmos.app, and both lines here change then.
+// 6563JLN5HF is Kosmos Agent Manager, Inc. (#6262), the team io.kosmos.app is registered under, with
+// Push Notifications on. It replaces the interim Stone Syndicate preview app (#4089), which was never
+// created in App Store Connect. tools/archive.sh builds io.kosmos.app under this team and no other.
 // Push needs an APNs key from the SAME team as this one (docs/phone-push-go-live.md, Step 1).
-DEVELOPMENT_TEAM = 864QZ69GF2
+DEVELOPMENT_TEAM = 6563JLN5HF
 
 // The bundle id the app is built with (the project reads PRODUCT_BUNDLE_IDENTIFIER from here, and
-// tools/archive.sh checks the exported app against it). io.kosmos.app.preview is the interim
-// TestFlight app's; io.kosmos.app is kept untouched for Kosmos Agent Manager, Inc.
-KOSMOS_BUNDLE_ID = io.kosmos.app.preview
+// tools/archive.sh checks the exported app against it).
+KOSMOS_BUNDLE_ID = io.kosmos.app

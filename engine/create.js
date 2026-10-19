@@ -1393,29 +1393,13 @@ function rewriteAgentJob(clean, spoken, fields, platform) {
        locale-independent and carries no names in that element. Uncached, because a
        switch flipped since the definition was remembered must be seen here. */
     const state = win32job.taskEnabled(clean);
-    if (!state.known) {
-      return {
-        outcome: OUTCOME.REFUSED,
-        because: `we could not tell whether ${spoken}'s startup task is switched on or off (${state.because || 'Task Scheduler did not answer'}), so we have not changed it.`,
-      };
-    }
-    if (!state.registered) {
-      return {
-        outcome: OUTCOME.REFUSED,
-        because: `${spoken}'s startup task is no longer in Task Scheduler, so there is nothing to change and we have not changed it.`,
-      };
-    }
+    const gate = win32RewriteGate(spoken, state);
+    if (gate) return gate;
     const registered = win32RegisterJob(clean, {
       runner: f.runner, runnerBin: f.runnerBin || undefined, model: f.model, configDir: f.configDir,
       enabled: state.enabled !== false,
     });
-    if (!registered || !registered.ok) {
-      return {
-        outcome: OUTCOME.REFUSED,
-        because: `we could not update ${spoken}'s startup task in Task Scheduler (${(registered && registered.because) || 'no detail'}), so nothing changed.`,
-      };
-    }
-    return null;
+    return win32InstalledOutcome(spoken, registered);
   }
   try {
     writePlistFile(plistPath(clean), plistFor(clean, f.runnerBin, f.tmux, f.model, f.configDir, f.runner));
@@ -1423,6 +1407,65 @@ function rewriteAgentJob(clean, spoken, fields, platform) {
     return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
   }
   return null;
+}
+
+/* #6231 item 7: the win32 rewrite's two REFUSED gates, shared by the sync `rewriteAgentJob` win32 arm and the
+   async `rewriteAgentJobWin32Steps`, so the fail-closed "keep its switch" SAFETY (a state we could not read, or
+   a task no longer registered, refuses the change) reads identically in both and cannot drift. `state` is a
+   `win32job.taskEnabled`/`taskEnabledSteps` result. Returns a REFUSED outcome or null (proceed to install). */
+function win32RewriteGate(spoken, state) {
+  if (!state.known) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `we could not tell whether ${spoken}'s startup task is switched on or off (${state.because || 'Task Scheduler did not answer'}), so we have not changed it.`,
+    };
+  }
+  if (!state.registered) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `${spoken}'s startup task is no longer in Task Scheduler, so there is nothing to change and we have not changed it.`,
+    };
+  }
+  return null;
+}
+
+/* #6231 item 7: the win32 install outcome, shared by the sync and async rewrite forms. `registered` is a
+   `win32job.install`/`installSteps` result. Returns a REFUSED outcome or null (success). */
+function win32InstalledOutcome(spoken, registered) {
+  if (!registered || !registered.ok) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `we could not update ${spoken}'s startup task in Task Scheduler (${(registered && registered.because) || 'no detail'}), so nothing changed.`,
+    };
+  }
+  return null;
+}
+
+/* #6231 item 7: `rewriteAgentJob`'s win32 arm as an async step generator, for the put-back run off the board's
+   thread. Mirrors the sync arm command-for-command through the SAME shared helpers (win32RewriteGate,
+   win32InstalledOutcome) and the SAME spec builder (win32AgentSpec), yielding the `taskEnabled` `/Query /XML`
+   then the `install` `/Create /F` as steps. The known&registered gate runs BEFORE install, preserving the
+   round-1/round-2 "keep its switch" SAFETY. win32-only by construction (its caller routes only win32 agents
+   here); linux/mac put-backs write a local file and stay synchronous. Returns null on success, or a REFUSED
+   outcome. */
+function* rewriteAgentJobWin32Steps(clean, spoken, f) {
+  forgetAgentProvider(clean);   // the job is about to change (mirrors rewriteAgentJob's top)
+  const win32job = require('./win32job');
+  if (!win32job.commandsAreReal()) {
+    liveExec.refuseOrWarn('engine/create.js', 'schtasks.exe', ['/Create', '/F', '/TN', win32job.taskName(clean)]);
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `this Kosmos is not allowed to change startup tasks, so ${spoken}'s startup task was not changed.`,
+    };
+  }
+  const state = yield* win32job.taskEnabledSteps(clean);
+  const gate = win32RewriteGate(spoken, state);
+  if (gate) return gate;
+  const registered = yield* win32job.installSteps(win32AgentSpec(clean, {
+    runner: f.runner, runnerBin: f.runnerBin || undefined, model: f.model, configDir: f.configDir,
+    enabled: state.enabled !== false,
+  }));
+  return win32InstalledOutcome(spoken, registered);
 }
 
 /**
@@ -1701,7 +1744,117 @@ function setAccount(name, dir, opts) {
     }
   }
 
-  return { outcome: OUTCOME.CREATED, because: null, account: acct, trust, bypass, onboarding, imports };
+  /* #6231 item 8: report the configDir this write committed (as the job will read it back,
+     `job.configDir || null`) so the account-move START path can cache the per-agent `to` read
+     instead of forcing an uncached /Query. The Claude default writes null; a named account its dir. */
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir: acct.isDefault ? null : acct.dir, trust, bypass, onboarding, imports };
+}
+
+/**
+ * #6214: put an agent back on the account it ran on before a bulk move that was stopped before its turn.
+ *
+ * Not setAccount, which checks an account as a DESTINATION (listed, sharing this computer's history) and prepares it
+ * for a first start (trust, bypass, onboarding, imports). The agent is still running on this account, so it needs
+ * none of that, and a refusal there (an account that keeps its own history, or one no longer listed) would leave the
+ * agent saved on the move's account, to move at its next restart: the thing the put-back exists to prevent.
+ * So this rewrites the launch job only, every other field as it is now, the account folder as it was (`dir` is the
+ * folder the job carried before the move, null for none), for any runner the move covers.
+ */
+/* #6231 item 7: the sync pre-work of restoreAccount -- validate the name, read how the agent is started now
+   (the staleness read; SYNC, and warm from the board poll's cache), and for a Qwen agent write the account into
+   its profile BEFORE the job (restored on failure). Shared by the sync `restoreAccount` and the async
+   `restoreAccountSteps` so the two cannot drift on what the put-back reads or on the Qwen ordering. Returns
+   `{ refusal }` to stop, or `{ ok:true, clean, spoken, job, configDir, qwenJob, qwenBefore, fields }`. */
+function restoreAccountPrep(name, dir, platform) {
+  const clean = cleanName(name);
+  const spoken = spokenName(clean);
+  if (!NAME_RE.test(String(clean == null ? '' : clean))) return { refusal: { outcome: OUTCOME.REFUSED, because: REFUSE_NAME } };
+  const verdict = readJobVerdict(clean, undefined, platform);
+  const job = verdict.job;
+  if (!job) return { refusal: noJobRefusal(clean, spoken, verdict, `we could not read how ${spoken} is started, so we have not changed it.`) };
+  const configDir = dir == null || dir === '' ? null : String(dir);
+  /* A Qwen agent's account is also recorded in its profile, which Repair rebuilds from (setQwenAccount, review 6):
+     put that back too, before the job, and restore the record if the job cannot be rewritten. */
+  const qwenJob = job.runner === 'codex' && jobProvider(job) === 'alibaba';
+  let qwenBefore = null;
+  if (qwenJob) {
+    try { qwenBefore = store.readProfile(clean).qwenAccount || null; } catch { qwenBefore = null; }
+    try { store.writeProfile(clean, { qwenAccount: configDir }); }
+    catch { return { refusal: { outcome: OUTCOME.REFUSED, because: `we could not record which Qwen account ${spoken} is on, so nothing was changed` } }; }
+  }
+  return {
+    ok: true, clean, spoken, job, configDir, qwenJob, qwenBefore,
+    fields: { runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: job.runner },
+  };
+}
+
+/* #6231 item 7: restoreAccount's sync post-work, shared by both forms. On a failed rewrite, roll the Qwen
+   profile back (the job did not move); on success, resolve the account's name for the sentence where a cheap
+   read has it (Claude's list). `prep` is restoreAccountPrep's ok result; `unwritten` is the rewrite's return
+   (a REFUSED outcome, or null/undefined on success). */
+function restoreAccountFinish(prep, unwritten) {
+  if (unwritten) {
+    /* #6231 item 13: two failures in a row (the job, then undoing the record) leave the record on the old account and
+       the job on the move's. Said in the answer, not only here: a Repair rebuilds from the record. */
+    if (prep.qwenJob) {
+      try { store.writeProfile(prep.clean, { qwenAccount: prep.qwenBefore }); }
+      /* Its own sentence: the job's refusal says "nothing changed", which is no longer true (review 1). The job is on the
+         move's account and the record on the old one, so say what each way of starting it would do. */
+      catch { return { ...unwritten, because: `we could not rewrite how ${prep.spoken} is started, and Kosmos's note of its Qwen account now names its old account, so a restart moves it to the new account but a Repair would put it back on the old one` }; }
+    }
+    return unwritten;
+  }
+  let account = null;
+  if (!prep.job.runner || prep.job.runner === 'claude') {
+    try {
+      const all = require('./accounts').list();
+      account = (prep.configDir === null ? all.find((a) => a.isDefault) : all.find((a) => a.dir === prep.configDir)) || null;
+    } catch { account = null; }
+  }
+  return { outcome: OUTCOME.CREATED, because: null, account };
+}
+
+/**
+ * #6214: put an agent back on the account it ran on before a bulk move that was stopped before its turn.
+ * (See restoreAccountPrep for the full why; this is the sync form that writes the launch job inline.)
+ */
+function restoreAccount(name, dir, platform) {
+  const prep = restoreAccountPrep(name, dir, platform);
+  if (prep.refusal) return prep.refusal;
+  const unwritten = rewriteAgentJob(prep.clean, prep.spoken, prep.fields, platform);
+  return restoreAccountFinish(prep, unwritten);
+}
+
+/* #6231 item 7: the win32 put-back as an async step generator -- the same prep and finish as the sync
+   `restoreAccount`, with ONLY the job rewrite yielded off the board's thread (via rewriteAgentJobWin32Steps).
+   The staleness read (in prep) stays SYNC and completes before the first yield, so no yield sits between the
+   re-read and the write-issue (contract 3); keeping the agent held until this generator settles is the caller's
+   job (contract 3b). win32-only: linux/mac put-backs write a local file and do not freeze the board, so they
+   stay on the sync `restoreAccount`. */
+function* restoreAccountSteps(name, dir) {
+  const prep = restoreAccountPrep(name, dir, 'win32');
+  if (prep.refusal) return prep.refusal;
+  let finished = false;
+  try {
+    const unwritten = yield* rewriteAgentJobWin32Steps(prep.clean, prep.spoken, prep.fields);
+    finished = true;   // the write settled; restoreAccountFinish now owns the Qwen record (it rolls back on a failed
+                       // write). If finish itself threw the rollback is skipped, which is right: the job DID move.
+    return restoreAccountFinish(prep, unwritten);
+  } finally {
+    /* #6231 item 7: prep writes the Qwen account to the OLD dir BEFORE the job, and restoreAccountFinish is what
+       rolls it back on a failed write. But the async driver ABANDONS this generator at its cap (or on a throw) by
+       calling .return(), so restoreAccountFinish never runs -- which would leave the record naming the old account
+       while the job stayed on the new one (the move's). This finally runs on .return() too, so roll the record
+       back to what prep read. For a clean abandon (the job write never landed) this matches restoreAccountFinish's
+       failed-write rollback. In the narrow abandon-AFTER-success window (the cap fires after the /Create landed but
+       before finish ran) it rolls back though the job did move, so the record names the new account while the job
+       is on the old one -- the same record/job disagreement item 13 handles, reconciled by a Repair; the
+       alternative, trusting a write the driver has already abandoned, is the worse of the two. The sync
+       `restoreAccount` never abandons, so `finished` is always true there and this is a no-op for it. */
+    if (!finished && prep.qwenJob) {
+      try { store.writeProfile(prep.clean, { qwenAccount: prep.qwenBefore }); } catch { /* best effort; the job did not move */ }
+    }
+  }
 }
 
 /**
@@ -1765,7 +1918,10 @@ function setCodexAccount(clean, spoken, dir, job, platform) {
     try { trustCodexFolder(workerDir(clean), homeArg, homeArg === null); }
     catch { trust = { ok: false, because: 'we could not let the OpenAI runner work in its folder' }; }
   }
-  return { outcome: OUTCOME.CREATED, because: null, account: acct, trust };
+  /* #6231 item 8: report the configDir written (homeArg) so account-move can cache the `to` read.
+     This is the override-aware value: a default Codex account with CODEX_HOME in force writes a
+     concrete dir, not null, so the cache must use exactly what was written, not `isDefault ? null`. */
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir: homeArg, trust };
 }
 
 /**
@@ -1809,7 +1965,8 @@ function setGeminiAccount(clean, spoken, dir, job, platform) {
     runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'gemini',
   }, platform);
   if (unwritten) return unwritten;
-  return { outcome: OUTCOME.CREATED, because: null, account: acct };
+  // #6231 item 8: report the configDir written so account-move can cache the `to` read.
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir };
 }
 
 /**
@@ -1850,7 +2007,8 @@ function setQwenAccount(clean, spoken, dir, job, platform) {
     try { store.writeProfile(clean, { qwenAccount: before }); } catch { /* the job did not move, so Repair finds it */ }
     return unwritten;
   }
-  return { outcome: OUTCOME.CREATED, because: null, account: acct };
+  // #6231 item 8: report the configDir written (acct.dir; Qwen has no default) so account-move can cache the `to` read.
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir: acct.dir };
 }
 
 function setGrokAccount(clean, spoken, dir, job, platform) {
@@ -1870,7 +2028,8 @@ function setGrokAccount(clean, spoken, dir, job, platform) {
     runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'grok',
   }, platform);
   if (unwritten) return unwritten;
-  return { outcome: OUTCOME.CREATED, because: null, account: acct };
+  // #6231 item 8: report the configDir written so account-move can cache the `to` read.
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir };
 }
 
 /**
@@ -2690,7 +2849,7 @@ function defaultAgentGrokHome() {
  * back to the exact same path.
  *
  * #3439: on Windows canonicalOnDisk returns a backslash path like
- * `C:\Users\joshu\work\workers\marcus`. Placed raw inside `[projects."..."]`,
+ * `C:\Users\example\work\workers\marcus`. Placed raw inside `[projects."..."]`,
  * the `\U` and `\u` sequences are read by TOML as (invalid) unicode escapes, so
  * codex fails to load the WHOLE config.toml and every turn dies at load, before
  * auth or network. macOS paths use forward slashes and never trip this, which is
@@ -4701,6 +4860,20 @@ function createAgentInner(opts) {
   {
     const allowed = policyAllows(provider, opts && opts.model, wantAccountDir);
     if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because, steps };
+    /* kosmos#6239: and no agent is made (made is started) in the policy's quiet hours. A policy read that throws does
+       not refuse, as for a start (remove.restart). */
+    let q = { ok: true };
+    try { const op = require('./orgpolicy'); op.inForce(); q = op.quietAllows(); /* a fresh bundle first, then the strict read */ } catch { q = { ok: true }; }
+    if (q.ok !== true) {
+      // Reported under the name asked for: the agent was never made, so it is the act, not an agent, that is named.
+      try { require('./agentevents').recordRefusal({ agent: shown || name, rule: 'quiet-hours' }); } catch { /* not reported */ }
+      return { outcome: OUTCOME.REFUSED, because: `no agent is made now: ${q.because}`, steps };
+    }
+    /* kosmos#6309: and not at the policy's monthly usage cap, as for quiet hours. A fault reads as open. Not reported as an
+       agent event: the coordinator has no rule word for the cap. */
+    let c = { ok: true };
+    try { c = require('./usagecap').capAllows(); } catch { c = { ok: true }; }
+    if (c.ok !== true) return { outcome: OUTCOME.REFUSED, because: `no agent is made now: ${c.because}`, steps, capped: true };
   }
   /* #3564: an Agent or a Swarm. A swarm is refused here, before anything is written,
      when its settings are wrong or it is not on Claude (v1). */
@@ -5127,7 +5300,7 @@ function createAgentInner(opts) {
    * loaded from somewhere other than this board's own plist path, AND whose plist
    * is now gone or sits in a temp folder, is a leftover nobody can use: it cannot
    * survive a restart (its plist is gone or in a folder the system clears), and a
-   * real agent's plist never lives in a temp folder. Measured on Agent1s
+   * real agent's plist never lives in a temp folder. Measured on a build Mac
    * 2026-09-27: a 09-24 test left `com.kosmos.agent.josh` loaded from
    * `T/rx-launch-*`, respawning 8,096 times with exit 1, and it blocked the setup
    * guide's creation for the name Josh. That kind is booted out and the creation
@@ -5322,6 +5495,7 @@ function createAgentInner(opts) {
   try { require('./observed').forgetAgent(name); } catch { /* #5959 slice 2: nor the old name's last-seen time */ }
   try { require('./stuckterminal').forget(name); } catch { /* #5154 slice C: nor an old stuck-terminal episode's clock */ }
   try { require('./toolloop').forget(name); } catch { /* #6071: nor a run of repeated tool failures */ }
+  try { require('./ownbounds').forget(name); } catch { /* #5154 slice B: nor an old own-bound give-up episode */ }
   try { require('./liveness').forget(name); } catch { /* #5957 slice 3: nor an old agent's last report */ }
   const priorTokens = sendertoken.revoke(name);
   if (priorTokens.ok !== true) {
@@ -5814,7 +5988,7 @@ function createAgentInner(opts) {
           }
         } catch { /* reported below rather than swallowed */ }
         if (!policyLanded) {
-          steps.push({ label: 'could not add your company\'s AI policies to its instructions; Kosmos adds them again the next time it starts', ok: false });
+          steps.push({ label: require('./policy').aboutPolicies('could not add your company\'s AI policies to its instructions; Kosmos adds them again the next time it starts'), ok: false });   // kosmos#6263
         }
       }
       /* #3614: where to save a file it makes for the person in a direct message, with
@@ -5858,6 +6032,17 @@ function createAgentInner(opts) {
           if (!communityLanded) {
             steps.push({ label: 'could not add the Kosmos+ community section to its instructions; it will be tried again at its next restart', ok: false });
           }
+        } else {
+          /* kosmos#6239: under a policy that stops outside contact, the agent is told from birth that it does not take
+             part (Josh, 2026-10-15 10:45), rather than told nothing. */
+          try {
+            const cb = require('./communityblock');
+            if (cb.policyStopped()) {
+              const spliced = require('./projects').spliceBlock(text, cb.stoppedBody(), cb.START, cb.END);
+              if (Buffer.byteLength(spliced, 'utf8') <= require('./instructions').MAX_BYTES) text = spliced;
+              else steps.push({ label: 'could not add the line saying it does not take part in the Kosmos+ community; it will be tried again at its next restart', ok: false });
+            }
+          } catch { /* the board refuses the community under that policy either way */ }
         }
       }
       /* #3564: a swarm lead is told, from birth, how many helpers it may run and how. */
@@ -6629,6 +6814,8 @@ module.exports = {
   // #570: the one three-state answer the plist-stat readers now share.
   jobPresence,
   setAccount,
+  restoreAccount,
+  restoreAccountSteps,
   setProvider,
   readJob,
   /* #4353: agyrefresh's production wiring calls this. While it was not exported, the board-start

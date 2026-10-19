@@ -26,10 +26,10 @@ function paint(reply, { onAgents = true } = {}) {
     return { ok: true, json: async () => reply };
   };
   const fn = new Function(
-    'document', 'fetch', 'esc', 'onAgentsTab', 'SURVIVAL_BUSY', 'SURVIVAL_HELD',
+    'document', 'fetch', 'esc', 'onAgentsTab', 'SURVIVAL_BUSY', 'SURVIVAL_HELD', 'SURVIVAL_UNKNOWN_BLOCK',
     page.lift(SCRIPT, 'survivalSay') + '\n' + page.lift(SCRIPT, 'paintSurvival')
     + '\nreturn paintSurvival();',
-  )(doc, fetchStub, (x) => String(x), () => onAgents, false, false);
+  )(doc, fetchStub, (x) => String(x), () => onAgents, false, false, '');
   return fn.then(() => wrap);
 }
 
@@ -90,7 +90,7 @@ test('a failed look leaves the screen alone rather than clearing it', async () =
   for (const bad of ['down', 'throws', { ok: false, because: 'we could not read it' }, null, { ok: true }]) {
     const wrap = { hidden: false, innerHTML: 'STANDING' };
     const doc = { getElementById: () => wrap };
-    await new Function('document', 'fetch', 'esc', 'onAgentsTab', 'SURVIVAL_BUSY', 'SURVIVAL_HELD',
+    await new Function('document', 'fetch', 'esc', 'onAgentsTab', 'SURVIVAL_BUSY', 'SURVIVAL_HELD', 'SURVIVAL_UNKNOWN_BLOCK',
       page.lift(SCRIPT, 'survivalSay') + '\n' + page.lift(SCRIPT, 'paintSurvival') + '\nreturn paintSurvival();')(
       doc,
       async () => {
@@ -114,5 +114,44 @@ test('the sentence never claims the folders are at risk', async () => {
      has to be alarming about the right thing or somebody starts recreating
      agents whose folders are sitting there. */
   const wrap = await paint({ ok: true, missing: ['brigitte'] });
-  assert.match(wrap.innerHTML, /folders and everything\s+they remember are untouched/);
+  assert.match(wrap.innerHTML, /folders and everything they remember are untouched\./);
+  // #6518: the body no longer restates the headline ("so they stop when it does").
+  assert.doesNotMatch(wrap.innerHTML, /so they stop when/);
+});
+
+test('#6320: agents that could not be checked are named, with no button for them', async () => {
+  const only = await paint({ ok: true, missing: [], unknown: ['ava', 'bob'], agents: [{ name: 'ava', shownAs: 'Ava' }] });
+  assert.equal(only.hidden, false, 'unknown agents were dropped silently');
+  assert.match(only.innerHTML, /We could not check whether 2 of your agents come back/);
+  assert.match(only.innerHTML, /data-survival-unknown>Ava, bob</);
+  assert.doesNotMatch(only.innerHTML, /data-survival-fix/, 'a button offered to set up agents we could not check');
+  const one = await paint({ ok: true, missing: [], unknown: ['ava'] });
+  assert.match(one.innerHTML, /whether one of your agents comes back/);
+  assert.match(one.innerHTML, /We will leave it as it is/);
+  assert.doesNotMatch(one.innerHTML, /these agents|leave them/, 'one agent spoken of as many');
+  // Both at once: the missing ones keep their button, the unknown ones are said beneath it.
+  const both = await paint({ ok: true, missing: ['rick'], unknown: ['ava'] });
+  assert.match(both.innerHTML, /One of your agents will not come back/);
+  assert.match(both.innerHTML, /data-survival-fix/);
+  assert.match(both.innerHTML, /data-survival-unknown>ava</);
+  // #6518: under the first headline the second one does not repeat "if you restart this computer".
+  assert.match(both.innerHTML, /We could not check one more agent\./);
+  assert.equal((both.innerHTML.match(/if you restart this computer/g) || []).length, 1, 'the restart said more than once');
+  const twoMore = await paint({ ok: true, missing: ['rick'], unknown: ['ava', 'bob'] });
+  assert.match(twoMore.innerHTML, /We could not check 2 more agents\./);
+  // CONTROL: an older board that sends no unknown list behaves as before.
+  const old = await paint({ ok: true, missing: [] });
+  assert.equal(old.hidden, true);
+});
+
+test('#6320: the name of an unknown agent is escaped, and the unknown-only panel has the solid could-not-read shape', async () => {
+  const wrap = { hidden: false, innerHTML: '' };
+  const doc = { getElementById: (id) => (id === 'restart-wrap' ? wrap : null) };
+  const realEsc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  await new Function('document', 'fetch', 'esc', 'onAgentsTab', 'SURVIVAL_BUSY', 'SURVIVAL_HELD', 'SURVIVAL_UNKNOWN_BLOCK',
+    page.lift(SCRIPT, 'survivalSay') + '\n' + page.lift(SCRIPT, 'paintSurvival') + '\nreturn paintSurvival();',
+  )(doc, async () => ({ ok: true, json: async () => ({ ok: true, missing: [], unknown: ['x'], agents: [{ name: 'x', shownAs: '<b>x' }] }) }), realEsc, () => true, false, false, '');
+  assert.match(wrap.innerHTML, /data-survival-unknown>&lt;b&gt;x</);
+  assert.doesNotMatch(wrap.innerHTML, /<b>x/);
+  assert.match(wrap.innerHTML, /pj-empty boardfail/, 'could-not-read is the solid unanswered-question shape');
 });

@@ -36,8 +36,11 @@
  *
  * EVERY event sends auto:true -- the machine wrote this, not the agent. The
  * board's reconcileReport (#900/#1949/#2456) refuses an automatic idle/working
- * -- and an automatic needs_you -- over a standing DELIBERATE wait (and over an
- * auto `blocked`, a provider outage that does not auto-resolve), server-side;
+ * -- and an automatic needs_you -- over a standing DELIBERATE wait, and an
+ * automatic idle/working/needs_you over an auto `blocked` (a provider outage),
+ * except (#6209) the Stop idle of a turn that ended normally over a provider
+ * block of a passing kind (a server error), which clears it unless it had
+ * covered a wait on a person or what it covered is unknown (server-side);
  * but it lets an auto idle/working CLEAR a standing auto `needs_you` (this
  * PermissionRequest prompt), so the prompt stops sticking once the turn moves
  * on. The client just sends auto, exactly as the bash hook passes --auto.
@@ -358,6 +361,37 @@ async function deliver(report, io) {
   }
 }
 
+/**
+ * #1765: before this hook sends a token, the listener on the board port shows it already holds that token
+ * (engine/boardproof.js checkBoard: an HMAC over a fresh nonce, checked here with our own copy). Every account on a
+ * Windows computer uses the same port, so whatever answers there is not always this account's board.
+ *
+ * Returns the check this process uses: (url, token, timeoutMs) resolving { ok, why, nothingThere }. `o.proveBoard`
+ * is the test seam (resolving a boolean or { ok, why }). With no seam the real check runs, unless the caller handed in
+ * its own `fetchImpl`: that is a test standing in for the board. No production caller passes one (the entry at the
+ * bottom of this file, and engine/win32codexsup.js; kosmos-report-hook.board-proof-1765.test.js pins both).
+ */
+function proverFor(o) {
+  const check = (url, token, timeoutMs, prove) => {
+    let boardproof;
+    try { boardproof = require('./boardproof'); } catch (e) { return Promise.resolve({ ok: false, why: 'the check could not load: ' + ((e && e.message) || e), nothingThere: false }); }
+    return boardproof.checkBoard(url, token, { timeoutMs, prove });
+  };
+  if (typeof o.proveBoard === 'function') return (url, token, timeoutMs) => check(url, token, timeoutMs, o.proveBoard);
+  if (o.fetchImpl) return async () => ({ ok: true, why: '', nothingThere: false });
+  return (url, token, timeoutMs) => check(url, token, timeoutMs);
+}
+
+/** #1765: the words for a check that came out false. Nothing listening (the board is down) and a listener that
+ *  cannot prove itself are different situations for the person, so they read differently. */
+function proofRefusalReason(r) {
+  const w = String((r && r.why) || '');
+  if (w === 'timed out') return 'the board did not answer in time, so nothing was sent';
+  if (/^the check (could not load|failed)/.test(w)) return 'this computer could not check it was reaching your Kosmos (' + w + '), so nothing was sent';
+  if (r && r.nothingThere) return 'the board could not be reached (' + w.replace(/^request failed: /, '') + ')';
+  return 'what answers at the board\'s address could not show it is your Kosmos, so nothing was sent to it';
+}
+
 /** The throttle key, most-specific first: TMUX_PANE if present (there is none on
  *  native Windows), else a HASH of the per-launch agent token (hashed, never
  *  verbatim: the key is a marker FILENAME under %TEMP% and #1970 keeps the
@@ -435,21 +469,41 @@ async function main(io) {
     return conn;
   };
 
+  /* #1765: every send below carries a token, so each first asks the listener to prove it holds that token. Proved
+     before EACH send (kosmos#6464): a proof is about the listener at that moment, and the board can restart, or
+     another process take its port, between this run's sends. Each check gets half its send's bound and the send what
+     is left, so the check never lengthens a hook. Not proven: nothing is sent, and the hook still exits 0. The token
+     proved is the one the board reads first (the board token, else the agent token). */
+  const prove = proverFor(o);
+  const proven = async (c, boundMs) => {
+    const token = c.boardToken || c.agentToken;
+    if (!token) return { ok: true, leftMs: boundMs };   // nothing to protect
+    const t0 = Date.now();
+    const r = await prove(c.url, token, Math.max(1, Math.floor(boundMs / 2)));
+    return { ok: r.ok, why: r.why, nothingThere: r.nothingThere, leftMs: boundMs - (Date.now() - t0) };
+  };
+
   /* #5812 / #5153 on Windows: just before Claude edits a file, ask the board to keep a copy and note who is writing,
      as the bash hook does on the Mac. On EVERY edit, before the heartbeat throttle below can return early. */
   const keep = keepRequestFor(evt, o.platform);
   if (keep) {
     const c = connection();
-    await keepCopy(keep, { url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
-      fetchImpl: o.fetchImpl, timeoutMs: o.keepTimeoutMs });
+    const p = await proven(c, o.keepTimeoutMs || KEEP_TIMEOUT_MS);
+    if (p.ok && p.leftMs > 0) {
+      await keepCopy(keep, { url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
+        fetchImpl: o.fetchImpl, timeoutMs: p.leftMs });
+    }
   }
 
   /* #6071: a failed tool call goes to the board as a digest (no report), as the bash hook's PostToolUseFailure does. */
   const failed = failureRequestFor(evt);
   if (failed) {
     const c = connection();
-    await toolFailed(failed, { url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
-      fetchImpl: o.fetchImpl, timeoutMs: o.keepTimeoutMs });
+    const p = await proven(c, o.keepTimeoutMs || KEEP_TIMEOUT_MS);
+    if (p.ok && p.leftMs > 0) {
+      await toolFailed(failed, { url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
+        fetchImpl: o.fetchImpl, timeoutMs: p.leftMs });
+    }
     return 0;
   }
 
@@ -471,15 +525,24 @@ async function main(io) {
   if (!report) return 0;
 
   const c = connection();
-  const verdict = await deliver(report, {
-    url: c.url,
-    boardToken: c.boardToken,
-    agentToken: c.agentToken,
-    fetchImpl: o.fetchImpl,
-    timeoutMs: o.timeoutMs || timeoutFor(report),
-    fromPane: env.TMUX_PANE || '',
-    world: c.world,
-  });
+  const p = await proven(c, o.timeoutMs || timeoutFor(report));
+  let verdict;
+  if (!p.ok) {
+    // #1765: nothing was sent. A board that is down reads as before; a listener that could not prove itself says so.
+    verdict = { ok: false, notProven: proofRefusalReason(p) };
+  } else if (p.leftMs <= 0) {
+    verdict = { ok: false, error: 'out of time before the report could be sent' };
+  } else {
+    verdict = await deliver(report, {
+      url: c.url,
+      boardToken: c.boardToken,
+      agentToken: c.agentToken,
+      fetchImpl: o.fetchImpl,
+      timeoutMs: p.leftMs,
+      fromPane: env.TMUX_PANE || '',
+      world: c.world,
+    });
+  }
 
   /* #1704 PR2: a board serving another Kosmos (421) is not reporting being off:
      this agent's own Kosmos is simply not the one open, and a report is not kept
@@ -490,7 +553,9 @@ async function main(io) {
     // (e.g. the board is enforcing and the agent token was missing) must NOT
     // read as "the board answered 200", which implies success; the `because`
     // is the actionable sentence, so it wins over the bare status.
-    const reason = verdict.error
+    const reason = verdict.notProven
+      ? verdict.notProven
+      : verdict.error
       ? ('the board could not be reached (' + verdict.error + ')')
       : verdict.because
         ? ('the board refused it (' + verdict.because + ')')
@@ -538,7 +603,7 @@ function attachStdin(stream, onDone) {
 module.exports = {
   parseInput, field, reportFor, buildBody, resolvePort, resolveUrl,
   readBoardToken, agentToken, deliver, timeoutFor, throttleKey, heartbeatDue,
-  attachStdin, main, kosmosAllows, keepRequestFor, keepCopy, KEEP_TIMEOUT_MS, failureRequestFor, toolFailed,
+  attachStdin, main, kosmosAllows, proverFor, proofRefusalReason, keepRequestFor, keepCopy, KEEP_TIMEOUT_MS, failureRequestFor, toolFailed,
   HEARTBEAT_SECONDS, DEFAULT_PORT, DEFAULT_TIMEOUT_MS, SHORT_TIMEOUT_MS,
 };
 

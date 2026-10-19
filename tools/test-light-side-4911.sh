@@ -6,13 +6,22 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/cut-guard.sh"
 unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_SIDE_LANE KOSMOS_SIDE_MAX_LOAD KOSMOS_SIDE_MIN_HOLD_S KOSMOS_LIGHT_SIDE_COOKIE \
   KOSMOS_MACHINE_CLAIM_COOKIE KOSMOS_QUEUE_CLASS KOSMOS_QUEUE_STARVE_S
-T="$(mktemp -d)"
+# NOT ${TMPDIR}: a child of $T serves as a NON-sandbox cwd ($T/elsewhere), but during the suite
+# ${TMPDIR} is itself run-tests.sh's kt<digits> sandbox, so that child would wrongly match it (#4298).
+# A plain /tmp root (as test-cut-guard.sh's secondary roots do) avoids that. /tmp is OUTSIDE the leak
+# guard's scan (the blind spot #4298 is about), so the EXIT trap below must do the cleanup. bash runs the
+# EXIT trap on a normal exit AND on any catchable signal (measured on /bin/bash 3.2 and 5.x), so $T and the
+# holders are removed on every path except an uncatchable SIGKILL or a signal arriving mid-trap. No
+# signal-routing trap is needed or wanted: a trap would defer the signal until the foreground child returns.
+T="$(mktemp -d "/tmp/test-light-side-4911.XXXXXXXXXX")"
+# Arm the cleanup BEFORE spawning the holders, so a signal in that window still removes $T.
+trap 'rm -rf "$T"' EXIT
 sleep 600 </dev/null >/dev/null 2>&1 & HOLDER=$!
 sleep 600 </dev/null >/dev/null 2>&1 & OTHER=$!
 # A stand-in suite that is NOT this shell's descendant (this shell holds a queue marker in the side arms, and a
 # waiter's descendants are not suites): orphaned at once, so its parent is launchd, as a real agent's suite's is not ours.
 ORPHAN="$(sh -c 'sleep 600 </dev/null >/dev/null 2>&1 & echo $!')"
-trap 'kill "$HOLDER" "$OTHER" "$ORPHAN" 2>/dev/null; rm -rf "$T"' EXIT
+trap 'kill "$HOLDER" "$OTHER" "$ORPHAN" 2>/dev/null; rm -rf "$T"' EXIT   # now also kill the holders; bash runs this EXIT trap on signals too
 export KOSMOS_RUN_MARKER_DIR="$T/markers"; mkdir -p "$KOSMOS_RUN_MARKER_DIR"
 fails=0
 pass() { echo "PASS  $1"; }

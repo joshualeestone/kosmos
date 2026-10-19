@@ -3,7 +3,7 @@
  * #3568 on Windows: Gemini on a Google SUBSCRIPTION through Google's Antigravity CLI (`agy`),
  * one headless turn per message, the way win32keyed.js drives Gemini and Grok.
  *
- * MEASURED on a Windows 11 box with agy 1.2.11, never signed in (C:\Users\joshu\work\agy-probe,
+ * MEASURED on a Windows 11 box with agy 1.2.11, never signed in (C:\Users\<user>\work\agy-probe,
  * 2026-09-26). Everything below that says "unproven" needs one real sign-in to confirm.
  *
  *  - A turn is `agy --gemini_dir=<abs> --print=<msg> --output-format json [--conversation <id>]

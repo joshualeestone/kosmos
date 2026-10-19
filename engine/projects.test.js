@@ -92,6 +92,14 @@ function folder(name) {
 // #763: a pane whose SCREEN says working while its REPORT says needs_you, so a
 // needs_you card can only have come from the report.
 const WORKING_SCREEN = 'Reading the lease\n· Working (esc to interrupt)\n';
+/* #6341: a post in a project's room just now, so an agent's own condition counts there (a room silent for a day is not
+   live). Written as the board writes a room post, into the sandboxed log. */
+function roomPost(projectId, from = 'tove', at = new Date().toISOString()) {
+  const log = path.join(require('./store').ROOT, 'messages.jsonl');
+  fs.appendFileSync(log, JSON.stringify({ kind: 'post', id: 'pq' + Math.random().toString(36).slice(2), from, project: projectId,
+    to: [], text: 'working on it', outcomes: {}, at }) + '\n');
+}
+
 function cards(specs) {
   const board = fleet.install(specs);
   try {
@@ -466,6 +474,7 @@ test('the row summary counts what it can see AND says what it could not', () => 
   assert.equal(described.summary.total, 3);
   assert.equal(described.summary.working, 1);
   assert.equal(described.summary.needsYou, 1, 'the question named this project');
+  assert.equal(described.summary.needsYouQuestions, 1, '#6483: the agent\'s own question is counted as a question');
   assert.equal(described.summary.needsYouElsewhere, 0);
   assert.equal(described.summary.needsYouInferred, 0, 'stated by the report itself');
   assert.equal(described.summary.unseen, 1, 'a summary that hides its own blind spot is the defect');
@@ -2993,6 +3002,11 @@ test('#2808 class 2: describe carries stateReportedBy onto the member, so pjMemb
   assert.equal(members.claudebot.state, 'needs_you');
   assert.equal(members.claudebot.stateReportedBy, 'agent',
     'a deliberate agent question must carry by:agent onto the member -- without it pjMember cardStOf stays attn (red) and the class-2 de-alarm never reaches the project view');
+  // #6483 review 1: both count as needing the person here, and only the agent's own question counts as a question, so
+  // the technical prompt keeps the project's red Issue.
+  const qrow = projects.list(roster).find((p) => p.id === q.id);
+  assert.equal(qrow.summary.needsYou, 2, 'CONTROL: both are about this project');
+  assert.equal(qrow.summary.needsYouQuestions, 1, '#6483: an auto (technical) prompt was counted as a calm question');
   assert.ok(members.mara && members.mara.present, 'the class-1 member resolves');
   assert.equal(members.mara.stateReportedBy, 'auto', 'a class-1 (auto) prompt must carry by:auto onto the member, so pjMember keeps it red');
 });
@@ -3007,12 +3021,14 @@ test('#3726: the project Issue count is the board\'s "needs the person" rule, no
      set, since that row is built offline by the route and the fixture cannot produce it. */
   const pj = projects.create({ name: 'Conn', folder: folder('conn-3726'), agents: ['nika', 'tove', 'ines'] });
   const other = projects.create({ name: 'Also', folder: folder('also-3726'), agents: ['nika'] });
+  roomPost(pj.id); roomPost(other.id);   // #6341: both rooms are live, so an agent's own condition counts in each
   const base = cards([fleet.agent('nika', { state: 'connection_lost' }), fleet.agent('tove', { state: 'idle' }), fleet.agent('ines', { state: 'connection_lost' })]);
   const withPhase = (name, phase) => Object.assign({}, base.find((c) => c.sessionName === name), { reconnect: phase ? { phase } : null });
   const roster = [withPhase('nika', 'gave_up'), Object.assign({}, base.find((c) => c.sessionName === 'tove'), { state: 'needs_trust' }), withPhase('ines', 'retried')];
   const row = projects.list(roster).find((p) => p.id === pj.id);
   assert.equal(row.agents.find((m) => m.sessionName === 'nika').reconnect.phase, 'gave_up', 'the member does not carry where the reconnect stands');
   assert.equal(row.summary.needsYou, 2, 'a given-up connection and a trust wait are not counted as needing the person');
+  assert.equal(row.summary.needsYouQuestions, 0, '#6483: a given-up connection and a trust wait are not questions, so the card keeps Issue');
   // Control: a reconnect still being tried ('retried' and 'waiting', the real phases before
   // 'gave_up') does not need the person yet.
   for (const phase of ['waiting', 'retried']) {
@@ -3080,6 +3096,7 @@ test('#5688: every member the Issue pill counts carries why, and the pill is exa
   const selfreport = require('./selfreport');
   const p = projects.create({ name: 'Why', folder: folder('why'), agents: ['wk88', 'qq88', 'rl88', 'cl88'] });
   const elsewhere = projects.create({ name: 'Elsewhere', folder: folder('elsewhere'), agents: ['qq88'] });
+  roomPost(p.id);   // #6341: a live room, so the crash loop (the agent's own condition) counts here
   assert.equal(selfreport.record('qq88', { state: 'needs_you', because: 'Which domain?', project: p.id }).recorded, true);
   // The real cards, with the fields server.js attaches to /api/status rows (stuckterminal.peek, crashloop) set the way
   // it sets them: a rate limit that has stood past its threshold, and a crash loop on a working agent.
@@ -3089,8 +3106,24 @@ test('#5688: every member the Issue pill counts carries why, and the pill is exa
       : c.sessionName === 'cl88' ? { ...c, crashLoop: { looping: true, count: 4 } } : c));
   const row = projects.list(roster).find((x) => x.id === p.id);
   const why = Object.fromEntries(row.agents.map((m) => [m.sessionName, m.needsYouHere]));
-  assert.deepEqual(why, { wk88: null, qq88: 'question', rl88: 'stuck_rate', cl88: 'crash_loop' });
-  assert.equal(row.summary.needsYou, 3, 'the pill counts exactly the members with a reason');
+  // #6341 (Josh 19:47): out of usage shows on the agent only, so the rate-limited member is quiet here, with its reason kept.
+  assert.deepEqual(why, { wk88: null, qq88: 'question', rl88: null, cl88: 'crash_loop' });
+  assert.deepEqual(row.agents.find((m) => m.sessionName === 'rl88').needsYouQuiet, { reason: 'stuck_rate', because: 'usage' });
+  assert.equal(row.summary.needsYou, 2, 'the pill counts exactly the members with a reason');
+  assert.equal(row.summary.needsYouQuestions, 1, '#6483: the question counts as a question, the crash loop does not');
+  // #6483 review 1: a question from an agent that is now crash-looping is red on its own card ("Keeps stopping"), so it
+  // is not a calm question on the project either.
+  const looping = roster.map((c) => (c.sessionName === 'qq88' ? { ...c, crashLoop: { looping: true, count: 4 } } : c));
+  const lrow = projects.list(looping).find((x) => x.id === p.id);
+  assert.equal(lrow.agents.find((m) => m.sessionName === 'qq88').needsYouHere, 'question', 'CONTROL: still counted, as its question');
+  assert.equal(lrow.summary.needsYouQuestions, 0, '#6483: a crash-looping agent\'s question made the project calm');
+  // #6483 review 2: and a question from an agent whose restart failed (the card's disruption.failed, red "failed restart").
+  const failed = roster.map((c) => (c.sessionName === 'qq88' ? { ...c, disruption: { failed: true } } : c));
+  const frow = projects.list(failed).find((x) => x.id === p.id);
+  const fq = frow.agents.find((m) => m.sessionName === 'qq88');
+  assert.equal(fq.restartFailed, true, 'CONTROL: the member carries the failed restart');
+  assert.equal(fq.needsYouHere, 'question', 'CONTROL: still counted, as its question');
+  assert.equal(frow.summary.needsYouQuestions, 0, '#6483: a failed restart\'s question made the project calm');
   // The same question names Why, not Elsewhere (#763): no reason there, and nothing counted.
   const other = projects.list(roster).find((x) => x.id === elsewhere.id);
   assert.equal(other.agents[0].needsYouHere, null);
@@ -3110,6 +3143,12 @@ test('#5688: needsYouReason names each condition needsPerson counts, and none it
   assert.equal(r({ state: 'auth_failed', stuckError: { stuck: true, state: 'auth_failed' } }), 'stuck_auth');
   assert.equal(r({ state: 'rate_limited', stuckError: { stuck: true, state: 'rate_limited' } }), 'stuck_rate');
   assert.equal(r({ state: 'rate_limited', stuckError: { stuck: false, state: 'rate_limited' } }), null, 'CONTROL: a brief rate limit');
+  // #5154 slice B: a Kosmos give-up (ownBound) names own_bound; a not-raised one is not counted; and the agent's
+  // own question wins over a give-up (precedence, parallel to the card sentence and pjAlsoWhy ordering).
+  assert.equal(r({ ownBound: { raised: true } }), 'own_bound', 'a raised Kosmos give-up names own_bound');
+  assert.equal(r({ ownBound: { raised: false } }), null, 'CONTROL: a not-raised give-up is not counted');
+  assert.equal(r({ state: 'needs_you', stateProject: 'p1', ownBound: { raised: true } }), 'question', 'PRECEDENCE: the agent’s own question wins over a give-up');
+  assert.equal(r({ state: 'connection_lost', reconnect: { phase: 'gave_up' }, ownBound: { raised: true } }), 'gave_up', 'PRECEDENCE: a gave-up connection wins over a Kosmos give-up (own_bound is lowest)');
   assert.equal(r({ state: 'needs_trust', present: false }), null, 'a member Kosmos cannot see');
   assert.equal(r({ state: 'needs_trust', tied: false }), null, 'a pane it cannot tie to this agent');
 });

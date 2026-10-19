@@ -32,6 +32,10 @@ const HANDLER_TIMEOUT_S = 5;
    which would break ask_question itself; before 1.1.9 PostToolUse fired on every step and
    ignored its matcher, a node start per step. 1.1.9 covers both. */
 const MIN_TOOL_HOOKS = [1, 1, 9];
+/* #5812 item 4 (review 1): the oldest agy whose file-tool PreToolUse hook is measured safe. On 1.2.17 (and 1.4.0) under
+   --dangerously-skip-permissions the edit goes ahead whatever the hook answers; on 1.2.11 an empty answer was measured to
+   DENY a tool (the bridge's header), so an older agy keeps the ask_question-only matcher. */
+const MIN_FILE_TOOL_HOOKS = [1, 2, 17];
 
 /** `x.y.z` (or `x.y`, read as x.y.0) out of `agy --version` output, or null when there is none. */
 function parseVersion(text) {
@@ -41,11 +45,11 @@ function parseVersion(text) {
 
 /** Whether the ask_question tool hooks may be written. An unknown version is NO: a missing tool
     hook costs only the needs_you report, while a wrong one can break the agent's question. */
-function toolHooksSafe(versionText) {
+function toolHooksSafe(versionText, min = MIN_TOOL_HOOKS) {
   const v = parseVersion(versionText);
   if (!v) return false;
   for (let i = 0; i < 3; i += 1) {
-    if (v[i] !== MIN_TOOL_HOOKS[i]) return v[i] > MIN_TOOL_HOOKS[i];
+    if (v[i] !== min[i]) return v[i] > min[i];
   }
   return true;
 }
@@ -64,7 +68,8 @@ function shUnquoteAll(cmd) {
 /** The Kosmos entry: PreInvocation reports working (it fires before every model call, which
     follows every tool, so it is also the heartbeat), Stop reports idle, and PreToolUse/PostToolUse
     are hooked for agy's ask_question tool ONLY (needs_you while it waits for the person, working
-    once answered). No other tool is hooked: a hook per tool is a node start inside agy's blocking
+    once answered). #5812: on agy 1.2.17+ (MIN_FILE_TOOL_HOOKS) PreToolUse also runs before write_to_file and
+    replace_file_content (the keep). No other tool is hooked: a hook per tool is a node start inside agy's blocking
     loop, and PreToolUse is agy's permission gate: the bridge answers `{"decision":"allow"}` there ONLY when the
     payload's tool is ask_question, and `{"decision":"ask"}` (agy's own prompt) for anything else or a missing
     payload. A missing or empty decision is a DENY on agy 1.2.11 (measured live, #4043's 0.7.01 regression).
@@ -72,7 +77,7 @@ function shUnquoteAll(cmd) {
     run agy agents yet; only the bash supervisor calls this.
     `withToolHooks` false (an agy older than MIN_TOOL_HOOKS, or one whose version is unknown) leaves
     the two tool groups out: the card still gets working and idle. */
-function kosmosEntry(nodeBin, bridge, withToolHooks = true) {
+function kosmosEntry(nodeBin, bridge, withToolHooks = true, withFileTools = false) {
   const handler = (event) => ({ type: 'command', command: `${shQuote(nodeBin)} ${shQuote(bridge)} ${event}`, timeout: HANDLER_TIMEOUT_S });
   const entry = {
     PreInvocation: [handler('PreInvocation')],
@@ -82,8 +87,14 @@ function kosmosEntry(nodeBin, bridge, withToolHooks = true) {
   return {
     ...entry,
     /* #4043 (Gemini-Sub's spec): agy's ask_question stops the turn for the person; report it as
-       needs_you, and working again once answered. Matched to that one tool only. */
-    PreToolUse: [{ matcher: '^ask_question$', hooks: [handler('PreToolUse')] }],
+       needs_you, and working again once answered. PostToolUse is matched to that one tool only. */
+    /* #5812 item 4: PreToolUse also runs before agy's two file tools, so the bridge asks the board to keep a copy and
+       note the writer before the edit (the other providers' keep). MEASURED on agy 1.2.17 (card comment 6225769167):
+       under --dangerously-skip-permissions, which the supervisor always passes, the edit goes ahead whatever the
+       hook answers (ask, allow, or nothing); agy waits for the hook to EXIT before it runs the tool, so the keep
+       lands before the write. The bridge answers these with ASK, as for any tool that is not ask_question.
+       PostToolUse stays ask_question only: the bridge reads any PostToolUse as "working". */
+    PreToolUse: [{ matcher: withFileTools ? '^(ask_question|write_to_file|replace_file_content)$' : '^ask_question$', hooks: [handler('PreToolUse')] }],
     PostToolUse: [{ matcher: '^ask_question$', hooks: [handler('PostToolUse')] }],
   };
 }
@@ -158,7 +169,9 @@ function writeKeepingMode(target, body) {
  * A symlinked hooks.json is written through to its target, keeping the link and the file's mode. Returns
  * { ok, changed, why } plus, when ok, `enabled` (the entry is on); never throws.
  */
-function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true) {
+/* `withFileTools` (#5812): only an agy at or above MIN_FILE_TOOL_HOOKS, known from its --version (the supervisor's call);
+   a caller that cannot know the running version (agyrefresh's repair) leaves it off, and the next launch adds it. */
+function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true, withFileTools = false) {
   if (!workdir || !nodeBin || !bridge) return { ok: false, changed: false, why: 'missing workdir, node or bridge' };
   const ceiling = workersRoot();
   const repo = gitRootOf(workdir, ceiling);
@@ -188,7 +201,7 @@ function ensureHooks(workdir, nodeBin, bridge, withToolHooks = true) {
       return { ok: false, changed: false, why: file + ' is not a JSON object, so it was left as it is' };
     }
   }
-  const want = kosmosEntry(nodeBin, bridge, withToolHooks);
+  const want = kosmosEntry(nodeBin, bridge, withToolHooks, withToolHooks && withFileTools);
   const had = current[HOOK_NAME];
   if (had && typeof had === 'object' && typeof had.enabled === 'boolean') want.enabled = had.enabled;
   /* Same entry whatever order its keys are in (the person's `enabled` may sit anywhere), so an
@@ -218,7 +231,8 @@ if (require.main === module) {
     process.stderr.write('agyhooks: agy ' + (parseVersion(agyVersion) ? parseVersion(agyVersion).join('.') : 'version unknown')
       + ' is older than ' + MIN_TOOL_HOOKS.join('.') + ' or unknown, so the ask_question hooks are left out (working and idle still report)\n');
   }
-  const r = ensureHooks(workdir, nodeBin, bridge, tools);
+  const files = tools && toolHooksSafe(agyVersion, MIN_FILE_TOOL_HOOKS);
+  const r = ensureHooks(workdir, nodeBin, bridge, tools, files);
   if (!r.ok) process.stderr.write('agyhooks: ' + r.why + '\n');
   /* #4417: stdout says `hooked` only when the hook is in place and on; the supervisor reads it to decide whether to send
      a launch-time idle. Anything else (a git project, a file left alone, the entry off) prints nothing. */
@@ -226,4 +240,4 @@ if (require.main === module) {
   process.exit(0);
 }
 
-module.exports = { HOOK_NAME, HANDLER_TIMEOUT_S, MIN_TOOL_HOOKS, parseVersion, toolHooksSafe, gitRootOf, shQuote, shUnquoteAll, kosmosEntry, ensureHooks };
+module.exports = { HOOK_NAME, HANDLER_TIMEOUT_S, MIN_TOOL_HOOKS, MIN_FILE_TOOL_HOOKS, parseVersion, toolHooksSafe, gitRootOf, shQuote, shUnquoteAll, kosmosEntry, ensureHooks };

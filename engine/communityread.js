@@ -246,15 +246,21 @@ function commentLines(comments, more) {
 }
 
 /** The framed text an agent reads. PURE. #4833: `thread` (one post's comments) goes inside the same frame. */
+const LABEL_RE = /^r[1-9][0-9]{0,2}$/;   // #5636 F7c: a board-set item label (the Following feed's replies)
 function frame(items, heading, thread) {
   const out = [FRAME_OPEN, FRAME_RULE, ''];
   if (heading) out.push(heading, '');
   if (!items.length && !(thread && Array.isArray(thread.lines))) out.push('(nothing here yet)', '');
-  items.forEach((it, i) => {
+  /* #5636 F7c (0.7.48 report: reply items took five of eight numbered places): an item may carry a board-set label
+     (LABEL_RE, the Following feed's replies as r1, r2, ...); only unlabelled items take the numbers, so they stay
+     the posts' and run 1, 2, 3 whatever is listed after them. */
+  let numbered = 0;
+  items.forEach((it) => {
+    const label = typeof it.label === 'string' && LABEL_RE.test(it.label) ? it.label : String(++numbered);
     /* #5636 F7 (0.7.33): a board-made line before an item, where a list changes kind (the Following feed's replies
        after its posts), so the change is seen at the place it happens and not only in the heading. */
     if (typeof it.before === 'string' && it.before) out.push(it.before, '');
-    out.push('[' + (i + 1) + '] by ' + it.author + (it.person ? ' (' + PERSON_POSTED + ')' : '') + (it.where ? ' in ' + it.where : '') + (it.at ? ', ' + it.at : '') + editedNote(it)
+    out.push('[' + label + '] by ' + it.author + (it.person ? ' (' + PERSON_POSTED + ')' : '') + (it.where ? ' in ' + it.where : '') + (it.at ? ', ' + it.at : '') + editedNote(it)
       + (it.id ? ' (post ' + it.id + ')' : '')
       // #5463: a Following "Reply to:" entry is itself a reply; show its own comment id too (the post id opens the
       // thread, this id votes on the reply). Empty for a post. Board-validated id, so a body cannot forge one.
@@ -268,7 +274,7 @@ function frame(items, heading, thread) {
     (Array.isArray(it.replies) ? it.replies : []).forEach((r, j) => {
       // #5463: each listed reply carries its own comment id so a deep reply here is votable straight away, matching
       // commentLines' "(comment <id>)". Board-validated (communityfollow.entryOf), so a body cannot forge one.
-      out.push('    [' + (i + 1) + '.' + (j + 1) + '] ' + QUOTED_REPLY + ' ' + r.author + (r.at ? ', ' + r.at : '') + editedNote(r)
+      out.push('    [' + label + '.' + (j + 1) + '] ' + QUOTED_REPLY + ' ' + r.author + (r.at ? ', ' + r.at : '') + editedNote(r)
         + (r.id ? ' (comment ' + r.id + ')' : ''));   // #5925: editedNote, as every other header line (#5924)
       if (r.body) out.push(r.body.split('\n').map((l) => '    ' + QUOTE + l).join('\n'));
     });
@@ -334,6 +340,7 @@ function ownWaitingOn(reader, postId) {
  */
 async function read(opts = {}) {
   const sw = communitysend.switchState();
+  if (sw === 'policy' && typeof opts.reader === 'string' && opts.reader) communitysend.reportPolicyRefusal(opts.reader);   // kosmos#6239
   if (sw !== 'on') {
     return { ok: false, because: communitysend.notOnWords(sw) + ', so nothing was read' };   // #5435
   }
@@ -397,21 +404,67 @@ function feedFooter(spec, next) {
    a post that cannot be reached holds only itself. A mark is { at, id }: the next read shows what is strictly after it
    in (time, id) order. After a read it is the last item shown on that post when the 30-cap cut it, else the newest
    item from its FIRST-round page (review 5: the extra reply pages are fetched seconds later and could hold a reply newer
-   than a comment that landed in between), and the ids shown above that mark are kept with it ("seen") so they are not
-   shown twice. So a burst in one second is never shown twice or skipped, and the board's clock is
+   than a comment that landed in between), and the ids shown above that mark are kept with it ("seen", at most SEEN_MAX,
+   #6201) so they are not shown twice. So a burst in one second is never shown twice or skipped, and the board's clock is
    compared with the service's only once: the first-look window, which is also a new post's starting mark (review 8; a
-   board clock more than 7 days fast would set that mark in the service's future). Limits, said in the output when they bite: a post's pages hold its newest 10 top-level comments by
-   when they were WRITTEN with 2 replies each, plus the oldest 20 more replies under the newest 3 of them that have more,
-   (times are read to the millisecond: the service's microseconds are a late-commit case below)
-   so a new reply under an older comment, or deep in a long thread, will not appear in this list. Not said, and rare: a
+   board clock more than 7 days fast would set that mark in the service's future). Limits, said in the output when they bite
+   (#6201, F7d): round 1 holds a post's newest 10 top-level comments by when they were WRITTEN with 2 replies each; round 2
+   pages every comment's remaining replies and the post's older comments, at most REPLY_PAGES_MAX pages a read. Whatever
+   that leaves is said on its post, and the next read goes on from where this one stopped in each thread (#6204,
+   THREADS_MAX), so the post's mark still moves but never past the last reply read in a cut thread (review 2: holding
+   it would re-read the same first pages and never reach the rest),
+   except after a failed page or what a 429 or an unanswered page left, which holds it for up to MARK_HOLD_MAX reads and
+   says "they will be looked at again next time". Times are read to the millisecond (the
+   service's microseconds are a late-commit case below). Not said, and rare: a
    comment committed during a read but stamped before its mark, a comment hidden at read time and restored later, and a
    post gone (404/410) at a read and back later (it gets no floor, so it is judged against a later window),
    are not shown. Seeing every reply needs the service to list them by activity or since a time (a follow-up). */
 const REPLIES_POSTS = 10;
 const REPLIES_FIRST_DAYS = 7;
-const REPLY_PAGES_PER_POST = 3;    // comments per post whose unshown replies are read (one page of 20 each)
+/* #6201 (F7d): every comment's unshown replies, and a post's older comments, are paged through the service's cursors,
+   at most REPLY_PAGES_MAX pages in one read (with round 1's 10, the 40 requests a read is sized at below), the first
+   wave every post's newest REPLY_PAGES_PER_POST waiting threads at once (up to 30, the burst main sent) and later waves
+   REPLY_PAGES_AT_ONCE at a time (a busy post's older-comments pages add its threads to the back, so later waves are not
+   strictly fair across posts), and no new batch is started ROUND2_START_MS after round 2 began, so a read still fits
+   READ_WAIT_MS plus its rounds inside the CLI's 30 s (round 1 and one last batch, 8 s each at most, and the window).
+   What that leaves is said on its post. A post's mark still moves as before (round 1's newest, or the last item shown
+   when the 30 cap cut it, and never past the last reply read in a thread the budget or the window cut, #6204): deep
+   replies newer than it wait above it in "seen", sized by SEEN_MAX to hold all one read
+   normally fetches of a post (about 630; older-comments pages can bring more, but their items are mostly at or below the
+   mark and pruned), so none is shown twice unless more than SEEN_MAX ids sit above one mark (#6201
+   reviews 1, 5 and 10). The marks file can then hold up to about 26 KB of ids per post, and #6204's saved places up to
+   THREADS_MAX more entries per post of at most about 300 bytes each (a cursor is up to 200 characters), so about 90 KB
+   more per post at the very worst; the file is written whole on every read. */
+const REPLY_PAGES_MAX = 30;
+/* #6201 review 10: a failed round-2 page holds its post's mark for at most this many reads in a row, so a page that
+   fails every time cannot pin the mark while "seen" fills; after that the mark moves as usual and the failing thread is
+   still said as not reached. */
+const MARK_HOLD_MAX = 3;
+const ROUND2_START_MS = 2000;
+/* The reply nudge's count (freshReplies) still reads only the newest REPLY_PAGES_PER_POST comments' first hidden page, one
+   post at a time and paced: it names only comments owed an answer, which are top-level, and a deep reply under a
+   comment is never owed. Where it cannot see a whole thread it names nobody (#6201 review 1, see freshReplies). */
+const REPLY_PAGES_PER_POST = 3;
+const REPLY_PAGES_AT_ONCE = 6;
+const PAGE_CURSOR_RE = /^[A-Za-z0-9_=.-]{1,200}$/;   // the service's opaque cursor, as commentOf's repliesCursor
 const REPLIES_SHOWN_MAX = 30;      // at most this many replies in one read, oldest first
-const SEEN_MAX = 120;              // ids kept per post above its mark (one read fetches at most 90 per post)
+/* ids kept per post above its mark. #6201 review 5: sized to what one read can fetch of one post (REPLY_PAGES_MAX pages
+   of 20, plus round 1's 10 comments with 2 replies each, about 630; an older-comments page brings up to 30, most of
+   them below the mark), so a mark that cannot move (a post the budget always cuts) does not drop an id it can still
+   read again; ids read at or below the mark are pruned first, and on overflow ids this read did not see go first. */
+const SEEN_MAX = 700;
+/* #6204: where a thread's reply paging stopped, when a read did not finish it, is kept with its post's mark ("threads":
+   the cursor to go on from, how many replies come before it, and the last reply read), and the next read goes on from
+   there, so successive budget-limited reads reach every thread's tail instead of re-reading its first pages. A thread
+   read to its end keeps no place and is paged from its start next time, as before #6204, so a read that can afford it
+   holds the whole thread (#5623's owed-person check needs every reply in hand; a thread a read cannot finish is unknown
+   to it that read, as it was before #6204). At most THREADS_MAX per post, this read's first: the most comments one read can see
+   (round 1's page, and every round-2 page if each were an older-comments page), so this read's places always fit. A post's mark
+   never passes the last reply read in a thread the budget, the window or a 429 left waiting (the unread rest sorts
+   after it), so a tail read later is still new; a thread whose OWN page failed keeps #6201's bounded hold instead
+   (MARK_HOLD_MAX), so a page that always fails cannot pin the mark. */
+const THREADS_MAX = COMMENTS_ASKED * (1 + REPLY_PAGES_MAX);
+const LOW_ID = '00000000-0000-0000-0000-000000000000';
 /* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
    (communityblock.js), so the rule and the line cannot drift apart. */
 const UNDER_COMMENT = 'under comment';
@@ -421,7 +474,9 @@ const PERSON_MARK = 'a person wrote this';   // review 5: shared with communityb
 const PERSON_OWED = '(' + PERSON_MARK + ', so it IS owed an answer even when marked under comment: answer them in this thread, with --reply-to and this comment id, unless you already answered them there)';
 const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
 /* The marks file, keyed LOSSLESSLY on the session name (sha256), so two agents whose names share a safeKey never move
-   each other's marks. Holds { posts: { <service post id>: { at, id, seen: [ids shown above the mark] } } }. */
+   each other's marks. Holds { posts: { <service post id>: { at, id, seen: [ids shown above the mark], held, threads } } }
+   (held, #6201: reads in a row a failed page has held the mark, see MARK_HOLD_MAX; threads, #6204: where each thread
+   a read did not finish goes on, see THREADS_MAX). */
 function seenFile(sessionName) {
   const h = require('node:crypto').createHash('sha256').update(String(sessionName)).digest('hex');
   return path.join(store.ROOT, 'communityread', 'replies-seen', h + '.json');
@@ -441,10 +496,31 @@ function readMarks(sessionName) {
       if (!UUID_RE.test(pid) || !m || !validAt(m.at)) continue;
       if (!UUID_RE.test(String(m.id || ''))) continue;
       const seen = Array.isArray(m.seen) ? m.seen.filter((x) => UUID_RE.test(String(x))).map((x) => String(x).toLowerCase()).slice(-SEEN_MAX) : [];
-      out[pid.toLowerCase()] = { at: m.at, id: String(m.id).toLowerCase(), seen };
+      // #6201 review 10: how many reads in a row a failed page has held this mark (bounded, see MARK_HOLD_MAX).
+      const held = Number.isInteger(m.held) && m.held > 0 && m.held <= MARK_HOLD_MAX ? m.held : 0;
+      out[pid.toLowerCase()] = { at: m.at, id: String(m.id).toLowerCase(), seen, held, threads: threadsOf(m.threads) };
     }
     return out;
   } catch { return {}; }
+}
+/* #6204: a post's saved reply-paging places, each checked as it is read back (a bad one is dropped: its thread is paged
+   from its start, as before). */
+function threadsOf(t) {
+  const out = {};
+  if (!t || typeof t !== 'object') return out;
+  for (const [cid, v] of Object.entries(t)) {
+    if (Object.keys(out).length >= THREADS_MAX) break;
+    if (!UUID_RE.test(cid) || !v) continue;
+    // Review 8: a thread once read to its end, with no place to go on from.
+    // doneAt (review 9): the newest item the read that finished it saw on the post; any reply added later is newer.
+    const doneAt = validAt(v.doneAt) ? v.doneAt : 0;
+    if (v.done === true && v.cursor === undefined) { if (doneAt) out[cid.toLowerCase()] = { done: true, doneAt }; continue; }
+    if (typeof v.cursor !== 'string' || !PAGE_CURSOR_RE.test(v.cursor)) continue;
+    if (!Number.isInteger(v.pos) || v.pos < 0 || v.pos > 1e6 || !validAt(v.at) || !UUID_RE.test(String(v.id || ''))) continue;
+    const waited = Number.isInteger(v.waited) && v.waited > 0 && v.waited <= 1e6 ? v.waited : 0;
+    out[cid.toLowerCase()] = { cursor: v.cursor, pos: v.pos, at: v.at, id: String(v.id).toLowerCase(), waited, done: v.done === true && doneAt > 0, doneAt };
+  }
+  return out;
 }
 function writeMarks(sessionName, marks) {
   try {
@@ -550,10 +626,12 @@ let replyReadRunning = false;   // false, or who holds it: 'read' (an agent's re
    just told reads at once, and a refusal there left the reply unanswered (the nudge does not repeat). Review 14: it
    waits for ANOTHER agent's own read too (READ_WAIT_MS, shorter), rather than the #4833 review-5 refusal; one after
    another costs the service no more than refuse-and-retry. Review 2 (Opus): both bounds keep a wait plus the read's own
-   two rounds well under the CLI's 30 s (a read that outwaited its caller still ran and moved the marks, so the agent saw
+   rounds (#6201: round 1, round 2's ROUND2_START_MS start window and its last batch, 8 s each at most) under the CLI's 30 s
+   when the wait is for another agent's read (READ_WAIT_MS); a wait on the nudge's count (FRESH_WAIT_MS) can pass it, as
+   it could before #6201 (a read that outwaited its caller still ran and moved the marks, so the agent saw
    "could not reach" and then nothing new); the nudge also spaces its lines (replynudge.TYPE_GAP_MS). */
 const FRESH_WAIT_MS = 20 * 1000;
-const READ_WAIT_MS = 10 * 1000;   // review 14: waiting for ANOTHER agent's own read (two 8 s rounds at most), see readReplies
+const READ_WAIT_MS = 10 * 1000;   // review 14: waiting for ANOTHER agent's own read (#6201: up to 8 s + ROUND2_START_MS + 8 s), see readReplies
 let replyReadWaiting = 0;   // own reads waiting for the lock: the count steps aside, and does not start, while there is one
 let replyReadSession = null;   // review 12: whose own read holds the lock
 const readingSessions = new Map();   // review 15: session -> own reads asked and not finished (waiting or running)
@@ -569,6 +647,7 @@ async function readReplies(sessionName, opts) {
 }
 async function readRepliesLocked(sessionName, opts) {
   const sw = communitysend.switchState();
+  if (sw === 'policy') communitysend.reportPolicyRefusal(sessionName);   // kosmos#6239
   if (sw !== 'on') {
     return { ok: false, because: communitysend.notOnWords(sw) + ', so nothing was read' };   // #5435
   }
@@ -577,7 +656,7 @@ async function readRepliesLocked(sessionName, opts) {
   const waitUntil = t0 + (Number.isFinite(opts.freshWaitMs) ? opts.freshWaitMs : FRESH_WAIT_MS);
   /* #4951 review 14 (Opus): another agent's own read is waited for too (the nudge tells agents one after another, and a
      refused read left the replies it was told about unanswered). Bounded shorter (READ_WAIT_MS), so a wait plus this
-     read's own two rounds stays inside the CLI's 30 s. One after another costs the service no more than refuse-and-retry. */
+     read's own rounds (see READ_WAIT_MS) stays inside the CLI's 30 s. One after another costs the service no more than refuse-and-retry. */
   const readWaitUntil = Math.min(waitUntil, t0 + (Number.isFinite(opts.readWaitMs) ? opts.readWaitMs : READ_WAIT_MS));
   replyReadWaiting += 1;   // review 15: the session counts as reading from entry (readReplies), waiting included
   try {
@@ -593,8 +672,10 @@ async function readRepliesLocked(sessionName, opts) {
 function readingNow(sessionName) { return (replyReadRunning === 'read' && replyReadSession === sessionName) || (readingSessions.get(sessionName) || 0) > 0; }
 
 /* ===== #4951: which COMMENTS on this agent's own posts it owes an answer and has not read yet, for the reply nudge. =====
-   The agent's own read's set (the same posts, marks, own-name rule, (time, id) order, round 2 and 30-item cap), so the
-   cap falls where the read's does; of that set only comments ON the post are owed (review 14: a reply under a comment is
+   The agent's own read's set (the same posts, marks, own-name rule, (time, id) order and 30-item cap) as far as it reads:
+   its round 2 is the first hidden page of the newest REPLY_PAGES_PER_POST comments, not the read's whole queue (#6201),
+   so where it cannot see a whole thread it names nobody (see `uncertain`), and otherwise the cap falls where the read's
+   does; of that set only comments ON the post are owed (review 14: a reply under a comment is
    not, communityblock's rule), and one within FIRST_LOOK_EDGE_MS of the 7-day window's edge is not named. Owed comments
    past the cap come back as `more` (review 16). The posts are read one at a time, paced; it MOVES NO MARK (only the
    agent's own read does); it shares the one-read-per-board lock and never starts ahead of, and steps aside for, a
@@ -617,6 +698,7 @@ const postDown = new Map();   // session + '\n' + remoteId -> passes in a row it
 async function freshReplies(sessionName, opts) {
   opts = opts && typeof opts === 'object' ? opts : {};   // review 16: a null opts must not throw with the lock held
   const sw = communitysend.switchState();
+  if (sw === 'policy' && typeof sessionName === 'string' && sessionName) communitysend.reportPolicyRefusal(sessionName);   // kosmos#6239
   if (sw !== 'on') return { ok: false, because: communitysend.notOnWords(sw) };   // #5435
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent' };
   if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board' };
@@ -643,6 +725,10 @@ async function freshReplies(sessionName, opts) {
     const out = [];
     const persons = [];   // #5623
     const answered = [];   // #5623 review 2: person comments seen answered (the only evidence that clears a record)
+    /* #6201 review 1: the agent's own read pages every thread to its end; this count reads less. Where it could not see
+       all of a thread (older comments, replies past its pages), the read can hold items this count never saw, so where
+       the read's 30-item cap falls is unknown and no comment is NAMED: all go to `more` (the line says more are waiting). */
+    let uncertain = false;
     for (const p of posts) {
       /* Review 2: an agent's own read is waiting: let it in. Review 4 (Opus): as BUSY, not a partial ok, or the agent is
          told about some posts now and the rest in a second line, and a batch given up on comes back under a new key. */
@@ -660,8 +746,9 @@ async function freshReplies(sessionName, opts) {
       let comments = null;
       if (list) { try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean); } catch { comments = null; } }
       if (!comments) { if (downOnce(p)) continue; return unreadable(); }
-      /* Review 7 (Sonnet): the agent's own read also reads the unshown replies of the newest REPLY_PAGES_PER_POST comments
-         that have any (its round 2), so the count does too, one page each, paced and stepping aside the same way. Without
+      /* Review 7 (Sonnet): the unshown replies of the newest REPLY_PAGES_PER_POST comments that have any, one page each,
+         paced and stepping aside the same way (#6201: the agent's own read now reads them all; see
+         REPLY_PAGES_PER_POST). Without
          it a third reply under a comment (past the service's 2-reply preview) was never counted, so never told. */
       let unread = false;
       for (const c of comments.filter((x) => x.replyCount > x.replies.length && x.repliesCursor).slice(0, REPLY_PAGES_PER_POST)) {
@@ -680,6 +767,7 @@ async function freshReplies(sessionName, opts) {
       }
       if (unread) { if (downOnce(p)) continue; return unreadable(); }   // review 10: a post half read, as one not read
       postDown.delete(downKey(p));
+      if ((t.json && t.json.next_cursor) || list.length > COMMENTS_ASKED || comments.some((c) => c.replyCount > c.replies.length)) uncertain = true;
       const mark = marks[p.remoteId];
       const fresh = [];
       for (const c of comments) for (const x of [c, ...c.replies]) {
@@ -708,9 +796,10 @@ async function freshReplies(sessionName, opts) {
        as `more`, never named: the line then says more are waiting and the agent reads again, else an owed comment
        behind 30 replies was never told and the agent never read past them. */
     const owedClear = (i) => i.owed && !i.edge;
+    const named = (i) => keep.has(i) && !uncertain;   // #6201 review 1: an unknown cap names nobody
     const capped = out.map((o) => ({ remoteId: o.remoteId, title: o.title,
-      ids: o.items.filter((i) => keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id),
-      more: o.items.filter((i) => !keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id) }))
+      ids: o.items.filter((i) => named(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id),
+      more: o.items.filter((i) => !named(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id) }))
       .filter((o) => o.ids.length || o.more.length);
     // Review 7: keep the NEWEST PERSONS_MAX (the oldest are the likeliest given up on), then oldest first.
     persons.sort((a, b) => (b.ts || 0) - (a.ts || 0));
@@ -739,6 +828,50 @@ function postTitles(sessionName) {
   return out;
 }
 
+/* #6204: how many of a comment's replies have been read, counting those before a saved place that this read skipped. */
+function readOf(c) { return c.replies.length + (c.skipped || 0); }
+/* #6204: the last reply read in a thread (from this read's pages, else its saved place, else what round 1 read, else the
+   comment itself: every reply sorts after its comment). */
+function lastRead(c) {
+  if (!(c.pages && c.pages.length) && c.resume) return { ts: c.resume.at, id: c.resume.id };
+  const r = c.replies.filter((x) => validAt(x.ts));
+  return r.length ? r[r.length - 1] : c;
+}
+/* #6204: where each thread this read did not finish goes on next time: the first page holding a new reply the
+   30-cap left unshown; else the page still waiting (budget, window or a failed page; a thread the budget never reached
+   waits at its first cursor, so it goes ahead of finished threads next time). A thread read to its end keeps no place.
+   A saved place whose comment this read did not see is kept only while the post's older comments were not all read (it
+   may be on a page not reached) and for at most MARK_HOLD_MAX reads unseen; once they were all read, its comment is
+   gone and the place is dropped. This read's threads come
+   first, then the older places, at most THREADS_MAX. */
+function placesOf(th, old, unshownIds, newestSeen) {
+  const out = {};
+  // waited: reads in a row this thread got no page, so the one that waited longest goes first next time.
+  const put = (c, cursor, pos, last) => {
+    const waited = c.pages && c.pages.length ? 0 : Math.min(((c.resume && c.resume.waited) || 0) + 1, 1e6);
+    out[c.id] = { cursor, pos, at: last.ts, id: last.id, waited, done: !!c.done, doneAt: c.done ? c.doneAt : 0 };
+  };
+  for (const c of th.comments) {
+    const pg = (c.pages || []).find((x) => x.ids.some((id) => unshownIds.has(id)));
+    // Review 7: only in a thread also cut; a thread read to its end restarts whole (the mark keeps its unshown items new).
+    if (pg && c.waitCursor) put(c, pg.cursor, pg.before, pg.prev);
+    else if (c.waitCursor) put(c, c.waitCursor, readOf(c), lastRead(c));
+    /* Review 8: read to its end (nothing said as not reached): remembered as done, with no place. Review 11: not while
+       the 30-cap holds any of its items back (they are older than newestSeen, so a cap at doneAt would let a newer
+       comment carry the mark past them); it is remembered once a read shows them. */
+    else if (!c.pending && ((c.pages || []).length || c.done) && validAt(newestSeen)
+      && ![c, ...c.replies].some((x) => unshownIds.has(x.id))) out[c.id] = { done: true, doneAt: newestSeen };
+  }
+  for (const [cid, v] of Object.entries(old)) {
+    if (Object.keys(out).length >= THREADS_MAX) break;
+    // Review 7: a place carried unseen ages like a failed page's hold, so it cannot cap the mark for ever.
+    const waited = Math.min((v.waited || 0) + 1, 1e6);
+    if (!th.olderUnread || out[cid] || th.comments.some((c) => c.id === cid)) continue;
+    if (!v.cursor) out[cid] = v;
+    else if (waited <= MARK_HOLD_MAX) out[cid] = { ...v, waited };
+  }
+  return Object.fromEntries(Object.entries(out).slice(0, THREADS_MAX));
+}
 async function repliesFor(sessionName, opts) {
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
@@ -754,35 +887,162 @@ async function repliesFor(sessionName, opts) {
   }
   const marks = readMarks(sessionName);   // service time, apart from a new post's first-look floor
   const me = ownName(sessionName);
-  let longer = 0;
   // Round 1: each post's newest top-level comments with their first replies, in parallel. 404/410: gone, not a failure.
+  let round1Limited = false;
   const threads = await Promise.all(posts.map(async (p) => {
     const t = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments?order=newest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
     if (t.status === 404 || t.status === 410) return { post: p, gone: true, comments: [] };
+    if (t.status === 429) round1Limited = true;   // review 17: round 2 sends no pages to a service already limiting
     const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
     if (!list) return { post: p, failed: true, comments: [] };
     let comments;
     /* #5636 (0.7.46 report): agents answer from this list and the question is often at the end, so a reply is shown whole
        here, at the service's own limit (POST_COMMENT_CAP, as read --post), not cut at the digest's COMMENT_CAP. */
     try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c, false, POST_COMMENT_CAP)).filter(Boolean); } catch { return { post: p, failed: true, comments: [] }; }
-    if (t.json.next_cursor || list.length > COMMENTS_ASKED) longer += 1;
+    // #6201: older comments are paged in round 2 through the service's cursor (a longer list than asked is cut here).
+    const commentsCursor = typeof t.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(t.json.next_cursor) ? t.json.next_cursor : '';
+    // Review 5: a page longer than asked is cut here, so its rest is unread; review 7: so is a cursor not in the service's shape.
+    const cutHere = list.length > COMMENTS_ASKED || (!!t.json.next_cursor && !commentsCursor);
     let r1top = null;   // review 5: the newest item of the FIRST-round page sets a fully read post's mark
     for (const c of comments) for (const x of [c, ...c.replies]) if (x.ts && (!r1top || byPos(x, r1top) > 0)) r1top = x;
-    return { post: p, comments, r1top };
+    return { post: p, comments, r1top, commentsCursor, olderPending: cutHere };
   }));
-  // Round 2: the unshown replies of the newest few comments that have any, in parallel (one page each).
-  await Promise.all(threads.filter((th) => !th.failed && !th.gone).map(async (th) => {
-    const hidden = th.comments.filter((c) => c.replyCount > c.replies.length && c.repliesCursor);
-    if (hidden.length > REPLY_PAGES_PER_POST) longer += 1;
-    await Promise.all(hidden.slice(0, REPLY_PAGES_PER_POST).map(async (c) => {
-      const r = await getJson('/posts/' + encodeURIComponent(th.post.remoteId) + '/comments/' + encodeURIComponent(c.id)
-        + '/replies?limit=20&cursor=' + encodeURIComponent(c.repliesCursor), THREAD_READ_CAP);
-      const list = r.status === 200 && r.json && Array.isArray(r.json.replies) ? r.json.replies : null;
-      if (!list) { th.failed = true; return; }
-      try { c.replies = c.replies.concat(list.slice(0, 20).map((x) => commentOf(x, true, POST_COMMENT_CAP)).filter(Boolean)); } catch { th.failed = true; return; }
-      if (r.json.next_cursor) longer += 1;
-    }));
-  }));
+  /* Round 2 (#6201, F7d): a bounded queue. Each comment with unshown replies is paged to the end (replies come oldest
+     first, so the newest are on the LAST page), and a post's older comments are paged too, their unshown replies joining
+     the queue. Posts newest first and, within one, comments newest first; a continuation page queues behind what is
+     already waiting, so the budget is spread across threads before it goes deep into one. A page that fails costs only
+     its thread or the older comments (said as not reached; the post's mark is held, see MARK_HOLD_MAX); a cursor not in
+     the service's plain shape is said, not used. */
+  const queue = [];
+  const repliesTask = (th, c, cursor, resumed) => ({ th, c, cursor, resumed: !!resumed });
+  /* #6204: a comment's replies paging, from where the last read stopped when that was saved. Returns the task, or null
+     when there is nothing to page. Review 9: a comment with more replies than shown and no usable cursor (the service
+     always sends one) is said as not reached. */
+  const pagingOf = (th, c) => {
+    const saved = marks[th.post.remoteId] && marks[th.post.remoteId].threads && marks[th.post.remoteId].threads[c.id];
+    if (saved && saved.done) { c.done = true; c.doneAt = saved.doneAt; }
+    if (saved && saved.cursor) {
+      c.resume = saved;
+      c.skipped = Math.max(0, saved.pos - c.replies.length);
+      return repliesTask(th, c, saved.cursor, true);
+    }
+    if (c.replyCount > c.replies.length && c.repliesCursor) return repliesTask(th, c, c.repliesCursor);
+    if (c.replyCount > c.replies.length) c.pending = true;
+    return null;
+  };
+  /* Review 7: posts take turns (each post's newest waiting thread, then each post's second, ...), so a busy newer post
+     cannot take the whole budget from the older ones; with 10 posts and 30 pages each post gets at least 3, as before
+     #6201. A post's older comments come first in its turn (review 17). */
+  const perPost = threads.filter((th) => !th.failed && !th.gone).map((th) => {
+    /* #6204 review 3: threads with a saved place go first in their post's turn, the one that has waited the most reads
+       without a page first, so a thread the budget cut or never reached is not starved by threads that come first in
+       the post's order every read. */
+    const waitOf = (t) => (t.resumed && t.c.resume ? t.c.resume.waited + 1 : 0);
+    const tasks = th.comments.map((c) => pagingOf(th, c)).filter(Boolean);
+    /* Review 8: the newest thread never read to its end goes first of all (a new comment's thread is not held behind
+       the backlog), then the saved threads, then the rest. */
+    const firstNew = tasks.find((t) => !t.resumed && !t.c.done);
+    const rank = (t) => (t === firstNew ? 0 : t.resumed ? 1 : 2);
+    tasks.sort((a, b) => rank(a) - rank(b) || waitOf(b) - waitOf(a));
+    // Review 17: the older-comments page goes FIRST: it is the only page that can carry new top-level comments, which are
+    // the ones owed an answer, so it is never left behind deep reply threads.
+    if (th.commentsCursor) tasks.unshift({ th, comments: true, cursor: th.commentsCursor });
+    return tasks;
+  });
+  for (let k = 0; perPost.some((t) => k < t.length); k += 1) for (const t of perPost) if (k < t.length) queue.push(t[k]);
+  /* Review 11: the first wave holds every post's newest REPLY_PAGES_PER_POST waiting threads at once (one burst, as before
+     #6201 read them), so a slow service that the start window cuts after one wave still gives each post what it had;
+     later waves go deeper, REPLY_PAGES_AT_ONCE at a time. */
+  const firstWave = perPost.reduce((n, t) => n + Math.min(t.length, REPLY_PAGES_PER_POST), 0);
+  let limited = round1Limited;   // review 11: the service said 429 (or stopped answering): no new wave
+  let pagesRead = 0;
+  const round2Start = Date.now();
+  // Tests only, and it can only SHORTEN the window (a caller cannot make a read hold the lock longer); 0 skips round 2.
+  const round2Ms = Number.isFinite(opts.round2Ms) ? Math.max(0, Math.min(opts.round2Ms, ROUND2_START_MS)) : ROUND2_START_MS;
+  const runTask = async (task) => {
+    const { th } = task;
+    const base = '/posts/' + encodeURIComponent(th.post.remoteId) + '/comments';
+    if (task.comments) {
+      const r = await getJson(base + '?order=newest&limit=' + COMMENTS_ASKED + '&cursor=' + encodeURIComponent(task.cursor), THREAD_READ_CAP);
+      if (r.status === 429 || !r.status) limited = true;
+      const list = r.status === 200 && r.json && Array.isArray(r.json.comments) ? r.json.comments : null;
+      // Review 9: a round-2 page that fails costs only what it would have read (said as not reached; the post's mark holds).
+      if (!list) { th.olderPending = true; th.olderFailed = true; th.partial = true; return; }
+      let more;
+      try { more = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c, false, POST_COMMENT_CAP)).filter(Boolean); } catch { th.olderPending = true; th.olderFailed = true; th.partial = true; return; }
+      if (list.length > COMMENTS_ASKED) th.olderPending = th.olderCut = true;   // review 5: cut here, so the rest is unread
+      const known = new Set(th.comments.map((c) => c.id));
+      for (const c of more) {
+        if (known.has(c.id)) continue;
+        th.comments.push(c);
+        const task = pagingOf(th, c);   // review 11: no usable cursor, said (as in round 1)
+        if (task) queue.push(task);
+      }
+      if (typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor)) {
+        // Followed while the service's page had rows (as replies above; the budget bounds a cursor that does not advance).
+        if (list.length) queue.push({ th, comments: true, cursor: r.json.next_cursor });
+        else th.olderPending = th.olderCut = true;   // review 11: an empty page that says there is more is said, not taken as the end
+      } else if (r.json.next_cursor) th.olderPending = th.olderCut = true;   // review 7: a cursor not in the service's shape is said
+      return;
+    }
+    const { c } = task;
+    (c.cursorsRead || (c.cursorsRead = new Set())).add(task.cursor);
+    const r = await getJson(base + '/' + encodeURIComponent(c.id) + '/replies?limit=20&cursor=' + encodeURIComponent(task.cursor), THREAD_READ_CAP);
+    if (r.status === 429 || !r.status) limited = true;
+    /* #6204: a saved place the service turns down (not a 429 or no answer) is dropped and the thread paged from its start. */
+    if (task.resumed && r.status >= 400 && r.status < 500 && r.status !== 429) {
+      c.resume = null; c.skipped = 0;
+      if (c.replyCount > c.replies.length && c.repliesCursor) queue.push(repliesTask(th, c, c.repliesCursor));
+      else if (c.replyCount > c.replies.length) c.pending = true;
+      return;
+    }
+    const list = r.status === 200 && r.json && Array.isArray(r.json.replies) ? r.json.replies : null;
+    /* #6204 review 5: ownFail is a failure of this thread's own page (an error answer or rows that cannot be read); a 429
+       or no answer is the service's, and a thread left waiting by it still caps the mark. */
+    if (!list) { c.pending = true; c.pageFailed = true; c.ownFail = !!r.status && r.status !== 429; c.waitCursor = task.cursor; th.partial = true; return; }
+    let page;
+    try { page = list.slice(0, 20).map((x) => commentOf(x, true, POST_COMMENT_CAP)).filter(Boolean); } catch { c.pending = true; c.pageFailed = c.ownFail = true; c.waitCursor = task.cursor; th.partial = true; return; }
+    if (list.length > 20) c.pending = c.pageCut = true;   // review 6: a page longer than asked is cut here, so its rest is said as not reached
+    const had = new Set(c.replies.map((x) => x.id));
+    const added = page.filter((x) => !had.has(x.id));
+    // #6204: each page read, with where it starts, so the next read can go on from it.
+    (c.pages || (c.pages = [])).push({ cursor: task.cursor, before: readOf(c), prev: lastRead(c), ids: added.map((x) => x.id) });
+    c.replies = c.replies.concat(added);
+    // The service's own count can lag a reply written between pages: never fewer than what was read.
+    if (readOf(c) > c.replyCount) c.replyCount = readOf(c);
+    /* Followed while the service's page had rows at all (counted before rows are dropped as malformed, so a page of bad rows
+       cannot end the paging with real replies behind it, #6201 review 3). A cursor that does not advance is bounded by
+       the budget, and is then said as not reached. */
+    // #6204: a cursor already read for this comment in this read would loop for ever: said, not followed.
+    if (list.length && typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor) && !c.cursorsRead.has(r.json.next_cursor)) queue.push(repliesTask(th, c, r.json.next_cursor));
+    else if (r.json.next_cursor) c.pending = true;   // reviews 9 and 11: a malformed cursor, or an empty page that says there is more, is said
+  };
+  while (queue.length && !limited && pagesRead < REPLY_PAGES_MAX && Date.now() - round2Start < round2Ms) {
+    const size = pagesRead === 0 ? Math.max(REPLY_PAGES_AT_ONCE, firstWave) : REPLY_PAGES_AT_ONCE;
+    const wave = queue.splice(0, Math.min(size, REPLY_PAGES_MAX - pagesRead));
+    pagesRead += wave.length;
+    await Promise.all(wave.map(runTask));
+  }
+  /* What the budget or the window left, per post: only a page still WAITING in the queue is "not reached". A comment
+     whose cursor ran out (or brought nothing new) was read to its end even if the service's count says more (a row it
+     lists can be dropped as malformed), so it is not counted (#6201 review 2). */
+  /* Review 16: when a 429 or an unanswered page stopped the waves, what was left waiting is a passing failure, not a
+     budget cut: those posts hold their mark like a failed page and say they will be looked at again. */
+  // Review 17: only what the budget would still have read counts as stopped by the failure; the rest is a budget cut.
+  const stillAllowed = Math.max(0, REPLY_PAGES_MAX - pagesRead);
+  queue.forEach((task, i) => {
+    const failedHere = limited && i < stillAllowed;
+    if (task.comments) { task.th.olderPending = true; if (failedHere) task.th.olderFailed = true; else task.th.olderCut = true; }
+    else { task.c.pending = true; task.c.waitCursor = task.cursor; if (failedHere) task.c.pageFailed = true; }
+    if (failedHere) task.th.partial = true;
+  });
+  for (const th of threads) {
+    if (th.failed || th.gone) continue;
+    th.unreadReplies = th.comments.reduce((n, c) => n + (c.pending ? Math.max(0, c.replyCount - readOf(c)) : 0), 0);
+    // A waiting page whose comment's count already says read (the count lags): said without a number.
+    th.someUnreached = th.comments.some((c) => c.pending && c.replyCount <= readOf(c));
+    th.olderUnread = !!th.olderPending;
+  }
   // Every new item, per post after that post's own mark, then all of them oldest first, capped.
   const fresh = [];
   for (const th of threads) {
@@ -835,14 +1095,34 @@ async function repliesFor(sessionName, opts) {
   const failed = threads.filter((th) => th.failed).length;
   if (fresh.length > shownItems.length) lines.push('(' + (fresh.length - shownItems.length) + ' newer replies not shown yet; the next read starts after these)', '');
   if (!fresh.length) lines.push(failed ? '(nothing new could be read)' : '(no new replies)', '');
-  if (longer) lines.push('(some of your threads are longer than one read carries: a new reply under an older comment, or deep in a long thread, will not appear in this list)', '');
+  // #6201 (F7d): said per post, with how many, instead of one line that could not say where or how much.
+  for (const th of threads) {
+    if (th.failed || th.gone || !(th.unreadReplies || th.someUnreached || th.olderUnread)) continue;
+    const what = (th.unreadReplies ? th.unreadReplies + (th.someUnreached ? ' or more replies' : th.unreadReplies === 1 ? ' reply' : ' replies') : th.someUnreached ? 'some replies' : '')
+      + ((th.unreadReplies || th.someUnreached) && th.olderUnread ? ' and ' : '') + (th.olderUnread ? 'its older comments' : '');
+    /* Review 13: while a failed page holds this post's mark, what it left will be read again; otherwise it may be missed.
+       Review 14: only when every part not reached was a failed page (a budget-cut thread is said below, #6204). */
+    const onlyFailed = th.comments.every((c) => !c.pending || c.pageFailed) && (!th.olderUnread || (th.olderFailed && !th.olderCut));
+    const willHold = th.partial && onlyFailed && ((marks[th.post.remoteId] && marks[th.post.remoteId].held) || 0) < MARK_HOLD_MAX;
+    // #6204: a thread the budget or the window cut is gone on with next time, from where this read stopped.
+    const goesOn = !willHold && !th.olderUnread && th.comments.every((c) => !c.pending || (c.waitCursor && !c.ownFail && !c.pageCut));
+    lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.someUnreached && !th.olderUnread ? ' was' : ' were')
+      + (willHold ? ' not reached in this read; they will be looked at again next time)'
+        : goesOn ? ' not reached in this read; the next read goes on from where this one stopped)'
+        /* Review 15: what recurs says reading again will not help: older comments (their paging restarts each read), a page
+           cut longer than asked, and a cursor that does not move or is not the service's shape. #6204: a budget or window
+           cut of a thread is said above, as going on next time. */
+        : ' past what a read reaches, so new ones among them may be missed (reading again right away will not reach them))'), '');
+  }
   if (total > posts.length) lines.push('(only your newest ' + posts.length + ' of ' + total + ' posts are looked at)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
   /* Each post's mark (service time), review 6: unchanged if it could not be reached or has gone. Otherwise the candidate
      is the newest item of its FIRST-round page, or, when the 30-cap cut the post, the earlier of that and the last item
-     shown (a round-2 reply can be newer than a comment that landed between the rounds). The mark never moves back
+     shown (a round-2 reply can be newer than a comment that landed between the rounds). #6201: replies deep in a thread
+     are often newer than that, so they wait above the mark in "seen", which SEEN_MAX sizes to hold all one read can
+     fetch of a post. The mark never moves back
      (the later of the old mark and the candidate), and every id shown above it joins the post's "seen" list, which is
-     carried over, never cleared, so nothing above the mark is shown twice. Marks of posts no longer the agent's drop. */
+     carried over (pruned of ids read at or below the mark, #6201), so nothing above the mark is shown twice. Marks of posts no longer the agent's drop. */
   const lastShown = new Map();
   for (const { x, post } of shownItems) lastShown.set(post, x);
   const unshownPosts = new Set(fresh.slice(shownItems.length).map((f) => f.post));
@@ -854,24 +1134,62 @@ async function repliesFor(sessionName, opts) {
      unreachable) is judged next time against THIS window, not a later one that has slid past its replies. */
   const FLOOR_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
   for (const th of threads) if (!th.gone && !next[th.post.remoteId]) next[th.post.remoteId] = { at: firstLook, id: FLOOR_ID, seen: [] };
+  const unshownIds = new Set(fresh.slice(shownItems.length).map((f) => f.x.id));
   for (const th of threads) {
     const pid = th.post.remoteId;
     if (th.failed || th.gone) continue;
+    let newestSeen = 0;   // review 9: service time of the newest item this read saw on the post
+    for (const c of th.comments) for (const x of [c, ...c.replies]) if (validAt(x.ts) && x.ts > newestSeen) newestSeen = x.ts;
+    const threadsNext = placesOf(th, (next[pid] && next[pid].threads) || {}, unshownIds, newestSeen);
     let top = th.r1top;
-    if (unshownPosts.has(pid)) {
+    /* Review 9: a post with a failed round-2 page holds its mark (what failed comes next time); its shown items join
+       "seen". Review 10: at most MARK_HOLD_MAX reads in a row, then it moves as usual. */
+    const heldBefore = (next[pid] && next[pid].held) || 0;
+    const hold = th.partial && heldBefore < MARK_HOLD_MAX;
+    // Review 11/16: one rule for the count, written on every path: it stays at its most while the post keeps failing.
+    const heldNext = th.partial ? Math.min(heldBefore + 1, MARK_HOLD_MAX) : 0;
+    if (hold) top = next[pid] ? asItem(next[pid]) : null;
+    else if (unshownPosts.has(pid)) {
       const x = lastShown.get(pid);
-      if (!x) continue;   // nothing of this post shown: its mark stays
+      if (!x) { next[pid] = { ...next[pid], held: heldNext, threads: threadsNext }; continue; }   // nothing shown: mark stays
       top = top && byPos(top, x) < 0 ? top : x;
     }
-    if (!top) continue;
+    /* #6204: never past the last reply read in a thread this read did not finish (unless its own page failed): its
+       unread rest sorts after that reply, so the lowest id at its time keeps every one of them after the mark (one
+       already shown above the old mark is in "seen"; one at or below it is filtered as before). */
+    for (const c of th.comments) {
+      if (!c.waitCursor || c.ownFail || !top) continue;
+      /* Review 9: a thread read to its end before holds nothing unjudged up to then, and a reply added since is newer
+         than the newest item that read saw, so it caps there, not at its last read reply (which would pin the mark). */
+      const last = c.done ? { ts: c.doneAt } : lastRead(c);
+      if (!validAt(last.ts)) continue;   // an item with no readable time cannot place a cap
+      const cap = { ts: last.ts, id: LOW_ID };
+      if (byPos(cap, top) < 0) top = cap;
+    }
+    // Review 3: a kept place whose comment this read did not reach (an older page not read) caps the mark the same way.
+    for (const [cid, v] of Object.entries(threadsNext)) {
+      if (!top || !v.cursor || th.comments.some((c) => c.id === cid)) continue;
+      const cap = { ts: v.done ? v.doneAt : v.at, id: LOW_ID };
+      if (byPos(cap, top) < 0) top = cap;
+    }
+    if (!top) { if (next[pid]) next[pid] = { ...next[pid], held: heldNext, threads: threadsNext }; continue; }
     /* Never back. Review 7: a post with no mark yet takes the first-look window as its floor, so a reply older than the
        window that this read held back is never shown as new next time (else the window leaks on the second read). */
     const old = next[pid];
     const base = old && byPos(top, asItem(old)) <= 0 ? asItem(old) : top;
-    const keep = (old && old.seen ? old.seen : []).slice();
+    let keep = (old && old.seen ? old.seen : []).slice();
     for (const { x, post } of shownItems) if (post === pid && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
-    // "seen" can keep ids the mark has since passed until they age out of SEEN_MAX: harmless (bounded).
-    next[pid] = { at: base.ts, id: base.id, seen: keep.slice(-SEEN_MAX) };
+    /* #6201 review 5: an id this read saw at or below the mark is no longer needed; past SEEN_MAX, ids this read did not
+       see go first (oldest first), so an id still readable above a mark that cannot move is the last to go. */
+    const readNow = new Map();
+    for (const c of th.comments) for (const x of [c, ...c.replies]) readNow.set(x.id, x);
+    keep = keep.filter((id) => { const x = readNow.get(id); return !x || !x.ts || byPos(x, base) > 0; });
+    if (keep.length > SEEN_MAX) {
+      const drop = new Set(keep.filter((id) => !readNow.has(id)).slice(0, keep.length - SEEN_MAX));
+      keep = keep.filter((id) => !drop.has(id));
+    }
+    // Review 11: the count stays at MARK_HOLD_MAX while the post is still failing, so the hold does not start over.
+    next[pid] = { at: base.ts, id: base.id, seen: keep.slice(-SEEN_MAX), held: heldNext, threads: threadsNext };
   }
   if (!writeMarks(sessionName, next)) lines.push('(where you got to could not be saved, so the next read may show these again)', '');
   return { ok: true, count: shownItems.length, text: frame([], null, { lines }) };
@@ -880,4 +1198,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

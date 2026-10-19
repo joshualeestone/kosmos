@@ -1,33 +1,33 @@
 {
-  "version": "0.7.48",
+  "version": "0.7.59",
   "highlights": [
     {
-      "icon": "spark",
-      "title": "Qwen in Add a provider",
-      "line": "Add a provider now offers Qwen, run on this computer through Ollama or at an address you give, and asks before a large download.",
+      "icon": "phone",
+      "title": "Phone notifications start on",
+      "line": "Phone notifications to the Kosmos phone app (still in testing) now start on once this computer is connected to Kosmos+. An off stays off."
+    },
+    {
+      "icon": "shield",
+      "title": "Add several computers in one sitting",
+      "line": "With both Macs on this version, Kosmos+ pairing allows 10 code tries per computer and 20 answers a day, and a stuck pair can finish.",
       "platforms": [
         "mac"
       ]
     },
     {
       "icon": "shield",
-      "title": "An agent says when a plugin cannot reach it",
-      "line": "When an agent on another Claude account, or on Codex, cannot use plugins you added, its page says so and that restarting will not help."
+      "title": "Close the join notice",
+      "line": "The notice that a computer wants to join your Kosmos+ account now has a close button, and stays away until a new request comes in."
     },
     {
-      "icon": "chat",
-      "title": "An agent's page shows the imports question",
-      "line": "When a Claude agent is stopped on Claude Code's allow external imports question, its page now shows that question."
+      "icon": "swarm",
+      "title": "Simpler agent cards",
+      "line": "Agent cards are simpler: Rate Limit shows as a status, the community post line is gone, and you click a card with a question to answer it."
     },
     {
-      "icon": "list",
-      "title": "The Agents list fits a narrow window",
-      "line": "In a narrow browser window, the Agents list shows each running agent's role and AI model under its name, not cut short."
-    },
-    {
-      "icon": "list",
-      "title": "Quiet runs of a recurring task roll up",
-      "line": "Runs of a recurring task that found nothing new, or repeated the same note, fold into one row; its card says when something last changed."
+      "icon": "tasks",
+      "title": "Quiet projects stop flagging you",
+      "line": "Paused projects and agents out of usage no longer mark a project as an Issue, and every row in a project's needs-you list can be dismissed."
     }
   ]
 }

@@ -482,6 +482,9 @@ function maybeAutoInstall() {
     if (!installedRoot()) return;
     if (!(autoPref() || {}).on) return;
     if (autoFailedAt && Date.now() - autoFailedAt < AUTO_RETRY_AFTER) return;
+    /* #6173: not while an account move restarts agents; the install restarts the board, and a board restarted between
+       an agent's bootout and bootstrap leaves it unloaded. The next look installs. */
+    if (autoDefer && autoDefer()) return;
     beginInstall({ auto: true });
   } catch { /* an update that cannot start must not break the one that shows */ }
 }
@@ -688,6 +691,9 @@ function readStatusRecord() {
   const s = readStatusRaw();
   if (!s) return null;
   if (s.code === 0) return null;   // a success seeds nothing: success is the board coming back changed
+  // #6468 ask 3: 97 is run-setup's "not run": the installer did not match its signed release (or could not be checked).
+  if (s.code === 96) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be downloaded, so nothing was installed. Try again in a few minutes', log: installLog() };
+  if (s.code === 97) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be checked against its signed release, so nothing was installed. Try again in a few minutes', log: installLog() };
   return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the installer stopped before it could restart the board', log: installLog() };
 }
 /* #1728. A surviving start marker (see markInstallStarted) means the attempt
@@ -796,7 +802,44 @@ function windowsStatusRecord() {
 function lastAttemptView() {
   if (!lastAttempt) seedFromDisk();
   if (!lastAttempt && updatePlatform() === 'win32') { const w = windowsStatusRecord(); if (w) return w; }
-  return lastAttempt ? { ...lastAttempt } : null;
+  if (!lastAttempt) return null;
+  const view = { ...lastAttempt };
+  /* #6149 point 8: a FAILED attempt is told why when the installer refused it before removing anything, so the
+     board can name what to unlock. Only a refusal stamped at or after this attempt's start (a second's slack: the
+     installer's stamp has no fraction) explains it; an older record never explains a newer failure. */
+  if (typeof view.code === 'number' && view.code !== 0) {
+    const r = updateRefused();
+    const started = Date.parse(view.startedAt || '');
+    const at = r ? Date.parse(r.ts || '') : NaN;
+    if (r && Number.isFinite(started) && Number.isFinite(at) && at >= started - 1000) view.refused = r;
+  }
+  return view;
+}
+/* #6149 point 8: the record setup.sh leaves when an update refuses before removing anything (a locked part, or a
+   folder this account may not change), and removes once a swap goes through. Returns { why, at, parts, paths, ts } or null.
+   why is 'locked' (macOS flags), 'immutable' (Linux chattr +i or +a) or 'permissions'; at is the first stuck path; parts are the locked parts' names (bin, app or
+   runtime) and paths their full paths here, for the unlock line. A key written twice, a why it does not know, or a missing at is damage: null. */
+function updateRefusedFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'update-refused') : null; }
+function updateRefused() {
+  const file = updateRefusedFile();
+  if (!file) return null;
+  let raw = '';
+  try { raw = fs.readFileSync(file, 'utf8'); } catch { return null; }
+  const kv = Object.create(null);
+  const twice = new Set();
+  const parts = [];
+  for (const line of raw.split('\n')) {
+    const m = /^([a-z_]+)=(.*)$/.exec(line.replace(/\r$/, ''));
+    if (!m) continue;
+    if (m[1] === 'part') { if (/^(bin|app|runtime)$/.test(m[2]) && !parts.includes(m[2])) parts.push(m[2]); continue; }
+    if (m[1] in kv) twice.add(m[1]);
+    kv[m[1]] = m[2];
+  }
+  if (twice.has('why') || twice.has('at') || twice.has('ts')) return null;
+  if (kv.why !== 'locked' && kv.why !== 'permissions' && kv.why !== 'immutable') return null;
+  if (!kv.at) return null;
+  const root = installedRoot();
+  return { why: kv.why, at: kv.at, parts, paths: parts.map((x) => path.join(root, x)), ts: kv.ts || null };
 }
 /* #2055: the durable marker of an update that stopped at its pause. setup.sh writes it (with a
    CONSECUTIVE count and the stop's reason) and clears it once an update gets past the pause. It is
@@ -900,7 +943,7 @@ function wireChild(child, opts) {
   child.on('exit', (code) => {
     /* 🛑 #988: THE CLEAR IS OUTSIDE THE `realCode !== 0` BRANCH, DELIBERATELY, AND AN
        EARLIER VERSION HAD IT INSIDE. The spawned shell is
-       `curl … | sh; code=$?; printf … > "$2"; if [ … ]; then rm -f "$4"; fi`,
+       `"$5" "$6" run-setup …; code=$?; printf … > "$2"; if [ … ]; then rm -f "$4"; fi` (curl | sh before #6468),
        so THE CHILD'S EXIT STATUS IS THE TRAILING `if`, NOT THE INSTALLER'S.
        Measured: an installer exiting 7 records "7" in the status file and the
        child still exits 0. So the child `code` is 0 on ordinary failures, and a
@@ -1124,14 +1167,14 @@ function beginInstall(opts) {
      and a real Mac board falls through to the spawn below. */
   if (updatePlatform() === 'win32') return beginWindowsInstall(opts);
   // The URL travels as a positional parameter, never interpolated into the
-  // one command in this product that ends in `| sh`; and KOSMOS_RELEASE_BASE
+  // command that runs the installer (run-setup, #6468; it used to end in `| sh`); and KOSMOS_RELEASE_BASE
   // rides along so the installer stages its tarballs from the SAME host the
   // script came from (the app's env override and the installer's default
   // could otherwise split-brain a staging deployment).
   /* The exit code and the start stamp land in install.status whatever
      happens to this server; the file is the only witness a failed update
      leaves for the next board. Positional parameters, never interpolated
-     into the one command in this product that ends in `| sh`. */
+     into the command that runs the installer. */
   const statusFile = installStatusFile() || '/dev/null';
   /* #1728: the shell removes the in-flight marker (written by wireChild) when
      the attempt finishes -- whichever way the pipeline exited, since the tail of
@@ -1192,10 +1235,14 @@ function beginInstall(opts) {
        better than a green run that curled a remote script into sh. In production
        it WARNS and we return without spawning, leaving the update un-started
        rather than half-started. */
-    liveExec.refuseOrWarn('engine/update.js', '/bin/sh', ['-c', 'curl | sh (installer)']);
+    liveExec.refuseOrWarn('engine/update.js', '/bin/sh', ['-c', 'run-setup (installer)']);
     return;
   }
-  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s\n" "$code" "$3" > "$2"; if [ "$4" != /dev/null ]; then rm -f "$4"; fi', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, startedMarker], {
+  /* #6468 ask 3: never `curl | sh` any more. THIS (installed) copy's node and engine/manifest-verify.js download the
+     installer and the target version's signed manifest, check the installer against it, and only then run it with sh
+     (run-setup). Exit 97 is "not run" (refused), recorded like any other code; readStatusRecord words it. */
+  const target = cache && cache.latest && cache.latest.version ? String(cache.latest.version) : '';
+  const child = spawn('/bin/sh', ['-c', '"$5" "$6" run-setup "$1" "$7" "$8" "$9"; code=$?; printf "%s %s\n" "$code" "$3" > "$2"; if [ "$4" != /dev/null ]; then rm -f "$4"; fi', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, startedMarker, process.execPath, path.join(__dirname, 'manifest-verify.js'), releaseBase(), target, installedRoot() || ''], {
     detached: true,
     stdio: 'ignore',
     // #2036: pass the channel so the spawned setup.sh re-reads the SAME pointer this refresh
@@ -1224,6 +1271,8 @@ function setWindowsHelperWitnessMs(ms) { windowsHelperWitnessMsOverride = Number
 function setBoardContext(ctx) { boardContext = { port: ctx && ctx.port, pid: ctx && ctx.pid }; }
 function setInstallRunner(f) { installRunner = f; }
 function setAutoPref(f) { autoPrefFn = f; }
+let autoDefer = null;   // #6173: () => true while the automatic install should wait (server.js: an account move runs)
+function setAutoDefer(f) { autoDefer = typeof f === 'function' ? f : null; }
 function setInstalledRoot(f) { installedRootFn = f; }
 function setFetcher(f) { fetcher = f; }
 /* #2969: which pointer the installer reads: the one this box's last look took its offer from
@@ -1296,9 +1345,10 @@ module.exports = {
   setBoardContext, // S4: server tells update.js its own {port, pid} at listen time
   setPlatform, setWindowsBundleRoot, setWindowsInstaller, setWindowsRollback, setKeptPreviousBuild, setWindowsHelperWitnessMs,
   updateAbort, // #2055, #4675: the durable stopped-at-the-pause marker ({count,reason,same,port,ts} or null)
+  updateRefused, // #6149 point 8: why an update refused before removing anything ({why,at,parts,paths,ts} or null)
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show
-  alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
+  alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref, setAutoDefer,
   resetCache, RUNNING, TTL, lastLook, checkNow,
   prodPublishesRunning, // #2934: has prod published the build we are running? true/false/null(unknown)
   readSourceChannelAt, setRecordedChannel, installPointer, // #2969: the install stamp the Mac channel falls back to, its test seam, and the pointer the installer reads

@@ -41,16 +41,35 @@ if (args[0] === 'devices' && args[1] === 'allow') {
   console.log(JSON.stringify({ allowed: true }));
   process.exit(0);
 }
+if (args[0] === 'devices' && args[1] === 'list' && process.env.FAKE_LIST) {   // #6315: the allowed list
+  console.log(process.env.FAKE_LIST);
+  process.exit(0);
+}
 if (args[0] === 'join') {
   if (mode === 'unsupported') { process.stderr.write("error: unrecognized subcommand 'join'\\n"); process.exit(2); }
   if (args[1] === 'status') {
     /* The real tunnel logs to stdout before its JSON line (main.rs tracing, step()'s warnings). */
     console.log('2026-10-03T05:00:00Z  WARN kosmos_tunnel::pairing: a round met a busy lock { "noise": true }');
     if (mode === 'shape') console.log(JSON.stringify({ held: true, join_code: '482 915', join_codes: [{ on: 'HomeMac', code: '482 915' }, { on: '<b>x</b>', code: '1' }],
-      asked_of: ['HomeMac', '<script>', 'ok-name'], failed: 'yes', confirmed: false, confirm_expired: true, secret: 'not for the page' }));
+      asked_of: ['HomeMac', '<script>', 'ok-name'], failed: 'yes', confirmed: false, confirm_expired: true, needs_retry: true, secret: 'not for the page' }));
     else if (mode === 'badcode') console.log(JSON.stringify({ held: true, join_code: 'AB-12', join_codes: [], asked_of: [] }));
+    else if (mode === 'recheck-status') console.log(JSON.stringify({ held: false, join_code: '', join_codes: [], asked_of: [], failed: false, confirmed: false,
+      confirm_expired: true, needs_retry: false, can_recheck: true, rechecking: false, recheck_with: 'HomeMac' }));
+    else if (mode === 'recheck-badname') console.log(JSON.stringify({ held: false, join_code: '', join_codes: [], asked_of: [], can_recheck: 'yes', rechecking: 1, recheck_with: '<b>x</b>' }));
     else console.log(JSON.stringify({ held: false, join_code: '', join_codes: [], asked_of: [], failed: false, confirmed: false, confirm_expired: false }));
     process.exit(0);
+  }
+  if (args[1] === 'retry') {   // #6353
+    if (mode === 'retry-old') { process.stderr.write("error: unrecognized subcommand 'retry'\\n"); process.exit(2); }
+    if (mode === 'retry-none') { process.stderr.write('Error: nothing_to_retry: there is no code that ran out here\\n'); process.exit(1); }
+    if (mode === 'retry-used') { process.stderr.write('Error: attempts_used: every try is used; press Not me on the other computer, then set this one up again\\n'); process.exit(1); }
+    console.log(JSON.stringify({ retry: true })); process.exit(0);
+  }
+  if (args[1] === 'recheck') {   // kosmos#6404
+    if (mode === 'recheck-old') { process.stderr.write("error: unrecognized subcommand 'recheck'\\n"); process.exit(2); }
+    if (mode === 'recheck-none') { process.stderr.write('Error: nothing_to_recheck: there is no code to check again here\\n'); process.exit(1); }
+    if (mode === 'recheck-used') { process.stderr.write('Error: attempts_used: every try is used; press Not me on the other computer, then set this one up again\\n'); process.exit(1); }
+    console.log(JSON.stringify({ recheck: true })); process.exit(0);
   }
   if (args[1] === 'confirm') {
     if (flag('--code') === '482 915') { console.log(JSON.stringify({ confirmed: true, with: 'HomeMac' })); process.exit(0); }
@@ -74,7 +93,7 @@ function unenrol() { fs.rmSync(nodePath.join(DATA_ROOT, 'remote'), { recursive: 
 function recorded() {
   try { return fs.readFileSync(RECORD, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); } catch { return []; }
 }
-test.beforeEach(() => { fs.rmSync(RECORD, { force: true }); delete process.env.FAKE_JOIN; });
+test.beforeEach(() => { fs.rmSync(RECORD, { force: true }); delete process.env.FAKE_JOIN; delete process.env.FAKE_LIST; });
 test.afterEach(() => { remote.resetForTests(); unenrol(); });
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
@@ -84,10 +103,12 @@ test('#4794: a pending row passes code_wait only from the fixed list', () => {
     { device_id: 'dev-a', name: 'laptop', first_seen: 1756000000, code: '', joining_computer: 'laptop', code_wait: 'daily_limit' },
     { device_id: 'dev-b', name: 'laptop2', first_seen: 1756000000, code: '', joining_computer: 'laptop2', code_wait: '<b>bad</b>' },
     { device_id: 'dev-c', name: 'laptop3', first_seen: 1756000000, code: '482 915', joining_computer: 'laptop3' },
+    // #6383: the tunnel's reason for a code that ran out on the joining computer.
+    { device_id: 'dev-d', name: 'laptop4', first_seen: 1756000000, code: '', joining_computer: 'laptop4', code_wait: 'code_ran_out' },
   ] }));
   remote.setOn(true);
   const by = Object.fromEntries(remote.pendingDevices().devices.map((d) => [d.device_id, d.code_wait]));
-  assert.deepEqual(by, { 'dev-a': 'daily_limit', 'dev-b': null, 'dev-c': null });
+  assert.deepEqual(by, { 'dev-a': 'daily_limit', 'dev-b': null, 'dev-c': null, 'dev-d': 'code_ran_out' });
 });
 
 test('#4794: Allow sends a six-digit code with --code, and nothing for anything else', async () => {
@@ -122,7 +143,7 @@ test('#4794: join status hands the page only checked fields', async () => {
   const got = await remote.joinStatus();
   assert.equal(got.ok, true, got.because);
   assert.deepEqual(got.data, { supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac', 'ok-name'],
-    failed: false, confirmed: false, confirm_expired: true });
+    failed: false, confirmed: false, confirm_expired: true, needs_retry: true, can_recheck: false, rechecking: false, recheck_with: null });
   const call = recorded().find((a) => a[0] === 'join' && a[1] === 'status');
   assert.ok(call && call.includes('--coordinator') && call.includes('--state-dir'), JSON.stringify(call));
 });
@@ -160,6 +181,57 @@ test('#4794: The codes match passes the code to join confirm and answers the oth
   assert.deepEqual([expired.ok, expired.because], [false, 'code_expired'], 'an expired code is tagged for the page');
 });
 
+test('#6353: Try again runs join retry locally and tags the tunnel refusals for the page', async () => {
+  enrol();
+  const ok = await remote.joinRetry();
+  assert.deepEqual(ok, { ok: true, because: null, data: { retry: true } });
+  const call = recorded().find((a) => a[0] === 'join' && a[1] === 'retry');
+  assert.ok(call && call.includes('--state-dir'), JSON.stringify(call));
+  assert.ok(!call.includes('--coordinator'), 'join retry is local only');
+  process.env.FAKE_JOIN = 'retry-none';
+  assert.deepEqual(await remote.joinRetry(), { ok: false, because: 'nothing_to_retry' });
+  process.env.FAKE_JOIN = 'retry-used';
+  assert.deepEqual(await remote.joinRetry(), { ok: false, because: 'attempts_used' });
+  process.env.FAKE_JOIN = 'unsupported';
+  assert.match((await remote.joinRetry()).because, /cannot pair computers yet/);
+  process.env.FAKE_JOIN = 'retry-old';   // a tunnel with join but from before join retry: it can pair, not take Try again
+  assert.equal((await remote.joinRetry()).because, 'this version of Kosmos cannot ask for a new code yet');
+});
+
+test('kosmos#6404: Check the code runs join recheck locally and tags the tunnel refusals for the page', async () => {
+  enrol();
+  process.env.FAKE_JOIN = '';
+  assert.deepEqual(await remote.joinRecheck(), { ok: true, because: null, data: { recheck: true } });
+  const call = recorded().find((a) => a[0] === 'join' && a[1] === 'recheck');
+  assert.ok(call && call.includes('--state-dir'), JSON.stringify(call));
+  assert.ok(!call.includes('--coordinator'), 'join recheck is local only');
+  process.env.FAKE_JOIN = 'recheck-none';
+  assert.deepEqual(await remote.joinRecheck(), { ok: false, because: 'nothing_to_recheck' });
+  process.env.FAKE_JOIN = 'recheck-used';
+  assert.deepEqual(await remote.joinRecheck(), { ok: false, because: 'attempts_used' });
+  process.env.FAKE_JOIN = 'recheck-old';   // a tunnel from before join recheck
+  assert.equal((await remote.joinRecheck()).because, 'this version of Kosmos cannot check the code again yet');
+  process.env.FAKE_JOIN = '';
+});
+
+test('kosmos#6404: join status passes the check fields, typed, and the name through the name rule', async () => {
+  enrol();
+  process.env.FAKE_JOIN = 'recheck-status';
+  const ok = await remote.joinStatus();
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  assert.deepEqual([ok.data.can_recheck, ok.data.rechecking, ok.data.recheck_with, ok.data.confirm_expired], [true, false, 'homemac', true]);
+  process.env.FAKE_JOIN = 'recheck-badname';   // CONTROL: not booleans, a name that breaks the rule
+  const bad = await remote.joinStatus();
+  assert.deepEqual([bad.data.can_recheck, bad.data.rechecking, bad.data.recheck_with], [false, false, null]);
+  process.env.FAKE_JOIN = '';
+});
+
+test('#6353: Try again before the sign-up is finished does not reach the binary', async () => {
+  const r = await remote.joinRetry();
+  assert.deepEqual(r, { ok: false, because: 'finish the Plus sign-up first' });
+  assert.equal(recorded().length, 0);
+});
+
 test('#4794: join confirm on a tunnel with no join verb says so in words', async () => {
   enrol();
   process.env.FAKE_JOIN = 'unsupported';
@@ -176,4 +248,85 @@ test('#4794: a confirm code that is not six digits is refused without spawning',
     assert.equal(r.ok, false, String(bad));
   }
   assert.equal(recorded().length, 0, 'a bad code reached the binary');
+});
+
+/* #6315: the coordinator names a joining computer's request by a MINTED id, computer:<the computer's 32-hex id>
+   (kosmos-relay MINTED_PREFIX, kosmos#4681). Every test above used ids like 'dev-a', so nothing saw that the board's
+   id check refused the colon and dropped every such request: no second computer could ever be allowed. */
+const MINTED = 'computer:36b705ae542a7305ca8a368286c37161';
+
+test('#6315: a joining computer named by its real minted id is listed, with its name and code; malformed ones are not', () => {
+  const dir = enrol();
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: MINTED, name: 'computer tmnt', first_seen: 1792168082, code: '050 584', joining_computer: 'tmnt' },
+    { device_id: 'computer:36B705AE542A7305CA8A368286C37161', name: 'upper', first_seen: 1792168082, code: '', joining_computer: 'upper' },
+    { device_id: 'computer:36b705ae542a7305ca8a368286c3716', name: 'short', first_seen: 1792168082, code: '', joining_computer: 'short' },
+    { device_id: 'computer:../../etc', name: 'path', first_seen: 1792168082, code: '', joining_computer: 'path' },
+    { device_id: 'k1.L8xHhgKw4ciSy7mTPfT3qNu8V7Z2oDAn', name: 'Android phone', first_seen: 1792009447, code: '' },   // CONTROL
+  ] }));
+  remote.setOn(true);
+  const got = remote.pendingDevices().devices;
+  assert.deepEqual(got.map((d) => d.device_id), [MINTED, 'k1.L8xHhgKw4ciSy7mTPfT3qNu8V7Z2oDAn']);
+  const row = got.find((d) => d.device_id === MINTED);
+  assert.equal(row.joining_computer, 'tmnt');
+  assert.equal(row.code, '050 584');
+});
+
+test('#6315: Allow takes the minted id and hands it to the tunnel unchanged; a malformed computer id is refused', async () => {
+  enrol();
+  const ok = await remote.deviceAllow(MINTED, 'tmnt', '050 584');
+  assert.equal(ok.ok, true, ok.because);
+  const call = recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').find((a) => a[a.indexOf('--device-id') + 1] === MINTED);
+  assert.ok(call, 'the minted id never reached the tunnel');
+  assert.equal(call[call.indexOf('--code') + 1], '050 584');
+  const before = recorded().length;
+  for (const near of ['computer:' + 'A'.repeat(32), 'computer:' + 'a'.repeat(31), 'computer:' + 'a'.repeat(33)]) {
+    const bad = await remote.deviceAllow(near, 'tmnt', '050 584');
+    assert.deepEqual([bad.ok, bad.because], [false, 'that is not a device we know'], near);
+  }
+  assert.equal(recorded().length, before, 'a near-miss computer id reached the tunnel');
+});
+
+test('#6315: a computer id is never allowed without the code both screens show', async () => {
+  enrol();
+  for (const code of [undefined, '', 'K7-4M']) {
+    const r = await remote.deviceAllow(MINTED, 'tmnt', code);
+    assert.deepEqual([r.ok, r.because], [false, 'code_pending'], 'a computer was allowed, or refused in unworded terms, with code ' + JSON.stringify(code));
+  }
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').length, 0, 'a code-less computer Allow reached the tunnel');
+});
+
+test('#6315: Not me and Remove take the minted id too', async () => {
+  enrol();
+  await remote.deviceDeny(MINTED);
+  await remote.deviceRemove(MINTED);
+  const verbs = recorded().filter((a) => a[0] === 'devices' && a[a.indexOf('--device-id') + 1] === MINTED).map((a) => a[1]);
+  assert.ok(verbs.includes('deny'), 'Not me on the minted id never reached the tunnel: ' + JSON.stringify(verbs));
+  assert.ok(verbs.includes('remove'), 'Remove on the minted id never reached the tunnel: ' + JSON.stringify(verbs));
+});
+
+test('#6315: a computer: row with no usable computer name is shown as a former computer, never as a phone', () => {
+  const dir = enrol();
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: MINTED, name: 'computer tmnt', first_seen: 1792168082, code: 'K7-4M', joining_computer: null },
+  ] }));
+  remote.setOn(true);
+  const [row] = remote.pendingDevices().devices;
+  assert.deepEqual([row.device_id, row.code, row.code_wait], [MINTED, '', 'was_a_computer']);
+  // A more specific reason is kept, not overwritten (a defensive case: today's tunnel sends one only with a name).
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: MINTED, name: 'computer tmnt', first_seen: 1792168082, code: '', joining_computer: null, code_wait: 'daily_limit' },
+  ] }));
+  assert.equal(remote.pendingDevices().devices[0].code_wait, 'daily_limit');
+});
+
+test('#6315: the allowed list keeps a computer: id, so it can be removed', async () => {
+  enrol();
+  process.env.FAKE_LIST = JSON.stringify({ devices: [
+    { device_id: MINTED, name: 'computer tmnt', allowed_at: 1792168200, last_seen: 0 },
+    { device_id: 'computer:' + 'a'.repeat(31), name: 'short', allowed_at: 1792168200, last_seen: 0 },
+  ] });
+  const got = await remote.devicesList();
+  assert.equal(got.ok, true, got.because);
+  assert.deepEqual(got.data.devices.map((d) => d.device_id), [MINTED]);
 });

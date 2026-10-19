@@ -51,6 +51,9 @@ xcodebuild -project Kosmos.xcodeproj -target Kosmos -sdk iphoneos26.5 \
   -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
+The SDK name follows the installed Xcode: `xcodebuild -showsdks` lists them (`iphoneos27.0` and
+`iphonesimulator27.0` with Xcode 27).
+
 - `-target` (not `-scheme`): the device *destination* needs an installed iOS
   platform for run/deploy, which is separate from the SDK (see below), so the
   scheme+destination path currently fails to resolve. Building the target
@@ -58,41 +61,68 @@ xcodebuild -project Kosmos.xcodeproj -target Kosmos -sdk iphoneos26.5 \
 - `CODE_SIGNING_ALLOWED=NO`: this verifies compile+link without a signing
   identity. A real signed build needs a certificate and provisioning.
 
-Verified green on this box (Xcode 26.6, iOS SDK 26.5) before the asset catalog landed (#4089).
-Since then the build compiles `Kosmos/Assets.xcassets`, which needs an iOS simulator runtime (next
-section), so on a Mac without one it stops at the asset catalog. iOS CI builds it on GitHub's macOS
-runner, which has the runtime.
+Verified green on Agent1s-Mac-mini on 2026-10-15 (#6262) with Xcode 27.0, for the simulator, asset
+catalog included: `-sdk iphonesimulator27.0` in place of `-sdk iphoneos26.5` above. The build
+compiles `Kosmos/Assets.xcassets`, which needs an iOS simulator runtime (next section); iOS CI
+builds it on GitHub's macOS runner, which has one.
 
 ## App icon and launch screen, compiled in CI (#4089)
 
 - `Kosmos/Assets.xcassets` holds `AppIcon` (a byte-for-byte copy of `assets/Kosmos-1024.png`:
   1024 px, full bleed, no transparency; iOS makes every smaller size from it) and
   `LaunchBackground`, Kosmos navy `#17233D`, the same colour as `UIColor.kosmosNavy`.
-- `Kosmos-Info.plist` holds only the launch screen (`UILaunchScreen` > `UIColorName =
-  LaunchBackground`); everything else in the Info.plist is still generated from build settings.
+- `Kosmos-Info.plist` holds the launch screen (`UILaunchScreen` > `UIColorName =
+  LaunchBackground`) and `ITSAppUsesNonExemptEncryption = false` (#6262: the app uses only
+  standard HTTPS, and without the key every TestFlight build stops at an export-compliance
+  question). Everything else in the Info.plist is generated from build settings.
 - `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` wires the icon.
 - Compiling the catalog queries the installed iOS simulator runtimes and fails without one (`No
-  available simulator runtimes for platform iphonesimulator`, measured on this box for both the
-  simulator and the device platform). `xcrun simctl list runtimes` is empty here; installing one is
-  `xcodebuild -downloadPlatform iOS`, a large admin download and a **Josh operator action**. Until
-  then the app builds only in CI, where `tools/check-app-assets.sh` checks the built app carries
-  both names and that the catalog icon is still `assets/Kosmos-1024.png`.
-- Running the app in a simulator waits on the same runtime.
+  available simulator runtimes for platform iphonesimulator`). Agent1s now has an iOS 26.5 runtime
+  (measured 2026-10-15, #6262); a Mac without one installs it with `xcodebuild -downloadPlatform
+  iOS`, a large admin download. CI's `tools/check-app-assets.sh` checks the built app carries both
+  names and that the catalog icon is still `assets/Kosmos-1024.png` (it passes on the local build too).
+
+## Running it in the simulator (#6262)
+
+Measured on Agent1s, 2026-10-15: the Debug simulator build installs and launches on an iPhone 16
+simulator running iOS 26.5 (the app targets iOS 16), loads the live Kosmos+ sign-in page from
+`login.kosmosplus.com`, and asks for notification permission.
+
+- **Xcode 27's `xcrun simctl` hangs on this box.** It is a script that first runs `xcodebuild
+  -runFirstLaunch` whenever the system CoreSimulator is older than Xcode expects (1051.55 installed,
+  1171.7 expected), and that step needs an admin password, so it waits forever with no prompt in a
+  terminal. Until someone runs `sudo xcodebuild -runFirstLaunch` once at the Mac, call the system
+  simctl that script would have run:
+  ```
+  SC=/Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/Resources/bin/simctl
+  $SC create kosmos-sim com.apple.CoreSimulator.SimDeviceType.iPhone-16 com.apple.CoreSimulator.SimRuntime.iOS-26-5
+  $SC boot <udid> && $SC bootstatus <udid> -b
+  $SC install <udid> <SYMROOT>/Debug-iphonesimulator/Kosmos.app
+  $SC launch <udid> io.kosmos.app
+  $SC io <udid> screenshot shot.png
+  ```
+- **2026-10-17:** Xcode's first-launch setup has run (Josh, for #6262), so `xcrun simctl` works again, and the
+  simulator runtime is now **iOS 27.0** (`xcodebuild -downloadPlatform iOS`, about 8 GB; the 26.5 runtime was no
+  longer listed under Xcode 27.0). `ios/store/shoot-app.sh` runs the app on iPhone 17 and iPhone 17 Pro Max
+  simulators for the App Store screenshots, with a build-only switch (`KOSMOS_STORE_SHOTS`) that opens a
+  throwaway board instead of Kosmos+; iOS CI checks the store build never carries it.
+- Signing in needs the six-digit code sent to the account's email, and a simulator never receives a
+  real push (the app registers as `sandbox` there).
 
 ## Signing, archive and upload (#4089)
 
-- **The Team ID lives in one place: `Signing.xcconfig`** (`DEVELOPMENT_TEAM`), the app target's
-  base configuration. So does the bundle id (`KOSMOS_BUNDLE_ID`). For now (Josh, 2026-10-12) they
-  are the Stone Syndicate team's and `io.kosmos.app.preview`: an interim TestFlight app. The real
-  app is created fresh as `io.kosmos.app` under Kosmos Agent Manager, Inc. once Apple approves
-  #3643, and both lines change then (docs/phone-push-go-live.md, "Interim").
-  - A preview build's push registration is refused by the coordinator (its `KOSMOS_APNS_BUNDLE_IDS`
-    is unset today, and is planned to allow only `io.kosmos.app`; kosmos-relay
-    `coordinator/src/apns.rs` refuses any bundle id not on that list with HTTP 400, and its env
-    template says an unset list refuses every app). The app logs `[Push] register failed with HTTP 400` and carries on,
-    with no banner (`PushRegistrar.swift`). It still shows the notification-permission prompt.
-  - Building for a real device in Xcode now signs as that team too, so Xcode provisions
-    `io.kosmos.app.preview` under Stone Syndicate for a person signed in to that team. A bundle id
+- **Xcode reads the Team ID from `Signing.xcconfig`** (`DEVELOPMENT_TEAM`), the app target's
+  base configuration, and the bundle id too (`KOSMOS_BUNDLE_ID`). They are Kosmos Agent Manager,
+  Inc.'s team and `io.kosmos.app`, registered there with Push Notifications on (#6262). The
+  interim Stone Syndicate preview app (#4089) was never created and is dropped. `tools/archive.sh`
+  also holds that team id, as the one team it allows `io.kosmos.app` under, so a team change is an
+  edit in both files.
+  - Push registration is refused by the coordinator until its `KOSMOS_APNS_BUNDLE_IDS` lists
+    `io.kosmos.app` (kosmos-relay `coordinator/src/apns.rs` refuses any bundle id not on that list
+    with HTTP 400, and its env template says an unset list refuses every app). The app logs
+    `[Push] register failed with HTTP 400` and carries on, with no banner (`PushRegistrar.swift`).
+  - Building for a real device in Xcode signs as that team too, so Xcode provisions
+    `io.kosmos.app` under Kosmos Agent Manager, Inc. for a person signed in to that team. A bundle id
     belongs to one team across all of Apple, so anyone else passes their own team AND their own id
     on the command line (`xcodebuild ... DEVELOPMENT_TEAM=<theirs> KOSMOS_BUNDLE_ID=<their own id>`).
     Never set either in Xcode's Signing or General pane: that writes them into `project.pbxproj`,
@@ -101,17 +131,22 @@ runner, which has the runtime.
     local or staging coordinator must list that id in `KOSMOS_APNS_BUNDLE_IDS` and hold an APNs key
     from the same team to test push on a device.
 - `tools/archive.sh --build <N>` archives the Release app, exports it for App Store Connect with
-  `tools/ExportOptions.plist` (the Team ID is added from `Signing.xcconfig`), and runs
+  a copy of `tools/ExportOptions.plist` that `tools/export-options.sh` writes, adding the Team ID from `Signing.xcconfig`, and runs
   `tools/check-ipa-entitlements.sh` on the exported `.ipa`: `aps-environment` must be
   `production`, `get-task-allow` must not be `true`, and the app must be signed by the team in
   `Signing.xcconfig` (app identifier `<team>.<KOSMOS_BUNDLE_ID>`, team identifier `<team>`). `--upload` then sends that same checked `.ipa` to App Store Connect
   (it needs an App Store Connect API key: `ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`).
+- `KOSMOS_IOS_PROFILE=<profile name>` signs by hand: the archive and the export use an Apple Distribution
+  certificate and that App Store profile (for `<team>.<KOSMOS_BUNDLE_ID>`, with Push). Use it when the team has no
+  registered device: automatic signing archives with a development profile first and stops with "Your team has no
+  devices". The certificate and its private key must be in this Mac's login keychain, usable by `codesign`, and the
+  profile installed. The name may not hold an apostrophe, a double quote, a backslash, a dollar sign or a control character, start
+  with a space or be empty (`--check-config` refuses each; unset the variable to sign automatically). The first TestFlight build (#6262) was uploaded this way.
 - `--build` is required: App Store Connect refuses a build number it has already seen.
 - `archive.sh` refuses a malformed bundle id, or an empty or malformed Team ID, before it archives anything,
-  and refuses `io.kosmos.app` under the Stone Syndicate team (Apple cannot transfer a never-released
-  app). That refusal covers `archive.sh` only: an archive made from Xcode's menus or a hand-run
-  `xcodebuild` never reaches it, and the second guard is CI's `tools/test-cut-sign-preflight.sh`,
-  which fails once `Signing.xcconfig` names Stone Syndicate with any bundle id but the preview one.
+  and refuses `io.kosmos.app` under any team but Kosmos Agent Manager, Inc.'s (the bundle id is
+  registered there). That refusal covers `archive.sh` only: an archive made from Xcode's menus or a hand-run
+  `xcodebuild` never reaches it.
   `archive.sh --check-config` runs only those checks; `tools/test-archive-config.sh` (in iOS CI) shows each
   can refuse.
 - `-scheme Kosmos` uses the shared scheme committed under `Kosmos.xcodeproj/xcshareddata/`, so
@@ -190,5 +225,5 @@ token, so the device is never registered and receives no pushes. That is logged.
 ## Not in scope
 
 The coordinator's APNs send path and the APNs auth key (kosmos-relay, Kano), a
-signing certificate and provisioning profile with push enabled, App Store
-submission, and simulator execution (no runtime on the build box yet).
+signing certificate and provisioning profile with push enabled, and App Store
+submission.

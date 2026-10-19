@@ -115,6 +115,8 @@ const T0 = Date.now();
 
 const results = [];
 let halted = false;   // a signal or the watchdog is tearing the run down: main's late checks are not reported
+// kosmos#6287: the helpers and module state named in tools.fedproof-helpers-in-sync-6287.test.js are kept identical in
+// tools/fed-own-e2e.js and tools/family-e2e-6239.js (whole-line // comments may differ). A fix to one is made to both, or that test fails.
 function chk(ok, label, extra) {
   if (halted) return !!ok;
   results.push({ ok: !!ok, label });
@@ -332,9 +334,21 @@ async function webSignup(email) {
 /* A board signs in to an existing account: the in-app wizard's routes (#3149). */
 async function boardSignin(b, email, name) {
   const before = devCodes(email).length;
+  let retried = false;
   let r = await http(b.base, 'POST', '/api/remote/signin-start', { email });
+  // The first tunnel call of a run can outlast the board's wait while the debug tunnel binary starts (seen twice, always
+  // the first board to sign in): asked again once, on that answer only. The words are the board's own refusal for a tunnel
+  // that does not answer (engine/remote.js); if they are reworded, this retry silently stops, which only loses the retry.
+  if (r.status !== 200 && /did not answer in time/.test(r.text)) {
+    info(b.letter + ' signin-start: the tunnel did not answer in time; asking once more');
+    r = await http(b.base, 'POST', '/api/remote/signin-start', { email });
+    retried = true;
+  }
   if (r.status !== 200) { info(b.letter + ' signin-start ' + r.status + ' ' + r.text.slice(0, 200)); return false; }
-  const code = await nextCode(email, before);
+  let code = await nextCode(email, before);
+  // After a retry two codes may arrive (the first start may have gone through late): let them settle 2 s and take the
+  // newest. A first code written more than 2 s after the retry's would still be taken; verify then fails, as itself.
+  if (retried && code) { await sleep(2000); const all = devCodes(email); code = all[all.length - 1]; }
   if (!code) { info(b.letter + ': no sign-in code arrived for ' + email); return false; }
   r = await http(b.base, 'POST', '/api/remote/signin-verify', { email, code });
   if (r.status !== 200 || !r.json || r.json.stage !== 'session') { info(b.letter + ' signin-verify ' + r.status + ' ' + r.text.slice(0, 200)); return false; }

@@ -107,10 +107,13 @@ test('a 403 renders as NOT SIGNED IN, not as an unreadable board (#2023)', () =>
      branch wins even though a 403 also sets BOARD_LOOK_FAILED. */
   const html = boardEmpty(NEEDS_SIGNIN);
   assert.match(html, /not signed in/i, 'a not-signed-in board did not say so');
-  /* The ONLY remedy that works: self-heal on the next update. Every user-action
-     remedy failed on a real machine (stale bundle, bare name off PATH). */
-  assert.match(html, /fix(es)? itself the next time Kosmos updates/i,
-    'the self-heal remedy is missing, so the box names no way out that works');
+  /* #6358: a restart (an update included) ends a tab's sign-in, so the box says how to sign THIS tab in, offers the
+     Mac app (which signs itself in) as the other way on, and must not promise that waiting for an update heals a tab. */
+  assert.match(html, /kosmos open<\/code> in a terminal, then press Reload/i,
+    'the tab remedy is missing, so the box names no way out that works for this tab');
+  assert.match(html, /Kosmos app from your Applications folder/i, 'the app remedy is missing');
+  assert.ok(!/fix(es)? itself the next time Kosmos updates/i.test(html),
+    'the box promises an update will sign the tab in, which a restart now undoes');
   assert.ok(!/We cannot read your agents right now/.test(html),
     'a not-signed-in board rendered as a generic unreadable one');
   assert.ok(!/No agents yet/.test(html), 'a not-signed-in board claimed it is empty');
@@ -220,30 +223,36 @@ test('a phone or computer with no network renders YOU ARE OFFLINE, and outranks 
   /* A read that never got an answer also sets BOARD_LOOK_FAILED, so the offline branch must
      win over the generic card, whose "Something on this computer did not answer" blames the Mac. */
   const html = boardEmpty({ seen: true, failed: 'Load failed', offline: true });
-  assert.match(html, /You are offline\./);
-  assert.match(html, /This phone or computer is not connected to the internet, so it cannot reach your Mac\./);
+  /* #6537: the top note says "You are offline" and that this phone or computer is not connected; the card says only
+     that the board asks again by itself, and no longer repeats the top note. */
+  assert.match(html, /The board tries again by itself when you are online again\./);
+  assert.doesNotMatch(html, /You are offline|not connected to the internet/, 'the card repeats the top note (#6537)');
   assert.ok(!/We cannot read your agents|Something on this computer/.test(html), 'the offline phone was told the Mac did not answer');
   assert.match(html, /data-board-retry/, 'the offline card lost its Try again');
   assert.ok(!/kosmos agents|Already use Terminal/.test(html), 'a terminal hatch on a phone that cannot reach the Mac');
   // Offline is known before anything about the sign-in could be: it outranks both sign-in states.
-  assert.match(boardEmpty({ seen: true, failed: 'x', offline: true, signedOut: true, signin: true }), /You are offline\./);
+  assert.match(boardEmpty({ seen: true, failed: 'x', offline: true, signedOut: true, signin: true }), /The board tries again by itself/);
   // CONTROL: the same failed read without the flag is the generic card.
   assert.match(boardEmpty({ seen: true, failed: 'Load failed' }), /We cannot read your agents/);
 });
 
-test('through Kosmos+, the cannot-read card names your Mac and offers no Terminal (#718 state 2)', () => {
+test('through Kosmos+, the cannot-read card blames no machine and offers no Terminal (#718 state 2, #6538)', () => {
   const had = Object.prototype.hasOwnProperty.call(globalThis, 'location');
   const prev = globalThis.location;
   try {
     globalThis.location = { hostname: 'leo.kosmosplus.com', host: 'leo.kosmosplus.com' };
     const remote = boardEmpty(CANNOT);
-    assert.match(remote, /Something on your Mac did not answer/);
+    /* #6538: the did-not-answer sentence repeated the top note ("Your Mac is not answering"), so it went; the card
+       keeps its bold line and "This is not the same as having none." */
+    assert.match(remote, /We cannot read your agents right now\.<\/b><br>This is not the same as having none\. \(/);
+    assert.doesNotMatch(remote, /did not answer|not telling you the board is empty/, 'the card repeats the top note (#6538)');
     assert.ok(!/on this computer/.test(remote), 'a phone was told its own computer did not answer');
     assert.ok(!/Already use Terminal/.test(remote), 'a Terminal hatch for a person who is not at the Mac');
     // CONTROL: on the Mac itself, the card keeps "this computer" and the hatch.
     globalThis.location = { hostname: '127.0.0.1', host: '127.0.0.1:16180' };
     const local = boardEmpty(CANNOT);
-    assert.match(local, /Something on this computer did not answer/);
+    assert.match(local, /This is not the same as having none\./);
+    assert.doesNotMatch(local, /did not answer|not telling you the board is empty/, 'the card repeats the top note (#6538)');
     assert.match(local, /Already use Terminal/);
   } finally {
     if (had) globalThis.location = prev; else delete globalThis.location;

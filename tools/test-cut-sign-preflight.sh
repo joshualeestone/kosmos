@@ -12,7 +12,7 @@ passes=0
 ok()  { echo "  PASS  $1"; passes=$((passes + 1)); }
 bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
-WORK="$(mktemp -d)"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/test-cut-sign-preflight.XXXXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 # Stub codesigns are shell FUNCTIONS, not files: `command -v` finds a function and
@@ -114,8 +114,8 @@ _team_all="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-
 if ! printf '%s\n' "$_team_all" | grep -q '/tools/lib/signing-identity.sh$'; then
   bad "CONTROL: the team sweep did not even find lib/signing-identity.sh, so it cannot see anything"
 else
-  # ios/Signing.xcconfig is the iOS app's own one place for its team (#4089: Stone Syndicate signs the interim
-  # io.kosmos.app.preview TestFlight app). Xcode reads it there literally, so it cannot come from this lib.
+  # ios/Signing.xcconfig is where Xcode reads the iOS app's own team (#4089, #6262). Xcode reads it there
+  # literally, so it cannot come from this lib.
   # "For the team only" in the message below holds because of the notary-key check on that file further down.
   _team_hits="$(printf '%s\n' "$_team_all" | grep -v '/tools/lib/signing-identity.sh$' | grep -v '/ios/Signing.xcconfig$' | grep -v '/tools/test-' | grep -v '\.test\.js$' || true)"
   [ -z "$_team_hits" ] && ok "only lib/signing-identity.sh (and, for the team only, ios/Signing.xcconfig) names the signing team or its notary key" || bad "the signing team or notary key is named outside lib/signing-identity.sh: $_team_hits"
@@ -123,14 +123,15 @@ fi
 # The sweep above looks for the CURRENT values, so right after a team switch it would be blind to a
 # leftover of the OLD team. Pin the Stone Syndicate team id (built from fragments so this file does
 # not match itself) everywhere, tests included: only the lib may carry it, and ios/Signing.xcconfig only while
-# it builds the interim preview app (checked below), so a leftover there after the iOS move is still caught.
+# it builds the interim preview app (checked below). The preview app was dropped (#6262) and the file now
+# builds io.kosmos.app, so today any Stone Syndicate id there is a leftover and is caught.
 # Only whole-line comments are unhashed in the pkg input, so a value line must not carry an inline one.
 _inline="$(grep -nE '^[[:space:]]*[A-Z_]+=.*[[:space:]]#' "$REPO/tools/lib/signing-identity.sh" || true)"
 [ -z "$_inline" ] && ok "no value line in lib/signing-identity.sh carries an inline comment (it would be hashed)" || bad "an inline comment on a value line in lib/signing-identity.sh would force a pkg rebuild: $_inline"
 _retired="864QZ""69GF2"; _retired_name="Stone Syndicate"" LLC"; _retired_key="43F2HU""5BT8"; _retired_iss="69a6de7f-a03e-47e3-""e053-5b8c7c11a4d1"
 # The iOS team file may name Stone Syndicate only while it builds the interim TestFlight app,
-# io.kosmos.app.preview (#4089). Once it builds io.kosmos.app, Stone Syndicate there is a leftover. This does not
-# depend on the Mac team in the lib, so the Mac switch and the iOS move need not land together.
+# io.kosmos.app.preview (#4089), which was never created and was dropped (#6262). It builds io.kosmos.app, so
+# Stone Syndicate there is a leftover. This does not depend on the Mac team in the lib.
 ios_xcconfig_may_name_stone() {   # $1 = an xcconfig; 0 when it builds the preview app, set once and plainly
   local b any
   any="$(sed 's|//.*||' "$1" 2>/dev/null | grep -cE '^[[:space:]]*KOSMOS_BUNDLE_ID([^A-Za-z0-9_]|$)' || true)"

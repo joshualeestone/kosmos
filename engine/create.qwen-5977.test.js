@@ -130,3 +130,66 @@ test('review 1: the account route does not move an OpenAI agent onto a Qwen fold
   assert.match(r.because, /to move it to Qwen, switch its provider to Qwen/);
   assert.equal(fs.readFileSync(jobfix.jobPath(name), 'utf8'), before);
 });
+
+/* #6214: a stopped bulk move puts an unreached agent back with create.restoreAccount. It rewrites the job only, with
+   every other field as it is, for any runner; for Qwen the profile record Repair rebuilds from goes back too. */
+test('#6214: a Qwen agent put back after a stopped move is back on its old account in the job AND in the profile', () => {
+  const a = qwenAccount('pbA'), b = qwenAccount('pbB');
+  const name = born('qw-putback', 'codex', a, 'alibaba');
+  store.writeProfile(name, { qwenAccount: a });
+  const moved = create.setAccount(name, b);
+  assert.equal(moved.outcome, 'created', moved.because);
+  assert.equal(store.readProfile(name).qwenAccount, b, 'PRECONDITION: the move recorded B');
+  const back = create.restoreAccount(name, a);
+  assert.equal(back.outcome, 'created', back.because);
+  const job = create.readJob(name);
+  assert.equal(job.configDir, a);
+  assert.equal(job.runner, 'codex');
+  assert.equal(create.jobProvider(job), 'alibaba', 'still Qwen');
+  assert.equal(store.readProfile(name).qwenAccount, a, 'Repair would rebuild it on the move\'s account');
+});
+
+/* #6231 item 13: the job cannot be rewritten AND the Qwen record cannot be put back. The answer must say the record now
+   names the old account (a Repair rebuilds from it), not only the job's failure. */
+test('#6231: a Qwen put-back whose job write fails and whose record cannot be undone says so', (t) => {
+  if (process.getuid && process.getuid() === 0) { t.skip('root can write a read-only folder'); return; }   // this file is not run on Windows (tools/windows-tests.js)
+  const a = qwenAccount('udA'), b = qwenAccount('udB');
+  const name = born('qw-undo', 'codex', b, 'alibaba');
+  store.writeProfile(name, { qwenAccount: b });
+  const jobDir = nodePath.dirname(jobfix.jobPath(name));
+  const real = store.writeProfile;
+  let calls = 0;
+  let back;
+  try {
+    store.writeProfile = (...args) => { calls++; if (calls === 2) throw new Error('disk'); return real(...args); };
+    fs.chmodSync(jobfix.jobPath(name), 0o444); fs.chmodSync(jobDir, 0o555);
+    back = create.restoreAccount(name, a);
+  }
+  finally { store.writeProfile = real; fs.chmodSync(jobDir, 0o755); fs.chmodSync(jobfix.jobPath(name), 0o644); }
+  assert.equal(calls, 2, 'PRECONDITION: the record was written, then its undo was tried');
+  assert.notEqual(back.outcome, 'created', 'PRECONDITION: the job write failed');
+  assert.match(String(back.because), /Qwen account now names its old account, so a restart moves it to the new account but a Repair would put it back on the old one/);
+  assert.doesNotMatch(String(back.because), /nothing (was )?changed|have not changed/, 'it says nothing changed, but the record did');
+  assert.equal(store.readProfile(name).qwenAccount, a, 'the record is left on the old account, as the answer says');
+});
+
+test('#6214: an OpenAI agent on its default home is put back with no home written, still on codex', () => {
+  const name = born('cx-putback', 'codex', null, 'openai');
+  const restored = create.restoreAccount(name, null);
+  assert.equal(restored.outcome, 'created', restored.because);
+  const job = create.readJob(name);
+  assert.equal(job.configDir, null, 'a home path was written where the job had none');
+  assert.equal(job.runner, 'codex');
+  assert.equal(restored.account, null, 'no Claude row named for a codex agent');
+});
+
+test('#6214: a Gemini agent is put back on the folder it carried, its runner kept', () => {
+  const dir = nodePath.join(HOME, '.gemini-old');
+  fs.mkdirSync(dir, { recursive: true });
+  const name = born('gm-putback', 'gemini', nodePath.join(HOME, '.gemini-new'), 'google');
+  const restored = create.restoreAccount(name, dir);
+  assert.equal(restored.outcome, 'created', restored.because);
+  const job = create.readJob(name);
+  assert.equal(job.configDir, dir);
+  assert.equal(job.runner, 'gemini');
+});

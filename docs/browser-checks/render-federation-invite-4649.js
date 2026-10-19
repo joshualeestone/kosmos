@@ -135,8 +135,8 @@
  *      now holds. Control: C6. C7b: the same with the SAME button (same text): the line keeps the newer "Copied".
  *      C7c: the same button, both presses refused: the stale write that lands turns the refusal into "Copied".
  *      C7d: the other direction: a held bare-code write landing after a newer invitation copy names the code alone.
- *      (C7b fails only if the stale write wrongly prints the "finished late" line; it cannot tell silence from a
- *      second Copied.)
+ *      (C7b fails if the stale write prints the "finished late" line, or leaves the line anything but
+ *      "Invitation copied."; it cannot tell silence from a second Copied.)
  *  C9e the stubbed select-and-copy fires the copy event as a real one does; the record survives its own event.
  *  C9  the clipboard-holds record through its real listeners (blur, copy events) and an in-time write, and a held
  *      write from a closed sheet landing under a new code.
@@ -349,6 +349,7 @@ const closeAll = (page) => page.evaluate(() => {
   }
   const newPage = async (width, fed, platform) => {
     const ctx = await browser.newContext({ viewport: { width, height: 900 }, timezoneId: 'UTC', locale: 'en-US' });
+    await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {} });   // #6403: the switcher's one-time tip is not this check's subject
     // C5: a page that believes it runs on another platform (MSG_MENU_MAC is read once, at load).
     if (platform) await ctx.addInitScript((p) => { Object.defineProperty(navigator, 'platform', { configurable: true, get: () => p }); }, platform);
     await ctx.addInitScript(initStub, { fed, code: CODE, expires: EXPIRES });
@@ -1595,6 +1596,36 @@ const closeAll = (page) => page.evaluate(() => {
       const s = document.getElementById('fedinv-status').textContent;
       return w.prefix ? s.startsWith(w.text) : s === w.text;
     }, want, { timeout: ms }).catch(() => console.log('NOTE  a wait timed out and the arm read anyway: untilStatus ' + JSON.stringify(want.text)));
+    /* #6105 review 7: armed BEFORE the action, so the revert is frozen the instant the line is said (an observer runs as
+       a microtask after the write), even if the page stalls past both the 30 ms say and the 2 s revert before any poll
+       could see the line. untilCopied below then only waits for it. */
+    // Single use per page: arm it again before each action (a line never said leaves it connected until then).
+    const holdCopied = (page, text) => page.evaluate((t) => {
+      const line = document.getElementById('fedinv-status');
+      if (window.__holdObs) window.__holdObs.disconnect();
+      window.__holdObs = new MutationObserver(() => {
+        if (line.textContent !== t) return;
+        if (FEDINV_COPY_TIMER) { clearTimeout(FEDINV_COPY_TIMER); FEDINV_COPY_TIMER = null; }
+        window.__holdObs.disconnect(); window.__holdObs = null;
+      });
+      window.__holdObs.observe(line, { childList: true, characterData: true, subtree: true });
+    }, text);
+    /* #6105: a "Copied" line reverts after 2 s. On a box saturated by the full suite the read after a wait could land
+       past that and see an empty line, so once the wanted line is up its revert is cancelled: the read sees what the
+       wait saw. Only the shared copy timer (FEDINV_COPY_TIMER, here the Copied revert) is stopped; the arm's assertion is
+       unchanged. */
+    const untilCopied = (page, text, ms = 4000) => page.waitForFunction((t) => {
+      if (document.getElementById('fedinv-status').textContent !== t) return false;
+      if (FEDINV_COPY_TIMER) { clearTimeout(FEDINV_COPY_TIMER); FEDINV_COPY_TIMER = null; }
+      return true;
+    }, text, { timeout: ms }).catch(() => console.log('NOTE  a wait timed out and the arm read anyway: untilCopied ' + JSON.stringify(text)));
+    /* #6105: no Copied is showing (the timer is gone and both buttons say their own words), not a fixed 2.1 s. Called
+       after a Copied it is the revert; before any Copied it returns at once, so a caller's own wait must have seen the
+       Copied first (press() says so when it did not). */
+    const untilReverted = (page) => page.waitForFunction(() => !FEDINV_COPY_TIMER
+      && document.getElementById('fedinv-copy').textContent === 'Copy'
+      && document.getElementById('fedinv-copy-all').textContent === 'Copy the invitation', null, { timeout: 6000 })
+      .catch(() => console.log('NOTE  a wait timed out and the arm read anyway: untilReverted'));
     // A held write is past the 3 s limit: the refusal is up and the busy flag is free.
     const untilRefused = (page) => page.waitForFunction(() => !FEDINV_COPY_BUSY
       && document.getElementById('fedinv-status').textContent.startsWith('Kosmos could not copy'), null, { timeout: 8000 })
@@ -1645,17 +1676,45 @@ const closeAll = (page) => page.evaluate(() => {
     await untilStatus(page, { text: 'Code copied.' });   // #5373
     st = await step(page);
     check('C1 control: the bare Copy writes only the code', st.copied.length === 1 && st.copied[0] === CODE, JSON.stringify(st.copied));
+    /* #6105: the press, the Copied and the revert are all recorded ON THE PAGE as they happen (a capture-phase click
+       listener and a MutationObserver), so neither node-side latency nor a poll that starts late can move them
+       (review 5: timing from the first poll made a correct page red under load). This arm tests the revert, so it is
+       not frozen here. */
+    await page.evaluate(() => {
+      const all = document.getElementById('fedinv-copy-all');
+      const line = document.getElementById('fedinv-status');
+      window.__c1 = { press: null, seen: null, revert: null };
+      all.addEventListener('click', () => { if (window.__c1.press == null) window.__c1.press = performance.now(); }, { capture: true, once: true });
+      window.__c1Obs = new MutationObserver(() => {
+        const c = window.__c1;
+        if (!c.seen && line.textContent === 'Invitation copied.') {
+          c.seen = { t: performance.now(), copied: window.__copied.slice(), allText: all.textContent,
+            copyText: document.getElementById('fedinv-copy').textContent, status: line.textContent };
+        } else if (c.seen && c.revert == null && line.textContent === '' && all.textContent === 'Copy the invitation') {
+          c.revert = performance.now();
+          window.__c1Obs.disconnect();
+        }
+      });
+      window.__c1Obs.observe(line, { childList: true, characterData: true, subtree: true });
+      window.__c1Obs.observe(all, { childList: true, characterData: true, subtree: true });
+    });
     await copyAll(page);
-    await untilStatus(page, { text: 'Invitation copied.' });   // #5373
-    st = await step(page);
+    st = await page.waitForFunction(() => window.__c1.seen, null, { timeout: 4000 }).then((h) => h.jsonValue())
+      .catch(async () => { console.log('NOTE  a wait timed out and the arm read anyway: C1 Invitation copied.'); return step(page); });
     const c1 = st.copied[1];
     check('C1 Copy the invitation writes shot 04\'s text exactly, with the name and the address',
       st.copied.length === 2 && c1 === invitation('Maya Chen (' + ADDR + ')'), JSON.stringify(c1));
     check('C1 it says Copied, and the bare Copy is not left saying Copied', st.allText === 'Copied' && st.copyText === 'Copy' && st.status === 'Invitation copied.',
       JSON.stringify({ all: st.allText, copy: st.copyText, status: st.status }));
-    await page.waitForTimeout(2300);
+    // The revert as the page recorded it, timed from the press: the timer is set at or after the press, so a correct
+    // 2 s revert is never under 2000 ms; 5000 ms leaves room for a stalled page (residual in the plan).
+    const c1rev = await page.waitForFunction(() => (window.__c1.revert != null && window.__c1.press != null)
+      ? { ms: window.__c1.revert - window.__c1.press } : false, null, { timeout: 8000 })
+      .then((h) => h.jsonValue()).catch(async () => { console.log('NOTE  a wait timed out and the arm read anyway: C1 revert ' + JSON.stringify(await page.evaluate(() => window.__c1).catch(() => null))); return null; });
     st = await step(page);
-    check('C1 the button reverts to "Copy the invitation"', st.allText === 'Copy the invitation' && st.status === '', JSON.stringify({ all: st.allText, status: st.status }));
+    check('C1 the button reverts to "Copy the invitation", about 2 s after the press',
+      st.allText === 'Copy the invitation' && st.status === '' && !!c1rev && c1rev.ms >= 1950 && c1rev.ms <= 5000,
+      JSON.stringify({ all: st.allText, status: st.status, revertMs: c1rev && Math.round(c1rev.ms) }));
 
     /* C1b (merged-C review): only the OWNER's members answer names the address. A member's answer (owner: false)
        carries another account's owner_name, so the invitation keeps the name alone. Control: the same answer with
@@ -1748,8 +1807,9 @@ const closeAll = (page) => page.evaluate(() => {
       focusC4 === 'fedinv-whole' && backTo === 'fedinv-copy-all', JSON.stringify({ before: focusC4, after: backTo }));
     // C4b: the clipboard still refuses, but the select-and-copy fallback works: the same exact text, and Copied.
     await page.evaluate(() => { window.__execTexts.length = 0; window.__execOk = true; });
+    await holdCopied(page, 'Invitation copied.');
     await copyAll(page);
-    await untilStatus(page, { text: 'Invitation copied.' });   // #5373
+    await untilCopied(page, 'Invitation copied.');   // #5373; #6105 review 5: its revert held so the read below sees it
     st = await step(page);
     const exec = await page.evaluate(() => ({ texts: window.__execTexts.slice(), focus: document.activeElement && document.activeElement.id }));
     check('C4b select-and-copy (tried first) copies the exact invitation, says Copied, and focus is back on the button (control: C4, failing)',
@@ -1852,12 +1912,13 @@ const closeAll = (page) => page.evaluate(() => {
       await pc.page.waitForTimeout(300);
       const waiting = await step(pc.page);
       await pc.page.click('#fedinv-copy');   // ignored while Copy the invitation waits
-      await pc.page.waitForTimeout(100);
+      // #6105: the busy line is said 30 ms after the press; a saturated box missed it inside a fixed 100 ms.
+      await untilStatus(pc.page, { text: 'One moment: Kosmos is still copying. Press again in a few seconds.' });
       const bareWhileBusy = await step(pc.page);
       // #5275 slice 2: the person clicks into the code field while it waits (explicit, not left to how an engine
       // focuses a clicked button).
       await pc.page.evaluate(() => document.getElementById('fedinv-code').focus());
-      await pc.page.waitForTimeout(3200);   // ~600 ms past the 3 s limit, for a loaded runner
+      await untilRefused(pc.page);   // #6105: past the 3 s limit by the refusal itself, not a fixed 3.2 s
       const limit = await step(pc.page);
       // #5275 slice 2 review 1: focus was moved off Copy the invitation during the wait, so the refusal must not
       // pull it into the field: the whole invitation is selected where it is, and the line says to click in it first.
@@ -1869,8 +1930,9 @@ const closeAll = (page) => page.evaluate(() => {
         moved.focus === 'fedinv-code' && moved.shown && moved.sel[0] === 0 && moved.sel[1] === moved.sel[2]
         && moved.status === 'Kosmos could not copy the invitation, so it is below. Click in it, press ' + keysC6[0] + ', then ' + keysC6[1] + ', and paste it into your message.',
         JSON.stringify(moved));
+      await holdCopied(pc.page, 'Invitation copied.');
       await pc.page.evaluate(() => window.__releaseClip());
-      await pc.page.waitForTimeout(150);
+      await untilCopied(pc.page, 'Invitation copied.');   // #6105: said 30 ms after the write lands, then reverts at 2 s
       const goneC6 = await pc.page.evaluate(() => { const w = document.getElementById('fedinv-whole'); return !!(w && w.hidden && w.value === ''); });
       check('C6 #5275 the late write that copied it hides the field (its refusal is no longer the line)', goneC6, String(goneC6));
       const late = await step(pc.page);
@@ -2005,8 +2067,9 @@ const closeAll = (page) => page.evaluate(() => {
       await p7.page.click('#fedinv-copy-all');
       await untilRefused(p7.page);   // past the limit: the refusal is up and the busy flag is free
       await p7.page.evaluate(() => { window.__execOk = true; });
+      await holdCopied(p7.page, 'Code copied.');
       await p7.page.click('#fedinv-copy');
-      await untilStatus(p7.page, { text: 'Code copied.' });
+      await untilCopied(p7.page, 'Code copied.');   // #6105 review 5
       const newer = await step(p7.page);
       await p7.page.evaluate(() => window.__releaseClip());
       await untilStatus(p7.page, { text: 'An earlier copy finished late, so the clipboard now holds the invitation. Press Copy to copy the code alone.' });
@@ -2026,13 +2089,31 @@ const closeAll = (page) => page.evaluate(() => {
       await untilRefused(p7.page);
       await p7.page.click('#fedinv-copy-all');
       await p7.page.waitForFunction(() => window.__holds.length === 2, null, { timeout: 4000 }).catch(() => {});
+      await holdCopied(p7.page, 'Invitation copied.');
       await p7.page.evaluate(() => window.__holds[1]());   // the newer press lands first
-      await untilStatus(p7.page, { text: 'Invitation copied.' });
+      await untilCopied(p7.page, 'Invitation copied.');
+      /* #6105: every line written from here is recorded, so the read cannot fall between a reset and the sentence said
+         30 ms later, or after the 2 s revert (both read as an empty line on a saturated box). The "finished late" line
+         is written in the write's own handler, so it is on record before the wait below returns. */
+      await p7.page.evaluate(() => {
+        const el = document.getElementById('fedinv-status');
+        window.__lines = [];
+        // #6105 review 1: once the stale write's own Copied is said its revert is frozen too, so a line cleared after it
+        // is a real defect, not the 2 s revert.
+        window.__lineObs = new MutationObserver(() => {
+          window.__lines.push(el.textContent);
+          if (el.textContent === 'Invitation copied.' && FEDINV_COPY_TIMER) { clearTimeout(FEDINV_COPY_TIMER); FEDINV_COPY_TIMER = null; }
+        });
+        window.__lineObs.observe(el, { childList: true, characterData: true, subtree: true });
+      });
       await p7.page.evaluate(() => window.__holds[0]());   // then the stale one, same text
-      await p7.page.waitForTimeout(150);
-      const same = await step(p7.page);
+      await p7.page.waitForFunction(() => window.__lines.some((t) => t !== ''), null, { timeout: 4000 })
+        .catch(() => console.log('NOTE  a wait timed out and the arm read anyway: C7b, no line said after the stale write'));   // a second Copied, if it speaks
+      // The LAST line written stands (a line cleared after the Copied reds); with nothing written, the line as it is.
+      const same = await p7.page.evaluate(() => { window.__lineObs.disconnect();
+        return { status: window.__lines.length ? window.__lines[window.__lines.length - 1] : document.getElementById('fedinv-status').textContent, lines: window.__lines }; });
       check('C7b a stale write of the same text leaves the newer "Invitation copied." standing (control: C7 with the other button)',
-        same.status === 'Invitation copied.', JSON.stringify({ status: same.status }));
+        same.status === 'Invitation copied.' && !same.lines.some((t) => t.startsWith('An earlier copy finished late')), JSON.stringify(same));
       // C7c: the same button twice, BOTH refused (both held past the limit), then the stale write lands: it did copy
       // the invitation, so the refusal gives way to "Invitation copied." (control: C7b, where the newer press said so).
       await p7.page.evaluate(() => { window.__holds = []; FEDINV_CLIP_HOLDS = ''; });   // no copy on record: both presses refused
@@ -2042,8 +2123,9 @@ const closeAll = (page) => page.evaluate(() => {
       await p7.page.waitForFunction(() => FEDINV_COPY_BUSY, null, { timeout: 4000 }).catch(() => {});   // its own write is in flight
       await untilRefused(p7.page);
       const refused = await step(p7.page);
+      await holdCopied(p7.page, 'Invitation copied.');
       await p7.page.evaluate(() => window.__holds[0]());   // the stale write, same text, lands
-      await untilStatus(p7.page, { text: 'Invitation copied.' });
+      await untilCopied(p7.page, 'Invitation copied.');   // #6105 review 5
       const landed = await step(p7.page);
       check('C7c a stale same-text write after a refused newer press says "Invitation copied."',
         refused.status.startsWith('Kosmos could not copy the invitation,') && landed.status === 'Invitation copied.'
@@ -2066,8 +2148,9 @@ const closeAll = (page) => page.evaluate(() => {
       await p7d.page.click('#fedinv-copy');
       await untilRefused(p7d.page);
       await p7d.page.evaluate(() => { window.__execOk = true; });
+      await holdCopied(p7d.page, 'Invitation copied.');
       await p7d.page.click('#fedinv-copy-all');
-      await untilStatus(p7d.page, { text: 'Invitation copied.' });
+      await untilCopied(p7d.page, 'Invitation copied.');   // #6105 review 5
       const newer = await step(p7d.page);
       await p7d.page.evaluate(() => window.__releaseClip());
       await untilStatus(p7d.page, { text: 'An earlier copy finished late, so the clipboard now holds the code alone. Press Copy the invitation to copy the invitation.' });
@@ -2116,17 +2199,21 @@ const closeAll = (page) => page.evaluate(() => {
       const press = async (page) => {
         const before = (await step(page)).status;
         await page.click('#fedinv-copy-all');
-        await page.waitForFunction((b) => {
+        // #6105 review 5: the line is returned by the wait that saw it, not read again after (a Copied can revert between).
+        return page.waitForFunction((b) => {
           const s = document.getElementById('fedinv-status').textContent;
-          return s !== '' && s !== b && !FEDINV_COPY_BUSY;
-        }, before, { timeout: 3000 }).catch(() => {});
-        return (await step(page)).status;
+          return (s !== '' && s !== b && !FEDINV_COPY_BUSY) ? { s } : false;
+        }, before, { timeout: 3000 }).then((h) => h.jsonValue()).then((v) => v.s)
+          .catch(async () => { console.log('NOTE  a wait timed out and the arm read anyway: C9 press'); return (await step(page)).status; });
       };
       const run = async (between) => {
+        // #6105 review 3: the last arm's Copied has reverted first, so press()'s "the line changed" wait starts from an
+        // empty line (it compares to the line before the press; the same sentence said again would never differ).
+        await untilReverted(p9.page);
         await p9.page.evaluate(() => { FEDINV_CLIP_HOLDS = ''; });
         await setClip(p9.page, 'ok');
         await press(p9.page);
-        await p9.page.waitForTimeout(2100);   // past the Copied revert
+        await untilReverted(p9.page);   // past the Copied revert (#6105: by its state, not a fixed 2.1 s)
         if (between === 'blur') await p9.page.evaluate(() => window.dispatchEvent(new Event('blur')));
         if (between === 'copy') await p9.page.evaluate(() => document.dispatchEvent(new Event('copy')));
         await setClip(p9.page, 'no');
@@ -2140,7 +2227,7 @@ const closeAll = (page) => page.evaluate(() => {
       await setClip(p9.page, 'no');
       await p9.page.evaluate(() => { window.__execOk = true; });
       const eFirst = await press(p9.page);
-      await p9.page.waitForTimeout(2100);
+      await untilReverted(p9.page);
       await setClip(p9.page, 'no');   // both ways refuse now
       const e = await press(p9.page);
       check('C9e a select-and-copy survives its own copy event: a refused press of the same text after it says Copied (control: c, a copy event after)',

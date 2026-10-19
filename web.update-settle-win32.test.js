@@ -23,7 +23,7 @@ const SCRIPT = page.scriptOf(PAGE);
 function lifted() {
   // eslint-disable-next-line no-new-func
   return new Function(
-    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'esc', 'updateSettleText', 'updateOverlayLead'])
+    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'esc', 'updateRefusedText', 'updateSettleText', 'updateOverlayLead'])
     + '\nreturn { updateSettleText, updateOverlayLead, windowsCopy };')();
 }
 
@@ -80,19 +80,20 @@ test('win32 slow: the remedy points at Kosmos.exe, never the Mac Applications', 
   assert.doesNotMatch(t, /Applications/, 'the Mac Applications line showed on Windows');
 });
 
-test('the Mac overlay copy is byte-identical: failed, did-not-take and slow are exactly as before the arm', () => {
+test('the Mac overlay copy: failed and slow are exactly as before the arm; did-not-take says the version once (#6533)', () => {
   const { updateSettleText } = lifted();
   assert.equal(updateSettleText('failed', '0.6.55', { code: 7 }, null, 'darwin'),
     '<b>The update did not take.</b>The installer stopped (code 7). Kosmos is still on 0.6.55.');
   assert.equal(updateSettleText('failed', '0.6.55', { code: null }, null, 'darwin'),
     '<b>The update did not take.</b>The installer could not be started. Kosmos is still on 0.6.55.');
   assert.equal(updateSettleText('did-not-take', '0.6.55', null, null, 'darwin'),
-    '<b>The update did not take.</b>Kosmos came back on the same version. Kosmos is still on 0.6.55.');
+    '<b>The update did not take.</b>Kosmos is still on 0.6.55.');
   assert.equal(updateSettleText('deadline', '0.6.55', null, null, 'darwin'),
     '<b>This is taking longer than expected.</b>Kosmos is still on 0.6.55. If Kosmos does not come back on its own, open it again from Applications.');
-  /* And with no version and the installer's notes path, both platforms keep the notes tail. */
-  assert.equal(updateSettleText('did-not-take', null, null, '/logs/install.log', 'darwin'),
-    '<b>The update did not take.</b>Kosmos came back on the same version. The installer\'s notes are at <code>/logs/install.log</code>.');
+  /* And with the installer's notes path, both platforms keep the notes tail. (The Mac no-version case is in
+     web.noise2-6533.test.js.) */
+  assert.equal(updateSettleText('did-not-take', '0.6.55', null, '/logs/install.log', 'darwin'),
+    '<b>The update did not take.</b>Kosmos is still on 0.6.55. The installer\'s notes are at <code>/logs/install.log</code>.');
   assert.equal(updateSettleText('did-not-take', null, null, '/logs/install.log', 'win32'),
     '<b>The update did not take.</b> Nothing else was changed. The installer\'s notes are at <code>/logs/install.log</code>.');
 });

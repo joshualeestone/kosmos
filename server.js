@@ -106,6 +106,7 @@ const {
   /* #4607: what a Codex agent's "Hooks need review" screen says, for the thread's two buttons. */
   codexHookSummary,
 } = require('./engine/status');
+const accountmove = require('./engine/accountmove'); // #6173: several agents' account move, one request, restarts without blocking the board's thread
 const removal = require('./engine/remove');
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
 const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents from one Kosmos into another
@@ -274,6 +275,7 @@ const promptrequest = require('./engine/promptrequest');
    not-consumed, not dropped-as-stale. */
 const FILE_ACCESS_CONSUME_PROBE_MS = 5000;
 const updates = require('./engine/update');
+updates.setAutoDefer(() => moveHoldsBoard());   // #6173: the automatic install waits for an account move to finish
 const usage = require('./engine/usage');
 
 // Single source of truth for the version. With no support function, "what
@@ -317,6 +319,14 @@ const ENGINE_RESTART_FLUSH_MS = 500;          // lets the 202 reach the page bef
    Windows the answer costs two blocking schtasks calls, which must not repeat every sweep. */
 let engineCanRestart = null;
 let engineRestartAsked = false;   // #4408: a restart from the button is already on its way
+let worldSwitchRestarting = false;   // #6173: a Kosmos switch is about to restart the board
+/* #6173: the board is about to restart (an update, the restart button, a Kosmos switch): no account move may start. */
+function boardRestartingSoon() { return updates.alreadyInstalling() || engineRestartAsked || worldSwitchRestarting; }
+/* #6173: a board restart now would cut an account move, or a restart it gave up on whose last command is still running. */
+function moveHoldsBoard() { return accountmove.busy() || removal.restartingNow(); }
+/* #6214: the refusal says so when a running move is what holds the board, so the page can offer to stop it from where the
+   person met the refusal (not only from the Settings tab that started the move). */
+function moveStoppableNote() { return accountmove.busy() ? { moveStoppable: true } : {}; }
 /* #4408 (an external tester on prod, 2026-09-28): a file's TIME moving is not its CODE changing. One agent edited an
    installed file and another restored it byte-for-byte; the mtime moved, the code the board runs did not,
    and the board told a real person it was running old code. So each loaded file's content is hashed when
@@ -467,6 +477,98 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
   catch (err2) { return failed(err2); }
   return sent && typeof sent.then === 'function' ? sent.then(answer, failed) : answer(sent);
 }
+/* #6330 slice 1: an agent's built mark tells the people the work is handed to, so nobody has to poll for it: the task's
+   other assignees, and the open holders still on the project of the nearest task above it that has any (its parent,
+   else that task's parent, and so on; a closed task ends the walk). An identified marker is not told about its own mark. Recipients go
+   through what a task message's do (#768): a swarm switched off in this project is not told, an assignee who left the
+   project is not told, both are said in the answer, and a line to an agent out of usage is kept and typed after its
+   reset (messages.keepTaskLine, #5805); the rest go through chat.deliverAsync. The task-message valve (asked through `admit`)
+   governs whether any line goes, and is asked only when at least one recipient is past the swarm-off and membership
+   filters. Returns { delivered } (one outcome per agent; [] when nobody else is on it), with `refusal` when the valve
+   said no. A line still being typed after BUILT_TELL_WAIT_MS is said as unconfirmed, and a late failure is logged. */
+// #6330: how long the typing of one built line may hold the mark's answer (under the Mac CLI's 15 s).
+let BUILT_TELL_WAIT_MS = 10000;
+function setBuiltTellWaitForTests(ms) { BUILT_TELL_WAIT_MS = ms === undefined ? 10000 : ms; }
+async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
+  if (!t || typeof t.number !== 'number') return { delivered: [] };
+  // A read that fails throws to the route (which then says it could not work out who to tell); a missing project is [].
+  const rec = projects.readAll().find((x) => x && x.id === projectId) || null;
+  if (!rec) return { delivered: [] };
+  const notMe = (m) => !(by && sameAgentName(m, by, byKey));
+  const member = (m) => projectHasAgent(rec, String(m), false);
+  const others = tasks.whoOf(t).filter(notMe);
+  // Up the parent chain only: the nearest ancestor with an open holder still on the project. A closed task ends the walk.
+  let parentWho = [];
+  let heldAt = null;
+  const seen = new Set([t.number]);
+  for (let up = t; ;) {
+    const num = tasks.parentOf(rec, up);
+    const a = num === null || seen.has(num) ? null : tasks.byNumber(rec, num);
+    if (!a || tasks.progressOf(a).closed) break;
+    seen.add(a.number);
+    const who = [...new Set(tasks.partsOf(a).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))].filter(member);
+    if (who.length) { parentWho = who; heldAt = a; break; }
+    up = a;
+  }
+  // Both names here are agents' names from the project, not a caller, so no paneless key applies.
+  const forParent = parentWho.filter(notMe).filter((m) => !others.some((o) => sameAgentName(o, m, false)));
+  const everyone = others.concat(forParent);
+  if (!everyone.length) return { delivered: [] };
+  const offHere = projects.swarmOffSet(projectId);
+  // The task-message valve, asked only when a line would actually be attempted (not for a list of only switched-off or
+  // departed recipients, who are said, not typed to).
+  const attempted = everyone.filter((m) => !offHere.has(String(m)) && member(m)).length;
+  const refusal = attempted && typeof admit === 'function' ? admit() : null;
+  if (refusal) return { delivered: [], refusal };
+  // Control characters (ESC and the rest, C0 and C1) and line breaks never reach another agent's pane; nor does a quote,
+  // which would end the note.
+  const clean = (s) => String(s == null ? '' : s).replace(/["\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ');
+  const projName = clean(rec.name || projectId);
+  const who = clean(by) || 'An agent';
+  const note = clean(t.builtNote || '');
+  const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
+    + (n ? ': "' + n + '"' : '')
+    + (forParent.includes(m) ? ' (it is under your task ' + heldAt.number + ')' : '')
+    /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
+       Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). */
+    + (/^sha256:[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint : '')
+    + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
+  // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
+  // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
+  const deadline = Date.now() + BUILT_TELL_WAIT_MS;
+  const tell = async (m) => {
+    let outcome;
+    try {
+      if (offHere.has(String(m))) return { agent: m, state: chat.DELIVERY.COULD_NOT, because: projects.SWARM_OFF_SENTENCE(m) };
+      if (!member(m)) return { agent: m, state: chat.DELIVERY.COULD_NOT, because: m + ' is not on this project any more, so it was not told' };
+      const line = lineFor(m, note);
+      outcome = messages.keepTaskLine(m, line, roster, String(by || ''), 'task ' + t.number + ' in ' + projName,
+        { projectId, task: t.number, person: false, kind: 'built' });   // #6359: said as the built notice when kept
+      if (!outcome) {
+        /* A pane with a typing backlog must not hold the mark's answer past the CLI's 15 s: every line waits only until
+           the one deadline set before any recipient's checks ran; past it the line is still queued and typed, and is said
+           as may have been told. A late failure is logged, since the answer has gone. */
+        const sending = chat.deliverAsync(m, line, roster);
+        let timer = null;
+        let late = false;
+        const waited = new Promise((resolve) => {
+          timer = setTimeout(() => { late = true; resolve({ state: chat.DELIVERY.UNCONFIRMED, because: 'it was still being typed when the mark was answered' }); }, Math.max(0, deadline - Date.now()));
+          if (timer.unref) timer.unref();
+        });
+        sending.then((end) => {
+          if (late && end && end.state === chat.DELIVERY.COULD_NOT) process.stderr.write('task built: the line to ' + m + ' about task ' + t.number + ' could not be typed after the answer: ' + (end.because || '') + '\n');
+        }, (err) => {
+          if (late) process.stderr.write('task built: the line to ' + m + ' about task ' + t.number + ' could not be typed after the answer: ' + ((err && err.message) || err) + '\n');
+        });
+        try { outcome = await Promise.race([sending, waited]); } finally { clearTimeout(timer); }
+      }
+    } catch (err) { outcome = { state: chat.DELIVERY.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') }; }
+    return { agent: m, state: outcome && outcome.state, because: (outcome && outcome.because) || null,
+      ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}),
+      ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) };
+  };
+  return { delivered: await Promise.all(everyone.map(tell)) };
+}
 /* #3559: the most tasks one bulk close will take. The Tasks view ticks rows by
    hand, so a real selection is far below this; the cap bounds one request's
    writes so a malformed or hostile body cannot close a whole store in one go. */
@@ -516,7 +618,7 @@ function failoverRunnerOf(card) {
   try { const prov = store.readProfile(card.sessionName).provider; if (prov) return create.providerRunner(prov); } catch { /* no profile */ }
   return null;
 }
-function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage, from } = {}) {
+function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage, from, by } = {}) {
   if (!screen && !assigner) {
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
@@ -542,7 +644,7 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
      still on that agent and still open, not held and not built, at the moment of the write (tasks.assignPart). */
   const failoverFrom = assigner && typeof from === 'string' && from ? from : null;
   const made = failoverFrom ? { via: 'assigner', onlyIfWho: failoverFrom, failover: true }
-    : assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
+    : assigner ? { via: 'assigner', onlyIfFree: true } : screen ? { via: 'screen' } : { via: 'process', by };   // #6103: `by`, the named caller (movedBy)
   let out;
   try { out = tasks.assignPart(projectId, n, partId, who, made); }
   catch (err) { require('./engine/agyquota').releaseCapStart(capSlot); throw err; }   // a write that threw gave nothing
@@ -794,6 +896,18 @@ function fedKosmosPlusNow() {
    Fail-safe: any error, and any env value other than the exact "1", is false. */
 /* #4649: what the new outside-sharing routes answer while the federation switch is off. */
 const FEDERATION_OFF = 'Sharing a project with people outside this computer is not turned on yet.';
+// kosmos#6239: Settings' community switch, under a policy that stops outside contact (orgpolicy.contactAllows).
+const COMMUNITY_STOPPED = 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so they do not take part in the Kosmos+ community whatever this switch says.';
+/* kosmos#6239: the sentence refusing a new link to another computer (an invite, joining one, an own-computer code) while
+   the policy set for this Kosmos stops outside contact, else null. Removing someone or withdrawing an invite is never
+   refused: it only takes contact away. A policy read that throws refuses. */
+function federationPolicyStop() {
+  try {
+    const op = require('./engine/orgpolicy');
+    op.inForce(); const c = op.contactAllows();   // fresh: a route, not a hot path (apply, then the strict read)
+    return c.ok === true ? null : 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so a project cannot be shared or joined here.';
+  } catch { return 'Kosmos could not read the policy set for this Kosmos just now, so a project cannot be shared or joined here.'; }
+}
 function federationLiveNow() {
   // Option 2 (the CUSTOMER un-hide): a customer cannot set an env var, so federationLive
   // also comes from a GLOBAL coordinator flag the board caches. Fire its lazy TTL refresh
@@ -866,6 +980,7 @@ const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on c
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 const handoffRestart = require('./engine/handoff-restart'); // #3492: "write a handoff, then restart" prompts + freshness gate
 const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
+const boardproof = require('./engine/boardproof'); // #1765: prove this board holds a client's token before the client sends it
 /* #1946: whether this board enforces the board token, and the token, resolved at
    start() (real boot) rather than at require -- ensureToken() writes a file, and a
    bare `require('./server')` in a unit test must not touch the real store. The
@@ -953,11 +1068,79 @@ function snapshotWorlds() {
   KNOWN_WORLD_TOKENS = m;
 }
 function knowWorld(id) { if (KNOWN_WORLD_TOKENS && typeof id === 'string' && !KNOWN_WORLD_TOKENS.has(id)) KNOWN_WORLD_TOKENS.set(id, null); }
+/* #1765: the agent tokens for a board proof, by key id. Cached, because the route needs no token and any local
+   process can ask it for random key ids. A key id already in the map is answered from it without looking at the
+   folder; a key id not in it rereads the token files only when the token folder's signature (proofTokenFilesSig,
+   one stat) changed, or the map is PROOF_AGENT_KEYS_MAX_AGE_MS old. With the registry and token-file stats beside it, a stream of random key ids costs a few stats
+   each; a file with nothing to stat is read each time instead (no registry file on a single-world install, no
+   token file on a board started without enforcing). So a token revoked since it was cached is
+   still proved until some lookup misses after the change and rebuilds the map; the gate then refuses it, so the
+   proof gives nothing away. The 200 or 404 tells a caller only whether that key id is in the map. */
+const PROOF_AGENT_KEYS = { sig: null, ids: new Map(), at: 0 };
+// A miss also rebuilds the map once it is this old, even with the folder unchanged: the token readers skip a file
+// they cannot read, so one transient failure would otherwise stay cached until the folder next changes. It also
+// bounds the work: at most one rebuild per interval for a stream of unknown key ids.
+const PROOF_AGENT_KEYS_MAX_AGE_MS = 30000;
+/* The proof route needs no token, so any local process can make it miss on demand: log each distinct failure
+   message once (up to boardproof's LOG_KEEP remembered, then the memory starts again), not once per request. */
+const proofLogOnce = (msg) => boardproof.logOnce(msg);   // one remembered set for the route, in engine/boardproof.js
+/* One stat of the token folder. sendertoken writes token files by a rename into it (securewrite.writeSecret) and
+   removes files from it, so its mtime moves on those changes. NOT on writeSecret's in-place fallback (taken after
+   three failed atomic attempts), nor within one mtime tick: a token written that way is proved after a later change
+   to the folder or once the map is old enough to rebuild on a miss (PROOF_AGENT_KEYS_MAX_AGE_MS), and until then
+   its agent is refused (98), the safe direction. */
+function proofTokenFilesSig() {
+  try { const st = fs.statSync(sendertoken.DIR); return st.mtimeMs + ':' + st.ctimeMs; }
+  catch (e) { if (!(e && e.code === 'ENOENT')) proofLogOnce('could not read the agent token folder: ' + ((e && e.message) || e)); return ''; }
+}
+/* A file's parsed value, kept until the file's mtime or size changes, so the token-free proof route does not read
+   it on every request. `read` returns the value; a file that cannot be stat'ed is read every time (the rare case). */
+const proofFileCache = new Map();
+function proofCachedRead(file, read) {
+  let sig = null;
+  try { const st = fs.statSync(file); sig = st.mtimeMs + ':' + st.size; } catch { sig = null; }
+  const hit = sig && proofFileCache.get(file);
+  if (hit && hit.sig === sig) return hit.value;
+  const value = read();
+  if (sig && value != null) proofFileCache.set(file, { sig, value });   // a failed read is not cached, so it is tried again
+  return value;
+}
+function* proofAgentTokens(k) {
+  const c = PROOF_AGENT_KEYS;   // a key id already in the map was answered by the route before it got here
+  const sig = proofTokenFilesSig();
+  if (sig === c.sig && Date.now() - c.at < PROOF_AGENT_KEYS_MAX_AGE_MS) return;
+  const ids = new Map();
+  for (const t of sendertoken.heldValues()) ids.set(boardproof.keyId(t), t);
+  c.sig = sig;
+  c.at = Date.now();
+  c.ids = ids;
+  if (ids.has(k)) yield ids.get(k);
+}
+/* #6358: the gate judged on the request's header or query token alone, its cookie removed. For the few routes that
+   MINT a credential which outlives a browser session (a board nonce, an agent token): a session acts for the person
+   in the dashboard, but it must not mint what outlasts it. No page calls these routes; their callers send the header.
+   Built field by field: headers can be a getter on the request. */
+function boardTokenOkWithoutCookie(req) {
+  return boardTokenOk({ url: req.url, method: req.method, headers: Object.assign({}, req.headers, { cookie: undefined }) });
+}
+/* kosmos#6406 (review 8): a second signal, independent of the forwarding headers, for the ticket route. On a board that
+   enforces its token, the app window carries the board COOKIE; Kosmos+ strips a visitor's board cookie and sends the
+   token as a header instead (kosmos-relay proxy.rs strip_cookie_named(.., BOARD_COOKIE_NAME)), so a phone through it
+   has no cookie. A board that enforces nothing (a sandboxed test board) has no cookie to ask for. */
+function boardCookieHere(req, state = boardAuthState, check = boardTokenOk) {
+  if (!state || !state.on) return true;
+  /* #6358: the cookie is a session and the gate falls back to a header or query token, so the cookie is judged on its
+     own: a request carrying a stale or made-up cookie and a valid header must not count as the app window. */
+  const headers = req && req.headers ? req.headers : {};
+  const cookieOnly = { url: String((req && req.url) || '/').split('?')[0], method: req && req.method, headers: { cookie: headers.cookie } };
+  return !!boardauth.cookieToken(req) && check(cookieOnly);
+}
 function boardTokenOk(req) {
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
   // filesystem-free for the unauthenticated case, not only the active-token one.
-  if (!boardauth.presentedToken(req, ROUTING_BASE)) return false;
+  // #6358: a cookie whose session ended presents nothing, so a signed-out tab's every poll stays off the disk too.
+  if (!boardauth.presentsCredential(req, ROUTING_BASE)) return false;
   if (boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) return true;
   let others;
   try {
@@ -1059,10 +1242,9 @@ const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few times a day, prompt an idle community agent to post
-const communityvote = require('./engine/communityvote'); // #4884: an agent votes posts and comments up or down, and reads the daily ask, through its board
+const communityvote = require('./engine/communityvote'); // #4884: an agent votes posts and comments up or down, and reads the ask over the last 24 hours, through its board
 const communityendorse = require('./engine/communityendorse'); // #4913: an agent endorses another agent (stars + a review), or takes it back, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
-const communitystore = require('./engine/communitystore'); // #5314: agent card shows time since last community post
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
    as the retry. */
@@ -1155,6 +1337,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
 const heartbeat = require('./engine/heartbeat');
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
 const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
+const holdstale = require('./engine/holdstale'); // kosmos#6209 part 3: an owner still working a held task in its room is asked about the hold
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new comments, once per comment
 const communityassign = require('./engine/communityassign');   // #5623 Rule 2
@@ -1163,6 +1346,7 @@ const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
 const crashloop = require('./engine/crashloop'); // #5154 slice A: an agent that keeps crashing on start, said on its card
 const stuckterminal = require('./engine/stuckterminal'); // #5154 slice C: an agent stuck on a recurring terminal error (auth_failed / rate_limited), said on its card
+const ownbounds = require('./engine/ownbounds'); // #5154 slice B: a Kosmos helper (quota resume / idle nudge / first-reply nudge) gave up on an agent, said on its card instead of only in a log
 const firstreplyNudge = require('./engine/firstreply-nudge'); // #3226: one reminder to an agent that has not answered its first message
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 /* #3410: the self-heal's per-agent record, at module scope so /api/status can say where a
@@ -1207,7 +1391,9 @@ async function instructionRereadPass() {
       allowed: () => require('./engine/agentnudge').nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env),
       // The community line also needs Community and the Prompter (as the community turn); a working-rules line is the
       // person's own accepted refresh, so only live execution and the brake gate it.
-      sectionOn: (section) => section !== 'community' || (communityswitch.participating() === true && heartbeatSetting.read().on === true),
+      // kosmos#6239: under the policy the section says the agent does not take part, which is owed to it as much.
+      sectionOn: (section) => section !== 'community' || ((communityswitch.participating() === true || require('./engine/communityblock').policyStopped()) && heartbeatSetting.read().on === true),
+      communityStopped: () => require('./engine/communityblock').policyStopped(),
       recordSent: (session, at) => ir.recordSent(session, at),
       stoodDown: (session) => require('./engine/replynudge').stoodDown(session, projects.readAll()),   // the person's pause, as the other lines
       deliver: (session, line, r) => chat.deliverAutomaticAsync(session, line, r, undefined, undefined),
@@ -1239,6 +1425,13 @@ const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
 const accountComputers = require('./engine/account-computers'); // kosmos#4648
 const phonenotify = require('./engine/phonenotify');
+/* #6488: after every way of connecting this computer to Kosmos+ (a register, the sign-up, the company sign-in,
+   switching Kosmos+ on), the phone-notifications default runs at once instead of at the next tick. Not awaited.
+   It starts one signed call, so a Remove pressed in the next moments waits for it (up to the mac-request timeout);
+   accepted, since the alternative is waiting for the next tick. */
+function phoneDefaultAfterConnect() {
+  try { phonenotify.pokeDefaultOn(); } catch { /* the startup tick catches it */ }
+}
 const styles = require('./engine/styles');
 const tips = require('./engine/tips');
 const inflight = require('./engine/inflight');
@@ -2274,7 +2467,7 @@ function accountForAgent(name, known) {
      (`engine/create.js`: "THE DEFAULT ROW WRITES NO HOME"), so its job carries
      `configDir: null` and this falls to the dir-less arm, which matched purely on
      `isDefault`. Handed the CLAUDE list, that is the operator's Claude account:
-     a Codex agent told it runs on josh@... with `isDefault: true`.
+     a Codex agent told it runs on the operator's Claude account with `isDefault: true`.
      ⭐ The codebase already knew, and said so in the #2413 overlay further down
      this file: "a codex agent on the default home maps to the default Claude
      account". That sentence was TRUE WHEN WRITTEN and this change is what makes
@@ -2512,6 +2705,7 @@ function safeRoster() {
         ? Object.assign({}, withReconnect, {
             crashLoop: crashloop.read(a.sessionName),
             stuckError: stuckterminal.peek(a.sessionName, a.state, Date.now()),   // peek returns not-stuck unless the anchor matches the CURRENT state
+            ownBound: ownbounds.peek(a.sessionName, a.state, Date.now()),         // #5154 slice B: a Kosmos helper gave up on this agent (READ-ONLY; state moots an idle-only give-up at once; the 60s sweep is the only writer)
           })
         : withReconnect;
     });
@@ -2546,6 +2740,40 @@ function knownAgentNames() {
   }
   return { names, complete, roster };
 }
+/* #6108: the ONE walk over this computer's agents and the account folder each runs on, so the account guards and the
+   accounts list cannot drift. Fail-closed: `complete` is false whenever anything could not be
+   read. `skipGuide` leaves the setup guide out (lists, #3739); a guard that must count every agent leaves it in. */
+function agentsByAccountWalk(runner, { skipGuide = false } = {}) {
+  const known = knownAgentNames();
+  let complete = known.complete;
+  const entries = [];   // { sessionName, home } with home null for the default account
+  let guideFolderName = null;
+  if (skipGuide) { try { guideFolderName = setupAssistant.guideName(); } catch { guideFolderName = null; } }   // read once per walk
+  for (const sessionName of known.names) {
+    let job = null;
+    try { job = create.readJob(sessionName); }
+    catch { complete = false; continue; }
+    // A null job is TWO answers readJob cannot separate: "no launch file" (a real
+    // answer) vs "could not read it" (ignorance). jobMissing splits them -- only
+    // ENOENT is evidence of absence; any other failure makes this incomplete.
+    if (!job) {
+      let absent = true;
+      try { absent = create.jobMissing(sessionName); } catch { absent = false; }
+      if (!absent) complete = false;
+      continue;
+    }
+    if (job.runner !== runner) continue;
+    if (skipGuide) {
+      let guide = false;
+      try { guide = setupAssistant.isGuideFolder(sessionName)
+        || (!!guideFolderName && create.cleanName(guideFolderName).toLowerCase() === create.cleanName(sessionName).toLowerCase() && setupAssistant.isGuideFolder(guideFolderName)); }
+      catch { guide = false; }
+      if (guide) continue;
+    }
+    entries.push({ sessionName, home: job.configDir || null });
+  }
+  return { entries, complete };
+}
 /* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
    directory" enumeration, shared by EVERY provider's disconnect/remove route so the
    safety property lives in ONE place rather than being copied per provider (the
@@ -2563,31 +2791,157 @@ function knownAgentNames() {
    by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
    that route now calls this so the four providers cannot drift. */
 function enumerateAgentsOnAccount(dir, isDefault, runner) {
-  const known = knownAgentNames();
-  let complete = known.complete;
-  const names = known.names;
+  const walk = agentsByAccountWalk(runner);
+  let complete = walk.complete;
   const usedBy = [];
-  for (const sessionName of names) {
-    let job = null;
-    try { job = create.readJob(sessionName); }
-    catch { complete = false; continue; }
-    // A null job is TWO answers readJob cannot separate: "no launch file" (a real
-    // answer) vs "could not read it" (ignorance). jobMissing splits them -- only
-    // ENOENT is evidence of absence; any other failure makes this incomplete.
-    if (!job) {
-      let absent = true;
-      try { absent = create.jobMissing(sessionName); } catch { absent = false; }
-      if (!absent) complete = false;
-      continue;
-    }
-    if (job.runner !== runner) continue;
-    const home = job.configDir || null;
+  for (const { sessionName, home } of walk.entries) {
     let onIt = false;
     try { onIt = home ? path.resolve(home) === path.resolve(dir) : isDefault; }
     catch { complete = false; continue; }
     if (onIt) usedBy.push(sessionName);
   }
   return { usedBy, complete };
+}
+
+/* #6174, for the account-move route: the restart, with the agent's tmux session start read before it and the note
+   written once the outcome is known. Only a PARTIAL outcome with the SAME session still running (same start) is noted:
+   the window could not be closed, so the agent runs on the account it was moved from until it restarts. Any other
+   outcome clears a note an earlier move wrote, including a REFUSED restart (nothing confirmed as ours, or tmux could
+   not be read: the mark goes early, the safe direction). Not marked, by decision: launchd or systemd refusing to stop
+   the old job after the window closed. The session running right after cannot be told apart from a genuine relaunch
+   onto the new account, which would then be marked wrongly with nothing to clear it, so that case stays unmarked.
+   The session is found as remove.js sessionFor finds it (the roster card for the cleaned name, tied to the agent), so
+   a legacy session (`angel-discord` for `angel`) is read and a bystander that merely shares the name is not. Both
+   session-start reads are fresh (no cache), so a session restarted moments ago is read as it is. The note keeps the account the
+   agent ran on before its FIRST partial move (`from`), so moving it back there is not marked. `deps` (restart,
+   sessionOf, roster, startedAt) is for tests. Never throws: the note is not the move. */
+function moveFromDir(rawName) {   // the account folder the agent is on before the move (null: the default account)
+  try { return create.readJob(create.cleanName(rawName)).configDir || null; } catch { return null; }
+}
+function ourSessionFor(name, roster) {
+  try {
+    const cards = Array.isArray(roster) ? roster : require('./engine/status').paneRoster();
+    const card = cards.find((p) => p && p.sessionName === name);
+    return card && card.session && card.isNamedOurs ? card.session : null;
+  } catch { return null; }
+}
+function sessionStartFor(name, fresh, deps = {}) {
+  const session = deps.sessionOf ? deps.sessionOf(name) : ourSessionFor(name, deps.roster);
+  if (!session) return null;
+  try {
+    return deps.startedAt ? deps.startedAt(session, fresh)
+      : require('./engine/status').sessionStartedAtFromTmux(session, Date.now(), { fresh });
+  } catch { return null; }
+}
+function restartForMove(rawName, fromDir, deps = {}) {
+  const name = create.cleanName(rawName) || rawName;   // the roster's spelling, the key the account list reads
+  const startedBefore = sessionStartFor(name, true, deps);
+  let back;
+  try { back = (deps.restart || removal.restart)(name, 'account'); }
+  catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
+  noteMoveOutcome(name, back && back.outcome, startedBefore, fromDir, deps);
+  return back;
+}
+/* #6173: restartForMove for the several-agents move, the same note around remove.restartAsync, so an agent a bulk move
+   could not close is marked as still on its old account exactly as one moved alone is. Its session and the session's
+   start are read without blocking the board's thread (paneRosterAsync, sessionStartedAtFromTmuxAsync; Liu Kang
+   m5607), both reads fresh, the same reads restartForMove makes. */
+async function sessionStartForAsync(name, deps = {}) {
+  let session;
+  if (deps.sessionOf) session = deps.sessionOf(name);
+  else {
+    let roster = deps.roster;
+    if (!Array.isArray(roster)) { try { roster = await require('./engine/status').paneRosterAsync(); } catch { return null; } }
+    session = ourSessionFor(name, roster);
+  }
+  if (!session) return null;
+  try {
+    return deps.startedAt ? await deps.startedAt(session, true)
+      : await require('./engine/status').sessionStartedAtFromTmuxAsync(session);
+  } catch { return null; }
+}
+async function restartForMoveAsync(rawName, fromDir, deps = {}) {
+  const name = create.cleanName(rawName) || rawName;
+  const startedBefore = await sessionStartForAsync(name, deps);
+  let back;
+  try { back = await (deps.restartAsync || removal.restartAsync)(name, 'account'); }
+  catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
+  const outcome = back && back.outcome;
+  const after = outcome === removal.OUTCOME.PARTIAL ? await sessionStartForAsync(name, deps) : null;
+  noteMoveOutcome(name, outcome, startedBefore, fromDir, deps, { after });
+  return back;
+}
+function noteMoveOutcome(name, outcome, startedBefore, fromDir, deps = {}, known = null) {
+  try {
+    const accountmoving = require('./engine/accountmoving');
+    // #6173: the async move passes the start it read after the restart (known.after), so nothing here blocks.
+    const after = known && 'after' in known ? known.after
+      : (outcome === removal.OUTCOME.PARTIAL ? sessionStartFor(name, true, deps) : null);
+    if (!(Number.isFinite(startedBefore) && after === startedBefore)) { accountmoving.clear(name); return; }
+    const prior = accountmoving.notes()[name];
+    // Moved again while the same session runs: it still runs where it ran before its first partial move.
+    const from = prior && prior.started === startedBefore ? prior.from : (fromDir || null);
+    accountmoving.note(name, startedBefore, from);
+  } catch { /* the marker is not the move */ }
+}
+/* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
+   list (which used to need a full walk per account row). The same reading as enumerateAgentsOnAccount: a job with no
+   configDir runs on the default account; `complete` is false when anything could not be read. */
+function claudeAgentsByAccount() {
+  const walk = agentsByAccountWalk('claude', { skipGuide: true });
+  let complete = walk.complete;
+  const byDir = new Map(), onDefault = [];
+  for (const { sessionName, home } of walk.entries) {
+    if (!home) { onDefault.push(sessionName); continue; }
+    let key; try { key = path.resolve(home); } catch { complete = false; continue; }
+    if (!byDir.has(key)) byDir.set(key, []);
+    byDir.get(key).push(sessionName);
+  }
+  return {
+    complete,
+    on(dir, isDefault) {   // the agents on one account row
+      let key = null; try { key = dir ? path.resolve(dir) : null; } catch { key = null; }
+      return [...(isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])];
+    },
+    /* #6174: an agent whose move came back partial while its session kept running (engine/accountmoving.js) is listed
+       under the account it was moved to, by its launch file, and marked moving there until it restarts. Listed by the
+       launch file on purpose: a stopped agent, or one whose relaunch failed, runs nowhere, so the new row is right for it.
+       The mark reads the agent's own session from the pane roster and its tmux start, only for agents with a note: no
+       process reads. */
+    moving(dir, isDefault, deps = {}) {   // #6174: the agents on this row still running on the account they were moved from
+      const am = require('./engine/accountmoving');
+      let notes = {}; try { notes = am.notes(); } catch { notes = {}; }   // read once per row; agents with no note cost nothing
+      // The pane roster once per call, and only when some agent on this row has a note (review 6).
+      let roster;
+      const readDeps = () => {
+        if (deps.sessionOf || Array.isArray(deps.roster)) return deps;
+        if (roster !== undefined) return { ...deps, roster };
+        try { roster = require('./engine/status').paneRoster(); } catch { roster = []; }
+        return { ...deps, roster };
+      };
+      const rowKey = isDefault ? null : (() => { try { return dir ? path.resolve(dir) : null; } catch { return null; } })();
+      return this.on(dir, isDefault).filter((n) => {
+        try {
+          if (!notes[n]) return false;
+          // Read fresh (no cache), only for an agent with a note: a cached start could be up to 2 s old, which would
+          // mark an agent that has just restarted, or prune a note a move has just written.
+          let now = null;
+          const startedAt = (x) => { now = sessionStartFor(x, true, readDeps()); return now; };
+          if (!am.isMoving(n, startedAt, notes)) {
+            // A readable, different session: it has restarted (not proof it reached the new account; see
+            // engine/accountmoving.js). Drop that very note, never one a move just wrote.
+            if (Number.isFinite(now) && now !== notes[n].started) am.clearIf(n, notes[n].started);
+            return false;
+          }
+          // Moved back to the account it is still running on: it runs here, so it is not moving.
+          const from = notes[n].from;
+          const fromKey = from == null ? null : path.resolve(from);
+          let dirKey = null; try { dirKey = dir ? path.resolve(dir) : null; } catch { dirKey = null; }
+          return !(fromKey === rowKey || (isDefault && (from == null || fromKey === dirKey)));
+        } catch { return false; }
+      });
+    },
+  };
 }
 
 /* #3296/#3391 accounts slice: store a NAMED gemini/grok account from a pasted API
@@ -3886,6 +4240,28 @@ const ROUTING_BASE = 'http://localhost';
 // while refusing `//localhost:4317/x` (us).
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
+/* kosmos#6406 step 2: whether a request was made on THIS computer itself, for the one route that signs with its key to
+   open another of the account's computers. All three, positively: addressed to a loopback name (Host); sent by a page
+   on a loopback name (Origin, which a browser always sends on a POST); and forwarded by nothing that says so (Kosmos+
+   sets x-forwarded-for, and x-forwarded-host on all but a webhook). A reverse proxy the person put in front of the
+   board (AGENT_WORKFORCE_ALLOWED_HOSTS) fails the Origin half even when it rewrites Host and adds no header, because
+   the phone's page is on the proxy's own name. */
+function madeOnThisComputer(headers) {
+  const h = headers || {};
+  if (h['x-forwarded-host'] !== undefined || h['x-forwarded-for'] !== undefined || h.forwarded !== undefined) return false;
+  const nameOf = (v, withScheme) => {
+    try { return new URL(withScheme ? String(v) : 'http://' + String(v)).hostname.replace(/\.$/, '').toLowerCase(); } catch { return ''; }
+  };
+  if (typeof h.host !== 'string' || !LOOPBACK_HOSTS.has(nameOf(h.host, false))) return false;
+  if (typeof h.origin !== 'string' || !LOOPBACK_HOSTS.has(nameOf(h.origin, true))) return false;
+  return true;
+}
+/* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
+   Kosmos+ reaches the board over loopback, which is why the header rule stays). */
+function ticketCallerHere(req) {
+  return isLoopbackPeer(req) && madeOnThisComputer(req && req.headers);
+}
+
 /**
  * Extra hostnames this server will answer to, comma-separated.
  *
@@ -4064,9 +4440,14 @@ function withUnread(list) {
    ~/.codex for Codex) is mtime-cached per folder in engine/pluginreach, so an unchanged poll adds no
    settings.json/.claude.json read -- the read-once-per-poll discipline #5314 uses, extended to the
    per-agent-folder case this read needs. `a.reach` is null for a pane we cannot tie to an agent.
-   The live pane's CLAUDE_CONFIG_DIR is not available at /api/status, so a default-account agent
-   EFFECTIVE_CCD-pinned elsewhere stays reaches:true and stays silent -- a missed notice, never a false
-   one (the safe direction). Exported + injectable (opts.fs, opts.personHome) so a test can drive it with
+   #6095: a default-account Claude agent (no account.dir) is not assumed to run in the person's folder: its
+   tmux session may be pinned to another one (the supervisor's EFFECTIVE_CCD block) or have inherited a
+   leaked server value. engine/sessionccd reads every such session's real CLAUDE_CONFIG_DIR (a list-sessions
+   plus one read per batch of 40, a retry on failure; synchronous, small next to status's own tmux reads): a
+   folder is judged as that folder, '' is the clean default (as before), and null (unknown: an unreadable answer,
+   or a server value it may have inherited) gives reach UNKNOWN, which the board renders as nothing. A card with
+   no pane runs nothing, so nothing is pinned and it keeps the account's reading. Windows has no tmux sessions and
+   keeps it too. Exported + injectable (opts.fs, opts.personHome) so a test can drive it with
    fixture rows and count reads, exactly like withAgentSortFields. */
 function attachPluginReach(agents, opts) {
   const o = opts || {};
@@ -4078,6 +4459,29 @@ function attachPluginReach(agents, opts) {
   const deps = o.fs ? { fs: o.fs } : undefined;
   const trust = require('./engine/trust'); // memoized; canonicalOnDisk keys a folder the way Claude Code does
   const canon = o.canonicalize || trust.canonicalOnDisk; // injectable for tests; realpath the way Claude keys projects
+  // #6095: the real folder of each default-account Claude agent's session, read once for all of them.
+  // Review 5: a real card's default account carries dir: <home>/.claude and isDefault: true (accountForAgent), never
+  // a null dir, so isDefault is the test; a null dir is kept as the same case.
+  const isDefaultClaude = (a) => a && a.account && (a.account.isDefault === true || !a.account.dir)
+    && (a.runner === null || a.runner === undefined || a.runner === 'claude');
+  // Review 5: the PANE's own session only. A paneless card runs nothing; and its sessionName is a store key that, in a
+  // named world, can name another world's session.
+  const sessionOf = (a) => (typeof a.session === 'string' && a.session) || null;
+  let sessionDirs = null;
+  const onWindows = (o.platform || process.platform) === 'win32';
+  if (personClaudeDir && !onWindows) {
+    const names = (agents || []).filter(isDefaultClaude).map(sessionOf).filter(Boolean);
+    if (names.length) {
+      try {
+        if (o.sessionDirs) sessionDirs = o.sessionDirs(names);
+        else {
+          let bin;
+          try { bin = require('./engine/status').readerTmux() || undefined; } catch { bin = undefined; }   // the tmux status reads with
+          sessionDirs = require('./engine/sessionccd').sessionClaudeDirs(names, { bin });
+        }
+      } catch { sessionDirs = null; }
+    }
+  }
   for (const a of (agents || [])) {
     if (!(personClaudeDir && a && a.account)) { if (a) a.reach = null; continue; }
     // This agent's own working folder, canonicalized the way Claude Code keys .claude.json `projects`
@@ -4093,10 +4497,17 @@ function attachPluginReach(agents, opts) {
     };
     // Per-agent guard (#5309 iter 4): a surprise in ONE row's reach computation must never 500 the whole
     // /api/status response (its agents list has its own never-throw contract). An unexpected input -> null reach.
+    let agentClaudeDir = a.account.dir || null;
+    if (!onWindows && isDefaultClaude(a) && sessionOf(a)) {
+      // #6095: no answer at all for a running session (the read failed) is UNKNOWN too.
+      const d = sessionDirs && sessionDirs.has(sessionOf(a)) ? sessionDirs.get(sessionOf(a)) : null;
+      if (d === null) { a.reach = { reaches: null, reason: pluginreach.UNKNOWN }; continue; }
+      agentClaudeDir = d || null;
+    }
     try {
       a.reach = pluginreach.agentPluginReach({
         runner: a.runner,
-        agentClaudeDir: (a.account.dir || null),
+        agentClaudeDir,
         personClaudeDir, personClaudeJson, personCodexHome, agentWorkFolder,
       }, deps);
     } catch { a.reach = null; }
@@ -4106,28 +4517,14 @@ function attachPluginReach(agents, opts) {
 
 function withAgentSortFields(list, supplied) {
   let direct = null; let roomRows = null; let births = null;
-  let communityOn = false;
-  let communityTimes = null;
   if (supplied) {
     direct = supplied.direct !== undefined ? supplied.direct : null;
     roomRows = supplied.roomRows !== undefined ? supplied.roomRows : null;
     births = supplied.births !== undefined ? supplied.births : null;
-    communityOn = supplied.communityOn !== undefined
-      ? Boolean(supplied.communityOn)
-      : (supplied.communityPosts !== undefined);
-    communityTimes = supplied.communityPosts !== undefined
-      ? supplied.communityPosts
-      : (communityOn ? new Map() : null);
   } else {
     try { direct = chat.dmSummaryAll(); } catch { direct = null; }
     try { const rec = messages.record(); roomRows = rec && rec.ok === true && Array.isArray(rec.rows) ? rec.rows : null; } catch { roomRows = null; }
     try { births = create.createdLog(); } catch { births = null; }
-    try { communityOn = communitysend.switchOn(); } catch { communityOn = false; }
-    if (communityOn) {
-      // #5314: PUBLISHED posts only (the card counts posts published on the board, not held/quarantined ones);
-      // the community nudge keeps postTimesAll (all statuses). See communitystore.
-      try { communityTimes = communitystore.publishedPostTimesAll(); } catch { communityTimes = null; }
-    }
   }
   const at = (value) => { const n = Date.parse(value || ''); return Number.isFinite(n) ? n : null; };
   const latest = (values) => {
@@ -4172,34 +4569,6 @@ function withAgentSortFields(list, supplied) {
         .map((b) => at(b.at)).filter(Number.isFinite);
       if (matches.length) createdAt = new Date(Math.min(...matches)).toISOString();
     }
-    let lastCommunityPost = null;
-    let lastCommunityPostAt = null;
-    if (communityOn) {
-      if (communityTimes === null) {
-        lastCommunityPost = null;
-      } else {
-        let times = [];
-        for (const name of [a && a.sessionName, a && a.name].filter(Boolean)) {
-          const k = String(name).trim().toLowerCase();
-          const list = communityTimes instanceof Map ? communityTimes.get(k) : communityTimes[k];
-          if (Array.isArray(list) && list.length > 0) {
-            times = times.concat(list);
-          }
-        }
-        const parsedTimes = times.map(at).filter(Number.isFinite);
-        if (parsedTimes.length > 0) {
-          const latestTime = Math.max(...parsedTimes);
-          lastCommunityPostAt = new Date(latestTime).toISOString();
-          const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-          const now = (supplied && supplied.now) ? new Date(supplied.now) : new Date();
-          const days = Math.round((midnight(now) - midnight(new Date(latestTime))) / communitynudge.DAY_MS);
-          const age = days <= 0 ? 'today' : (days === 1 ? 'yesterday' : `${days} days ago`);
-          lastCommunityPost = `Last community post: ${age}`;
-        } else {
-          lastCommunityPost = 'No community posts yet';
-        }
-      }
-    }
     const readableTalk = dm !== null && roomRows !== null;
     const readableActive = dm !== null && roomRows !== null && workReadable;
     return {
@@ -4208,9 +4577,6 @@ function withAgentSortFields(list, supplied) {
       lastTalkedAt: readableTalk ? latest([at(dm.lastAt), mentionAt]) : null,
       lastActiveAt: readableActive ? latest([at(dm.lastAgentAt), postAt, workAt]) : null,
       createdAt,
-      communityOn,
-      lastCommunityPost,
-      lastCommunityPostAt,
     };
   });
 }
@@ -4334,7 +4700,9 @@ function withPreviews(rows) {
    token to a `same-site` read from the account's listed sibling origins, and passes that read's Origin and
    Sec-Fetch-Site through unchanged; only this computer's OWN origin is rewritten to loopback, for the board's own
    guards). Sec-Fetch-Site is the browser's own provenance (a page cannot set it), so the board reads it the way
-   crossSiteRead does: anything but same-origin or none. Such a read gets the agents only (statusForSibling): the
+   crossSiteRead does: anything but same-origin or none. Such a read gets the agents only (statusForSibling), and a
+   same-site one also gets each Claude account's email, label, organization and weekly usage (#6178, keyed, no folder
+   paths) with each agent's runner and account key: the
    Agents view on the other computer uses sessionName, name and state, and the rest of the answer (the update state,
    updateLog's install path with the Mac's user name, the world, the engine) is this computer's own business. A
    request with no Sec-Fetch-Site (curl, the CLI) is not a sibling read and gets the full answer. An OLD browser's
@@ -4344,15 +4712,49 @@ function isSiblingRead(req) {
   const site = req && req.headers && req.headers['sec-fetch-site'];
   return typeof site === 'string' && site !== '' && site !== 'same-origin' && site !== 'none';
 }
-function statusForSibling(json) {
+function statusForSibling(json, site) {
   let full = null;
   try { full = JSON.parse(json); } catch { full = null; }
   const agents = full && Array.isArray(full.agents) ? full.agents : [];
   const str = (v) => (typeof v === 'string' ? v : '');   // strings only: a later structured field never goes along
+  /* #6178: each Claude account's weekly usage for Settings > AI Models there. THIS SENDS each account's email, label
+     and organization to the reading browser. WHICH browsers can read it is decided by the relay alone: every computer
+     under the Kosmos+ domain is same-site to every other, so the same-site check below only keeps cross-site reads on
+     #4973's agents-only answer. The relay hands the board token only to the account's own listed computers, in a
+     browser this computer admitted (kosmos-relay siblingcors-4812; pinned by proxy.rs
+     a_sibling_read_carries_the_token_only_when_listed_and_same_site). Keyed by an opaque per-answer id ("a0", "a1",
+     ...), never by its folder: a folder path names this Mac's user, which #4973 keeps here. Each agent carries that id
+     (acct) and its runner, so the page can join them. A full answer without accountsWeekly is sent as null (the page's
+     "could not read"); the page reads a field that is absent as "an older Kosmos". */
+  if (site !== 'same-site') {
+    return JSON.stringify({ agents: agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true)
+      .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state) })) });
+  }
+  const weekly = full && Array.isArray(full.accountsWeekly) ? full.accountsWeekly : null;
+  const keyOf = new Map();
+  const seen = new Set();   // two entries on one folder are one account to its agents: the first is sent, the rest are not
+  const accountsWeekly = weekly === null ? null : weekly.filter((e) => e && typeof e === 'object' && typeof e.dir === 'string' && e.dir
+      && !seen.has(e.dir) && seen.add(e.dir))
+    .map((e, i) => {
+      const key = 'a' + i;
+      keyOf.set(e.dir, key);
+      const w = e.weekly && typeof e.weekly === 'object' ? e.weekly : null;
+      return {
+        key, email: str(e.email) || null, label: str(e.label) || null, organization: str(e.organization) || null, isDefault: e.isDefault === true, apiKey: e.apiKey === true,
+        weekly: w && [w.usedPct, w.resetsAt, w.at].every((n) => typeof n === 'number' && Number.isFinite(n)) ? { usedPct: w.usedPct, resetsAt: w.resetsAt, at: w.at } : null,
+        blocked: str(e.blocked) || null,
+      };
+    });
   return JSON.stringify({
+    checkedAt: str(full && full.checkedAt),
+    accountsWeekly,
     // The guide is left out here (review 1): the other computer's view drops it anyway, so it need not be sent.
     agents: agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true)
-      .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state) })),
+      .map((a) => ({
+        sessionName: str(a.sessionName), name: str(a.name), state: str(a.state),
+        runner: str(a.runner) || null,
+        acct: (a.account && typeof a.account === 'object' && keyOf.get(a.account.dir)) || null,   // null: not on a listed account
+      })),
   });
 }
 
@@ -4700,7 +5102,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    service at most once (no cache, no valve, an 8 second limit): a looping token-only caller can do that as fast
    as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
-  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read',
+  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/tasks/mine', 'GET /api/community/read',
   'POST /api/undo/keep', 'POST /api/agent/reply-channel', 'POST /api/toolfail']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler; toolfail: #6071, its handler resolves the caller token-first (resolveAgentSender)
 /* kosmos#5805 part 2: `kosmos reply-channel` (POST /api/agent/reply-channel) joins: its handler names the caller
    (processCaller) and sets only that agent's own channel; no name in the body is read. Every Windows agent holds a
@@ -4769,7 +5171,10 @@ function taskFinalWordHint(t, senderName, projectId, byKey) {
   return `If that is your final word on it, kosmos task built ${pid} ${t.number} 'what you decided' marks it done, so nothing waits on it.`;
 }
 
-function taskMessageSummary(delivered, assigned) {
+/* #6359: `kind` 'built' is a built mark's answer (`kosmos task built`): a kept line there is the built notice, not a
+   message the marker sent. The same mark again tells nobody, and a new note replaces the kept notice, so the marker is
+   not told not to send it again. */
+function taskMessageSummary(delivered, assigned, kind) {
   const plain = (x) => String(x == null ? '' : x).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
   const list = Array.isArray(delivered) ? delivered : [];
   if (!assigned) return 'Nobody is assigned to it, so no agent was told.';
@@ -4800,7 +5205,8 @@ function taskMessageSummary(delivered, assigned) {
   for (const d of kept) {
     const why = plain(d.because).replace(/^held: /, '').replace(/\.$/, '');
     // It was accepted: a sender that read it as a failure would only add a second copy to the same queue.
-    parts.push('Kept, not typed yet: ' + (why.startsWith(d.who + ' ') ? why : d.who + (why ? ' (' + why + ')' : ' is out of usage; Kosmos types it after the reset')) + '. Do not send it again.');
+    parts.push('Kept, not typed yet: ' + (why.startsWith(d.who + ' ') ? why : d.who + (why ? ' (' + why + ')' : ' is out of usage; Kosmos types it after the reset'))
+      + (kind === 'built' ? '.' : '. Do not send it again.'));
   }
   /* Each line names the agent: chat's reasons do not (only the route's own do, and they start with the name). */
   for (const d of not) {
@@ -5223,12 +5629,17 @@ const server = http.createServer(async (req, res) => {
     // A valid ?token= on a nav (from `kosmos open` / the native app) sets the
     // cookie and redirects to the clean URL; runs on every route so the operator
     // can land tokenized on the shell and have later /api calls carry the cookie.
-    const boot = boardauth.bootstrap({ token: boardAuthState.token, req, routingBase: ROUTING_BASE, method: req.method });
+    // #6358: `accepts` is the gate's own test (boardTokenOk, #3055's other worlds included), so a `?token=` signs in
+    // exactly when the same token in a header would be let through. Only a token this board holds in memory (the
+    // worlds known at start) reaches it, so a made-up `?token=` costs no disk read.
+    const inMemoryToken = (t) => [...(KNOWN_WORLD_TOKENS || new Map()).values()].some((k) => boardauth.matches(t, k));
+    const boot = boardauth.bootstrap({ token: boardAuthState.token, req, routingBase: ROUTING_BASE, method: req.method,
+      accepts: (t) => inMemoryToken(t) && boardTokenOk({ url: '/', headers: { [boardauth.HEADER_NAME]: t } }) });
     if (boot) {
-      /* #2030: the reauth marker is seeded at REDEMPTION -- the moment a durable
-         cookie is actually taken -- moved here from install/setup.sh, which could
+      /* #2030: the reauth marker is seeded at REDEMPTION -- the moment a browser
+         is actually signed in -- moved here from install/setup.sh, which could
          only see the open DISPATCHED, not redeemed. #2073: BOTH a `?boot=` nonce
-         redemption AND a `?token=` bootstrap take the durable cookie in this same
+         redemption AND a `?token=` bootstrap set the cookie (a session, #6358) in this same
          302 (bootstrap sets it either way), so both are that moment. Seeding on
          the `?token=` path too is what lets the app-only install (the native app
          loads with `?token=`, never a browser `?boot=`) mark the machine
@@ -5241,6 +5652,17 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(302, { location: boot.location, 'set-cookie': boot.setCookie, 'cache-control': 'no-store' });
       res.end();
       return;
+    }
+    /* #6358: a cookie given out before sessions held one of this account's tokens, and a browser keeps it for up
+       to 400 days. A cookie whose value is one of this account's tokens in memory is that cookie: end it on this answer, so the
+       browser stops carrying it. Only then: a cookie that is no token here (another board's) is left alone, and so
+       is a session a restart forgot (it is no credential, and the next sign-in overwrites it). */
+    // Against the tokens already in memory (the active one and the worlds known at start), so a stale tab's every
+    // request costs no disk read.
+    const oldCookie = boardauth.cookieToken(req);
+    if (oldCookie && boardauth.sessionToken(oldCookie) === null
+        && (boardauth.matches(oldCookie, boardAuthState.token) || inMemoryToken(oldCookie))) {
+      res.setHeader('set-cookie', boardauth.clearedCookieHeader());
     }
     const sensitive = pathname.startsWith('/api/') || WRITE_METHODS.has(req.method);
     // REMOTE_AGENT_ROUTES (POST /api/report, /api/reply) are exempt HERE because a
@@ -5276,16 +5698,52 @@ const server = http.createServer(async (req, res) => {
     // term, not folded into exemptPublic, because the reason differs: a public
     // product surface, not the post-switch lockout read.
     const exemptPublicCommunity = PUBLIC_COMMUNITY_ROUTES.has(`${req.method} ${pathname}`);
+    // #1765: the board proof is asked BEFORE a client sends any token, so it cannot need one. It answers only
+    // with an HMAC over the client's own nonce, keyed on a token the client already holds.
+    const exemptProof = req.method === 'GET' && pathname === boardproof.PROOF_PATH;
     // #1307: a webhook call (its own secret, checked in the handler; loopback only, see HOOK_CALL_RE).
     const exemptHook = req.method === 'POST' && HOOK_CALL_RE.test(pathname);
     // #4491: an agent route, reached with a valid agent token and no board token (see
     // AGENT_TOKEN_ROUTES and AGENT_TOKEN_ROUTE_PATTERNS). A function, called last, so a caller that already holds the board
     // token never pays for the token-store scan.
     const exemptAgentToken = () => agentTokenRoute(`${req.method} ${pathname}`) && agentTokenOk(req);
-    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptProof && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: boardTokenRefusal(req, '') });
       return;
     }
+  }
+
+  /* #1765: GET /api/board-proof?n=<32 hex>&k=<16 hex>. Answers HMAC-SHA256(token, address, port and n) for the token whose
+     key id is k, among this board's world tokens and its agents' tokens, or 404. Exempt from the gate above,
+     and for loopback peers only (the socket peer, as remoteWriteGuard reads it). */
+  if (pathname === boardproof.PROOF_PATH && req.method === 'GET') {
+    // A second guard: remoteWriteGuard above already refuses a network peer on any route not meant for one.
+    if (!isLoopbackPeer(req)) { sendJson(res, 403, { error: 'the board proof is for this computer only' }); return; }
+    let q = {};
+    try { q = Object.fromEntries(new URL(req.url, ROUTING_BASE).searchParams); } catch { q = {}; }
+    /* Cheapest lookups first (a cached agent key, the board token, the world tokens, then a rescan of the agent
+       tokens), stopping at the first match; a key id selects at most one token. The world
+       tokens are the ones boardTokenOk accepts (known at start and still listed), so a proof is never given for a
+       token the gate would then refuse. The port is the one this board listens on (see boardproof.js). */
+    const out = boardproof.answer(q, function* (k) {
+      // A cached agent token first: it is the cheapest lookup, and token-only agents ask on every report.
+      if (PROOF_AGENT_KEYS.ids.has(k)) { yield PROOF_AGENT_KEYS.ids.get(k); return; }
+      /* The token this board's account holds: the one it enforces, or, on a board started without enforcing, the
+         file it would enforce from, which the CLI reads and sends all the same (no other account can read it). An
+         enforcing board that could not load its own token proves no board token here, as its gate accepts none;
+         the world and agent tokens below it still accepts, so it still proves those. */
+      if (boardAuthState.on) { if (boardAuthState.token) yield boardAuthState.token; }
+      else { const t = proofCachedRead(boardauth.tokenPath(), () => boardauth.readToken()); if (t) yield t; }   // readToken never throws; null for an unreadable file
+      if (KNOWN_WORLD_TOKENS) {
+        let listed = [];
+        try { const base = worldBase(); listed = proofCachedRead(worlds.registryPath(base), () => worlds.listWorlds(base)); }
+        catch (e) { proofLogOnce('could not list the worlds: ' + ((e && e.message) || e)); listed = []; }
+        for (const w of listed) { const t = KNOWN_WORLD_TOKENS.get(w.id); if (t) yield t; }
+      }
+      yield* proofAgentTokens(k);
+    }, req.socket.localPort, req.socket.localAddress);
+    sendJson(res, out.status, out.body);
+    return;
   }
 
   /* #1979: mint a single-use, short-TTL browser-open nonce. LOOPBACK-ONLY (it is
@@ -5300,6 +5758,14 @@ const server = http.createServer(async (req, res) => {
      the `if (boardAuthState.on)` gate, so a nonce is never redeemed on a board that
      is not enforcing. */
   if (pathname === '/api/board-nonce' && req.method === 'POST') {
+    /* #6358: a nonce redeems for a NEW session, so minting one takes a board token itself (header or query), never
+       a session cookie. Otherwise a session could mint its own successor in one request and renew itself past
+       SESSION_MAX_MS. (This closes that one-request mint; it does not cap what a live session can do through the
+       page, which includes starting agents that run as this account.) Every minting caller (kosmos open, open-board.js, the staging check) sends the header. */
+    if (boardAuthState.on && !boardTokenOkWithoutCookie(req)) {
+      sendJson(res, 403, { error: boardTokenRefusal(req, '') });
+      return;
+    }
     sendJson(res, 200, { nonce: boardauth.mintNonce() });
     return;
   }
@@ -5535,6 +6001,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/engine/restart' && req.method === 'POST') {
     const fresh = engineFreshness();
     if (!fresh.staleSince) { sendJson(res, 409, { ok: false, current: true, because: 'the board is already running the code on disk' }); return; }
+    if (moveHoldsBoard()) { sendJson(res, 409, { ok: false, because: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173
     /* One restart at a time: every open page shows the button, and a second detached `kosmos restart`
        racing the first can leave a board no `kosmos stop` can name. Later presses get the same answer,
        before the (blocking, on Windows) restart check below. */
@@ -5691,7 +6158,11 @@ const server = http.createServer(async (req, res) => {
          them apart: a folder matches only its own row, and a dir-less default matches only the runner's
          provider. OpenAI's list is left out on purpose: codex agents keep their existing account shape. */
       const listOf = (m) => { try { return m.list(); } catch { return []; } };
-      const known = listOf(accounts).concat(listOf(geminiAccounts), listOf(grokAccounts), listOf(qwenAccounts));   // #5977: a Qwen agent names its Qwen account
+      /* #6178: kept apart for accountsWeekly below, so the poll still reads the list once. Its own try, not listOf: a list
+         that could not be read is null there ("could not read them"), and [] here as before. */
+      let claudeKnown;
+      try { claudeKnown = accounts.list(); } catch { claudeKnown = null; }
+      const known = (claudeKnown || []).concat(listOf(geminiAccounts), listOf(grokAccounts), listOf(qwenAccounts));   // #5977: a Qwen agent names its Qwen account
       /* 🛑 `null` HERE MEANS ONE THING ONLY: we could not read this agent's
          launch file, so we do not know. It does NOT mean the default account.
          The first version let the SCREEN decide, by falling back to "your
@@ -5801,6 +6272,10 @@ const server = http.createServer(async (req, res) => {
            unless the stored anchor matches the agent's CURRENT state, so a just-recovered or just-switched
            agent drops "stuck" (and the stale sentence) immediately. */
         stuckError: a.isNamedOurs ? stuckterminal.peek(a.sessionName, a.state, Date.now()) : null,
+        /* #5154 slice B: whether a Kosmos helper (quota resume / idle nudge / first-reply nudge) has given up
+           on this agent and said so only in a log. READ-ONLY (ownbounds.peek); the 60s sweep is the only writer,
+           so the board cannot advance or clear an episode by polling. Only for an agent we started. */
+        ownBound: a.isNamedOurs ? ownbounds.peek(a.sessionName, a.state, Date.now()) : null,
         // The name only. `plannedModelArg` returns null for "we do not know",
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
@@ -6024,6 +6499,11 @@ const server = http.createServer(async (req, res) => {
                    a terminal-error clock is kept only by the 60s sweep over RUNNING agents (stuckterminal.peek
                    in safeRoster), and this row is an agent with no live session to be stuck. */
                 stuckError: null,
+                /* #5154 slice B: and ownBound, as a matched pair with crashLoop/stuckError, so needsPerson /
+                   agentNeedsAttention can read it on this row without a strict-shape miss. Always null here: a
+                   give-up episode is kept only by the helper sweeps over RUNNING agents, and this row is a
+                   stopped agent with no live session for a Kosmos helper to have given up on. */
+                ownBound: null,
                 /* kosmos#5957 slice 2: a stopped agent is the likeliest to be far behind, so its offline row says so too. */
                 rulesBehind: require('./engine/doctrine').rulesBehind(k.name, profile),
                 /* kosmos#5957 slice 3: and how long it has gone without running, once that is two weeks or more
@@ -6287,6 +6767,10 @@ const server = http.createServer(async (req, res) => {
       counts.waiting = waitingBadgeOn(badgeSettings) ? waitingTotal(counts, rows) : null;
       body = JSON.stringify({
         ...snap, agents: rows, counts, connection, version, dependsOnClaude,
+        /* #6178: each Claude account's weekly usage on this computer, from the helper /api/accounts uses, kept for
+           CACHE_MS (engine/accountsweekly.js). Another of the person's computers reads it through the sibling path (#4812) for
+           Settings > AI Models. */
+        accountsWeekly: (() => { if (!Array.isArray(claudeKnown)) return null; try { return require('./engine/accountsweekly').summary(claudeKnown, Date.now()); } catch { return null; } })(),
         /* #2066: the board reads (version, sourceChannel); the version line and the
            federation gate use them (the corner marker went in #3641). Channel rides
            the 5s status tick the board already polls. #2934: no longer just a file
@@ -6386,7 +6870,7 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: String(err && err.message), detail: detail || undefined }));
       return;
     }
-    if (isSiblingRead(req)) body = statusForSibling(body);   // #4973: another computer's page reads the agents only
+    if (isSiblingRead(req)) body = statusForSibling(body, req.headers['sec-fetch-site']);   // #4973: another computer's page reads the agents only (#6178: and, same-site, the accounts)
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(body);
     return;
@@ -6758,6 +7242,9 @@ const server = http.createServer(async (req, res) => {
            that world, so the requested id is the canonical one it would return. */
         const bootedId = require('./engine/worldenv').bootedWorld();
         const isNoop = bootedId != null && bootedId === id;
+        /* #6173: a real switch restarts the board, and an account move's restart cut between bootout and bootstrap
+           leaves that agent unloaded. Refused before anything is paused. */
+        if (!isNoop && moveHoldsBoard()) { sendJson(res, 409, { ok: false, because: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }
         let pause = { paused: [], notPaused: [], stoppedNow: [] };
         if (!isNoop && agentsChoice === worldstarts.AGENT_CHOICES.PAUSE) {
           /* Refuse a pause for a world that does not exist rather than stop agents
@@ -6851,9 +7338,16 @@ const server = http.createServer(async (req, res) => {
            so a state that changed in the interim still cannot brick the board (it
            no-ops, and the client reconnect degrades to the manual path). */
         if (restarting) {
+          /* #6173 review 3: from here until the process ends, a move must not start (it would be cut mid-restart). */
+          worldSwitchRestarting = true;
           setTimeout(() => {
-            try { require('./engine/boardrestart').selfRestart(process.platform, { port: PORT }); }
+            let r = null;
+            try { r = require('./engine/boardrestart').selfRestart(process.platform, { port: PORT }); }
             catch { /* best effort: a failed stop leaves the board serving the old world, still honest via restartRequired */ }
+            if (!r || !r.ok) { worldSwitchRestarting = false; return; }   // it did not go: moves may run again
+            /* A detached restart that then fails leaves this process serving (review 4): the same watchdog as the
+               restart button, so moves are not refused for the life of the process. */
+            setTimeout(() => { worldSwitchRestarting = false; }, ENGINE_RESTART_CHECK_MS).unref();
           }, 500);
         }
       })
@@ -8527,7 +9021,7 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(rs[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     let back;
-    try { back = removal.restore(name); }
+    try { back = removal.restore(name, { quiet: true }); }   // kosmos#6239: quiet hours
     catch (err) { sendJson(res, 500, { error: 'we could not put this agent back', detail: String(err && err.message || err) }); return; }
     sendJson(res, back.outcome === removal.OUTCOME.REFUSED ? 400 : 200, back);
     return;
@@ -8594,7 +9088,7 @@ const server = http.createServer(async (req, res) => {
         // #3410: this IS the "Start this agent" affordance (Mona #3433 reuses this route), so it
         // opts into starting a fully-dead agent (no session) rather than refusing it. The config-
         // switch routes below deliberately do NOT pass startIfDead.
-        try { out = removal.restart(name, cause, { startIfDead: true }); }
+        try { out = removal.restart(name, cause, { startIfDead: true, quiet: true }); }   // kosmos#6239: quiet hours
         catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err) }); return; }
         sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, out);
       })
@@ -8801,7 +9295,7 @@ const server = http.createServer(async (req, res) => {
     let out;
     // #3410: Trust-and-Restart is an explicit restart affordance, so it too starts a fully-dead
     // agent (opt in), matching the /restart button. The config-switch routes do not.
-    try { out = removal.restart(clean, 'restart', { startIfDead: true }); }
+    try { out = removal.restart(clean, 'restart', { startIfDead: true, quiet: true }); }   // kosmos#6239
     catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err), trusted }); return; }
     sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ...out, trusted });
     return;
@@ -8862,6 +9356,9 @@ const server = http.createServer(async (req, res) => {
         }
         /* #1373: the account the person picked rides through. Absent, the
            engine states a default and names it, exactly as before. */
+        /* #6173 review 4: refused BEFORE the write while an account move holds this agent: a provider or model write
+           between the move's account write and its restart made the move's "runs on <account> now" false. */
+        { const held = removal.moveRefusal(name); if (held) { sendJson(res, 409, { outcome: 'refused', because: held.because }); return; } }
         const wrote = create.setProvider(name, body && body.provider, {
           accountDir: body && typeof body.account === 'string' ? body.account : null,
           model: wantModel,   // #5534: the company policy is asked about the model the switch will run
@@ -9088,6 +9585,9 @@ const server = http.createServer(async (req, res) => {
             } catch { /* a validator crash is not a reason to block a change (#1916) */ }
           }
         }
+        /* #6173 review 4: refused BEFORE the write while an account move holds this agent: a provider or model write
+           between the move's account write and its restart made the move's "runs on <account> now" false. */
+        { const held = removal.moveRefusal(name); if (held) { sendJson(res, 409, { outcome: 'refused', because: held.because }); return; } }
         const wrote = create.setModel(name, body && body.model);
         if (wrote.outcome === create.OUTCOME.REFUSED) {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
@@ -9164,7 +9664,13 @@ const server = http.createServer(async (req, res) => {
      Never 0: a zero would claim a measurement nobody made. */
   /* #4820: no `noticeSeen` any more (the one-time notice is gone). A page from an older build opened
      that notice only on noticeSeen === false, so an answer without the field opens nothing there either. */
-  const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null }; };
+  /* kosmos#6239: `stopped` is the sentence for a policy that keeps agents out of the community whatever the switch says
+     (orgpolicy.contactAllows), else null; the switch stays the person's to set. */
+  const communityStopped = () => {
+    try { const op = require('./engine/orgpolicy'); op.inForce(); return op.contactAllows().ok === true ? null : COMMUNITY_STOPPED; }
+    catch { return 'Kosmos cannot read the policy set for this Kosmos just now, so agents do not take part in the Kosmos+ community until it can.'; }   // round 3: as the send layer reads it
+  };
+  const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null, stopped: communityStopped() }; };
   if (pathname === '/api/community-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, communityBody()); }
     catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
@@ -9373,7 +9879,8 @@ const server = http.createServer(async (req, res) => {
   /* Phone notifications (#718), engine/phonenotify.js. GET: the switch and whether
      this computer is connected to Kosmos+.
      PUT {on:true} mints the notify token (once) and turns them on; {on:false}
-     turns them off. Off by default. The token never leaves this route. */
+     turns them off. On by default once connected, unless the person turned it off (#6488,
+     phonenotify.ensureDefaultOn). The token never leaves this route. */
   if (pathname === '/api/phone-notify' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, phonenotify.status()); }
     catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
@@ -9386,7 +9893,12 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
-        const saved = body.on ? await phonenotify.turnOn() : await phonenotify.turnOff();
+        // #6254: `{ kind, on }` sets one per-kind sub-switch under the master; `{ on }` alone is the
+        // master turn-on/off (unchanged). Any present `kind` (even a non-string) goes to setKind, which
+        // refuses an unknown kind with a 400, so a malformed kind can never fall through to the master path.
+        const saved = ('kind' in body)
+          ? await phonenotify.setKind(body.kind, body.on)
+          : (body.on ? await phonenotify.turnOn() : await phonenotify.turnOff());
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         sendJson(res, 200, phonenotify.status());
       })
@@ -9555,7 +10067,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #5212: what is waiting for an agent in the community (engine/communityhome.js): unanswered comments on its recent
-     posts, new posts from agents it follows, its posts' scores, today's floors, and next steps. The reader is the agent
+     posts, new posts from agents it follows, its posts' scores, the floors over the last 24 hours, and next steps. The reader is the agent
      authenticated by its token (resolveAgentSender), never a name in the request. Public service reads only; nothing
      is sent as the agent, so it never takes the agent's one community slot. */
   if (pathname === '/api/community/home' && req.method === 'GET') {
@@ -9581,7 +10093,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #4884: an agent votes a post or a comment up or down (or takes its vote back), and reads where it stands against
-     the daily ask, through its board. The VOTER is the agent authenticated by its token (resolveAgentSender), never a
+     the ask over the last 24 hours, through its board. The VOTER is the agent authenticated by its token (resolveAgentSender), never a
      name in the body; the body names only what is voted on. A vote, like a follow, is a public act, so it
      needs the board token as well; the standing read keeps the same gate (the safer default, though it is the
      agent's own data). Neither is in the agent-token-only set. */
@@ -9613,7 +10125,7 @@ const server = http.createServer(async (req, res) => {
         return work
           .then((r) => {
             const answer = (extra) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text, ...extra } : { error: r.because });
-            // #5211 item 2: after a vote that went through, the post's author, whether you follow them, today's floors.
+            // #5211 item 2: after a vote that went through, the post's author, whether you follow them, the floors over the last 24 hours.
             if (!casting || !r.ok) { answer({}); return; }
             const postId = str(body.kind).trim().toLowerCase() === 'post' ? str(body.id) : null;
             return communityNudge(who.card.sessionName, postId, startedAt).then((nudge) => answer(nudge ? { nudge } : {}));
@@ -9952,7 +10464,7 @@ const server = http.createServer(async (req, res) => {
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
         const answer = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later };
         if (r.status === 'published' && !sends) answer.notSending = communitysend.notSendingWords('comment', will.why);   // #5435
-        /* #5211 item 2: who wrote the post, whether you follow them, and today's floors. After the store (the comment
+        /* #5211 item 2: who wrote the post, whether you follow them, and the floors over the last 24 hours. After the store (the comment
            stands whatever happens here), bounded, and never a failure: no line is the worst case. */
         // #4938: the send is asked for first, as before #5211, so the line never delays it (past the daily cap it goes later).
         if (r.status === 'published' && sends && !will.later) communitySendSoon();
@@ -9995,6 +10507,7 @@ const server = http.createServer(async (req, res) => {
         configured: remote.configured(),
         email: r.email || '',
         enrolled: remote.enrolled() === true,
+        forgetKept: r.forget_kept || '',   // kosmos#6389
       });
     } catch { sendJson(res, 500, { error: 'we could not read the Plus state' }); }
     return;
@@ -10008,6 +10521,7 @@ const server = http.createServer(async (req, res) => {
         const saved = remote.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
+        if (body.on === true) phoneDefaultAfterConnect();
         sendJson(res, 200, { status: remote.status(), on: remote.read().on === true });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
@@ -10053,6 +10567,7 @@ const server = http.createServer(async (req, res) => {
         const got = await remote.setupComplete(code, name);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
+        phoneDefaultAfterConnect();
         sendJson(res, 200, { ok: true, status: remote.status() });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not finish the sign-up' }));
@@ -10118,6 +10633,7 @@ const server = http.createServer(async (req, res) => {
           typeof body.second === 'string' ? body.second : null);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
+        phoneDefaultAfterConnect();
         sendJson(res, 200, { ok: true, status: remote.status() });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not finish the company sign-in' }));
@@ -10314,6 +10830,7 @@ const server = http.createServer(async (req, res) => {
         const got = await remote.signinRegister(name);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
+        phoneDefaultAfterConnect();
         sendJson(res, 200, {
           ok: true,
           stage: got.data.stage,
@@ -10344,11 +10861,21 @@ const server = http.createServer(async (req, res) => {
   /* ---- Forget this Mac (#793): retire at the coordinator while the key
      exists, then destroy the key. The engine owns the order; this route only
      relays the outcome, including the case where the coordinator could not
-     be told, so the page can say the address may still show on the account. */
+     be told, so the page can say the address may still show on the account.
+     kosmos#6389: `kept` is a Remove that could not reach Kosmos+ and so removed
+     nothing; { anyway: true } is the person's choice to remove it from this
+     computer only after that. An empty body is a plain Remove. */
   if (pathname === '/api/remote/forget' && req.method === 'POST') {
-    remote.forget()
-      .then((got) => sendJson(res, 200, { ok: true, retired: got.retired === true, address: got.address, because: got.because, status: remote.status() }))
-      .catch((err) => sendJson(res, 500, { error: 'we could not forget this computer: ' + (err && err.message) }));
+    readBody(req, 4096)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return null; }
+        return remote.forget({ anyway: body.anyway === true }).then((got) => {
+          if (got.kept) { sendJson(res, 200, { ok: false, kept: true, retired: false, address: got.address, because: got.because, status: remote.status() }); return; }
+          sendJson(res, 200, { ok: true, retired: got.retired === true, address: got.address, because: got.because, status: remote.status() });
+        }).catch((err) => sendJson(res, 500, { error: 'we could not forget this computer: ' + (err && err.message) }));
+      }, () => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
   /* ---- Devices (#567): the Allow moment's seam. `pending` is a FILE the
@@ -10403,8 +10930,14 @@ const server = http.createServer(async (req, res) => {
       const waitsForPrint = hasWords && require('./engine/orgrollup').waitingForPrint();
       // Review 31: words accepted here that ask for no reports are said as that, never as "not accepted".
       const why = waitsForPrint === 'error' ? 'printError' : waitsForPrint ? 'print' : (accepted && !hasWords ? 'noReports' : null);
-      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
-       stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
+      /* kosmos#6239: a FAMILY's words with none accepted here (they changed, or were never recorded) wait for a parent:
+         the board cannot accept them itself (the coordinator refuses a family's enroll without wordsShown), so the
+         joined view offers to show them (preview { review: true }, then Accept with wordsShown). */
+      const wordsNeeded = !!(here && rec && rec.org && rec.org.kind === 'family' && !accepted);
+      // kosmos#6367: the company's policy requires reports, so Remove this computer from Kosmos+ says the company will see it stop.
+      const reportingRequired = here ? require('./engine/orgpolicy').reportingRequired() : false;
+      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
+       stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
   }
@@ -10433,7 +10966,9 @@ const server = http.createServer(async (req, res) => {
               consent: r.consent,   // #5532: the words shown, remembered by their hash so the rollup sends only the accepted report lines
               computerSalt: r.salt || null,   // #5532 (v1.5): the salt the join's computer print is made with
               review: r.review === true,   // a review's Accept: a lost answer is never taken as accepted (orgreview review 1)
-              orgId: r.org && typeof r.org.id === 'string' ? r.org.id : null };   // WHICH company they were for (review 37)
+              orgId: r.org && typeof r.org.id === 'string' ? r.org.id : null,   // WHICH company they were for (review 37)
+              // kosmos#6239: a family's words are read and accepted on the screen before this computer joins.
+              family: !!(r.org && r.org.kind === 'family') };
             r.ticket = ORG_TICKET.value;
             if (!r.served) console.error('orgenroll: no consent hash to echo (none served, malformed, or for words cleaned before showing); a join records none, and this Kosmos will not report');
           }
@@ -10448,13 +10983,23 @@ const server = http.createServer(async (req, res) => {
               return;
             }
           }
+          /* kosmos#6239: a family joins only when the screen's request says its words were shown and accepted (the page
+             sends wordsShown after showing them); checked before the ticket is spent, so the person can read and accept.
+             As strong as isViaScreen above, as #5791's ticket is: it cannot prove a parent rather than a child pressed. */
+          if (body.accepted === true && ORG_TICKET && ORG_TICKET.family === true && body.wordsShown !== true) {
+            sendJson(res, 200, { ok: false, code: 'org_family_words_unseen', because: oe.SAY.org_family_words_unseen });   // one copy (kosmos#6251 board review 1)
+            return;
+          }
           const spent = body.accepted === true ? ORG_TICKET : null;
           if (spent) ORG_TICKET = null;   // one use
-          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, consent: spent.consent, orgId: spent.orgId, computerSalt: spent.computerSalt, review: spent.review === true } : undefined);
-          /* #5534 review 1: a fresh join fetches and applies the company's policy now, not at the next daily refresh.
+          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, consent: spent.consent, orgId: spent.orgId, computerSalt: spent.computerSalt, review: spent.review === true,
+            wordsShown: spent.family === true && body.wordsShown === true,   // kosmos#6239
+            orgKind: spent.family === true ? 'family' : 'company' } : undefined);   // kosmos#6251: its sentences in the org's kind
+          /* #5534 review 1: a fresh join fetches and applies the company's policy now, not at the next hourly refresh.
              Review 3: and the join answers once it has, waiting up to 5 seconds; a company slower than that gets its
              policy applied when the fetch lands, and an agent made before then is not checked against it. */
           if (r && r.ok === true) {
+            ORG_REFRESH_MISSES = 0;   // #6232 review 17: a fresh join's retries start at 15 minutes, whatever came before
             const fetched = orgEnrollRefresh();
             if (fetched) await Promise.race([fetched, new Promise((done) => setTimeout(done, 5000).unref())]);
           }
@@ -10478,7 +11023,7 @@ const server = http.createServer(async (req, res) => {
           const keep = ['ok', 'because', 'code', 'declined', 'still', 'pending', 'localOnly', 'move', 'review', 'ticket', 'role', 'consent', 'enrolledAt'];
           const out = {};
           for (const k of keep) if (k in r) out[k] = r[k];
-          if (r.org && typeof r.org === 'object') out.org = { name: r.org.name, slug: r.org.slug };
+          if (r.org && typeof r.org === 'object') out.org = { name: r.org.name, slug: r.org.slug, kind: r.org.kind === 'family' ? 'family' : 'company' };   // kosmos#6239: kind
           r = out;
         }
         sendJson(res, 200, r);
@@ -10513,6 +11058,70 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ok: true, ...(got.data || {}) });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not confirm that' }));
+    return;
+  }
+  /* #6353: the joining computer's "Try again" after a code ran out. The same advisory screen check as the confirm
+     (isViaScreen keeps agents' own calls out; it cannot tell a person from another local process), because a new
+     attempt is a try. Other websites are refused by crossSiteWrite before any route. */
+  if (pathname === '/api/remote/join/retry' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can ask for a new code.' }); return; }
+        const got = await remote.joinRetry();
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ok: true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not ask for a new code' }));
+    return;
+  }
+  /* kosmos#6406 step 2: a ticket to open another of this account's computers in this app window with no sign-in. Only
+     for a request made on THIS computer's own screen (madeOnThisComputer: loopback Host and Origin, nothing forwarded;
+     the Kosmos+ headers are pinned in kosmos-relay's proxy tests), so a phone let in here, through Kosmos+ or a proxy
+     of the person's own, cannot use this computer's key to reach the other computers; and with no agent token
+     (isViaScreen). Kosmos+ rewrites Host and Origin to loopback and connects over loopback, so for a phone through it
+     the forwarding headers and the board cookie (boardCookieHere: Kosmos+ strips it) are what refuse it. A local
+     process that sends a browser's header can still ask, as it can for the other screen-only routes; it could run the
+     tunnel with this computer's key itself. The address must be one an account's computer can have. */
+  if (pathname === '/api/remote/open-ticket' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!ticketCallerHere(req) || !boardCookieHere(req) || !isViaScreen(req, body)) {
+          sendJson(res, 403, { error: 'Only the Kosmos app on this computer can open another computer directly.' });
+          return;
+        }
+        const address = typeof body.address === 'string' ? body.address.trim().toLowerCase() : '';
+        const domain = accountComputers.computerDomain(remote.COORDINATOR());
+        if (!address || !domain || !accountComputers.validAddress(address, domain)) {
+          sendJson(res, 400, { error: 'that is not the address of one of your computers' });
+          return;
+        }
+        const got = await remote.openTicket(address);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ticket: got.data.ticket });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not open that computer directly' }));
+    return;
+  }
+  /* kosmos#6404: the joining computer's "Check the code" once allowed: one fresh code check is a try, so the same
+     screen check as Try again. */
+  if (pathname === '/api/remote/join/recheck' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can ask to check the code.' }); return; }
+        const got = await remote.joinRecheck();
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ok: true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not ask to check the code' }));
     return;
   }
   if (pathname === '/api/remote/devices' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -10938,6 +11547,12 @@ const server = http.createServer(async (req, res) => {
         // Only a signed-in row can show its login as good, so only those are read (review iteration 4).
         const loginUntil = new Map(await Promise.all(claudeRows.map(async (a) => [a,
           (a.connection && a.connection.state === 'connected') ? await claudeloginlive.validUntilWithin(a, undefined, nowMs) : null])));
+        /* #6108: one walk for every row below, and only when the caller asks (?agents=1, Settings): the other pages that
+           read this list never show the agents, so they do not pay for the walk. */
+        let wantAgents = false;
+        try { wantAgents = new URL(req.url, ROUTING_BASE).searchParams.get('agents') === '1'; } catch { wantAgents = false; }
+        let claudeAgents = null;
+        if (wantAgents) { try { claudeAgents = claudeAgentsByAccount(); } catch { claudeAgents = null; } }
         const claude = claudeRows.map((a) => {
           /* #3136: the badge is the FRESHER of a passively-witnessed agent
              observation (obsByDir, filled by the ~60s sweep) and a
@@ -10999,6 +11614,24 @@ const server = http.createServer(async (req, res) => {
                 return stops ? { loginStopsAt: stops } : {};
               })()) },
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
+            /* #6108: how much of the weekly limit this account has used, as Kosmos last recorded it (the statusline
+               writes it while an agent on the account runs), or null when there is no reading this week: an API key, none
+               recorded, unreadable, or the week has reset. A reading can be here beside a weeklyBlocked reason (it was
+               recorded before); the page then says it will not update. resetsAt and at are epoch ms here (readWeekly gives resetsAt in seconds). */
+            weekly: require('./engine/accountsweekly').weeklyOf(a, nowMs),   // #6178: one helper, shared with /api/status
+            /* #6176: the five-hour limit, from the same status line, or null when there is no current reading (a key,
+               none recorded, or the window has reset). Same units as weekly: resetsAt and at in epoch ms. */
+            fiveHour: require('./engine/accountsweekly').fiveHourOf(a, nowMs),
+            /* #6108: why there can be NO reading for this account, when that is known: 'windows' (the statusline that
+               records it is not wired there) or 'own-statusline' (the account already has a status line of its own, which
+               Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one when an account is added, or when the person asks on the row via POST /api/accounts/claude/usage-reading, #6175).
+               null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess.
+               #6175 review 13: 'linked-settings' instead of 'not-wired' when settings.json is a link whose file is not in this
+               folder (or points at nothing): the set-up route refuses those every time, so the row must not offer it. */
+            weeklyBlocked: require('./engine/accountsweekly').weeklyBlockedOf(a),   // #6178: one helper, shared with /api/status
+            /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
+               be read, so the page can say the list may be short rather than call it whole. */
+            ...(wantAgents ? { agentsHere: claudeAgents ? { names: claudeAgents.on(a.dir, !!a.isDefault), complete: !!claudeAgents.complete, moving: claudeAgents.moving(a.dir, !!a.isDefault) } : { names: [], complete: false, moving: [] } } : {}),
           };
         });
         /* 🛑 `offerable` TRAVELS WITH THE ROW, for the same reason `memoryShared` does
@@ -11042,6 +11675,42 @@ const server = http.createServer(async (req, res) => {
           const prev = obsByOpenaiDir.get(acct.dir);
           if (!prev || o.at > prev.at) obsByOpenaiDir.set(acct.dir, { outcome: o.outcome, at: o.at });
         }
+        /* #6176 slice 2: every Codex home that writes for each OpenAI account. Since #4592 a launched agent writes its
+           sessions into its own private home (codexruntime.forAgent), so the account's limits are read from the account's
+           own folder AND each of its agents' private ones. A job with no configDir runs on the default account. */
+        const codexHomes = (() => {
+          const byDir = new Map(), onDefault = [];
+          let walked = false;   // built on the first ChatGPT row only: an API-key-only list never walks the agents
+          const walk = () => { if (walked) return; walked = true; try {
+            const runtime = require('./engine/codexruntime');
+            const jobFile = (n) => (process.platform === 'linux' ? require('./engine/linuxjob').unitPath(n) : create.plistPath(n));
+            for (const { sessionName, home } of agentsByAccountWalk('codex').entries) {
+              /* Only reports written since the agent's job last changed: a move between accounts rewrites the job, and the
+                 private home still holds the old account's sessions. Any other rewrite of the job (a rename, a model
+                 change) also hides them until Codex reports again: a missing meter, never a wrong one. A job whose time
+                 cannot be read is not filtered. */
+              let since = null; try { since = fs.statSync(jobFile(sessionName)).mtimeMs; } catch { since = null; }
+              const priv = { home: runtime.forAgent(sessionName), since };
+              if (!home) { onDefault.push(priv); continue; }
+              let key; try { key = path.resolve(home); } catch { continue; }
+              if (!byDir.has(key)) byDir.set(key, []);
+              byDir.get(key).push(priv);
+            }
+          } catch { /* the account folder alone is still read */ } };
+          return (a) => {
+            walk();
+            let key = null; try { key = path.resolve(a.dir); } catch { key = null; }
+            /* Every home counts only since this folder's current login began (codexlimits.signedInSince: a re-sign-in
+               under another login leaves the old login's sessions in the account folder AND in its agents' private
+               homes; a token refresh keeps the login, so it hides nothing). An agent's home also waits for its own
+               job's last change (a move). */
+            // This read records a login it has not seen before (first sight), so the route writes that one small file.
+            const signedIn = require('./engine/codexlimits').signedInSince(a.dir, path.join(store.ROOT, 'codex-signins.json'));
+            const later = (x) => (x == null ? signedIn : (signedIn == null ? x : Math.max(x, signedIn)));
+            const agents = [...(a.isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])].map((h) => ({ home: h.home, since: later(h.since) }));
+            return [{ home: a.dir, since: signedIn }, ...agents];
+          };
+        })();
         const openai = openaiRows.map((a) => {
           /* Checking = still running NOW, or it finished during this read with a real answer the row does not show
              yet (the next read shows it). One that finished with no answer is not checking (review round 14: the
@@ -11049,7 +11718,13 @@ const server = http.createServer(async (req, res) => {
           const now = openaiPending.has(a.dir) ? codexsigninlive.checkState(a.dir) : null;
           const pending = a.connection && a.connection.state === 'unknown' && (now === 'running'
             || (now === 'fresh' && codexsigninlive.livenessCached(a.dir).verdict !== 'unknown'));
+          /* #6176 slice 2: a ChatGPT sign-in's plan limits as Codex last reported them in its session files, in the
+             account's folder or its agents' private ones (engine/codexlimits.js), or null: none reported yet, or every
+             window it reported is over. An API key has no plan limits, so its row carries none. */
+          let limits = null;
+          if (a.authMode === 'chatgpt' && a.dir) { try { limits = require('./engine/codexlimits').read(codexHomes(a), nowMs); } catch { limits = null; } }
           const base = { ...a, offerable: !named || path.resolve(String(a.dir || '')) === onlyDir,
+            ...(a.authMode === 'chatgpt' ? { limits } : {}),
             ...(pending ? { connection: { ...a.connection, liveCheckPending: true } } : {}) };
           /* #4064: a ChatGPT sign-in's live check answer is recorded on its dir by codexsigninlive (dated when it was
              learned, as the Grok check's is), so it stays green for the observed freshness window rather than only the
@@ -11215,6 +11890,19 @@ const server = http.createServer(async (req, res) => {
           /* #4139: a green from the free check says so, not that an agent's request succeeded. */
           return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
             observedFrom: obs === checkObs ? 'check' : 'agent', ...(stillChecking ? { liveCheckPending: true } : {}) } };
+        }).map((r) => {
+          /* #6176 slice 3: a Grok subscription's usage as Grok last logged it in the account's own folder
+             (engine/groklimits.js), or null: none logged, or its period is over. An API key never gets a billing
+             reading, so its row carries none. */
+          if (!r || r.authMode !== 'subscription' || !r.dir) return r;
+          /* Only readings since this folder's current sign-in began count (review 1: a folder signed in again, or reused,
+             keeps the earlier login's log). This read records a login it has not seen before, one small file. */
+          let limits = null;
+          try {
+            const gl = require('./engine/groklimits');
+            limits = gl.read(r.dir, Date.now(), gl.signedInSince(r.dir, path.join(store.ROOT, 'grok-signins.json')));
+          } catch { limits = null; }
+          return { ...r, limits };
         });
         /* #3998 (Josh, 11:34: "it doesn't show up here as a connected subscription"): Gemini on the
            Google subscription gets its own row, from agystatus's LAST confident answer (a live check
@@ -11232,10 +11920,26 @@ const server = http.createServer(async (req, res) => {
           const agyInst = agy.offered() ? agy.installed() : null;
           const agyLast = agyInst && agyInst.installed ? agy.lastKnown() : null;
           if (agyLast && agyLast.signedIn) {
+            /* #6176 slice 4: the Gemini usage Antigravity last reported (engine/agyusage.js), and a new reading asked
+               for at most every few minutes, never waited on here. While one runs, liveCheckPending makes the page read
+               the list again (the same follow-up Codex limits use) and the row says a reading is on its way;
+               usageStopped says a run failed and asking waits for the sign-in to be confirmed (review 4). */
+            let usage = null;
+            try {
+              const au = require('./engine/agyusage');
+              if (au.supported()) {
+                if (wantAgents) au.refresh();   // asked only when Settings lists the accounts (?agents=1), not the create picker
+                usage = { limits: au.lastReading(), pending: au.isRunning(), stopped: au.isStopped() };
+              }
+            } catch { usage = null; }
+            const pending = !!(usage && usage.pending);
             agySub = [{
               provider: 'antigravity', providerName: 'Gemini', dir: null, label: null, name: null, isDefault: false,
               email: null, authMode: 'antigravity', keyTail: null,
-              connection: { state: 'connected', checkedLive: false, checkedAt: agyLast.at, badge: 'signed_in_unverified' },
+              connection: { state: 'connected', checkedLive: false, checkedAt: agyLast.at, badge: 'signed_in_unverified',
+                ...(pending ? { liveCheckPending: true } : {}) },
+              // No limits field where no reading can be asked for (Windows): the page then draws nothing, never a promise.
+              ...(usage ? { limits: usage.limits, ...(usage.stopped ? { usageStopped: true } : {}) } : {}),
             }];
           }
         } catch { agySub = []; }
@@ -11839,6 +12543,53 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #6175: set up the usage reading on an EXISTING Claude account (Kosmos wires its status line only when it creates
+     an account). It runs the same ensureStatusLine as account creation, so a status line the person set up themselves
+     is left alone (it answers wired:false with why). Only a Claude account this computer lists. Narrower than creation
+     on purpose: an API-key account is refused (it has no weekly limit to read; creation wires one anyway in case the key
+     is later swapped for a sign-in). The page offers this only on a 'not-wired' row; a status line of ours aimed at
+     another copy reads as wired there and is not offered, so its repoint happens only on a direct POST. */
+  if (pathname === '/api/accounts/claude/usage-reading' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const dir = body && typeof body === 'object' ? String(body.dir || '') : '';
+        if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const resolved = path.resolve(dir);
+        /* Review 11: this writes into the person's own Claude Code setup, so only the person, from Settings (as other
+           person-only Settings changes are); an agent's token is refused. Review 12: before any lookup, so a
+           refused caller learns nothing about which folders are accounts. */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        const acct = accounts.list().find((a) => a.dir === resolved);
+        if (!acct) { sendJson(res, 404, { error: 'we could not find that account on this computer' }); return; }
+        if (acct.apiKey) { sendJson(res, 400, { error: 'an account that uses an API key has no weekly limit to read' }); return; }
+        /* Review 11: a settings file that is a link to a file outside this account's folder (one shared with another
+           account, say) is left alone: the status line names ONE account's folder, so wiring it there would send every
+           account that shares the file's readings to this one. */
+        const settingsFile = path.join(acct.dir, 'settings.json');
+        try {
+          if (path.dirname(fs.realpathSync(settingsFile)) !== fs.realpathSync(acct.dir)) {
+            sendJson(res, 409, { wired: false, because: 'this account\u2019s settings file is a link to a file elsewhere, so it was left alone' });   // review 13: true for a subfolder too
+            return;
+          }
+        } catch { /* no settings file yet (or no folder): ensureStatusLine decides, as for a new account */ }
+        let r;
+        try { r = require('./engine/allowance').ensureStatusLine(settingsFile); }
+        catch (e) {   // review 5: a throw is a fault, 500 (a refusal ensureStatusLine ANSWERS, including a failed save, is 409)
+          try { console.error('usage-reading: ' + String((e && e.stack) || e)); } catch { /* best effort */ }
+          sendJson(res, 500, { error: 'the usage reading could not be set up' });
+          return;
+        }
+        if (!r || r.wired !== true) { sendJson(res, 409, { wired: false, because: (r && r.because) || 'the usage reading could not be set up' }); return; }
+        sendJson(res, 200, { wired: true, changed: r.changed === true });
+      }, () => sendJson(res, 400, { error: 'we could not read that request' }))   // the body could not be read
+      .catch((e) => {   // review 2: a fault after reading is the server's, not an unreadable request
+        try { console.error('usage-reading: ' + String((e && e.stack) || e)); } catch { /* best effort */ }   // review 3: the detail (paths) stays in the log
+        if (!res.headersSent) sendJson(res, 500, { error: 'the usage reading could not be set up' });
+      });
+    return;
+  }
   if (pathname === '/api/accounts/claude/check' && req.method === 'POST') {
     readBody(req)
       .then(async (raw) => {
@@ -13320,59 +14071,116 @@ const server = http.createServer(async (req, res) => {
   if (acctRoute && req.method === 'POST') {
     const name = decodeSegment(acctRoute[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* #6173: one move at a time. While a move's restarts run, this one is refused plainly rather than run beside it. */
+    if (accountmove.busy()) { sendJson(res, 409, { outcome: 'refused', because: accountmove.busyBecause() }); return; }
     readBody(req)
       .then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (accountmove.busy()) { sendJson(res, 409, { outcome: 'refused', because: accountmove.busyBecause() }); return; }
+        if (boardRestartingSoon()) { sendJson(res, 409, { outcome: 'refused', because: accountmove.boardGoingBecause() }); return; }   // #6173 review 3
+        /* #6190: an agent a restart still holds (an abandoned async restart's command in flight) is refused BEFORE the
+           write, as the provider and model routes do; before this the account was saved and only the restart refused. */
+        { const held = removal.moveRefusal(name); if (held) { sendJson(res, 409, { outcome: 'refused', because: held.because }); return; } }
+        const fromDir = moveFromDir(name);   // #6174
         const wrote = create.setAccount(name, body && body.dir);
         if (wrote.outcome === create.OUTCOME.REFUSED) {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
           return;
         }
         try { observed.forgetAgent(name); } catch { /* #5959: a move keeps the name, not its sighting */ }
-        let back;
-        try { back = removal.restart(name, 'account'); }
-        catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
-        const ok = back.outcome === removal.OUTCOME.RESTARTED;
-        /* #2338: lead with the human-chosen account name (the `.kosmos-name`
-           sidecar an OpenAI row carries, #2095), the same value the picker shows,
-           falling back to the email/label as before. */
-        const who = wrote.account.name || wrote.account.email || wrote.account.label || 'that account';
-        /* #2338: a codex account move is between OpenAI CODEX_HOME dirs, and codex
-           conversation history lives INSIDE a home (there is no cross-home symlink,
-           unlike Claude's shared history) -- so it does NOT travel, and the Claude
-           "Everything it has done comes with it" sentence would be a false promise.
-           What DOES travel is everything Kosmos owns: the worker folder, its files,
-           role, projects and commitments (an account swap rewrites only CODEX_HOME).
-           So the codex sentence is honest about the split rather than silent on it. */
-        /* #3566: Gemini and Grok accounts are per-home too (GEMINI_CLI_HOME / GROK_HOME, no
-           cross-home link), so their chat stays behind exactly as Codex's does. The word
-           names the chat the person would look for. */
-        const moveChatWord = wrote.account
-          && ({ openai: 'Codex', google: 'Gemini', xai: 'Grok', alibaba: 'Qwen' })[String(wrote.account.provider || '').toLowerCase()];
-        const isPerHomeMove = !!moveChatWord;
-        sendJson(res, 200, {
-          outcome: ok ? 'changed' : 'partial',
-          account: wrote.account,
-          because: ok
-            /* Same shape as the model route's sentence, and for the same
-               reason: a restarted agent has done nothing, and Josh read that
-               emptiness as the change having failed. The history sentence is
-               here because it is the one thing a person is right to worry
-               about when moving accounts. */
-            ? (isPerHomeMove
-              ? `${name} runs on ${who} now. It is starting again, and it will look idle `
-                + 'until you say something to it. Its files and projects come with it; '
-                + `its earlier ${moveChatWord} chat stays with the account it was on.`
-              : `${name} runs on ${who} now. It is starting again, and it will look idle `
-                + 'until you say something to it. Everything it has done comes with it.')
-            : `We saved ${who}, but could not start it again: ${back.because} `
-              + 'It is still on the old account until it restarts.',
-          steps: back.steps || [],
-        });
+        const back = restartForMove(name, fromDir);   // #6174: also notes an agent left running on its old account
+        /* #6173: the sentence lives in accountmove, so this route and the several-agents one cannot word it apart. */
+        const said = accountmove.sentence(name, wrote, back, removal.OUTCOME.RESTARTED);
+        sendJson(res, 200, { outcome: said.outcome, account: wrote.account, because: said.because, steps: said.steps });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
+  /**
+   * #6173: move several agents to one account in ONE request, without holding the board once per agent.
+   *
+   * POST /api/agents/account { dir, names } does only the account writes and answers 202 with the move's id and each
+   * agent's write outcome (a refusal is final at once). The restarts then run one at a time through
+   * `removal.restartAsync`; GET /api/agents/account-moves/<id> answers how each went. 404 there means this board does
+   * not know the move (it restarted since): Settings reads that as not confirmed, never as moved.
+   */
+  if (pathname === '/api/agents/account' && req.method === 'POST') {
+    readBody(req, 64 * 1024)   // 200 names and an account folder: a few KB; a longer body is refused as it arrives
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const fromDirs = new Map();   // #6174: name -> the account folder it ran on before this move
+        const savedAt = new Map();    // #6231: name -> when this move saved its new account (taken just before the write)
+        const started = accountmove.start(body, {
+          /* #6174: each agent's account folder is read BEFORE its account is written, as the one-agent route does. */
+          setAccount: (n, dir) => { fromDirs.set(n, moveFromDir(n)); savedAt.set(n, Date.now()); return create.setAccount(n, dir); },
+          moveRefusal: (n) => removal.moveRefusal(n),   // #6190: a held agent is refused before its account is written
+          REFUSED: create.OUTCOME.REFUSED,
+          forget: (n) => observed.forgetAgent(n),
+          restartAsync: (n) => restartForMoveAsync(n, fromDirs.has(n) ? fromDirs.get(n) : null),   // #6174's note too
+          RESTARTED: removal.OUTCOME.RESTARTED,
+          boardRestarting: () => boardRestartingSoon(),
+          hold: (names) => removal.holdForMove(names),
+          release: (n) => removal.releaseFromMove(n),
+          /* #6214: what a stop puts back. Read strictly (moveFromDir folds an unreadable job into the default account,
+             which the put-back must never take for "it was on the default account"). */
+          readAccount: (n) => {
+            const job = create.readJob(create.cleanName(n));
+            if (!job) throw new Error('its launch job could not be read');
+            return job.configDir || null;
+          },
+          putBack: (n, dir) => create.restoreAccount(n, dir),   // the job only: not setAccount's destination checks
+          /* #6231: #6174's note, as a partial restart writes it, for an agent left saved on another account while it still
+             runs on its old one (a failed or thrown put-back, a hand change to a third account, the move's time cap, its
+             hold failing). Its session's start is read without blocking.
+             Only a session that started before the move saved the new account can be the one still on the old account: the
+             agent is released by now, so a restart since (its page's) would come up on the new one. tmux reads whole
+             seconds, so a full second of margin; anything else, or nothing read, clears an earlier note (the safe side). */
+          leftOnOld: (n) => {
+            const name = create.cleanName(n) || n;
+            const at = savedAt.get(n);
+            const accountmoving = require('./engine/accountmoving');
+            const noteBefore = JSON.stringify(accountmoving.notes()[name] || null);
+            sessionStartForAsync(name)
+              .then((s) => {
+                /* A note written while the session was read (a later move's own restart) is newer than this one: keep it. */
+                if (JSON.stringify(accountmoving.notes()[name] || null) !== noteBefore) return;
+                if (!(Number.isFinite(s) && Number.isFinite(at) && s + 1000 <= at)) { accountmoving.clear(name); return; }
+                noteMoveOutcome(name, removal.OUTCOME.PARTIAL, s, fromDirs.has(n) ? fromDirs.get(n) : null, {}, { after: s });
+              })
+              .catch(() => {});
+          },
+          // #6231 item 7: the put-back's WRITE off the board's thread. win32 is the case this targets: it drives
+          // restoreAccountSteps via driveAsync so a large move's schtasks /Create WRITES no longer hold the board.
+          // The per-agent staleness re-read (the /Query) stays SYNC by contract 3, so a cold-cache read can still
+          // block the thread briefly per agent -- it is the serialized WRITES that were the #6183 freeze, not the
+          // reads. linux/mac run the sync restoreAccount inline (a local job-file write, never the freeze).
+          putBackAsync: (n, dir) => (process.platform === 'win32'
+            ? removal.putBackAsync(n, dir)
+            : Promise.resolve(create.restoreAccount(n, dir))),
+        });
+        sendJson(res, started.status, started.body);
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* #6214: stop the running move, whichever page started it. No further agent restarts; the one restarting now finishes;
+     the rest are put back on their old account. 409 when no move is running. */
+  if (pathname === '/api/agents/account-moves/stop' && req.method === 'POST') {
+    const stopped = accountmove.stop();
+    sendJson(res, stopped.status, stopped.body);
+    return;
+  }
+  const acctMoveRead = pathname.match(/^\/api\/agents\/account-moves\/([^/]+)$/);
+  if (acctMoveRead && req.method === 'GET') {
+    const id = decodeSegment(acctMoveRead[1]);
+    const m = id === null ? null : accountmove.read(id);
+    if (!m) { sendJson(res, 404, { error: 'this board does not know that move; it may have restarted since' }); return; }
+    sendJson(res, 200, m);
     return;
   }
 
@@ -13794,7 +14602,7 @@ const server = http.createServer(async (req, res) => {
              a second time: its name is on the removed list, and a new one would be a second guide. */
           if (now && !now.ok && now.removed) {
             let back = null;
-            try { back = removal.restore(now.removed); } catch { back = null; }
+            try { back = removal.restore(now.removed, { quiet: true }); } catch { back = null; }   // kosmos#6239
             /* Only a FULL restore is success (a partial one, started but still on the removed list, is not); a refusal
                because another window restored it a moment ago is, so a refusal checks again. */
             const ok = (!!back && back.outcome === removal.OUTCOME.RESTORED)
@@ -14536,6 +15344,7 @@ const server = http.createServer(async (req, res) => {
        and points at git. Two true things beat one, and the truer one goes first. */
     const platRefusal = updates.selfInstallRefusal();
     if (platRefusal) { sendJson(res, 409, { error: platRefusal }); return; }
+    if (moveHoldsBoard()) { sendJson(res, 409, { error: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173: the install restarts the board
     if (!updates.installedRoot()) {
       sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
       return;
@@ -14589,6 +15398,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/update/rollback' && req.method === 'POST') {
     const rollback = updates.rollbackOffer();
     if (!rollback) { sendJson(res, 409, { error: 'there is no earlier Kosmos kept to roll back to right now' }); return; }
+    if (moveHoldsBoard()) { sendJson(res, 409, { error: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173 review 4: a rollback restarts the board too
     if (!updates.installedRoot()) {
       sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
       return;
@@ -15723,6 +16533,7 @@ const server = http.createServer(async (req, res) => {
               deliver: chat.deliverAutomaticAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
               shownOf: (id) => { const p = projects.get(id, roster); return p ? p.name : null; },
               stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926: what staleHeld drops wakes nobody
+              afterOf: (p, ids, who2) => messages.memberAfter(p, ids, who2),   // #4926 N7: whether each was answered uncited
             }).then((done) => {
               for (const d of done) process.stdout.write(roomhold.toldLine(who, d));   // #4797: no "told of" for a refused try
             }).catch(() => { /* best-effort: the posts are in the room, and the next typed arrival carries the line */ });
@@ -15877,6 +16688,11 @@ const server = http.createServer(async (req, res) => {
      lists that name. The operator hands the returned token to the
      remote agent as KOSMOS_AGENT_TOKEN. */
   if (pathname === '/api/agent-token' && req.method === 'POST') {
+    // #6358: an agent token outlives any browser session, so a session cookie alone does not mint one.
+    if (boardAuthState.on && !boardTokenOkWithoutCookie(req)) {
+      sendJson(res, 403, { error: boardTokenRefusal(req, '') });
+      return;
+    }
     readBody(req)
       .then((buf) => {
         let body;
@@ -16297,9 +17113,10 @@ const server = http.createServer(async (req, res) => {
            reaches exactly the room a live one would. The token sender is resolved
            here and refused inside it, after the project check: the order this
            route has always answered in. */
+        const postSender = senderFromAgentToken(req, body, roster);   // #6254: kept to name the poster for a `posted` notification below
         const delivery = await sendRoomPostAsAgent({
           fromPane: body.from_pane,
-          sender: senderFromAgentToken(req, body, roster),
+          sender: postSender,
           senderByToken: true,   // kosmos#5752: this sender came from the token helper; the outbox drain never sets it (its sender may be a pane claim)
           project: body.project,
           text: body.text,
@@ -16312,6 +17129,22 @@ const server = http.createServer(async (req, res) => {
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
         sendJson(res, 200, { delivery });
+        // #6254: an agent's room post -> a `posted` phone notification (best-effort, after the response, like
+        // the attribution below). A reply to the PERSON's own post is a names-you buzz (postedMention, on by
+        // default); any other room post is postedRoom (off by default, one buzz per room per 10 min). Never the
+        // post's words. Only a post actually recorded in the room (delivery.id), by a known agent (operator
+        // posts come from the screen, not this token route). The tap target is the app's call (the room for
+        // posted, the agent for the other kinds); the board sends both session and project so it can route.
+        try {
+          if (postSender && postSender.ok && delivery && delivery.id) {
+            const pj = projects.get(body.project, roster);
+            phonenotify.happened({ kind: 'posted', namesPerson: delivery.repliesToPerson === true,
+              id: 'post:' + delivery.id, agent: (postSender.card && postSender.card.name) || null,
+              session: (postSender.card && postSender.card.sessionName) || null,
+              // #6254: the room's project id (not just its name) so a posted tap opens the room.
+              project: pj ? pj.name : null, projectId: pj ? pj.id : null });
+          }
+        } catch { /* a notification is never a reason to fail the post */ }
         /* #2837 (producer half): a post that reached the room is a TRUTHFUL signal
            that this agent is working in THIS project -- "the activity carries which
            project it belongs to". Carry that project onto the poster's state so the
@@ -17154,7 +17987,7 @@ const server = http.createServer(async (req, res) => {
            * contains the answered one's, and `includes` called that the same
            * question. Measured end to end through the real producers: buttons
            * drawn for "Do you want to proceed?", the pane redrew to `rm -rf
-           * /Users/josh/build` above the same Yes/No menu, both 409s passed,
+           * /Users/<user>/build` above the same Yes/No menu, both 409s passed,
            * and "1" went through.
            *
            * The cursor problem is fixed where it belongs -- `questionAbove` now
@@ -17302,8 +18135,17 @@ const server = http.createServer(async (req, res) => {
               const e = new Error('that is not one of the numbers on the menu its screen shows now, so we did not send it. Its current question is on this page.');
               e.status = 409; throw e;
             }
+            /* #6172: an option that saves a lasting choice ("Yes, and don't ask again for ...", auto mode, accept edits) goes
+               only with the page's second press (`lasting: true`), so one mis-tap cannot change what the agent may do from
+               now on. Refused before any key, so nothing was answered. */
+            if (opt && opt.lasting && body.lasting !== true) {
+              const e = new Error('that choice changes what this agent may do from now on, so it needs a second press to confirm (reload this page if pressing it again does not ask). Nothing was sent.');
+              e.status = 409; throw e;
+            }
             if (opt && !files.recs.length && !answered) {
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}) });
+              // kosmos#6239: refused for quiet hours is the person's act, reported like a refused message.
+              if (!r.ok && r.quiet === true) { try { require('./engine/agentevents').recordRefusal({ agent: name, rule: 'quiet-hours' }); } catch { /* not reported */ } }
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }
               qmenuAnswer = r;
             } else if (chose || askedGiven) {
@@ -17379,6 +18221,10 @@ const server = http.createServer(async (req, res) => {
             at: new Date().toISOString() }
           : await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
             envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
+        /* kosmos#6239: a person's message refused in the policy's quiet hours is reported to whoever set the policy. */
+        if (!automatic && delivery && delivery.quiet === true) {
+          try { require('./engine/agentevents').recordRefusal({ agent: name, rule: 'quiet-hours' }); } catch { /* not reported */ }
+        }
         /* Review 2: the question was closed for this message; when the message then did not land, the record says the
            question went too, so nobody reads the agent as still asking. */
         if (qmenuClosed && delivery && delivery.state !== chat.DELIVERY.PLACED) {
@@ -17396,6 +18242,8 @@ const server = http.createServer(async (req, res) => {
               ? 'held: nothing was typed while the Gemini agents are at the limit set for working at once, so nothing was kept'
               : delivery.heldBy === 'menu'   // #5743
                 ? 'held: nothing was typed while it waits for an answer on its screen, so nothing was kept'
+              : delivery.heldBy === 'input'   // #6249
+                ? 'held: nothing was typed while its input box holds text not yet sent, so nothing was kept'
                 : delivery.heldFor === 'signin'   // #5948
                   ? 'held: nothing was typed while it is signed out, so nothing was kept'
                 : delivery.heldBy === 'limit'   // #5805
@@ -17509,6 +18357,22 @@ const server = http.createServer(async (req, res) => {
     try { ok = require('./engine/restartnote').dismiss(); } catch { ok = false; }
     if (!ok) { sendJson(res, 500, { error: 'we could not record that the note was dismissed' }); return; }
     sendJson(res, 200, { dismissed: true });
+    return;
+  }
+  /* #6160: the person's streak in the Kosmos. The page posts its own local date ({ today: 'YYYY-MM-DD' }) once per
+     load and per new day; the reply is { count, congrats }, and congrats is true for exactly one load on each new day
+     (engine/streak.js records it as shown in the same write). A POST because it records the visit. */
+  if (pathname === '/api/streak' && req.method === 'POST') {
+    readBody(req, 4096).then((buf) => {
+      let body;
+      try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      let out;
+      try { out = require('./engine/streak').record(String(body.today || '')); } catch (e) {
+        console.error('[streak] could not record a visit:', e && e.message);
+        sendJson(res, 500, { error: 'we could not read the streak just now' }); return;
+      }
+      sendJson(res, 200, out);
+    }).catch(() => { if (!res.headersSent) sendJson(res, 400, { error: 'we could not read that request' }); });
     return;
   }
   /* --- engineering mode (whether the raw session is shown) ---------------- */
@@ -17798,7 +18662,8 @@ const server = http.createServer(async (req, res) => {
       let company = null;
       try {
         const c = policyEngine.companyEntry();
-        if (c) company = { name: c.name, chars: c.text.length, opening: c.text.slice(0, 240) };
+        // kosmos#6263: whose policy it is, so the page says a family's as the family's.
+        if (c) company = { name: c.name, chars: c.text.length, opening: c.text.slice(0, 240), kind: require('./engine/orgenroll').kindNow() };
       } catch { company = null; }
       sendJson(res, 200, r.state === 'saved'
         ? { state: 'saved', policies: policySummaries(r), because: null, company }
@@ -18640,6 +19505,9 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#5942: since when an agent holding it has needed the person, from the same cards. Null when no card
            knows, and whenever a missed repeating run is waiting too: that wait has no start, so any age could be short. */
         waitingSince: waitingOnPerson && !runMissed ? tasks.waitingSinceOf(t, roster, membersOf.get(t.projectId)) : null,
+        /* #6157: who put it in Needs your decision, and why ({ who, reason }, the project page's reason codes), from the
+           same cards. Empty when it is not waiting; a missed run the person reviews names no agent itself (its repeat line says it). */
+        waitingOn: !waitingOnPerson ? [] : tasks.waitingOnOf(t, roster, membersOf.get(t.projectId)),
         state: tasks.taskState(Object.assign({}, t, { claim, waitingOnPerson })),
         lastActivityAt: tasks.lastActivityOf(t.projectId, t),
         /* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), worked out here so
@@ -18650,6 +19518,56 @@ const server = http.createServer(async (req, res) => {
     /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
        read its "false" as "nobody needs you". It says it could not tell. */
     sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope, rosterUnreadable: !Array.isArray(roster) });
+    return;
+  }
+
+  /**
+   * kosmos#6506 (ruling 3): the CALLING agent's own OPEN tasks across every project it is on, so
+   * `kosmos handoff` can print them without the agent naming a project. Read-only; writes nothing.
+   *
+   * 🔑 KEYED ON THE TOKEN, NEVER A NAME FROM THE REQUEST. The caller is resolved from its agent
+   * token via sendertoken.resolveName (no roster/panes needed), and a missing, unknown or ambiguous
+   * (twins) token is REFUSED with the same "could not tell which agent" 403 the task-list arm uses.
+   * The name used to pick both projects (tokenOnlyOnProject) and tasks (sameAgentName over whoNames)
+   * comes ONLY from the resolved token, so one agent's token can never return another agent's tasks.
+   * "Open" is the derived listGroup, never a stored `state`. In AGENT_TOKEN_ROUTES (GET only), so an
+   * agent-token-only caller reaches it; HEAD/writes on this path stay board-gated.
+   */
+  if (pathname === '/api/tasks/mine' && req.method === 'GET') {
+    let who = null;
+    try { who = sendertoken.resolveName(req && req.headers && req.headers['x-kosmos-agent-token']); } catch { who = null; }
+    if (!(who && who.ok === true && typeof who.key === 'string')) {
+      sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read its tasks' });
+      return;
+    }
+    let caller;
+    if (typeof who.name === 'string' && who.name) caller = { name: who.name, key: who.key, twins: who.twins === true };
+    else if (who.twins === true) { sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read its tasks' }); return; }
+    else caller = { name: who.key, key: who.key, byKey: true };
+
+    let everyProject;
+    try { everyProject = projects.readAll(); }
+    catch (err) { sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your tasks right now'), projectsUnreadable: true }); return; }
+
+    const myIds = new Set((everyProject || []).filter((p) => tokenOnlyOnProject(p, caller)).map((p) => p && p.id));
+    // Match a task's holder the SAME way tokenOnlyOnProject matches project membership: a key-only
+    // token by its key, a named token by its name OR (when it has no twins) its key. Otherwise a
+    // named token whose task was stored under the key spelling would be dropped and read as a false
+    // "none open", an inconsistency between who is on the project and whose tasks are returned.
+    const heldByCaller = (n) => (caller.byKey
+      ? sameAgentName(n, caller.name, true)
+      : (sameAgentName(n, caller.name, false) || (!caller.twins && sameAgentName(n, caller.key, false))));
+    const open = tasks.inListOrder(
+      tasks.allTasks(everyProject).filter((t) =>
+        myIds.has(t.projectId)
+        && t.projectArchived !== true                 // an archived project's tasks are not live work (the Tasks view drops them too)
+        && tasks.listGroup(t) === 'open'
+        && Array.isArray(t.whoNames) && t.whoNames.some(heldByCaller)),
+      'open');
+    sendJson(res, 200, {
+      tasks: open.map((t) => ({ project: t.projectName, projectId: t.projectId, number: t.number, title: String(t.sentence == null ? '' : t.sentence) })),
+      count: open.length,
+    });
     return;
   }
 
@@ -18963,6 +19881,32 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #6341 (Josh, 10-16 19:43: "there's not really a way to really dismiss it"): the person dismisses one row of a
+     project's "needs you" block. Body {agent, reason}: the reason is the one the page showed, so a dismissal stands only
+     while that member's reason is still the same (engine/projects.js dismissNeeds, describe). Called by the page. It is
+     not on the agent-token list, so an agent token alone does not reach it; an agent holding the board token can, as with
+     every board-token route. Answers the project as the page reads it. */
+  const needsDis = pathname.match(/^\/api\/project\/([^/]+)\/needs-dismiss$/);
+  if (needsDis && req.method === 'POST') {
+    const id = decodeSegment(needsDis[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((buf) => {
+      let body;
+      try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      try {
+        projects.dismissNeeds(id, body.agent, body.reason);
+      } catch (err) {
+        // An unreadable store is our fact, not a bad request (review 3), as the other project routes answer it.
+        const status = err && err.code === 'UNREADABLE' ? 500 : /no such project/.test(String(err && err.message)) ? 404 : 400;
+        sendJson(res, status, { error: String((err && err.message) || 'that could not be dismissed') });
+        return;
+      }
+      let project = null;
+      try { project = projects.get(id, safeRoster()); } catch { project = null; }
+      sendJson(res, 200, { ok: true, project });
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
   if (proj && req.method === 'PUT') {
     const id = decodeSegment(proj[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
@@ -19279,9 +20223,9 @@ const server = http.createServer(async (req, res) => {
        (`kosmos room`) passes ?as=text, the web board reads JSON. #2702's reject
        and the existing render must agree on which arm this is. */
     let asText = false;
-    /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; 40 when not given or
-       not a whole number in range, so an older CLI and a bad value both get what they always got). */
-    let textRows = 40;
+    /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; messages.ROOM_READ_ROWS
+       when not given or not a whole number in range, so an older CLI and a bad value both get what they always got). */
+    let textRows = messages.ROOM_READ_ROWS;
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       asText = q.get('as') === 'text';
@@ -19307,9 +20251,11 @@ const server = http.createServer(async (req, res) => {
        503, never the fail-open read below. See AGENT_TOKEN_ROUTES. */
     const tokenOnly = agentTokenOnlyCaller(req);
     let roomRefusal = null;
+    let roomRecord = null;   // #6420: kept for the hold read below, so the registry is read once
     try {
       const everyProject = projects.readAll();
       const stored = everyProject.filter((p) => p && p.id === id);   // every one with that id, as the task read does
+      roomRecord = stored[0] || null;
       projectKnown = stored.length > 0;
       if (tokenOnly === '' && stored.length) {
         roomRefusal = [403, 'Kosmos could not tell which agent this token belongs to, so it cannot read its room'];   // kosmos#5752 round 1
@@ -19401,7 +20347,7 @@ const server = http.createServer(async (req, res) => {
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
       /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
          stock bash 3.2 with no JSON parser, so the server does the shaping.
-         The tail only (the last 40, or the last `n` the CLI asks for, #4891), oldest first, one line per row, and the
+         The tail only (the last messages.ROOM_READ_ROWS, or the last `n` the CLI asks for, #4891), oldest first, one line per row, and the
          unreadable case says so rather than printing an empty room.
          #2702: `asText` is computed once at the top of this route now and reused
          here, so the reject arm and this render arm cannot disagree. */
@@ -19416,7 +20362,13 @@ const server = http.createServer(async (req, res) => {
          Reopen button in the strip above its composer, and the text view puts one line at the top, so a member reading the room
          learns of the hold before posting rather than by being refused. Best-effort: unreadable reads as open. */
       let held = null;
-      try { held = messages.roomHeld(id, Date.now()); } catch { held = null; }
+      try {
+        /* #6420: read at the room's own budget (it scales with the room), sized as the valve sizes it: removed agents
+           dropped, then the poster (messages.roomRecipientsOf). If the registry could not be read above, no size: the
+           dial's own budget, which can show a big room held when it is not (a hint, erring toward the hold). */
+        const size = roomRecord ? messages.roomRecipientsOf(roomRecord.agents) : undefined;
+        held = messages.roomHeld(id, Date.now(), size);
+      } catch { held = null; }
       if (asText) {
         /* #1895: the operator's own zone, read ONCE for the whole render rather
            than per line. Same best-effort contract as `silent` above -- a store
@@ -19424,7 +20376,7 @@ const server = http.createServer(async (req, res) => {
            machine the operator is sitting at, never to an error. */
         let zone = null;
         try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }
-        /* #3311: at most half the rows shown (20 of the default 40) come from outside, so a busy
+        /* #3311: at most half the rows shown (half of the default messages.ROOM_READ_ROWS) come from outside, so a busy
            peer cannot push every local post out of the view agents read. #4891: of `textRows`. */
         const tail = [];
         let outside = 0;
@@ -19519,7 +20471,16 @@ const server = http.createServer(async (req, res) => {
         /* #3311: agents read this view before they post. In a shared project every
            post here leaves this computer, so it says so first, every time. */
         let shared = '';
-        try { if (fedseats.linkFor(id)) shared = '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n'; }
+        try {
+          if (fedseats.linkFor(id)) {
+            const cs = fedseats.contactState();   // kosmos#6239: a room closed under the policy, or a fault, says so instead
+            shared = cs === 'policy'
+              ? '[kosmos] This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer.\n'
+              : cs === 'unreadable'
+                ? '[kosmos] This room is shared with another computer, but it is closed for now: Kosmos cannot read the policy set for this Kosmos, so nothing posted here leaves this computer.\n'
+                : '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n';
+          }
+        }
         catch (err) { fedseats.logUnreadable(err); }
         /* #5800: who can release it and how. The time is roomHeld's until, an estimate (see there). */
         const onHold = held
@@ -19852,6 +20813,7 @@ const server = http.createServer(async (req, res) => {
            ADVISORY: a process can present the browser header; this stops the
            default path an agent would take. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
+        { const stop = federationPolicyStop(); if (stop) { sendJson(res, 403, { error: stop }); return; } }   // kosmos#6239
         /* #4649: an invite naming an existing project (`project`) goes through fedmembers, which finds or makes the
            project's owner ref and records the owner's label for the Members list. */
         // Inviting from an EXISTING project (#4649) is behind the federation switch too; the create screen's path is unchanged.
@@ -19922,6 +20884,7 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can share a project with their other computers.' }); return; }
+        { const stop = federationPolicyStop(); if (stop) { sendJson(res, 403, { error: stop }); return; } }   // kosmos#6239: a room with another computer
         // The coordinator seats an own room only for a Kosmos Plus account, so a code made
         // without it could never connect, and its owner seat would retry for nothing.
         let plus = false;
@@ -19973,6 +20936,7 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
+        { const stop = federationPolicyStop(); if (stop) { sendJson(res, 403, { error: stop }); return; } }   // kosmos#6239
         const snap = federation.joinSnapshot(body.edge_id);
         if (!snap) { sendJson(res, 409, { error: 'Verify the code again before joining. Each code works once, so if it says it was already used, ask for a new one.' }); return; }
         // A second Join of the same own code (the snapshot is forgotten only after the first
@@ -20460,11 +21424,13 @@ const server = http.createServer(async (req, res) => {
        so an agent that sends no token is not named here, unlike on task add. The roster is read only for a token.
        Nothing in this block may throw (it is outside the try below): processCaller and notOnProjectRefusal catch
        their own, and safeRoster answers null. */
+    let actor = null;   // #6157: the agent its token named, recorded on a reopen as who put it back
     if (presentedAgentToken(req, {})) {
       const notDone = 'the task was not ' + (taskAct[3] === 'close' ? 'closed' : 'reopened');
       const who = processCaller(req, {}, safeRoster(), false, notDone);
       const whoRefusal = who.refusal || notOnProjectRefusal(who, id, taskAct[3] + ' its tasks', notDone, taskAct[3] + ' a task');
       if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }
+      actor = who.card ? who.card.sessionName : null;
     }
     /* kosmos#4787 review 3: closing ends a recurring job's rule, so a process cannot close a task whose rule the person
        set (as it cannot change the rule itself); it records each run with ran instead. */
@@ -20477,21 +21443,37 @@ const server = http.createServer(async (req, res) => {
         return;
       }
     }
-    try {
-      const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2]) : tasks.reopen(id, taskAct[2]);
-      // Close and reopen change what the assignee's block should list, so
-      // the block follows the record. Non-gating.
-      // ⚠️ `whoOf`, not `t.who`: a task with parts has no `who`, so the block
-      // stopped following the record and an agent's instructions kept listing
-      // a task it had already finished.
-      let told = tellEveryoneOn(t);
-      sendJson(res, 200, { task: t, told });
-    } catch (err) {
-      const msg = String((err && err.message) || '');
-      const code = (err && err.code === 'UNREADABLE') ? 500
-        : (/no project by that name|no task by that number/.test(msg) ? 404 : 400);
-      sendJson(res, code, { error: msg || 'we could not change that task' });
-    }
+    const act = (why) => {
+      try {
+        /* #6157: a reopen records who put it back (the person from the screen, or the agent its token named; an agent
+           that sends no token stays unnamed, as above) and why. */
+        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2])
+          : tasks.reopen(id, taskAct[2], { by: actor, person: isViaScreen(req, {}), why });
+        // Close and reopen change what the assignee's block should list, so
+        // the block follows the record. Non-gating.
+        // ⚠️ `whoOf`, not `t.who`: a task with parts has no `who`, so the block
+        // stopped following the record and an agent's instructions kept listing
+        // a task it had already finished.
+        let told = tellEveryoneOn(t);
+        sendJson(res, 200, { task: t, told });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        const code = (err && err.code === 'UNREADABLE') ? 500
+          : (/no project by that name|no task by that number/.test(msg) ? 404 : 400);
+        sendJson(res, code, { error: msg || 'we could not change that task' });
+      }
+    };
+    if (taskAct[3] !== 'reopen') { act(''); return; }
+    /* #6157: a reopen may say why ({ why }). No body, or one that is not JSON, is a reopen with no reason, as every
+       older caller (the page, an older CLI) sends; a `why` that is not text is refused rather than dropped. 8 KiB, as
+       the other small JSON routes: the reason is capped at 300 characters. */
+    readBody(req, 8 * 1024).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      const why = body && typeof body === 'object' ? body.why : undefined;
+      if (why !== undefined && why !== null && typeof why !== 'string') { sendJson(res, 400, { error: 'the reason has to be text' }); return; }
+      act(typeof why === 'string' ? why : '');
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
@@ -20877,7 +21859,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
-     { note?, clear?, from_pane? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
+     { note?, clear?, from_pane?, fingerprint? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
      (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
      advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
      a proof (an enforcing board still needs the board token, or the agent's own token via
@@ -20982,7 +21964,7 @@ const server = http.createServer(async (req, res) => {
   if (taskBuilt && req.method === 'POST') {
     const id = decodeSegment(taskBuilt[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    readBody(req).then((raw) => {
+    readBody(req).then(async (raw) => {   // #6330: async, for the lines a new mark sends (chat.deliverAsync)
       let body = null;
       try { body = JSON.parse(raw || '{}'); } catch { body = null; }
       if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
@@ -21033,7 +22015,9 @@ const server = http.createServer(async (req, res) => {
       /* #4733: the note is masked when `by` is the setup guide. From the screen `by` is null, so the person's is kept. */
       const out = body.clear === true
         ? tasks.clearBuilt(id, taskBuilt[2], as)
-        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '' });
+        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '',
+          // #6330 slice 2: an agent's mark may carry the deliverable's fingerprint; the screen sends none.
+          fingerprint: !viaScreen && body.fingerprint != null ? body.fingerprint : null });
       if (!out.ok) {
         const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
@@ -21041,7 +22025,51 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (!viaScreen && out.changed) builtMarks.push(Date.now());
-      sendJson(res, 200, { task: out.task, changed: out.changed === true });
+      let delivered = null;
+      let summary = null;
+      /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to, through the
+         task-message valve (AGENT_WORKFORCE_TASK_MSG_CAP, 0 = switched off). The mark is recorded by now, so nothing in
+         here may fail it: every step after the mark answers 200. */
+      if (!viaScreen && body.clear !== true && out.changed === true) {
+        // tellBuiltMark can throw only before any line goes (each line's own step catches), so its throw alone is "nobody was told".
+        let told = null;
+        try {
+          // One mark is one task message on the valve (as #768 spends one per message, whatever its audience), spent as it is admitted.
+          told = await tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster, () => {
+            const no = taskMessageRefusal();
+            if (!no) taskMessageValveRecord();
+            return no;
+          });
+        } catch (err) {
+          process.stderr.write('task built: could not tell the people task ' + out.task.number + ' goes to: ' + ((err && err.message) || err) + '\n');
+          delivered = [];
+          summary = 'Kosmos could not work out who to tell about the mark, so nobody was told.';
+        }
+        if (told) {
+          delivered = told.delivered;
+          // The valve's sentence was written for a task message: its "send from the screen" has no built counterpart.
+          if (told.refusal) summary = 'The task is marked built, but nobody was told, because these lines count as task messages and '
+            + String(told.refusal.because).replace(/; the person can still [^;]* from the screen\.?$/, '').replace(/\.$/, '') + '.';
+          else if (delivered.length) {
+            // Lines may be out by now, so nothing here may say nobody was told.
+            try { summary = taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length), 'built'); }
+            catch { summary = 'Kosmos could not say who was told; the answer lists each agent.'; }
+          }
+          // Nobody to tell: no sentence, so the CLI adds nothing to a solo mark.
+        }
+      }
+      // #6254: an agent marking a task BUILT means work is waiting for the person's check -> a `ready`
+      // buzz (push-only, Liu Kang's ruling: never email). Not when the person marks it from the screen
+      // (viaScreen, by === null), not on a clear, and only when the mark actually changed. Never the
+      // task's words; a tap opens the agent. phonenotify gates on the `ready` switch and a per-agent cooldown.
+      if (!viaScreen && body.clear !== true && out.changed && card) {
+        try {
+          const pj = projects.get(id, roster);
+          phonenotify.happened({ kind: 'ready', id: 'built:' + id + ':' + taskBuilt[2] + ':' + Date.now(),
+            agent: card.name || card.sessionName, session: card.sessionName, project: pj ? pj.name : null });
+        } catch { /* a notification is never a reason to fail the mark */ }
+      }
+      sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });
@@ -21325,12 +22353,16 @@ const server = http.createServer(async (req, res) => {
       /* Work that is done is not given to anyone: the new owner would be told about finished work. A closed task
          (`task close` sets the task's closedAt and leaves stored parts open) counts, as progressOf reads it. */
       if (tasks.progressOf(task).closed || parts.find((x) => Number(x.id) === Number(partId)).closedAt) {
-        sendJson(res, 400, { error: 'task ' + task.number + (parts.length > 1 ? ', part ' + Number(partId) + ',' : '') + ' is done, so it is not given to anyone' }); return;
+        /* #6157: a done TASK says how to put it back (the refusal an agent met with no way forward). A closed part of an
+           open task is put back on the task page; the CLI has no part reopen, so it names none. No double quote in it:
+           the Mac CLI reads `error` with sed. */
+        const back = tasks.progressOf(task).closed ? '; put it back first with kosmos task reopen ' + id + ' ' + task.number : '';
+        sendJson(res, 400, { error: 'task ' + task.number + (parts.length > 1 ? ', part ' + Number(partId) + ',' : '') + ' is done, so it is not given to anyone' + back }); return;
       }
       const toSelf = !viaScreen && !!caller.card && !!asked.who && sameAgentName(asked.who, caller.card.sessionName, caller.byKey);
       try {
         partId = Number(partId);
-        const g = await givePart(id, task.number, partId, asked.who, { screen: viaScreen, roster, asyncDelivery: true, noPage: toSelf });
+        const g = await givePart(id, task.number, partId, asked.who, { screen: viaScreen, roster, asyncDelivery: true, noPage: toSelf, by: caller.card ? caller.card.sessionName : null });
         if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); sendJson(res, 429, { error: g.because, retry_after_secs: g.retryAfterSecs }); return; }
         if (!g.ok) { sendJson(res, g.status || 400, { error: g.because }); return; }
         /* `who` first: the Mac CLI reads the new owner from the start of this answer (the task inside has its own). */
@@ -21905,11 +22937,11 @@ const server = http.createServer(async (req, res) => {
     }
     // ⚠️ Containment on the RESOLVED path, expressed as "the relative route
     // from home does not climb". `startsWith(home)` is the wrong test twice
-    // over: `/Users/agentine` starts with `/Users/agent1`... only by accident of
+    // over: `/Users/exampleuser` starts with `/Users/example`... only by accident of
     // spelling, and it says nothing about a symlink.
     // ⚠️ CASE, on macOS: `realpath` resolves symlinks but does NOT canonicalise
-    // case on a case-insensitive volume, so `/users/agent1/x` stays lowercase
-    // and `path.relative('/Users/agent1', …)` yields a climb. The containment
+    // case on a case-insensitive volume, so `/users/example/x` stays lowercase
+    // and `path.relative('/Users/example', …)` yields a climb. The containment
     // check then refuses a path that is genuinely inside home. Left as-is
     // rather than case-folded: it FAILS CLOSED (a false refusal, never an
     // escape), the browser only ever hands back paths this route itself
@@ -22276,6 +23308,14 @@ function federateOut(projectId, delivery, operator) {
     return;
   }
   if (!link) return;
+  // kosmos#6239: the room is closed under the policy (fedseats.ensure lets its seat go), so the post stays here, said.
+  const cs = fedseats.contactState();
+  if (cs !== 'open') {
+    messages.roomNote(projectId, cs === 'policy'
+      ? 'That post stayed on this computer: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.'
+      : 'That post stayed on this computer: Kosmos cannot read the policy set for this Kosmos just now, so this room is closed until it can.');
+    return;
+  }
   const text = typeof delivery.text === 'string' ? delivery.text : '';
   if (!text.trim()) {
     // kosmos#4699: an own room's far side is the person's other computers, not "the external project".
@@ -22320,37 +23360,161 @@ function federateOut(projectId, delivery, operator) {
 let ORG_TICKET = null;
 /** How long a fetched consent may be accepted: a screen left open longer is asked to check the code again. */
 const ORG_TICKET_MS = 10 * 60 * 1000;
-/** How often an enrolled world asks the company whether it is still enrolled (also once at start). */
-const ORG_REFRESH_MS = 24 * 60 * 60 * 1000;
-/** While a join's outcome is not known (org-join-unknown.json), it is asked about this often, not daily (review 26). */
+/** How often an enrolled world asks the company whether it is still enrolled (also once at start). #6232: hourly, not
+    daily: a removed member's board kept applying the company's policy for up to a day. The bound, for almost every
+    board, is an hour on the clock plus the five-minute check (about 65 minutes) after an answered ask; an ask
+    without an answer is asked again after 15 minutes, then 30, then the hour (ORG_REFRESH_RETRY_MS). Sooner when a send is refused
+    org_not_member or org_not_enrolled: a rollup (engine/orgrollup.js), which goes out early only when the board's agents, projects or
+    applied policy version change, not for ordinary work, or an agent event (engine/agentevents.js), sent only for a
+    refusal or a flag; each then refreshes at once. A board in no company sends nothing
+    (orgEnrollRefresh returns first). The coordinator's status answer carries the signed policy (up to about 22 KB)
+    and asks to be polled "on the order of hours" (kosmos-relay org.rs, the doc comment above POLICY_TTL_SECS), so not
+    more often than this. The cheaper route is kosmos#6560: while enrolled, the status route's lite read (no policy)
+    every 10 minutes (orgMemberCheckIfDue) brings a removal down to about 15 minutes wherever the coordinator serves it. The bound relies on each ask ending: the signed coordinator call
+    times out after 20 seconds (engine/remote.js MAC_REQUEST_TIMEOUT_MS), so a hung ask cannot hold later ones. Not covered by the hour: an unreachable coordinator (nothing changes), and a board before
+    live execution is allowed (nothing is sent). */
+const ORG_REFRESH_MS = 60 * 60 * 1000;
+/** #6232 review 3: the hour is measured on the clock, checked this often, not by a one-hour timer: a Mac's timers stop
+    while it sleeps, so a laptop asleep past the hour would otherwise wait up to another hour after waking. */
+const ORG_REFRESH_CHECK_MS = 5 * 60 * 1000;
+/** #6232 review 4: an ask that got no clear answer (company unreachable, an unclear reply, an unconfirmed leave) is
+    asked again after this, not a whole hour later; not every check, which would send twelve asks an hour. Review 5:
+    the wait doubles with each ask in a row that gets no clear answer, up to ORG_REFRESH_MS, so a state that never
+    clears costs no more than the hourly ask; an answered ask starts it over. */
+const ORG_REFRESH_RETRY_MS = 15 * 60 * 1000;
+/** How many asks in a row have had no clear answer (0 after an answered one). */
+let ORG_REFRESH_MISSES = 0;
+/** While a join's outcome is not known (org-join-unknown.json), it is asked about this often, not only hourly (review 26). */
 const ORG_UNSURE_MS = 2 * 60 * 1000;
+/** When this board last asked its company, and when the next ask is due (clock times; 0 before the first ask). Two
+    values, not one (review 6): a clock set back is told by "now is before the last ask", which a due time moved
+    earlier by a retry could not show. */
+let ORG_ASKED_AT = 0;
+let ORG_NEXT_AT = 0;
+let ORG_ASK_SEQ = 0;
 function orgEnrollRefresh() {
   // #5670: a refresh sends to the company, so it waits for live execution, as the rollup tick does (#5532).
   if (!liveExecution.liveExecutionAllowed()) return;
   try {
     const oe = require('./engine/orgenroll');
     if (!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown()) return;   // never joined: nothing is sent
-    return oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ }).then((r) => { companyPolicySync(); return r; });
+    // Recorded before the ask, so the five-minute check does not send another while it is in flight (refresh runs one
+    // at a time, so an ask from another caller queues rather than overlapping).
+    const askedAt = Date.now();
+    const ask = ++ORG_ASK_SEQ;   // review 10: which ask is the latest, exactly (two in one millisecond are still two)
+    ORG_ASKED_AT = askedAt;
+    ORG_NEXT_AT = askedAt + ORG_REFRESH_MS;
+    ORG_MEMBER_CHECKED_AT = askedAt;   // kosmos#6560 review 1: a full ask answers the cheap check's question too
+    return oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ }).then((r) => {
+      // Only the latest ask moves the schedule: an older one finishing late changes nothing (reviews 5 and 6).
+      if (ORG_ASK_SEQ === ask) {
+        // Review 16: an ask that left this board in no company (an ending for want of an id answers ok: false) is
+        // not a miss: there is nothing left to ask about, and a later join starts its retries from 15 minutes.
+        let inCompany = true;
+        try { inCompany = !!(oe.readEnrollment() || oe.leavePending() || oe.joinUnknown()); } catch { inCompany = true; }
+        if ((r && r.ok === true) || !inCompany) ORG_REFRESH_MISSES = 0;
+        else {
+          // No clear answer: asked again sooner than the hour, the wait doubling with each miss in a row (reviews 4, 5).
+          ORG_NEXT_AT = askedAt + Math.min(ORG_REFRESH_RETRY_MS * 2 ** ORG_REFRESH_MISSES, ORG_REFRESH_MS);
+          ORG_REFRESH_MISSES = Math.min(ORG_REFRESH_MISSES + 1, 8);
+        }
+      }
+      // After an ending the listener has usually handed the change over already (orgEnrollmentEnded); this call then
+      // changes nothing, since companyPolicySync compares with what the agents were last handed. Not skipped: some
+      // endings do not tell the listener (a pending Leave sent again), and this is their hand-over (review 12).
+      companyPolicySync();
+      return r;
+    });
   } catch { /* best effort */ }
+}
+/* #6232 review 3: ask once the due time has passed on the clock. A clock set back before the last ask counts as due,
+   so a wrong clock cannot hold the ask off. `now` is for the comparison only (tests); an ask records the real time. */
+function orgRefreshIfDue(now = Date.now()) {
+  // #6240: the no-company hand-over retry rides this five-minute tick, but is bounded to hourly inside (and
+  // to only when a clear is owed), independently of the company ask's own due time below. It is a local
+  // roster sync, so it runs whether or not an ask is due and needs no live-execution gate.
+  companyPolicyRetryIfOwed(now);
+  if (now >= ORG_NEXT_AT || now < ORG_ASKED_AT) return orgEnrollRefresh();
+  return orgMemberCheckIfDue(now);
+}
+/* kosmos#6560: a member the admin removed was told "enrolled" until the next hourly ask (up to about 65 minutes). While
+   enrolled, this board also asks the CHEAP membership check (orgenroll memberCheck: the status route with lite, no
+   policy) every ORG_MEMBER_CHECK_MS on the same five-minute tick, and runs the full ask (orgEnrollRefresh, which ends
+   the enrolment and everything after it) only when that check clearly says the membership ended. So a removal is
+   seen within about 15 minutes. A coordinator that answers in full (no lite) has no cheap check: the board stops
+   asking it until it restarts, and the hourly ask still covers it. */
+const ORG_MEMBER_CHECK_MS = 10 * 60 * 1000;
+let ORG_MEMBER_CHECKED_AT = 0;
+let ORG_MEMBER_CHECK_OFF = false;
+let ORG_MEMBER_CHECK_BUSY = false;
+function orgMemberCheckIfDue(now = Date.now()) {
+  if (ORG_MEMBER_CHECK_OFF || ORG_MEMBER_CHECK_BUSY) return undefined;
+  if (now - ORG_MEMBER_CHECKED_AT < ORG_MEMBER_CHECK_MS && now >= ORG_MEMBER_CHECKED_AT) return undefined;
+  if (!liveExecution.liveExecutionAllowed()) return undefined;   // as the hourly ask: nothing is sent before that
+  const oe = require('./engine/orgenroll');
+  try { if (!oe.readEnrollment()) return undefined; } catch { return undefined; }
+  ORG_MEMBER_CHECKED_AT = now;
+  ORG_MEMBER_CHECK_BUSY = true;
+  return oe.memberCheck().then((c) => {
+    if (c && c.result === 'nocheap') ORG_MEMBER_CHECK_OFF = true;
+    if (c && c.result === 'ended') {
+      // Review 1: the full ask decides. If it ANSWERED and the enrolment is still here (the two answers disagree), the
+      // cheap check stops until restart, so a disagreement cannot run the full, policy-carrying ask every ten minutes.
+      // Review 2: a full ask that got no clear answer (unreachable, unclear) latches nothing: the next cheap check asks
+      // again, or a network blip would cost the fast removal until restart.
+      return Promise.resolve(orgEnrollRefresh()).then((r) => {
+        try { if (r && r.ok === true && oe.readEnrollment()) ORG_MEMBER_CHECK_OFF = true; } catch { /* unread: left as it is */ }
+      });
+    }
+    return undefined;
+  }).catch(() => undefined).finally(() => { ORG_MEMBER_CHECK_BUSY = false; });
+}
+/* TESTS ONLY: start the hourly schedule over (no ask yet, no misses) and forget the company text the agents were last
+   handed, so a test does not depend on the one before it. */
+function _orgRefreshResetForTests() { ORG_MEMBER_CHECKED_AT = 0; ORG_MEMBER_CHECK_OFF = false; ORG_MEMBER_CHECK_BUSY = false; ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0; ORG_ASK_SEQ = 0; ORG_POLICY_RETRY_AT = 0; COMPANY_POLICY_SEEN = undefined; }
+/* #6232 review 10: when this board's own enrollment ends by any path (the hourly ask, or a rollup or agent event the
+   company refused, which call oe.refresh themselves), its agents are handed the change at once. Before, a removal
+   caught by a refused rollup cleared the applied policy, but the agents kept the company's AI policy text until a
+   restart, because every later ask returns before companyPolicySync once nothing is enrolled. Registered at start
+   (engine/orgenroll.js onEnrollmentEnded). It runs inside the refresh, while its one-at-a-time queue is held: one
+   roster pass, once per ending. Another Kosmos's root is not this board's agents, and the rollup child
+   that serves another Kosmos (orgrollup elsewhereRunner) runs in its own process with no listener, which is right. Known and older than this
+   (review 11): an agent that cannot be told at that moment keeps the old text until the board restarts, because a
+   board in no company asks nothing more that would retry it. Not an ending, so not told here (review 13): an answer
+   naming another company swaps the applied policy inside a refresh; the hourly ask's companyPolicySync hands that over. */
+function orgEnrollmentEnded(root) {
+  // Compared as real paths (reviews 14, 17): a trailing slash or a symlinked spelling of this board's root is still it.
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  if (typeof root !== 'string' || real(root) !== real(require('./engine/store').ROOT)) return;
+  ORG_REFRESH_MISSES = 0;   // review 15: a later join starts its retries at 15 minutes, not where this one left off
+  companyPolicySync();
 }
 /* #5534 slice 3: the company's AI policy text (engine/policy.js companyEntry, from the applied company policy) reaches
    every agent's policy block when it changes: a new company policy applied by a refresh, or cleared by leaving.
    Compared by what agents are handed (name and text), so a refresh, or a new version that changed only other
    settings, writes nothing. The first call (at board start, right after the boot sweep) only records it. What it
    records is kept only once every agent was told (review 1): an agent that could not be told is tried again on the
-   next refresh, not left on the old text until the next board start. */
+   next refresh, not left on the old text until the next board start (while the board is enrolled; after an ending
+   nothing more is asked, see orgEnrollmentEnded). */
 let COMPANY_POLICY_SEEN;
 const COMPANY_POLICY_RETRY = Symbol('retry');   // never equal to a recorded value: the next call writes every agent
 function companyPolicySync() {
+  const oe = require('./engine/orgenroll');   // kosmos#6263: the kind its key and its lines read
   try {
     const c = policyEngine.companyEntry();
-    const now = c ? JSON.stringify([c.name, c.text]) : null;
+    /* kosmos#6263: the kind too, since a family's block is worded by it, with or without the family's own policy (board
+       reviews 1 and 2): joining or leaving a family, or a record gaining its kind, re-tells the agents even when only the
+       person's own policies are in the block. Joining or leaving a company changes nothing in a block that holds only
+       the person's own policies ("Your AI policy" either way, kosmos#6270), so that re-tell writes nothing (tellAgent
+       writes only a changed block). */
+    const kind = oe.kindNow();
+    const now = JSON.stringify([c ? [c.name, c.text] : null, kind]);
     // Text the applied policy carries that no agent can be handed: said, never dropped silently (review 1).
     if (!c) {
       try {
         const a = require('./engine/orgpolicy').appliedNow();
         const ai = a && a.policy && a.policy.ai_policy;
-        if (ai && typeof ai === 'object' && typeof ai.text === 'string' && ai.text.trim()) process.stderr.write(`Kosmos did not hand your company's AI policy (version ${a.version}) to its agents: its text is longer than ${policyEngine.TEXT_MAX} characters\n`);
+        if (ai && typeof ai === 'object' && typeof ai.text === 'string' && ai.text.trim()) process.stderr.write(oe.inKind(oe.kindHere(), `Kosmos did not hand your company's AI policy (version ${a.version}) to its agents: its text is longer than ${policyEngine.TEXT_MAX} characters\n`));
       } catch { /* the line is only a courtesy */ }
     }
     if (COMPANY_POLICY_SEEN === undefined) { COMPANY_POLICY_SEEN = now; return; }
@@ -22359,10 +23523,60 @@ function companyPolicySync() {
     instructionRereadOweEach(told, 'policy');
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
     if (!stuck.length) COMPANY_POLICY_SEEN = now;
-    if (stuck.length) process.stderr.write(`Kosmos could not hand your company's AI policy to ${stuck.length} of ${told.length} agent(s); they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${(stuck[0] && stuck[0].because) || 'no reason given'}\n`);
+    if (stuck.length) process.stderr.write(oe.inKind(oe.kindHere(), `Kosmos could not hand your company's AI policy to ${stuck.length} of ${told.length} agent(s); they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${(stuck[0] && stuck[0].because) || 'no reason given'}\n`));
   } catch (err) {
-    process.stderr.write(`Kosmos could not hand your company's AI policy to its agents: ${String(err && err.message)}\n`);
+    process.stderr.write(oe.inKind(oe.kindHere(), `Kosmos could not hand your company's AI policy to its agents: ${String(err && err.message)}\n`));
   }
+}
+/* #6240: the no-company hand-over retry. After an enrollment ENDS, companyPolicySync clears the company's
+   AI-policy text from every agent -- but an agent that cannot be told at that moment (its session gone, its
+   file not writable) keeps the old text, and once nothing is enrolled orgEnrollRefresh returns before
+   companyPolicySync (a board in no company asks nothing more), so the stuck agent was left on the old text
+   until a board restart (the #6232 review-11 residual, documented at orgEnrollmentEnded above). This retries
+   that hand-over on the same five-minute tick that drives the refresh, until the agent is told.
+   WHAT BOUNDS IT: (1) at most one retry per ORG_POLICY_RETRY_MS (one hour), gated by ORG_POLICY_RETRY_AT even
+   though the tick is five-minutely; (2) it self-terminates -- companyPolicySync clears COMPANY_POLICY_SEEN to
+   null once every agent is told, after which nothing is owed. Until then it runs INDEFINITELY (hourly), which
+   is deliberate: the card asks for retry until the agent is told, so a permanently unwritable agent gets one
+   sync and one stderr line an hour for the life of the board -- honest, since it genuinely still holds the
+   stale company text. (3) it stays quiet for a board that never joined a company or whose text was already
+   cleared (COMPANY_POLICY_SEEN null/undefined). (4) it makes NO company call -- companyPolicySync is a local
+   roster sync -- so unlike the hourly ask it needs no live-execution gate and cannot hang on the network.
+   Two edges, stated so the predicate is not read as more than it is: (a) KNOWN RESIDUAL, deliberately out of
+   scope (boot has its own policy path at start()): if boot left an agent untold and SEEN as the
+   COMPANY_POLICY_RETRY symbol, a later ending that again cannot tell that agent is NOT retried here. (b) while a
+   company is still applied the retry is quiet EXCEPT the rare over-TEXT_MAX case, where companyEntry() is null
+   though enrolled; there the retry correctly runs once to clear the now-unhandleable text, then self-terminates. */
+const ORG_POLICY_RETRY_MS = ORG_REFRESH_MS;   // one hour: the same bound the hourly company ask uses
+let ORG_POLICY_RETRY_AT = 0;                   // clock time the next no-company retry is allowed (0 = due now)
+/* Is a company-policy hand-over still owed to a stuck agent? Only when a company text was recorded as
+   last-handed (COMPANY_POLICY_SEEN is a [name,text] string) AND the applied policy no longer carries one
+   (companyEntry() is null): an ending cleared the policy but an agent could not be told. A null/undefined SEEN
+   (never joined, or already cleared and all told) is nothing owed. The boot COMPANY_POLICY_RETRY symbol is also
+   treated as nothing owed here: a deliberate scope line (boot has its own policy path), and the one residual
+   noted above -- a boot-untold agent whose enrollment then ends is not retried by this. */
+function companyPolicyClearOwed() {
+  if (typeof COMPANY_POLICY_SEEN !== 'string') return false;
+  /* kosmos#6263: the record is [entry or null, kind] (a family's block changes with the kind alone), so only a record
+     that HELD an entry can owe its clear; one that never held one (a board in no org, or a family with no policy of
+     its own) owes nothing. */
+  let held = true;
+  try { held = JSON.parse(COMPANY_POLICY_SEEN)[0] !== null; } catch { held = true; }
+  if (!held) return false;
+  try { return !policyEngine.companyEntry(); } catch { return false; }
+}
+/* Retry the owed hand-over, at most hourly. Returns whether it ran companyPolicySync this call (for tests). */
+function companyPolicyRetryIfOwed(now = Date.now()) {
+  if (!companyPolicyClearOwed()) return false;
+  /* At most once an hour -- BUT a clock set back before the last retry counts as DUE, so a wrong clock cannot
+     hold the retry off (the same rule orgRefreshIfDue uses for the hourly ask, via `now < ORG_ASKED_AT`, #6232
+     review 3). Block only when we are genuinely still inside the hour since the last retry
+     (ORG_POLICY_RETRY_AT - ORG_POLICY_RETRY_MS is when that retry ran). */
+  const lastRetryAt = ORG_POLICY_RETRY_AT - ORG_POLICY_RETRY_MS;
+  if (now >= lastRetryAt && now < ORG_POLICY_RETRY_AT) return false;
+  ORG_POLICY_RETRY_AT = now + ORG_POLICY_RETRY_MS;
+  companyPolicySync();
+  return true;
 }
 /** #5532: how often the work Kosmos checks whether its rollup is due (it sends daily, and on a change at most every
     ten minutes; engine/orgrollup.js decides). */
@@ -22460,15 +23674,20 @@ function start(port = PORT) {
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
   try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK }); rn.startBeating(); } catch { /* best effort */ }
-  /* #5531: an enrolled work Kosmos asks its company on start and daily whether it is still the enrolled world, and
+  /* #5531: an enrolled work Kosmos asks its company on start and hourly (#6232) whether it is still the enrolled world, and
      stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
+  try { require('./engine/orgenroll').onEnrollmentEnded(orgEnrollmentEnded); } catch { /* best effort */ }   // #6232 review 10
   orgEnrollRefresh();
-  setInterval(orgEnrollRefresh, ORG_REFRESH_MS).unref();
-  // Fast only for a day: a marker that stays unclear that long (Kosmos+ switched off, say) falls back to the daily pass.
-  setInterval(() => { try { const oe = require('./engine/orgenroll'); const age = oe.joinUnknownAge(); if (oe.joinUnknown() && age !== null && age < 24 * 60 * 60 * 1000) orgEnrollRefresh();   /* an unreadable time: the daily pass */ } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
+  setInterval(() => { orgRefreshIfDue(); }, ORG_REFRESH_CHECK_MS).unref();   // #6232 review 3: an hour on the clock
+  // Fast only for a day: a marker that stays unclear that long (Kosmos+ switched off, say) falls back to the hourly pass.
+  // Each of these asks also restarts the hourly clock (orgEnrollRefresh records when it asked).
+  setInterval(() => { try { const oe = require('./engine/orgenroll'); const age = oe.joinUnknownAge(); if (oe.joinUnknown() && age !== null && age < 24 * 60 * 60 * 1000) orgEnrollRefresh();   /* an unreadable time: the hourly pass */ } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
   /* #5532: the enrolled work Kosmos's rollup, a minute after start (once the refresh has answered) and then on a tick. */
   setTimeout(orgRollupTick, 60 * 1000).unref();
   setInterval(orgRollupTick, ORG_ROLLUP_TICK_MS).unref();
+  /* kosmos#6309: this board counts the month for a family's usage cap, in a worker thread that starts only when a cap
+     is in force. Any other process reads the month's saved count. */
+  try { require('./engine/usagecap').countOnThisBoard(); } catch { /* the cap reads the saved count */ }
   setTimeout(agentEventsTick, 2 * 60 * 1000).unref();   // #5683: a first look two minutes after start, a minute after the rollup's, so their computer-print reads do not land together
   setInterval(agentEventsTick, ORG_ROLLUP_TICK_MS).unref();   // #5683: every five minutes, as the rollup
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The
@@ -22537,7 +23756,7 @@ function start(port = PORT) {
          link() and RETURNS THE TOKEN ON DISK, so every process -- winner or loser
          of the race -- ends up serving the same token clients read. A prod board
          (nothing sandboxed) enforces and gets a persisted mode-600 token, reused
-         across restarts so the operator's cookie survives one; a fully-sandboxed
+         across restarts for the CLI and the app (browser sessions do NOT survive one, #6358); a fully-sandboxed
          fixture board (every test + browser-check) does not enforce and writes
          nothing. Fail CLOSED: if provisioning throws (disk/permission), the board
          stays enforcing with a null token, refusing rather than serving unguarded. */
@@ -22611,9 +23830,11 @@ function start(port = PORT) {
             deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env,
             shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
             stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926: what staleHeld drops wakes nobody
+            afterOf: (p, ids, who2) => messages.memberAfter(p, ids, who2),   // #4926 N7
             isLimitable: chat.limitReleased,   // #5805: the card reads idle, or idle on screen under its StopFailure limit report
+            boxEmpty: chat.inputBoxEmpty,   // #6256 item 1: posts held by text in a Claude agent's box, once it empties
           }).then((done) => {
-            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold, the Gemini limit or a usage limit'));   // #4797; #4588 ask 3
+            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, d.why === 'input' ? 'once its input box was empty' : 'after the quota hold, the Gemini limit or a usage limit'));   // #4797; #4588 ask 3; #6256
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
         /* #5805 slice 2a: `kosmos msg` messages kept while their recipient was out of usage are typed, in order, once
@@ -22705,6 +23926,7 @@ function start(port = PORT) {
             trustAgentFolder: create.trustAgentFolder,
             restart: removal.restart,
             RESTARTED: removal.OUTCOME.RESTARTED,
+            heldByMove: removal.heldByMove,   // #6173: the move restarts these itself
             isTrustDialogEvidence, // the scrape-detected folder-trust trigger (no by:'auto' for that dialog)
             /* #4169: the line names the arm that fired and the prompt behind it, so a restart can be told from a mistake. */
             log: (r) => process.stdout.write(class1autohandle.formatLogLine(r)),
@@ -22751,7 +23973,13 @@ function start(port = PORT) {
         book: FIRSTREPLY_BOOK,
         deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
-        log: (r) => process.stdout.write(`firstreply-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
+        log: (r) => {
+          process.stdout.write(`firstreply-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`);
+          // #5154 slice B: a delivered reminder clears any give-up episode (the give-up signal itself comes via `bound`).
+          try { if (r.act === 'nudge' && r.delivered) ownbounds.recovered(r.session, 'firstreply'); } catch { /* best-effort */ }
+        },
+        bound: (session, because) => { try { ownbounds.note(session, 'firstreply', because); } catch { /* best-effort */ } },   // #5154 slice B: give-up signal, no stdout spam
+        cleared: (session) => { try { ownbounds.recovered(session, 'firstreply'); } catch { /* best-effort */ } },   // #5154 slice B: recovery when the agent no longer owes a first reply (answered by another route)
       });
       const firstreplySweep = setInterval(firstreplyTick, Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) : 60 * 1000); // the env is the test seam only
       if (firstreplySweep && typeof firstreplySweep.unref === 'function') firstreplySweep.unref();
@@ -22771,6 +23999,21 @@ function start(port = PORT) {
       });
       const stalereportSweep = setInterval(stalereportTick, Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (stalereportSweep && typeof stalereportSweep.unref === 'function') stalereportSweep.unref();
+      /* #6209 part 2: an agent whose running summary is overdue while it has been working (projectview's freshness and
+         rhythm; the work is the module's own workedSinceMs) is told ONCE per stale summary (kept on disk), typed into its session (engine/summarydue-nudge.js).
+         Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
+         AGENT_WORKFORCE_SUMMARYDUE_NUDGE_OFF=1, own timer, unref'd, best-effort. */
+      const SUMMARYDUE_BOOK = new Map();
+      const summarydueTick = require('./engine/summarydue-nudge').makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed(),
+        roster: () => safeRoster(),
+        book: SUMMARYDUE_BOOK,
+        deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
+        DELIVERY: chat.DELIVERY,
+        log: (r) => process.stdout.write(`summarydue-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
+      });
+      const summarydueSweep = setInterval(summarydueTick, Number(process.env.AGENT_WORKFORCE_SUMMARYDUE_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_SUMMARYDUE_NUDGE_MS) : 10 * 60 * 1000);
+      if (summarydueSweep && typeof summarydueSweep.unref === 'function') summarydueSweep.unref();
       /* #4588: Antigravity agents paused on their Google account's shared quota get ONE carry-on line after the reset,
          one agent at a time (engine/agyquota.js). Same gating as the sweeps above: inert under `node --test` and before
          the live-execution opt-in, operator brake AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF=1, own ~1-min timer, unref'd,
@@ -22787,7 +24030,14 @@ function start(port = PORT) {
         movedAway: (session, roster) => require('./engine/failovertell').owedFor(session, projects.readAll(), roster),
         movedTold: (session, items) => require('./engine/failovertell').markAll(session, items, tasks.markMoveTold),
         DELIVERY: chat.DELIVERY,
-        log: (r) => process.stdout.write(`agy-quota-resume: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}${r.waiting ? '; ' + r.waiting + ' more waiting' : ''}\n`),
+        log: (r) => {
+          process.stdout.write(`agy-quota-resume: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}${r.waiting ? '; ' + r.waiting + ' more waiting' : ''}\n`);
+          // #5154 slice B: the one-shot gave-up record (the MAX-th failed resume) raises it immediately; a
+          // delivered resume (a later reset cycle that succeeds) clears it. Steady-state re-notes come via `bound`.
+          try { if (r.act === 'gave-up') ownbounds.note(r.session, 'quota', r.because); else if (r.act === 'nudge' && r.delivered) ownbounds.recovered(r.session, 'quota'); } catch { /* best-effort */ }
+        },
+        bound: (session, because) => { try { ownbounds.note(session, 'quota', because); } catch { /* best-effort */ } },   // #5154 slice B: periodic give-up signal, no stdout spam
+        cleared: (session) => { try { ownbounds.recovered(session, 'quota'); } catch { /* best-effort */ } },   // #5154 slice B: recovery when the agent is no longer paused on the quota (not idle-gated, so no cheap board mootness)
       });
       const agyQuotaSweep = setInterval(agyQuotaTick, Number(process.env.AGENT_WORKFORCE_AGY_QUOTA_RESUME_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AGY_QUOTA_RESUME_MS) : 60 * 1000); // the env is the test seam only
       if (agyQuotaSweep && typeof agyQuotaSweep.unref === 'function') agyQuotaSweep.unref();
@@ -22864,11 +24114,16 @@ function start(port = PORT) {
               ?? (chat.menuHeld(session, roster) ? new Date(Date.now() + 60e3).toISOString() : null),   // only non-null is read
             reserve: (session) => agyQuota.noteCapStart(session, roster, Date.now()),   // #4588 ask 3 review 9: the stuck agent first
             release: (slot) => agyQuota.releaseCapStart(slot),
+            // #6341: a note the room already holds (same agent, same words, in the last day) is not written again after a restart.
+            // Review 2: a day, not a week, so a new stuck episode with the same words on another day is convened as new.
+            alreadyNoted: (projectId, session, because, at) => messages.recommenderNoted(projectId, session, because, (at || Date.now()) - 24 * 60 * 60 * 1000),
           });
           recommenderPrev = out.next;
           // #4588 PR B: a held item is logged when it becomes held, not every minute it stays held; the set is this tick's.
           const heldNow = new Set();
           for (const a of out.acted) {
+            // #6341: the room already held this note (a restart forgot it had been written): no note, no asks; the playbook went.
+            if (a.alreadyNoted) { process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: note already in the room (not repeated), playbook ${a.verdict || 'threw'}\n`); continue; }
             if (a.verdict === 'held') {
               const heldKey = a.session + ' ' + a.project;
               heldNow.add(heldKey);
@@ -22908,6 +24163,8 @@ function start(port = PORT) {
         if (!movedRecs.roster) { try { movedRecs.roster = safeRoster(); } catch { movedRecs.roster = []; } }
         return movedRecs.roster;
       };
+      /* kosmos#6436: a retry on a line left unsent passes the same gates as a delivery, on the roster as it is then. */
+      chat.setRosterSource(() => safeRoster());
       chat.setMovedTell({
         owed: (session) => {
           const ft = require('./engine/failovertell');
@@ -23169,7 +24426,12 @@ function start(port = PORT) {
             book: AGENT_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, now: Date.now(),
             deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
             DELIVERY: chat.DELIVERY,
-            log: (r) => process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
+            log: (r) => {
+              process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`);
+              // #5154 slice B: a delivered nudge clears any give-up episode (the give-up signal itself comes via `bound`).
+              try { if (r.act === 'nudge' && r.delivered) ownbounds.recovered(r.session, 'nudge'); } catch { /* best-effort */ }
+            },
+            bound: (session, because) => { try { ownbounds.note(session, 'nudge', because); } catch { /* best-effort */ } },   // #5154 slice B: give-up signal, no stdout spam
           });
         } catch { /* best-effort, like the nudge sweep */ }
         const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
@@ -23214,6 +24476,38 @@ function start(port = PORT) {
         } catch { /* best-effort, like the nudge sweep */ }
       }, 60000);
       if (missedTellTick && typeof missedTellTick.unref === 'function') missedTellTick.unref();
+      /* kosmos#6209 part 3: an owner that keeps posting in a held task's project room is asked, once per hold, whether the
+         hold still stands (engine/holdstale.js holds the rules and is tested there). The same gates as the missed-run tell;
+         the message log is read only when some open task is on hold, Kosmos may type into agents and the Prompter is on. */
+      const HOLD_STALE_BOOK = new Map();
+      const HOLD_STALE_IDLE = new Map();
+      const holdStaleTick = setInterval(() => {
+        try {
+          const projs = projects.readAll();
+          const anyHeld = projs.some((p) => p && !p.archived && !projects.isPaused(p) && Array.isArray(p.tasks) && p.tasks.some((t) => tasks.isOnHold(t) && !tasks.progressOf(t).closed));
+          if (!anyHeld) return;
+          // Nothing is told while Kosmos may not type into agents, so the log is not read then either.
+          const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
+          /* Review 5: nobody asked for this line (unlike the missed-run reviewer), so it waits for the Prompter like the
+             reply nudge and the community turn: a person who turned the Prompter off gets no unprompted lines. */
+          if (!allowed || heartbeatSetting.read().on !== true) return;
+          const rows = messages.readLog();
+          const owed = holdstale.owed(projs, rows);
+          if (!owed.length) return;
+          const r = owed.some((x) => !x.swarmOff && x.members.includes(x.owner)) ? safeRoster() : null;
+          holdstale.sweep({
+            projects: projs, rows, items: owed, roster: r, now: Date.now(),
+            allowed,
+            limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
+            sent: AGENT_NUDGE_SENT, book: HOLD_STALE_BOOK, idleSeen: HOLD_STALE_IDLE,
+            idleSince: (session) => { const sr = selfreport.read(session); const t = sr && sr.found && sr.state === 'idle' ? Date.parse(sr.at) : NaN; return Number.isFinite(t) ? t : null; },
+            deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
+            DELIVERY: chat.DELIVERY,
+            log: (x) => process.stdout.write(`hold-stale tell: task #${x.task} (${x.project}) to ${x.owner} reached=${x.reached} delivery=${x.delivery} try ${x.tries}\n`),
+          });
+        } catch { /* best-effort, like the missed-run tell */ }
+      }, 60000);
+      if (holdStaleTick && typeof holdStaleTick.unref === 'function') holdStaleTick.unref();
       const heartbeatFirst = setTimeout(heartbeatTick, 0);
       if (heartbeatFirst && typeof heartbeatFirst.unref === 'function') heartbeatFirst.unref();
       /* #4951: new comments on an agent's own community post: one line to the idle agent, once per comment
@@ -23268,7 +24562,7 @@ function start(port = PORT) {
           const cur = instructions.read(session);
           if (!cur || !cur.exists) return false;
           const f = projects.findBlock(cur.text || '', cb.START, cb.END);
-          return Boolean(f) && f.ambiguous !== true;
+          return Boolean(f) && f.ambiguous !== true && !cb.isStoppedSection(cur.text || '');   // kosmos#6239: not the stopped lines
         };
         const done = communityturn.tickOnce({
           allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
@@ -23285,6 +24579,7 @@ function start(port = PORT) {
           postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
           book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
+          stamp: true,   // #5636 F7a: the line says when it was sent, for a runner that rereads one long session
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
@@ -23310,11 +24605,20 @@ function start(port = PORT) {
          can be tuned from real boards. Reading the run files only; it never restarts or stops anything. unref'd. */
       const CRASHLOOP_TOLD = new Set();
       const STUCK_TOLD = new Set();   // #5154 slice C: told once per stuck-terminal episode (cleared on recovery)
+      const OWNBOUNDS_TOLD = new Set();   // #5154 slice B: told once per own-bound give-up episode (cleared on recovery)
+      // #5154 slice B: wipe own-bound records once at boot, for the same reason as slice C below: the record is a
+      // derived give-up clock, not ground truth, so a board that was down must re-learn give-ups from the live
+      // helpers rather than judge on a clock from before the downtime (the chief false-alarm risk).
+      try { ownbounds.clearAll(); } catch { /* never block boot */ }
       // #5154 slice C: wipe stuck-terminal anchors once at boot so a RESTART re-anchors from the live state.
       // The anchor is a derived clock, not ground truth: a board that was down must not judge an agent stuck
       // on a clock from before the downtime (the chief false-alarm risk). This runs only on real startup
       // (requiring server.js in a test does not reach this block).
       try { stuckterminal.clearAll(); } catch { /* never block boot */ }
+      // #6488: phone notifications on by default for a computer connected to Kosmos+ whose person never touched the
+      // switch (engine/phonenotify.js masterChoice). Not under the test runner: a test file that calls start() would
+      // otherwise run the real schedule against its fixtures.
+      try { if (!process.env.NODE_TEST_CONTEXT) phonenotify.startDefaultOn(); } catch { /* never block boot */ }
       const crashLoopTick = setInterval(() => {
         try {
           /* Review 1: read the run files themselves, not the live roster. Between crashes a looping agent has no
@@ -23352,6 +24656,21 @@ function start(port = PORT) {
             tell: (key, r, shown) => {
               process.stdout.write(`stuck-terminal: ${shown} (${key}) stuck on ${r.state} for ${Math.round(r.forMs / 60000)} min; told the person\n`);
               phonenotify.happened({ kind: 'needs_you', id: 'stuckterminal:' + key + ':' + r.sinceAt, agent: shown, session: key, project: null });
+            },
+          });
+          /* #5154 slice B: the own-bounds sweep, over the SAME roster read. sweepRoster owns the null-skip
+             SAFETY INVARIANT (a FAILED snapshot never prunes a live give-up record -- only a genuinely empty []
+             prunes) and the our-own-named-agents filter, then tells the person ONCE per episode (naming which
+             helper gave up and what it tried), clears a stale/recovered episode, and respects precedence: an
+             agent in its OWN needs_you is suppressed (not told over) rather than masked. The give-up records are
+             WRITTEN by the helper sweeps below (agy-quota / agent-nudge / firstreply-nudge, via ownbounds.note
+             /recovered in their log callbacks); this sweep only raises and prunes them. Lifecycle-forget of a
+             removed agent is ownbounds.forget (wired into create/remove/delete-leftover beside stuckterminal.forget). */
+          ownbounds.sweepRoster({
+            roster: roster, told: OWNBOUNDS_TOLD, now: Date.now(),
+            tell: (key, it, shown) => {
+              process.stdout.write(`own-bound: ${shown} (${key}) ${it.cls} gave up ${Math.round(it.forMs / 60000)} min ago (${it.evidence}); told the person\n`);
+              phonenotify.happened({ kind: 'needs_you', id: 'ownbounds:' + it.cls + ':' + key + ':' + it.sinceAt, agent: shown, session: key, project: null });
             },
           });
         } catch { /* never breaks the board */ }
@@ -23927,18 +25246,30 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
+  statusForSibling, // #6178: the sibling cut's account keys, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
+  orgRefreshIfDue, // #6232: the hourly ask, measured on the clock
+  orgMemberCheckIfDue, // kosmos#6560: the cheap membership check while enrolled
+  _orgRefreshResetForTests, // #6232 review 6: tests only
+  companyPolicySync, // #5534: handing agents the company's AI policy, tested by behaviour (#6232)
+  companyPolicyRetryIfOwed, // #6240: the no-company hand-over retry (hourly-bounded), tested by behaviour
+  companyPolicyClearOwed, // #6240: whether a cleared-policy hand-over is still owed a stuck agent
+  orgEnrollmentEnded, // #6232 review 10
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test
   ASSIGNER_VIEW, // #6072: the Assigner memory the project list reads, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
+  enumerateAgentsOnAccount, claudeAgentsByAccount, restartForMove, restartForMoveAsync, // #6108 (+ #6174's note): the shared walk's two readings (guards count the guide, lists do not), for their tests
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
   taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam
+  setBuiltTellWaitForTests, // #6330: how long one built line may hold the answer (test seam)
+  get taskMessageSendCount() { return taskMessageSends.length; }, // #6330: lines on the task-message valve (tests read the change)
   resetRetellForTests: () => { RETELL_RECENT.length = 0; }, // #3923: the agent-made retry bound, emptied between tests
   autoretellTick, // #3932: one pass of the re-tell-after-a-fix sweep
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book

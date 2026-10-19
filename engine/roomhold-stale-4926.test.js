@@ -182,3 +182,99 @@ test('#4926 R2 review 4: every staleHeld call in server.js passes the member (wi
   assert.ok(calls.length >= 2, 'fixture: fewer than the two server flush call sites found: ' + calls.length);
   for (const c of calls) assert.match(c, /^messages\.staleHeld\(p, ids, undefined, undefined, who2\)$/, 'a server call does not pass the flush\'s member: ' + c);
 });
+
+/* N7, the 10-13 19:31:31Z test-Mac log: a Meta seat held 9 posts of one round (m1024 to m1032), answered the round
+   in ONE reply to m1032, and the flush dropped only m1032 and told it the other 8 as new. */
+test('#4926 N7: one reply to the round\'s newest post (m1032) answers the 8 older held posts too; a newer one is still told', async (t) => {
+  t.after(() => roomhold.forget('mark'));   // the held list and the limit file, even when an assertion fails
+  const round = [];
+  for (let n = 1024; n <= 1032; n += 1) round.push(post('m' + n, 40 - (n - 1024)));   // m1024 40 min ago ... m1032 32 min ago
+  const later = post('m1033', 20);   // posted after m1032, before the reply: not covered
+  const answer = { kind: 'post', id: 'm1034', project: 'p1', from: 'mark', to: ['ann'], text: 'answers to all of them', replyTo: 'm1032', at: ago(10) };
+  const log = [...round, later, answer];
+  const ids = [...round, later].map((r, i) => (i % 2 ? roomhold.addressedId(r.id) : r.id));   // asks and plain posts both
+  roomhold.forget('mark');
+  for (const x of ids) assert.ok(roomhold.hold('mark', 'p1', x), 'fixture: could not hold ' + x);
+  const typed = [];
+  const DELIVERY = { PLACED: 'placed', COULD_NOT: 'could_not' };
+  await roomhold.flushOnIdle('mark', { deliver: async (n, line) => { typed.push(line); return { state: DELIVERY.PLACED }; }, roster: [], shownOf: () => 'p1', DELIVERY, env: {},
+    stale: (p, got, n) => messages.staleHeld(p, got, log, NOW, n) });
+  assert.equal(typed.length, 1, 'nothing was told: ' + JSON.stringify(typed));
+  for (const r of round) assert.doesNotMatch(typed[0], new RegExp('\\b' + r.id + '\\b'), r.id + ' of the answered round was told again: ' + typed[0]);
+  assert.match(typed[0], /\bm1033\b/, 'a post newer than the answered one was dropped');
+  assert.deepEqual(roomhold.heldIn('mark', 'p1'), [], 'the line was not taken');
+  // CONTROLS, on staleHeld directly: no reply, a reply in another room, someone else's reply, no member named.
+  const judge = (lg, who) => messages.staleHeld('p1', round.map((r) => r.id), lg, NOW, who);
+  assert.equal(judge([...round], 'mark').size, 0, 'without the reply, the round was dropped');
+  assert.equal(judge([...round, { ...answer, project: 'p2' }], 'mark').size, 0, 'a reply in another room dropped the round');
+  assert.equal(judge([...round, { ...answer, from: 'bob' }], 'mark').size, 0, 'someone else\'s reply dropped the round for mark');
+  assert.equal(judge(log, undefined).size, 0, 'with no member named, the round was dropped');
+  // A reply to the round's OLDEST post covers nothing newer than it.
+  const first = judge([...round, { ...answer, replyTo: 'm1024' }], 'mark');
+  assert.deepEqual([...first].sort(), ['m1024'], 'a reply to the oldest post dropped newer ones: ' + [...first]);
+  assert.ok(judge(log, 'mark').answered.has('m1028'), 'an older post was not marked answered (a limit hold would keep it back)');
+  // A reply to mark's OWN post covers nothing: seeing your own post shows you nothing else of the room.
+  const own = { kind: 'post', id: 'm1035', project: 'p1', from: 'mark', to: ['ann'], text: 'mine', at: ago(31) };
+  assert.equal(judge([...round, own, { ...answer, replyTo: 'm1035' }], 'mark').size, 0, 'a reply to its own post dropped the round');
+  // Only the ROOM_READ_ROWS - 1 room rows before the answered post: one further back was never on a read that showed it.
+  const filler = [];
+  for (let k = 0; k < messages.ROOM_READ_ROWS - 1; k += 1) filler.push({ kind: 'note', project: 'p1', text: 'n', at: ago(35) });
+  const far = messages.staleHeld('p1', ['m1024', 'm1031'], [post('m1024', 40), ...filler, post('m1032', 32), answer], NOW, 'mark');
+  assert.ok(!far.has('m1024'), 'a post more than ROOM_READ_ROWS - 1 rows before the answered one was dropped');
+  const near = messages.staleHeld('p1', ['m1024'], [post('m1024', 40), ...filler.slice(1), post('m1032', 32), answer], NOW, 'mark');
+  assert.ok(near.has('m1024'), 'control: the post exactly ROOM_READ_ROWS - 1 rows before the answered one was kept');
+  // The window is in the read's order (by `at`), not the log's: a post appended late but started earlier sits before
+  // the answered post in the read and takes a slot there, so the oldest one falls outside.
+  const late = post('m1040', 33);
+  const lateLog = [post('m1024', 40), ...filler.slice(1), post('m1032', 32), late, answer];
+  assert.ok(!messages.staleHeld('p1', ['m1024'], lateLog, NOW, 'mark').has('m1024'), 'the window was counted in log order');
+  // A post at the same instant as the answered one is not before it.
+  assert.ok(!messages.staleHeld('p1', ['m1031'], [{ ...post('m1031', 32) }, post('m1032', 32), answer], NOW, 'mark').has('m1031'), 'a post at the same instant was covered');
+  // Rows after the answered post and before the reply narrow the window (a read before the reply showed them instead);
+  // a row after the reply does not.
+  const between = post('m1036', 20);
+  const after = post('m1037', 5);
+  const base = [post('m1024', 40), ...filler.slice(1), post('m1032', 32)];
+  assert.ok(!messages.staleHeld('p1', ['m1024'], [...base, between, answer], NOW, 'mark').has('m1024'), 'a row between the answered post and the reply did not narrow the window');
+  assert.ok(messages.staleHeld('p1', ['m1024'], [...base, answer, after], NOW, 'mark').has('m1024'), 'a row after the reply narrowed the window (control: it must not)');
+  // A held post whose time does not parse does not switch the rule off for the others.
+  assert.ok(messages.staleHeld('p1', ['m1028', 'm1050'], [...round, { ...post('m1050', 31), at: '' }, answer], NOW, 'mark').has('m1028'),
+    'an unreadable held post switched N7 off');
+  // Deliberate: an older ask a usage limit kept (#5805) is covered too, so withoutStale drops it rather than keep it back.
+  // The ask is over a day old, so the day rule would drop it; the limit hold keeps it back unless it was answered.
+  assert.equal(roomhold.noteLimit('mark', 'p1', ['m1028'], new Date(Date.now() + 3600000).toISOString()), true, 'fixture: the limit was not noted');
+  const dayOld = post('m1028', messages.HELD_ASKED_MAX_MS / 60000 + 10);
+  const limitJudge = (lg) => (p, got, who) => messages.staleHeld(p, got, lg, NOW, who);
+  const ask = [roomhold.addressedId('m1028')];
+  assert.deepEqual(roomhold.withoutStale('p1', ask, limitJudge([dayOld, post('m1032', 32)]), 'mark'), ask, 'control: the limit hold did not keep a day-old ask back');
+  assert.deepEqual(roomhold.withoutStale('p1', ask, limitJudge([dayOld, post('m1032', 32), answer]), 'mark'), [], 'a limit-kept ask the reply covered was kept back');
+  // A reply stamped no later than the post it answers covers nothing (no read before it could have shown that post).
+  assert.deepEqual([...judge([...round, { ...answer, at: round[8].at }], 'mark')], ['m1032'], 'a reply at the answered post\'s own instant covered the older posts');
+  // The member's FIRST reply to X sets the window: a second reply later, after more rows, does not widen it, and
+  // does not narrow it either.
+  const second = { ...answer, id: 'm1038', text: 'one more thing', at: ago(1) };
+  assert.ok(messages.staleHeld('p1', ['m1024'], [...base, answer, after, second], NOW, 'mark').has('m1024'), 'a later second reply narrowed the window');
+  // With ROOM_READ_ROWS - 1 rows between X and the reply, no read before the reply showed anything before X.
+  const busy = filler.map((f, k) => ({ ...f, at: new Date(NOW - 25 * 60000 + k * 1000).toISOString() }));
+  assert.equal(messages.staleHeld('p1', ['m1031'], [post('m1031', 33), post('m1032', 32), ...busy, answer], NOW, 'mark').has('m1031'), false,
+    'a post was covered though the rows after X filled every read before the reply');
+  assert.ok(messages.staleHeld('p1', ['m1031'], [post('m1031', 33), post('m1032', 32), ...busy.slice(1), answer], NOW, 'mark').has('m1031'),
+    'control: with one row fewer between them, the post just before X was not covered');
+  // Rows the room read does not show (a reaction) do not use up the window.
+  const unseen = filler.map(() => ({ kind: 'reaction', project: 'p1', from: 'ann', at: ago(35) }));
+  assert.ok(messages.staleHeld('p1', ['m1024'], [post('m1024', 40), ...unseen, post('m1032', 32), answer], NOW, 'mark').has('m1024'),
+    'rows the room read does not show narrowed the window');
+  roomhold.forget('mark');
+});
+
+test('#4926 N7: ROOM_READ_KINDS is the list of row kinds the server room read keeps', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('const rows = guideMaskedRows(rec.rows, null)');
+  assert.notEqual(at, -1, 'the room read\'s row filter was not found');
+  // Only the first .filter of the chain: a later one names some kinds again. It guards a kind added on either side.
+  const end = src.indexOf('/* A note written for the agents', at);
+  assert.ok(end > at, 'the end of the room read\'s row filter was not found');
+  const kept = new Set([...src.slice(at, end).matchAll(/m\.kind === '([a-z]+)'/g)].map((x) => x[1]));
+  assert.ok(kept.size >= 4, 'fixture: too few kinds read from the filter: ' + [...kept]);
+  assert.deepEqual([...messages.ROOM_READ_KINDS].sort(), [...kept].sort(), 'the room read and staleHeld disagree on which rows a read shows');
+});

@@ -167,6 +167,163 @@ function shortOf(text) {
   return one.length > 60 ? one.slice(0, 57) + '...' : one;
 }
 
+/* #5636 F7a and #6065 N1: one line per message this front hands to Muse (logged before the turn, whatever its result), in the agent's own folder
+   (.kosmos/muse-turns.log), so a report from a Meta seat can say what reached the agent and when. Both findings were
+   Meta-only and left no trace on the board: a community reminder the board logged once a day arriving again, and long
+   room posts arriving shortened. One line per turn (a stop note retried while Muse is busy is still one line; a busy digest is one line, digestPosts
+   saying how many posts; a
+   line dropped by a stop never reaches Muse and is not logged). Each records when it ran (at) and when it reached this
+   front (arrived), the kind (operator, background, other; a busy digest is "other", told by digestPosts), the UTF-16 length, the
+   community reminder's Sent stamp when the line carries one (engine/communityturn.js stamped), and, for a message that
+   spilled to a file (engine/messages.js spillLine), every word count and the size of each saved copy (spillBytes, read
+   from the agent's own Inbox; the line itself is the shortened one, so its length cannot say how long the post was).
+   A short colleague post's opening can run into its attachment trailer (a file path) or Kosmos's held-posts clause
+   (ids and a project name), neither of them the person's words. The opening words (60 characters (whole code points)) are kept only for
+   lines starting with a colleague's or Kosmos's envelope, so a colleague's words (quoted or pasted, even a secret) can reach this file (created 0600) in
+   the agent's own folder; any line holding the person's envelope (their messages, a stop note quoting them) keeps none.
+   The folder may be the person's own git repository (as engine/messages.js's Inbox notes), so the log writes only
+   where .kosmos/.gitignore lists it (read as text, not asked of git: a log git already tracks stays tracked): it creates .kosmos/.gitignore naming its two files when there is none, and writes nothing when
+   one exists that does not name both, or holds any negation (someone else's file is not edited). The .gitignore it creates
+   is itself a new, harmless file in the person's tree (two file names). A busy digest's opening comes from its first
+   post (the text after its header), not from the header. A hard link at the file is refused twice: at the lstat
+   (before any rotation) and after the open (a link count above one; the cut acts only on the opened file). Measured:
+   the tests fail only with both removed, so they prove the pair, not each layer; a swap between the lstat and the rename or cut is not guarded. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
+   (so at most about twice TURN_LOG_MAX in all).
+   It never throws: a log that cannot be written must not stop the turn. */
+const TURN_LOG_MAX = 256 * 1024;
+const SENT_RE = /\(Sent (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\. A reminder with a different Sent time/;
+/* The full text of a spilled message is a file in the agent's own Inbox; its size in bytes (never fewer than its
+   characters: UTF-8 bytes are at least the UTF-16 units, so under 10000 bytes means under 10000 characters) is the body's
+   length. The board spills when the WHOLE typed line (envelope, body and
+   notes) is over chat.MAX_TEXT less the room for a kept note, so the line also records envChars, one per spill (that post's envelope through its
+   first "]", read on the post's own line, so a digest's header is not counted): envChars + spillBytes near or over 10000 is the shared rule, by design; well under it would be
+   something Meta-specific. (The board also counts a reply's quote and any catch-up or held-posts note, which
+   chars shows but envChars does not, so allow a few hundred characters of slack before calling it Meta-specific.
+   Bytes only bound characters from above: a post in non-Latin script or emoji can be well over 10000 bytes and well
+   under 10000 characters, so a high spillBytes on such a post proves nothing; open the saved copy. A workspace path
+   holding ")" ends the match early, so its size reads null, the same as a missing copy.)
+   The path comes from the line, which a colleague can write, so it is looked at only when it is exactly a file
+   directly in <workspace>/Inbox (no "..", no deeper folder); anything else is null, and nothing outside is touched. */
+const SPILL_ALL_RE = /\(long message, (\d+) words?; the full text is in your own folder at ([^)\n]{1,1024})\)/g;
+function spills(t, workspace) {
+  let inbox;   // looked up once, and only when the line holds a spill
+  const inboxDir = () => {
+    if (inbox !== undefined) return inbox;
+    inbox = typeof workspace === 'string' && path.isAbsolute(workspace) ? path.join(workspace, 'Inbox') : null;
+    // A linked Inbox is never Kosmos's (messages.js refuses one), and a link would take the lookup elsewhere.
+    if (inbox) { try { const st = fs.lstatSync(inbox); if (!st.isDirectory() || st.isSymbolicLink()) inbox = null; } catch { inbox = null; } }
+    return inbox;
+  };
+  const words = [], bytes = [], envs = [];
+  const text = String(t);
+  for (const m of text.matchAll(SPILL_ALL_RE)) {
+    words.push(Number(m[1]));
+    // This post's own envelope: its line (a digest puts each post on one) through the first "]".
+    const lineStart = text.lastIndexOf('\n', m.index) + 1;
+    const close = text.indexOf(']', lineStart);
+    envs.push(close !== -1 && close < m.index ? close + 1 - lineStart : null);
+    let size = null;
+    const p = m[2];
+    // The one guard: p must equal <inbox>/<its own basename> exactly, which refuses "..", deeper folders and a trailing
+    // separator (path.join normalizes, so any of those makes the two strings differ).
+    const ib = inboxDir();
+    if (ib && p === path.join(ib, path.basename(p))) {
+      try { const st = fs.lstatSync(p); size = st.isFile() ? st.size : null; } catch { size = null; }
+    }
+    bytes.push(size);
+  }
+  return { words, bytes, envs };
+}
+function turnLogFile(workspace) { return path.join(workspace, '.kosmos', 'muse-turns.log'); }
+/* Envelopes whose opening holds no words of the person's: a colleague's message or room post, and the community
+   reminders ("Kosmos here:" with a colon; today's producers put no words of the person's in their first 60 characters, though
+   the agent's own post title can appear, and a new "Kosmos here:" line must keep the person's words out of them). Left out on purpose: "[Kosmos: you were given task N ...]" quotes the
+   person's task, and the "Kosmos here," (comma) nudges can carry a task title. A busy digest is read through its first
+   post (below). */
+const OPENING_OK = ['[message from your colleague', BACKGROUND_PREFIX, 'Kosmos here:'];
+// Cut on whole characters (Array.from), so an emoji at the cut is never split; '' stays ''.
+function clipOpening(text) { const one = Array.from(String(text).replace(/\s+/g, ' ').trim()); return one.length > 60 ? one.slice(0, 57).join('') + '...' : one.join(''); }
+const DIGEST_RE = /^\[Kosmos: (\d+) room posts arrived while you were busy/;
+function turnRecord(text, at, arrived = null, workspace = null) {
+  const t = String(text);
+  const kind = kindOf(t);
+  const sent = SENT_RE.exec(t);
+  // Every spill in the line (a busy digest can hold several), words and saved size from one match; null when none.
+  const sp = spills(t, workspace);
+  const digest = DIGEST_RE.exec(t);
+  // chars is UTF-16 length, the measure the board's spill rule uses (chat.MAX_TEXT), so the two compare directly.
+  // tz: this front's offset from UTC in minutes at `at` (the board's clock stamps Sent; they share a machine, and
+  // differ only if the two processes run with different TZ settings), so a Sent stamp (local wall-clock time) lines up with at /
+  // arrived (a stamp from the other side of a daylight-saving change reads an hour off).
+  const rec = { at, arrived, tz: -new Date(Number.isFinite(Date.parse(at)) ? Date.parse(at) : Date.now()).getTimezoneOffset(), kind, chars: t.length, sent: sent ? sent[1] : null, spillWords: sp.words.length ? sp.words : null,
+    spillBytes: sp.words.length ? sp.bytes : null,
+    envChars: sp.words.length ? sp.envs : null,
+    digestPosts: digest ? Number(digest[1]) : null };
+  /* The person's words stay out. An opening is kept only for a line that starts with an envelope known not to be theirs
+     (a colleague's message or room post, a Kosmos line) and holds none of theirs (a stop note quotes them): text the
+     person types straight into this pane has no envelope, so it keeps none (unless they type one of these envelopes
+     themselves). */
+  // A digest's own header has no words: its opening is its first post's (after that post's envelope).
+  const first = digest ? t.slice(t.indexOf('\n') + 1).split('\n')[0] : t;
+  if (OPENING_OK.some((x) => first.startsWith(x)) && !OPERATOR_PREFIXES.some((x) => t.includes(x))) {
+    // A Kosmos line has no envelope to skip, so its own start is kept (a "]" inside it must not move the cut).
+    // A colleague line: its body only (wordsOf drops the envelope and any quoted words), never the whole line as a
+    // fallback, so an empty reply keeps no opening rather than one that could reach a quote.
+    const open = clipOpening(first.startsWith('Kosmos here:') ? first : wordsOf(first));
+    if (open) rec.opening = open;
+  }
+  return rec;
+}
+const TURN_LOG_IGNORE = 'muse-turns.log\nmuse-turns.log.1\n';
+function turnLogIgnored(dir) {
+  const ig = path.join(dir, '.gitignore');
+  let st = null;
+  try { st = fs.lstatSync(ig); } catch { st = null; }
+  if (!st) {
+    try { fs.writeFileSync(ig, TURN_LOG_IGNORE, { flag: 'wx', mode: 0o600 }); return true; } catch { return false; }
+  }
+  if (!st.isFile()) return false;
+  // Read bounded and non-blocking, as keepModel reads (review 7), so a swap at the name cannot hang this front.
+  const got = require('./workerfile').readWorkerFile(ig, path.dirname(dir));
+  if (!got || !got.ok) return false;
+  // Exact lines, not a git check: both names must be listed (the .1 copy is the same text), so "/muse-turns.log" or
+  // "*.log" reads as not ignored and nothing is written (fail closed).
+  const lines = got.buf.toString('utf8').split(/\r?\n/);
+  // Any negation can un-ignore it ("!*.log", "!*"), and git takes the last match: any "!" line reads as not ignored.
+  if (lines.some((l) => /^\s*!/.test(l))) return false;
+  return lines.includes('muse-turns.log') && lines.includes('muse-turns.log.1');
+}
+/* Guards (review 1, 5): never a relative workspace, never through a `.kosmos` that is a link, never into a link or
+   fifo at the file, a non-blocking, no-follow open so nothing planted there can hang this front, and no write into a
+   file with another name (a hard link). keepModel needs no link-count check: it writes a temp and renames. */
+function logTurn(workspace, text, at, arrived = null) {
+  try {
+    if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) return;
+    const file = turnLogFile(workspace);
+    const dir = path.dirname(file);
+    // Only .kosmos is ever made: a workspace that is gone is not recreated to hold a log.
+    try { if (fs.lstatSync(dir).isSymbolicLink()) return; } catch { fs.mkdirSync(dir); }
+    let st = null;
+    try { st = fs.lstatSync(file); } catch { st = null; }
+    if (st && (!st.isFile() || st.nlink !== 1)) return;   // a hard link is refused before rotation could touch it
+    if (!turnLogIgnored(dir)) return;   // never into a file git would carry out of the person's repository
+    let cut = false;
+    if (st && st.size > TURN_LOG_MAX) {
+      // The bound: about twice TURN_LOG_MAX in all. A rename that fails (a folder at .1) must not end the logging.
+      try { fs.renameSync(file, file + '.1'); } catch { cut = true; }   // cut on the opened file below, not by path
+    }
+    const c = fs.constants;
+    const fd = fs.openSync(file, c.O_WRONLY | c.O_APPEND | c.O_CREAT | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0), 0o600);
+    try {
+      const f = fs.fstatSync(fd);
+      if (f.isFile() && f.nlink === 1) {
+        if (cut) fs.ftruncateSync(fd, 0);
+        fs.writeSync(fd, JSON.stringify(turnRecord(text, at, arrived, workspace)) + '\n');
+      }
+    } finally { fs.closeSync(fd); }
+  } catch { /* the turn runs whatever the log does */ }
+}
+
 /** While a turn runs, working is said again this often, so a long turn never reads as stale on the board. */
 const WORKING_EVERY_MS = 50 * 1000;   // under the report bridge's 60 s throttle, so no beat is dropped
 /* #4569 review round 1: the most background posts one digest turn carries. */
@@ -177,6 +334,14 @@ const DIGEST_MAX = 40;
 const BUSY_RETRIES = 4;
 /* #4612: the most of a turn's final answer sent to the board (the DM shows it when no reply arrived). */
 const FINAL_MAX = 4000;
+/* #6319: an answer longer than FINAL_MAX is cut short enough to end with this marker inside the limit (the board keeps
+   at most 4000 characters too: selfreport finalOf), so the DM never stops mid-sentence with nothing said. */
+const FINAL_CUT_MARK = '… (the answer is longer than Kosmos can show here)';
+function finalCopy(text) {
+  const chars = Array.from(text);   // characters, not UTF-16 units, as the board counts them
+  if (chars.length <= FINAL_MAX) return text;
+  return chars.slice(0, FINAL_MAX - Array.from(FINAL_CUT_MARK).length).join('').trimEnd() + FINAL_CUT_MARK;
+}
 /* #4612 review round 1: a turn that answers the person's DIRECT message (engine/messages.js operatorDirect's envelope,
    "... to answer, run: kosmos reply]"), alone or inside a stop note. A room post from the person, a colleague's or a
    background post is not: its answer belongs to the room, never under the person's DM.
@@ -201,12 +366,24 @@ const DIGEST_MAX_CHARS = 32 * 1024;
  * Returns { feed(bytes), stop(), drained() }. feed takes raw input; stop ends the running turn and drops
  * the waiting ones; drained resolves once no turn is queued or running (tests only).
  */
-function createFront({ workspace, sessionId, runTurn, report, write, workingEveryMs = WORKING_EVERY_MS, busyRetryMs = BUSY_RETRY_MS, noteEveryMs = NOTE_EVERY_MS }) {
+function createFront({ workspace, sessionId, runTurn, report, write, workingEveryMs = WORKING_EVERY_MS, busyRetryMs = BUSY_RETRY_MS, noteEveryMs = NOTE_EVERY_MS, log = logTurn }) {
   let line = '';
   const queue = [];
   /* #4612 review: when each queued copy of the person's DM reached this front, oldest first per text (the same words
      can be sent twice, and the envelope's time has minute resolution or none). */
   const dmReceivedAt = new Map();
+  /* #5636 F7a / #6065 N1: when each waiting line reached this front, oldest first per text (any kind), so the turn log
+     can say when a line arrived as well as when it ran: a line that waited behind a long turn is not a late send. */
+  const arrivedAt = new Map();
+  let lastArrived = null;   // the arrival of the line next() last took first
+  function arrive(text, at) { const l = arrivedAt.get(text) || []; l.push(at); arrivedAt.set(text, l); }
+  function takeArrived(text) {
+    const l = arrivedAt.get(text);
+    if (!l || !l.length) return null;
+    const a = l.shift();
+    if (!l.length) arrivedAt.delete(text);
+    return a;
+  }
   function received(text, at) {
     if (!answersTheDm(text)) return;
     const l = dmReceivedAt.get(text) || [];
@@ -262,9 +439,11 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
      many). At most DIGEST_MAX go in (review round 1: one argv string); the rest are counted, not sent. */
   function next() {
     const first = queue.shift();
+    lastArrived = takeArrived(first);   // a digest is dated by its first (oldest) post, even if the cut below leaves it out
     if (kindOf(first) !== 'background') return first;
     const rest = [];
     for (let i = queue.length - 1; i >= 0; i--) if (kindOf(queue[i]) === 'background') rest.unshift(queue.splice(i, 1)[0]);
+    for (const r of rest) takeArrived(r);
     if (!rest.length) return first;
     const all = [first, ...rest];
     const kept = all.slice(-DIGEST_MAX);   // the newest, which the room has not moved past yet
@@ -281,6 +460,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     try {
       while (queue.length) {
         const prompt = next();
+        try { log(workspace, prompt, new Date().toISOString(), lastArrived); } catch { /* #5636 F7a / #6065 N1: never stops a turn */ }
         stopNoteRunning = STOP_NOTES.delete(prompt);
         noteSent = waiting();
         // #4612: an answer to the person's DM still pending rides on this turn's working reports.
@@ -315,7 +495,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
            behind it, then the idle one), so the DM can show it when the agent answered in its own window but never ran
            kosmos reply. A later DM turn replaces this copy. */
         if (answersTheDm(prompt)) {
-          dmAnswer = r && r.ok && text ? { text: Array.from(text).slice(0, FINAL_MAX).join(''), startedAt } : null;
+          dmAnswer = r && r.ok && text ? { text: finalCopy(text), startedAt } : null;
           /* #4612 review: with a newer DM of the person's already waiting, this answer can never be the one to show
              (the DM owed is the newer one), so none is carried. DMs that reached the front in one read share a
              time, which the board's date check alone could not tell apart. */
@@ -339,6 +519,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     const at = new Date().toISOString();
     if (isStopRequest(text) && (running || queue.length)) { stopFor(text, at); noteSoon(); return; }
     received(text, at);
+    arrive(text, at);
     if (kindOf(text) === 'operator') {
       // Behind the person's own earlier messages, ahead of everyone else's.
       let at = 0;
@@ -359,6 +540,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     queue.length = 0;
     STOP_NOTES.clear();        // housekeeping: a stop note Escape drops is no longer waiting (nothing reads a stale one)
     dmReceivedAt.clear();      // #4612 review: the DMs Escape drops take their arrival times with them
+    arrivedAt.clear();         // #5636 F7a: and every dropped line's, or a later identical line would inherit it
     stopNoteRunning = false;   // a note Escape ends is not "already stopping" for the next stop (review round 5)
     line = '';
     if (dropped) write('\n(' + dropped + (dropped === 1 ? ' waiting message was' : ' waiting messages were') + ' dropped)\n');
@@ -376,7 +558,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     if (stopNoteRunning || queue.some((t) => STOP_NOTES.has(t))) {
       const extra = queue.filter((t) => !STOP_NOTES.has(t));
       queue.splice(0, queue.length, ...queue.filter((t) => STOP_NOTES.has(t)));
-      for (const t of extra) takeReceived(t);   // dropped unread: their receipt times go with them
+      for (const t of extra) { takeReceived(t); takeArrived(t); }   // dropped unread: their receipt times go with them
       write('(already stopping' + (extra.length ? '; ' + extra.length + (extra.length === 1 ? ' more waiting message was' : ' more waiting messages were') + ' dropped' : '') + ')\n');
       /* Review round 3: the person's own messages this drops are named to the agent too, in a short note
          after the first one, never only in the pane (the person reads the DM, not the pane). */
@@ -390,12 +572,12 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         if (mine.length) said.push('these messages from them, sent in between, were dropped unread: ' + mine.map((t) => '"' + shortOf(t) + '"').join(', '));
         if (asked) said.push(asked + (asked === 1 ? ' message addressed to you was' : ' messages addressed to you were') + ' dropped too');
         const more = '[Kosmos: your operator asked you to stop again, and ' + said.join('; ') + '.]\n' + text;
-        if (!queue.includes(more)) { STOP_NOTES.add(more); queue.push(more); received(more, at); }
+        if (!queue.includes(more)) { STOP_NOTES.add(more); queue.push(more); received(more, at); arrive(more, at); }
       }
       return;
     }
     const waiting = queue.splice(0, queue.length);
-    for (const t of waiting) takeReceived(t);   // dropped unread: their receipt times go with them
+    for (const t of waiting) { takeReceived(t); takeArrived(t); }   // dropped unread: their receipt times go with them
     const mine = waiting.filter((t) => kindOf(t) === 'operator');
     const others = waiting.length - mine.length;
     const ended = !!stopTurn;
@@ -409,6 +591,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     STOP_NOTES.add(note);
     queue.push(note);
     received(note, at);   // dated by the stop request's arrival
+    arrive(note, at);
   }
 
   function feed(chunk) {
@@ -515,4 +698,4 @@ function main(argv = process.argv) {
 
 if (require.main === module) main();
 
-module.exports = { createFront, loadSession, startup, sessionFile, modelFile, keepModel, forgetModel, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
+module.exports = { turnRecord, logTurn, turnLogFile, TURN_LOG_MAX, createFront, loadSession, startup, sessionFile, modelFile, keepModel, forgetModel, makeReporter, printable, answersTheDm, finalCopy, FINAL_MAX, FINAL_CUT_MARK, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };

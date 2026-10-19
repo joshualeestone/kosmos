@@ -76,10 +76,13 @@ concurrency:
 jobs:
   browser-checks-full:
     runs-on: macos-latest
-    # The runner's full-set duration is not measured yet (a dispatch run needs this file on
-    # main); the cut's 3b render window is ~16 minutes on a dev Mac. Sized generously, and
-    # any non-success, a timeout included, still files a card (see file-red-card).
-    timeout-minutes: 170
+    # #6312: the checks step's time on this runner, from the jobs API: 97 min (10-13), 101 (10-14),
+    # 110 (10-15), then cut off at its 120-minute limit (10-16) with 8192 PASS and 0 FAIL. The
+    # step limit is about twice that, a guard against a hung run rather than a deadline: billing
+    # follows the minutes used, not the limit. The job leaves 45 minutes over the step for checkout,
+    # provisioning (20) and tmux (10). Any non-success, a timeout included, still files a card
+    # (see file-red-card).
+    timeout-minutes: 285
     outputs:
       failed: ${{ steps.failed.outputs.labels }}
     steps:
@@ -109,7 +112,7 @@ jobs:
         run: brew install tmux
       - name: 'the FULL page layer, headless, every check (tools/browser-checks.sh, #2518)'
         id: checks
-        timeout-minutes: 120
+        timeout-minutes: 240
         run: |
           set -o pipefail
           # SKIP forced OFF: with it on, a missing Playwright or an engine that cannot launch exits

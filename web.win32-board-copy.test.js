@@ -103,6 +103,7 @@ const COPY_KEYS_IN_MARKUP = ['s3Lead', 's3SleepCaption', 's3SleepHow', 's3Batter
   'settingsRevealButton', 'settingsOpenKosmos', 'terminalBoxTitle', 'trustRestartHint', 'docsOpenFolder',
   'updateOpenFolder', 'updateConfirmBody',
   'openaiSubHow',   // #3436: the OpenAI subscription explainer (device code on Windows)
+  'frOpenaiSubHow',   // #6521: the same on the first-run Model step, without the sentence its lead already says
   'openaiSubOpen'];   // 0.6.96: the OpenAI open-page link reads "again" on Windows, where Kosmos already opened it
 
 test('every data-win-copy key in the markup has a Windows string, and the list is the one expected', () => {
@@ -373,18 +374,19 @@ test('S3 and S7 on Windows: the audit\'s words, no Accessibility, no Dock', () =
    Not signed in (W-24), toasts (W-26), the Claude card, Settings rows
 --------------------------------------------------------------------------- */
 
+// #6358: a browser tab's copy (a board restart ends its sign-in; the Mac app signs itself in).
 const MAC_SIGNIN_PANEL = '<div class="pj-empty boardfail">'
   + '<p><b>This board is not signed in.</b><br>'
-  + 'It cannot read your agents or projects yet. It will fix itself the next '
-  + 'time Kosmos updates, with no action from you. A bookmark or a typed '
-  + '127.0.0.1 address reaches the board without its access token; the next '
-  + 'update hands the token over.</p>'
-  + '<details class="fr-hatch"><summary>Need it sooner?</summary>'
-  + 'Run <code>~/.local/share/kosmos/bin/kosmos open</code> in a terminal. Use '
-  + 'the full path shown: the bare name is not always on your PATH.</details>'
+  + 'It cannot read your agents or projects. Kosmos signs a browser tab out each time it '
+  + 'restarts or updates, and after seven days. This tab stays signed out until it is signed in again, and the '
+  + 'steps are just below. Or keep going in the Kosmos app from your Applications folder, which signs itself in.</p>'
+  + '<details class="fr-hatch"><summary>Sign this tab in again</summary>'
+  + 'Run <code>~/.local/share/kosmos/bin/kosmos open</code> in a terminal, then press Reload here, or use the tab it opens '
+  + '(it opens in your default browser, so a tab in another browser stays signed out). '
+  + 'Use the full path shown: the bare name is not always on your PATH.</details>'
   + '<button class="btn" type="button" data-board-retry>Reload</button>'
   + '</div>';
-const MAC_SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your agents or projects. It fixes itself the next time Kosmos updates.';
+const MAC_SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your agents or projects. The not-signed-in note on the agents list says what to do.';
 
 function boardEmpty(platform, failed) {
   return runPage(platform, ['esc', 'boardSigninHtml', 'kplusRemote', 'boardEmpty'], 'boardEmpty()',
@@ -442,7 +444,7 @@ test('the recovery toasts on Windows say to restart Kosmos by double-clicking Ko
   assert.doesNotMatch(abort, /Quit|Kosmos\.exe/, 'the stuck-update toast offers a relaunch that only says "already running"');
   const engine = engineToast('win32');
   // #4408: no remedy is promised on any platform (none is true for every board that reaches this arm).
-  assert.ok(engine.includes('Kosmos cannot restart itself here, so it keeps running the old copy until it is next started. Your agents keep running.</small>'), engine);
+  assert.ok(engine.includes('Kosmos cannot restart itself here, so the change takes effect when it is next started. Your agents keep running.</small>'), engine);
   assert.doesNotMatch(engine, /Kosmos\.exe/);
   assert.doesNotMatch(engine, /kosmos restart/);
   const offline = offlineNote('win32');
@@ -541,7 +543,7 @@ test('MAC UNCHANGED: the three recovery toasts and the world-switch sentence', (
     /* #4408: no Terminal command on the Mac either; a board that cannot restart itself promises no remedy.
        (One that can gets a Restart Kosmos button: web.reload-toast.test.js.) */
     + '<div class="utxt"><b>Kosmos needs a quick restart</b><small>A Kosmos file was changed on this computer, '
-    + 'and Kosmos is still running the old copy. Kosmos cannot restart itself here, so it keeps running the old copy until it is next started. Your agents keep running.</small></div></div>');
+    + 'and Kosmos is still running the old copy. Kosmos cannot restart itself here, so the change takes effect when it is next started. Your agents keep running.</small></div></div>');
   assert.equal(offlineNote('darwin'), '<div class="utoast stale" role="status"><span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt"><b>Kosmos is not answering on this computer</b><small>Nothing answered at 127.0.0.1:16180. '
     + 'Open Kosmos from your Applications folder and it will start again if it needs to.</small></div></div>');
@@ -681,12 +683,16 @@ test('#718 state 2: a Windows board reached remotely is never told "your Mac"', 
   const card = (platform) => runPage(platform, ['esc', 'boardSigninHtml', 'kplusRemote', 'boardEmpty'], 'boardEmpty()',
     { BOARD_SEEN: true, BOARD_LOOK_FAILED: 'no answer', BOARD_NEEDS_SIGNIN: false, BOARD_SIGNED_OUT: false, BOARD_DEVICE_OFFLINE: false, ...remote });
   assert.doesNotMatch(card('win32'), /your Mac/, 'a Windows board was told its Mac did not answer');
-  assert.match(card('darwin'), /Something on your Mac did not answer/, 'CONTROL: a Mac board reached remotely names the Mac');
+  /* #6538: the card no longer names a machine at all (its did-not-answer sentence repeated the top note), so the
+     CONTROL is that the same Mac card renders the cannot-read card, which the Windows arm above was read from. */
+  assert.match(card('darwin'), /We cannot read your agents right now/, 'CONTROL: a Mac board reached remotely renders the cannot-read card');
+  assert.match(card('win32'), /We cannot read your agents right now/, 'premise: the Windows arm rendered the cannot-read card');
 });
 
 test('#4408: a refused restart promises no remedy it cannot keep, on any platform', () => {
   const fn = page.lift(SCRIPT, 'engineRestartClick');
-  assert.match(fn, /small\.textContent = 'Kosmos could not restart itself, so it keeps running the old copy until it is next started\.';/);
+  // #6535: the title says it could not restart itself, so the small line opens with what that leaves.
+  assert.match(fn, /small\.textContent = 'It keeps running the old copy until it is next started\.';/);
   assert.doesNotMatch(fn, /restart your computer|Restarting your computer|Kosmos\.exe|sign out/i);
 });
 
@@ -717,7 +723,8 @@ test('#5865: a Linux board seen from elsewhere is "the computer running Kosmos",
     const text = sentence('linux', name);
     assert.doesNotMatch(text, /\bMac\b|asleep|Wake it/, name + ' told a Linux board about a Mac: ' + text);
   }
-  assert.match(sentence('linux', 'OFFLINE_SENTENCE'), /cannot reach the computer running Kosmos\./);
+  // #6537: OFFLINE_SENTENCE no longer names the machine (the top note does, checked above); it is the same everywhere.
+  assert.equal(sentence('linux', 'OFFLINE_SENTENCE'), 'The board tries again by itself when you are online again.');
   assert.match(sentence('linux', 'SIGNED_OUT_SENTENCE'), /The computer running Kosmos and your agents are fine\./);
   assert.match(sentence('linux', 'ORG_SIGNED_OUT_SENTENCE'), /The computer running Kosmos and your agents are fine\./);
   // A Windows board seen from a phone is a PC (review 2: it fell into the Mac's words).
@@ -729,7 +736,7 @@ test('#5865: a Linux board seen from elsewhere is "the computer running Kosmos",
   assert.ok(remoteNote('darwin', false).includes('<b>Your Mac is not answering</b>'));
   assert.ok(remoteNote('darwin', true).includes('so it cannot reach your Mac.</small>'));
   assert.match(sentence('darwin', 'MAC_ASLEEP_SENTENCE'), /^It may be asleep or turned off\. Wake it/);
-  for (const name of ['OFFLINE_SENTENCE', 'SIGNED_OUT_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE']) {
+  for (const name of ['SIGNED_OUT_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE']) {   // #6537: OFFLINE_SENTENCE names no machine
     assert.match(sentence('darwin', name), /your Mac|Your Mac/, name + ' lost the Mac words on a Mac');
   }
 });
@@ -831,13 +838,18 @@ test('#5865: the Files overflow line names the button in its platform\'s words',
   assert.equal(say('darwin'), 'And 3 more in the folder. Open in Finder shows them all.', 'CONTROL: the Mac line changed');
 });
 
-test('#5865: a remote Linux board\'s failed read says what did not answer in its own words', () => {
-  const words = (platform, host) => runPage(platform, ['kplusRemote'], "(!onWindows() && kplusRemote() ? hostMachine() : 'this computer')",
-    { location: { hostname: host } });
-  assert.equal(words('linux', 'box.kosmosplus.com'), 'the computer running Kosmos');
-  assert.equal(words('darwin', 'box.kosmosplus.com'), 'your Mac', 'CONTROL');
-  assert.equal(words('linux', '127.0.0.1'), 'this computer', 'CONTROL: at the computer it is this computer');
-  assert.ok(page.lift(SCRIPT, 'boardEmpty').includes("(!onWindows() && kplusRemote() ? hostMachine() : 'this computer')"), 'boardEmpty no longer says it this way');
+test('#5865, #6538: a remote Linux board\'s failed read card names no machine, so it cannot name the wrong one', () => {
+  /* #6538 removed the card's did-not-answer sentence, which was the one place it named a machine (the top note says
+     which one did not answer, in each platform's words, tested above). So there is nothing here to say per platform. */
+  const card = (platform, host) => runPage(platform, ['esc', 'boardSigninHtml', 'kplusRemote', 'boardEmpty'], 'boardEmpty()',
+    { BOARD_SEEN: true, BOARD_LOOK_FAILED: 'no answer', BOARD_NEEDS_SIGNIN: false, BOARD_SIGNED_OUT: false, BOARD_DEVICE_OFFLINE: false,
+      location: { hostname: host, host } });
+  for (const [platform, host] of [['linux', 'box.kosmosplus.com'], ['darwin', 'box.kosmosplus.com'], ['linux', '127.0.0.1']]) {
+    const said = card(platform, host);
+    assert.match(said, /We cannot read your agents right now\.<\/b><br>This is not the same as having none\./, platform + ' ' + host + ': ' + said);
+    assert.doesNotMatch(said, /did not answer|\bMac\b|computer running Kosmos|this computer/, platform + ' ' + host + ' named a machine: ' + said);
+  }
+  assert.ok(!page.lift(SCRIPT, 'boardEmpty').includes('hostMachine()'), 'boardEmpty names a machine again (#6538 removed that sentence)');
 });
 
 test('#5865: an unreadable daily-report setting on Linux does not send the person to an app icon', () => {
@@ -848,4 +860,23 @@ test('#5865: an unreadable daily-report setting on Linux does not send the perso
   };
   assert.equal(msg('linux'), 'We could not check this setting here. Open Kosmos on the computer running it and you can change it.');
   assert.equal(msg('darwin'), 'We could not check this setting here. Open Kosmos from its icon and you can change it.', 'CONTROL: the Mac line changed');
+});
+
+test('#6358: on Linux the not-signed-in panel leads with the tab\'s own sign-in (#6361), offers Kosmos+, and the sentence points to the panel, never the Mac app or Kosmos.exe', () => {
+  const html = runPage('linux', ['boardSigninHtml'], 'boardSigninHtml()');
+  assert.match(html, /reach this board through Kosmos\+, which stays signed in/);
+  assert.match(html, /<summary>Sign this tab in again<\/summary>On the computer running Kosmos, run <code>~\/\.local\/share\/kosmos\/bin\/kosmos open<\/code> in a terminal\./, 'the step #6361 made work on Linux');
+  assert.match(html, /prints a one-time address: open it within 2 minutes in the browser showing this page\./, 'a computer with no browser opener (a headless server reached through a forward) gets the address, for THIS browser');
+  assert.match(html, /Then press Reload here, or use that tab \(a tab in another browser stays signed out\)\./, 'the cookie is one browser\'s: Reload here is only true in the same one');
+  assert.ok(html.indexOf('Sign this tab in again') < html.indexOf('data-board-retry'), 'the steps come before Reload');
+  assert.doesNotMatch(html, /not available on Linux/, 'the pre-#6361 dead end is gone');
+  assert.match(html, /data-board-retry/, 'the panel lost its Reload');
+  assert.doesNotMatch(html, /Applications folder|Kosmos\.exe|the app signs itself in/, 'a Linux board has no app');
+  const sentence = runPage('linux', [], page.liftConst(SCRIPT, 'SIGNIN_SENTENCE').replace(/^const SIGNIN_SENTENCE = /, '').replace(/;$/, ''));
+  assert.match(sentence, /The not-signed-in note on the agents list says what to do\./, 'the sentence points to the panel');
+  assert.doesNotMatch(sentence, /stays signed in/, 'false to a person reading this board through Kosmos+ while signed out');
+  assert.doesNotMatch(sentence, /kosmos open/, 'the sentence points to the panel; the panel carries the step');
+  assert.doesNotMatch(sentence, /Applications folder/);
+  // platformCopy has no Linux branch: on Linux every key keeps the Mac words (the Linux panel reads linuxCopy itself).
+  assert.equal(runPage('linux', [], "platformCopy('no-such-key-6358', 'MAC WORDS')"), 'MAC WORDS');
 });

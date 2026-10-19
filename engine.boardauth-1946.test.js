@@ -98,10 +98,15 @@ test('tokenOk(): the DANGEROUS answer -- no token presented is NOT ok (the calle
   assert.equal(boardauth.tokenOk({ token: 'T', req: req(), routingBase: base }), false);
 });
 
-test('tokenOk(): a valid token (header or cookie) is ok; a wrong token is not', () => {
+test('tokenOk(): a valid token (header) or a live session (cookie) is ok; a wrong token is not', () => {
   const base = 'http://localhost';
   assert.equal(boardauth.tokenOk({ token: 'T', req: req({ header: 'T' }), routingBase: base }), true);
-  assert.equal(boardauth.tokenOk({ token: 'T', req: req({ cookie: 'kosmos_board=T' }), routingBase: base }), true);
+  // #6358: a cookie is a session, looked up, never the token.
+  assert.equal(boardauth.tokenOk({ token: 'T', req: req({ cookie: 'kosmos_board=' + boardauth.mintSession('T') }), routingBase: base }), true);
+  assert.equal(boardauth.tokenOk({ token: 'T', req: req({ cookie: 'kosmos_board=T' }), routingBase: base }), false,
+    'the durable token in a cookie is refused: a cookie only ever carries a session');
+  assert.equal(boardauth.tokenOk({ token: 'T', req: req({ cookie: 'kosmos_board=' + boardauth.mintSession('OTHER') }), routingBase: base }), false,
+    'a session minted for another token is not a session for this one');
   assert.equal(boardauth.tokenOk({ token: 'T', req: req({ header: 'WRONG' }), routingBase: base }), false);
   // a valid ?token= query also satisfies tokenOk (e.g. a CLI that appends it)
   assert.equal(boardauth.tokenOk({ token: 'T', req: { url: '/api/x?token=T', headers: {} }, routingBase: base }), true);
@@ -112,8 +117,52 @@ test('bootstrap(): a valid ?token= on a GET nav returns cookie + clean location 
   const b = boardauth.bootstrap({ token: 'T', req: { url: '/?first-run=1&token=T', headers: {} }, routingBase: base, method: 'GET' });
   assert.ok(b, 'a valid query token on a nav bootstraps');
   assert.equal(b.location, '/?first-run=1', 'token stripped, first-run kept');
-  assert.match(b.setCookie, /^kosmos_board=T; HttpOnly; SameSite=Strict; Path=\//);
-  assert.match(b.setCookie, /Max-Age=\d+/, 'persistent cookie so a bookmarked bare URL survives a browser restart');
+  // #6358: a session for T, never T; it lives no longer than the session cap.
+  const m = b.setCookie.match(/^kosmos_board=([0-9a-f]{64}); HttpOnly; SameSite=Strict; Path=\//);
+  assert.ok(m, 'the cookie carries a 64-hex session: ' + b.setCookie);
+  assert.equal(boardauth.sessionToken(m[1]), 'T');
+  assert.match(b.setCookie, new RegExp('Max-Age=' + Math.floor(boardauth.SESSION_MAX_MS / 1000) + '$'), 'the cookie lasts as long as its session');
+});
+
+test('#6358: past SESSION_MAX_COUNT the OLDEST session ends first, and the newest stays', () => {
+  boardauth._resetSessions();
+  const first = boardauth.mintSession('T');
+  const second = boardauth.mintSession('T');
+  for (let i = 2; i < boardauth.SESSION_MAX_COUNT; i += 1) boardauth.mintSession('T');
+  assert.equal(boardauth.sessionToken(first), 'T', 'at the ceiling, nothing has ended yet');
+  const newest = boardauth.mintSession('T');
+  assert.equal(boardauth.sessionToken(first), null, 'one past the ceiling, the oldest ended');
+  assert.equal(boardauth.sessionToken(second), 'T', 'only the oldest');
+  assert.equal(boardauth.sessionToken(newest), 'T');
+  boardauth._resetSessions();
+});
+
+test('#6358: liveSessionIds lists the live sessions and not the expired ones (the proof route answers for them)', () => {
+  let t = 5000;
+  boardauth._setNonceClock(() => t);
+  try {
+    boardauth._resetSessions();
+    const old = boardauth.mintSession('T');
+    t += boardauth.SESSION_MAX_MS;   // old is now at its cap
+    const fresh = boardauth.mintSession('T');
+    assert.deepEqual(boardauth.liveSessionIds(), [fresh], 'the expired one is gone, the fresh one listed');
+    assert.equal(boardauth.sessionToken(old), null);
+  } finally { boardauth._setNonceClock(null); boardauth._resetSessions(); }
+});
+
+test('#6358: a session ends at its cap, and an unknown or non-string id is no session', () => {
+  let t = 1000;
+  boardauth._setNonceClock(() => t);
+  try {
+    const sid = boardauth.mintSession('T');
+    assert.equal(boardauth.sessionToken(sid), 'T');
+    t += boardauth.SESSION_MAX_MS - 1;
+    assert.equal(boardauth.sessionToken(sid), 'T', 'live just before the cap');
+    t += 1;
+    assert.equal(boardauth.sessionToken(sid), null, 'gone at the cap');
+    assert.equal(boardauth.sessionToken('0'.repeat(64)), null);
+    assert.equal(boardauth.sessionToken(undefined), null);
+  } finally { boardauth._setNonceClock(null); }
 });
 
 test('bootstrap(): a WRONG ?token= does NOT bootstrap (no cookie handed out for a bad token)', () => {
@@ -126,9 +175,54 @@ test('bootstrap(): a non-nav method (POST) does not bootstrap even with a valid 
   assert.equal(boardauth.bootstrap({ token: 'T', req: { url: '/api/msg?token=T', headers: {} }, routingBase: base, method: 'POST' }), null);
 });
 
-test('bootstrap(): a request that already has the cookie does NOT re-bootstrap (no redirect loop)', () => {
+test('#6358: a live session plus a valid ?token= is still redirected to the clean address, keeping that session; the clean address does not bootstrap (no loop)', () => {
+  /* The address must never keep the token: the Mac app reads a kept token= as the board refusing it, and an app
+     reopened while the board stayed up has exactly this request (its cookie survived the quit). */
   const base = 'http://localhost';
-  assert.equal(boardauth.bootstrap({ token: 'T', req: { url: '/?token=T', headers: { cookie: 'kosmos_board=T' } }, routingBase: base, method: 'GET' }), null);
+  const sid = boardauth.mintSession('T');
+  const b = boardauth.bootstrap({ token: 'T', req: { url: '/?tab=a&token=T', headers: { cookie: 'kosmos_board=' + sid } }, routingBase: base, method: 'GET' });
+  assert.ok(b, 'a valid ?token= is redirected even with a live session');
+  assert.equal(b.location, '/?tab=a', 'to the clean address');
+  assert.match(b.setCookie, new RegExp('^kosmos_board=' + sid + ';'), 'the live session is kept, not a new one minted');
+  assert.equal(boardauth.bootstrap({ token: 'T', req: { url: '/?tab=a', headers: { cookie: 'kosmos_board=' + sid } }, routingBase: base, method: 'GET' }), null,
+    'the clean address is no bootstrap: no redirect loop');
+});
+
+test('#6358: a kept session with under a minute left is REPLACED, never handed back about to expire', () => {
+  let t = 20000;
+  boardauth._setNonceClock(() => t);
+  try {
+    const sid = boardauth.mintSession('T');
+    t += boardauth.SESSION_MAX_MS - 30000;   // 30 s left
+    const b = boardauth.bootstrap({ token: 'T', req: { url: '/?token=T', headers: { cookie: 'kosmos_board=' + sid } }, routingBase: 'http://localhost', method: 'GET' });
+    const m = b.setCookie.match(/^kosmos_board=([0-9a-f]{64});.*Max-Age=(\d+)$/);
+    assert.ok(m && m[1] !== sid, 'a new session, not the one about to expire: ' + b.setCookie);
+    assert.equal(Number(m[2]), Math.floor(boardauth.SESSION_MAX_MS / 1000), 'with the whole cap');
+  } finally { boardauth._setNonceClock(null); }
+});
+
+test('#6358: a kept session\'s cookie lasts only what the session has left, never longer', () => {
+  let t = 10000;
+  boardauth._setNonceClock(() => t);
+  try {
+    const sid = boardauth.mintSession('T');
+    t += 2 * 24 * 3600 * 1000;   // two days into its seven
+    const b = boardauth.bootstrap({ token: 'T', req: { url: '/?token=T', headers: { cookie: 'kosmos_board=' + sid } }, routingBase: 'http://localhost', method: 'GET' });
+    const want = Math.floor((boardauth.SESSION_MAX_MS - 2 * 24 * 3600 * 1000) / 1000);
+    assert.match(b.setCookie, new RegExp('^kosmos_board=' + sid + ';.*Max-Age=' + want + '$'), 'Max-Age is the session\'s remaining life: ' + b.setCookie);
+    assert.equal(boardauth.sessionLeftMs('0'.repeat(64)), 0, 'an unknown session has nothing left');
+  } finally { boardauth._setNonceClock(null); }
+});
+
+test('#6358: a cookie that is no live session (the old durable-token cookie, or one a restart forgot) re-bootstraps', () => {
+  const base = 'http://localhost';
+  // The cookie every browser held before #6358: the token itself. It is no session, so ?token= signs in again.
+  const old = boardauth.bootstrap({ token: 'T', req: { url: '/?token=T', headers: { cookie: 'kosmos_board=T' } }, routingBase: base, method: 'GET' });
+  assert.ok(old && /^kosmos_board=[0-9a-f]{64};/.test(old.setCookie), 'the old cookie is replaced with a session');
+  const sid = boardauth.mintSession('T');
+  boardauth._resetSessions();   // a restart
+  const after = boardauth.bootstrap({ token: 'T', req: { url: '/?token=T', headers: { cookie: 'kosmos_board=' + sid } }, routingBase: base, method: 'GET' });
+  assert.ok(after, 'a forgotten session is no sign-in');
 });
 
 test('fail CLOSED: a null token (provisioning failed) accepts nothing and bootstraps nothing', () => {
@@ -177,4 +271,16 @@ test('ensureToken() writes a mode-600 token in a mode-700 dir and is idempotent'
     delete require.cache[require.resolve('./engine/boardauth')];
     fs.rmSync(SB, { recursive: true, force: true });
   }
+});
+
+test('#6358: presentsCredential: a live session or a token presents something; a dead session cookie presents nothing', () => {
+  const base = 'http://localhost';
+  boardauth._resetSessions();
+  const sid = boardauth.mintSession('T');
+  assert.equal(boardauth.presentsCredential(req({ cookie: 'kosmos_board=' + sid }), base), true);
+  assert.equal(boardauth.presentsCredential(req({ header: 'T' }), base), true);
+  assert.equal(boardauth.presentsCredential({ url: '/api/x?token=T', headers: {} }, base), true);
+  boardauth._resetSessions();   // a restart
+  assert.equal(boardauth.presentsCredential(req({ cookie: 'kosmos_board=' + sid }), base), false, 'a session a restart forgot is nothing');
+  assert.equal(boardauth.presentsCredential({ url: '/api/x', headers: {} }, base), false);
 });

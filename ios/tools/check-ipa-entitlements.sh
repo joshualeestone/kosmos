@@ -11,6 +11,8 @@
 # when not given: the bundle id KOSMOS_APNS_BUNDLE_IDS allows).
 # Given a Team ID, it also refuses a signature from any other team: tokens from an app signed under
 # another team are ones the coordinator's APNs key cannot send to.
+# And it refuses an app built for the App Store screenshots (KOSMOS_STORE_SHOTS, #6262), which opens a
+# given address instead of Kosmos+ (check-no-shots-flag.sh).
 #
 # Usage: ios/tools/check-ipa-entitlements.sh <Kosmos.ipa | Kosmos.app> [TEAM_ID] [BUNDLE_ID]
 # Ends with one VERDICT line; no verdict line means the check did not finish.
@@ -74,6 +76,13 @@ if [ -n "$team" ]; then
     echo "WRONG    com.apple.developer.team-identifier: ${signed_team:-<absent>} (must be $team, from ios/Signing.xcconfig)"; fail=1
   fi
 fi
+
+shots="$("$(dirname "$0")/check-no-shots-flag.sh" "$app")"
+case "$shots" in
+  *"VERDICT: PASS") echo "ok       not the screenshot build" ;;
+  *"was built with KOSMOS_STORE_SHOTS"*) echo "WRONG    built with KOSMOS_STORE_SHOTS (the App Store screenshot build)"; fail=1 ;;
+  *) echo "WRONG    the screenshot-switch check could not read the app: $(printf '%s\n' "$shots" | head -1)"; fail=1 ;;
+esac
 
 [ "$fail" -eq 0 ] && echo "VERDICT: PASS" || echo "VERDICT: FAIL"
 exit "$fail"

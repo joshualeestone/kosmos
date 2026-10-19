@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # 19 arms; an inherited KOSMOS_TESTS_IGNORE_SUITE reds the #4498 queue arms. Each arm sets what it needs. The lib's own
 # list, plus the other guards' overrides this file also exercises.
 unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_HARNESS_IGNORE_SUITE KOSMOS_CUT_IGNORE_HARNESS KOSMOS_HARNESS_IGNORE_CUT
-T="$(mktemp -d)"; trap 'kill "${SUITE:-}" 2>/dev/null; rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/test-cut-guard.XXXXXXXXXX")"; trap 'kill "${SUITE:-}" 2>/dev/null; rm -rf "$T"' EXIT
 # A pid proven dead at runtime (#4206 review 11). The guards now run a real lsof and ancestry walk on
 # every candidate, so a fixed probe pid is only safe where it cannot be handed out: 99999 holds on
 # macOS (pids stop at 99998) but not on Linux (pid_max is often 4194304). A reused pid would need the
@@ -510,6 +510,57 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-fixture" KOSMOS_SUITE_SELF_PID
   || fail "#4410 a node --test run-tests.sh fixture refused the harness (rc=$rc, $out)"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID="$SUITE" KOSMOS_SUITE_PROBE="$T/sprobe-self" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4410 the caller's own pid is not a separate suite" || fail "#4410 the guard refused its own caller (rc=$rc, $out)"
+
+# #6334: run-tests.sh may start beside KOSMOS_SUITE_MAX - 1 other suites (the third argument). Two more live stand-ins:
+# SUITE2, a second, separate suite; PAIRP with its child PAIRC, ONE suite seen twice (a bash subshell keeps its parent's
+# command line, so a real suite can show as several candidates).
+sleep 3600 </dev/null >/dev/null 2>&1 & SUITE2=$!
+bash -c 'sleep 3600 </dev/null >/dev/null 2>&1 & wait' </dev/null >/dev/null 2>&1 & PAIRP=$!
+trap 'kill "${SUITE:-}" "${SUITE2:-}" "${PAIRP:-}" "${PAIRC:-}" 2>/dev/null; rm -rf "$T" "$FR"' EXIT
+q_ready "$SUITE2"; q_ready "$PAIRP" 'bash*'
+PAIRC=""; for _i in $(seq 1 30); do PAIRC="$(pgrep -P "$PAIRP" | head -1)"; [ -n "$PAIRC" ] && break; sleep 0.1; done
+[ -n "$PAIRC" ] || { fail "FIXTURE: the #6334 parent stand-in never started its child"; kill $(pgrep -P "$PAIRP") 2>/dev/null; }
+printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n%s bash tools/run-tests.sh\\n"\n' "$SUITE" "$SUITE2" > "$T/sprobe-two"; chmod +x "$T/sprobe-two"
+printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n%s bash tools/run-tests.sh\\n"\n' "$PAIRP" "$PAIRC" > "$T/sprobe-onetree"; chmod +x "$T/sprobe-onetree"
+sg() { KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/$1" kosmos_refuse_if_suite_live "this test run" "the override" ${2+"$2"} 2>&1; }
+out="$(sg sprobe-live 1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#6334 with one other suite allowed, a run starts beside one live suite" \
+  || fail "#6334 one allowed, one live: refused (rc=$rc, $out)"
+out="$(sg sprobe-live)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
+  && pass "#6334 CONTROL: with no third argument (the harness, queued-heavy, a cut) one live suite still refuses" \
+  || fail "#6334 the default no longer refuses beside one suite (rc=$rc, $out)"
+out="$(sg sprobe-two 1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "2 test suites (tools/run-tests.sh) are already running" && has "$out" "a limit of 2; for tools/run-tests.sh it comes from KOSMOS_SUITE_MAX or the suite-max file" && has "$out" "the override"; } \
+  && pass "#6334 with one other allowed, a third suite waits for one of two, naming the limit and the override" \
+  || fail "#6334 two live suites did not hold a third (rc=$rc, $out)"
+out="$(sg sprobe-two 2)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#6334 CONTROL: with two others allowed, the same two live suites let it start" \
+  || fail "#6334 two allowed, two live: refused (rc=$rc, $out)"
+out="$(sg sprobe-onetree 1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#6334 one suite seen as a parent and its child counts once" \
+  || fail "#6334 one suite's subshell was counted as a second suite (rc=$rc, $out)"
+out="$(sg sprobe-onetree)"; rc=$?
+[ "$rc" -eq 1 ] && pass "#6334 CONTROL: the same one tree with no others allowed refuses (it is counted, not dropped)" \
+  || fail "#6334 the one-tree stand-in was not counted at all (rc=$rc, $out)"
+out="$(printf '%s bash tools/run-tests.sh\n%s bash tools/run-tests.sh\n' "$PAIRP" "$PAIRC" | _kosmos_suite_roots)"
+{ has_pid "$out" "$PAIRP" && ! has_pid "$out" "$PAIRC"; } && pass "#6334 the root of a suite's tree is the one kept" \
+  || fail "#6334 _kosmos_suite_roots kept the wrong line ($out)"
+out="$(printf '%s bash tools/run-tests.sh\n%s bash tools/run-tests.sh\n' "$SUITE" "$SUITE2" | _kosmos_suite_roots)"
+{ has_pid "$out" "$SUITE" && has_pid "$out" "$SUITE2"; } && pass "#6334 CONTROL: two separate suites both stay roots" \
+  || fail "#6334 _kosmos_suite_roots merged two separate suites ($out)"
+out="$(sg sprobe-live junk)"; rc=$?
+[ "$rc" -eq 1 ] && pass "#6334 a third argument that is not a number allows no other suite" \
+  || fail "#6334 a junk allowance let a run start beside a suite (rc=$rc, $out)"
+out="$( _kosmos_suite_roots() { cat >/dev/null; }; sg sprobe-two 1 )"; rc=$?
+[ "$rc" -eq 1 ] && pass "#6334 a roots walk that returns nothing counts every candidate (two live, one allowed: refused)" \
+  || fail "#6334 an empty roots walk let a run start beside two suites (rc=$rc, $out)"
+out="$(printf '%s bash tools/run-tests.sh\n%s bash tools/run-tests.sh\n' "$DEAD" "$SUITE" | _kosmos_suite_roots)"
+{ has_pid "$out" "$SUITE" && ! has_pid "$out" "$DEAD"; } && pass "#6334 a candidate gone by the roots walk is not counted as a suite of its own" \
+  || fail "#6334 _kosmos_suite_roots counted a gone pid ($out)"
+# The one-tree stand-ins are stopped here, not left to a trap: a later trap below replaces the one above. SUITE2 stays
+# for the run-tests.sh arms further down and is stopped after them (and by that later trap).
+kill "$PAIRC" "$PAIRP" 2>/dev/null; wait "$PAIRP" 2>/dev/null; PAIRC=""; PAIRP=""   # cleared: a reused pid is not ours
 
 # The suite guard's REAL name arm (pgrep plus the filter), through _kosmos_suite_candidates. Other
 # agents' real suites may be live, so a refusal would prove nothing; instead this looks for its OWN
@@ -1041,7 +1092,7 @@ out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test r
 # run-tests.sh in a scratch tree with one stray test file stops at its coverage check, the first thing after the
 # guard, so "COVERAGE MISMATCH" means the guard let it through and nothing ran. The tree is rooted under /tmp by
 # name (not $T, which may sit in the kt sandbox and would make every run here a fixture).
-RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; RP_LIVE=""; trap 'kill "${SUITE:-}" ${RP_LIVE:-} 2>/dev/null; type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$RT" ${RT2:+"$RT2"}' EXIT
+RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; RP_LIVE=""; trap 'kill "${SUITE:-}" "${SUITE2:-}" "${PAIRP:-}" "${PAIRC:-}" ${RP_LIVE:-} 2>/dev/null; type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$FR" "$RT" ${RT2:+"$RT2"}' EXIT
 mkdir -p "$RT/tools/lib" "$RT/sub"; cp "$HERE/run-tests.sh" "$RT/tools/"; cp "$HERE"/lib/*.sh "$RT/tools/lib/"
 : > "$RT/sub/stray.test.js"
 sleep 60 & wp=$!
@@ -1127,7 +1178,8 @@ kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; rm -f "$W/markers/suitewait.$wp"
 # A cut that claims the box while a suite waits holds it (Kano's review, Liu Kang m3015): the stand-in suite is live
 # on the first ask, and that ask also writes a foreign, live, unexpired claim; after it the suite is gone. A run that
 # asked the claim only once, before waiting, would now start inside the cut (COVERAGE MISMATCH); this one keeps
-# waiting, names the release, and refuses at its short bound.
+# waiting, names the release, and refuses at its short bound. KOSMOS_SUITE_MAX=1 (#6334): the first ask must be a
+# reason to wait, which one live suite is only at one suite at a time.
 sleep 60 & holder=$!
 cat > "$T/sprobe-then-cut" <<SH
 #!/bin/sh
@@ -1139,7 +1191,7 @@ fi
 exit 1
 SH
 chmod +x "$T/sprobe-then-cut"; rm -f "$W/cutcalls" "$W/markers/machine-claim"
-out="$(cd "$RT" && env KOSMOS_WAIT_EVERY_S=1 KOSMOS_WAIT_MAX_S=3 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" \
+out="$(cd "$RT" && env KOSMOS_SUITE_MAX=1 KOSMOS_WAIT_EVERY_S=1 KOSMOS_WAIT_MAX_S=3 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" \
   KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/sprobe-then-cut" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh 2>&1)"; rc=$?
 # It began waiting on the suite (the first ask), then the claim held it to the bound. After the claim appears the claim
 # is asked first and refuses, so the suite probe is asked only once.
@@ -1152,17 +1204,89 @@ kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null; rm -f "$W/markers/machin
 # The wiring, end to end: a real run-tests.sh beside a stand-in suite refuses at once under
 # KOSMOS_NO_WAIT=1 (and KOSMOS_WAIT_MAX_S=0, so even a build that ignores it cannot wait) and names the suite, before it runs a test. (A green end-to-end would run the whole
 # suite; the go paths are shown above.) test-install.sh refuses an unknown argument.
-out="$(cd "$HERE/.." && KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/sprobe-live" \
+out="$(cd "$HERE/.." && KOSMOS_SUITE_MAX=1 KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/sprobe-live" \
   KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running" && has "$out" "KOSMOS_TESTS_IGNORE_SUITE=1"; } \
-  && pass "#4498 run-tests.sh refuses beside another live suite (KOSMOS_NO_WAIT=1), naming its override" \
+  && pass "#4498 run-tests.sh refuses beside another live suite at KOSMOS_SUITE_MAX=1 (KOSMOS_NO_WAIT=1), naming its override" \
   || fail "#4498 run-tests.sh did not refuse beside a live suite (rc=$rc, $(printf '%s' "$out" | tail -3))"
+# #6334, the wiring: by default run-tests.sh starts beside ONE live suite and waits for a second. Every arm here is a
+# refusal, so none can start a real suite. Beside one suite the refusal must come from the stand-in HARNESS (fixtures
+# kept, a probe line), which is asked after the suite check: that the suite check passed is shown by reaching it. They run
+# in the $RT scratch tree, so a run that got past both checks would stop at its coverage check, never start a suite.
+rt_e2e() { (cd "$RT" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_KEEP_FIXTURES=1 \
+  KOSMOS_HARNESS_SELF_PID=999999 KOSMOS_HARNESS_PROBE="$T/hprobe-real" KOSMOS_SUITE_PROBE="$T/$1" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= "${@:2}" bash tools/run-tests.sh 2>&1); }
+out="$(rt_e2e sprobe-live)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "an install harness" && ! has "$out" "test suite (tools/run-tests.sh) is already running" && ! has "$out" "test suites (tools/run-tests.sh) are"; } \
+  && pass "#6334 run-tests.sh by default passes the suite check beside one live suite (it reached the harness check)" \
+  || fail "#6334 run-tests.sh did not start beside one suite by default (rc=$rc, $(printf '%s' "$out" | tail -3))"
+out="$(rt_e2e sprobe-two)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "2 test suites (tools/run-tests.sh) are already running" && has "$out" "KOSMOS_TESTS_IGNORE_SUITE=1"; } \
+  && pass "#6334 run-tests.sh by default waits beside two live suites, naming its override" \
+  || fail "#6334 run-tests.sh did not hold a third suite (rc=$rc, $(printf '%s' "$out" | tail -3))"
+for _m in 1 0 x 1000 0003; do
+  out="$(rt_e2e sprobe-live KOSMOS_SUITE_MAX="$_m")"; rc=$?
+  { [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
+    && pass "#6334 KOSMOS_SUITE_MAX='$_m' reads as one at a time" \
+    || fail "#6334 KOSMOS_SUITE_MAX='$_m' let run-tests.sh start beside a suite (rc=$rc, $(printf '%s' "$out" | tail -3))"
+done
+out="$(rt_e2e sprobe-two KOSMOS_SUITE_MAX=08)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "an install harness" && ! has "$out" "test suites (tools/run-tests.sh) are"; } \
+  && pass "#6334 KOSMOS_SUITE_MAX=08 is eight, not an octal error" \
+  || fail "#6334 KOSMOS_SUITE_MAX=08 did not allow two others (rc=$rc, $(printf '%s' "$out" | tail -3))"
+# #6334: a run already waiting obeys a cap file written while it waits (the file is read on every poll). Ask 1 sees two
+# live suites (it waits) and writes suite-max 1; ask 2 on sees one. Read once, the run would start at ask 2 and stop at
+# the stand-in harness; read on every poll, it keeps waiting and gives up at its bound naming the one suite.
+SMAXW="$T/smaxw"; mkdir -p "$SMAXW"
+cat > "$T/sprobe-capwhile" <<SH
+#!/bin/sh
+n=\$(cat "$SMAXW/asks" 2>/dev/null || echo 0); n=\$((n + 1)); echo "\$n" > "$SMAXW/asks"
+if [ "\$n" -eq 1 ]; then printf '1\\n' > "$SMAXW/suite-max"; printf '%s bash tools/run-tests.sh\\n%s bash tools/run-tests.sh\\n' "$SUITE" "$SUITE2"; exit 0; fi
+printf '%s bash tools/run-tests.sh\\n' "$SUITE"
+SH
+chmod +x "$T/sprobe-capwhile"
+out="$(rt_e2e sprobe-capwhile KOSMOS_RUN_MARKER_DIR="$SMAXW" KOSMOS_NO_WAIT=0 KOSMOS_WAIT_EVERY_S=1 KOSMOS_WAIT_MAX_S=3 KOSMOS_WAIT_QUEUE_CEIL_S=6)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$SMAXW/asks" 2>/dev/null || echo 0)" -ge 2 ] && has "$out" "a test suite (tools/run-tests.sh) is already running" && ! has "$out" "an install harness"; } \
+  && pass "#6334 a run already waiting obeys a suite-max written while it waits" \
+  || fail "#6334 a waiting run ignored a suite-max written while it waited (rc=$rc, asks=$(cat "$SMAXW/asks" 2>/dev/null), $(printf '%s' "$out" | tail -2))"
+kill "$SUITE2" 2>/dev/null; wait "$SUITE2" 2>/dev/null; SUITE2=""
+# #6334: the Mac-wide cap file lowers the limit for every run; junk in it reads as 1; it never raises the limit.
+SMAX="$T/smax"; mkdir -p "$SMAX"
+printf '1\n' > "$SMAX/suite-max"
+out="$(rt_e2e sprobe-live KOSMOS_RUN_MARKER_DIR="$SMAX")"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
+  && pass "#6334 a suite-max file of 1 puts a default run back to one at a time" \
+  || fail "#6334 the suite-max file did not lower the limit (rc=$rc, $(printf '%s' "$out" | tail -3))"
+printf 'lots\n' > "$SMAX/suite-max"
+out="$(rt_e2e sprobe-live KOSMOS_RUN_MARKER_DIR="$SMAX")"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
+  && pass "#6334 junk in the suite-max file reads as 1" \
+  || fail "#6334 junk in the suite-max file did not read as 1 (rc=$rc, $(printf '%s' "$out" | tail -3))"
+: > "$SMAX/suite-max"
+out="$(rt_e2e sprobe-live KOSMOS_RUN_MARKER_DIR="$SMAX")"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
+  && pass "#6334 an empty suite-max file reads as 1" \
+  || fail "#6334 an empty suite-max file did not read as 1 (rc=$rc, $(printf '%s' "$out" | tail -3))"
+SMAXD="$T/smaxd"; mkdir -p "$SMAXD/suite-max"
+out="$(rt_e2e sprobe-live KOSMOS_RUN_MARKER_DIR="$SMAXD")"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
+  && pass "#6334 a suite-max that is a directory reads as 1" \
+  || fail "#6334 a suite-max directory did not read as 1 (rc=$rc, $(printf '%s' "$out" | tail -3))"
+printf '5\n' > "$SMAX/suite-max"
+out="$(rt_e2e sprobe-live KOSMOS_RUN_MARKER_DIR="$SMAX" KOSMOS_SUITE_MAX=1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
+  && pass "#6334 a suite-max file never raises a run's own limit" \
+  || fail "#6334 the suite-max file raised the limit past KOSMOS_SUITE_MAX=1 (rc=$rc, $(printf '%s' "$out" | tail -3))"
+out="$(rt_e2e sprobe-live KOSMOS_RUN_MARKER_DIR="$SMAX")"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "an install harness" && ! has "$out" "test suite (tools/run-tests.sh) is already running"; } \
+  && pass "#6334 CONTROL: a suite-max file above the default leaves the default (beside one live suite it reaches the harness check)" \
+  || fail "#6334 a suite-max of 5 changed the default (rc=$rc, $(printf '%s' "$out" | tail -3))"
 # A run-tests.sh inside a test (here: every pid has a node --test ancestor) is part of the suite that
 # started it, so it skips the suite check. The live stand-in harness (fixtures kept) is what refuses
 # it instead; the suite check comes first, so a missing skip would print the suite refusal.
 # The stand-in suite's own pid ($SUITE; $DEAD for the harness) is exempt, so only the CALLER reads as a fixture.
 printf '#!/bin/sh\n{ [ "$1" = '"$DEAD"' ] || [ "$1" = '"$SUITE"' ]; } || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
-out="$(cd "$HERE/.." && KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all" KOSMOS_HARNESS_KEEP_FIXTURES=1 KOSMOS_HARNESS_SELF_PID=999999 \
+# #6334: KOSMOS_SUITE_MAX=1, or a broken skip would pass the suite check beside one suite and print the same harness line.
+out="$(cd "$HERE/.." && KOSMOS_SUITE_MAX=1 KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all" KOSMOS_HARNESS_KEEP_FIXTURES=1 KOSMOS_HARNESS_SELF_PID=999999 \
   KOSMOS_HARNESS_PROBE="$T/hprobe-real" KOSMOS_SUITE_PROBE="$T/sprobe-live" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "an install harness" && ! has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
   && pass "#4498 a run-tests.sh inside a test does not wait on the suite that started it" \

@@ -40,22 +40,21 @@ const stateReason = new Function([pageFnSource('stateReason'), 'return stateReas
 const REPORTED = { stateReported: true, because: 'Finished responding' };
 
 test('the card and row do NOT show the agent\'s quoted sentence', () => {
-  assert.equal(stateReason(REPORTED, { noQuote: true }), '',
-    'the quoted last-words line is still on the grid and list; that is the whole card');
+  assert.equal(stateReason(REPORTED), '',
+    'the quoted last-words line is back on the grid and list; that is the whole card');
 });
 
-test('stateReason still PRODUCES the quote when asked (the shared derivation is unchanged)', () => {
-  /* #986 scoped the card/list to noQuote; the detail HEADER used to render the full quote.
-     #3043 (Josh, 2026-09-14) stopped the header rendering it beside the bubble too -- the header
-     takes the noQuote path like the cards. #3043 had relocated the reported reason to a #d-why
-     note under the name; #3271 (Josh, 2026-09-18) REMOVED that note, so the reported reason is
-     dropped from the header entirely (no status line under the name).
-     stateReason itself is UNCHANGED: called with NO options it still returns the agent's own
-     words, quoted. That quoted branch is now a retained library contract that no current render
-     path reaches (cards and header both take the noQuote FALL-THROUGH, which strips it); this
-     pins the contract so a future caller that DOES want the quote still gets it. */
-  assert.match(stateReason(REPORTED), /Finished responding/);
-  assert.match(stateReason(REPORTED), /[“”]/, 'the quotation marks are the "in its own words" mark, not decoration');
+test('stateReason no longer produces the quoted reported sentence (#6118 removed the dead arm)', () => {
+  /* #569 once returned the agent's reported sentence in quotes right here. #986 scoped it off the
+     grid/list, and #3043 (Josh, 2026-09-14) then #3271 (Josh, 2026-09-18) removed it from the
+     detail header (relocated to a #d-why note, then the note removed entirely). After those every
+     render path took the fall-through, so the quoted arm was dead: #6118 removed it and the
+     noQuote opt-out with it. A reported+because agent now returns '' from stateReason with ANY
+     options; the reported sentence surfaces only via the Talk waiting box (waitingLine) and the
+     engine-state sentences. */
+  assert.equal(stateReason(REPORTED), '', 'the quoted reported sentence must not come back');
+  assert.equal(stateReason(REPORTED, {}), '', 'no option revives the quote');
+  assert.doesNotMatch(stateReason(REPORTED), /[“”]/, 'no quotation marks render for a reported sentence');
 });
 
 test('a STATE still speaks on the card, even when a sentence was also reported', () => {
@@ -63,37 +62,38 @@ test('a STATE still speaks on the card, even when a sentence was also reported',
      EARLY, so suppressing it by returning '' would have silenced the usage-limit
      and sign-in sentences too -- exactly the "keep every state" half of the card. */
   const limited = { ...REPORTED, state: 'rate_limited', stateConfidence: 'scraped' };
-  assert.match(stateReason(limited, { noQuote: true }), /usage limit/i,
+  assert.match(stateReason(limited), /usage limit/i,
     'a rate-limited agent went silent on the card because it had also reported a sentence');
   const auth = { ...REPORTED, state: 'auth_failed', stateConfidence: 'scraped' };
-  assert.match(stateReason(auth, { noQuote: true }), /sign-in/i,
+  assert.match(stateReason(auth), /sign-in/i,
     'an agent with a broken sign-in went silent on the card');
 });
 
 test('an agent with nothing to say still says nothing', () => {
-  assert.equal(stateReason({ state: 'idle' }, { noQuote: true }), '');
   assert.equal(stateReason({ state: 'idle' }), '');
 });
 
-test('the two views Josh named ask for it without the quote, and #3043 drops it from the header too', () => {
-  /* Pinned by CALL SITE: the derivation being correct is no use if the card
-     stops passing the option. */
+test('the card, list and detail header all share taskLine with no noQuote opt-out (#6118)', () => {
+  /* Pinned by CALL SITE: #6118 removed the quoted arm and the noQuote option, so the job here
+     flipped. It used to assert the cards PASS noQuote (to skip the quote); now it asserts they do
+     NOT pass it (the option is gone) while still sharing the one taskLine derivation, so the quote
+     cannot come back by a caller stopping to pass an option. */
   const grid = PAGE.match(/<div class="atask">\$\{esc\(taskLine\([^)]*\)\)\}<\/div>/);
   const list = PAGE.match(/\$\{lrowTask\(taskLine\([^)]*\), [^)]*\)\)\}/);   // #6045: the list cell is drawn by lrowTask
   assert.ok(grid, 'the grid card no longer renders .atask this way; re-derive this test');
   assert.ok(list, 'the list row no longer renders .ltask this way; re-derive this test');
-  assert.match(grid[0], /noQuote/, 'the GRID card is asking for the quoted line again');
-  assert.match(list[0], /noQuote/, 'the LIST row is asking for the quoted line again');
-  /* #3043: the detail header drops the reported quote from the task line beside the bubble by
-     using the SAME noQuote derivation the cards use. (#3043 relocated it to a #d-why note; #3271
-     removed that note, so the reported reason now shows on no header line -- guarded by the
-     '#3271: NO reported-reason status line' test in server.test.js.) Pin the call site, so an
-     edit that puts the quote back beside the bubble -- or re-derives the "is this the reported
-     quote" test inline instead of sharing taskLine's one source -- is caught here. The noQuote
-     BEHAVIOR (reported -> '', rate_limited/auth still speak) is asserted directly above. */
+  assert.doesNotMatch(grid[0], /noQuote/, 'the GRID card must not pass the removed noQuote option');
+  assert.doesNotMatch(list[0], /noQuote/, 'the LIST row must not pass the removed noQuote option');
+  assert.match(grid[0], /card:\s*true/, 'the GRID card still passes card:true');
+  assert.match(list[0], /card:\s*true/, 'the LIST row still passes card:true');
+  /* #3043/#3271: the detail header shows the reported reason on no line at all (guarded by the
+     '#3271: NO reported-reason status line' test in server.test.js). It shares the SAME taskLine
+     derivation the cards use, now with no option. Pin the call site so an edit that puts the quote
+     back beside the bubble, or re-derives the "is this the reported quote" test inline instead of
+     sharing taskLine's one source, is caught here. */
   /* #3958: computed once, written only when it changes (the header follows every poll). */
-  assert.match(PAGE, /const taskText = taskLine\(a, \{ noQuote: true \}\);\n\s*if \(dtask\.textContent !== taskText\) dtask\.textContent = taskText;/,
-    'the detail header no longer shares the cards’ noQuote derivation for the task line (#3043)');
+  assert.match(PAGE, /const taskText = taskLine\(a\);\n\s*if \(dtask\.textContent !== taskText\) dtask\.textContent = taskText;/,
+    'the detail header no longer shares the cards’ task-line derivation (#3043)');
 });
 
 /**
