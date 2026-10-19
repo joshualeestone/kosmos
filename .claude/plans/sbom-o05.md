@@ -45,10 +45,10 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 31 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 32 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
   must equal build()'s output byte for byte. Every rule added in reviews 1 to 11 has a mutant that fails an arm,
-  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven and eight per
+  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven, eight, three and four per
   round); the mutants of code later removed (the script's variable and url parsing) were retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line

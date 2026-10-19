@@ -34,7 +34,7 @@
  * that is not a plain file). The shipped runtime/bin/node is not tied to the
  * nodejs.org download hash here (the bundle build verifies it against nodejs.org's SHASUMS256 before packing).
  * LIMIT: the crate list is the lockfile closure, a superset of what the macOS connector compiles. Measured for 0.7.59:
- * 227 crates against cargo tree's 189; the extra are Windows-only and dev-only crates (26) and optional dependencies
+ * 229 crates (the connector and kosmos-relay-proto included) against cargo tree's 189 (which counts both); the extra are Windows-only and dev-only crates (26) and optional dependencies
  * of features the connector does not turn on (14). It never misses a crate the connector builds with. A scan of this
  * SBOM must treat an advisory on one of the extra crates as not shipped until it checks the macOS build graph.
  */
@@ -75,7 +75,10 @@ function parseLock(text) {
       continue;
     }
     const kv = line.match(/^(\w+) = (.*)$/);
-    if (!kv) continue;
+    if (!kv) {
+      if (line) throw new Error(`Cargo.lock: a package line this SBOM cannot read: ${line}`);
+      continue;
+    }
     if (kv[1] === 'dependencies') {
       if (kv[2] === '[') { inDeps = true; continue; }
       for (const d of kv[2].replace(/^\[|\]$/g, '').split(',')) { const s = d.trim().replace(/^"|"$/g, ''); if (s) cur.deps.push(s); }
@@ -139,7 +142,10 @@ function workspaceMembers(show, relay, commit) {
 // calls fetch in any other shape refuses, and so does an X_URL= line nothing fetches. Only whole-line comments are
 // skipped, and only the function's own definition line is exempt.
 function tmuxPins(text) {
-  const code = text.split('\n').filter((l) => !/^\s*#/.test(l) && !/^\s*fetch\s*\(\)/.test(l));
+  // The definition line is exempt only up to its own body: a call after it on the same line is still a call.
+  const code = text.split('\n').filter((l) => !/^\s*#/.test(l))
+    .map((l) => (/^\s*fetch\s*\(\)/.test(l) ? l.replace(/^\s*fetch\s*\(\)\s*\{[^}]*\}\s*;?\s*/, '') : l))
+    .filter((l) => !/^\s*fetch\s*\(\)/.test(l) && l.trim());
   const pins = [];
   for (const line of code.filter((l) => /\bfetch(\s|\\|;|$)/.test(l))) {
     const m = line.match(/^\s*fetch\s+(\S+)\s+"\$([A-Z0-9_]+)_URL"\s+"\$([A-Z0-9_]+)_SHA"\s*$/);
@@ -306,7 +312,7 @@ function checkNativeApp(manifest, swift) {
   if (!manifest.native_app || !SHA256.test(manifest.native_app.signed_sha256 || '') || !shipped || shipped.sha256 !== manifest.native_app.signed_sha256) {
     throw new Error('the manifest\'s app/bin/kosmos-app is not the Mac app it signed (native_app.signed_sha256)');
   }
-  for (const m of swift.matchAll(/^\s*(?:@\w+\s+)*import\s+(?:(?:class|struct|enum|func|protocol|typealias|var|let)\s+)?([A-Za-z_][A-Za-z0-9_]*)/gm)) {
+  for (const m of swift.matchAll(/(?:^|;)\s*(?:@\w+\s+)*import\s+(?:(?:class|struct|enum|func|protocol|typealias|var|let)\s+)?([A-Za-z_][A-Za-z0-9_]*)/gm)) {
     if (!APPLE_MODULES.has(m[1])) throw new Error(`native-app/main.swift imports ${m[1]}, which is not an Apple framework this SBOM knows`);
   }
 }
@@ -362,7 +368,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
     bomFormat: 'CycloneDX', specVersion: '1.5', version: 1,
     serialNumber: `urn:uuid:${uuidFrom(manifest.sha256)}`,
     metadata: {
-      timestamp: (manifest.built && manifest.built.at) || undefined,
+      timestamp: builtAt(manifest),
       // Said in the SBOM itself, not only here, so a scanner reading the JSON is told.
       properties: [{ name: 'kosmos:cargo-closure', value: 'the connector crates are its Cargo.lock closure, a superset of the macOS build: an advisory on a crate that cargo tree --target aarch64-apple-darwin does not list is not shipped' }],
       component: { type: 'application', 'bom-ref': 'kosmos', name: 'kosmos', version: manifest.version,
@@ -379,6 +385,13 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
       ...crates.map((p) => ({ ref: crateRef(p), dependsOn: [...new Set(edges.get(p).map(crateRef))].sort(byCodePoint) })),
     ],
   };
+}
+
+function builtAt(manifest) {
+  const at = manifest.built && manifest.built.at;
+  if (at === undefined) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(at)) throw new Error(`manifest built.at is not a UTC time: ${at}`);
+  return at;
 }
 
 // The same release always gets the same serial number, so a rebuilt SBOM is byte-identical. RFC 9562 version 8 is

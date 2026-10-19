@@ -321,6 +321,14 @@ test('a fetch call in another shape or position, or a *_URL never fetched, refus
   assert.throws(() => tmuxPins(TMUX.replace(/^fetch [a-z].*$/gm, '')), /no fetch lines/);
   assert.throws(() => tmuxPins(TMUX + 'fetch\\\n  ncurses "$NCURSES_URL" "$NCURSES_SHA"\n'), /a fetch line this SBOM cannot read: fetch\\/);
   assert.throws(() => tmuxPins(TMUX + 'fetch;\n'), /a fetch line this SBOM cannot read/);
+  const sameLine = TMUX.replace('fetch() {\n  curl -fL "$2" -o "$1.tgz"\n}', 'fetch() { curl -fL "$2" -o "$1.tgz"; }; fetch zlib "$ZLIB_URL" "$ZLIB_SHA"');
+  assert.deepEqual(tmuxPins(sameLine + '\nZLIB_URL="https://x/z.tgz"\n').map((x) => x.name), ['zlib', 'tmux', 'libevent', 'utf8proc'],
+    'a call after the definition on its line is read');
+  assert.throws(() => sbom(MANIFEST, files(LOCK, sameLine)), /the build script fetches zlib, but the tmux bundle's VERSION does not name it/);
+  assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, 'import Foundation; import Sparkle\n')), /imports Sparkle/);
+  assert.throws(() => parseLock(LOCK.replace('name = "kosmos-tunnel-client"\nversion = "0.1.0"\ndependencies = [', 'name = "kosmos-tunnel-client"\nversion = "0.1.0"\ndependencies=[')),
+    /a package line this SBOM cannot read: dependencies=\[/);
+  assert.throws(() => sbom({ ...MANIFEST, built: { at: 'yesterday' } }), /built\.at is not a UTC time/);
 });
 
 test('the SBOM says in its own metadata that the crate list is a superset; a + in a tmux part version is encoded', () => {
