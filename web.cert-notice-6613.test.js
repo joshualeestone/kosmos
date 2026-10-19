@@ -40,7 +40,8 @@ function noteWorld({ onPlus = false, stored = '' } = {}) {
     document: { getElementById: get, querySelector: (sel) => (sel === '.apphead .klink' ? mark : null) }, console,
     plusOnScreen: () => where.onPlus,
     localStorage: { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = v; } },
-    fetch: async () => ({ ok: true, json: async () => ({ enrolled: false }) }),
+    // The block polls once as it loads; an error answer keeps that poll from painting over what a test paints.
+    fetch: async () => ({ ok: false, json: async () => ({}) }),
     setInterval: () => 0, showTab() {}, settingsGo() {}, paintPlus() {}, plusSay() {}, plusWords: (s) => s,
   };
   const start = SCRIPT.indexOf('/* kosmos#6613: the notice for a finding');
@@ -117,6 +118,7 @@ test('Review puts the finding away only once the pane says it', async () => {
       w.get('plus-cw-line').textContent = paneSays ? 'Warning: a finding.' : '';
       w.get('plus-cw-line').dataset.state = paneSays ? 'foreign' : '';
       w.get('plus-cw-switch').hidden = false;
+      w.get('plus-flow').hidden = false;   // the pane is showing
     };
     w.ctx.paintCwNote(FOUND);
     w.get('cwnote-slot').listeners.click({ target: { closest: () => ({ getAttribute: () => 'open' }) } });
@@ -134,6 +136,27 @@ test('a failed read of the board keeps the warning showing (no blink)', async ()
   assert.ok(shown(get));
 });
 
+test('an error answer from the board (a 500) is a failed read too: the warning stays, and polling does not go quiet', async () => {
+  const { ctx, get } = noteWorld();
+  ctx.paintCwNote(FOUND);
+  let asked = 0;
+  ctx.fetch = async () => { asked += 1; return { ok: false, json: async () => ({ error: 'we could not read the Plus state' }) }; };
+  await ctx.pollCwNote();
+  await ctx.pollCwNote();
+  assert.ok(shown(get));
+  assert.equal(asked, 2, 'a 500 was read as "not set up" and polling went quiet');
+});
+
+test('the small line says what is true: on, Kosmos+ off, or the check off', () => {
+  const { ctx, get } = noteWorld();
+  ctx.paintCwNote(FOUND, true);
+  assert.match(get('cwnote-slot').innerHTML, /Kosmos\+ checks the public certificate logs/);
+  ctx.paintCwNote(FOUND, false);
+  assert.match(get('cwnote-slot').innerHTML, /Kosmos\+ is off, so nothing is checking now/);
+  ctx.paintCwNote({ ...FOUND, on: false }, true);
+  assert.match(get('cwnote-slot').innerHTML, /The certificate check is off/);
+});
+
 test('a key put away in another tab (storage) is honoured at the next paint', () => {
   const { ctx, get } = noteWorld({ stored: FOUND.key });
   ctx.paintCwNote(FOUND);
@@ -143,9 +166,9 @@ test('a key put away in another tab (storage) is honoured at the next paint', ()
 test('the Plus pane painter hands the notice the same answer, and leaving Kosmos+ repaints it', () => {
   const a = SCRIPT.indexOf('function paintPlusCertWatch(cw, plusOn) {');
   const body = SCRIPT.slice(a, SCRIPT.indexOf('\n}\n', a));
-  assert.ok(body.includes("if (typeof paintCwNote === 'function') paintCwNote(cw);"), 'the pane no longer feeds the notice');
+  assert.ok(body.includes("if (typeof paintCwNote === 'function') paintCwNote(cw, plusOn);"), 'the pane no longer feeds the notice');
   const s = SCRIPT.indexOf('function syncPlusChrome() {');
-  assert.ok(SCRIPT.slice(s, SCRIPT.indexOf('\n}\n', s)).includes('paintCwNote(CW_NOTE.last)'), 'leaving Kosmos+ no longer repaints the notice');
+  assert.ok(SCRIPT.slice(s, SCRIPT.indexOf('\n}\n', s)).includes('paintCwNote(CW_NOTE.last, CW_NOTE.lastPlusOn)'), 'leaving Kosmos+ no longer repaints the notice');
 });
 
 test('Got it shows with the lost-report sentence only, carrying its marker', () => {
@@ -226,7 +249,9 @@ test('the markup carries the notice slot (first in the floating stack) and Got i
 
 test('every slot in the floating stack is taken out of the layout while empty (an empty flex item spends a gap)', () => {
   const stack = PAGE.slice(PAGE.indexOf('<div class="topnotes" id="topnotes">'));
-  const slots = [...stack.slice(0, stack.indexOf('</div>\n  </div>')).matchAll(/<div id="([a-z-]+-slot)"><\/div>/g)].map((m) => m[1]);
+  const cut = stack.indexOf('</div>\n  </div>');
+  assert.ok(cut > 0, 'the stack markup was reshaped; re-anchor this test');
+  const slots = [...stack.slice(0, cut).matchAll(/<div id="([a-z-]+-slot)"><\/div>/g)].map((m) => m[1]);
   assert.ok(slots.includes('cwnote-slot') && slots.length >= 7, JSON.stringify(slots));
   const rule = (PAGE.match(/^(#[a-z-]+-slot:empty(?:, #[a-z-]+-slot:empty)*) \{ display: none; \}$/m) || [])[1] || '';
   const covered = rule.split(', ').map((x) => x.replace(/^#|:empty$/g, ''));
