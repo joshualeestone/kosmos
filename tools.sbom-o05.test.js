@@ -688,11 +688,14 @@ test('real Cargo, offline: a lock that matches passes; every way a Cargo.toml ca
       fs.writeFileSync(path.join(above, 'rustc.sh'), `#!/bin/sh\ntouch ${mark}\nexit 1\n`, { mode: 0o755 });
       fs.writeFileSync(path.join(above, '.cargo', 'config.toml'), `[build]\nrustc = "${path.join(above, 'rustc.sh')}"\n`);
       fs.mkdirSync(path.join(above, 'tmp'));
-      const saved = process.env.TMPDIR;
+      // Both ways a config could be in reach (review 34): above the temp folder, and in the caller's own working folder.
+      const saved = process.env.TMPDIR, cwd = process.cwd();
       process.env.TMPDIR = path.join(above, 'tmp');
+      process.chdir(above);
       try {
-        assert.doesNotThrow(() => cargoWorkspace(root, good), 'a config above the temp folder changed the answer');
+        assert.doesNotThrow(() => cargoWorkspace(root, good), 'a config above the temp folder or in the working folder changed the answer');
       } finally {
+        process.chdir(cwd);
         if (saved === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = saved;
       }
       assert.ok(!fs.existsSync(mark), 'Cargo ran the rustc a config above its temp folder named');
