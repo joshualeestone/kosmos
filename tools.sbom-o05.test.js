@@ -649,6 +649,8 @@ test('real Cargo, offline: a lock that matches passes; every way a Cargo.toml ca
       [[['a/.CARGO/config', '[source.crates-io]\n']], /a\/\.CARGO\/config is Cargo configuration/],
       [[['b/cargo.TOML', '[package]\n']], /b\/cargo\.TOML is a Cargo file in another case/],
       [[['Cargo.LOCK', 'x']], /Cargo\.LOCK is a Cargo file in another case/],
+      [[['rust-toolchain.toml', '[toolchain]\nchannel = "1.2.3"\n']], /rust-toolchain\.toml names a Rust toolchain/],
+      [[['a/RUST-TOOLCHAIN', '1.2.3\n']], /a\/RUST-TOOLCHAIN names a Rust toolchain/],
       [[['a/src/Lib.rs', '']], /a\/src\/lib\.rs and a\/src\/Lib\.rs are one path|a\/src\/Lib\.rs and a\/src\/lib\.rs are one path/],
     ]) assert.throws(() => cargoWorkspace(root, plumb(extra)), want, extra.map((e) => e[0]).join(' '));
     assert.ok(!fs.existsSync(marker), 'the committed build.rustc never ran: refused before Cargo was asked');
@@ -681,6 +683,23 @@ test('a symlinked main.swift or .cargo in a real git repo refuses: git show of a
   const sub = path.join(root, 'vendor');
   assert.throws(() => gitShow(sub, c, 'native-app/main.swift'), /is not a plain file \(mode 120000\)/, 'and the mode check reads the same path git show does');
   assert.throws(() => gitShow(root, c, 'nothing-here'), (e) => e.notFound === true);
+});
+
+test('a git replace ref in the checkout cannot change what a commit is read as (review 28)', () => {
+  const { gitShow } = require(SBOM_JS);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-replace-'));
+  try {
+    const git = (...a) => execFileSync('git', ['-C', root, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    git('init', '-q');
+    fs.writeFileSync(path.join(root, 'f'), 'real\n'); git('add', 'f'); git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'a');
+    const a = git('rev-parse', 'HEAD');
+    fs.writeFileSync(path.join(root, 'f'), 'fake\n'); git('add', 'f'); git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'b');
+    git('replace', a, git('rev-parse', 'HEAD'));
+    assert.equal(git('show', `${a}:f`), 'fake', 'the control: a plain git show follows the replace ref');
+    assert.equal(gitShow(root, a, 'f'), 'real\n', 'the SBOM reads the commit itself');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('a CPE escapes a version character CPE 2.3 reserves', () => {
@@ -902,14 +921,15 @@ test('the command line end to end, against a copy of the tool that pins a test k
   // (the Cargo.lock there is the relay's), then answers with STANDIN_EXIT.
   fs.writeFileSync(path.join(bin, 'cargo'), `#!${process.execPath}\nconst a = process.argv.slice(2), fs = require('fs'), p = require('path');\n`
     + `const m = a[a.indexOf('--manifest-path') + 1];\n`
-    + `fs.appendFileSync(${JSON.stringify(path.join(root, 'cargo-args'))}, a.join(' ') + ' LOCK=' + (fs.readFileSync(p.join(p.dirname(m), 'Cargo.lock'), 'utf8') === ${JSON.stringify(LOCK)}) + ' ENV=' + Object.keys(process.env).filter((k) => /^(CARGO_|RUSTFLAGS$|RUSTUP_TOOLCHAIN$)/.test(k)).sort().join(',') + '\\n');\n`
+    + `fs.appendFileSync(${JSON.stringify(path.join(root, 'cargo-args'))}, a.join(' ') + ' LOCK=' + (fs.readFileSync(p.join(p.dirname(m), 'Cargo.lock'), 'utf8') === ${JSON.stringify(LOCK)}) + ' ENV=' + Object.keys(process.env).filter((k) => /^(CARGO_|RUSTFLAGS$|RUSTDOCFLAGS$|RUSTC|RUSTDOC|RUSTUP_|GIT_)/.test(k)).sort().map((k) => k + (k === 'RUSTUP_AUTO_INSTALL' ? '=' + process.env[k] : '')).join(',') + '\\n');\n`
     + `if (process.env.STANDIN_EXIT !== '0') { process.stderr.write('error: cannot update the lock file\\n'); process.exit(Number(process.env.STANDIN_EXIT)); }\n`
     + `const pkg = (n, bins) => ({ id: n + ' 0.1.0', name: n, version: '0.1.0', targets: bins.map((b) => ({ kind: ['bin'], name: b })) });\n`
     + `process.stdout.write(JSON.stringify({ workspace_members: ['kosmos-relay-proto 0.1.0', 'kosmos-tunnel-client 0.1.0', 'kosmos-relay-server 0.1.0'],\n`
     + `  packages: [pkg('kosmos-relay-proto', []), pkg('kosmos-tunnel-client', ['kosmos-tunnel']), pkg('kosmos-relay-server', ['kosmos-relay']), pkg('rustls', [])] }));\n`);
   fs.chmodSync(path.join(bin, 'cargo'), 0o755);
   const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, STANDIN_EXIT: '0',
-    CARGO_HOME: path.join(root, 'cargo-home'), CARGO_TARGET_DIR: '/evil', CARGO_BUILD_TARGET: 'evil', RUSTFLAGS: '--evil' };
+    CARGO_HOME: path.join(root, 'cargo-home'), CARGO_TARGET_DIR: '/evil', CARGO_BUILD_TARGET: 'evil', RUSTFLAGS: '--evil',
+    RUSTC_WRAPPER: '/evil', RUSTDOCFLAGS: '--evil', RUSTUP_TOOLCHAIN: '1.2.3', GIT_DIR: path.join(root, 'no-such-git-dir'), GIT_OBJECT_DIRECTORY: '/evil' };
   const run = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
     '--repo', k.dir, '--relay', r.dir, '--out', out], { encoding: 'utf8', env });
   assert.equal(run.status, 0, run.stderr);
@@ -919,7 +939,7 @@ test('the command line end to end, against a copy of the tool that pins a test k
   const swapped = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
     '--repo', r.dir, '--relay', k.dir], { encoding: 'utf8', env });
   assert.equal(swapped.status, 1, 'the repo and relay swapped refuse');
-  assert.match(fs.readFileSync(path.join(root, 'cargo-args'), 'utf8'), /^metadata --locked --offline --format-version 1 --manifest-path \S+\/Cargo\.toml LOCK=true ENV=CARGO_HOME$/m,
+  assert.match(fs.readFileSync(path.join(root, 'cargo-args'), 'utf8'), /^metadata --locked --offline --format-version 1 --manifest-path \S+\/Cargo\.toml LOCK=true ENV=CARGO_HOME,RUSTUP_AUTO_INSTALL=0$/m,
     'Cargo is asked, locked and offline, about a tree holding the connector commit\'s own lock, with only CARGO_HOME of this shell\'s Cargo settings');
   const disagree = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
     '--repo', k.dir, '--relay', r.dir], { encoding: 'utf8', env: { ...env, STANDIN_EXIT: '101' } });

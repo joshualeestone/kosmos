@@ -49,11 +49,11 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 47 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 48 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
-  must equal build()'s output byte for byte. Every rule added in reviews 1 to 27 has a mutant that fails an arm, run at
-  the time of the change (the first version, then reviews 1 to 27 in order: four, eight, six, eleven, six, seven,
-  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six, four, nine, six, six and eight); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 28 has a mutant that fails an arm, run at
+  the time of the change (the first version, then reviews 1 to 28 in order: four, eight, six, eleven, six, seven,
+  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six, four, nine, six, six, eight and seven); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
@@ -113,7 +113,7 @@ real fix.
   scanner sees tmux once, as its part.
 - **The connector and node are tied to shipped files:** the manifest must ship app/bin/kosmos-tunnel with the
   connector's signed sha256, and runtime/bin/node. Commits must be full shas, and the manifest must say `dirty: false`.
-- **The manifest's signature is verified** under the checkout's pinned keys (engine/manifest-verify.js) before
+- **The manifest's signature is verified** under the pinned keys of the checkout the TOOL runs from (its own ../../engine/manifest-verify.js, not --repo's) before
   anything is read from it. The real 0.7.59 manifest and its served .sig verify; the same manifest with its version
   changed refuses. Only the real release key is untested (it signs nothing in a test): the command line's success
   path runs end to end under a test key (see the tests bullet), and the CLI arm checks it refuses an unsigned manifest.
@@ -126,6 +126,8 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- The C and assembly that crates such as `ring` and `aws-lc-sys` bundle are identified only by their crate's
+  name and version, not as components of their own.
 - (Was a gap, reviews 24 to 27; four hand-written readers of the relay's Cargo files were beaten in four rounds, so
   CARGO decides.) The connector is built WITHOUT `--locked` (relay tools/build-tunnel-release.sh; a relay change adds
   it), so a Cargo.toml that disagrees with the Cargo.lock would make Cargo re-resolve the build while the lock, and
@@ -146,10 +148,17 @@ real fix.
   program really ran. Cargo gets CARGO_HOME and none of the shell's other CARGO_*, RUSTFLAGS, RUSTDOCFLAGS,
   RUSTC* (RUSTC_WRAPPER names a program Cargo runs), RUSTDOC* or RUSTUP_TOOLCHAIN. The real relay commit has
   1191 paths, no symlink, no non-ASCII name, no .cargo.
+  Review 28: no rust-toolchain or rust-toolchain.toml anywhere, in any case (rustup reads one in the tree Cargo runs
+  in, then downloads and runs that toolchain; measured: it reached for a download), and rustup is told not to
+  install (RUSTUP_AUTO_INSTALL=0) with none of this shell's RUSTUP_* but RUSTUP_HOME; no .git part (git itself
+  will not index one, so this is a second fence). Every git call, and Cargo, run with none of this shell's GIT_*
+  settings and with GIT_NO_REPLACE_OBJECTS=1 (measured: with a `git replace` ref in the checkout, git show of a
+  signed commit returned another commit's file). Each git, cargo and xcrun call has a time limit.
   LIMIT: Cargo still reads config in CARGO_HOME and in the folders above its temp folder, which are this machine's.
   Equivalent survivors, recorded: the exclusive-create flag (the path checks already make every path unique), the
   per-blob newline check (a misaligned read fails the next entry's sha check or the end-of-output check), and the
-  two-members-one-name refusal (Cargo itself refuses that workspace).
+  two-members-one-name refusal (Cargo itself refuses that workspace), and the members-count agreement (valid
+  cargo metadata describes every workspace member it names).
 - (Review 25.) A CPE escapes reserved characters in a version (a '+').
 - (Was a gap, review 23.) Every file read from git must be a plain file there (mode 100644 or 100755, read with git
   ls-tree first): git show of a symlink returns its target PATH as text, so a symlinked main.swift passed as importing
@@ -202,5 +211,5 @@ real fix.
 
 ## Weakest premise
 That the lockfile closure is an acceptable SBOM for the connector. It over-lists (Windows and test crates) rather than
-under-lists. A reviewer may prefer the exact macOS build graph (`cargo tree --target aarch64-apple-darwin -e normal`),
+under-lists. A reviewer may prefer the exact macOS build graph (`cargo tree --target aarch64-apple-darwin -e normal,build`, 189 crates; `-e normal` alone drops build dependencies),
 but that needs a relay checkout with cargo at SBOM time and loses the any-machine property.
