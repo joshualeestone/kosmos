@@ -240,7 +240,8 @@ function verifyKeyList({ bytes, sig, recoveryKeys = RECOVERY_KEYS }) {
 const SEQ_FILE = /^seq-([1-9]\d{0,9})\.json$/;
 
 /** { seq, keys } of the highest list recorded (seq never below minSeq; keys null when nothing at or above it is
- * recorded), or null when that record is damaged, which is refused rather than read as none. */
+ * recorded); { seq, keys: null, damaged: true } when that top file is damaged (its seq still holds as the floor);
+ * null when the record folder cannot be read at all. */
 function storedKeyList(home, minSeq = MIN_KEY_LIST_SEQ) {
   const dir = path.join(home, KEY_LIST_STATE);
   let names;
@@ -248,11 +249,14 @@ function storedKeyList(home, minSeq = MIN_KEY_LIST_SEQ) {
   let top = 0;
   for (const n of names) { const m = SEQ_FILE.exec(n); if (m && Number(m[1]) <= MAX_SEQ && Number(m[1]) > top) top = Number(m[1]); }
   if (!top || top < minSeq) return { seq: minSeq, keys: null };
+  // A damaged top file still tells its seq by its name: the floor stays there, and only a list at or above it can
+  // repair the record (trustedKeys writes it afresh).
+  const damaged = { seq: top, keys: null, damaged: true };
   try {
     const r = JSON.parse(fs.readFileSync(path.join(dir, `seq-${top}.json`), 'utf8'));
-    if (r.seq !== top || !Array.isArray(r.release_keys) || !r.release_keys.length || !r.release_keys.every((k) => ed25519Key(k))) return null;
+    if (r.seq !== top || !Array.isArray(r.release_keys) || !r.release_keys.length || !r.release_keys.every((k) => ed25519Key(k))) return damaged;
     return { seq: top, keys: r.release_keys };
-  } catch { return null; }
+  } catch { return damaged; }
 }
 
 /** The release keys to check a manifest with. Off (no recovery key): the built-in KEYS. On: a key list that verifies
@@ -268,11 +272,11 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   try { homeOk = !!home && fs.statSync(home).isDirectory(); } catch { homeOk = false; }
   if (!homeOk) return { ok: false, why: 'the release key list cannot be checked without this copy\'s record' };
   const stored = storedKeyList(home, minSeq);
-  if (!stored) return { ok: false, why: `this copy's record of the release key list is damaged (the highest file in ${path.join(home, KEY_LIST_STATE)}); remove that file and check again` };
+  if (!stored) return { ok: false, why: 'this copy\'s record of the release key list cannot be read, so no list can be taken' };
   if (v.seq < stored.seq) return { ok: false, why: `the release key list is ${v.seq}, older than the ${stored.seq} this copy has taken` };
   // Already recorded: no write, so no re-read. A newer list recorded in the instant since is found by the next check;
   // the caller checks the release straight away with these keys.
-  if (v.seq === stored.seq && stored.keys) {
+  if (v.seq === stored.seq && stored.keys && !stored.damaged) {
     if (!sameKeys(stored.keys, v.keys)) return { ok: false, why: `the release key list ${v.seq} names other keys than the list ${v.seq} this copy took` };
     return { ok: true, why: v.why, keys: v.keys };
   }
@@ -284,11 +288,13 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   try {
     try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (e) { if (!e || e.code !== 'EEXIST') throw e; }
     // Synced before it is linked in, and the folder after, so a crash should leave the record whole or absent. fsync on
-    // macOS is not a full barrier (F_FULLFSYNC), so after a power loss the top file can still be empty: that reads as
-    // damaged and is refused, with the repair named in the message (remove that file; the next list re-records it).
+    // macOS is not a full barrier (F_FULLFSYNC), so after a power loss the top file can still be empty: it is read as
+    // damaged at its seq, and the next list at or above that seq writes it afresh (nothing to remove by hand).
     const fd = fs.openSync(tmp, 'wx', 0o600);
     try { fs.writeSync(fd, JSON.stringify({ seq: v.seq, release_keys: v.keys }) + '\n'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-    try { fs.linkSync(tmp, file); } catch (e) {
+    // A damaged record at this seq (a power loss) is replaced by this list, which verified and is not below it.
+    if (stored.damaged && v.seq === stored.seq) fs.renameSync(tmp, file);
+    else try { fs.linkSync(tmp, file); } catch (e) {
       if (!e || e.code !== 'EEXIST') throw e;
       // Another check recorded this seq first: it must name the same keys.
       const other = JSON.parse(fs.readFileSync(file, 'utf8'));
