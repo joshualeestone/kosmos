@@ -1256,12 +1256,14 @@ const SCREENS = [
      board's own API and reused by every size and theme. tasks-subprojects groups by project with nothing picked;
      tasks-subproject-picked picks the long grandchild, so the closed select, crumb and title show it. */
   /* #6492: the Tasks view scrolled to the row waiting on the person (on a phone the tiles fill the first screen), so
-     its waiting line is in the shot. Needs a decision row, as --data marketing has (Cleo's ask). */
+     its waiting line is in the shot. #6542: it waits for .tsk-waiting-who, which both forms of that line carry: the
+     merged one-line form (a question row with a known waiting age, as --data marketing has) and the who line alone
+     (a question row with no known age, as the default data has), so the shot works on either data set. */
   { name: 'tasks-decision', owner: 'PigeonPete', go: async (page) => {
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
-    await page.waitForSelector('#tsk-groups .tsk-row .tsk-waiting.tsk-waiting-who', { state: 'attached', timeout: 8000 });
-    await page.evaluate(() => { const r = document.querySelector('#tsk-groups .tsk-row .tsk-waiting.tsk-waiting-who').closest('.tsk-row'); r.scrollIntoView({ block: 'center' }); });
+    await page.waitForSelector('#tsk-groups .tsk-row .tsk-waiting-who', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => { const r = document.querySelector('#tsk-groups .tsk-row .tsk-waiting-who').closest('.tsk-row'); r.scrollIntoView({ block: 'center' }); });
     await page.waitForTimeout(300);
   } },
   /* #6480: a sub-project's page, where the trail above the heading ("Parent / Launch") still shows; the control for
