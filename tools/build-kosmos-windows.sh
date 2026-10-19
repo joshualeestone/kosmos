@@ -350,22 +350,29 @@ LAUNCHER="$REPO/tools/windows/Kosmos.exe"
 # KosmosLauncher.cs "source only", and a cut from main would have shipped the
 # older binary without them, silently. A Mac cannot rebuild or byte-check the exe
 # (verify-launcher.ps1 is Windows-only), but it can see the ORDER of commits: the
-# last commit that touched the source must also be in the history of the last
-# commit that touched the exe (the same commit counts). If it is not, the exe is
-# older than its source. Without git history to read (an export, a shallow clone
-# missing those commits) this says so and goes on: it is a tripwire for drift,
-# not the provenance check, which stays verify-launcher.ps1.
-LAUNCHER_SRC_AT="$(git -C "$REPO" log -1 --format=%H -- tools/windows/KosmosLauncher.cs 2>/dev/null || true)"
-LAUNCHER_EXE_AT="$(git -C "$REPO" log -1 --format=%H -- tools/windows/Kosmos.exe 2>/dev/null || true)"
+# last commit that touched an input of the build (the source, or the icon compiled
+# into it) must also be in the history of the last commit that touched the exe (the
+# same commit counts). If it is not, the exe is older than what it is built from.
+# Without full git history to read (an export, or a shallow clone, where `git log`
+# names the shallow boundary for every file) this says so and goes on: it is a
+# tripwire for drift, not the provenance check, which stays verify-launcher.ps1.
+LAUNCHER_INPUTS="tools/windows/KosmosLauncher.cs assets/kosmos.ico"
+LAUNCHER_SRC_AT=""
+LAUNCHER_EXE_AT=""
+if [ "$(git -C "$REPO" rev-parse --is-shallow-repository 2>/dev/null)" = "false" ]; then
+  # shellcheck disable=SC2086 # the two input paths, split on purpose
+  LAUNCHER_SRC_AT="$(git -C "$REPO" log -1 --format=%H -- $LAUNCHER_INPUTS 2>/dev/null || true)"
+  LAUNCHER_EXE_AT="$(git -C "$REPO" log -1 --format=%H -- tools/windows/Kosmos.exe 2>/dev/null || true)"
+fi
 if [ -n "$LAUNCHER_SRC_AT" ] && [ -n "$LAUNCHER_EXE_AT" ]; then
   git -C "$REPO" merge-base --is-ancestor "$LAUNCHER_SRC_AT" "$LAUNCHER_EXE_AT" || {
-    echo "tools/windows/Kosmos.exe is older than tools/windows/KosmosLauncher.cs:" >&2
-    echo "the source changed in $LAUNCHER_SRC_AT, after the exe's last rebuild in $LAUNCHER_EXE_AT." >&2
+    echo "tools/windows/Kosmos.exe is older than what it is built from ($LAUNCHER_INPUTS):" >&2
+    echo "they changed in $LAUNCHER_SRC_AT, after the exe's last rebuild in $LAUNCHER_EXE_AT." >&2
     echo "Rebuild and re-sign Kosmos.exe on the Windows box (tools/windows/README.md), and commit it." >&2
     exit 1
   }
 else
-  echo "note: no git history for the launcher here, so its source-vs-exe order is not checked (#6512)" >&2
+  echo "note: no full git history for the launcher here, so its source-vs-exe order is not checked (#6512)" >&2
 fi
 
 # 🛑 THE PORT IS BAKED INTO THE LAUNCHER AND READ OUT OF server.js HERE, so this

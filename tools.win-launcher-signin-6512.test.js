@@ -153,6 +153,7 @@ test('#6512: the page-asked sign-in comes back on the page the person was on, an
   const fresh = 'http://127.0.0.1:16180/?boot=N0nce';
   const a = (page, port = 16180, f = fresh) => probe(['address', f, page == null ? 'none' : page, String(port)]);
   assert.equal(a('http://127.0.0.1:16180/?tab=projects&p=abc'), 'http://127.0.0.1:16180/?tab=projects&p=abc&boot=N0nce', 'the page and its query are kept');
+  assert.equal(a('http://127.0.0.1:16180/agent/a%20b?q=x%26y'), 'http://127.0.0.1:16180/agent/a%20b?q=x%26y&boot=N0nce', 'escapes are kept as written');
   assert.equal(a('http://127.0.0.1:16180/agent/x?tab=chat#bottom'), 'http://127.0.0.1:16180/agent/x?tab=chat&boot=N0nce', 'the path is kept, the fragment is not');
   assert.equal(a('http://127.0.0.1:16180/?token=OLD&boot=OLD&signin=failed&mode=run&tab=a'), 'http://127.0.0.1:16180/?tab=a&boot=N0nce', 'old sign-in items and mode are dropped');
   assert.equal(a('http://localhost:16180/?tab=a'), 'http://127.0.0.1:16180/?tab=a&boot=N0nce', 'fresh keeps its own host, so the cookie lands where the nonce was minted');
@@ -172,9 +173,13 @@ test('#6512: the Windows build refuses an exe older than its source', () => {
   assert.ok(check !== -1 && copy > check, 'the order check must come before the exe is staged');
 });
 
-test('#6512: the committed Kosmos.exe is no older than KosmosLauncher.cs (git order)', (t) => {
-  const last = (file) => spawnSync('git', ['-C', REPO, 'log', '-1', '--format=%H', '--', file], { encoding: 'utf8' });
-  const src = last('tools/windows/KosmosLauncher.cs');
+test('#6512: the committed Kosmos.exe is no older than KosmosLauncher.cs and the icon compiled into it (git order)', (t) => {
+  const shallow = spawnSync('git', ['-C', REPO, 'rev-parse', '--is-shallow-repository'], { encoding: 'utf8' });
+  if (shallow.status !== 0 || shallow.stdout.trim() !== 'false') { t.skip('no full git history here'); return; }
+  const last = (...files) => spawnSync('git', ['-C', REPO, 'log', '-1', '--format=%H', '--', ...files], { encoding: 'utf8' });
+  // The same inputs as tools/build-kosmos-windows.sh's LAUNCHER_INPUTS.
+  assert.match(BUILD, /LAUNCHER_INPUTS="tools\/windows\/KosmosLauncher\.cs assets\/kosmos\.ico"/, 'the build script checks other inputs than this test');
+  const src = last('tools/windows/KosmosLauncher.cs', 'assets/kosmos.ico');
   const exe = last('tools/windows/Kosmos.exe');
   if (src.status !== 0 || exe.status !== 0 || !src.stdout.trim() || !exe.stdout.trim()) { t.skip('no git history for the launcher here'); return; }
   const r = spawnSync('git', ['-C', REPO, 'merge-base', '--is-ancestor', src.stdout.trim(), exe.stdout.trim()], { encoding: 'utf8' });

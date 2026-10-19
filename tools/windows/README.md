@@ -419,9 +419,9 @@ Those flags are the ones `verify-launcher.ps1` uses. If they change, they must
 change in both places, and the binary must be rebuilt.
 `tools.win-launcher-native.test.js` compares the two.
 
-**A source change without a rebuild now fails two checks (#6512):**
+**A source or icon change without a rebuild now fails two checks (#6512):**
 `tools.win-launcher-signin-6512.test.js` (every PR, from git history: the exe's
-last commit must contain the source's last commit) and
+last commit must contain the last commit to the source or to `assets/kosmos.ico`) and
 `tools/build-kosmos-windows.sh` (the cut refuses the same drift). Even a
 comment-only edit to `KosmosLauncher.cs` counts: the git check cannot tell a
 comment from code, so commit the exe again with it (a rebuild of unchanged code

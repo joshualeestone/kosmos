@@ -1166,8 +1166,9 @@ class KosmosLauncher
     // was on, so a board restart does not throw them back to the front page. Only a page of this board (IsBoardAddress)
     // is kept, and only its path and query: the scheme, host and port stay open-board.js's `fresh` address, so the
     // session cookie lands on the host that minted the nonce. A `token`, `boot`, `signin` or `mode` item already in
-    // the kept page is dropped (`mode` because WithModeQuery adds its own), and fresh's `boot` nonce is added. With no
-    // nonce in fresh, or no board page to keep, it is `fresh` unchanged.
+    // the kept page is dropped (`mode` because WithModeQuery adds its own), and fresh's `boot` nonce is added. Only
+    // the nonce is taken from fresh: open-board.js --print-url names `/?boot=<nonce>` and nothing else. With no nonce
+    // in fresh, or no board page to keep, it is `fresh` unchanged.
     internal static string SignInAgainAddress(string fresh, string page, int port)
     {
         Uri freshUri;
