@@ -52481,6 +52481,8 @@ function paintPlusCertWatch(cw, plusOn) {
     ack.hidden = !lostSaid;
     if (ack.dataset) ack.dataset.at = lostSaid ? String(cw.lostAt) : '';
   }
+  // A poll already in flight carries an older answer than this one: bumping its sequence drops it when it lands.
+  if (typeof CW_NOTE !== 'undefined') CW_NOTE.seq = (CW_NOTE.seq || 0) + 1;
   if (typeof paintCwNote === 'function') paintCwNote(cw, plusOn);
   // kosmos#6613: Review reads this state, synchronously, right after paintPlus resolves: keep it set here, in this paint.
   if (line.dataset) { line.dataset.state = String(cw.state || ''); line.dataset.key = typeof cw.key === 'string' ? cw.key : ''; }
@@ -52528,8 +52530,13 @@ function paintCwNote(cw, plusOn) {
   if (!slot) return;
   const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
   const key = cw && cw.state === 'foreign' && typeof cw.key === 'string' && /^[0-9a-f]{16}$/.test(cw.key) ? cw.key : null;
+  const held = !!(slot.contains && slot.contains(document.activeElement));   // a repaint or a clear must not drop focus to the page
   // Leaving Kosmos+ with the finding still there shows the card again, and says it again: a reminder, by design.
-  if (!key || onPlus || cwNoteAway().indexOf(key) !== -1) { CW_NOTE.key = null; CW_NOTE.sig = null; slot.textContent = ''; return; }
+  if (!key || onPlus || cwNoteAway().indexOf(key) !== -1) {
+    CW_NOTE.key = null; CW_NOTE.sig = null; slot.textContent = '';
+    if (held && typeof rebootFocusAway === 'function') rebootFocusAway();   // the K mark, as the restart note does
+    return;
+  }
   const here = cw.foreign > 0 || !(cw.earlier > 0);   // this computer's address, or only an earlier one
   // What the small line can truly say: the check runs only while both it and Kosmos+ are on.
   const runs = cw.on !== true ? 'off' : plusOn === false ? 'plus-off' : cw.failing === true ? 'failing' : 'on';
@@ -52546,9 +52553,10 @@ function paintCwNote(cw, plusOn) {
       : runs === 'plus-off' ? 'Kosmos+ is off, so nothing is checking now; this is what the check found before.'
       : runs === 'failing' ? 'The check has been failing lately; this is what it found before.'
       : 'The certificate check is off; this is what it found before.') + '</small></div>'
-    + '<div class="uacts"><button type="button" class="uprime" data-cw="open">Review</button></div>'
+    + '<div class="uacts"><button type="button" class="uprime" data-cw="open" aria-label="Review: certificate warning">Review</button></div>'
     + '<button type="button" class="ux" data-cw="dismiss" aria-label="Close: certificate warning">&times;</button></div>';
   slot.querySelector('.utxt b').textContent = head;
+  if (held) { const review = slot.querySelector('[data-cw="open"]'); if (review) review.focus(); }
 }
 async function pollCwNote() {
   if (typeof document !== 'undefined' && document.hidden) return;   // a tab in the background asks nothing
