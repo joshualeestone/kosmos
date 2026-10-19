@@ -10,9 +10,10 @@
  *     signature must verify under a pinned release key;
  *   - tmux and the libraries it links: the TMUX BUNDLE the release copied in, which must hash to the manifest's signed
  *     tmux_sha256. Its VERSION file names what was built, and every library in its lib/ must be accounted for there.
- *     A release copies an already-built bundle and does not rebuild it, so the build script at the app commit can
- *     disagree with what shipped; the script is read only for each input's download url and source sha256, and only
- *     where its version equals the bundle's (otherwise the component says so and carries no source reference);
+ *     A release copies an already-built bundle and does not rebuild it, so the build script at the app commit is not
+ *     a record of what shipped; it is read only for the NAMES of the libraries it fetches, each of which the bundle
+ *     must name. The tmux parts carry no source download reference: a value read statically out of shell is not
+ *     one this SBOM can vouch for;
  *   - the connector's Rust crates: the relay's Cargo.lock at the connector commit, walked from kosmos-tunnel-client,
  *     with each crate's direct dependencies. A crate with no source counts as first-party only when it is a member of
  *     the relay's workspace; any other crate from a source this does not know refuses the whole SBOM.
@@ -23,9 +24,14 @@
  *
  * LIMIT: the connector's relay commit is the relay build's own record (its sidecar); this does not rebuild the
  * connector to check that the binary came from that commit's Cargo.lock.
- * LIMIT: a library linked statically into tmux and not recorded in the bundle's VERSION is invisible here.
- * LIMIT: the release tarball itself is not read: its hash comes from the manifest, and the manifest's file list is
- * exhaustive because the installed copy checks every file against it. The shipped runtime/bin/node is not tied to the
+ * LIMIT: a library linked statically into tmux and not recorded in the bundle's VERSION is invisible here; so is a
+ * static C library brought into the Mac app by a bridging header or a linker flag rather than an import, and the
+ * second native binary (Kosmos.app/Contents/MacOS/Kosmos, a re-signed copy of kosmos-app) is accepted by name only.
+ * LIMIT: a vendored third-party crate made a member of the relay workspace passes as first-party.
+ * Out of scope: the provider tools (Claude Code, Codex and so on) Kosmos downloads later, when a person asks.
+ * LIMIT: the release tarball itself is not read: its hash comes from the manifest. The manifest's file list is
+ * exhaustive by construction (the bundle build lists every file of the same stage it packs, and refuses anything
+ * that is not a plain file). The shipped runtime/bin/node is not tied to the
  * nodejs.org download hash here (the bundle build verifies it against nodejs.org's SHASUMS256 before packing).
  * LIMIT: the crate list is the lockfile closure, a superset of what the macOS connector compiles. Measured for 0.7.59:
  * 227 crates against cargo tree's 189; the extra are Windows-only and dev-only crates (26) and optional dependencies
@@ -127,28 +133,12 @@ function workspaceMembers(show, relay, commit) {
   }));
 }
 
-// Every `fetch <name> "$X_URL" "$X_SHA"` call, with X_VERSION, X_URL and X_SHA read from the same script. A line that
-// calls fetch in any other shape refuses, and so does a *_URL nobody fetches. This reads the script; it does not run
-// it, so it cannot see a download made some other way: what ships is decided by the bundle checks below, and the
-// script only supplies each input's source url and hash.
+// The names of the libraries tools/build-tmux-from-source.sh fetches, so the bundle can be held to naming each one.
+// Nothing else is taken from the script: it is read, not run, and five review rounds each found a way for a static
+// reading of shell to be wrong about a value. The names come from `fetch <name> "$X_URL" "$X_SHA"` calls; a line that
+// calls fetch in any other shape refuses, and so does an X_URL= line nothing fetches. Only whole-line comments are
+// skipped, and only the function's own definition line is exempt.
 function tmuxPins(text) {
-  const vars = {};
-  // Every setting of a fetch input, in any shape (unquoted, indented, exported, appended), must be the one plain
-  // NAME="value" line read below; otherwise the url or hash read here may not be the one the script fetches.
-  const anyShape = text.split('\n').filter((l) => !/^\s*#/.test(l))
-    .flatMap((l) => [...l.matchAll(/(^|[^A-Za-z0-9_$])([A-Z0-9_]+_(URL|VERSION|SHA))\+?=/g)].map((m) => m[2]));
-  const plain = [...text.matchAll(/^([A-Z0-9_]+_(URL|VERSION|SHA))="[^"]*"\s*$/gm)].map((m) => m[1]);
-  if (anyShape.length !== plain.length) throw new Error(`build-tmux-from-source.sh: a fetch input is set in a shape this SBOM cannot read (${anyShape.filter((n, i) => plain[i] !== n)[0] || anyShape[plain.length]})`);
-  for (const m of text.matchAll(/^([A-Z0-9_]+)="([^"]*)"/gm)) {
-    if (m[1] in vars && /_(URL|VERSION|SHA)$/.test(m[1])) throw new Error(`build-tmux-from-source.sh: ${m[1]} is set twice (the value at fetch time is not knowable here)`);
-    vars[m[1]] = m[2];
-  }
-  const expand = (s) => {
-    for (let i = 0; i < 5 && /\$\{[A-Z0-9_]+\}/.test(s); i++) s = s.replace(/\$\{([A-Z0-9_]+)\}/g, (_, v) => (v in vars ? vars[v] : `\${${v}}`));
-    return s;
-  };
-  // Only whole-line comments are skipped, so nothing after a # inside a string can hide a call. Every other line that
-  // calls fetch must be exactly one call in the shape below; only the function's own definition line is exempt.
   const code = text.split('\n').filter((l) => !/^\s*#/.test(l) && !/^\s*fetch\s*\(\)/.test(l));
   const pins = [];
   for (const line of code.filter((l) => /\bfetch\s/.test(l))) {
@@ -156,16 +146,14 @@ function tmuxPins(text) {
     if (!m) throw new Error(`build-tmux-from-source.sh: a fetch line this SBOM cannot read: ${line.trim()}`);
     const [, name, u, s] = m;
     if (u !== s) throw new Error(`build-tmux-from-source.sh: ${name} is fetched with ${u}_URL but ${s}_SHA`);
-    const version = vars[`${u}_VERSION`], url = vars[`${u}_URL`] && expand(vars[`${u}_URL`]), sha = vars[`${s}_SHA`];
-    if (!version || !url) throw new Error(`build-tmux-from-source.sh: no version or url for ${name}`);
-    if (/\$/.test(url) || /\$/.test(version)) throw new Error(`build-tmux-from-source.sh: ${name}'s version or url names a variable this SBOM cannot expand`);
-    if (!/^[0-9a-f]{64}$/.test(sha || '')) throw new Error(`build-tmux-from-source.sh: no recorded sha256 for ${name}`);
     if (pins.some((x) => x.name === name)) throw new Error(`build-tmux-from-source.sh: ${name} is fetched twice`);
-    pins.push({ name, url, version, sha, urlVar: `${u}_URL` });
+    pins.push({ name, urlVar: `${u}_URL` });
   }
   if (!pins.length) throw new Error('build-tmux-from-source.sh: no fetch lines');
   const fetched = new Set(pins.map((p) => p.urlVar));
-  for (const v of Object.keys(vars)) if (/_URL$/.test(v) && !fetched.has(v)) throw new Error(`build-tmux-from-source.sh: ${v} is set but never fetched`);
+  for (const m of text.matchAll(/^\s*(?:export\s+)?([A-Z0-9_]+_URL)=/gm)) {
+    if (!fetched.has(m[1])) throw new Error(`build-tmux-from-source.sh: ${m[1]} is set but never fetched`);
+  }
   return pins;
 }
 
@@ -345,8 +333,8 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
   const tunnelToml = members.get(CONNECTOR_CRATE) || '';
   if (!/^\[\[bin\]\]\s*\nname\s*=\s*"kosmos-tunnel"/m.test(tunnelToml)) throw new Error(`relay: ${CONNECTOR_CRATE} does not build the kosmos-tunnel binary`);
   checkNativeApp(manifest, show(repo, appCommit, 'native-app/main.swift'));
-  const pins = new Map(tmuxPins(show(repo, appCommit, 'tools/build-tmux-from-source.sh')).map((p) => [p.name, p]));
-  for (const name of pins.keys()) {
+  const pins = tmuxPins(show(repo, appCommit, 'tools/build-tmux-from-source.sh')).map((p) => p.name);
+  for (const name of pins) {
     if (!tmux.versions[name]) throw new Error(`the build script fetches ${name}, but the tmux bundle's VERSION does not name it (linked statically and unrecorded?)`);
   }
   const node = manifest.node.version.replace(/^v/, '');
@@ -354,13 +342,10 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
   const crates = deps.slice().sort((a, b) => byCodePoint(crateRef(a), crateRef(b)));
   const libs = Object.keys(tmux.versions).filter((n) => n !== 'tmux');
   const tmuxPart = (name) => {
-    const version = tmux.versions[name], pin = pins.get(name);
-    const c = { type: name === 'tmux' ? 'application' : 'library', 'bom-ref': `tmux-part:${name}`, name, version,
+    const version = tmux.versions[name];
+    return { type: name === 'tmux' ? 'application' : 'library', 'bom-ref': `tmux-part:${name}`, name, version,
       purl: `pkg:generic/${name}@${encodeURIComponent(version)}`, cpe: cpe(name, version),
       description: `${name}, in the shipped tmux bundle` };
-    if (pin && pin.version === version) c.externalReferences = download(pin.url, pin.sha);
-    else c.properties = [{ name: 'kosmos:source-pin', value: pin ? `the build script pins ${pin.version}, the bundle has ${version}` : 'the build script has no fetch line for it' }];
-    return c;
   };
   const components = [
     { type: 'framework', 'bom-ref': 'node', name: 'node', version: node, purl: `pkg:generic/nodejs/node@${encodeURIComponent(node)}`,
