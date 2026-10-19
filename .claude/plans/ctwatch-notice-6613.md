@@ -45,6 +45,8 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
   editing the tunnel's report (it is the tunnel's file, written atomically on its own schedule).
 - Weakest premise: the notice is per browser (localStorage); another browser shows it again. Accepted: it errs
   toward telling, and the request notice works the same way.
+- On a touch screen the notice's Review is 44px tall (#5407's rule for the login notice's main action). Review
+  checks the pane's line is about this finding set (`data-key`), not one left by a paint that was cut short.
 - Got it uses a busy flag and `aria-busy`, not `disabled` (a disabled button drops focus); a refused Got it keeps focus
   on it and says why.
 - After Got it, focus goes to the line when it still says something (a finding), else to the check's switch, and
@@ -58,5 +60,5 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
   finding is raised away from Kosmos+ as the fixed warning, Review opens Kosmos+ and puts it away; a clear check
   raises nothing (the control). Its lost scenario: Got it shows with the lost sentence, posts the marker it was
   shown, then goes, the pane says Noted., and focus is on the switch.
-- `node --test engine/cert-watch.test.js` (13), `web.cert-notice-6613.test.js` (17), `web.plus-cert-watch-6602.test.js`
+- `node --test engine/cert-watch.test.js` (13), `web.cert-notice-6613.test.js` (19), `web.plus-cert-watch-6602.test.js`
   (9), the `server.test.js` route test (by name). Mutant: the dismissed-key check removed, 2 notice tests red.
