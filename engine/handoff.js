@@ -304,12 +304,6 @@ function contractBullets() {
   return null;
 }
 
-/**
- * Render the handoff facts as Markdown. Pure of its environment except for the
- * reads it is meant to do: pass { session, cwd, artifacts, now } and it measures
- * against those, so a test fully controls the output. Defaults read the running
- * environment, which is what the CLI wants.
- */
 /* The open-tasks fact (kosmos#6506 ruling 3): the agent's own open tasks across its projects. This
  * is the ONE fact that needs the board, so the CLI makes the call (GET /api/tasks/mine, agent token)
  * and passes the response here as `resp` = { reached, status, body }. An unreachable board reads "the
@@ -323,7 +317,7 @@ function tasksFact(resp) {
   const status = Number(resp.status);
   const body = resp.body && typeof resp.body === 'object' ? resp.body : null;
   if (status === 403) return { line: 'the board would not read them (' + cleanPath(String((body && body.error) || 'refused')) + ')', items: null };
-  if (status !== 200 || !body || !Array.isArray(body.tasks)) return { line: 'the board gave an answer that could not be read', items: null };
+  if (status !== 200 || !body || !Array.isArray(body.tasks)) return { line: 'the board gave an answer that could not be read (status ' + (Number.isFinite(status) ? status : '?') + ')', items: null };
   const items = body.tasks.map((raw) => {
     const t = raw || {};
     const proj = cleanPath(String(t.project != null ? t.project : (t.projectId != null ? t.projectId : '?')));
@@ -334,6 +328,12 @@ function tasksFact(resp) {
   return { line: null, items };
 }
 
+/**
+ * Render the handoff facts as Markdown. Pure of its environment except for the reads it is meant to
+ * do: pass { session, cwd, artifacts, now, tasks } and it measures against those, so a test fully
+ * controls the output. Defaults read the running environment, which is what the CLI wants. `tasks`
+ * is the board response for the one non-local fact (see tasksFact); absent, it reads "not checked".
+ */
 function render(opts) {
   opts = opts || {};
   const session = typeof opts.session === 'string' ? opts.session : (process.env.KOSMOS_AGENT_SESSION || '');

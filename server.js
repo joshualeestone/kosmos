@@ -19550,11 +19550,19 @@ const server = http.createServer(async (req, res) => {
     catch (err) { sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your tasks right now'), projectsUnreadable: true }); return; }
 
     const myIds = new Set((everyProject || []).filter((p) => tokenOnlyOnProject(p, caller)).map((p) => p && p.id));
+    // Match a task's holder the SAME way tokenOnlyOnProject matches project membership: a key-only
+    // token by its key, a named token by its name OR (when it has no twins) its key. Otherwise a
+    // named token whose task was stored under the key spelling would be dropped and read as a false
+    // "none open", an inconsistency between who is on the project and whose tasks are returned.
+    const heldByCaller = (n) => (caller.byKey
+      ? sameAgentName(n, caller.name, true)
+      : (sameAgentName(n, caller.name, false) || (!caller.twins && sameAgentName(n, caller.key, false))));
     const open = tasks.inListOrder(
       tasks.allTasks(everyProject).filter((t) =>
         myIds.has(t.projectId)
+        && t.projectArchived !== true                 // an archived project's tasks are not live work (the Tasks view drops them too)
         && tasks.listGroup(t) === 'open'
-        && Array.isArray(t.whoNames) && t.whoNames.some((n) => sameAgentName(n, caller.name, !!caller.byKey))),
+        && Array.isArray(t.whoNames) && t.whoNames.some(heldByCaller)),
       'open');
     sendJson(res, 200, {
       tasks: open.map((t) => ({ project: t.projectName, projectId: t.projectId, number: t.number, title: String(t.sentence == null ? '' : t.sentence) })),

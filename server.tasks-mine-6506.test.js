@@ -139,3 +139,48 @@ test('an ambiguous (twins, key-only) token is refused, never widened to a guess'
   assert.equal(r.code, 403, r.text.slice(0, 200));
   assert.match(JSON.parse(r.text).error, /could not tell which agent/);
 });
+
+test('#6506 ruling 3: an archived project\'s open tasks are not listed', async (t) => {
+  const realAll = projectsEngine.readAll;
+  projectsEngine.readAll = () => [
+    { id: 'live', name: 'live', agents: ['reader-agent'], tasks: [{ number: 1, sentence: 'live open', who: 'reader-agent' }] },
+    { id: 'arch', name: 'arch', archived: true, agents: ['reader-agent'], tasks: [{ number: 1, sentence: 'archived open', who: 'reader-agent' }] },
+  ];
+  t.after(() => { projectsEngine.readAll = realAll; });
+  const r = await call('GET', '/api/tasks/mine', asAgent(readerToken));
+  assert.equal(r.code, 200, r.text.slice(0, 200));
+  assert.match(r.text, /live open/);
+  assert.doesNotMatch(r.text, /archived open/, 'an archived project\'s task was listed');
+});
+
+test('#6506 ruling 3: a task held under the key spelling (name != key) is still mine, not a false "none open"', async (t) => {
+  const m = sendertoken.mint('Reader-Caps');   // key is the safeKey (lowercased); name keeps the caps
+  assert.ok(m.ok, 'could not mint the caps token');
+  const key = require('./engine/store').safeKey('Reader-Caps');
+  const realAll = projectsEngine.readAll;
+  projectsEngine.readAll = () => [
+    { id: 'pk', name: 'pk', agents: [key], tasks: [{ number: 1, sentence: 'held by key', who: key }] },
+  ];
+  t.after(() => { projectsEngine.readAll = realAll; });
+  const r = await call('GET', '/api/tasks/mine', asAgent(m.token));
+  assert.equal(r.code, 200, r.text.slice(0, 200));
+  assert.match(r.text, /held by key/, 'a task held under the key spelling was dropped (membership admitted the project by key, but the holder match did not)');
+});
+
+test('#6506 ruling 3: the route ignores any name supplied in the request, keying only on the token', async (t) => {
+  withProjects(t);
+  const r = await call('GET', '/api/tasks/mine?agent=other-agent&who=other-agent', asAgent(readerToken));
+  assert.equal(r.code, 200, r.text.slice(0, 200));
+  const titles = (JSON.parse(r.text).tasks || []).map((x) => x.title).sort();
+  assert.deepEqual(titles, ['reader open A', 'reader open B'], 'a request-supplied name changed whose tasks were returned');
+  assert.doesNotMatch(r.text, /other open A|other open C/, 'a request name leaked another agent\'s tasks');
+});
+
+test('#6506: a project store that cannot be read answers 500, not a false empty list', async (t) => {
+  const realAll = projectsEngine.readAll;
+  projectsEngine.readAll = () => { throw new Error('store unreadable'); };
+  t.after(() => { projectsEngine.readAll = realAll; });
+  const r = await call('GET', '/api/tasks/mine', asAgent(readerToken));
+  assert.equal(r.code, 500, r.text.slice(0, 200));
+  assert.match(JSON.parse(r.text).error, /store unreadable|cannot read/);
+});

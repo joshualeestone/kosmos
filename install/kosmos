@@ -3127,8 +3127,8 @@ cmd_handoff() {
   # per-account port this script already derived, never a hard-coded 16180), and kosmos_curl keeps
   # both tokens in a mode-600 header file, never on the command line. Best-effort: if the board does
   # not answer, the handoff still prints every local fact and the task line says the board did not
-  # answer (never an empty list). curl exit 0 means the board answered (even a 403); non-zero means
-  # it was not reached.
+  # answer (never an empty list). curl exit 0 means the board answered (even a 403); ANY non-zero
+  # (unreachable, a #1765 board-proof failure 96/97/98, or an interrupt) folds into "not reached".
   local _bt _atok _tbody _trc=0 _tcode _reached=0
   _bt="$(agent_board_token || true)"
   _atok=""; case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _atok="$KOSMOS_AGENT_TOKEN" ;; esac
