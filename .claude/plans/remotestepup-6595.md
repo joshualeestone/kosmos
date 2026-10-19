@@ -40,6 +40,11 @@ creation need a fresh authenticator code. This is the step-up half.
 - **`/api/remote/setup-start` is not gated:** it is this computer's own Kosmos+ enrolment (remotemark-6595's list).
 - **The tests never send a request a broken gate would let act** (review iteration 6, after 13:10): over HTTP only
   key routes with an unreadable body, which answer 400 either way; every other route is tested on the function.
+- **Federation is gated where it lets something in** (review iteration 9): joining another Kosmos's project (a room
+  outsiders post into and agents act on), inviting one, and sharing this project's own code. Verifying an invite,
+  removing and withdrawing are not.
+- **`/api/machine/start-at-sign-in` is not gated:** it writes the board's own login job, which restarts only code
+  already on disk (the engine-restart reason).
 - **Joining a company or family is gated** (`/api/org/enroll`, review iteration 7): it applies that org's policy here
   and starts reporting this computer's activity to it. Previewing a code and leaving are not.
 - **Making a project webhook is gated:** it mints a secret address an outside party can post tasks to, for as long as

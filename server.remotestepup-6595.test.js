@@ -53,6 +53,7 @@ const STEP_UP_ROUTES = [
   '/api/github-device/start', '/api/vercel/start',
   '/api/agents', '/api/team', '/api/connect-agent', '/api/worlds', '/api/worlds/import', '/api/agent/scout/restore',
   '/api/register', '/api/remote/second-reset', '/api/project/p1/webhooks', '/api/org/enroll',
+  '/api/federation/join', '/api/federation/invite', '/api/federation/own-code',
 ];
 
 test('R01: PUT /api/autoupdate from a stale remote session is refused (on the function)', () => {
@@ -175,15 +176,19 @@ const EXEMPT = {
   'POST /api/remote/signin-verify': "this computer's own Kosmos+ sign-in steps",
   'POST /api/github-device/app': 'stores a GitHub app client id, which is public by design; the sign-in start is gated',
   'POST /api/remote/setup-start': "this computer's own Kosmos+ enrolment (remotemark-6595's exclusions)",
+  'POST /api/remote/join/confirm': 'refused remotely outright (remote_not_allowed, remotemark-6595)',
+  'POST /api/remote/join/recheck': "this computer's own join attempt, no allow (remotemark-6595's exclusions)",
+  'POST /api/remote/join/retry': "this computer's own join attempt, no allow (remotemark-6595's exclusions)",
 };
 /* Decided without a scan to catch them (their paths name none of the guard's words), written down so the boundary is
    a record: POST /api/agent/<n>/codex-hooks trusting hooks lets them run outside Codex's sandbox, but every agent here
    already runs an unsandboxed shell, so it adds nothing a remote session lacks. POST /api/accounts/share points a
    Claude account's history at the shared tree: it moves where history lives, and no credential or software enters.
    POST /api/engine/restart restarts the board onto the code already on disk, and only when it is stale: it runs nothing
-   new. The gate is a list, so a future route like these is open until someone adds it; the two scans above narrow
+   new. POST /api/machine/start-at-sign-in writes the board's own login job, which restarts only code already on disk,
+   for the same reason. POST /api/federation/verify checks an invite and lets nothing in. The gate is a list, so a future route like these is open until someone adds it; the two scans above narrow
    that to routes whose paths name none of their words. */
-const LOOKS_GATED = /(install|apikey|token|subscription\/start|signin|\/start$|import|^\/api\/worlds$|^\/api\/agents$|^\/api\/team$|connect-agent|update)/;
+const LOOKS_GATED = /(install|apikey|token|subscription\/start|signin|\/start$|import|^\/api\/worlds$|^\/api\/agents$|^\/api\/team$|connect-agent|update|join|enroll|register|federation|webhook)/;
 test('R01: every key, sign-in, install, update or create route is gated or exempt with a reason, and every gated route exists', () => {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const routes = [...src.matchAll(/pathname === '(\/api\/[^']*)' && req\.method === '(POST|PUT|PATCH)'/g)].map((m) => m[2] + ' ' + m[1]);

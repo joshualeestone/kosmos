@@ -4290,12 +4290,17 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    request is not asked: the person is at the computer. Taking things away (deleting a key, forgetting a token) is
    not asked either. */
 const REMOTE_STEP_UP_SECS = 10 * 60;
-function remoteSessionFresh(headers, nowSecs) {
+/* The gate's two headers, read one way: { second, iat }, iat null unless it is a plain decimal (a value Node joined
+   from repeated headers, "a, b", is not). */
+function remoteSessionHeaders(headers) {
   const h = headers || {};
-  if (h['x-kosmos-session-second'] !== '1') return false;
   const raw = h['x-kosmos-session-iat'];
-  if (typeof raw !== 'string' || !/^[0-9]{1,12}$/.test(raw)) return false;
-  const age = nowSecs - Number(raw);
+  return { second: h['x-kosmos-session-second'] === '1', iat: typeof raw === 'string' && /^[0-9]{1,12}$/.test(raw) ? Number(raw) : null };
+}
+function remoteSessionFresh(headers, nowSecs) {
+  const { second, iat } = remoteSessionHeaders(headers);
+  if (!second || iat === null) return false;
+  const age = nowSecs - iat;
   // Bounded both sides: an issue time ahead of this clock is fresh only within a minute of drift.
   return age >= -60 && age <= REMOTE_STEP_UP_SECS;
 }
@@ -4315,6 +4320,9 @@ const REMOTE_STEP_UP_EXACT = new Set([
   'POST /api/agents', 'POST /api/team', 'POST /api/connect-agent', 'POST /api/worlds', 'POST /api/worlds/import',
   // Writing an agent's launchd job (it starts processes), the same class as bringing an agent back.
   'POST /api/register',
+  // Federation: joining another Kosmos's project opens a room here that outsiders post into and agents act on;
+  // inviting one, or sharing this project's own code, lets another Kosmos in. Removing and withdrawing take away.
+  'POST /api/federation/join', 'POST /api/federation/invite', 'POST /api/federation/own-code',
   // Joining a company or family: it applies that org's policy here and starts reporting this computer's activity to
   // it. Previewing a code and leaving are not gated (one reads, the other takes away).
   'POST /api/org/enroll',
@@ -4349,10 +4357,8 @@ const REMOTE_STEP_UP_CLOCK = Object.freeze({
 function remoteStepUpRefusal(req, pathname, nowSecs) {
   if (!needsRemoteStepUp(pathname, req.method) || !isRemoteRequest(req)) return null;
   if (remoteSessionFresh(req.headers, nowSecs)) return null;
-  const h = req.headers || {};
-  const raw = h['x-kosmos-session-iat'];
-  if (h['x-kosmos-session-second'] === '1' && typeof raw === 'string' && /^[0-9]{1,12}$/.test(raw)
-      && Number(raw) - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
+  const { second, iat } = remoteSessionHeaders(req.headers);
+  if (second && iat !== null && iat - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
   return REMOTE_STEP_UP;
 }
 /* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
