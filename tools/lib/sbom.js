@@ -53,12 +53,18 @@ const { execFileSync } = require('child_process');
 const CONNECTOR_CRATE = 'kosmos-tunnel-client';
 const CRATES_IO = new Set(['registry+https://github.com/rust-lang/crates.io-index', 'sparse+https://index.crates.io/']);
 
+// Every git call reads the OBJECTS a commit names and nothing a local setting puts in front of them (review 28: with
+// a `git replace` ref in the checkout, git show of a signed commit returned another commit's file): no replace
+// objects, and none of this shell's GIT_* settings (another repo, index, object store or alternates).
+const GIT_ENV = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^GIT_/.test(k))), GIT_NO_REPLACE_OBJECTS: '1' };
+const LIMITS = { git: 300000, cargo: 120000, tool: 120000 };   // ms; a stuck tool fails the run instead of holding it
+
 // The mode of a path in a commit ('100644', '120000' for a symlink, '040000' for a folder...), or null when it is not
 // there. Only a git answer of "nothing at that path" is null; any other failure throws.
 function gitEntry(repo, commit, file) {
   let out;
   try {
-    out = execFileSync('git', ['-C', repo, 'ls-tree', '--full-tree', commit, '--', file], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    out = execFileSync('git', ['-C', repo, 'ls-tree', '--full-tree', commit, '--', file], { encoding: 'utf8', env: GIT_ENV, timeout: LIMITS.git, stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (e) {
     throw new Error(`${repo}: git could not list ${file} at ${commit}: ${String(e.stderr || e.message).split('\n')[0]}`);
   }
@@ -82,7 +88,7 @@ function cargoWorkspace(relay, commit) {
   const os = require('os'), p = require('path');
   const git = (args, input) => {
     try {
-      return execFileSync('git', ['-C', relay, ...args], { input, maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'pipe'] });
+      return execFileSync('git', ['-C', relay, ...args], { input, env: GIT_ENV, timeout: LIMITS.git, maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch (e) {
       throw new Error(`${relay}: git ${args[0]} failed at ${commit}: ${String(e.stderr || e.message).split('\n')[0]}`);
     }
@@ -103,6 +109,9 @@ function cargoWorkspace(relay, commit) {
       const seg = parts[k], low = seg.toLowerCase();
       if (seg === '' || seg === '.' || seg === '..') refuse(`${file} has an empty, . or .. part`);
       if (low === '.cargo') refuse(`${file} is Cargo configuration, which can change what the connector builds`);
+      // Review 28: rustup reads a toolchain file in the tree Cargo runs in and DOWNLOADS and runs that toolchain.
+      if (low === 'rust-toolchain' || low === 'rust-toolchain.toml') refuse(`${file} names a Rust toolchain, which rustup would fetch and run here`);
+      if (low === '.git') refuse(`${file} is inside a .git folder`);
       if ((low === 'cargo.toml' && seg !== 'Cargo.toml') || (low === 'cargo.lock' && seg !== 'Cargo.lock')) refuse(`${file} is a Cargo file in another case`);
       const real = parts.slice(0, k + 1).join('/'), key = real.toLowerCase();
       const seen = folded.get(key);
@@ -126,13 +135,14 @@ function cargoWorkspace(relay, commit) {
       at = end + 1;
     }
     if (at !== out.length) refuse('git cat-file answered more than was asked');
-    // Cargo with the build's own cache (CARGO_HOME) and nothing else of this shell's Cargo or Rust settings (a
-    // RUSTC or RUSTC_WRAPPER names a program Cargo runs).
-    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CARGO_(?!HOME$)|RUSTUP_TOOLCHAIN$|RUSTFLAGS$|RUSTDOCFLAGS$|RUSTC|RUSTDOC)/.test(k)));
+    // Cargo with the build's own cache (CARGO_HOME) and nothing else of this shell's Cargo, Rust or git settings (a
+    // RUSTC or RUSTC_WRAPPER names a program Cargo runs; Cargo runs git too), and rustup told not to install anything.
+    const env = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CARGO_(?!HOME$)|RUSTUP_(?!HOME$)|RUSTFLAGS$|RUSTDOCFLAGS$|RUSTC|RUSTDOC|GIT_)/.test(k))),
+      RUSTUP_AUTO_INSTALL: '0' };
     let meta;
     try {
       meta = execFileSync('cargo', ['metadata', '--locked', '--offline', '--format-version', '1', '--manifest-path', p.join(tree, 'Cargo.toml')],
-        { cwd: tree, env, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
+        { cwd: tree, env, timeout: LIMITS.cargo, maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
       const why = String(e.stderr || e.message).split('\n').find((l) => /error/.test(l)) || String(e.message).split('\n')[0];
       throw new Error(`relay at ${commit}: Cargo does not agree the Cargo.lock is what the Cargo.toml files resolve to (cargo is needed): ${why.trim()}`);
@@ -164,7 +174,7 @@ function gitShow(repo, commit, file) {
     throw err;
   }
   if (mode !== '100644' && mode !== '100755') throw new Error(`${repo} ${file} at ${commit} is not a plain file (mode ${mode}); this SBOM reads plain files only`);
-  return execFileSync('git', ['-C', repo, 'show', `${commit}:${file}`], { encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'] });
+  return execFileSync('git', ['-C', repo, 'show', `${commit}:${file}`], { encoding: 'utf8', env: GIT_ENV, timeout: LIMITS.git, maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 // Cargo.lock v3/v4: [[package]] tables of name, version, source, checksum, dependencies. A dependency names a package
@@ -450,7 +460,7 @@ function swiftcImports(swift, target) {
     const src = require('path').join(dir, 'main.swift'), out = require('path').join(dir, 'imports');
     fs.writeFileSync(src, swift);
     try {
-      execFileSync('xcrun', ['swiftc', '-frontend', '-emit-imported-modules', '-target', target, src, '-o', out], { stdio: ['ignore', 'ignore', 'pipe'] });
+      execFileSync('xcrun', ['swiftc', '-frontend', '-emit-imported-modules', '-target', target, src, '-o', out], { timeout: LIMITS.tool, stdio: ['ignore', 'ignore', 'pipe'] });
     } catch (e) {
       throw new Error(`the Swift compiler could not read native-app/main.swift (xcrun swiftc is needed): ${String(e.stderr || e.message).split('\n')[0]}`);
     }
