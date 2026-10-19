@@ -145,7 +145,13 @@ test('Review does not put a finding away on a line left from an older finding se
 });
 
 test('the notice\'s Review and Got it are at finger size on a touch screen', () => {
-  assert.match(PAGE, /\.utoast\.cwnote \.uacts button, #plus-cw-ack \{ min-height: 44px; \}/, 'Review and Got it at finger size');
+  // Inside the touch media block where the other finger-size rules live, or it does not apply on a touch screen.
+  const at = PAGE.indexOf('.utoast.cwnote .uacts button, #plus-cw-ack { min-height: 44px; }');
+  const block = PAGE.lastIndexOf('@media (hover: none), (pointer: coarse)', at);
+  assert.ok(at > 0 && block > 0, 'Review and Got it at finger size');
+  const between = PAGE.slice(block, at);
+  let depth = 0; for (const ch of between) { if (ch === '{') depth += 1; else if (ch === '}') depth -= 1; }
+  assert.ok(depth >= 1, 'the finger-size rule is not inside the touch media block');
 });
 
 test('a failed read of the board keeps the warning showing (no blink)', async () => {
@@ -283,7 +289,7 @@ test('a computer not set up for Kosmos+ is asked again only after a while', asyn
 
 test('the markup carries the notice slot (first in the floating stack) and Got it', () => {
   assert.match(PAGE, /<div class="topnotes" id="topnotes">[\s\S]{0,400}<div id="cwnote-slot"><\/div>\s*<div id="utoast-slot"><\/div>/);
-  assert.match(PAGE, /<button class="btn" type="button" id="plus-cw-ack" aria-label="Got it: the earlier report could not be read" hidden>Got it<\/button>/);
+  assert.match(PAGE, /<button class="btn" type="button" id="plus-cw-ack" hidden>Got it: earlier report<\/button>/);
 });
 
 test('every slot in the floating stack is taken out of the layout while empty (an empty flex item spends a gap)', () => {

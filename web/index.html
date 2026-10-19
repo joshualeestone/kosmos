@@ -19604,7 +19604,7 @@ window.kosmosMeasureScrollbarWidth();
                the flow itself appears) may still not be read out. Empty, it takes no room (CSS below). -->
           <p class="fhint plus-cw-line" id="plus-cw-line" role="status"></p>
           <!-- kosmos#6613: shown with the lost-report sentence; tells the board this person has seen it. -->
-          <button class="btn" type="button" id="plus-cw-ack" aria-label="Got it: the earlier report could not be read" hidden>Got it</button>
+          <button class="btn" type="button" id="plus-cw-ack" hidden>Got it: earlier report</button>
           <div class="plus-cw-row" id="plus-cw-row" hidden>
             <button class="toggle" type="button" id="plus-cw-switch" role="switch" aria-labelledby="plus-cw-label" hidden><i></i></button>
             <span class="fhint" id="plus-cw-label">While Kosmos+ is on, check the public certificate logs for this computer's address once a day (this sends the address to Cert Spotter)</span>
@@ -51605,6 +51605,7 @@ async function paintPlus() {
      inventing a rule. Nobody can enrol or pay yet (#1742, #1886), so today this rests every
      machine at state1 (no switch). state2's paid sign-in still has no signal and stays
      hidden; an already-enrolled machine keeps the flow so it can still turn Plus OFF. */
+  if (r && r.enrolled === true && typeof CW_NOTE !== 'undefined') CW_NOTE.quietUntil = 0;   // kosmos#6613: set up now, so poll again
   if (!r || r.enrolled !== true) {
     // kosmos#6613: a computer no longer set up has no finding to raise when the person leaves Kosmos+.
     if (r && r.enrolled === false && typeof paintCwNote === 'function') paintCwNote(null);   // an error answer is not "not set up"
@@ -52539,7 +52540,7 @@ function paintCwNote(cw, plusOn) {
     ? 'Warning: a certificate was issued for this computer\'s address that this computer did not ask for.'
     : 'Warning: a certificate, which this computer did not ask for, was issued for an address this computer used before.';
   // role=status on the words, not the card, so the buttons are not read out with every announcement (#3532's rule).
-  // The headline is set after the card is in; the small line comes with it, so a reader may say the headline only.
+  // The card is inserted whole in one task; whether a reader announces a new live region is not measured (plan).
   slot.innerHTML = '<div class="utoast cwnote"><span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt" role="status"><b></b><small>' + (runs === 'on' ? 'Kosmos+ checks the public certificate logs for this computer.'
       : runs === 'plus-off' ? 'Kosmos+ is off, so nothing is checking now; this is what the check found before.'
@@ -52590,7 +52591,7 @@ async function pollCwNote() {
         } else {
           // Not said there: the notice is kept for the next poll, and focus goes somewhere real.
           const next = [sw && !sw.hidden ? sw : null, document.querySelector('.apphead .klink'), document.querySelector('.apphead h1')]
-            .find((el) => el && el.focus);
+            .find((el) => el && el.focus && (!el.getClientRects || el.getClientRects().length));
           if (next) next.focus();
         }
       };

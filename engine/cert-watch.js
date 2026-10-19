@@ -83,6 +83,14 @@ function certWatchFrom(dir, nowMs) {
   const marked = typeof raw.damaged_report_at === 'number' && raw.damaged_report_at > 0;
   const lost = marked && (damagedAt === null || acked !== damagedAt);
   if (lost && state === 'clear') state = 'unknown';
+  /* The tunnel writes `unknown` for as long as its lost marker stands, and never removes it (kosmos-relay
+     crates/tunnel/src/ctwatch.rs: `!verified || damaged_report_at` gives `unknown`). Once a person has acknowledged
+     that marker, a current successful check is clear again: read it so, or Got it would leave "cannot confirm" for
+     good. A check that is stale or failing stays unknown. */
+  const failingNow = errorAt !== null && (checkedAt === null || errorAt >= checkedAt);
+  if (marked && !lost && state === 'unknown' && checkedAt !== null && Math.abs(nowMs - checkedAt * 1000) < STALE_MS && !failingNow) {
+    state = 'clear';
+  }
   return {
     on,
     state,
@@ -96,7 +104,7 @@ function certWatchFrom(dir, nowMs) {
     key: state === 'foreign' ? findingKey(raw) : null,
     checkedAt,
     /* The last try failed after the last success (or there has been no success). */
-    failing: errorAt !== null && (checkedAt === null || errorAt >= checkedAt),
+    failing: failingNow,
   };
 }
 
