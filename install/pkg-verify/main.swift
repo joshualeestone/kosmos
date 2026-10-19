@@ -82,8 +82,11 @@ guard let version = m["version"] as? String, let got = parseVersion(version) els
 // release served again by the download site is refused.
 guard got == want else { refuse("the signed release is \(version), not the \(args[3]) offered, so nothing was installed") }
 guard !isOlder(got, floor) else { refuse("the release offered (\(version)) is older than this installer, so nothing was installed") }
+// Every field is checked before any is printed: a refusal prints nothing a caller could take as a pin.
+var lines: [String] = []
 for field in ["setup_sha256", "sha256", "tmux_sha256"] {
     guard let v = m[field] as? String, isSha256(v) else { refuse("the signed release manifest has no \(field)") }
-    print("\(field)=\(v)")
+    lines.append("\(field)=\(v)")
 }
+print(lines.joined(separator: "\n"))
 exit(0)

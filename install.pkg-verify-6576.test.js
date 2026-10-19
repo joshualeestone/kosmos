@@ -1,0 +1,198 @@
+'use strict';
+/**
+ * kosmos#6576: a first install from the .pkg is held to the SIGNED release. Four parts, each run for real:
+ *   1. the helper's built-in release keys are engine/manifest-verify.js's KEYS (one list, two copies);
+ *   2. the helper (install/pkg-verify/main.swift), compiled with a throwaway key in place of the release key, against
+ *      manifests that key signed: a good one prints the three sha256 values; a tampered manifest, another version, a
+ *      release older than the floor, a missing field, and a manifest signed by another key are refused (97);
+ *   3. the postinstall's root step, lifted verbatim, run against a local site (file:// with the real /usr/bin/curl)
+ *      and that compiled helper: a good release yields the pins and a readable copy of the installer; a tampered
+ *      installer, a tampered manifest and a missing signature end the install before anything runs;
+ *   4. setup.sh's pinned_sha_ok, lifted verbatim: no pin passes, a matching pin passes, a different or malformed
+ *      pin refuses.
+ * Parts 2 and 3 need macOS and swiftc, and are skipped (said so) without them.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
+
+const REPO = __dirname;
+const SWIFT = fs.readFileSync(path.join(REPO, 'install', 'pkg-verify', 'main.swift'), 'utf8');
+const VERIFY_JS = fs.readFileSync(path.join(REPO, 'engine', 'manifest-verify.js'), 'utf8');
+const POSTINSTALL = fs.readFileSync(path.join(REPO, 'install', 'pkg-scripts', 'postinstall'), 'utf8');
+const SETUP = fs.readFileSync(path.join(REPO, 'install', 'setup.sh'), 'utf8');
+
+const keysOf = (src, open) => {
+  const at = src.indexOf(open);
+  assert.notEqual(at, -1, open + ' is gone');
+  const list = src.slice(at, src.indexOf(']', at));
+  return [...list.matchAll(/"([A-Za-z0-9+/=]{40,})"|'([A-Za-z0-9+/=]{40,})'/g)].map((m) => m[1] || m[2]);
+};
+
+test('#6576: the helper trusts exactly the release keys engine/manifest-verify.js trusts', () => {
+  const swift = keysOf(SWIFT, 'let releaseKeys = [');
+  const js = keysOf(VERIFY_JS, 'const KEYS = [');
+  assert.ok(js.length >= 1, 'manifest-verify.js pins no key');
+  assert.deepEqual(swift, js, 'a key added or retired in one copy must be in the other, or the .pkg and the update disagree');
+});
+
+const swiftc = spawnSync('/usr/bin/xcrun', ['--find', 'swiftc'], { encoding: 'utf8' });
+const CAN_BUILD = process.platform === 'darwin' && swiftc.status === 0;
+const SKIP = CAN_BUILD ? false : 'needs macOS and swiftc';
+
+let built = null;
+function buildHelper() {
+  if (built) return built;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pkgverify-6576-'));
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  const other = crypto.generateKeyPairSync('ed25519');
+  const spki = publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
+  const releaseLine = SWIFT.match(/let releaseKeys = \[\n(\s+"[^"]+",\n)+\]/);
+  assert.ok(releaseLine, 'the releaseKeys list moved; re-anchor this test');
+  const src = SWIFT.replace(releaseLine[0], 'let releaseKeys = [\n    "' + spki + '",\n]');
+  assert.notEqual(src, SWIFT);
+  fs.writeFileSync(path.join(dir, 'main.swift'), src);
+  const floor = fs.readFileSync(path.join(REPO, 'tools', 'macos-floor'), 'utf8').trim();
+  const r = spawnSync('/usr/bin/xcrun', ['swiftc', '-target', 'arm64-apple-macos' + floor, '-O', path.join(dir, 'main.swift'), '-o', path.join(dir, 'kosmos-pkg-verify')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, 'the helper does not compile: ' + r.stderr);
+  built = { dir, bin: path.join(dir, 'kosmos-pkg-verify'), privateKey, otherKey: other.privateKey };
+  return built;
+}
+const hex = (s) => crypto.createHash('sha256').update(s).digest('hex');
+function release(h, version, fields, key) {
+  const manifest = Buffer.from(JSON.stringify(Object.assign({ manifest: 1, version, files: {} }, fields)));
+  const sig = crypto.sign(null, manifest, key || h.privateKey).toString('base64');
+  return { manifest, sig };
+}
+function runHelper(h, rel, version, floor) {
+  const d = fs.mkdtempSync(path.join(h.dir, 'run-'));
+  fs.writeFileSync(path.join(d, 'm.json'), rel.manifest);
+  fs.writeFileSync(path.join(d, 'm.sig'), rel.sig);
+  return spawnSync(h.bin, [path.join(d, 'm.json'), path.join(d, 'm.sig'), version, floor], { encoding: 'utf8' });
+}
+const SHAS = { setup_sha256: 'a'.repeat(64), sha256: 'b'.repeat(64), tmux_sha256: 'c'.repeat(64) };
+
+test('#6576: the helper accepts its signed release and prints the three sha256 values', { skip: SKIP }, () => {
+  const h = buildHelper();
+  const r = runHelper(h, release(h, '0.7.60', SHAS), '0.7.60', '0.7.57');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, `setup_sha256=${'a'.repeat(64)}\nsha256=${'b'.repeat(64)}\ntmux_sha256=${'c'.repeat(64)}\n`);
+});
+
+test('#6576: the helper refuses (97) a tampered manifest, another key, another version, an older release, a missing field', { skip: SKIP }, () => {
+  const h = buildHelper();
+  const good = release(h, '0.7.60', SHAS);
+  const tampered = { manifest: Buffer.concat([good.manifest, Buffer.from(' ')]), sig: good.sig };
+  const cases = [
+    ['a manifest one byte longer than what was signed', tampered, '0.7.60', '0.7.57', /not signed by the Kosmos release key/],
+    ['a manifest signed by another key', release(h, '0.7.60', SHAS, h.otherKey), '0.7.60', '0.7.57', /not signed by the Kosmos release key/],
+    ['a signature that is not one', { manifest: good.manifest, sig: 'AAAA' }, '0.7.60', '0.7.57', /not signed by the Kosmos release key/],
+    ['another version than the site offered', good, '0.7.61', '0.7.57', /not the 0\.7\.61 offered/],
+    ['a release older than the floor (an old signed release served again)', release(h, '0.7.56', SHAS), '0.7.56', '0.7.57', /older than this installer/],
+    ['no tmux_sha256', release(h, '0.7.60', { setup_sha256: SHAS.setup_sha256, sha256: SHAS.sha256 }), '0.7.60', '0.7.57', /has no tmux_sha256/],
+    ['an uppercase sha256 (not the manifest form)', release(h, '0.7.60', Object.assign({}, SHAS, { sha256: 'B'.repeat(64) })), '0.7.60', '0.7.57', /has no sha256/],
+  ];
+  for (const [label, rel, v, floor, why] of cases) {
+    const r = runHelper(h, rel, v, floor);
+    assert.equal(r.status, 97, label + ': ' + r.stderr);
+    assert.match(r.stderr, why, label);
+    assert.equal(r.stdout, '', label + ': a refusal prints no pins');
+  }
+});
+
+// ---- 3. the postinstall's root step, verbatim ----
+function liftRootStep() {
+  const start = POSTINSTALL.indexOf('# ---- kosmos#6576:');
+  const end = POSTINSTALL.indexOf('# Run the current installer as that user', start);
+  assert.ok(start > 0 && end > start, 'the root step moved; re-anchor this test');
+  return POSTINSTALL.slice(start, end);
+}
+function siteWith(h, { setup, manifestTamper, noSig }) {
+  const root = fs.mkdtempSync(path.join(h.dir, 'site-'));
+  fs.mkdirSync(path.join(root, 'dist'));
+  const setupBytes = Buffer.from(setup || '#!/bin/sh\necho installing\n');
+  const rel = release(h, '0.7.60', { setup_sha256: hex(setupBytes), sha256: 'b'.repeat(64), tmux_sha256: 'c'.repeat(64) });
+  fs.writeFileSync(path.join(root, 'setup'), setupBytes);
+  fs.writeFileSync(path.join(root, 'dist', 'latest.json'), JSON.stringify({ version: '0.7.60' }));
+  fs.writeFileSync(path.join(root, 'dist', 'kosmos-0.7.60-arm64.manifest.json'), manifestTamper ? Buffer.concat([rel.manifest, Buffer.from(' ')]) : rel.manifest);
+  if (!noSig) fs.writeFileSync(path.join(root, 'dist', 'kosmos-0.7.60-arm64.manifest.json.sig'), rel.sig);
+  return { root, setupSha: hex(setupBytes) };
+}
+function runRootStep(h, site, { home, setupOverride } = {}) {
+  const scripts = fs.mkdtempSync(path.join(h.dir, 'scripts-'));
+  fs.copyFileSync(h.bin, path.join(scripts, 'kosmos-pkg-verify'));
+  fs.chmodSync(path.join(scripts, 'kosmos-pkg-verify'), 0o755);
+  fs.writeFileSync(path.join(scripts, 'kosmos-pkg-floor'), '0.7.57\n');
+  if (setupOverride) fs.writeFileSync(path.join(site.root, 'setup'), setupOverride);
+  const userHome = home || fs.mkdtempSync(path.join(h.dir, 'home-'));
+  const body = 'set -u\nUSER_HOME="$1"\nSETUP_URL="$2"\n' + liftRootStep()
+    + '\nprintf "PIN_SETUP_SHA=%s\\nPIN_TARBALL=%s\\nPIN_TMUX=%s\\n" "$([ -n "$PIN_SETUP" ] && /usr/bin/shasum -a 256 "$PIN_SETUP" | /usr/bin/awk \'{print $1}\')" "$PIN_TARBALL" "$PIN_TMUX"\n'
+    + 'printf "MODE=%s\\n" "$([ -n "$PIN_SETUP" ] && /usr/bin/stat -f %Lp "$PIN_SETUP")"\n';
+  const script = path.join(scripts, 'postinstall');
+  fs.writeFileSync(script, body);
+  return spawnSync('/bin/sh', [script, userHome, 'file://' + path.join(site.root, 'setup')], { encoding: 'utf8', timeout: 60000 });
+}
+
+test('#6576: a first install pins the signed release: the installer it hands over, and the Kosmos and tmux sha256', { skip: SKIP }, () => {
+  const h = buildHelper();
+  const site = siteWith(h, {});
+  const r = runRootStep(h, site);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /the installer matches signed release 0\.7\.60/);
+  assert.match(r.stdout, new RegExp('PIN_SETUP_SHA=' + site.setupSha + '\n'));
+  assert.match(r.stdout, new RegExp('PIN_TARBALL=' + 'b'.repeat(64) + '\n'));
+  assert.match(r.stdout, new RegExp('PIN_TMUX=' + 'c'.repeat(64) + '\n'));
+  assert.match(r.stdout, /MODE=644\n/, 'the person can read the checked installer');
+});
+
+test('#6576: a tampered installer, a tampered manifest, or no signature ends the install before anything runs', { skip: SKIP }, () => {
+  const h = buildHelper();
+  const ran = path.join(h.dir, 'RAN-' + process.pid);
+  const evil = '#!/bin/sh\ntouch "' + ran + '"\n';
+  const a = runRootStep(h, siteWith(h, {}), { setupOverride: evil });
+  assert.equal(a.status, 97, 'a tampered installer: ' + a.stderr);
+  assert.match(a.stderr, /does not match its signed release, so it was NOT run/);
+  const b = runRootStep(h, siteWith(h, { manifestTamper: true }));
+  assert.equal(b.status, 97, 'a tampered manifest: ' + b.stderr);
+  assert.match(b.stderr, /not signed by the Kosmos release key/);
+  const c = runRootStep(h, siteWith(h, { noSig: true }));
+  assert.equal(c.status, 96, 'no signature is a failed download (retried, then refused): ' + c.stderr);
+  for (const r of [a, b, c]) assert.doesNotMatch(r.stdout, /PIN_SETUP_SHA=/, 'nothing is handed over after a refusal');
+  assert.equal(fs.existsSync(ran), false, 'the tampered installer must never run');
+});
+
+test('#6576: an existing install (its verifier present) keeps its own check: the root step pins nothing', { skip: SKIP }, () => {
+  const h = buildHelper();
+  const home = fs.mkdtempSync(path.join(h.dir, 'home-installed-'));
+  fs.mkdirSync(path.join(home, '.local/share/kosmos/app/engine'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.local/share/kosmos/app/engine/manifest-verify.js'), '// installed\n');
+  const r = runRootStep(h, siteWith(h, {}), { home });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /PIN_SETUP_SHA=\nPIN_TARBALL=\nPIN_TMUX=\n/);
+});
+
+// ---- 4. setup.sh pinned_sha_ok, verbatim ----
+test('#6576: setup.sh holds a pinned download to its pin: none passes, equal passes, different or malformed refuses', () => {
+  const start = SETUP.indexOf('pinned_sha_ok() {');
+  const end = SETUP.indexOf('\n}\n', start) + 3;
+  assert.ok(start > 0, 'pinned_sha_ok is gone from setup.sh');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pinned-6576-'));
+  const file = path.join(d, 'kosmos.tar.gz');
+  fs.writeFileSync(file, 'the bytes');
+  const sha = hex('the bytes');
+  const run = (pin) => spawnSync('/bin/sh', ['-c', 'info() { echo "$*"; }\n' + SETUP.slice(start, end) + '\npinned_sha_ok "$1" "$2" Kosmos', 'x', file, pin], { encoding: 'utf8' });
+  assert.equal(run('').status, 0, 'no pin: the install line and updates are unchanged');
+  assert.equal(run(sha).status, 0);
+  const bad = run('0'.repeat(64));
+  assert.equal(bad.status, 1);
+  assert.match(bad.stdout, /does not match its signed release, so it was not installed/);
+  assert.equal(run(sha.toUpperCase()).status, 1, 'a malformed pin refuses rather than reading as no pin');
+  assert.equal(run(sha.slice(0, 63)).status, 1);
+  fs.rmSync(d, { recursive: true, force: true });
+});
+
+test.after(() => { if (built) fs.rmSync(built.dir, { recursive: true, force: true }); });
