@@ -45,12 +45,18 @@ real fix.
   26 are Windows-only or dev-only and 14 are optional dependencies of features the connector does not turn on (h2 and
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the header says so.
-- **`tools.sbom-o05.test.js`:** 21 arms, all in-process with injected reads, a test key or small fixtures it makes
-  (tmpscope); the command line is run for its refusals and usage errors. Forty-two mutants each fail an arm (seven
-  more after review 5: a fetched library the bundle does not name accepted, a non-sha256 hash accepted, the
-  connector's own ref left dangling, libevent's -stable suffix kept in its CPE, the VERSION `source` key dropped
-  (the real VERSION text is now the fixture), a utf8proc CPE restored, the old git purl). One survives and is
-  equivalent (see review 4 below).
+- **`tools.sbom-o05.test.js`:** 24 arms, all in-process with injected reads, a test key or small fixtures it makes
+  (tmpscope); the command line is run for its refusals and usage errors. Fifty-one mutants each fail an arm (nine more
+  after review 6: no first-party check, node_modules accepted, npm dependencies accepted, any lockfile version, a
+  crates.io crate with no checksum, a named tmux library absent from lib/, no bin/tmux, a URL and SHA from two
+  inputs, a flag read as a --sig value). One survives and is equivalent (review 4's whitespace class, after the line
+  split).
+- **The first-party claim is checked, not stated** (review 6): every path in the signed manifest's file list must be
+  in VERSION, bin/kosmos, runtime/bin/node, runtime/LICENSE, app/server.js, app/package.json, or under app/engine/,
+  app/web/, app/bin/, app/assets/, app/Kosmos.app/; any node_modules refuses; package.json at the app commit may name
+  no dependencies of any kind. The real 0.7.59 list (364 files) passes, and its SBOM is unchanged.
+  LIMIT: a third-party file copied into a first-party place (a vendored script under app/web/) is not detectable from
+  paths; it would need a content check, and none of today's files is one (review 5 read them).
 - **The manifest's signature is verified** under the checkout's pinned keys (engine/manifest-verify.js) before
   anything is read from it. The real 0.7.59 manifest and its served .sig verify; the same manifest with its version
   changed refuses. The command line's success path cannot run in a test, since only the real release key signs; it
