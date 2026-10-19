@@ -48,14 +48,17 @@ real fix.
 - **`tools.sbom-o05.test.js`:** 33 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
   must equal build()'s output byte for byte. Every rule added in reviews 1 to 11 has a mutant that fails an arm,
-  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven, eight, three, four and seven per
+  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven, eight, three, four, seven and six per
   round); the mutants of code later removed (the script's variable and url parsing) were retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
   split; review 10's signature length guard (crypto.verify refuses other lengths) and edge de-duplication.
 - **The Mac app is checked, not stated** (review 10): the shipped app/bin/kosmos-app must hash to the manifest's
   signed native_app.signed_sha256, and native-app/main.swift at the app commit may import only Apple frameworks
-  (an allowlist); a Swift package or another module refuses.
+  (an allowlist); a Swift package or another module refuses. Review 15: comments and string literals are blanked
+  first (quote-aware, nested /* */), and any statement left that mentions import must be one import in the plain
+  shape, so an access-level import, an attribute with arguments or an unknown form refuses rather than going unread.
+  The real 7,600-line main.swift reads cleanly under it.
 - **The connector crate is the binary's crate:** the relay workspace member kosmos-tunnel-client must declare the
   [[bin]] kosmos-tunnel, and the lockfile must hold exactly one such package.
 - **The first-party claim is checked, not stated** (reviews 6 and 7): every path in the signed manifest's file list
@@ -79,7 +82,8 @@ real fix.
   a *_URL= line nothing fetches refuses, a library fetched twice refuses, and every fetched name must be named by the
   bundle. WHAT SHIPS is decided by the signed manifest and the bundle (its signed hash, its VERSION, its lib/, plain
   files only, the binary's own version line), never by the script.
-- **The bundle holds plain files and folders only** (review 8): a symlink or hard link refuses (both have an arm).
+- **The bundle holds plain files and folders only** (review 8): a symlink or hard link refuses (both have an arm),
+  and a path may appear once (review 15).
 - **The binary's own version line** (`tmux: tmux 3.5a`) must equal the source it was built from (`tmux-src`), and
   (review 14) each version the VERSION file names must also be in the bytes of the binary or library it describes
   (3.5a in bin/tmux, 2.1.12-stable in libevent, 6.5 in ncurses, 2.9.0 in utf8proc, all true for 0.7.59): a stale or
@@ -110,8 +114,10 @@ real fix.
 - A vendored third-party crate made a member of the relay workspace passes as first-party.
 - Out of scope: the provider tools (Claude Code, Codex and so on) Kosmos downloads later, when a person asks; the
   installer itself installs none of them.
-- A library linked statically into tmux and not recorded in the bundle's VERSION. Nothing in a built bundle shows
-  it; the build script records every input today (four, all in VERSION).
+- A library linked statically into tmux with neither a VERSION line nor a licence file. The bundle's licences/ is a
+  record of what it was built from (one <name>-<version>.txt per library), and review 15 made it checked: each licence
+  must be a part VERSION names, at its version, and each part must have one. The build script writes both today.
+- The VERSION-in-the-binary check is string presence: a prefix of the real version (3.5 for 3.5a) would also pass.
 - The release tarball is not read: its hash comes from the signed manifest, whose file list is exhaustive by
   construction (the bundle build lists every file of the same stage it packs, and refuses anything that is not a plain
   file; on an update the installed copy also checks every file against it). The shipped runtime/bin/node is not tied to the nodejs.org hash here; the bundle build checks
