@@ -94,17 +94,25 @@ function closure(pkgs, rootName) {
   return { root, deps: [...seen], edges };
 }
 
-// Every `fetch <name> "$X_URL" "$X_SHA"` line, with X_VERSION, X_URL and X_SHA read from the same script.
+// Every `fetch <name> "$X_URL" "$X_SHA"` line, with X_VERSION, X_URL and X_SHA read from the same script. A fetch
+// line in any other shape refuses: skipping one silently is exactly how a build input goes missing.
 function tmuxPins(text) {
   const vars = {};
   for (const m of text.matchAll(/^([A-Z0-9_]+)="([^"]*)"/gm)) vars[m[1]] = m[2];
-  const expand = (s) => s.replace(/\$\{([A-Z0-9_]+)\}/g, (_, v) => (v in vars ? vars[v] : `\${${v}}`));
+  const expand = (s) => {
+    for (let i = 0; i < 5 && /\$\{[A-Z0-9_]+\}/.test(s); i++) s = s.replace(/\$\{([A-Z0-9_]+)\}/g, (_, v) => (v in vars ? vars[v] : `\${${v}}`));
+    return s;
+  };
+  const calls = text.split('\n').filter((l) => /^\s*fetch\s+\S/.test(l));
   const pins = [];
-  for (const m of text.matchAll(/^fetch\s+(\S+)\s+"\$([A-Z0-9_]+)_URL"\s+"\$([A-Z0-9_]+)_SHA"/gm)) {
+  for (const line of calls) {
+    const m = line.match(/^\s*fetch\s+(\S+)\s+"\$([A-Z0-9_]+)_URL"\s+"\$([A-Z0-9_]+)_SHA"\s*$/);
+    if (!m) throw new Error(`build-tmux-from-source.sh: a fetch line this SBOM cannot read: ${line.trim()}`);
     const [, name, u, s] = m;
     const version = vars[`${u}_VERSION`], url = vars[`${u}_URL`] && expand(vars[`${u}_URL`]), sha = vars[`${s}_SHA`];
     if (!version || !url) throw new Error(`build-tmux-from-source.sh: no version or url for ${name}`);
-    if (/\$\{/.test(url)) throw new Error(`build-tmux-from-source.sh: ${name}'s url names an unknown variable`);
+    if (/\$/.test(url)) throw new Error(`build-tmux-from-source.sh: ${name}'s url names a variable this SBOM cannot expand`);
+    if (!/^[0-9a-f]{64}$/.test(sha || '')) throw new Error(`build-tmux-from-source.sh: no recorded sha256 for ${name}`);
     pins.push({ name, version, url, sha });
   }
   if (!pins.length) throw new Error('build-tmux-from-source.sh: no fetch lines');
@@ -119,15 +127,22 @@ const CPE = { node: 'nodejs:node.js', tmux: 'tmux_project:tmux', libevent: 'libe
   ncurses: 'gnu:ncurses', utf8proc: 'utf8proc_project:utf8proc' };
 const cpe = (name, version) => (CPE[name] ? `cpe:2.3:a:${CPE[name]}:${version}:*:*:*:*:*:*:*` : undefined);
 
-function crateRef(p) { return p.source ? `crate:${p.name}@${p.version}` : `first-party:${p.name}`; }
-function crateComponent(p, relayCommit) {
+// A crate's reference is name@version, unless two reached crates share both (Cargo allows one from crates.io and one
+// from git): then each also names its source, so no two components share a bom-ref.
+function crateRefs(crates) {
+  const n = new Map();
+  for (const p of crates) n.set(`${p.name}@${p.version}`, (n.get(`${p.name}@${p.version}`) || 0) + 1);
+  return (p) => (!p.source ? `first-party:${p.name}`
+    : `crate:${p.name}@${p.version}${n.get(`${p.name}@${p.version}`) > 1 ? `?source=${encodeURIComponent(p.source)}` : ''}`);
+}
+function crateComponent(p, relayCommit, crateRef) {
   const base = { type: 'library', 'bom-ref': crateRef(p), name: p.name, version: p.version };
   if (!p.source) return { ...base, description: `kosmos-relay workspace crate, ${relayCommit}` };
   if (p.source.startsWith('registry+https://github.com/rust-lang/crates.io-index') || p.source === 'sparse+https://index.crates.io/') {
-    return { ...base, purl: `pkg:cargo/${p.name}@${p.version}`, hashes: hashOf(p.checksum) };
+    return { ...base, purl: `pkg:cargo/${p.name}@${encodeURIComponent(p.version)}`, hashes: hashOf(p.checksum) };
   }
   if (p.source.startsWith('git+')) {
-    return { ...base, purl: `pkg:cargo/${p.name}@${p.version}?vcs_url=${encodeURIComponent(p.source.slice(4))}` };
+    return { ...base, purl: `pkg:cargo/${p.name}@${encodeURIComponent(p.version)}?vcs_url=${encodeURIComponent(p.source.slice(4))}` };
   }
   throw new Error(`Cargo.lock: ${p.name} ${p.version} comes from a source this SBOM does not know: ${p.source}`);
 }
@@ -140,6 +155,7 @@ function build(manifest, { repo, relay, show = gitShow }) {
   const arch = manifest.arch || 'arm64';
   const { root, deps, edges } = closure(parseLock(show(relay, relayCommit, 'Cargo.lock')), CONNECTOR_CRATE);
   const node = manifest.node.version.replace(/^v/, '');
+  const crateRef = crateRefs([root, ...deps]);
   const crates = deps.slice().sort((a, b) => byCodePoint(crateRef(a), crateRef(b)));
   const components = [
     { type: 'framework', 'bom-ref': 'node', name: 'node', version: node, purl: `pkg:generic/nodejs/node@${node}`,
@@ -151,7 +167,7 @@ function build(manifest, { repo, relay, show = gitShow }) {
       externalReferences: download(p.url, p.sha) })),
     { type: 'application', 'bom-ref': 'connector', name: CONNECTOR_CRATE, version: root.version,
       hashes: hashOf(manifest.connector.signed_sha256), description: `the Plus connector, kosmos-relay ${relayCommit}` },
-    ...crates.map((p) => crateComponent(p, relayCommit)),
+    ...crates.map((p) => crateComponent(p, relayCommit, crateRef)),
   ];
   const tmuxRefs = components.filter((c) => c.type === 'library' && !c['bom-ref'].includes(':')).map((c) => c['bom-ref']);
   return {

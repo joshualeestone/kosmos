@@ -201,7 +201,38 @@ test('every tmux build input comes from the script\'s fetch lines, with its down
   assert.deepEqual(comp(b, 'node').externalReferences[0].hashes, [{ alg: 'SHA-256', content: SHA('e') }]);
   assert.throws(() => tmuxPins(TMUX.replace(/^UTF8PROC_VERSION=.*$/m, '')), /no version or url for utf8proc/);
   assert.throws(() => tmuxPins(TMUX.replace(/^fetch .*$/gm, '')), /no fetch lines/);
-  assert.throws(() => tmuxPins(TMUX.replace('${TMUX_VERSION}/tmux', '${TMUX_RELEASE}/tmux')), /unknown variable/);
+  assert.throws(() => tmuxPins(TMUX.replace('${TMUX_VERSION}/tmux', '${TMUX_RELEASE}/tmux')), /cannot expand/);
+});
+
+test('a fetch line in another shape, an unbraced variable or a missing source hash refuses rather than listing less', () => {
+  assert.throws(() => tmuxPins(TMUX + 'fetch ncurses $NCURSES_URL $NCURSES_SHA\n'), /a fetch line this SBOM cannot read: fetch ncurses/);
+  assert.throws(() => tmuxPins(TMUX + 'fetch ncurses "${NCURSES_URL}" "${NCURSES_SHA}"\n'), /a fetch line this SBOM cannot read/);
+  assert.throws(() => tmuxPins(TMUX.replace('download/${TMUX_VERSION}/', 'download/$TMUX_VERSION/')), /cannot expand/);
+  assert.throws(() => tmuxPins(TMUX.replace(/^TMUX_SHA=.*$/m, 'TMUX_SHA=""')), /no recorded sha256 for tmux/);
+  assert.throws(() => tmuxPins(TMUX.replace(/^TMUX_SHA=.*$/m, '')), /no recorded sha256 for tmux/);
+  const nested = tmuxPins(TMUX.replace('UTF8PROC_VERSION="2.9.0"', 'UTF8PROC_MAJOR="2"\nUTF8PROC_VERSION="2.9.0"')
+    .replace('download/v${UTF8PROC_VERSION}/', 'download/v${UTF8PROC_DIR}/') + 'UTF8PROC_DIR="${UTF8PROC_VERSION}"\n');
+  assert.equal(nested.find((x) => x.name === 'utf8proc').url,
+    'https://github.com/JuliaStrings/utf8proc/releases/download/v2.9.0/utf8proc-2.9.0.tar.gz');
+  assert.equal(tmuxPins(TMUX + 'fetch() {\n  :\n}\n').length, 3, 'the function definition is not a fetch line');
+});
+
+test('two reached crates with one name and version from two sources get distinct references', () => {
+  const both = LOCK.replace(' "rustls",\n]', ` "baz 1.0.0 (${CRATES})",\n "rustls",\n]`);
+  const b = sbom(MANIFEST, files(both));
+  const baz = b.components.filter((c) => c.name === 'baz').map((c) => c['bom-ref']).sort();
+  assert.deepEqual(baz, [`crate:baz@1.0.0?source=${encodeURIComponent(GIT)}`, `crate:baz@1.0.0?source=${encodeURIComponent(CRATES)}`].sort());
+  assert.equal(new Set(b.components.map((c) => c['bom-ref'])).size, b.components.length, 'no duplicate bom-ref');
+  assert.equal(deps(b, 'connector').filter((r) => r.startsWith('crate:baz@')).length, 2);
+});
+
+test('a version with a + is percent-encoded in the purl; a v3 lockfile reads the same', () => {
+  const plus = LOCK.replace('name = "serde"\nversion = "1.0.228"', 'name = "serde"\nversion = "1.0.228+build.1"')
+    ;
+  const s = sbom(MANIFEST, files(plus)).components.find((c) => c.name === 'serde');
+  assert.equal(s.version, '1.0.228+build.1');
+  assert.equal(s.purl, 'pkg:cargo/serde@1.0.228%2Bbuild.1');
+  assert.equal(JSON.stringify(sbom(MANIFEST, files(LOCK.replace('version = 4', 'version = 3')))), JSON.stringify(sbom()));
 });
 
 test('versions, hashes and purls; components in code-point order of their reference', () => {
@@ -227,7 +258,7 @@ test('the same release gives a byte-identical SBOM; another release a different 
   assert.match(sbom().serialNumber, /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 });
 
-test('a manifest with no connector commit or no node version, or a tmux script with no version, refuses', () => {
+test('a manifest with no connector commit or no node version refuses', () => {
   assert.throws(() => sbom({ ...MANIFEST, connector: { signed_sha256: SHA('f') } }), /no app or connector commit/);
   assert.throws(() => sbom({ ...MANIFEST, node: { download_sha256: SHA('e') } }), /no node version/);
 });
