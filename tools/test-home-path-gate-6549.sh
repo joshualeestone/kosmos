@@ -46,7 +46,6 @@ stage; rm -rf "$T/s/app"
 if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a stage with no app/ is refused (the gate cannot look)"
 else fail "a stage with no app/ must be refused"; fi
 
-# review 1 arms
 stage; printf "const r = path.relative('%s', p);\n" "$H" >> "$T/s/app/server.js"
 if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "the home followed by a quote (no slash) is refused"
 else fail "the home followed by a quote must be refused"; fi
@@ -96,6 +95,21 @@ for bad in "/Users/" "//"; do
   if ! home_path_gate_tree "$T/s" "$bad" 2>/dev/null; then pass "an unusable home with a trailing slash ('$bad') is refused"
   else fail "an unusable home ('$bad') must be refused"; fi
 done
+
+stage; printf '// %s/x\n' "$H" >> "$T/s/app/server.js"
+if ! home_path_gate_tree "$T/s" "$H//" 2>/dev/null; then pass "a hit is still found when the home is given with trailing slashes"
+else fail "a home given as '$H//' must still find the hit"; fi
+
+stage; printf '// see /Users/jo.hn+x/work\n' >> "$T/s/app/server.js"
+if ! home_path_gate_tree "$T/s" "/Users/jo.hn+x" 2>/dev/null; then pass "a home with a dot and a plus is found literally"
+else fail "a home with a dot and a plus must be found"; fi
+stage; printf '// see /Users/joXhnnx/work\n' >> "$T/s/app/server.js"
+if home_path_gate_tree "$T/s" "/Users/jo.hn+x" 2>/dev/null; then pass "its dot and plus are not wildcards (/Users/joXhnnx is not a hit for /Users/jo.hn+x)"
+else fail "a home's dot and plus must not act as a pattern"; fi
+
+stage; printf '// %s/x\n' "$H" >> "$T/s/app/server.js"
+if ! ( HOME="$H"; home_path_gate_tree "$T/s" ) 2>/dev/null; then pass "with no home given, \$HOME is used and the hit is found (the build's own call)"
+else fail "the default \$HOME must be used when no home is given"; fi
 
 stage; ln -s /nonexistent/elsewhere "$T/s/app/lnk"
 if ! home_path_gate_tree "$T/s" "$H" 2>/dev/null; then pass "a symlink in the stage is refused (grep -r would not read through it)"

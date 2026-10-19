@@ -25,11 +25,14 @@ email. The connector half is kosmos-relay remap-6549 (the build remaps those pat
   `/Users/agent1`; `/Users/exampleuser` does start with `/Users/example`.
 
 ## Test
-tools/test-home-path-gate-6549.sh (20 arms, fake stage and fake home): CONTROL a clean stage passes; refused: a binary
-or a comment naming the home, the home followed by a quote or a NUL, the home in another case, another account's
-.cargo/ or work/ in an executable, an unreadable file, an unusable home (empty $HOME, `/`, relative, `/Users`), no app/
-or no bin/; not refused: runtime/, `/Users/zz-builderother`, a made-up `/Users/alex/work/` in a source comment; a `|`
-in a file name is still named; the build script still calls the gate.
+tools/test-home-path-gate-6549.sh (fake stage and fake home), run by package.json test:shell. CONTROL a clean stage
+passes. Refused: a binary or a comment naming the home; the home followed by a quote or a NUL; in another case; given
+with trailing slashes; found through the default $HOME (the build's own call); a home with a dot and a plus found
+literally; another account's .cargo/ or work/ in a compiled file (64-bit and universal headers); an unreadable file;
+a symlink; an unusable home (empty $HOME, `/`, `//`, `/Users`, `/Users/`, relative); no app/ or no bin/. Not refused:
+runtime/; `/Users/zz-builderother`; `/Users/joXhnnx` for `/Users/jo.hn+x` (no wildcards); a made-up build folder in
+a source comment or in a script under app/bin/. A `|` in a file name is still named. The build still calls the gate.
+Mutants (review 4, and mine for the regex arms): each fix removed turns its arm red.
 Measured on stages built from the sources: this branch passes for /Users/agent1, /Users/mortalkombat, /Users/josh,
 /Users/joshu, /Users/sam and /Users/alex; CONTROL main's server.js and status.js are refused for /Users/agent1 and /Users/josh, files named.
 
