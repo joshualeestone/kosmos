@@ -743,9 +743,9 @@
     },
     {
       "title": "Less repeated text",
-      "line": "Notices, first run and adding a computer no longer repeat what is already on screen, so each says a thing once.",
+      "line": "Notices, setup and adding a computer drop lines that repeated what was already on screen.",
       "icon": "swarm",
-      "rank": 2.4,
+      "rank": 2.55,
       "since": "0.7.59",
       "status": "pending"
     }
