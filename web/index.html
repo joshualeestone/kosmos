@@ -4222,15 +4222,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-crumb:empty { min-height: 0; margin: 0; }
 #tsk-msg { margin: 0; min-height: 1.6em; min-height: 1lh; }   /* one message line, reserved */
 #tsk-groups > .tsk-grp:first-child { margin-top: 3px; }
-/* #5072 (Mona Lisa's call): at 30rem and below, Open project always takes its own line and the dot is not drawn (a
-   dot starting a line reads as a stray mark; names this narrow wrap almost always, so one fixed layout). Above 30rem
-   the dot and Open project wrap as one, so the dot never dangles at a line end. 30rem is deliberately narrower than
-   the Tasks head's 40rem phone layout: from 30rem to 40rem the head is in its phone layout and the crumb is not. */
-.tsk-crumb-open { white-space: nowrap; }
-@media (max-width: 30rem) {
-  .tsk-crumb-open { display: block; }
-  .tsk-crumb-sep { display: none; }
-}
 .tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
@@ -4241,8 +4232,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 #panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: nowrap; }
 /* #4586 (Josh, 2026-09-29 11:35): "click the back button at the top left next to the title and go right
    back into the project." A round chevron, the #2928 back glyph in #4470's round frame, sized to sit beside
-   a sub-view's title. On Tasks it shows only while the view is for one project (tskPaint sets it, and it
-   reuses the crumb's Open project path); on Documents in the consolidated view (the tab view keeps
+   a sub-view's title. On Tasks it shows only while the view is for one project (tskPaint sets it, through the
+   panel's delegated [data-open-project] click; since #6523 it is the only way back there); on Documents in the consolidated view (the tab view keeps
    its "<- name" back, except under the new look, #4470). The title takes the free space, so the chevron
    sits against it, not across the row. */
 .sub-back { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--k-rule); background: none;
@@ -65488,19 +65479,27 @@ function tskPaint() {
     tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(pjChainOption(p.chain, ' (' + p.open + ')')) + '</option>').join(''), TSK.proj || '');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
-  /* #5072: the separator and Open project are one unit, so the phone rule can put Open project on its own line and
-     drop the dot together (see .tsk-crumb-open). The dot is aria-hidden with a vh comma beside it, the pairing
-     .pj-crumb-sep uses, so a screen reader hears a pause rather than a dot. */
+  /* #6523 (noise read; Mona Lisa agreed): the crumb no longer ends in "· Open project". The title's chevron (#4586, Josh's
+     ask) opens the same room, so the two were two ways back side by side. The crumb keeps All tasks and the path,
+     the only place a sub-project's parents are named (#3029). */
   document.getElementById('tsk-crumb').innerHTML = picked
-    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(pjChainText(picked.chain)) + ' <span class="tsk-crumb-open"><span class="tsk-crumb-sep" aria-hidden="true">·</span><span class="vh">, </span> <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button></span>'
+    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(pjChainText(picked.chain))
     : '';
-  /* #4586: the chevron beside the title is the crumb's Open project, shown exactly when that is: the
-     panel's delegated [data-open-project] click opens the room, so there is one way in, not two. */
+  /* #4586: the chevron beside the title is the way back to the project: the panel's delegated
+     [data-open-project] click opens the room. #6523: with the crumb's link gone it is the only control that NAMES
+     the destination, so its accessible name and its tooltip both say where it goes (Mona's condition), and on a
+     touch screen it keeps the 44px hit area the media rule gives it. */
   const back = document.getElementById('tsk-back');
   if (back) {
     back.hidden = !picked;
-    if (picked) { back.dataset.openProject = picked.id; back.setAttribute('aria-label', 'Back to ' + pjChainSpoken(picked.chain)); }
-    else delete back.dataset.openProject;
+    if (picked) {
+      back.dataset.openProject = picked.id;
+      back.setAttribute('aria-label', 'Back to ' + pjChainSpoken(picked.chain));
+      back.title = 'Back to ' + pjChainText(picked.chain);
+    } else {
+      delete back.dataset.openProject;
+      back.removeAttribute('title');
+    }
   }
   const scoped = tskScoped(all, TSK, now);
   /* The title and the rows' project line both read this one array: every task in view, open or closed, after the
@@ -65641,7 +65640,7 @@ try { if (localStorage.getItem('kosmos.tasksTab') === '1') tskTabGate(true); } c
 /* #3703: the project page's View-all door. ONE list screen: it opens this view scoped to the project
    rather than a second list of its own. A door is a fresh look at that project, so the window goes
    back to All (the door has always meant every task, closed included), and the search and tile go;
-   Group by and Sort are the person's own and stay. The way back is the crumb's "Open project". */
+   Group by and Sort are the person's own and stay. The way back is the title's chevron (#4586; #6523). */
 function openProjectTasks(id) {
   const p = id ? pjById(id) : null;
   TSK.proj = id || null;
@@ -65774,8 +65773,8 @@ function tskFocusRestore(mark) {
     : (mark.box ? document.getElementById(mark.box) : document.getElementById('panel-tasks'));
   const shown = (x) => x && x.getClientRects().length > 0;
   /* #4586: a control with an id (the title's back chevron, #tsk-back) is not rebuilt by the paint, so
-     it keeps focus while it is still on screen; without this the attribute search finds the crumb's
-     Open project first, which carries the same data-open-project. */
+     it keeps focus while it is still on screen, found by its id rather than by the attribute search (the
+     crumb carried a second data-open-project until #6523). */
   const same = mark.id ? document.getElementById(mark.id) : null;
   if (shown(same)) { same.focus(); return; }
   const again = scope ? [...scope.querySelectorAll(mark.tag + '[' + mark.attr + '="' + CSS.escape(String(mark.value)) + '"]')].find(shown) : null;

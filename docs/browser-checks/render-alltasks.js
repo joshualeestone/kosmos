@@ -181,7 +181,9 @@ const say = (n, cond, note) => {
         keys: rows.map((r) => r.dataset.key),
         openOnScreen: rows.filter((r) => seen(r) && !r.closest('.tsk-fold')).length,
         fold: fold ? fold.textContent.trim() : null,
-        crumb: !!document.querySelector('#tsk-crumb [data-open-project]'),
+        // #6523: the crumb no longer carries Open project; the title's chevron is the way back.
+        back: (() => { const b = document.getElementById('tsk-back'); return b && seen(b) ? (b.dataset.openProject || '') : null; })(),
+        crumbOpen: !!document.querySelector('#tsk-crumb [data-open-project]'),
         search: document.getElementById('tsk-search').value,
       };
     });
@@ -198,7 +200,7 @@ const say = (n, cond, note) => {
     const statedOpen = Number((landed.title.match(/^(\d+) Tasks? on /) || [])[1]);
     say('#1346: the stated open count matches the open rows on screen', statedOpen === 2 && landed.openOnScreen === 2,
       'says ' + JSON.stringify(landed.title) + ', open rows on screen ' + landed.openOnScreen);
-    say('the way back is the crumb\'s Open project', landed.crumb);
+    say('the way back is the title\'s chevron, to this project (#6523: not a second Open project in the crumb)', landed.back === made[0] && !landed.crumbOpen, JSON.stringify({ back: landed.back, crumbOpen: landed.crumbOpen }));
 
     /* ---- + New task with a project picked: it files to that project, and answers here ---- */
     await p.click('#tsk-new');
