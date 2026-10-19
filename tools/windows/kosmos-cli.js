@@ -579,7 +579,7 @@ async function verbReply(ctx, args) {
     return kept;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); keepPiped(); return 1; }   // #5333
-  if (r.json && r.json.kept === true) { ctx.out('Answered. It is in their conversation with you.'); return 0; }
+  if (r.json && r.json.kept === true) { ctx.out('Sent. It is in their conversation with you.'); return 0; }
   ctx.err('That was not kept: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
   tokenRefusedHint(ctx, r);   // #5333: a refused reply is {kept:false, because}, not an error
   keepPiped();

@@ -43,7 +43,7 @@ function run(args) {
 test('#1674: `reply --help` prints usage and never reaches the network', async () => {
   const r = await run(['reply', '--help']);
   assert.match(r.out, /Usage: kosmos reply/, 'reply --help does not print its usage');
-  assert.doesNotMatch(r.out, /Answered\./, 'reply --help SENT the flag as a message, which is the defect');
+  assert.doesNotMatch(r.out, /It is in their conversation with you/, 'reply --help SENT the flag as a message, which is the defect');
   assert.doesNotMatch(r.out, /not running/, 'reply --help reached healthy(), so the guard ran too late to prevent a send');
 });
 

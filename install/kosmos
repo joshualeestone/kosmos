@@ -2619,7 +2619,7 @@ cmd_reply() {
       # page renders it only while that agent's panel is open. Whether anybody
       # is looking is not ours to say, which the comment above already said
       # while the sentence below asserted it anyway.
-      say "Answered. It is in their conversation with you."
+      say "Sent. It is in their conversation with you."   # #6572: also a message the agent starts, not only an answer
       ;;
     *)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')

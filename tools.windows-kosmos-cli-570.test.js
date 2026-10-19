@@ -57,7 +57,7 @@ test('reply: POST /api/reply with the text, the agent token AND the board token;
   assert.deepEqual(r.calls[0].body, { text: 'OSPREY', from_pane: '' });
   assert.equal(r.calls[0].headers['x-kosmos-agent-token'], AGENT, 'no agent token: a Windows agent has no pane, so the board cannot tell who it is');
   assert.equal(r.calls[0].headers['x-kosmos-board-token'], BOARD, 'no board token: a Windows board enforces and would 403');
-  assert.match(r.out, /Answered/);
+  assert.match(r.out, /Sent\. It is in their conversation with you/);
 });
 
 test('reply: words arrive as one message, and an empty reply is a usage error that sends nothing', async () => {

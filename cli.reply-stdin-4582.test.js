@@ -75,7 +75,7 @@ const savedPath = (out) => { const m = out.match(/saved at (\S+)/); return m && 
 test('#4582: kosmos reply --stdin keeps backticks, $, quotes and newlines as written', () => withStubBoard(async (port, seen) => {
   const out = await runCli(['reply', '--stdin'], envFor(port), RICH + '\n');
   assert.equal(out.code, 0, out.stdout + out.stderr);
-  assert.match(out.stdout, /Answered/);
+  assert.match(out.stdout, /Sent\. It is in their conversation with you/);
   assert.equal(seen.length, 1);
   assert.equal(seen[0].text, RICH);
   assert.equal(seen[0].from_pane, '%42');

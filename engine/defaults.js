@@ -181,10 +181,12 @@ const BLOCK = [
   '- **Blocked:** on what, and who owns it.',
   '- **Decided:** a call you made while they were away, and why.',
   '',
-  '**To tell the person yourself, use `kosmos reply` too.** It does not need a',
-  'message from them first: it starts a message in your conversation with them',
-  'as readily as it answers one, so a Decided or a Stopped goes there unasked.',
-  'There is no separate command for starting one. A question only they can',
+  '**To tell the person something yourself, unasked, use `kosmos reply`.** It',
+  'does not need a message from them first: it starts a message in your',
+  'conversation with them as readily as it answers one, so a Decided or a',
+  'Stopped goes there unasked. There is no separate command for starting one.',
+  'If your instructions name another place where you answer them, send these',
+  'there instead. A question only they can',
   'answer is also reported as needs_you (above), which is what puts it on the',
   'board.',
   '',
@@ -1129,7 +1131,9 @@ function block() {
  *     So this is wording, not a new verb: "Telling people what is happening" now says
  *     `kosmos reply` starts a message too, which is also the first place the four reports
  *     are given a command. Rejected: a second verb for the same act (two commands, one
- *     route), and "by design, you cannot" (false). No new heading, so as in 32 an agent's
+ *     route), and "by design, you cannot" (false). An agent that declared a reply
+ *     channel (#5805) is sent there instead. The CLI confirmation says "Sent." rather
+ *     than "Answered.", on both platforms. No new heading, so as in 32 an agent's
  *     EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that agents starting messages unasked is welcome. The
  *     section's own rule (report four things, do not narrate) is what bounds it; if
