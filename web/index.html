@@ -52538,6 +52538,7 @@ function paintCwNote(cw) {
   slot.querySelector('.utxt b').textContent = head;
 }
 async function pollCwNote() {
+  if (typeof document !== 'undefined' && document.hidden) return;   // a tab in the background asks nothing
   let r = null;
   try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
   // A failed read (a board restarting) is not "no finding": keep what shows rather than blink a warning off and on.
@@ -52557,13 +52558,14 @@ async function pollCwNote() {
        The button it pressed is gone, so keyboard focus goes to that line. */
     if (open) {
       showTab('settings'); settingsGo('plus');
-      Promise.resolve(paintPlus()).then(() => {
-        const line = document.getElementById('plus-cw-line');
-        if (line && line.textContent) {
+      const land = () => {
+        const line = document.getElementById('plus-cw-line'), sw = document.getElementById('plus-cw-switch');
+        if (line && line.textContent && line.dataset && line.dataset.state === 'foreign') {
           cwNoteDismiss(shownKey);
           if (line.focus) { line.setAttribute('tabindex', '-1'); line.focus(); }
-        }
-      });
+        } else if (sw && !sw.hidden && sw.focus) sw.focus();   // not said there: kept for the next poll; focus not lost
+      };
+      Promise.resolve().then(() => paintPlus()).then(land, land);
       return;
     }
     // Keyboard focus goes where #5018's notices send it when they close: the K mark, the remote bar's menu, the heading.

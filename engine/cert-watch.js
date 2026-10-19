@@ -76,6 +76,7 @@ function certWatchFrom(dir, nowMs) {
   const damagedAt = secs(raw.damaged_report_at);
   /* kosmos#6613: a lost report a person has acknowledged (the same marker value) is no longer said. */
   const acked = (() => { try { return Number(fs.readFileSync(path.join(dir, LOST_ACK_FILE), 'utf8').trim()); } catch { return null; } })();
+  // A record that does not read as a number (empty, damaged) never matches, so the loss is said again: the safe way.
   const lost = damagedAt !== null && acked !== damagedAt;
   if (lost && state === 'clear') state = 'unknown';
   return {
