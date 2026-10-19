@@ -177,7 +177,7 @@ test('a dependency with a version, or a version and source, resolves to exactly 
   assert.ok(comp(b, 'crate:rcgen@0.13.2'));
   const baz = b.components.filter((c) => c.name === 'baz');
   assert.equal(baz.length, 1, 'only the git baz is reached');
-  assert.equal(baz[0].purl, `pkg:cargo/baz@1.0.0?vcs_url=${encodeURIComponent(GIT.slice(4))}`);
+  assert.equal(baz[0].purl, `pkg:cargo/baz@1.0.0?vcs_url=${encodeURIComponent('git+https://github.com/example/baz@abc0123')}`);
   assert.equal(baz[0].hashes, undefined, 'a git crate has no registry checksum');
 });
 
@@ -234,10 +234,13 @@ test('tmux and its libraries come from the shipped bundle, which must be the one
   assert.throws(() => parseTmuxVersion(VERSION.replace(/^tmux-src:.*$/m, ''), LIBS), /no tmux-src line/);
 });
 
-test('every file in the bundle must be one the SBOM accounts for; the real 0.7.59 listing is', () => {
+test('every file in the bundle must be one the SBOM accounts for; the real 0.7.59 bundle is', () => {
   const real = ['bin/', 'bin/tmux', 'lib/', 'lib/libncursesw.6.dylib', 'lib/libevent_core-2.1.7.dylib', 'lib/libutf8proc.3.dylib',
-    'VERSION', 'THIRD-PARTY-NOTICES.txt', 'licenses/', 'licenses/tmux-3.5a.txt', 'licenses/ncurses-6.5.txt'];
-  assert.deepEqual(parseTmuxVersion(VERSION + 'ncurses:  6.5\n', real).versions,
+    'VERSION', 'THIRD-PARTY-NOTICES.txt', 'licenses/', 'licenses/tmux-3.5a.txt', 'licenses/ncurses-6.5.txt',
+    'licenses/libevent-2.1.12-stable.txt', 'licenses/utf8proc-2.9.0.txt'];
+  const realVersion = 'tmux:   tmux 3.5a\nsource: /tmp/release-build/tmux-floor-prefix/bin/tmux\nbuilt:  2026-08-13T18:58:27Z on macOS 26.5.2\n'
+    + 'tmux-src: 3.5a\nlibevent: 2.1.12-stable (core only)\nncurses:  6.5\nutf8proc: 2.9.0\nfloor:    13.5\n';
+  assert.deepEqual(parseTmuxVersion(realVersion, real).versions,
     { tmux: '3.5a', libevent: '2.1.12-stable', ncurses: '6.5', utf8proc: '2.9.0' });
   for (const extra of ['lib/libpng16.16.dylib', 'lib/libssl3.dylib', 'lib/libstdc++.6.dylib', 'lib/sub/libssl.3.dylib',
     'libexec/libz.dylib', 'bin/helper', 'lib/libcrypto.so', 'lib/libfoo.a', 'share/terminfo/x/xterm']) {
@@ -344,6 +347,31 @@ test('the same release gives a byte-identical SBOM; another release a different 
   assert.equal(JSON.stringify(sbom()), JSON.stringify(sbom()));
   assert.notEqual(sbom().serialNumber, sbom({ ...MANIFEST, sha256: SHA('9') }).serialNumber);
   assert.match(sbom().serialNumber, /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+});
+
+test('a fetched library the bundle does not name, or a hash in another shape, refuses rather than vouching', () => {
+  assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX.replace('fetch utf8proc', 'fetch ncurses "$NCURSES_URL" "$NCURSES_SHA"\nfetch utf8proc')
+    .replace('UTF8PROC_VERSION="2.9.0"', `UTF8PROC_VERSION="2.9.0"\nNCURSES_VERSION="6.5"\nNCURSES_SHA="${SHA('5')}"\nNCURSES_URL="https://x/ncurses-\${NCURSES_VERSION}.tgz"`))),
+    /the build script fetches ncurses, but the tmux bundle's VERSION does not name it/);
+  assert.throws(() => sbom({ ...MANIFEST, node: { version: 'v24.19.0', download_sha256: `local:${SHA('e')}` } }), /node\.download_sha256 is not a sha256/);
+  assert.throws(() => sbom({ ...MANIFEST, node: { version: 'v24.19.0', download_sha256: 'unknown' } }), /node\.download_sha256 is not a sha256/);
+  assert.throws(() => sbom({ ...MANIFEST, connector: { ...MANIFEST.connector, signed_sha256: 'x' } }), /connector\.signed_sha256 is not a sha256/);
+  assert.throws(() => sbom({ ...MANIFEST, sha256: undefined }), /manifest sha256 is not a sha256/);
+});
+
+test('NVD names: libevent without its -stable suffix, none for utf8proc', () => {
+  const b = sbom();
+  assert.equal(comp(b, 'tmux-part:libevent').cpe, 'cpe:2.3:a:libevent_project:libevent:2.1.12:*:*:*:*:*:*:*');
+  assert.equal(comp(b, 'tmux-part:libevent').version, '2.1.12-stable');
+  assert.equal(comp(b, 'tmux-part:utf8proc').cpe, undefined);
+});
+
+test('a crate that depends back on the connector points at the connector component, never a dangling ref', () => {
+  const cyc = LOCK.replace('dependencies = ["serde"]', 'dependencies = ["kosmos-tunnel-client", "serde"]');
+  const b = sbom(MANIFEST, files(cyc));
+  assert.deepEqual(deps(b, 'first-party:kosmos-relay-proto'), ['connector', 'crate:serde@1.0.228']);
+  const refs = new Set(['kosmos', ...b.components.map((c) => c['bom-ref'])]);
+  for (const d of b.dependencies) for (const r of [d.ref, ...d.dependsOn]) assert.ok(refs.has(r), `dangling ${r}`);
 });
 
 test('a manifest with no connector commit, no node version or a dirty app refuses', () => {

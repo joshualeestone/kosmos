@@ -18,7 +18,8 @@
  *     the relay's workspace; any other crate from a source this does not know refuses the whole SBOM.
  * The app itself has no npm dependencies (package.json lists none), so nothing else is third-party code; the Mac app
  * (Swift) links Apple's frameworks only. Node is one component: the libraries inside the official Node build (V8,
- * OpenSSL and so on) are Node's own and are matched through Node's version, not listed one by one.
+ * OpenSSL and so on) are Node's own and are matched through Node's version, not listed one by one; the Rust standard
+ * library compiled into the connector is not listed either (the relay pins no toolchain, so no version is recorded).
  *
  * LIMIT: the crate list is the lockfile closure, a superset of what the macOS connector compiles. Measured for 0.7.59:
  * 227 crates against cargo tree's 189; the extra are Windows-only and dev-only crates (26) and optional dependencies
@@ -151,11 +152,13 @@ function tmuxPins(text) {
 const DYLIB_OWNER = { ncursesw: 'ncurses', ncurses: 'ncurses', event_core: 'libevent', event: 'libevent', utf8proc: 'utf8proc' };
 const VERSION_KEYS = new Set(['tmux', 'source', 'built', 'floor', 'tmux-src', 'libevent', 'ncurses', 'utf8proc']);
 function readTmuxBundle(file) {
-  const sha = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-  const list = execFileSync('tar', ['-tzf', file], { encoding: 'utf8', maxBuffer: 64 << 20 }).split('\n').filter(Boolean);
+  const bytes = fs.readFileSync(file);   // read once: the listing and the VERSION read are of the bytes hashed
+  const sha = crypto.createHash('sha256').update(bytes).digest('hex');
+  const tar = (args) => execFileSync('tar', args, { input: bytes, encoding: 'utf8', maxBuffer: 64 << 20 });
+  const list = tar(['-tzf', '-']).split('\n').filter(Boolean);
   const vfiles = list.filter((p) => p.replace(/^\.\//, '') === 'VERSION');
   if (vfiles.length !== 1) throw new Error(`tmux bundle: ${vfiles.length} VERSION files, not one`);
-  return { sha, ...parseTmuxVersion(execFileSync('tar', ['-xzOf', file, vfiles[0]], { encoding: 'utf8' }), list) };
+  return { sha, ...parseTmuxVersion(tar(['-xzOf', '-', vfiles[0]]), list) };
 }
 function parseTmuxVersion(text, list) {
   const kv = {};
@@ -201,16 +204,18 @@ const byCodePoint = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const hashOf = (sha) => (sha && /^[0-9a-f]{64}$/.test(sha) ? [{ alg: 'SHA-256', content: sha }] : undefined);
 const download = (url, sha) => [{ type: 'distribution', url, hashes: hashOf(sha) }];
 // Common Platform Enumeration names, so a scan that does not read purls (NVD) can match these.
-const CPE = { node: 'nodejs:node.js', tmux: 'tmux_project:tmux', libevent: 'libevent_project:libevent',
-  ncurses: 'gnu:ncurses', utf8proc: 'utf8proc_project:utf8proc' };
-const cpe = (name, version) => (CPE[name] ? `cpe:2.3:a:${CPE[name]}:${version}:*:*:*:*:*:*:*` : undefined);
+// Only names NVD actually has (checked 2026-10-19; it has none for utf8proc), and the version as NVD writes it
+// (libevent's "-stable" suffix is not part of it).
+const CPE = { node: 'nodejs:node.js', tmux: 'tmux_project:tmux', libevent: 'libevent_project:libevent', ncurses: 'gnu:ncurses' };
+const cpe = (name, version) => (CPE[name] ? `cpe:2.3:a:${CPE[name]}:${version.replace(/-stable$/, '')}:*:*:*:*:*:*:*` : undefined);
+const SHA256 = /^[0-9a-f]{64}$/;
 
 // A crate's reference is name@version, unless two reached crates share both (Cargo allows one from crates.io and one
 // from git): then each also names its source, so no two components share a bom-ref.
-function crateRefs(crates) {
+function crateRefs(root, crates) {
   const n = new Map();
   for (const p of crates) n.set(`${p.name}@${p.version}`, (n.get(`${p.name}@${p.version}`) || 0) + 1);
-  return (p) => (!p.source ? `first-party:${p.name}`
+  return (p) => (p === root ? 'connector' : !p.source ? `first-party:${p.name}`
     : `crate:${p.name}@${p.version}${n.get(`${p.name}@${p.version}`) > 1 ? `?source=${encodeURIComponent(p.source)}` : ''}`);
 }
 function crateComponent(p, relayCommit, crateRef, members) {
@@ -220,8 +225,10 @@ function crateComponent(p, relayCommit, crateRef, members) {
     return { ...base, description: `kosmos-relay workspace crate, ${relayCommit}` };
   }
   if (CRATES_IO.has(p.source)) return { ...base, purl: `pkg:cargo/${p.name}@${encodeURIComponent(p.version)}`, hashes: hashOf(p.checksum) };
-  if (p.source.startsWith('git+')) {
-    return { ...base, purl: `pkg:cargo/${p.name}@${encodeURIComponent(p.version)}?vcs_url=${encodeURIComponent(p.source.slice(4))}` };
+  const git = p.source.match(/^git\+([^?#]+)(?:\?[^#]*)?#([0-9a-f]{7,40})$/);
+  if (git) {
+    // purl's vcs_url form: git+<url>@<commit>, the commit Cargo.lock pinned after its #.
+    return { ...base, purl: `pkg:cargo/${p.name}@${encodeURIComponent(p.version)}?vcs_url=${encodeURIComponent(`git+${git[1]}@${git[2]}`)}` };
   }
   throw new Error(`Cargo.lock: ${p.name} ${p.version} comes from a source this SBOM does not know: ${p.source}`);
 }
@@ -233,13 +240,20 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
   if (!appCommit || !relayCommit) throw new Error('manifest names no app or connector commit');
   if (manifest.app.dirty) throw new Error('manifest says the app was built from a dirty tree: its commit is not what shipped');
   if (!tmux || !manifest.tmux_sha256) throw new Error('a tmux bundle and the manifest\'s tmux_sha256 are both required');
+  for (const [what, v] of [['sha256', manifest.sha256], ['node.download_sha256', manifest.node.download_sha256],
+    ['connector.signed_sha256', manifest.connector.signed_sha256], ['tmux_sha256', manifest.tmux_sha256]]) {
+    if (!SHA256.test(v || '')) throw new Error(`manifest ${what} is not a sha256 (${v}): the SBOM cannot vouch for that input`);
+  }
   if (tmux.sha !== manifest.tmux_sha256) throw new Error(`the tmux bundle (${tmux.sha.slice(0, 12)}) is not the one this release signed (${manifest.tmux_sha256.slice(0, 12)})`);
   const arch = manifest.arch || 'arm64';
   const { root, deps, edges } = closure(parseLock(show(relay, relayCommit, 'Cargo.lock')), CONNECTOR_CRATE);
   const members = workspaceMembers(show, relay, relayCommit);
   const pins = new Map(tmuxPins(show(repo, appCommit, 'tools/build-tmux-from-source.sh')).map((p) => [p.name, p]));
+  for (const name of pins.keys()) {
+    if (!tmux.versions[name]) throw new Error(`the build script fetches ${name}, but the tmux bundle's VERSION does not name it (linked statically and unrecorded?)`);
+  }
   const node = manifest.node.version.replace(/^v/, '');
-  const crateRef = crateRefs([root, ...deps]);
+  const crateRef = crateRefs(root, [root, ...deps]);
   const crates = deps.slice().sort((a, b) => byCodePoint(crateRef(a), crateRef(b)));
   const libs = Object.keys(tmux.versions).filter((n) => n !== 'tmux');
   const tmuxPart = (name) => {
