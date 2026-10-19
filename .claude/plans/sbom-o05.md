@@ -45,11 +45,20 @@ real fix.
   26 are Windows-only or dev-only and 14 are optional dependencies of features the connector does not turn on (h2 and
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the header says so.
-- **`tools.sbom-o05.test.js`:** 28 arms, all in-process with injected reads, a test key or small fixtures it makes
-  (tmpscope); the command line is run for its refusals and usage errors. Seventy-two mutants each fail an arm (the
-  three that guarded the removed download scan are gone; four more after review 9: inline comments stripped again,
-  fetch read only at a line start, the binary's own tmux version unchecked, --out compared as a string). One
-  survives and is equivalent (review 4's whitespace class, after the line split).
+- **`tools.sbom-o05.test.js`:** 32 arms. The command line is now run END TO END (review 10): a copy of the tool in a
+  temp folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it
+  writes must equal build()'s output byte for byte. Eighty-three mutants each fail an arm (eleven more after review
+  10, among them the five command-line ones that survived before: repo and relay swapped, --out ignored, the
+  manifest passed as its own signature, the output indented differently). One survives and is equivalent (review
+  4's whitespace class). Review 10 judged two more equivalent: the 64-byte signature length guard (crypto.verify
+  refuses other lengths) and the de-duplication of dependency edges.
+- **The Mac app is checked, not stated** (review 10): the shipped app/bin/kosmos-app must hash to the manifest's
+  signed native_app.signed_sha256, and native-app/main.swift at the app commit may import only Apple frameworks
+  (an allowlist); a Swift package or another module refuses.
+- **The connector crate is the binary's crate:** the relay workspace member kosmos-tunnel-client must declare the
+  [[bin]] kosmos-tunnel, and the lockfile must hold exactly one such package.
+- **Every setting of a fetch input** (a *_URL, *_VERSION or *_SHA) in any shape (unquoted, indented, exported,
+  appended, single-quoted, readonly) refuses unless it is the one plain NAME="value" line read.
 - **The first-party claim is checked, not stated** (reviews 6 and 7): every path in the signed manifest's file list
   must be VERSION, bin/kosmos, runtime/bin/node, runtime/LICENSE, app/server.js, app/package.json, under app/engine/,
   app/web/ or app/assets/, a script (.sh, .js) or one of the two named binaries (kosmos-app, kosmos-tunnel) directly
@@ -89,6 +98,11 @@ real fix.
 ## Not covered, by design
 - A library linked statically into tmux and not recorded in the bundle's VERSION. Nothing in a built bundle shows
   it; the build script records every input today (four, all in VERSION).
+- The release tarball is not read: its hash comes from the signed manifest, whose file list the installed copy checks
+  every file against. The shipped runtime/bin/node is not tied to the nodejs.org hash here; the bundle build checks
+  it against nodejs.org's SHASUMS256 before packing.
+- Of the shipped files, only app/package.json, app/bin/kosmos-tunnel and app/bin/kosmos-app are tied by hash (to
+  git, the connector record and the Mac app record).
 - That the connector binary was built from the Cargo.lock at its recorded relay commit: the commit is the relay
   build's own record (its sidecar); this tool does not rebuild the connector to check it.
 - Node's own bundled libraries (V8, OpenSSL and so on) are not listed one by one. Node is one component, matched
