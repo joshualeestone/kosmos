@@ -307,8 +307,8 @@ function trustFolderInner(dir, opts) {
 
      MEASURED ON THE WINDOWS BOX 2026-09-07, both arms, same config, same Claude
      version (2.1.263), one variable:
-       key "C:/Users/example/trust-test-fwd"  -> no dialog, straight to the prompt
-       key "C:\Users\example\trust-test-back" -> THE TRUST DIALOG, "No, exit" preselected
+       key "C:/Users/<user>/trust-test-fwd"  -> no dialog, straight to the prompt
+       key "C:\Users\<user>\trust-test-back" -> THE TRUST DIALOG, "No, exit" preselected
      The control is what makes it decisive: pre-accepting trust works, and only
      the backslashed spelling fails to be read.
 
