@@ -89,7 +89,7 @@ function probeReach(address, opts) {
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (!done) { done = true; resolve(v); } };
-    const no = { online: false, instant: false };
+    const no = { online: false };
     let req;
     try {
       req = request(

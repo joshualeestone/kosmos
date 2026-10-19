@@ -3552,8 +3552,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // instead of opening a sign-in there. Same checks as View > Back to This Computer, which it calls: during a
         // board start or an update it beeps or says so, and the page's switching screen comes down on its own.
         // A click is checked first, so other navigations never read the address file here.
-        if navigationAction.navigationType == .linkActivated,
-           switchGoesHome(url, onAnotherComputer: isOnAnotherComputer(), clicked: true, ownPlusHost: ownKosmosPlusHost()) {
+        if navigationAction.navigationType == .linkActivated, isOnAnotherComputer(),
+           switchGoesHome(url, onAnotherComputer: true, clicked: true, ownPlusHost: ownKosmosPlusHost()) {
             logLine("#6585: a click to this computer's own address goes back to its board")
             decisionHandler(.cancel)
             backToThisComputer(nil)
