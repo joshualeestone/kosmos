@@ -949,6 +949,21 @@ async function leaveNow(opts, retry) {
    ask the coordinator. member:false, or an enrollment naming another world, clears this world's
    record (removed, left, or moved elsewhere). An unreachable coordinator changes nothing. */
 async function refresh(opts) { return oneAtATime(() => refreshNow(opts)); }
+/* kosmos#6560: the cheap membership check, asked often while enrolled (server.js orgMemberCheckIfDue). The status route
+   with { lite: true } answers only member and enrolled, none of the words, salt or signed policy that make the full
+   answer an hourly read. It changes NOTHING here: it says whether a full refresh is owed now. 'ended' only on a clear
+   gone or notHere (statusVerdict, the same reading refresh makes); an unclear answer, or none, is 'same'. 'nocheap'
+   when the answer is not marked lite (an older coordinator answered in full), so the caller stops asking. */
+async function memberCheck(opts) {
+  if (!readEnrollment(opts) || leavePending(opts) || joinUnknown(opts)) return { result: 'notenrolled' };
+  const world = readWorldId(opts);
+  if (!world) return { result: 'same' };
+  const r = await signed('POST', ROUTES.status, { lite: true }, opts);
+  if (!r || !r.ok || !r.data || typeof r.data !== 'object') return { result: 'same' };
+  if (r.data.lite !== true) return { result: 'nocheap' };
+  const v = statusVerdict(r.data, world);
+  return { result: v === 'gone' || v === 'notHere' ? 'ended' : 'same' };
+}
 function pendingAt(opts) {
   try { return Date.parse(JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')).at || ''); } catch { return NaN; }
 }
@@ -1064,5 +1079,5 @@ function applyPolicy(token, opts, orgId) {
 module.exports = {
   onEnrollmentEnded,   // #6232 review 10
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindNow, kindOf, codeOf,
-  worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
+  worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, memberCheck, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };
