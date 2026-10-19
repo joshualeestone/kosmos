@@ -101,11 +101,15 @@ test('R01b page: the ask shows only for remote_step_up with signInAgain true, in
   }
 });
 
-test('R01b page: the button goes to the fixed gate address, and nothing in the page rewrites it', () => {
-  const tag = /<a [^>]*id="stepup-go"[^>]*>/.exec(PAGE);
-  assert.ok(tag, 'the Sign in again link is gone');
-  assert.match(tag[0], /href="\/_kosmos\/signin\?fresh=1"/);
-  assert.equal(/stepup-go['"]\)\.(href|setAttribute)/.test(SCRIPT), false, 'the page sets the button\'s address from code');
+test('R01b page: the button POSTs to the fixed gate address, and nothing in the page rewrites it', () => {
+  // The gate's route is POST only (GET is 405) and answers 303, which only a navigation follows: a form, not a link.
+  const form = /<form [^>]*id="stepup-form"[^>]*>[\s\S]*?<\/form>/.exec(PAGE);
+  assert.ok(form, 'the Sign in again form is gone');
+  assert.match(form[0], /\smethod="post"/, 'the button would send a GET, which the gate answers 405');
+  assert.match(form[0], /\saction="\/_kosmos\/signin\?fresh=1"/);
+  assert.match(form[0], /<button type="submit"[^>]*id="stepup-go"/, 'the button does not submit the form');
+  assert.equal(/<a [^>]*id="stepup-go"/.test(PAGE), false, 'the button is a link again (a GET)');
+  assert.equal(/stepup-(go|form)['"]\)\.(href|action|method|setAttribute)/.test(SCRIPT), false, 'the page sets the button\'s address from code');
 });
 
 test('R01b page: every refused fetch on the page reaches the ask (the one wrapper), 403s read as JSON', async () => {

@@ -1280,7 +1280,7 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    going away then, and an ask left over them could be seen and not pressed. */
 /* Centred by auto margins between a 16 px gutter, not left: 50% with a transform, which gave the box only half the
    screen to size into (195 px wide on a phone, measured by its browser check). */
-.stepup-ask a.btn { text-decoration: none; }
+.stepup-ask .stepup-form { display: contents; }   /* the form adds no box: its button lays out with the rest */
 .stepup-ask { position: fixed; left: 16px; right: 16px; margin: 0 auto; width: fit-content; z-index: 80;
   max-width: 560px; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   padding: 10px 12px; border-radius: 11px; background: var(--bg-elevated); border: 1px solid var(--label-2);
@@ -20113,9 +20113,11 @@ window.kosmosMeasureScrollbarWidth();
 <p class="removed-msg" id="removed-msg" role="alert" aria-live="assertive"></p>
 <!-- kosmos#6616 (R01b): from a remote session, a refusal that asks for a fresh sign-in, when this computer's Kosmos+
      connector serves /_kosmos/signin?fresh=1. One place for every page, filled by the fetch wrapper below. The
-     address is fixed here, never read from a reply. -->
+     address is fixed here, never read from a reply. A same-origin FORM POST, not a link: the gate's route is POST
+     only (like /_kosmos/logout, with the same cross-site guard), ends the gate session and answers 303 to the
+     sign-in site, which only a navigation follows (Renet's contract, kosmos-relay gatefresh-6616). -->
 <div class="stepup-ask" id="stepup-ask" hidden><span id="stepup-words" role="alert"></span>
-  <a class="btn" id="stepup-go" href="/_kosmos/signin?fresh=1">Sign in again</a>
+  <form class="stepup-form" id="stepup-form" method="post" action="/_kosmos/signin?fresh=1"><button type="submit" class="btn" id="stepup-go">Sign in again</button></form>
   <button type="button" class="btn" id="stepup-close">Not now</button></div>
 <!-- ⚠️ THE FOOT, not the top (Josh, 2026-08-19). This line sat above the cards,
      under the New agent button, where the first thing a person met on their

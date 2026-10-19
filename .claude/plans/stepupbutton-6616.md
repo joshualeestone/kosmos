@@ -11,13 +11,16 @@ freshhandoff-6616). That connector then lists `fresh-signin` in `kosmos-tunnel c
 - `server.js`: `remoteStepUpRefusal` returns `REMOTE_STEP_UP_SIGNIN` (same code, `signInAgain: true`, a sentence
   that says "Press Sign in again") instead of `REMOTE_STEP_UP` when the connector lists both `session-headers` and
   `fresh-signin`. The clock and connector refusals are unchanged and never carry the flag.
-- `web/index.html`: one fixed ask (`#stepup-ask`) with the server's sentence, a link to `/_kosmos/signin?fresh=1`
+- `web/index.html`: one fixed ask (`#stepup-ask`) with the server's sentence, a form that POSTs to `/_kosmos/signin?fresh=1`
   and Not now. Shown by the page's one fetch wrapper (#6192), which now reads a 403's clone as JSON (it drained it
   as bytes before) and passes it to `showStepUpAsk`, so every page's refused request reaches it with no edit at any
   call site. The page that made the request still shows the refusal its own way.
 
 ## Decided
 - **The button's address is fixed in the markup**, never read from a reply: a reply can only say whether to show it.
+- **A form POST, not a link** (Renet's contract, 18:07): the gate's `/_kosmos/signin?fresh=1` is POST only (like
+  /_kosmos/logout, with the same cross-site guard; GET is 405), ends the gate session and answers 303 to the sign-in
+  site, which only a navigation follows.
 - **Only the refused request, getting through later, hides it** (review iterations 8 and 9). The ask remembers the
   refused method and path; when that same write succeeds from this board, the fresh sign-in took. Iteration 8's first
   version hid it on ANY successful write, on the false premise that every write is gated: only a listed few are, and a

@@ -7,7 +7,8 @@
  * The page is a real board; the refusals are answered in the browser (the board itself is local here, so it would never
  * refuse), and the request is made through the page's own window.fetch, which is the wrapper every page call uses.
  *   CONTROL  a 403 remote_step_up WITHOUT signInAgain leaves the ask hidden (so SHOWN below is the flag, not any 403).
- *   SHOWN    a 403 with signInAgain shows the ask with the reply's sentence, and the link's href is the fixed address.
+ *   SHOWN    a 403 with signInAgain shows the ask with the reply's sentence, and its button submits a POST to the fixed
+ *            address (the gate's route is POST only; a GET would be 405).
  *   ON TOP   the topmost element at the link's centre is the link itself, above the first-run cover, which makes the
  *            rest of the page inert (the ask is exempt, so it can still be pressed there).
  *   UNDER    hidden while the restart, update or account-switch screen is up (the board is going away), shown after.
@@ -57,7 +58,10 @@ const WORDS = 'From a remote session this needs a fresh sign-in. (check 6616)';
     await page.waitForFunction((w) => document.getElementById('stepup-words').textContent === w, WORDS, { timeout: 3000 }).catch(() => {});
     say((await page.locator('#stepup-words').textContent()) === WORDS, 'the ask says the reply\'s own sentence');
     const go = page.locator('#stepup-go');
-    say((await go.getAttribute('href')) === '/_kosmos/signin?fresh=1', 'the link goes to the fixed address', await go.getAttribute('href'));
+    // A POST to the fixed address (the gate's route is POST only), as the browser itself resolves the form.
+    const sub = await page.evaluate(() => { const f = document.getElementById('stepup-form'); const b = document.getElementById('stepup-go');
+      return f && b ? f.method + ' ' + new URL(f.action).pathname + new URL(f.action).search + ' ' + (b.form === f) + ' ' + b.type : 'missing'; });
+    say(sub === 'post /_kosmos/signin?fresh=1 true submit', 'the button submits a POST to the fixed address', sub);
     const box = await go.boundingBox();
     const top = box && await page.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e && (e.id || e.className || e.tagName); },
       [box.x + box.width / 2, box.y + box.height / 2]);
