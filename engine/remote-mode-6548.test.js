@@ -35,7 +35,10 @@ test('#6548: a remote.json an earlier version left readable is owner-only after 
   if (!fs.existsSync(remote.FILE)) assert.equal(remote.setOn(false).ok, true);   // stands alone (review 1)
   fs.chmodSync(remote.FILE, 0o644);
   assert.equal(modeOf(remote.FILE), 0o644, 'CONTROL: the file starts readable by others');
-  assert.equal(remote.setOn(false).ok, true);
+  const old = process.umask(0o022);   // review 2: the usual umask, so a mode-less write would land 0644 here too
+  try {
+    assert.equal(remote.setOn(false).ok, true);
+  } finally { process.umask(old); }
   assert.equal(modeOf(remote.FILE), 0o600, 'the next save makes it owner-only');
 });
 
