@@ -26,6 +26,21 @@ Card: #6512 (from the #6409 gap list, items B1 and B2).
 - Live against a sandboxed test board (port 16299): the new exe's window signed itself in about 0.3 s after a board
   restart; the exe on main stayed signed out (403) for 90 s.
 
+## Decisions
+- A page-asked sign-in comes back on the page the person was on (SignInAgainAddress, the Mac's signInAgainPage):
+  path and query of a board page only, on open-board.js's own host and port; a double-click still lands on the
+  front page as before. Rejected: always the front page (a board update would throw every window back to the
+  start with nobody asking).
+- Giving up changes nothing on screen: the Windows signed-out panel always says to open Kosmos.exe again, and
+  `?signin=failed` means nothing to the Windows panel. The launcher keeps no log, so the give-up is not recorded.
+  Weakest part: a stuck window is not diagnosable from logs. Would change if the launcher gains a log.
+- No `refused` input (the Mac reads it from a kept `?token=`; a `?boot=` nonce leaves nothing): the 3-try cap covers it.
+- The git-order check also runs as a test on every PR, not only at the cut: a source-only edit, even a comment, goes
+  red until the Windows box rebuilds and re-signs the exe on that branch (written in tools/windows/README.md). That
+  is the existing "rebuild in the same commit" rule, now enforced. Rejected: cut-time only (drift then surfaces on
+  release day, which is how #6437/#6449 slipped).
+
 ## Not done
-- web/index.html's comment and Windows signed-out panel still say to open Kosmos.exe again (still a true fallback).
+- The Windows signed-out panel copy (windowsCopy signinPanel) still says to open Kosmos.exe again: still true as the
+  fallback for an older window, and it shows only for a moment now. The comment above signedOutTellApp is updated.
 - The give-up branch is covered by the probe only, not live.

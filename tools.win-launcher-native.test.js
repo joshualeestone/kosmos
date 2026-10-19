@@ -491,11 +491,11 @@ test('#3285 review: opening Kosmos.exe again signs an open window in again, thro
   const windowProc = sourceBetween('protected override void WndProc(', 'protected override void OnFormClosed(');
   assert.match(windowProc, /if \(m\.Msg != 0 && \(uint\)m\.Msg == showMessage\)\s*\{[^}]*Activate\(\);\s*KosmosLauncher\.SetForegroundWindow\(Handle\);\s*SignInAgain\(\);\s*return;/,
     'the window only comes forward when Kosmos.exe is opened again; it does not sign in again');
-  const again = sourceBetween('internal void SignInAgain()', 'void NavigateToBoard()');
+  const again = sourceBetween('internal void SignInAgain(string keepPage = null)', 'void NavigateToBoard()');
   assert.match(again, /fresh = resolveBoardAddress\(\);/, 'signing in again does not ask open-board.js for a fresh address');
   /* #4381: with what the page must know about this computer's choice (WithModeQuery; nothing, on a computer that runs agents). */
-  assert.match(again, /if \(fresh != null && fresh\.Contains\("\?boot="\) && webView != null\) webView\.Navigate\(KosmosLauncher\.WithModeQuery\(fresh, mode\)\);/,
-    'signing in again loads something other than a fresh signed-in address');
+  assert.match(again, /if \(fresh != null && fresh\.Contains\("\?boot="\) && webView != null\) webView\.Navigate\(KosmosLauncher\.WithModeQuery\(KosmosLauncher\.SignInAgainAddress\(fresh, keepPage, port\), mode\)\);/,
+    'signing in again loads something other than a fresh signed-in address (#6512: on the page the page-asked sign-in keeps)');
   assert.match(again, /new Thread\(/, 'the fresh address is asked for on the window\'s own thread, freezing it for up to BoardWindowWaitMs');
   assert.match(again, /if \(!navigatedToBoard \|\| signingInAgain \|\| resolveBoardAddress == null\) return;/,
     'a second launch during the first load, or during a sign-in already under way, starts another');

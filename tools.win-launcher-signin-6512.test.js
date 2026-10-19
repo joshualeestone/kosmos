@@ -60,21 +60,24 @@ test('#6512: only the board\'s own page is heard, a connect computer is not, and
   const on = method('internal void OnWebMessage(');
   const gate = on.indexOf('if (!KosmosLauncher.IsBoardAddress(source, port)) return;');
   const connect = on.indexOf('if (mode == KosmosLauncher.ComputerMode.Connect) return;');
-  const signin = on.indexOf('if (KosmosLauncher.IsSigninPageMessage(json)) { PageSaysSignedOut(); return; }');
+  const signin = on.indexOf('if (KosmosLauncher.IsSigninPageMessage(json)) { PageSaysSignedOut(source); return; }');
   assert.ok(gate !== -1 && connect > gate && signin > connect, 'the sign-in message is not behind the board-origin and connect gates');
   const badge = on.slice(on.indexOf('TaskbarBadge.ReadsAsPageMessage'));
   assert.match(badge, /signInAgainGaveUp = false;/, 'a board read that worked does not end a give-up');
   assert.match(badge, /signInsWithoutRead = 0;/, 'a board read that worked does not reset the sign-in count');
 
-  const says = method('void PageSaysSignedOut(');
+  const says = method('void PageSaysSignedOut(string page)');
   assert.match(says, /mode == KosmosLauncher\.ComputerMode\.Connect \|\| !navigatedToBoard \|\| signingInAgain\) return;/);
   assert.match(says, /KosmosLauncher\.SignInAgainDecision\(now, lastSignInAgainAt, TaskbarBadge\.ReadBoardToken\(\) != null, signInAgainGaveUp, signInsWithoutRead\)/);
   const signIn = says.slice(says.indexOf('case KosmosLauncher.SignInAgainStep.SignIn:'), says.indexOf('case KosmosLauncher.SignInAgainStep.GiveUp:'));
   assert.ok(signIn.indexOf('lastSignInAgainAt = now;') !== -1 && signIn.indexOf('signInsWithoutRead++;') !== -1, 'a sign-in is not counted and timed');
-  assert.ok(signIn.indexOf('SignInAgain();') > signIn.indexOf('signInsWithoutRead++;'), 'the sign-in is not the double-click path');
+  assert.ok(signIn.indexOf('SignInAgain(page);') > signIn.indexOf('signInsWithoutRead++;'), 'the sign-in is not the double-click path, back on the page that asked');
   // The sign-in itself is the double-click path: a fresh ?boot= address from open-board.js, never a token in a URL.
-  const again = method('internal void SignInAgain(');
-  assert.match(again, /fresh\.Contains\("\?boot="\)/);
+  const again = method('internal void SignInAgain(string keepPage = null)');
+  assert.match(again, /if \(fresh != null && fresh\.Contains\("\?boot="\) && webView != null\) webView\.Navigate\(KosmosLauncher\.WithModeQuery\(KosmosLauncher\.SignInAgainAddress\(fresh, keepPage, port\), mode\)\);/,
+    'only a signed-in (?boot=) answer is loaded, on the kept page');
+  // A double-click keeps its old behaviour: no page to keep, so the front page.
+  assert.match(SOURCE, /\n\s*SignInAgain\(\);\n/, 'the double-click no longer signs in with no page to keep');
   assert.doesNotMatch(says, /token=/, 'the window must never put the board token into an address');
 });
 
@@ -87,6 +90,7 @@ static class SigninProbe
     static int Main(string[] args)
     {
         if (args[0] == "msg") { Console.Write(KosmosLauncher.IsSigninPageMessage(Console.In.ReadToEnd()) ? "yes" : "no"); return 0; }
+        if (args[0] == "address") { string page = args[2] == "none" ? null : args[2]; Console.Write(KosmosLauncher.SignInAgainAddress(args[1], page, int.Parse(args[3]))); return 0; }
         if (args[0] == "decide")
         {
             long now = long.Parse(args[1]);
@@ -138,9 +142,25 @@ test('#6512: sign in at once, then once a minute, give up after three fruitless 
   assert.equal(d(5000, null, true, false, 0), 'SignIn', 'the first sign-out signs in at once');
   assert.equal(d(100000, 100000 - 59999, true, false, 1), 'Wait', 'under a minute since the last try: wait');
   assert.equal(d(100000, 100000 - 60000, true, false, 1), 'SignIn', 'a minute later: again');
+  assert.equal(d(100000, 0, true, false, 2), 'SignIn', 'two sign-ins with no board read: one more');
   assert.equal(d(100000, 0, true, false, 3), 'GiveUp', 'three sign-ins with no board read: give up');
   assert.equal(d(100000, null, false, false, 0), 'GiveUp', 'no board token to sign in with: give up');
   assert.equal(d(100000, 0, true, true, 0), 'Stay', 'after giving up: stay out of it until a board read works');
+});
+
+test('#6512: the page-asked sign-in comes back on the page the person was on, and only on this board', WINDOWS_ONLY, (t) => {
+  if (!needsProbe(t)) return;
+  const fresh = 'http://127.0.0.1:16180/?boot=N0nce';
+  const a = (page, port = 16180, f = fresh) => probe(['address', f, page == null ? 'none' : page, String(port)]);
+  assert.equal(a('http://127.0.0.1:16180/?tab=projects&p=abc'), 'http://127.0.0.1:16180/?tab=projects&p=abc&boot=N0nce', 'the page and its query are kept');
+  assert.equal(a('http://127.0.0.1:16180/agent/x?tab=chat#bottom'), 'http://127.0.0.1:16180/agent/x?tab=chat&boot=N0nce', 'the path is kept, the fragment is not');
+  assert.equal(a('http://127.0.0.1:16180/?token=OLD&boot=OLD&signin=failed&mode=run&tab=a'), 'http://127.0.0.1:16180/?tab=a&boot=N0nce', 'old sign-in items and mode are dropped');
+  assert.equal(a('http://localhost:16180/?tab=a'), 'http://127.0.0.1:16180/?tab=a&boot=N0nce', 'fresh keeps its own host, so the cookie lands where the nonce was minted');
+  assert.equal(a(null), fresh, 'no page: the front page');
+  assert.equal(a('http://127.0.0.1:9999/?tab=a'), fresh, 'another port is not this board');
+  assert.equal(a('https://login.kosmosplus.com/x'), fresh, 'a Kosmos+ page is never the address the nonce goes to');
+  assert.equal(a('http://user:pw@127.0.0.1:16180/?tab=a'), fresh, 'an address with a user is not kept');
+  assert.equal(a('http://127.0.0.1:16180/?tab=a', 16180, 'http://127.0.0.1:16180/'), 'http://127.0.0.1:16180/', 'no nonce in fresh: fresh unchanged');
 });
 
 // ---- the drift ----
