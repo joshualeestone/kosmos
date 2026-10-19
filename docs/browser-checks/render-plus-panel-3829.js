@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-cw-line plus-cw-row plus-cw-switch plus-cw-label plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
+// Browser-check-surface: cwnote-slot plus-cw-ack plus-cw-line plus-cw-row plus-cw-switch plus-cw-label plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
 'use strict';
 /**
  * #3829 (Josh, 2026-09-25 16:54: the connected Kosmos+ panel and the device approval are "terribly
@@ -462,8 +462,8 @@ const STATES = {
     for (const mode of ['foreign', 'clear', 'off-foreign']) {
       const t = `[cert check ${mode}]`;
       const puts = [];
-      const cw = mode === 'clear' ? { on: true, state: 'clear', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, checkedAt: now(), failing: false }
-        : { on: mode !== 'off-foreign', state: 'foreign', foreign: 1, earlier: 0, beforeRecord: 0, lost: false, checkedAt: now(), failing: false };
+      const cw = mode === 'clear' ? { on: true, state: 'clear', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, lostAt: null, key: null, checkedAt: now(), failing: false }
+        : { on: mode !== 'off-foreign', state: 'foreign', foreign: 1, earlier: 0, beforeRecord: 0, lost: false, lostAt: null, key: '0123456789abcdef', checkedAt: now(), failing: false };
       const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
       const errs = []; page.on('pageerror', (e) => errs.push(e.message));
       const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
@@ -473,8 +473,27 @@ const STATES = {
       await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [], pending: [], self_device_id: 'd-self' })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
-      await page.evaluate(() => showTab('settings'));
-      await page.click('#s-nav button[data-go="plus"]');
+      /* kosmos#6613: away from Kosmos+, a finding is raised in the floating stack (first slot), as a fixed warning;
+         a clear check raises nothing (the control). Review opens Kosmos+ and puts that finding away. */
+      await page.evaluate(() => typeof pollCwNote === 'function' && pollCwNote());
+      await page.waitForTimeout(400);
+      const note = await page.evaluate(() => { const c = document.querySelector('#cwnote-slot .utoast'); const r = c && c.getBoundingClientRect();
+        return { shown: !!(c && r.height > 0), text: c ? c.innerText.replace(/\s+/g, ' ') : '', first: document.getElementById('topnotes').firstElementChild.id }; });
+      chk(note.first === 'cwnote-slot', `${t} #6613: the notice's slot is first in the floating stack`, note.first);
+      if (mode === 'clear') chk(!note.shown, `${t} #6613 CONTROL: a clear check raises no notice`, JSON.stringify(note));
+      else {
+        chk(note.shown && /^Warning: a certificate was issued for this computer's address that this computer did not ask for\./.test(note.text),
+          `${t} #6613: away from Kosmos+, the finding is raised as a fixed warning`, JSON.stringify(note));
+        await page.click('#cwnote-slot [data-cw="open"]');
+        await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+        const after = await page.evaluate(() => ({ gone: !document.querySelector('#cwnote-slot .utoast'),
+          stored: (localStorage.getItem('kosmos.cwnote.dismissed') || '') }));
+        chk(after.gone && /^[0-9a-f]{16}$/.test(after.stored), `${t} #6613: Review opens Kosmos+ and puts that finding away`, JSON.stringify(after));
+      }
+      if (mode === 'clear') {
+        await page.evaluate(() => showTab('settings'));
+        await page.click('#s-nav button[data-go="plus"]');
+      }
       await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
       await page.waitForTimeout(500);
       const c = await page.evaluate(() => {

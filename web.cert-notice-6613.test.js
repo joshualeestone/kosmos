@@ -15,71 +15,88 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web/index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 
 function el(id) {
-  return {
-    id, hidden: true, textContent: '', dataset: {}, attrs: {}, listeners: {},
-    _html: '', set innerHTML(v) { this._html = v; this.textContent = ''; }, get innerHTML() { return this._html; },
-    querySelector() { const self = this; return { set textContent(v) { self.textContent = v; } }; },
+  const node = {
+    id, hidden: true, dataset: {}, attrs: {}, listeners: {}, focused: false,
+    _text: '', _html: '', head: '',
+    get textContent() { return this._text; }, set textContent(v) { this._text = v; this._html = ''; this.head = ''; },
+    set innerHTML(v) { this._html = v; this._text = ''; }, get innerHTML() { return this._html; },
+    get firstChild() { return this._html || this._text ? {} : null; },
+    querySelector() { const self = this; return { set textContent(v) { self.head = v; } }; },
     setAttribute(k, v) { this.attrs[k] = String(v); }, removeAttribute(k) { delete this.attrs[k]; },
     hasAttribute(k) { return k in this.attrs; }, getAttribute(k) { return this.attrs[k] ?? null; },
     classList: { toggle() {}, remove() {} }, addEventListener(t, fn) { this.listeners[t] = fn; },
+    getClientRects() { return [1]; }, focus() { this.focused = true; },
   };
+  return node;
 }
 
 function noteWorld({ onPlus = false, stored = '' } = {}) {
   const els = {};
   const get = (id) => (els[id] ||= el(id));
+  const mark = el('klink');
   const store = { 'kosmos.cwnote.dismissed': stored };
   const ctx = {
-    document: { getElementById: get }, console,
+    document: { getElementById: get, querySelector: (sel) => (sel === '.apphead .klink' ? mark : null) }, console,
     plusOnScreen: () => onPlus,
     localStorage: { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = v; } },
     fetch: async () => ({ ok: true, json: async () => ({ enrolled: false }) }),
     setInterval: () => 0, showTab() {}, settingsGo() {}, paintPlus() {}, plusSay() {}, plusWords: (s) => s,
   };
-  const start = SCRIPT.indexOf('/* kosmos#6613: the compact notice for a finding');
+  const start = SCRIPT.indexOf('/* kosmos#6613: the notice for a finding');
   const end = SCRIPT.indexOf('/* The words of the code box (#729).', start);
   assert.ok(start > 0 && end > start, 'the notice script moved; re-anchor this test');
   vm.runInNewContext(SCRIPT.slice(start, end), ctx);
-  return { ctx, get, store };
+  return { ctx, get, store, mark };
 }
 
 const FOUND = { on: true, state: 'foreign', foreign: 1, earlier: 0, key: '0123456789abcdef' };
+const shown = (get) => !!get('cwnote-slot').innerHTML;
 
-test('a finding raises the notice away from Kosmos+, in a fixed sentence', () => {
+test('a finding raises the notice away from Kosmos+, as a fixed warning sentence', () => {
   const { ctx, get } = noteWorld();
   ctx.paintCwNote(FOUND);
-  assert.equal(get('cwcard').hidden, false);
-  assert.match(get('cw-rows').textContent, /this computer's address was issued that this computer did not ask for/);
-  assert.ok(!get('cw-rows').innerHTML.includes(FOUND.key), 'the key is not written into the page');
+  assert.ok(shown(get));
+  assert.match(get('cwnote-slot').innerHTML, /class="utoast cwnote"/);
+  assert.match(get('cwnote-slot').head, /^Warning: a certificate was issued for this computer's address/);
+  assert.ok(!get('cwnote-slot').innerHTML.includes(FOUND.key), 'the key is not written into the page');
 });
 
 test('on Kosmos+ itself, with no finding, or with a key that is not hex, there is no notice (the control above shows one)', () => {
   const { ctx, get } = noteWorld({ onPlus: true });
   ctx.paintCwNote(FOUND);
-  assert.equal(get('cwcard').hidden, true, 'on Kosmos+');
+  assert.ok(!shown(get), 'on Kosmos+');
   const w2 = noteWorld();
   w2.ctx.paintCwNote({ on: true, state: 'clear', key: null });
-  assert.equal(w2.get('cwcard').hidden, true, 'clear');
+  assert.ok(!shown(w2.get), 'clear');
   w2.ctx.paintCwNote({ ...FOUND, key: '<b>x</b>' });
-  assert.equal(w2.get('cwcard').hidden, true, 'a key that is not 16 hex');
+  assert.ok(!shown(w2.get), 'a key that is not 16 hex');
 });
 
-test('close puts that finding away (kept in storage); a new finding brings the notice back', () => {
-  const { ctx, get, store } = noteWorld();
+test('close puts that finding away (kept in storage), sends focus to the K mark; a new finding brings it back', () => {
+  const { ctx, get, store, mark } = noteWorld();
   ctx.paintCwNote(FOUND);
-  get('cw-rows').listeners.click({ target: { closest: () => ({ getAttribute: () => 'dismiss' }) } });
-  assert.equal(get('cwcard').hidden, true);
+  get('cwnote-slot').listeners.click({ target: { closest: () => ({ getAttribute: () => 'dismiss' }) } });
+  assert.ok(!shown(get));
   assert.equal(store['kosmos.cwnote.dismissed'], FOUND.key);
+  assert.ok(mark.focused, 'focus was left on nothing');
   ctx.paintCwNote(FOUND);
-  assert.equal(get('cwcard').hidden, true, 'the same finding stays put away');
+  assert.ok(!shown(get), 'the same finding stays put away');
   ctx.paintCwNote({ ...FOUND, key: 'fedcba9876543210' });
-  assert.equal(get('cwcard').hidden, false, 'a new finding shows again');
+  assert.ok(shown(get), 'a new finding shows again');
 });
 
 test('a key put away in another tab (storage) is honoured at the next paint', () => {
   const { ctx, get } = noteWorld({ stored: FOUND.key });
   ctx.paintCwNote(FOUND);
-  assert.equal(get('cwcard').hidden, true);
+  assert.ok(!shown(get));
+});
+
+test('the Plus pane painter hands the notice the same answer, and leaving Kosmos+ repaints it', () => {
+  const a = SCRIPT.indexOf('function paintPlusCertWatch(cw, plusOn) {');
+  const body = SCRIPT.slice(a, SCRIPT.indexOf('\n}\n', a));
+  assert.ok(body.includes("if (typeof paintCwNote === 'function') paintCwNote(cw);"), 'the pane no longer feeds the notice');
+  const s = SCRIPT.indexOf('function syncPlusChrome() {');
+  assert.ok(SCRIPT.slice(s, SCRIPT.indexOf('\n}\n', s)).includes('paintCwNote(CW_NOTE.last)'), 'leaving Kosmos+ no longer repaints the notice');
 });
 
 test('Got it shows with the lost-report sentence only, carrying its marker', () => {
@@ -101,7 +118,7 @@ test('Got it shows with the lost-report sentence only, carrying its marker', () 
   assert.equal(get('plus-cw-ack').hidden, true, 'with Kosmos+ off the lost sentence is quiet, and so is Got it');
 });
 
-test('the markup carries the notice and Got it', () => {
-  assert.match(PAGE, /<div class="askcard" id="cwcard" role="status" aria-live="polite" hidden>/);
-  assert.match(PAGE, /<button class="btn" type="button" id="plus-cw-ack" hidden>Got it<\/button>/);
+test('the markup carries the notice slot (first in the floating stack) and Got it', () => {
+  assert.match(PAGE, /<div class="topnotes" id="topnotes">[\s\S]{0,400}<div id="cwnote-slot"><\/div>\s*<div id="utoast-slot"><\/div>/);
+  assert.match(PAGE, /<button class="btn" type="button" id="plus-cw-ack" aria-describedby="plus-cw-line" hidden>Got it<\/button>/);
 });
