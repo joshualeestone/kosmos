@@ -1021,8 +1021,8 @@ notarize_binaries "$STAGE/app/bin/kosmos-app" "$STAGE/app/bin/kosmos-tunnel" "$S
 echo "==> packing"
 TARBALL_OUT="$OUT/kosmos-$ARCH.tar.gz"
 rm -f "$TARBALL_OUT"
-# #6562: store a neutral owner NAME (the numeric ids still come from disk, so an extraction behaves as before), and
-# refuse a tarball that still records this Mac's account.
+# #6562: store a neutral owner NAME (the numeric ids still come from disk; install/setup.sh extracts with
+# --no-same-owner, so no install applies a recorded owner), and refuse a tarball that still records this Mac's account.
 tar -czf "$TARBALL_OUT" --uname kosmos --gname staff -C "$STAGE" bin app runtime VERSION
 . "$(dirname "${BASH_SOURCE[0]}")/lib/tar-owner-gate.sh"
 tar_owner_gate "$TARBALL_OUT" || exit 1

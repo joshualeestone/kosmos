@@ -1,8 +1,9 @@
 #!/bin/bash
 # The release-tarball owner gate (#6562, from the #1760 shipped-artifact pass). A release tarball must not record the
 # account of the Mac that built it as its files' owner: before this, every entry read the build account's name.
-# The bundle packs with `--uname kosmos --gname staff`, which changes only the stored NAMES; the numeric ids still come
-# from disk, so an extraction behaves exactly as before (the installer extracts unprivileged, which applies no owner).
+# The bundle packs with `--uname kosmos --gname staff`, which changes only the stored NAMES (the numeric ids still come
+# from disk), and install/setup.sh extracts with --no-same-owner, so no install applies a recorded owner at all, even
+# one run as root (a Linux install can be).
 #
 # Usage: source this file, then `tar_owner_gate <tarball> [<account>] || exit 1` (account defaults to `id -un`).
 # Prints the first offending entries and returns 1 when any entry names the account, or when it cannot list them.

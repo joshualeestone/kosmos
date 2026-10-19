@@ -1317,7 +1317,8 @@ fetch_tmux() {
     verify_download "$stage/tmux.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
     # #6473: held to the signed manifest (fetched by update_manifest_ok early) before tar or anything in it runs.
     if [ "$(uname -s)" = "Darwin" ] && ! update_tmux_ok "$stage/tmux.tar.gz" "$KOSMOS_HOME"; then rm -rf "$stage"; return 1; fi
-    tar -xzf "$stage/tmux.tar.gz" -C "$stage" || { rm -rf "$stage"; return 1; }
+    # #6562: never apply the archive's recorded owner, whoever runs this (a root install on Linux would).
+    tar -xzf "$stage/tmux.tar.gz" --no-same-owner -C "$stage" || { rm -rf "$stage"; return 1; }
     rm -f "$stage/tmux.tar.gz"
   fi
   [ -f "$stage/bin/tmux" ] && [ -x "$stage/bin/tmux" ] || { rm -rf "$stage"; return 1; }
@@ -1453,7 +1454,8 @@ install_kosmos() {
       rm -rf "$stage"
       return 1
     fi
-    tar -xzf "$stage/kosmos.tar.gz" -C "$stage" || { [ -z "$_UM_DIR" ] || rm -rf "$_UM_DIR"; _UM_DIR=""; rm -rf "$stage"; return 1; }
+    # #6562: never apply the archive's recorded owner, whoever runs this (a root install on Linux would).
+    tar -xzf "$stage/kosmos.tar.gz" --no-same-owner -C "$stage" || { [ -z "$_UM_DIR" ] || rm -rf "$_UM_DIR"; _UM_DIR=""; rm -rf "$stage"; return 1; }
     if [ "$(uname -s)" = "Darwin" ] && ! update_manifest_ok post "$stage" "$dest"; then
       rm -rf "$stage"
       return 1
