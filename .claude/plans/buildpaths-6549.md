@@ -37,7 +37,7 @@ compiled file in app/bin/; an unusable home (empty $HOME, `/`, `//`, `/Users`, `
 runtime/; `/Users/zz-builderother`; `/Users/joXhnnx` for `/Users/jo.hn+x` (no wildcards); a made-up build folder in
 a source comment or in a script under app/bin/. A `|` in a file name is still named. The build still calls the gate.
 Mutants (reviews 4 to 8, and mine): removing any named behaviour turns its arm red. Review 8 ran 31; the survivors
-are redundant or cosmetic (the -a flag, the second rc check, -i on the compiled-file grep, the stage -d check that the
+are redundant or cosmetic (the -a flag, the second rc check, the stage -d check that the
 app/ and bin/ checks cover, LC_ALL on the first grep, the [:cntrl:] class, the printed-name strip). The name-boundary
 characters were unarmed until review 8; they now have an arm (${H}1, ${H}_x, ${H}-x, ${H}X are not hits).
 Measured on stages built from the sources: this branch passes for /Users/agent1, /Users/mortalkombat, /Users/josh,

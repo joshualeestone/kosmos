@@ -15,7 +15,8 @@
 # read, or a symlink it would not follow, is refused, never skipped: a gate that passes because it could not look is
 # the failure this repo bans.
 #
-# Usage: source this file, then `home_path_gate_tree <stage> [<home>]` (home defaults to $HOME).
+# Usage: source this file, then `home_path_gate_tree <stage> [<home>] || exit 1` (home defaults to $HOME). Call it with
+# `|| ...` under `set -e`: its greps return 1 for "no match", which would end a script that calls it bare.
 # Prints each offending file (relative to the stage) and returns 1 when any is found or a check could not run.
 
 home_path_gate_tree() {
