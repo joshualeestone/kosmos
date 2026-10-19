@@ -180,7 +180,10 @@ test('#6506: render prints the shared contract and all four facts, and writes no
   const artifact = path.join(cwd, 'out.txt');
   fs.writeFileSync(artifact, 'payload');
 
-  const md = handoff.render({ session, cwd, artifacts: [artifact], now: Date.UTC(2026, 9, 18, 20, 0, 0) });
+  // The real clock: the instruction file was just written, so its mtime is today, and render
+  // treats a time more than a day after `now` as untrustworthy. A fixed `now` made this
+  // test start failing a day after that date.
+  const md = handoff.render({ session, cwd, artifacts: [artifact], now: Date.now() });
 
   // the shared contract, every bullet
   for (const bullet of autohandoff.HANDOFF_CONTENTS) assert.ok(md.includes(bullet), 'missing contract bullet: ' + bullet);
