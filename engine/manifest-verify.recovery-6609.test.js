@@ -42,7 +42,9 @@ test('#6609: a list the recovery key signed is taken, its keys are the trusted o
   assert.equal(r.ok, true, r.why);
   assert.deepEqual(r.keys, [spki(rel1)]);
   assert.equal(mv.storedKeyList(h).seq, 3);
-  assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE)).mode & 0o777), 0o600);
+  assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE, 'seq-3.json')).mode & 0o777), 0o600);
+  assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE)).mode & 0o777), 0o700);
+  assert.deepEqual(fs.readdirSync(path.join(h, mv.KEY_LIST_STATE)), ['seq-3.json'], 'no temp file left behind');
 });
 
 test('#6609: refused: a list signed by another key, a tampered list, no list, no signature', () => {
@@ -99,10 +101,12 @@ test('#6609: a revoked key no longer opens a release: the keys trustedKeys gives
 test('#6609: no record falls back to the built-in floor; a damaged record is refused, not read as none', () => {
   assert.equal(mv.storedKeyList(home()).seq, mv.MIN_KEY_LIST_SEQ);
   const h = home();
-  fs.writeFileSync(path.join(h, mv.KEY_LIST_STATE), 'not json');
+  fs.mkdirSync(path.join(h, mv.KEY_LIST_STATE));
+  fs.writeFileSync(path.join(h, mv.KEY_LIST_STATE, 'seq-2.json'), 'not json');
   assert.equal(mv.storedKeyList(h), null);
   const h2 = home();
-  fs.writeFileSync(path.join(h2, mv.KEY_LIST_STATE), JSON.stringify({ seq: 3 }));
+  fs.mkdirSync(path.join(h2, mv.KEY_LIST_STATE));
+  fs.writeFileSync(path.join(h2, mv.KEY_LIST_STATE, 'seq-3.json'), JSON.stringify({ seq: 3 }));
   assert.equal(mv.storedKeyList(h2), null, 'a record without its keys is damaged too (else the seq-reuse rule would be skipped)');
   const l = list({ release_keys: [spki(rel1)], seq: 5 });
   const r = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: h, recoveryKeys: RK });
@@ -142,21 +146,33 @@ test('#6609: a list at exactly the floor is recorded, so a different list with t
   assert.match(r.why, /names other keys than the list 1/);
 });
 
-test('#6609: switched on, no install home is a refusal (the record is what stops rollback); a held lock is a retry, not a pass', () => {
+test('#6609: switched on, no install home is a refusal (the record is what stops rollback)', () => {
   const l = list({ release_keys: [spki(rel1)], seq: 2 });
   const r = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: '', recoveryKeys: RK });
   assert.equal(r.ok, false);
   assert.match(r.why, /cannot be checked without this copy/);
+});
+
+test('#6609: the record only moves forward: a check that lost a race to a newer list refuses, and the record keeps the newer one', () => {
   const h = home();
-  fs.mkdirSync(path.join(h, mv.KEY_LIST_STATE + '.lock'));
-  const busy = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: h, recoveryKeys: RK });
-  assert.equal(busy.ok, false);
-  assert.match(busy.why, /another check is taking the release key list/);
-  // A lock a dead check left over a minute ago is taken over.
-  const old = new Date(Date.now() - 120000);
-  fs.utimesSync(path.join(h, mv.KEY_LIST_STATE + '.lock'), old, old);
-  assert.equal(mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: h, recoveryKeys: RK }).ok, true);
-  assert.equal(fs.existsSync(path.join(h, mv.KEY_LIST_STATE + '.lock')), false, 'the lock is released');
+  const v6 = list({ release_keys: [spki(rel1), spki(rel2)], seq: 6 });
+  const v7 = list({ release_keys: [spki(rel2)], seq: 7 });
+  // A check of list 6 starts on a copy at seq 6...
+  assert.equal(mv.trustedKeys({ listBytes: v6.bytes, listSig: v6.sig, home: h, recoveryKeys: RK }).ok, true);
+  // ...another check records list 7 meanwhile (as a concurrent check would, by adding its file)...
+  fs.writeFileSync(path.join(h, mv.KEY_LIST_STATE, 'seq-7.json'), JSON.stringify({ seq: 7, release_keys: [spki(rel2)] }));
+  // ...so list 6, which still holds the key list 7 dropped, is refused from now on, and seq 7 stays the record.
+  const r = mv.trustedKeys({ listBytes: v6.bytes, listSig: v6.sig, home: h, recoveryKeys: RK });
+  assert.equal(r.ok, false);
+  assert.equal(mv.storedKeyList(h).seq, 7);
+  assert.equal(mv.trustedKeys({ listBytes: v7.bytes, listSig: v7.sig, home: h, recoveryKeys: RK }).ok, true);
+  // And a seq already recorded by another check with other keys is refused, not overwritten.
+  const h2 = home();
+  fs.mkdirSync(path.join(h2, mv.KEY_LIST_STATE), { recursive: true });
+  fs.writeFileSync(path.join(h2, mv.KEY_LIST_STATE, 'seq-5.json'), JSON.stringify({ seq: 5, release_keys: [spki(rel1)] }));
+  const other5 = list({ release_keys: [spki(rel2)], seq: 5 });
+  assert.equal(mv.trustedKeys({ listBytes: other5.bytes, listSig: other5.sig, home: h2, recoveryKeys: RK }).ok, false);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(h2, mv.KEY_LIST_STATE, 'seq-5.json'), 'utf8')).release_keys[0], spki(rel1));
 });
 
 test('#6609: RECOVERY_KEYS cannot be turned on from inside the process', () => {
@@ -172,10 +188,14 @@ test('#6609: a seq is never reused: the same seq with other keys is refused; a f
   const r = mv.trustedKeys({ listBytes: b.bytes, listSig: b.sig, home: h, recoveryKeys: RK });
   assert.equal(r.ok, false);
   assert.match(r.why, /names other keys than the list 4/);
-  const missing = path.join(home(), 'no-such-dir');
-  const w = mv.trustedKeys({ listBytes: a.bytes, listSig: a.sig, home: missing, recoveryKeys: RK });
-  assert.equal(w.ok, false);
-  assert.match(w.why, /could not be written/);
+  const ro = home();
+  fs.chmodSync(ro, 0o500);   // a home this check cannot write in
+  try {
+    if (process.getuid && process.getuid() === 0) return;   // root writes anyway: the arm cannot be exercised
+    const w = mv.trustedKeys({ listBytes: a.bytes, listSig: a.sig, home: ro, recoveryKeys: RK });
+    assert.equal(w.ok, false);
+    assert.match(w.why, /could not be written/);
+  } finally { fs.chmodSync(ro, 0o700); }
 });
 
 test('#6609: malformed lists are refused even when properly signed', () => {

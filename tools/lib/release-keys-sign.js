@@ -8,6 +8,8 @@
  * written anywhere. Each <release-key> is a release public key as SubjectPublicKeyInfo base64 (the form KEYS uses).
  * Writes <out-dir>/release-keys.json and <out-dir>/release-keys.json.sig, checks them with the same verifyKeyList the
  * installed copies run, and prints the recovery key's public half so the person can see which key signed.
+ * While RECOVERY_KEYS is still empty (before activation) any Ed25519 key would sign: compare the printed public half
+ * with the one being built in before publishing the first list.
  * Exit 0 written and checked; 1 refused (a bad seq, a key that is not one, a duplicate, no key); 2 the private key on
  * stdin is not an Ed25519 key. */
 const fs = require('fs');
@@ -19,7 +21,9 @@ function main(argv, stdin) {
   const [seqArg, outDir, ...keys] = argv;
   const seq = Number(seqArg);
   if (!/^\d+$/.test(String(seqArg || '')) || !Number.isInteger(seq) || seq < 1 || seq > 2147483647) { console.error('the sequence number must be a whole number from 1 to 2147483647'); return 1; }
-  if (!outDir || !fs.existsSync(outDir)) { console.error('the folder to write to does not exist'); return 1; }
+  let isDir = false;
+  try { isDir = fs.statSync(outDir).isDirectory(); } catch { isDir = false; }
+  if (!outDir || !isDir) { console.error('the folder to write to does not exist'); return 1; }
   if (!keys.length) { console.error('name at least one release key'); return 1; }
   // A list already in the folder with this seq or a higher one is not replaced: publishing it would roll copies back.
   // One that is there but unreadable is not replaced either: its number cannot be compared.
