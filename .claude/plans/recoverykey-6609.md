@@ -10,7 +10,7 @@ Card: kosmos#6609 (security hardening item; detail kept with the security plan).
 ## Changes
 - engine/manifest-verify.js: RECOVERY_KEYS (empty), KEY_LIST_STATE, MIN_KEY_LIST_SEQ, ed25519Key (strict, canonical SubjectPublicKeyInfo only), verifyKeyList, storedKeyList (a damaged record is refused, not read as none), trustedKeys (off: built-in KEYS; on: the list's keys; a seq is never reused with other keys; the record moves forward only, mode 600, written via a temp file).
 - tools/lib/release-keys-sign.js: the signing tool; checks its own output with verifyKeyList before reporting success.
-- engine/manifest-verify.recovery-6609.test.js: 7 tests with throwaway keys, including a revoked key no longer opening a release (with a control where it still does).
+- engine/manifest-verify.recovery-6609.test.js: 11 tests with throwaway keys, including a revoked key no longer opening a release (with a control where it still does).
 - engine.reachable.test.js: trustedKeys excused until phase 2 wires it.
 
 ## Phase 2 (next)
