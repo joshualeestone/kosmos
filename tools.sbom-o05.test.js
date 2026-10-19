@@ -226,11 +226,11 @@ test('a package key Cargo writes for a replaced crate (replace) refuses: the cra
   assert.throws(() => parseLock(replaced), /ring has replace, a key this SBOM does not read/);
 });
 
-test('#if canImport, swift or compiler in the Mac app refuses: they read as the machine running this, not the build', () => {
-  for (const c of ['#if canImport(Sparkle)', '#if swift(>=6.0)', '#elseif compiler(>=6)', '  #if os(macOS) && canImport(X)']) {
-    assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + c + '\nimport Sparkle\n#endif\n')), /which this SBOM cannot read for the build machine/, c);
+test('any #if in the Mac app refuses: several conditions read as the machine running this, not the build', () => {
+  for (const c of ['#if canImport(Sparkle)', '#if swift(>=6.0)', '#elseif compiler(>=6)', '  #if os(macOS) && canImport(X)',
+    '#if hasFeature(BareSlashRegexLiterals)', '#if hasAttribute(retroactive)', '#if arch(arm64)', '#if DEBUG']) {
+    assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + c + '\nimport Sparkle\n#endif\n')), /has a conditional .* which this SBOM cannot read for the build machine/, c);
   }
-  assert.ok(sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, PACKAGE, SWIFT + '#if arch(arm64)\nlet a = 1\n#endif\n')), 'arch and os conditions are read for the target');
 });
 
 test('a [[patch.unused]] table does not overwrite the package before it', () => {
@@ -523,6 +523,30 @@ test('the bundle: a library VERSION names must be in lib/, bin/tmux must be ther
   assert.throws(() => tmuxPins(TMUX.replace('fetch libevent "$LIBEVENT_URL" "$LIBEVENT_SHA"', 'fetch libevent "$LIBEVENT_URL" "$TMUX_SHA"')),
     /libevent is fetched with LIBEVENT_URL but TMUX_SHA/);
   assert.throws(() => tmuxPins(TMUX + 'fetch tmux "$TMUX_URL" "$TMUX_SHA"\n'), /tmux is fetched twice/);
+});
+
+test('the serial includes a hash of the generator\'s own source, so a changed generator gives a new document id', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-self-'));
+  const copy = path.join(root, 'tools', 'lib', 'sbom.js');
+  fs.mkdirSync(path.dirname(copy), { recursive: true });
+  fs.mkdirSync(path.join(root, 'engine'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'engine', 'manifest-verify.js'), 'module.exports = { KEYS: [] };\n');
+  fs.writeFileSync(copy, fs.readFileSync(SBOM_JS, 'utf8') + '\n// one more line\n');
+  const other = require(copy);
+  assert.notEqual(other.SELF_SHA, require(SBOM_JS).SELF_SHA);
+  const a = sbom(), b = other.build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), readImports: fixtureImports });
+  assert.notEqual(a.serialNumber, b.serialNumber);
+  assert.deepEqual(a.components, b.components, 'the same release, the same components');
+});
+
+test('a tmux bundle entry name with a control character (listed by tar as an escape) refuses', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-ctl-'));
+  const stage = path.join(root, 'b');
+  for (const f of LIBS) { fs.mkdirSync(path.join(stage, path.dirname(f)), { recursive: true }); fs.writeFileSync(path.join(stage, f), CONTENT[f]); }
+  fs.writeFileSync(path.join(stage, 'lib', 'x\ny.dylib'), 'x');
+  const t = path.join(root, 'b.tar.gz');
+  execFileSync('tar', ['-czf', t, '-C', stage, ...LIBS, 'lib/x\ny.dylib']);
+  assert.throws(() => readTmuxBundle(t), /an entry name holds a control character or an escape/);
 });
 
 test('the same release gives a byte-identical SBOM; another release a different version-8 serial', () => {

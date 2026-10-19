@@ -27,13 +27,14 @@
  * LIMIT: a library linked statically into tmux with neither a VERSION line nor a licence file is invisible here; so is a
  * static C library brought into the Mac app by a bridging header or a linker flag rather than an import, and the
  * second native binary (Kosmos.app/Contents/MacOS/Kosmos, a re-signed copy of kosmos-app) is accepted by name only.
- * The Swift imports are read for the release's target; `#if canImport/swift/compiler(...)`, which follow the machine
- * running this rather than the build, refuse.
+ * The Swift imports are read for the release's target, and any `#if` in the file refuses.
  * LIMIT: the Mac app's shipped binary is not tied to native-app/main.swift at the app commit: the manifest's
  * native_app hash and its files entry for app/bin/kosmos-app are taken from the same file, so the Apple-only import
  * check vouches for the source, not the binary (the same gap as the connector's commit).
  * LIMIT: a vendored third-party crate made a member of the relay workspace passes as first-party.
- * Out of scope: the provider tools (Claude Code, Codex and so on) Kosmos downloads later, when a person asks.
+ * Out of scope, and not listed: what Kosmos downloads later, each pinned by its own hash in engine/: the provider
+ * tools (Claude Code, Codex, Gemini CLI, Grok and so on) when a person connects one, and the agent browser (Playwright
+ * MCP and Chrome headless shell) the first time an agent uses it.
  * LIMIT: the release tarball itself is not read: its hash comes from the manifest. The manifest's file list is
  * exhaustive by construction (the bundle build lists every file of the same stage it packs, and refuses anything
  * that is not a plain file). The shipped runtime/bin/node is not tied to the
@@ -183,6 +184,9 @@ function readTmuxBundle(file) {
   const sha = crypto.createHash('sha256').update(bytes).digest('hex');
   const tar = (args) => execFileSync('tar', args, { input: bytes, encoding: 'utf8', maxBuffer: 64 << 20 });
   const list = tar(['-tzf', '-']).split('\n').filter(Boolean);
+  // tar escapes an odd byte in a listed name (bsdtar writes a newline as \n), so a backslash is refused as well as a
+  // raw control character: either way the listed name is not the stored one.
+  if (list.some((n) => /[\x00-\x1f\x7f\\]/.test(n))) throw new Error('tmux bundle: an entry name holds a control character or an escape');
   // Regular files and directories only: a symlink or hard link would name one file and ship another.
   for (const line of tar(['-tvzf', '-']).split('\n').filter(Boolean)) {
     if (!/^[-d]/.test(line)) throw new Error(`tmux bundle: an entry that is not a plain file or folder: ${line}`);
@@ -365,9 +369,10 @@ function checkNativeApp(manifest, swift, target, readImports = swiftcImports) {
   if (!manifest.native_app || !SHA256.test(manifest.native_app.signed_sha256 || '') || !shipped || shipped.sha256 !== manifest.native_app.signed_sha256) {
     throw new Error('the manifest\'s app/bin/kosmos-app is not the Mac app it signed (native_app.signed_sha256)');
   }
-  // These conditions follow the machine running this (its modules, its compiler), not the build: refuse them.
-  const cond = swift.match(/^[ \t]*#(?:if|elseif)\b.*\b(canImport|swift|compiler)[ \t]*\(/m);
-  if (cond) throw new Error(`native-app/main.swift has #if ${cond[1]}(...), which this SBOM cannot read for the build machine`);
+  // Any #if refuses (review 20): several conditions (canImport, swift, compiler, hasFeature, hasAttribute...) follow
+  // the machine running this rather than the build, a list of them keeps missing one, and the real file has none.
+  const cond = swift.match(/^[ \t]*#(if|elseif)\b.*$/m);
+  if (cond) throw new Error(`native-app/main.swift has a conditional (${cond[0].trim()}), which this SBOM cannot read for the build machine`);
   for (const mod of readImports(swift, target)) {
     if (!APPLE_MODULES.has(mod)) throw new Error(`native-app/main.swift imports ${mod}, which is not an Apple framework this SBOM knows`);
   }
@@ -483,7 +488,7 @@ function uuidFrom(seed) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-module.exports = { parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
+module.exports = { SELF_SHA, parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
 
 // A path as the file system resolves it (following a symlink), or as written when it does not exist yet.
 function realish(p) { try { return fs.realpathSync(p); } catch { return require('path').resolve(p); } }

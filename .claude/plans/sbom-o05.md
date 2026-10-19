@@ -48,11 +48,11 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 37 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 39 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
-  must equal build()'s output byte for byte. Every rule added in reviews 1 to 19 has a mutant that fails an arm, run at
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 20 has a mutant that fails an arm, run at
   the time of the change (the first version, then reviews 1 to 19 in order: four, eight, six, eleven, six, seven,
-  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five and four); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
+  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four and five); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
@@ -96,7 +96,8 @@ real fix.
   bundle. WHAT SHIPS is decided by the signed manifest and the bundle (its signed hash, its VERSION, its lib/, plain
   files only, the binary's own version line), never by the script.
 - **The bundle holds plain files and folders only** (review 8): a symlink or hard link refuses (both have an arm),
-  and a path may appear once (review 15).
+  a path may appear once (review 15), and an entry name with a control character or an escape refuses (review 20:
+  bsdtar lists a newline in a name as a literal \n).
 - **The binary's own version line** (`tmux: tmux 3.5a`) must equal the source it was built from (`tmux-src`), and
   (reviews 14 and 19) each version the VERSION file names must be in the bytes of EVERY binary or library of it
   (3.5a in bin/tmux, 2.1.12-stable in libevent, 6.5 in ncurses, 2.9.0 in utf8proc, all true for 0.7.59): a stale or
@@ -105,7 +106,7 @@ real fix.
   the top level and inside app, node, connector, native_app and built,
   so a future manifest that signs a new shipped part cannot produce an SBOM without it. The release and node versions
   must be plain x.y.z. The SBOM names its generator (metadata.tools); the serial includes its format and a hash of the generator's own
-  source, so a changed generator never reuses a document id. The tmux bundle is a file component (no version), so a
+  source, so a changed generator never reuses a document id (an arm builds from a one-line-different copy). The tmux bundle is a file component (no version), so a
   scanner sees tmux once, as its part.
 - **The connector and node are tied to shipped files:** the manifest must ship app/bin/kosmos-tunnel with the
   connector's signed sha256, and runtime/bin/node. Commits must be full shas, and the manifest must say `dirty: false`.
@@ -122,8 +123,9 @@ real fix.
   lint pass.
 
 ## Not covered, by design
-- (Was a limit; now a refusal, review 19.) `#if canImport(...)`, `#if swift(...)` and `#if compiler(...)` read as the
-  machine running this, not the build machine, so a main.swift with any of them refuses; the real file has no #if.
+- (Was a limit; now a refusal, reviews 19 and 20.) Any `#if` in main.swift refuses: several conditions (canImport,
+  swift, compiler, hasFeature, hasAttribute) read as the machine running this, not the build, and a list of them kept
+  missing one. The real file has no #if.
 - macOS's own libraries (libSystem, libresolv, the Apple frameworks) are not listed: they are the operating system.
 - After the release key is rotated, a manifest signed only by the retired key refuses here (the checkout's KEYS are
   used), so an old release's SBOM is rebuilt from a checkout that still pins its key, or not at all.
@@ -131,9 +133,10 @@ real fix.
   hash), is accepted by name; and a static C library brought into the Mac app by a bridging header or a linker flag,
   not an import, would not be seen.
 - A vendored third-party crate made a member of the relay workspace passes as first-party.
-- Out of scope: the provider tools (Claude Code, Codex and so on) Kosmos downloads later, when a person asks; the
-  installer itself installs none of them.
-- A library linked statically into tmux with neither a VERSION line nor a licence file. The bundle's licences/ is a
+- Out of scope, and not listed: what Kosmos downloads later, each pinned by its own hash in engine/ (review 20): the
+  provider tools (Claude Code, Codex, Gemini CLI, Grok and so on) when a person connects one, and the agent browser
+  (Playwright MCP and Chrome headless shell) the first time an agent uses it. The installer itself installs none.
+- A library linked statically into tmux with neither a VERSION line nor a licence file. The bundle's licenses/ is a
   record of what it was built from (one <name>-<version>.txt per library), and review 15 made it checked: each licence
   must be a part VERSION names, at its version, and each part must have one. The build script writes both today.
 - The VERSION-in-the-binary check is string presence: a prefix of the real version (3.5 for 3.5a) would also pass.
