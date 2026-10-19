@@ -4,12 +4,19 @@ The external review asks for an SBOM of what ships. Kosmos has none. This adds `
 CycloneDX 1.5 JSON SBOM for one Mac release, derived only from records that already exist:
 - **the release's signed manifest:** version, tarball sha, app commit, Node version and download sha, the connector's
   signed sha and its relay commit;
-- **`tools/build-tmux-from-source.sh` at the app commit:** every `fetch` line (tmux, libevent, ncurses, utf8proc today),
-  with each one's pinned version, download url and source sha256. Reading the fetch lines rather than a list of names
-  is deliberate: the first version of this tool listed three names and missed utf8proc;
+- **the tmux bundle the release shipped** (`tmux-<arch>.tar.gz`, given with `--tmux`), which must hash to the
+  manifest's signed `tmux_sha256`: its VERSION file names the tmux, libevent, ncurses and utf8proc that were built,
+  and every dylib in its `lib/` must belong to one of them. Review 3 found the first versions of this tool read the
+  versions from the build SCRIPT; but a release copies an already-built bundle and does not rebuild it (release.sh
+  step 4), so a pin bumped without a rebuild would have listed a version users do not have;
+- **`tools/build-tmux-from-source.sh` at the app commit:** only for each input's download url and source sha256, and
+  only where its pinned version equals the bundle's; otherwise the component carries a `kosmos:source-pin` property
+  saying what differs, and no source reference. Every `fetch` call is read, anywhere on a line, and one in a shape
+  it cannot read, or a `*_URL` nothing fetches, refuses;
 - **the relay's `Cargo.lock` at the connector commit:** walked from `kosmos-tunnel-client` to every crate it reaches,
   with each crate's DIRECT dependencies as the CycloneDX dependency graph. A crate from a source the tool does not know
-  (not crates.io, not git, not a workspace path) refuses the whole SBOM rather than being left out.
+  (not crates.io exactly, not git) refuses the whole SBOM rather than being left out, and so does a sourceless crate
+  that is not a member of the relay workspace (a vendored crate would otherwise pass as first-party).
 
 The app has no npm dependencies (package.json lists none) and the Swift app links Apple frameworks only, so that is
 all the third-party code in the bundle.
@@ -20,8 +27,10 @@ the inputs are the ones the release vouched for. The same release always gives a
 number is derived from the tarball sha).
 
 ## Checked
-- **Real release, 0.7.59 (served manifest):** 234 components:
-  - node 24.19.0, tmux 3.5a, libevent 2.1.12-stable, ncurses 6.5, utf8proc 2.9.0, the connector;
+- **Real release, 0.7.59 (served manifest and the served tmux bundle, whose sha256 equals the signed tmux_sha256):**
+  235 components:
+  - node 24.19.0, the tmux bundle, tmux 3.5a, libevent 2.1.12-stable, ncurses 6.5, utf8proc 2.9.0, the connector;
+  - the control: a bundle with one byte appended refuses ("not the one this release signed");
   - 227 registry crates and 1 first-party crate.
   - It passes the official CycloneDX 1.5 JSON schema (ajv), and a copy with one bad component type fails it.
   - Purl versions are percent-encoded (`wasi@0.11.1%2Bwasi-snapshot-preview1`).
@@ -32,14 +41,13 @@ number is derived from the tarball sha).
   26 are Windows-only or dev-only and 14 are optional dependencies of features the connector does not turn on (h2 and
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the header says so.
-- **`tools.sbom-o05.test.js`:** 14 arms, 13 through injected git reads (no relay checkout needed in CI) and 1 through
-  the command line against two git repos it makes (tmpscope). Eighteen mutants each fail an arm:
-  - round 0: no transitive walk; ignoring a dependency's version; guessing an ambiguous bare name; dropping
-    first-party crates;
-  - round 1: a flat graph; no sort; an unknown source let through; a `[[patch.unused]]` table overwriting a package;
-    ignoring a `(source)` ref; no timestamp; git crates refused; a tmux script with no fetch lines accepted;
-  - round 2: a fetch line in another shape skipped; only braced variables checked; no source hash required; no
-    disambiguation of one name@version from two sources; a `+` left unencoded in a purl; no nested expansion.
+- **`tools.sbom-o05.test.js`:** 15 arms, 14 through injected git reads and an injected bundle (no relay checkout needed
+  in CI) and 1 through the command line against two git repos and a tarball it makes (tmpscope). Twenty-nine mutants
+  each fail an arm (four from the first version, eight after review 1, six after review 2, eleven after review 3:
+  the bundle's hash unchecked, an unaccounted dylib, a vendored crate as first-party, a crates.io prefix match, fetch
+  calls read only at the start of a line, an unfetched url accepted, a version variable unchecked, a dirty build
+  accepted, an unreadable dependency line skipped, no leaf entries, and drift between the script and the bundle not
+  flagged).
 - **Every refusal names what it could not read,** so a new build-script shape fails loudly at SBOM time instead of
   going missing (review 2: the fetch-line approach is only as good as its refusal on a line it cannot parse).
 - **Full-suite-only guards:** every-test-runs, all-node-tests-considered, engine.reachable, #1732, #1777 and the mktemp
