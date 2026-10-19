@@ -36,7 +36,8 @@ function certWatchFrom(dir, nowMs) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     /* A file that is there but does not parse is not "never checked". */
     const there = fs.existsSync(path.join(dir, REPORT_FILE));
-    return { on, state: there ? 'unknown' : 'none', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, checkedAt: null, failing: there };
+    /* Not `failing`: a report that does not parse says nothing about whether the check runs. */
+    return { on, state: there ? 'unknown' : 'none', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, checkedAt: null, failing: false };
   }
   const foreign = len(raw.foreign) + count(raw.foreign_overflow);
   const earlier = len(raw.earlier_foreign) + count(raw.earlier_overflow);

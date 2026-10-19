@@ -19589,8 +19589,9 @@ window.kosmosMeasureScrollbarWidth();
           <p class="fhint" id="plus-status" aria-live="polite"></p>
           <!-- kosmos#6602: what this computer's daily check of the public certificate logs found, and its switch.
                Painted by paintPlusCertWatch. The line shows only when there is something to say. -->
-          <!-- Never hidden: a live region that is out of the accessibility tree when its text arrives is often not
-               announced, and the first finding is the moment that must be. Empty, it takes no room (CSS below). -->
+          <!-- Never hidden itself: a live region that is out of the accessibility tree when its text arrives is often
+               not announced. It sits in #plus-flow, so a finding already there on the first paint after set-up (when
+               the flow itself appears) may still not be read out. Empty, it takes no room (CSS below). -->
           <p class="fhint plus-cw-line" id="plus-cw-line" role="status"></p>
           <div class="plus-cw-row" id="plus-cw-row" hidden>
             <button class="toggle" type="button" id="plus-cw-switch" role="switch" aria-labelledby="plus-cw-label" hidden><i></i></button>
@@ -52461,8 +52462,8 @@ function paintPlusCertWatch(cw, plusOn) {
       cwBusy = true;
       cwSw.setAttribute('aria-busy', 'true');   // saving: says so, and a click now does nothing (cwBusy)
       const res = await fetch('/api/remote/cert-watch', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: wantOn }) });
-      if (!res.ok) plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not change that'), 'switch');
-    } catch { plusSay('we could not change that', 'switch'); }
+      if (!res.ok) plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not change the certificate check'), 'switch');
+    } catch { plusSay('we could not change the certificate check', 'switch'); }
     finally { cwBusy = false; cwSw.removeAttribute('aria-busy'); }
     paintPlus();
   }); }
