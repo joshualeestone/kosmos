@@ -23801,6 +23801,9 @@ function nameCheckFleet(platform = process.platform) {
 
 function start(port = PORT) {
   snapshotWorlds();   // #5247: the worlds the gate may accept, as of now
+  // kosmos#6595 (R01): ask the bundled connector what it vouches for now, without blocking, so a remote request never
+  // waits on it. Best effort: an answer not in yet is asked for (briefly) by the first request that needs it.
+  try { remote.warmConnectorCapabilities(); } catch { /* best effort */ }
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();

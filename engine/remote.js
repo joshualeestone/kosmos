@@ -69,7 +69,7 @@ const fs = require('node:fs');
 const { envDelete, envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn, execFileSync, spawnSync } = require('node:child_process');
+const { spawn, execFile, execFileSync, spawnSync } = require('node:child_process');
 // Narrow test seam for setupRun's child lifecycle. The supervised tunnel uses
 // spawn directly and cannot be replaced through this seam.
 let setupSpawn = spawn;
@@ -139,13 +139,27 @@ function connectorCapabilities(now = Date.now()) {
   if (capabilitiesSeen && (capabilitiesSeen.caps.has('session-headers') || now - capabilitiesSeen.at < CAPABILITIES_RECHECK_MS)) {
     return capabilitiesSeen.caps;
   }
+  // Normally answered already by the warm-up at start (below), so this rarely runs. When it does, it blocks the
+  // board's one event loop, so it is kept short: a connector slower than this lists nothing, and is asked again later.
   let caps = new Set();
   try {
-    const r = spawnSync(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: 5000 }));
-    if (r.status === 0) caps = new Set(String(r.stdout || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+    const r = spawnSync(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: 1500 }));
+    if (r.status === 0) caps = capabilityLines(r.stdout);
   } catch { /* cannot run: lists nothing */ }
   capabilitiesSeen = { caps, at: now };
   return caps;
+}
+const capabilityLines = (out) => new Set(String(out || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+/* The warm-up: asked once at board start, without blocking, so the first remote request finds the answer kept. */
+function warmConnectorCapabilities(done = () => {}) {
+  // As the other connector spawns here: under the test runner, only a connector a test names is ever run.
+  if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) { done(new Set()); return; }
+  try {
+    execFile(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: 5000 }), (err, stdout) => {
+      capabilitiesSeen = { caps: err ? new Set() : capabilityLines(stdout), at: Date.now() };
+      done(capabilitiesSeen.caps);
+    });
+  } catch { done(new Set()); }
 }
 function resetConnectorCapabilitiesForTests() { capabilitiesSeen = null; }
 /* The production addresses are the defaults (#648): a bundle needs nothing
@@ -3446,7 +3460,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { connectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+module.exports = { connectorCapabilities, warmConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,

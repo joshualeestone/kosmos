@@ -255,6 +255,17 @@ test('R01: a connector that does not list session-headers cannot vouch, so even 
   assert.equal(remoteStepUpRefusal({ method: 'POST', headers: PAGE }, '/api/agents', t, new Set()), null);
 });
 
+test('R01: the warm-up fills the answer without blocking, and a request then finds it kept', async () => {
+  remote.resetConnectorCapabilitiesForTests();
+  const caps = await new Promise((resolve) => remote.warmConnectorCapabilities(resolve));
+  assert.ok(caps.has('session-headers'));
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';
+  try {
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'the request used the warmed answer, not a new spawn');
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); }
+});
+
 test('R01: the connector is asked once, by its capabilities verb, and one that cannot be run lists nothing', () => {
   remote.resetConnectorCapabilitiesForTests();
   assert.ok(remote.connectorCapabilities().has('session-headers'), 'the test connector lists session-headers');
