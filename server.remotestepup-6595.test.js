@@ -34,7 +34,10 @@ const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusa
 const remote = require('./engine/remote');
 
 let base;
-test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
+const warm = () => new Promise((resolve) => remote.warmConnectorCapabilities(resolve));
+// Polls, not a fixed sleep: a background ask on a loaded machine can take far longer than it does here.
+const until = async (ok, ms = 5000) => { const end = Date.now() + ms; while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 20)); return ok(); };
+test.before(async () => { await start(0); await warm(); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(() => {
   server.closeAllConnections(); server.close();
   fs.rmSync(SANDBOX, { recursive: true, force: true });
@@ -255,6 +258,16 @@ test('R01: a connector that does not list session-headers cannot vouch, so even 
   assert.equal(remoteStepUpRefusal({ method: 'POST', headers: PAGE }, '/api/agents', t, new Set()), null);
 });
 
+test('R01: a connector that does not list session-headers cannot vouch, so even a fresh remote session is refused', () => {
+  const t = now();
+  const fresh = { method: 'POST', headers: { ...VIA_PLUS, 'x-kosmos-session-iat': String(t - 30), 'x-kosmos-session-second': '1' } };
+  assert.equal(remoteStepUpRefusal(fresh, '/api/agents', t, new Set(['session-headers'])), null, 'CONTROL: it lists it');
+  assert.equal(remoteStepUpRefusal(fresh, '/api/agents', t, new Set()), REMOTE_STEP_UP_CONNECTOR);
+  assert.equal(remoteStepUpRefusal(fresh, '/api/agents', t, new Set(['something-else'])), REMOTE_STEP_UP_CONNECTOR);
+  // A local request is never asked, whatever the connector says.
+  assert.equal(remoteStepUpRefusal({ method: 'POST', headers: PAGE }, '/api/agents', t, new Set()), null);
+});
+
 test('R01: the warm-up fills the answer without blocking, and a request then finds it kept', async () => {
   remote.resetConnectorCapabilitiesForTests();
   const caps = await new Promise((resolve) => remote.warmConnectorCapabilities(resolve));
@@ -266,40 +279,42 @@ test('R01: the warm-up fills the answer without blocking, and a request then fin
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); }
 });
 
-test('R01: the connector is asked once, by its capabilities verb, and one that cannot be run lists nothing', () => {
-  remote.resetConnectorCapabilitiesForTests();
-  assert.ok(remote.connectorCapabilities().has('session-headers'), 'the test connector lists session-headers');
+
+
+test('R01: the connector is never asked while a request waits: with no answer kept, "nothing" now, and an ask in the background', async () => {
   const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
-  process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';
   try {
-    assert.ok(remote.connectorCapabilities().has('session-headers'), 'kept once seen (an update restarts the board)');
     remote.resetConnectorCapabilitiesForTests();
-    assert.equal(remote.connectorCapabilities().size, 0, 'a connector that fails the verb lists nothing');
-  } finally {
-    process.env.AGENT_WORKFORCE_TUNNEL_BIN = was;
-    remote.resetConnectorCapabilitiesForTests();
-  }
+    assert.equal(remote.connectorCapabilities().size, 0, 'no answer yet: nothing, at once');
+    assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'the background ask filled it');
+    // Kept, never downgraded: a later failing connector does not undo it.
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';
+    assert.ok(remote.connectorCapabilities(Date.now() + 10 * 60 * 60 * 1000).has('session-headers'));
+    await warm();
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'a failed later ask does not downgrade it');
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
 });
 
-test('R01: an answer without the capability is asked again after ten minutes; no answer at all after thirty seconds', () => {
+test('R01: an old connector is asked again after ten minutes, one that did not answer after thirty seconds', async () => {
   const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
   const old = path.join(SANDBOX, 'old-tunnel');
   fs.writeFileSync(old, '#!/bin/sh\nexit 2\n', { mode: 0o755 });   // an older connector: the verb is unknown
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = old;
     remote.resetConnectorCapabilitiesForTests();
-    const t0 = 1_000_000;
-    assert.equal(remote.connectorCapabilities(t0).size, 0, 'an old connector lists nothing');
+    assert.equal((await warm()).size, 0, 'an old connector lists nothing');
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;   // updated
+    const t0 = Date.now();
     assert.equal(remote.connectorCapabilities(t0 + 9 * 60 * 1000).size, 0, 'kept for ten minutes');
-    assert.ok(remote.connectorCapabilities(t0 + 10 * 60 * 1000 + 1).has('session-headers'), 'asked again after ten');
+    remote.connectorCapabilities(t0 + 10 * 60 * 1000 + 1);   // due: asks in the background
+    assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'asked again after ten');
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = path.join(SANDBOX, 'no-such-tunnel');   // cannot be started
     remote.resetConnectorCapabilitiesForTests();
-    assert.equal(remote.connectorCapabilities(t0).size, 0);
+    assert.equal((await warm()).size, 0);
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;
-    assert.ok(remote.connectorCapabilities(t0 + 31 * 1000).has('session-headers'), 'unanswered: asked again after thirty seconds');
-    // Never downgraded: a later failure keeps the positive answer.
-    process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';
-    assert.ok(remote.connectorCapabilities(t0 + 10 * 60 * 60 * 1000).has('session-headers'));
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); }
+    const t1 = Date.now();
+    assert.equal(remote.connectorCapabilities(t1 + 20 * 1000).size, 0, 'unanswered: kept for thirty seconds');
+    remote.connectorCapabilities(t1 + 31 * 1000);
+    assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'unanswered: asked again after thirty seconds');
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
 });

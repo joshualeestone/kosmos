@@ -69,7 +69,7 @@ const fs = require('node:fs');
 const { envDelete, envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn, execFile, execFileSync, spawnSync } = require('node:child_process');
+const { spawn, execFile, execFileSync } = require('node:child_process');
 // Narrow test seam for setupRun's child lifecycle. The supervised tunnel uses
 // spawn directly and cannot be replaced through this seam.
 let setupSpawn = spawn;
@@ -132,7 +132,8 @@ const connectorSpawnOptions = (opts) => ({ ...opts, windowsHide: true });
    "session-headers" (it strips client copies, kosmos-relay sessioniat-6595). A connector older than that verb, or one
    that cannot be run, lists nothing, so its headers are never trusted: this is what makes an old connector fail
    closed on every platform, whatever order things merge or ship in. Asked once and kept; a connector that lacked it
-   is asked again after ten minutes (it changes only with an update, which restarts the board anyway). */
+   is asked again after ten minutes, one that did not answer at all after thirty seconds. Always asked in the
+   background (at start, and when due), never while a request waits. */
 const CAPABILITIES_RECHECK_MS = 10 * 60 * 1000;
 // A connector that did not answer at all (a timeout, or it could not be started) is asked again much sooner than one
 // that answered without the capability: not answering in time says nothing about its age.
@@ -149,17 +150,15 @@ function connectorCapabilities(now = Date.now()) {
     const wait = capabilitiesSeen.answered ? CAPABILITIES_RECHECK_MS : CAPABILITIES_UNANSWERED_RECHECK_MS;
     if (capabilitiesSeen.caps.has('session-headers') || now - capabilitiesSeen.at < wait) return capabilitiesSeen.caps;
   }
-  // Normally answered already by the warm-up at start (below), so this rarely runs. When it does, it blocks the
-  // board's one event loop, so it is kept short: a connector slower than this lists nothing, and is asked again later.
-  let caps = new Set();
-  let answered = false;
-  try {
-    const r = spawnSync(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: 1500 }));
-    answered = !r.error && r.signal === null && typeof r.status === 'number';
-    if (r.status === 0) caps = capabilityLines(r.stdout);
-  } catch { /* cannot run: lists nothing, and did not answer */ }
-  return noteCapabilities(caps, answered, now);
+  // Never asked synchronously: a request never waits on the connector. With no answer kept (or one due again), this
+  // answers "nothing" now, so the request is refused with "try again in a minute", and asks in the background.
+  if (!askingCapabilities) {
+    askingCapabilities = true;
+    warmConnectorCapabilities(() => { askingCapabilities = false; });
+  }
+  return capabilitiesSeen ? capabilitiesSeen.caps : new Set();
 }
+let askingCapabilities = false;
 const capabilityLines = (out) => new Set(String(out || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
 /* The warm-up: asked once at board start, without blocking, so the first remote request finds the answer kept. */
 function warmConnectorCapabilities(done = () => {}) {
@@ -173,7 +172,7 @@ function warmConnectorCapabilities(done = () => {}) {
     });
   } catch { done(new Set()); }
 }
-function resetConnectorCapabilitiesForTests() { capabilitiesSeen = null; }
+function resetConnectorCapabilitiesForTests() { capabilitiesSeen = null; askingCapabilities = false; }
 /* The production addresses are the defaults (#648): a bundle needs nothing
  * baked for a Mac to reach the real relay and coordinator. Precedence: env
  * (tests, self-host), then the relay saved in remote.json, then production. */
