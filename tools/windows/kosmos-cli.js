@@ -567,7 +567,7 @@ async function verbReply(ctx, args) {
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was kept: that reply is too large to send to the board at all. Send a summary, or split it.'); keepPiped(); return 2; }
   const r = await ctx.call('POST', '/api/reply', body);
   if (!r.reached) {
-    if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Your answer may have been kept; check your conversation before sending it again.');
+    if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Your message may have been kept; check your conversation before sending it again.');
     const code = ctx.unreachable('keep that');
     keepPiped();
     return code;
