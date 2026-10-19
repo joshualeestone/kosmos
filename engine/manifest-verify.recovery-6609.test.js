@@ -220,6 +220,7 @@ test('#6609: the record only moves forward: a check that lost a race to a newer 
 });
 
 test('#6609: RECOVERY_KEYS cannot be turned on from inside the process', () => {
+  assert.equal(mv.RECOVERY_KEYS.filter((k) => mv.KEYS.includes(k)).length, 0, 'a recovery key is never also a built-in release key');
   assert.throws(() => mv.RECOVERY_KEYS.push(spki(recovery)));
   assert.equal(mv.RECOVERY_KEYS.length, 0);
 });
@@ -293,6 +294,8 @@ test('#6609: the signing tool writes a list the installed check accepts, reading
   assert.equal(asRelease.status, 2, 'the recovery key is never also a release key');
   assert.deepEqual(fs.readdirSync(out3), []);
   fs.writeFileSync(path.join(out3, 'release-keys.json'), 'null');
-  assert.equal(spawnSync(process.execPath, [tool, '1', out3, spki(rel1)], { input: pem(recovery), encoding: 'utf8' }).status, 1, 'a list file holding null is refused, not a crash');
+  const nul = spawnSync(process.execPath, [tool, '1', out3, spki(rel1)], { input: pem(recovery), encoding: 'utf8' });
+  assert.equal(nul.status, 1);
+  assert.match(nul.stderr, /^the folder already holds list \(unreadable number\); a new list needs a higher number\n$/, 'refused with its own sentence, not a crash: ' + nul.stderr);
   assert.equal(fs.readFileSync(path.join(out2, 'release-keys.json'), 'utf8'), 'garbage');
 });

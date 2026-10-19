@@ -267,6 +267,8 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   const stored = storedKeyList(home, minSeq);
   if (!stored) return { ok: false, why: 'this copy\'s record of the release key list is damaged, so no list can be taken' };
   if (v.seq < stored.seq) return { ok: false, why: `the release key list is ${v.seq}, older than the ${stored.seq} this copy has taken` };
+  // Already recorded: no write, so no re-read. A newer list recorded in the instant since is found by the next check;
+  // the caller checks the release straight away with these keys.
   if (v.seq === stored.seq && stored.keys) {
     if (!sameKeys(stored.keys, v.keys)) return { ok: false, why: `the release key list ${v.seq} names other keys than the list ${v.seq} this copy took` };
     return { ok: true, why: v.why, keys: v.keys };
