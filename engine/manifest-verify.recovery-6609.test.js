@@ -195,6 +195,12 @@ test('#6609: switched on, no install home is a refusal (the record is what stops
   const r = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: '', recoveryKeys: RK });
   assert.equal(r.ok, false);
   assert.match(r.why, /cannot be checked without this copy/);
+  // A home that does not exist (a wrong path) is refused too, and nothing is created there.
+  const wrong = path.join(home(), 'not-the-install');
+  const w = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: wrong, recoveryKeys: RK });
+  assert.equal(w.ok, false);
+  assert.match(w.why, /cannot be checked without this copy/);
+  assert.equal(fs.existsSync(wrong), false, 'a mistyped home must not start a fresh record');
 });
 
 test('#6609: the record only moves forward: a check that lost a race to a newer list refuses, and the record keeps the newer one', () => {

@@ -263,9 +263,12 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   const v = verifyKeyList({ bytes: listBytes, sig: listSig, recoveryKeys });
   if (!v.ok) return v;
   // On, the record is what stops an older list coming back, so a check with no install home to keep it in is refused.
-  if (!home) return { ok: false, why: 'the release key list cannot be checked without this copy\'s record' };
+  // And the home must already exist: a mistyped one must not quietly start a fresh record with the floor reset.
+  let homeOk = false;
+  try { homeOk = !!home && fs.statSync(home).isDirectory(); } catch { homeOk = false; }
+  if (!homeOk) return { ok: false, why: 'the release key list cannot be checked without this copy\'s record' };
   const stored = storedKeyList(home, minSeq);
-  if (!stored) return { ok: false, why: 'this copy\'s record of the release key list is damaged, so no list can be taken' };
+  if (!stored) return { ok: false, why: `this copy's record of the release key list is damaged (the highest file in ${path.join(home, KEY_LIST_STATE)}); remove that file and check again` };
   if (v.seq < stored.seq) return { ok: false, why: `the release key list is ${v.seq}, older than the ${stored.seq} this copy has taken` };
   // Already recorded: no write, so no re-read. A newer list recorded in the instant since is found by the next check;
   // the caller checks the release straight away with these keys.
@@ -279,9 +282,10 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   const file = path.join(dir, `seq-${v.seq}.json`);
   const tmp = path.join(dir, `.seq-${v.seq}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`);
   try {
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    // On disk before it is linked in, and the folder after: a crash must leave the record whole or absent, never
-    // linked but empty (which would read as damaged and refuse every list).
+    try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (e) { if (!e || e.code !== 'EEXIST') throw e; }
+    // Synced before it is linked in, and the folder after, so a crash should leave the record whole or absent. fsync on
+    // macOS is not a full barrier (F_FULLFSYNC), so after a power loss the top file can still be empty: that reads as
+    // damaged and is refused, with the repair named in the message (remove that file; the next list re-records it).
     const fd = fs.openSync(tmp, 'wx', 0o600);
     try { fs.writeSync(fd, JSON.stringify({ seq: v.seq, release_keys: v.keys }) + '\n'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     try { fs.linkSync(tmp, file); } catch (e) {
