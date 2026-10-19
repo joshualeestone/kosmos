@@ -73,6 +73,32 @@ test('#1765: a Valid signature by anyone else, or under any other chain, is refu
   assert.match(refused({ chain: 'CN=Microsoft ID Verified Code Signing PCA 2021, O=Microsoft Corporation, C=US' }), notMicrosoft, 'a chain that is not a list');
 });
 
+test('#6466: the whole subject, the Code Signing EKU and a chain that builds are required too', T, () => {
+  const refused = (over) => win32update.signatureRefusal({ ...SIGNED_KOSMOS, ...over });
+  /* The CN alone is not enough: a different organisation, city or state under the same CN is refused. */
+  for (const subject of [
+    'CN="Kosmos Agent Manager, Inc.", O="Someone Else, Inc.", L=Mckinney, S=Texas, C=US',
+    'CN="Kosmos Agent Manager, Inc.", O="Kosmos Agent Manager, Inc.", L=Austin, S=Texas, C=US',
+    'CN="Kosmos Agent Manager, Inc.", O="Kosmos Agent Manager, Inc.", L=Mckinney, S=Texas, C=GB',
+    'CN="Kosmos Agent Manager, Inc."',
+    SIGNED_KOSMOS.subject + ', OU=extra',
+    SIGNED_KOSMOS.subject.replace('Texas', 'T\u0435xas'),
+    '',
+  ]) {
+    assert.match(refused({ subject }), /^the update's Kosmos\.exe is signed for '.*', not for the validated Kosmos Agent Manager, Inc\.$/, subject);
+  }
+  /* Case, as PowerShell's -ne ignores it. */
+  assert.equal(refused({ subject: SIGNED_KOSMOS.subject.toUpperCase() }), null);
+  assert.match(refused({ ekus: ['1.3.6.1.4.1.311.97.1.0'] }), /not for code signing/);
+  assert.match(refused({ ekus: [] }), /not for code signing/);
+  assert.match(refused({ ekus: undefined }), /not for code signing/);
+  assert.match(refused({ chainBuilt: false }), /could not build its certificate chain/);
+  assert.match(refused({ chainBuilt: 'true' }), /could not build its certificate chain/, 'only a real true');
+  assert.match(refused({ chainBuilt: undefined }), /could not build its certificate chain/);
+  /* The identity-validation EKU's value is not pinned (it changes when the validation is redone). */
+  assert.equal(refused({ ekus: ['1.3.6.1.5.5.7.3.3'] }), null);
+});
+
 /* ─── the pins are setup.ps1's, everywhere ─────────────────────────────────────────────────── */
 
 test('#1765: the signer, root and intermediate the updater requires are exactly the ones setup.ps1 requires', T, () => {
@@ -88,6 +114,12 @@ test('#1765: the signer, root and intermediate the updater requires are exactly 
   assert.match(psPattern, /\\z$/, 'setup.ps1\'s pattern no longer ends in \\z');
   assert.equal(win32update.EXPECTED_INTERMEDIATE_PATTERN.source, psPattern.replace(/\\z$/, '$'));
   assert.equal(win32update.EXPECTED_INTERMEDIATE_PATTERN.flags, 'i', 'PowerShell\'s -match ignores case, and nothing else');
+  /* #6466: the whole subject and the EKU, and the chain must build. */
+  assert.equal(win32update.EXPECTED_SUBJECT, pinned('EXPECTED_SUBJECT'));
+  assert.equal(win32update.EXPECTED_EKU, pinned('EXPECTED_EKU'));
+  assert.match(text, /if \(-not \$built\)/);
+  assert.match(text, /\$leaf\.Subject -ne \$EXPECTED_SUBJECT/);
+  assert.match(text, /\$ekus -notcontains \$EXPECTED_EKU/);
   /* And setup.ps1 still asks the same three questions of the exe it is about to run. */
   assert.match(text, /\$signature\.Status -ne 'Valid'/);
   assert.match(text, /\$signer -ne \$EXPECTED_SIGNER/);
@@ -114,6 +146,10 @@ test('#1765 on Windows: the committed, signed Kosmos.exe passes, chained as setu
   assert.equal(sig.status, 'Valid');
   assert.equal(sig.signer, 'Kosmos Agent Manager, Inc.');
   assert.equal(sig.rootThumbprint, 'F40042E2E5F7E8EF8189FED15519AECE42C3BFA2');
+  /* #6466: the fields the stronger pin reads, as Windows itself reports them. */
+  assert.equal(sig.subject, win32update.EXPECTED_SUBJECT);
+  assert.ok(sig.ekus.includes(win32update.EXPECTED_EKU), JSON.stringify(sig.ekus));
+  assert.equal(sig.chainBuilt, true);
   assert.equal(win32update.signatureRefusal(sig), null);
   /* A copy elsewhere (a path with a space and a quote) is the same file to Windows: the path rides in the
      environment, not the command. */

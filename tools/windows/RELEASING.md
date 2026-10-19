@@ -41,6 +41,22 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    execution policy blocks scripts, run them as
    `powershell -ExecutionPolicy Bypass -File tools\windows\publish-r2.ps1 <the same arguments>`.
 
+3. **The signed release manifest (#6466), once.** Installs from the first build that carries
+   #6466 refuse any update without a release manifest signed by the Kosmos release key (the same
+   ed25519 key, `kosmos-manifest-signing`, that signs the Mac's manifest, pinned in
+   `engine/manifest-verify.js`). Two things must be true before such a build is staged:
+   - **installkosmos.com serves the manifest names.** Installs fetch
+     `/dist/kosmos-<v>-win-x64.manifest.json` and `.manifest.json.sig` from installkosmos.com, like the
+     zip. Its `/dist` redirect to R2 covers the zip and `.zip.sha256` names only (measured 2026-10-19:
+     both manifest names answer 404). The site's `vercel.json` needs the same 307 for these two names
+     (`/dist/kosmos-:v-win-x64.manifest.json` and `/dist/kosmos-:v-win-x64.manifest.json.sig` to
+     `https://dl.chaoskosmos.com/...`). `publish-r2.ps1` reads both back through the site before it
+     moves the staging pointer, so a missing redirect stops the stage instead of stranding installs.
+   - **The key holder can sign.** The private key stays where it is (the release Mac, secrets map
+     target `kosmos-manifest-signing`). Either the key holder signs each Windows manifest (step 1b
+     below), or a copy of the key is filed on the Windows PC with `/add-secret`; never commit or
+     print it.
+
 ## Each release
 
 1. **Build** from a clean checkout of `main`. A dirty tree is flagged in the zip's manifest, and
@@ -76,9 +92,28 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    reads it from `~/work/kosmos-relay/dist/kosmos-tunnel.exe`, or from `KOSMOS_TUNNEL_BIN`, and
    refuses one that is missing, unsigned, or does not match its sidecars.
 
+1b. **Sign the release manifest (#6466).** The build also writes
+   `dist/kosmos-<v>-win-x64.manifest.json` (every file in the zip with its sha256, the zip's sha256,
+   the version; the Mac manifest's format plus `"platform": "win32"`). Sign it with the Mac's own step
+   and key, unchanged:
+
+   ```
+   node tools/lib/manifest-sign.js sign <kosmos-manifest-signing key> dist/kosmos-<v>-win-x64.manifest.json dist/kosmos-<v>-win-x64.manifest.json.sig
+   ```
+
+   With `KOSMOS_MANIFEST_KEY=<path to the key>` set, the build does this itself and checks the result
+   against the zip. Otherwise send the manifest (it holds no secret) to the key holder and put the
+   `.sig` they return beside it. Check it before staging:
+   `node tools/lib/win-release-manifest.js check dist/kosmos-<v>-win-x64.manifest.json dist/kosmos-<v>-win-x64.manifest.json.sig dist/kosmos-win-x64.zip <v>`.
+   The manifest must be the one written by the same build as the zip: a rebuild makes a new zip, and
+   the old manifest no longer matches it.
+
 2. **Stage.** This checks that the zip's `Kosmos.exe` is byte for byte the committed launcher (and,
    on Windows, that its Authenticode signature is Valid), then uploads the versioned zip, its sidecar, and `latest-win-staging.json`
-   **last**, and reads every file back through installkosmos.com. Prod does not move. Everything
+   **last**, and reads every file back through installkosmos.com. Prod does not move. It also checks
+   the signed manifest beside the zip against the zip, file for file, uploads it and its `.sig`
+   before the pointer, and confirms installkosmos.com serves both. A build whose updater checks
+   signed manifests is refused without one; an older build without one is staged with a NOTICE. Everything
    that decides whether to write is read from the bucket itself with the key, so a slow or
    challenging edge produces a refusal, never a wrong write.
 
@@ -126,6 +161,30 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    pwsh tools\windows\publish-r2.ps1 -Promote -ApprovedVersion <v> -ApprovedSha <sha> -ApprovalRef '<Slack ts or permalink>' -DryRun
    pwsh tools\windows\publish-r2.ps1 -Promote -ApprovedVersion <v> -ApprovedSha <sha> -ApprovalRef '<Slack ts or permalink>'
    ```
+
+## What the installed copy checks before an update runs (#6466)
+
+The in-app update (`engine/win32update.js`, run by the INSTALLED copy) reads the pointer, then the
+signed manifest and its `.sig`, and checks them against the release key the installed copy pins,
+before it downloads the zip: the signature, the version (the pointer's, and not older than the
+installed one), and that the manifest names this platform, arch, versioned zip and the pointer's
+sha256. A missing, unsigned or mismatched manifest is refused, never waved through, as the Mac's
+installed copy does (#6468). After the unpack, every file (`runtime\node.exe`, `app\`, `bin\`, the
+connector, the zip's own `manifest.json`, `Kosmos.exe`) must be exactly the manifest's, by sha256,
+before anything in it runs. Then `Kosmos.exe`'s Authenticode signature is checked: Valid, the whole
+validated subject (`CN="Kosmos Agent Manager, Inc.", O="Kosmos Agent Manager, Inc.", L=Mckinney,
+S=Texas, C=US`), the Code Signing EKU, and a chain that builds through Microsoft's ID Verified CA to
+the pinned root. No leaf thumbprint is pinned: the certificates rotate every few days.
+
+Not covered, written down: an update installed from a folder the person extracted (`--from`) runs
+the NEW copy's own code, so it is trusted the way a fresh install is (the person ran that
+`Kosmos.exe`); it is checked for links and its `Kosmos.exe` signature only. The staged tree and a
+kept rollback build are not re-checked between the check and the swap. A fresh install
+(`setup.ps1`) checks the zip's checksums and the launcher's signature, not the manifest.
+
+**Rotating the key.** `engine/manifest-verify.js` KEYS is a list: ship a release that pins the new
+key beside the old one, signed with the old one, before signing with the new one. Losing every
+pinned private key means installs refuse updates until Kosmos is installed afresh.
 
 ## Records and guarantees
 

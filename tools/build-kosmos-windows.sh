@@ -584,3 +584,28 @@ echo "==> $ZIPOUT"
 _zipbytes="$(wc -c < "$ZIPOUT" | tr -d ' ')"
 read -r _unpacked _nfiles _ <<<"$(printf '%s\n' "$LISTING" | tail -1)"
 echo "==> zip $_zipbytes bytes; unpacked $_unpacked bytes in $_nfiles files"
+
+# ---- the signed release manifest (#6466) -----------------------------------
+# The Windows twin of the Mac's signed manifest (#6468): every file in the zip with its sha256, the zip's sha256 and
+# version, in the Mac's format plus "platform": "win32". Installs of THIS build refuse an update whose manifest is
+# missing or not signed by the release key engine/manifest-verify.js pins (engine/win32update.js B1b/B3b), and
+# tools/windows/publish-r2.ps1 refuses to stage this build without it. Written from the STAGE the zip was made from,
+# then checked against the zip itself once signed (publish-r2.ps1 does that check again before uploading).
+# Signed with the SAME key and the SAME step as the Mac release (tools/lib/manifest-sign.js sign), on whichever
+# computer holds kosmos-manifest-signing: here when KOSMOS_MANIFEST_KEY names it, otherwise by the key holder.
+MANIFEST_OUT="$OUTDIR/kosmos-$_ver-win-$ARCH.manifest.json"
+rm -f "$MANIFEST_OUT" "$MANIFEST_OUT.sig"
+command -v node >/dev/null 2>&1 || refuse "node is needed to write the signed release manifest (#6466)"
+node "$REPO/tools/lib/win-release-manifest.js" write "$STAGE" "$ZIPOUT" "$_ver" "$ARCH" "$MANIFEST_OUT" \
+  || { rm -f "$MANIFEST_OUT"; refuse "the release manifest could not be written (#6466)"; }
+if [ -n "${KOSMOS_MANIFEST_KEY:-}" ]; then
+  node "$REPO/tools/lib/manifest-sign.js" sign "$KOSMOS_MANIFEST_KEY" "$MANIFEST_OUT" "$MANIFEST_OUT.sig" \
+    || { rm -f "$MANIFEST_OUT" "$MANIFEST_OUT.sig"; refuse "the release manifest could not be signed (#6466)"; }
+  node "$REPO/tools/lib/win-release-manifest.js" check "$MANIFEST_OUT" "$MANIFEST_OUT.sig" "$ZIPOUT" "$_ver" \
+    || { rm -f "$MANIFEST_OUT" "$MANIFEST_OUT.sig"; refuse "the signed release manifest does not check out against the zip (#6466)"; }
+  echo "==> signed: $(basename "$MANIFEST_OUT").sig"
+else
+  echo "==> NOT SIGNED YET: $(basename "$MANIFEST_OUT"). The key holder signs it with the release key (the Mac's step):"
+  echo "      node tools/lib/manifest-sign.js sign <kosmos-manifest-signing key> $(basename "$MANIFEST_OUT") $(basename "$MANIFEST_OUT").sig"
+  echo "    and puts the .sig beside it here. publish-r2.ps1 refuses to stage this build without it."
+fi

@@ -530,5 +530,59 @@ else fail "approval line field order: $_given"; fi
 if [ "$rc" -eq 1 ] && grep -qF "prod-facing writes had begun" "$TMP/out"; then pass "a failure after the first prod-facing write says what may have changed"
 else fail "partial-state note: rc=$rc $(tail -2 "$TMP/out")"; fi
 
+# 6. #6466: the signed release manifest. The happy path needs the release key, so it is measured by the node
+# suite (tools.win-release-manifest-6466.test.js, under a test key); these pin the refusals, offline.
+cp "$TMP/staging.lock-keep" "$FAKE/latest-win-staging.json"; rm -f "$FAKE/publish.lock"
+# A build whose updater checks signed manifests (it carries the capability line).
+mkzip_checker() { mkzip "$1" "$2" "$3"; python3 - "$1" "$HERE/../engine/win32update.js" <<'PYEOF'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], 'a') as z:
+    z.writestr('app/engine/win32update.js', open(sys.argv[2], 'rb').read())
+PYEOF
+}
+mkzip_checker "$TMP/chk.zip" 9.9.20 CHK
+fake -Zip "$TMP/chk.zip"; rc=$?
+refuses_clean "#6466: a build that checks signed manifests is refused without one, nothing written" "refuses any update without a signed release manifest"
+printf '{"manifest":1,"version":"9.9.20"}\n' > "$TMP/kosmos-9.9.20-win-x64.manifest.json"
+fake -Zip "$TMP/chk.zip"; rc=$?
+refuses_clean "#6466: a manifest with no .sig beside it is refused, nothing written" "must both be beside the zip"
+printf 'bm90IGEgc2lnbmF0dXJl\n' > "$TMP/kosmos-9.9.20-win-x64.manifest.json.sig"
+fake -Zip "$TMP/chk.zip"; rc=$?
+refuses_clean "#6466: a manifest whose signature does not verify under the pinned key is refused, nothing written" "does not check out against this zip (the release manifest is not signed by the Kosmos release key)"
+# A build that does NOT check them is still refused a manifest that is there and does not verify.
+mkzip "$TMP/nochk.zip" 9.9.21 NOCHK
+cp "$TMP/kosmos-9.9.20-win-x64.manifest.json" "$TMP/kosmos-9.9.21-win-x64.manifest.json"; cp "$TMP/kosmos-9.9.20-win-x64.manifest.json.sig" "$TMP/kosmos-9.9.21-win-x64.manifest.json.sig"
+fake -Zip "$TMP/nochk.zip"; rc=$?
+refuses_clean "#6466: a manifest that is there must verify, even for a build that does not require one" "does not check out against this zip"
+rm -f "$TMP"/kosmos-9.9.2[01]-win-x64.manifest.json*
+# The control: the same older-shaped build with no manifest at all stages, and says it went without one.
+fake -Zip "$TMP/nochk.zip" -DryRun; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF "NOTICE (#6466): no signed release manifest beside the zip" "$TMP/out" && [ "$(writes)" -eq 0 ]; then pass "#6466: a build that does not check signatures still stages without a manifest, and says so"
+else fail "#6466 control: rc=$rc $(tail -2 "$TMP/out")"; fi
+# Promote: a staged manifest that does not check out against the staged zip is refused.
+_ptr_v=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$FAKE/latest-win-staging.json")
+_ptr_sha=$(sed -n 's/.*"sha256":"\([^"]*\)".*/\1/p' "$FAKE/latest-win-staging.json")
+printf '{"manifest":1}\n' > "$FAKE/kosmos-$_ptr_v-win-x64.manifest.json"; printf 'bm90IGEgc2lnbmF0dXJl\n' > "$FAKE/kosmos-$_ptr_v-win-x64.manifest.json.sig"
+fake -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399; rc=$?
+refuses_clean "#6466: promote refuses a staged manifest that does not check out against the staged zip, nothing written" "the staged signed manifest does not check out"
+rm -f "$FAKE/kosmos-$_ptr_v-win-x64.manifest.json.sig"
+fake -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399; rc=$?
+refuses_clean "#6466: promote refuses a staged manifest without its .sig, nothing written" "holds only one of"
+rm -f "$FAKE/kosmos-$_ptr_v-win-x64.manifest.json"
+# Promote: no staged manifest, while prod's CURRENT build was published with one (its installs check), is refused.
+# (prod is set to a known other build for this arm, and put back after.)
+cp "$FAKE/latest-win.json" "$TMP/prod.keep6466" 2>/dev/null || : > "$TMP/prod.keep6466"
+printf '{"version":"9.8.9","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"kosmos-9.8.9-win-x64.zip","arch":"x64"}\n' "$(printf 'c%.0s' $(seq 64))" > "$FAKE/latest-win.json"
+printf '{"manifest":1}\n' > "$FAKE/kosmos-9.8.9-win-x64.manifest.json"
+fake -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399; rc=$?
+refuses_clean "#6466: promote refuses a build with no signed manifest over a prod whose installs check one, nothing written" "was published with one, so its installs check signatures"
+# The control: the same prod without its manifest gets past this check (to the next gate, or through).
+rm -f "$FAKE/kosmos-9.8.9-win-x64.manifest.json"
+fake -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399 -DryRun; rc=$?
+if grep -qF "NOTICE (#6466): the staged build has no signed manifest; prod's current build has none either" "$TMP/out" && [ "$(writes)" -eq 0 ]; then pass "#6466: with no manifest on either side the promote goes on past the check, and says so"
+else fail "#6466 promote control: rc=$rc $(tail -2 "$TMP/out")"; fi
+if [ -s "$TMP/prod.keep6466" ]; then cp "$TMP/prod.keep6466" "$FAKE/latest-win.json"; else rm -f "$FAKE/latest-win.json"; fi
+rm -f "$FAKE/publish.lock"
+
 [ "$fails" -eq 0 ] && { echo "test-publish-r2-3725: all passed"; exit 0; }
 echo "test-publish-r2-3725: $fails failed"; exit 1

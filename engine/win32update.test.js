@@ -34,6 +34,7 @@ const win32zip = require('./win32zip');
 const worlds = require('./worlds');
 const { buildZip } = require('../test-support/zipfixture');
 const { SIGNED_KOSMOS, microsoftRootSkip } = require('../test-support/signedkosmos');
+const { TEST_KEYS, STRANGER, signedRelease } = require('../test-support/winreleasemanifest');
 
 test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
@@ -126,9 +127,21 @@ function pointerBody(zip, over = {}) {
 function site(zip, o = {}) {
   const pointer = o.pointer || pointerBody(zip);
   const urls = [];
+  /* #6466: the release's signed manifest, beside the zip, for what the pointer publishes (its version and sha, the
+     zip's files), signed with the suites' key (prepareOpts pins it). `o.release` replaces it; null serves none. */
+  /* Built here, before any run, so the suites that record every write a prepare makes see none of these. */
+  let release = o.release;
+  if (release === undefined) {
+    try { release = typeof pointer === 'object' && pointer ? signedRelease(zip, { version: pointer.version, arch: ARCH, over: { sha256: pointer.sha256 } }) : null; } catch { release = null; }
+  }
+  const signed = () => release;
+  const manifestFile = typeof pointer === 'object' && pointer && typeof pointer.versioned === 'string' ? pointer.versioned.replace(/\.zip$/, '.manifest.json') : null;
   const fetch = async (url, init) => {
     urls.push(url);
     const file = decodeURIComponent(new URL(url).pathname.split('/').pop());
+    if (manifestFile && (file === manifestFile || file === manifestFile + '.sig') && signed()) {
+      return new Response(file === manifestFile ? signed().bytes : signed().sig);
+    }
     if (file === 'latest-win.json') return new Response(typeof pointer === 'string' ? pointer : JSON.stringify(pointer));
     if (file === `${pointer.versioned}.sha256`) return new Response(o.sidecar !== undefined ? o.sidecar : `${pointer.sha256}  ${pointer.versioned}\n`);
     if (file === pointer.versioned) {
@@ -147,6 +160,8 @@ function prepareOpts(c, s, over) {
     /* #1765: the staged Kosmos.exe here is a stub, so Windows' answer for a published build stands in
        for it; engine/win32update.signature-1765.test.js runs the real check. */
     checkSignature: (exe) => { c.signatureChecks.push(exe); return SIGNED_KOSMOS; },
+    /* #6466: the suites' release key, which site() signs with. */
+    manifestKeys: TEST_KEYS,
     liveExecutionAllowed: () => true,
     /* S3's board-task preconditions: a board its logon task started, registered and switched on. */
     boardTask: TASK_BOARD,
@@ -249,9 +264,11 @@ test('the happy path: downloaded, checked and staged, with the identity the new 
   assert.equal(readJson(path.join(c.work, 'prepare-status.json')).expectedIdentity, r.expectedIdentity);
   assert.deepEqual(s.urls, [
     `${BASE}/latest-win.json`,
+    `${BASE}/kosmos-${NEXT}-win-${ARCH}.manifest.json?v=${NEXT}`,
+    `${BASE}/kosmos-${NEXT}-win-${ARCH}.manifest.json.sig?v=${NEXT}`,
     `${BASE}/${zipName(NEXT)}.sha256`,
     `${BASE}/${zipName(NEXT)}?v=${NEXT}`,
-  ], 'the pointer, the sidecar, then the versioned zip with its cache-buster; never the alias');
+  ], 'the pointer, the signed manifest and its signature (#6466), the sidecar, then the versioned zip with its cache-buster; never the alias');
   /* 🛑 THE PATH GUARD, twice. Every path the file system was asked to write -- temporary files
      included -- is WORK or inside it; and everything outside WORK is byte-for-byte and
      mtime-for-mtime unchanged, folders included. */
@@ -378,20 +395,32 @@ test('B2: a sidecar that names a different file is refused', T, async () => {
  * the bytes it serves for the generic name (the NEXT build by default); `genericSidecar` its
  * checksum text (a correct one for genericZip by default).
  */
+/** #6466: the release's signed manifest for `pointer`, served in front of `inner` (a fetch). Its requests are not
+    recorded: the suites below are about the zip's names, and the happy path pins the whole order. */
+function servingRelease(zip, pointer, inner) {
+  const release = signedRelease(zip, { version: pointer.version, arch: ARCH, over: { sha256: pointer.sha256 } });
+  const name = pointer.versioned.replace(/\.zip$/, '.manifest.json');
+  return async (url, init) => {
+    const file = decodeURIComponent(new URL(url).pathname.split('/').pop());
+    if (file === name) return new Response(release.bytes);
+    if (file === name + '.sig') return new Response(release.sig);
+    return inner(url, init);
+  };
+}
 function genericOnlyEdge(zip, o = {}) {
   const pointer = o.pointer || pointerBody(zip);
   const generic = `kosmos-win-${ARCH}.zip`;
   const genericZip = o.genericZip || zip;
   const urls = [];
-  const fetch = async (url) => {
+  const fetch = servingRelease(zip, pointer, async (url) => {
     urls.push(url);
     const file = decodeURIComponent(new URL(url).pathname.split('/').pop());
     if (file === 'latest-win.json') return new Response(JSON.stringify(pointer));
     if (o.serveVersionedSidecar && file === `${pointer.versioned}.sha256`) return new Response(`${pointer.sha256}  ${pointer.versioned}\n`);
     if (file === `${generic}.sha256`) return new Response(o.genericSidecar !== undefined ? o.genericSidecar : `${sha256(genericZip)}  ${generic}\n`);
     if (file === generic) return new Response(genericZip, { headers: { 'content-length': String(genericZip.length) } });
-    return new Response('not here', { status: 404 }); // every versioned name 404s, as on the /dist edge
-  };
+    return new Response('not here', { status: 404 }); // every versioned zip name 404s, as on the /dist edge
+  });
   return { fetch, urls, generic };
 }
 
@@ -456,7 +485,7 @@ test('#3525: a TRANSIENT error on the versioned name fails, and never silently f
   const urls = [];
   /* The versioned sidecar throws (a dropped connection, not an HTTP 404). The generic name IS
      served, but a transient failure must surface, never reroute. */
-  const fetch = async (url) => {
+  const fetch = servingRelease(zip, pointerBody(zip), async (url) => {
     urls.push(url);
     const file = decodeURIComponent(new URL(url).pathname.split('/').pop());
     if (file === 'latest-win.json') return new Response(JSON.stringify(pointerBody(zip)));
@@ -464,7 +493,7 @@ test('#3525: a TRANSIENT error on the versioned name fails, and never silently f
     if (file === `${generic}.sha256`) return new Response(`${sha256(zip)}  ${generic}\n`);
     if (file === generic) return new Response(zip, { headers: { 'content-length': String(zip.length) } });
     return new Response('not here', { status: 404 });
-  };
+  });
   await refusedWith(c, { fetch, urls }, /could not reach the release host for the update checksum/);
   assert.equal(urls.some((u) => u.includes(generic)), false, 'the generic name was never fetched on a transient error');
   assertCleanedUp(c, /could not reach/);
@@ -1912,7 +1941,7 @@ test('the --apply CLI with --yes reads "started by its task" from the board\'s o
     /* #4382: never this machine's own mode file: a run computer, as these cases are written for. */
     readsConnect: () => false,
     begin: { platform: 'win32', arch: ARCH, env: c.env, fetch: site(zip).fetch, freeBytes: () => PLENTY_OF_DISK,
-      runStagedNode: () => NODE_VERSION, checkSignature: () => SIGNED_KOSMOS, log: () => {}, spawn: () => fakeChild() },
+      runStagedNode: () => NODE_VERSION, checkSignature: () => SIGNED_KOSMOS, manifestKeys: TEST_KEYS, log: () => {}, spawn: () => fakeChild() },
   });
   const argv = ['--apply', '--root', c.root, '--base', BASE, '--port', '16555', '--world', 'default', '--yes'];
   assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams('0.6.1@default', true)), 1, 'another build answers');
@@ -2261,7 +2290,7 @@ test('#3286 --apply --from --report: the launcher reads one tagged line, and the
     probe: async () => ({ answering: true, identity: `${INSTALLED}+${SOURCE_SHA.slice(0, 12)}@default`, startedByTask }),
     boardStatus: () => ({ known: true, registered: true, enabled: true, running: null }),
     readsConnect: () => false,
-    begin: { platform: 'win32', arch: ARCH, env: c.env, ...OFFLINE, freeBytes: () => PLENTY_OF_DISK, runStagedNode: () => NODE_VERSION, checkSignature: () => SIGNED_KOSMOS, log: () => {}, spawn: () => fakeChild() },
+    begin: { platform: 'win32', arch: ARCH, env: c.env, ...OFFLINE, freeBytes: () => PLENTY_OF_DISK, runStagedNode: () => NODE_VERSION, checkSignature: () => SIGNED_KOSMOS, manifestKeys: TEST_KEYS, log: () => {}, spawn: () => fakeChild() },
   });
   const argv = ['--apply', '--root', c.root, '--from', source, '--port', '16555', '--world', 'default', '--report', report, '--yes'];
   assert.equal(await win32update.cliMain(argv, () => {}, seams(false)), 1);
@@ -2373,4 +2402,173 @@ test('#1765 on Windows: the headless --apply --from --yes refuses an unsigned Ko
   fs.copyFileSync(REAL_KOSMOS_EXE, path.join(signed, 'Kosmos.exe'));
   assert.equal(await win32update.cliMain(argv(signed), () => {}, seams), 0);
   assert.equal(fs.readFileSync(report, 'utf8'), `STARTED ${c.root}\r\n`);
+});
+
+/* ─── #6466: the signed release manifest, checked by the installed copy ───────────────────── */
+
+/**
+ * A host that serves whatever an attacker likes: the pointer, the sidecar and the zip all agree with one
+ * another (the host controls all three), and only the signed manifest is the release's own. That is the
+ * case the manifest exists for: before #6466 such a host could ship any runtime\node.exe or app\ file.
+ */
+function hostileHost(genuineZip, servedZip) {
+  const release = signedRelease(genuineZip, { version: NEXT, arch: ARCH });
+  return site(servedZip, { release });
+}
+/** Nothing from the download ran, or was even handed to Windows; with `downloaded: false`, the zip was never fetched. */
+function nothingRan(c, s, { downloaded }) {
+  assert.deepEqual(c.nodeRuns, [], 'the staged node.exe never ran');
+  assert.deepEqual(c.signatureChecks, [], 'nothing staged was even handed to Windows');
+  if (downloaded === false) assert.equal(s.urls.some((u) => u.includes(`${zipName(NEXT)}?`) || u.endsWith('.sha256')), false, 'the zip was never fetched');
+}
+
+test('#6466: a tampered runtime\\node.exe is refused before anything is downloaded, though pointer, sidecar and zip agree', T, async () => {
+  const c = freshCase();
+  const s = hostileHost(bundleZip(), bundleZip({ nodeBytes: 'a node.exe that does something else' }));
+  await refusedWith(c, s, /^the download does not match its signed manifest, so nothing was downloaded$/);
+  nothingRan(c, s, { downloaded: false });
+  assertCleanedUp(c, /does not match its signed manifest/);
+});
+
+test('#6466: a tampered app file, the connector, or the zip\'s own manifest.json is refused the same way', T, async () => {
+  for (const extra of [{ 'app/server.js': '// a server that does something else' }, { 'app/bin/kosmos-tunnel.exe': 'MZ another connector' }, { 'manifest.json': '{}' }]) {
+    const c = freshCase();
+    const s = hostileHost(bundleZip(), bundleZip({ extra }));
+    await refusedWith(c, s, /does not match its signed manifest, so nothing was downloaded/);
+    nothingRan(c, s, { downloaded: false });
+  }
+});
+
+test('#6466: the per-file layer: a release whose zip sha is right but a file is not is refused after the unpack, before anything runs', T, async () => {
+  /* A manifest that recorded the right zip sha but a different node.exe (or a zip whose contents differ from what was
+     listed) is caught by the file check, which runs before the signature check and the node.exe run. */
+  const zip = bundleZip();
+  const genuine = JSON.parse(signedRelease(zip, { version: NEXT, arch: ARCH }).bytes);
+  assert.ok(genuine.files.some((f) => f.path === 'runtime/node.exe'), 'the manifest lists runtime/node.exe');
+  const count = genuine.files.length;
+  const cases = [
+    [{ files: genuine.files.map((f) => (f.path === 'runtime/node.exe' ? { ...f, sha256: '1'.repeat(64) } : f)) }, /runtime\/node\.exe does not match the signed manifest/],
+    [{ files: genuine.files.map((f) => (f.path === 'app/server.js' ? { ...f, sha256: '2'.repeat(64) } : f)) }, /app\/server\.js does not match the signed manifest/],
+    [{ files: genuine.files.filter((f) => f.path !== 'bin/kosmos') }, new RegExp(`the update holds ${count} files, its signed manifest ${count - 1}`)],
+    [{ files: [...genuine.files.filter((f) => f.path !== 'bin/kosmos'), { path: 'bin/other', sha256: '3'.repeat(64) }] }, /bin\/kosmos is not in the signed manifest/],
+  ];
+  for (const [over, pattern] of cases) {
+    const c = freshCase();
+    const s = site(zip, { release: signedRelease(zip, { version: NEXT, arch: ARCH, over }) });
+    await refusedWith(c, s, pattern);
+    nothingRan(c, s, {});
+    assertCleanedUp(c, pattern);
+  }
+});
+
+test('#6466: no signed manifest, or no signature, is refused (never waved through), and the zip is never fetched', T, async () => {
+  const zip = bundleZip();
+  const c1 = freshCase();
+  const s1 = site(zip, { release: null });
+  await refusedWith(c1, s1, /^the site publishes no signed release manifest for 0\.6\.60, so the update cannot be checked and nothing was downloaded$/);
+  nothingRan(c1, s1, { downloaded: false });
+  /* The manifest is there and its .sig 404s. */
+  const c2 = freshCase();
+  const s2 = site(zip);
+  const inner2 = s2.fetch;
+  s2.fetch = async (url, init) => (String(url).includes('.manifest.json.sig') ? new Response('not here', { status: 404 }) : inner2(url, init));
+  await refusedWith(c2, s2, /no signed release manifest/);
+  nothingRan(c2, s2, { downloaded: false });
+  /* A 5xx is a refusal too, as for every other file. */
+  const c3 = freshCase();
+  const s3 = site(zip);
+  const inner3 = s3.fetch;
+  s3.fetch = async (url, init) => (String(url).includes('.manifest.json') ? new Response('busy', { status: 503 }) : inner3(url, init));
+  await refusedWith(c3, s3, /the release host answered 503 for the signed release manifest/);
+});
+
+test('#6466: a manifest signed by another key, a garbage signature, or a manifest edited after signing is refused', T, async () => {
+  const zip = bundleZip();
+  const genuine = signedRelease(zip, { version: NEXT, arch: ARCH });
+  const edited = Buffer.from(genuine.bytes.toString('utf8').replace(/"sha256": "[0-9a-f]{64}",\n "app"/, `"sha256": "${'4'.repeat(64)}",\n "app"`));
+  assert.notEqual(edited.toString(), genuine.bytes.toString(), 'the control: the edit really changed the bytes');
+  for (const release of [
+    signedRelease(zip, { version: NEXT, arch: ARCH, key: STRANGER }),
+    { bytes: genuine.bytes, sig: 'not a signature' },
+    { bytes: genuine.bytes, sig: '' },
+    { bytes: genuine.bytes, sig: Buffer.alloc(64).toString('base64') },
+    { bytes: edited, sig: genuine.sig },
+    { bytes: Buffer.from(genuine.bytes.toString('utf8') + ' '), sig: genuine.sig },
+  ]) {
+    const c = freshCase();
+    const s = site(zip, { release });
+    await refusedWith(c, s, /^the release manifest is not signed by the Kosmos release key, so nothing was downloaded$/);
+    nothingRan(c, s, { downloaded: false });
+  }
+  /* The control: the genuine pair, served the same way, stages. */
+  const ok = await win32update.prepare(prepareOpts(freshCase(), site(zip, { release: genuine })));
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+});
+
+test('#6466: a genuine signed manifest for another version, platform, arch or download is refused', T, async () => {
+  const zip = bundleZip();
+  const cases = [
+    [{ version: '0.6.59' }, /^the signed manifest is for 0\.6\.59, not 0\.6\.60, so nothing was downloaded$/],
+    [{ platform: 'darwin' }, /the signed manifest is for "darwin", not Windows/],
+    [{ arch: 'arm64' }, /the signed manifest is for "arm64", not x64/],
+    [{ artifact: 'kosmos-0.6.60-arm64.tar.gz' }, /the signed manifest names "kosmos-0\.6\.60-arm64\.tar\.gz", not kosmos-0\.6\.60-win-x64\.zip/],
+    [{ files: [] }, /the signed manifest lists no files/],
+  ];
+  for (const [over, pattern] of cases) {
+    const c = freshCase();
+    const s = site(zip, { release: signedRelease(zip, { version: NEXT, arch: ARCH, over }) });
+    await refusedWith(c, s, pattern);
+    nothingRan(c, s, { downloaded: false });
+  }
+});
+
+test('#6466: an old genuine release replayed is refused as older than the installed one', T, async () => {
+  /* readOffer already refuses a pointer that is not newer; the signed manifest's own rule is the second line. */
+  const manifestVerify = require('./manifest-verify');
+  const zip = bundleZip({ version: '0.6.50' });
+  const { bytes, sig } = signedRelease(zip, { version: '0.6.50', arch: ARCH });
+  const r = manifestVerify.signedManifest({ bytes, sigText: sig, version: '0.6.50', installedVersion: INSTALLED, keys: TEST_KEYS });
+  assert.equal(r.code, 1);
+  assert.match(r.why, /the update is 0\.6\.50, older than the installed 0\.6\.55/);
+  await refusedWith(freshCase(), site(zip, { pointer: pointerBody(zip, { version: '0.6.50' }), release: { bytes, sig } }), /nothing newer to install/);
+});
+
+test('#6466: by default the installed copy\'s OWN pinned key decides: the suites\' key is not accepted without the seam', T, async () => {
+  const manifestVerify = require('./manifest-verify');
+  assert.ok(manifestVerify.KEYS.length >= 1, 'a release key is pinned');
+  assert.equal(manifestVerify.KEYS.includes(TEST_KEYS[0]), false);
+  const c = freshCase();
+  const opts = prepareOpts(c, site(bundleZip()));
+  delete opts.manifestKeys;
+  const r = await win32update.prepare(opts);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /not signed by the Kosmos release key/);
+  /* The control: the same site with the seam stages. */
+  assert.equal((await win32update.prepare(prepareOpts(freshCase(), site(bundleZip())))).ok, true);
+});
+
+test('#6466: the capability line publish-r2.ps1 reads is in this file', T, () => {
+  const { CHECKER_MARK } = require('../tools/lib/win-release-manifest');
+  assert.ok(fs.readFileSync(path.join(__dirname, 'win32update.js'), 'utf8').includes(CHECKER_MARK));
+});
+
+test('#6466 ask 3 --from: a Kosmos folder holding a link where a file or folder should be is refused before anything is copied', T, async (t) => {
+  const c = withInstalledManifest(freshCase());
+  const source = downloadedBuild(c);
+  /* A junction needs no administrator on Windows; elsewhere a directory symlink stands in. */
+  const elsewhere = path.join(c.dir, 'elsewhere-bin');
+  fs.cpSync(path.join(source, 'bin'), elsewhere, { recursive: true });
+  fs.rmSync(path.join(source, 'bin'), { recursive: true, force: true });
+  fs.symlinkSync(elsewhere, path.join(source, 'bin'), ON_WINDOWS ? 'junction' : 'dir');
+  await refusedWith(c, null, /holds something that is not a plain file \(bin is not a plain file\), so it cannot update/, { ...OFFLINE, source });
+  assert.deepEqual(c.nodeRuns, []);
+  assert.equal(fs.existsSync(path.join(c.work, 'staged')), false, 'nothing was copied');
+  /* Kosmos.exe itself as a link: a file symlink needs Developer Mode or an administrator on Windows. */
+  const c2 = withInstalledManifest(freshCase());
+  const source2 = downloadedBuild(c2);
+  const real = path.join(c2.dir, 'real-Kosmos.exe');
+  fs.renameSync(path.join(source2, 'Kosmos.exe'), real);
+  try { fs.symlinkSync(real, path.join(source2, 'Kosmos.exe'), 'file'); } catch (e) { t.diagnostic(`a file link could not be made here (${e.code}); the junction arm above ran`); return; }
+  await refusedWith(c2, null, /Kosmos\.exe is not a plain file/, { ...OFFLINE, source: source2 });
+  assert.deepEqual(c2.nodeRuns, []);
 });

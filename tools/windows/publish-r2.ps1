@@ -12,8 +12,14 @@ upload step, with the same file set and the same gates as those two scripts.
 TWO MODES.
 
   Staging (the default). From a built zip (tools/build-kosmos-windows.sh):
-    kosmos-<v>-win-x64.zip, its .sha256 sidecar, then latest-win-staging.json LAST (the pointer is
-    the go-live, so it never names bytes that are not already up). Prod readers are untouched.
+    kosmos-<v>-win-x64.zip, its .sha256 sidecar, its SIGNED release manifest
+    (kosmos-<v>-win-x64.manifest.json and .sig, #6466, read from beside the zip), then
+    latest-win-staging.json LAST (the pointer is the go-live, so it never names bytes that are not
+    already up). Prod readers are untouched. A build whose updater checks signed manifests (its
+    app/engine/win32update.js carries the capability line) is refused without a manifest that
+    verifies under the pinned release key and matches the zip file for file, and the manifest and
+    its .sig must be SERVED through installkosmos.com before the pointer moves: installs of that
+    build fetch them from there and refuse an update without them.
 
     pwsh tools/windows/publish-r2.ps1 -Zip .\dist\kosmos-win-x64.zip
 
@@ -23,7 +29,9 @@ TWO MODES.
       pointer shape, and the staged zip and its sidecar hold exactly those bytes;
     - -ApprovalRef is a Slack ts or permalink of Josh's message, and is logged before any write;
     - this PC holds a passing verification record for that sha (tools/win-staging-verify.js
-      writes it; tools/lib/win-staging-record.js validates it, through node).
+      writes it; tools/lib/win-staging-record.js validates it, through node);
+    - #6466: the staged version's signed manifest in the bucket verifies against the staged zip, or,
+      when it has none, prod's current build has none either (so prod's installs do not check one).
   Then: the alias kosmos-win-x64.zip becomes a server-side copy of the staged zip (pinned to the
   exact object just verified), its sidecar is rewritten to name the alias, both are read back, and
   only then latest-win.json becomes the staging pointer's bytes verbatim, LAST.
@@ -155,6 +163,22 @@ function New-SigV4Authorization([string] $Method, [string] $HostName, [string] $
   $k = Hmac ($Utf8.GetBytes('AWS4' + $Secret)) $day
   $k = Hmac $k $Region; $k = Hmac $k 's3'; $k = Hmac $k 'aws4_request'
   "AWS4-HMAC-SHA256 Credential=$AccessKey/$scope, SignedHeaders=$signed, Signature=$(Hex (Hmac $k $toSign))"
+}
+
+# An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments).
+function Get-NodeExe { Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1 }
+# #6466: tools/lib/win-release-manifest.js, run with node. It prints its one-line verdict on STDOUT (stderr from a
+# native command can turn into a terminating error under Stop on 5.1); returns @{ Rc; Out }.
+function Invoke-WinManifest([string[]] $Arguments) {
+  $node = Get-NodeExe
+  if (-not $node) { Refuse "node (an executable, not a .cmd shim) is required to check the signed release manifest (#6466). Nothing was written." }
+  $js = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-release-manifest.js'
+  $prevEnc = [Console]::OutputEncoding
+  # A command that never ran as a process leaves $LASTEXITCODE as it was, so it is set first: never read as a pass.
+  $global:LASTEXITCODE = 99
+  try { [Console]::OutputEncoding = $Utf8; $out = (& $node.Source $js @Arguments) -join ' '; $rc = $LASTEXITCODE }
+  finally { [Console]::OutputEncoding = $prevEnc }
+  @{ Rc = $rc; Out = $out }
 }
 
 # ---------- credentials -------------------------------------------------------------------------
@@ -559,6 +583,28 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   $Sha = Sha256-File $ZipPath
   Say "staging $Versioned ($Sha) from $ZipPath"
 
+  # #6466: the signed release manifest, beside the zip (tools/build-kosmos-windows.sh writes it there; the key
+  # holder signs it with tools/lib/manifest-sign.js). Checked here, before anything is read from the bucket.
+  $ManifestName = "kosmos-$Version-win-$Arch.manifest.json"
+  $ManifestPath = Join-Path (Split-Path -Parent $ZipPath) $ManifestName
+  $SigPath = "$ManifestPath.sig"
+  $ManifestBytes = $null; $SigBytes = $null
+  $checker = Invoke-WinManifest @('ships-checker', $ZipPath)
+  if ($checker.Rc -ne 0 -and $checker.Rc -ne 1) { Refuse "could not tell whether the updater inside $ZipPath checks signed release manifests ($($checker.Out)). Nothing was written." }
+  $hasM = Test-Path -LiteralPath $ManifestPath -PathType Leaf
+  $hasS = Test-Path -LiteralPath $SigPath -PathType Leaf
+  if ($hasM -or $hasS) {
+    if (-not ($hasM -and $hasS)) { Refuse "$ManifestName and its .sig must both be beside the zip; only one is. Nothing was written." }
+    $mc = Invoke-WinManifest @('check', $ManifestPath, $SigPath, $ZipPath, $Version)
+    if ($mc.Rc -ne 0) { Refuse "the signed release manifest $ManifestName does not check out against this zip ($($mc.Out)). Nothing was written." }
+    $ManifestBytes = [IO.File]::ReadAllBytes($ManifestPath); $SigBytes = [IO.File]::ReadAllBytes($SigPath)
+    Say "signed manifest: $($mc.Out)"
+  } elseif ($checker.Rc -eq 0) {
+    Refuse "this build's updater refuses any update without a signed release manifest (#6466), and there is no $ManifestName with its .sig beside $ZipPath. Have the key holder sign it (node tools/lib/manifest-sign.js sign <kosmos-manifest-signing key> $ManifestName $ManifestName.sig) and put both beside the zip. Nothing was written."
+  } else {
+    Say "NOTICE (#6466): no signed release manifest beside the zip. This build's updater does not check one, so it is staged without it; the next build's installs will require one."
+  }
+
   # The versioned name is IMMUTABLE once published (the same promise publish-kosmos-windows.sh
   # keeps): republishing different bytes under it hands two builds one name, which is how 0.6.94
   # staging was served with bytes nobody had announced (2026-09-25). Read from the bucket itself,
@@ -640,6 +686,16 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   }
   $side = New-SidecarBytes $Sha $Versioned
   Put-Object "$Versioned.sha256" $side $null (Sha256-Bytes $side) 'text/plain; charset=utf-8' $NoCache
+  if ($ManifestBytes) {
+    # #6466: up, and SERVED, before the pointer names this build. Installs fetch both through installkosmos.com
+    # (whose /dist redirect must cover these names); one that cannot fetch them refuses the update.
+    Put-Object $ManifestName $ManifestBytes $null (Sha256-Bytes $ManifestBytes) 'application/json' $NoCache
+    Put-Object "$ManifestName.sig" $SigBytes $null (Sha256-Bytes $SigBytes) 'text/plain; charset=utf-8' $NoCache
+    if (-not $DryRun) {
+      Assert-Served $ManifestName (Sha256-Bytes $ManifestBytes)
+      Assert-Served "$ManifestName.sig" (Sha256-Bytes $SigBytes)
+    }
+  }
   $ptr = New-PointerBytes $Version $Sha $Versioned
   Put-Object 'latest-win-staging.json' $ptr $null (Sha256-Bytes $ptr) 'application/json' $NoCache
 
@@ -689,11 +745,38 @@ $staged = Assert-Object $Versioned $ApprovedSha
 [void](Assert-Object "$Versioned.sha256" (Sha256-Bytes (New-SidecarBytes $ApprovedSha $Versioned)))
 if (-not $staged.ETag) { Refuse "the bucket gave no ETag for $Versioned, so the copy cannot be pinned to the bytes just checked. Nothing was written." }
 
+# #6466: the staged version's signed manifest, checked against the staged zip's own bytes. With none, the promote
+# goes on only while prod's current build has none either: prod installs that check would refuse this update.
+$ManifestName = "kosmos-$ApprovedVersion-win-$Arch.manifest.json"
+$stagedManifest = Get-Object $ManifestName
+$stagedSig = Get-Object "$ManifestName.sig"
+if ($stagedManifest -or $stagedSig) {
+  if (-not ($stagedManifest -and $stagedSig)) { Refuse "the bucket holds only one of $ManifestName and its .sig. Re-stage with this script. Nothing was written." }
+  $mdir = Join-Path ([IO.Path]::GetTempPath()) ('kosmos-promote-manifest-' + [Guid]::NewGuid().ToString('N'))
+  [void] (New-Item -ItemType Directory -Path $mdir)
+  try {
+    [IO.File]::WriteAllBytes((Join-Path $mdir $ManifestName), $stagedManifest.Bytes)
+    [IO.File]::WriteAllBytes((Join-Path $mdir "$ManifestName.sig"), $stagedSig.Bytes)
+    [IO.File]::WriteAllBytes((Join-Path $mdir $Versioned), $staged.Bytes)
+    $mc = Invoke-WinManifest @('check', (Join-Path $mdir $ManifestName), (Join-Path $mdir "$ManifestName.sig"), (Join-Path $mdir $Versioned), $ApprovedVersion)
+  } finally { Remove-Item -LiteralPath $mdir -Recurse -Force -ErrorAction SilentlyContinue }
+  if ($mc.Rc -ne 0) { Refuse "the staged signed manifest does not check out against the staged zip ($($mc.Out)). Nothing was written." }
+  Say "signed manifest: $($mc.Out)"
+} else {
+  $prodNow = Get-Object 'latest-win.json'
+  $pnow = if ($prodNow) { Read-PointerFields $prodNow.Bytes } else { $null }
+  if ($prodNow -and -not $pnow) { Refuse "the staged build has no signed manifest, and prod's latest-win.json cannot be read to tell whether prod's installs require one. Nothing was written." }
+  if ($pnow -and (Get-Object "kosmos-$($pnow.version)-win-$Arch.manifest.json")) {
+    Refuse "the staged build has no signed manifest, and prod's current build ($($pnow.version)) was published with one, so its installs check signatures and would refuse this update (#6466). Nothing was written."
+  }
+  Say "NOTICE (#6466): the staged build has no signed manifest; prod's current build has none either, so its installs do not require one."
+}
+
 # The verification record for this sha on this PC, validated by the one spec the writer uses.
 $spec = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-staging-record.js'
 # An executable node, not a node.cmd shim (cmd.exe would mangle the script). The script goes to
 # node on STDIN, never on the command line or in a temp file.
-$nodeExe = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1
+$nodeExe = Get-NodeExe
 if (-not $nodeExe) { Refuse "node (an executable, not a .cmd shim) is required to validate the verification record. Nothing was written." }
 if (-not (Test-Path -LiteralPath $spec)) { Refuse "the record spec $spec is missing. Nothing was written." }
 $verdictJs = @'
