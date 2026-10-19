@@ -52559,9 +52559,9 @@ function paintCwNote(cw, plusOn) {
 }
 async function pollCwNote() {
   if (typeof document !== 'undefined' && document.hidden) return;   // a tab in the background asks nothing
-  const seq = (CW_NOTE.seq = (CW_NOTE.seq || 0) + 1);   // an older answer that lands after a newer one is dropped
   // A computer not set up for Kosmos+ has no check: after one such answer, ask again only every ten minutes.
   if (CW_NOTE.quietUntil && Date.now() < CW_NOTE.quietUntil) return;
+  const seq = (CW_NOTE.seq = (CW_NOTE.seq || 0) + 1);   // an older answer that lands after a newer one is dropped
   let r = null;
   try {
     const res = await fetch('/api/remote', { cache: 'no-store' });

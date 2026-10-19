@@ -33,7 +33,7 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
   `certWatch` (an older board).
 - The notice's words carry `role="status"` and are filled after the card is inserted, the login notice's pattern
   (#3532); consistent with the stack, not separately measured with a screen reader. Owner of that measurement: April,
-  with VoiceOver at this card's design review, recorded on kosmos#6613 before it closes.
+  with VoiceOver at this card's design review; held open by a comment on kosmos#6613 (10-19) until it is recorded.
 - Follows Josh's #6315 ruling for the request notice ("Definitely have to have a way to dismiss it"): close puts
   away what was shown, a new one comes back. The Plus pane line is never put away, so a finding stays findable.
 - Known gap, decided: a lost report (findings may be missing) is said on the Kosmos+ pane only, not raised in the
