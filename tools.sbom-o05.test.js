@@ -133,7 +133,7 @@ TMUX_URL="https://github.com/tmux/tmux/releases/download/\${TMUX_VERSION}/tmux-\
 LIBEVENT_URL="https://github.com/libevent/libevent/releases/download/release-\${LIBEVENT_VERSION}/libevent-\${LIBEVENT_VERSION}.tar.gz"
 UTF8PROC_URL="https://github.com/JuliaStrings/utf8proc/releases/download/v\${UTF8PROC_VERSION}/utf8proc-\${UTF8PROC_VERSION}.tar.gz"
 fetch() {
-  :
+  curl -fL "$2" -o "$1.tgz"
 }
 fetch tmux     "$TMUX_URL"     "$TMUX_SHA"
 fetch libevent "$LIBEVENT_URL" "$LIBEVENT_SHA"
@@ -149,7 +149,8 @@ const MANIFEST = {
   connector: { signed_sha256: SHA('f'), commit: 'b'.repeat(40) }, built: { at: '2026-10-19T17:00:00Z' },
   files: ['VERSION', 'bin/kosmos', 'runtime/bin/node', 'runtime/LICENSE', 'app/server.js', 'app/package.json',
     'app/engine/status.js', 'app/web/index.html', 'app/bin/kosmos-tunnel', 'app/assets/Kosmos.icns',
-    'app/Kosmos.app/Contents/MacOS/Kosmos'].map((path) => ({ path, sha256: SHA('2') })),
+    'app/Kosmos.app/Contents/MacOS/Kosmos', 'app/bin/kosmos-report-hook.sh', 'app/bin/codex-report-bridge.js',
+    'app/Kosmos.app/Contents/Resources/Kosmos.icns'].map((path) => ({ path, sha256: path === 'app/bin/kosmos-tunnel' ? SHA('f') : SHA('2') })),
 };
 const PACKAGE = '{ "name": "agent-workforce", "private": true, "scripts": { "test": "x" } }';
 const show = (files) => (repo, commit, file) => {
@@ -297,7 +298,7 @@ test('a fetch call in another shape or position, a *_URL never fetched, an unexp
   assert.throws(() => tmuxPins(TMUX + 'fetch ncurses "${NCURSES_URL}" "${NCURSES_SHA}"\n'), /a fetch line this SBOM cannot read/);
   assert.throws(() => tmuxPins(TMUX + '[ -n "$X" ] && fetch ncurses "$NCURSES_URL" "$NCURSES_SHA"\n'), /a fetch line this SBOM cannot read/);
   assert.throws(() => tmuxPins(TMUX + 'if true; then fetch ncurses "$NCURSES_URL" "$NCURSES_SHA"; fi\n'), /a fetch line this SBOM cannot read/);
-  assert.throws(() => tmuxPins(TMUX + 'NCURSES_URL="https://x/n.tgz"\ncurl -o n.tgz "$NCURSES_URL"\n'), /NCURSES_URL is set but never fetched/);
+  assert.throws(() => tmuxPins(TMUX + 'NCURSES_URL="https://x/n.tgz"\n'), /NCURSES_URL is set but never fetched/);
   assert.throws(() => tmuxPins(TMUX.replace('download/${TMUX_VERSION}/', 'download/$TMUX_VERSION/')), /cannot expand/);
   assert.throws(() => tmuxPins(TMUX.replace('TMUX_VERSION="3.5a"', 'TMUX_VERSION="${TMUX_VERSION:-3.5a}"')), /cannot expand/);
   const literalUrl = TMUX.replace(/^TMUX_URL=.*$/m, 'TMUX_URL="https://github.com/tmux/tmux/releases/download/3.5a/tmux-3.5a.tar.gz"');
@@ -369,6 +370,37 @@ test('every shipped file must sit in a first-party place, and package.json may n
   assert.ok(sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, JSON.stringify({ name: 'x', dependencies: {} }))), 'an empty map is no dependency');
 });
 
+test('native code: only the two named binaries in app/bin/ and the Mac app\'s own files; components tie to shipped files', () => {
+  const ship = (...extra) => ({ ...MANIFEST, files: [...MANIFEST.files, ...extra.map((path) => ({ path, sha256: SHA('2') }))] });
+  for (const p of ['app/Kosmos.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle', 'app/bin/rg', 'app/bin/libssl.3.dylib',
+    'app/Kosmos.app/Contents/MacOS/helper', 'app/Kosmos.app/Contents/Resources/lib.dylib', 'app/bin/sub/x.sh']) {
+    assert.throws(() => sbom(ship(p)), /which is not a first-party place/, p);
+  }
+  assert.ok(sbom(ship('app/bin/new-bridge.js', 'app/bin/new-hook.sh', 'app/Kosmos.app/Contents/Resources/Other.icns')), 'scripts and icons pass');
+  const swap = { ...MANIFEST, files: MANIFEST.files.map((f) => (f.path === 'app/bin/kosmos-tunnel' ? { ...f, sha256: SHA('3') } : f)) };
+  assert.throws(() => sbom(swap), /app\/bin\/kosmos-tunnel is not the connector it names/);
+  assert.throws(() => sbom({ ...MANIFEST, files: MANIFEST.files.filter((f) => f.path !== 'app/bin/kosmos-tunnel') }), /is not the connector it names/);
+  assert.throws(() => sbom({ ...MANIFEST, files: MANIFEST.files.filter((f) => f.path !== 'runtime/bin/node') }), /ships no runtime\/bin\/node/);
+});
+
+test('commits must be full shas, the build must say clean, and only the arm64 release is known', () => {
+  assert.throws(() => sbom({ ...MANIFEST, app: { commit: 'HEAD', dirty: false } }), /must be full shas/);
+  assert.throws(() => sbom({ ...MANIFEST, connector: { ...MANIFEST.connector, commit: 'b'.repeat(10) } }), /must be full shas/);
+  assert.throws(() => sbom({ ...MANIFEST, app: { commit: 'a'.repeat(40) } }), /does not say the app was built from a clean tree/);
+  assert.throws(() => sbom({ ...MANIFEST, arch: 'x86_64' }), /arch x86_64: this SBOM knows the arm64 Mac release only/);
+  assert.throws(() => sbom({ ...MANIFEST, arch: undefined }), /arch undefined/);
+});
+
+test('a download outside fetch() (curl, wget, git clone, a bare https address) refuses; one inside fetch() is its own', () => {
+  assert.equal(tmuxPins(TMUX).length, 3, 'the curl inside fetch() is the function itself');
+  for (const extra of ['curl -fL https://zlib.net/zlib-1.3.1.tar.gz -o z.tgz', 'wget -q "$ZURL"', 'git clone https://example.com/x.git',
+    '  git submodule update --init', 'tar xf "$(echo https://x/y.tgz)"']) {
+    assert.throws(() => tmuxPins(TMUX + extra + '\n'), /a download this SBOM cannot list/, extra);
+  }
+  assert.equal(tmuxPins(TMUX + '# curl https://x/y (a comment)\n').length, 3);
+  assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, 'lib/libevent-9evil.dylib']), /is not a file this SBOM accounts for/);
+});
+
 test('the bundle: a library VERSION names must be in lib/, bin/tmux must be there, a ./ prefix reads the same, URL and SHA must pair', () => {
   assert.throws(() => parseTmuxVersion(VERSION + 'ncurses: 6.5\n', LIBS), /VERSION names ncurses, but no library of it is in lib\//);
   assert.throws(() => parseTmuxVersion(VERSION, LIBS.filter((p) => p !== 'bin/tmux')), /no bin\/tmux/);
@@ -411,7 +443,7 @@ test('a crate that depends back on the connector points at the connector compone
 test('a manifest with no connector commit, no node version or a dirty app refuses', () => {
   assert.throws(() => sbom({ ...MANIFEST, connector: { signed_sha256: SHA('f') } }), /no app or connector commit/);
   assert.throws(() => sbom({ ...MANIFEST, node: { download_sha256: SHA('e') } }), /no node version/);
-  assert.throws(() => sbom({ ...MANIFEST, app: { commit: 'a'.repeat(40), dirty: true } }), /dirty tree/);
+  assert.throws(() => sbom({ ...MANIFEST, app: { commit: 'a'.repeat(40), dirty: true } }), /does not say the app was built from a clean tree/);
 });
 
 test('the command line refuses an unsigned manifest; in-process, the same reads build the SBOM; usage exits 2', () => {
@@ -438,7 +470,7 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   execFileSync('tar', ['-czf', tgz, '-C', stage, ...LIBS]);
   const tmux = readTmuxBundle(tgz);
   assert.equal(tmux.sha, crypto.createHash('sha256').update(fs.readFileSync(tgz)).digest('hex'));
-  const manifest = { ...MANIFEST, tmux_sha256: tmux.sha, app: { commit: k.commit }, connector: { ...MANIFEST.connector, commit: r.commit } };
+  const manifest = { ...MANIFEST, tmux_sha256: tmux.sha, app: { commit: k.commit, dirty: false }, connector: { ...MANIFEST.connector, commit: r.commit } };
   const b = build(manifest, { repo: k.dir, relay: r.dir, tmux });
   assert.equal(comp(b, 'crate:rustls@0.23.46').version, '0.23.46');
   assert.equal(comp(b, 'tmux-part:utf8proc').version, '2.9.0');
@@ -460,4 +492,7 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   assert.equal(run(mf, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir).status, 2, 'no --sig');
   assert.equal(run(mf, '--sig', sg, '--repo', k.dir, '--relay', r.dir).status, 2, 'no --tmux');
   assert.equal(run(mf, '--sig', '--tmux', tgz, '--repo', k.dir, '--relay', r.dir).status, 2, 'a flag is not a --sig value');
+  assert.equal(run(mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, '--outt', 'x').status, 2, 'an unknown flag');
+  assert.equal(run(mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, '--out').status, 2, '--out with no value');
+  assert.equal(run(mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, 'stray').status, 2, 'a stray argument');
 });
