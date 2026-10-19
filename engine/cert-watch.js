@@ -95,7 +95,7 @@ function certWatchFrom(dir, nowMs) {
      that marker, a current successful check is clear again: read it so, or Got it would leave "cannot confirm" for
      good. A check that is stale or failing stays unknown. */
   const failingNow = errorAt !== null && (checkedAt === null || errorAt >= checkedAt);
-  if (marked && !lost && state === 'unknown' && checkedAt !== null && Math.abs(nowMs - checkedAt * 1000) < STALE_MS && !failingNow) {
+  if (marked && !lost && raw.state === 'unknown' && state === 'unknown' && checkedAt !== null && Math.abs(nowMs - checkedAt * 1000) < STALE_MS && !failingNow) {
     state = 'clear';
   }
   return {
