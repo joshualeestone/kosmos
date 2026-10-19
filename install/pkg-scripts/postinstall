@@ -213,6 +213,10 @@ else
        && /usr/bin/curl -fsSL --connect-timeout 20 -m 300 -o "$_pin_dir/setup" "$SETUP_URL"; then
       _pin_rc=0
       _pin_out="$("$_pin_helper" "$_pin_dir/manifest.json" "$_pin_dir/manifest.sig" "$_pin_v" "$_pin_floor")" || _pin_rc=$?
+      if [ "$_pin_rc" -eq 2 ]; then
+        echo "Kosmos: this installer could not run its release check (the line above says why), so nothing was installed." >&2
+        exit 1
+      fi
       if [ "$_pin_rc" -ne 0 ]; then
         echo "Kosmos: the download did not check out against the signed Kosmos release (the line above says why), so nothing was installed." >&2
         exit 97
@@ -372,6 +376,8 @@ fi
    h="$HOME/.local/share/kosmos"
    # The checksum gate above still runs first, on purpose: an existing install is held to BOTH (the hand-off downloads
    # the installer again and checks it against the signed release). Conservative, not an oversight.
+   # (Not on the #6576 pinned path above, which runs the checked installer directly and ends before this: there
+   # setup.sh still runs the installed verifier, which refuses a release older than the installed one.)
    # (Measured in review 4: a pattern match let a half-written package.json and a truncated verifier through, so the
    # installed node itself parses the one and syntax-checks the other: the same tests the hand-off needs to work.)
    # The installed node must RUN and the installed version must READ (a broken install being repaired keeps the

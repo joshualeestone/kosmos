@@ -29,8 +29,10 @@ Card: kosmos#6576 (security hardening item; detail kept with the security plan).
 - Existing: test-pkg-checksum-1670, test-postinstall-inline-quoting, test-install-page-readable-3268, test-pkg-input-guard (59 checks, new #6576 rows), test-pkg-arch-gate-1562 all pass.
 
 ## Weakest premise
-That the version offered by the unsigned pointer cannot be used to downgrade: the helper refuses a signed release below the floor, but between the floor and the newest, any genuinely signed release is accepted. Raising the floor over time narrows it.
+That the version offered by the unsigned pointer cannot be used to downgrade: the helper refuses a signed release below the floor, but between the floor and the newest, any genuinely signed release is accepted. Raising the floor over time narrows it. Related: a manifest names no channel, so a genuinely signed staging release at or above the floor passes a production package too. It is still a release Kosmos signed.
 
 ## Residual
+- A pinned run skips the #6474 hand-off; a release older than an installed copy is still refused, by the installed verifier inside setup.sh (engine/manifest-verify.js: "older than the installed").
+- The tmux bundle is pinned to the release manifest's tmux_sha256: if it is ever republished without a new Kosmos release, pinned installs refuse ("terminal manager download does not match its signed release") until the next cut.
 - The install line (curl | sh) still trusts HTTPS: the script it fetches is the root of trust there. The .pkg is the checked path.
 - tools/macos-floor (the helper's minimum macOS) is not a pkg input; a change to it does not force a rebuild. Low risk: the distribution floor is in the hashed build script.
