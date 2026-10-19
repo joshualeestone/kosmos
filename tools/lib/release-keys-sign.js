@@ -1,0 +1,44 @@
+'use strict';
+/* #6609: sign a release KEY LIST with the recovery key (engine/manifest-verify.js RECOVERY_KEYS).
+ *
+ *   pbpaste | node tools/lib/release-keys-sign.js <seq> <out-dir> <release-key> [<release-key> ...]
+ *
+ * The recovery private key (PKCS#8 PEM) arrives on stdin only, from the password manager it lives in, and is never
+ * written anywhere. Each <release-key> is a release public key as SubjectPublicKeyInfo base64 (the form KEYS uses).
+ * Writes <out-dir>/release-keys.json and <out-dir>/release-keys.json.sig, checks them with the same verifyKeyList the
+ * installed copies run, and prints the recovery key's public half so the person can see which key signed.
+ * Exit 0 written and checked; 1 refused (a bad seq, a key that is not one, a duplicate, no key); 2 the private key on
+ * stdin is not an Ed25519 key. */
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { ed25519Key, verifyKeyList } = require('../../engine/manifest-verify');
+
+function main(argv, stdin) {
+  const [seqArg, outDir, ...keys] = argv;
+  const seq = Number(seqArg);
+  if (!/^\d+$/.test(String(seqArg || '')) || !Number.isInteger(seq) || seq < 1) { console.error('the sequence number must be a whole number from 1'); return 1; }
+  if (!outDir || !fs.existsSync(outDir)) { console.error('the folder to write to does not exist'); return 1; }
+  if (!keys.length) { console.error('name at least one release key'); return 1; }
+  if (new Set(keys).size !== keys.length) { console.error('a release key is named twice'); return 1; }
+  const bad = keys.find((k) => !ed25519Key(k));
+  if (bad) { console.error('not an Ed25519 public key: ' + bad.slice(0, 16) + '...'); return 1; }
+  let priv;
+  try { priv = crypto.createPrivateKey(stdin); } catch { console.error('stdin does not hold a private key (copy the whole note, BEGIN and END lines included)'); return 2; }
+  if (priv.asymmetricKeyType !== 'ed25519') { console.error('the private key is not an Ed25519 key'); return 2; }
+  const recoveryPub = crypto.createPublicKey(priv).export({ format: 'der', type: 'spki' }).toString('base64');
+  const bytes = Buffer.from(JSON.stringify({ release_keys: keys, seq, issued: new Date().toISOString().slice(0, 10) }, null, 2) + '\n');
+  const sig = crypto.sign(null, bytes, priv).toString('base64');
+  const check = verifyKeyList({ bytes, sig, recoveryKeys: [recoveryPub] });
+  if (!check.ok) { console.error('the signed list did not check out: ' + check.why); return 1; }
+  fs.writeFileSync(path.join(outDir, 'release-keys.json'), bytes);
+  fs.writeFileSync(path.join(outDir, 'release-keys.json.sig'), sig + '\n');
+  console.log(`release key list ${seq} written to ${outDir}, ${keys.length} key(s), signed by recovery key ${recoveryPub}`);
+  return 0;
+}
+
+module.exports = { main };
+if (require.main === module) {
+  const chunks = [];
+  process.stdin.on('data', (d) => chunks.push(d)).on('end', () => process.exit(main(process.argv.slice(2), Buffer.concat(chunks).toString('utf8'))));
+}

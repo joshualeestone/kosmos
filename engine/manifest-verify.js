@@ -172,7 +172,76 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
   return { code: 0, why: `the terminal manager matches the signed manifest for ${version}` };
 }
 
-module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles };
+/* #6609: the release RECOVERY key. An installed copy trusts the release keys built into this file, and every release
+ * ships its own copy of this file, so whoever holds a release key could ship a release that trusts another key, and
+ * nothing could take a stolen key back. A recovery key, held offline by one person, closes that: once its public half
+ * is in RECOVERY_KEYS, the release keys a copy trusts come from a KEY LIST that a recovery key signed, not from KEYS.
+ *
+ *   dist/release-keys.json      {"release_keys": ["<spki base64>", ...], "seq": <n>, "issued": "<date>"}
+ *   dist/release-keys.json.sig  the recovery key's Ed25519 signature over that file's exact bytes, base64
+ *
+ * A list is taken only when it verifies under a recovery key and its seq is not below the highest this copy has
+ * stored (KEY_LIST_STATE in the install home), so an older list served again cannot bring a revoked key back; a newer
+ * one replaces the stored seq. Revoking a stolen release key is a new list without it, seq + 1, signed with the
+ * recovery key (tools/lib/release-keys-sign.js). Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
+const RECOVERY_KEYS = [];
+const KEY_LIST_STATE = 'release-keys.state.json';
+const MAX_SEQ = 2147483647;
+
+/** An Ed25519 public key from its SubjectPublicKeyInfo base64, or null for anything else. */
+function ed25519Key(b64) {
+  if (typeof b64 !== 'string' || !/^[A-Za-z0-9+/]+=*$/.test(b64)) return null;
+  const der = Buffer.from(b64, 'base64');
+  if (der.length !== 44 || !der.subarray(0, 12).equals(Buffer.from('302a300506032b6570032100', 'hex'))) return null;
+  try { return crypto.createPublicKey({ key: der, format: 'der', type: 'spki' }); } catch { return null; }
+}
+
+/** Checks a key list's bytes and signature against the recovery keys. { ok, why, seq, keys }. */
+function verifyKeyList({ bytes, sig, recoveryKeys = RECOVERY_KEYS }) {
+  let signature;
+  try { signature = Buffer.from(String(sig || '').trim(), 'base64'); } catch { signature = Buffer.alloc(0); }
+  const signed = signature.length === 64 && recoveryKeys.some((k) => {
+    const key = ed25519Key(k);
+    try { return !!key && crypto.verify(null, bytes, key, signature); } catch { return false; }
+  });
+  if (!signed) return { ok: false, why: 'the release key list is not signed by the Kosmos recovery key' };
+  let list;
+  try { list = JSON.parse(Buffer.from(bytes).toString('utf8')); } catch { return { ok: false, why: 'the signed release key list is not readable' }; }
+  const keys = list && list.release_keys;
+  if (!Array.isArray(keys) || !keys.length) return { ok: false, why: 'the signed release key list names no release key' };
+  if (new Set(keys).size !== keys.length || !keys.every((k) => ed25519Key(k))) return { ok: false, why: 'the signed release key list holds a key that is not one' };
+  if (!Number.isInteger(list.seq) || list.seq < 1 || list.seq > MAX_SEQ) return { ok: false, why: 'the signed release key list has no sequence number' };
+  return { ok: true, why: `release key list ${list.seq}`, seq: list.seq, keys: keys.slice() };
+}
+
+/** The highest key-list seq this install has taken (0: none, or unreadable, which only a newer list can follow). */
+function storedKeyListSeq(home) {
+  try {
+    const s = JSON.parse(fs.readFileSync(path.join(home, KEY_LIST_STATE), 'utf8'));
+    return Number.isInteger(s.seq) && s.seq >= 1 && s.seq <= MAX_SEQ ? s.seq : 0;
+  } catch { return 0; }
+}
+
+/** The release keys to check a manifest with. Off (no recovery key): the built-in KEYS. On: a key list that verifies
+ * and is not older than the stored one, whose seq is then stored when newer. { ok, why, keys }. */
+function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, builtIn = KEYS }) {
+  if (!recoveryKeys.length) return { ok: true, why: 'no recovery key is set, so the built-in release keys apply', keys: builtIn };
+  if (!listBytes) return { ok: false, why: 'the release key list could not be read' };
+  const v = verifyKeyList({ bytes: listBytes, sig: listSig, recoveryKeys });
+  if (!v.ok) return v;
+  const stored = home ? storedKeyListSeq(home) : 0;
+  if (v.seq < stored) return { ok: false, why: `the release key list is ${v.seq}, older than the ${stored} this copy has taken` };
+  if (home && v.seq > stored) {
+    const out = path.join(home, KEY_LIST_STATE);
+    const tmp = out + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ seq: v.seq, release_keys: v.keys }) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, out);
+  }
+  return { ok: true, why: v.why, keys: v.keys };
+}
+
+module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles,
+  RECOVERY_KEYS, KEY_LIST_STATE, ed25519Key, verifyKeyList, storedKeyListSeq, trustedKeys };
 
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before
  * using a call form: it greps the next line, which lists every form this copy understands beyond the original
