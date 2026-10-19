@@ -129,7 +129,18 @@ function tmuxPins(text) {
     for (let i = 0; i < 5 && /\$\{[A-Z0-9_]+\}/.test(s); i++) s = s.replace(/\$\{([A-Z0-9_]+)\}/g, (_, v) => (v in vars ? vars[v] : `\${${v}}`));
     return s;
   };
-  const code = text.split('\n').map((l) => l.replace(/(^|\s)#.*$/, '')).filter((l) => !/^\s*fetch\s*\(\)/.test(l));
+  // Any other download (curl, wget, git clone or fetch, an https:// address) outside the fetch() function's own body,
+  // and outside a *_URL= setting, refuses: it would be a build input with no fetch line to list it.
+  const lines = text.split('\n').map((l) => l.replace(/(^|\s)#.*$/, ''));
+  const start = lines.findIndex((l) => /^fetch\s*\(\)\s*\{/.test(l));
+  const end = start < 0 ? -1 : lines.findIndex((l, i) => i > start && /^\}/.test(l));
+  lines.forEach((l, i) => {
+    if (start >= 0 && i >= start && i <= end) return;
+    if (/\b(curl|wget)\b|\bgit\s+(clone|fetch|submodule)\b/.test(l) || (/https?:\/\//.test(l) && !/^[A-Z0-9_]+_URL="/.test(l))) {
+      throw new Error(`build-tmux-from-source.sh: a download this SBOM cannot list: ${l.trim()}`);
+    }
+  });
+  const code = lines.filter((l, i) => !(start >= 0 && i >= start && i <= end));
   const pins = [];
   for (const line of code.filter((l) => /(^|[\s;&|(])fetch\s/.test(l))) {
     const m = line.match(/^\s*fetch\s+(\S+)\s+"\$([A-Z0-9_]+)_URL"\s+"\$([A-Z0-9_]+)_SHA"\s*$/);
@@ -186,7 +197,7 @@ function parseTmuxVersion(text, list) {
     const p = raw.replace(/^\.\//, '');
     if (p === 'bin/tmux') seenTmux = true;
     if (p.endsWith('/') || ['VERSION', 'THIRD-PARTY-NOTICES.txt', 'bin/tmux'].includes(p) || /^licenses\/[^/]+\.txt$/.test(p)) continue;
-    const m = p.match(/^lib\/lib(.+?)(?:[-.][0-9][^/]*)?\.dylib$/);
+    const m = p.match(/^lib\/lib(.+?)(?:[-.][0-9]+(?:\.[0-9]+)*)?\.dylib$/);
     const owner = m && DYLIB_OWNER[m[1]];
     if (!owner || !versions[owner]) throw new Error(`tmux bundle: ${p} is not a file this SBOM accounts for`);
     owned.add(owner);
@@ -247,17 +258,25 @@ function crateComponent(p, relayCommit, crateRef, members) {
 
 // The release's own files, from the signed manifest's list. Anything outside these places, or any node_modules, would
 // be code this SBOM does not list, so it refuses; so does an npm dependency in package.json at the app commit.
-const FIRST_PARTY_FILES = new Set(['VERSION', 'bin/kosmos', 'runtime/bin/node', 'runtime/LICENSE', 'app/server.js', 'app/package.json']);
-const FIRST_PARTY_DIRS = ['app/engine/', 'app/web/', 'app/bin/', 'app/assets/', 'app/Kosmos.app/'];
+// Native code is where a third-party addition would most likely land, so app/bin/ and the Mac app are exact: scripts
+// by extension, and the two binaries by name; inside Kosmos.app only its own executable, plist, icon and signature.
+const FIRST_PARTY_FILES = new Set(['VERSION', 'bin/kosmos', 'runtime/bin/node', 'runtime/LICENSE', 'app/server.js', 'app/package.json',
+  'app/bin/kosmos-app', 'app/bin/kosmos-tunnel', 'app/Kosmos.app/Contents/Info.plist', 'app/Kosmos.app/Contents/CodeResources',
+  'app/Kosmos.app/Contents/MacOS/Kosmos', 'app/Kosmos.app/Contents/_CodeSignature/CodeResources']);
+const FIRST_PARTY_DIRS = ['app/engine/', 'app/web/', 'app/assets/'];
+const FIRST_PARTY_PATTERNS = [/^app\/bin\/[A-Za-z0-9_.-]+\.(sh|js)$/, /^app\/Kosmos\.app\/Contents\/Resources\/[A-Za-z0-9_.-]+\.icns$/];
 function checkFirstParty(manifest, packageJson) {
   if (!Array.isArray(manifest.files) || !manifest.files.length) throw new Error('manifest lists no files');
   for (const f of manifest.files) {
     const p = f && f.path;
     if (typeof p !== 'string' || /(^|\/)node_modules(\/|$)/.test(p) || p.split('/').includes('..')
-      || !(FIRST_PARTY_FILES.has(p) || FIRST_PARTY_DIRS.some((d) => p.startsWith(d)))) {
+      || !(FIRST_PARTY_FILES.has(p) || FIRST_PARTY_DIRS.some((d) => p.startsWith(d)) || FIRST_PARTY_PATTERNS.some((r) => r.test(p)))) {
       throw new Error(`manifest ships ${p}, which is not a first-party place this SBOM accounts for`);
     }
   }
+  const shipped = new Map(manifest.files.map((f) => [f.path, f.sha256]));
+  if (shipped.get('app/bin/kosmos-tunnel') !== manifest.connector.signed_sha256) throw new Error('the manifest\'s app/bin/kosmos-tunnel is not the connector it names');
+  if (!shipped.has('runtime/bin/node')) throw new Error('the manifest ships no runtime/bin/node');
   let pkg;
   try { pkg = JSON.parse(packageJson); } catch { throw new Error('package.json at the app commit is not readable'); }
   for (const k of ['dependencies', 'optionalDependencies', 'peerDependencies', 'bundledDependencies', 'bundleDependencies']) {
@@ -271,7 +290,9 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
   if (!manifest.node.version) throw new Error('manifest has no node version');
   const appCommit = manifest.app.commit, relayCommit = manifest.connector.commit;
   if (!appCommit || !relayCommit) throw new Error('manifest names no app or connector commit');
-  if (manifest.app.dirty) throw new Error('manifest says the app was built from a dirty tree: its commit is not what shipped');
+  if (!/^[0-9a-f]{40}$/.test(appCommit) || !/^[0-9a-f]{40}$/.test(relayCommit)) throw new Error('manifest app and connector commits must be full shas');
+  if (manifest.app.dirty !== false) throw new Error('manifest does not say the app was built from a clean tree: its commit may not be what shipped');
+  if (manifest.arch !== 'arm64') throw new Error(`manifest arch ${manifest.arch}: this SBOM knows the arm64 Mac release only`);
   if (!tmux || !manifest.tmux_sha256) throw new Error('a tmux bundle and the manifest\'s tmux_sha256 are both required');
   for (const [what, v] of [['sha256', manifest.sha256], ['node.download_sha256', manifest.node.download_sha256],
     ['connector.signed_sha256', manifest.connector.signed_sha256], ['tmux_sha256', manifest.tmux_sha256]]) {
@@ -279,7 +300,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow }) {
   }
   if (tmux.sha !== manifest.tmux_sha256) throw new Error(`the tmux bundle (${tmux.sha.slice(0, 12)}) is not the one this release signed (${manifest.tmux_sha256.slice(0, 12)})`);
   checkFirstParty(manifest, show(repo, appCommit, 'package.json'));
-  const arch = manifest.arch || 'arm64';
+  const arch = manifest.arch;
   const { root, deps, edges } = closure(parseLock(show(relay, relayCommit, 'Cargo.lock')), CONNECTOR_CRATE);
   const members = workspaceMembers(show, relay, relayCommit);
   const pins = new Map(tmuxPins(show(repo, appCommit, 'tools/build-tmux-from-source.sh')).map((p) => [p.name, p]));
@@ -344,7 +365,9 @@ if (require.main === module) {
   const args = process.argv.slice(2);
   const opt = (n) => { const i = args.indexOf(n); const v = i >= 0 ? args[i + 1] : null; return v && !v.startsWith('--') ? v : null; };
   const file = args[0], sig = opt('--sig'), repo = opt('--repo'), relay = opt('--relay'), tmuxFile = opt('--tmux'), out = opt('--out');
-  if (!file || file.startsWith('--') || !sig || !repo || !relay || !tmuxFile) {
+  const known = new Set(['--sig', '--repo', '--relay', '--tmux', '--out']);
+  const badFlag = args.slice(1).some((a, i, xs) => a.startsWith('--') ? !known.has(a) : !(i > 0 && known.has(xs[i - 1])));
+  if (!file || file.startsWith('--') || !sig || !repo || !relay || !tmuxFile || badFlag || (args.includes('--out') && !out)) {
     console.error('usage: sbom.js <manifest.json> --sig <manifest.json.sig> --tmux <tmux-arch.tar.gz> --repo <kosmos> --relay <kosmos-relay> [--out <file>]');
     process.exit(2);
   }
