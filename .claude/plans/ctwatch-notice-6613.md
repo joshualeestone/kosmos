@@ -67,6 +67,10 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
   on it and says why.
 - After Got it, focus goes to the line when it still says something (a finding), else to the check's switch, and
   the pane says "Noted." (an empty status line is no place to land).
+- A rebuild or clear of the card with focus inside it keeps focus: onto the new Review, or onto the K mark (the
+  restart note's `rebootFocusAway`). The pane's own paint bumps the notice's poll sequence, so a poll in flight cannot
+  repaint an older answer over it. The finding key changes, once, when a rename pools more than the tunnel's
+  MAX_FOREIGN (100) and truncates: a repeat reminder, never a missed finding.
 - Not in this branch (still kosmos#6613's remaining notes): the Kosmos+-off path an agent can use to stop the check,
   and `isViaScreen` being a speed bump. Both need a decision about `PUT /api/remote` itself, outside this card.
 
@@ -76,5 +80,5 @@ Stacked on ctwatch-board-6602 (kosmos#6602, the Plus pane line and switch). Deta
   finding is raised away from Kosmos+ as the fixed warning, Review opens Kosmos+ and puts it away; a clear check
   raises nothing (the control). Its lost scenario: Got it shows with the lost sentence, posts the marker it was
   shown, then goes, the pane says Noted., and focus is on the switch.
-- `node --test engine/cert-watch.test.js` (13), `web.cert-notice-6613.test.js` (21), `web.plus-cert-watch-6602.test.js`
-  (9), the `server.test.js` route test (by name). Mutant: the dismissed-key check removed, 2 notice tests red.
+- `node --test engine/cert-watch.test.js` (13), `web.cert-notice-6613.test.js` (29), `web.plus-cert-watch-6602.test.js`
+  (9), the `server.test.js` route test (by name). Mutant: the dismissed-key check removed, 2 notice tests red. Iteration 21 (0648c996): mutants of the rebuild focus, the clear focus, the sequence bump and Review's name each turned one new test red.
