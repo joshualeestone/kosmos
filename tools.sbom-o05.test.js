@@ -151,7 +151,7 @@ const CONTENT = { 'bin/tmux': '\0tmux 3.5a\0', 'lib/libevent_core-2.1.7.dylib': 
   'lib/libutf8proc.3.dylib': '\0utf8proc 2.9.0\0', VERSION, 'licenses/tmux-3.5a.txt': 'ISC', 'licenses/libevent-2.1.12-stable.txt': 'BSD',
   'licenses/utf8proc-2.9.0.txt': 'MIT' };
 const MANIFEST = {
-  manifest: 1, version: '0.7.60', arch: 'arm64', sha256: SHA('d'), tmux_sha256: SHA('0'),
+  manifest: 1, version: '0.7.60', arch: 'arm64', sha256: SHA('d'), tmux_sha256: SHA('0'), setup_sha256: SHA('b'),
   app: { commit: 'a'.repeat(40), dirty: false }, node: { version: 'v24.19.0', download_sha256: SHA('e') },
   connector: { signed_sha256: SHA('f'), commit: 'b'.repeat(40) }, built: { at: '2026-10-19T17:00:00Z' },
   files: ['VERSION', 'bin/kosmos', 'runtime/bin/node', 'runtime/LICENSE', 'app/server.js', 'app/package.json',
@@ -180,7 +180,13 @@ const files = (lock = LOCK, tmux = TMUX, workspace = WORKSPACE, pkg = PACKAGE, s
 };
 // A stand-in for the compiler in the fixture arms: the fixtures import plain module names, one per line.
 const fixtureImports = (src) => [...src.matchAll(/^\s*(?:@\w+\s+)?import\s+(\w+)/gm)].map((m) => m[1]);
-const sbom = (m = MANIFEST, f = files(), tmux = BUNDLE) => build(m, { repo: 'K', relay: 'R', tmux, show: show(f), readImports: fixtureImports });
+// A stand-in for git ls-tree over the same fixture: a file's mode, a folder's when something lives under it, or null.
+const entry = (files) => (repo, commit, p) => {
+  const key = `${repo}:${commit}:${p}`;
+  if (key in files) return files[key] instanceof Error ? (() => { throw files[key]; })() : '100644';
+  return Object.keys(files).some((k) => k.startsWith(`${key}/`)) ? '040000' : null;
+};
+const sbom = (m = MANIFEST, f = files(), tmux = BUNDLE) => build(m, { repo: 'K', relay: 'R', tmux, show: show(f), entry: entry(f), readImports: fixtureImports });
 const comp = (b, ref) => b.components.find((c) => c['bom-ref'] === ref);
 const deps = (b, ref) => (b.dependencies.find((d) => d.ref === ref) || {}).dependsOn;
 
@@ -240,7 +246,7 @@ test('a sourceless crate is first-party only when it is the one workspace member
     + '\n[[package]]\nname = "kosmos-relay-proto"\nversion = "9.9.9"\n';
   const fix = other.replace('"kosmos-relay-proto",\n "rcgen 0.13.2"', '"kosmos-relay-proto 0.1.0",\n "rcgen 0.13.2"');
   assert.throws(() => sbom(MANIFEST, files(fix)), /kosmos-relay-proto .* has no source and is not the relay workspace member of that name/);
-  assert.throws(() => sbom(MANIFEST, files(LOCK.replace('name = "kosmos-relay-proto"\nversion = "0.1.0"', 'name = "kosmos-relay-proto"\nversion = "0.2.0"').replace('"kosmos-relay-proto",', '"kosmos-relay-proto",'))),
+  assert.throws(() => sbom(MANIFEST, files(LOCK.replace('name = "kosmos-relay-proto"\nversion = "0.1.0"', 'name = "kosmos-relay-proto"\nversion = "0.2.0"'))),
     /kosmos-relay-proto 0\.2\.0 has no source and is not the relay workspace member of that name \(0\.1\.0\)/);
 });
 
@@ -259,11 +265,12 @@ test('a lockfile value that is not a plain quoted string, or a package with no v
 });
 
 test('a .cargo/config in the relay, at its root, in a member or in any folder above one, refuses', () => {
-  const err = files(); err[`R:${'b'.repeat(40)}:.cargo/config.toml`] = new Error('git failed for another reason');
+  const err = files(); err[`R:${'b'.repeat(40)}:.cargo`] = new Error('git failed for another reason');
   assert.throws(() => sbom(MANIFEST, err), /git failed for another reason/, 'a git failure is not read as "absent"');
-  for (const at of ['.cargo/config.toml', '.cargo/config', 'crates/tunnel/.cargo/config.toml', 'crates/.cargo/config.toml']) {
+  for (const at of ['.cargo/config.toml', '.cargo/config', 'crates/tunnel/.cargo/config.toml', 'crates/.cargo/config.toml', '.cargo']) {
     const f = files(); f[`R:${'b'.repeat(40)}:${at}`] = '[patch.crates-io]\nring = { path = "vendor/ring" }\n';
-    assert.throws(() => sbom(MANIFEST, f), new RegExp(`relay ${at.replace(/\./g, '\\.')} at the connector commit can change what the connector builds`), at);
+    const dir = at.replace(/\.cargo.*$/, '');
+    assert.throws(() => sbom(MANIFEST, f), new RegExp(`relay ${dir.replace(/\./g, '\\.')}\\.cargo at the connector commit can change what the connector builds`), at);
   }
 });
 
@@ -277,7 +284,7 @@ test('a [[patch.unused]] table does not overwrite the package before it', () => 
 
 test('the dependency graph is each component\'s DIRECT dependencies, with an entry for every leaf', () => {
   const b = sbom();
-  assert.deepEqual(deps(b, 'kosmos'), ['connector', 'node', 'tmux-bundle']);
+  assert.deepEqual(deps(b, 'kosmos'), ['connector', 'node', 'setup', 'tmux-bundle']);
   assert.deepEqual(deps(b, 'tmux-bundle'), ['tmux-part:tmux']);
   assert.deepEqual(deps(b, 'tmux-part:tmux'), ['tmux-part:libevent', 'tmux-part:utf8proc']);
   assert.deepEqual(deps(b, 'node'), []);
@@ -428,7 +435,7 @@ test('versions, hashes and purls; crates in CODE-POINT order, which a locale wou
     '"-" (0x2d) sorts before "_" (0x5f) by code point');
   assert.notDeepEqual(['crate:windows-sys@0.59.0', 'crate:windows_aarch64_gnullvm@0.52.6'].sort((x, y) => x.localeCompare(y, 'en')),
     crateRefs.slice(-2), 'the control: en collation orders this pair the other way, so the arm can tell them apart');
-  assert.equal(b.components.length, 14, b.components.map((c) => c['bom-ref']).join(' '));
+  assert.equal(b.components.length, 15, b.components.map((c) => c['bom-ref']).join(' '));
 });
 
 test('a version with a + is percent-encoded in the purl; a v3 lockfile reads the same', () => {
@@ -487,11 +494,11 @@ test('the Mac app: its shipped binary is the one signed, and every module the co
   assert.ok(sbom(), 'the fixture imports Apple frameworks');
   assert.throws(() => sbom({ ...MANIFEST, native_app: { signed_sha256: SHA('d') } }), /app\/bin\/kosmos-app is not the Mac app it signed/);
   assert.throws(() => sbom({ ...MANIFEST, native_app: undefined }), /is not the Mac app it signed/);
-  const reads = (mods) => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), readImports: () => mods });
+  const reads = (mods) => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), entry: entry(files()), readImports: () => mods });
   assert.throws(() => reads(['Cocoa', 'Sparkle']), /native-app\/main\.swift imports Sparkle, which is not an Apple framework/);
   assert.ok(reads(['Cocoa', 'Dispatch']));
   let seen, target;
-  build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), readImports: (src, t) => { seen = src; target = t; return []; } });
+  build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), entry: entry(files()), readImports: (src, t) => { seen = src; target = t; return []; } });
   assert.equal(seen, SWIFT, 'the reader is given native-app/main.swift at the app commit');
   assert.equal(target, 'arm64-apple-macos13.5', 'and the release\'s own target, from tools/macos-floor at the app commit');
   const badFloor = files(); badFloor[`K:${'a'.repeat(40)}:tools/macos-floor`] = 'thirteen\n';
@@ -568,9 +575,36 @@ test('the serial includes a hash of the generator\'s own source, so a changed ge
   fs.writeFileSync(copy, fs.readFileSync(SBOM_JS, 'utf8') + '\n// one more line\n');
   const other = require(copy);
   assert.notEqual(other.SELF_SHA, require(SBOM_JS).SELF_SHA);
-  const a = sbom(), b = other.build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), readImports: fixtureImports });
+  const a = sbom(), b = other.build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), entry: entry(files()), readImports: fixtureImports });
   assert.notEqual(a.serialNumber, b.serialNumber);
   assert.deepEqual(a.components, b.components, 'the same release, the same components');
+});
+
+test('a symlinked main.swift or .cargo in a real git repo refuses: git show of a link is its target path, not the file', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-link-'));
+  const git = (...a) => execFileSync('git', ['-C', root, ...a], { encoding: 'utf8' }).trim();
+  git('init', '-q');
+  fs.mkdirSync(path.join(root, 'native-app')); fs.mkdirSync(path.join(root, 'vendor'));
+  fs.writeFileSync(path.join(root, 'vendor', 'main.swift'), 'import Sparkle\n');
+  fs.symlinkSync('../vendor/main.swift', path.join(root, 'native-app', 'main.swift'));
+  fs.mkdirSync(path.join(root, 'conf')); fs.writeFileSync(path.join(root, 'conf', 'config.toml'), '[source.crates-io]\n');
+  fs.symlinkSync('conf', path.join(root, '.cargo'));
+  fs.writeFileSync(path.join(root, 'plain.txt'), 'x\n');
+  git('add', '-A'); git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'x');
+  const c = git('rev-parse', 'HEAD');
+  const { gitShow, gitEntry } = require(SBOM_JS);
+  assert.throws(() => gitShow(root, c, 'native-app/main.swift'), /is not a plain file \(mode 120000\)/);
+  assert.equal(gitShow(root, c, 'plain.txt'), 'x\n', 'the control: a plain file reads');
+  assert.equal(gitEntry(root, c, '.cargo'), '120000', 'a symlinked .cargo is an entry, so the .cargo check sees it');
+  assert.equal(gitEntry(root, c, 'nothing-here'), null);
+  assert.throws(() => gitShow(root, c, 'nothing-here'), (e) => e.notFound === true);
+});
+
+test('the installer is listed under its signed hash', () => {
+  const b = sbom();
+  assert.deepEqual(comp(b, 'setup').hashes, [{ alg: 'SHA-256', content: SHA('b') }]);
+  assert.ok(deps(b, 'kosmos').includes('setup'));
+  assert.throws(() => sbom({ ...MANIFEST, setup_sha256: undefined }), /manifest setup_sha256 is not a sha256/);
 });
 
 test('a tmux bundle entry name with a control character (listed by tar as an escape) refuses', () => {
@@ -661,7 +695,7 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   assert.equal(comp(b, 'crate:rustls@0.23.46').version, '0.23.46');
   assert.equal(comp(b, 'tmux-part:utf8proc').version, '2.9.0');
   assert.deepEqual(comp(b, 'tmux-bundle').hashes, [{ alg: 'SHA-256', content: tmux.sha }]);
-  assert.throws(() => build(manifest, { repo: r.dir, relay: r.dir, tmux, readImports: fixtureImports }), /^Error: \/.*\/relay has no package\.json at [0-9a-f]{40} \(fetch it, or pass the right checkout\)$/);
+  assert.throws(() => build(manifest, { repo: r.dir, relay: r.dir, tmux, readImports: fixtureImports }), /^Error: \/.*\/relay: git could not list package\.json at [0-9a-f]{40}: fatal: not a tree object$/);
   const twice = path.join(root, 'twice.tar.gz');
   fs.mkdirSync(path.join(stage, 'x'), { recursive: true });
   fs.writeFileSync(path.join(stage, 'x', 'VERSION'), VERSION);

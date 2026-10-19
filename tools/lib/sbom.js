@@ -53,16 +53,31 @@ const { execFileSync } = require('child_process');
 const CONNECTOR_CRATE = 'kosmos-tunnel-client';
 const CRATES_IO = new Set(['registry+https://github.com/rust-lang/crates.io-index', 'sparse+https://index.crates.io/']);
 
-function gitShow(repo, commit, file) {
+// The mode of a path in a commit ('100644', '120000' for a symlink, '040000' for a folder...), or null when it is not
+// there. Only a git answer of "nothing at that path" is null; any other failure throws.
+function gitEntry(repo, commit, file) {
+  let out;
   try {
-    return execFileSync('git', ['-C', repo, 'show', `${commit}:${file}`],
-      { encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'] });
+    out = execFileSync('git', ['-C', repo, 'ls-tree', commit, '--', file], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (e) {
+    throw new Error(`${repo}: git could not list ${file} at ${commit}: ${String(e.stderr || e.message).split('\n')[0]}`);
+  }
+  const line = out.split('\n').find((l) => l.endsWith(`\t${file}`));
+  return line ? line.split(' ')[0] : null;
+}
+
+// A file's text at a commit, only when it is a plain file there: git show of a symlink returns its target PATH as
+// text, which every check below would then read as the file (review 23: a symlinked main.swift passed as importing
+// nothing).
+function gitShow(repo, commit, file) {
+  const mode = gitEntry(repo, commit, file);
+  if (mode === null) {
     const err = new Error(`${repo} has no ${file} at ${commit} (fetch it, or pass the right checkout)`);
-    // Only git saying the path is not in that commit means "absent"; any other failure is not an answer.
-    err.notFound = /does not exist in|exists on disk, but not in/.test(String(e.stderr || ''));
+    err.notFound = true;
     throw err;
   }
+  if (mode !== '100644' && mode !== '100755') throw new Error(`${repo} ${file} at ${commit} is not a plain file (mode ${mode}); this SBOM reads plain files only`);
+  return execFileSync('git', ['-C', repo, 'show', `${commit}:${file}`], { encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 // Cargo.lock v3/v4: [[package]] tables of name, version, source, checksum, dependencies. A dependency names a package
@@ -138,7 +153,6 @@ function closure(pkgs, rootName) {
   return { root, deps: [...seen], edges };
 }
 
-// The relay workspace's member crate names, from its Cargo.toml and each member's own. Literal member paths only.
 // The relay workspace's members: crate name -> { dir, toml, version }, read from its Cargo.toml and each member's own.
 // Literal member paths only. A member's version may come from [workspace.package] (version.workspace = true).
 function workspaceMembers(show, relay, commit) {
@@ -404,7 +418,7 @@ const FORMAT = 'kosmos-sbom-1';
 // And this file's own bytes, so a change to the generator changes the id even if FORMAT was not bumped.
 const SELF_SHA = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex').slice(0, 16);
 
-function build(manifest, { repo, relay, tmux, show = gitShow, readImports = swiftcImports }) {
+function build(manifest, { repo, relay, tmux, show = gitShow, entry = gitEntry, readImports = swiftcImports }) {
   if (manifest.manifest !== 1) throw new Error(`manifest format ${manifest.manifest}: this SBOM reads format 1`);
   for (const k of Object.keys(manifest)) {
     if (!MANIFEST_KEYS.has(k)) throw new Error(`manifest has ${k}, a part this SBOM does not know (it would be left out)`);
@@ -425,7 +439,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow, readImports = swif
   if (manifest.app.dirty !== false) throw new Error('manifest does not say the app was built from a clean tree: its commit may not be what shipped');
   if (manifest.arch !== 'arm64') throw new Error(`manifest arch ${manifest.arch}: this SBOM knows the arm64 Mac release only`);
   if (!tmux || !manifest.tmux_sha256) throw new Error('a tmux bundle and the manifest\'s tmux_sha256 are both required');
-  for (const [what, v] of [['sha256', manifest.sha256], ['node.download_sha256', manifest.node.download_sha256],
+  for (const [what, v] of [['sha256', manifest.sha256], ['setup_sha256', manifest.setup_sha256], ['node.download_sha256', manifest.node.download_sha256],
     ['connector.signed_sha256', manifest.connector.signed_sha256], ['tmux_sha256', manifest.tmux_sha256]]) {
     if (!SHA256.test(v || '')) throw new Error(`manifest ${what} is not a sha256 (${v}): the SBOM cannot vouch for that input`);
   }
@@ -437,7 +451,8 @@ function build(manifest, { repo, relay, tmux, show = gitShow, readImports = swif
   // A .cargo/config in the relay can point a crate at other code (paths, [source] replacement, vendoring) while the
   // Cargo.lock still names the registry crate, so any one refuses. The build machine's own ~/.cargo and CARGO_*
   // settings are a LIMIT: this cannot see them.
-  const has = (f) => { try { show(relay, relayCommit, f); return true; } catch (e) { if (e.notFound) return false; throw e; } };
+  // ANY .cargo entry (a folder, a file, a symlink to one) refuses, review 23: a symlinked .cargo is not a plain file,
+  // and Cargo follows it.
   // Cargo reads config from every folder above the build's, so every ancestor of every member, up to the root.
   const dirsToCheck = new Set(['']);
   for (const { dir } of members.values()) {
@@ -445,8 +460,8 @@ function build(manifest, { repo, relay, tmux, show = gitShow, readImports = swif
     for (let k = 1; k <= parts.length; k++) dirsToCheck.add(parts.slice(0, k).join('/') + '/');
   }
   for (const dir of [...dirsToCheck].sort(byCodePoint)) {
-    for (const f of ['.cargo/config', '.cargo/config.toml']) {
-      if (has(dir + f)) throw new Error(`relay ${dir}${f} at the connector commit can change what the connector builds; this SBOM cannot vouch for it`);
+    if (entry(relay, relayCommit, dir + '.cargo') !== null) {
+      throw new Error(`relay ${dir}.cargo at the connector commit can change what the connector builds; this SBOM cannot vouch for it`);
     }
   }
   // A crate with no source is first-party only when it IS the member: the one sourceless package of that name, at
@@ -487,6 +502,8 @@ function build(manifest, { repo, relay, tmux, show = gitShow, readImports = swif
     { type: 'file', 'bom-ref': 'tmux-bundle', name: `tmux-${arch}.tar.gz`,
       hashes: hashOf(manifest.tmux_sha256), description: 'the tmux bundle the release ships (tmux and the libraries it links, listed as its parts)' },
     tmuxPart('tmux'), ...libs.map(tmuxPart),
+    { type: 'file', 'bom-ref': 'setup', name: 'setup', hashes: hashOf(manifest.setup_sha256),
+      description: 'the installer script the release serves (first-party; its signed hash)' },
     { type: 'application', 'bom-ref': 'connector', name: CONNECTOR_CRATE, version: root.version,
       hashes: hashOf(manifest.connector.signed_sha256), description: `the Plus connector, kosmos-relay ${relayCommit}` },
     ...crates.map((p) => crateComponent(p, relayCommit, crateRef, members)),
@@ -504,7 +521,8 @@ function build(manifest, { repo, relay, tmux, show = gitShow, readImports = swif
     },
     components,
     dependencies: [
-      { ref: 'kosmos', dependsOn: ['connector', 'node', 'tmux-bundle'] },
+      { ref: 'kosmos', dependsOn: ['connector', 'node', 'setup', 'tmux-bundle'] },
+      { ref: 'setup', dependsOn: [] },
       { ref: 'node', dependsOn: [] },
       { ref: 'tmux-bundle', dependsOn: ['tmux-part:tmux'] },
       { ref: 'tmux-part:tmux', dependsOn: libs.map((n) => `tmux-part:${n}`).sort(byCodePoint) },
@@ -529,7 +547,7 @@ function uuidFrom(seed) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-module.exports = { SELF_SHA, parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
+module.exports = { SELF_SHA, gitShow, gitEntry, parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
 
 // A path as the file system resolves it (following a symlink), or as written when it does not exist yet.
 function realish(p) { try { return fs.realpathSync(p); } catch { return require('path').resolve(p); } }

@@ -49,11 +49,11 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 43 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 45 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
-  must equal build()'s output byte for byte. Every rule added in reviews 1 to 22 has a mutant that fails an arm, run at
-  the time of the change (the first version, then reviews 1 to 22 in order: four, eight, six, eleven, six, seven,
-  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five and six); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 23 has a mutant that fails an arm, run at
+  the time of the change (the first version, then reviews 1 to 23 in order: four, eight, six, eleven, six, seven,
+  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six and four); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
@@ -124,6 +124,10 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- (Was a gap, review 23.) Every file read from git must be a plain file there (mode 100644 or 100755, read with git
+  ls-tree first): git show of a symlink returns its target PATH as text, so a symlinked main.swift passed as importing
+  nothing. Any `.cargo` entry (a folder, a file or a symlink) in the relay root or above a member refuses. The
+  installer is listed as a `setup` file component under its signed hash, instead of being signed and dropped.
 - The build machine's own ~/.cargo/config and CARGO_* settings, which can point a crate at other code. A .cargo/config
   in the relay itself, at the root or in a member, refuses (review 21); lockfile values must be plain quoted strings
   and every package must have a name and version (a literal string or a trailing comment dropped the version).
