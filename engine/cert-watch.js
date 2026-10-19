@@ -2,8 +2,9 @@
 /* kosmos#6602: what the tunnel's certificate check (kosmos-relay, crates/tunnel/src/ctwatch.rs) found,
    read from the state dir, and its off switch.
 
-   The tunnel writes `ct-watch.json` there. Only counts, times and the state are passed on from it: its
-   strings come from a third party's answer, so none of them reaches the page.
+   The tunnel writes `ct-watch.json` there, whole (a temp file then a rename, crates/tunnel/src/atomic.rs
+   write_private), so a read never sees half a report. Only counts, times and the state are passed on from
+   it: its strings come from a third party's answer, so none of them reaches the page.
 
    States, as the page shows them:
    - `foreign`: a certificate for this computer's address carries a key this computer never made.
