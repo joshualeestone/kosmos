@@ -28,6 +28,11 @@ Card: kosmos#6609 (security hardening item; detail kept with the security plan).
 - Letting a release change the trusted keys (pinned_keys in its manifest): that is the hole; a stolen release key could ship a release trusting another key.
 - Storing the full list locally and trusting it when the site has none: a site that withholds the list would freeze a revocation. Phase 2 refuses when the list cannot be fetched.
 
+## Limits of the record (phase 1)
+- Files are added, never removed; a damaged top file is replaced in place by a verified list at the same seq, whose keys cannot be compared with the damaged one. That relies on the recovery key never signing two lists with one seq: the signing tool sees only the list in its output folder, so the signing runbook must keep every published list and sign from that folder.
+- The record is not signed. Whoever can write the install home can delete it (the floor drops to MIN_KEY_LIST_SEQ) or plant a high seq file (this copy then refuses every later list until it is removed). Both need local write access; phase 2's refusal message should say what to do.
+- A power loss can lose the newest entry before the disk has it (fsync on macOS is not a full barrier), dropping the floor one list back.
+
 ## Weakest premise
 That every copy takes the newest list BEFORE it checks a release. A release signed with a stolen key carries its own copy of engine/manifest-verify.js, RECOVERY_KEYS included, so a copy that installs one before taking the revocation leaves the scheme. Phase 2 must therefore fetch and check the list first on every update path, and refuse the update when the list cannot be had. A copy that never updates never learns of a revocation, but it also installs nothing new. Second: until phase 2 adds an expiry, a fetch path that withholds the newer list (serving the older one) holds a copy that has not taken it on the revoked key.
 
