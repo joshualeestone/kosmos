@@ -51666,6 +51666,8 @@ async function paintPlus() {
   /* kosmos#6602. Reached only for a set-up computer (the not-enrolled branch above returns first), and the row
      sits inside #plus-flow, which shows only then: together they keep the switch off a computer with no state dir.
      Acknowledging what it reports, and raising it outside Settings, is kosmos#6613. */
+  /* r.on === true: a reply that does not say Kosmos+ is on counts as off, which quiets only the cannot-confirm
+     sentences (the safe direction); a finding is said either way. */
   if (typeof paintPlusCertWatch === 'function') paintPlusCertWatch(r.certWatch, r.on === true);
   /* #4794: while this computer waits for one of the person's computers to allow it, the pairing code replaces the
      coordinator's sentence (paintPlusJoin). Anything else hides it. */
