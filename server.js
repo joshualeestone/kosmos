@@ -4319,8 +4319,12 @@ const REMOTE_STEP_UP_EXACT = new Set([
   // pass this very step-up. At the computer it needs nothing more.
   'POST /api/remote/second-reset',
 ]);
-/* The gated routes whose path carries a name: a service's token, a provider runner's install, an agent brought back. */
-const REMOTE_STEP_UP_PATTERNS = [/^\/api\/svc\/[a-z0-9-]+\/token$/, /^\/api\/runners\/[a-z]+\/install$/, /^\/api\/agent\/[^/]+\/restore$/];
+/* The gated routes whose path carries a name: a service's token, a provider runner's install, an agent brought back,
+   and a project webhook (making one mints a secret address an outside party can post tasks to, for as long as it lives). */
+const REMOTE_STEP_UP_PATTERNS = [
+  /^\/api\/svc\/[a-z0-9-]+\/token$/, /^\/api\/runners\/[a-z]+\/install$/, /^\/api\/agent\/[^/]+\/restore$/,
+  /^\/api\/project\/[^/]+\/webhooks$/,
+];
 function needsRemoteStepUp(pathname, method) {
   if (REMOTE_STEP_UP_EXACT.has(method + ' ' + pathname)) return true;
   return method === 'POST' && REMOTE_STEP_UP_PATTERNS.some((re) => re.test(pathname));

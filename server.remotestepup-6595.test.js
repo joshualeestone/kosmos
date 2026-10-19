@@ -52,7 +52,7 @@ const STEP_UP_ROUTES = [
   '/api/antigravity/win32signin', '/api/muse/signin', '/api/muse/signin/retry', '/api/github/start',
   '/api/github-device/start', '/api/vercel/start',
   '/api/agents', '/api/team', '/api/connect-agent', '/api/worlds', '/api/worlds/import', '/api/agent/scout/restore',
-  '/api/register', '/api/remote/second-reset',
+  '/api/register', '/api/remote/second-reset', '/api/project/p1/webhooks',
 ];
 
 test('R01: PUT /api/autoupdate (turning automatic updates on) from a stale remote session is refused', async () => {
@@ -128,12 +128,13 @@ test('R01: the gate passes update and agent creation for a fresh remote session 
   assert.equal(remoteStepUpRefusal(req(VIA_PLUS), '/api/agents/x/messages', t), null, 'an ungated route is never asked');
 });
 
-/* The guard that keeps the list honest (review iteration 1): every POST or PUT route in server.js that looks like it
+/* The guard that keeps the list honest (review iteration 1): every POST or PUT route in server.js, written in the
+   board's usual `pathname === '...' && req.method === '...'` shape, that looks like it
    takes a key, a token or a sign-in, installs or updates, or makes an agent, is either gated or exempt here with its
    reason. A new such route that forgets the gate turns this red. And every gated route is a real route, so a rename
    cannot leave the gate guarding a path nothing serves. */
 const EXEMPT = {
-  'POST /api/agent-import': 'parses a file into instructions; the create it feeds is gated (and it is loopback-only)',
+  'POST /api/agent-import': 'parses a file into instructions; the create it feeds is gated',
   'POST /api/agent-import-file': 'parses a file; the create it feeds is gated',
   'POST /api/agent-import-folder': 'parses a folder; the create it feeds is gated',
   'POST /api/agent-token': 'refused remotely outright (remote_not_allowed, remotemark-6595)',
@@ -166,19 +167,21 @@ test('R01: every key, sign-in, install, update or create route is gated or exemp
   const missing = looks.filter((r) => { const [m, p] = r.split(' '); return !needsRemoteStepUp(p, m) && !EXEMPT[r]; });
   assert.deepEqual(missing, [], 'routes that look like keys, installs, updates or creates but are neither gated nor exempt');
   for (const route of STEP_UP_ROUTES) {
-    const named = /^\/api\/(svc|runners|agent)\//.test(route);
+    const named = /^\/api\/(svc|runners|agent|project)\//.test(route);
     assert.ok(src.includes("'" + route + "'") || named, route + ' is gated but server.js serves no such path');
   }
   for (const r of Object.keys(EXEMPT)) assert.ok(routes.includes(r), 'exempt ' + r + ' is not a route any more');
 });
 
 /* Regex-defined routes are invisible to the literal scan above (review iteration 2), so each one whose pattern names a
-   token, an install, a sign-in, an import, a restore or a skill is listed here: gated (with a path it must match) or
+   token, an install, a sign-in, an import, a restore, a skill or a webhook is listed here: gated (with a path it must match) or
    exempt with its reason. A new such regex route turns this red until someone decides. */
 const REGEX_ROUTES = {
   '/^\\/api\\/svc\\/([a-z0-9-]+)(?:\\/(token|forget))?$/': { gated: '/api/svc/brave-search/token' },
   '/^\\/api\\/runners\\/([a-z]+)\\/install$/': { gated: '/api/runners/openai/install' },
   '/^\\/api\\/agent\\/([^/]+)\\/restore$/': { gated: '/api/agent/scout/restore' },
+  '/^\\/api\\/project\\/([^/]+)\\/webhooks$/': { gated: '/api/project/p1/webhooks' },
+  '/^\\/api\\/project\\/([^/]+)\\/webhooks\\/([0-9a-f]{16})(\\/name)?$/': { exempt: 'renames or deletes a webhook; neither mints a new secret' },
   '/^\\/api\\/skills\\/([^/]+)$/': { exempt: 'a skill is text agents read; a remote session can already tell any agent anything in chat' },
   '/^\\/api\\/agent\\/([^/]+)\\/skills$/': { exempt: 'as for skills: no more than messaging that agent' },
   '/^\\/api\\/agent\\/([^/]+)\\/skills\\/([^/]+)$/': { exempt: 'as for skills: no more than messaging that agent' },
@@ -186,12 +189,13 @@ const REGEX_ROUTES = {
   '/^\\/api\\/svc\\/[a-z0-9-]+\\/token$/': { gate: true },
   '/^\\/api\\/runners\\/[a-z]+\\/install$/': { gate: true },
   '/^\\/api\\/agent\\/[^/]+\\/restore$/': { gate: true },
+  '/^\\/api\\/project\\/[^/]+\\/webhooks$/': { gate: true },
 };
 test('R01: every regex route naming a token, install, sign-in, import, restore or skill is decided, and gated ones match', () => {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const found = [...new Set([...src.matchAll(/\/\^\\\/api\\\/[^\s]*?\$\//g)].map((m) => m[0]))];
   assert.ok(found.length > 30, 'the regex scan found ' + found.length + ', so it is not reading server.js');
-  const named = found.filter((r) => /install|token|apikey|signin|subscription|import|restore|skill/.test(r));
+  const named = found.filter((r) => /install|token|apikey|signin|subscription|import|restore|skill|webhook/.test(r));
   assert.ok(named.includes('/^\\/api\\/runners\\/([a-z]+)\\/install$/'), 'CONTROL: the scan sees a known regex route');
   const undecided = named.filter((r) => !REGEX_ROUTES[r]);
   assert.deepEqual(undecided, [], 'regex routes nobody has decided on');

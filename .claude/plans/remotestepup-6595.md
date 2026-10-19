@@ -35,6 +35,8 @@ creation need a fresh authenticator code. This is the step-up half.
   computer.
 - **`PUT /api/autoupdate` is gated whole,** off as well as on: the gate reads no body, and one more prompt to switch
   it off costs little.
+- **Making a project webhook is gated:** it mints a secret address an outside party can post tasks to, for as long as
+  it lives. Renaming or deleting one is not.
 - **Codex hook trust is not gated:** every agent already runs an unsandboxed shell.
 - **Not gated, decided (review iteration 4):** `/api/accounts/share` (moves where a Claude account's history lives; no
   credential or software enters) and `/api/engine/restart` (restarts onto code already on disk, only when stale).
@@ -74,12 +76,15 @@ set none of the forwarding headers, it would read as local and never be asked (R
   sign-in carries both (Renet's contract).
 - A remote session can still ask an agent here to do these things; an agent's own request arrives without
   forwarding headers. Renet's plan names the same residual.
+- A board clock more than a minute BEHIND the gate's reads every fresh sign-in as from the future and refuses it; the
+  refusal then asks for a sign-in that cannot help. Diagnose it from the two clocks. Accepted: the window is the
+  tolerance a clock stepped back deserves, and both run on this computer, so they share one clock in practice.
 - `POST /api/accounts/qwen/local/download` and `/model` (a model download, and the model choice, through Ollama,
   which the person installed themselves) are not gated: they run no new installer. `POST /api/github-device/app`
   stores a client id that is public by design. Named here so the boundary is explicit.
 
 ## Tests
-`server.remotestepup-6595.test.js` (37 cases: one per gated route, plus the guards and checks below), including two guards. Literal routes: every POST/PUT route whose path looks
+`server.remotestepup-6595.test.js` (38 cases: one per gated route, plus the guards and checks below), including two guards. Literal routes: every POST/PUT route whose path looks
 like a key, token, sign-in, install, update or create is gated or exempt with a written reason, and every gated route
 exists (dropping one gated route turns it red, naming it). Regex routes, which the literal scan cannot see: every one
 whose pattern names a token, install, sign-in, import, restore or skill is decided, gated ones matching a sample path
@@ -88,4 +93,7 @@ The rest: every gated route refused remotely without headers, with second=0, wit
 stale time and with a malformed time, reaching nothing (the gate runs before the body is read); CONTROL: a fresh
 remote session and a local request pass on key routes (which then answer 400 for an unreadable body); update and
 agent creation pass arms tested on the function only, never run; the window's edges and malformed values.
-Mutations, run by hand on the first version (17 tests): gate removed 13 red; freshness always true 15 red.
+Mutations, run by hand on the first version (17 tests): gate removed 13 red; freshness always true 15 red. NOT
+re-run on the current file, on purpose: with the gate removed, each refusal test really posts to its route, and on
+13:10 one did (`/api/github/start` started a real GitHub sign-in; killed, nothing installed). Mutate this gate only
+against the function-level tests. The route guards' own controls (drop a gated route, drop a decision) were run.
