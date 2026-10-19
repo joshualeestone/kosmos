@@ -3,16 +3,16 @@
 Card: kosmos#6576 (security hardening item; detail kept with the security plan).
 
 ## Finished looks like
-- On a Mac with no Kosmos, the .pkg checks the release manifest's Ed25519 signature with a key it carries before anything it downloaded runs; the installer it runs, and the Kosmos and tmux downloads, must match the signed sha256 values.
+- When switched on, every install from the .pkg (a Mac with no Kosmos, or one whose install may have no working verifier) checks the release manifest's Ed25519 signature with a key it carries before anything it downloaded runs; the installer it runs, and the Kosmos and tmux downloads, must match the signed sha256 values.
 - Anything that does not check out ends the install with one sentence, before anything runs.
-- Existing installs keep their own check (#6468, #6474). The install line (curl | sh) is unchanged.
+- An installed copy still makes its own checks inside setup.sh (#6468). The install line (curl | sh) and in-app updates are unchanged.
 - Shipped switched off until production serves a signed release; one reviewed line turns it on.
 
 ## Changes
 - install/pkg-verify/main.swift: kosmos-pkg-verify. CryptoKit Ed25519 over the manifest's exact bytes against keys compiled in (equal to engine/manifest-verify.js KEYS; a test pins it); version must equal the pointer's and not be below the floor; prints setup_sha256, sha256, tmux_sha256 only after all three check; refusals exit 97.
 - install/pkg-verify/floor: "off" now; the first signed release (0.7.57) turns the check on.
-- install/pkg-scripts/postinstall: a root step (the Scripts dir is root-only, #3268) for a Mac whose install has no verifier: downloads pointer, manifest, signature and installer into a root-owned folder, runs the helper, compares the installer's sha256, and hands the checked installer and the two pins to the person's shell, which runs that file and downloads nothing.
-- install/setup.sh: pinned_sha_ok after the checksum of the Kosmos and tmux downloads; no pin, no change.
+- install/pkg-scripts/postinstall: a root step (the Scripts dir is root-only, #3268): downloads pointer (cache-busted), manifest, signature and installer into a root-owned folder, runs the helper, compares the installer's sha256 (a mismatch is rechecked on the download budget, a deploy caught half way), and hands the checked installer, its version and the two pins to the person's shell, which runs that file and downloads nothing.
+- install/setup.sh: pinned_sha_ok right after the checksum of the Kosmos and tmux downloads, before unpacking; KOSMOS_PINNED_VERSION (a.b.c only) is the version installed. No pin, no change.
 - tools/build-installer-pkg.sh: builds the helper, signs it (Developer ID Application, hardened runtime), stages it and the floor with the scripts. tools/lib/pkg-inputs.sh: install/pkg-verify is a pkg input.
 
 ## Rejected
@@ -25,7 +25,7 @@ Card: kosmos#6576 (security hardening item; detail kept with the security plan).
 ## Evidence (2026-10-19)
 - Notarization (the weakest premise): a trial pkg built by tools/build-installer-pkg.sh from this branch was notarized and stapled by Apple (spctl: accepted, Notarized Developer ID); the helper inside it carries the Developer ID Application signature with the hardened runtime, accepts the served staging 0.7.59 manifest and refuses a one-byte-tampered copy (97). Not published.
 - The helper against the served 0.7.59 release: prints its setup, tarball and tmux sha256 (equal to the served files); controls: tampered manifest, another version, below the floor, garbage signature, all 97.
-- install.pkg-verify-6576.test.js 10/10 (perturbed: removing the installer comparison turns a test red).
+- install.pkg-verify-6576.test.js 13/13 (perturbed: removing the installer comparison turns a test red).
 - Existing: test-pkg-checksum-1670, test-postinstall-inline-quoting, test-install-page-readable-3268, test-pkg-input-guard (59 checks, new #6576 rows), test-pkg-arch-gate-1562 all pass.
 
 ## Weakest premise
@@ -33,4 +33,4 @@ That the version offered by the unsigned pointer cannot be used to downgrade: th
 
 ## Residual
 - The install line (curl | sh) still trusts HTTPS: the script it fetches is the root of trust there. The .pkg is the checked path.
-- A Mac whose install exists but is broken keeps the checksum path (no weaker than today).
+- tools/macos-floor (the helper's minimum macOS) is not a pkg input; a change to it does not force a rebuild. Low risk: the distribution floor is in the hashed build script.
