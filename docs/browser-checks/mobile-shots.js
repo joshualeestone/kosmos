@@ -145,7 +145,7 @@ const sizeSkipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || (s.tablet && s.wid
 /* #6542: `needsData: '<set>'` on a screen whose subject only exists in that data set (tasks-decision needs a question
    row, which only --data marketing has). Skipped, and listed as skipped with the reason, in any other run, rather than
    timing out as an ERROR in every full sweep. */
-const skipWhy = (s, sc, data) => sizeSkipWhy(s, sc) || (sc.needsData && (data || 'sample') !== sc.needsData ? 'needs --data ' + sc.needsData : '');
+const skipWhy = (s, sc, data) => sizeSkipWhy(s, sc) || (sc.needsData && (data || 'sample') !== sc.needsData ? 'screen that needs --data ' + sc.needsData : '');
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
 
