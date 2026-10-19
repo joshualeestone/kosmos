@@ -23,8 +23,9 @@ Settings' joined line ("This Kosmos is in <family>."), both leave-refused lines,
   - the review preview's refusal is said through plusOrgIn (that button is a family's), and a stopped note carried
     across a dropped read (review 13's path) keeps its kind.
   - a leave refusal (r.because) is said through plusOrgIn with the org the page left. This covers the server's plain
-    refusal on a member's other computer ("This Kosmos is not your work Kosmos. Leave from your work Kosmos."): that
-    board has no record, so it cannot know the kind; the page, which offered Leave from the joined view, does.
+    refusal when the board is no longer enrolled ("This Kosmos is not your work Kosmos. Leave from your work Kosmos.").
+    Leave is offered only on a joined screen, so this reaches a screen gone stale (a stop between its last read and the
+    press): the board has no record and cannot know the kind; the page still holds the org it showed.
 - org_already_member and org_bad_world: FAMILY_SAY already words them for a family; nothing to change.
 
 ## Decisions

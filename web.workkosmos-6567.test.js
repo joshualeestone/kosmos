@@ -2,9 +2,10 @@
 
 /**
  * kosmos#6567 (follow-up from #6565): two page sentences outside plusOrgIn still said "work Kosmos" to a family.
- * - The leave refusal on a member's OTHER computer is a plain server sentence (server.js: "This Kosmos is not your work
- *   Kosmos. Leave from your work Kosmos."). The board there has no record, so it cannot know the kind; the page does
- *   (the joined view that offered Leave), so it says the refusal through plusOrgIn.
+ * - The board's leave refusal when it is no longer enrolled is a plain server sentence (server.js: "This Kosmos is not
+ *   your work Kosmos. Leave from your work Kosmos."). Leave is offered only on a joined screen, so it reaches a screen
+ *   that went stale (a stop between its last read and the press); the board then has no record and cannot know the
+ *   kind, but the page still holds the org it showed, so it says the refusal through plusOrgIn.
  * - The stopped note ("no longer the work Kosmos for X") is written after the record that knew the kind is gone; the
  *   engine now keeps the kind beside the name (stoppedKind) and GET /api/org sends it.
  * plusOrgIn is lifted from the page and called; the wiring is pinned by its source.
