@@ -41,17 +41,27 @@ number is derived from the tarball sha).
   26 are Windows-only or dev-only and 14 are optional dependencies of features the connector does not turn on (h2 and
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the header says so.
-- **`tools.sbom-o05.test.js`:** 15 arms, 14 through injected git reads and an injected bundle (no relay checkout needed
-  in CI) and 1 through the command line against two git repos and a tarball it makes (tmpscope). Twenty-nine mutants
-  each fail an arm (four from the first version, eight after review 1, six after review 2, eleven after review 3:
-  the bundle's hash unchecked, an unaccounted dylib, a vendored crate as first-party, a crates.io prefix match, fetch
-  calls read only at the start of a line, an unfetched url accepted, a version variable unchecked, a dirty build
-  accepted, an unreadable dependency line skipped, no leaf entries, and drift between the script and the bundle not
-  flagged).
+- **`tools.sbom-o05.test.js`:** 18 arms, all in-process with injected reads, a test key or small fixtures it makes
+  (tmpscope); the command line is run for its refusals and usage errors. Thirty-five mutants each fail an arm (four
+  from the first version, eight after review 1, six after review 2, eleven after review 3, six after review 4: the
+  signature unchecked, only dylib-shaped files checked, an unknown VERSION key accepted, a repeated key accepted, an
+  empty version accepted, two VERSION files accepted). One review-4 mutant survives and is equivalent: `\s*` for
+  `[ \t]*` in the VERSION line match, since the file is split into lines first.
+- **The manifest's signature is verified** under the checkout's pinned keys (engine/manifest-verify.js) before
+  anything is read from it. The real 0.7.59 manifest and its served .sig verify; the same manifest with its version
+  changed refuses. The command line's success path cannot run in a test, since only the real release key signs; it
+  is the same three calls the in-process arm makes, and the CLI arm checks it refuses an unsigned manifest.
+- **The bundle allowlist:** every file must be the VERSION file, a notice or licence, bin/tmux, or a dylib of a library
+  the VERSION names. The real 0.7.59 bundle passes it; nine other shapes (a digit or a + in a dylib name, a
+  subdirectory, libexec/, a bin/ helper, a .so, a .a, terminfo data) each refuse.
 - **Every refusal names what it could not read,** so a new build-script shape fails loudly at SBOM time instead of
   going missing (review 2: the fetch-line approach is only as good as its refusal on a line it cannot parse).
 - **Full-suite-only guards:** every-test-runs, all-node-tests-considered, engine.reachable, #1732, #1777 and the mktemp
   lint pass.
+
+## Not covered, by design
+- Node's own bundled libraries (V8, OpenSSL and so on) are not listed one by one. Node is one component, matched
+  through its version.
 
 ## Not in this PR (named, owner Baron)
 - **Publishing:** the SBOM beside each release (`dist/kosmos-<V>-arm64.cdx.json`), written at release step 4b and
