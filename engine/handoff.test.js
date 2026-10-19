@@ -274,3 +274,33 @@ test('#6506 axis 5: a path with a newline or backtick cannot inject lines or bre
   assert.equal(artifactLines.length, 1, 'the newline in the path must not split into a second line');
   assert.match(artifactLines[0], /missing \(no such file\)/, 'and the (raw) path is still fingerprinted honestly');
 });
+
+// ── #6506 follow-ups (Raiden's #6532 notes 1 and 2) ────────────────────────────
+
+test('#6506 followup (Raiden note 1): an unreadable self-report reads "could not read the self-report", not "never reported"', () => {
+  const session = 'handoffunread';
+  const rec = selfreport.record(session, { state: 'working' });
+  assert.ok(rec.recorded, 'precondition: self-report recorded: ' + (rec.because || ''));
+  const f = selfreport.fileFor(session);
+  fs.chmodSync(f, 0o000);
+  let stillReadable = true;
+  try { fs.readFileSync(f); } catch { stillReadable = false; }
+  if (stillReadable) { fs.chmodSync(f, 0o600); return; }   // running as root: chmod 000 is ineffective; skip
+  let fact;
+  try { fact = handoff.stateFact(session); } finally { fs.chmodSync(f, 0o600); }
+  assert.match(fact, /could not read the self-report/, fact);
+  assert.doesNotMatch(fact, /never reported/, 'an unreadable record must not read as never reported');
+});
+
+test('#6506 followup (Raiden note 2): render threads the real tmux session as exactSession, keeping the sessionName as the file key', () => {
+  const instr = require('./instructions');
+  const realStaleness = instr.staleness;
+  let captured = null;
+  instr.staleness = (agent, seen, exactSession) => { captured = { agent, exactSession }; return { state: 'current', editedAt: new Date().toISOString(), version: 'sha256:deadbeef' }; };
+  try {
+    handoff.render({ session: 'agentname', exactSession: 'agentname-win0', cwd: tmp('kosmos-handoff-es-'), now: Date.UTC(2026, 9, 19, 0, 0, 0), tasks: { reached: false } });
+  } finally { instr.staleness = realStaleness; }
+  assert.ok(captured, 'instructions.staleness was not called');
+  assert.equal(captured.agent, 'agentname', 'the instruction file must still be keyed on the sessionName');
+  assert.equal(captured.exactSession, 'agentname-win0', 'the real tmux session must be passed as exactSession, not the sessionName');
+});

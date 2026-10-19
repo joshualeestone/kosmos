@@ -3138,10 +3138,20 @@ cmd_handoff() {
   else
     _reached=0; _tcode=0; _tbody=""
   fi
+  # The agent's real tmux session (what the roster passes as card.session), resolved from THIS pane,
+  # so the instruction freshness line is reliable when the tmux session name differs from the
+  # sessionName (#6506 followup). $TMUX_PANE is pinned with -t so a multi-window session resolves this
+  # pane, not whichever is active; empty when there is no pane, which lets the reader fall back to the
+  # name-derived spellings rather than a wrong single one.
+  local _tsess=""
+  if [ -n "${TMUX_PANE:-}" ] && command -v tmux >/dev/null 2>&1; then
+    _tsess=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null || true)
+  fi
   # Each artifact path is forwarded as its own argument, so a path with spaces is never split
-  # (#6506). Session and cwd come from this process's environment; the task response comes in via
-  # these env vars so engine/handoff.js itself makes no HTTP call.
-  KOSMOS_HANDOFF_TASKS_REACHED="$_reached" KOSMOS_HANDOFF_TASKS_STATUS="$_tcode" KOSMOS_HANDOFF_TASKS_BODY="$_tbody" "$_node" "$_mod" "$@"
+  # (#6506). Session and cwd come from this process's environment; the small task scalars come by env,
+  # and the task BODY is piped on STDIN so it never rides an env var that could grow (#6544 followup).
+  # engine/handoff.js itself makes no HTTP call.
+  printf '%s' "$_tbody" | KOSMOS_HANDOFF_TASKS_REACHED="$_reached" KOSMOS_HANDOFF_TASKS_STATUS="$_tcode" KOSMOS_HANDOFF_TMUX_SESSION="$_tsess" "$_node" "$_mod" "$@"
 }
 
 # ---- kosmos connect <service>  (#4451), the token on STDIN

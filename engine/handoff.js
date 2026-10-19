@@ -225,12 +225,14 @@ function stateFact(session, now) {
     return 'could not read the self-report (' + firstLine(e && e.message) + ')';
   }
   if (!r || !r.found) {
-    // A never-reported agent's own `because` from selfreport already reads "it has never reported",
-    // so do not double it into "never reported (it has never reported)"; a DIFFERENT because (an
-    // unreadable record carries its own) still adds information and is surfaced.
+    // A genuinely never-reported agent reads "never reported" (selfreport's own NEVER_REPORTED
+    // `because` already says "it has never reported", so it is not doubled). A record that EXISTS
+    // but could not be read is NOT "never reported" (#6532 Raiden note 1): say so, still inventing
+    // no state.
     const never = (self.NO_READING && self.NO_READING.NEVER_REPORTED) || '';
-    const extra = r && typeof r.because === 'string' && r.because && r.because !== never ? ' (' + r.because + ')' : '';
-    return 'never reported' + extra;
+    const because = r && typeof r.because === 'string' ? r.because : '';
+    if (!because || because === never) return 'never reported';
+    return 'could not read the self-report (' + because + ')';
   }
   const parts = [String(r.state || 'reported, state unknown')];
   if (typeof r.because === 'string' && r.because) parts.push(r.because);
@@ -246,7 +248,7 @@ function stateFact(session, now) {
 /** When the instruction file last changed, its sha256 version, and whether the
  * running agent is on an edited copy. A bad or epoch mtime reads "cannot tell"
  * (#6506 axis 3). Returns { file, line }. */
-function instructionFact(session, now) {
+function instructionFact(session, now, exactSession) {
   if (!session) return { file: null, line: 'cannot tell which agent this is (no session), so the instruction file was not read' };
   let instr;
   try {
@@ -262,7 +264,11 @@ function instructionFact(session, now) {
   }
   let st;
   try {
-    st = instr.staleness(session, null, session);
+    // exactSession is the agent's real tmux session (what the roster passes as card.session), so the
+    // STALE/current freshness line is reliable when the tmux session name differs from the sessionName
+    // (#6532 Raiden note 2). When the CLI cannot resolve it, undefined lets staleness fall back to the
+    // name-derived spellings. `session` (the sessionName) is still the agent key for the file itself.
+    st = instr.staleness(session, null, exactSession);
   } catch (e) {
     return { file, line: 'could not read the instruction file (' + firstLine(e && e.message) + ')' };
   }
@@ -340,6 +346,7 @@ function render(opts) {
   const cwd = opts.cwd || process.cwd();
   const artifacts = Array.isArray(opts.artifacts) ? opts.artifacts : [];
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+  const exactSession = typeof opts.exactSession === 'string' && opts.exactSession ? opts.exactSession : undefined;
 
   const lines = [];
   const stamp = iso(now) || new Date().toISOString();
@@ -375,7 +382,7 @@ function render(opts) {
     lines.push('- Open tasks assigned to you (across your projects):');
     for (const it of tf.items) lines.push('  - ' + it);
   }
-  const instr = instructionFact(session, now);
+  const instr = instructionFact(session, now, exactSession);
   lines.push('- Instruction file' + (instr.file ? ' (`' + cleanPath(instr.file) + '`)' : '') + ': ' + instr.line);
   if (artifacts.length) {
     lines.push('- Artifacts you named:');
@@ -399,16 +406,20 @@ module.exports = { render, gitFact, fingerprint, stateFact, instructionFact, tas
  * an unexpected failure prints one honest line and exits non-zero. */
 if (require.main === module) {
   try {
-    // cmd_handoff makes the one board call (GET /api/tasks/mine) and passes the response in via
-    // these env vars, so engine/handoff.js itself stays free of HTTP. Absent env (an old caller) ->
-    // undefined -> tasksFact says "not checked".
+    // cmd_handoff makes the one board call (GET /api/tasks/mine) and hands the response to this
+    // process: the small scalars (reached, status) by env, and the task BODY on STDIN so it never
+    // rides an environment variable that could grow (#6544 note). engine/handoff.js itself makes no
+    // HTTP call. Absent env (an old caller) -> undefined -> tasksFact says "not checked".
     let tasks;
     if (process.env.KOSMOS_HANDOFF_TASKS_REACHED !== undefined) {
+      let raw = '';
+      try { raw = require('fs').readFileSync(0, 'utf8'); } catch (_) { raw = ''; }   // the tasks body, piped in on stdin
       let body = null;
-      try { body = JSON.parse(process.env.KOSMOS_HANDOFF_TASKS_BODY || 'null'); } catch { body = null; }
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       tasks = { reached: process.env.KOSMOS_HANDOFF_TASKS_REACHED === '1', status: Number(process.env.KOSMOS_HANDOFF_TASKS_STATUS || 0), body };
     }
-    process.stdout.write(render({ artifacts: process.argv.slice(2), tasks }));
+    const exactSession = process.env.KOSMOS_HANDOFF_TMUX_SESSION || undefined;
+    process.stdout.write(render({ artifacts: process.argv.slice(2), tasks, exactSession }));
   } catch (e) {
     process.stderr.write('kosmos handoff: could not gather the handoff facts (' + firstLine(e && e.message) + ')\n');
     process.exit(1);

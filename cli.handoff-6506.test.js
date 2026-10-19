@@ -186,3 +186,13 @@ test('#6506 ruling 3: an unreachable board makes the task line say so, never an 
   assert.match(r.out, /Open tasks assigned to you.*: the board did not answer/, r.out);
   assert.doesNotMatch(r.out, /Open tasks assigned to you.*: none open/, 'unreachable must not read as none open');
 });
+
+test('#6544 followup: a large task list is carried to node on stdin (not an env var), and all of it lists', async () => {
+  const many = Array.from({ length: 200 }, (_, i) => ({ project: 'P' + (i % 5), number: i + 1, title: 'task number ' + (i + 1) + ' with a longish title to add bytes' }));
+  await withStub({ 'GET /api/tasks/mine': { status: 200, json: { tasks: many, count: many.length } } }, async (port) => {
+    const r = await cli(['handoff'], { env: { KOSMOS_PORT: String(port) } });
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /task number 1 with a longish title/, r.out);
+    assert.match(r.out, /task number 200 with a longish title/, 'the last of a large list must survive the stdin pipe (the point of stdin over an env var)');
+  });
+});
