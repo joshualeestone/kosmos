@@ -13,7 +13,9 @@ CycloneDX 1.5 JSON SBOM for one Mac release, derived only from records that alre
   the bundle must name (a library the script fetches and the bundle does not name refuses). Nothing else is taken
   from the script, and the tmux parts carry no source download reference (decided after review 11, see below);
 - **the relay's `Cargo.lock` at the connector commit:** walked from `kosmos-tunnel-client` to every crate it reaches,
-  with each crate's DIRECT dependencies as the CycloneDX dependency graph. A crate from a source the tool does not know
+  with each crate's DIRECT dependencies as the CycloneDX dependency graph. A package key other than name, version,
+  source, checksum and dependencies refuses (review 19: Cargo's `replace` points the build at a different crate). A
+  crate from a source the tool does not know
   (not crates.io exactly, not git) refuses the whole SBOM rather than being left out, and so does a sourceless crate
   that is not a member of the relay workspace (a vendored crate would otherwise pass as first-party).
 
@@ -46,11 +48,11 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 35 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 37 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
-  must equal build()'s output byte for byte. Every rule added in reviews 1 to 11 has a mutant that fails an arm,
-  run at the time of the change (four, eight, six, eleven, six, seven, nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three and five per
-  round); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 19 has a mutant that fails an arm, run at
+  the time of the change (the first version, then reviews 1 to 19 in order: four, eight, six, eleven, six, seven,
+  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five and four); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
@@ -67,7 +69,7 @@ real fix.
   and AVFoundation from the real 0.7.59 file. Where no Swift compiler is installed the tool refuses with that reason
   (the release Macs have one). Tests: the fixture arms pass a simple stand-in reader, the command-line arm puts a
   stand-in xcrun on its PATH, and one arm runs the real compiler on the attack shapes and the real main.swift; on a
-  machine without Swift that arm skips (measured: 33 pass, 1 skipped) and the rest still run.
+  machine without Swift that arm skips (measured: 34 pass, 1 skipped, before review 19 added two arms) and the rest still run.
   LIMIT (review 16): the shipped app/bin/kosmos-app is not tied to that source; the manifest's native_app hash and its
   files entry are taken from the same file, so they agree by construction.
 - **The connector crate is the binary's crate:** the relay workspace member kosmos-tunnel-client must declare the
@@ -96,7 +98,7 @@ real fix.
 - **The bundle holds plain files and folders only** (review 8): a symlink or hard link refuses (both have an arm),
   and a path may appear once (review 15).
 - **The binary's own version line** (`tmux: tmux 3.5a`) must equal the source it was built from (`tmux-src`), and
-  (review 14) each version the VERSION file names must also be in the bytes of the binary or library it describes
+  (reviews 14 and 19) each version the VERSION file names must be in the bytes of EVERY binary or library of it
   (3.5a in bin/tmux, 2.1.12-stable in libevent, 6.5 in ncurses, 2.9.0 in utf8proc, all true for 0.7.59): a stale or
   edited VERSION refuses. This is a string-presence check, not a proof of the version.
 - **The manifest's format is pinned** (reviews 14 and 16): format 1 only, and a key this SBOM does not know refuses, at
@@ -120,8 +122,8 @@ real fix.
   lint pass.
 
 ## Not covered, by design
-- `#if swift(...)` and `#if compiler(...)` in the Mac app follow the version of the Swift compiler on the machine
-  running this, not the build machine's.
+- (Was a limit; now a refusal, review 19.) `#if canImport(...)`, `#if swift(...)` and `#if compiler(...)` read as the
+  machine running this, not the build machine, so a main.swift with any of them refuses; the real file has no #if.
 - macOS's own libraries (libSystem, libresolv, the Apple frameworks) are not listed: they are the operating system.
 - After the release key is rotated, a manifest signed only by the retired key refuses here (the checkout's KEYS are
   used), so an old release's SBOM is rebuilt from a checkout that still pins its key, or not at all.
