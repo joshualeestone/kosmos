@@ -180,13 +180,20 @@ const files = (lock = LOCK, tmux = TMUX, workspace = WORKSPACE, pkg = PACKAGE, s
 };
 // A stand-in for the compiler in the fixture arms: the fixtures import plain module names, one per line.
 const fixtureImports = (src) => [...src.matchAll(/^\s*(?:@\w+\s+)?import\s+(\w+)/gm)].map((m) => m[1]);
-// A stand-in for git ls-tree over the same fixture: a file's mode, a folder's when something lives under it, or null.
-const entry = (files) => (repo, commit, p) => {
-  const key = `${repo}:${commit}:${p}`;
-  if (key in files) return files[key] instanceof Error ? (() => { throw files[key]; })() : '100644';
-  return Object.keys(files).some((k) => k.startsWith(`${key}/`)) ? '040000' : null;
+// A stand-in for git ls-tree --name-only over the same fixture: the names directly inside one folder ('' or 'a/b/').
+// A fixture value that is an Error makes the listing of its folder fail, as git would.
+const list = (files) => (repo, commit, dir) => {
+  const pre = `${repo}:${commit}:${dir}`;
+  const names = new Set();
+  for (const k of Object.keys(files)) {
+    if (!k.startsWith(pre)) continue;
+    const name = k.slice(pre.length).split('/')[0];
+    if (k === pre + name && files[k] instanceof Error) throw files[k];
+    names.add(name);
+  }
+  return [...names];
 };
-const sbom = (m = MANIFEST, f = files(), tmux = BUNDLE) => build(m, { repo: 'K', relay: 'R', tmux, show: show(f), entry: entry(f), readImports: fixtureImports });
+const sbom = (m = MANIFEST, f = files(), tmux = BUNDLE) => build(m, { repo: 'K', relay: 'R', tmux, show: show(f), list: list(f), readImports: fixtureImports });
 const comp = (b, ref) => b.components.find((c) => c['bom-ref'] === ref);
 const deps = (b, ref) => (b.dependencies.find((d) => d.ref === ref) || {}).dependsOn;
 
@@ -494,11 +501,11 @@ test('the Mac app: its shipped binary is the one signed, and every module the co
   assert.ok(sbom(), 'the fixture imports Apple frameworks');
   assert.throws(() => sbom({ ...MANIFEST, native_app: { signed_sha256: SHA('d') } }), /app\/bin\/kosmos-app is not the Mac app it signed/);
   assert.throws(() => sbom({ ...MANIFEST, native_app: undefined }), /is not the Mac app it signed/);
-  const reads = (mods) => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), entry: entry(files()), readImports: () => mods });
+  const reads = (mods) => build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), list: list(files()), readImports: () => mods });
   assert.throws(() => reads(['Cocoa', 'Sparkle']), /native-app\/main\.swift imports Sparkle, which is not an Apple framework/);
   assert.ok(reads(['Cocoa', 'Dispatch']));
   let seen, target;
-  build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), entry: entry(files()), readImports: (src, t) => { seen = src; target = t; return []; } });
+  build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), list: list(files()), readImports: (src, t) => { seen = src; target = t; return []; } });
   assert.equal(seen, SWIFT, 'the reader is given native-app/main.swift at the app commit');
   assert.equal(target, 'arm64-apple-macos13.5', 'and the release\'s own target, from tools/macos-floor at the app commit');
   const badFloor = files(); badFloor[`K:${'a'.repeat(40)}:tools/macos-floor`] = 'thirteen\n';
@@ -575,9 +582,38 @@ test('the serial includes a hash of the generator\'s own source, so a changed ge
   fs.writeFileSync(copy, fs.readFileSync(SBOM_JS, 'utf8') + '\n// one more line\n');
   const other = require(copy);
   assert.notEqual(other.SELF_SHA, require(SBOM_JS).SELF_SHA);
-  const a = sbom(), b = other.build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), entry: entry(files()), readImports: fixtureImports });
+  const a = sbom(), b = other.build(MANIFEST, { repo: 'K', relay: 'R', tmux: BUNDLE, show: show(files()), list: list(files()), readImports: fixtureImports });
   assert.notEqual(a.serialNumber, b.serialNumber);
   assert.deepEqual(a.components, b.components, 'the same release, the same components');
+});
+
+test('a .cargo in any case, or a Cargo.toml or Cargo.lock in another case, refuses: a Mac checkout folds case', () => {
+  const c = `R:${'b'.repeat(40)}:`;
+  for (const [at, want] of [['.Cargo/config.toml', /relay \.Cargo at the connector commit/], ['crates/tunnel/.CARGO', /relay crates\/tunnel\/\.CARGO at/],
+    ['cargo.TOML', /relay cargo\.TOML: a case-insensitive checkout may read it instead of Cargo\.toml/],
+    ['crates/proto/CARGO.toml', /relay crates\/proto\/CARGO\.toml: a case-insensitive/], ['Cargo.LOCK', /instead of Cargo\.lock/]]) {
+    const f = files(); f[c + at] = '[source.crates-io]\n';
+    assert.throws(() => sbom(MANIFEST, f), want, at);
+  }
+  const f = files(); f[c + 'cargo-notes.txt'] = 'x'; f[c + 'crates/tunnel/cargo'] = 'x';
+  assert.equal(sbom(MANIFEST, f).components.length, 15, 'the control: names that only look alike are fine');
+});
+
+test('a Cargo.toml that could make Cargo build something other than the lock refuses (the build is not --locked)', () => {
+  const c = `R:${'b'.repeat(40)}:`;
+  const withToml = (at, extra) => { const f = files(); f[c + at] = f[c + at] + extra; return f; };
+  for (const [at, extra, want] of [
+    ['Cargo.toml', '\n[patch.crates-io]\nrustls = { path = "../evil" }\n', /relay Cargo\.toml: a \[patch\] or \[replace\] section/],
+    ['Cargo.toml', '\n[replace]\n"ring:0.17.14" = { path = "x" }\n', /a \[patch\] or \[replace\] section/],
+    ['crates/tunnel/Cargo.toml', '\n[dependencies]\nevil = { path = "../../evil" }\n', /relay crates\/tunnel\/Cargo\.toml: a path dependency outside the workspace \(\.\.\/\.\.\/evil\)/],
+    ['crates/tunnel/Cargo.toml', "\n[dependencies.evil]\npath = '../../evil'\n", /a path dependency outside the workspace/],
+    ['crates/tunnel/Cargo.toml', '\n[target.\'cfg(unix)\'.dependencies]\nring = { git = "https://example.invalid/ring" }\n', /a git dependency/],
+    ['Cargo.toml', '\n[workspace.dependencies]\nring = { version = "0.17", git = "https://example.invalid/ring" }\n', /a git dependency/],
+    ['crates/relay/Cargo.toml', '\n[dev-dependencies]\nx = { path = ../x }\n', /a path dependency it cannot read/],
+    ['crates/relay/Cargo.toml', '\n[build-dependencies]\nx.path = "/abs/x"\n', /a path dependency outside the workspace/],
+  ]) assert.throws(() => sbom(MANIFEST, withToml(at, extra)), want, extra.trim());
+  assert.equal(sbom(MANIFEST, withToml('crates/tunnel/Cargo.toml', '\n[dependencies]\nkosmos-relay-proto = { path = "../proto" }\n# evil = { path = "../../evil" }\n')).components.length, 15,
+    'the control: a path dependency on a workspace member, a commented-out line, and [[bin]] path are fine');
 });
 
 test('a symlinked main.swift or .cargo in a real git repo refuses: git show of a link is its target path, not the file', () => {
@@ -592,11 +628,13 @@ test('a symlinked main.swift or .cargo in a real git repo refuses: git show of a
   fs.writeFileSync(path.join(root, 'plain.txt'), 'x\n');
   git('add', '-A'); git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'x');
   const c = git('rev-parse', 'HEAD');
-  const { gitShow, gitEntry } = require(SBOM_JS);
+  const { gitShow, gitEntry, gitList } = require(SBOM_JS);
   assert.throws(() => gitShow(root, c, 'native-app/main.swift'), /is not a plain file \(mode 120000\)/);
   assert.equal(gitShow(root, c, 'plain.txt'), 'x\n', 'the control: a plain file reads');
   assert.equal(gitEntry(root, c, '.cargo'), '120000', 'a symlinked .cargo is an entry, so the .cargo check sees it');
   assert.equal(gitEntry(root, c, 'nothing-here'), null);
+  assert.deepEqual(gitList(root, c, '').sort(), ['.cargo', 'conf', 'native-app', 'plain.txt', 'vendor'], 'the listing the case check reads');
+  assert.deepEqual(gitList(root, c, 'native-app/'), ['main.swift']);
   assert.throws(() => gitShow(root, c, 'nothing-here'), (e) => e.notFound === true);
 });
 

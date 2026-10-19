@@ -34,8 +34,8 @@ real fix.
 
 ## Checked
 - **Real release, 0.7.59 (served manifest and the served tmux bundle, whose sha256 equals the signed tmux_sha256):**
-  235 components:
-  - node 24.19.0, the tmux bundle, tmux 3.5a, libevent 2.1.12-stable, ncurses 6.5, utf8proc 2.9.0, the connector;
+  236 components:
+  - node 24.19.0, the installer (setup, under its signed hash), the tmux bundle, tmux 3.5a, libevent 2.1.12-stable, ncurses 6.5, utf8proc 2.9.0, the connector;
   - the control: a bundle with one byte appended refuses ("not the one this release signed");
   - 227 registry crates and 1 first-party crate.
   - It passes the official CycloneDX 1.5 JSON schema (ajv), and a copy with one bad component type fails it.
@@ -49,11 +49,11 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 45 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 47 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
-  must equal build()'s output byte for byte. Every rule added in reviews 1 to 23 has a mutant that fails an arm, run at
-  the time of the change (the first version, then reviews 1 to 23 in order: four, eight, six, eleven, six, seven,
-  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six and four); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 24 has a mutant that fails an arm, run at
+  the time of the change (the first version, then reviews 1 to 24 in order: four, eight, six, eleven, six, seven,
+  nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six, four and nine); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
   part's type, purl and cpe, the ncurses cpe). Equivalent survivors: review 4's whitespace class after the line
@@ -124,6 +124,13 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- (Was a gap, review 24.) The connector is built WITHOUT `--locked` (relay tools/build-tunnel-release.sh), so a
+  Cargo.toml could re-resolve the build away from the lock. The root and every member Cargo.toml now refuse a
+  [patch] or [replace], a git dependency, and a path dependency that is not a workspace member (dependency sections
+  only; an unreadable path refuses). Each checked folder is LISTED and any name that case-folds to .cargo refuses,
+  as does a Cargo.toml or Cargo.lock in another case: a Mac checkout folds case. The review-22 rule that a
+  sourceless crate be the only one of its name was dead (the resolver already refuses that) and is removed.
+  Adding --locked to the relay build is a separate relay change, not made here.
 - (Was a gap, review 23.) Every file read from git must be a plain file there (mode 100644 or 100755, read with git
   ls-tree first): git show of a symlink returns its target PATH as text, so a symlinked main.swift passed as importing
   nothing. Any `.cargo` entry (a folder, a file or a symlink) in the relay root or above a member refuses. The
