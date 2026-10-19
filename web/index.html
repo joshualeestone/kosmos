@@ -11586,7 +11586,7 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 #s-sec-plus #plus-devmsg:empty { min-height: 0; margin-top: 0; }
 /* state 1 (HOME) — the immersive marketing view, where most of the visual lands */
 #plus-mark { display: block; width: min(560px, 82%); height: auto; margin: 6px 0 4px; }
-.plus-hero-h { font-size: 26px; font-weight: 650; letter-spacing: -.01em;
+.plus-hero-h { font-size: 26px; font-weight: 650; letter-spacing: -.01em; line-height: 1.2;   /* #6557: it inherited a fixed 16px, so its two lines overlapped at phone width */
   margin: 10px 0 8px; color: var(--k-ink); }
 .plus-lede { color: var(--k-ink-2); margin: 0 0 24px; max-width: 52ch; }
 .plus-val { list-style: none; margin: 0 0 24px; padding: 0; display: grid;
