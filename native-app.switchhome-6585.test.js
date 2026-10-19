@@ -21,7 +21,7 @@ function body(sig) {
 
 test('#6585: the navigation policy sends a click to this computer\'s own address home, before the link rules', () => {
   const policy = body('func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,');
-  const ask = policy.indexOf('if navigationAction.navigationType == .linkActivated,\n           switchGoesHome(url, onAnotherComputer: isOnAnotherComputer(), clicked: true, ownPlusHost: ownKosmosPlusHost()) {');
+  const ask = policy.indexOf('if navigationAction.navigationType == .linkActivated, isOnAnotherComputer(),\n           switchGoesHome(url, onAnotherComputer: true, clicked: true, ownPlusHost: ownKosmosPlusHost()) {');
   assert.ok(ask > 0, 'the policy no longer asks switchGoesHome');
   const links = policy.indexOf('switch connectLinkDecision(');
   assert.ok(links > ask, 'switchGoesHome must be asked before the link rules, which would load the address');

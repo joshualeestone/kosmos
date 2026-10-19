@@ -189,14 +189,14 @@ test('probeReach (#6585): a ticket-taking gate (405 on the ticket path) is insta
       try { assert.deepEqual(await ac.probeReach('127.0.0.1', opts(other.address().port, 2000)), { online: true }, String(code)); }
       finally { other.close(); }
     }
-    assert.deepEqual(await ac.probeReach('127.0.0.1', opts(closedPort, 2000)), { online: false, instant: false });
+    assert.deepEqual(await ac.probeReach('127.0.0.1', opts(closedPort, 2000)), { online: false });
     let raceT;
     const bounded = await Promise.race([
       ac.probeReach('127.0.0.1', opts(silent.address().port, 300)),
       new Promise((r) => { raceT = setTimeout(() => r('HUNG'), 2000); }),
     ]);
     clearTimeout(raceT);
-    assert.deepEqual(bounded, { online: false, instant: false }, 'a silent server must read offline within its timeout');
+    assert.deepEqual(bounded, { online: false }, 'a silent server must read offline within its timeout');
   } finally {
     ticketing.close(); older.close(); silent.closeAllConnections(); silent.close();
   }

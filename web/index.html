@@ -30842,6 +30842,7 @@ function computersGo(to) {
    computer's name, so a switch never looks like a dead click. A status, not a dialog: there is nothing to answer,
    and the next page takes it away. Back from the other computer can restore this page from the browser's cache
    with the screen still up, so pageshow takes it down. */
+const COMPUTERS_SWITCH_SCREEN_MAX_MS = 15000;
 function computersSwitchingScreen(name) {
   if (typeof document === 'undefined' || !document.body || document.getElementById('cswitch-screen')) return;
   const back = document.createElement('div');
@@ -30863,7 +30864,6 @@ function computersSwitchingScreen(name) {
      8 s cut and a margin, and the page is usable again. */
   setTimeout(() => { if (back.isConnected) back.remove(); }, COMPUTERS_SWITCH_SCREEN_MAX_MS);
 }
-const COMPUTERS_SWITCH_SCREEN_MAX_MS = 15000;
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('pageshow', () => {
     const s = document.getElementById('cswitch-screen');

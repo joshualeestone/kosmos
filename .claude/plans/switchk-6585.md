@@ -22,8 +22,14 @@ Card: kosmos#6585. Josh 2026-10-19 09:12 ("it immediately switches ... our anima
 - Letting a remote page mint tickets: the ticketCallerHere guard is the security boundary (a remote viewer must not hop onward).
 - A relay change to advertise ticket support in a header: the 405 on the existing path already says it, with no relay release.
 
+- Refusing an older computer outright vs opening its sign-in page as before: Josh's ask is no sign-in page on a switch, and a computer measured as older cannot take the instant switch at all. The toast names the way in meanwhile (its address in a browser) and the remedy (update it). Only the measured 200 refuses; any other answer tries the ticket as before.
+
+## Evidence for the probe (live, 2026-10-19)
+- Older gate: tmnt at 0.7.55 answered GET /_kosmos/ticket with 200 (its sign-in page, 77164 bytes, no ticket code).
+- Current gates: tmnt after its update to 0.7.59 answered HEAD /_kosmos/ticket 405 (HEAD / 200); the laptop's gate (0.7.57+) answered HEAD /_kosmos/ticket 405. Source: relay crates/tunnel/src/proxy.rs ticket_endpoint returns 405 to any method but POST.
+
 ## Weakest premise
-That every gate older than #443 answers HEAD /_kosmos/ticket with 200. Measured on tmnt at 0.7.55 (GET 200 sign-in page) and in source (the gate serves its page for any path to a stranger); not measured on a still-older gate.
+That every gate older than #443 answers /_kosmos/ticket with 200. Measured on one (tmnt at 0.7.55) and in source (the gate serves its page for any path to a stranger); not measured on a still-older gate. A false 200 refuses a computer that could switch; a false anything-else only tries the ticket as before.
 
 ## Verification
 - engine/account-computers.test.js 11/11 (perturbed: probe '/' turns 1 red).
