@@ -521,7 +521,11 @@ function defaultFolderClaudeVersion(plat, env) {
  * is returned, never thrown. Anywhere else it does nothing, because setup.sh owns the Mac. Note: the person's own
  * Claude Code sessions read this file too, so they run the hook as well, as they always have on a Mac (#561).
  *   { wired, changed?, because?, skipped, busy? }   busy: the lock was held, so the caller may try again soon
- * `platform`, `script`, `node`, `claudeVersion` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
+ * kosmos#6601: only an INSTALLED board writes it. A board started from a source checkout or a worktree (a test board
+ * on its own port and data folder) would point every agent's hooks on this computer at its throwaway engine, since
+ * the script path is its own; it is the same question win32board.bundleRoot answers for the logon task (null for a
+ * source checkout and for a build in the updater's folder), so such a board skips, says why, and touches nothing.
+ * `platform`, `script`, `node`, `claudeVersion`, `bundleRoot` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
  * when absent); a caller that retries on its own passes 0 (a held lock then refuses within one 20 ms spin), since
  * withFileLock's wait blocks the event loop.
  */
@@ -529,6 +533,11 @@ function wireDefaultHooks(opts) {
   const o = opts || {};
   const plat = o.platform || process.platform;
   if (plat !== 'win32') return { wired: false, skipped: true, because: 'setup.sh wires the hooks on this platform' };
+  const root = o.bundleRoot !== undefined ? o.bundleRoot : require('./win32board').bundleRoot({ platform: plat });
+  if (!root) {
+    return { wired: false, skipped: true,
+      because: 'this board is not an installed Kosmos (a source checkout, a worktree or the updater\'s folder), so it leaves this computer\'s shared Claude settings alone' };
+  }
   try {
     /* The SAME file and the same <target>.lock as trust.preacceptBypass (#3088): each Windows agent launch writes its
        bypass consent into this file (win32launch preacceptClaudeFirstRun), and two unlocked read-modify-writes would
