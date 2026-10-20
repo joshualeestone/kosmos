@@ -16,12 +16,21 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const zlib = require('node:zlib');
 const { spawnSync } = require('node:child_process');
 const zm = require('./tools/lib/zip-modes');
 
 const SCRIPT = path.join(__dirname, 'tools', 'lib', 'zip-modes.js');
 const WIN = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-windows.sh'), 'utf8');
+
+/* CRC-32 by hand, so the file does not need zlib.crc32 (Node 22.2+). */
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (const b of bytes) {
+    c ^= b;
+    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+  }
+  return (c ^ 0xffffffff) >>> 0;
+}
 
 /** A stored (uncompressed) zip from [{name, data, madeBy, attrs, extra, comment}], with an optional ZIP64 end
     record. extra and comment are written into the central directory (and extra into the local header) the way
@@ -35,7 +44,7 @@ function makeZip(entries, { zip64 = false } = {}) {
     const data = Buffer.from(e.data || '');
     const extra = Buffer.from(e.extra || '');
     const comment = Buffer.from(e.comment || '');
-    const crc = zlib.crc32(data) >>> 0;
+    const crc = crc32(data);
     const lh = Buffer.alloc(30);
     lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt32LE(crc, 14);
     lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(data.length, 22); lh.writeUInt16LE(name.length, 26); lh.writeUInt16LE(extra.length, 28);
@@ -181,6 +190,15 @@ test('#6677: a stage folder that is not there is refused, and an entry missing f
     fs.rmSync(stage, { recursive: true, force: true });
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('#6677: check refuses a non-ASCII name not marked UTF-8, and passes one that is', () => {
+  const plain = makeZip([{ name: 'café.txt', data: 'x', madeBy: UNIX, attrs: 0o100644 << 16 }]);
+  assert.deepEqual(zm.checkModes(plain).problems, ['café.txt: a name that is not ASCII and not marked UTF-8']);
+  const marked = Buffer.from(plain);
+  const e = zm.listEntries(marked)[0];
+  marked.writeUInt16LE(e.flags | 0x800, e.at + 8);
+  assert.deepEqual(zm.checkModes(marked).problems, []);
 });
 
 test('#6677: without a stage folder a shebang cannot be seen, so such a file is 0644, never writable', () => {
