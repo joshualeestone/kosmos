@@ -3563,8 +3563,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /* kosmos#6589 (S-7c): another of the person's computers must present a certificate whose key is the one it
        vouches for with the key its pairing carries (kosmos-relay tlspin.rs). The service can get a certificate for any
        computer's name with a key of its own, which a browser would accept; this is what refuses it, before the
-       window's page (and the ticket in its address) reaches whatever answered. Ordinary checking comes first: the
-       pin is on top of a certificate a browser would accept, never instead of one. Only computers' addresses;
+       window's page (and the ticket in its address) reaches whatever answered. The pin is judged first, and an allow hands the
+       decision back to WebKit's own checking, so it adds to what a browser would check, never replaces it. Only computers' addresses;
        the Kosmos+ site itself is not a computer. ⚠️ WebKit asks for each NEW connection; whether a resumed TLS
        session or a coalesced one skips it is measured on the real app, not assumed (the card says how). */
     @objc(webView:didReceiveAuthenticationChallenge:completionHandler:)   // review 1: a near-miss signature would never be called
