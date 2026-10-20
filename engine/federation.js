@@ -148,17 +148,22 @@ function reasonFor(sentence) {
 }
 /* kosmos#6681 (kosmos-relay fedbind-6639, S-11-fed): refusals the coordinator names by CODE, read from the refusal the
    tunnel prints (remote.refusalOf). Keyed on the code, not the sentence: a newer coordinator's words cannot unmap them. */
+// Keyed by route (review 1): each code means something only where the coordinator sends it.
 const CODE_REASONS = {
-  federation_wrong_invitee: [409, 'wrong-invitee'],   // verify: the code was made for another address
-  federation_invite_email: [400, 'bad-email'],        // invite: the address typed is not one
-  federation_invites_full: [409, 'invites-full'],     // invite: too many unused invites
+  verify: { federation_wrong_invitee: [409, 'wrong-invitee'] },   // the code was made for another address
+  invite: {
+    federation_invite_email: [400, 'bad-email'],                  // the address typed is not one
+    federation_invites_full: [409, 'invites-full'],               // too many unused invites
+  },
 };
-function codeRefusal(r) {
+function codeRefusal(route, r) {
+  const table = CODE_REASONS[route] || {};
   const code = r && r.refusal && typeof r.refusal.code === 'string' ? r.refusal.code : null;
-  const hit = code && Object.prototype.hasOwnProperty.call(CODE_REASONS, code) ? CODE_REASONS[code] : null;
+  const hit = code && Object.prototype.hasOwnProperty.call(table, code) ? table[code] : null;
   return hit ? { status: hit[0], body: { reason: hit[1], error: r.because } } : null;
 }
-// kosmos#6681: the longest address an invite may be bound to (an email address is at most 254 characters).
+// kosmos#6681: the longest address an invite may be bound to, in BYTES (UTF-8), as the coordinator's
+// `util::looks_like_email` counts it (an email address is at most 254).
 const INVITE_EMAIL_MAX = 254;
 
 const { externalName, INVISIBLE, byCodePoint } = require('./externalname');
@@ -343,7 +348,7 @@ async function invite(remote, body) {
   }
   /* kosmos#6681 (S-11-fed): an optional address the code is bound to; only that account can redeem it. The coordinator
      checks it is an address by sign-in's rule; here only its type and length, so nothing unbounded is signed. */
-  if (body.email !== undefined && body.email !== null && (typeof body.email !== 'string' || body.email.trim().length > INVITE_EMAIL_MAX)) {
+  if (body.email !== undefined && body.email !== null && (typeof body.email !== 'string' || Buffer.byteLength(body.email.trim(), 'utf8') > INVITE_EMAIL_MAX)) {
     return { status: 400, body: { reason: 'bad-email', error: 'that is not an email address' } };
   }
   const email = typeof body.email === 'string' ? body.email.trim() : '';
@@ -351,7 +356,7 @@ async function invite(remote, body) {
   if (typeof body.project_desc === 'string' && body.project_desc.trim()) req.project_desc = body.project_desc;
   if (email) req.email = email;
   const r = await remote.macRequest('POST', MAC_INVITE, req);
-  if (!r.ok) return codeRefusal(r) || { status: 502, body: { error: r.because } };
+  if (!r.ok) return codeRefusal('invite', r) || { status: 502, body: { error: r.because } };
   if (!r.data || typeof r.data.code !== 'string') return { status: 502, body: { error: 'the connection service answered in a shape we could not read' } };
   /* #3728: the code's second half. The coordinator minted (and so has seen) the first
      half; `s` is made here, kept here, and travels only person to person. It is what
@@ -423,7 +428,7 @@ async function verify(remote, body) {
   const { code, s: sealS } = fedseal.splitInviteCode(pasted);
   const r = await remote.macRequest('POST', MAC_VERIFY, { code });
   if (!r.ok) {
-    const byCode = codeRefusal(r);
+    const byCode = codeRefusal('verify', r);
     if (byCode) return byCode;
     const reason = reasonFor(r.because);
     return { status: reason ? 409 : 502, body: reason ? { reason, error: r.because } : { error: r.because } };

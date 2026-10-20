@@ -13,7 +13,8 @@ refusals match none, so the page got a 502 with no reason: the "service trouble"
   `federation_invite_email` 400 `bad-email` and `federation_invites_full` 409 `invites-full` (invite). An unknown code
   falls through to the sentence map as before.
 - `federation.invite` passes an optional `email`, trimmed; empty sends none; a non-string or one over 254 characters is
-  refused (400 `bad-email`) before anything is signed. `fedmembers.invite` already carries the body through.
+  refused (400 `bad-email`) before anything is signed. The 254 is BYTES, as the coordinator counts, and each code
+  maps only on the route that sends it (review 1). `fedmembers.invite` already carries the body through.
 - The page (`pjFedMessage`) words each reason. `wrong-invitee` names nobody (the reader is the one it was not for).
 
 ## Not in this slice

@@ -76665,7 +76665,7 @@ function pjFedMessage(body, fallback, opts) {
     // kosmos#6681 (S-11-fed): a code bound to one address. Names nobody: the person told is the one it was not for.
     'wrong-invitee': 'That code was made for someone else. Ask whoever sent it to invite the email address you use for Kosmos+.',
     'bad-email': 'That email address does not look right. Check it, or leave it empty.',
-    'invites-full': 'You have too many invitations nobody has used yet. Withdraw some from Members, then try again.',
+    'invites-full': 'You have too many invitations nobody has used yet, across your projects. Withdraw some from a project\'s Members, or wait for them to expire, then try again.',
   };
   return (reason && M[reason]) || fallback;
 }

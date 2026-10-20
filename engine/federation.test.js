@@ -187,7 +187,15 @@ test('kosmos#6681: invite sends the bound address trimmed, sends none when empty
   remote = stubRemote(ok);
   await federation.invite(remote, { project_ref: 'r6681b', project_name: 'n', invited_kind: 'person', email: '   ' });
   assert.ok(!('email' in remote.calls[0].body), 'an empty address was sent');
-  for (const bad of [42, { a: 1 }, 'a'.repeat(federation.INVITE_EMAIL_MAX) + '@x']) {
+  // The edge, in bytes as the coordinator counts (review 1): 254 is sent, 255 is not, and a multi-byte address is
+  // measured in bytes, not characters.
+  remote = stubRemote(ok);
+  const edge = 'a'.repeat(federation.INVITE_EMAIL_MAX - 2) + '@x';
+  await federation.invite(remote, { project_ref: 'r6681e', project_name: 'n', invited_kind: 'person', email: edge });
+  assert.strictEqual(remote.calls.length, 1, 'a 254-byte address was refused');
+  assert.strictEqual(Buffer.byteLength(remote.calls[0].body.email), 254);
+  const wide = '\u00e9'.repeat(127) + '@x';   // 129 characters, 256 bytes
+  for (const bad of [42, { a: 1 }, 'a'.repeat(federation.INVITE_EMAIL_MAX - 1) + '@x', wide]) {
     remote = stubRemote(ok);
     const out = await federation.invite(remote, { project_ref: 'r6681c', project_name: 'n', invited_kind: 'person', email: bad });
     assert.deepStrictEqual([out.status, out.body.reason], [400, 'bad-email'], JSON.stringify(bad));
@@ -204,6 +212,11 @@ test('kosmos#6681: the three new refusals map by their code, whatever the senten
   assert.deepStrictEqual([out.status, out.body.reason], [400, 'bad-email']);
   out = await federation.invite(refused('federation_invites_full', 'w'), inv);
   assert.deepStrictEqual([out.status, out.body.reason], [409, 'invites-full']);
+  // A code maps only on its own route (review 1): the invite codes on verify, and verify's on invite, are not reasons.
+  out = await federation.verify(refused('federation_invites_full', 'that code has expired. Ask for a new one.'), { code: 'X' });
+  assert.strictEqual(out.body.reason, 'expired', 'an invite code was read on verify');
+  out = await federation.invite(refused('federation_wrong_invitee', 'w'), inv);
+  assert.deepStrictEqual(out, { status: 502, body: { error: 'w' } }, 'a verify code was read on invite');
   // Control: an unknown code is not a reason, and the sentence map still works beside it.
   out = await federation.verify(refused('something_else', 'that code has expired. Ask for a new one.'), { code: 'X' });
   assert.deepStrictEqual(out.body.reason, 'expired');
