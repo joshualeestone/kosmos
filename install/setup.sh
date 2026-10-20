@@ -912,6 +912,20 @@ update_manifest_ok() {
       rm -rf "$_UM_DIR"; _UM_DIR=""
       info "the update's signed manifest could not be downloaded, so it was not installed. Wait a minute and try again."
       return 1; }
+    # #6609 phase 2b: an installed copy that checks updates with the release key list (it lists "keylist" and says so
+    # with needs-key-list, i.e. a recovery key is pinned) is handed the list beside the manifest; without it that copy
+    # refuses. One fresh query per attempt over http(s), shared by both files, so a cache cannot pair one list's
+    # signature with another list. Off, nothing more is fetched.
+    if /usr/bin/grep -Eq "manifest-verify capabilities:( [a-z0-9-]+)* keylist( |\$)" "$dest/app/engine/manifest-verify.js" \
+      && env -u NODE_OPTIONS "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" needs-key-list >/dev/null 2>&1; then
+      _um_q=""
+      case "$KOSMOS_RELEASE_BASE" in http://*|https://*) _um_q="?r=$(/usr/bin/od -An -N8 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')" ;; esac
+      curl -fsL -m 30 "$KOSMOS_RELEASE_BASE/release-keys.json$_um_q" -o "$_UM_DIR/release-keys.json" 2>/dev/null \
+        && curl -fsL -m 30 "$KOSMOS_RELEASE_BASE/release-keys.json.sig$_um_q" -o "$_UM_DIR/release-keys.json.sig" 2>/dev/null || {
+        rm -rf "$_UM_DIR"; _UM_DIR=""
+        info "the release key list could not be downloaded, so the update was not installed. Wait a minute and try again."
+        return 1; }
+    fi
   fi
   case "$phase" in
     early) arg="-"; tb="-" ;;
@@ -924,7 +938,8 @@ update_manifest_ok() {
              info "the update's signed manifest went missing, so it was not installed"; return 1; }
            arg="$stage"; tb="$stage/kosmos.tar.gz" ;;
   esac
-  out="$(env -u NODE_OPTIONS "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" "$_UM_DIR/manifest.json" \
+  out="$(env -u NODE_OPTIONS KOSMOS_KEY_LIST="$_UM_DIR/release-keys.json" KOSMOS_KEY_LIST_SIG="$_UM_DIR/release-keys.json.sig" \
+    "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" "$_UM_DIR/manifest.json" \
     "$_UM_DIR/manifest.sig" "$tb" "$arg" "$v" "$dest" 2>&1)" || rc=$?
   if [ "$phase" = post ] || [ "$rc" != 0 ]; then rm -rf "$_UM_DIR"; _UM_DIR=""; fi
   case "$rc" in
@@ -943,7 +958,8 @@ update_manifest_ok() {
 update_tmux_ok() {
   local tgz="$1" dest="$2" rc=0 out
   [ -n "$_UM_DIR" ] && [ -f "$_UM_DIR/manifest.json" ] || return 0
-  out="$(env -u NODE_OPTIONS "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" tmux "$_UM_DIR/manifest.json" \
+  out="$(env -u NODE_OPTIONS KOSMOS_KEY_LIST="$_UM_DIR/release-keys.json" KOSMOS_KEY_LIST_SIG="$_UM_DIR/release-keys.json.sig" \
+    "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" tmux "$_UM_DIR/manifest.json" \
     "$_UM_DIR/manifest.sig" "$tgz" "${TARGET_VERSION:-}" "$dest" 2>&1)" || rc=$?
   case "$rc" in
     0) return 0 ;;
