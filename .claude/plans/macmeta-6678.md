@@ -116,6 +116,13 @@ an extended attribute. So both can go.
   nothing planted there is followed. The signal arms poll tightly now. Moving the traps after the folder again
   leaves a gap of a few microseconds that no poll hits reliably, so that order is pinned by the source text (the
   trap line before the `mkdir` line; red on the mutant), not measured.
+- **Review 11 (opus), a BLOCKER:** the extraction layer took its folder's path off each finding with
+  `sed "s#^$d/##"`, so a `#` or `[` in TMPDIR made sed fail, the findings come back empty and the gate PASS (the
+  forged shapes only this layer refuses would then pass the whole gate). The path is now taken off by bash itself
+  (`${l#"$d"/}`), never put in a sed program; an arm with `#` and `[` in TMPDIR is red on the old line. Also: a
+  caller's own INT/TERM/HUP/QUIT handler now runs when the signal lands during the gate (its traps go back before
+  the signal is passed on; red without it); the signal arms stop polling when the child is gone; a TMPDIR that does
+  not exist is named in the refusal.
 - **Refuse, not strip after the fact.** A gate that edits the tarball would change the bytes after signing-adjacent
   checks; refusing keeps the pack line the only place the bytes are made.
 - **Both tarballs.** The tmux bundle is built the same way, so it gets the same line and gate.
@@ -133,7 +140,7 @@ loudly, which is the safe direction.
 
 ## Tests
 
-- `bash tools/test-tar-metadata-gate-6678.sh`: 52 checks. The control packs a folder that HAS an extended attribute
+- `bash tools/test-tar-metadata-gate-6678.sh`: 54 checks. The control packs a folder that HAS an extended attribute
   the way the bundles pack, and passes. Then: plain packing refused; an AppleDouble entry refused and named (in a
   folder, at the top level, behind a long ustar-prefix path, behind a GNU long name, and behind a hand-made pax path
   record whose entry header says app/K, with a control that the same hand-made entry passes without it); a header

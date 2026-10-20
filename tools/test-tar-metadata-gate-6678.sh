@@ -266,16 +266,30 @@ for pair in TERM:143 HUP:129; do
   cpid=$!; i=0
   # Review 10: a TIGHT poll (no sleep), so the signal lands as close to the folder's creation as it can: before the
   # traps went in first, this left the folder behind every time.
-  while [ "$i" -lt 200000 ] && [ -z "$(ls -A "$st" 2>/dev/null)" ]; do i=$((i + 1)); done
+  while [ "$i" -lt 200000 ] && [ -z "$(ls -A "$st" 2>/dev/null)" ] && kill -0 "$cpid" 2>/dev/null; do i=$((i + 1)); done
   kill -s "$sig" "$cpid" 2>/dev/null; { wait "$cpid"; } 2>/dev/null; rc=$?
   if [ "$i" -lt 200000 ] && [ "$rc" = "$want" ] && [ -z "$(ls -A "$st")" ]; then pass "$sig during the unpack ends the gate with the signal ($want) and leaves nothing behind"
   else fail "$sig during the unpack: rc=$rc (want $want), left: $(ls -A "$st" | tr '\n' ' ') (waited $i)"; /bin/chmod -RN "$st" 2>/dev/null; fi
 done
-rm -f "$T/big.tgz"
 # Review 10: the traps must be in place before the unpack folder exists. The gap left when they came after it is a few
 # microseconds, too short for any poll to hit reliably, so this order is pinned by the source text, not measured.
 ord=$(/usr/bin/awk '/for sig in INT TERM HUP QUIT; do trap/ { if (!t) t = NR } /\/bin\/mkdir -m 700 "\$d"/ { if (!m) m = NR } END { print (t && m && t < m) ? "ok" : t" "m }' "$HERE/lib/tar-metadata-gate.sh")
 [ "$ord" = ok ] && pass "the signal traps are installed before the unpack folder is made" || fail "the signal traps come after the unpack folder is made (lines $ord)"
+# Review 11: a caller's own handler must run when the signal lands during the gate (its traps go back before the
+# signal is passed on).
+st="$T/st-caller"; mkdir -p "$st"; mk="$T/caller-ran"; rm -f "$mk"
+TMPDIR="$st" /usr/bin/perl -e 'setpgrp(0, 0); exec @ARGV' /bin/bash -c 'trap "echo ran > \"$3\"; exit 143" TERM; . "$1"; tar_metadata_gate "$2"' _ "$HERE/lib/tar-metadata-gate.sh" "$T/big.tgz" "$mk" > /dev/null 2>&1 &
+cpid=$!; i=0
+while [ "$i" -lt 200000 ] && [ -z "$(ls -A "$st" 2>/dev/null)" ] && kill -0 "$cpid" 2>/dev/null; do i=$((i + 1)); done
+kill -s TERM "$cpid" 2>/dev/null; { wait "$cpid"; } 2>/dev/null
+if [ -s "$mk" ] && [ -z "$(ls -A "$st")" ]; then pass "a caller's own TERM handler runs when TERM lands during the gate, and nothing is left behind"
+else fail "a caller's TERM handler did not run during the gate, or something was left: $(ls -A "$st" | tr '\n' ' ')"; fi
+# Review 11: a # and a [ in TMPDIR must not blind the extraction layer (they broke a sed program built from the path).
+if command -v xattr >/dev/null 2>&1; then
+  odd="$T/odd#dir[x"; mkdir -p "$odd"
+  if ( TMPDIR="$odd" tar_metadata_extracted "$T/plainx.tgz" ) 2>&1 | /usr/bin/grep -q 'com.example.kosmos6678'; then pass "a # and a [ in TMPDIR do not blind the extraction layer"
+  else fail "with a # and a [ in TMPDIR the extraction layer missed the attribute"; fi
+fi
 kept="$( /bin/bash -c 'trap "echo caller" TERM; . "$1"; tar_metadata_gate "$2" > /dev/null 2>&1; trap -p TERM' _ "$HERE/lib/tar-metadata-gate.sh" "$T/cleanx.tgz" )"
 if printf '%s' "$kept" | /usr/bin/grep -q 'echo caller'; then pass "a caller's own TERM trap is restored after the gate runs"
 else fail "the gate did not restore the caller's TERM trap: $kept"; fi

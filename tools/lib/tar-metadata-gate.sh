@@ -131,7 +131,8 @@ tar_metadata_extracted() {
   # Review 10: the traps go in BEFORE the folder is made (d empty until then, and removing "" does nothing), so no
   # signal can land between making the folder and covering it.
   oldtrap="$(trap -p INT TERM HUP QUIT)"
-  local sig; for sig in INT TERM HUP QUIT; do trap '_tmg_rm "$d"; trap - '"$sig"'; kill -s '"$sig"' $$' "$sig"; done
+  # Review 11: the caller's own traps go back BEFORE the signal is passed on, so the caller's handler runs too.
+  local sig; for sig in INT TERM HUP QUIT; do trap '_tmg_rm "$d"; trap - INT TERM HUP QUIT; [ -z "$oldtrap" ] || eval "$oldtrap"; kill -s '"$sig"' $$' "$sig"; done
   _tmg_done() { _tmg_rm "$d"; trap - INT TERM HUP QUIT; [ -z "$oldtrap" ] || eval "$oldtrap"; }
   # The name is chosen first and then made, so $d already names the folder the moment it exists (mktemp -d makes it
   # before its name comes back). mkdir refuses a name that exists, so nothing planted there is followed.
@@ -140,7 +141,7 @@ tar_metadata_extracted() {
     d="$base/tar-metadata-gate.$$.$RANDOM$RANDOM"
     /bin/mkdir -m 700 "$d" 2>/dev/null && break
     d=""; try=$((try + 1))
-    [ "$try" -lt 20 ] || { _tmg_done; echo "FAIL: the tarball metadata gate could not make a folder to unpack into" >&2; return 1; }
+    [ "$try" -lt 20 ] || { _tmg_done; echo "FAIL: the tarball metadata gate could not make a folder to unpack into under $base" >&2; return 1; }
   done
   # The attribute reader must be seen to work (a probe file with one attribute) before an empty answer means clean.
   if ! { printf 'p\n' > "$d/.kosmos-probe" && /usr/bin/xattr -w com.kosmos.probe 1 "$d/.kosmos-probe" 2>/dev/null \
@@ -159,11 +160,13 @@ tar_metadata_extracted() {
   # Review 7: an AppleDouble entry folded on extraction can restore an ACL as well as attributes (measured), so ACLs
   # on what comes out are this Mac metadata too. ls -lde prints a file, then one indented "N: ..." line per entry.
   e="$(/usr/bin/find "$d" -exec /bin/ls -lde {} +)" || scan=1
+  # Review 11: the folder's path is never put inside a sed program (a # or [ in TMPDIR made sed fail, the list come
+  # back empty and the gate pass); it is taken off each line by bash itself.
   bad="$( { [ -z "$a" ] || printf '%s\n' "$a" | /usr/bin/sed 's/$/: an AppleDouble file/'
             [ -z "$b" ] || printf '%s\n' "$b"
             printf '%s\n' "$c" | /usr/bin/awk 'NF && $1 != 0 { $1 = ""; print substr($0, 2) ": a file flag" }'
             printf '%s\n' "$e" | /usr/bin/awk '/^ [0-9]+: / { if (f != "") print f ": an ACL"; f = ""; next } NF >= 9 { f = $NF }' | /usr/bin/sort -u; } \
-          | /usr/bin/sed "s#^$d/##" )"
+          | while IFS= read -r l; do printf '%s\n' "${l#"$d"/}"; done )"
   _tmg_done
   [ -e "$d" ] && { echo "FAIL: the tarball metadata gate could not remove the folder it unpacked into ($d)" >&2; return 1; }
   [ "$scan" = 0 ] || { echo "FAIL: the tarball metadata gate could not scan all of what $(basename "$tarball") unpacks to" >&2; return 1; }
