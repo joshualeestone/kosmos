@@ -60,9 +60,13 @@ test('#5481: logToSystem writes the unified log with a fixed format, and the har
 
 test('#5481: only the two microphone permission lines go to the unified log, and neither carries a URL, title, name or path', () => {
   const calls = systemCalls();
-  assert.equal(calls.length, 2, 'logToSystem has ' + calls.length + ' callers; each new one needs its content checked and this count raised:\n' + calls.join('\n'));
+  assert.equal(calls.length, 4, 'logToSystem has ' + calls.length + ' callers; each new one needs its content checked and this count raised:\n' + calls.join('\n'));
   assert.ok(calls.some((c) => c.startsWith('logToSystem("voice: back from Settings (')), 'the return-from-Settings line is not one of them');
   assert.ok(calls.some((c) => c.startsWith('logToSystem("voice: speech permission ')), 'the speech permission answer line is not one of them');
+  // kosmos#6589 follow-up: an S-7c refusal and an unanswered pin ask, in fixed words (no host), so a person's Mac keeps them.
+  assert.ok(calls.some((c) => c.startsWith('logToSystem(mismatch ? "tls-pin: refused a computer: ')), 'the tls-pin refusal line is not one of them');
+  assert.ok(calls.some((c) => c.startsWith('logToSystem("tls-pin: the board did not answer (status ')), 'the tls-pin unanswered-ask line is not one of them');
+  assert.ok(calls.every((c) => !c.includes('host')), 'a unified-log line carries the computer address');
   for (const c of calls) {
     assert.doesNotMatch(c, /url|URL|absoluteString|title|Title|path|Path|name\b|token|Token|body\[/, 'a unified-log line carries something a page, a person or the board token could be in: ' + c);
   }

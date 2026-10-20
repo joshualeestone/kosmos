@@ -3630,6 +3630,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                   let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                   let state = obj["state"] as? String
             else {
+                logToSystem("tls-pin: the board did not answer (status \(code.map(String.init) ?? "none")); treated as required")
                 logLine("tls-pin: the board did not answer for \(host) (status \(code.map(String.init) ?? "none")); treated as required")
                 done("required", []); return
             }
@@ -3639,6 +3640,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// kosmos#6589: say so, once a minute per computer at most (a page may open several connections at once).
     private func tlsPinRefused(_ host: String, mismatch: Bool) {
+        // kosmos#6589 follow-up: logLine alone writes only the test harness's file, which a person's Mac does not have, so a
+        // refusal left no record there. The unified-log line is fixed words (no computer name: #5481's rule); the harness
+        // line below keeps the host for tests.
+        logToSystem(mismatch ? "tls-pin: refused a computer: its certificate's key is not the one it vouches for"
+                             : "tls-pin: refused a computer: its certificate could not be checked")
         logLine(mismatch ? "tls-pin: refused \(host): its certificate's key is not the one it vouches for"
                          : "tls-pin: refused \(host): its certificate could not be checked (see the line above)")
         let now = ProcessInfo.processInfo.systemUptime
