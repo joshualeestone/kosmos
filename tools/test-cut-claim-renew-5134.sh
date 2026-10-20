@@ -118,7 +118,7 @@ rm -f "$CLAIM"
 ( cut_run '
   step "== killed =="
   echo "$_CUT_RENEWER" > "'"$T"'/arm6r"
-  sleep 30 & echo $! > "'"$T"'/arm6s"; wait
+  perl -e "select(undef, undef, undef, 30)" & echo $! > "'"$T"'/arm6s"; wait
 ' ) 2>/dev/null &
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$T/arm6r" ] && break; sleep 0.3; done
 kill -9 "$(cat "$T/cut.pid")" 2>/dev/null || true

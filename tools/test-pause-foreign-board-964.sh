@@ -103,7 +103,7 @@ fi
 # would pass this and wrongly take the "our board" branch; the ps-command match must
 # route it to the foreign path.
 L="$TMP/logs-reused"; mkdir -p "$L"; H="$TMP/home-reused"; mkdir -p "$H"
-sleep 30 & FOREIGNPID=$!; KILL_PIDS="$KILL_PIDS $FOREIGNPID"
+perl -e 'select(undef, undef, undef, 30)' & FOREIGNPID=$!; KILL_PIDS="$KILL_PIDS $FOREIGNPID"
 printf '%s' "$FOREIGNPID" > "$H/board.pid"
 OUT_REUSED="$(run_arm 'Kosmos' "$H" 16180 "$L")"
 chk "a LIVE but non-server pid (reused) -> the foreign 'Another Kosmos' die, not our-board" has "$OUT_REUSED" "Another Kosmos is answering on port 16180"

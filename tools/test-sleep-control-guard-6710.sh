@@ -30,15 +30,6 @@ bad() { printf 'BAD  %s\n' "$1"; fails=$((fails + 1)); }
 ALLOWLIST="
 test-test-leak-guard-4273.sh          # Mona Lisa's (#6671, branch leakctl-6671); remove when it merges
 test-start-waits-for-starting-board-6586.sh # Mona Lisa's (#6671); remove when leakctl-6671 merges
-test-browser-run-guard.sh             # #6730 (sleep 30 & stand-ins)
-test-connector-verbs.sh               # #6730 (stub scripts greped by ^sleep 300; matched by name)
-test-cut-claim-renew-5134.sh          # #6730 (sleep 30 & arm holder)
-test-data-root-1511.sh                # #6730 (sleep 37, pgrep -fx matched by name)
-test-pause-foreign-board-964.sh       # #6730 (sleep 30 & foreign board)
-test-restart-local-board.sh           # #6730 (timed ( sleep 11 ) fixture)
-test-site-autodeploy-5589.sh          # #6730 (many sleep 300 &, some command-under-test)
-test-stopmark-6651.sh                 # #6730 (sleep 300 & live)
-test-running-anchor-5470.sh           # #6730 (sh -c \"sleep 30; : marker\" stand-ins, backgrounded by a wrapper; the matcher does not auto-detect a sleep foreground inside a quoted -c body, so this deferral is explicit)
 "
 allowlisted() {
   local entry tok
