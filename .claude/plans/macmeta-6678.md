@@ -30,6 +30,11 @@ an extended attribute. So both can go.
   one), and it refuses `--no-mac-metadata` in list mode. A first version listed with `tar -t` and passed the 0.7.60
   tarball's AppleDouble entry; the test caught it. Rejected python: `/usr/bin/python3` exits 69 on a build Mac without
   the Xcode license. `/usr/bin/perl` is a real binary on every Mac.
+- **Review 1 (opus) measured signing unaffected:** the served 0.7.60 tarball re-packed the new way extracts to an
+  identical tree with no extended attributes; codesign --verify --deep --strict, stapler validate and spctl (Notarized
+  Developer ID) all pass, and all four Mach-O files verify. It also found the reader skipped GNU long names (an
+  AppleDouble entry there passed) and that the pax-path reading had no test; both are fixed and tested. The reader now
+  checks every header's checksum and refuses a base-256 size (a file of 8 GiB or more).
 - **Refuse, not strip after the fact.** A gate that edits the tarball would change the bytes after signing-adjacent
   checks; refusing keeps the pack line the only place the bytes are made.
 - **Both tarballs.** The tmux bundle is built the same way, so it gets the same line and gate.
@@ -42,11 +47,14 @@ loudly, which is the safe direction.
 
 ## Tests
 
-- `bash tools/test-tar-metadata-gate-6678.sh`: 12 checks. The control packs a folder that HAS an extended attribute
+- `bash tools/test-tar-metadata-gate-6678.sh`: 16 checks. The control packs a folder that HAS an extended attribute
   the way the bundles pack, and passes. Then: plain packing refused; an AppleDouble entry refused and named (in a
-  folder, at the top level, and behind a long pax path); a name with `._` inside it not a hit; a half tarball, junk,
+  folder, at the top level, behind a long ustar-prefix path, behind a GNU long name, and behind a hand-made pax path
+  record whose entry header says app/K, with a control that the same hand-made entry passes without it); a header
+  whose checksum does not match refused; a name with `._` inside it not a hit; a half tarball, junk,
   an empty archive and a missing file refused; both builders pack once with the flags and call the gate.
-- Mutants: the AppleDouble detector removed fails 3 checks; the extended-attribute detector removed fails 1.
+- Mutants: the AppleDouble detector removed fails 3 checks; the extended-attribute detector removed fails 1; the GNU
+  long-name reading, the pax-path reading and the checksum check each removed fail exactly their own check.
 - `bash tools/test-tar-owner-gate-6562.sh`: passes with the new pack lines.
 - The gate run on the served 0.7.60 tarball refuses it, naming `app/._Kosmos.app` and the 2 records.
 

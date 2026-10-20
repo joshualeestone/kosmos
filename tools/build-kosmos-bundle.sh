@@ -1029,7 +1029,7 @@ COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs -czf "$TARBALL_OUT
 tar_owner_gate "$TARBALL_OUT" || exit 1
 . "$(dirname "${BASH_SOURCE[0]}")/lib/tar-metadata-gate.sh"
 tar_metadata_gate "$TARBALL_OUT" || exit 1
-echo "==> the tarball records no build account as owner (#6562)"
+echo "==> the tarball records no build account as owner (#6562) and none of this Mac's file metadata (#6678)"
 # ⚠️ The .sha256 is what install/setup.sh verifies before extracting; a
 # tarball published without it refuses to install, on purpose.
 ( cd "$OUT" && shasum -a 256 "$(basename "$TARBALL_OUT")" > "$(basename "$TARBALL_OUT").sha256" )

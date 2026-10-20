@@ -23,18 +23,27 @@ tar_metadata_gate() {
   /usr/bin/gzip -t "$tarball" 2>/dev/null || { echo "FAIL: the tarball metadata gate could not read all of $tarball" >&2; return 1; }
   out="$(/usr/bin/gzip -dc "$tarball" 2>/dev/null | /usr/bin/perl -e '
     use strict; binmode STDIN;
-    my ($n, $dbl, $xat, @first, $path, $end) = (0, 0, 0);
+    my ($n, $dbl, $xat, @first, $path, $psize, $end) = (0, 0, 0);
     while (1) {
       my $got = read(STDIN, my $h, 512);
       last if !$got;
       if ($got != 512) { print "SHORT\n"; exit 3 }
       if ($h eq ("\0" x 512)) { $end = 1; last }
-      my $size = oct("0" . ((substr($h, 124, 12) =~ /([0-7]+)/)[0] // "0"));
+      # Every header is checked against its own checksum (bytes 148 to 155, summed with that field as spaces), so a
+      # damaged or hand-forged header is refused, never read as something else. A base-256 size (top bit set, a
+      # file of 8 GiB or more) is refused too: nothing these bundles ship is that big.
+      my $sum = unpack("%32C*", substr($h, 0, 148) . (" " x 8) . substr($h, 156));
+      my ($want) = substr($h, 148, 8) =~ /([0-7]+)/;
+      if (!defined $want || oct($want) != $sum) { print "SHORT\n"; exit 3 }
+      if (ord(substr($h, 124, 1)) & 0x80) { print "SHORT\n"; exit 3 }
+      my $size = oct("0" . ((substr($h, 124, 12) =~ /^\s*([0-7]+)/)[0] // "0"));
       my $type = substr($h, 156, 1);
       my $body = "";
       my $pad = ($size + 511) & ~511;
       if ($pad) { my $g = read(STDIN, $body, $pad); if (!defined $g || $g != $pad) { print "SHORT\n"; exit 3 } }
       $body = substr($body, 0, $size);
+      # A pax size overrides the header size of the entry it belongs to, but the bytes on disk are the header size:
+      # it is the header size that was read above, so the stream stays in step either way.
       if ($type eq "x" || $type eq "g") {
         while ($body =~ /\G(\d+) /gc) {
           my $len = $1; my $start = pos($body) - length($len) - 1;
@@ -45,7 +54,10 @@ tar_metadata_gate() {
         }
         next;
       }
-      next if $type eq "L" || $type eq "K";
+      # A GNU long name (L) is the name of the next entry, as a pax path is (review 1: skipping it let app/<long>/._K
+      # through, since the header of that entry holds only the first 100 bytes). A long link target (K) is not a name.
+      if ($type eq "L") { ($path = $body) =~ s/\0+\z//; next }
+      next if $type eq "K";
       my ($name) = substr($h, 0, 100) =~ /^([^\0]*)/;
       my ($pre) = substr($h, 345, 155) =~ /^([^\0]*)/;
       my $full = defined $path ? $path : (length($pre) ? "$pre/$name" : $name);

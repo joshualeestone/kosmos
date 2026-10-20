@@ -65,12 +65,41 @@ else fail "an empty archive must be refused"; fi
 if ! tar_metadata_gate "$T/missing.tgz" 2>/dev/null; then pass "a missing tarball is refused"
 else fail "a missing tarball must be refused"; fi
 
-# A long path (over 100 bytes, so tar stores it as a pax path record) ending in an AppleDouble name: the gate must
-# read the pax path, not the truncated header name.
+# A long path (over 100 bytes; bsdtar stores it in the ustar prefix) ending in an AppleDouble name.
 L="$T/l/app/$(printf 'x%.0s' $(seq 1 120))"; mkdir -p "$L"; printf 'x\n' > "$L/K"; printf 'm\n' > "$L/._K"
 COPYFILE_DISABLE=1 /usr/bin/tar -czf "$T/long.tgz" -C "$T/l" app
-if ! tar_metadata_gate "$T/long.tgz" 2>/dev/null; then pass "an AppleDouble entry behind a long (pax) path is refused"
+if ! tar_metadata_gate "$T/long.tgz" 2>/dev/null; then pass "an AppleDouble entry behind a long path (the ustar prefix) is refused"
 else fail "an AppleDouble entry with a long path must be refused"; fi
+
+# Review 1: a GNU long name (an L entry) is the next entry's name. Packed with --format gnutar and a deep path, the
+# ._K entry's own header holds only the first 100 bytes of its path.
+COPYFILE_DISABLE=1 /usr/bin/tar --format gnutar -czf "$T/gnu.tgz" -C "$T/l" app
+if ! tar_metadata_gate "$T/gnu.tgz" 2>/dev/null; then pass "an AppleDouble entry behind a GNU long name is refused"
+else fail "an AppleDouble entry with a GNU long name must be refused"; fi
+
+# Review 1: a pax path record (path=app/._K) ahead of an entry whose own header says app/K. bsdtar never writes this
+# (it keeps the start of a name in the header), so it is made by hand; only reading the pax path can refuse it.
+# mkhdr NAME TYPE SIZE prints one 512-byte ustar header with a right checksum.
+mkhdr() { /usr/bin/perl -e '
+  my ($name, $type, $size) = @ARGV;
+  my $h = pack("a100 a8 a8 a8 a12 a12 a8 a1 a100 a6 a2 a32 a32 a8 a8 a155 a12",
+    $name, "0000644", "0000000", "0000000", sprintf("%011o", $size), "00000000000", " " x 8, $type, "",
+    "ustar", "00", "kosmos", "staff", "", "", "", "");
+  my $sum = unpack("%32C*", $h); substr($h, 148, 8) = sprintf("%06o\0 ", $sum); print $h;' "$@"; }
+{ rec2="path=app/._K"; len=$(( ${#rec2} + 4 )); r="$len $rec2"; [ ${#r} -lt "$len" ] || len=$(( len + 1 )); r="$len $rec2"
+  mkhdr "PaxHeader/K" x $(( ${#r} + 1 )); printf '%s\n' "$r"; /usr/bin/head -c $(( 512 - ${#r} - 1 )) /dev/zero
+  mkhdr "app/K" 0 2; printf 'x\n'; /usr/bin/head -c 510 /dev/zero; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/pax.tgz"
+paxn="$(/usr/bin/gzip -dc "$T/pax.tgz" | /usr/bin/head -c 600 | LC_ALL=C /usr/bin/grep -a -c 'path=app/._K')"
+if [ "$paxn" = 1 ] && ! tar_metadata_gate "$T/pax.tgz" 2>/dev/null; then pass "an entry whose pax path is an AppleDouble name is refused (its header says app/K)"
+else fail "a pax path naming an AppleDouble entry must be refused (fixture holds it: $paxn)"; fi
+{ mkhdr "app/K" 0 2; printf 'x\n'; /usr/bin/head -c 510 /dev/zero; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/plain-made.tgz"
+if tar_metadata_gate "$T/plain-made.tgz" 2>/dev/null; then pass "CONTROL: the same hand-made entry without the pax path passes (the fixture maker is sound)"
+else fail "CONTROL: a hand-made plain entry was refused, so the pax arm above proves nothing"; fi
+
+# Review 1: a header whose checksum does not match is refused, never read as something else.
+{ mkhdr "app/K" 0 2 | /usr/bin/perl -pe 'BEGIN { binmode STDIN; binmode STDOUT } substr($_, 0, 1) = "b" if $. == 1'; printf 'x\n'; /usr/bin/head -c 510 /dev/zero; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/badsum.tgz"
+if ! tar_metadata_gate "$T/badsum.tgz" 2>/dev/null; then pass "a header whose checksum does not match is refused"
+else fail "a damaged header must be refused"; fi
 
 for B in "$HERE/build-kosmos-bundle.sh" "$HERE/build-tmux-bundle.sh"; do
   b=$(basename "$B")
