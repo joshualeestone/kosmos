@@ -109,8 +109,9 @@ const WORDS = 'From a remote session this needs a fresh sign-in. (check 6616)';
     }
     // PHONE: at 390 px wide the ask fits inside the screen with its 16 px gutter, and Not now is pressable there.
     await page.setViewportSize({ width: 390, height: 844 });
-    const fit = await page.evaluate(() => { const r = document.getElementById('stepup-ask').getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), sw: document.documentElement.scrollWidth }; });
-    say(fit.l >= 16 && fit.r <= 390 - 16 && fit.r - fit.l >= 390 - 32 - 2 && fit.sw <= 390, 'phone: the ask uses the 390 px screen\'s width inside its gutter (the sentence is long), and the page does not scroll sideways', JSON.stringify(fit));
+    const fit = await page.evaluate(() => { const r = document.getElementById('stepup-ask').getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }; });
+    // Measured against the page's own width (cw), not 390: a browser with a classic scrollbar (CI's) leaves 375 px.
+    say(fit.l >= 16 && fit.r <= fit.cw - 16 && fit.r - fit.l >= fit.cw - 32 - 2 && fit.sw <= fit.cw, 'phone: the ask uses the 390 px screen\'s width inside its gutter (the sentence is long), and the page does not scroll sideways', JSON.stringify(fit));
     await page.locator('#stepup-close').click({ timeout: 5000 });
     const gone = await page.evaluate(() => { const e = document.getElementById('stepup-ask'); return e.hidden && getComputedStyle(e).display === 'none'; });
     say(gone, 'close: Not now hides the ask and it takes no space');
