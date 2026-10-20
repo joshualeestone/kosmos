@@ -7051,23 +7051,27 @@ function modelDisplayName(id) {
   return readableModelId(id) || id;   // #4416: raw only when reading it could mis-say the version
 }
 
-/** #6716 review 10: whether a transcript holds any assistant turn. The tail already read answers it when it is the whole
-    file; otherwise the file is scanned in chunks (only on this rare no-model path), stopping at the first one. */
-const REPLY_MARK = '"type":"assistant"';
+/** #6716 review 10: whether a transcript holds a REAL reply: an assistant row naming a model. Review 11: a failed sign-in,
+    a usage limit or a lost connection leaves an assistant row too, with "model":"<synthetic>" and isApiErrorMessage,
+    and that session has not replied (it is Renet's case exactly), so a bracketed model is not a reply. Read line by
+    line: the tail already read answers it when it is the whole file; otherwise the file is scanned in chunks (only on
+    this rare no-model path), stopping at the first reply. */
+const REPLY_ROW = /"type":"assistant"/;
+const REAL_MODEL = /"model":"(?!<)[^"]/;
+const isReplyLine = (line) => REPLY_ROW.test(line) && REAL_MODEL.test(line) && !line.includes('"isApiErrorMessage":true');
 function hasReplied(file, tailText, whole) {
-  if (tailText && tailText.includes(REPLY_MARK)) return true;
-  if (whole) return false;
+  if (whole) return !!tailText && tailText.split('\n').some(isReplyLine);
   let fd;
   try {
     fd = fs.openSync(file, 'r');
     const buf = Buffer.alloc(1 << 20);
-    let pos = 0; let carry = '';
+    let pos = 0; let rest = '';
     for (;;) {
       const n = fs.readSync(fd, buf, 0, buf.length, pos);
-      if (n <= 0) return false;
-      const chunk = carry + buf.toString('utf8', 0, n);
-      if (chunk.includes(REPLY_MARK)) return true;
-      carry = chunk.slice(-REPLY_MARK.length);
+      if (n <= 0) return isReplyLine(rest);
+      const lines = (rest + buf.toString('utf8', 0, n)).split('\n');
+      rest = lines.pop();   // a line cut by the chunk's end waits for the rest of it
+      if (lines.some(isReplyLine)) return true;
       pos += n;
     }
   } catch {

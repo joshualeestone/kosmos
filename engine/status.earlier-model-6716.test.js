@@ -95,7 +95,7 @@ test('#6716 review 7: a session from more than two days before does not lend its
 test('#6716 review 10: a session that replied, with a big paste filling its tail, borrows nothing', () => {
   session('pasty', 'old.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-4-8' } }], 600);
   session('pasty', 'new.jsonl', [
-    { type: 'assistant', message: { content: 'ok' } },   // a reply, with no model named
+    { type: 'assistant', message: { model: 'claude-sonnet-5', content: 'ok' } },   // a real reply
     { type: 'user', message: { content: 'x'.repeat(200000) } },   // pushes it out of the 64 KB tail
   ], 5);
   assert.deepEqual(status.readModel('pasty'), { model: null, confidence: 'none' }, 'a session that replied took an earlier session\'s model');
@@ -105,4 +105,25 @@ test('#6716 review 10 CONTROL: a big first message with no reply still borrows',
   session('bigask', 'old.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-5-5' } }], 600);
   session('bigask', 'new.jsonl', [{ type: 'user', message: { content: 'y'.repeat(200000) } }], 5);
   assert.equal(status.readModel('bigask').model, 'claude-opus-5-5');
+});
+
+/* Review 11: what a failing sign-in actually leaves (measured on this machine: 112 such rows): an assistant row with a
+   bracketed model and isApiErrorMessage. That session has not replied, so it still borrows: Renet's case. */
+test('#6716 review 11: a new session holding only a failed sign-in still borrows the earlier model', () => {
+  session('signfail', 'old.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-5-5' } }], 600);
+  session('signfail', 'new.jsonl', [
+    { type: 'user', message: { content: 'hi' } },
+    { type: 'assistant', isApiErrorMessage: true, error: 'authentication_failed',
+      message: { model: '<synthetic>', content: [{ type: 'text', text: 'Login expired · Please run /login' }] } },
+  ], 5);
+  assert.deepEqual(status.readModel('signfail'), { model: 'claude-opus-5-5', confidence: 'structured', earlierSession: true });
+});
+
+test('#6716 review 11: a failed sign-in row past the 64 KB tail does not count as a reply either', () => {
+  session('signbig', 'old.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-5-5' } }], 600);
+  session('signbig', 'new.jsonl', [
+    { type: 'assistant', isApiErrorMessage: true, error: 'rate_limit', message: { model: '<synthetic>', content: 'limit' } },
+    { type: 'user', message: { content: 'z'.repeat(200000) } },
+  ], 5);
+  assert.equal(status.readModel('signbig').model, 'claude-opus-5-5');
 });
