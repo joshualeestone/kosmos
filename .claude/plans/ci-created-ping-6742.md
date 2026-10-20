@@ -65,6 +65,55 @@ Add a top-level `env: AGENT_WORKFORCE_CREATED_URL: http://127.0.0.1:9/api/create
    run-only, wrong value), and runs in CI (test:shell via test.yml suite shell).
 4. Full `tools/run-tests.sh` green at the head.
 
+## Measured: no CI job boots a launchd or win32 SERVICE board outside node --test
+
+A top-level env reaches a service board only where the unit is written from the inherited
+env (the systemd path, via `engine/linuxboard.js:107`). So the claim that CI is fully
+covered rests on CI never starting a macOS-launchd or Windows-win32 SERVICE board outside
+`node --test`. Searched and measured:
+
+- No workflow runs a service-start verb directly: `grep -nE 'launchctl (load|bootstrap|
+  kickstart|enable)|sc\.exe|schtasks|Register-ScheduledTask|New-Service' .github/workflows/*.yml`
+  returns nothing.
+- `test.yml` (shell, macos-latest) and the shell suite boot boards only INSIDE the suite,
+  which sandboxes launchd and hard-fails on a real service board: `tools/run-tests.sh:383`
+  exports the dead URL for the boards it starts; `#3011` snapshots the real
+  `~/Library/LaunchAgents` (`run-tests.sh:728`), makes an unsandboxed write there throw
+  (`:753`), and FAILS the suite if a real `com.kosmos.agent.*` plist was created or modified
+  (`:788-804`); `#4273` refuses and boots out any launchd job/process the suite leaves
+  (`:810-820`). Install tests run setup.sh with the LaunchAgents dir redirected into a
+  mktemp sandbox (`tools/test-install.sh:349`, `AGENT_WORKFORCE_LAUNCH="$SB/launch"`) and
+  export the dead URL (`test-install.sh:355`); live-board watching SKIPs when the shell
+  cannot see the launchd domain (headless runner, `test-install.sh:488`).
+- `browser-checks.yml` / `browser-checks-full.yml`: `tools/browser-checks.sh:85` exports the
+  dead URL; the boards are foreground Playwright boards (inherit env), not services.
+- `linux-systemd.yml` / `test-linux-setup-4920.yml`: the only real OS-service boards in CI
+  (systemd), covered by `linuxboard.js:107` injecting the inherited top-level env into the
+  unit; test-linux-setup asserts the unit and the running board carry it.
+- `windows.yml`: `node tools/windows-tests.js` runs every file under `node --test`
+  (`tools/windows-tests.js:291`), so NODE_TEST_CONTEXT suppresses the ping; the win32
+  scheduled-task board (`engine/win32board.js`, `schtasks ... "Kosmos\board"`) is never
+  started outside test context here.
+- `linux.yml`: node part only, under `node --test` (suppressed). `android.yml` / `ios.yml`:
+  Gradle/Xcode builds, no board.
+
+## Residual (for a follow-up card, outside this card's CI scope)
+
+A dead address set in a PARENT environment does not carry into a macOS launchd or Windows
+win32 SERVICE board, because those boards get a fresh environment from their own
+plist/scheduled-task definition. `engine/linuxboard.js:107` injects
+`AGENT_WORKFORCE_CREATED_URL` into the systemd unit from the installer's env; the macOS
+board LaunchAgent writer in `install/setup.sh` (the RunAtLoad/KeepAlive /
+ProgramArguments `kosmos board-run` plist, ~setup.sh:5403) and the Windows board in
+`engine/win32board.js` (the `schtasks` task) do NOT. This is invisible to CI (which never
+boots those service boards outside node --test / the sandbox, per the measured section
+above), but it means a real macOS or Windows USER install's board is not covered by a
+parent-env dead address the way Linux is. Real user installs must still count; the gap is
+only that the parent-env value does not reach these two service boards. Fixing it means the
+installer-side injection (symmetric with `linuxboard.js:107`), which is installer code and
+out of scope for this CI-ping card. Anchors for the follow-up: `install/setup.sh` board
+plist writer (~:5403), `engine/win32board.js`, model `engine/linuxboard.js:107`.
+
 ## Reviewer
 
 Scorpion (plain text in the PR body; `joshualeestone` is the push identity / PR author
