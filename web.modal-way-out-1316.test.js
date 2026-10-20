@@ -60,7 +60,7 @@ const ESCAPES_VIA = {
      the window by id and closes it first (its backdrop id sits in WN_HTML so this sweep can name it). */
   whatsnew:         /getElementById\('whatsnew'\);\n\s*if \(!back \|\| wnCovered\(\)\) return;\n\s*if \(e\.key === 'Escape'\)/,
   /* #6722: the picture editor. One keydown listener: while it is open, Escape cancels it (Cancel, nothing changes). */
-  cropmodal:        /cropmodal'\)\.hidden\) return;[\s\S]{0,200}if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); cropFinish\(false\); return; \}/,
+  cropmodal:        /cropmodal'\)\.hidden\) return;[\s\S]{0,200}if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); cropFinish\(false\); return; \}/,
   updconfirm:       /Escape[\s\S]{0,300}updconfirm/,
   'hist-modal':     /Escape[\s\S]{0,300}hist-modal/,
   'pol-modal':      /pol-modal'\)\.hidden\) return;/,

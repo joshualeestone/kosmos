@@ -103,7 +103,7 @@ async function start(page) {
 const result = (page) => page.evaluate(async () => { const r = await window.CROP_P; return r ? T.sides(r) : null; });
 
 (async () => {
-  const engines = (process.env.ENGINES || 'chromium,webkit').split(',');
+  const engines = (process.env.ENGINES || 'chromium,webkit').split(',').filter(Boolean);
   for (const eng of engines) {
     const browser = await pw[eng].launch();
     const t = `[${eng}]`;
@@ -154,7 +154,6 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     await page.keyboard.press('-'); await page.keyboard.press('-');
     const z3 = await page.evaluate(() => Number(document.getElementById('crop-zoom').value));
     chk(z1 > 1 && z2 > z1 && z3 < z2, `${t} the wheel and + zoom in (the slider follows), - zooms out`, JSON.stringify({ z1, z2, z3 }));
-    // Zoomed in, the circle holds less of the picture: a centred cut at this zoom is still split down the middle.
     // Tab stays inside: from Save it comes back to the picture.
     await page.focus('#crop-go');
     await page.keyboard.press(eng === 'webkit' ? 'Alt+Tab' : 'Tab');
@@ -203,8 +202,78 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     const put = await page.evaluate(async () => { const p = window.PUTS[0]; return { url: p.url, n: window.PUTS.length, ...(await T.sides(p.body)) }; });
     chk(put.n === 1 && put.url === '/api/you/avatar' && put.w === 512 && put.h === 512 && put.type === 'image/png',
       `${t} Save uploads one 512 x 512 PNG of yourself`, JSON.stringify(put));
+    // A key with a modifier is the browser's: Ctrl+= is page zoom, not the editor's.
+    await start(page);
+    await page.focus('#crop-stage');
+    const zBefore = await page.evaluate(() => Number(document.getElementById('crop-zoom').value));
+    await page.keyboard.press('Control+Equal');
+    const zMod = await page.evaluate(() => Number(document.getElementById('crop-zoom').value));
+    await page.keyboard.press('Equal');
+    const zPlain = await page.evaluate(() => Number(document.getElementById('crop-zoom').value));
+    chk(zMod === zBefore && zPlain > zBefore, `${t} Ctrl+= is left to the browser; = alone zooms (CONTROL)`, JSON.stringify({ zBefore, zMod, zPlain }));
+    // A drag that starts on the picture and ends on the backdrop is a drag, not a dismissal.
+    const sb = await page.locator('#crop-stage').boundingBox();
+    await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(5, 5, { steps: 6 });
+    await page.mouse.up();
+    const stillOpen = await page.evaluate(() => !document.getElementById('cropmodal').hidden);
+    chk(stillOpen, `${t} a drag that ends on the backdrop does not cancel`, String(stillOpen));
+    await page.keyboard.press('Escape');
+    await page.evaluate(async () => { await window.CROP_P; });
+
+    // Wired: an agent's own page. Cancel uploads nothing; Save uploads one picture to that agent.
+    await page.evaluate(() => { window.PUTS.length = 0; CURRENT = { sessionName: 'ada', name: 'Ada' }; });
+    const pickAgent = () => page.evaluate(async () => {
+      const f = await T.twoTone(800, 400); const dt = new DataTransfer(); dt.items.add(f);
+      const input = document.getElementById('d-file'); input.files = dt.files; input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await pickAgent();
+    await page.waitForFunction(() => !document.getElementById('cropmodal').hidden);
+    await page.click('#crop-no');
+    await page.waitForTimeout(200);
+    const agentNone = await page.evaluate(() => window.PUTS.length);
+    await pickAgent();
+    await page.waitForFunction(() => !document.getElementById('cropmodal').hidden);
+    const agentVerb = await page.evaluate(() => document.getElementById('crop-go').textContent);
+    await page.click('#crop-go');
+    await page.waitForFunction(() => window.PUTS.length > 0, null, { timeout: 10000 }).catch(() => {});
+    const agentPut = await page.evaluate(() => window.PUTS.map((x) => x.url));
+    chk(agentNone === 0 && agentVerb === 'Save' && JSON.stringify(agentPut) === JSON.stringify(['/api/agent/ada/avatar']),
+      `${t} an agent's page: Cancel uploads nothing; Save uploads one picture to that agent`, JSON.stringify({ agentNone, agentVerb, agentPut }));
+
+    // Wired: a new agent. Nothing uploads yet; the button says Use picture; the held file is the cut, named as chosen.
+    const created = await page.evaluate(async () => {
+      window.PUTS.length = 0;
+      const f = await T.twoTone(800, 400); const dt = new DataTransfer(); dt.items.add(f);
+      const input = document.getElementById('create-avatar'); input.files = dt.files; input.dispatchEvent(new Event('change', { bubbles: true }));
+      for (let i = 0; i < 100 && document.getElementById('cropmodal').hidden; i += 1) await new Promise((r) => setTimeout(r, 20));
+      const verb = document.getElementById('crop-go').textContent;
+      document.getElementById('crop-go').click();
+      for (let i = 0; i < 100 && !(AVATAR_FILE && AVATAR_FILE.type === 'image/png'); i += 1) await new Promise((r) => setTimeout(r, 20));
+      const sides = AVATAR_FILE ? await T.sides(AVATAR_FILE) : null;
+      return { verb, name: AVATAR_FILE && AVATAR_FILE.name, sides, hint: document.getElementById('genav-hint').textContent, puts: window.PUTS.length };
+    });
+    chk(created.verb === 'Use picture' && created.name === 'me.png' && created.sides && created.sides.w === 512 && created.puts === 0
+      && /me\.png will be its picture/.test(created.hint),
+      `${t} a new agent: "Use picture", the held picture is the 512 cut named as chosen, the hint names it, nothing uploads yet`, JSON.stringify(created));
     chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
     await ctx.close();
+
+    // A phone held sideways: the dialog scrolls rather than clipping, so both buttons can be reached.
+    {
+      const p = await open(browser, 667, 375, 'light', eng);
+      await start(p.page);
+      const side = await p.page.evaluate(() => {
+        const box = document.querySelector('.crop-box');
+        const go = document.getElementById('crop-go');
+        go.scrollIntoView({ block: 'nearest' });
+        const r = go.getBoundingClientRect();
+        return { fits: box.getBoundingClientRect().height <= innerHeight + 1, goOn: r.top >= 0 && r.bottom <= innerHeight, boxH: Math.round(box.getBoundingClientRect().height), vh: innerHeight };
+      });
+      chk(side.fits && side.goOn, `[${eng} 667x375 sideways] the dialog fits the screen and Save can be reached`, JSON.stringify(side));
+      await p.ctx.close();
+    }
 
     // A phone, both themes: the whole editor is on screen.
     for (const theme of ['light', 'dark']) {
@@ -222,6 +291,9 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     }
     await browser.close();
   }
+  // The count is part of the result: a run that skipped arms (or an empty ENGINES) must not read as green.
+  const EXPECTED_PER_ENGINE = 23;
+  if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
   console.log(`render-avatar-crop-6722: ${RAN - fail.length} PASS, ${fail.length} FAIL`);
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

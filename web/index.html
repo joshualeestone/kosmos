@@ -9720,8 +9720,8 @@ body.consolidated .tkcard:hover { border-color: transparent; }
             line-height: 1.45; margin: 0 0 var(--space-8); }
 .rm-acts { display: flex; gap: var(--space-4); flex-wrap: wrap; }
 /* #6722: the picture editor. The stage is square and shrinks with a phone; the circle drawn on it is what shows. */
-.crop-box { max-width: 24rem; }
-.crop-stage { position: relative; width: min(100%, 18rem); aspect-ratio: 1; margin: 0 auto var(--space-5);
+.crop-box { max-width: 24rem; max-height: calc(100vh - 2 * var(--space-5)); overflow-y: auto; }   /* a phone held sideways scrolls, never clips */
+.crop-stage { position: relative; width: min(100%, 18rem, 42vh); aspect-ratio: 1; margin: 0 auto var(--space-5);
               border-radius: 12px; overflow: hidden; background: var(--bg); cursor: grab; touch-action: none; }
 .crop-stage:active { cursor: grabbing; }
 .crop-stage:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 3px; }
@@ -13945,10 +13945,10 @@ window.kosmosMeasureScrollbarWidth();
 <div class="rm-back" id="cropmodal" hidden>
   <div class="rm-box crop-box" role="dialog" aria-modal="true" aria-labelledby="crop-t" aria-describedby="crop-help">
     <h2 class="rm-title" id="crop-t">Fit the picture</h2>
-    <div class="crop-stage" id="crop-stage" tabindex="0" role="img"
-         aria-label="The picture. Arrow keys move it, plus and minus zoom."><canvas id="crop-cv" width="576" height="576"></canvas></div>
+    <div class="crop-stage" id="crop-stage" tabindex="0" role="application" aria-roledescription="picture"
+         aria-label="The picture" aria-describedby="crop-help"><canvas id="crop-cv" width="576" height="576" aria-hidden="true"></canvas></div>
     <label class="crop-zoom" for="crop-zoom">Zoom <input type="range" id="crop-zoom" min="1" max="4" step="0.01" value="1"></label>
-    <p class="rm-small" id="crop-help">Drag to move it. What is inside the circle is what shows.</p>
+    <p class="rm-small" id="crop-help">Drag to move it, or use the arrow keys. Plus and minus zoom. What is inside the circle is what shows.</p>
     <div class="rm-acts">
       <button class="btn" type="button" id="crop-no">Cancel</button>
       <button class="btn uprime" type="button" id="crop-go">Save</button>
@@ -46883,6 +46883,7 @@ const CROP_OUT_PX = 512;
 const CROP_READ_MAX = 2048;   // longest side kept while editing; more than the output ever needs
 const CROP_ZOOM_MAX = 4;
 let CROP = null;   // { bmp, iw, ih, cx, cy, zoom, done, opener, ptrs } while the editor is open
+let CROP_READING = false;   // set before the picture is read, so a second choice during a slow read is dropped too
 async function cropRead(file) {
   let bmp;
   try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { bmp = await createImageBitmap(file); }
@@ -46978,23 +46979,25 @@ async function cropFinish(save) {
 function cropPicture(file, verb) {
   if (!file) return Promise.resolve(null);
   if (file.type === 'image/gif') return Promise.resolve(file);
-  if (CROP) return Promise.resolve(null);   // one editor at a time; a second choice made under it is dropped
+  if (CROP || CROP_READING) return Promise.resolve(null);   // one editor at a time; a second choice made under it, or during its read, is dropped
   const opener = document.activeElement;
+  CROP_READING = true;
   return cropRead(file).then((bmp) => new Promise((done) => {
+    CROP_READING = false;
     CROP = { bmp, iw: bmp.width, ih: bmp.height, cx: bmp.width / 2, cy: bmp.height / 2, zoom: 1,
       file, name: file.name, done, opener, ptrs: new Map(), closing: false };
     document.getElementById('crop-go').textContent = verb || 'Save';
     document.getElementById('cropmodal').hidden = false;
     cropPaint();
     document.getElementById('crop-stage').focus();
-  }), () => file);
+  }), () => { CROP_READING = false; return file; });
 }
 (function wireCrop() {
   const stage = document.getElementById('crop-stage');
   const zoom = document.getElementById('crop-zoom');
   stage.addEventListener('pointerdown', (e) => {
     if (!CROP) return;
-    stage.setPointerCapture(e.pointerId);
+    try { stage.setPointerCapture(e.pointerId); } catch { /* the pointer already went; nothing to follow */ }
     CROP.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
   });
   stage.addEventListener('pointermove', (e) => {
@@ -47016,20 +47019,26 @@ function cropPicture(file, verb) {
   const lift = (e) => { if (CROP) CROP.ptrs.delete(e.pointerId); };
   stage.addEventListener('pointerup', lift);
   stage.addEventListener('pointercancel', lift);
+  stage.addEventListener('lostpointercapture', lift);   // a finger that vanished without an up never reads as half a pinch
   stage.addEventListener('wheel', (e) => {
     if (!CROP) return;
     e.preventDefault();
-    cropZoomTo(CROP.zoom * Math.exp(-e.deltaY * 0.002));
+    const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);   // lines and pages, as pixels
+    cropZoomTo(CROP.zoom * Math.exp(-dy * 0.002));
   }, { passive: false });
   zoom.addEventListener('input', () => cropZoomTo(Number(zoom.value)));
   document.getElementById('crop-no').addEventListener('click', () => cropFinish(false));
   document.getElementById('crop-go').addEventListener('click', () => cropFinish(true));
-  document.getElementById('cropmodal').addEventListener('click', (e) => { if (e.target.id === 'cropmodal') cropFinish(false); });
+  /* The backdrop cancels only a press that began on it: a drag that starts on the picture and ends outside it is a
+     drag, not a dismissal. */
+  let downOnBack = false;
+  document.getElementById('cropmodal').addEventListener('pointerdown', (e) => { downOnBack = e.target.id === 'cropmodal'; });
+  document.getElementById('cropmodal').addEventListener('click', (e) => { if (e.target.id === 'cropmodal' && downOnBack) cropFinish(false); downOnBack = false; });
   document.addEventListener('keydown', (e) => {
     if (!CROP || document.getElementById('cropmodal').hidden) return;
     const onStage = e.target === stage;
     const step = e.shiftKey ? 40 : 10;
-    if (e.key === 'Escape') { e.preventDefault(); cropFinish(false); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cropFinish(false); return; }
     if (e.key === 'Tab') {
       // Kept inside the editor: the stage, the slider, Cancel, Save.
       const ring = [stage, zoom, document.getElementById('crop-no'), document.getElementById('crop-go')];
@@ -47038,6 +47047,8 @@ function cropPicture(file, verb) {
       ring[(i + (e.shiftKey ? ring.length - 1 : 1) + (i < 0 ? 1 : 0)) % ring.length].focus();
       return;
     }
+    // A key with a modifier is the browser's or the system's (page zoom, back, forward), never the editor's.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'Enter' && (onStage || e.target === zoom)) { e.preventDefault(); cropFinish(true); return; }
     if (!onStage) return;
     const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };

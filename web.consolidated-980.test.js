@@ -426,10 +426,10 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
     assert.ok(PAGE.includes(id), id + ' is gone; re-derive whether the auto-rows invariant still protects the right surfaces');
   }
 
-  // #6722's picture editor (#cropmodal, a position:fixed dialog opened from the agent page, the new-agent page and
-  // Settings, so it cannot sit inside one section) made it 41.
-  // The 40-track headroom is a real number (#4812's #oa-wrap made it 40; #4356's #fr-choice made it 39: it is position:fixed and
-  // takes no row, but the count is headroom, kept honest): the 40th simultaneously
+  // The 41-track headroom is a real number (#6722's picture editor made it 41: #cropmodal is a position:fixed dialog
+  // opened from the agent page, the new-agent page and Settings, so it cannot sit inside one section; #4812's #oa-wrap
+  // made it 40; #4356's #fr-choice made it 39: it is position:fixed and
+  // takes no row, but the count is headroom, kept honest): the 41st simultaneously
   // renderable auto-placed body child would spill into an implicit row
   // below the clipped viewport -- the same invisible-surface failure the
   // auto rows exist to prevent. Count the body's direct element children
@@ -456,7 +456,7 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
     if (depth === 0) children++;
     if (!voidTags.has(tag.toLowerCase()) && !/\/\s*$/.test(attrs)) depth++;
   }
-  assert.ok(children <= 41, 'the body has ' + children + ' direct children; the consolidated grid reserves 41 pre-rail auto rows, and past it a visible notice can be silently clipped. Widening repeat(40, auto) is a FIVE-site renumbering: the rails\' explicit rows must move with it (#rail-agents 41, #alist 42, #rail-me 43, #panel-projects 41 / span 3), or all four land inside the widened pre-rail range');
+  assert.ok(children <= 41, 'the body has ' + children + ' direct children; the consolidated grid reserves 41 pre-rail auto rows, and past it a visible notice can be silently clipped. Widening repeat(41, auto) is a FIVE-site renumbering: the rails\' explicit rows must move with it (#rail-agents 42, #alist 43, #rail-me 44, #panel-projects 42 / span 3), or all four land inside the widened pre-rail range');
   assert.ok(children >= 20, 'the body child counter read ' + children + ', implausibly low -- the counter itself has likely broken, re-derive before trusting the headroom claim');
   assert.equal(depth, 0, 'the child counter ended at depth ' + depth + ', not 0 -- it is mis-parsing the markup and its count cannot be trusted');
 });
