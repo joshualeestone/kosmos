@@ -249,7 +249,7 @@ standin "$W/st+ate"
 run "a state path with a regex metachar is escaped -> CANNOT TELL"   2 "gate's identity is still running"   "up" "up" --state-dir "$W/st+ate"; unstand
 
 # One gate at a time: a lock held by a LIVE gate holds; a lock left by a dead one is taken over.
-mkdir "$W/state.gate-lock"; sleep 30 & LIVE=$!; echo "$LIVE" > "$W/state.gate-lock/pid"
+mkdir "$W/state.gate-lock"; perl -e 'select(undef, undef, undef, 30)' & LIVE=$!; echo "$LIVE" > "$W/state.gate-lock/pid"  # #6710: a bounded wait, not a `sleep`, so a stray `pkill -f sleep` cannot end this live-lock-holder control
 run "another gate run holds the lock -> CANNOT TELL"                 2 "another gate run holds this identity" "up" "up"
 { kill "$LIVE"; wait "$LIVE"; } 2>/dev/null
 run "a lock left by a dead gate is taken over -> PASS"               0 "tunnel-gate: PASS"                  "up" "up"
