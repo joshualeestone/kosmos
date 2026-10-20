@@ -9719,6 +9719,17 @@ body.consolidated .tkcard:hover { border-color: transparent; }
 .rm-small { font: var(--text-callout) var(--font-ui); color: var(--label-2);
             line-height: 1.45; margin: 0 0 var(--space-8); }
 .rm-acts { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+/* #6722: the picture editor. The stage is square and shrinks with a phone; the circle drawn on it is what shows. */
+.crop-box { max-width: 24rem; }
+.crop-stage { position: relative; width: min(100%, 18rem); aspect-ratio: 1; margin: 0 auto var(--space-5);
+              border-radius: 12px; overflow: hidden; background: var(--bg); cursor: grab; touch-action: none; }
+.crop-stage:active { cursor: grabbing; }
+.crop-stage:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 3px; }
+.crop-stage canvas { display: block; width: 100%; height: 100%; }
+.crop-zoom { display: flex; align-items: center; gap: var(--space-4); margin: 0 0 var(--space-5);
+             font: var(--text-callout) var(--font-ui); color: var(--label-2); }
+.crop-zoom input[type="range"] { flex: 1; min-width: 0; min-height: 44px; accent-color: var(--gold-deep); }
+.crop-box .rm-acts .btn { min-height: 44px; }   /* a full tap on a phone, where this editor is used most */
 /* #766: a dialog that holds a form (New task) takes the create page's width
    and lets its fields fill it. */
 .rm-box.rm-box-form { max-width: 34rem; }
@@ -13929,6 +13940,22 @@ window.kosmosMeasureScrollbarWidth();
      working throughout; only the board restarts. The sentence order is the
      design: first what happens to the person, then the line that stops it
      being alarming. "Kosmos closes", never "the board closes". -->
+<!-- #6722 (Josh, 2026-10-20): "a little avatar editor so if I upload an image I get some basic cropping tools before
+     i save". Opened by cropPicture() for every picture chosen for an agent or for the person. -->
+<div class="rm-back" id="cropmodal" hidden>
+  <div class="rm-box crop-box" role="dialog" aria-modal="true" aria-labelledby="crop-t" aria-describedby="crop-help">
+    <h2 class="rm-title" id="crop-t">Fit the picture</h2>
+    <div class="crop-stage" id="crop-stage" tabindex="0" role="img"
+         aria-label="The picture. Arrow keys move it, plus and minus zoom."><canvas id="crop-cv" width="576" height="576"></canvas></div>
+    <label class="crop-zoom" for="crop-zoom">Zoom <input type="range" id="crop-zoom" min="1" max="4" step="0.01" value="1"></label>
+    <p class="rm-small" id="crop-help">Drag to move it. What is inside the circle is what shows.</p>
+    <div class="rm-acts">
+      <button class="btn" type="button" id="crop-no">Cancel</button>
+      <button class="btn uprime" type="button" id="crop-go">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="rm-back" id="updconfirm" hidden>
   <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="uc-t" aria-describedby="uc-small">
     <h2 class="rm-title" id="uc-t">Update Kosmos?</h2>
@@ -46847,6 +46874,180 @@ async function fitPicture(blob) {
   }
 }
 
+/* #6722: the picture editor. cropPicture(file, verb) shows the chosen picture under a circle, lets the person move and
+   zoom it, and resolves to a square PNG File of the part inside the circle (CROP_OUT_PX a side, the chosen file's name), or null when
+   they cancel. A GIF is returned as chosen (cropping would stop an animated one moving), and so is a picture this
+   browser cannot open: the upload paths already cope with both. A phone photo comes in upright (its rotation tag is
+   applied when it is read), and a very large one is scaled down first so the editor stays quick. */
+const CROP_OUT_PX = 512;
+const CROP_READ_MAX = 2048;   // longest side kept while editing; more than the output ever needs
+const CROP_ZOOM_MAX = 4;
+let CROP = null;   // { bmp, iw, ih, cx, cy, zoom, done, opener, ptrs } while the editor is open
+async function cropRead(file) {
+  let bmp;
+  try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { bmp = await createImageBitmap(file); }
+  const big = Math.max(bmp.width, bmp.height);
+  if (big <= CROP_READ_MAX) return bmp;
+  const k = CROP_READ_MAX / big;
+  try {
+    return await createImageBitmap(bmp, { resizeWidth: Math.round(bmp.width * k), resizeHeight: Math.round(bmp.height * k), resizeQuality: 'high' });
+  } finally { bmp.close(); }
+}
+/* The square the circle covers, in image pixels: its side at this zoom, centred on (cx, cy). */
+function cropSide(c) { return Math.min(c.iw, c.ih) / c.zoom; }
+function cropClamp(c) {
+  c.zoom = Math.min(CROP_ZOOM_MAX, Math.max(1, c.zoom));
+  const half = cropSide(c) / 2;
+  c.cx = Math.min(c.iw - half, Math.max(half, c.cx));
+  c.cy = Math.min(c.ih - half, Math.max(half, c.cy));
+}
+/* The circle's diameter on the stage canvas: most of it, so the picture around it still shows what is cut away. */
+function cropDiameter(cv) { return cv.width * 0.86; }
+function cropPaint() {
+  const c = CROP;
+  if (!c) return;
+  const cv = document.getElementById('crop-cv');
+  const g = cv.getContext('2d');
+  const S = cv.width;
+  const D = cropDiameter(cv);
+  const scale = D / cropSide(c);
+  g.clearRect(0, 0, S, S);
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(c.bmp, S / 2 - c.cx * scale, S / 2 - c.cy * scale, c.iw * scale, c.ih * scale);
+  // Outside the circle is dimmed, not hidden, so the person sees what they are cutting away.
+  g.save();
+  g.beginPath();
+  g.rect(0, 0, S, S);
+  g.arc(S / 2, S / 2, D / 2, 0, Math.PI * 2);
+  g.fillStyle = 'rgba(17, 20, 24, 0.55)';
+  g.fill('evenodd');
+  g.beginPath();
+  g.arc(S / 2, S / 2, D / 2, 0, Math.PI * 2);
+  g.lineWidth = Math.max(2, S / 288);
+  g.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+  g.stroke();
+  g.restore();
+  const z = document.getElementById('crop-zoom');
+  if (z && Number(z.value) !== c.zoom) z.value = String(c.zoom);
+}
+/* Moves the picture by (dx, dy) STAGE pixels as shown on screen (a drag or a key), so it follows the finger. */
+function cropMove(dx, dy) {
+  const c = CROP;
+  if (!c) return;
+  const cv = document.getElementById('crop-cv');
+  const perCss = cv.width / (cv.getBoundingClientRect().width || cv.width);
+  const scale = cropDiameter(cv) / cropSide(c);
+  c.cx -= (dx * perCss) / scale;
+  c.cy -= (dy * perCss) / scale;
+  cropClamp(c);
+  cropPaint();
+}
+function cropZoomTo(z) {
+  const c = CROP;
+  if (!c) return;
+  c.zoom = z;
+  cropClamp(c);
+  cropPaint();
+}
+async function cropFinish(save) {
+  const c = CROP;
+  if (!c || c.closing) return;
+  c.closing = true;
+  let out = null;
+  if (save) {
+    try {
+      const cv = document.createElement('canvas');
+      cv.width = CROP_OUT_PX; cv.height = CROP_OUT_PX;
+      const g = cv.getContext('2d');
+      g.imageSmoothingQuality = 'high';
+      const side = cropSide(c);
+      g.drawImage(c.bmp, c.cx - side / 2, c.cy - side / 2, side, side, 0, 0, CROP_OUT_PX, CROP_OUT_PX);
+      const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+      // The chosen file's own name, so "<name> will be its picture." names what they picked; the type says PNG.
+      if (blob) out = new File([blob], String(c.name || 'picture'), { type: 'image/png' });
+    } catch { out = null; }
+    // A picture that could not be cut is kept as chosen rather than lost: Save never throws the choice away.
+    if (!out) out = c.file;
+  }
+  document.getElementById('cropmodal').hidden = true;
+  try { c.bmp.close(); } catch { /* already released */ }
+  CROP = null;
+  if (c.opener && document.contains(c.opener)) c.opener.focus();
+  c.done(out);
+}
+function cropPicture(file, verb) {
+  if (!file) return Promise.resolve(null);
+  if (file.type === 'image/gif') return Promise.resolve(file);
+  if (CROP) return Promise.resolve(null);   // one editor at a time; a second choice made under it is dropped
+  const opener = document.activeElement;
+  return cropRead(file).then((bmp) => new Promise((done) => {
+    CROP = { bmp, iw: bmp.width, ih: bmp.height, cx: bmp.width / 2, cy: bmp.height / 2, zoom: 1,
+      file, name: file.name, done, opener, ptrs: new Map(), closing: false };
+    document.getElementById('crop-go').textContent = verb || 'Save';
+    document.getElementById('cropmodal').hidden = false;
+    cropPaint();
+    document.getElementById('crop-stage').focus();
+  }), () => file);
+}
+(function wireCrop() {
+  const stage = document.getElementById('crop-stage');
+  const zoom = document.getElementById('crop-zoom');
+  stage.addEventListener('pointerdown', (e) => {
+    if (!CROP) return;
+    stage.setPointerCapture(e.pointerId);
+    CROP.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  });
+  stage.addEventListener('pointermove', (e) => {
+    const c = CROP;
+    if (!c || !c.ptrs.has(e.pointerId)) return;
+    const prev = c.ptrs.get(e.pointerId);
+    if (c.ptrs.size === 2) {
+      // Pinch: the zoom follows the change in distance between the two fingers.
+      const other = [...c.ptrs.entries()].find(([id]) => id !== e.pointerId)[1];
+      const before = Math.hypot(prev.x - other.x, prev.y - other.y);
+      const after = Math.hypot(e.clientX - other.x, e.clientY - other.y);
+      c.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (before > 0) cropZoomTo(c.zoom * (after / before));
+      return;
+    }
+    c.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    cropMove(e.clientX - prev.x, e.clientY - prev.y);
+  });
+  const lift = (e) => { if (CROP) CROP.ptrs.delete(e.pointerId); };
+  stage.addEventListener('pointerup', lift);
+  stage.addEventListener('pointercancel', lift);
+  stage.addEventListener('wheel', (e) => {
+    if (!CROP) return;
+    e.preventDefault();
+    cropZoomTo(CROP.zoom * Math.exp(-e.deltaY * 0.002));
+  }, { passive: false });
+  zoom.addEventListener('input', () => cropZoomTo(Number(zoom.value)));
+  document.getElementById('crop-no').addEventListener('click', () => cropFinish(false));
+  document.getElementById('crop-go').addEventListener('click', () => cropFinish(true));
+  document.getElementById('cropmodal').addEventListener('click', (e) => { if (e.target.id === 'cropmodal') cropFinish(false); });
+  document.addEventListener('keydown', (e) => {
+    if (!CROP || document.getElementById('cropmodal').hidden) return;
+    const onStage = e.target === stage;
+    const step = e.shiftKey ? 40 : 10;
+    if (e.key === 'Escape') { e.preventDefault(); cropFinish(false); return; }
+    if (e.key === 'Tab') {
+      // Kept inside the editor: the stage, the slider, Cancel, Save.
+      const ring = [stage, zoom, document.getElementById('crop-no'), document.getElementById('crop-go')];
+      const i = ring.indexOf(document.activeElement);
+      e.preventDefault();
+      ring[(i + (e.shiftKey ? ring.length - 1 : 1) + (i < 0 ? 1 : 0)) % ring.length].focus();
+      return;
+    }
+    if (e.key === 'Enter' && (onStage || e.target === zoom)) { e.preventDefault(); cropFinish(true); return; }
+    if (!onStage) return;
+    const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+    // An arrow moves the picture the way it points: the circle stays, the picture slides under it.
+    if (moves[e.key]) { e.preventDefault(); cropMove(moves[e.key][0], moves[e.key][1]); return; }
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); cropZoomTo(CROP.zoom * 1.1); return; }
+    if (e.key === '-' || e.key === '_') { e.preventDefault(); cropZoomTo(CROP.zoom / 1.1); }
+  });
+})();
+
 document.getElementById('d-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
   /* #4038: cleared at once, so choosing the SAME file again (after a failure, or to redo it) fires change again; left
@@ -46858,11 +47059,13 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
   // picture for A and switching to B before it lands reports "Saved." on B's
   // panel, about a file B has nothing to do with.
   const forAgent = CURRENT.sessionName;
+  const cut = await cropPicture(f);   // #6722: null means they cancelled; nothing changes
+  if (!cut || !CURRENT || CURRENT.sessionName !== forAgent) return;
   msg.textContent = 'Saving…';
   try {
-    const pic = await fitPicture(f);   // #4885
+    const pic = await fitPicture(cut);   // #4885
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/avatar',
-      { method: 'PUT', headers: { 'content-type': pic.type || f.type }, body: pic });
+      { method: 'PUT', headers: { 'content-type': pic.type || cut.type }, body: pic });
     const out = await res.json();
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     // Say what to do, never surface an exception name.
@@ -47233,8 +47436,11 @@ async function refreshYou() {
   paintYou();
 }
 document.getElementById('you-file').addEventListener('change', async (e) => {
-  const file = e.target.files && e.target.files[0];
+  const chosen = e.target.files && e.target.files[0];
   const msg = document.getElementById('you-msg');
+  e.target.value = '';   // cleared before the editor opens, so choosing the same file again after Cancel still fires
+  if (!chosen) return;
+  const file = await cropPicture(chosen);   // #6722: null means they cancelled; nothing changes
   if (!file) return;
   try {
     const res = await fetch('/api/you/avatar', {
@@ -62296,11 +62502,21 @@ document.getElementById('d-file-btn').addEventListener('click', () => {
 document.getElementById('you-file-btn').addEventListener('click', () => {
   document.getElementById('you-file').click();
 });
-document.getElementById('create-avatar').addEventListener('change', (e) => {
+document.getElementById('create-avatar').addEventListener('change', async (e) => {
   // Held client-side: there is no agent yet to attach it to. Uploaded right
   // after CREATED, non-gating (an agent whose picture failed to land is a
   // working agent with a mark, not a failure).
-  AVATAR_FILE = (e.target.files && e.target.files[0]) || null;
+  const chosen = (e.target.files && e.target.files[0]) || null;
+  /* #6722: fitted first. Cancel keeps whatever was chosen before; the input is cleared so the same file can be chosen
+     again. Nothing is uploaded here, so the button says what it does. */
+  if (chosen) {
+    e.target.value = '';
+    const cut = await cropPicture(chosen, 'Use picture');
+    if (!cut) return;
+    AVATAR_FILE = cut;
+  } else {
+    AVATAR_FILE = null;
+  }
   document.getElementById('genav-hint').textContent = AVATAR_FILE
     ? AVATAR_FILE.name + ' will be its picture.'
     : '';
