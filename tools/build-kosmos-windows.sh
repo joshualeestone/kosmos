@@ -635,7 +635,7 @@ _repomods="$(ls "$REPO"/engine/*.js | grep -vc '\.test\.js')"
 [ "$_zipmods" = "$_repomods" ] || refuse "the zip carries $_zipmods engine modules and the repo has $_repomods"
 echo "==> $_repomods engine modules, 0 test files"
 # #6677: read the modes back from the finished zip, not from what `set` said it did.
-node "$REPO/tools/lib/zip-modes.js" check "$ZIPOUT" || refuse "the zip carries entries with the wrong file mode (#6677)"
+node "$REPO/tools/lib/zip-modes.js" check "$ZIPOUT" "$STAGE" || refuse "the zip carries entries with the wrong file mode (#6677)"
 
 echo "==> $ZIPOUT"
 # The zip's own size first: unzip -l's total line is the UNPACKED size, which

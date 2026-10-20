@@ -140,6 +140,21 @@ test('#6677: check refuses a program left at 0644, which is not writable but can
   assert.deepEqual(zm.checkModes(buf).problems, []);
 });
 
+test('#6677: with the stage folder check is exact (a .js left 0755 is refused); an empty zip is refused', () => {
+  const stage = stageFor(BAD);
+  try {
+    const buf = makeZip(BAD);
+    zm.setModes(buf, stage);
+    assert.deepEqual(zm.checkModes(buf, stage).problems, []);
+    const server = zm.listEntries(buf).find((e) => e.name === 'app/server.js');
+    buf.writeUInt32LE(((0o100755 << 16) | (server.attrs & 0xffff)) >>> 0, server.at + 38);
+    /* The control: without the stage folder a 0755 .js is allowed (it could be a #! script). */
+    assert.deepEqual(zm.checkModes(buf).problems, []);
+    assert.deepEqual(zm.checkModes(buf, stage).problems, ['app/server.js: mode 100755']);
+  } finally { fs.rmSync(stage, { recursive: true, force: true }); }
+  assert.deepEqual(zm.checkModes(makeZip([])).problems, ['the zip has no entries']);
+});
+
 test('#6677: without a stage folder a shebang cannot be seen, so such a file is 0644, never writable', () => {
   assert.equal(zm.modeFor('bin/kosmos'), zm.MODE_FILE);
   assert.equal(zm.modeFor('x/Kosmos.EXE'), zm.MODE_EXEC);
@@ -158,7 +173,7 @@ test('#6677: the command line refuses a world-writable zip and passes the fixed 
     assert.match(before.stderr, /Kosmos\.exe: mode 100777/);
     const set = run('set', z, stage);
     assert.equal(set.status, 0, set.stderr);
-    const after = run('check', z);
+    const after = run('check', z, stage);
     assert.equal(after.status, 0, after.stderr);
     assert.match(after.stdout, /3 files 0644, 4 programs 0755, 2 folders 0755, nothing world-writable/);
     const notZip = path.join(dir, 'not.zip');
@@ -176,7 +191,7 @@ test('#6677: the build sets the modes before the .sha256 and refuses a zip whose
   const shaAt = WIN.indexOf('shasum -a 256 "$ZIPOUT"');
   assert.ok(zipAt > -1 && setAt > zipAt && shaAt > setAt, 'the modes are not set between the zip and its .sha256');
   const refuseAt = WIN.indexOf('refuse() {');
-  const checkAt = WIN.indexOf('node "$REPO/tools/lib/zip-modes.js" check "$ZIPOUT" || refuse');
+  const checkAt = WIN.indexOf('node "$REPO/tools/lib/zip-modes.js" check "$ZIPOUT" "$STAGE" || refuse');
   assert.ok(refuseAt > -1 && checkAt > refuseAt, 'the finished zip\'s modes are not read back and refused');
 });
 

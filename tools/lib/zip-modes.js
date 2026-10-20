@@ -5,8 +5,8 @@
  * WHY. tools/build-kosmos-windows.sh zips the staging folder with `zip -qr`. On the Windows
  * release box there is no Info-ZIP, and the build runs through a shim that calls Windows' own
  * bsdtar (tar.exe -a). Windows files have no Unix mode, so bsdtar records 0666 for every file
- * and 0777 for every folder and .exe: the 0.7.60 zip shipped 359 files -rw-rw-rw- and 10
- * entries rwxrwxrwx. Explorer ignores the modes, but anyone who extracts the zip with a Unix
+ * and 0777 for every folder and .exe: measured on the 0.7.60 zip, every entry was
+ * group- and world-writable. Explorer ignores the modes, but anyone who extracts the zip with a Unix
  * tool (WSL, Git Bash's unzip, a Mac) gets files every user on that machine can rewrite.
  * A Mac build with Info-ZIP takes whatever modes the checkout had. Neither is a decision.
  *
@@ -25,9 +25,11 @@
  * USE.
  *   node tools/lib/zip-modes.js set   <zip> <stage-dir>   rewrite the modes; the stage dir is
  *                                                         read only for a file's first two bytes
- *   node tools/lib/zip-modes.js check <zip>               refuse (exit 1) any entry that is not
- *                                                         Unix-hosted 0644, 0755 or a 0755 folder,
- *                                                         or a program by extension that is not 0755
+ *   node tools/lib/zip-modes.js check <zip> [<stage-dir>] refuse (exit 1) an empty zip, or any entry
+ *                                                         that is not Unix-hosted with the mode `set`
+ *                                                         gives it (exact with the stage dir; without
+ *                                                         it 0644 or 0755 for a file, 0755 for a
+ *                                                         program by extension and for a folder)
  *
  * A DOS-hosted entry is relabelled Unix. Info-ZIP then stops reading a non-ASCII name without the
  * UTF-8 flag as CP437; every name this build stages is ASCII, so nothing reads differently today.
@@ -120,17 +122,23 @@ function setModes(buf, stageDir) {
   return counts;
 }
 
-/** Every entry's problem, if any: not Unix-hosted, or a mode other than the three allowed. */
-function checkModes(buf) {
+/**
+ * Every entry's problem, if any: not Unix-hosted, or not the mode it should carry. With the stage folder
+ * the mode must be EXACTLY modeFor's (a .js left 0755 is refused too). Without it a shebang cannot be seen,
+ * so a file that is not a program by extension may be 0644 or 0755; a program by extension must be 0755.
+ * An empty zip is a problem: a check that passes nothing proves nothing.
+ */
+function checkModes(buf, stageDir) {
   const problems = [];
   const counts = { file: 0, exec: 0, dir: 0 };
-  for (const e of listEntries(buf)) {
+  const entries = listEntries(buf);
+  if (entries.length === 0) problems.push('the zip has no entries');
+  for (const e of entries) {
     const host = e.madeBy >> 8;
     const mode = e.attrs >>> 16;
-    // A program by its extension must be 0755; any other file may be either (a #! script is 0755, and only
-    // `set`, which has the stage folder, can see that).
-    const want = e.name.endsWith('/') ? [MODE_DIR]
-      : PROGRAM_EXT.has(path.extname(e.name).toLowerCase()) ? [MODE_EXEC] : [MODE_FILE, MODE_EXEC];
+    const want = stageDir ? [modeFor(e.name, stageDir)]
+      : e.name.endsWith('/') ? [MODE_DIR]
+        : PROGRAM_EXT.has(path.extname(e.name).toLowerCase()) ? [MODE_EXEC] : [MODE_FILE, MODE_EXEC];
     if (host !== 3) problems.push(`${e.name}: made on host ${host}, not Unix, so it carries no mode`);
     else if (!want.includes(mode)) problems.push(`${e.name}: mode ${mode.toString(8)}`);
     else counts[mode === MODE_DIR ? 'dir' : mode === MODE_EXEC ? 'exec' : 'file']++;
@@ -148,7 +156,7 @@ function main(argv) {
     return 0;
   }
   if (verb === 'check' && zip) {
-    const { problems, counts } = checkModes(fs.readFileSync(zip));
+    const { problems, counts } = checkModes(fs.readFileSync(zip), stage);
     if (problems.length) {
       console.error(`${zip}: ${problems.length} entr${problems.length === 1 ? 'y has' : 'ies have'} the wrong mode (#6677):`);
       for (const p of problems.slice(0, 20)) console.error('  ' + p);
@@ -157,7 +165,7 @@ function main(argv) {
     console.log(`==> zip modes checked: ${counts.file} files 0644, ${counts.exec} programs 0755, ${counts.dir} folders 0755, nothing world-writable`);
     return 0;
   }
-  console.error('usage: zip-modes.js set <zip> <stage-dir> | check <zip>');
+  console.error('usage: zip-modes.js set <zip> <stage-dir> | check <zip> [<stage-dir>]');
   return 2;
 }
 
