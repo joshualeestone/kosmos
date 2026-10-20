@@ -2534,10 +2534,17 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        and the author may still acknowledge each other. Rejected: an owner-status line on the post (new interface). */
     if (incomingIsAck && typeof from === 'string' && from !== '') {
       let said = null;
+      /* Review 5: a post since countFrom that @-names this replier and that it has not spoken after is still owed an
+         answer, and a later hand-off to someone else must not swallow that answer (it may carry no replyTo). */
+      let owed = false; let spokeSince = false;
       for (let i = log.length - 1; i >= 0; i -= 1) {   // newest first; the log is appended in time order
         const m = log[i];
         if (!m || (m.kind !== 'post' && m.kind !== 'external') || m.project !== projectId || typeof m.text !== 'string') continue;
-        if (!chat.acknowledgementOnly(m.text)) { said = m; break; }
+        if (Date.parse(m.at) < countFrom) break;   // review 5: nothing older can be fresh, and an acks-only room scans no further
+        if (m.kind === 'post' && m.from === from) spokeSince = true;
+        if (!spokeSince && Array.isArray(m.mentioned) && m.mentioned.includes(from) && m.from !== from) owed = true;
+        if (!said && !chat.acknowledgementOnly(m.text)) said = m;
+        if (said && (owed || spokeSince)) break;
       }
       const named = said && Array.isArray(said.mentioned) ? said.mentioned : [];
       // Review 4: an @-word that named two members (ambiguousMentions) may have meant someone else, so not one owner.
@@ -2557,7 +2564,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       const alsoAsks = said && (word(from) || word(mine && mine.name));
       // Review 3: an owner who has since left the room cannot be the one it is left to.
       const stillHere = named.length === 1 && members.includes(named[0]);
-      if (stillHere && fresh && !unclear && !asks && !alsoAsks && !answersOther && named[0] !== from && !authored) {
+      if (stillHere && fresh && !unclear && !asks && !alsoAsks && !owed && !answersOther && named[0] !== from && !authored) {
         const owner = printableName(shown.get(named[0])) || (/^[A-Za-z0-9._-]+$/.test(named[0]) ? named[0] : 'another agent');
         const because = 'That post named ' + owner + ' to take it, so Kosmos did not pass on an agreement-only reply '
           + 'from anyone else; posts with something new still go through.';
