@@ -63,10 +63,16 @@ test('the published set is taken, with both keys and its seq and sha256', () => 
   assert.equal(check(VECTOR, VECTOR_SIG + '\n').ok, true);
 });
 
-test('off as shipped: with no recovery key nothing verifies, the published set included', () => {
+test('off as shipped: the recovery keys are manifest-verify\'s, empty today, and off is its own answer', () => {
+  const mv = require('./manifest-verify');
+  assert.deepEqual(mv.RECOVERY_KEYS, [], 'a recovery key was pinned: this arm and the excuse in engine.reachable need revisiting');
   const r = sk.verifyServiceKeySet({ bytes: Buffer.from(VECTOR), sig: VECTOR_SIG });
   assert.equal(r.ok, false);
-  assert.match(r.why, /not signed by the Kosmos recovery key/);
+  assert.equal(r.off, true, 'off is told apart from a refusal');
+  assert.match(r.why, /no Kosmos recovery key is set/);
+  // CONTROL: with a recovery key given, the same set is checked (and taken), and a refusal is not "off".
+  assert.equal(sk.verifyServiceKeySet({ bytes: Buffer.from(VECTOR), sig: VECTOR_SIG, recoveryKeys: [ROOT_PUB] }).ok, true);
+  assert.equal(sk.verifyServiceKeySet({ bytes: Buffer.from(VECTOR), sig: sign(K7, VECTOR), recoveryKeys: [ROOT_PUB] }).off, undefined);
 });
 
 test('refused: signed by a service key, one changed byte, no signature, a non-canonical signature', () => {
@@ -86,7 +92,7 @@ test('refused: the release key list type (domain separation), and a document tha
   const r = check(...signed(doc({ type: 'kosmos-release-keys' })));
   assert.equal(r.ok, false);
   assert.match(r.why, /not a service key set/);
-  assert.equal(check(...signed('[1]\n')).ok, false);
+  refused(check(...signed('[1]\n')), /not a service key set/, 'not an object');
   // CONTROL: the same document with its own type is taken, so the arm above refused on the type alone.
   assert.equal(check(...signed(doc({}))).ok, true);
 });
@@ -166,6 +172,11 @@ test('refused: the keys break a rule (none, four, a wrong kid, zero or two curre
   const weak = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from('01' + '00'.repeat(31), 'hex')]).toString('base64');
   const weakKid = sk.kidOf(Buffer.from('01' + '00'.repeat(31), 'hex'));
   refused(check(...signed(doc({ service_keys: [k7, { kid: weakKid, pub: weak, role: 'next' }] }))), /key that is not one/, 'a weak key');
+  // With two recovery keys, only the one that SIGNED is refused as a listed key, as the relay does.
+  const other = keyFromSeed(0x0c);
+  const lists = [k7, { kid: sk.kidOf(rawOf(other)), pub: spkiOf(other), role: 'next' }];
+  const both = sk.verifyServiceKeySet({ bytes: Buffer.from(doc({ service_keys: lists })), sig: sign(ROOT, doc({ service_keys: lists })), recoveryKeys: [ROOT_PUB, spkiOf(other)] });
+  assert.equal(both.ok, true, 'another recovery key listed is not the signing root: ' + both.why);
   // Every small-order point, with the sign bit clear and set, and the two non-canonical spellings of y = 0 and 1.
   const WEAK_HEX = ['00'.repeat(32), '01' + '00'.repeat(31), '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05',
     'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a', 'ec' + 'ff'.repeat(30) + '7f', 'ed' + 'ff'.repeat(30) + '7f', 'ee' + 'ff'.repeat(30) + '7f'];
@@ -204,6 +215,9 @@ test('the pinned key (base64url of the raw bytes) is matched against the listed 
   assert.equal(sk.pinnedIsListed(pin7 + '\n', keys), true, 'the listed current key, with the trailing newline the file may hold');
   assert.equal(sk.pinnedIsListed(rawOf(K8).toString('base64url'), keys), true, 'the listed next key');
   assert.equal(sk.pinnedIsListed(rawOf(ROOT).toString('base64url'), keys), false, 'a key not on the list');
+  // Trimmed as the tunnel trims it (Rust str::trim): a BOM is not whitespace there, so it is no key here either.
+  assert.equal(sk.pinnedIsListed('\ufeff' + pin7, keys), false, 'a BOM before the pin');
+  assert.equal(sk.pinnedIsListed('\u0085' + pin7 + '\n', keys), true, 'U+0085 is whitespace to Rust');
   for (const bad of ['', null, 'not a key', rawOf(K7).toString('base64'), pin7 + '=']) {
     assert.equal(sk.pinnedIsListed(bad, keys), false, 'unreadable pin ' + JSON.stringify(bad));
   }
