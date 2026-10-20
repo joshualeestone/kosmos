@@ -102,6 +102,15 @@ man8="$(site_deploy_export "$S" "$T/out8" "$NONE" 2>"$T/err8")"; rc8=$?
   && ! printf '%s\n' "$man8" | grep -q "rebuilt api" && printf '%s\n' "$man8" | grep -q "pages:   commit $NONE\$" \
   && ok "a generator that writes nothing is not called a rebuild; the committed table ships" || bad "silent generator: rc=$rc8 $(cat "$T/err8") | $man8"
 
+# Review 5: as many rows as the commit's, but one committed row replaced (a cut-off history): not shipped.
+git -C "$S" checkout -q "$SHA" -- api/_servedversions.js 2>/dev/null || true
+printf '#!/bin/bash\nprintf "export const SERVED = Object.freeze([\\n  [%%s, %%s, %%s],\\n]);\\n" "'"'"'t'"'"'" "'"'"'latest-staging.json'"'"'" "'"'"'9.9.9'"'"'" > "$(dirname "$0")/../api/_servedversions.js"\n' > "$S/tools/served-versions.sh"
+git -C "$S" add -A && git -C "$S" commit -q -m "a generator that swaps a row"
+SWAP="$(git -C "$S" rev-parse HEAD)"
+site_deploy_export "$S" "$T/out9" "$SWAP" >/dev/null 2>"$T/err9"; rc9=$?
+[ "$rc9" = 0 ] && cmp -s "$T/out9/api/_servedversions.js" <(git -C "$S" show "$SWAP:api/_servedversions.js") && grep -q "1 of the commit's rows are missing from it" "$T/err9" \
+  && ok "the same number of rows but a committed row missing is not shipped, and says so" || bad "row swap: rc=$rc9 $(cat "$T/err9") | $(cat "$T/out9/api/_servedversions.js")"
+
 # Review 2: called BARE under `set -e` (no `||` to suspend errexit), in the case that used to abort: a commit with no
 # table at all and a generator giving zero rows (grep -c counts 0 and exits 1).
 git -C "$S" rm -q api/_servedversions.js && git -C "$S" commit -q -m "no table, short generator"

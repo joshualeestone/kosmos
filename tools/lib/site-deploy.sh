@@ -58,7 +58,7 @@ _SITE_CARRIED=""
 _site_served_versions() {
   # Review 2: safe under a caller's `set -e` on every line (a bare call, or inside $(...)): each command that can exit
   # non-zero for an expected reason (grep -c counting 0, a failed cp, mktemp) is guarded, so this can only ever warn.
-  local site="$1" out="$2" sha="$3" gd tab tmp rows want grc=0 why
+  local site="$1" out="$2" sha="$3" gd tab tmp rows want lost grc=0 why
   tab="$out/api/_servedversions.js"   # its own line: bash expands every word of one `local` before assigning any (set -u)
   _SITE_SERVED_REBUILT=0
   [ -f "$out/tools/served-versions.sh" ] || return 0
@@ -72,16 +72,20 @@ _site_served_versions() {
   rm -f "$tab"   # review 4: so a run that exits 0 without writing cannot pass as a rebuild of the commit's own table
   GIT_DIR="$gd" bash "$out/tools/served-versions.sh" "$sha" >/dev/null 2>"$tmp/err" || grc=$?
   rows="$(grep -c "^  \['" "$tab" 2>/dev/null || true)"; rows="${rows:-0}"
+  # Review 5: EVERY committed row must still be there, not just as many rows: a cut-off history could drop the oldest
+  # rows and add as many new ones, and those dropped rows are exactly the versions whose installs would turn "pre-release".
+  lost=0; [ -f "$tmp/keep" ] && [ -f "$tab" ] && lost="$(grep "^  \['" "$tmp/keep" | grep -cvxFf "$tab" 2>/dev/null || true)"; lost="${lost:-0}"
   # Review 3: a whole module (its opening and its closing line), not just a header, or the admin API would fail to parse.
-  if [ "$grc" = 0 ] && grep -q '^export const SERVED' "$tab" 2>/dev/null && grep -q '^]);$' "$tab" 2>/dev/null && [ "$rows" -ge "$want" ]; then
+  if [ "$grc" = 0 ] && grep -q '^export const SERVED' "$tab" 2>/dev/null && grep -q '^]);$' "$tab" 2>/dev/null && [ "$rows" -ge "$want" ] && [ "$lost" = 0 ]; then
     _SITE_SERVED_REBUILT=1
     echo "   rebuilt api/_servedversions.js from the history of $(printf '%.8s' "$sha") ($rows rows; the commit had $want)"
   else
     # The reason is read from what the generator left, BEFORE the committed table is put back over it.
     if [ "$grc" != 0 ]; then why="the generator failed, exit $grc: $( [ -s "$tmp/err" ] && tail -1 "$tmp/err" || echo 'no message')"
     elif ! grep -q '^export const SERVED' "$tab" 2>/dev/null || ! grep -q '^]);$' "$tab" 2>/dev/null; then why="the generator wrote no whole table"
-    else why="it gave $rows rows, fewer than the commit's $want"; fi
-    if [ -s "$tmp/keep" ]; then cp -p "$tmp/keep" "$tab" 2>/dev/null || true; else rm -f "$tab"; fi
+    elif [ "$rows" -lt "$want" ]; then why="it gave $rows rows, fewer than the commit's $want"
+    else why="$lost of the commit's rows are missing from it"; fi
+    if [ -f "$tmp/keep" ]; then cp -p "$tmp/keep" "$tab" 2>/dev/null || true; else rm -f "$tab"; fi
     echo "   ⚠️ served-versions table NOT rebuilt ($why); the committed one ships" >&2
   fi
   rm -rf "$tmp"

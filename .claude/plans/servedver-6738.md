@@ -79,3 +79,12 @@ what is served, so it stops firing.
   reported "rebuilt" (and named in the manifest) --> FIXED: the table is removed after the keep-aside and before the
   run, so a silent run falls into "wrote no whole table" and the committed table comes back. New test; MUTANT (no
   removal) turns it red. 14/14.
+
+## Review round 5 (blind, opus)
+- [WARNING] the check compared COUNTS, so a cut-off history that dropped the oldest rows and gained as many new ones
+  passed as a rebuild --> FIXED: every committed row must appear in the rebuilt table (grep -vxFf), else the committed
+  table ships with "<n> of the commit's rows are missing from it". New row-swap test; MUTANT (no row check) red.
+  MEASURED on the real site: the real generator's 454 rows contain all 454 committed rows (0 missing), so a real
+  rebuild passes.
+- [NIT] an empty committed table was deleted rather than restored --> FIXED (restore whenever one was committed).
+- 15/15.
