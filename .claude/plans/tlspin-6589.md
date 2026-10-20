@@ -52,7 +52,7 @@ checking): nothing changes for anyone.
      be in flight (review 1);
    - a refusal cancels the challenge and says so (an alert at most once a minute per computer; always logged).
 4. Tests:
-   - engine/remote.tlspin-6589.test.js (10);
+   - engine/remote.tlspin-6589.test.js (11);
    - a server route test;
    - native-app.tlspin-6589.test.js (the wiring);
    - 14 new --kosmos-app-mode-selftest rows (the hash against an openssl P-256 vector; the decision table, a fresh renewal match included; a real self-signed certificate's leaf through tlsLeafKeyHash). The
@@ -100,6 +100,12 @@ one a computer's request could be coalesced onto. Until that is measured, this i
 - The board route checks loopback, forwarding, agent tokens and the header token, not the Host and Origin pair the
   ticket route checks (the app's own request carries no Origin). On a board that enforces no token, a page using DNS
   rebinding could make it pin an address: it only ever pins to the computer the person paired (stated above).
+
+- (Review 12.) "No board" is resolvedPort being nil, which also holds for a moment on a Mac with a board while that
+  board starts or restarts; a switch made in that moment gets ordinary checking. Accepted: the switcher page that
+  makes the ticket is served by that same board, so no ticket can be made while it is down.
+- (Review 12.) An honest computer that is pinned and offline answers required, so the person sees "could not check"
+  instead of the normal offline page.
 
 ## Weakest premise
 NOT YET RUN IN THE REAL APP. Review 3 found that the first version of the handler would have crashed the app on the
