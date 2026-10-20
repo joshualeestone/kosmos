@@ -3317,14 +3317,18 @@ esac
 _kosmos_temp_launch_refusal() {
   [ "$(uname -s)" = Darwin ] && [ "${KOSMOS_ALLOW_TEMP_LAUNCH:-}" != 1 ] || return 0
   _tl_low() { printf '%s' "$1" | /usr/bin/tr -s '/' | /usr/bin/tr '[:upper:]' '[:lower:]'; }
-  # A launch folder that IS this account's LaunchAgents is no folder of the caller's own: the plist written there
-  # is loaded at the next login. Compared as spelled too (case-blind, like the disk): on a new account that folder
-  # may not exist yet, and -ef then matches nothing.
+  # With a launch folder set, setup.sh runs no launchctl at all: the only harm left is a plist written into THIS
+  # ACCOUNT's real LaunchAgents, which loads at the next login. So that folder is no folder of the caller's own; a
+  # fake HOME's own LaunchAgents is. The account's home comes from the directory service (KOSMOS_ACCOUNT_HOME is the
+  # test seam), HOME when that cannot be read. Matched by -ef and as spelled, case-blind like the disk: on a new
+  # account the folder may not exist yet, and -ef then matches nothing.
   _tl_launch="${AGENT_WORKFORCE_LAUNCH:-}"
   if [ -n "$_tl_launch" ]; then
-    _tl_la="$(_tl_low "${HOME%/}/Library/LaunchAgents")"; _tl_la="${_tl_la%/}"
+    _tl_acct="${KOSMOS_ACCOUNT_HOME:-$(/usr/bin/dscl . -read "/Users/$(/usr/bin/id -un)" NFSHomeDirectory 2>/dev/null | /usr/bin/sed -n 's/^NFSHomeDirectory: //p')}"
+    _tl_acct="${_tl_acct:-$HOME}"
+    _tl_la="$(_tl_low "${_tl_acct%/}/Library/LaunchAgents")"; _tl_la="${_tl_la%/}"
     _tl_ll="$(_tl_low "$_tl_launch")"; _tl_ll="${_tl_ll%/}"
-    { [ "$_tl_launch" -ef "$HOME/Library/LaunchAgents" ] || [ "$_tl_ll" = "$_tl_la" ]; } && _tl_launch=""
+    { [ "$_tl_launch" -ef "$_tl_acct/Library/LaunchAgents" ] || [ "$_tl_ll" = "$_tl_la" ]; } && _tl_launch=""
   fi
   [ -z "$_tl_launch" ] || return 0
   # The home as written and as resolved (its nearest existing folder, so a symlink into a temp folder or the
