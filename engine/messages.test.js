@@ -1450,6 +1450,34 @@ test('#6608 review 2: a room-wide ask with no question mark, a later post by the
   });
 });
 
+test('#6608 review 3: another member asked by plain name, or an owner who left, lifts it; a display name is cleaned', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // leo is asked by plain name in the hand-off: his "will do" is an answer.
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara draft the letter, leo send her the dates', mentioned: ['mara'] }]);
+    assert.equal(sendAs(board, 'leo', 'will do').out.state, chat.DELIVERY.PLACED, 'an agent asked by plain name had its answer dropped');
+    // CONTROL in the same room: april was not named, so her ack is still refused.
+    assert.equal(sendAs(board, 'april', 'agreed').out.code, 'ack_only', 'CONTROL: an agent the hand-off did not name was passed on');
+    // The named owner is no longer a member of the room.
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [{ from: 'you', operator: true, text: '@nova please draft the renewal letter', mentioned: ['nova'] }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'an ack was refused in favour of an owner who is not in the room');
+  });
+  // Asked by DISPLAY name in plain text: leo shows as Leon here.
+  withFleet([fleet.agent('leo', { displayName: 'Leon' }), fleet.agent('mara'), fleet.agent('april')], (board) => {
+    seedRows(Date.now(), [{ from: 'you', operator: true, text: '@mara draft the letter, Leon send her the dates', mentioned: ['mara'] }]);
+    assert.equal(sendAs(board, 'leo', 'will do').out.state, chat.DELIVERY.PLACED, 'an agent asked by its display name had its answer dropped');
+  });
+  // A display name with a quote and a bidi control reaches the agent cleaned.
+  withFleet([fleet.agent('leo'), fleet.agent('mara', { displayName: 'Ma\u202era"' }), fleet.agent('april')], (board) => {
+    seedRows(Date.now(), [{ from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] }]);
+    const r = sendAs(board, 'leo', 'agreed').out;
+    assert.equal(r.code, 'ack_only', 'fixture: the refusal did not fire');
+    assert.equal(r.owner, 'Mara', 'the owner name reached the agent uncleaned: ' + JSON.stringify(r.owner));
+    assert.doesNotMatch(r.because, /["\u202e]/, 'the refusal carries a quote or a bidi control');
+  });
+});
+
 test('#4934/#5967: a content post resets the run, so ack, ack, content, ack, ack does not hold', () => {
   withFleet(room3(), (board) => {
     const now = Date.now();

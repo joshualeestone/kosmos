@@ -2066,12 +2066,13 @@ function mentionedMembers(cleaned, recipients, roster) {
    character here. The @-word is [A-Za-z0-9._-] by the tokenizer; handles are session names, held to
    NAME_RE (engine/create.js) for agents Kosmos made, and cleaned the same way in case an adopted one is
    not. '' when there is nothing to say. */
+/* Also C1 controls (U+009B is a one-character CSI on some terminals), zero-widths and joiners, line and
+   paragraph separators, bidi controls, the BOM and lone surrogates: a display name is printed straight to an
+   agent's terminal. Shared by ambiguousNote (#4653) and the #6608 owner-named refusal. */
+const printableName = (s) => String(s == null ? '' : s)
+  .replace(/["\\\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '').trim();
 function ambiguousNote(ambiguous, mentioned, shown) {
-  /* Also C1 controls (U+009B is a one-character CSI on some terminals), zero-widths and joiners, line and
-     paragraph separators, bidi controls, the BOM and lone surrogates: the name is printed straight to an
-     agent's terminal. */
-  const clean = (s) => String(s == null ? '' : s)
-    .replace(/["\\\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '').trim();
+  const clean = printableName;
   /* A handle is offered only if it is typeable as it stands (the tokenizer's charset): an adopted session
      name outside it would be a name that reaches nobody, so that agent is shown by display name alone. */
   const handle = (m) => (/^[A-Za-z0-9._-]+$/.test(String(m)) ? String(m) : '');
@@ -2542,8 +2543,16 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       const fresh = said && Date.parse(said.at) >= countFrom;
       const asks = said && (said.text.includes('?') || ROOM_ASK.test(said.text));
       const answersOther = answered && said && answered.id !== said.id;
-      if (named.length === 1 && fresh && !asks && !answersOther && named[0] !== from && said.from !== from) {
-        const owner = shown.get(named[0]) || named[0];
+      /* Review 3: an agent named in PLAIN text ("leo, send her the dates") is being asked something too, so ITS reply is an
+         answer; the others' acknowledgements are still left out. Session and display names, whole words, any case. */
+      const word = (n) => { const t = String(n == null ? '' : n).trim(); if (t.length < 2) return false;
+        return new RegExp('(^|[^A-Za-z0-9])' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^A-Za-z0-9])', 'i').test(said.text); };
+      const mine = (Array.isArray(roster) ? roster : []).find((c) => c && c.sessionName === from);   // `shown` holds recipients only
+      const alsoAsks = said && (word(from) || word(mine && mine.name));
+      // Review 3: an owner who has since left the room cannot be the one it is left to.
+      const stillHere = named.length === 1 && members.includes(named[0]);
+      if (stillHere && fresh && !asks && !alsoAsks && !answersOther && named[0] !== from && said.from !== from) {
+        const owner = printableName(shown.get(named[0])) || (/^[A-Za-z0-9._-]+$/.test(named[0]) ? named[0] : 'another agent');
         const because = 'That post named ' + owner + ' to take it, so Kosmos did not pass on an agreement-only reply '
           + 'from anyone else; posts with something new still go through.';
         return { state: chat.DELIVERY.COULD_NOT, code: 'ack_only', owner, because, id: null, at, outcomes: null };
