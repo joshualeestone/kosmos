@@ -139,8 +139,10 @@ function cargoWorkspace(relay, commit) {
     if (at !== out.length) refuse('git cat-file answered more than was asked');
     // Cargo with the build's own cache (CARGO_HOME) and nothing else of this shell's Cargo, Rust or git settings (a
     // RUSTC or RUSTC_WRAPPER names a program Cargo runs; Cargo runs git too), and rustup told not to install anything.
-    const env = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CARGO_(?!HOME$)|RUSTUP_(?!HOME$)|RUSTFLAGS$|RUSTC|RUSTDOC|GIT_)/.test(k))),
-      RUSTUP_AUTO_INSTALL: '0' };
+    // Review 35: an ALLOWLIST, not a denylist (a __CARGO_* variable the denylist missed let a stable Cargo accept a
+    // commit's unstable features). Only what Cargo needs to find itself and its cache.
+    const env = { ...Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'CARGO_HOME', 'RUSTUP_HOME']
+      .filter((k) => process.env[k] !== undefined).map((k) => [k, process.env[k]])), RUSTUP_AUTO_INSTALL: '0' };
     let meta;
     try {
       meta = execFileSync('cargo', ['metadata', '--locked', '--offline', '--format-version', '1', '--manifest-path', p.join(tree, 'Cargo.toml')],

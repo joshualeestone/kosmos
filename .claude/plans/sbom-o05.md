@@ -54,8 +54,8 @@ real fix.
   the source.
 - **`tools.sbom-o05.test.js`:** 53 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
-  must equal build()'s output byte for byte. Every rule added in reviews 1 to 33, apart from the time limits named below, as measured in my own mutant runs, has a mutant that fails an arm, run at
-  the time of the change (the first version, then reviews 1 to 33 in order: four, eight, six, eleven, six, seven,
+  must equal build()'s output byte for byte. Every rule added in reviews 1 to 35, apart from the time limits named below, as measured in my own mutant runs, has a mutant that fails an arm, run at
+  the time of the change (the first version, then rounds with a rule in order; a round that added no rule has no entry: four, eight, six, eleven, six, seven,
   nine, eleven, nine, four, eleven, eight, three, four, seven, six, five, three, five, four, five, five, six, four, nine, six, six, eight, seven, one, two and eight); the mutants of code later removed (the script's variable and url parsing, the hand-written Swift readers) were
   retired with it. Every
   field the SBOM vouches for has an assertion (review 11: the release hash, node's purl, cpe and download, each
@@ -129,6 +129,9 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- (Review 35.) The app commit's files are read by exact path, with no case-collision check across that commit (the
+  relay's tree has one). A second spelling of native-app/main.swift would not change what the SBOM reads; whether
+  a build machine's checkout picks the other one is inside the review-16 LIMIT (the binary is not tied to its source).
 - (Review 34, stated rather than built.) The Swift compiler runs with the shell's environment, so DEVELOPER_DIR,
   TOOLCHAINS, SDKROOT or SWIFT_* can choose which Xcode toolchain reads the imports (scrubbing them would break a
   machine that needs DEVELOPER_DIR). The app and relay commits are checked to be 40-hex names that git reads, not
@@ -166,8 +169,7 @@ real fix.
   plain files only (no symlink, no submodule); printable ASCII names only, so case is the only folding a Mac does
   and it is checked across the whole commit; no .cargo anywhere, in any case; no Cargo.toml or Cargo.lock in another
   case; files created exclusively. Each is a real-git test arm, and with the .cargo refusal removed, the committed
-  program really ran. Cargo gets CARGO_HOME and none of the shell's other CARGO_*, RUSTFLAGS, RUSTDOCFLAGS,
-  RUSTC* (RUSTC_WRAPPER names a program Cargo runs), RUSTDOC* or RUSTUP_TOOLCHAIN. The real relay commit has
+  program really ran. Cargo gets an ALLOWLISTED environment (review 35: a __CARGO_* variable the earlier denylist missed let a stable Cargo accept a commit's unstable features): PATH, HOME, TMPDIR, CARGO_HOME and RUSTUP_HOME if set, and RUSTUP_AUTO_INSTALL=0; the end-to-end arm sets a __CARGO override and other variables and fails if any reaches Cargo. The real relay commit has
   1191 paths, no symlink, no non-ASCII name, no .cargo.
   Review 28: no rust-toolchain or rust-toolchain.toml anywhere, in any case (rustup reads one in the tree Cargo runs
   in, then downloads and runs that toolchain; measured: it reached for a download), and rustup is told not to

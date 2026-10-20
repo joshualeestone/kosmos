@@ -1046,11 +1046,13 @@ test('the command line end to end, against a copy of the tool that pins a test k
     + `fs.writeFileSync(out, [...fs.readFileSync(src, 'utf8').matchAll(/^\\s*(?:@\\w+\\s+)?import\\s+(\\w+)/gm)].map((m) => m[1]).join('\\n') + '\\n');\n`);
   fs.chmodSync(path.join(bin, 'xcrun'), 0o755);
   // And a stand-in cargo: it records how it was asked and checks the tree it was pointed at is the commit's own
-  // (the Cargo.lock there is the relay's), then answers with STANDIN_EXIT.
+  // (the Cargo.lock there is the relay's), then answers with the code in cargo-exit (a file, because the tool passes
+  // Cargo an allowlisted environment and a test variable would not reach it).
   fs.writeFileSync(path.join(bin, 'cargo'), `#!${process.execPath}\nconst a = process.argv.slice(2), fs = require('fs'), p = require('path');\n`
     + `const m = a[a.indexOf('--manifest-path') + 1];\n`
-    + `fs.appendFileSync(${JSON.stringify(path.join(root, 'cargo-args'))}, a.join(' ') + ' LOCK=' + (fs.readFileSync(p.join(p.dirname(m), 'Cargo.lock'), 'utf8') === ${JSON.stringify(LOCK)}) + ' ENV=' + Object.keys(process.env).filter((k) => /^(CARGO_|RUSTFLAGS$|RUSTDOCFLAGS$|RUSTC|RUSTDOC|RUSTUP_|GIT_)/.test(k)).sort().map((k) => k + (k === 'RUSTUP_AUTO_INSTALL' ? '=' + process.env[k] : '')).join(',') + '\\n');\n`
-    + `if (process.env.STANDIN_EXIT !== '0') { process.stderr.write('error: cannot update the lock file\\n'); process.exit(Number(process.env.STANDIN_EXIT)); }\n`
+    + `fs.appendFileSync(${JSON.stringify(path.join(root, 'cargo-args'))}, a.join(' ') + ' LOCK=' + (fs.readFileSync(p.join(p.dirname(m), 'Cargo.lock'), 'utf8') === ${JSON.stringify(LOCK)}) + ' ENV=' + Object.keys(process.env).filter((k) => !['PATH', 'HOME', 'TMPDIR', 'RUSTUP_HOME'].includes(k) && !/^__CF_/.test(k)).sort().map((k) => k + (k === 'RUSTUP_AUTO_INSTALL' ? '=' + process.env[k] : '')).join(',') + '\\n');\n`
+    + `const code = fs.readFileSync(${JSON.stringify(path.join(root, 'cargo-exit'))}, 'utf8').trim();\n`
+    + `if (code !== '0') { process.stderr.write('error: cannot update the lock file\\n'); process.exit(Number(code)); }\n`
     + `process.stdout.write(fs.readFileSync(${JSON.stringify(path.join(root, 'cargo-metadata.json'))}));\n`);
   // What the stand-in Cargo answers: the members, and a resolve graph equal to the fixture lock's.
   {
@@ -1066,9 +1068,11 @@ test('the command line end to end, against a copy of the tool that pins a test k
     }));
   }
   fs.chmodSync(path.join(bin, 'cargo'), 0o755);
-  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, STANDIN_EXIT: '0',
+  fs.writeFileSync(path.join(root, 'cargo-exit'), '0');
+  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`,
     CARGO_HOME: path.join(root, 'cargo-home'), CARGO_TARGET_DIR: '/evil', CARGO_BUILD_TARGET: 'evil', RUSTFLAGS: '--evil',
-    RUSTC_WRAPPER: '/evil', RUSTDOCFLAGS: '--evil', RUSTUP_TOOLCHAIN: '1.2.3', GIT_DIR: path.join(root, 'no-such-git-dir'), GIT_OBJECT_DIRECTORY: '/evil' };
+    RUSTC_WRAPPER: '/evil', RUSTDOCFLAGS: '--evil', RUSTUP_TOOLCHAIN: '1.2.3', GIT_DIR: path.join(root, 'no-such-git-dir'), GIT_OBJECT_DIRECTORY: '/evil',
+    __CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS: 'nightly', SOMETHING_ELSE: 'x' };
   const run = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
     '--repo', k.dir, '--relay', r.dir, '--out', out], { encoding: 'utf8', env });
   assert.equal(run.status, 0, run.stderr);
@@ -1095,8 +1099,9 @@ test('the command line end to end, against a copy of the tool that pins a test k
   assert.equal(swapped.status, 1, 'the repo and relay swapped refuse');
   assert.match(fs.readFileSync(path.join(root, 'cargo-args'), 'utf8'), /^metadata --locked --offline --format-version 1 --manifest-path \S+\/Cargo\.toml LOCK=true ENV=CARGO_HOME,RUSTUP_AUTO_INSTALL=0$/m,
     'Cargo is asked, locked and offline, about a tree holding the connector commit\'s own lock, with only CARGO_HOME of this shell\'s Cargo settings');
+  fs.writeFileSync(path.join(root, 'cargo-exit'), '101');
   const disagree = spawnSync(process.execPath, [path.join(root, 'tools', 'lib', 'sbom.js'), mf, '--sig', sg, '--tmux', tgz,
-    '--repo', k.dir, '--relay', r.dir], { encoding: 'utf8', env: { ...env, STANDIN_EXIT: '101' } });
+    '--repo', k.dir, '--relay', r.dir], { encoding: 'utf8', env });
   assert.equal(disagree.status, 1, 'Cargo disagreeing refuses');
   assert.match(disagree.stderr, /^sbom: relay at [0-9a-f]{40}: Cargo does not agree the Cargo\.lock is what the Cargo\.toml files resolve to \(cargo is needed\): error: cannot update the lock file$/m);
 });
