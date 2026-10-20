@@ -1,0 +1,50 @@
+# strandlinux-6667: Linux revives an update pause stranded by a killed update (kosmos#6667)
+
+## Goal
+On Linux, an update killed while it had the board paused leaves `board.stopped` and its own
+`board.stopped.by-install.<pid>.<token>` name. systemd's `ConditionPathExists=!board.stopped` cannot read the name, so
+the board stayed down until a person ran `kosmos start` (the outage #6651 fixed on macOS). Done means: on a real Linux
+box, a killed update's pause clears by itself while a person's stop stays, both measured.
+
+## Call
+A small pause check beside the board's unit, written by `engine/linuxboard.js`:
+- `kosmos-pause-check[.<hash>].service`: a oneshot running `kosmos board-revive`.
+- `kosmos-pause-check[.<hash>].timer`: `OnCalendar=minutely`, enabled by `installBoard` after the board.
+- `kosmos board-revive` (install/kosmos): marker present, board unit enabled (the Mac watchdog's gate 2), and
+  `kosmos_clear_stranded_pause pause-check` succeeds (the #6651 shared rule, untouched), then
+  `systemctl --user start --no-block` the board. Anything else exits 0 and changes nothing; a refused start exits 1
+  and is logged.
+- Removed first by `removeBoard` and by every uninstall branch in setup.sh (`_kosmos_linux_remove_pause_check`, run
+  once before the branches, skipped in a sandboxed run like the rest).
+
+## Rejected
+- (b) a timer, or a unit without the condition, that starts the BOARD itself every minute: it would also restart a
+  crash-looping board or one stopped with plain `systemctl stop`, which is new supervision with no crash-loop guard
+  (the Mac watchdog has one). Out of this card.
+- `ExecStartPre` on the board unit alone: systemd evaluates `ConditionPathExists` before it, and nothing starts the
+  unit after an update stopped it, so it would never run.
+- Replacing `ConditionPathExists` with `ExecCondition`: changes how every Linux board starts and restarts, for no gain
+  over a separate check.
+- Naming it `kosmos-board-*`: setup.sh's app-gone uninstall branch names every other `kosmos-board*.service` as
+  another install's board.
+- Passing the unit name to `board-revive`: install/kosmos already derives it (`_kosmos_board_systemd_unit`, kept equal
+  to `boardUnitName` by tools/test-board-supervised-linux-4918.sh).
+- Extending the node step's output for a refused timer: setup.sh matches that output exactly ("loose lingering"); it
+  asks systemd (`is-enabled`) instead.
+
+## Weakest premise
+That one minute is soon enough and cheap enough. A run is a bash start plus a few file tests (under 50 ms measured on
+the Mac); the Mac watchdog runs on a similar cadence. Second: a downgrade to a release without `board-revive` leaves
+the timer running an unknown verb, which exits 2 every minute (a failed oneshot, logged) until the next install.
+
+## Tests
+- tools/test-board-revive-6667.sh (test:shell and linux-systemd.yml): the real install/kosmos with a stub systemctl:
+  a killed update's pause is cleared and the board started; a person's stop, a running update, a leftover name, a
+  non-run mode and a disabled unit are left alone; no marker asks systemd nothing; a refused start exits 1 and logs;
+  setup.sh's names equal linuxboard.js's for two homes. Three mutants of board-revive (no enabled gate, clear any
+  stop, no start) each go red on the right arm.
+- engine/linuxboard.pausecheck-6667.test.js: names, unit contents, install order, a refused timer does not fail the
+  install, removeBoard removes the check before the board.
+- tools/test-linux-pause-check-live-6667.sh (linux-systemd.yml, ubuntu runner, real systemd): control (systemd alone
+  refuses the start), the real timer clears a killed update's pause and the board comes back, a person's stop holds
+  through a firing, removeBoard removes all three units.

@@ -23,6 +23,7 @@ on:
       - "install/kosmos"
       - "bin/agent-supervisor.sh"
       - "tools/test-linux-systemd-live-4918.sh"
+      - "tools/test-linux-pause-check-live-6667.sh"
       - "tools/test-board-supervised-linux-4918.sh"
       - ".github/workflows/linux-systemd.yml"
   pull_request:
@@ -45,6 +46,7 @@ on:
       - "install/kosmos"
       - "bin/agent-supervisor.sh"
       - "tools/test-linux-systemd-live-4918.sh"
+      - "tools/test-linux-pause-check-live-6667.sh"
       - "tools/test-board-supervised-linux-4918.sh"
       - ".github/workflows/linux-systemd.yml"
 
@@ -84,10 +86,16 @@ jobs:
           echo "systemctl --user status: $(systemctl --user is-system-running 2>&1 || true)"
       - name: run unit test suite
         run: |
-          node --test engine/linuxjob.test.js engine/linuxboard.test.js engine/boardrestart.linux-4918.test.js engine/create.tmux-linux-4917.test.js engine/linuxwiring-4918.test.js engine/create.linux-4918.test.js
+          node --test engine/linuxjob.test.js engine/linuxboard.test.js engine/linuxboard.pausecheck-6667.test.js engine/boardrestart.linux-4918.test.js engine/create.tmux-linux-4917.test.js engine/linuxwiring-4918.test.js engine/create.linux-4918.test.js
           bash tools/test-board-supervised-detect-2956.sh
           bash tools/test-board-supervised-linux-4918.sh
           bash tools/test-board-foreground-2956.sh
+          bash tools/test-board-revive-6667.sh
       - name: run live systemd user unit integration tests
         run: |
           bash tools/test-linux-systemd-live-4918.sh
+      # kosmos#6667: a killed update's pause clears by itself and the board comes back; a person's stop holds. Waits on
+      # the real minutely timer (up to about 3 minutes), so it measures what a Linux install does unattended.
+      - name: run live pause check test (kosmos#6667)
+        run: |
+          bash tools/test-linux-pause-check-live-6667.sh

@@ -2000,6 +2000,24 @@ cmd_start() {
 # supervisor (a second starter under a KeepAlive supervisor would race two boards
 # onto one port). Landing it first, inert, lets the foreground mechanism be tested
 # before the byte-frozen default plist (#883) is touched.
+# kosmos#6667 (Linux): run every minute by the board's pause check (engine/linuxboard.js pauseCheckUnitsFor). systemd's ConditionPathExists=!board.stopped cannot read an update's name files, so an update
+# killed mid-pause left the board down until a person started it; the Mac's watchdog clears that (#6651). This clears
+# ONLY a stranded update pause, only while the board's unit is enabled (it is supposed to run: the watchdog's gate 2),
+# then asks systemd to start the board. A person's stop, a running update, or a board down for any other reason is
+# left alone. Internal, not for people.
+cmd_board_revive() {
+  [ -e "$STOP_MARKER" ] || exit 0
+  local unit; unit="$(_kosmos_board_systemd_unit)"   # the same name linuxboard.js gives this home's board
+  [ "$(systemctl --user is-enabled "$unit" 2>/dev/null)" = enabled ] || exit 0
+  kosmos_clear_stranded_pause pause-check || exit 0
+  # --no-block: this runs inside a systemd job, and waiting on another job from one is how a start deadlocks.
+  if ! systemctl --user start --no-block "$unit" 2>/dev/null; then
+    ( printf '[%s] pause-check: cleared the pause, but systemd would not start %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$unit" \
+      >> "$KOSMOS_HOME/logs/board-watchdog.log" ) >/dev/null 2>&1 || true
+    exit 1
+  fi
+}
+
 cmd_board_run() {
   # Honor a deliberate stop even on the RunAtLoad race. The plist's KeepAlive is
   # keyed (PathState) on this SAME #2955 marker, so the supervisor will not
@@ -6143,6 +6161,7 @@ case "${1:-}" in
   stop)    agent_board_guard "$@"; cmd_stop ;;
   restart) agent_board_guard "$@"; cmd_restart ;;
   board-run) cmd_board_run ;;   # #2956: internal supervised foreground entry (launchd/Task Scheduler), not for people
+  board-revive) cmd_board_revive ;;   # kosmos#6667: internal, the Linux pause check's timer, not for people
   keep-copy) shift; cmd_keep_copy "$@" ;;   # #5153: internal, the report hook's copy before an edit, not for people
   tool-failed) shift; cmd_tool_failed "$@" ;;   # #6071: internal, the report hook's digest of a failed tool call, not for people
   status)  cmd_status ;;
