@@ -11,7 +11,8 @@ the email field.
 
 ## Decided
 - Portrait phones only, as the card asks ("at the iPhone 15 size") and as the board's other width-only tap rules do
-  (#restart-wrap, the files button). Review 2 noted a phone held sideways (about 844x390) keeps 36 px fields. The
+  (#restart-wrap, the files button). Review 2 noted a phone held sideways (about 844x390) keeps its unfixed fields
+  (34 px as measured here; the card said 36). The
   board's landscape-phone idiom keys on `hover: none`, which this harness cannot emulate, so such a rule would ship
   unmeasured. Left for a card of its own if landscape matters.
 
