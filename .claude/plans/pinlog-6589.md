@@ -26,3 +26,8 @@ and the caller-content check now also refuses any caller that mentions `host`. S
 That a refusal reason with no computer named is enough to act on. On a Mac paired with several computers the line
 does not say which one, but the alert does, and it is the alert the person sees. A watch only needs to know that a
 refusal happened, and when.
+
+## Known effects
+- The harness file (tests only) now gets two lines per refusal: the fixed-words one from logToSystem, then the one with
+  the host. A count of `tls-pin: refused` in app.log is therefore twice the refusals; in the unified log it is one per
+  refusal. The unified log has no once-a-minute limit: N lines there can be one page opening N connections.
