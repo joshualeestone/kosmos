@@ -77,6 +77,31 @@ reset; : > "$M"; name "$LIVE" "$LTOK"
 reset; : > "$M"; name "$DEAD" "$LTOK"
 [ "$(PATH="$TMP/badps:$PATH" verdict)" = stranded ] && ok "ps cannot run, update gone (kill: no such process): stranded" || bad "a broken ps kept a dead update's pause"
 
+# Tokens of two kinds cannot be compared: a proc: token read where there is no /proc (this Mac) stands.
+reset; : > "$M"; name "$LIVE" "proc:12345"
+if [ -d /proc/self ]; then echo "SKIP  cross-kind token case: this host has /proc"; else check stands "a token of another kind (proc: read through ps) stands"; fi
+
+# The block under dash (Debian's /bin/sh), and setup.sh's own name-create line there: under dash a failed
+# redirection on ":" ends the script unless it is in a subshell, which is the full-disk case.
+if [ -x /bin/dash ]; then
+  printf '%s\n' "$B_CLI" > "$TMP/block.sh"
+  reset; : > "$M"; name "$DEAD" "$LTOK"
+  out="$(KOSMOS_HOME="$KOSMOS_HOME" /bin/dash -c 'set -eu; . "$1"; if kosmos_stranded_pause >/dev/null; then echo stranded; else echo stands; fi' sh "$TMP/block.sh" 2>&1)"
+  [ "$out" = stranded ] && ok "under dash (set -eu): a gone update's pause is stranded" || bad "under dash: $out"
+  reset; : > "$M"; name "$LIVE" "$LTOK"
+  out="$(KOSMOS_HOME="$KOSMOS_HOME" /bin/dash -c 'set -eu; . "$1"; if kosmos_stranded_pause >/dev/null; then echo stranded; else echo stands; fi' sh "$TMP/block.sh" 2>&1)"
+  [ "$out" = stands ] && ok "under dash (set -eu): a live update's pause stands" || bad "under dash, live: $out"
+  line="$(grep -n 'if ( : > "\$_kosmos_pause_name" ) 2>/dev/null; then :; else _kosmos_pause_name=""; fi' install/setup.sh | head -1 | cut -d: -f2-)"
+  [ -n "$line" ] || bad "setup.sh's name-create line is not the subshell form"
+  out="$(/bin/dash -c 'set -eu; _kosmos_pause_name=/nonexistent/dir/name; '"$line"'; echo "carried on: [$_kosmos_pause_name]"' 2>&1)"
+  [ "$out" = "carried on: []" ] && ok "under dash, a name that cannot be made does not end the installer" || bad "under dash, a failed name create: $out"
+  out="$(/bin/dash -c 'set -eu; x=/nonexistent/dir/name; : > "$x" 2>/dev/null || x=""; echo "carried on"' 2>&1)"
+  case "$out" in *"carried on"*) bad "CONTROL: the plain form survived under dash, so the case above proves nothing" ;;
+    *) ok "CONTROL: the plain form (: > f || ...) does end a dash script, so the subshell form matters" ;; esac
+else
+  echo "SKIP  dash cases: no /bin/dash here"
+fi
+
 # A full disk: the card's own case. A name is an empty file, so it needs no data block.
 if command -v hdiutil >/dev/null 2>&1 && hdiutil create -quiet -size 8m -fs APFS -volname s6651 "$TMP/full.dmg" >/dev/null 2>&1 \
    && DISK="$(hdiutil attach -nobrowse "$TMP/full.dmg" 2>/dev/null | awk '/s6651/ { print $NF }')" && [ -n "$DISK" ]; then
@@ -111,6 +136,22 @@ reset; : > "$M"
 ( kosmos_stranded_pause() { printf '%s\n' "$KOSMOS_HOME/board.stopped.by-install.$DEAD.$LTOK"; }
   kosmos_clear_stranded_pause test-race; echo "rc=$?" > "$TMP/race" )
 { grep -q 'rc=1' "$TMP/race" && [ -e "$M" ]; } && ok "a person's stop racing the clear: their marker is put back" || bad "a raced clear lost a person's marker"
+
+# Evidence is kept, but only the newest ten clears.
+reset; : > "$M"; name "$DEAD" "$LTOK"
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do : > "$KOSMOS_HOME/board.stopped.stranded.10000000$i.1"; : > "$KOSMOS_HOME/board.stopped.stranded.10000000$i.1.by-install.$DEAD.x"; touch -t "2001010101$(printf %02d $i)" "$KOSMOS_HOME/board.stopped.stranded.10000000$i.1" "$KOSMOS_HOME/board.stopped.stranded.10000000$i.1.by-install.$DEAD.x"; done
+kosmos_clear_stranded_pause test-prune
+kept="$(ls -1 "$KOSMOS_HOME"/board.stopped.stranded.* | grep -vc by-install)"
+[ "$kept" = 10 ] && ok "only the newest ten cleared pauses are kept as evidence" || bad "kept $kept cleared pauses"
+[ ! -e "$KOSMOS_HOME/board.stopped.stranded.100000001.1.by-install.$DEAD.x" ] && ok "an old clear's names go with it" || bad "an old clear's names were left behind"
+
+# The CLI's restore after a refused start puts an update's names back with the marker.
+eval "$(awk '/^restore_stop_marker\(\) \{/ { on=1 } on { print } on && /^}$/ { exit }' install/kosmos)"
+reset; STOP_MARKER="$M"; _had_stop_names="$KOSMOS_HOME/board.stopped.by-install.$DEAD.$LTOK"
+restore_stop_marker
+{ [ -e "$M" ] && [ -e "$_had_stop_names" ]; } && ok "a refused start puts the marker and the update's names back" || bad "restore lost the names"
+_had_stop_names=""; reset; restore_stop_marker
+{ [ -e "$M" ] && [ -z "$(ls "$KOSMOS_HOME"/board.stopped.by-install.* 2>/dev/null)" ]; } && ok "CONTROL: a person's marker is restored with no names" || bad "restore invented names"
 
 # --- 3. the real watchdog ---------------------------------------------------------------------------------------
 new_home() {
@@ -161,6 +202,10 @@ awk '/^  _kosmos_pause_name=""$/ { if (!a) a = NR } /if \[ "\$_kosmos_was_runnin
   && ok "setup.sh names its pause only when pausing a running board, before the stop" || bad "setup.sh's pause name is not where it should be"
 awk '/^_kosmos_on_exit\(\) \{/ { on = 1 } on && /rm -f "\$_kosmos_pause_name"/ { f = 1 } on && /^}/ { exit !f }' install/setup.sh \
   && ok "setup.sh's EXIT trap removes its own pause name" || bad "setup.sh's EXIT trap does not remove its pause name"
+fnbody install/kosmos cmd_start | grep -q 'rm -f "$STOP_MARKER" "$STOP_MARKER".by-install.\* 2>/dev/null || true' \
+  && ok "a start removes an update's names with the marker" || bad "a start leaves an update's names behind"
+awk '/elif ! _kosmos_mode_keeps_board_off && kosmos_stranded_pause >\/dev\/null; then/ { on = 1; next } on && /^  fi$/ { exit } on && /rm -f/ { bad = 1 } END { exit bad }' install/setup.sh \
+  && ok "adopting a stranded pause removes no names before this run's own exists" || bad "adoption removes the old names early"
 grep -q 'elif ! _kosmos_mode_keeps_board_off && kosmos_stranded_pause >/dev/null; then' install/setup.sh \
   && ok "a later update adopts a stranded pause (its own put-back covers it)" || bad "a later update does not adopt a stranded pause"
 
