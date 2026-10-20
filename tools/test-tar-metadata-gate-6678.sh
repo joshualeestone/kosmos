@@ -264,12 +264,18 @@ for pair in TERM:143 HUP:129; do
   sig=${pair%%:*}; want=${pair#*:}; st="$T/st-$sig"; mkdir -p "$st"
   TMPDIR="$st" /usr/bin/perl -e 'setpgrp(0, 0); exec @ARGV' /bin/bash -c '. "$1"; tar_metadata_gate "$2"' _ "$HERE/lib/tar-metadata-gate.sh" "$T/big.tgz" > /dev/null 2>&1 &
   cpid=$!; i=0
-  while [ "$i" -lt 200 ] && [ -z "$(ls -A "$st" 2>/dev/null)" ]; do /bin/sleep 0.05; i=$((i + 1)); done
+  # Review 10: a TIGHT poll (no sleep), so the signal lands as close to the folder's creation as it can: before the
+  # traps went in first, this left the folder behind every time.
+  while [ "$i" -lt 200000 ] && [ -z "$(ls -A "$st" 2>/dev/null)" ]; do i=$((i + 1)); done
   kill -s "$sig" "$cpid" 2>/dev/null; { wait "$cpid"; } 2>/dev/null; rc=$?
-  if [ "$i" -lt 200 ] && [ "$rc" = "$want" ] && [ -z "$(ls -A "$st")" ]; then pass "$sig during the unpack ends the gate with the signal ($want) and leaves nothing behind"
+  if [ "$i" -lt 200000 ] && [ "$rc" = "$want" ] && [ -z "$(ls -A "$st")" ]; then pass "$sig during the unpack ends the gate with the signal ($want) and leaves nothing behind"
   else fail "$sig during the unpack: rc=$rc (want $want), left: $(ls -A "$st" | tr '\n' ' ') (waited $i)"; /bin/chmod -RN "$st" 2>/dev/null; fi
 done
 rm -f "$T/big.tgz"
+# Review 10: the traps must be in place before the unpack folder exists. The gap left when they came after it is a few
+# microseconds, too short for any poll to hit reliably, so this order is pinned by the source text, not measured.
+ord=$(/usr/bin/awk '/for sig in INT TERM HUP QUIT; do trap/ { if (!t) t = NR } /\/bin\/mkdir -m 700 "\$d"/ { if (!m) m = NR } END { print (t && m && t < m) ? "ok" : t" "m }' "$HERE/lib/tar-metadata-gate.sh")
+[ "$ord" = ok ] && pass "the signal traps are installed before the unpack folder is made" || fail "the signal traps come after the unpack folder is made (lines $ord)"
 kept="$( /bin/bash -c 'trap "echo caller" TERM; . "$1"; tar_metadata_gate "$2" > /dev/null 2>&1; trap -p TERM' _ "$HERE/lib/tar-metadata-gate.sh" "$T/cleanx.tgz" )"
 if printf '%s' "$kept" | /usr/bin/grep -q 'echo caller'; then pass "a caller's own TERM trap is restored after the gate runs"
 else fail "the gate did not restore the caller's TERM trap: $kept"; fi

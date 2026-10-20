@@ -122,16 +122,26 @@ tar_metadata_headers() {
 # is a ._ file. A ._ entry that changes nothing on extraction is inert bytes; one that changes something is caught
 # here whatever shape hid it. Attributes are read with xattr -s, so a symlink in the tarball is never followed.
 # _tmg_rm DIR: remove an unpacked copy whatever its modes and ACLs (review 7: a deny-delete ACL also stopped rm).
-_tmg_rm() { /bin/chmod -RN "$1" 2>/dev/null; /bin/chmod -R u+rwX "$1" 2>/dev/null; /bin/rm -rf "$1"; }
+_tmg_rm() { [ -n "$1" ] || return 0; /bin/chmod -RN "$1" 2>/dev/null; /bin/chmod -R u+rwX "$1" 2>/dev/null; /bin/rm -rf "$1"; }
 tar_metadata_extracted() {
-  local tarball="$1" d bad scan=0 oldtrap
-  d="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tar-metadata-gate.XXXXXXXXXX")" || { echo "FAIL: the tarball metadata gate could not make a folder to unpack into" >&2; return 1; }
+  local tarball="$1" d="" bad scan=0 oldtrap
   # Review 6: removed whatever the tarball's modes, and on an interrupt too; a folder that will not go is a refusal.
   # Review 7: the interrupt is passed on after the cleanup (never swallowed), and the caller's own traps come back.
   # Review 9: a hangup too (a cut in tmux can get one when its session closes), and QUIT.
+  # Review 10: the traps go in BEFORE the folder is made (d empty until then, and removing "" does nothing), so no
+  # signal can land between making the folder and covering it.
   oldtrap="$(trap -p INT TERM HUP QUIT)"
   local sig; for sig in INT TERM HUP QUIT; do trap '_tmg_rm "$d"; trap - '"$sig"'; kill -s '"$sig"' $$' "$sig"; done
   _tmg_done() { _tmg_rm "$d"; trap - INT TERM HUP QUIT; [ -z "$oldtrap" ] || eval "$oldtrap"; }
+  # The name is chosen first and then made, so $d already names the folder the moment it exists (mktemp -d makes it
+  # before its name comes back). mkdir refuses a name that exists, so nothing planted there is followed.
+  local try=0 base="${TMPDIR:-/tmp}"; base="${base%/}"
+  while :; do
+    d="$base/tar-metadata-gate.$$.$RANDOM$RANDOM"
+    /bin/mkdir -m 700 "$d" 2>/dev/null && break
+    d=""; try=$((try + 1))
+    [ "$try" -lt 20 ] || { _tmg_done; echo "FAIL: the tarball metadata gate could not make a folder to unpack into" >&2; return 1; }
+  done
   # The attribute reader must be seen to work (a probe file with one attribute) before an empty answer means clean.
   if ! { printf 'p\n' > "$d/.kosmos-probe" && /usr/bin/xattr -w com.kosmos.probe 1 "$d/.kosmos-probe" 2>/dev/null \
          && [ "$(/usr/bin/xattr -s "$d/.kosmos-probe" 2>/dev/null)" = com.kosmos.probe ]; }; then

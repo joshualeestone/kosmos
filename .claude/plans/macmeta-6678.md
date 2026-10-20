@@ -109,6 +109,13 @@ an extended attribute. So both can go.
   as soon as its unpack folder appears, and require the signal's own exit (143, 129) with nothing left behind; and a
   caller's TERM trap must survive a normal run. Mutants: the traps removed, the signal swallowed, HUP not trapped,
   and the caller's traps not restored each fail an arm. The sized-entry arm covers type 1 (hard link) too.
+- **Review 10 (sonnet):** the traps were installed after the unpack folder was made, with a forked `trap -p`
+  between, so a signal in that gap left the folder behind (measured 30 of 30 with a tight poll). The traps now go in
+  before the folder exists, and the folder's name is chosen before `mkdir` makes it (`mktemp -d` makes the folder
+  before its name comes back), so `$d` names it from the moment it exists; `mkdir` refuses an existing name, so
+  nothing planted there is followed. The signal arms poll tightly now. Moving the traps after the folder again
+  leaves a gap of a few microseconds that no poll hits reliably, so that order is pinned by the source text (the
+  trap line before the `mkdir` line; red on the mutant), not measured.
 - **Refuse, not strip after the fact.** A gate that edits the tarball would change the bytes after signing-adjacent
   checks; refusing keeps the pack line the only place the bytes are made.
 - **Both tarballs.** The tmux bundle is built the same way, so it gets the same line and gate.
@@ -126,7 +133,7 @@ loudly, which is the safe direction.
 
 ## Tests
 
-- `bash tools/test-tar-metadata-gate-6678.sh`: 51 checks. The control packs a folder that HAS an extended attribute
+- `bash tools/test-tar-metadata-gate-6678.sh`: 52 checks. The control packs a folder that HAS an extended attribute
   the way the bundles pack, and passes. Then: plain packing refused; an AppleDouble entry refused and named (in a
   folder, at the top level, behind a long ustar-prefix path, behind a GNU long name, and behind a hand-made pax path
   record whose entry header says app/K, with a control that the same hand-made entry passes without it); a header
