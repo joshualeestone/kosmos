@@ -17,6 +17,8 @@ process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const STATE = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-sk-state-'));
 process.env.AGENT_WORKFORCE_TUNNEL_STATE = STATE;
 delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+// kosmos#6587 review 2: a developer's own export must not reach the "no env" arms (any spelling).
+for (const k of Object.keys(process.env)) if (k.toUpperCase() === 'KOSMOS_EXPECT_COORDINATOR_KEYS') delete process.env[k];
 const check = require('./servicekeys-check');
 const remote = require('./remote');
 
