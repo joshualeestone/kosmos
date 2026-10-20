@@ -43,6 +43,15 @@ the instruction tells agents to leave such a post to its owner.
   it ends the run and the volume count.
 - install/kosmos drops an owner name that arrived escaped (a quote or backslash), and says the general words.
 
+## Review 3 changes
+- The replying agent named in plain text in the hand-off (its session or display name, whole word, any case) is being
+  asked something, so its reply goes through; the other agents' acknowledgements are still left out.
+- The owner must still be a member of the room.
+- The owner's display name is cleaned by printableName before it reaches the agent's terminal (lifted from ambiguousNote,
+  #4653, so one definition serves both).
+- Deferred: the cut-reply retry keeps the general words in both CLIs (they stay in step; the general words are not false
+  there, only less specific).
+
 ## Tests (engine/messages.test.js, engine/defaults.test.js, cli.room-reopen-2710.test.js, tools.windows-kosmos-cli-570.test.js)
 - One owner named by the person: leo's first "agreed" refused (ack_only, names the owner, no quote characters, no
   hold words, not typed, not stored, no valve or refused row); mara's (the owner's) "on it" placed; leo's content
@@ -54,6 +63,8 @@ the instruction tells agents to leave such a post to its owner.
 - Review 1 arms: a hand-off that asks a question; a replyTo answering an earlier post (CONTROL: replying to the hand-off
   itself is refused); a hand-off three hours old.
 - Review 2 arms: a room-wide ask with no "?"; the person's later "ok thanks"; an outside content post.
+- Review 3 arms: leo asked by plain session name (CONTROL: april's ack in the same room is refused); leo asked by display
+  name; an owner who is not a member; a display name with a quote and a bidi control arrives cleaned.
 - Both CLIs: ack_only with owner names the owner; without it the old words stay (CONTROL); a quoted name falls back
   (bash).
 - Mutations: the rule switched off reds all three first tests; the author exemption removed reds the second; each of
