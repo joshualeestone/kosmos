@@ -445,11 +445,31 @@ const closeAll = (page) => page.evaluate(() => {
       const i = document.getElementById('fedinv-email');
       const l = i && document.querySelector('label[for="fedinv-email"]');
       return { here: !!i, type: i && i.type, value: i && i.value, label: l && l.textContent, max: i && i.getAttribute('maxlength'),
+        cap: i && i.getAttribute('autocapitalize'), fill: i && i.getAttribute('autocomplete'),
         sent: window.__posts.map((p) => p.body && typeof p.body === 'object' && 'email' in p.body) };
     });
     check('6681 the invite sheet has an optional email field, empty, and an empty one sends no email',
       em.here && em.type === 'email' && em.value === '' && /\(optional\)/.test(em.label || '') && em.max === '254'
+      && em.cap === 'off' && em.fill === 'off'   // design review: no capital first letter; never the person's own address
       && em.sent.length >= 1 && em.sent.every((x) => x === false), JSON.stringify(em));
+
+    // kosmos#6681 review 1: an address the board refuses (bad-email) marks the ADDRESS field, focused and invalid, with
+    // the page's sentence; and one the browser already sees is not an address is answered without a request at all.
+    await page.evaluate(() => { window.__posts.length = 0; window.__invite = { status: 400, body: { reason: 'bad-email', error: 'w' } }; });
+    await page.fill('#fedinv-email', 'dana@example');
+    await page.click('#fedinv-make');
+    await page.waitForFunction(() => document.getElementById('fedinv-email').getAttribute('aria-invalid') === 'true', { timeout: 4000 }).catch(waitNote());
+    const bad = await page.evaluate(() => ({ focus: document.activeElement && document.activeElement.id,
+      invalid: document.getElementById('fedinv-email').getAttribute('aria-invalid'), msg: document.getElementById('fedinv-msg').textContent,
+      label: document.getElementById('fedinv-label').getAttribute('aria-invalid'), posts: window.__posts.length }));
+    check('6681 a refused address marks the address field, focused, with the page\'s sentence',
+      bad.posts === 1 && bad.focus === 'fedinv-email' && bad.invalid === 'true' && bad.label === null && /email address does not look right/.test(bad.msg), JSON.stringify(bad));
+    await page.evaluate(() => { window.__posts.length = 0; });
+    await page.fill('#fedinv-email', 'dana');
+    await page.click('#fedinv-make');
+    const typo = await page.evaluate(() => ({ posts: window.__posts.length, invalid: document.getElementById('fedinv-email').getAttribute('aria-invalid') }));
+    check('6681 an address the browser sees is not one is answered at once, with no request', typo.posts === 0 && typo.invalid === 'true', JSON.stringify(typo));
+    await page.fill('#fedinv-email', '');
 
     // A4: the request. "Their agent", then Make.
     await page.evaluate((c) => { window.__posts.length = 0; window.__invite = { status: 200, body: { code: c.code, expires_at: c.expires, invite_id: 'inv-1' } }; }, { code: CODE, expires: EXPIRES });
@@ -1100,8 +1120,11 @@ const closeAll = (page) => page.evaluate(() => {
     const { ctx, page } = await newPage(1280, SHOW);
     await page.evaluate((a) => { window.__members = a; }, answer(ALL));
     await openProjectIn(page, 'tabs');
+    // kosmos#6681 review 1: an address left from an earlier invite on this page must not ride along into this one.
+    await page.evaluate(() => { document.getElementById('fedinv-email').value = 'stale@example.com'; });
     await act(page, 'i:inv-old');
     const sheet = await page.evaluate(() => ({
+      email: document.getElementById('fedinv-email').value,
       open: !document.getElementById('fedinv-modal').hidden,
       label: document.getElementById('fedinv-label').value,
       agent: document.getElementById('fedinv-kind-agent').checked,
@@ -1122,6 +1145,8 @@ const closeAll = (page) => page.evaluate(() => {
     const f = await readFed(page, '#pj-fed-outside');
     check('B7 the new code is made for the same label and kind', posts.length === 1 && posts[0].body.label === 'Old Friend'
       && posts[0].body.invited_kind === 'agent' && posts[0].body.project === 'k', JSON.stringify(posts));
+    check('6681 reopened, the sheet forgets an earlier address: the field is empty and no email is sent',
+      sheet.email === '' && posts.length === 1 && !('email' in posts[0].body), JSON.stringify({ email: sheet.email, posts }));
     check('B7 the list is asked again, and the expired row goes once a pending one has its label',
       (await gets(page)) > before && f.rows.some((r) => r.key === 'i:inv-new' && r.sub === 'Invited · until Oct 11') && !f.rows.some((r) => r.key === 'i:inv-old'),
       JSON.stringify(f.rows.map((r) => r.key + ' ' + r.sub)));
