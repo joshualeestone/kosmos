@@ -76,7 +76,19 @@ function readHead(got, max) {
     const bytes = Buffer.alloc(want);
     let off = 0;
     while (off < want) { const n = fs.readSync(fd, bytes, off, want - off, off); if (n <= 0) break; off += n; }
-    return { ok: true, bytes: bytes.subarray(0, off), cut: st.size > off };
+    let end = off;
+    /* Iteration 4: a cut can fall inside a UTF-8 character; its partial bytes are dropped, so the start shown ends on a
+       whole character rather than a replacement mark. */
+    if (st.size > off) {
+      let i = end - 1;
+      while (i >= 0 && i > end - 4 && (bytes[i] & 0xc0) === 0x80) i -= 1;
+      if (i >= 0) {
+        const lead = bytes[i];
+        const len = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
+        if (i + len > end) end = i;
+      }
+    }
+    return { ok: true, bytes: bytes.subarray(0, end), cut: st.size > off };
   } catch { return { ok: false, because: 'that file could not be read' }; }
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
