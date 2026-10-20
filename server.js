@@ -17952,7 +17952,9 @@ const server = http.createServer(async (req, res) => {
     let stuckDrafts = [];
     try { stuckDrafts = require('./engine/unsentdrafts').list((card && card.sessionName) || name); } catch { stuckDrafts = []; }
     const servedMessages = Array.isArray(messages)
-      ? chat.withAccountRow(chat.withQuestionRow(chat.withDraftRows(messages, stuckDrafts), (card && card.sessionName) || name, questionRow),
+      /* Drafts after the question row: an undated question is deduped against the trailing stored row, which a draft must
+         not stand in front of; drafts are placed among dated rows only, so they still sit before it. */
+      ? chat.withAccountRow(chat.withDraftRows(chat.withQuestionRow(messages, (card && card.sessionName) || name, questionRow), stuckDrafts),
         (card && card.sessionName) || name, accountProblemOf(card))
       : messages;
     /* #3650: the person's reactions on the agent's messages, in the room's pill shape
