@@ -45,6 +45,27 @@
 # ready.
 _SITE_NL="$(printf '\nx')"; _SITE_NL="${_SITE_NL%x}"
 _SITE_CARRIED=""
+# kosmos#6738: the site's admin view decides "a version not yet served" from api/_servedversions.js, a table the site's
+# tools/served-versions.sh builds from the git history of dist/latest*.json. Nothing rebuilt it when a pointer moved,
+# so a just-released version counted as served from the table's last row on, and its release-test pings as real
+# installs. This rebuilds it INSIDE THE EXPORT from the history of the very commit being deployed, so every deploy
+# (a release, deploy-site.sh, a promote) serves a table that includes its own pointers. A commit cannot record
+# itself, which is why this is not done as a commit. It never writes the shared site checkout: the generator runs
+# from the export with the site's own .git named by GIT_DIR, and writes the export's copy. A commit from before the
+# generator existed has none, and keeps its table. A generator that fails WARNS and leaves the committed table in
+# place: a stale admin count is not a reason to refuse a deploy.
+_site_served_versions() {
+  local site="$1" out="$2" sha="$3" gd
+  [ -f "$out/tools/served-versions.sh" ] || return 0
+  gd="$(git -C "$site" rev-parse --absolute-git-dir 2>/dev/null)" || { echo "   ⚠️ served-versions table NOT rebuilt (cannot find $site's .git); the committed one ships" >&2; return 0; }
+  if GIT_DIR="$gd" bash "$out/tools/served-versions.sh" "$sha" >/dev/null 2>&1 && grep -q '^export const SERVED' "$out/api/_servedversions.js" 2>/dev/null; then
+    echo "   rebuilt api/_servedversions.js from the history of $(printf '%.8s' "$sha") ($(grep -c "^  \['" "$out/api/_servedversions.js") rows)"
+  else
+    # The generator writes through a temp file, so a failure leaves the archived (committed) table in the export as is.
+    echo "   ⚠️ served-versions table NOT rebuilt (the generator failed); the committed one ships" >&2
+  fi
+}
+
 site_deploy_export() {
   local site="${1:?site_deploy_export needs the site checkout}" out="${2:?site_deploy_export needs an output dir}" want="${3:-HEAD}"
   local head f n bytes tarf
@@ -69,6 +90,7 @@ site_deploy_export() {
   if ! git -C "$site" archive --format=tar "$head" > "$tarf"; then echo "site_deploy_export: git archive of $head failed" >&2; rm -f "$tarf"; rm -rf "$out"; return 1; fi
   if ! tar -x -C "$out" -f "$tarf"; then echo "site_deploy_export: could not extract the archive of $head" >&2; rm -f "$tarf"; rm -rf "$out"; return 1; fi
   rm -f "$tarf"
+  _site_served_versions "$site" "$out" "$head"
   # The named artifact classes, from the working tree, because that is
   # where the release puts them and git does not carry them.
   mkdir -p "$out/dist" "$out/.vercel"
