@@ -39,6 +39,14 @@ could not build its command, so no test ran. The second wrote one line per file 
 - helper a no-op: cli.msgqueue-5187 and server.subtasks-3861 fail 3 each again in the agent shell.
 - the runner drops KOSMOS_AGENT_SESSION from its unset line: the pin test fails.
 
+## Review 1 (applied)
+- [WARNING] the guard knew only the spread form; `env: withoutAgentIdentity(process.env)` or a variable assigned from
+  it matched nothing and then passed. Now the helper in any non-spread shape is flagged outright, as `env:
+  process.env` is (two controls; conservative on purpose: such a shape can carry no data root after it).
+- [NIT] the pin now runs both ways (a KOSMOS_AGENT_* the runner clears must be in the helper too).
+- [NIT] left, recorded: install/kosmos also reads an inherited TMUX_PANE (through the pane's @kosmos_agent claim) as
+  an agent. These tests set TMUX_PANE themselves and the sweep is green, so it is not red today.
+
 ## Weakest premise
 That these three names are the whole of the agent identity a CLI test can inherit. install/kosmos recognises an agent
 by KOSMOS_AGENT_SESSION or KOSMOS_AGENT_TOKEN (line ~1468), and TOKEN_ONLY changes which token it sends; a future

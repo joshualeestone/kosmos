@@ -14,6 +14,9 @@ test('#6740 every agent-identity name the helper clears is also unset by tools/r
   assert.ok(unset.size > 0, 'premise: the runner unsets something (the parse found its unset lines)');
   const missing = AGENT_IDENTITY.filter((k) => !unset.has(k));
   assert.deepEqual(missing, [], 'named by the helper but not unset by the runner: ' + missing.join(', '));
+  // Review 1: and the other way: an agent-identity name the runner clears is one a test run on its own clears too.
+  const extra = [...unset].filter((k) => /^KOSMOS_AGENT_/.test(k) && !AGENT_IDENTITY.includes(k));
+  assert.deepEqual(extra, [], 'unset by the runner but not by the helper: ' + extra.join(', '));
 });
 
 test('#6740 the helper removes the identity, keeps everything else, and leaves its input alone', () => {
