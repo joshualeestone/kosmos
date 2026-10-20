@@ -66,6 +66,10 @@ const BOARD_PERSON_MARK = process.env.KOSMOS_BOARD_PERSON_MARK;
 delete process.env.KOSMOS_BOARD_STARTED_BY;
 delete process.env.KOSMOS_BOARD_PERSON_MARK;
 delete process.env.KOSMOS_START_BY;   // the watchdog's word to `kosmos start`; the launchers strip it, this is the backstop
+/* #6659 (review 3): the path this board's copy was installed under, from install/kosmos, kept for the update and taken
+   out of the environment, so no agent or pane this board starts inherits a home. */
+require('./engine/update').setInstalledHomeAsInstalled(process.env.KOSMOS_INSTALLED_HOME);
+delete process.env.KOSMOS_INSTALLED_HOME;
 /* #5112: before any tmux is asked anything, forget an inherited $TMUX (engine/sandbox.js says why). The real start only:
    the routing tests require this file, and the test runner's own $TMUX is not this board's to change. */
 if (require.main === module) require('./engine/sandbox').dropInheritedTmux(process.env);
