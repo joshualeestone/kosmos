@@ -69,6 +69,7 @@ _site_served_versions() {
   tmp="$(mktemp -d "$out.served.XXXXXX" 2>/dev/null)" || { echo "   ⚠️ served-versions table NOT rebuilt (no temp dir beside $out); the committed one ships" >&2; return 0; }
   if [ -f "$tab" ]; then cp -p "$tab" "$tmp/keep" 2>/dev/null || { rm -rf "$tmp"; echo "   ⚠️ served-versions table NOT rebuilt (could not keep the committed one aside); the committed one ships" >&2; return 0; }; fi
   want="$(grep -c "^  \['" "$tmp/keep" 2>/dev/null || true)"; want="${want:-0}"
+  rm -f "$tab"   # review 4: so a run that exits 0 without writing cannot pass as a rebuild of the commit's own table
   GIT_DIR="$gd" bash "$out/tools/served-versions.sh" "$sha" >/dev/null 2>"$tmp/err" || grc=$?
   rows="$(grep -c "^  \['" "$tab" 2>/dev/null || true)"; rows="${rows:-0}"
   # Review 3: a whole module (its opening and its closing line), not just a header, or the admin API would fail to parse.

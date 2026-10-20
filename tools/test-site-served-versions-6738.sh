@@ -91,6 +91,17 @@ man7="$(site_deploy_export "$S" "$T/out7" "$HALF" 2>"$T/err7")"; rc7=$?
   && printf '%s\n' "$man7" | grep -q "pages:   commit $HALF\$" \
   && ok "half a module (no closing line) is not shipped, says why, and the pages line is the plain commit" || bad "half module: rc=$rc7 $(cat "$T/err7") | $man7"
 
+# Review 4: a generator that exits 0 and writes NOTHING is not a rebuild: the committed table ships and the manifest
+# says the plain commit.
+git -C "$S" checkout -q "$SHA" -- api/_servedversions.js 2>/dev/null || true
+printf '#!/bin/bash\nexit 0\n' > "$S/tools/served-versions.sh"
+git -C "$S" add -A && git -C "$S" commit -q -m "a generator that writes nothing"
+NONE="$(git -C "$S" rev-parse HEAD)"
+man8="$(site_deploy_export "$S" "$T/out8" "$NONE" 2>"$T/err8")"; rc8=$?
+[ "$rc8" = 0 ] && cmp -s "$T/out8/api/_servedversions.js" <(git -C "$S" show "$NONE:api/_servedversions.js") && grep -q "the generator wrote no whole table" "$T/err8" \
+  && ! printf '%s\n' "$man8" | grep -q "rebuilt api" && printf '%s\n' "$man8" | grep -q "pages:   commit $NONE\$" \
+  && ok "a generator that writes nothing is not called a rebuild; the committed table ships" || bad "silent generator: rc=$rc8 $(cat "$T/err8") | $man8"
+
 # Review 2: called BARE under `set -e` (no `||` to suspend errexit), in the case that used to abort: a commit with no
 # table at all and a generator giving zero rows (grep -c counts 0 and exits 1).
 git -C "$S" rm -q api/_servedversions.js && git -C "$S" commit -q -m "no table, short generator"

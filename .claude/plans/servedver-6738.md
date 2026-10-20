@@ -73,3 +73,9 @@ what is served, so it stops firing.
 - [NIT] the manifest's "pages: commit" line hid the rebuilt file --> FIXED: it says ", except api/_servedversions.js".
 - [NIT] a stale line in this plan --> FIXED.
 - Tests 13/13 under /bin/bash; the lib sources under /bin/sh with set -eu.
+
+## Review round 4 (blind, sonnet)
+- [WARNING] a generator exiting 0 without writing left the committed table in place, which passed every check and was
+  reported "rebuilt" (and named in the manifest) --> FIXED: the table is removed after the keep-aside and before the
+  run, so a silent run falls into "wrote no whole table" and the committed table comes back. New test; MUTANT (no
+  removal) turns it red. 14/14.
