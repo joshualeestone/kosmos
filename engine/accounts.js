@@ -525,6 +525,8 @@ function defaultFolderClaudeVersion(plat, env) {
  * on its own port and data folder) would point every agent's hooks on this computer at its throwaway engine, since
  * the script path is its own; it is the same question win32board.bundleRoot answers for the logon task (null for a
  * source checkout and for a build in the updater's folder), so such a board skips, says why, and touches nothing.
+ * NOT covered: a second BUILT bundle extracted elsewhere and started as a test board passes bundleRoot and still writes
+ * its own path here (an engine-path pointer check was rejected: an update may move the engine before the pointer).
  * `platform`, `script`, `node`, `claudeVersion`, `bundleRoot` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
  * when absent); a caller that retries on its own passes 0 (a held lock then refuses within one 20 ms spin), since
  * withFileLock's wait blocks the event loop.

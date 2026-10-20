@@ -198,6 +198,9 @@ test('#6601: a board that is not an installed bundle skips, says why, and leaves
   assert.ok(!fs.readFileSync(s.settings, 'utf8').includes('worktree'), 'the hooks now point at the worktree');
 });
 
+/* On a Mac this shows the gate is reached with nothing injected, not that bundleRoot tells a checkout from a bundle:
+   bundleRoot asked about win32 joins with path.win32, which no Mac path can satisfy. On the Windows runner
+   (tools/windows-tests.js lists this file) it does tell them apart. */
 test('#6601: with nothing injected, this source checkout is not an installed bundle, so it writes nothing', (t) => {
   const s = sandbox(t);
   const r = accounts.wireDefaultHooks({ platform: 'win32', node: s.node });
