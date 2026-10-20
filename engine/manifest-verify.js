@@ -136,6 +136,22 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     const get = (url, out) => spawnSync('curl', ['-fsSL', '--connect-timeout', '30', '--speed-limit', '1024', '--speed-time', '60', url, '-o', out], { stdio: ['ignore', 'ignore', 'inherit'] }).status === 0;
     const files = { setup: path.join(dir, 'setup'), manifest: path.join(dir, 'manifest.json'), sig: path.join(dir, 'manifest.sig') };
     const b = String(base || '').replace(/\/+$/, '');
+    /* #6609 phase 2a: with a recovery key pinned, the release key list comes FIRST: fetched from the release base and
+       taken (trustedKeys keeps this copy's record, so an older list cannot come back), and the installer's manifest is
+       checked with the list's keys, not the built-in ones. No list, no update: a site that withholds it must not leave
+       a revoked key trusted. Off (RECOVERY_KEYS empty), nothing more is fetched and KEYS decide exactly as before. */
+    let keys = KEYS;
+    if (RECOVERY_KEYS.length) {
+      const list = { bytes: path.join(dir, 'release-keys.json'), sig: path.join(dir, 'release-keys.json.sig') };
+      if (!get(`${b}/release-keys.json`, list.bytes) || !get(`${b}/release-keys.json.sig`, list.sig)) {
+        return sayFetch('the release key list could not be downloaded');
+      }
+      let t;
+      try { t = trustedKeys({ listBytes: fs.readFileSync(list.bytes), listSig: fs.readFileSync(list.sig, 'utf8'), home }); }
+      catch { t = { ok: false, why: 'the release key list could not be read' }; }
+      if (!t.ok) return say(t.why);
+      keys = t.keys;
+    }
     if (!get(setupUrl, files.setup)) return sayFetch('the installer could not be downloaded');
     // arm64 only, as setup.sh's ARCH is on a Mac (an Intel Mac is refused before any update is offered).
     if (!get(`${b}/kosmos-${version}-arm64.manifest.json`, files.manifest) || !get(`${b}/kosmos-${version}-arm64.manifest.json.sig`, files.sig)) {
@@ -143,7 +159,7 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     }
     let installedVersion = '';
     try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
-    const r = verifySetup({ manifest: files.manifest, sig: files.sig, setup: files.setup, version, installedVersion });
+    const r = verifySetup({ manifest: files.manifest, sig: files.sig, setup: files.setup, version, installedVersion, keys });
     // Exit 3 (no key pinned, or a manifest that records no installer) is NOT a pass here (review 1): every release this
     // code can update to is cut with setup_sha256, so a signed manifest without it is a cut gone wrong, and a site that
     // could serve one would run any installer it liked.
