@@ -30,7 +30,8 @@ offline; a cold cache refuses, with a hint to run `cargo fetch --locked` first),
 the two commits, and the release's tmux bundle. The manifest is signed, so
 the inputs are the ones the release vouched for. With the same generator, the same release always gives a
 byte-identical file (the serial
-number is derived from the format, the generator's own source hash and the tarball sha). LIMIT (review 5): the tmux bundle is served under one unversioned name, so
+number is derived from the format, the generator's own source hash and a hash of the WHOLE signed manifest: review
+37 showed a manifest differing only in the installer or the tmux bundle kept the old serial). LIMIT (review 5): the tmux bundle is served under one unversioned name, so
 an older release's SBOM can be rebuilt only while the bundle it shipped is still the one served (or kept); once tmux
 is rebuilt, the old release refuses on the hash, the safe direction. Publishing the SBOM at the cut (below) is the
 real fix.
@@ -52,7 +53,7 @@ real fix.
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
   checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
-- **`tools.sbom-o05.test.js`:** 53 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
+- **`tools.sbom-o05.test.js`:** 55 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
   must equal build()'s output byte for byte. Every rule added in reviews 1 to 35, apart from the time limits named below, as measured in my own mutant runs, has a mutant that fails an arm, run at
   the time of the change (the first version, then rounds with a rule in order; a round that added no rule has no entry: four, eight, six, eleven, six, seven,
@@ -129,7 +130,9 @@ real fix.
   lint pass.
 
 ## Not covered, by design
-- (Review 36.) The three real-Cargo arms SKIP where cargo cannot run, so a machine without Rust can still run this
+- (Review 37.) Native code is checked by name and extension, not by reading the tarball: a Mach-O named x.sh in
+  app/bin/ or x.js under app/engine/ would pass. This is part of the first-party LIMIT.
+- (Review 36.) The two real-Cargo arms SKIP where cargo cannot run, so a machine without Rust can still run this
   file; a skip is not a pass. A broken cargo (10-19: its rustup shim missing) and an absent one look the same from
   here, so failing instead would also fail every machine without Rust. Before a release, check the run reports
   `skipped 0`: the cut machine has cargo.

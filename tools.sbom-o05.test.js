@@ -282,6 +282,27 @@ test('the build refuses when Cargo resolves the lock to other packages than the 
     /Cargo\.lock as read here is not what Cargo resolves/);
 });
 
+test('every vouched field of the named parts (review 37): the connector version, each commit, the bundle name, the installer is a leaf, and the serial covers the whole manifest', () => {
+  const b = sbom();
+  assert.equal(comp(b, 'connector').version, '0.1.0');
+  assert.equal(comp(b, 'connector').description, `the Plus connector, kosmos-relay ${'b'.repeat(40)}`);
+  assert.match(b.metadata.component.description, new RegExp(`app ${'a'.repeat(40)}$`));
+  assert.equal(comp(b, 'tmux-bundle').name, 'tmux-arm64.tar.gz');
+  assert.deepEqual(deps(b, 'setup'), []);
+  assert.equal(comp(b, 'node').description, 'Node.js runtime, the official darwin-arm64 tarball');
+  const other = sbom({ ...MANIFEST, setup_sha256: SHA('c') });
+  assert.notEqual(other.serialNumber, b.serialNumber, 'a manifest differing only in the installer kept the serial');
+  assert.equal(sbom().serialNumber, b.serialNumber, 'the control: the same manifest gives the same serial');
+});
+
+test('a package the lock reader sees but Cargo does not refuses with the comparison\'s own message (review 37)', () => {
+  const { lockMatchesCargo } = require(SBOM_JS);
+  const pkgs = parseLock(LOCK);
+  const graph = cargoGraph(LOCK).filter((p) => p.name !== 'serde');
+  assert.throws(() => lockMatchesCargo(pkgs, graph.map((p) => ({ ...p, deps: p.deps.filter((d) => !d.startsWith('serde@')) }))),
+    /read but not Cargo's \["serde@1\.0\.228#[^"]*"\]/);
+});
+
 test('the lock reader reads only what Cargo writes: a commented header, another table or a stray line refuses (review 31)', () => {
   const q3 = '"'.repeat(3);
   assert.throws(() => parseLock(LOCK.replace('[[package]]\nname = "rustls"', '[[package]] # hidden\nname = "rustls"')), /a table this SBOM does not read: \[\[package\]\] # hidden/);
@@ -642,7 +663,8 @@ test('real Cargo, offline: a lock that matches passes; every way a Cargo.toml ca
   const base = fs.readFileSync(path.join(root, 'a/Cargo.toml'), 'utf8');
   for (const extra of ['evil = { path = "../evil" }', 'evil = { "path" = "../evil" }', "evil = { path = '''../evil''' }", 'registrycrate = "1"']) {
     fs.writeFileSync(path.join(root, 'a/Cargo.toml'), base + extra + '\n');
-    assert.throws(() => cargoWorkspace(root, commit()), /Cargo does not agree the Cargo\.lock is what the Cargo\.toml files resolve to/, extra);
+    // Offline, a dependency in neither the lock nor the cache reads like a cold cache; either refusal is right.
+    assert.throws(() => cargoWorkspace(root, commit()), /Cargo does not agree the Cargo\.lock is what the Cargo\.toml files resolve to|crates are missing from CARGO_HOME/, extra);
   }
   fs.writeFileSync(path.join(root, 'a/Cargo.toml'), base);
   put('Cargo.toml', '[workspace]\nresolver = "2"\nmembers = ["a", "b"]\n\n["patch".crates-io]\nb = { path = "evil" }\n');
@@ -715,6 +737,7 @@ test('real Cargo, offline: a lock that matches passes; every way a Cargo.toml ca
       [[['a/.CARGO/config', '[source.crates-io]\n']], /a\/\.CARGO\/config is Cargo configuration/],
       [[['b/cargo.TOML', '[package]\n']], /b\/cargo\.TOML is a Cargo file in another case/],
       [[['Cargo.LOCK', 'x']], /Cargo\.LOCK is a Cargo file in another case/],
+      [[['vendored', 'x', '160000']], /vendored is not a plain file \(mode 160000\)/],
       [[['rust-toolchain.toml', '[toolchain]\nchannel = "1.2.3"\n']], /rust-toolchain\.toml names a Rust toolchain/],
       [[['a/RUST-TOOLCHAIN', '1.2.3\n']], /a\/RUST-TOOLCHAIN names a Rust toolchain/],
       [[['a/src/Lib.rs', '']], /a\/src\/lib\.rs and a\/src\/Lib\.rs are one path|a\/src\/Lib\.rs and a\/src\/lib\.rs are one path/],

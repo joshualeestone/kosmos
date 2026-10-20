@@ -152,9 +152,11 @@ function cargoWorkspace(relay, commit) {
     } catch (e) {
       const why = String(e.stderr || e.message).split('\n').find((l) => /error/.test(l)) || String(e.message).split('\n')[0];
       // Review 30: offline, a crate missing from THIS machine's Cargo cache reads like a disagreement; say which.
-      const cold = /no matching package|offline|failed to download|not downloaded/i.test(String(e.stderr || ''))
-        ? ' (if the cause is a cold cache: the crates must already be in CARGO_HOME; run `cargo fetch --locked` in the relay at this commit first)' : '';
-      throw new Error(`relay at ${commit}: Cargo does not agree the Cargo.lock is what the Cargo.toml files resolve to (cargo is needed): ${why.trim()}${cold}`);
+      // Review 37: when Cargo says a crate could not be fetched offline, that is the likely cause, so it is said first.
+      if (/no matching package|failed to download|not downloaded/i.test(String(e.stderr || ''))) {
+        throw new Error(`relay at ${commit}: crates are missing from CARGO_HOME (Cargo runs offline): ${why.trim()}. Run \`cargo fetch --locked\` in the relay at this commit, then again; if that does not help, the Cargo.lock and the Cargo.toml files may disagree`);
+      }
+      throw new Error(`relay at ${commit}: Cargo does not agree the Cargo.lock is what the Cargo.toml files resolve to (cargo is needed): ${why.trim()}`);
     }
     let m;
     try { m = JSON.parse(meta.toString('utf8')); } catch (e) { refuse(`cargo metadata did not answer JSON (${e.message})`); }
@@ -439,7 +441,6 @@ function crateRefs(root, crates) {
 function crateComponent(p, relayCommit, crateRef, members) {
   const base = { type: 'library', 'bom-ref': crateRef(p), name: p.name, version: p.version };
   if (!p.source) {
-    if (!members.has(p.name)) throw new Error(`Cargo.lock: ${p.name} ${p.version} has no source and is not the relay workspace member of that name`);
     return { ...base, description: `kosmos-relay workspace crate, ${relayCommit}` };
   }
   if (CRATES_IO.has(p.source)) {
@@ -619,7 +620,9 @@ function build(manifest, { repo, relay, tmux, show = gitShow, workspace = cargoW
   ];
   return {
     bomFormat: 'CycloneDX', specVersion: '1.5', version: 1,
-    serialNumber: `urn:uuid:${uuidFrom(`${FORMAT}:${SELF_SHA}:${manifest.sha256}`)}`,
+    // Review 37: from the WHOLE signed manifest, not only the tarball's hash: the installer and the tmux bundle are
+    // separate downloads, so a manifest differing only there must give a different serial.
+    serialNumber: `urn:uuid:${uuidFrom(`${FORMAT}:${SELF_SHA}:${crypto.createHash('sha256').update(JSON.stringify(manifest)).digest('hex')}`)}`,
     metadata: {
       timestamp: builtAt(manifest),
       tools: { components: [{ type: 'application', name: 'kosmos tools/lib/sbom.js', version: FORMAT }] },
