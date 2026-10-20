@@ -41,8 +41,13 @@ test('the quote carries a visible attribution', () => {
 test('the label follows the quote exactly', () => {
   const i = PAGE.indexOf("const said = document.getElementById('d-said');");
   assert.ok(i > -1, 'the evidence painter moved; re-anchor');
-  const block = PAGE.slice(i, i + 2200); // #3958 added a guard and its comment inside; #6716 the fold's gate
+  // Up to the next section's marker, not a character count: a count went stale each time a comment grew (#6716 review 7).
+  const end = PAGE.indexOf('/* kosmos#1918: the reachable remedy', i);
+  assert.ok(end > i, 'the next section marker moved; re-anchor');
+  const block = PAGE.slice(i, end);
   assert.match(block, /said\.hidden = !line;/, 'the quote no longer hides when empty');
+  // #6716: the fold around the label and quote is what a person sees hide, so it must follow the quote too.
+  assert.match(block, /saidBox\.hidden = !line;/, 'the screen-line fold does not hide with the quote');
   assert.match(block, /saidLab\.hidden = !line;/,
     'the label does not hide with the quote, so an agent with no evidence keeps a stranded heading');
 });
