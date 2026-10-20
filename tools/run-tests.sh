@@ -381,6 +381,7 @@ export KOSMOS_NO_LEGACY_MIGRATION=1
 # ruling: the real install ping is never removed or made opt-out-able); only this
 # harness points it, and the daily report, at a dead local port.
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
+export KOSMOS_UPDATE_PAUSE_URL=http://127.0.0.1:9/v1/meta   # kosmos#6620: the update pause asks a dead port, never the coordinator
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
 export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test that inherits this env writes no language block, whatever this Mac's language is

@@ -23,6 +23,7 @@ const { spawn } = require('node:child_process');
 const liveExec = require('./live-execution');
 const platformGate = require('./platform'); // #570: can this OS replace its own Kosmos?
 const updating = require('./updating');
+const manifestVerify = require('./manifest-verify'); // kosmos#6620: the fleet's update pause
 const { version: RUNNING } = require('../package.json');
 
 const DEFAULT_BASE = 'https://installkosmos.com/dist';
@@ -415,6 +416,9 @@ async function refresh() {
       }
       cache = { at: Date.now(), latest, reached: true, readable: latest !== null, base: lookBase, channel, pointer };
       landed = true;
+      // kosmos#6620: only with a newer version on offer, ask whether the fleet's updates are paused (fails open), so
+      // the board can say so instead of an installer that "stopped" (run-setup's own sentence goes to no screen).
+      if (available()) cache.paused = await manifestVerify.pausedAsync({});
     }
   } finally {
     clearTimeout(timer);
@@ -485,6 +489,7 @@ function maybeAutoInstall() {
     /* #6173: not while an account move restarts agents; the install restarts the board, and a board restarted between
        an agent's bootout and bootstrap leaves it unloaded. The next look installs. */
     if (autoDefer && autoDefer()) return;
+    if (cache.paused === true) return;   // kosmos#6620: the fleet's update pause; the next look asks again
     beginInstall({ auto: true });
   } catch { /* an update that cannot start must not break the one that shows */ }
 }
@@ -1335,7 +1340,13 @@ function prodPublishesRunning() {
   return cache.latest.version.trim() === String(RUNNING).trim();
 }
 
+/** kosmos#6620: the last look found the fleet's updates paused. */
+function paused() { return cache.paused === true; }
+
 module.exports = {
+  paused, // kosmos#6620
+  PAUSED_SENTENCE: manifestVerify.PAUSED_SENTENCE, // kosmos#6620
+
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, windowsBuildName, windowsGenericName, // the per-platform check (win32-update-check)
   installOffer, // S4: the [Update] offer (installedRoot AND not a refused win32 location); one derivation

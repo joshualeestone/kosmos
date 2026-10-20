@@ -34,11 +34,24 @@ function meta(body) {
 }
 
 test('pauseUrl: the default coordinator, a named one, nothing under test, nothing when told to ignore', () => {
-  assert.equal(mv.pauseUrl({}), 'https://login.kosmosplus.com/v1/meta');
-  assert.equal(mv.pauseUrl({ AGENT_WORKFORCE_TUNNEL_COORDINATOR: 'https://c.example/' }), 'https://c.example/v1/meta');
   assert.equal(mv.pauseUrl({ NODE_TEST_CONTEXT: 'child' }), null, 'a test that names no address asks nothing');
   assert.equal(mv.pauseUrl({ NODE_TEST_CONTEXT: 'child', KOSMOS_UPDATE_PAUSE_URL: 'file:///x' }), 'file:///x');
   assert.equal(mv.pauseUrl({ KOSMOS_UPDATE_IGNORE_PAUSE: '1', KOSMOS_UPDATE_PAUSE_URL: 'file:///x' }), null);
+});
+
+test('pauseUrl: the default is the same coordinator remote access uses (engine/remote.js), and a test env of its own asks nothing', () => {
+  const remote = fs.readFileSync(path.join(__dirname, 'engine', 'remote.js'), 'utf8').match(/const DEFAULT_COORDINATOR = '([^']+)'/);
+  assert.ok(remote, 'engine/remote.js no longer names DEFAULT_COORDINATOR this way; re-pin this test');
+  assert.equal(mv.PAUSE_DEFAULT_COORDINATOR, remote[1]);
+  // Outside a test runner (a child without NODE_TEST_CONTEXT), the address is built from the default or the override.
+  const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+  const ask = (e) => spawnSync(process.execPath, ['-e', 'process.stdout.write(String(require(process.argv[1]).pauseUrl(JSON.parse(process.argv[2]))))',
+    path.join(__dirname, 'engine', 'manifest-verify.js'), JSON.stringify(e)], { encoding: 'utf8', env }).stdout;
+  assert.equal(ask({}), remote[1] + '/v1/meta');
+  assert.equal(ask({ AGENT_WORKFORCE_TUNNEL_COORDINATOR: 'https://c.example/' }), 'https://c.example/v1/meta');
+  // Under this test runner, an env handed in WITHOUT NODE_TEST_CONTEXT still asks nothing (review 1).
+  assert.equal(mv.pauseUrl({ LOCALAPPDATA: 'x' }), null);
+  assert.equal(mv.pauseUrl({ KOSMOS_UPDATE_PAUSE_URL: 'file:///y' }), 'file:///y', 'a named address still wins');
 });
 
 test('pausedIn: only an object whose updates_paused is exactly true', () => {

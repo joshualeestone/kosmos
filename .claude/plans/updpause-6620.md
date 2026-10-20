@@ -13,6 +13,9 @@ board half. The release pointer freeze (step 1) is a separate PR.
   board's existing retry and backoff take the update once the pause is off. The functions live in this file, not a
   module of their own, because run-setup is a frozen interface also run by .pkg files already downloaded, and test
   fixtures carry this one file.
+- `engine/update.js`: when a look finds a newer version, it also asks the pause (only then, so an up-to-date board
+  makes no extra request); while paused the automatic install waits and `/api/update` (server.js) refuses with the
+  pause sentence, which the confirm dialog shows. run-setup's own sentence goes to no screen (review 1).
 - `engine/win32update.js` `begin`: a NEW install (after the unfinished-journal handling, which is never held) waits
   out the pause with the same sentence.
 
@@ -24,9 +27,15 @@ board half. The release pointer freeze (step 1) is a separate PR.
   holds every update whenever the coordinator blinks cannot take a security fix. So the pause covers computers that
   can reach the coordinator; for the rest the signed manifest is the only defence.
 - **Exactly `true`**: `"updates_paused": "true"` or `1` is not paused (a strict read cannot be steered by a lookalike).
-- **Under test**: `NODE_TEST_CONTEXT` (inherited by spawned children) and no `KOSMOS_UPDATE_PAUSE_URL` means nothing
-  is asked, so no test reaches a real server.
-- **Operator override**: `KOSMOS_UPDATE_IGNORE_PAUSE=1`.
+- **Under test**: `NODE_TEST_CONTEXT` in the given env OR this process's own, and no `KOSMOS_UPDATE_PAUSE_URL`, means
+  nothing is asked; tools/run-tests.sh (and tools/test-pkg-checksum-1670.sh, which runs run-setup under plain bash)
+  point the address at a dead local port. MEASURED after review 1: the win32connectupdate, win32update, update and
+  this card's tests under a preload that records every fetch to the coordinator: 0 requests (a positive control with
+  the same preload recorded 1). Review 1 had measured 18 before the fix.
+- run-setup asks with its own curl (`-q`, so no `.curlrc`), never the injected spawnSync, so a test that counts its
+  downloads sees only those.
+- **Two overrides, both needing control of the computer's env**: `KOSMOS_UPDATE_IGNORE_PAUSE=1` skips the question;
+  `KOSMOS_UPDATE_PAUSE_URL` asks another address.
 - **Same address as remote access**: `AGENT_WORKFORCE_TUNNEL_COORDINATOR` or `https://login.kosmosplus.com`.
 
 ## Disclosure
@@ -41,9 +50,14 @@ want one line saying so: a follow-up there, not built here.
   `deploy/coordinator-monitor.sh`, as its own small PR.
 - The release pointer freeze (runbook e step 1).
 
+## Not held today (decided, a follow-up card)
+
+A .pkg install that takes the pinned path (once install/pkg-verify/floor stops reading "off") and a pasted install
+line run over an existing install run the installer without run-setup, so they are not held (review 1).
+
 ## Weakest premise
 
-That `runSetup` and `begin` really are the only ways a newer version gets installed. The map (2026-10-20) found
+That `runSetup` and `begin` (plus the board's own check) are the only ways a newer version gets installed today. The map (2026-10-20) found
 `beginInstall`, the CLI, the .pkg postinstall and the native app all reaching one of the two; a path added later that
 installs without them would not be held.
 

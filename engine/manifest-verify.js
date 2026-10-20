@@ -169,9 +169,16 @@ function verifySetup({ manifest, sig, setup, version, installedVersion, keys = K
  * paused": a fleet that holds every update whenever the coordinator blinks cannot take a security fix. So the pause
  * covers the computers that can reach the coordinator; for the rest the signed manifest is the only defence.
  *
- * Under `node --test` (NODE_TEST_CONTEXT set, inherited by the children a test spawns) it asks nothing unless a test
- * names the address itself with KOSMOS_UPDATE_PAUSE_URL, so no test reaches a real server.
- * KOSMOS_UPDATE_IGNORE_PAUSE=1 skips the question, for an operator who must install during a pause.
+ * The reverse also holds: whoever controls that answer can hold every update, a security fix included, until the
+ * pause is turned off; the only way past it on one computer is the override below.
+ *
+ * Under `node --test` (NODE_TEST_CONTEXT, in the env given or this process's own) it asks nothing unless a test names
+ * the address with KOSMOS_UPDATE_PAUSE_URL; tools/run-tests.sh points that at a dead local port for every suite.
+ * Two overrides, both needing control of this computer's env: KOSMOS_UPDATE_IGNORE_PAUSE=1 skips the question (for an
+ * operator who must install during a pause), and KOSMOS_UPDATE_PAUSE_URL asks another address.
+ *
+ * Not held today: a .pkg install that takes the pinned path (install/pkg-verify/floor not "off") and a pasted
+ * install line over an existing install, which run the installer without run-setup (a follow-up card).
  */
 const PAUSE_DEFAULT_COORDINATOR = 'https://login.kosmosplus.com';
 const PAUSE_TIMEOUT_SECS = 10;
@@ -180,7 +187,8 @@ const PAUSE_TIMEOUT_SECS = 10;
 function pauseUrl(env = process.env) {
   if (env.KOSMOS_UPDATE_IGNORE_PAUSE === '1') return null;
   if (env.KOSMOS_UPDATE_PAUSE_URL) return String(env.KOSMOS_UPDATE_PAUSE_URL);
-  if (env.NODE_TEST_CONTEXT) return null;
+  // This process's own env too: a test may hand in an env of its own without NODE_TEST_CONTEXT (review 1).
+  if (env.NODE_TEST_CONTEXT || process.env.NODE_TEST_CONTEXT) return null;
   const base = String(env.AGENT_WORKFORCE_TUNNEL_COORDINATOR || PAUSE_DEFAULT_COORDINATOR).replace(/\/+$/, '');
   return base + '/v1/meta';
 }
@@ -200,7 +208,7 @@ function pausedSync({ env = process.env, spawnSync = require('child_process').sp
   const url = pauseUrl(env);
   if (!url) return false;
   try {
-    const r = spawnSync('curl', ['-fsS', '--max-time', String(PAUSE_TIMEOUT_SECS), url], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const r = spawnSync('curl', ['-q', '-fsS', '--max-time', String(PAUSE_TIMEOUT_SECS), url], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     return r && r.status === 0 ? pausedIn(r.stdout) : false;
   } catch {
     return false;
@@ -238,8 +246,10 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
   const sayFetch = (why) => { process.stderr.write('Kosmos: ' + why + ', so the installer was not run.\n'); return NOT_FETCHED; };
   if (!/^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(String(version || ''))) return say('the version to install is not known');
   if (!home) return say('the installed copy could not be found');
-  // kosmos#6620: held during the fleet's update pause, as NOT_FETCHED (a retry, once the pause is off, succeeds).
-  if (pausedSync({ spawnSync })) return sayFetch(PAUSED_SENTENCE);
+  // kosmos#6620: held during the fleet's update pause (any version run-setup is asked for, a reinstall of the same one
+  // too), as NOT_FETCHED: a retry, once the pause is off, succeeds.
+  // Its own curl, not the injected spawnSync: a test that counts runSetup's downloads must see only those.
+  if (pausedSync()) return sayFetch(PAUSED_SENTENCE);
   let dir;
   try { dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'kosmos-setup-')); } catch { return say('there was no private folder to check the installer in'); }
   try {
@@ -468,7 +478,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   return { ok: true, why: v.why, keys: v.keys };
 }
 
-module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, pauseUrl, pausedIn, pausedSync, pausedAsync, PAUSED_SENTENCE, KEYS, listFiles, signedManifest, filesRefusal, win32HeaderRefusal, PARTS,
+module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, pauseUrl, pausedIn, pausedSync, pausedAsync, PAUSED_SENTENCE, PAUSE_DEFAULT_COORDINATOR, KEYS, listFiles, signedManifest, filesRefusal, win32HeaderRefusal, PARTS,
   RECOVERY_KEYS, KEY_LIST_STATE, KEY_LIST_TYPE, MIN_KEY_LIST_SEQ, MAX_SEQ, ed25519Key, verifyKeyList, storedKeyList, trustedKeys };
 
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before

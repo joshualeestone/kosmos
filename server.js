@@ -15575,6 +15575,8 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/update' && req.method === 'POST') {
     const avail = updates.available();
     if (!avail) { sendJson(res, 409, { error: 'there is no update to install right now' }); return; }
+    // kosmos#6620: the fleet's update pause, in the words the confirm dialog shows.
+    if (updates.paused()) { sendJson(res, 409, { error: updates.PAUSED_SENTENCE.charAt(0).toUpperCase() + updates.PAUSED_SENTENCE.slice(1) + '.' }); return; }
     /* 🛑 #570: THE PLATFORM ARM GOES FIRST, AND ITS ORDER IS THE WHOLE POINT.
        The updater ends in `spawn('/bin/sh', ...)`, which cannot exist on Windows;
        the engine refuses it (update.selfInstallRefusal) and this is where that
