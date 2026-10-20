@@ -52,7 +52,7 @@ const isMac = process.platform === 'darwin';
 test('#6650: a temp-folder home is refused, naming the folder and the way through', { skip: !isMac }, () => {
   const r = guard({ kosmosHome: '/private/tmp/launchguard-6650-a/home' });
   assert.equal(r.rc, '1', r.err);
-  assert.match(r.err, /is a temporary one/);
+  assert.match(r.err, /temporary folder/);
   assert.match(r.err, /Nothing was changed/);
   assert.match(r.err, /AGENT_WORKFORCE_LAUNCH/);
   assert.match(r.err, /KOSMOS_ALLOW_TEMP_LAUNCH=1/);
@@ -61,7 +61,7 @@ test('#6650: a temp-folder home is refused, naming the folder and the way throug
 test('#6650: the /var/folders spelling of a temp home is refused too (the incident path)', { skip: !isMac }, () => {
   const r = guard({ kosmosHome: '/var/folders/zz/x/T/tmp.QOwO2AIR4W/home' });
   assert.equal(r.rc, '1', r.err);
-  assert.match(r.err, /is a temporary one/);
+  assert.match(r.err, /temporary folder/);
 });
 
 test('#6650: a kept home is not refused (a person self-hosting, or a release walk)', { skip: !isMac }, () => {
@@ -106,17 +106,15 @@ test('#6650: a home under this run\'s own TMPDIR is refused, wherever TMPDIR poi
   // /Users/Shared is a real folder and in none of the fixed temp spellings, so only the TMPDIR arm can refuse this.
   const r = guard({ kosmosHome: '/Users/Shared/launchguard-6650-x/home', env: { TMPDIR: '/Users/Shared' } });
   assert.equal(r.rc, '1', r.err);
-  assert.match(r.err, /is a temporary one/);
+  assert.match(r.err, /temporary folder/);
 });
 
 test('#6650: the /var/tmp spelling is refused too', { skip: !isMac }, () => {
   assert.equal(guard({ kosmosHome: '/var/tmp/tmp.x/home' }).rc, '1');
 });
 
-test('#6650: a release walk (kept home, its own port) goes through, saying nothing', { skip: !isMac }, () => {
-  const r = guard({ kosmosHome: KEPT, env: { KOSMOS_PORT: '57015' } });
-  assert.equal(r.rc, '0', r.err);
-  assert.equal(r.err, '');
+test('#6650: a kept home on the account default port goes through (no port rule)', { skip: !isMac }, () => {
+  assert.equal(guard({ kosmosHome: KEPT, env: { KOSMOS_PORT: '16180' } }).rc, '0');
 });
 
 test('#6650: a caller with its own launch folder, or the explicit opt-in, goes through', { skip: !isMac }, () => {
@@ -133,7 +131,20 @@ test('#6650: a fake HOME is still refused (it scopes the plist file, not launchd
   assert.equal(r.rc, '1', r.err);
 });
 
-test('#6650: the default home (a real install or its self-update) is never refused', { skip: !isMac }, () => {
+test('#6650: a temp HOME with the default home is refused (launchd would register the bare label here)', { skip: !isMac }, () => {
+  const home = '/private/tmp/launchguard-6650-h';
+  const r = guard({ home, kosmosHome: home + '/.local/share/kosmos' });
+  assert.equal(r.rc, '1', r.err);
+  assert.match(r.err, /temporary folder/);
+});
+
+test('#6650: the real LaunchAgents spelled in other capitals is no launch folder of its own either', { skip: !isMac }, () => {
+  const fresh = path.join(tmpRoot, 'fresh-caps');
+  const r = guard({ home: fresh, kosmosHome: '/private/tmp/launchguard-6650-c2/home', env: { AGENT_WORKFORCE_LAUNCH: fresh + '/library/launchagents' } });
+  assert.equal(r.rc, '1', r.err);
+});
+
+test('#6650: the default home under a kept HOME (a real install or its self-update) is never refused', { skip: !isMac }, () => {
   const r = guard({ kosmosHome: path.join(ACCOUNT_HOME, '.local', 'share', 'kosmos') });
   assert.equal(r.rc, '0', r.err);
 });
