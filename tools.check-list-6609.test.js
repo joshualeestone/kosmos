@@ -141,12 +141,24 @@ test('promote (verify-under-list): a manifest signed by a key the served list na
   assert.equal(off.code, 0, 'off: nothing to check against: ' + off.out);
 });
 
-test('promote-channel.sh runs it on a signed manifest, after the prod-keys check, and refuses on failure', () => {
-  const at = PROMOTE_SH.indexOf('"$_sign_js" verify-under-list "$SITE/dist/$MANIFEST" "$SITE/dist/$MANIFEST.sig" "$SITE/dist/release-keys.json" "$SITE/dist/release-keys.json.sig"');
-  assert.ok(at > 0, 'promote-channel.sh no longer runs verify-under-list');
-  assert.ok(at > PROMOTE_SH.indexOf('verify-under "$SITE/dist/$MANIFEST"'), 'after the prod-keys check');
+test('promote-channel.sh: when on (needs-list), it fetches the site and checks the list from origin/main, signed or not, and refuses on failure', () => {
+  const gate = PROMOTE_SH.indexOf('if node "$_sign_js" needs-list; then');
+  assert.ok(gate > 0, 'promote-channel.sh no longer asks needs-list');
+  const end = PROMOTE_SH.indexOf('\n  fi\n', gate);
+  assert.ok(end > gate, 'the block was reshaped; re-anchor this test');
+  const block = PROMOTE_SH.slice(gate, end);
+  assert.match(block, /git -C "\$SITE" fetch -q origin main 2>\/dev\/null \|\| \{ echo [^\n]*exit 1; \}/, 'fetches first, and a failed fetch refuses');
+  assert.match(block, /git -C "\$SITE" show "origin\/main:dist\/release-keys\.json" > "\$_kl_dir\/release-keys\.json"/, 'the list from origin/main');
+  assert.match(block, /verify-under-list "\$SITE\/dist\/\$MANIFEST" "\$SITE\/dist\/\$MANIFEST\.sig" "\$_kl_dir\/release-keys\.json" "\$_kl_dir\/release-keys\.json\.sig"/);
+  assert.match(block, /\[ "\$_kl" = 0 \] \|\| \{ echo [^\n]*exit 1; \}/, 'a refusal stops the promote');
+  // Not inside the signed-manifest branch: an unsigned manifest is checked too (review 2).
   const sigBranch = PROMOTE_SH.indexOf('if [ -f "$SITE/dist/$MANIFEST.sig" ]; then');
-  const elseAt = PROMOTE_SH.indexOf('\n  else\n', sigBranch);
-  assert.ok(sigBranch > 0 && elseAt > sigBranch && at > sigBranch && at < elseAt, 'inside the signed-manifest branch');
-  assert.match(PROMOTE_SH.slice(at, PROMOTE_SH.indexOf('\n', PROMOTE_SH.indexOf('\n', at) + 1)), /\|\| \{ echo [^\n]*exit 1; \}/);
+  const sigEnd = PROMOTE_SH.indexOf('\n  fi\n', PROMOTE_SH.indexOf('\n  else\n', sigBranch));
+  assert.ok(sigBranch > 0 && sigEnd > sigBranch && gate > sigEnd, 'after the signed/unsigned branches, not inside one');
+});
+
+test('needs-list says yes only when a recovery key is pinned', () => {
+  const ask = (t) => spawnSync(process.execPath, [path.join(t.root, 'tools', 'lib', 'manifest-sign.js'), 'needs-list']).status;
+  assert.equal(ask(tree()), 0);
+  assert.equal(ask(tree({ on: false })), 1);
 });
