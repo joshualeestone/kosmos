@@ -307,3 +307,52 @@ test('kosmos#6717: a draft is drawn in the conversation at its time as Kosmos\'s
   assert.equal(fs.statSync(drafts.fileFor('al')).mode & 0o777, 0o600);
   assert.deepEqual(drafts.list('Al'), []);
 });
+
+test('kosmos#6717: a box the keys do not empty is saved once and not cleared at again for the same text', () => withAgent(async (roster) => {
+  const p = pane(PERSON, { onClear: (n, s) => { s.text = PERSON; } });   // keys rebound (vim mode, a newer Claude Code)
+  saveInto(p);
+  const lines = [];
+  const tick = stuck.makeTick({ allowed: () => true, roster: () => roster, recover: (c, s) => chat.recoverStuckInput(c, s), stuckMs: chat.STUCK_INPUT_MS, log: (l) => lines.push(l) });
+  await tick();
+  const rounds = p.clears();
+  assert.ok(rounds > 0 && rounds <= 2 * 1 + 6, 'bounded: ' + rounds);
+  await tick();
+  await tick();
+  assert.equal(p.clears(), rounds, 'not cleared at again every minute');
+  assert.equal(drafts.list('al').length, 1, 'one draft, not one a minute');
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /the box was not cleared \(the box did not empty\)/);
+  assert.equal(p.enters(), 0);
+  // The same text saved again (a later attempt) is the same draft, never a second copy.
+  assert.equal(drafts.add('al', PERSON).id, drafts.list('al')[0].id);
+  assert.equal(drafts.list('al').length, 1);
+}));
+
+test('kosmos#6717: with the most drafts already kept, none is dropped: the box is left and the log says why', () => withAgent(async (roster, card) => {
+  for (let i = 0; i < drafts.MAX_KEPT; i += 1) assert.equal(drafts.add('al', 'kept ' + i).ok, true);
+  const p = pane(PERSON);
+  saveInto(p);
+  const r = await chat.recoverStuckInput(card, SINCE);
+  assert.equal(r.outcome, 'left', JSON.stringify(r));
+  assert.match(r.because, /20 drafts are already kept/);
+  assert.equal(p.clears() + p.enters(), 0, 'the box is untouched');
+  const kept = drafts.list('al');
+  assert.equal(kept.length, drafts.MAX_KEPT);
+  assert.equal(kept[0].text, 'kept 0', 'the oldest unseen draft is still there');
+}));
+
+test('kosmos#6717: a box read empty once mid-redraw is not taken as cleared: the next read decides', () => withAgent(async (roster, card) => {
+  const LONG = PERSON + ' and the remainder that is still in the box after the first round of keys';
+  let reads = 0;
+  const p = pane(LONG, {});
+  const real = p;
+  chat.setRunner((args) => {
+    if (args[0] === 'capture-pane' && args.includes('-e') && real.state.rounds === 1 && reads++ === 0) return ok(draw(''));   // one redraw
+    return real(args);
+  });
+  saveInto(p);
+  const r = await chat.recoverStuckInput(card, SINCE);
+  assert.equal(r.outcome, 'drafted');
+  assert.equal(p.state.text, '', 'it carried on until the box really was empty');
+  assert.ok(p.clears() >= 2);
+}));

@@ -29,6 +29,9 @@ function stuckCards(roster, now, stuckMs) {
  */
 function makeTick(deps) {
   const told = new Map();   // sessionName -> 'since|outcome|because' last logged, so a text left in place is said once
+  /* sessionName -> since of a text already saved whose box would not empty (keys rebound, vim mode): not tried again
+     while the same text sits there, so it is not cleared at again every minute. A new text has a new since. */
+  const gaveUp = new Map();
   let running = false;
   return async function tick() {
     if (running) return;   // a slow pass (a clear waits between reads) is never overlapped by the next minute's
@@ -40,12 +43,14 @@ function makeTick(deps) {
       const now = deps.now ? deps.now() : Date.now();
       const cards = stuckCards(roster, now, deps.stuckMs);
       const names = new Set(cards.map((c) => c.sessionName));
-      for (const k of [...told.keys()]) if (!names.has(k)) told.delete(k);
+      for (const m of [told, gaveUp]) for (const k of [...m.keys()]) if (!names.has(k)) m.delete(k);
       for (const card of cards) {
         const since = card.unsentInput.since;
+        if (gaveUp.get(card.sessionName) === since) continue;
         let r;
         try { r = await deps.recover(card, since); } catch (err) { r = { outcome: 'waiting', because: 'failed: ' + String((err && err.message) || err) }; }
         if (!r || r.outcome === 'waiting') continue;   // tried again next minute; not news
+        if (r.outcome === 'drafted-not-cleared') gaveUp.set(card.sessionName, since);
         const mins = Math.round((now - Date.parse(since)) / 60000);
         const key = since + '|' + r.outcome + '|' + (r.because || '');
         if (r.outcome === 'left' && told.get(card.sessionName) === key) continue;

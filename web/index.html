@@ -40383,9 +40383,10 @@ function dmRow(m, name, replyAdjacent) {
     return '<div class="msg-valve dm-kosmos dm-draft" data-mid="' + midOf(m) + '">'
       + 'This text sat unsent in its input box and kept messages from reaching it, so Kosmos took it out and saved it here. It was not sent.'
       + '<blockquote class="dmunsent-text dm-draft-text" tabindex="0" aria-label="The text that was in its input box">' + esc(m.text || '') + '</blockquote>'
-      + '<button type="button" class="dm-draft-use" data-draft-id="' + esc(m.draftId) + '">Put in the message box</button> '
-      + '<button type="button" class="dm-draft-dismiss" data-draft-id="' + esc(m.draftId) + '">Dismiss</button>'
-      + '</div>';
+      + '<div class="pj-refused-act">'   // the band's own button look (#4624's Reopen the room), 44px on touch
+      + '<button type="button" class="pj-refused-add dm-draft-use" data-draft-id="' + esc(m.draftId) + '">Put in the message box</button> '
+      + '<button type="button" class="pj-refused-add dm-draft-dismiss" data-draft-id="' + esc(m.draftId) + '">Dismiss</button>'
+      + '</div></div>';
   }
   if (m && m.kind === 'kosmos') {
     /* The vendor's link (e.g. where to add credits) is made clickable: the text is escaped FIRST,
@@ -40569,6 +40570,11 @@ function dmDraftUse(btn) {
   input.value = input.value.trim() ? input.value.replace(/\s+$/, '') + '\n' + words : words;
   input.dispatchEvent(new Event('input', { bubbles: true }));   // the box sizes itself and the send button wakes
   input.focus();
+  /* Setting the value skips the box's own maxlength, so a long draft is said now rather than refused at send. */
+  const under = document.getElementById('d-say-msg');
+  if (under && input.maxLength > 0 && input.value.length > input.maxLength) {
+    under.textContent = 'This is longer than one message can be. Send it in parts.';
+  }
 }
 if (typeof document !== 'undefined' && document.addEventListener) {
   document.addEventListener('click', (ev) => {

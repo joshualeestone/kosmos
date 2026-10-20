@@ -1230,6 +1230,7 @@ async function recoverStuckInput(card, since) {
       if (!verifyAtSend(now).ok) return { outcome: 'waiting', because: 'pane' };
       let saved = null;
       try { saved = draftSaver(name, again.text, { since: since || null }); } catch { saved = null; }
+      if (saved && saved.full === true) return { outcome: 'left', because: String(saved.because || 'too many drafts are kept') + ', so the box was left as it is' };
       if (!saved || saved.ok !== true) return { outcome: 'waiting', because: 'the draft could not be saved, so the box was left as it is' };
       /* Saved: from here the words are safe. Clear a round at a time; stop as soon as the box shows anything that is
          not what is left of the saved text (someone typing now), so their new words are not cleared too. */
@@ -1241,7 +1242,15 @@ async function recoverStuckInput(card, since) {
         await stuckPause(SUBMIT_LOOK_MS);
         const left = readComposer(target);
         if (!left.ok) return { outcome: 'drafted-not-cleared', id: saved.id, because: 'the box could not be read' };
-        if (!left.text) return { outcome: 'drafted', id: saved.id };
+        if (!left.text) {
+          /* Empty only when two reads a look apart agree, as pressRememberedNow asks: one read can catch a redraw. */
+          await stuckPause(SUBMIT_LOOK_MS);
+          const sure = readComposer(target);
+          if (sure.ok && !sure.text) return { outcome: 'drafted', id: saved.id };
+          if (!sure.ok) return { outcome: 'drafted-not-cleared', id: saved.id, because: 'the box could not be read' };
+          if (!whole.includes(squash(sure.text))) return { outcome: 'drafted-not-cleared', id: saved.id, because: 'the box changed while it was being cleared' };
+          continue;
+        }
         if (!whole.includes(squash(left.text))) return { outcome: 'drafted-not-cleared', id: saved.id, because: 'the box changed while it was being cleared' };
       }
       return { outcome: 'drafted-not-cleared', id: saved.id, because: 'the box did not empty' };

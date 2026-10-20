@@ -17534,9 +17534,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* #5805 slice 2b: Send now anyway. The person types a message Kosmos is holding for an agent out of usage, now, and
-     its row takes the delivery. The person's action only. A message no longer kept (typed or dropped), or one the
-     minute sweep is typing this moment, answers 409. */
   /* kosmos#6717: the person dismisses a draft Kosmos took out of the agent's input box (engine/unsentdrafts.js). The
      person's alone, like Send now anyway below: an agent's token is refused. Nothing is sent either way. */
   const dmDraftDismiss = pathname.match(/^\/api\/agent\/([^/]+)\/unsent-draft\/dismiss$/);
@@ -17557,6 +17554,9 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
+  /* #5805 slice 2b: Send now anyway. The person types a message Kosmos is holding for an agent out of usage, now, and
+     its row takes the delivery. The person's action only. A message no longer kept (typed or dropped), or one the
+     minute sweep is typing this moment, answers 409. */
   const dmHeld = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/held$/);
   if (dmHeld && req.method === 'POST') {
     if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this is the person\'s to send, not an agent\'s' }); return; }
@@ -24254,16 +24254,17 @@ function start(port = PORT) {
       /* kosmos#6717: text stuck unsent in an idle Claude Code agent's input box for ten minutes is cleared by Kosmos:
          the board's own line is pressed, anything else is saved as a draft (engine/unsentdrafts.js, shown in the
          agent's conversation, never sent) and only then cleared (chat.recoverStuckInput, engine/stuckinput.js).
-         Same gating as the sweeps above; own ~1-min timer, unref'd, best-effort. */
+         Same gating as the sweeps above, operator brake AGENT_WORKFORCE_STUCK_INPUT_OFF=1 (it types keys into idle
+         panes on its own); own ~1-min timer, unref'd, best-effort. */
       chat.setDraftSaver((session, text, opts) => require('./engine/unsentdrafts').add(session, text, opts));
       const stuckInputTick = require('./engine/stuckinput').makeTick({
-        allowed: () => liveExecution.liveExecutionAllowed(),
+        allowed: () => liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_STUCK_INPUT_OFF !== '1',
         roster: () => safeRoster(),
         recover: (card, since) => chat.recoverStuckInput(card, since),
         stuckMs: chat.STUCK_INPUT_MS,
         log: (line) => process.stdout.write(line),
       });
-      const stuckInputSweep = setInterval(() => { stuckInputTick().catch(() => {}); }, Number(process.env.AGENT_WORKFORCE_STUCK_INPUT_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_STUCK_INPUT_MS) : 60 * 1000); // the env is the test seam only
+      const stuckInputSweep = setInterval(() => { stuckInputTick().catch(() => {}); }, Number(process.env.AGENT_WORKFORCE_STUCK_INPUT_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_STUCK_INPUT_SWEEP_MS) : 60 * 1000); // the env is the test seam only
       if (stuckInputSweep && typeof stuckInputSweep.unref === 'function') stuckInputSweep.unref();
       /* #5959 slice 3: an agent whose `blocked` report has stood on its card over a day is told ONCE per report (kept
          on disk), typed into its session (engine/stalereport-nudge.js), in the words `kosmos report show` uses.
