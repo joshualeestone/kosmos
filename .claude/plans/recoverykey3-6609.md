@@ -36,3 +36,6 @@ No BLOCKER, WARNING or CONVENTION. Off path, every installer/installed-copy comb
 
 ### Addendum after convergence (05:10)
 - The hard gate beside RECOVERY_KEYS now also names the Windows updater (#6607 made it check its manifest with the built-in KEYS). Comment and plan only; no behaviour change.
+
+### Rebased onto origin/main after #6687 merged (05:47)
+- Clean (rebase --onto, dropping phase 2a's commits). All 32 install.*.test.js plus engine/manifest-verify.recovery-6609 and engine.reachable: 356 pass.
