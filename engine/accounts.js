@@ -521,7 +521,15 @@ function defaultFolderClaudeVersion(plat, env) {
  * is returned, never thrown. Anywhere else it does nothing, because setup.sh owns the Mac. Note: the person's own
  * Claude Code sessions read this file too, so they run the hook as well, as they always have on a Mac (#561).
  *   { wired, changed?, because?, skipped, busy? }   busy: the lock was held, so the caller may try again soon
- * `platform`, `script`, `node`, `claudeVersion` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
+ * kosmos#6601: only an INSTALLED board writes it. A board started from a source checkout or a worktree (a test board
+ * on its own port and data folder) would point every agent's hooks on this computer at its throwaway engine, since
+ * the script path is its own; it is the same question win32board.bundleRoot answers for the logon task (null for a
+ * source checkout and for a build in the updater's folder), so such a board skips, says why, and touches nothing.
+ * The launch-time call (win32launch) is gated the same way, so a source board's own agents never get THIS board's hooks:
+ * where the installed Kosmos already wired the shared file they run its hook; where nothing did, they report by scraping.
+ * NOT covered: a second BUILT bundle extracted elsewhere and started as a test board passes bundleRoot and still writes
+ * its own path here (an engine-path pointer check was rejected: an update may move the engine before the pointer).
+ * `platform`, `script`, `node`, `claudeVersion`, `bundleRoot` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
  * when absent); a caller that retries on its own passes 0 (a held lock then refuses within one 20 ms spin), since
  * withFileLock's wait blocks the event loop.
  */
@@ -529,6 +537,17 @@ function wireDefaultHooks(opts) {
   const o = opts || {};
   const plat = o.platform || process.platform;
   if (plat !== 'win32') return { wired: false, skipped: true, because: 'setup.sh wires the hooks on this platform' };
+  let root = null;
+  try {
+    // A test may inject the answer, or a function giving it (one that throws reaches the refusal below).
+    root = o.bundleRoot === undefined ? require('./win32board').bundleRoot({ platform: plat })
+      : (typeof o.bundleRoot === 'function' ? o.bundleRoot() : o.bundleRoot);
+  }
+  catch { return { wired: false, skipped: false, because: 'this board could not tell whether it is an installed Kosmos, so the hooks were not written' }; }
+  if (!root) {
+    return { wired: false, skipped: true,
+      because: 'this board is not an installed Kosmos (a source checkout, a worktree or the updater\'s folder), so it leaves this computer\'s shared Claude settings alone' };
+  }
   try {
     /* The SAME file and the same <target>.lock as trust.preacceptBypass (#3088): each Windows agent launch writes its
        bypass consent into this file (win32launch preacceptClaudeFirstRun), and two unlocked read-modify-writes would

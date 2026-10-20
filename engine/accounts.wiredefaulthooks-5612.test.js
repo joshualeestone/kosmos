@@ -44,7 +44,7 @@ const read = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 test('#5612: on win32 the default account gets every reporting hook, in the exec form, and a second run changes nothing', (t) => {
   const s = sandbox(t);
   assert.equal(fs.existsSync(s.settings), false, 'precondition: a fresh machine has no settings file');
-  const first = accounts.wireDefaultHooks({ platform: 'win32', script: s.script, node: s.node });
+  const first = accounts.wireDefaultHooks({ platform: 'win32', bundleRoot: s.home, script: s.script, node: s.node });
   assert.deepEqual(first, { wired: true, changed: true, skipped: false });
   const hooks = read(s.settings).hooks;
   for (const event of reporthook.HOOK_EVENTS) {
@@ -54,7 +54,7 @@ test('#5612: on win32 the default account gets every reporting hook, in the exec
   }
   // The Stop hook is the one that writes idle, which the community turn waits for.
   assert.ok(reporthook.HOOK_EVENTS.includes('Stop'), 'the hook events no longer include Stop');
-  const again = accounts.wireDefaultHooks({ platform: 'win32', script: s.script, node: s.node });
+  const again = accounts.wireDefaultHooks({ platform: 'win32', bundleRoot: s.home, script: s.script, node: s.node });
   assert.deepEqual(again, { wired: true, changed: false, skipped: false });
 });
 
@@ -63,7 +63,7 @@ test('#5612: a person\'s own hook and settings in the default file survive the w
   fs.mkdirSync(path.dirname(s.settings), { recursive: true });
   const theirs = { type: 'command', command: 'C:\\tools\\mine.exe' };
   fs.writeFileSync(s.settings, JSON.stringify({ model: 'opus', hooks: { Stop: [{ hooks: [theirs] }] } }));
-  const r = accounts.wireDefaultHooks({ platform: 'win32', script: s.script, node: s.node });
+  const r = accounts.wireDefaultHooks({ platform: 'win32', bundleRoot: s.home, script: s.script, node: s.node });
   assert.equal(r.wired, true, JSON.stringify(r));
   const after = read(s.settings);
   assert.equal(after.model, 'opus', 'another setting was dropped');
@@ -72,9 +72,9 @@ test('#5612: a person\'s own hook and settings in the default file survive the w
   assert.ok(stop.some((h) => h.command === s.node), 'ours was not added beside it');
 });
 
-test('#5612: with nothing injected, win32 wires the real script beside the engine (the one the Windows zip ships)', (t) => {
+test('#5612: with no script injected, win32 wires the real script beside the engine (the one the Windows zip ships)', (t) => {
   const s = sandbox(t);
-  const r = accounts.wireDefaultHooks({ platform: 'win32', node: s.node });
+  const r = accounts.wireDefaultHooks({ platform: 'win32', bundleRoot: s.home, node: s.node });
   assert.equal(r.wired, true, JSON.stringify(r));
   const want = path.resolve(__dirname, 'kosmos-report-hook.js');
   assert.ok(fs.existsSync(want), 'precondition: engine/kosmos-report-hook.js exists');
@@ -92,7 +92,7 @@ test('#5612: it takes the settings file lock that trust.preacceptBypass takes, s
     if (wait === undefined) delete process.env.AGENT_WORKFORCE_LOCK_MS; else process.env.AGENT_WORKFORCE_LOCK_MS = wait;
     fs.rmSync(s.settings + '.lock', { recursive: true, force: true });
   });
-  const r = accounts.wireDefaultHooks({ platform: 'win32', script: s.script, node: s.node });
+  const r = accounts.wireDefaultHooks({ platform: 'win32', bundleRoot: s.home, script: s.script, node: s.node });
   assert.equal(r.wired, false, JSON.stringify(r));
   assert.match(String(r.because), /another writer/);
   assert.equal(r.busy, true, 'a held lock is not marked busy, so the board would not try again');
@@ -110,7 +110,7 @@ test('#5612: a settings folder that refuses the lock file is a plain refusal, no
   fs.mkdirSync(dir, { recursive: true });
   fs.chmodSync(dir, 0o555);   // the lock folder cannot be made inside it: EACCES, which withFileLock does not wait on
   t.after(() => { try { fs.chmodSync(dir, 0o755); } catch { /* the sandbox may already be gone */ } });
-  const r = accounts.wireDefaultHooks({ platform: 'win32', script: s.script, node: s.node });
+  const r = accounts.wireDefaultHooks({ platform: 'win32', bundleRoot: s.home, script: s.script, node: s.node });
   assert.equal(r.wired, false, JSON.stringify(r));
   assert.equal(r.busy, false, 'a refusal that will repeat was marked busy, so the board would retry it for nothing');
   assert.match(String(r.because), /refused the lock file/);
@@ -119,7 +119,7 @@ test('#5612: a settings folder that refuses the lock file is a plain refusal, no
 test('#5612: a settings folder that cannot be made is a fixed sentence that names no path', (t) => {
   const s = sandbox(t);
   fs.writeFileSync(path.dirname(s.settings), 'a file where the .claude folder goes');
-  const r = accounts.wireDefaultHooks({ platform: 'win32', script: s.script, node: s.node });
+  const r = accounts.wireDefaultHooks({ platform: 'win32', bundleRoot: s.home, script: s.script, node: s.node });
   assert.equal(r.wired, false, JSON.stringify(r));
   assert.notEqual(r.busy, true);
   assert.equal(String(r.because).includes(s.home), false, 'the reason leaks the home folder path');
@@ -131,7 +131,7 @@ test('#5612: a retry with waitMs 0 refuses a held lock within one short spin (no
   fs.mkdirSync(s.settings + '.lock');
   t.after(() => fs.rmSync(s.settings + '.lock', { recursive: true, force: true }));
   const started = Date.now();
-  const r = accounts.wireDefaultHooks({ platform: 'win32', script: s.script, node: s.node, waitMs: 0 });
+  const r = accounts.wireDefaultHooks({ platform: 'win32', bundleRoot: s.home, script: s.script, node: s.node, waitMs: 0 });
   assert.equal(r.busy, true, JSON.stringify(r));
   assert.ok(Date.now() - started < 500, 'waitMs 0 still waited for the lock');
 });
@@ -148,7 +148,7 @@ test('#5612: off Windows it does nothing (setup.sh owns the Mac), and writes no 
 
 test('#5612: with no hook script on the machine it refuses, with a reason, and never throws', (t) => {
   const s = sandbox(t);
-  const r = accounts.wireDefaultHooks({ platform: 'win32', script: null, node: s.node });
+  const r = accounts.wireDefaultHooks({ platform: 'win32', bundleRoot: s.home, script: null, node: s.node });
   assert.equal(r.wired, false);
   assert.equal(r.skipped, false);
   assert.match(String(r.because), /script/);
@@ -176,4 +176,43 @@ test('#5612: each default-account Windows launch wires them too (the board and t
   // a Mac writes nothing, and the launch must not wait on the lock a second time.
   assert.equal(call[1].replace(/\s/g, ''), '{waitMs:0}', 'the launch passes something other than { waitMs: 0 }: ' + call[1]);
   assert.ok(body.indexOf('if (!s.configDir)') >= 0, 'not limited to the default account');
+});
+
+/* kosmos#6601: a board that is not the installed Kosmos (a source checkout or a worktree, on its own port and data
+   folder) must leave the shared settings alone: it would point every agent's hooks at its throwaway engine. */
+test('#6601: a board that is not an installed bundle skips, says why, and leaves an existing settings file byte for byte', (t) => {
+  const s = sandbox(t);
+  fs.mkdirSync(path.dirname(s.settings), { recursive: true });
+  // The installed app's hooks already there (as on a real computer): they must survive untouched.
+  const installed = accounts.wireDefaultHooks({ platform: 'win32', bundleRoot: s.home, script: s.script, node: s.node });
+  assert.equal(installed.wired, true, 'control: the installed bundle wires');
+  const before = fs.readFileSync(s.settings);
+  const elsewhere = path.join(s.home, 'worktree', 'engine', 'kosmos-report-hook.js');
+  fs.mkdirSync(path.dirname(elsewhere), { recursive: true });
+  fs.writeFileSync(elsewhere, '// a worktree copy\n');
+  const r = accounts.wireDefaultHooks({ platform: 'win32', bundleRoot: null, script: elsewhere, node: s.node });
+  assert.equal(r.skipped, true, JSON.stringify(r));
+  assert.equal(r.wired, false);
+  assert.match(String(r.because), /not an installed Kosmos/);
+  assert.deepEqual(fs.readFileSync(s.settings), before, 'a non-installed board rewrote the shared settings');
+  assert.ok(!fs.readFileSync(s.settings, 'utf8').includes('worktree'), 'the hooks now point at the worktree');
+});
+
+test('#6601: when the board cannot tell whether it is installed, it refuses with a reason and writes nothing', (t) => {
+  const s = sandbox(t);
+  const r = accounts.wireDefaultHooks({ platform: 'win32', bundleRoot: () => { throw new Error('boom'); }, script: s.script, node: s.node });
+  assert.deepEqual([r.wired, r.skipped], [false, false], JSON.stringify(r));
+  assert.match(String(r.because), /could not tell whether it is an installed Kosmos/);
+  assert.ok(!String(r.because).includes('boom'), 'the refusal carries the error text');
+  assert.equal(fs.existsSync(s.settings), false, 'a refusal wrote the settings file');
+});
+
+/* On a Mac this shows the gate is reached with nothing injected, not that bundleRoot tells a checkout from a bundle:
+   bundleRoot asked about win32 joins with path.win32, which no Mac path can satisfy. On the Windows runner
+   (tools/windows-tests.js lists this file) it does tell them apart. */
+test('#6601: with nothing injected, this source checkout is not an installed bundle, so it writes nothing', (t) => {
+  const s = sandbox(t);
+  const r = accounts.wireDefaultHooks({ platform: 'win32', node: s.node });
+  assert.equal(r.skipped, true, JSON.stringify(r));
+  assert.equal(fs.existsSync(s.settings), false, 'a source checkout wrote the settings file');
 });

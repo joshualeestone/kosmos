@@ -25004,6 +25004,9 @@ if (require.main === module) {
         process.stderr.write(`Kosmos could not set up the reporting hooks for this computer's Claude agents: ${hooks.because || 'no reason given'}\n`);
       } else if (hooks.changed === true) {
         process.stdout.write('reporting hooks: wired into the default Claude account\n');
+      } else if (hooks.skipped === true && process.platform === 'win32') {
+        // kosmos#6601: a board that is not the installed Kosmos says why it left the shared settings alone.
+        process.stdout.write('reporting hooks: ' + (hooks.because || 'skipped') + '\n');
       }
     } catch { /* never stops the board */ }
   };
