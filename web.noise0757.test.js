@@ -38,7 +38,8 @@ test('#6517: the subscription bar says its one fact and no idle count', () => {
 });
 
 test('#6518: the restart panel says the restart once, and the Done report says starts at login once', () => {
-  assert.ok(PAGE.includes("'Their folders and everything they remember are untouched.</p>'"), 'CONTROL: the body sentence that stays is gone');
+  // #6714: the restart notice is a compact notice now; its one reassuring line is the body sentence that stays.
+  assert.ok(PAGE.includes("const kept = 'Its folder and memory are untouched.';"), 'CONTROL: the body sentence that stays is gone');
   assert.ok(!PAGE.includes('starts them when you log in, so they stop when'), 'the body still repeats the headline');
   assert.ok(PAGE.includes("'starts at login, and is running now'"), 'CONTROL: the per-agent Done row is gone');
   assert.ok(!PAGE.includes('Restarting this computer will bring these back.'), 'the Done report still repeats its rows');

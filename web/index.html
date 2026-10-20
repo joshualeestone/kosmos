@@ -6117,8 +6117,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { grid-column: 2; grid-row: 1; }
   /* #520 piece six (Josh, 2026-08-24 16:14: "missing a whole lot"): the
      board's full-width notice bars do not belong over the consolidated grid;
-     the news line already lives in the header notice slot. removed-wrap and
-     restart-wrap are board-management chrome for the tab view. #3048: the
+     the news line already lives in the header notice slot. removed-wrap is
+     board-management chrome for the tab view (#6714: the restart bar became a
+     notice in the header's floating stack, shown in both views). #3048: the
      found/scan discovery panels and their trigger were removed from the home. */
   html[data-layout="consolidated"] body.consolidated > #removed-wrap { display: none; }
   /* #867 shipped this as flat, borderless cards "like the mock" -- a
@@ -48067,6 +48068,7 @@ document.addEventListener('click', async (e) => {
     if (!ok) { hide.disabled = false; survivalSayIn(hide, 'We could not record that just now. Try again.'); return; }
     hide.closest('.utoast').remove();
     await paintSurvival();
+    refreshSurvivalHidden();   // the Settings list too, even while a report holds the notices (review 9)
     survivalFocusNext();
     return;
   }

@@ -566,7 +566,9 @@ function strays(profileNames, jobs) {
  * #6714: has this agent ever run on this board? A running agent reports in, and each report leaves a record: the
  * liveness beat (since #2558) and the self-report history (older). Either one is evidence it ran. Removing an agent
  * clears its liveness but keeps its self-report history, so an agent re-made under a removed one's name counts as run
- * before it starts: that errs toward showing its notice, the safe side.
+ * before it starts: that errs toward showing its notice, the safe side. ⚠️ Anything that writes a self-report FOR an
+ * agent (an operator action, `by: 'operator'`) would make it count as run; today those only act on a report that
+ * already exists (server.js clearLeftovers and the stale needs_you dismiss).
  *
  * 🛑 WHY THE SURVEY NEEDS IT. A profile and a folder are not an agent. A test that stopped half way left
  * `leftover-unrelated` with exactly those two and a CLAUDE.md, and the board told Josh it "will not come back if you

@@ -18548,7 +18548,7 @@ const server = http.createServer(async (req, res) => {
       if (raw && String(raw).trim()) {
         let body = null;
         try { body = JSON.parse(raw); } catch { body = null; }
-        if (!body || typeof body !== 'object' || (body.name !== undefined && typeof body.name !== 'string')) {
+        if (!body || typeof body !== 'object' || Array.isArray(body) || (body.name !== undefined && typeof body.name !== 'string')) {
           sendJson(res, 400, { error: 'we could not read that request' }); return;
         }
         only = body.name;   // undefined (an empty object) is all of them, as no body is
