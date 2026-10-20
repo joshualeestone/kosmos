@@ -68,3 +68,24 @@ the timer running an unknown verb, which exits 2 every minute (a failed oneshot,
 - Residual, accepted: an OLDER release's uninstall (or a downgrade) does not know the pause check, so its timer stays
   and its oneshot fails every minute until the next install of this release or later. Rare (a downgrade), loud (a
   failed unit in systemctl --failed), and harmless (it starts nothing).
+
+## Round 2 (sonnet): no blocker, 2 warnings, 5 nits
+- WARNING: "a sandboxed run with AGENT_WORKFORCE_SYSTEMD_DIR reaches real systemd through the uninstall helper; linuxboard
+  refuses that case". NOT CHANGED, premise false: linuxboard's runner refuses only when AGENT_WORKFORCE_LAUNCH is set
+  AND AGENT_WORKFORCE_SYSTEMD_DIR is not (engine/linuxboard.js:39); with a units folder of its own it talks to real
+  systemd too. The helper's gate is that same rule. The comment that said "a sandboxed run touches neither" was loose
+  and now states the rule exactly.
+- WARNING: the first update to this release is not protected. TRUE, and not fixable in code: the timer exists only
+  once some run's installBoard has written it, so an update killed BEFORE that step on a box whose units predate this
+  release still strands the board (the population #6651/#6667 describe). From the next update on it is covered.
+  Recorded here and on the card, so nobody reads the card as covering that first one.
+- NIT: the helper runs even in the uninstall branch that leaves a board unit in place. NOT CHANGED: that board then
+  simply has no revive, as before this check; the comment now says so.
+- NIT: a merged over-long comment line in linuxboard.js (my round-1 note claimed it was split; that was the one in
+  install/kosmos, not this one). FIXED: rewrapped.
+- NIT: install/setup.sh is not in linux-systemd.yml's paths. NOT CHANGED: the live job never runs setup.sh, so adding it
+  would spend a 3 to 5 minute Linux job on every setup.sh PR without testing setup.sh; the uninstall helper is tested
+  by test-board-revive-6667.sh in test:shell.
+- NIT: the live person's-stop arm uses a bare marker only, not a leftover name beside a later stop. NOT CHANGED: the
+  leftover case is the shared #6651 rule, covered by test-board-revive-6667.sh case 4 and #6651's own tests.
+- NIT: timeout margin. NO CHANGE NEEDED: worst case about 160 s of waiting inside a 15 minute job.

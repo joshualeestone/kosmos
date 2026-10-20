@@ -2097,7 +2097,10 @@ uninstall() {
     # installBoard. Run before the app folder is deleted, since it is the app's own code.
     # As the install step does: systemctl --user needs the user bus, which su and cron do not set up.
     [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"
-    # kosmos#6667: the pause check first, whichever branch below removes the board (a sandboxed run touches neither).
+    # kosmos#6667: the pause check goes first, before any branch below touches the board. It goes in every branch, even
+    # the one that leaves a board unit in place as possibly another install's: that board then just has no revive, as
+    # before this check existed. Skipped exactly when linuxboard's runner refuses systemd (LAUNCH set, no
+    # AGENT_WORKFORCE_SYSTEMD_DIR); with a units folder of its own a run still talks to real systemd, as linuxboard does.
     if [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || [ -n "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then
       _kosmos_linux_remove_pause_check
     fi

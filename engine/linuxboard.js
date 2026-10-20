@@ -75,10 +75,11 @@ function pauseCheckNames(kosmosHome) {
 
 /* kosmos#6667: systemd's ConditionPathExists=!board.stopped cannot read an update's name files, so an update killed
    while it had the board paused (#6651) left the board down until a person ran kosmos start: the Mac's watchdog
-   clears that pause, and Linux had nothing. This oneshot, run every minute by its timer, runs `kosmos board-revive`
-   (which names this board's unit itself, _kosmos_board_systemd_unit, kept equal to boardUnitName), which clears ONLY a stranded update pause (kosmos_stranded_pause), only while the board's unit is enabled, and then
-   starts the board. A person's stop, a live update, or a board down for any other reason is left alone: it is not a
-   keep-alive (the board unit's own Restart=on-failure is). */
+   clears that pause, and Linux had nothing. This oneshot, run every minute by its timer, runs `kosmos board-revive`.
+   That command names this board's unit itself (_kosmos_board_systemd_unit, kept equal to boardUnitName), clears ONLY
+   a stranded update pause (kosmos_stranded_pause), only while the board's unit is enabled, and then starts the
+   board. A person's stop, a live update, or a board down for any other reason is left alone: it is not a keep-alive
+   (the board unit's own Restart=on-failure is). */
 function pauseCheckUnitsFor(kosmosHome) {
   const home = path.resolve(kosmosHome || process.env.KOSMOS_HOME || defaultKosmosHome());
   const kosmosBin = path.join(home, 'bin', 'kosmos');
