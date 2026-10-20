@@ -34,7 +34,9 @@ function stubBoardCliTests(dir) {
 
 /** Ways a test hands the CLI this computer's own environment (and with it, its data root). */
 // Object.assign with process.env as ANY argument (review round 6: not only the second).
-const INHERIT_RE = /\.\.\.process\.env\b|Object\.assign\([^;]*?\bprocess\.env\b(?!\.)|env:\s*process\.env\b(?!\.)/g;
+// kosmos#6740: test-support/agent-env's withoutAgentIdentity(process.env) is the parent's environment less three names,
+// so a spread of it inherits everything else, the data root included, and is held to the same rule.
+const INHERIT_RE = /\.\.\.(?:withoutAgentIdentity\()?process\.env\b|Object\.assign\([^;]*?\bprocess\.env\b(?!\.)|env:\s*process\.env\b(?!\.)/g;
 /** A data root of its own, named with a value (an empty one means "unset" to engine/store.js). */
 // AGENT_WORKFORCE_HOME is the next place engine/store.js looks when AGENT_WORKFORCE_DATA is unset or empty.
 // The space goes inside the lookahead, or backtracking lets '' through. undefined, null and the parent's own value
@@ -106,6 +108,9 @@ test('#4796 control: the check can see a file without a data root, in each shape
   assert.notEqual(leakIn(cli + ok + inh), null, 'two envs, only one with a data root (review round 1: cli.task-2662)');
   assert.notEqual(leakIn(cli + inh.replace('KOSMOS_PORT', "AGENT_WORKFORCE_DATA: '', KOSMOS_PORT")), null, 'an empty data root is no data root');
   assert.notEqual(leakIn(cli + 'const env = Object.assign({}, process.env, { KOSMOS_PORT: p });\n'), null, 'Object.assign inherits too');
+  // kosmos#6740: the agent-identity helper is still the parent's environment.
+  assert.notEqual(leakIn(cli + 'const env = { ...withoutAgentIdentity(process.env), KOSMOS_PORT: p };\n'), null, 'withoutAgentIdentity inherits too');
+  assert.equal(leakIn(cli + 'const env = { ...withoutAgentIdentity(process.env), AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: p };\n'), null, 'withoutAgentIdentity with its own root');
   assert.notEqual(leakIn(cli), null, 'no env at all inherits the parent\'s');
   assert.equal(leakIn("process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');\n" + cli), null, 'a data root set on the test process itself');
   assert.notEqual(leakIn("  process.env.AGENT_WORKFORCE_DATA = '';\n" + cli), null, 'an indented or empty one is not the file-wide root');
