@@ -41,3 +41,9 @@ each tested with the same bad inputs as Linux's test, but nothing checks the thr
 - [NIT] control characters passed both filters (XML forbids them; launchd would refuse the plist) --> FIXED in both,
   tested (\001, \177). MUTANT (no [:cntrl:]): red.
 - [NIT] the watchdog plist shares the block --> said in the comment.
+
+## Review round 2 (blind, sonnet): converged
+- No new issues. [NIT] JS `\s` also rejects Unicode whitespace (NBSP, U+2028) while the shell's [:space:] is ASCII, so
+  a URL with NBSP reaches the plist (XML-escaped, valid) but not the shim --> NOT CHANGED: harmless (an address with
+  NBSP is not a real CI value, and either outcome is a valid file); the comments say "the rule linuxboard.js
+  applies", which win32board.js matches exactly.
