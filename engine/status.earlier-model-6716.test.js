@@ -55,3 +55,13 @@ test('#6716: an earlier session recorded in another folder does not lend its mod
   fs.writeFileSync(path.join(path.dirname(full), 'stray.jsonl'), JSON.stringify({ cwd: '/somewhere/else', message: { model: 'claude-fable-5' } }) + '\n');
   assert.equal(status.readModel('april').model, null);
 });
+
+/* Review 1: the board's snapshot calls readModel(name, its tmux session), so the fallback must hold there too. The
+   first version returned early when a session was passed and never reached a tile. */
+test('#6716: the snapshot\'s call (with a session) also reads the earlier session', () => {
+  session('renet2', 'old.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-5-5' } }], 600);
+  session('renet2', 'new.jsonl', [{ type: 'user', message: { content: 'hi' } }], 5);
+  const r = status.readModel('renet2', 'renet2');
+  assert.equal(r.model, 'claude-opus-5-5');
+  assert.equal(r.earlierSession, true);
+});

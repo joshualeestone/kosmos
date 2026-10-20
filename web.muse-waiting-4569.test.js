@@ -32,7 +32,8 @@ const MUSE = (waiting, extra) => ({ state: 'working', runner: 'muse', stateRepor
 test('#4569 fix 4: the agent page line says what waits, in Kosmos\'s words, unquoted; a card carries no line (#6716)', () => {
   /* #6716 (Josh, 2026-10-20): no sentences on tiles. A card says nothing here; the same words are its pill's hover. */
   assert.equal(api.taskLine(MUSE({ n: 15, yours: 1 }), { card: true }), '');
-  for (const opts of [undefined]) {
+  {
+    const opts = undefined;   // the agent page's call
     assert.equal(api.taskLine(MUSE({ n: 15, yours: 1 }), opts), '15 messages waiting, yours is next');
     assert.equal(api.taskLine(MUSE({ n: 3, yours: 2 }), opts), '3 messages waiting, yours are next');
     assert.equal(api.taskLine(MUSE({ n: 2, yours: 2 }), opts), '2 messages waiting, all yours');

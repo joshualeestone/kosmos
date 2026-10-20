@@ -7061,11 +7061,11 @@ function readModel(agentName, exactSession) {
    * #6716 (Josh, 2026-10-20: "I am not sure why it doesnt recognize Renet's model"). A session that has not had a reply
    * yet holds no model line: Renet's account move started a new session at 08:37, its sign-in was failing, and the
    * file had nothing to read, so her card fell back to "Made before Kosmos recorded this". Her previous session, in
-   * the same folder, said claude-opus-5-5. So: the newest earlier session that names one, flagged `earlierSession` so
-   * nothing presents it as what the new session is running. Exact-session reads (a caller asking about ONE session)
-   * do not borrow another's.
+   * the same folder, said claude-opus-5-5. So: the newest earlier session that names one, flagged `earlierSession`; the
+   * card prefers the model it is SET to run on when it has one (a model switch is exactly a new session that has not
+   * replied yet), and shows this only when there is none (the fleet's agents, which no Kosmos job describes).
+   * `exactSession` is the tmux session that picks the registry entry, not a transcript, so it does not opt out.
    */
-  if (exactSession) return { model: null, confidence: CONFIDENCE.NONE };
   const before = modelInEarlierSession(file, agentName);
   return before
     ? { model: before, confidence: CONFIDENCE.STRUCTURED, earlierSession: true }
@@ -7127,8 +7127,19 @@ function modelInText(text) {
 }
 
 /** The model the newest earlier session beside `file` names, or null. Five sessions at most, newest first, and only a
-    session recorded in this agent's own folder (the same check transcriptFor's workdir arm makes). */
+    session recorded in this agent's own folder (the same check transcriptFor's workdir arm makes). Remembered per
+    new-session file for a minute: the board polls every few seconds, and a folder can hold hundreds of sessions. */
+const EARLIER_MODEL_TTL_MS = 60 * 1000;
+const earlierModelSeen = new Map();
 function modelInEarlierSession(file, agentName) {
+  const memo = earlierModelSeen.get(file);
+  if (memo && Date.now() - memo.at < EARLIER_MODEL_TTL_MS) return memo.model;
+  const model = modelInEarlierSessionUncached(file, agentName);
+  if (earlierModelSeen.size > 200) earlierModelSeen.clear();
+  earlierModelSeen.set(file, { at: Date.now(), model });
+  return model;
+}
+function modelInEarlierSessionUncached(file, agentName) {
   const belongs = workdirBelongs(agentName);
   if (!belongs) return null;
   let siblings;
@@ -9247,13 +9258,16 @@ function snapshot() {
        message, Grok's names current_model_id, Codex's rollout names it on each turn_context. A runner whose record
        names none yet (no turn since it started) falls back to the job's planned model (server.js plannedFor). */
     const sessModel = (x) => (x && x.found && typeof x.model === 'string' && x.model) || null;   // found, as the agy line always required
-    const { model } = !tied ? { model: null }
+    const { model, earlierSession } = !tied ? { model: null }
       : isAgyPane ? { model: sessModel(agySess) }
       : isMusePane ? { model: sessModel(museSess) }   // #4603 N12: the model its last turn named
       : isGeminiPane ? { model: sessModel(geminiSess) }
       : isGrokPane ? { model: sessModel(grokSess) }
       : isCodexPane ? { model: sessModel(codexSess) }
       : readModel(pane.name, pane.session);
+    /* #6716: whether that model came from an earlier session (a new one that has not replied yet); the card prefers the
+       model the agent is set to run on, when it has one. */
+    const modelFromEarlierSession = earlierSession === true;
     /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
        read "Not yet read" forever. Its context lives in the Codex rollout, which
@@ -9445,6 +9459,7 @@ function snapshot() {
       context,
       model,
       modelName: modelDisplayName(model),
+      modelFromEarlierSession,   // #6716
       /* #5811: what the #5804 "(set to X)" decision needs, all from this tick's ONE session read (geminiSess above), so
          server.js decides it without reading the job or the session again. Gemini panes only; null when the session
          was not found. server.js takes it off the row before the page gets it. */

@@ -3145,8 +3145,6 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 /* `.acut` is retired: the pack dropped the rule AND the divs together, and a
    surviving rule would still draw a line under markup that no longer exists. */
 /* The role sits directly under the name as one unit (Josh's regroup). */
-/* #5957 slice 2: an offline card's far-behind note: small and muted, so the quieter offline card stays quiet. */
-.acard .arules { font-size: .75rem; color: var(--k-ink-2); line-height: 1.35; margin-top: 4px; }
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
 /* Josh, 2026-08-19: "a tiny bit more. Not crazy." One pixel is not a gap, it is
    the absence of one. Mona Lisa's spec (#184) is `--space-3`.
@@ -21530,7 +21528,8 @@ function taskLine(a, opts) {
  * status), so today only `rate_limited`, `auth_failed` (#874) and
  * `connection_lost` (#3410) speak and every other state shows nothing rather
  * than a stale summary. (Since then also: a crash loop, a waiting count, a stuck
- * error, and on a CARD in a calm state, rules far behind (#5957); see stateReason.)
+ * error. Since #6716 a CARD carries none of these: each is its pill's hover and hidden text, through pillSay, which
+ * also adds the rules-far-behind note (#5957) for a calm card.)
  *
  * 🛑 `taskWords` IS GONE. It stripped the "Claude Code" default out of the
  * frozen title (#222) so a brand-new agent did not read as "doing Claude Code".
@@ -21556,8 +21555,8 @@ function waitingLine(w) {
   return base + ', yours ' + (yours === 1 ? 'is' : 'are') + ' next';
 }
 /* #5957 slice 2: the one sentence for an agent whose working rules are far behind (a.rulesBehind, from
-   engine/doctrine.js: a whole number only when its own page offers the update), or ''. Said by stateReason on a
-   running card and by the offline card and list row, which draw no task line of their own. */
+   engine/doctrine.js: a whole number only when its own page offers the update), or ''. Said by pillSay (the pill's hover and hidden text) on a card or list row since #6716, and by the agent's own page.
+   */
 function rulesBehindLine(a, offline) {
   if (!(a && Number.isSafeInteger(a.rulesBehind) && a.rulesBehind > 0)) return '';
   /* `offline`: the not-running card and row (no session in the roster), where the page's update is refused (it needs
@@ -21603,7 +21602,7 @@ function stateReason(a, opts) {
      STUCK agent gets this sharper sentence; a brief one still falls through to the ordinary state sentence.
      Plain words, consistent with the "Keeps stopping" card; Mona can refine later. DELIBERATE: slice C escalates
      the SENTENCE, the Issue-filter membership (agentNeedsAttention / needsPerson) and one phone push -- not the
-     card's look or pill. auth_failed and rate_limited already render attn:true pills ("Sign-in isn't working" /
+     card's look or pill. auth_failed and rate_limited already render attn:true pills ("Sign-in Issue" /
      "Rate Limit"), so a stuck card already reads as an issue; restyling cardStOf/stateCopyOf would recolour those
      paused states wholesale, which is out of this slice's scope. */
   if (a && a.stuckError && a.stuckError.stuck === true && a.state === a.stuckError.state) {   // state-match: never a stale sentence on a mid-sweep switch
@@ -21816,7 +21815,9 @@ function modelLine(a) {
      rollout (turn_context), never scraped off the screen; the provider is
      the fallback while no turn has named one. */
   const notRunning = cardStOf(a).pres === 'off';
-  const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
+  /* #6716: a model read from the agent's EARLIER session (a new one that has not replied yet) gives way to the model it
+     is set to run on, exactly as a stopped agent's does: right after a model switch the earlier one is the old model. */
+  const name = ((notRunning || a.modelFromEarlierSession === true) && a.plannedModelName) || a.modelName || a.plannedModelName;
   /* #4416 (Josh 15:18: knowing "what actual model these things are on"): the model its rollout names (engine
      codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
   // #5977 (UI review): a Qwen agent runs on codex too, and is never "OpenAI": its model, or Qwen while none is known.
