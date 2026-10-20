@@ -2995,9 +2995,15 @@ function permissionCard(text) {
   }
   // eslint-disable-next-line no-control-regex
   const clean = (l) => l.replace(/[\u0000-\u001f\u007f]/g, '').trim();
-  const head = segs[0].map(clean).filter((l) => l && !/^Tip:/i.test(l));
+  const headAll = segs[0].map(clean).filter(Boolean);
+  const tipSeen = headAll.some((l) => /^Tip:/i.test(l));
+  const head = headAll.filter((l) => !/^Tip:/i.test(l));
   const title = head[0] || '';
-  const sub = head.slice(1).join(' ');
+  const rest = head.slice(1);
+  /* Review 4: a tip wraps on a narrow pane and its next line is not marked; with a tip on screen the description is
+     known only when exactly one line is left, so anything else is ambiguous and stays under Show details. */
+  const sub = rest.join(' ');
+  const subSure = !tipSeen || rest.length === 1;
   const body = segs.length >= 3 ? segs.slice(1, -1).flat() : [];
   const indent = Math.min(...body.filter((l) => l.trim()).map((l) => l.match(/^\s*/)[0].length), 80);
   const detail = body.map((l) => l.slice(Number.isFinite(indent) ? indent : 0).replace(/\s+$/, '')).join('\n').replace(/^\n+|\n+$/g, '');
@@ -3018,11 +3024,14 @@ function permissionCard(text) {
      description, a file's name. Any other box (an MCP tool's, a layout not captured) keeps its lines under Show
      details, so a request's arguments never reach the headline. */
   const ruled = segs.length >= 3;
-  const extra = (!isCommand && !(isFile && ruled)) ? sub : '';
+  /* Review 4: only the MEASURED shape is a card, its body between two dashed rules. Without them there is no telling
+     where the request is, and a card could offer Allow with nothing under Show details; null keeps the old text. */
+  if (!ruled) return null;
+  const extra = ((isCommand || isFile) && subSure) ? '' : sub;
   // A file's text is drawn with a line-number gutter ("  1 hello"); the details show the text (review 2).
   const gutter = isFile && detail && detail.split('\n').every((l) => !l.trim() || /^\s*\d+\s/.test(l));
   const fileText = gutter ? detail.split('\n').map((l) => l.replace(/^\s*\d+\s?/, '')).join('\n') : detail;
-  return { kind, title, says: isCommand && ruled ? sub : '', target: isFile && ruled ? sub : '',
+  return { kind, title, says: isCommand && subSure ? sub : '', target: isFile && subSure ? sub : '',
     detail: [extra, fileText].filter(Boolean).join('\n'), reason, allow: allow.n, deny: deny.n };
 }
 function questionIn(text, runner) {

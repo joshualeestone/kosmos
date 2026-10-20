@@ -74,16 +74,22 @@ test('#6727 not a permission card: the trust dialog, a question menu, an idle sc
   assert.equal(chat.permissionCard(cut), null);
 });
 
-test('#6727 review 2: a box with no dashed rules (an MCP tool, say) keeps its request under Show details, never in the headline', () => {
-  const MCP = BASH.replace(/^ Bash command$/m, ' Tool use')
-    .replace(/^╌+\n/mg, '')
-    .replace(' Generate a UUID with uuidgen\n', ' slack - post_message(channel: "#general", text: "token sk-abc123 here") (MCP)\n')
-    .replace(' /usr/bin/uuidgen\n', '').replace(' This command requires approval\n', '');
-  const c = chat.permissionCard(MCP);
-  assert.ok(c, 'premise: still read as a permission card');
-  assert.equal(c.kind, 'other');
-  assert.equal(c.target, '', 'the request reached the headline');
-  assert.equal(c.says, '');
-  assert.match(c.detail, /post_message/, 'the request is not under the details');
+test('#6727 review 2 and 4: a box with no dashed rules is no card at all (its request could be shown nowhere)', () => {
+  const unruled = BASH.replace(/^╌+\n/mg, '');
+  assert.equal(chat.permissionAnswerable(unruled), true, 'premise: still answerable, so the buttons would be offered');
+  assert.equal(chat.permissionCard(unruled), null, 'a card with nothing under Show details');
+  const MCP = unruled.replace(/^ Bash command$/m, ' Tool use')
+    .replace(' Generate a UUID with uuidgen\n', ' slack - post_message(channel: "#general", text: "token sk-abc123 here") (MCP)\n');
+  assert.equal(chat.permissionCard(MCP), null, 'an unruled tool box was made a card');
 });
 
+test('#6727 review 4: a tip wrapped onto a second line never reaches the visible line', () => {
+  const wrapped = BASH.replace(/^ Tip: (.*)$/m, (m, t) => ' Tip: ' + t.slice(0, 40) + '\n ' + t.slice(40));
+  assert.notEqual(wrapped, BASH, 'premise: the tip was wrapped');
+  const c = chat.permissionCard(wrapped);
+  assert.ok(c, 'premise: still a card');
+  assert.equal(c.says, '', 'an ambiguous head reached the visible line: ' + c.says);
+  assert.match(c.detail, /Generate a UUID with uuidgen/, 'the head is not under Show details');
+  // CONTROL: the unwrapped capture still shows its description.
+  assert.equal(chat.permissionCard(BASH).says, 'Generate a UUID with uuidgen');
+});

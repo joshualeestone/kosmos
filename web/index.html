@@ -7132,11 +7132,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dmchoices-msg { font-size: .8125rem; color: var(--k-ink-2); }
 /* #6172: a lasting choice pressed once, waiting for the second press that sends it. */
 .dmchoice.armed { border-color: var(--k-ink); box-shadow: inset 0 0 0 1px var(--k-ink); }
-/* #6727: a permission prompt as a short card: the ask, Allow (filled) and Deny, the raw request under Show details. */
+/* #6727: a permission prompt as a short card: the ask, Allow and Deny at equal weight (design review: the choice is the
+   person's judgement, not a default to nudge), the raw request under Show details. */
 .dmperm-ask { margin: 2px 0 0; font-weight: 600; }
 .dmperm-says { margin: 2px 0 0; color: var(--k-ink-2); }
-.dmchoice.dmperm-allow { background: var(--k-ink); color: var(--k-surface); border-color: var(--k-ink); }
-.dmchoice.dmperm-allow:hover { opacity: .9; }
 .dmperm-more { margin: 6px 0 0; }
 .dmperm-more > summary { cursor: pointer; font-size: .8125rem; color: var(--k-ink-2); }
 .dmperm-reason { margin: 6px 0 0; font-size: .8125rem; color: var(--k-ink-2); }
@@ -40376,7 +40375,7 @@ function dmRow(m, name, replyAdjacent) {
       + ((m.kind === 'question' && m.permission && typeof dmPermissionHtml === 'function' && dmChoicesHtml(m, 'main'))
         // #6727: a permission prompt is a short card, never its screen; only while Allow and Deny can be drawn (review 1:
         // with the composer closed there are no buttons, and a card would promise an action it cannot take)
-        ? dmPermissionHtml(m, shownFrom)
+        ? dmPermissionHtml(m)
         : pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
           + pjPreviewCard(m.preview) + pjAttachmentCards(m)
           + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m) : ''))   // #5406 (guarded: the lifted dmRow tests run without it)
@@ -40710,8 +40709,11 @@ function dmChoicesHtml(m, part) {
   /* #6727: on a card, "Sending…" and "Sent." are said once, under Allow and Deny; "press it again" sits in the part that
      holds the armed button (a lasting choice lives under Show details), so the button it describes points at it. */
   const armedHere = armedN !== undefined && shown.some((o) => o.n === armedN);
+  /* Design review (Mona Lisa): after a sure press the card says what was chosen, "Allowed." or "Denied.", where a
+     plain choice says "Sent.". */
+  const chosen = locked && done.sure && perm ? (done.n === perm.allow ? 'Allowed.' : done.n === perm.deny ? 'Denied.' : note) : note;
   const partNote = !perm ? note
-    : (pressing || (locked && done.sure)) ? (part === 'main' ? note : '')
+    : (pressing || (locked && done.sure)) ? (part === 'main' ? chosen : '')
     : armedHere ? DM_CHOICE_ARM_NOTE : '';
   return '<div class="dmchoices' + (perm ? ' dmperm-' + part : '') + '" role="group" aria-label="' + (perm && part === 'main' ? 'Allow or deny' : 'Choices') + '">'
     + shown.map((o) => '<button type="button" class="dmchoice' + (perm && part === 'main' ? (o.n === perm.allow ? ' dmperm-allow' : ' dmperm-deny') : '') + (o.n === armedN ? ' armed" aria-describedby="' + noteId : '') + '" data-n="' + esc(String(o.n)) + '" data-gen="' + esc(String(DM_CHOICES.gen)) + '"' + (off ? ' disabled' : '') + '>'
@@ -40729,13 +40731,14 @@ const DM_PERM_DOES = {
   fetch: 'fetch something from the web',
   other: 'do something that needs your permission',
 };
-function dmPermissionHtml(m, who) {
+function dmPermissionHtml(m) {
   const p = m.permission || {};
   const does = DM_PERM_DOES[p.kind] || DM_PERM_DOES.other;
   const str = (v) => (typeof v === 'string' ? v : '');
   const more = typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m, 'more') : '';
   return '<div class="dmperm">'
-    + '<p class="dmperm-ask">' + esc(who + ' wants to ' + does + (str(p.target) ? ': ' + str(p.target) : '') + '.') + '</p>'
+    // Design review: the bubble's header already names the agent, so the line does not say it again.
+    + '<p class="dmperm-ask">' + esc('Wants to ' + does + (str(p.target) ? ': ' + str(p.target) : '') + '.') + '</p>'
     // Review 3: the description is the agent's own words about its command, not Kosmos's reading of it, so it says so.
     + (str(p.says) ? '<p class="dmperm-says">' + esc('It says: ' + str(p.says)) + '</p>' : '')
     + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m, 'main') : '')
@@ -40810,7 +40813,7 @@ async function dmChoicePress(btn) {
   /* Placed, or may have been sent (could not confirm): the same short lock, so a quick second press cannot answer twice
      while the page's poll is still catching up. Only a refusal or could_not (nothing typed) gives the buttons back now. */
   const mayHaveSent = ok || unsure;
-  if (mayHaveSent) DM_CHOICE_ANSWERED.set(session, { asked: c.asked, at: Date.now(), sure: ok });
+  if (mayHaveSent) DM_CHOICE_ANSWERED.set(session, { asked: c.asked, at: Date.now(), sure: ok, n: opt.n });   // n: #6727 says which
   /* Review 32: emptied either way; a success is announced once, in #d-reply-say below (the repaint draws "Sent." here
      for the eye, in a new node a screen reader does not read out again). */
   if (msg) msg.textContent = '';

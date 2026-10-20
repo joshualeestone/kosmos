@@ -6,7 +6,7 @@
  * by a stub (as render-dmchoices-5406.js), and the stub serves exactly what the server would: the card fields come from
  * the engine's own reading (chat.permissionCard) of the captured screens, the options from status.claudePermissionPrompt.
  *
- *   CARD     the bash capture: "April wants to run a command.", Claude's own description, Allow then Deny, "Show details"
+ *   CARD     the bash capture: "Wants to run a command." (the bubble's header names the agent), Claude's own description, Allow then Deny, "Show details"
  *            closed with the command and the other options inside; no rule, option number, key hint or question in the
  *            visible text; Allow posts the prompt's "Yes" number, Deny its "No" number (one press each).
  *   DELETE   the dangerous-rm prompt: "April wants to run a command that deletes files."
@@ -107,7 +107,7 @@ async function run() {
         const fx = served(BASH, true);
         await paint(page, fx);
         const c = await readCard(page);
-        check(`${tag} CARD the ask says who and what, in plain words`, !!c && c.ask === 'April wants to run a command.', JSON.stringify(c && c.ask));
+        check(`${tag} CARD the ask says who and what, in plain words`, !!c && c.ask === 'Wants to run a command.', JSON.stringify(c && c.ask));
         check(`${tag} CARD Claude's own description sits under it, marked as its own words`, !!c && c.says === 'It says: Generate a UUID with uuidgen', JSON.stringify(c && c.says));
         check(`${tag} CARD Allow then Deny, on the prompt's own Yes and No numbers`, !!c && JSON.stringify(c.main) === JSON.stringify(['Allow#' + fx.card.allow, 'Deny#' + fx.card.deny]), JSON.stringify(c && c.main));
         check(`${tag} CARD Show details is closed, and holds the command and the other options`, !!c && c.open === false
@@ -127,15 +127,19 @@ async function run() {
         let posted = await page.evaluate(() => window.__posted.slice());
         check(`${tag} CARD Allow sends the prompt's Yes, once`, posted.length === 1 && posted[0].text === String(fx.card.allow) && posted[0].chose === 'Yes'
           && posted[0].asked === fx.asked && !posted[0].lasting, JSON.stringify(posted));
+        const afterAllow = await page.evaluate(() => (document.querySelector('#d-dmthread .dmperm-main .dmchoices-msg') || {}).textContent || '');
+        check(`${tag} CARD after Allow the card says Allowed.`, afterAllow === 'Allowed.', JSON.stringify(afterAllow));
         await paint(page, fx);
         await press(fx.card.deny);
         posted = await page.evaluate(() => window.__posted.slice());
         check(`${tag} CARD Deny sends the prompt's No, once`, posted.length === 1 && posted[0].text === String(fx.card.deny) && posted[0].chose === 'No', JSON.stringify(posted));
+        const afterDeny = await page.evaluate(() => (document.querySelector('#d-dmthread .dmperm-main .dmchoices-msg') || {}).textContent || '');
+        check(`${tag} CARD after Deny the card says Denied.`, afterDeny === 'Denied.', JSON.stringify(afterDeny));
 
         // DELETE
         await paint(page, served(RM, true));
         const d = await readCard(page);
-        check(`${tag} DELETE the dangerous rm reads as a command that deletes files`, !!d && d.ask === 'April wants to run a command that deletes files.', JSON.stringify(d && d.ask));
+        check(`${tag} DELETE the dangerous rm reads as a command that deletes files`, !!d && d.ask === 'Wants to run a command that deletes files.', JSON.stringify(d && d.ask));
 
         // PRESENCE OFF (review 1): the composer is closed, so no buttons are drawn, and so no card either: the old text.
         await paint(page, { ...served(BASH, true), presence: 'off' });
