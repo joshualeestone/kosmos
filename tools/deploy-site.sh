@@ -157,6 +157,9 @@ fi
 # abort mid-run when the source fails -- matching the checks above for the other sourced libs.
 [ "$PROMOTE" != 1 ] || [ -f "$REPO/tools/lib/sha256-name.sh" ] || { echo "deploy-site: --promote needs $REPO/tools/lib/sha256-name.sh (to derive the alias checksum), which is missing"; exit 1; }
 command -v vercel >/dev/null 2>&1 || { echo "deploy-site: vercel CLI not found"; exit 1; }
+# kosmos#6771: a Vercel token given in the environment goes to the vercel command alone, not to every step this
+# script runs (the build, the fetches): kept in an unexported variable and the environment's copy removed.
+_vercel_token="${VERCEL_TOKEN:-}"; unset VERCEL_TOKEN
 
 # --- 1) fetch and verify the CURRENT live artifacts into the site dist/ -------
 # The export carries whatever is in dist/. We make the critical current artifacts present
@@ -194,8 +197,8 @@ _fetch_cleanup() {
   _FETCH_TMP_A=""; _FETCH_TMP_S=""; _FETCH_TMP_P=""
 }
 # Every exit path removes a temp in flight: the refusals below remove it explicitly, and these
-# (this trap also removes the deploy step's output and code files, VOUT and VRC, kosmos#6771)
-# traps cover an interrupt or an unexpected set -e abort mid-fetch.
+# traps cover an interrupt or an unexpected set -e abort mid-fetch. (They also remove the deploy
+# step's output and code files, VOUT and VRC: kosmos#6771.)
 trap '_fetch_cleanup' EXIT
 trap '_fetch_cleanup; exit 130' INT
 trap '_fetch_cleanup; exit 143' TERM HUP
@@ -850,7 +853,10 @@ case "$LIVE_PTRS_NOW" in *" 000 "*) echo "deploy-site: could not re-read the liv
 # pipeline's status is tee's. The function's $? is the subshell's own (measured under sh and dash).
 VOUT=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel.XXXXXX") && VRC=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel-rc.XXXXXX") \
   || { echo "deploy-site: could not make temp files for the deploy's output"; rm -rf "$EXPORT"; exit 1; }
-vercel_deploy_rc() { ( cd "$EXPORT" && vercel deploy --prod --yes ) && echo 0 > "$VRC" || echo $? > "$VRC"; }
+vercel_deploy_rc() {
+  ( cd "$EXPORT" && if [ -n "$_vercel_token" ]; then VERCEL_TOKEN="$_vercel_token" vercel deploy --prod --yes; else vercel deploy --prod --yes; fi ) \
+    && echo 0 > "$VRC" || echo $? > "$VRC"
+}
 # A person at a terminal gets the CLI exactly as before (its own progress display and prompts); only a run whose
 # output is not a terminal (the autodeploy, a cut's step 8 over ssh) goes through tee, so its refusal can be read.
 if [ -t 1 ]; then vercel_deploy_rc; : > "$VOUT"; else vercel_deploy_rc 2>&1 | tee "$VOUT"; fi
@@ -861,8 +867,9 @@ if [ "$vrc" != 0 ]; then
   # is not read as one. Exit 77 (EX_NOPERM) for that refusal, so the autodeploy can tell it from a failed deploy and
   # not park the site on it: a new token is then the whole fix.
   _esc=$(printf '\033')
-  if sed "s/${_esc}\[[0-9;]*m//g" "$VOUT" | grep -qiE '^Error: .*(not authorized|token .*is not valid|no existing credentials found)'; then
-    if [ -n "${VERCEL_TOKEN:-}" ]; then
+  # Any line where the CLI says error and one of its three refusals (wording from its own code), whatever it puts in front.
+  if sed "s/${_esc}\[[0-9;]*m//g" "$VOUT" | grep -qiE '(^|[^a-z])error[^a-z].*(not authorized|token .*is not valid|no existing credentials found)'; then
+    if [ -n "$_vercel_token" ]; then
       echo "deploy-site: Vercel REFUSED the token in VERCEL_TOKEN (expired, revoked, or not for this project). Make a new scoped token for the chaoskosmos-site project and file it again for the secrets target vercel-chaoskosmos-site; a VERCEL_TOKEN set in this job's environment wins over the map, so check that first (kosmos#6771). The CLI refused before deploying."
     else
       echo "deploy-site: the Vercel CLI on this machine is not signed in for this project, and no VERCEL_TOKEN was given. On the autodeploy box: file a scoped project token for the secrets target vercel-chaoskosmos-site (kosmos#6771). Elsewhere: sign the CLI in. The CLI refused before deploying."
