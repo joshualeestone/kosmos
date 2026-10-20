@@ -41,7 +41,7 @@ function host(version, { by = RELEASE, list = { seq: 1, keys: [RELEASE.pub] }, l
   const tmux = path.join(dir, 'tmux.tar.gz'); fs.writeFileSync(tmux, 'tmux bytes ' + version);
   const tgz = path.join(dir, 'kosmos.tar.gz'); fs.writeFileSync(tgz, 'kosmos bytes ' + version);
   const mp = path.join(dir, `kosmos-${version}-arm64.manifest.json`);
-  fs.writeFileSync(mp, JSON.stringify({ manifest: 1, version, arch: 'arm64', sha256: sha(fs.readFileSync(tgz)), tmux_sha256: sha(fs.readFileSync(tmux)), files: [] }) + '\n');
+  fs.writeFileSync(mp, JSON.stringify({ manifest: 1, version, arch: 'arm64', sha256: sha(fs.readFileSync(tgz)), tmux_sha256: sha(fs.readFileSync(tmux)), files: [{ path: 'VERSION', sha256: sha(Buffer.from('v ' + version + '\n')) }] }) + '\n');
   fs.writeFileSync(mp + '.sig', crypto.sign(null, fs.readFileSync(mp), by.priv).toString('base64') + '\n');
   if (list) {
     const lp = path.join(dir, 'release-keys.json');
@@ -70,10 +70,12 @@ function installedHome(version, { on = true } = {}) {
 function install(r, home, target) {
   const stage = fs.mkdtempSync(path.join(tmp, 'stage-'));
   fs.copyFileSync(r.tgz, path.join(stage, 'kosmos.tar.gz'));
+  fs.writeFileSync(path.join(stage, 'VERSION'), 'v ' + target + '\n');   // what post holds the unpacked tree to
   const body = [
     'update_manifest_ok early "" "$2" || { echo "refused at early"; exit 1; }',
     'update_tmux_ok "$1" "$2" || { echo "refused at tmux"; exit 1; }',
     `update_manifest_ok pre "${stage}" "$2" || { echo "refused at pre"; exit 1; }`,
+    `update_manifest_ok post "${stage}" "$2" || { echo "refused at post"; exit 1; }`,
     'echo "all-ok"'].join('\n');
   const script = ['set -eu', 'info() { printf "%s\\n" "$*"; }', '_UM_DIR=""', '_UM_NOKEY=""', '_UM_SAID=""',
     fnSource('update_manifest_ok'), fnSource('update_tmux_ok'), body].join('\n');
@@ -85,7 +87,7 @@ function install(r, home, target) {
 const recorded = (h) => { try { return fs.readdirSync(path.join(h, KEY_LIST_STATE)).filter((f) => /^seq-/.test(f)).sort(); } catch { return []; } };
 const cli = (home, args, env = {}) => spawnSync(process.execPath, [path.join(home, 'app', 'engine', 'manifest-verify.js'), ...args], { encoding: 'utf8', env: { ...process.env, KOSMOS_KEY_LIST: '', KOSMOS_KEY_LIST_SIG: '', ...env } });
 
-test('on: the installer fetches the list, and early, tmux and pre all pass with its keys; the list is recorded', () => {
+test('on: the installer fetches the list, and early, tmux, pre and post all pass with its keys; the list is recorded', () => {
   const h = installedHome('1.2.0');
   const r = install(host('1.2.3'), h, '1.2.3');
   assert.equal(r.code, 0, r.out);
@@ -109,7 +111,7 @@ test('on: no list served stops the update before anything is fetched or unpacked
 });
 
 test('on: a list from another signer, and an older list than this copy took, are refused', () => {
-  assert.match(install(host('1.2.3', { listBy: OTHER }), installedHome('1.2.0'), '1.2.3').out, /not signed by the Kosmos recovery key, so it was not installed/);
+  assert.match(install(host('1.2.3', { listBy: OTHER }), installedHome('1.2.0'), '1.2.3').out, /not signed by the Kosmos recovery key \(it may be mid-publish; try again in a minute\), so it was not installed/);
   const h = installedHome('1.2.0');
   assert.equal(install(host('1.2.3', { list: { seq: 2, keys: [RELEASE.pub] } }), h, '1.2.3').code, 0);
   const older = install(host('1.2.4', { list: { seq: 1, keys: [RELEASE.pub, OTHER.pub] } }), h, '1.2.4');
