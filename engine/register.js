@@ -564,7 +564,9 @@ function strays(profileNames, jobs) {
 
 /**
  * #6714: has this agent ever run on this board? A running agent reports in, and each report leaves a record: the
- * liveness beat (since #2558) and the self-report history (older). Either one is proof it ran.
+ * liveness beat (since #2558) and the self-report history (older). Either one is evidence it ran. Removing an agent
+ * clears its liveness but keeps its self-report history, so an agent re-made under a removed one's name counts as run
+ * before it starts: that errs toward showing its notice, the safe side.
  *
  * 🛑 WHY THE SURVEY NEEDS IT. A profile and a folder are not an agent. A test that stopped half way left
  * `leftover-unrelated` with exactly those two and a CLAUDE.md, and the board told Josh it "will not come back if you
@@ -607,7 +609,7 @@ function hide(name, opts) {
   const seen = survey(opts);
   if (!seen.ok) return { ok: false, because: seen.because };
   if (![...seen.missing, ...seen.unknown, ...seen.hidden].includes(name)) {
-    return { ok: false, because: 'there is no restart notice for that agent' };
+    return { ok: false, notOffered: true, because: 'there is no restart notice for that agent' };
   }
   try { writeHidden([...readHidden(), name]); } catch { return { ok: false, because: 'we could not record that' }; }
   return { ok: true };
@@ -691,8 +693,9 @@ function survey(opts) {
   const hiddenSet = new Set(hiddenList);
   /* #6714 review 2: a hidden name whose agent now starts at login is forgotten, so if it ever loses its job again the
      notice comes back rather than staying silently closed. Written only when something changes; best effort. */
-  const healthy = hiddenList.filter((n) => agents.some((x) => x.name === n && x.job === true));
-  if (healthy.length) { try { writeHidden(hiddenList.filter((n) => !healthy.includes(n))); } catch { /* next look */ } }
+  /* A removed agent's name goes too (review 3), so an agent re-made under it does not start out hidden. */
+  const stale = hiddenList.filter((n) => agents.some((x) => x.name === n && (x.job === true || x.removed)));
+  if (stale.length) { try { writeHidden(hiddenList.filter((n) => !stale.includes(n))); } catch { /* next look */ } }
   return {
     ok: true,
     because: null,

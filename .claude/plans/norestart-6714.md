@@ -45,12 +45,14 @@ has its own compact notice with Start at login, Remove and an x; the x is rememb
 nothing on the page is full width; phones get a readable notice with 44px targets.
 
 ## Tests
-- engine/register.test.js (53): never-ran is left off and never repaired (CONTROL: an agent that ran); a self-report
+- server.register-routes-6714.test.js: the routes over HTTP (no body, `{}`, `{name}`, a non-string name, bad JSON;
+  refused 400 vs failure 500; hide/show name rule and a hide with no notice).
+- engine/register.test.js (54): never-ran is left off and never repaired (CONTROL: an agent that ran); a self-report
   alone counts; hide/show and Repair-all skipping hidden; only offered names can be hidden; an unreadable hidden list
   hides nothing; one-agent Start at login. Mutation: dropping the `ran` filter reds the never-ran arm.
 - Fixtures in five more engine tests record that their agents ran (linuxwiring, gemini-grok, world-guard, win32-570,
   qwen-review2), since the survey now requires it.
-- web.survival.test.js (13): notice per agent with its three actions, names spoken, cap and combined notice, escaping,
+- web.survival.test.js (16): notice per agent with its three actions, names spoken, cap and combined notice, escaping,
   failed look leaves the screen, Settings list, slot present and #restart-wrap gone.
 - Browser: render-survival.js on a sandboxed board, dark and light: 2 notices (the never-ran folder absent), each
   460px wide, Remove opens the dialog about that agent, x hides and Settings lists it, Show again restores it, Start

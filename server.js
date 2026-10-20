@@ -18580,7 +18580,8 @@ const server = http.createServer(async (req, res) => {
       let out;
       try { out = pathname === '/api/register/hide' ? register.hide(body.name) : register.show(body.name); }
       catch { out = { ok: false, because: 'we could not record that' }; }
-      sendJson(res, out.ok ? 200 : 400, out);
+      /* 400 only for a name with no notice (the page reads that as already done); anything else did not happen. */
+      sendJson(res, out.ok ? 200 : (out.notOffered ? 400 : 500), out);
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }

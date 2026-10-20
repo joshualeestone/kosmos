@@ -47977,7 +47977,13 @@ async function paintSurvival() {
      wipe the line saying what went wrong beside it (the login notice skips the same way). */
   if (slot.dataset.v === html) return;
   slot.dataset.v = html;
+  /* A repaint that does happen keeps focus on the same button (review 3), so a keyboard user is not dropped to the page. */
+  const had = typeof document.activeElement !== 'undefined' && typeof slot.contains === 'function' && slot.contains(document.activeElement)
+    ? document.activeElement : null;
+  const key = had ? ['data-survival-fix', 'data-survival-remove', 'data-survival-hide']
+    .filter((k) => had.hasAttribute(k)).map((k) => '[' + k + '="' + had.getAttribute(k) + '"]')[0] : null;
   slot.innerHTML = html;
+  if (key) { const back = slot.querySelector(key) || slot.querySelector('button'); if (back) back.focus(); }
 }
 
 /* #6714: Settings > Computer is read on its own, so a board opened straight into Settings (or left there) shows the
@@ -48038,7 +48044,7 @@ document.addEventListener('click', async (e) => {
       hide.closest('.utoast').remove();
       survivalFocusNext();
       const slot = document.getElementById('survival-slot');
-      if (!slot || !slot.querySelector('.utoast.report')) { SURVIVAL_HELD = false; if (slot) delete slot.dataset.v; }
+      if (!slot || !slot.querySelector('.utoast.report')) SURVIVAL_HELD = false;
       return;
     }
     const names = hide.getAttribute('data-survival-hide').split(' ').filter(Boolean);
@@ -48054,8 +48060,8 @@ document.addEventListener('click', async (e) => {
     /* Taken down only once the board has recorded it: an × that did not stick leaves the notice there, never a dead button. */
     if (!ok) { hide.disabled = false; survivalSayIn(hide, 'We could not record that just now. Try again.'); return; }
     hide.closest('.utoast').remove();
+    await paintSurvival();
     survivalFocusNext();
-    paintSurvival();
     return;
   }
   if (show) {
@@ -48119,9 +48125,14 @@ document.addEventListener('click', async (e) => {
     ? 'It had no record of which model it was set to run on, so it will start on the default. You can change it on its page.'
     : '';
   const report = body.results.map((r) => survivalNotice(r.ok ? 'done report' : 'failed report',
-    '<b>' + esc(r.shownAs || r.name) + '</b> ' + esc(said(r)), esc(guessedLine(r)), '', r.name, 'Close')).join('');
+    '<b>' + esc(r.shownAs || r.name) + '</b> ' + esc(said(r)), esc(guessedLine(r)), '', r.name,
+    /* The Close button carries the result, and takes focus (review 3): a status region inserted already filled is not
+       announced everywhere, and the button that had focus is gone. */
+    'Close: ' + (r.shownAs || r.name) + ' ' + said(r))).join('');
   const note = btn.closest('.utoast');
   if (note) note.outerHTML = report; else if (slot) slot.insertAdjacentHTML('afterbegin', report);
+  const closeFirst = slot && slot.querySelector('.utoast.report .ux');
+  if (closeFirst) closeFirst.focus();
   SURVIVAL_BUSY = false;
   SURVIVAL_HELD = true;
   /* The board can now see them, so ask it again rather than waiting out the
