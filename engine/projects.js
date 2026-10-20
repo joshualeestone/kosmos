@@ -2069,6 +2069,9 @@ function resolveListedDir(folder, rel, where = 'this folder', opts = null) {
    link itself), a folder only if it is not a skipped one and the browser may enter it, a file only if regular. */
 function browsedEntry(ent, dirAbs, relDir, depth, maxDepth) {
   if (isScratchName(ent.name)) return null;
+  /* Iteration 1: only a name the resolvers accept (a backslash is legal in a macOS name, and ':' names a stream on
+     Windows), so the list, the preview, the download and the zip always agree, and one such name cannot sink a zip. */
+  if (ent.name.includes('\\') || (process.platform === 'win32' && ent.name.includes(':'))) return null;
   const name = relDir ? relDir + '/' + ent.name : ent.name;
   if (ent.isDirectory()) {
     if (LIST_SKIP_DIRS.has(ent.name) || depth + 1 > maxDepth) return null;
@@ -2101,6 +2104,11 @@ function listDir(folder, rel, where, opts) {
   const files = [];
   let truncated = false;
   let read = 0;
+  /* Iteration 1: opendir follows a link, so a folder swapped for one after the gate would list an outside folder's names.
+     The folder's identity is read before and after the read, and an answer from a folder that changed is dropped. */
+  let before;
+  try { before = fs.lstatSync(got.real); } catch { return { ok: false, because: 'that folder is not there any more, or it was moved' }; }
+  if (!before.isDirectory()) return { ok: false, because: 'that is not a folder in ' + where };
   let dir;
   try { dir = fs.opendirSync(got.real); } catch { return { ok: false, because: 'we could not read what is in that folder' }; }
   try {
@@ -2117,6 +2125,11 @@ function listDir(folder, rel, where, opts) {
     return { ok: false, because: 'we could not read what is in that folder' };
   } finally {
     try { dir.closeSync(); } catch { /* already closed */ }
+  }
+  let after = null;
+  try { after = fs.lstatSync(got.real); } catch { after = null; }
+  if (!after || !after.isDirectory() || after.ino !== before.ino || after.dev !== before.dev) {
+    return { ok: false, because: 'that folder changed while it was being read' };
   }
   dirs.sort(byName);
   files.sort(byName);

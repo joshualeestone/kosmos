@@ -78,7 +78,8 @@ test.after(() => {
 function rawGet(urlPath, headers, method = 'GET') {
   return new Promise((resolve) => {
     const u = new URL(base + urlPath);
-    const req = require('node:http').request({ host: u.hostname, port: u.port, path: u.pathname + u.search, method, headers }, (res) => {
+    // agent: false: a fresh connection each time, so the board closing an idle kept-alive one (5 s) during a slow fixture cannot read as a refusal
+    const req = require('node:http').request({ host: u.hostname, port: u.port, path: u.pathname + u.search, method, headers, agent: false }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks), complete: true }));
@@ -373,6 +374,72 @@ test('a HARD link to a secret swapped in after the gate (a regular file inside F
   assert.equal(r.status, 200);
   assert.ok(r.body.length < Number(r.headers['content-length']), 'the zip should end short of the length it promised');
   assert.ok(!r.body.includes(Buffer.from(SECRET)), 'the secret was sent through a hard link');
+});
+
+test('iteration 1: a name with a backslash (legal on macOS) is not listed, so it can neither fail its own preview nor sink the folder zip', { skip: process.platform === 'win32' || (!HAVE_PY && 'python3 is not on this machine') }, async () => {
+  const dir = path.join(SANDBOX, 'workers', 'bslash', 'Files');
+  fs.mkdirSync(path.join(dir, 'd\\e'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'a\\b.txt'), 'odd');
+  fs.writeFileSync(path.join(dir, 'd\\e', 'in.txt'), 'odd');
+  fs.writeFileSync(path.join(dir, 'ok.txt'), 'fine');
+  const b = json(await rawGet('/api/agent/bslash/files/browse'));
+  assert.deepEqual([b.dirs.map((d) => d.name), b.files.map((f) => f.name)], [[], ['ok.txt']]);
+  const z = await rawGet('/api/agent/bslash/files/download-folder');
+  assert.equal(z.status, 200, 'one odd name sank the zip: ' + z.body.toString().slice(0, 120));
+  assert.deepEqual(readZip(z.body).entries.map((e) => e[0]), ['Files/', 'Files/ok.txt']);
+});
+
+test('iteration 1: a Files that is a file answers 409 with its reason, never the 404 the page reads as "no folder of its own"', async () => {
+  fs.mkdirSync(path.join(SANDBOX, 'workers', 'ffile'), { recursive: true });
+  fs.writeFileSync(path.join(SANDBOX, 'workers', 'ffile', 'Files'), 'a file');
+  const r = await rawGet('/api/agent/ffile/files/browse');
+  assert.equal(r.status, 409);
+  assert.match(json(r).because, /file, not a folder/);
+  assert.equal((await rawGet('/api/agent/nobody-6724/files/browse')).status, 404, 'CONTROL: no such agent is still 404');
+});
+
+test('iteration 1: a folder swapped for a link while it is being read is not listed (no outside names, sizes or dates)', () => {
+  const dir = path.join(SANDBOX, 'race-list');
+  fs.mkdirSync(path.join(dir, 'sub'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'sub', 'mine.txt'), 'x');
+  const real = fs.opendirSync;
+  fs.opendirSync = (p, ...rest) => {
+    if (String(p).endsWith(path.sep + 'sub')) {
+      fs.renameSync(p, p + '-moved');
+      fs.symlinkSync(OUTSIDE, p);
+    }
+    return real(p, ...rest);
+  };
+  let got;
+  try { got = projects.listDir(dir, 'sub', 'here', { maxDepth: 8 }); } finally { fs.opendirSync = real; }
+  assert.equal(got.ok, false, 'the outside folder was listed: ' + JSON.stringify(got));
+  assert.doesNotMatch(JSON.stringify(got), /secret\.txt/);
+});
+
+test('iteration 1: a client that stops reading the zip is let go after the stall time (no response and open file held forever)', { timeout: 5000 }, async () => {
+  /* Measured: over loopback the kernel's socket buffers can take a whole test-sized zip from a paused client, so the
+     stall is shown on the sender itself, with a response that never drains (CONTROL: one that drains is not cut). */
+  const { _setZipStallForTest, zipPut } = require('./server');
+  const { EventEmitter } = require('node:events');
+  const fakeRes = (drains) => {
+    const r = new EventEmitter();
+    r.destroyed = false; r.writableEnded = false;
+    r.write = () => { if (drains) setTimeout(() => r.emit('drain'), 10); return false; };
+    r.destroy = () => { r.destroyed = true; r.emit('close'); };
+    return r;
+  };
+  _setZipStallForTest(100);
+  try {
+    const stuck = fakeRes(false);
+    const started = Date.now();
+    await assert.rejects(zipPut(stuck, Buffer.alloc(1)), /connection closed/);
+    assert.equal(stuck.destroyed, true, 'a response that takes nothing was kept');
+    assert.ok(Date.now() - started < 2000, 'let go long after the stall time');
+    const moving = fakeRes(true);
+    await zipPut(moving, Buffer.alloc(1));
+    assert.equal(moving.destroyed, false, 'CONTROL: a response that drains was cut');
+    assert.equal(moving.listenerCount('close'), 0, 'a finished write left its close listener behind');
+  } finally { _setZipStallForTest(null); }
 });
 
 /* The folder gate has two layers, and each must hold ALONE (a race can defeat either one): the lstat walk (no segment a
