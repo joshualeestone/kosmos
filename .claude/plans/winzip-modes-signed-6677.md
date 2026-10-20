@@ -80,3 +80,8 @@ Built from this branch on the Windows box through the bsdtar shim (KOSMOS_ALLOW_
 - [WARNING] fixed: "After More info, the box names Kosmos Agent Manager, Inc. as the publisher" was my addition and unverified here (checking it means raising SmartScreen on Josh's desktop). Removed; the More info, Run anyway steps stay.
 - [WARNING] deferred (reviewer: "a note, not a defect"): the central-directory reader ignores prepended data and multi-disk fields. bsdtar and Info-ZIP write neither, and an unexpected shape fails loudly.
 - [NIT] noted: a rename retry on antivirus EPERM; the printf line-wrap pins match the file's style; the header keeps Josh's v1 words as history above the correction.
+### Iteration 9 (opus)
+- [WARNING] fixed: nothing held the promise that a zip after set still passes the updater's reader. Tests now run engine/win32zip.readZipDirectory (with win32update's own ENTRIES) on the fixture before and after set, and on the real deflated tar.exe zip on win32. Control: the same zip with one entry marked a symlink is refused.
+- [NIT] fixed: set clears the DOS read-only bit, so a Windows extract agrees with 0644.
+- [NIT] fixed: pe_signature_present reads the directory count into a variable and refuses a non-numeric read, as it does the PE offset.
+- [NIT] not taken: a rename retry on a transient EPERM. Nothing shows it failing; the build stops with the error and ships nothing torn.

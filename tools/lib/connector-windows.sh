@@ -69,7 +69,7 @@ connector_pe_signed() {
 # certificate table wherever the optional header's magic puts it (PE32: data
 # directories 96 bytes in; PE32+: 112).
 pe_signature_present() {
-  local f="${1:?pe_signature_present needs a file}" pe magic dirs addr size
+  local f="${1:?pe_signature_present needs a file}" pe magic dirs ndirs addr size
   [ -f "$f" ] || { echo "pe_signature_present: no file at $f" >&2; return 1; }
   [ "$(_cw_u16 "$f" 0)" = 23117 ] || { echo "pe_signature_present: $f is not a Windows program (no MZ header)" >&2; return 1; }
   pe="$(_cw_u32 "$f" 60)"
@@ -83,7 +83,9 @@ pe_signature_present() {
   esac
   # NumberOfRvaAndSizes sits just before the directories; with fewer than 5 there is no
   # certificate table (directory 4), and the bytes there belong to something else.
-  if [ "$(_cw_u32 "$f" $((dirs - 4)))" -lt 5 ] 2>/dev/null; then
+  ndirs="$(_cw_u32 "$f" $((dirs - 4)))"
+  case "$ndirs" in ''|*[!0-9]*) echo "pe_signature_present: $f has no readable data directory count" >&2; return 1 ;; esac
+  if [ "$ndirs" -lt 5 ]; then
     echo "pe_signature_present: $f carries no signature (it has no certificate table)" >&2
     return 1
   fi
