@@ -808,6 +808,14 @@ test('a symlinked main.swift or .cargo in a real git repo refuses: git show of a
   const c = git('rev-parse', 'HEAD');
   const { gitShow, gitEntry } = require(SBOM_JS);
   assert.throws(() => gitShow(root, c, 'native-app/main.swift'), /is not a plain file \(mode 120000\)/);
+  // Review 40: a file that is not UTF-8 refuses, so no hash is taken over a lossy decode; a BOM is kept.
+  fs.writeFileSync(path.join(root, 'bad.txt'), Buffer.from([0x61, 0xff, 0x62]));
+  fs.writeFileSync(path.join(root, 'bom.txt'), Buffer.from([0xef, 0xbb, 0xbf, 0x61]));
+  execFileSync('git', ['-C', root, 'add', 'bad.txt', 'bom.txt']);
+  execFileSync('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'bytes']);
+  const c2 = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  assert.throws(() => gitShow(root, c2, 'bad.txt'), /is not UTF-8 text/);
+  assert.equal(Buffer.from(gitShow(root, c2, 'bom.txt'), 'utf8').toString('hex'), 'efbbbf61', 'the BOM survives, so the hash is of the file');
   assert.equal(gitShow(root, c, 'plain.txt'), 'x\n', 'the control: a plain file reads');
   assert.equal(gitEntry(root, c, '.cargo'), '120000', 'a symlinked .cargo is an entry, so the .cargo check sees it');
   assert.equal(gitEntry(root, c, 'nothing-here'), null);

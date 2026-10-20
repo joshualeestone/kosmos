@@ -130,6 +130,10 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- (Review 40.) The tools themselves come from PATH (git, cargo, xcrun and tar) and HOME, like CARGO_HOME and
+  DEVELOPER_DIR above: a hostile PATH on this machine is out of scope, as any local compromise is.
+- (Review 40.) The Swift import check relies on the compiler's answer: one that exits 0 printing nothing would pass with
+  no imports. The real-compiler arm checks the real main.swift reports its modules; a broken compiler is not modelled.
 - (Review 39.) The .pkg installer (a separate signed artifact, with its own install/pkg-verify) is not in this SBOM.
 - (Review 39.) Release-key revocation: readSignedManifest trusts engine/manifest-verify.js KEYS only. Main is adding a
   RECOVERY_KEYS list (empty today); when keys are revoked this tool must follow that list.
