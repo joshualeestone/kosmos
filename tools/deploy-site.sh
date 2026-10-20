@@ -839,7 +839,28 @@ fi
 LIVE_PTRS_NOW=$(live_pointer_snapshot)
 case "$LIVE_PTRS_NOW" in *" 000 "*) echo "deploy-site: could not re-read the live pointers right before deploying -- refusing; nothing has been deployed (#5589)"; rm -rf "$EXPORT"; exit 75 ;; esac
 [ "$LIVE_PTRS_NOW" = "$LIVE_PTRS_BEFORE" ] || { echo "deploy-site: a live pointer changed while this run was building (a release cut published?) -- refusing; nothing has been deployed. Update the site checkout to origin/main and run again (#5589)."; echo "  before: $LIVE_PTRS_BEFORE"; echo "  now:    $LIVE_PTRS_NOW"; rm -rf "$EXPORT"; exit 75; }
-( cd "$EXPORT" && vercel deploy --prod --yes ) || { echo "deploy-site: vercel deploy --prod failed"; rm -rf "$EXPORT"; exit 1; }
+# kosmos#6771: the CLI says only "Not authorized" when its sign-in or token is refused, which on the Mortals autodeploy
+# read as a site problem. Its output is kept (and still shown as it runs), and that refusal is said in full: whether a
+# token was given (VERCEL_TOKEN, which the CLI reads from the environment, so it never appears in a process list).
+# POSIX sh, under set -e: the exit code is written from inside an && || list (which set -e leaves alone), because a
+# pipeline's status is tee's. The function's $? is the subshell's own (measured under sh and dash).
+VOUT=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel.XXXXXX") && VRC=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel-rc.XXXXXX") \
+  || { echo "deploy-site: could not make temp files for the deploy's output"; rm -rf "$EXPORT"; exit 1; }
+vercel_deploy_rc() { ( cd "$EXPORT" && vercel deploy --prod --yes ) && echo 0 > "$VRC" || echo $? > "$VRC"; }
+vercel_deploy_rc 2>&1 | tee "$VOUT"
+vrc=$(cat "$VRC"); rm -f "$VRC"
+case "$vrc" in ''|*[!0-9]*) vrc=1 ;; esac   # no code written is a failure, never a pass
+if [ "$vrc" != 0 ]; then
+  if grep -qiE 'not authorized|token .*is not valid|no credentials found' "$VOUT"; then
+    if [ -n "${VERCEL_TOKEN:-}" ]; then
+      echo "deploy-site: Vercel REFUSED the token in VERCEL_TOKEN (expired, revoked, or not for this project). Make a new scoped token for the chaoskosmos-site project and file it again (kosmos#6771). Nothing was deployed."
+    else
+      echo "deploy-site: the Vercel CLI on this machine is not signed in for this project, and no VERCEL_TOKEN was given. On the autodeploy box: file a scoped project token for the secrets target vercel-chaoskosmos-site (kosmos#6771). Elsewhere: sign the CLI in. Nothing was deployed."
+    fi
+  fi
+  rm -f "$VOUT"; echo "deploy-site: vercel deploy --prod failed (rc $vrc)"; rm -rf "$EXPORT"; exit 1
+fi
+rm -f "$VOUT"
 rm -rf "$EXPORT"
 
 # --- 6) verify the SERVED bytes against WHAT WE DEPLOYED, by FETCHING them --------------------
