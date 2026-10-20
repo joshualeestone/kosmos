@@ -1770,6 +1770,11 @@ cmd_start() {
 "
   done
   rm -f "$STOP_MARKER" "$STOP_MARKER".by-install.* 2>/dev/null || true
+  # #6586: the guards from here to the recorded-board check run a second time after that check's wait, so a board
+  # that reached a state DURING the wait gets the verdict it would have had at the first look. The wait runs once.
+  # (The loop body keeps its old indentation, which other tests lift and pin.)
+  local _waited=""
+  while :; do
   if healthy; then
     say "Kosmos is already running at $URL"
     return 0
@@ -1879,29 +1884,23 @@ cmd_start() {
   if _oldpid="$(running_pid)"; then
     # #6586: most often this board is not stuck but STARTING: launchd brought it back seconds ago after an
     # update's pause, and it answers within about 20 s. It gets the same bounded wait a fresh start gets; only a
-    # board still silent after that is called stuck.
-    local _arb=0
-    _await_recorded_board "$_oldpid" || _arb=$?
-    [ "$_arb" -eq 0 ] && return 0
-    if [ "$_arb" -eq 2 ]; then
-      # It ended while starting: nothing is running now, so this start goes ahead as a normal one.
-      if [ "$(cat "$PIDFILE" 2>/dev/null)" = "$_oldpid" ]; then rm -f "$PIDFILE" 2>/dev/null || true; fi
-      say "That board (process $_oldpid) exited while starting; starting Kosmos."
-    else
-      # (The guards above ran before the wait; a fall-through after rc 2 reuses them, as a fresh start would.)
-      # Unreachable during the wait: the same verdict as the top of this function gives one unreachable already
-      # (#4636), so the outcome cannot depend on whether the board opened its port before or during the wait.
-      if [ "$HEALTH_STATE" = unreachable ]; then
-        if [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ] || ! _unreachable_is_ours; then
-          if [ -n "$_had_stop_marker" ]; then restore_stop_marker; fi
-          die "$(_unreachable_lead) $(_unreachable_why). Nothing was started or stopped; run this from a shell that can reach it."
-        fi
-        say "Kosmos is already running at $URL, but $(_unreachable_why). Nothing was started."
-        return 0
+    # board still silent after that is called stuck. Any other outcome goes back through the guards above.
+    if [ -z "$_waited" ]; then
+      _waited=1
+      local _arb=0
+      _await_recorded_board "$_oldpid" || _arb=$?
+      [ "$_arb" -eq 0 ] && return 0
+      if [ "$_arb" -eq 2 ]; then
+        # It ended while starting: the guards run again and, with nothing recorded, this is a normal start.
+        if [ "$(cat "$PIDFILE" 2>/dev/null)" = "$_oldpid" ]; then rm -f "$PIDFILE" 2>/dev/null || true; fi
+        say "That board (process $_oldpid) exited while starting; starting Kosmos."
       fi
-      die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. $(_stop_advice)"
+      continue
     fi
+    die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. $(_stop_advice)"
   fi
+  break
+  done
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   { [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Linux ] && [ -f "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && [ -x "${AGENT_WORKFORCE_TMUX_BIN:-}" ]; } || { [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; } || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
