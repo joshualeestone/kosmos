@@ -16,12 +16,12 @@ changed the same way. Rejected: retrying the check (it would hide a real guard b
 named sleep (still a `sleep N`, and `pkill sleep` matches any); `tail -f /dev/null` (the first version: it never ends,
 so an orphan that cleanup misses, as `victim()` makes on purpose, would run forever).
 
-**Scope, decided (review 2, count corrected in review 3).** 18 more long-lived `sleep 6N` controls match the exact
-`pkill -f "sleep 6"` pattern, counted with grep over tools/test-*.sh: test-cut-guard.sh (6: lines 651, 678, 1078, 1098,
-1142, 1183), test-light-side-4911.sh (9), test-queued-heavy-4977.sh (2: 319, 352), test-tunnel-handshake-gate.sh (1: 88).
-More `sleep 30`/`sleep 300` controls match only a broader `pkill sleep`. All are left for kosmos#6710: several record
-their own command line (pid-reuse checks), stand in for a live git, or are renamed with `exec -a`, so each needs checking
-rather than a swap, and none has failed yet.
+**Scope, decided (review 2; the list replaced a hand count in review 4).** `grep -nF 'sleep 6' tools/test-*.sh` (the
+same substring rule `pkill -f "sleep 6"` uses) returns 23 lines: 3 are this branch's own comments, and the other 20 are
+in four files, as lines to check rather than confirmed exposures: test-cut-guard.sh 651, 678, 1078, 1098, 1142, 1183; test-light-side-4911.sh 19, 20, 23, 179, 279, 303, 308, 335, 354, 357; test-queued-heavy-4977.sh 177, 319, 352; test-tunnel-handshake-gate.sh 88. More `sleep 30`/`sleep 300` controls match
+only a broader `pkill sleep`. All are left for kosmos#6710: several record their own command line (pid-reuse checks),
+stand in for a live git, are renamed with `exec -a`, or sit inside a quoted script or a perl one-liner, so each needs
+checking rather than a swap, and none has failed yet.
 
 **Also in the diff.** test-start-waits-for-starting-board-6586.sh line 117 is split in two (behaviour unchanged): it read
 a status and piped into a filter on one line, which the pre-commit pipe lint refuses for any changed file.
