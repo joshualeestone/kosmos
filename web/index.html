@@ -73782,9 +73782,11 @@ async function pjPostSend(attachment) {
   /* A post that did not go stays drawn, marked, with the reason; its words go back in an empty box to send again. If a
      read already showed the room holding it (paintRoom handed over and dropped the pending entry), it did go: nothing is
      marked and the words are NOT put back, or a second press would post it twice. */
-  const notKept = (because, unsure) => {
+  const notKept = (because, unsure, wasOnFloor) => {
     if (PJ_ROOM_PENDING[sentProject] !== pend) return;
-    const keepFloor = PJ_CURRENT === sentProject && onFloor();   // before the box refills and the pill grows the row
+    // Before the box refills and the pill grows the row. #6629: the caller can read it earlier still, before the note
+    // under the box (which, in the one-page layout, takes its height from the room) has been written.
+    const keepFloor = PJ_CURRENT === sentProject && (wasOnFloor === undefined ? onFloor() : wasOnFloor);
     restoreUnsent();
     pend.failed = true; pend.because = because; pend.unsure = !!unsure;
     try { repaintPending(keepFloor); } catch { /* the next read paints it; a throw here must not escape the catch below */ }
@@ -73802,8 +73804,14 @@ async function pjPostSend(attachment) {
       if (unsure || PJ_ROOM_PENDING[sentProject]) return;
       PJ_ROOM_PENDING[sentProject] = pend;
     }
+    // #6629: the floor is read BEFORE the note is written. Showing the note under the box shrinks the room in the
+    // one-page layout, so read after it, a reader on the floor looked above it and was not pinned. On a busy page the answer can
+    // beat the press-time scroll event's frame: that event then reads the shrunk room, marks the reader off the floor
+    // (__wasOnFloor), and the resize rescue leaves them there, 50 px short with the failed pill below the fold. Read
+    // first, the pin here lands before that event, which then reads the floor.
+    const wasOnFloor = PJ_CURRENT === sentProject && onFloor();
     verdict(line);
-    notKept(because, unsure);
+    notKept(because, unsure, wasOnFloor);
   };
   let answered = false;   // the board kept it: from here a throw is the page's own, not the post's
   try {
