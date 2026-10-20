@@ -461,9 +461,12 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForFunction(() => document.getElementById('fedinv-email').getAttribute('aria-invalid') === 'true', { timeout: 4000 }).catch(waitNote());
     const bad = await page.evaluate(() => ({ focus: document.activeElement && document.activeElement.id,
       invalid: document.getElementById('fedinv-email').getAttribute('aria-invalid'), msg: document.getElementById('fedinv-msg').textContent,
-      label: document.getElementById('fedinv-label').getAttribute('aria-invalid'), posts: window.__posts.length }));
+      labelBad: document.getElementById('fedinv-label').classList.contains('bad'), posts: window.__posts.length,
+      make: document.getElementById('fedinv-make').disabled, cancel: document.getElementById('fedinv-cancel').disabled }));
     check('6681 a refused address marks the address field, focused, with the page\'s sentence',
-      bad.posts === 1 && bad.focus === 'fedinv-email' && bad.invalid === 'true' && bad.label === null && /email address does not look right/.test(bad.msg), JSON.stringify(bad));
+      bad.posts === 1 && bad.focus === 'fedinv-email' && bad.invalid === 'true' && bad.labelBad === false
+      && bad.make === false && bad.cancel === false   // review 2: and the person can try again or leave
+      && /email address does not look right/.test(bad.msg), JSON.stringify(bad));
     await page.evaluate(() => { window.__posts.length = 0; });
     await page.fill('#fedinv-email', 'dana');
     await page.click('#fedinv-make');
