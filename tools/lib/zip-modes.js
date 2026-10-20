@@ -158,7 +158,7 @@ function main(argv) {
   const [verb, zip, stage] = argv;
   // A wrong stage path would hide every #! script from set AND check alike (both read it the same way),
   // so a stage folder that is not there is refused, never read as "no scripts".
-  if (stage !== undefined && !(fs.existsSync(stage) && fs.statSync(stage).isDirectory())) {
+  if ((verb === 'set' || verb === 'check') && stage !== undefined && !(fs.existsSync(stage) && fs.statSync(stage).isDirectory())) {
     console.error(`zip-modes: the stage folder ${stage} is not a folder`);
     return 2;
   }

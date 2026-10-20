@@ -99,6 +99,52 @@ test('#6679: pe_signature_present sees a signature on a 32-bit or a 64-bit PE, a
   assert.equal(check('pe_signature_present', fs.readFileSync('tools/windows/Kosmos.exe')).code, 0, 'the committed Kosmos.exe carries no signature');
 });
 
+/* #6679: the build's own launcher step, run as written (lifted out of the script), not only its pieces. On Windows
+   it asks pe_authenticode, stubbed here so a Mac can run it: the stub prints the signer the step asked for. */
+function launcherStep(bytes, { onWindows = false, authenticode = 'ok' } = {}) {
+  const at = WIN.indexOf('_launcher_why="$(pe_signature_present "$LAUNCHER"');
+  const end = WIN.indexOf('\nfi\n', WIN.indexOf('  _launcher_sig="Valid"', at));
+  assert.ok(at > -1 && end > at, 'the launcher signature step moved; this runs nothing');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'launcher-6679-'));
+  const f = path.join(dir, 'Kosmos.exe');
+  fs.writeFileSync(f, bytes);
+  const stub = authenticode === 'ok'
+    ? 'pe_authenticode() { echo "asked-signer=$KOSMOS_WIN_SIGNER" > "$ASKED"; return 0; }'
+    : 'pe_authenticode() { echo "pe_authenticode: Windows reports the signature of $2 as \'HashMismatch\', not Valid" >&2; return 1; }';
+  const script = '. "$LIB"; ' + stub + '; LAUNCHER="$F"; _on_windows=' + (onWindows ? 1 : 0) + '; ' + WIN.slice(at, end + 4) + '\necho "sig=$_launcher_sig"';
+  const asked = path.join(dir, 'asked');
+  const r = spawnSync('bash', ['-c', script], {
+    env: { ...process.env, KOSMOS_WIN_SIGNER: 'Somebody Else Ltd', LIB: LIB.split(path.sep).join('/'), F: f.split(path.sep).join('/'), ASKED: asked.split(path.sep).join('/') },
+    encoding: 'utf8',
+  });
+  /* The step keeps the check's stderr only on failure, so the stub records what it was asked in a file. */
+  const askedSigner = fs.existsSync(asked) ? fs.readFileSync(asked, 'utf8') : '';
+  fs.rmSync(dir, { recursive: true, force: true });
+  return { code: r.status, out: String(r.stdout || ''), err: String(r.stderr || ''), askedSigner };
+}
+
+test('#6679: the build refuses an unsigned Kosmos.exe, records what it checked, and holds Windows to the read-me\'s publisher', () => {
+  const signed = pe32({ certAddr: 400, certSize: 100 });
+  const off = launcherStep(signed);
+  assert.equal(off.code, 0, off.err);
+  assert.match(off.out, /sig=present \(not verified: this build did not run on Windows\)/);
+
+  const unsigned = launcherStep(pe32());
+  assert.equal(unsigned.code, 1, 'an unsigned Kosmos.exe got through the build');
+  assert.match(unsigned.err, /tools\/windows\/Kosmos\.exe is not signed, and the zip's read-me tells people it is \(#6679\): .*carries no signature/);
+  assert.doesNotMatch(unsigned.out, /sig=/);
+
+  const win = launcherStep(signed, { onWindows: true });
+  assert.equal(win.code, 0, win.err);
+  assert.match(win.out, /sig=Valid/);
+  /* KOSMOS_WIN_SIGNER says someone else; the step still asks for the publisher the read-me names. */
+  assert.match(win.askedSigner, /^asked-signer=Kosmos Agent Manager, Inc\.$/m);
+
+  const bad = launcherStep(signed, { onWindows: true, authenticode: 'fail' });
+  assert.equal(bad.code, 1);
+  assert.match(bad.err, /Windows does not accept tools\/windows\/Kosmos\.exe's signature \(#6679\): Windows reports the signature of Kosmos\.exe as 'HashMismatch'/);
+});
+
 test('the Windows build takes the connector as a checked input and stages it where the board looks', () => {
   assert.match(WIN, /TUNNEL_BIN="\$\{KOSMOS_TUNNEL_BIN:-/, 'the connector is not an input');
   assert.match(WIN, /\[ -f "\$TUNNEL_BIN" \] \|\| \{[^\n]*exit 1; \}/, 'a missing connector does not stop the build');

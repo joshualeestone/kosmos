@@ -57,3 +57,9 @@ Built from this branch on the Windows box through the bsdtar shim (KOSMOS_ALLOW_
 - [WARNING] fixed: my scripted edit turned `tr -d '\r'` into a literal CR byte inside the quotes. Restored the escape; every changed file now carries no CR byte (none on main either). Authenticode re-checked on this box after the fix: launcher and connector Valid.
 - [NIT] fixed: set writes beside the zip and renames over it, so a failed write never leaves a torn zip.
 - [NIT] noted: names are decoded as UTF-8 regardless of the flag (all staged names are ASCII); the message-prefix strips are tied to the function names.
+### Iteration 5 (opus)
+- [WARNING] fixed: the read-me names Kosmos Agent Manager, Inc., but the launcher's Windows check took the signer from KOSMOS_WIN_SIGNER, so an override let another publisher through under that read-me. The step now passes the read-me's publisher explicitly. Off Windows only presence is checkable, and the manifest says "present (not verified ...)".
+- [CONVENTION] fixed: the build's launcher step was only grepped for. A test now lifts the step out of the script and runs it: signed passes (recording "present"), unsigned is refused with the read-me reason, Windows (stubbed pe_authenticode) records "Valid" and is asked for Kosmos Agent Manager, Inc. even with KOSMOS_WIN_SIGNER set to someone else, and a HashMismatch is refused. Control: with the signer pin removed, that test fails.
+- [NIT] fixed: the Run line no longer splits the publisher's name across lines.
+- [NIT] fixed: zip-modes reports usage for a bad verb before judging the stage path.
+- [NIT] noted: renameSync can hit EPERM if antivirus holds the zip; the build stops with the error, nothing is shipped torn.
