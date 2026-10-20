@@ -709,6 +709,8 @@ test('#4466 a busy reading that comes back FAST is not retried in a tight loop (
   assert.ok(n >= 1, 'the stub must have been asked at least once (else the arm measures nothing)');
   // Probes wait out their budget (2 s, then what is left): a handful of requests in 3 s, not hundreds.
   assert.ok(n <= 8, `a 3 s busy window sent ${n} requests to a board that cut each one at once`);
+  // #6682: two fast refusals are two busy readings, so the line IS said (about 2 s in), unlike one slow answer.
+  if (n >= 2) assert.match(out.stderr, /Kosmos is busy, retrying/, 'two fast refusals did not say the busy line');
 }));
 
 test('#4466 an agent may not start a board the person stopped ON PURPOSE (board.stopped); a person still can', async () => {
