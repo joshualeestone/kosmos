@@ -51,7 +51,7 @@ const ALSO = ['agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'p
   'accounts.fsync-5434.test.js',   // #5434 slice 2: the account stores' saves must work on Windows too
   'store.fsync-5434.test.js',   // #5434 slice 4: store.js's profile, settings and picture saves, on Windows too
   'orgkeypin-5686.test.js',   // #5686 b1-mac: the company-key pin is written and checked on Windows too (its 0600 check skips there)
-  'manifest-verify.recovery-6609.test.js',   // #6609: the release key list record (hard link, rename, folder fsync) on Windows too; its 0600/0700 and read-only arms skip there
+  'manifest-verify.recovery-6609.test.js',   // #6609, #6692: the release key list record on Windows too (hard link, rename, folder fsync, and its access list in place of 0600/0700); its read-only arm skips there
   'allowance.fsync-5434.test.js',   // #5434 slice 5: the account folder's weekly files, on Windows too
   'create.codexfsync-5434.test.js',   // #5434 slice 7: the codex config.toml rewrite, on Windows too
   'create.codexlock-5434.test.js',    // #5434 slice 8: one lock for the codex config.toml writers; the trust append flushed
