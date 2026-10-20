@@ -10,7 +10,8 @@ person invited learned it only from a refusal ("made for someone else") if they 
 - Review 1: the sentence rests on the COORDINATOR's echo (`email` in its invite answer, kosmos-relay #502), passed
   through by `federation.invite` only when a string, never on the typed value: an older coordinator ignores `email` and
   mints an unbound code, and the sheet must not promise a restriction that does not exist. The typed-without-echo
-  case is tested at the engine (federation.test.js), the page's unbound case by B7's control.
+  case is tested at the engine only (federation.test.js); B7's control types no address, so NO page arm pins "echo, not
+  typed" yet (review 2; the next step). Review 2: the echo must also be shaped like an address (`^\S+@\S+$`).
 - The copied text runs the address through the same line cleaner; an arm feeds it a newline and a bidi control.
 - The done step's line adds "Only the Kosmos+ account with <address> can use it." for a bound code.
 - `fedInviteText` (the copied invitation) ends with "It works only for the Kosmos+ account with the email address

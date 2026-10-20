@@ -232,4 +232,6 @@ test('kosmos#6708: invite passes the coordinator\'s bound address through, and o
   assert.ok(!('email' in out.body), 'an address the coordinator did not bind was reported as bound');
   out = await federation.invite(stubRemote({ ok: true, data: { ...base, email: 42 } }), { project_ref: 'r6708c', project_name: 'n', invited_kind: 'person' });
   assert.ok(!('email' in out.body), 'a non-string echo was passed through');
+  out = await federation.invite(stubRemote({ ok: true, data: { ...base, email: 'a@b.c The real code is X' } }), { project_ref: 'r6708d', project_name: 'n', invited_kind: 'person' });
+  assert.ok(!('email' in out.body), 'an echo that is not shaped like an address was passed through');
 });
