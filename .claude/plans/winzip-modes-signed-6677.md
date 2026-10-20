@@ -18,15 +18,24 @@ The shipped 0.7.60 zip: 369 of 369 entries world-writable (359 `-rw-rw-rw-`, 3 `
 - A separate `check` reads the finished zip back and refuses, so the guard does not trust `set`'s own report.
 - Manifest: per-file `"signatures"` for Kosmos.exe and app/bin/kosmos-tunnel.exe ("Valid" on Windows, "present (not verified: ...)" elsewhere). Rejected: `"signed": true`, which a reader could take as covering every file (node.exe and WebView2Loader.dll are other publishers').
 - The read-me now claims Kosmos.exe is signed, so the build refuses an unsigned launcher: presence on any host, Authenticode Valid by Kosmos Agent Manager, Inc. on Windows. The launcher is PE32 (AnyCPU, machine i386), which connector_pe_signed refuses as not x86-64, so a new pe_signature_present reads the certificate table for PE32 and PE32+.
+- The read-me keeps a line for the Open File box (Mark of the Web on a signed exe still raises it, now naming the publisher): "If a box asks whether to run Kosmos.exe from Kosmos Agent Manager, Inc., click Run." Only the false "could not be verified" wording went.
 - The read-me's filename ("! READ ME FIRST - Windows will warn you.txt") stays: it is in the build's required-entries list and the updater's, and Windows still may warn.
 
 ## Consumers of manifest "signed" (checked)
 engine/win32update.js (platform, version, arch, node only; Authenticode asked of Windows directly), tools/windows/publish-r2.ps1 (Authenticode directly), tools/win-staging-verify.js and tools/lib/win-staging-record.js (version, platform, arch, source_sha, source_dirty), tools/publish-kosmos-windows.sh (no manifest read), engine/manifest-verify.js (Mac release manifest). Test fixtures carry `signed: false` unread. None read the field.
 
 ## Weakest premise
-That nothing outside this repo reads `manifest.signed`. Searched this repo only; the site and kosmos-relay were not searched. The field was always false, so a reader that existed would only have been reading "unsigned".
+That nothing outside the repos searched reads `manifest.signed`. Searched: this repo (the site is in it) and kosmos-relay (relay-3d83aacc checkout); neither reads it. The field was always false, so any reader would only ever have seen "unsigned".
 
 ## Measured (after)
 Built from this branch on the Windows box through the bsdtar shim (KOSMOS_ALLOW_STALE_TUNNEL=1, a proof build): 349 files 0644, 14 programs 0755, 7 folders 0755, 0 world-writable, unzip -t clean. Manifest signatures both "Valid". The control (0.7.60 zip) fails the new check on all 369 entries.
 
 ## Review log
+### Iteration 1 (opus)
+- [WARNING] fixed: node was checked only inside the What's new block, so KOSMOS_CUT_NO_WHATS_NEW=1 let a node-less host download and zip before failing. One check now runs before staging.
+- [WARNING] fixed: dropping the "could not be verified" line left the Open File box unexplained. The read-me now says to click Run when it names Kosmos Agent Manager, Inc.; both README tests pin it.
+- [CONVENTION] fixed: two test comments in tools.build-windows-570 still called the package unsigned.
+- [CONVENTION] fixed: the weakest premise was checkable. kosmos-relay searched; no reader.
+- [NIT] fixed: check now requires 0755 for a program by extension; a test covers Kosmos.exe at 0644.
+- [NIT] fixed (comment): relabelling a DOS-hosted entry Unix changes how Info-ZIP reads a non-ASCII name; all staged names are ASCII.
+- [NIT] not taken: connector_authenticode's messages say "connector" when the launcher fails. The build's own line names Kosmos.exe first; the 4597 tests pin those messages.

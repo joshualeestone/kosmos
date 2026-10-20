@@ -26,7 +26,11 @@
  *   node tools/lib/zip-modes.js set   <zip> <stage-dir>   rewrite the modes; the stage dir is
  *                                                         read only for a file's first two bytes
  *   node tools/lib/zip-modes.js check <zip>               refuse (exit 1) any entry that is not
- *                                                         Unix-hosted 0644, 0755 or a 0755 folder
+ *                                                         Unix-hosted 0644, 0755 or a 0755 folder,
+ *                                                         or a program by extension that is not 0755
+ *
+ * A DOS-hosted entry is relabelled Unix. Info-ZIP then stops reading a non-ASCII name without the
+ * UTF-8 flag as CP437; every name this build stages is ASCII, so nothing reads differently today.
  */
 
 const fs = require('node:fs');
@@ -123,7 +127,10 @@ function checkModes(buf) {
   for (const e of listEntries(buf)) {
     const host = e.madeBy >> 8;
     const mode = e.attrs >>> 16;
-    const want = e.name.endsWith('/') ? [MODE_DIR] : [MODE_FILE, MODE_EXEC];
+    // A program by its extension must be 0755; any other file may be either (a #! script is 0755, and only
+    // `set`, which has the stage folder, can see that).
+    const want = e.name.endsWith('/') ? [MODE_DIR]
+      : PROGRAM_EXT.has(path.extname(e.name).toLowerCase()) ? [MODE_EXEC] : [MODE_FILE, MODE_EXEC];
     if (host !== 3) problems.push(`${e.name}: made on host ${host}, not Unix, so it carries no mode`);
     else if (!want.includes(mode)) problems.push(`${e.name}: mode ${mode.toString(8)}`);
     else counts[mode === MODE_DIR ? 'dir' : mode === MODE_EXEC ? 'exec' : 'file']++;

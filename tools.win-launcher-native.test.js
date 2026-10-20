@@ -568,6 +568,7 @@ test('the zip README speaks Windows: Extract, sign in, the real prompts, a folde
   /* #6679: Kosmos.exe is signed, so the Open File box names a verified publisher; the line telling people to
      click past an unverified one is gone. */
   assert.doesNotMatch(readme, /publisher could not be verified/, 'the README still tells people the publisher is unverified');
+  assert.match(readme, /printf 'If a box asks whether to run Kosmos\.exe from Kosmos Agent Manager,\\r\\n'\n\s*printf 'Inc\., click Run\./,'the README does not say what to click in the Open File box');
   assert.match(readme, /Tip: before you extract, right-click the zip, choose Properties, tick\\r\\n'\n\s*printf 'Unblock/);
   /* #6679: it says plainly that Kosmos.exe is signed, and why Windows may still warn (a new publisher). */
   assert.doesNotMatch(readme, /not signed yet|signed builds are coming|unsigned/, 'the README still says Kosmos is unsigned');
