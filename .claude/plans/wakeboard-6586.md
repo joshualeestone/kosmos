@@ -46,3 +46,9 @@
   its old indentation because other tests lift and pin those lines. The reviewer's probe held the port unbound in its
   wait arm but bound in its control; the test's version binds it in both and differs only in when. Measured: five
   first-look-versus-during-the-wait pairs equal, and removing the `continue` turns 8 cases red.
+- Iteration 5 (a WARNING and a NIT): the wait was keyed on "waited once", so a board launchd relaunched in place of
+  one that exited during the wait was called stuck after no looks at all (measured by the reviewer: control rc 0, race
+  rc 1). The wait is now keyed on the recorded pid, at most two per start, so the loop stays bounded. The exit line no
+  longer promises a start before the guards run again. Every first-look pair now also asserts its verdict text, not
+  only that the arms agree. New cases: the relaunch race against its control; a board replaced again and again (two
+  waits, then the stuck refusal); a silent board's exact look count (33). Both mutants (back to a flag; no cap) red.
