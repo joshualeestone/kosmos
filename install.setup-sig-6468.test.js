@@ -125,6 +125,41 @@ test('#6659: run-setup installs into the home it was handed, not the default one
     assert.equal(fs.readFileSync(mark + '.env', 'utf8'), `home=[${h}]\n`, what);
   }
 });
+
+test('#6659 (review 1): a home that IS the default copy, reached through a link, reaches the installer as the default string', () => {
+  /* setup.sh tells the default copy from a sandboxed one (data folders, launch label, ~/.local/bin) by the path STRING,
+     and installedRoot() resolves links. HOME is a scratch folder here, so nothing real is named. */
+  const fakeHome = fs.mkdtempSync(path.join(tmp, 'person-'));
+  const dflt = path.join(fakeHome, '.local', 'share', 'kosmos');
+  const real = home('1.2.0');
+  fs.mkdirSync(path.dirname(dflt), { recursive: true });
+  fs.symlinkSync(real, dflt);   // the default path is a link to where the copy really is
+  const hst = host('1.2.3', { setupBody: 'printf "home=[%s]\\n" "${KOSMOS_HOME:-unset}" > "$MARK.env"; : > "$MARK"\n' });
+  for (const [what, handed, want] of [['the resolved path of the default copy', real, dflt], ['another home, through a link of its own', null, null]]) {
+    let h = handed, expect = want;
+    if (!h) { h = path.join(tmp, 'link-' + crypto.randomBytes(3).toString('hex')); fs.symlinkSync(home('1.2.0'), h); expect = h; }
+    const mark = path.join(tmp, 'mark-dflt-' + crypto.randomBytes(4).toString('hex'));
+    const env = { ...process.env, MARK: mark, HOME: fakeHome };
+    delete env.KOSMOS_HOME;
+    const r = spawnSync(process.execPath, [path.join(real, 'app', 'engine', 'manifest-verify.js'), 'run-setup',
+      'file://' + hst.setup, 'file://' + hst.dist, '1.2.3', h], { encoding: 'utf8', env });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(fs.readFileSync(mark + '.env', 'utf8'), `home=[${expect}]\n`, what);
+  }
+});
+
+test('#6659 (review 1): the board is told the home it was installed under, and the update hands that to run-setup', () => {
+  const kosmos = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
+  assert.equal((kosmos.match(/KOSMOS_INSTALLED_HOME="\$KOSMOS_HOME" (nohup )?"\$NODE" "\$APP"/g) || []).length, 2, 'both board launches');
+  assert.doesNotMatch(kosmos, /export KOSMOS_HOME/, 'KOSMOS_HOME itself stays unexported (agents the board starts must not inherit it)');
+  const update = fs.readFileSync(path.join(__dirname, 'engine', 'update.js'), 'utf8');
+  const fn = update.slice(update.indexOf('function installedHomeAsInstalled() {'), update.indexOf('\n}\n', update.indexOf('function installedHomeAsInstalled() {')));
+  assert.match(fn, /fs\.realpathSync\(said\) === fs\.realpathSync\(root\)\) return said;/, 'only when it is this very copy');
+  assert.match(fn, /return root;$/);
+  const line = update.split('\n').find((l) => l.includes("run-setup \"$1\" \"$7\" \"$8\" \"$9\""));
+  assert.ok(line && line.includes('installedHomeAsInstalled()') && !line.includes('installedRoot()'), 'the update passes the installed path');
+});
+
 test('the build records setup_sha256 from install/setup.sh in the manifest it signs', () => {
   const src = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
   assert.match(src, /KM_SETUP_SHA="\$\(shasum -a 256 "\$REPO\/install\/setup\.sh"/);
