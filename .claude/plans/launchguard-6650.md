@@ -3,7 +3,7 @@
 Card: kosmos#6650.
 
 ## Finished looks like
-A sandboxed install shaped like the Mortals incident is refused before it writes anything, with a sentence that names the way through. The incident shape: another KOSMOS_HOME, the account's real HOME, no AGENT_WORKFORCE_LAUNCH, and a temp-folder home or the account's default port. Release walks (a kept home on their own port), harnesses (a fake HOME or their own launch folder), and real installs and self-updates are unchanged.
+An install shaped like the Mortals incident is refused before it writes anything, with a sentence that names the way through. The incident shape: a Kosmos home under a temp folder, and no launch folder of its own (AGENT_WORKFORCE_LAUNCH unset, or the account's real LaunchAgents). Release walks in a kept folder, harnesses with their own launch folder, a person self-hosting in a kept folder on any port, and real installs and self-updates are unchanged.
 
 ## Measured (Mortals, quarantined plists, read-only)
 All three leaked jobs ran `<mktemp -d>/home/bin/kosmos board-run`, with HOME set to the real account home, `AGENT_WORKFORCE_HALF_SANDBOX_OK=1` (setup.sh writes that for a sandboxed home in the real LaunchAgents), and KOSMOS_PORT 16180 (two of them) or 57015. No AGENT_WORKFORCE_LAUNCH was set. The caller is still unknown: nothing on the box recorded it.
@@ -18,7 +18,7 @@ All three leaked jobs ran `<mktemp -d>/home/bin/kosmos board-run`, with HOME set
   - Refusing at plist-write time. Too late: the pause and the board start have run by then.
 
 ## Weakest premise
-That no legitimate caller runs a sandboxed install with the real HOME, no launch folder, and the default port or a temp home. If a release step does exactly that, the next cut fails at that step with the sentence above, instead of leaking. That is louder, and it names the caller the card could not find.
+That no legitimate caller runs an install with a temp-folder Kosmos home and no launch folder of its own. If a release step does, the next cut stops there with the refusal sentence instead of leaking. That is louder, and it names the caller this card could not find.
 
 ## Not covered
 - Linux (systemd user units) has the same shape, in a different folder, and is not changed here.
@@ -69,3 +69,7 @@ Every setup.sh run in tools/test-install.sh was traced (HOME, KOSMOS_HOME, AGENT
 - [WARNING] fixed: a silent directory service fell back to HOME, which would refuse the gate's fake-HOME controls (test-install.sh, clean-machine.sh). HOME now stands in only when it is not itself a temp folder. A real account HOME never is; a harness's fake one is. Residual: that fallback branch is not reached by a test, because dscl is called by absolute path with no seam. Its two outcomes are the pinned arms' outcomes.
 - [WARNING] not a defect: the behavioural arms skip off macOS, but the node part of CI runs on the Mac runner (test.yml, the mac_runner matrix).
 - [NIT] accepted: the /Users/Shared symlink sub-check reports a diagnostic where it cannot run.
+### Iteration 9 (opus): converged
+No BLOCKER, WARNING or CONVENTION.
+- [NIT] fixed: the plan still described the dropped port rule in "Finished looks like" and "Weakest premise".
+- Accepted residual, second spelling: a launch folder written `.../LaunchAgents/.` slips past the name match, as the symlink case does. No known caller.
