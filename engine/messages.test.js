@@ -1333,6 +1333,76 @@ test('#4934/#5967: the fourth consecutive acknowledgement-only post is not passe
   });
 });
 
+/* #6608: when the room's latest post that says something @-names exactly one member, an agreement-only reply from
+   anyone else is not passed on, from the first one. Rows are seeded with the `mentioned` the real post path records. */
+function seedRows(now, rows) {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  rows.forEach((r, i) => {
+    fs.appendFileSync(messages.LOG, JSON.stringify({
+      kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease', from: r.from,
+      to: MEMBERS.filter((m) => m !== r.from), text: r.text, at: new Date(now - (rows.length - i) * 1000).toISOString(), outcomes: {},
+      ...(r.mentioned ? { mentioned: r.mentioned } : {}), ...(r.operator ? { operator: true } : {}),
+    }) + '\n');
+  });
+}
+const sendAs = (board, session, text) => { armSender(session + '-discord'); const tmux = arm([]);
+  const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text }, board.agents, MEMBERS); return { out, tmux }; };
+const stored = (text) => messages.record().rows.filter((m) => m.kind === 'post' && m.text === text).length;
+
+test('#6608: a post naming one owner: another agent\'s FIRST agreement-only reply is not passed on; the owner\'s is', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // The person names mara. leo's "agreed" is the first ack in the room, far below the run limit, and is still refused.
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] }]);
+    const leo = sendAs(board, 'leo', 'agreed');
+    assert.equal(leo.out.state, chat.DELIVERY.COULD_NOT, 'another agent agreeing with a post that named one owner was passed on');
+    assert.equal(leo.out.code, 'ack_only', 'the refusal must be the not-a-hold ack_only code');
+    assert.match(leo.out.because, /named \S+ to take it/, 'the refusal does not say who the post named');
+    assert.doesNotMatch(leo.out.because, /["`]/, 'the CLI reads because with a sed that stops at a quote');
+    assert.doesNotMatch(leo.out.because, /paused|for the person|bring you in/i, 'the refusal speaks of a hold; it is not one');
+    assert.equal(leo.tmux.sends().length, 0, 'the refused reply was typed anyway');
+    assert.equal(stored('agreed'), 0, 'the refused reply was stored');
+    assert.equal(messages.record().rows.filter((m) => (m.kind === 'valve' || m.kind === 'refused') && m.project === 'henderson-lease').length, 0, 'the refusal wrote a valve or refused row; it is not a hold');
+    // The owner's own acknowledgement goes through.
+    assert.equal(sendAs(board, 'mara', 'on it').out.state, chat.DELIVERY.PLACED, 'the named owner could not acknowledge');
+    // CONTROL: the same agent with something new is delivered at once.
+    assert.equal(sendAs(board, 'leo', 'I can check the dates in it after').out.state, chat.DELIVERY.PLACED, 'a content reply was refused');
+  });
+});
+
+test('#6608: no single owner, no early refusal: two named, none named, or the author answering the owner', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara and @april, the letter and the dates please', mentioned: ['mara', 'april'] }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'a post naming TWO members refused a third agent\'s ack');
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [{ from: 'you', operator: true, text: 'the renewal letter is due on Friday' }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'a post naming nobody refused an ack');
+    // An agent names the owner; the owner acknowledges; the AUTHOR thanks the owner: a two-party exchange, delivered.
+    wipeLog(); chat.resetForTests();
+    // ('ok', not 'on it': the classifier reads 'on it' as saying something, which would itself end the rule.)
+    seedRows(now, [{ from: 'leo', text: '@mara can you take the renewal letter', mentioned: ['mara'] }, { from: 'mara', text: 'ok' }]);
+    assert.equal(sendAs(board, 'leo', 'thanks').out.state, chat.DELIVERY.PLACED, 'the post\'s own author could not answer the owner');
+    // CONTROL in the same room: a third agent's ack IS refused, so the author arm above was the exemption, not a miss.
+    assert.equal(sendAs(board, 'april', 'agreed').out.code, 'ack_only', 'CONTROL: a third agent\'s ack was passed on');
+  });
+});
+
+test('#6608: the LATEST post that says something decides: a later content post naming nobody lifts it', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    seedRows(now, [
+      { from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] },
+      { from: 'mara', text: 'the draft is in the shared folder now' },
+    ]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'an older owner-naming post still refused acks after newer content');
+    // CONTROL: the owner-naming post followed only by acks still decides.
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] }, { from: 'mara', text: 'ok' }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.code, 'ack_only', 'CONTROL: an ack after the owner\'s ack was passed on');
+  });
+});
+
 test('#4934/#5967: a content post resets the run, so ack, ack, content, ack, ack does not hold', () => {
   withFleet(room3(), (board) => {
     const now = Date.now();

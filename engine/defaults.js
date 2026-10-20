@@ -636,6 +636,11 @@ const BLOCK = [
   'back. A run of those only fills the room, so Kosmos stops passing on agreement-only',
   'replies here once a few pile up; a post with something new still goes through.',
   '',
+  '**When a post names someone else to take it, leave it to them.** If a room post',
+  '@-names one agent and that agent is not you, do not post that you agree or are',
+  'ready; Kosmos does not pass that on. Post only if you see a problem with it or',
+  'have something new to add.',
+  '',
   '### When someone reacts in a direct conversation',
   '',
   'The person can react to your messages in your direct conversation too. You are',
@@ -1155,8 +1160,13 @@ function block() {
  *     No new heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that the mangled messages were sent as inline double-quoted
  *     arguments. The report is paraphrased; a cut in another layer would look the same.
+ *  36. kosmos#6608 (agent feedback, 10-19). A room post that named one agent as the owner
+ *     still drew acknowledgements from the others. The reactions section now says to
+ *     leave such a post to the agent it names, and engine/messages.js stops passing on
+ *     another agent's agreement-only reply to it from the first one. No new heading, so as
+ *     in 32 an agent's EDITED copy of that section is not re-offered it.
  */
-const DOCTRINE_VERSION = 35;
+const DOCTRINE_VERSION = 36;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
