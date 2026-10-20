@@ -19,8 +19,8 @@ stuck prompt.
   separate, small follow-up if so.
 - **An allowlist of waiting states** (`SAID_STATES`), not "everything but working": a new state shows nothing until
   someone decides it should. Working's retry line ("Retrying in 5s") is hidden too: it is raw CLI text.
-- **The fold's summary is a Tab stop** (a keyboard must be able to open it). render-signin-visible-3892 steps over it
-  when Tab lands there; WebKit's Option-Tab skips it.
+- **The fold's summary is a Tab stop** (a keyboard must be able to open it). Both engines reach it by Tab
+  (Option-Tab in WebKit); render-signin-visible-3892 asserts Enter toggles it there, then steps on.
 - `.detail-said` leaves web.no-left-bars-3692's allowlist, since it has no left bar now.
 - **The conversation's busy line for a failed sign-in no longer quotes the screen** ("last seen: ..."): it was the
   same raw text, unfolded, on the same page as the fold. It still says the sign-in is not working.
