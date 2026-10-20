@@ -152,12 +152,16 @@ test('#6650: a fake HOME pointing AGENT_WORKFORCE_LAUNCH at its OWN LaunchAgents
   assert.equal(r.rc, '0', r.err);
 });
 
-test('#6650: the account home comes from the directory service when nothing pins it', { skip: !isMac }, () => {
-  // Unpinned: dscl answers for the account running this test, whose real home is os.homedir().
+test('#6650: the account home comes from the directory service when nothing pins it', { skip: !isMac }, (t) => {
+  // Unpinned: the directory service answers for the account running this test. os.userInfo() reads the same
+  // account record (os.homedir() would only echo HOME, which a suite may redirect).
+  const real = os.userInfo().homedir;
+  const dscl = spawnSync('/usr/bin/dscl', ['/Search', '-read', '/Users/' + os.userInfo().username, 'NFSHomeDirectory'], { encoding: 'utf8' });
+  if (dscl.status !== 0 || !/NFSHomeDirectory:/.test(dscl.stdout)) { t.diagnostic('not run: the directory service did not answer here'); return; }
   const fake = path.join(tmpRoot, 'unpinned-home');
   const kosmosHome = '/private/tmp/launchguard-6650-u/home';
   assert.equal(guard({ home: fake, account: null, kosmosHome, env: { AGENT_WORKFORCE_LAUNCH: fake + '/Library/LaunchAgents' } }).rc, '0');
-  assert.equal(guard({ home: fake, account: null, kosmosHome, env: { AGENT_WORKFORCE_LAUNCH: path.join(os.homedir(), 'Library', 'LaunchAgents') } }).rc, '1');
+  assert.equal(guard({ home: fake, account: null, kosmosHome, env: { AGENT_WORKFORCE_LAUNCH: path.join(real, 'Library', 'LaunchAgents') } }).rc, '1');
 });
 
 test('#6650: the default home under a kept HOME (a real install or its self-update) is never refused', { skip: !isMac }, () => {

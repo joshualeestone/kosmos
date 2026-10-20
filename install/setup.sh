@@ -3324,7 +3324,10 @@ _kosmos_temp_launch_refusal() {
   # account the folder may not exist yet, and -ef then matches nothing.
   _tl_launch="${AGENT_WORKFORCE_LAUNCH:-}"
   if [ -n "$_tl_launch" ]; then
-    _tl_acct="${KOSMOS_ACCOUNT_HOME:-$(/usr/bin/dscl . -read "/Users/$(/usr/bin/id -un)" NFSHomeDirectory 2>/dev/null | /usr/bin/sed -n 's/^NFSHomeDirectory: //p')}"
+    # /Search reaches a network or directory account too; a value with a space comes on its own indented line,
+    # so the key is dropped, the lines joined, and the one leading space taken off.
+    _tl_acct="${KOSMOS_ACCOUNT_HOME:-$(/usr/bin/dscl /Search -read "/Users/$(/usr/bin/id -un)" NFSHomeDirectory 2>/dev/null \
+      | /usr/bin/sed 's/^NFSHomeDirectory://' | /usr/bin/tr -d '\n' | /usr/bin/sed 's/^ //')}"
     _tl_acct="${_tl_acct:-$HOME}"
     _tl_la="$(_tl_low "${_tl_acct%/}/Library/LaunchAgents")"; _tl_la="${_tl_la%/}"
     _tl_ll="$(_tl_low "$_tl_launch")"; _tl_ll="${_tl_ll%/}"
