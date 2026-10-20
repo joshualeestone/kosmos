@@ -23,7 +23,8 @@ ago, so it may not describe what the agent is doing now"; the report itself is s
 ## Tests (engine/handoff.test.js)
 - 5 minutes: "5 minutes ago", not called old. 14 days: "14 days ago, so it may not describe what the agent is doing
   now", and the report is still shown (CONTROL). Boundary: 23 hours is not old, 25 hours is.
-- Mutation: the old-report clause removed reds the test.
+- Checked by hand: with the old-report clause removed, the test goes red (the 14-day, 24-hour and 25-hour arms).
+- Review 1: exactly a day is old (>=); the singular words and a skewed future time (no age) are tested.
 
 **Weakest premise.** A day as the line between current and old. A working session reports far more often than daily,
 so an older line is the leftover of an earlier session; but an idle agent that has truly done nothing for a day will

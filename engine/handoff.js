@@ -251,7 +251,7 @@ function stateFact(session, now) {
        reader can weigh, and leaving it out would read as "never reported". */
     const age = (Number.isFinite(now) ? now : Date.now()) - Date.parse(r.at);
     const said = agoWords(age);
-    if (said) parts.push(age >= STALE_REPORT_MS ? said + ', so it may not describe what the agent is doing now' : said);   // review 1: "a day ago" always says so
+    if (said) parts.push(age >= STALE_REPORT_MS ? said + ', so it may not describe what the agent is doing now' : said);   // from a full day on: so "a day ago" always carries it
   } else if (r.at) parts.push('reported at a time that cannot be read');
   return parts.join('; ');
 }
