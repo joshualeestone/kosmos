@@ -17537,6 +17537,26 @@ const server = http.createServer(async (req, res) => {
   /* #5805 slice 2b: Send now anyway. The person types a message Kosmos is holding for an agent out of usage, now, and
      its row takes the delivery. The person's action only. A message no longer kept (typed or dropped), or one the
      minute sweep is typing this moment, answers 409. */
+  /* kosmos#6717: the person dismisses a draft Kosmos took out of the agent's input box (engine/unsentdrafts.js). The
+     person's alone, like Send now anyway below: an agent's token is refused. Nothing is sent either way. */
+  const dmDraftDismiss = pathname.match(/^\/api\/agent\/([^/]+)\/unsent-draft\/dismiss$/);
+  if (dmDraftDismiss && req.method === 'POST') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this is the person\'s to dismiss, not an agent\'s' }); return; }
+    const name = decodeSegment(dmDraftDismiss[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body.id !== 'string' || !/^[0-9a-f]{12}$/.test(body.id)) { sendJson(res, 400, { error: 'say which draft (its id)' }); return; }
+        const drafts = require('./engine/unsentdrafts');
+        if (!drafts.list(name).some((d) => d.id === body.id)) { sendJson(res, 404, { error: 'that draft is not kept any more' }); return; }
+        if (!drafts.dismiss(name, body.id)) { sendJson(res, 500, { error: 'we could not dismiss that draft just now' }); return; }
+        sendJson(res, 200, { dismissed: true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
   const dmHeld = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/held$/);
   if (dmHeld && req.method === 'POST') {
     if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this is the person\'s to send, not an agent\'s' }); return; }
@@ -17924,8 +17944,11 @@ const server = http.createServer(async (req, res) => {
       } catch { askedAt = null; }
       if (!permissionWait) questionRow = { ...question, clearable: true, ...(askedAt ? { at: askedAt } : {}) };
     }
+    /* kosmos#6717: text Kosmos moved out of the agent's input box, as Kosmos lines at their time (never sent). */
+    let stuckDrafts = [];
+    try { stuckDrafts = require('./engine/unsentdrafts').list((card && card.sessionName) || name); } catch { stuckDrafts = []; }
     const servedMessages = Array.isArray(messages)
-      ? chat.withAccountRow(chat.withQuestionRow(messages, (card && card.sessionName) || name, questionRow),
+      ? chat.withAccountRow(chat.withQuestionRow(chat.withDraftRows(messages, stuckDrafts), (card && card.sessionName) || name, questionRow),
         (card && card.sessionName) || name, accountProblemOf(card))
       : messages;
     /* #3650: the person's reactions on the agent's messages, in the room's pill shape
@@ -24228,6 +24251,20 @@ function start(port = PORT) {
       });
       const firstreplySweep = setInterval(firstreplyTick, Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) : 60 * 1000); // the env is the test seam only
       if (firstreplySweep && typeof firstreplySweep.unref === 'function') firstreplySweep.unref();
+      /* kosmos#6717: text stuck unsent in an idle Claude Code agent's input box for ten minutes is cleared by Kosmos:
+         the board's own line is pressed, anything else is saved as a draft (engine/unsentdrafts.js, shown in the
+         agent's conversation, never sent) and only then cleared (chat.recoverStuckInput, engine/stuckinput.js).
+         Same gating as the sweeps above; own ~1-min timer, unref'd, best-effort. */
+      chat.setDraftSaver((session, text, opts) => require('./engine/unsentdrafts').add(session, text, opts));
+      const stuckInputTick = require('./engine/stuckinput').makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed(),
+        roster: () => safeRoster(),
+        recover: (card, since) => chat.recoverStuckInput(card, since),
+        stuckMs: chat.STUCK_INPUT_MS,
+        log: (line) => process.stdout.write(line),
+      });
+      const stuckInputSweep = setInterval(() => { stuckInputTick().catch(() => {}); }, Number(process.env.AGENT_WORKFORCE_STUCK_INPUT_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_STUCK_INPUT_MS) : 60 * 1000); // the env is the test seam only
+      if (stuckInputSweep && typeof stuckInputSweep.unref === 'function') stuckInputSweep.unref();
       /* #5959 slice 3: an agent whose `blocked` report has stood on its card over a day is told ONCE per report (kept
          on disk), typed into its session (engine/stalereport-nudge.js), in the words `kosmos report show` uses.
          Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
