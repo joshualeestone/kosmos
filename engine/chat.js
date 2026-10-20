@@ -1036,7 +1036,10 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
     if (holds === 'empty') return { outcome: 'sent', retried };
     /* Round 9: other text, but none of our ending in it: ours went and someone has started typing since. kosmos#6717:
        not for a chip, whose words are hidden: one that is not tied to our paste is someone else's, said as 'other'. */
-    if (holds === 'other') return { outcome: !isChipBox(box.text) && !stillHoldsOurEnd(box.text, wire) ? 'sent' : 'other', retried };
+    if (holds === 'other') {
+      if (isChipBox(box.text)) return { outcome: 'other', retried };   // kosmos#6717: its words are hidden; never "ours went"
+      return { outcome: stillHoldsOurEnd(box.text, wire) ? 'other' : 'sent', retried };
+    }
     if (waited < settleMs) {
       yield { wait: SUBMIT_LOOK_MS };
       waited += SUBMIT_LOOK_MS;
@@ -2514,8 +2517,10 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
     }
     emptyBefore = box.ok && !box.text;
   }
-  /* kosmos#6717: what may count as our own paste chip after the paste: only when the box was read empty just before it
-     and our line is long enough to fold; then the first chip seen is pinned (ourChip) for every later look. */
+  /* kosmos#6717: what may count as our own paste chip: only when the box was read empty just before our paste and our
+     line is long enough to fold, and only a chip seen BEFORE our Enter (our fold happens while we paste; the Enter then
+     submits what is there). That chip is pinned (ourChip) for the watch after the Enter and its retry. A chip seen for
+     the first time after our Enter is never ours: nothing ties it to our paste. */
   const chipTie = emptyBefore && String(wire).length >= CHIP_MIN_CHARS ? true : null;
   let ourChip = null;
 
@@ -2694,14 +2699,14 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   };
   const confirmSync = (v) => {
     if (!needsConfirm(v)) return v;
-    const steps = submitConfirmSteps(allowed.card, target, wire, false, SUBMIT_SETTLE_MS, ourChip || chipTie);   // kosmos#6717
+    const steps = submitConfirmSteps(allowed.card, target, wire, false, SUBMIT_SETTLE_MS, ourChip);   // kosmos#6717: only a chip pinned before our Enter
     let step = steps.next();
     while (!step.done) { submitGap(step.value.wait); step = steps.next(); }
     return settle(v, step.value);
   };
   const confirmAsync = async (v) => {
     if (!needsConfirm(v)) return v;
-    const steps = submitConfirmSteps(allowed.card, target, wire, true, SUBMIT_SETTLE_MS, ourChip || chipTie);   // kosmos#6717
+    const steps = submitConfirmSteps(allowed.card, target, wire, true, SUBMIT_SETTLE_MS, ourChip);   // kosmos#6717: only a chip pinned before our Enter
     let step = steps.next();
     while (!step.done) {
       const ms = step.value.wait;
