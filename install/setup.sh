@@ -196,17 +196,17 @@ _kosmos_linux_unit_name() {
   fi
 }
 # kosmos#6667: the board's pause check (linuxboard.pauseCheckNames): kosmos-board[.<hash>].service gives
-# kosmos-pause-check[.<hash>].service and .timer. Printed one per line, the timer first.
-_kosmos_linux_pause_check_names() {
-  _kpc_base="$(_kosmos_linux_unit_name)"; _kpc_base="kosmos-pause-check${_kpc_base#kosmos-board}"; _kpc_base="${_kpc_base%.service}"
-  printf '%s\n%s\n' "$_kpc_base.timer" "$_kpc_base.service"
+# kosmos-pause-check[.<hash>].service and .timer. Prints the shared base; callers add .timer or .service. Pure shell,
+# no sed: install.linux-board-4920.test.js runs these blocks with a PATH that has none.
+_kosmos_linux_pause_check_base() {
+  _kpc_base="$(_kosmos_linux_unit_name)"; _kpc_base="kosmos-pause-check${_kpc_base#kosmos-board}"
+  printf '%s' "${_kpc_base%.service}"
 }
 # kosmos#6667: remove the pause check before the board, in every uninstall branch, so its timer cannot start a board
 # that is being removed. With no systemctl there is no user manager to stop it: the files and the timer's enable link go.
 _kosmos_linux_remove_pause_check() {
   _kpr_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
-  _kpr_names="$(_kosmos_linux_pause_check_names)"
-  _kpr_timer="$(printf '%s\n' "$_kpr_names" | sed -n 1p)"; _kpr_service="$(printf '%s\n' "$_kpr_names" | sed -n 2p)"
+  _kpr_base="$(_kosmos_linux_pause_check_base)"; _kpr_timer="$_kpr_base.timer"; _kpr_service="$_kpr_base.service"
   [ -f "$_kpr_dir/$_kpr_timer" ] || [ -f "$_kpr_dir/$_kpr_service" ] || return 0
   if command -v systemctl >/dev/null 2>&1; then
     systemctl --user disable --now "$_kpr_timer" 2>/dev/null || true
@@ -2192,7 +2192,7 @@ BOARDEOF
       # kosmos#6667: the same for a pause check with another hash (its timer is harmless once its folder is gone).
       for _lb_f in "$_lb_dir"/kosmos-pause-check*.timer; do
         [ -f "$_lb_f" ] || continue
-        [ "${_lb_f##*/}" = "$(_kosmos_linux_pause_check_names | sed -n 1p)" ] && continue
+        [ "${_lb_f##*/}" = "$(_kosmos_linux_pause_check_base).timer" ] && continue
         info "a Kosmos pause check is still at $_lb_f. It may be this install's or another Kosmos's on this computer. If it is this one's, run: systemctl --user disable --now ${_lb_f##*/} and delete it and the .service beside it."
       done
     fi
@@ -5423,7 +5423,7 @@ BOARDEOF
       # kosmos#6667: installBoard enables the pause check too, but does not fail the install when systemd refuses it
       # (the board runs without it). Asked of systemd here, not of the node step's output, which is matched exactly below.
       # Not in a run whose units went to a folder of its own (AGENT_WORKFORCE_SYSTEMD_DIR): real systemd never read them.
-      _kpc_timer="$(_kosmos_linux_pause_check_names | sed -n 1p)"
+      _kpc_timer="$(_kosmos_linux_pause_check_base).timer"
       if [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ] && [ "$(systemctl --user is-enabled "$_kpc_timer" 2>/dev/null)" != enabled ]; then
         info "note: systemd did not enable $_kpc_timer, so if an update is ever stopped partway, Kosmos stays off until you run: kosmos start"
       fi

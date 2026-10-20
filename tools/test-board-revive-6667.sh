@@ -99,11 +99,11 @@ STUB_ENABLED=enabled STUB_START_RC=1 revive; rc=$?
 # 9. setup.sh's uninstall names the pause check the way engine/linuxboard.js does, for the default home and another
 # (the two helpers are lifted out of setup.sh, which cannot be sourced: it installs). The homes are already normalized,
 # as setup.sh makes KOSMOS_HOME before these run (a doubled slash would hash differently there, by design).
-fns="$(awk '/^_kosmos_linux_unit_name\(\) \{$/,/^\}$/; /^_kosmos_linux_pause_check_names\(\) \{$/,/^\}$/' "$REPO/install/setup.sh")"
+fns="$(awk '/^_kosmos_linux_unit_name\(\) \{$/,/^\}$/; /^_kosmos_linux_pause_check_base\(\) \{$/,/^\}$/' "$REPO/install/setup.sh")"
 [ "$(printf '%s\n' "$fns" | grep -c '() {$')" = 2 ] || bad "premise: both helpers were not found in setup.sh"
 for kh in "$HOME/.local/share/kosmos" "/srv/kosmos other home"; do
   sh_names="$(KOSMOS_HOME="$kh" _kosmos_home_default="$HOME/.local/share/kosmos" bash -c "$fns"'
-    _kosmos_linux_pause_check_names' 2>&1)"
+    b="$(_kosmos_linux_pause_check_base)"; printf "%s\n%s\n" "$b.timer" "$b.service"' 2>&1)"
   js_names="$(node -e 'const n = require(process.argv[1]).pauseCheckNames(process.argv[2]); console.log(n.timer + "\n" + n.service)' \
     "$REPO/engine/linuxboard.js" "$kh" 2>&1)"
   [ -n "$sh_names" ] && [ "$sh_names" = "$js_names" ] && ok "setup.sh and linuxboard.js name the pause check alike (${kh##*/})" \
@@ -111,7 +111,7 @@ for kh in "$HOME/.local/share/kosmos" "/srv/kosmos other home"; do
 done
 
 # 10. setup.sh's uninstall helper removes the pause check (lifted as in 9, into a folder of its own).
-rmfns="$(awk '/^_kosmos_linux_unit_name\(\) \{$/,/^\}$/; /^_kosmos_linux_pause_check_names\(\) \{$/,/^\}$/; /^_kosmos_linux_remove_pause_check\(\) \{$/,/^\}$/' "$REPO/install/setup.sh")"
+rmfns="$(awk '/^_kosmos_linux_unit_name\(\) \{$/,/^\}$/; /^_kosmos_linux_pause_check_base\(\) \{$/,/^\}$/; /^_kosmos_linux_remove_pause_check\(\) \{$/,/^\}$/' "$REPO/install/setup.sh")"
 [ "$(printf '%s\n' "$rmfns" | grep -c '() {$')" = 3 ] || bad "premise: the three uninstall helpers were not found in setup.sh"
 KH="/srv/kosmos uninstall"
 PCN="$(node -e 'const n = require(process.argv[1]).pauseCheckNames(process.argv[2]); console.log(n.timer + " " + n.service)' "$REPO/engine/linuxboard.js" "$KH")"
