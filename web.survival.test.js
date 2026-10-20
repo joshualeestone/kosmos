@@ -209,3 +209,9 @@ test('#6714 review 15: after a notice closes, focus goes to the next one\'s x, n
   assert.match(f, /querySelector\('#survival-slot \.utoast \.ux'\)/, 'focus no longer goes to the x');
   assert.doesNotMatch(f, /\.utoast button'\)/, 'focus can land on Start at login, so a repeated Enter starts an agent');
 });
+
+test('#6714 review 16: no focus path in the notice can land on a start button by default', () => {
+  const paint = page.lift(SCRIPT, 'paintSurvival');
+  assert.match(paint, /slot\.querySelector\(key\) \|\| slot\.querySelector\('\.utoast \.ux'\)/, 'a repaint fallback no longer goes to an x');
+  assert.doesNotMatch(paint, /\|\| slot\.querySelector\('button'\)/, 'a repaint can drop focus on Start at login');
+});

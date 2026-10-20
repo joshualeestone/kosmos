@@ -47981,7 +47981,9 @@ async function paintSurvival() {
   const key = had ? ['data-survival-fix', 'data-survival-remove', 'data-survival-hide']
     .filter((k) => had.hasAttribute(k)).map((k) => '[' + k + '="' + had.getAttribute(k) + '"]')[0] : null;
   slot.innerHTML = html;
-  if (key) { const back = slot.querySelector(key) || slot.querySelector('button'); if (back) back.focus(); }
+  /* If that button is gone, an x, never the first button: that is Start at login, and a held key would start an agent
+     (review 16; the same rule as survivalFocusNext). */
+  if (key) { const back = slot.querySelector(key) || slot.querySelector('.utoast .ux'); if (back) back.focus(); }
 }
 
 /* #6714: Settings > Computer is read on its own, so a board opened straight into Settings (or left there) shows the
