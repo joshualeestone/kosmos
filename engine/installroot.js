@@ -34,11 +34,13 @@ const path = require('path');
 function sameDir(a, b, plat) {
   try {
     const x = fs.statSync(a, { bigint: true }); const y = fs.statSync(b, { bigint: true });   // bigint: exact inode numbers
-    return x.dev === y.dev && x.ino === y.ino;
-  } catch { return textKey(a, plat) === textKey(b, plat); }
+    if (x.ino !== 0n && y.ino !== 0n) return x.dev === y.dev && x.ino === y.ino;   // 0: no inode reported, so it proves nothing
+  } catch { /* fall through to the text */ }
+  return textKey(a, plat) === textKey(b, plat);
 }
-/* Resolved text, without letter case on Windows (its paths are case-insensitive), for folders that cannot be stat'd. */
-function textKey(p, plat) { const r = path.resolve(p); return (plat || process.platform) === 'win32' ? r.toLowerCase() : r; }
+/* Resolved text, where links lead, without letter case on Windows (its paths are case-insensitive), for folders
+   that cannot be told apart by inode. */
+function textKey(p, plat) { const r = realOf(p); return (plat || process.platform) === 'win32' ? r.toLowerCase() : r; }
 
 /* The real path of `file`: its deepest existing folder resolved through links, with the rest appended. */
 function realOf(file) {

@@ -213,6 +213,8 @@ test('#6713: setup.sh says, for exit 3, that the home was left alone, and never 
   const block = sh.slice(a, sh.indexOf('\nesac', a) + 5);
   const say = (rc) => spawnSync('/bin/sh', ['-c', 'info() { echo "$*"; }; _hooks_rc=' + rc + '\n' + block], { encoding: 'utf8' }).stdout;
   assert.match(say(3), /leaves the Claude settings in your home alone/);
+  assert.match(say(4), /those in your home were left alone/);
+  assert.doesNotMatch(say(4), /unreadable/, 'a mixed run says nothing was unreadable');
   assert.match(say(0), /report what they are doing themselves/, 'CONTROL: exit 0 keeps its line');
 });
 
@@ -237,10 +239,10 @@ function homeWithAccount(t) {
   return { home, kh, def, acct: path.join(dir, 'settings.json') };
 }
 
-test('#6713: setup.sh with some targets left alone and the rest wired exits 1, not 0 or 3', (t) => {
+test('#6713: setup.sh with some targets left alone and the rest wired exits 4, not 0, 1 or 3', (t) => {
   const { home, kh, def, acct } = homeWithAccount(t);
   const r = runSetupHooksWith(home, kh, '(f) => (f.includes(".claude-account-g6713") ? "left alone" : null)');
-  assert.equal(r.status, 1, 'a mixed run is not full success. ' + r.stderr);
+  assert.equal(r.status, 4, 'a mixed run with nothing refused: exit 4. ' + r.stderr);
   assert.match(fs.readFileSync(def, 'utf8'), /kosmos-report-hook/, 'the target not left alone was wired');
   assert.doesNotMatch(fs.readFileSync(acct, 'utf8'), /kosmos-report-hook/, 'the one left alone has no hooks (its statusline is ensureStatusLine\'s own gate)');
   const all = runSetupHooksWith(home, kh, '() => null');
@@ -268,4 +270,15 @@ test('#6713: after exit 3 setup.sh does not claim a status line, even when one i
   const say = (rc) => spawnSync('/bin/sh', ['-c', 'info() { echo "$*"; }; _hooks_rc=' + rc + '\n' + block], { encoding: 'utf8', env }).stdout;
   assert.doesNotMatch(say(3), /status line/, 'exit 3 wrote nothing, so it claims nothing');
   assert.match(say(0), /status line of their own carry Kosmos/, 'CONTROL: exit 0 with the line present says so');
+});
+
+test('#6713: a filesystem that reports inode 0 for every folder does not make a sandbox the home', (t) => {
+  const home = realHome(t);
+  const sb = path.join(home, 'sb'); fs.mkdirSync(sb);
+  const file = path.join(sb, '.claude-account-h6713', 'settings.json');
+  const real = fs.statSync;
+  fs.statSync = (p, o) => { const s = real(p, o); if (o && o.bigint) s.ino = 0n; return s; };
+  t.after(() => { fs.statSync = real; });
+  assert.equal(installroot.leaveAlone(file, { home, env: { AGENT_WORKFORCE_HOME: sb }, installRoot: null }), null, 'the sandbox writes its own folders');
+  assert.equal(installroot.leaveAlone(path.join(home, '.claude', 'settings.json'), { home, env: { AGENT_WORKFORCE_HOME: sb }, installRoot: null }), installroot.NOT_INSTALLED, 'CONTROL: the real home is still left alone');
 });
