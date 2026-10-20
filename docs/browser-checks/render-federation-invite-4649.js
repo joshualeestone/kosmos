@@ -1210,6 +1210,38 @@ const closeAll = (page) => page.evaluate(() => {
     await ctx.close();
   }
 
+  /* 6708 review 2: the page names the address the coordinator ECHOED, never the one typed. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'tabs');
+    const make = async (typed, echo) => {
+      await page.evaluate((e) => {
+        const body = { code: 'KOS-6708-ECHO', expires_at: '2026-10-27T12:00:00Z', invite_id: 'inv-6708' };
+        if (e !== null) body.email = e;
+        window.__invite = { status: 200, body };
+        fedInviteOpen(null, { label: 'Echo Test', kind: 'person' });   // eslint-disable-line no-undef
+      }, echo);
+      await page.fill('#fedinv-email', typed);
+      await page.click('#fedinv-make');
+      await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(waitNote());
+      const r = await page.evaluate(() => ({ until: document.getElementById('fedinv-until').textContent,
+        text: fedInviteText(FEDINV_MADE) }));   // eslint-disable-line no-undef
+      await page.click('#fedinv-ok');
+      return r;
+    };
+    // An older coordinator ignores the address and mints an unbound code: the page must not promise a restriction.
+    const noEcho = await make('typed@example.com', null);
+    check('6708 an address typed but not echoed (an older coordinator) is named nowhere',
+      !/typed@example\.com|Kosmos\+ account with/.test(noEcho.until + noEcho.text), JSON.stringify(noEcho));
+    // The coordinator's normalised form is what it checks, so that is what the page shows.
+    const differs = await make('Mixed@Example.COM', 'mixed@example.com');
+    check('6708 the echoed form is shown, not the typed one',
+      /account with mixed@example\.com can use it\./.test(differs.until) && /email address mixed@example\.com\.$/.test(differs.text)
+      && !/Mixed@Example\.COM/.test(differs.until + differs.text), JSON.stringify(differs));
+    await ctx.close();
+  }
+
   /* B8: gate not "show". */
   {
     const { ctx, page } = await newPage(1280, OFF);

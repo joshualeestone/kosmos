@@ -10,8 +10,8 @@ person invited learned it only from a refusal ("made for someone else") if they 
 - Review 1: the sentence rests on the COORDINATOR's echo (`email` in its invite answer, kosmos-relay #502), passed
   through by `federation.invite` only when a string, never on the typed value: an older coordinator ignores `email` and
   mints an unbound code, and the sheet must not promise a restriction that does not exist. The typed-without-echo
-  case is tested at the engine only (federation.test.js); B7's control types no address, so NO page arm pins "echo, not
-  typed" yet (review 2; the next step). Review 2: the echo must also be shaped like an address (`^\S+@\S+$`).
+  case is tested at the engine (federation.test.js) and, after review 2, on the page by its own block (below). Review 2:
+  the engine passes the echo only when shaped like an address (`^\S+@\S+$`), so a hostile echo cannot carry words.
 - The copied text runs the address through the same line cleaner; an arm feeds it a newline and a bidi control.
 - The done step's line adds "Only the Kosmos+ account with <address> can use it." for a bound code.
 - `fedInviteText` (the copied invitation) ends with "It works only for the Kosmos+ account with the email address
@@ -25,8 +25,10 @@ person invited learned it only from a refusal ("made for someone else") if they 
 
 ## Tests
 `docs/browser-checks/render-federation-invite-4649.js`: a bound code (A4's) names the address on the done step and in
-the invitation; CONTROL: B7's unbound code mentions no address; A5's pinned sentence updated. Mutant: the done-step
-line removed, red.
+the invitation; CONTROL: B7's unbound code mentions no address; A5's pinned sentence updated. Review 2's block: an address typed but
+not echoed is named nowhere; an echo differing in case from the typed value is the one shown (and is the arm's own
+positive control, since it must name an address). Mutants: the done-step line removed, red; `boundTo` built from the
+typed value, red on exactly the two review-2 arms (A4 stays green under it, which is the gap review 2 found).
 
 ## Weakest premise
 That showing the address in the copied text is wanted. It is the recipient's own address, sent by the owner to them;
