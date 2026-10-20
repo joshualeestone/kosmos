@@ -37,7 +37,7 @@ test('the quote carries a visible attribution', () => {
 });
 
 /* The label must appear and disappear with the quote. A stranded
-   "X's screen said:" over nothing is worse than no label at all. */
+   "What X's screen said" over nothing is worse than no label at all. */
 test('the label follows the quote exactly', () => {
   const i = PAGE.indexOf("const said = document.getElementById('d-said');");
   assert.ok(i > -1, 'the evidence painter moved; re-anchor');

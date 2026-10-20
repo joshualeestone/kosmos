@@ -42775,7 +42775,8 @@ function paintDetailState(card) {
       saidBox.hidden = !line;
       /* Closed again for another agent, so each agent's quote starts folded; the poll for the same agent leaves an
          opened fold as the person left it. */
-      if (saidBox.dataset.for !== a.sessionName) { saidBox.open = false; saidBox.dataset.for = a.sessionName || ''; }
+      const forName = a.sessionName || '';
+      if (saidBox.dataset.for !== forName) { saidBox.open = false; saidBox.dataset.for = forName; }
     }
     if (said.textContent !== line) said.textContent = line;
     said.hidden = !line;

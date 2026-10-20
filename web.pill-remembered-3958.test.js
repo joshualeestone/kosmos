@@ -135,6 +135,9 @@ test('#3958 / #6716: a working sample\'s screen line is never shown, stale or fr
     pillFor(card, null, 1000);
     assert.doesNotMatch(saidOf(), /Retrying in 5s/, 'a working agent showed its raw screen line (#6716)');
     assert.equal(pillFor.els['d-said-box'].hidden, true, 'a working agent showed the screen-line fold (#6716)');
+    /* The stale sample still paints Idle (#3958). Its line is now hidden twice over (idle is not in SAID_STATES either),
+       so the assertion after it cannot fail on its own; kept as the #3958 record, not as the guard. The guard is the
+       working arm above. */
     assert.match(pillFor(card, 2000, 1000), /\bst-idle\b/);
     assert.doesNotMatch(saidOf(), /Retrying in 5s/,
       'the Idle pill kept the working sample\'s evidence line beside it');
