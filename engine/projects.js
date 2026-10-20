@@ -2072,6 +2072,9 @@ function browsedEntry(ent, dirAbs, relDir, depth, maxDepth) {
   /* Iteration 1: only a name the resolvers accept (a backslash is legal in a macOS name, and ':' names a stream on
      Windows), so the list, the preview, the download and the zip always agree, and one such name cannot sink a zip. */
   if (ent.name.includes('\\') || (process.platform === 'win32' && ent.name.includes(':'))) return null;
+  /* Iteration 2: a name the disk holds as bytes that are not UTF-8 (Linux) reaches Node with U+FFFD in it, which is not
+     the name on disk, so nothing could open it by that name; it is left out like the others. */
+  if (ent.name.includes('\uFFFD')) return null;
   const name = relDir ? relDir + '/' + ent.name : ent.name;
   if (ent.isDirectory()) {
     if (LIST_SKIP_DIRS.has(ent.name) || depth + 1 > maxDepth) return null;
@@ -2086,7 +2089,8 @@ function browsedEntry(ent, dirAbs, relDir, depth, maxDepth) {
   if (!st.isFile()) return null;
   return { kind: 'file', name, size: st.size, modified: st.mtime.toISOString(), st };
 }
-const BROWSE_MAX_ENTRIES = 1000;
+const BROWSE_MAX_ENTRIES = 1000;   // shown (iteration 2: hidden and skipped names do not count against it)
+const BROWSE_MAX_SCAN = 20000;     // read, so a folder of a million hidden files still answers
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
 
 /**
@@ -2113,10 +2117,11 @@ function listDir(folder, rel, where, opts) {
   try { dir = fs.opendirSync(got.real); } catch { return { ok: false, because: 'we could not read what is in that folder' }; }
   try {
     for (let ent = dir.readSync(); ent !== null; ent = dir.readSync()) {
-      if (read >= BROWSE_MAX_ENTRIES) { truncated = true; break; }
+      if (read >= BROWSE_MAX_SCAN) { truncated = true; break; }
       read += 1;
       const e = browsedEntry(ent, got.real, got.rel, got.segs.length, maxDepth);
       if (!e) continue;
+      if (dirs.length + files.length >= BROWSE_MAX_ENTRIES) { truncated = true; break; }   // a shown one past the cap
       if (e.kind === 'dir') dirs.push({ name: e.name, modified: e.modified });
       else files.push({ name: e.name, size: e.size, modified: e.modified });
     }
@@ -2137,7 +2142,7 @@ function listDir(folder, rel, where, opts) {
     .update([...dirs.map((d) => JSON.stringify(['d', d.name, d.modified])), ...files.map((f) => JSON.stringify(['f', f.name, f.size, f.modified]))].join('\n') + (truncated ? '\ntruncated' : ''))
     .digest('hex').slice(0, 16);
   const out = { ok: true, dir: got.rel, dirs, files, stamp };
-  if (truncated) out.truncated = true;
+  if (truncated) { out.truncated = true; out.limit = BROWSE_MAX_ENTRIES; }
   return out;
 }
 

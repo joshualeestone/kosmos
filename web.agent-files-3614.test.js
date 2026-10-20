@@ -219,7 +219,7 @@ test('opening an agent clears the previous agent\'s Files rows before its own ar
 });
 
 test('#3757 + #6724: the Files screen browses: folders, then files, by name only; a folder too big to list says so; Open in Finder sits there', async () => {
-  const h = harness(() => ({ ok: true, dir: '', stamp: 'm', truncated: true,
+  const h = harness(() => ({ ok: true, dir: '', stamp: 'm', truncated: true, limit: 1000,
     dirs: [{ name: 'reports', modified: '2026-09-20T10:00:00Z' }],
     files: [{ name: 'f0.txt', size: 1 }, { name: 'f1.txt', size: 1 }] }));
   await h.api.paintAgentFilesAll('ana');

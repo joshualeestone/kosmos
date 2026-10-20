@@ -97,6 +97,8 @@ const json = (r) => JSON.parse(r.body.toString('utf8'));
 /* The zip read back by Python's zipfile (an independent reader): [[name, hex bytes], ...], and unzip -t's verdict. */
 let HAVE_PY = true;
 try { execFileSync('python3', ['-I', '-c', 'import zipfile']); } catch { HAVE_PY = false; }
+let HAVE_UNZIP = true;
+try { execFileSync('unzip', ['-v'], { stdio: 'pipe' }); } catch { HAVE_UNZIP = false; }
 function readZip(buf) {
   const f = path.join(SANDBOX, 'got-' + Math.random().toString(16).slice(2) + '.zip');
   fs.writeFileSync(f, buf);
@@ -106,8 +108,8 @@ function readZip(buf) {
     'assert z.testzip() is None',
     'print(json.dumps([[i.filename, z.read(i).hex()] for i in z.infolist()]))',
   ].join('\n'), f]).toString('utf8');
-  let unzipOk = true;
-  try { execFileSync('unzip', ['-tq', f], { stdio: 'pipe' }); } catch { unzipOk = false; }
+  let unzipOk = true;   // iteration 2: where there is no unzip (Windows), Python's reader is the check alone
+  if (HAVE_UNZIP) { try { execFileSync('unzip', ['-tq', f], { stdio: 'pipe' }); } catch { unzipOk = false; } }
   return { entries: JSON.parse(out), unzipOk };
 }
 
@@ -440,6 +442,43 @@ test('iteration 1: a client that stops reading the zip is let go after the stall
     assert.equal(moving.destroyed, false, 'CONTROL: a response that drains was cut');
     assert.equal(moving.listenerCount('close'), 0, 'a finished write left its close listener behind');
   } finally { _setZipStallForTest(null); }
+});
+
+test('iteration 2: the 1,000 cap counts what is SHOWN, so hidden names cannot crowd out the real ones; past it, the answer says so and gives the limit', () => {
+  const dir = path.join(SANDBOX, 'cap-count');
+  fs.mkdirSync(dir, { recursive: true });
+  for (let i = 0; i < projects.BROWSE_MAX_ENTRIES + 5; i++) fs.writeFileSync(path.join(dir, '.h' + i), '');
+  fs.writeFileSync(path.join(dir, 'real-a.txt'), 'a');
+  fs.writeFileSync(path.join(dir, 'real-b.txt'), 'b');
+  const few = projects.listDir(dir, '', 'here', { maxDepth: 8 });
+  assert.deepEqual(few.files.map((f) => f.name), ['real-a.txt', 'real-b.txt']);
+  assert.equal(few.truncated, undefined, 'two shown files are not "more than the limit"');
+  for (let i = 0; i < projects.BROWSE_MAX_ENTRIES; i++) fs.writeFileSync(path.join(dir, 'f' + i + '.txt'), '');
+  const many = projects.listDir(dir, '', 'here', { maxDepth: 8 });
+  assert.equal(many.files.length, projects.BROWSE_MAX_ENTRIES);
+  assert.equal(many.truncated, true);
+  assert.equal(many.limit, projects.BROWSE_MAX_ENTRIES);
+});
+
+test('iteration 2: a name holding U+FFFD (what Node makes of a name that is not UTF-8 on Linux) is not listed', () => {
+  const dir = path.join(SANDBOX, 'fffd');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'odd\uFFFD.txt'), 'x');
+  fs.writeFileSync(path.join(dir, 'ok.txt'), 'y');
+  assert.deepEqual(projects.listDir(dir, '', 'here', { maxDepth: 8 }).files.map((f) => f.name), ['ok.txt']);
+});
+
+test('iteration 2: past the number of folder zips allowed at once, a zip is refused with the reason; a finished one frees its place', async () => {
+  const { _setZipLimitForTest } = require('./server');
+  _setZipLimitForTest(0);
+  try {
+    const r = await rawGet('/api/agent/brow/files/download-folder?check=1');
+    assert.equal(r.status, 429);
+    assert.match(json(r).because, /another folder download is already under way/);
+    assert.equal((await zipOf('', { 'sec-fetch-mode': 'navigate' })).status, 204, 'a refused navigation gives the browser nothing to save');
+    _setZipLimitForTest(1);
+    for (let i = 0; i < 3; i++) assert.equal((await zipOf('reports')).status, 200, 'a finished zip did not free its place (' + i + ')');
+  } finally { _setZipLimitForTest(null); }
 });
 
 /* The folder gate has two layers, and each must hold ALONE (a race can defeat either one): the lstat walk (no segment a

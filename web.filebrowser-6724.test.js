@@ -63,7 +63,7 @@ function harness(respond) {
   const make = (id) => {
     const el = { id, hidden: false, children: [], attrs: {}, dataset: {}, className: '', append(...c) { this.children.push(...c); }, setAttribute(k, v) { this.attrs[k] = v; }, insertAdjacentHTML() {},
       querySelector() { return this.children.find((c) => /pj-doc/.test(c.className)) || null; }, focus() { focused.push(this); } };
-    Object.defineProperty(el, 'textContent', { get() { return this._t || ''; }, set(v) { this._t = v; if (v === '') this.children = []; } });
+    Object.defineProperty(el, 'textContent', { configurable: true, get() { return this._t || ''; }, set(v) { this._t = v; if (v === '') this.children = []; } });
     return el;
   };
   const focused = [];
@@ -79,9 +79,9 @@ function harness(respond) {
   const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'folderIcon', 'agentDirRow', 'agentFilesPath', 'agentFilesGo', 'paintAgentFilesAll']);
   let gate = null;
   const api = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'asSentence', 'env',
-    'let AGENT_FILES_ALL_EPOCH = 0; let AGENT_FILES_DIR = ""; let AGENT_FILES_ALL_STAMP = null; let AGENT_FILES_FOCUS = false;\n'
+    'let AGENT_FILES_ALL_EPOCH = 0; let AGENT_FILES_DIR = ""; let AGENT_FILES_ALL_STAMP = null; let AGENT_FILES_FOCUS = false; let AGENT_FILES_ALL_FAIL = null;\n'
     + FNS.replace(/\bCURRENT\b/g, 'env.CURRENT')
-    + '\nreturn { paintAgentFilesAll, agentFilesGo, dir: () => AGENT_FILES_DIR };')(document, async (url) => {
+    + '\nreturn { paintAgentFilesAll, agentFilesGo, dir: () => AGENT_FILES_DIR, focusPending: () => AGENT_FILES_FOCUS };')(document, async (url) => {
     calls.push(url);
     if (gate) await gate;
     const out = respond(url);
@@ -167,5 +167,65 @@ test('the wiring: a folder row is a folder before it is a file, another agent st
   const open = SCRIPT.slice(SCRIPT.indexOf('function openDetail(sessionName, section, fromProject) {'), SCRIPT.indexOf('paintAgentFiles(a.sessionName);', SCRIPT.indexOf('function openDetail(sessionName, section, fromProject) {')));
   assert.match(open, /AGENT_FILES_DIR = '';/, 'another agent opens in the folder the last one had open');
   const poll = page.lift(SCRIPT, 'paintAgentFiles');
-  assert.ok(poll.indexOf('paintAgentFilesAll(sessionName)') < poll.indexOf('if (stamp && stamp === AGENT_FILES_STAMP) return;'), 'an unchanged top of Files stops the screen following a folder inside it');
+  // Iteration 2: before the glance list's own read, so neither its failure nor an unchanged top of Files skips a tick.
+  assert.ok(poll.indexOf('paintAgentFilesAll(sessionName)') > 0 && poll.indexOf('paintAgentFilesAll(sessionName)') < poll.indexOf("await fetch('/api/agent/'"), 'the screen follows a folder only when the glance list read succeeds');
+  assert.match(open, /AGENT_FILES_FOCUS = false;/, 'a focus left pending from the last agent can land on this one');
+});
+
+test('iteration 2: the same failure on the next tick is not written again (a status line rewritten is re-announced); a recovery and a new failure are', async () => {
+  let answer = { __status: 409, ok: false, because: 'this is a file, not a folder' };
+  const h = harness(() => answer);
+  await h.api.paintAgentFilesAll('ana');
+  const msg = h.el['d-filesall-msg'];
+  assert.match(msg.textContent, /file, not a folder/);
+  let writes = 0;
+  const real = Object.getOwnPropertyDescriptor(msg, 'textContent');
+  Object.defineProperty(msg, 'textContent', { get: real.get, set(v) { writes++; real.set.call(this, v); } });
+  await h.api.paintAgentFilesAll('ana');
+  assert.equal(writes, 0, 'the same refusal was written into the status line again');
+  answer = { __status: 409, ok: false, because: 'we cannot read this folder' };
+  await h.api.paintAgentFilesAll('ana');
+  assert.ok(writes > 0, 'a changed refusal was not shown');
+  answer = answer0();
+  await h.api.paintAgentFilesAll('ana');
+  assert.equal(msg.textContent, '', 'a recovery left the failure on screen');
+});
+const answer0 = () => ({ ok: true, dir: '', stamp: 's-top', dirs: [], files: [{ name: 'note.txt', size: 1 }] });
+
+test('iteration 2: a move whose read fails leaves no focus pending to land on a later screen', async () => {
+  const h = harness(() => ({ __status: 404, ok: false, because: 'that folder is not there any more, or it was moved' }));
+  h.api.agentFilesGo('gone');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(h.api.focusPending(), false);
+  assert.equal(h.focused.length, 0);
+});
+
+test('iteration 2: the overflow line quotes the server\u2019s own limit', async () => {
+  const h = harness(() => ({ ok: true, dir: '', stamp: 'x', truncated: true, limit: 1000, dirs: [], files: [{ name: 'a.txt', size: 1 }] }));
+  await h.api.paintAgentFilesAll('ana');
+  assert.equal(h.el['d-filesall-more'].textContent, 'This folder holds more than ' + (1000).toLocaleString() + ' items, so not all of them are listed here.');
+  assert.match(PAGE, /id="d-filesall-h" tabindex="-1"/, 'the heading, the last place focus can go, cannot take it');
+});
+
+test('iteration 2: a text file in the preview: its words as text, a note when cut, the file card when it will not read, nothing after close', async () => {
+  const fn = page.lift(SCRIPT, 'pvTextInto');
+  const node = () => ({ className: '', textContent: '', kids: [], appendChild(c) { this.kids.push(c); } });
+  const run = async (res, closed = false) => {
+    const stage = node();
+    Object.defineProperty(stage, 'textContent', { get() { return this._t || ''; }, set(v) { this._t = v; if (v === '') this.kids = []; } });
+    const doc = { createElement: () => node(), contains: () => !closed };
+    await new Function('document', 'fetch', fn + '\nreturn pvTextInto;')(doc, async () => res)(stage, '/api/agent/ana/files/preview?name=a.txt', () => ({ card: true }));
+    return stage;
+  };
+  const ok = (body, cut) => ({ ok: true, text: async () => body, headers: { get: (k) => (k === 'x-kosmos-preview-cut' && cut ? '1' : null) } });
+  const plain = await run(ok('<b>words</b>', false));
+  assert.equal(plain.kids[0].className, 'pv-text');
+  assert.equal(plain.kids[0].textContent, '<b>words</b>', 'the words are shown as they are, as text');
+  assert.equal(plain.kids.length, 1, 'a whole file got a "start of the file" note');
+  const cut = await run(ok('the start', true));
+  assert.equal(cut.kids[1].textContent, 'The start of the file');
+  const refused = await run({ ok: false });
+  assert.deepEqual(refused.kids, [{ card: true }], 'a preview that will not read must show the file card');
+  const late = await run(ok('late', false), true);
+  assert.equal(late.kids[0].textContent, 'Reading…', 'an answer after the preview closed was written');
 });
