@@ -37,6 +37,10 @@ A source checkout or worktree has neither file two folders up from its engine.
 - **Gate on "installed AND real home", not on "installed" alone.** Every test, and every sandboxed test board, runs
   from source with its own `AGENT_WORKFORCE_HOME` and must keep wiring its own sandbox. The harm is only to the real
   accounts.
+- **Linux uses the Mac rule.** `install/setup.sh` runs `$KOSMOS_HOME/runtime/bin/node` on every platform it installs on,
+  so the layout is the same. This is derived from setup.sh and not measured on a Linux install.
+- **The installer says what happened:** when every target is left alone, it says so, instead of the "agents report
+  themselves" line.
 - **Windows changes too:** `prepare` and `ensureStatusLine` were ungated there. Now a Windows board whose
   `win32board.bundleRoot` is null (a source checkout, or a build in the updater's folder, as for #6601's
   `wireDefaultHooks`) leaves real-home account settings alone.

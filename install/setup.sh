@@ -5201,7 +5201,8 @@ fi
 # exactly the marker -- so a second heredoc using it (the first version of
 # this block), or even a comment containing the opener text (the second
 # version), concatenates into its fixture and fails the suite.
-if "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" <<'HOOKSEOF' 2>/dev/null
+_hooks_rc=0
+"$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" <<'HOOKSEOF' 2>/dev/null || _hooks_rc=$?
 const path = require('path');
 const kosmosHome = process.argv[2];
 const reporthook = require(path.join(kosmosHome, 'app', 'engine', 'reporthook.js'));
@@ -5224,8 +5225,9 @@ let refused = 0;
    refused: nothing went wrong. The statusline below is gated the same way, inside allowance.ensureStatusLine. */
 let leaveAlone = () => null;
 try { leaveAlone = require(path.join(kosmosHome, 'app', 'engine', 'installroot.js')).leaveAlone; } catch { /* an older bundle: as before */ }
+let skipped = 0;
 for (const t of targets) {
-  if (leaveAlone(t)) continue;
+  if (leaveAlone(t)) { skipped += 1; continue; }
   const got = reporthook.ensureWired(t, script, { claudeVersion: versionFor(t) });
   if (got.wired !== true) refused += 1;
 }
@@ -5238,15 +5240,20 @@ try {
   const allowance = require(path.join(kosmosHome, 'app', 'engine', 'allowance.js'));
   for (const t of targets) { try { allowance.ensureStatusLine(t); } catch { /* fail soft */ } }
 } catch { /* missing from this bundle, or it failed to load: the hooks' answer stands */ }
-process.exit(refused === 0 ? 0 : 1);
+// 3: every target was left alone on purpose (#6713), which is neither a success to announce nor a failure.
+process.exit(targets.length > 0 && skipped === targets.length ? 3 : refused === 0 ? 0 : 1);
 HOOKSEOF
-then
-  info "agents on this computer report what they are doing themselves; the board reads their"
-  info "own words instead of their screens"
-else
-  info "some agent settings could not carry the reporting hook (an unreadable settings"
-  info "file is left alone on purpose); those agents stay readable the older way"
-fi
+case "$_hooks_rc" in
+  0)
+    info "agents on this computer report what they are doing themselves; the board reads their"
+    info "own words instead of their screens" ;;
+  3)
+    info "this install is not at the default place (KOSMOS_HOME), so it counts as a test install and leaves"
+    info "the agent settings in your home alone; the installed Kosmos sets them up" ;;
+  *)
+    info "some agent settings could not carry the reporting hook (an unreadable settings"
+    info "file is left alone on purpose); those agents stay readable the older way" ;;
+esac
 # #3946: said only when a settings file this block targets now carries our status
 # line (checked by its marker, the same way uninstall names it), so a machine where
 # it could not be wired is not told that it was.
