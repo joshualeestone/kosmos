@@ -731,6 +731,11 @@ function ackCertWatchLost(at) {
   if (!enrolled()) return { ok: false, because: 'this computer is not set up for Kosmos+ yet' };
   return certWatchFiles.ackLostIn(STATE_DIR(), at);
 }
+/* kosmos#6587 (S-7a slice 2a): whether the pinned coordinator key is on the signed service key set this version
+   shipped (engine/servicekeys-check.js). A state only. Shown to the person; never put in status().because, which
+   the coordinator also receives, since the coordinator is the party a mismatch suspects. */
+const serviceKeyFiles = require('./servicekeys-check');
+function serviceKeys() { return serviceKeyFiles.serviceKeyCheck(STATE_DIR()); }
 
 /** The switch. Turning on does not start anything by itself unless setup
     already happened; the Settings flow calls setupStart/setupComplete and
@@ -3639,7 +3644,7 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   enrolled,
   spawnFedSeat,
   address,
-  certWatch, setCertWatch, ackCertWatchLost,
+  certWatch, setCertWatch, ackCertWatchLost, serviceKeys,
   ensure,
   status,
   setupStart,

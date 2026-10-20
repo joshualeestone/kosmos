@@ -10650,6 +10650,8 @@ const server = http.createServer(async (req, res) => {
         forgetKept: r.forget_kept || '',   // kosmos#6389
         /* kosmos#6602: the tunnel's certificate check, as counts and a state (no text from it). */
         certWatch: remote.certWatch(),
+        /* kosmos#6587: is the pinned coordinator key on the signed service key set (a state only). */
+        serviceKeys: remote.serviceKeys(),
       });
     } catch { sendJson(res, 500, { error: 'we could not read the Plus state' }); }
     return;

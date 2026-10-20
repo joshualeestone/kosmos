@@ -11654,6 +11654,22 @@ test('the Plus state route carries the certificate check, and its switch writes 
   }
 });
 
+test('the Plus state route carries the service key check as a state only, off as shipped (kosmos#6587)', async () => {
+  const fsx = require('fs'), osx = require('os'), px = require('path');
+  const dir = fsx.mkdtempSync(px.join(osx.tmpdir(), 'sk-route-'));
+  const prev = process.env.AGENT_WORKFORCE_TUNNEL_STATE;
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = dir;
+  try {
+    let st = JSON.parse((await req('/api/remote')).body);
+    assert.deepEqual(st.serviceKeys, { state: 'off' }, 'no recovery key is pinned in this version');
+    fsx.writeFileSync(px.join(dir, 'coordinator_pubkey'), 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n');
+    st = JSON.parse((await req('/api/remote')).body);
+    assert.deepEqual(st.serviceKeys, { state: 'off' }, 'a pin changes nothing while off');
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_STATE; else process.env.AGENT_WORKFORCE_TUNNEL_STATE = prev;
+  }
+});
+
 test('the Plus state route says configured through the production default, and the env seam still wins (#790)', async () => {
   /* Until #722 this asserted false on a bare sandbox: the relay's domain was
      undecided and a default would have been wishful. The domain is ruled and
