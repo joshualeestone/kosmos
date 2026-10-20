@@ -372,22 +372,27 @@ tick; r2=$RC; kill "$w2" 2>/dev/null; wait "$w2" 2>/dev/null; rm -rf "$ST/lock"
 { [ "$r1" = 1 ] && [ "$r2" = 1 ]; } && pass "wedged: after the lock is taken again, a new wedge is red at once" || bad "wedged re-arm (r1=$r1 r2=$r2)"
 
 # 26) a fetch that hangs is stopped at its limit with its whole process group, and is red_once fetch.
-#     (ext:: runs a command as the remote; the sleep's length is unique to this run, so it can be looked
-#     for afterwards without counting another run's.)
+#     (ext:: runs a command as the remote; the wait's length is unique to this run, so it can be looked
+#     for afterwards without counting another run's. kosmos#6730: a perl bounded wait, not `sleep`, so a stray
+#     `pkill -f sleep` cannot end the hang early and let this arm pass for the wrong reason. Its code has no
+#     spaces, because ext:: splits its command on them.)
 Z26="$(( 4000 + $$ % 900 )).$RANDOM$RANDOM"   # a fractional length: no two runs pick the same one
 git -C "$T/site" config protocol.ext.allow always
-git -C "$T/site" remote set-url origin "ext::sleep $Z26"
+HOLD26="select(undef,undef,undef,$Z26)"
+# Anchored at the start of the line, so the grep below never counts its own command line (which holds this text).
+HOLD26RE="^(/usr/bin/)?perl -e select\\(undef,undef,undef,${Z26//./\\.}\\)\$"
+git -C "$T/site" remote set-url origin "ext::perl -e $HOLD26"
 t0=$SECONDS; KOSMOS_AUTODEPLOY_FETCH_MAX_S=2 tick; el=$((SECONDS - t0)); sleep 1
-left=$(ps -axo command= | command grep -Ec "(^|/)sleep ${Z26//./\\.}\$")   # ps names it /bin/sleep (measured)
+left=$(ps -axo command= | command grep -cE "$HOLD26RE")
 git -C "$T/site" remote set-url origin "$T/origin.git"; git -C "$T/site" config --unset protocol.ext.allow
 { [ "$RC" = 1 ] && [ "$el" -lt 10 ] && [ "$left" = 0 ] && printf '%s' "$OUT" | grep -q "could not fetch"; } \
   && pass "a hanging fetch is stopped at its limit, its helpers with it, and reported red" || bad "hanging fetch (rc=$RC, ${el}s, $left left) $OUT"
 # (No cleanup kill on a failure: this is a shared user, and a pattern kill reaches other people's
-#  processes. A leftover sleep ends by itself within 82 minutes.)
+#  processes. A leftover wait ends by itself within 82 minutes.)
 tick   # a good tick (the fetch record stays: see test 21)
-# Control: the count above can see a leftover (a sleep of the same length, started here, is counted).
-/bin/sleep "$Z26" & ctl26=$!; sleep 0.3; seen=$(ps -axo command= | command grep -Ec "(^|/)sleep ${Z26//./\\.}\$"); kill "$ctl26"; wait "$ctl26" 2>/dev/null
-[ "$seen" -ge 1 ] && pass "the leftover count sees a sleep of that length (control)" || bad "the leftover count cannot see a sleep (it counted $seen)"
+# Control: the count above can see a leftover (a wait of the same length, started here, is counted).
+perl -e "$HOLD26" & ctl26=$!; sleep 0.3; seen=$(ps -axo command= | command grep -cE "$HOLD26RE"); kill "$ctl26"; wait "$ctl26" 2>/dev/null
+[ "$seen" -ge 1 ] && pass "the leftover count sees a wait of that length (control)" || bad "the leftover count cannot see a wait (it counted $seen)"
 
 # 27) a SECOND signal while a killed tick is stopping a deploy that ignores TERM (a runner's cancel
 #     escalates) does not cut the failure record out.
