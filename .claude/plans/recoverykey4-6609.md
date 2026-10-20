@@ -40,3 +40,7 @@ That the checkout's RECOVERY_KEYS are the ones installs use. A cut is checked ag
 - [WARNING] fixed: nothing ran promote-channel.sh itself with the check on (text matches only). tools/test-staging-channel-2036.sh now runs the REAL promote from a scratch copy of tools/ with throwaway keys rewritten into manifest-verify.js, against a git site with a bare origin serving a signed list: a manifest signed by a key the list names is promoted; one signed by a key the list dropped is refused, prod untouched. Mutant (the refusal removed from promote) measured red. The test is ALL PASS.
 - [NIT] fixed: the plan said a leftover probe seam skips promote's check; it skips the cut's only.
 - Not done, recorded: the same real-run arm for release.sh step 1c (it needs a stub secrets map and a sandbox site through the probe-free path).
+### Iteration 5 (opus): converged
+No BLOCKER, WARNING or CONVENTION. The end-to-end case ran ALL PASS and its refusal mutant went red; it leaves nothing outside its temp folder; off behaviour unchanged.
+- [NIT] accepted: promote's refusal sentence is generic for every verify-under-list failure; node's own line, which names the cause, prints just above it.
+- [NIT] accepted: the "dropped" shell case matches that generic sentence; the paired "named" case, built the same way, is what rules out "no list" or "bad list".
