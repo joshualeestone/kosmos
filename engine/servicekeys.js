@@ -98,7 +98,9 @@ function scan(text) {
   const ws = () => { while (i < text.length && ' \t\n\r'.includes(text[i])) i += 1; };
   const str = () => {
     const start = i; i += 1;
-    while (text[i] !== '"') i += text[i] === '\\' ? 2 : 1;
+    // Bounded by the length too: the text already parsed, but a walk that could run past its end must not hang.
+    while (i < text.length && text[i] !== '"') i += text[i] === '\\' ? 2 : 1;
+    if (i >= text.length) throw new Error('holds a string that does not end');
     i += 1;
     const s = JSON.parse(text.slice(start, i));
     // A lone surrogate (only an escape can make one here: the bytes were strict UTF-8) is refused by serde_json.
