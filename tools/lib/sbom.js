@@ -44,9 +44,10 @@
  * that is not a plain file). The shipped runtime/bin/node is not tied to the
  * nodejs.org download hash here (the bundle build verifies it against nodejs.org's SHASUMS256 before packing).
  * LIMIT: the crate list is the lockfile closure, a superset of what the macOS connector compiles. Measured for 0.7.59:
- * 229 crates (the connector and kosmos-relay-proto included) against cargo tree's 189 (which counts both); the extra are Windows-only and dev-only crates (26) and optional dependencies
+ * 229 crates (the connector and kosmos-relay-proto included) against cargo tree's 190 across the universal binary's two
+ * targets (189 for aarch64; x86_64 adds curve25519-dalek-derive; review 39); the extra are Windows-only and dev-only crates (26) and optional dependencies
  * of features the connector does not turn on (14). It never misses a crate the connector builds with. A scan of this
- * SBOM must treat an advisory on one of the extra crates as not shipped until it checks the macOS build graph.
+ * SBOM must treat an advisory on one of the extra crates as not shipped until it checks the macOS build graph of BOTH targets.
  */
 const fs = require('fs');
 const crypto = require('crypto');
@@ -470,6 +471,10 @@ function checkFirstParty(manifest, packageJson) {
   if (!Array.isArray(manifest.files) || !manifest.files.length) throw new Error('manifest lists no files');
   for (const f of manifest.files) {
     const p = f && f.path;
+    // Review 39: an entry is exactly a path and a sha256; a key a future manifest adds would otherwise go unread.
+    if (!f || typeof f !== 'object' || Object.keys(f).sort().join(',') !== 'path,sha256' || !SHA256.test(f.sha256 || '')) {
+      throw new Error(`manifest file entry ${JSON.stringify(f)} is not exactly a path and a sha256`);
+    }
     if (typeof p !== 'string' || /(^|\/)node_modules(\/|$)/.test(p) || p.split('/').includes('..')
       || !(FIRST_PARTY_FILES.has(p) || (FIRST_PARTY_DIRS.some((d) => p.startsWith(d)) && FIRST_PARTY_EXT.test(p))
         || FIRST_PARTY_PATTERNS.some((r) => r.test(p)))) {
@@ -571,6 +576,9 @@ function build(manifest, { repo, relay, tmux, show = gitShow, workspace = cargoW
   }
   if (tmux.sha !== manifest.tmux_sha256) throw new Error(`the tmux bundle (${tmux.sha.slice(0, 12)}) is not the one this release signed (${manifest.tmux_sha256.slice(0, 12)})`);
   checkFirstParty(manifest, show(repo, appCommit, 'package.json'));
+  // Review 39: the installer is called first-party, so it is tied to its source the way package.json is.
+  const setupSha = crypto.createHash('sha256').update(show(repo, appCommit, 'install/setup.sh'), 'utf8').digest('hex');
+  if (setupSha !== manifest.setup_sha256) throw new Error(`install/setup.sh at the app commit (${setupSha.slice(0, 12)}) is not the installer this release signed (${manifest.setup_sha256.slice(0, 12)})`);
   const arch = manifest.arch;
   const { root, deps, edges } = closure(parseLock(show(relay, relayCommit, 'Cargo.lock')), CONNECTOR_CRATE);
   const ws = workspace(relay, relayCommit);
@@ -613,7 +621,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow, workspace = cargoW
       hashes: hashOf(manifest.tmux_sha256), description: 'the tmux bundle the release ships (tmux and the libraries it links, listed as its parts)' },
     tmuxPart('tmux'), ...libs.map(tmuxPart),
     { type: 'file', 'bom-ref': 'setup', name: 'setup', hashes: hashOf(manifest.setup_sha256),
-      description: 'the installer script the release serves (first-party; its signed hash)' },
+      description: 'the installer script the release serves (first-party: install/setup.sh at the app commit, which hashes to the signed setup_sha256)' },
     { type: 'application', 'bom-ref': 'connector', name: CONNECTOR_CRATE, version: root.version,
       hashes: hashOf(manifest.connector.signed_sha256), description: `the Plus connector, kosmos-relay ${relayCommit}` },
     ...crates.map((p) => crateComponent(p, relayCommit, crateRef, members)),
@@ -631,7 +639,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow, workspace = cargoW
         // Review 38: the other two limits, said in the JSON too, so a scanner is not left believing both are vouched.
         { name: 'kosmos:connector-binary', value: 'the connector binary is listed by its signed hash; it is not rebuilt from the Cargo.lock here, so the crate list is what that lock resolves, not a reproduction of the binary' },
         { name: 'kosmos:node-binary', value: 'runtime/bin/node is listed by the version and nodejs.org download the build names; the shipped binary is not compared with that download here' },
-        { name: 'kosmos:cargo-closure', value: 'the connector crates are its Cargo.lock closure, a superset of the macOS build: an advisory on a crate that `cargo tree --locked -p kosmos-tunnel-client --target aarch64-apple-darwin -e normal,build`, run at the relay commit, does not list is not shipped' }],
+        { name: 'kosmos:cargo-closure', value: 'the connector crates are its Cargo.lock closure, a superset of the macOS build. The connector is a universal binary (aarch64-apple-darwin and x86_64-apple-darwin joined with lipo), so an advisory on a crate is not shipped only when `cargo tree --locked -p kosmos-tunnel-client -e normal,build` lists it for NEITHER target, run at the relay commit' }],
       component: { type: 'application', 'bom-ref': 'kosmos', name: 'kosmos', version: manifest.version,
         hashes: hashOf(manifest.sha256), description: `Kosmos ${manifest.version} (${arch}), app ${appCommit}` },
     },

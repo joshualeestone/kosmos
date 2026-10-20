@@ -164,6 +164,8 @@ const MANIFEST = {
 const PACKAGE = '{ "name": "agent-workforce", "private": true, "scripts": { "test": "x" } }';
 const sha256 = (t) => crypto.createHash('sha256').update(t, 'utf8').digest('hex');
 MANIFEST.files.find((f) => f.path === 'app/package.json').sha256 = sha256(PACKAGE);
+const SETUP = '#!/bin/sh\necho kosmos setup\n';
+MANIFEST.setup_sha256 = sha256(SETUP);
 const withPackage = (m, pkg) => ({ ...m, files: m.files.map((f) => (f.path === 'app/package.json' ? { ...f, sha256: sha256(pkg) } : f)) });
 const show = (files) => (repo, commit, file) => {
   const v = files[`${repo}:${commit}:${file}`];
@@ -176,7 +178,8 @@ const files = (lock = LOCK, tmux = TMUX, workspace = WORKSPACE, pkg = PACKAGE, s
   return { [r('Cargo.lock')]: lock, [r('Cargo.toml')]: workspace, [r('crates/proto/Cargo.toml')]: MEMBER('kosmos-relay-proto'),
     [r('crates/tunnel/Cargo.toml')]: MEMBER('kosmos-tunnel-client'), [r('crates/relay/Cargo.toml')]: MEMBER('kosmos-relay-server'),
     [`K:${'a'.repeat(40)}:tools/build-tmux-from-source.sh`]: tmux, [`K:${'a'.repeat(40)}:package.json`]: pkg,
-    [`K:${'a'.repeat(40)}:native-app/main.swift`]: swift, [`K:${'a'.repeat(40)}:tools/macos-floor`]: '13.5\n' };
+    [`K:${'a'.repeat(40)}:native-app/main.swift`]: swift, [`K:${'a'.repeat(40)}:tools/macos-floor`]: '13.5\n',
+    [`K:${'a'.repeat(40)}:install/setup.sh`]: SETUP };
 };
 // A stand-in for the compiler in the fixture arms: the fixtures import plain module names, one per line.
 const fixtureImports = (src) => [...src.matchAll(/^\s*(?:@\w+\s+)?import\s+(\w+)/gm)].map((m) => m[1]);
@@ -290,8 +293,9 @@ test('every vouched field of the named parts (review 37): the connector version,
   assert.equal(comp(b, 'tmux-bundle').name, 'tmux-arm64.tar.gz');
   assert.deepEqual(deps(b, 'setup'), []);
   assert.equal(comp(b, 'node').description, 'Node.js runtime, the official darwin-arm64 tarball');
-  const other = sbom({ ...MANIFEST, setup_sha256: SHA('c') });
-  assert.notEqual(other.serialNumber, b.serialNumber, 'a manifest differing only in the installer kept the serial');
+  const other = sbom({ ...MANIFEST, built: { at: '2026-10-19T18:00:00Z' } });
+  assert.equal(other.metadata.component.hashes[0].content, b.metadata.component.hashes[0].content, 'the same tarball');
+  assert.notEqual(other.serialNumber, b.serialNumber, 'a manifest differing only outside the tarball kept the serial');
   assert.equal(sbom().serialNumber, b.serialNumber, 'the control: the same manifest gives the same serial');
 });
 
@@ -593,6 +597,12 @@ test('the connector crate must be the one that builds kosmos-tunnel, and there i
 
 test('commits must be full shas, the build must say clean, and only the arm64 release is known', () => {
   assert.throws(() => sbom({ ...MANIFEST, app: { commit: 'HEAD', dirty: false } }), /must be full shas/);
+  assert.throws(() => sbom({ ...MANIFEST, app: { commit: 'a'.repeat(10), dirty: false } }), /must be full shas/);   // review 39
+  // Review 39: the installer is tied to install/setup.sh at the app commit; a file entry is exactly a path and a sha256.
+  assert.throws(() => sbom({ ...MANIFEST, setup_sha256: SHA('c') }), /install\/setup\.sh at the app commit .* is not the installer this release signed/);
+  const entry = (e) => ({ ...MANIFEST, files: [...MANIFEST.files, e] });
+  assert.throws(() => sbom(entry({ path: 'app/engine/x.js', sha256: SHA('2'), mode: '755' })), /is not exactly a path and a sha256/);
+  assert.throws(() => sbom(entry({ path: 'app/engine/x.js', sha256: 'zz' })), /is not exactly a path and a sha256/);
   assert.throws(() => sbom({ ...MANIFEST, connector: { ...MANIFEST.connector, commit: 'b'.repeat(10) } }), /must be full shas/);
   assert.throws(() => sbom({ ...MANIFEST, app: { commit: 'a'.repeat(40) } }), /does not say the app was built from a clean tree/);
   assert.throws(() => sbom({ ...MANIFEST, arch: 'x86_64' }), /arch x86_64: this SBOM knows the arm64 Mac release only/);
@@ -887,7 +897,7 @@ test('a CPE escapes a version character CPE 2.3 reserves', () => {
 
 test('the installer is listed under its signed hash', () => {
   const b = sbom();
-  assert.deepEqual(comp(b, 'setup').hashes, [{ alg: 'SHA-256', content: SHA('b') }]);
+  assert.deepEqual(comp(b, 'setup').hashes, [{ alg: 'SHA-256', content: sha256(SETUP) }]);
   assert.ok(deps(b, 'kosmos').includes('setup'));
   assert.throws(() => sbom({ ...MANIFEST, setup_sha256: undefined }), /manifest setup_sha256 is not a sha256/);
 });
@@ -966,7 +976,7 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
     git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'x');
     return { dir, commit: git(dir, 'rev-parse', 'HEAD') };
   };
-  const k = repo('kosmos', { 'tools/build-tmux-from-source.sh': TMUX, 'package.json': PACKAGE, 'native-app/main.swift': SWIFT, 'tools/macos-floor': '13.5\n' });
+  const k = repo('kosmos', { 'tools/build-tmux-from-source.sh': TMUX, 'package.json': PACKAGE, 'native-app/main.swift': SWIFT, 'tools/macos-floor': '13.5\n', 'install/setup.sh': SETUP });
   const r = repo('relay', { 'Cargo.lock': LOCK, 'Cargo.toml': WORKSPACE, 'crates/proto/Cargo.toml': MEMBER('kosmos-relay-proto'),
     'crates/tunnel/Cargo.toml': MEMBER('kosmos-tunnel-client'), 'crates/relay/Cargo.toml': MEMBER('kosmos-relay-server') });
   const stage = path.join(root, 'bundle');
@@ -1073,7 +1083,7 @@ test('the command line end to end, against a copy of the tool that pins a test k
     git(dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'x');
     return { dir, commit: git(dir, 'rev-parse', 'HEAD') };
   };
-  const k = repo('kosmos', { 'tools/build-tmux-from-source.sh': TMUX, 'package.json': PACKAGE, 'native-app/main.swift': SWIFT, 'tools/macos-floor': '13.5\n' });
+  const k = repo('kosmos', { 'tools/build-tmux-from-source.sh': TMUX, 'package.json': PACKAGE, 'native-app/main.swift': SWIFT, 'tools/macos-floor': '13.5\n', 'install/setup.sh': SETUP });
   const r = repo('relay', { 'Cargo.lock': LOCK, 'Cargo.toml': WORKSPACE, 'crates/proto/Cargo.toml': MEMBER('kosmos-relay-proto'),
     'crates/tunnel/Cargo.toml': MEMBER('kosmos-tunnel-client'), 'crates/relay/Cargo.toml': MEMBER('kosmos-relay-server') });
   const stage = path.join(root, 'bundle');
