@@ -1610,11 +1610,6 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
   return 0
 }
 
-# After a start: wait for the board to come up (30 tries, half a second apart). [pid]: the process just
-# launched; the wait ends early if it has exited. #4466: a board that comes back BUSY is up, not failed:
-# it holds the port as ours and is working (a 25-agent board is busy the moment its agents reconnect), so
-# the start reports it running and slow, instead of "did not come up" (and the installer's "would not
-# start") on a board that is serving.
 # #6586: wait for a recorded board that is alive but not answering YET (most often one launchd is bringing back after
 # an update's pause), with the same bound a fresh start's wait has. Its own loop, not _await_board_up: this board was
 # not launched by this command, so nothing here may signal it or speak of launching it.
@@ -1633,8 +1628,14 @@ _await_recorded_board() { # $1: its pid
     kill -0 "$1" 2>/dev/null || return 2
     sleep 0.5
   done
+  healthy --once && { say "Kosmos is running at $URL"; return 0; }   # a board that answers at the very end is up
   return 1
 }
+# After a start: wait for the board to come up (30 tries, half a second apart). [pid]: the process just
+# launched; the wait ends early if it has exited. #4466: a board that comes back BUSY is up, not failed:
+# it holds the port as ours and is working (a 25-agent board is busy the moment its agents reconnect), so
+# the start reports it running and slow, instead of "did not come up" (and the installer's "would not
+# start") on a board that is serving.
 _await_board_up() {
   local _i _pid="${1:-}" _unreach_seen=0
   for _i in $(seq 1 30); do
@@ -1887,6 +1888,8 @@ cmd_start() {
       if [ "$(cat "$PIDFILE" 2>/dev/null)" = "$_oldpid" ]; then rm -f "$PIDFILE" 2>/dev/null || true; fi
       say "That board (process $_oldpid) exited while starting; starting Kosmos."
     else
+      # (The guards above ran before the wait; a fall-through after rc 2 reuses them, as a fresh start would.)
+      if [ "$HEALTH_STATE" = unreachable ]; then die "$(_unreachable_lead) $(_unreachable_why)"; fi
       die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. $(_stop_advice)"
     fi
   fi
