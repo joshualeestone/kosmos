@@ -9258,16 +9258,18 @@ function snapshot() {
        message, Grok's names current_model_id, Codex's rollout names it on each turn_context. A runner whose record
        names none yet (no turn since it started) falls back to the job's planned model (server.js plannedFor). */
     const sessModel = (x) => (x && x.found && typeof x.model === 'string' && x.model) || null;   // found, as the agy line always required
-    const { model, earlierSession } = !tied ? { model: null }
+    const { model: modelRead, earlierSession } = !tied ? { model: null }
       : isAgyPane ? { model: sessModel(agySess) }
       : isMusePane ? { model: sessModel(museSess) }   // #4603 N12: the model its last turn named
       : isGeminiPane ? { model: sessModel(geminiSess) }
       : isGrokPane ? { model: sessModel(grokSess) }
       : isCodexPane ? { model: sessModel(codexSess) }
       : readModel(pane.name, pane.session);
-    /* #6716: whether that model came from an earlier session (a new one that has not replied yet); the card prefers the
-       model the agent is set to run on, when it has one. */
-    const modelFromEarlierSession = earlierSession === true;
+    /* #6716 review 2: a model borrowed from an EARLIER session (a new one that has not replied yet) is NOT this session's
+       model: it stays out of `model` (context sizing, the model panel's "Right now", a switch's label, the server's
+       checks all read that) and travels as `earlierModelName`, which only the card's model line uses, last. */
+    const model = earlierSession === true ? null : modelRead;
+    const earlierModelName = earlierSession === true ? modelDisplayName(modelRead) : null;
     /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
        read "Not yet read" forever. Its context lives in the Codex rollout, which
@@ -9459,7 +9461,7 @@ function snapshot() {
       context,
       model,
       modelName: modelDisplayName(model),
-      modelFromEarlierSession,   // #6716
+      earlierModelName,   // #6716: the card's last resort, never what the session is running
       /* #5811: what the #5804 "(set to X)" decision needs, all from this tick's ONE session read (geminiSess above), so
          server.js decides it without reading the job or the session again. Gemini panes only; null when the session
          was not found. server.js takes it off the row before the page gets it. */

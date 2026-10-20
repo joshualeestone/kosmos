@@ -21815,9 +21815,9 @@ function modelLine(a) {
      rollout (turn_context), never scraped off the screen; the provider is
      the fallback while no turn has named one. */
   const notRunning = cardStOf(a).pres === 'off';
-  /* #6716: a model read from the agent's EARLIER session (a new one that has not replied yet) gives way to the model it
-     is set to run on, exactly as a stopped agent's does: right after a model switch the earlier one is the old model. */
-  const name = ((notRunning || a.modelFromEarlierSession === true) && a.plannedModelName) || a.modelName || a.plannedModelName;
+  /* #6716: last, the model the agent's EARLIER session ran (a new one that has not replied yet: Renet after an account
+     move). Never ahead of what it runs now or is set to run, so a model switch never shows the old model. */
+  const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName || a.earlierModelName;
   /* #4416 (Josh 15:18: knowing "what actual model these things are on"): the model its rollout names (engine
      codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
   // #5977 (UI review): a Qwen agent runs on codex too, and is never "OpenAI": its model, or Qwen while none is known.

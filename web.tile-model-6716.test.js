@@ -15,15 +15,15 @@ const modelLine = (a) => new Function('a', 'cardStOf', page.lift(SCRIPT, 'modelL
 const base = { state: 'idle', runner: 'claude', isNamedOurs: true };
 
 test('#6716: a borrowed earlier-session model gives way to the planned one', () => {
-  assert.match(modelLine({ ...base, modelName: 'Opus 4.8', modelFromEarlierSession: true, plannedModelName: 'Opus 5.5' }), /Opus 5\.5/);
+  assert.match(modelLine({ ...base, modelName: null, earlierModelName: 'Opus 4.8', plannedModelName: 'Opus 5.5' }), /Opus 5\.5/);
 });
 
 test('#6716: with nothing planned, the earlier session\'s model is shown, not "Made before Kosmos recorded this"', () => {
-  const line = modelLine({ ...base, modelName: 'Opus 5.5', modelFromEarlierSession: true, plannedModelName: null, neverRecorded: true });
+  const line = modelLine({ ...base, modelName: null, earlierModelName: 'Opus 5.5', plannedModelName: null, neverRecorded: true });
   assert.match(line, /Opus 5\.5/);
   assert.doesNotMatch(line, /Made before/);
 });
 
-test('#6716 CONTROL: a model the running session read itself still wins over the planned one', () => {
-  assert.match(modelLine({ ...base, modelName: 'Opus 4.8', plannedModelName: 'Opus 5.5' }), /Opus 4\.8/);
+test('#6716 CONTROL: a model the running session read itself still wins over the planned and the earlier one', () => {
+  assert.match(modelLine({ ...base, modelName: 'Opus 4.8', plannedModelName: 'Opus 5.5', earlierModelName: 'Fable 5' }), /Opus 4\.8/);
 });
