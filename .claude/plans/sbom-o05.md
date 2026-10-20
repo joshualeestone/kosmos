@@ -129,6 +129,10 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- (Review 36.) The three real-Cargo arms SKIP where cargo cannot run, so a machine without Rust can still run this
+  file; a skip is not a pass. A broken cargo (10-19: its rustup shim missing) and an absent one look the same from
+  here, so failing instead would also fail every machine without Rust. Before a release, check the run reports
+  `skipped 0`: the cut machine has cargo.
 - (Review 35.) The app commit's files are read by exact path, with no case-collision check across that commit (the
   relay's tree has one). A second spelling of native-app/main.swift would not change what the SBOM reads; whether
   a build machine's checkout picks the other one is inside the review-16 LIMIT (the binary is not tied to its source).
