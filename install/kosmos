@@ -144,6 +144,46 @@ PIDFILE="$KOSMOS_HOME/board.pid"
 # stop stays stopped; once any start clears it the watchdog resumes recovering a
 # board that has died. See bin/board-watchdog.sh.
 STOP_MARKER="$KOSMOS_HOME/board.stopped"
+# kosmos#6651: who wrote the stop marker. A person's `kosmos stop` writes it empty, as it always has.
+# An installer's pause writes "install <pid> <start>" (KOSMOS_STOP_BY_INSTALL, set by setup.sh to its own
+# pid and that process's start time), so a pause whose installer died without its EXIT trap (a kill, or a
+# full disk) can be told from a person's stop instead of keeping the board off for good. The pid AND its
+# start time must still match a live process, so a reused pid cannot hold the pause.
+# The same test is in bin/board-watchdog.sh (stop_marker_stranded); tools/test-stopmark-6651.sh runs both.
+write_stop_marker() {
+  local by="${KOSMOS_STOP_BY_INSTALL:-}"
+  case "$by" in
+    [0-9]*" "?*)
+      { printf 'install %s\n' "$by" > "$STOP_MARKER.$$" && mv -f "$STOP_MARKER.$$" "$STOP_MARKER"; } 2>/dev/null \
+        || { rm -f "$STOP_MARKER.$$" 2>/dev/null; : > "$STOP_MARKER" 2>/dev/null; } || true ;;
+    *) : > "$STOP_MARKER" 2>/dev/null || true ;;
+  esac
+}
+stop_marker_stranded() {
+  local line pid start live
+  [ -f "$STOP_MARKER" ] || return 1
+  IFS= read -r line < "$STOP_MARKER" 2>/dev/null || return 1   # empty (a person's stop) or unreadable
+  case "$line" in "install "*) ;; *) return 1 ;; esac
+  line="${line#install }"; pid="${line%% *}"; start="${line#* }"
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  [ -n "$start" ] && [ "$start" != "$line" ] || return 1
+  live="$(LC_ALL=C ps -o lstart= -p "$pid" 2>/dev/null | sed 's/^ *//; s/ *$//')"
+  [ "$live" = "$start" ] && return 1   # that installer is still running: its pause stands
+  return 0
+}
+# Put back a marker this command removed, with the words it had (empty for a person's stop), so an
+# installer's pause is never turned into a person's stop by a start that was refused.
+restore_stop_marker() {
+  if [ -n "$1" ]; then printf '%s\n' "$1" > "$STOP_MARKER" 2>/dev/null || true
+  else : > "$STOP_MARKER" 2>/dev/null || true; fi
+}
+# Move a stranded marker aside (kept as evidence, never deleted) and say so. $1: who is clearing it.
+clear_stranded_stop_marker() {
+  local aside="$STOP_MARKER.stranded.$(date +%s)"
+  mv -f "$STOP_MARKER" "$aside" 2>/dev/null || return 1
+  printf '[%s] %s: cleared a stranded update pause (%s); kept at %s\n' "$(date -u +%FT%TZ)" "$1" "$(head -1 "$aside" 2>/dev/null)" "$aside" \
+    >> "$KOSMOS_HOME/logs/board-watchdog.log" 2>/dev/null || true
+}
 # #5450: left by a person's `kosmos start` (first thing, before the stop marker goes), so board-run can tell a person's
 # start from the login item's or a crash relaunch's. The board removes it once it has used it (engine/restartnote.js
 # atStart) and `kosmos stop` removes it; board-run removes none. Older than PERSON_START_MAX_S it is stale.
@@ -1421,6 +1461,8 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
   # A person stopped it on purpose (the deliberate-stop marker): an agent's start would clear the marker and
   # switch the watchdog back on, overriding that person. Only a person, or an internal caller with --force,
   # starts it again.
+  # kosmos#6651: an update's pause whose installer is gone is not a person's stop.
+  if stop_marker_stranded; then clear_stranded_stop_marker agent-start || true; fi
   if [ -f "$STOP_MARKER" ]; then
     say "Kosmos was stopped on purpose by the person who runs this computer, so an agent may not start it. Tell them if you need it running."
     exit 1
@@ -1551,7 +1593,7 @@ _await_board_up() {
         if [ "$(cat "$PIDFILE" 2>/dev/null)" = "$_pid" ]; then rm -f "$PIDFILE" 2>/dev/null || true; fi
         # Nothing was left started, so a deliberate stop a person made stands (cmd_start's _had_stop_marker,
         # visible here because bash locals are dynamically scoped; empty for any other caller).
-        if [ -n "${_had_stop_marker:-}" ]; then : > "$STOP_MARKER" 2>/dev/null || true; fi
+        if [ -n "${_had_stop_marker:-}" ]; then restore_stop_marker "$_had_stop_body"; fi   # its own words back (#6651)
         die "Kosmos cannot be started from this shell: it started, but $(_unreachable_why). A board started from a sandboxed shell is blocked the same way, so it was stopped again. Start it from a normal Terminal (or ask the person who runs this computer)."
       fi
     fi
@@ -1596,10 +1638,10 @@ cmd_start() {
   # #4636, the one exception: a start from a shell that cannot connect to the board, which then refuses (or
   # stops the board it launched there), puts back a marker it cleared. It started nothing, so a person's
   # deliberate stop stands; a start that FAILS to bind still clears it, as above.
-  local _had_stop_marker=""
+  local _had_stop_marker="" _had_stop_body=""
   # Under restart, the marker as it was before restart's own stop (which writes one on a down board), not now.
-  if [ "${_KOSMOS_RESTARTING:-}" = 1 ]; then _had_stop_marker="${_KOSMOS_RESTART_HAD_MARKER:-}"
-  elif [ -f "$STOP_MARKER" ]; then _had_stop_marker=1; fi
+  if [ "${_KOSMOS_RESTARTING:-}" = 1 ]; then _had_stop_marker="${_KOSMOS_RESTART_HAD_MARKER:-}"; _had_stop_body="${_KOSMOS_RESTART_HAD_BODY:-}"
+  elif [ -f "$STOP_MARKER" ]; then _had_stop_marker=1; _had_stop_body="$(cat "$STOP_MARKER" 2>/dev/null)"; fi
   rm -f "$STOP_MARKER" 2>/dev/null || true
   if healthy; then
     say "Kosmos is already running at $URL"
@@ -1612,7 +1654,7 @@ cmd_start() {
   if [ "$HEALTH_STATE" = unreachable ]; then
     if [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ] || ! _unreachable_is_ours; then
       # Nothing was started, so a deliberate stop a person made stands (#2955's early clear is undone).
-      if [ -n "$_had_stop_marker" ]; then : > "$STOP_MARKER" 2>/dev/null || true; fi
+      if [ -n "$_had_stop_marker" ]; then restore_stop_marker "$_had_stop_body"; fi   # its own words back (#6651)
       die "$(_unreachable_lead) $(_unreachable_why). Nothing was started or stopped; run this from a shell that can reach it."
     fi
     say "Kosmos is already running at $URL, but $(_unreachable_why). Nothing was started."
@@ -1804,6 +1846,7 @@ cmd_board_run() {
   # relaunch us while it exists; this guard only covers the one-shot RunAtLoad at
   # load, which fires regardless of PathState. `kosmos start` clears the marker
   # (cmd_start, near the top, just after the #5450 person's mark) and kickstarts us.
+  if stop_marker_stranded; then clear_stranded_stop_marker board-run || true; fi   # kosmos#6651
   if [ -f "$STOP_MARKER" ]; then
     say "Kosmos was deliberately stopped; not starting. Resume with: kosmos start"
     exit 0
@@ -1904,8 +1947,8 @@ cmd_stop() {
     # port-going-dead moment does not trip the watchdog into treating this stop as
     # a crash and restarting what the user just asked to stop. `kosmos start`
     # clears it again. `:` truncates/creates the file with nothing in it -- its
-    # presence is the whole signal.
-    : > "$STOP_MARKER" 2>/dev/null || true
+    # presence is the whole signal (kosmos#6651: an installer's pause also says who it is).
+    write_stop_marker
     # #2956: under launchd supervision the marker is what makes a stop STICK -- a
     # missing marker (unwritable home, full disk) means launchd relaunches the
     # board within ThrottleInterval. Pre-#2956 a failed marker write was harmless,
@@ -2005,7 +2048,7 @@ cmd_stop() {
     # just told us they want off. The foreign-board branch above deliberately does
     # NOT write it: that board is not ours to mark, and our watchdog would refuse
     # to start over a stranger's port anyway.
-    : > "$STOP_MARKER" 2>/dev/null || true
+    write_stop_marker
     say "Kosmos is not running."
   fi
 }
@@ -4309,7 +4352,8 @@ cmd_restart() {
     die "$(_unreachable_lead) $(_unreachable_why), so it cannot be restarted from here. Nothing was stopped; run this from a shell that can reach it."
   fi
   _KOSMOS_RESTART_HAD_MARKER=""
-  if [ -f "$STOP_MARKER" ]; then _KOSMOS_RESTART_HAD_MARKER=1; fi   # #4636: what cmd_start restores on a refusal
+  _KOSMOS_RESTART_HAD_BODY=""
+  if [ -f "$STOP_MARKER" ]; then _KOSMOS_RESTART_HAD_MARKER=1; _KOSMOS_RESTART_HAD_BODY="$(cat "$STOP_MARKER" 2>/dev/null)"; fi   # #4636: what cmd_start restores on a refusal
   _KOSMOS_RESTARTING=1
   cmd_stop || true
   # #4466: a busy board of ours that the stop could not reach (nothing tracked it) is reclaimed by this start.

@@ -3843,8 +3843,13 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     _kosmos_was_running=yes
   fi
   _kosmos_linux_unit_killmode   # #4920: before the stop, so an old unit's cgroup kill cannot take this run with it
+  # kosmos#6651: the marker says it is this run's pause (its pid and that process's start time), so if this run
+  # dies without its EXIT trap (a kill, a full disk) the watchdog and board-run can tell a stranded pause from a
+  # person's stop. Without a start time it writes the plain marker, as before. (The uninstall and connect stops
+  # elsewhere in this file stay plain: those are meant to keep the board off.)
+  _kosmos_self_start="$(LC_ALL=C ps -o lstart= -p $$ 2>/dev/null | sed 's/^ *//; s/ *$//')" || _kosmos_self_start=""
   _kosmos_marker_ours="$_kosmos_was_running"   # #5033: armed before the stop, which writes the marker and then waits
-  "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
+  KOSMOS_STOP_BY_INSTALL="${_kosmos_self_start:+$$ $_kosmos_self_start}" "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
   # earlier, where it is a precondition instead.
