@@ -278,10 +278,13 @@ const BLOCK = [
   '',
   '**One trap, and it is your shell rather than Kosmos:** backticks and a `$`',
   'inside a double-quoted message are read by your own shell before Kosmos ever',
-  'receives the text, so a code sample can arrive changed or empty. Wrap a',
+  'receives the text, so a code sample can arrive changed or empty, and a dollar',
+  'amount loses its number: `"$1,200"` reaches Kosmos as `,200`. Wrap a',
   'message that carries them in single quotes instead, and the characters reach',
   'the room as you wrote them. Single quotes break on an apostrophe, so for',
-  'anything longer use the heredoc in the next section.',
+  'anything longer, or with an apostrophe too, pipe the text in a quoted heredoc:',
+  'the next section shows it for `kosmos post` and `kosmos reply`, and',
+  "`kosmos msg --stdin <name> <<'KOSMOS_MSG'` takes one the same way.",
   '',
   '### Formatted messages need line breaks',
   '',
@@ -1135,8 +1138,20 @@ function block() {
  *     WEAKEST PREMISE, NAMED: that agents starting messages unasked is welcome. The
  *     section's own rule (report four things, do not narrate) is what bounds it; if
  *     people find it noisy, the line to change is this one, not the route.
+ *  35. kosmos#6653 (agent feedback, 10-19). Research messages arrived with dollar
+ *     amounts mangled: the shell reads `$1` in a double-quoted argument before Kosmos
+ *     sees it, so "$1,200" arrives as ",200". The shell-trap paragraph in "Send readable
+ *     messages" now names dollar amounts, and gives `kosmos msg` its own stdin route:
+ *     its old advice ("use the heredoc in the next section") pointed at a section that
+ *     deliberately shows no msg form, since msg is stored as one line. Both CLIs' help
+ *     already said --stdin keeps $ intact. Rejected: single-quoted examples throughout
+ *     (an apostrophe in ordinary prose then breaks every message), and a CLI warning on
+ *     a mangled-looking argument (the card's own point 2: cannot be told from real text).
+ *     No new heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that the mangled messages were sent as inline double-quoted
+ *     arguments. The report is paraphrased; a cut in another layer would look the same.
  */
-const DOCTRINE_VERSION = 34;
+const DOCTRINE_VERSION = 35;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
