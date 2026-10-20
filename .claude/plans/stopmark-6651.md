@@ -30,7 +30,7 @@
 - Not in this branch: what launched two installs 16 seconds apart (the card says no instrument recorded it).
 
 ## Proof
-- `bash tools/test-stopmark-6651.sh`: 54 PASS, including a real full disk (an 8 MB disk image, filled) and dash. Mutants, each red then restored: the start-time comparison removed
+- `bash tools/test-stopmark-6651.sh`: 65 PASS, including a real full disk (an 8 MB disk image, filled), dash, and setup.sh's own decision lines run under dash set -eu over a marker x names x mode matrix. Mutants, each red then restored: the start-time comparison removed
   (also caught by the byte-equal twin check), the watchdog's clear removed, the writer ignoring the attribution.
 - Neighbours, all green on this branch: test-board-watchdog-2955 (0 failures), test-update-putback-4818 (33/33;
   red at first because it pins the pause's stop line, updated), test-setup-pause-sandbox-4651 (0 failures),
@@ -85,3 +85,15 @@
     read as stranded.
   - The clear's log line on a full disk leaked printf's buffer to stdout; a subshell alone did not stop it
     (measured), so the subshell's stdout goes to /dev/null too.
+- Iteration 6 (a WARNING and NITs; each fixed, mutant red):
+  - During the changeover to this version, a name left by a killed update survives an older `kosmos start` (which
+    removes only the marker); a later deliberate stop through that older CLI then sat beside a stale name and the
+    next update would adopt it and start a board the person stopped. Now an update touches its name AFTER its stop
+    writes the marker, and a gone update's name OLDER than the marker supports nothing (a later stop wrote that
+    marker). A live update's name still holds the pause whatever its age.
+  - The join comment no longer overclaims: it holds if the other update is killed; if that update finishes, its
+    own start clears the marker and every name, as before this card.
+  - setup.sh's decision lines are now run, not just read: extracted and executed under dash set -eu across six
+    rows of marker x names x mode.
+  - The Linux token carries the boot id, so a pid and tick from an earlier boot cannot pass for a live installer
+    (reasoned, not measured: no /proc here).
