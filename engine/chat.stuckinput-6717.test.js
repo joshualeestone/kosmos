@@ -264,15 +264,17 @@ test('kosmos#6717: a long stuck text is cleared row by row and kept whole', () =
 test('kosmos#6717: the sweep picks idle Claude Code cards whose box has held text ten minutes, and says a left text once', async () => {
   const now = Date.now();
   const at = (min) => ({ since: new Date(now - min * 60000).toISOString() });
-  const cards = [
-    { sessionName: 'a', state: 'idle', unsentInput: at(11) },
-    { sessionName: 'b', state: 'idle', unsentInput: at(9) },
-    { sessionName: 'c', state: 'working', unsentInput: at(30) },
-    { sessionName: 'd', state: 'idle', runner: 'codex', unsentInput: at(30) },
-    { sessionName: 'e', state: 'idle' },
-    { sessionName: 'f', state: 'idle', runner: 'claude', unsentInput: at(10) },
-  ];
-  assert.deepEqual(stuck.stuckCards(cards, now, chat.STUCK_INPUT_MS).map((c) => c.sessionName), ['a', 'f']);
+  const board = fleet.install([
+    fleet.agent('a', { state: 'idle' }), fleet.agent('b', { state: 'idle' }), fleet.agent('c', { state: 'working' }),
+    fleet.agent('d', { state: 'idle', runner: 'codex', command: 'node', screen: '› Ask Codex to do anything\n  gpt-5.6-sol default · ~/Kosmos/agents/d' }), fleet.agent('e', { state: 'idle' }), fleet.agent('f', { state: 'idle' }),
+  ]);
+  let cards;
+  try {
+    const box = { a: at(11), b: at(9), c: at(30), d: at(30), f: at(10) };
+    cards = board.agents.map((c) => (box[c.sessionName] ? { ...c, unsentInput: box[c.sessionName] } : c));
+  } finally { board.restore(); }
+  assert.deepEqual(cards.map((c) => c.sessionName).sort(), ['a', 'b', 'c', 'd', 'e', 'f'], 'PRECONDITION: the fleet cards');
+  assert.deepEqual(stuck.stuckCards(cards, now, chat.STUCK_INPUT_MS).map((c) => c.sessionName).sort(), ['a', 'f']);
   const lines = [];
   const tick = stuck.makeTick({ allowed: () => true, roster: () => cards, now: () => now, stuckMs: chat.STUCK_INPUT_MS,
     recover: async () => ({ outcome: 'left', because: 'it holds a pasted block' }), log: (l) => lines.push(l) });
@@ -356,3 +358,73 @@ test('kosmos#6717: a box read empty once mid-redraw is not taken as cleared: the
   assert.equal(p.state.text, '', 'it carried on until the box really was empty');
   assert.ok(p.clears() >= 2);
 }));
+
+test('kosmos#6717: what a round leaves must be the old text with a row taken out; a letter typed is not, even one it holds', () => {
+  assert.equal(chat.stuckShrunk('a1b2c3', 'a1b2'), true, 'the last row');
+  assert.equal(chat.stuckShrunk('a1b2c3', 'b2c3'), true, 'the first row');
+  assert.equal(chat.stuckShrunk('a1b2c3', 'a1c3'), true, 'a middle row (cursor on it)');
+  assert.equal(chat.stuckShrunk('a1b2c3', 'a1b2e'), false, 'a letter typed after what was left');
+  assert.equal(chat.stuckShrunk('abcabc', 'abca'), true);
+  assert.equal(chat.stuckShrunk('a1b2c3', 'a1b2c3'), false, 'nothing taken out');
+  assert.equal(chat.stuckShrunk('a1b2c3', 'a1b2c3x'), false, 'longer');
+});
+
+test('kosmos#6717: a letter typed during the clearing, one the old text already holds, stops it', () => withAgent(async (roster, card) => {
+  const LONG = PERSON + ' ' + 'and the third one, and a note on the fourth. '.repeat(6);
+  const p = pane(LONG, { onClear: (n, s) => { if (n === 1) s.text += 'e'; } });
+  saveInto(p);
+  const r = await chat.recoverStuckInput(card, SINCE);
+  assert.equal(r.outcome, 'drafted-not-cleared', JSON.stringify(r));
+  assert.equal(p.clears(), 1);
+  assert.ok(p.state.text.endsWith('e'), 'their letter is still there');
+}));
+
+test('kosmos#6717: words typed between two rounds are seen before the next keys, which are then not sent', () => withAgent(async (roster, card) => {
+  const LONG = PERSON + ' ' + 'and the third one, and a note on the fourth. '.repeat(6);
+  const p = pane(LONG);
+  let looks = 0;
+  chat.setRunner((args) => {
+    if (args[0] === 'capture-pane' && args.includes('-e') && p.state.rounds === 1 && ++looks === 2) p.state.text += ' hold on';   // typed after the round was read
+    return p(args);
+  });
+  saveInto(p);
+  const r = await chat.recoverStuckInput(card, SINCE);
+  assert.equal(r.outcome, 'drafted-not-cleared', JSON.stringify(r));
+  assert.equal(p.clears(), 1, 'no keys after the words appeared');
+  assert.ok(p.state.text.endsWith('hold on'));
+}));
+
+test('kosmos#6717: the board\'s own line whose Enter does not take is said once in the log, and nothing is drafted', () => withAgent(async (roster) => {
+  const MSG = 'Kosmos here: please read the ruling on the card and carry on with the fix you described this morning.';
+  const first = pane('');
+  chat.setRunner((args) => (args[0] === 'send-keys' && args[args.length - 1] === 'Enter' ? ok() : first(args)));
+  assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION');
+  const p = pane(MSG);
+  chat.setRunner((args) => (args[0] === 'send-keys' && args[args.length - 1] === 'Enter' ? ok() : p(args)));   // Enter rebound
+  saveInto(p);
+  const lines = [];
+  const tick = stuck.makeTick({ allowed: () => true, roster: () => roster, recover: (c, s) => chat.recoverStuckInput(c, s), stuckMs: chat.STUCK_INPUT_MS, log: (l) => lines.push(l) });
+  await tick(); await tick();
+  assert.equal(lines.length, 1, lines.join(''));
+  assert.match(lines[0], /left the text in the box \(Enter on the line Kosmos had left there did not send it\)/);
+  assert.equal(saved.length, 0);
+  assert.equal(p.clears(), 0);
+}));
+
+test('kosmos#6717: a text given up on stays given up through a minute busy, and a new text is tried', async () => {
+  const now = Date.now();
+  const board = fleet.install([fleet.agent('a', { state: 'idle' })]);
+  const card = { ...board.agents[0], unsentInput: { since: new Date(now - 11 * 60000).toISOString() } };
+  board.restore();
+  const roster = [card];
+  let tries = 0;
+  const tick = stuck.makeTick({ allowed: () => true, roster: () => roster, now: () => now, stuckMs: chat.STUCK_INPUT_MS,
+    recover: async () => { tries += 1; return { outcome: 'drafted-not-cleared', because: 'the box did not empty' }; }, log: () => {} });
+  await tick();
+  card.state = 'working'; await tick();
+  card.state = 'idle'; await tick();
+  assert.equal(tries, 1, 'not tried again for the same text');
+  card.unsentInput = { since: new Date(now - 12 * 60000).toISOString() };
+  await tick();
+  assert.equal(tries, 2, 'a new text is a new try');
+});
