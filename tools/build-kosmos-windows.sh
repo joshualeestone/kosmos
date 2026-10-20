@@ -60,6 +60,9 @@ OUT="${1:-dist}"
 # does not.
 NODE_VERSION="${KOSMOS_NODE_VERSION:-24.19.0}"
 ARCH="${KOSMOS_WIN_ARCH:-x64}"
+# #6677: node sets the zip's file modes (tools/lib/zip-modes.js) on EVERY build, so it
+# is checked here, before the downloads, not found missing after them.
+command -v node >/dev/null 2>&1 || { echo "node is needed to build the Windows zip (it sets the zip's file modes, #6677); put it on PATH" >&2; exit 1; }
 
 # ---- source provenance (#1749) --------------------------------------------
 # The artifact must be able to say WHICH commit built it and whether that tree
@@ -488,6 +491,9 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'see says "Don\047t run". DO NOT PRESS IT. Click the small "More info"\r\n'
   printf 'text above it, and then "Run anyway". After "More info", the box\r\n'
   printf 'names Kosmos Agent Manager, Inc. as the publisher.\r\n'
+  printf '\r\n'
+  printf 'If a box asks whether to run Kosmos.exe from Kosmos Agent Manager,\r\n'
+  printf 'Inc., click Run.\r\n'
   printf '\r\n'
   printf 'Kosmos opens in its own window. Closing that window does not stop\r\n'
   printf 'Kosmos: it keeps running in the background and starts by itself when\r\n'

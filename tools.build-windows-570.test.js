@@ -127,7 +127,7 @@ test('every launcher line is CRLF, because cmd.exe does not forgive LF', () => {
 });
 
 test('the runtime is checksum-verified and a mismatch kills the build', () => {
-  /* An unsigned installer already asks somebody to click through a warning.
+  /* A package from a new publisher already asks somebody to click through a warning.
      Shipping an unverified runtime inside it would ask them to trust something
      we did not check ourselves. */
   assert.match(WIN, /SHASUMS256\.txt/, 'the node download is not checked against nodejs.org');
@@ -200,7 +200,7 @@ test('the package tells the truth about itself', () => {
   const folder = require('./engine/win32board').TASK_NAME.split('\\')[0];
   assert.equal(require('./engine/win32job').TASK_PREFIX.split('\\')[0], folder);
   assert.match(WIN, new RegExp("printf 'Task Scheduler Library, then the " + folder + " folder\\."), 'the README names a Task Scheduler folder the tasks are not in');
-  assert.match(WIN, /Windows protected your PC/, 'the README does not warn about the unsigned warning');
+  assert.match(WIN, /Windows protected your PC/, 'the README does not walk people past the SmartScreen warning');
 });
 
 test('🛑 the manifest stamps source provenance, and a dirty tree warns (#1749)', () => {
@@ -254,6 +254,7 @@ test('🛑 the warning reaches her BEFORE the launcher does, which a README cann
   assert.doesNotMatch(WIN, /came from another computer/, 'the README describes a checkbox label as if it were a prompt');
   /* #6679: a signed Kosmos.exe names its publisher in the Open File box, so the "could not be verified" line went. */
   assert.doesNotMatch(WIN, /The publisher could not be verified/, 'the README still describes an unverified publisher');
+  assert.match(WIN, /printf 'If a box asks whether to run Kosmos\.exe from Kosmos Agent Manager,\\r\\n'\n\s*printf 'Inc\., click Run\./,'the README does not say what to click in the Open File box, which a signed Kosmos.exe still raises');
   assert.match(WIN, /Tip: before you extract, right-click the zip, choose Properties, tick/, 'the README does not say to unblock the zip before extracting');
 });
 

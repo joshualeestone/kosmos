@@ -130,6 +130,16 @@ for (const zip64 of [false, true]) {
   });
 }
 
+test('#6677: check refuses a program left at 0644, which is not writable but cannot run on a Unix extract', () => {
+  const buf = makeZip([
+    { name: 'Kosmos.exe', data: 'MZ', madeBy: UNIX, attrs: 0o100644 << 16 },
+    { name: 'bin/kosmos', data: '#!/bin/sh\n', madeBy: UNIX, attrs: 0o100644 << 16 },
+  ]);
+  assert.deepEqual(zm.checkModes(buf).problems, ['Kosmos.exe: mode 100644']);
+  zm.setModes(buf);
+  assert.deepEqual(zm.checkModes(buf).problems, []);
+});
+
 test('#6677: without a stage folder a shebang cannot be seen, so such a file is 0644, never writable', () => {
   assert.equal(zm.modeFor('bin/kosmos'), zm.MODE_FILE);
   assert.equal(zm.modeFor('x/Kosmos.EXE'), zm.MODE_EXEC);
