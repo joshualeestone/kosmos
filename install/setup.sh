@@ -2097,9 +2097,9 @@ uninstall() {
     # installBoard. Run before the app folder is deleted, since it is the app's own code.
     # As the install step does: systemctl --user needs the user bus, which su and cron do not set up.
     [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"
-    # kosmos#6667: the pause check goes first, before any branch below touches the board. It goes in every branch, even
-    # the one that leaves a board unit in place as possibly another install's: that board then just has no revive, as
-    # before this check existed. Skipped exactly when linuxboard's runner refuses systemd (LAUNCH set, no
+    # kosmos#6667: the pause check goes first, before any branch below touches the board. Only this home's (its name
+    # carries this home's hash, as the board's does): another install's units, its pause check included, are not
+    # touched. Skipped exactly when linuxboard's runner refuses systemd (LAUNCH set, no
     # AGENT_WORKFORCE_SYSTEMD_DIR); with a units folder of its own a run still talks to real systemd, as linuxboard does.
     if [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || [ -n "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then
       _kosmos_linux_remove_pause_check
@@ -2188,6 +2188,12 @@ BOARDEOF
         [ -f "$_lb_f" ] || continue
         [ "${_lb_f##*/}" = "$_lb_name" ] && continue
         info "a Kosmos board service is still at $_lb_f. This install's app code or runtime is missing, so it was not removed: it may be this install's or another Kosmos's on this computer. If it is this one's, run: systemctl --user disable --now ${_lb_f##*/} and delete the file."
+      done
+      # kosmos#6667: the same for a pause check with another hash (its timer is harmless once its folder is gone).
+      for _lb_f in "$_lb_dir"/kosmos-pause-check*.timer; do
+        [ -f "$_lb_f" ] || continue
+        [ "${_lb_f##*/}" = "$(_kosmos_linux_pause_check_names | sed -n 1p)" ] && continue
+        info "a Kosmos pause check is still at $_lb_f. It may be this install's or another Kosmos's on this computer. If it is this one's, run: systemctl --user disable --now ${_lb_f##*/} and delete it and the .service beside it."
       done
     fi
   fi

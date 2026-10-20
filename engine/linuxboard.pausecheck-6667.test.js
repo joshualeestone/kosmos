@@ -53,6 +53,9 @@ test('the pause check runs kosmos board-revive once a minute, and is not a keep-
   assert.match(service, new RegExp('^ExecStart=/bin/bash "' + home + '/bin/kosmos" board-revive$', 'm'));
   assert.match(service, new RegExp('^Environment="KOSMOS_HOME=' + home + '"$', 'm'));
   assert.doesNotMatch(service, /^Restart=/m, 'a oneshot check is never restarted');
+  // Skips, not failures: no marker (nothing to clear) and no Kosmos folder (a timer left behind stays quiet).
+  assert.match(service, new RegExp('^ConditionPathExists=' + home + '/board\\.stopped$', 'm'));
+  assert.match(service, new RegExp('^ConditionPathExists=' + home + '/bin/kosmos$', 'm'));
   assert.doesNotMatch(service, /^\[Install\]/m, 'only the timer is enabled');
   assert.match(timer, /^OnCalendar=minutely$/m);
   assert.match(timer, new RegExp('^Unit=' + names.service.replace(/\./g, '\\.') + '$', 'm'));
@@ -105,11 +108,16 @@ test('removeBoard removes the pause check first, then the board', () => {
   try {
     const names = linuxboard.pauseCheckNames(home);
     for (const f of [linuxboard.boardUnitName(home), names.service, names.timer]) fs.writeFileSync(path.join(tmp, f), 'x');
+    // The timer's enable link, dangling as a refused disable leaves it once the file is gone.
+    fs.mkdirSync(path.join(tmp, 'timers.target.wants'));
+    fs.symlinkSync(path.join(tmp, 'gone', names.timer), path.join(tmp, 'timers.target.wants', names.timer));
     const r = linuxboard.removeBoard(home);
     assert.equal(r.ok, true);
     for (const f of [linuxboard.boardUnitName(home), names.service, names.timer]) {
       assert.equal(fs.existsSync(path.join(tmp, f)), false, f + ' was left');
     }
+    assert.equal(fs.lstatSync(path.join(tmp, 'timers.target.wants', names.timer), { throwIfNoEntry: false }), undefined,
+      'the timer\'s enable link was left');
     const timer = calls.indexOf('--user disable --now ' + names.timer);
     const board = calls.indexOf('--user stop ' + linuxboard.boardUnitName(home));
     assert.ok(timer >= 0 && board > timer, 'the pause check goes before the board stops: ' + calls.join(' | '));

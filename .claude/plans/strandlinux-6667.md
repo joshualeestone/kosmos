@@ -79,8 +79,9 @@ the timer running an unknown verb, which exits 2 every minute (a failed oneshot,
   once some run's installBoard has written it, so an update killed BEFORE that step on a box whose units predate this
   release still strands the board (the population #6651/#6667 describe). From the next update on it is covered.
   Recorded here and on the card, so nobody reads the card as covering that first one.
-- NIT: the helper runs even in the uninstall branch that leaves a board unit in place. NOT CHANGED: that board then
-  simply has no revive, as before this check; the comment now says so.
+- NIT: the helper runs even in the uninstall branch that leaves a board unit in place. NOT CHANGED, though my reason
+  here was WRONG (corrected in round 3): the helper removes only this home's hash-named units, so another install's
+  board keeps its own pause check.
 - NIT: a merged over-long comment line in linuxboard.js (my round-1 note claimed it was split; that was the one in
   install/kosmos, not this one). FIXED: rewrapped.
 - NIT: install/setup.sh is not in linux-systemd.yml's paths. NOT CHANGED: the live job never runs setup.sh, so adding it
@@ -89,3 +90,18 @@ the timer running an unknown verb, which exits 2 every minute (a failed oneshot,
 - NIT: the live person's-stop arm uses a bare marker only, not a leftover name beside a later stop. NOT CHANGED: the
   leftover case is the shared #6651 rule, covered by test-board-revive-6667.sh case 4 and #6651's own tests.
 - NIT: timeout margin. NO CHANGE NEEDED: worst case about 160 s of waiting inside a 15 minute job.
+
+## Round 3 (opus): no blocker, 2 warnings, 3 nits, all addressed
+- WARNING: a timer left behind once its Kosmos folder is gone (deleted by hand, a downgrade, or the app-gone branch
+  with another hash) failed every minute forever. FIXED: the check's service carries ConditionPathExists on the
+  kosmos binary and on board.stopped, so both are quiet skips (and no bash starts each minute when nothing is
+  paused). The app-gone uninstall branch now names a leftover kosmos-pause-check timer with another hash, as it
+  names board units. Mutant (no binary condition) reds the engine test.
+- WARNING: no test ran setup.sh's own install and uninstall of the pause check on real systemd. FIXED:
+  test-linux-setup-4920.yml (every PR, ubuntu runner) asserts the timer is enabled and active after a real setup.sh
+  install, and the timer, the service and the timer's enable link are gone after a real --uninstall.
+- NIT: my round-2 comment and reason about the keep-the-board branch were wrong. FIXED: the comment says only this
+  home's units go and another install's, its pause check included, are not touched.
+- NIT: removeBoard left the timer's enable link when a disable was refused. FIXED: it deletes it (lstat, so a
+  dangling link counts), as setup.sh's helper does. Mutant (link not deleted) reds the engine test.
+- NIT: the pauseCheck return value's comment overstated its use. FIXED: it says setup.sh asks systemd instead.

@@ -89,6 +89,10 @@ function pauseCheckUnitsFor(kosmosHome) {
   const names = pauseCheckNames(home);
   const service = `[Unit]
 Description=Kosmos: start the board again after an update that was killed mid-pause (kosmos#6667)
+# A skip, not a failure: with no marker there is nothing to clear (no bash start each minute), and with the Kosmos folder
+# gone (deleted by hand, or left by an older release's uninstall) a timer left behind stays quiet instead of failing.
+ConditionPathExists=${home}/board.stopped
+ConditionPathExists=${kosmosBin}
 
 [Service]
 Type=oneshot
@@ -192,8 +196,9 @@ function installBoard(kosmosHome, port) {
   const unit = boardUnitName(kosmosHome);
   const en = runner('systemctl', ['--user', 'enable', unit]);
   if (!en || !en.ok) return { ok: false, because: 'systemd did not enable the board: ' + ((en && (en.stderr || en.because)) || '').trim() };
-  /* kosmos#6667: the pause check's timer. The board runs without it, so a refusal does not fail the install; it is
-     returned (pauseCheck) for the caller to say, and the board is then as it was before this check existed. */
+  /* kosmos#6667: the pause check's timer. The board runs without it, so a refusal does not fail the install (the board
+     is then as it was before this check existed). It is returned as pauseCheck; setup.sh asks systemd itself instead
+     (is-enabled), because its node step's output is matched exactly. */
   const ten = runner('systemctl', ['--user', 'enable', '--now', check.names.timer]);
   const pauseCheck = ten && ten.ok
     ? { ok: true }
@@ -219,9 +224,10 @@ function removeBoard(kosmosHome) {
   runner('systemctl', ['--user', 'disable', '--now', check.timer]);
   runner('systemctl', ['--user', 'stop', check.service]);
   try {
-    for (const f of [check.timer, check.service]) {
+    // The timer's enable link too, which a refused disable (no user bus) leaves behind, as setup.sh's helper does.
+    for (const f of [check.timer, check.service, path.join('timers.target.wants', check.timer)]) {
       const p = path.join(systemdDir(), f);
-      if (fs.existsSync(p)) fs.unlinkSync(p);
+      if (fs.lstatSync(p, { throwIfNoEntry: false })) fs.unlinkSync(p);   // lstat: a dangling link counts
     }
   } catch (err) {
     return { ok: false, because: 'the board\'s pause check could not be deleted: ' + ((err && err.message) || String(err)) };
