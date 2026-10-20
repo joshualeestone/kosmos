@@ -110,6 +110,8 @@ test('refused: JSON the relay refuses (bad UTF-8, a lone surrogate, a number out
   refused(check(...signedBuf(withExtra(Buffer.from([0x22, 0xff, 0x22])))), /not readable/, 'a byte that is not UTF-8');
   refused(check(...signedBuf(withExtra(Buffer.from('"\\ud800"')))), /lone surrogate/, 'a lone high surrogate');
   refused(check(...signedBuf(withExtra(Buffer.from('"\\udc00x"')))), /lone surrogate/, 'a lone low surrogate');
+  refused(check(...signedBuf(withExtra(Buffer.from('{"\\ud800": 1}')))), /lone surrogate/, 'a lone surrogate in a member name');
+  refused(check(...signedBuf(withExtra(Buffer.from('[{"a": 1, "a": 2}]')))), /names the member "a" twice/, 'a member twice inside an array element');
   refused(check(...signedBuf(withExtra(Buffer.from('1e400')))), /out of range/, 'a number out of range');
   refused(check(...signedBuf(withExtra(Buffer.from('['.repeat(127) + ']'.repeat(127))))), /nested too deeply/, '128 nested, the outer object counted');
   // CONTROLS: a real surrogate pair, a large finite number, and 127 nested (the deepest the relay takes) are fine.
@@ -164,6 +166,16 @@ test('refused: the keys break a rule (none, four, a wrong kid, zero or two curre
   const weak = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from('01' + '00'.repeat(31), 'hex')]).toString('base64');
   const weakKid = sk.kidOf(Buffer.from('01' + '00'.repeat(31), 'hex'));
   refused(check(...signed(doc({ service_keys: [k7, { kid: weakKid, pub: weak, role: 'next' }] }))), /key that is not one/, 'a weak key');
+  // Every small-order point, with the sign bit clear and set, and the two non-canonical spellings of y = 0 and 1.
+  const WEAK_HEX = ['00'.repeat(32), '01' + '00'.repeat(31), '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05',
+    'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a', 'ec' + 'ff'.repeat(30) + '7f', 'ed' + 'ff'.repeat(30) + '7f', 'ee' + 'ff'.repeat(30) + '7f'];
+  for (const h of WEAK_HEX) {
+    for (const signBit of [0, 0x80]) {
+      const raw = Buffer.from(h, 'hex'); raw[31] = (raw[31] & 0x7f) | signBit;
+      const spki = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), raw]).toString('base64');
+      assert.equal(sk.rawKey(spki), null, 'weak ' + raw.toString('hex'));
+    }
+  }
   // Not a point on the curve (y = 2): the relay's key decoding refuses it, and so must this.
   const y2 = Buffer.from('02' + '00'.repeat(31), 'hex');
   const offCurve = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), y2]).toString('base64');
