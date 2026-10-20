@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: nomacmeta-6678
-diff_hash: 945f4245ef56397413c3aa77c4f0b90f8532106bf68f1158d0682110349cdae7
+diff_hash: 6faee3814ef86b69d5800a49e00a51ed78daa7e2d0c4386acf5c827f311341df
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-20T18:25:12Z
@@ -16,6 +16,8 @@ converged: true
 **Converged:** Yes
 **Total findings:** 37 (0 BLOCKERs, 12 WARNINGs, 0 CONVENTIONs, 25 NITs)
 **Fixed:** 10 WARNINGs + 15 NITs | **Deferred:** 2 WARNINGs as duplicates of stated decisions, 10 NITs | **Asked (awaiting user):** 0
+
+Re-hashed 2026-10-20 15:30 CDT after merging origin/main (one conflict, package.json test:shell: resolved to main's line plus this branch's two entries; the reviewed code is unchanged). The validation below ran at the pre-merge hash 945f4245ef56; the PR CI validates the merged tree before it merges.
 
 Final validation: Mortals (mortals-validate), entry "status":"clean", hash 945f4245ef56 (equals this diff), 22524 tests,
 22206 pass, 0 fail (2026-10-20 13:25 CDT). Each fix was shown red against the version before it (mutants and controls).
