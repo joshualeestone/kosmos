@@ -42,9 +42,10 @@ test('#6609: a list the recovery key signed is taken, its keys are the trusted o
   assert.equal(r.ok, true, r.why);
   assert.deepEqual(r.keys, [spki(rel1)]);
   assert.equal(mv.storedKeyList(h).seq, 3);
-  // POSIX modes only: Windows has no mode bits (Node reports 0666 and 0777 there). No Windows path writes the record yet
-  // (engine/win32update.js checks its manifest with the built-in KEYS, not trustedKeys); when it does, this becomes a
-  // Windows access-list check and the file joins the Windows CI job (.claude/plans/rkwin-6609.md).
+  // POSIX modes only: Windows has no mode bits (Node reports 0666 and 0777 there). This file runs on Windows too
+  // (tools/windows-tests.js), for the record's file operations. The record has no Windows caller yet: win32update.js checks
+  // its manifest with the built-in KEYS (#6607). When #6609 wires it to the list, the record is written on Windows and
+  // its privacy there needs a real access-list check in place of this skip (.claude/plans/rkwin-6609.md).
   if (process.platform !== 'win32') {
     assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE, 'seq-3.json')).mode & 0o777), 0o600);
     assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE)).mode & 0o777), 0o700);
