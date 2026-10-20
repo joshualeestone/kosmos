@@ -5706,7 +5706,9 @@ cmd_task() {
             # double quote (taskMessageSummary strips them; the refusal and fixed sentences hold none), so this sed cannot stop
             # early inside it; and it is the answer's last key, which is what the greedy match relies on.
             local told; told=$(printf '%s' "$body" | sed -n 's/.*"summary":"\([^"]*\)".*/\1/p')
-            say "Marked task $num on ${project:-the project} built, waiting to be released or checked. Closing it clears the mark.${told:+ $told}"; fi ;;
+            say "Marked task $num on ${project:-the project} built, waiting to be released or checked. Closing it clears the mark.${told:+ $told}"
+            # #6761: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
+            [ -z "$fingerprint" ] || say "Fingerprint sent: $fingerprint for $file"; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not mark that task: ${because:-it did not say why}."; exit 1 ;;
