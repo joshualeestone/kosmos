@@ -17983,6 +17983,15 @@ window.kosmosMeasureScrollbarWidth();
         <label class="pj-mode-opt"><input type="radio" name="fedinv-kind" id="fedinv-kind-agent" value="agent"> Their agent</label>
       </div>
     </div>
+    <!-- kosmos#6681 (S-11-fed): optional. With it, only the Kosmos+ account with this address can use the code. 254 is
+         the board's INVITE_EMAIL_MAX (engine/federation.js, in bytes); the coordinator checks it is an address. -->
+    <div class="field">
+      <label class="flabel" for="fedinv-email">Their email address (optional)</label>
+      <p class="fhint" id="fedinv-email-hint">Then only the Kosmos+ account with this address can use the code.</p>
+      <!-- type=email gives the phone's @ keyboard; autocapitalize off. autocomplete stays off on purpose (design review,
+           Mona Lisa): "email" would fill in the person's OWN address, which is the one thing this field must not hold. -->
+      <input class="tk-inp" id="fedinv-email" type="email" maxlength="254" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="fedinv-email-hint fedinv-msg">
+    </div>
     <div class="fedinv-can" id="fedinv-can"><b>They can</b> read and post in this project's conversation, and add their own agents to it.<br><b>They cannot</b> see your files or tasks, or tell your computer or your agents to do anything. Your agents read what they write and decide for themselves.</div>
     <p class="fmsg" id="fedinv-msg" aria-live="polite"></p>
     <div class="rm-acts">
@@ -78137,6 +78146,8 @@ function fedInviteOpen(opener, prefill) {
   const label = document.getElementById('fedinv-label');
   label.value = '';
   pjFieldOk('fedinv-label', 'fedinv-msg');
+  document.getElementById('fedinv-email').value = '';   // kosmos#6681
+  pjFieldOk('fedinv-email', 'fedinv-msg');
   document.getElementById('fedinv-kind-person').checked = true;
   document.getElementById('fedinv-make').disabled = false;
   document.getElementById('fedinv-code').value = '';
@@ -78200,6 +78211,15 @@ async function fedInviteMake() {
   if (!label) { pjFieldBad('fedinv-label', 'fedinv-msg', 'Write who it is for, so you can tell your invitations apart.'); return; }
   pjFieldOk('fedinv-label', 'fedinv-msg');
   const kind = document.getElementById('fedinv-kind-agent').checked ? 'agent' : 'person';
+  const emailEl = document.getElementById('fedinv-email');
+  const email = emailEl.value.trim();   // kosmos#6681: optional; empty sends none
+  /* Review 1: an address the browser already sees is not one is answered here, without a round trip; the coordinator
+     stays the judge of everything else (its refusal lands on this field below). */
+  if (email && emailEl.validity && emailEl.validity.typeMismatch) {
+    pjFieldBad('fedinv-email', 'fedinv-msg', pjFedMessage({ reason: 'bad-email' }, 'That email address does not look right.'));
+    return;
+  }
+  pjFieldOk('fedinv-email', 'fedinv-msg');
   const seq = ++FEDINV_SEQ;
   const askedFor = FEDINV_PROJECT;
   make.disabled = true;
@@ -78217,7 +78237,7 @@ async function fedInviteMake() {
     try {
       res = await fetch('/api/federation/invite', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ project: FEDINV_PROJECT, invited_kind: kind, label }), signal: ctl ? ctl.signal : undefined,
+        body: JSON.stringify({ project: FEDINV_PROJECT, invited_kind: kind, label, ...(email ? { email } : {}) }), signal: ctl ? ctl.signal : undefined,
       });
       body = await res.json().catch(() => null);
     } finally { if (timer) clearTimeout(timer); }
@@ -78231,6 +78251,11 @@ async function fedInviteMake() {
     }
     if (!res.ok || !body || typeof body.code !== 'string' || !body.code) {
       // A 403 means the request did not read as from this screen: nothing the person can act on.
+      // kosmos#6681 review 1: a refused address marks the address field (and puts focus there), not "Who is it for?".
+      if (res.status !== 403 && body && body.reason === 'bad-email') {
+        pjFieldBad('fedinv-email', 'fedinv-msg', pjFedMessage(body, fallback));
+        return;
+      }
       msg.textContent = res.status === 403 ? fallback
         : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback);
       document.getElementById('fedinv-label').focus();   // back in the field (pjFieldBad's way), not on <body>

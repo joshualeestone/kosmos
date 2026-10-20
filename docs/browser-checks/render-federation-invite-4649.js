@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText pj-mode-join pj-join-verify copyTextViaExec fedCopyText fedInviteCopyReset fedInviteCopy copyKeysWord copyKeysGlyph fedFirstName FEDINV_CLIP_HOLDS FEDINV_COPY_TOKEN FEDINV_COPY_TEXT FEDINV_COPY_BUSY FEDINV_BUSY_LINE fedInviteCopySaid PLUS_NAME_RULE fedInviteLongDate fedInviteSay FEDINV_SAY pj-invite-copy pj-invite-code pj-invite-status pjCopyInvite pjs-own-copy pjs-own-code pjs-own-msg pjsOwnCopy fedinv-whole selectForCopy selectAllKeysWord copyTextOrdered PJ_COPY_BUSY PJS_OWN_COPY_BUSY COPY_LATE_OLDER copyFocusStillOn
+// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-email fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText pj-mode-join pj-join-verify copyTextViaExec fedCopyText fedInviteCopyReset fedInviteCopy copyKeysWord copyKeysGlyph fedFirstName FEDINV_CLIP_HOLDS FEDINV_COPY_TOKEN FEDINV_COPY_TEXT FEDINV_COPY_BUSY FEDINV_BUSY_LINE fedInviteCopySaid PLUS_NAME_RULE fedInviteLongDate fedInviteSay FEDINV_SAY pj-invite-copy pj-invite-code pj-invite-status pjCopyInvite pjs-own-copy pjs-own-code pjs-own-msg pjsOwnCopy fedinv-whole selectForCopy selectAllKeysWord copyTextOrdered PJ_COPY_BUSY PJS_OWN_COPY_BUSY COPY_LATE_OLDER copyFocusStillOn
 'use strict';
 /**
  * kosmos#4649 slice A: inviting someone outside from the Members "+" (Mona's shots 01, 02, 03).
@@ -439,9 +439,46 @@ const closeAll = (page) => page.evaluate(() => {
     err = await page.evaluate(() => ({ msg: document.getElementById('fedinv-msg').textContent, label: document.getElementById('fedinv-label').value }));
     check('A5 a 502 shows the board\'s sentence as given', err.msg === 'The connection service said no just now.' && err.label === 'Dana Ruiz', JSON.stringify(err));
 
+    // kosmos#6681 (S-11-fed): the optional address. Empty on open, an email field marked optional, and an empty one
+    // sends no `email` at all (the two requests above were made with it empty).
+    const em = await page.evaluate(() => {
+      const i = document.getElementById('fedinv-email');
+      const l = i && document.querySelector('label[for="fedinv-email"]');
+      return { here: !!i, type: i && i.type, value: i && i.value, label: l && l.textContent, max: i && i.getAttribute('maxlength'),
+        cap: i && i.getAttribute('autocapitalize'), fill: i && i.getAttribute('autocomplete'),
+        sent: window.__posts.map((p) => p.body && typeof p.body === 'object' && 'email' in p.body) };
+    });
+    check('6681 the invite sheet has an optional email field, empty, and an empty one sends no email',
+      em.here && em.type === 'email' && em.value === '' && /\(optional\)/.test(em.label || '') && em.max === '254'
+      && em.cap === 'off' && em.fill === 'off'   // design review: no capital first letter; never the person's own address
+      && em.sent.length >= 1 && em.sent.every((x) => x === false), JSON.stringify(em));
+
+    // kosmos#6681 review 1: an address the board refuses (bad-email) marks the ADDRESS field, focused and invalid, with
+    // the page's sentence; and one the browser already sees is not an address is answered without a request at all.
+    await page.evaluate(() => { window.__posts.length = 0; window.__invite = { status: 400, body: { reason: 'bad-email', error: 'w' } }; });
+    await page.fill('#fedinv-email', 'dana@example');
+    await page.click('#fedinv-make');
+    await page.waitForFunction(() => document.getElementById('fedinv-email').getAttribute('aria-invalid') === 'true', { timeout: 4000 }).catch(waitNote());
+    const bad = await page.evaluate(() => ({ focus: document.activeElement && document.activeElement.id,
+      invalid: document.getElementById('fedinv-email').getAttribute('aria-invalid'), msg: document.getElementById('fedinv-msg').textContent,
+      labelBad: document.getElementById('fedinv-label').classList.contains('bad'), posts: window.__posts.length,
+      make: document.getElementById('fedinv-make').disabled, cancel: document.getElementById('fedinv-cancel').disabled }));
+    check('6681 a refused address marks the address field, focused, with the page\'s sentence',
+      bad.posts === 1 && bad.focus === 'fedinv-email' && bad.invalid === 'true' && bad.labelBad === false
+      && bad.make === false && bad.cancel === false   // review 2: and the person can try again or leave
+      && /email address does not look right/.test(bad.msg), JSON.stringify(bad));
+    // Review 3: the field's invalid state cleared first, so the arm's own "invalid" reading can fail.
+    await page.evaluate(() => { window.__posts.length = 0; pjFieldOk('fedinv-email', 'fedinv-msg'); });   // eslint-disable-line no-undef
+    await page.fill('#fedinv-email', 'dana');
+    await page.click('#fedinv-make');
+    const typo = await page.evaluate(() => ({ posts: window.__posts.length, invalid: document.getElementById('fedinv-email').getAttribute('aria-invalid') }));
+    check('6681 an address the browser sees is not one is answered at once, with no request', typo.posts === 0 && typo.invalid === 'true', JSON.stringify(typo));
+    await page.fill('#fedinv-email', '');
+
     // A4: the request. "Their agent", then Make.
     await page.evaluate((c) => { window.__posts.length = 0; window.__invite = { status: 200, body: { code: c.code, expires_at: c.expires, invite_id: 'inv-1' } }; }, { code: CODE, expires: EXPIRES });
     await page.click('label:has(#fedinv-kind-agent)');
+    await page.fill('#fedinv-email', '  dana@example.com ');   // kosmos#6681: sent trimmed
     await page.click('#fedinv-make');
     await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(() => {});
     const sent = await page.evaluate(() => window.__posts.slice());
@@ -449,6 +486,7 @@ const closeAll = (page) => page.evaluate(() => {
     check('A4 Make POSTs /api/federation/invite once with project (the id), label and invited_kind, and no project_ref',
       sent.length === 1 && sent[0].method === 'POST' && !!b && b.project === 'k' && b.label === 'Dana Ruiz'
       && b.invited_kind === 'agent' && !('project_ref' in b), JSON.stringify(sent));
+    check('6681 a typed address is sent, trimmed, as email', !!b && b.email === 'dana@example.com', JSON.stringify(sent));
 
     // A5: the code screen.
     const done = await page.evaluate(() => ({
@@ -1096,6 +1134,12 @@ const closeAll = (page) => page.evaluate(() => {
     }));
     check('B7 "Make a new code" opens the invite sheet with the label and kind filled in, focus on Make',
       sheet.open && sheet.asking && sheet.label === 'Old Friend' && sheet.agent && sheet.focus === 'fedinv-make', JSON.stringify(sheet));
+    // kosmos#6681 review 1: an address typed and then left (Cancel) must not ride along into the next invite. The way a
+    // person does it: type, Cancel, open again.
+    await page.fill('#fedinv-email', 'stale@example.com');
+    await page.click('#fedinv-cancel');
+    await act(page, 'i:inv-old');
+    sheet.email = await page.evaluate(() => document.getElementById('fedinv-email').value);
     const before = await gets(page);
     await page.evaluate(() => { window.__posts.length = 0; });
     await setMembers(page, answer([row({ invite_id: 'inv-new', label: 'Old Friend', kind: 'agent', made_at: D(OCT, 4), expires_at: D(OCT, 11) })].concat(ALL)));
@@ -1108,6 +1152,8 @@ const closeAll = (page) => page.evaluate(() => {
     const f = await readFed(page, '#pj-fed-outside');
     check('B7 the new code is made for the same label and kind', posts.length === 1 && posts[0].body.label === 'Old Friend'
       && posts[0].body.invited_kind === 'agent' && posts[0].body.project === 'k', JSON.stringify(posts));
+    check('6681 reopened, the sheet forgets an earlier address: the field is empty and no email is sent',
+      sheet.email === '' && posts.length === 1 && !('email' in posts[0].body), JSON.stringify({ email: sheet.email, posts }));
     check('B7 the list is asked again, and the expired row goes once a pending one has its label',
       (await gets(page)) > before && f.rows.some((r) => r.key === 'i:inv-new' && r.sub === 'Invited · until Oct 11') && !f.rows.some((r) => r.key === 'i:inv-old'),
       JSON.stringify(f.rows.map((r) => r.key + ' ' + r.sub)));
