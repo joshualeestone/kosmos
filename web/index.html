@@ -7132,6 +7132,17 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dmchoices-msg { font-size: .8125rem; color: var(--k-ink-2); }
 /* #6172: a lasting choice pressed once, waiting for the second press that sends it. */
 .dmchoice.armed { border-color: var(--k-ink); box-shadow: inset 0 0 0 1px var(--k-ink); }
+/* #6727: a permission prompt as a short card: the ask, Allow (filled) and Deny, the raw request under Show details. */
+.dmperm-ask { margin: 2px 0 0; font-weight: 600; }
+.dmperm-says { margin: 2px 0 0; color: var(--k-ink-2); }
+.dmchoice.dmperm-allow { background: var(--k-ink); color: var(--k-surface); border-color: var(--k-ink); }
+.dmchoice.dmperm-allow:hover { opacity: .9; }
+.dmperm-more { margin: 6px 0 0; }
+.dmperm-more > summary { cursor: pointer; font-size: .8125rem; color: var(--k-ink-2); }
+.dmperm-reason { margin: 6px 0 0; font-size: .8125rem; color: var(--k-ink-2); }
+.dmperm-detail { margin: 6px 0 0; padding: 8px 10px; background: var(--k-sunk); border-radius: 8px; font-family: var(--k-mono);
+  font-size: .8125rem; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14em; overflow: auto; }
+@media (max-width: 600px) { .dmperm-main .dmchoice { min-height: 44px; } }
 /* #5943: under a reported question, its age and the person's own "Answered, clear this" (the .dmchoice tokens, AA). */
 .dmq-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 2px; }
 .dmq-age { font-size: .8125rem; color: var(--k-ink-2); }
@@ -21094,8 +21105,9 @@ const STATE_COPY = {
   /* #6091: a Claude agent stopped on its permission prompt (the card's awaitingApproval, status.awaitingApprovalOf)
      reads "Waiting for you", not "Issue": it is waiting on the person's Yes/No (#6054 buttons on its page),
      not broken. Still an attention state with the needs-you look: it blocks the agent, and #2808 keeps a technical
-     prompt red on purpose, as the fallback when nothing answers it. Only the word changes. */
-  approval:     { label: 'Waiting for you', attn: true },
+     prompt red on purpose, as the fallback when nothing answers it. Only the word changes.
+     #6727 (Josh, 10-20): the word says what it waits for, "Needs permission". */
+  approval:     { label: 'Needs permission', attn: true },
   /* #6398 (Josh 2026-10-17 11:09): "Lets reduce all that to a \"Rate Limit\" and put it where the \"Paused\" status is." */
   rate_limited: { label: 'Rate Limit',    attn: true  },
   /* #874: Anthropic has rejected this account's bearer token outright, not
@@ -40360,9 +40372,11 @@ function dmRow(m, name, replyAdjacent) {
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(shownFrom) + '</b>'
       + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256 (guarded: the lifted dmRow tests run without it)
-      + pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
-      + pjPreviewCard(m.preview) + pjAttachmentCards(m)
-      + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m) : '')   // #5406 (guarded: the lifted dmRow tests run without it)
+      + ((m.kind === 'question' && m.permission && typeof dmPermissionHtml === 'function')
+        ? dmPermissionHtml(m, shownFrom)   // #6727: a permission prompt is a short card, never its screen
+        : pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
+          + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+          + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m) : ''))   // #5406 (guarded: the lifted dmRow tests run without it)
       + (typeof dmQuestionFootHtml === 'function' ? dmQuestionFootHtml(m) : '')   // #5943 (guarded: the lifted dmRow tests run without it)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
@@ -40668,8 +40682,16 @@ function dmChoicesFrom(body, sessionName) {
     : null;
   if (!DM_CHOICES) DM_CHOICE_ANSWERED.delete(sessionName);   // this agent's menu is gone, and so is what the lock was about
 }
-function dmChoicesHtml(m) {
+/* #6727: `part` draws a permission card's buttons: 'main' is Allow and Deny (the prompt's own "Yes" and "No", by
+   number, so the press is the same one key as any choice), 'more' is every other option, inside Show details. Without
+   a part, every option, as before. */
+function dmChoicesHtml(m, part) {
   if (!DM_CHOICES || !m || m.kind !== 'question' || m.reported || typeof CURRENT === 'undefined' || !CURRENT || CURRENT.sessionName !== DM_CHOICES.session) return '';
+  const perm = part && m.permission ? m.permission : null;
+  const shown = perm ? DM_CHOICES.options.filter((o) => ((o.n === perm.allow || o.n === perm.deny) ? part === 'main' : part === 'more'))
+    .sort((a, b) => (part === 'main' ? (a.n === perm.allow ? -1 : 1) : a.n - b.n)) : DM_CHOICES.options;
+  if (!shown.length) return '';
+  const labelOf = (o) => (perm && part === 'main' ? (o.n === perm.allow ? 'Allow' : 'Deny') : o.label);
   /* Any press in the air for this agent draws its buttons off (a press on another question of the same agent would be
      ignored by dmChoicePress, so it must not look pressable). */
   const flying = DM_CHOICE_INFLIGHT.has(DM_CHOICES.session)
@@ -40681,11 +40703,37 @@ function dmChoicesHtml(m) {
   const pressing = DM_CHOICE_INFLIGHT.has(DM_CHOICES.session);   // a typed send in the air draws them off but says nothing here
   const armedN = DM_CHOICES.options.map((o) => o.n).find((n) => dmChoiceArmed(DM_CHOICES, n));
   const note = pressing ? 'Sending…' : (locked && done.sure) ? 'Sent.' : armedN !== undefined ? DM_CHOICE_ARM_NOTE : '';
-  const noteId = 'dmchoices-msg-' + DM_CHOICES.gen;
-  return '<div class="dmchoices" role="group" aria-label="Choices">'
-    + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice' + (o.n === armedN ? ' armed" aria-describedby="' + noteId : '') + '" data-n="' + esc(String(o.n)) + '" data-gen="' + esc(String(DM_CHOICES.gen)) + '"' + (off ? ' disabled' : '') + '>'
-      + '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
-    + '<span class="dmchoices-msg" id="' + noteId + '" role="status" aria-live="polite">' + esc(note) + '</span></div>';
+  const noteId = 'dmchoices-msg-' + DM_CHOICES.gen + (part === 'more' ? '-more' : '');
+  return '<div class="dmchoices' + (perm ? ' dmperm-' + part : '') + '" role="group" aria-label="' + (perm && part === 'main' ? 'Allow or deny' : 'Choices') + '">'
+    + shown.map((o) => '<button type="button" class="dmchoice' + (perm && part === 'main' ? (o.n === perm.allow ? ' dmperm-allow' : ' dmperm-deny') : '') + (o.n === armedN ? ' armed" aria-describedby="' + noteId : '') + '" data-n="' + esc(String(o.n)) + '" data-gen="' + esc(String(DM_CHOICES.gen)) + '"' + (off ? ' disabled' : '') + '>'
+      + (perm && part === 'main' ? '' : '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ') + esc(labelOf(o)) + '</button>').join('')
+    + '<span class="dmchoices-msg" id="' + noteId + '" role="status" aria-live="polite">' + esc(part === 'more' ? '' : note) + '</span></div>';
+}
+/* #6727 (Josh, 10-20: "yikes.. what is this"): an agent stopped on its permission prompt reads as one short card, built
+   from the server's reading of the box (chat.permissionCard): what it wants to do in plain words, Allow and Deny, and
+   the raw request only under Show details, closed. No rule, option number, key hint or "Tab to amend" is drawn. */
+const DM_PERM_DOES = {
+  delete: 'run a command that deletes files',
+  command: 'run a command',
+  create: 'create a file',
+  edit: 'change a file',
+  fetch: 'fetch something from the web',
+  other: 'do something that needs your permission',
+};
+function dmPermissionHtml(m, who) {
+  const p = m.permission || {};
+  const does = DM_PERM_DOES[p.kind] || DM_PERM_DOES.other;
+  const str = (v) => (typeof v === 'string' ? v : '');
+  const more = typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m, 'more') : '';
+  return '<div class="dmperm">'
+    + '<p class="dmperm-ask">' + esc(who + ' wants to ' + does + (str(p.target) ? ': ' + str(p.target) : '') + '.') + '</p>'
+    + (str(p.says) ? '<p class="dmperm-says">' + esc(str(p.says)) + '</p>' : '')
+    + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m, 'main') : '')
+    + '<details class="dmperm-more"><summary>Show details</summary>'
+    + (str(p.reason) ? '<p class="dmperm-reason">' + esc(str(p.reason)) + '</p>' : '')
+    + (str(p.detail) ? '<pre class="dmperm-detail">' + esc(str(p.detail)) + '</pre>' : '')
+    + more
+    + '</details></div>';
 }
 const DM_CHOICE_UNSURE = 'We could not confirm that it went (pressing again may answer twice).';
 async function dmChoicePress(btn) {

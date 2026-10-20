@@ -17889,6 +17889,13 @@ const server = http.createServer(async (req, res) => {
       } catch { askedAt = null; }
       if (!permissionWait) questionRow = { ...question, clearable: true, ...(askedAt ? { at: askedAt } : {}) };
     }
+    /* kosmos#6727: a permission prompt read off the screen is drawn as a short card (what the agent wants to do, Allow,
+       Deny, the raw request under Show details), not as its screen. Only for the live pane question, and only when its
+       whole box is on screen (chat.permissionCard is null otherwise, and the old text stays). */
+    if (question && question === paneQuestion && view && typeof view.text === 'string') {
+      const pc = chat.permissionCard(view.text);
+      if (pc) questionRow = { ...questionRow, permission: pc };
+    }
     const servedMessages = Array.isArray(messages)
       ? chat.withAccountRow(chat.withQuestionRow(messages, (card && card.sessionName) || name, questionRow),
         (card && card.sessionName) || name, accountProblemOf(card))
