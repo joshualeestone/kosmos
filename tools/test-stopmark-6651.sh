@@ -31,7 +31,7 @@ WD_FN="$(fn bin/board-watchdog.sh stop_marker_stranded)"; WD_TOK="$(fn bin/board
 
 # --- 1. the stranded test, on real processes ---------------------------------------------------------------
 eval "$CLI_TOK"; eval "$CLI_FN"
-STOP_MARKER="$TMP/board.stopped"
+KOSMOS_HOME="$TMP"; STOP_MARKER="$TMP/board.stopped"
 sleep 300 & LIVE=$!; disown "$LIVE" 2>/dev/null || true
 live_start="$(start_token "$LIVE")"
 [ -n "$live_start" ] || bad "fixture: no start token for a live process"
@@ -52,6 +52,19 @@ for body in 'stopped by me' 'install' 'install abc Mon' "install $DEAD"; do
 done
 rm -f "$STOP_MARKER"
 [ "$(verdict)" = stands ] && ok "no marker: nothing stranded" || bad "no marker read as stranded"
+
+# A computer whose mode keeps the board off is never started by a stranded-pause clear (the person may have chosen
+# connect during the very run that was killed). Same rule as setup.sh: no mode file runs; else only run or both.
+printf 'install %s %s\n' "$DEAD" "Mon Oct 19 12:00:00 2026" > "$STOP_MARKER"
+for m in connect "" garbage; do
+  printf '%s\n' "$m" > "$KOSMOS_HOME/mode"
+  [ "$(verdict)" = stands ] && ok "mode '$m' keeps a stranded pause in place" || bad "mode '$m': a stranded pause would start the board"
+done
+for m in run both; do
+  printf '%s\n' "$m" > "$KOSMOS_HOME/mode"
+  [ "$(verdict)" = stranded ] && ok "mode '$m': a stranded pause is cleared" || bad "mode '$m' kept a stranded pause"
+done
+rm -f "$KOSMOS_HOME/mode"
 
 # The token must not depend on the zone of whoever asks (the watchdog runs under launchd, an install from a shell).
 tok_tokyo="$(TZ=Asia/Tokyo start_token "$LIVE")"; tok_chicago="$(TZ=America/Chicago start_token "$LIVE")"
@@ -115,6 +128,10 @@ aside="$(ls "$H"/board.stopped.stranded.* 2>/dev/null | head -1)"
 H="$(new_home)"; : > "$H/board.stopped"
 run_wd "$H"
 { [ -e "$H/board.stopped" ] && [ "$(starts "$H")" = 0 ]; } && ok "watchdog CONTROL: a person's stop still keeps it off" || bad "watchdog overrode a person's stop"
+
+H="$(new_home)"; printf 'install %s %s\n' "$DEAD" "Mon Oct 19 12:00:00 2026" > "$H/board.stopped"; printf 'connect\n' > "$H/mode"
+run_wd "$H"
+{ [ -e "$H/board.stopped" ] && [ "$(starts "$H")" = 0 ]; } && ok "watchdog: a connect computer's stranded pause is left alone" || bad "watchdog started a connect computer's board"
 
 H="$(new_home)"; printf 'install %s %s\n' "$LIVE" "$live_start" > "$H/board.stopped"
 run_wd "$H"
