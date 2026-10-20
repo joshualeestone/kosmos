@@ -30,7 +30,8 @@ test.after(() => { if (tmpRoot) fs.rmSync(tmpRoot, { recursive: true, force: tru
 const KEPT = '/Users/launchguard-6650-nobody/kosmos-walk/home';
 const ACCOUNT_HOME = '/Users/launchguard-6650-nobody';
 
-// Runs the REAL guard under set -eu (as setup.sh runs) with the given inputs.
+// Runs the REAL guard with the given inputs, under set -u as setup.sh runs (set -e is off inside it there too: it
+// is called as `_kosmos_temp_launch_refusal || exit 2`).
 function guard({ home = ACCOUNT_HOME, kosmosHome, env = {} }) {
   const script = [
     'set -eu',
@@ -49,7 +50,7 @@ function guard({ home = ACCOUNT_HOME, kosmosHome, env = {} }) {
 const isMac = process.platform === 'darwin';
 
 test('#6650: a temp-folder home is refused, naming the folder and the way through', { skip: !isMac }, () => {
-  const r = guard({ kosmosHome: path.join(tmpRoot, 'tmp.abc', 'home') });
+  const r = guard({ kosmosHome: '/private/tmp/launchguard-6650-a/home' });
   assert.equal(r.rc, '1', r.err);
   assert.match(r.err, /is a temporary one/);
   assert.match(r.err, /Nothing was changed/);
@@ -73,9 +74,10 @@ test('#6650: other spellings of a temp folder are refused: capitals, /System/Vol
   assert.equal(guard({ kosmosHome: '/Private/Var/Folders/zz/x/T/tmp.a/home' }).rc, '1');
   assert.equal(guard({ kosmosHome: '/System/Volumes/Data/private/var/folders/zz/x/T/tmp.b/home' }).rc, '1');
   // A link in a kept folder (/Users/Shared) that points into a temp one: refused through what it resolves to.
-  const kept = fs.mkdtempSync('/Users/Shared/launchguard-6650-');
+  let kept;
+  try { kept = fs.mkdtempSync('/Users/Shared/launchguard-6650-'); } catch { return; }   // no writable kept folder here
   try {
-    fs.symlinkSync(tmpRoot, path.join(kept, 'scratch'));
+    fs.symlinkSync('/private/tmp', path.join(kept, 'scratch'));
     const r = guard({ kosmosHome: path.join(kept, 'scratch', 'tmp.c', 'home'), env: { TMPDIR: '/nonexistent-6650' } });
     assert.equal(r.rc, '1', r.err);
   } finally { fs.rmSync(kept, { recursive: true, force: true }); }
@@ -84,8 +86,14 @@ test('#6650: other spellings of a temp folder are refused: capitals, /System/Vol
 test('#6650: AGENT_WORKFORCE_LAUNCH set to the real LaunchAgents is no way through (it loads at next login)', { skip: !isMac }, () => {
   const home = path.join(tmpRoot, 'acct');
   fs.mkdirSync(path.join(home, 'Library', 'LaunchAgents'), { recursive: true });
-  const r = guard({ home, kosmosHome: path.join(tmpRoot, 'tmp.d', 'home'), env: { AGENT_WORKFORCE_LAUNCH: path.join(home, 'Library', 'LaunchAgents') } });
+  const kosmosHome = '/private/tmp/launchguard-6650-d/home';
+  const r = guard({ home, kosmosHome, env: { AGENT_WORKFORCE_LAUNCH: path.join(home, 'Library', 'LaunchAgents') } });
   assert.equal(r.rc, '1', r.err);
+  // A new account, where the folder does not exist yet: refused by its spelling (with or without a trailing slash).
+  const fresh = path.join(tmpRoot, 'fresh-acct');
+  for (const launch of [path.join(fresh, 'Library', 'LaunchAgents'), path.join(fresh, 'Library', 'LaunchAgents') + '/']) {
+    assert.equal(guard({ home: fresh, kosmosHome, env: { AGENT_WORKFORCE_LAUNCH: launch } }).rc, '1', launch);
+  }
 });
 
 test('#6650: a TMPDIR as broad as HOME (or above it) names no temp folder, so a kept home under it goes through', { skip: !isMac }, () => {
@@ -112,7 +120,7 @@ test('#6650: a release walk (kept home, its own port) goes through, saying nothi
 });
 
 test('#6650: a caller with its own launch folder, or the explicit opt-in, goes through', { skip: !isMac }, () => {
-  const kosmosHome = path.join(tmpRoot, 'tmp.def', 'home');
+  const kosmosHome = '/private/tmp/launchguard-6650-b/home';
   assert.equal(guard({ kosmosHome, env: { AGENT_WORKFORCE_LAUNCH: path.join(tmpRoot, 'launch') } }).rc, '0');
   assert.equal(guard({ kosmosHome, env: { KOSMOS_ALLOW_TEMP_LAUNCH: '1' } }).rc, '0');
   // Only exactly 1 is the opt-in.
@@ -121,7 +129,7 @@ test('#6650: a caller with its own launch folder, or the explicit opt-in, goes t
 
 test('#6650: a fake HOME is still refused (it scopes the plist file, not launchd, which registers the job here)', { skip: !isMac }, () => {
   const fake = path.join(tmpRoot, 'fakehome');
-  const r = guard({ home: fake, kosmosHome: path.join(tmpRoot, 'tmp.ghi', 'home') });
+  const r = guard({ home: fake, kosmosHome: '/private/tmp/launchguard-6650-g/home' });
   assert.equal(r.rc, '1', r.err);
 });
 
