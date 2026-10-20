@@ -19,7 +19,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const MAX_KEPT = 20;   // per agent: the oldest goes first, so a pane that keeps filling cannot grow the file
+/* Per agent. Full means refused, never the oldest dropped: every kept draft is words the person has not yet seen or
+   dismissed, so the box is left as it is instead (chat.recoverStuckInput says so in the board log). */
+const MAX_KEPT = 20;
 const MAX_TEXT = 64 * 1024;   // the box is read from at most 200 rows, well under this
 
 function dir() { return path.join(store.ROOT, 'unsent-drafts'); }
@@ -60,7 +62,9 @@ function writeDrafts(name, drafts) {
 /**
  * Keep `text` as a draft for `name`. `opts.since` (ISO) is when it was first seen sitting in the box. Answers
  * { ok: true, id } only once the file holding it is written, which is what lets the caller clear the box; anything
- * else is { ok: false, because }, and the box must then be left as it is.
+ * else is { ok: false, because } (`full: true` when MAX_KEPT are already kept), and the box must then be left as it
+ * is. The same text already kept for this agent answers its id and adds nothing, so a box that would not clear is
+ * never saved twice.
  */
 function add(name, text, opts = {}) {
   const t = typeof text === 'string' ? text : '';
@@ -68,9 +72,12 @@ function add(name, text, opts = {}) {
   if (t.length > MAX_TEXT) return { ok: false, because: 'it is too long to keep' };
   const cur = readDrafts(name);
   if (!cur.ok) return { ok: false, because: 'the drafts kept for this agent cannot be read right now' };
+  const same = cur.drafts.find((d) => d.text === t);
+  if (same) return { ok: true, id: same.id, already: true };
+  if (cur.drafts.length >= MAX_KEPT) return { ok: false, full: true, because: MAX_KEPT + ' drafts are already kept for this agent' };
   const since = typeof opts.since === 'string' && Number.isFinite(Date.parse(opts.since)) ? opts.since : null;
   const draft = { id: crypto.randomBytes(6).toString('hex'), at: new Date().toISOString(), text: t, ...(since ? { since } : {}) };
-  const drafts = cur.drafts.concat([draft]).slice(-MAX_KEPT);
+  const drafts = cur.drafts.concat([draft]);
   if (!writeDrafts(name, drafts)) return { ok: false, because: 'the draft could not be written' };
   return { ok: true, id: draft.id };
 }

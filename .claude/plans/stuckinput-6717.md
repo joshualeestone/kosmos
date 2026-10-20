@@ -30,7 +30,9 @@ Calls posted on the card before building: issuecomment-6292327812.
    thread reader takes a row with a string `from` as the agent's and a null one as the person's, so a stored Kosmos row
    would mark the conversation unread or make the agent owe a reply.
 4. Save before clear: the box is cleared only after the draft file is written. The clearing stops as soon as the box
-   shows anything that is not left of the saved text (someone typing meanwhile).
+   shows anything that is not left of the saved text (someone typing meanwhile), and the box counts as empty only when
+   two reads a look apart agree. The same text is never kept twice, and a full record refuses rather than drops.
+   Operator brake: AGENT_WORKFORCE_STUCK_INPUT_OFF=1.
 5. Clearing keys: rounds of C-e, C-u, C-k, a read after each, bounded. Measured on Claude Code 2.1.303 (private tmux
    socket): empties one line, a wrapped line, multi-line text, a mid-line cursor; nothing on an empty box. Rejected
    C-c (arms "press Ctrl-C again to exit") and Escape twice (rewind menu on an empty box).
@@ -44,6 +46,16 @@ Calls posted on the card before building: issuecomment-6292327812.
    those stop new work being typed, and clearing a box types no work.
 
 ## Residuals (named, not fixed here)
+
+- Someone typing while the box is cleared stops the clearing; the rest of the old text plus their new words is a new
+  text, so ten minutes later it is saved again, repeating part of the first draft.
+- A box the keys do not empty (Claude Code's vim mode, or keys rebound by a later version) is saved once and then not
+  touched again while the same text sits there; it stays stuck, logged once.
+- At MAX_KEPT (20) undismissed drafts for one agent, no draft is dropped: the box is left and logged.
+- In the setup guide's thread, a draft is served masked like every row there (#3769), so "Put in the message box" offers
+  the masked words; the file on disk (mode 600) holds them as typed, as the person's own stored messages do.
+- Drafts are kept by session name. An agent renamed or moved keeps its drafts behind, and a new agent later given the
+  same name would be shown them.
 
 - A folded paste stays stuck (decision 6). The tile sentence (#6249) still says it, until #6716 changes tiles.
 - Text with line breaks is saved with its rows joined by spaces (the box reader squashes whitespace); the words survive,

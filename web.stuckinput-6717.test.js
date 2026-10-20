@@ -23,8 +23,8 @@ test('kosmos#6717: a draft row says it was not sent, shows the words escaped, an
   assert.doesNotMatch(html, /class="msg( you)?"/, 'never drawn as the person\'s or the agent\'s message');
   assert.match(html, /It was not sent\./);
   assert.match(html, /look at &lt;b&gt;the invoice&lt;\/b&gt; &amp; the &quot;second&quot; one/, 'the words, escaped');
-  assert.match(html, /<button type="button" class="dm-draft-use" data-draft-id="0123456789ab">Put in the message box<\/button>/);
-  assert.match(html, /<button type="button" class="dm-draft-dismiss" data-draft-id="0123456789ab">Dismiss<\/button>/);
+  assert.match(html, /<button type="button" class="pj-refused-add dm-draft-use" data-draft-id="0123456789ab">Put in the message box<\/button>/);
+  assert.match(html, /<button type="button" class="pj-refused-add dm-draft-dismiss" data-draft-id="0123456789ab">Dismiss<\/button>/);
   assert.doesNotMatch(html, /—/, 'no em dash');
   // CONTROL: the account line (#3723), also kind kosmos but no draft, keeps its own shape and offers no buttons.
   const account = dmRow({ id: 'kosmos-account:al', at: null, text: 'Its account is signed out.', from: null, kind: 'kosmos' }, 'Al');
@@ -49,4 +49,19 @@ test('kosmos#6717: Put in the message box only fills the box (after anything typ
   assert.equal(input.value, 'already typed\nthe stuck words', 'added after what the person had typed, never over it');
   assert.deepEqual(sentBy, [], 'nothing reaches the board: the person sends it, or not');
   assert.ok(fired.includes('input') && fired.includes('focus'));
+});
+
+test('kosmos#6717: words longer than one message can be are said under the box at once, not refused at send', () => {
+  const input = { value: '', maxLength: 20, focus() {}, dispatchEvent() {} };
+  const under = { textContent: '' };
+  const quote = { textContent: 'far more words than twenty characters' };
+  const btn = { closest: () => ({ querySelector: () => quote }) };
+  const use = new Function('document', 'Event', page.lift(SCRIPT, 'dmDraftUse') + '\nreturn dmDraftUse;')(
+    { getElementById: (id) => (id === 'd-say' ? input : id === 'd-say-msg' ? under : null) }, function Event(t) { this.type = t; });
+  use(btn);
+  assert.equal(under.textContent, 'This is longer than one message can be. Send it in parts.');
+  // CONTROL: a draft that fits says nothing.
+  under.textContent = ''; input.value = ''; quote.textContent = 'short';
+  use(btn);
+  assert.equal(under.textContent, '');
 });
