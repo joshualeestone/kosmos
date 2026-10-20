@@ -40374,8 +40374,6 @@ function dmRow(m, name, replyAdjacent) {
      `at`, the anchor matches the FIRST -- a drift of at most one adjacent row,
      no worse than the pixel offset it replaces. */
   const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
-  /* #3723: Kosmos's own line (an account problem), in the room's quiet Kosmos band: no avatar and no
-     name, so nobody takes it for the agent speaking or for something they sent. */
   if (m && m.kind === 'kosmos' && m.draft === true && typeof m.draftId === 'string') {
     /* kosmos#6717: text Kosmos moved out of the agent's input box, where it had sat unsent and kept messages from
        reaching it. It was NOT sent, and nothing sends it: the person can put it in the message box below, or dismiss
@@ -40388,6 +40386,8 @@ function dmRow(m, name, replyAdjacent) {
       + '<button type="button" class="pj-refused-add dm-draft-dismiss" data-draft-id="' + esc(m.draftId) + '">Dismiss</button>'
       + '</div></div>';
   }
+  /* #3723: Kosmos's own line (an account problem), in the room's quiet Kosmos band: no avatar and no
+     name, so nobody takes it for the agent speaking or for something they sent. */
   if (m && m.kind === 'kosmos') {
     /* The vendor's link (e.g. where to add credits) is made clickable: the text is escaped FIRST,
        then only https:// addresses ON A KNOWN VENDOR HOST become links. The sentence is read from

@@ -462,13 +462,16 @@ test('kosmos#6717: the board\'s own line whose Enter does not take is said once 
   chat.setRunner((args) => (args[0] === 'send-keys' && args[args.length - 1] === 'Enter' ? ok() : first(args)));
   assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION');
   const p = pane(MSG);
-  chat.setRunner((args) => (args[0] === 'send-keys' && args[args.length - 1] === 'Enter' ? ok() : p(args)));   // Enter rebound
+  let enters = 0;
+  chat.setRunner((args) => { if (args[0] === 'send-keys' && args[args.length - 1] === 'Enter') { enters += 1; return ok(); } return p(args); });   // Enter rebound
   saveInto(p);
   const lines = [];
   const tick = stuck.makeTick({ allowed: () => true, roster: () => roster, recover: (c, s) => chat.recoverStuckInput(c, s), stuckMs: chat.STUCK_INPUT_MS, log: (l) => lines.push(l) });
-  await tick(); await tick();
+  await tick(); await tick(); await tick();
   assert.equal(lines.length, 1, lines.join(''));
   assert.match(lines[0], /left the text in the box \(Enter on the line Kosmos had left there did not send it\)/);
+  assert.equal(enters, 1,
+    'pressed once by this sweep, not every minute (the #6436 retries keep their own day bound)');
   assert.equal(saved.length, 0);
   assert.equal(p.clears(), 0);
 }));
@@ -489,4 +492,30 @@ test('kosmos#6717: a text given up on stays given up through a minute busy, and 
   card.unsentInput = { since: new Date(now - 12 * 60000).toISOString() };
   await tick();
   assert.equal(tries, 2, 'a new text is a new try');
+});
+
+test('kosmos#6717: a round that only takes out a line break (the text reads the same) is not given up on; the next round goes on', () => withAgent(async (roster, card) => {
+  const p = pane(PERSON + ' and the rest of it, which runs onto a second row of the box');
+  let before = null;
+  chat.setRunner((args) => {
+    if (args[0] === 'send-keys' && args.includes('C-u') && p.state.rounds === 0 && before === null) { before = p.state.text; p.state.rounds += 1; return ok(); }   // a line break only
+    return p(args);
+  });
+  saveInto(p);
+  const r = await chat.recoverStuckInput(card, SINCE);
+  assert.equal(r.outcome, 'drafted', JSON.stringify(r));
+  assert.equal(p.state.text, '');
+  assert.ok(before !== null, 'PRECONDITION: the first round changed nothing on screen');
+}));
+
+test('kosmos#6717: a piece of a text already kept (a clearing that stopped partway) is not kept again', () => {
+  const whole = drafts.add('al', 'first row of it and second row of it');
+  assert.equal(whole.ok, true);
+  const piece = drafts.add('al', 'first row of it');
+  assert.equal(piece.id, whole.id);
+  assert.equal(piece.already, true);
+  assert.equal(drafts.list('al').length, 1);
+  // CONTROL: different words are a new draft.
+  assert.notEqual(drafts.add('al', 'something else entirely').id, whole.id);
+  assert.equal(drafts.list('al').length, 2);
 });

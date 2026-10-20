@@ -1221,8 +1221,9 @@ async function recoverStuckInput(card, since) {
       if (!fresh || fresh.state !== status.STATE.IDLE) return { outcome: 'waiting', because: 'not idle' };
       const answer = await pressRememberedNow(target, card);
       if (answer === 'sent') return { outcome: 'pressed' };
-      /* Enter went and the box still holds the line (Enter rebound, say): said once in the log, tried again next minute. */
-      if (answer === 'unsent') return { outcome: 'left', because: 'Enter on the line Kosmos had left there did not send it' };
+      /* Enter went and the box still holds the line (Enter rebound, say): said once in the log and not pressed again by
+         this sweep for the same text (`giveUp`), so #6436's own retries, and their one-day bound, are all that press it. */
+      if (answer === 'unsent') return { outcome: 'left', giveUp: true, because: 'Enter on the line Kosmos had left there did not send it' };
       return { outcome: 'waiting', because: answer };
     }
     if (STUCK_FOLDED.test(box.text)) return { outcome: 'left', because: 'it holds a pasted block or image whose words are not on screen' };

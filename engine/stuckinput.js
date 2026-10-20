@@ -52,7 +52,7 @@ function makeTick(deps) {
         let r;
         try { r = await deps.recover(card, since); } catch (err) { r = { outcome: 'waiting', because: 'failed: ' + String((err && err.message) || err) }; }
         if (!r || r.outcome === 'waiting') continue;   // tried again next minute; not news
-        if (r.outcome === 'drafted-not-cleared' && !r.retry) gaveUp.set(card.sessionName, since);
+        if ((r.outcome === 'drafted-not-cleared' && !r.retry) || r.giveUp === true) gaveUp.set(card.sessionName, since);
         const mins = Math.round((now - Date.parse(since)) / 60000);
         const key = since + '|' + r.outcome + '|' + (r.because || '');
         if ((r.outcome === 'left' || r.outcome === 'drafted-not-cleared') && told.get(card.sessionName) === key) continue;

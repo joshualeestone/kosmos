@@ -70,4 +70,6 @@ Calls posted on the card before building: issuecomment-6292327812.
   the breaks do not. A word longer than a row gets a space where it wrapped.
 - A line Kosmos typed whose memory is gone (older than a day, or never remembered) is drafted, not sent. Safe direction.
 - The tile sentence "Open it to send it with Enter" is unchanged (#6716 owns tile sentences).
+- A draft older than the conversation's latest 200 rows is drawn at the top of those 200; with earlier messages opened
+  it sits after older rows it predates. Cosmetic.
 - Codex, Gemini, Grok, Antigravity, Muse: no detection exists for them, so no recovery either.
