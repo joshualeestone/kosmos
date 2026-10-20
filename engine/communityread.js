@@ -29,6 +29,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const communitysend = require('./communitysend');
+const communityself = require('./communityself');   // kosmos#6705: the one own-agent rule
 const projects = require('./projects');
 const store = require('./store');
 
@@ -202,6 +203,8 @@ function commentOf(c, asReply, cap) {
     id,
     author: live ? (authorOf(c.agent) || 'an agent') : '',
     nameKey: live && typeof c.agent.name === 'string' ? c.agent.name.trim().toLowerCase() : '',   // slice 2: own-comment check
+    // kosmos#6705: the author's id, '' when the service sent none (before #6705, or a person): the own check's key.
+    authorId: live && c.agent.id != null ? String(c.agent.id).trim().toLowerCase() : '',
     person: live && c.agent.kind === 'person',   // #5623: a signed-in person wrote it (the service's own kind), not an agent
     replyToKey: live && typeof c.reply_to_name === 'string' ? c.reply_to_name.trim().toLowerCase() : '',   // #5623: whom it answers
     at: /^\d{4}-\d{2}-\d{2}/.test(String(c.created_at || '')) ? String(c.created_at).slice(0, 10) : '',
@@ -546,12 +549,11 @@ function ownPosts(sessionName) {
   return { posts: out.slice(0, REPLIES_POSTS), total: out.length, all: new Set(out.map((p) => p.remoteId)) };
 }
 /* Review 5: the service's own name, case-folded, not the cleaned display name (cleaning drops brackets and cuts at 64,
-   so another agent "kim()" would have looked like "kim"). */
-function ownName(sessionName) {
-  const keys = loadJsonFile(communitysend._paths.keysFile()) || {};
-  const rec = keys[sessionName];
-  return rec && typeof rec.name === 'string' ? rec.name.trim().toLowerCase() : '';
-}
+   so another agent "kim()" would have looked like "kim"). kosmos#6705: with the agent's id, through communityself. */
+const meKey = (me) => communityself.asSelf(me).name.trim().toLowerCase();
+/* kosmos#6705: whether a comment as commentOf made it is this agent's own (communityself's rule: by id when the
+   comment carries one, else by name). */
+const isMine = (me, x) => Boolean(x) && communityself.isOwn(me, { id: x.authorId, name: x.nameKey, kind: x.person ? 'person' : 'agent' });
 /* (time, id) order: a strict total order, so "after the mark" never loses or repeats an item that shares a second. */
 const byPos = (a, b) => (a.ts - b.ts) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 /*
@@ -574,11 +576,12 @@ const byPos = (a, b) => (a.ts - b.ts) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0
  * unknown this pass and is not told. Missing a tell is the side to fail on: a duplicate public reply cannot be taken back.
  *   [{ x (the comment), parent (its top comment's id, '' for a top comment) }]
  */
-function personOwed(comments, me, answered) {
+function personOwed(comments, self, answered) {
   const out = [];
-  if (!me || !Array.isArray(comments)) return out;
+  if (!communityself.known(self) || !Array.isArray(comments)) return out;
+  const me = meKey(self);   // kosmos#6705: the current name, for whom a reply names (reply_to carries a name only)
   const done = Array.isArray(answered) ? answered : null;   // review 2: the person comments SEEN answered (positive evidence)
-  const mine = (r) => r && !r.person && r.nameKey === me;   // review 3: a person who took the agent's name is not its answer
+  const mine = (r) => isMine(self, r);   // review 3: a person who took the agent's name is not its answer
   for (const c of comments) {
     if (!c) continue;
     const replies = Array.isArray(c.replies) ? c.replies : [];
@@ -595,8 +598,8 @@ function personOwed(comments, me, answered) {
       if (!r || !r.person) continue;
       // Review 2: addressed to the agent (reply_to names it) in ANY thread, or a reply under the agent's own comment.
       // Review 4: under the agent's own comment, unless it names someone else it answers.
-      const ownC = c.nameKey === me && !c.person;   // review 17: the agent's own comment, never a person's of the same name
-      const toMe = r.replyToKey === me || (ownC && !r.replyToKey);
+      const ownC = isMine(self, c);   // review 17: the agent's own comment, never a person's of the same name
+      const toMe = (Boolean(me) && r.replyToKey === me) || (ownC && !r.replyToKey);   // #6705: no name known names nobody
       /* Review 15: a person continuing their OWN thread (a direct reply, no reply-to) after the agent answered there is
          talking to the agent too; a later direct reply of the agent's in that thread answers it, as a named one does.
          A heuristic: the service gives no reply-to both for a direct reply to the top and for a reply whose target was
@@ -720,7 +723,7 @@ async function freshReplies(sessionName, opts) {
     const { posts } = ownPosts(sessionName);
     if (!posts.length) return { ok: true, posts: [], persons: [], answered: [], asked: 0 };
     const marks = readMarks(sessionName);
-    const me = ownName(sessionName);
+    const me = communityself.stored(sessionName);   // kosmos#6705: a background pass reads the stored self, no request
     const titles = postTitles(sessionName);
     const out = [];
     const persons = [];   // #5623
@@ -772,7 +775,7 @@ async function freshReplies(sessionName, opts) {
       const fresh = [];
       for (const c of comments) for (const x of [c, ...c.replies]) {
         // EXACTLY the read's set (plain firstLook), so the cap below falls where the read's does (review 14).
-        if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) {
+        if (x.author && x.ts && !isMine(me, x) && afterMark(x, mark, firstLook)) {
           /* Review 14 (Opus): only a comment ON the post is owed an answer; a reply under a comment is shown by the read
              with "under comment" and is not (#4833, communityblock's rule), so it is never named or told here.
              Review 12: one within FIRST_LOOK_EDGE_MS of the window's edge on an unmarked post may be out of the window by
@@ -886,7 +889,7 @@ async function repliesFor(sessionName, opts) {
     return { ok: true, count: 0, text: frame([], null, { lines: [REPLIES_HEADING, '', line, ''] }) };
   }
   const marks = readMarks(sessionName);   // service time, apart from a new post's first-look floor
-  const me = ownName(sessionName);
+  const me = await communityself.current(sessionName);   // kosmos#6705: refreshed from the service, at most every 10 min
   // Round 1: each post's newest top-level comments with their first replies, in parallel. 404/410: gone, not a failure.
   let round1Limited = false;
   const threads = await Promise.all(posts.map(async (p) => {
@@ -1052,7 +1055,7 @@ async function repliesFor(sessionName, opts) {
       // A reply came in its comment's `replies`, so it IS a reply to a reply even when the service left out (or sent a bad)
       // parent_id: its top comment stands in. The agents' rule answers only lines WITHOUT the mark (#4833, Josh 08:12).
       const parent = x === c ? '' : (x.parentId || c.id);
-      if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) fresh.push({ x, post: th.post.remoteId, parent });
+      if (x.author && x.ts && !isMine(me, x) && afterMark(x, mark, firstLook)) fresh.push({ x, post: th.post.remoteId, parent });
     }
   }
   fresh.sort((a, b) => byPos(a.x, b.x));
