@@ -10,7 +10,9 @@ cd "$(dirname "$0")/.." || exit 1
 . tools/lib/pkg-inputs.sh
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/pkg-input-guard.XXXXXX")"; trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/install/pkg-scripts" "$T/install/pkg-resources" "$T/tools/lib"
+mkdir -p "$T/install/pkg-scripts" "$T/install/pkg-resources" "$T/install/pkg-verify" "$T/tools/lib"
+printf '0.7.57\n' > "$T/install/pkg-verify/floor"   # #6576: the release check is an input too
+printf '// helper\n' > "$T/install/pkg-verify/main.swift"
 printf 'KOSMOS_SIGN_TEAM_ID=AAAA\n' > "$T/tools/lib/signing-identity.sh"
 printf '#!/bin/sh\necho hello\n' > "$T/install/pkg-scripts/postinstall"; chmod +x "$T/install/pkg-scripts/postinstall"
 printf '<p>welcome</p>\n' > "$T/install/pkg-resources/welcome.html"
@@ -48,6 +50,15 @@ printf '#!/bin/sh\necho hello world\n' > "$T/install/pkg-scripts/postinstall"
 printf 'x\n' > "$T/install/pkg-scripts/preinstall"
 d="$(pkg_input_sha "$T")"
 [ "$d" != "$c" ] && ok "adding a pkg-scripts file changes the sha" || bad "a new pkg-scripts file was not seen"
+# #6576: the release check is built into the package, so a change to it or to its floor must rebuild the pkg.
+d0="$(pkg_input_sha "$T")"
+printf '// helper, changed\n' > "$T/install/pkg-verify/main.swift"
+d1="$(pkg_input_sha "$T")"
+[ -n "$d1" ] && [ "$d1" != "$d0" ] && ok "#6576: a change to the release check changes the sha" || bad "#6576: a changed release check was not seen (the pkg would ship the old helper)"
+printf '0.7.58\n' > "$T/install/pkg-verify/floor"
+d2="$(pkg_input_sha "$T")"
+[ -n "$d2" ] && [ "$d2" != "$d1" ] && ok "#6576: a change to its floor changes the sha" || bad "#6576: a changed floor was not seen"
+printf '0.7.57\n' > "$T/install/pkg-verify/floor"; printf '// helper\n' > "$T/install/pkg-verify/main.swift"
 
 # CONTROLS for the inputs added in #665: the screens and the build script are
 # inputs too (Baron's first pkg carried new screens the first guard could not
@@ -78,7 +89,8 @@ chmod -x "$T/tools/lib/signing-identity.sh"
 # control passed on a sectionless hasher, measured by mutation: one changed
 # the order, one changed the name.)
 T2="$(mktemp -d "${TMPDIR:-/tmp}/pkg-input-guard-sec.XXXXXX")"
-mkdir -p "$T2/install/pkg-scripts" "$T2/install/pkg-resources" "$T2/tools/lib"
+mkdir -p "$T2/install/pkg-scripts" "$T2/install/pkg-resources" "$T2/install/pkg-verify" "$T2/tools/lib"
+printf 'V\n' > "$T2/install/pkg-verify/floor"
 printf 'I\n' > "$T2/tools/lib/signing-identity.sh"
 printf 'A\n' > "$T2/install/pkg-scripts/a"; printf 'C\n' > "$T2/install/pkg-resources/c"; printf 'B\n' > "$T2/tools/build-installer-pkg.sh"
 printf 'B\n' > "$T2/install/pkg-resources/b"
@@ -119,6 +131,8 @@ if pkg_input_sha "$U" >/dev/null 2>&1; then bad "a missing pkg-resources dir did
 mkdir -p "$U/install/pkg-resources"; rm "$U/tools/build-installer-pkg.sh"
 if pkg_input_sha "$U" >/dev/null 2>&1; then bad "a missing build script did not refuse"; else ok "a missing build script refuses, not a sha over less"; fi
 printf 'x\n' > "$U/tools/build-installer-pkg.sh"
+if pkg_input_sha "$U" >/dev/null 2>&1; then bad "#6576: a missing release check did not refuse"; else ok "#6576: a missing release check (install/pkg-verify) refuses, not a sha over less"; fi
+mkdir -p "$U/install/pkg-verify"; printf 'x\n' > "$U/install/pkg-verify/floor"
 pkg_input_sha "$U" >/dev/null 2>&1 && ok "CONTROL: with every input present the sha computes (so the next refusal is about the identity)" || bad "a complete fixture did not compute a sha"
 chmod 000 "$U/tools/lib/signing-identity.sh"
 if [ -r "$U/tools/lib/signing-identity.sh" ]; then ok "SKIP: running as a user that reads mode-000 files, the unreadable arm cannot be exercised here"
@@ -181,6 +195,15 @@ rm -rf "$T/install/pkg-resources/sub"
 chmod 000 "$T/install/pkg-resources"
 if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "an unsearchable input ROOT did not refuse (an empty section was hashed)"; else grep -q "unsearchable directory" "$T/err" && ok "an unsearchable input root refuses and says so" || bad "the refusal did not name the root: $(cat "$T/err")"; fi
 chmod 755 "$T/install/pkg-resources"
+# #6576: the release check dir is held to the same rule: an unreadable file in it, or the dir itself unsearchable,
+# refuses rather than hashing as if it were absent.
+chmod 000 "$T/install/pkg-verify/floor"
+if [ -r "$T/install/pkg-verify/floor" ]; then ok "SKIP: running as a user that reads mode-000 files, the unreadable release-check arm cannot be exercised here"
+elif pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "#6576: an unreadable file in the release check did not refuse (a sha over less)"; else grep -q "pkg-verify" "$T/err" && ok "#6576: an unreadable file in the release check refuses and names it" || bad "#6576: the refusal did not name the file: $(cat "$T/err")"; fi
+chmod 644 "$T/install/pkg-verify/floor"
+chmod 000 "$T/install/pkg-verify"
+if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "#6576: an unsearchable release-check dir did not refuse"; else grep -q "unsearchable directory" "$T/err" && ok "#6576: an unsearchable release-check dir refuses and says so" || bad "#6576: the refusal did not name the dir: $(cat "$T/err")"; fi
+chmod 755 "$T/install/pkg-verify"
 ln -s welcome.html "$T/install/pkg-resources/link.html"
 if pkg_input_sha "$T" >/dev/null 2>"$T/err"; then bad "a symlinked input did not refuse (it would hash as absent)"; else grep -q "symlink" "$T/err" && ok "a symlink among the inputs refuses and says so" || bad "the refusal did not name the symlink: $(cat "$T/err")"; fi
 rm -f "$T/install/pkg-resources/link.html"

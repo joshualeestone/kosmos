@@ -10648,6 +10648,8 @@ const server = http.createServer(async (req, res) => {
         email: r.email || '',
         enrolled: remote.enrolled() === true,
         forgetKept: r.forget_kept || '',   // kosmos#6389
+        /* kosmos#6602: the tunnel's certificate check, as counts and a state (no text from it). */
+        certWatch: remote.certWatch(),
       });
     } catch { sendJson(res, 500, { error: 'we could not read the Plus state' }); }
     return;
@@ -10663,6 +10665,22 @@ const server = http.createServer(async (req, res) => {
         try { remote.ensure(); } catch { /* status says what happened */ }
         if (body.on === true) phoneDefaultAfterConnect();
         sendJson(res, 200, { status: remote.status(), on: remote.read().on === true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* kosmos#6602: the certificate check's switch for this computer. */
+  if (pathname === '/api/remote/cert-watch' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* A security check's off switch is a person's setting: not an agent's (the isViaScreen class). */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        const saved = remote.setCertWatch(body.on);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        sendJson(res, 200, { certWatch: remote.certWatch() });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;

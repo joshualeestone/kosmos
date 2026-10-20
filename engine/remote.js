@@ -717,6 +717,16 @@ function address() {
   catch { return null; }
 }
 
+/* kosmos#6602: what the tunnel's certificate check found for this computer, and its switch
+   (engine/cert-watch.js reads the tunnel's files). */
+const certWatchFiles = require('./cert-watch');
+function certWatch() { return certWatchFiles.certWatchFrom(STATE_DIR(), Date.now()); }
+/* Only on a set-up computer (the page shows the switch only then): a leftover state dir is not one. */
+function setCertWatch(on) {
+  if (!enrolled()) return { ok: false, because: 'this computer is not set up for Kosmos+ yet' };
+  return certWatchFiles.setCertWatchIn(STATE_DIR(), on);
+}
+
 /** The switch. Turning on does not start anything by itself unless setup
     already happened; the Settings flow calls setupStart/setupComplete and
     then ensure() brings the tunnel up. Turning off stops it now. */
@@ -3533,6 +3543,7 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   enrolled,
   spawnFedSeat,
   address,
+  certWatch, setCertWatch,
   ensure,
   status,
   setupStart,

@@ -4,14 +4,15 @@
 #
 #   bash tools/build-installer-pkg.sh <version>
 #
-# The package is PAYLOAD-FREE: it ships only a postinstall that runs the
-# current install/setup.sh (installkosmos.com/setup) as the console user.
-# Double-clicking opens macOS's own Installer UI — no Terminal, no paste, no
-# "Possible Malware" dialog — and because it carries NO Mach-O of ours, only
-# the PACKAGE is signed (Developer ID Installer), then notarised and stapled.
-# There is no codesign of executables and no inside-out dylib signing here;
-# that is the app-bundle path (#555's recipe), and this deliberately avoids it
-# by shipping nothing to sign but a shell script.
+# The package is PAYLOAD-FREE: it ships only scripts, a postinstall that runs the
+# current install/setup.sh (installkosmos.com/setup) as the console user, its
+# helpers, and the release check (#6576).
+# Double-clicking opens macOS's own Installer UI (no Terminal, no paste, no
+# "Possible Malware" dialog). The PACKAGE is signed (Developer ID Installer),
+# then notarised and stapled. Its scripts carry ONE executable of ours, the
+# release check kosmos-pkg-verify (#6576), which is codesigned (Developer ID
+# Application, hardened runtime) before pkgbuild; there is no app bundle and
+# no inside-out dylib signing here, which is the app-bundle path (#555).
 #
 # It is a DISTRIBUTION package (productbuild), not a bare component, so it
 # carries a Welcome and a Conclusion screen (#546/#662/#663 fresh-account
@@ -68,11 +69,33 @@ RESOURCES="$REPO/install/pkg-resources"
 _insha="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input sha" >&2; exit 1; }
 echo "==> inputs: $_insha"
 
-echo "==> pkgbuild (payload-free component, scripts only)"
+# kosmos#6576: the release check a first install runs (install/pkg-verify). Built here, signed with the Developer ID
+# Application identity with the hardened runtime (notarization requires both for any executable in the package),
+# and staged beside the scripts with the floor it checks against: the oldest release it accepts, the first signed
+# one, a reviewed constant (install/pkg-verify/floor), NOT this build's version, which can run ahead of what the
+# production pointer serves. While it reads "off" the postinstall does not run the check at all (until production
+# serves a signed release), and it is built and signed even then, so the Developer ID Application identity is needed
+# for every pkg build. The package is no longer free of Mach-O: this one helper is the exception.
+APP_CERT="${KOSMOS_APP_CERT:-$KOSMOS_SIGN_APP_DEFAULT}"
+if ! security find-identity -v | grep -qF "$APP_CERT"; then
+  echo "FATAL: signing identity not found: $APP_CERT (the release check must be signed)" >&2
+  exit 1
+fi
+STAGED_SCRIPTS="$BUILD/scripts"
+mkdir -p "$STAGED_SCRIPTS"
+cp -R "$SCRIPTS/." "$STAGED_SCRIPTS/"
+echo "==> the release check (kosmos-pkg-verify): build, sign, verify"
+xcrun swiftc -target "arm64-apple-macos$(cat "$REPO/tools/macos-floor")" -O "$REPO/install/pkg-verify/main.swift" \
+  -o "$STAGED_SCRIPTS/kosmos-pkg-verify"
+codesign --force --options runtime --timestamp --sign "$APP_CERT" "$STAGED_SCRIPTS/kosmos-pkg-verify"
+codesign --verify --strict "$STAGED_SCRIPTS/kosmos-pkg-verify"
+cp "$REPO/install/pkg-verify/floor" "$STAGED_SCRIPTS/kosmos-pkg-floor"
+
+echo "==> pkgbuild (scripts only: the postinstall, its helpers, and the release check)"
 pkgbuild --nopayload \
   --identifier "$IDENTIFIER" \
   --version "$VERSION" \
-  --scripts "$SCRIPTS" \
+  --scripts "$STAGED_SCRIPTS" \
   "$BUILD/component.pkg"
 
 echo "==> distribution.xml (Welcome + Conclusion UI + bottom-left app logo)"

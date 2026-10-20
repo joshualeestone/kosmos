@@ -839,6 +839,30 @@ verify_download() {
   return 0
 }
 
+# #6576: an install from the .pkg is held to the SIGNED release too. The .pkg's own notarized helper checked the
+# release manifest's signature before this script ran, and hands over the manifest's sha256 for each download in
+# KOSMOS_PINNED_TARBALL_SHA256 and KOSMOS_PINNED_TMUX_SHA256 (read once into _PIN_*_SHA256 and unset, below).
+# A download that differs is not installed. No pin (the
+# install line, an update run by an installed copy, which checks the manifest itself): returns 0. A pin that is not
+# 64 hex characters refuses, rather than reading as no pin.
+# The .pkg reads the next line in a checked installer before handing it the pins: an installer without it would ignore
+# them and leave the Kosmos and tmux downloads unchecked, so the .pkg refuses to run it (kosmos#6576). Keep it exact.
+# kosmos-pkg-pins: honored
+pinned_sha_ok() {
+  local file="$1" pin="$2" what="$3" got
+  [ -n "$pin" ] || return 0
+  case "$pin" in
+    *[!0-9a-f]*) info "the $what could not be checked against its signed release, so it was not installed"; return 1 ;;
+  esac
+  [ "${#pin}" -eq 64 ] || { info "the $what could not be checked against its signed release, so it was not installed"; return 1; }
+  got="$(shasum -a 256 "$file" | awk '{print $1}')"
+  if [ "$got" != "$pin" ]; then
+    info "the $what download does not match its signed release, so it was not installed"
+    return 1
+  fi
+  return 0
+}
+
 # #6468 ask 2: a downloaded update must match its SIGNED release manifest before anything in it runs. The check is made
 # by the INSTALLED copy (its own node running its own engine/manifest-verify.js, which pins the release's public
 # keys), never by the new build or by this script, so an install that has the check holds every later update to it.
@@ -1315,6 +1339,7 @@ fetch_tmux() {
     # is the failure this whole file is written against.
     curl -fL --progress-bar "$url" -o "$stage/tmux.tar.gz" || { rm -rf "$stage"; return 1; }
     verify_download "$stage/tmux.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
+    pinned_sha_ok "$stage/tmux.tar.gz" "${_PIN_TMUX_SHA256:-}" "terminal manager" || { rm -rf "$stage"; return 1; }   # #6576
     # #6473: held to the signed manifest (fetched by update_manifest_ok early) before tar or anything in it runs.
     if [ "$(uname -s)" = "Darwin" ] && ! update_tmux_ok "$stage/tmux.tar.gz" "$KOSMOS_HOME"; then rm -rf "$stage"; return 1; fi
     # #6562: never apply the archive's recorded owner, whoever runs this (a root install on Linux would).
@@ -1447,6 +1472,7 @@ install_kosmos() {
     rm -f "$_kp_sentinel" 2>/dev/null || true; kill "$_kp_watcher" 2>/dev/null || true; wait "$_kp_watcher" 2>/dev/null || true
     _kp_emit downloaded
     verify_download "$stage/kosmos.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
+    pinned_sha_ok "$stage/kosmos.tar.gz" "${_PIN_TARBALL_SHA256:-}" "Kosmos" || { rm -rf "$stage"; return 1; }   # #6576
     _kp_emit installing
     # #6468 ask 2: held to the installed copy's signed-manifest check, the archive itself before tar reads it and every
     # unpacked file before anything runs. Not on Linux (its updates are not built or signed here yet).
@@ -3332,6 +3358,20 @@ fi
 # (exit 141, measured). Every pointer shape must degrade to the
 # versionless run, never to silence.
 TARGET_VERSION="$(printf '%s' "$_ptr" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)" || TARGET_VERSION=""
+# #6576: the .pkg checked one signed release and pinned its downloads; install exactly that version, not what the
+# pointer says a moment later (a promote in between would fetch a tarball the pins refuse). Only an a.b.c is taken.
+case "${KOSMOS_PINNED_VERSION:-}" in
+  '') ;;
+  *[!0-9.]*|.*|*.|*..*|*.*.*.*) die "the version the installer checked is not a version, so nothing was installed" ;;
+  *.*.*) TARGET_VERSION="$KOSMOS_PINNED_VERSION" ;;
+  *) die "the version the installer checked is not a version, so nothing was installed" ;;
+esac
+# The pins are read here, once, into this run's own variables and taken out of the environment: the board this run
+# starts (and its agents, and the update it runs later) must not inherit an old release's pins, which would hold the
+# next update to them and refuse it. The same leak class as KOSMOS_UPDATE_BY_BOARD, unset further down.
+_PIN_TARBALL_SHA256="${KOSMOS_PINNED_TARBALL_SHA256:-}"
+_PIN_TMUX_SHA256="${KOSMOS_PINNED_TMUX_SHA256:-}"
+unset KOSMOS_PINNED_TARBALL_SHA256 KOSMOS_PINNED_TMUX_SHA256 KOSMOS_PINNED_VERSION
 if [ -n "$TARGET_VERSION" ]; then
   printf '  This run installs Kosmos %s.\n' "$TARGET_VERSION"
 else

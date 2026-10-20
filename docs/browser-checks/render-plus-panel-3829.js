@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
+// Browser-check-surface: plus-cw-line plus-cw-row plus-cw-switch plus-cw-label plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
 'use strict';
 /**
  * #3829 (Josh, 2026-09-25 16:54: the connected Kosmos+ panel and the device approval are "terribly
@@ -453,6 +453,50 @@ const STATES = {
          board and never sent to the page, so no row is ever called "This computer (Kosmos app)" here. */
       chk(!v.listNames.includes('This computer (Kosmos app)'), `${t} #4610: no row is relabelled as this computer (the board grants it and never sends it)`, JSON.stringify(v.listNames));
       if (SHOTS) { await page.setViewportSize({ width: 1400, height: 1300 }); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200); await page.screenshot({ path: path.join(SHOTS, `3829-${key}.png`) }); }
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await page.close();
+    }
+    /* kosmos#6602: the certificate check's line and switch on a connected pane. A finding is said in the warning
+       colour (and still said with the check off), a clear check says nothing (the control), and the switch sends
+       the opposite of what it showed to its own route. */
+    for (const mode of ['foreign', 'clear', 'off-foreign']) {
+      const t = `[cert check ${mode}]`;
+      const puts = [];
+      const cw = mode === 'clear' ? { on: true, state: 'clear', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, checkedAt: now(), failing: false }
+        : { on: mode !== 'off-foreign', state: 'foreign', foreign: 1, earlier: 0, beforeRecord: 0, lost: false, checkedAt: now(), failing: false };
+      const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+      const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+      const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
+      await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? { ...STATES.connected.remote, certWatch: cw } : { ok: true })));
+      await page.route('**/api/remote/cert-watch', (route, req) => { puts.push(req.postData() || ''); return route.fulfill(json({ certWatch: cw })); });
+      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', self_device_id: 'd-self' })));
+      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [], pending: [], self_device_id: 'd-self' })));
+      await page.goto(BASE, { waitUntil: 'networkidle' });
+      if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+      await page.evaluate(() => showTab('settings'));
+      await page.click('#s-nav button[data-go="plus"]');
+      await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+      await page.waitForTimeout(500);
+      const c = await page.evaluate(() => {
+        const line = document.getElementById('plus-cw-line'), row = document.getElementById('plus-cw-row'), sw = document.getElementById('plus-cw-switch');
+        return { text: line.textContent, inTree: !line.hidden && !line.closest('[hidden]') && getComputedStyle(line).display !== 'none', state: line.getAttribute('data-state'),
+          colour: getComputedStyle(line).color, plain: getComputedStyle(document.getElementById('plus-cw-label')).color,
+          rowShown: !!(row && !row.hidden && row.getBoundingClientRect().height > 0), swOn: sw.getAttribute('aria-checked'), swShown: !sw.hidden,
+          label: (document.getElementById('plus-cw-label') || {}).textContent || '' };
+      });
+      chk(c.inTree, `${t} the line stays in the page (a live region, so its first text is announced)`, JSON.stringify(c));
+      chk(c.rowShown && c.swShown && /this sends the address to Cert Spotter/.test(c.label), `${t} the switch row shows, and its label says what is sent where`, JSON.stringify(c));
+      if (mode === 'clear') {
+        chk(c.text === '', `${t} CONTROL: a clear check says nothing`, c.text);
+        chk(c.swOn === 'true', `${t} the switch shows on`, c.swOn);
+      } else {
+        chk(/did not ask for/.test(c.text) && c.state === 'foreign' && c.colour !== c.plain, `${t} a finding is said, in the warning colour`, JSON.stringify(c));
+        chk(mode === 'off-foreign' ? (/The check is off\.$/.test(c.text) && c.swOn === 'false') : (!/The check is off/.test(c.text) && c.swOn === 'true'),
+          `${t} the switch and the line agree about on or off`, JSON.stringify(c));
+        await page.click('#plus-cw-switch');
+        await page.waitForTimeout(400);
+        chk(puts.length === 1 && JSON.parse(puts[0]).on === (mode === 'off-foreign'), `${t} the switch asks its own route for the opposite of what it showed`, JSON.stringify(puts));
+      }
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
     }

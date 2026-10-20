@@ -172,7 +172,149 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
   return { code: 0, why: `the terminal manager matches the signed manifest for ${version}` };
 }
 
-module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles };
+/* #6609: the release RECOVERY key. An installed copy trusts the release keys built into this file, and every release
+ * ships its own copy of this file, so whoever holds a release key could ship a release that trusts another key, and
+ * nothing could take a stolen key back. A recovery key, held offline by one person, narrows that: once its public half
+ * is in RECOVERY_KEYS, the release keys a copy trusts come from a KEY LIST that a recovery key signed, not from KEYS.
+ * What it gives, exactly: a copy that has taken a list without a revoked key refuses every release signed by that key
+ * from then on, and the release key alone cannot sign a list. What it cannot do: a release signed with a stolen key
+ * that a copy installs BEFORE taking the revocation replaces this file, RECOVERY_KEYS included, so that copy leaves the
+ * scheme and is not recovered by it. Revocation protects only copies that take the new list first, which is why every
+ * update path must fetch and check the list before it checks the release (#6609 phase 2).
+ *
+ *   dist/release-keys.json      {"type": "kosmos-release-keys", "release_keys": ["<spki base64>", ...], "seq": <n>, "issued": "<date>"}
+ *   dist/release-keys.json.sig  the recovery key's Ed25519 signature over that file's exact bytes, base64
+ *
+ * A list is taken only when it verifies under a recovery key and its seq is not below the highest this copy has
+ * stored (KEY_LIST_STATE in the install home), so an older list served again cannot bring a revoked key back; a newer
+ * one is recorded above it. A seq is never reused: a list with the stored seq but other keys is refused (except when
+ * the record at that seq is damaged and cannot be compared; the recovery key never signs two lists with one seq). Revoking a
+ * stolen release key is a new list without it, seq + 1, signed with the recovery key (tools/lib/release-keys-sign.js),
+ * and the next release raises MIN_KEY_LIST_SEQ to it. Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
+const RECOVERY_KEYS = Object.freeze([]);   // frozen: nothing in the process can turn the feature on by adding one
+const KEY_LIST_STATE = 'release-keys.state';   // a folder: one seq-<n>.json per list taken
+// The lowest list seq this build accepts, even with no state stored (a fresh install): raised in the release after a
+// revocation, so a copy without a record still refuses the list from before it.
+const MIN_KEY_LIST_SEQ = 1;
+const MAX_SEQ = 2147483647;
+// The list names what it is, so a recovery signature over it can never be taken for one over anything else.
+const KEY_LIST_TYPE = 'kosmos-release-keys';
+const sameKeys = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+
+/** An Ed25519 public key from its SubjectPublicKeyInfo base64, or null for anything else. Only the canonical
+ * spelling is a key (the bytes re-encoded must be the same string), so comparing strings compares keys. */
+function ed25519Key(b64) {
+  if (typeof b64 !== 'string' || !/^[A-Za-z0-9+/]{59}=$/.test(b64)) return null;
+  const der = Buffer.from(b64, 'base64');
+  if (der.length !== 44 || der.toString('base64') !== b64) return null;
+  if (!der.subarray(0, 12).equals(Buffer.from('302a300506032b6570032100', 'hex'))) return null;
+  try { return crypto.createPublicKey({ key: der, format: 'der', type: 'spki' }); } catch { return null; }
+}
+
+/** Checks a key list's bytes and signature against the recovery keys. { ok, why, seq, keys }. */
+function verifyKeyList({ bytes, sig, recoveryKeys = RECOVERY_KEYS }) {
+  let signature;
+  try { signature = Buffer.from(String(sig || '').trim(), 'base64'); } catch { signature = Buffer.alloc(0); }
+  const signed = signature.length === 64 && recoveryKeys.some((k) => {
+    const key = ed25519Key(k);
+    try { return !!key && crypto.verify(null, bytes, key, signature); } catch { return false; }
+  });
+  if (!signed) return { ok: false, why: 'the release key list is not signed by the Kosmos recovery key' };
+  let list;
+  try { list = JSON.parse(Buffer.from(bytes).toString('utf8')); } catch { return { ok: false, why: 'the signed release key list is not readable' }; }
+  if (!list || list.type !== KEY_LIST_TYPE) return { ok: false, why: 'the signed file is not a release key list' };
+  const keys = list && list.release_keys;
+  if (!Array.isArray(keys) || !keys.length) return { ok: false, why: 'the signed release key list names no release key' };
+  if (new Set(keys).size !== keys.length || !keys.every((k) => ed25519Key(k))) return { ok: false, why: 'the signed release key list holds a key that is not one' };
+  if (!Number.isInteger(list.seq) || list.seq < 1 || list.seq > MAX_SEQ) return { ok: false, why: 'the signed release key list has no sequence number' };
+  // The recovery key is never also a release key: whoever held the release key could then sign key lists.
+  if (keys.some((k) => recoveryKeys.includes(k))) return { ok: false, why: 'the signed release key list names a recovery key as a release key' };
+  return { ok: true, why: `release key list ${list.seq}`, seq: list.seq, keys: keys.slice() };
+}
+
+/* This install's record of the key lists it has taken: a folder (KEY_LIST_STATE in the install home) holding one file
+ * per list, seq-<n>.json. The highest file present is the floor for the next list. Its limits are in
+ * .claude/plans/recoverykey-6609.md. */
+// A canonical number only (no leading zero), within MAX_SEQ: the same seq one name, as a list can carry.
+const SEQ_FILE = /^seq-([1-9]\d{0,9})\.json$/;
+
+/** { seq, keys } of the highest list recorded (seq never below minSeq; keys null when nothing at or above it is
+ * recorded); { seq, keys: null, damaged: true } when that top file is damaged (its seq still holds as the floor);
+ * null when the record folder cannot be read at all. */
+function storedKeyList(home, minSeq = MIN_KEY_LIST_SEQ) {
+  const dir = path.join(home, KEY_LIST_STATE);
+  let names;
+  try { names = fs.readdirSync(dir); } catch (e) { return e && e.code === 'ENOENT' ? { seq: minSeq, keys: null } : null; }
+  let top = 0;
+  for (const n of names) { const m = SEQ_FILE.exec(n); if (m && Number(m[1]) <= MAX_SEQ && Number(m[1]) > top) top = Number(m[1]); }
+  if (!top || top < minSeq) return { seq: minSeq, keys: null };
+  // A damaged top file still tells its seq by its name: the floor stays there, and only a list at or above it can
+  // repair the record (trustedKeys writes it afresh).
+  const damaged = { seq: top, keys: null, damaged: true };
+  try {
+    const r = JSON.parse(fs.readFileSync(path.join(dir, `seq-${top}.json`), 'utf8'));
+    if (r.seq !== top || !Array.isArray(r.release_keys) || !r.release_keys.length || !r.release_keys.every((k) => ed25519Key(k))) return damaged;
+    return { seq: top, keys: r.release_keys };
+  } catch { return damaged; }
+}
+
+/** The release keys to check a manifest with. Off (no recovery key): the built-in KEYS. On: a key list that verifies
+ * and is not older than this copy's record, recorded when not yet there. { ok, why, keys }. */
+function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, builtIn = KEYS, minSeq = MIN_KEY_LIST_SEQ }) {
+  if (!recoveryKeys.length) return { ok: true, why: 'no recovery key is set, so the built-in release keys apply', keys: builtIn };
+  if (!listBytes) return { ok: false, why: 'the release key list could not be read' };
+  const v = verifyKeyList({ bytes: listBytes, sig: listSig, recoveryKeys });
+  if (!v.ok) return v;
+  // On, the record is what stops an older list coming back, so a check with no install home to keep it in is refused.
+  // And the home must already exist: a mistyped one must not quietly start a fresh record with the floor reset.
+  let homeOk = false;
+  try { homeOk = !!home && fs.statSync(home).isDirectory(); } catch { homeOk = false; }
+  if (!homeOk) return { ok: false, why: 'the release key list cannot be checked without this copy\'s record' };
+  const stored = storedKeyList(home, minSeq);
+  if (!stored) return { ok: false, why: 'this copy\'s record of the release key list cannot be read, so no list can be taken' };
+  if (v.seq < stored.seq) return { ok: false, why: `the release key list is ${v.seq}, older than the ${stored.seq} this copy has taken` };
+  // Already recorded: no write, so no re-read. A newer list recorded in the instant since is found by the next check;
+  // the caller checks the release straight away with these keys.
+  if (v.seq === stored.seq && stored.keys && !stored.damaged) {
+    if (!sameKeys(stored.keys, v.keys)) return { ok: false, why: `the release key list ${v.seq} names other keys than the list ${v.seq} this copy took` };
+    return { ok: true, why: v.why, keys: v.keys };
+  }
+  // Not recorded yet: add seq-<n>.json. The keys are a record only: what is trusted always comes from a list that
+  // verified just now.
+  const dir = path.join(home, KEY_LIST_STATE);
+  const file = path.join(dir, `seq-${v.seq}.json`);
+  const tmp = path.join(dir, `.seq-${v.seq}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`);
+  try {
+    try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (e) { if (!e || e.code !== 'EEXIST') throw e; }
+    // Synced before it is linked in, and the folder after, so a crash should leave the record whole or absent. fsync on
+    // macOS is not a full barrier (F_FULLFSYNC), so after a power loss the top file can still be empty: it is read as
+    // damaged at its seq, and the next list at or above that seq writes it afresh (nothing to remove by hand).
+    const fd = fs.openSync(tmp, 'wx', 0o600);
+    try { fs.writeSync(fd, JSON.stringify({ seq: v.seq, release_keys: v.keys }) + '\n'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    // A damaged record at this seq (a power loss) is replaced by this list, which verified and is not below it.
+    if (stored.damaged && v.seq === stored.seq) fs.renameSync(tmp, file);
+    else try { fs.linkSync(tmp, file); } catch (e) {
+      if (!e || e.code !== 'EEXIST') throw e;
+      // Another check recorded this seq first: it must name the same keys.
+      const other = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (!Array.isArray(other.release_keys) || !sameKeys(other.release_keys, v.keys)) {
+        return { ok: false, why: `the release key list ${v.seq} names other keys than the list ${v.seq} this copy took` };
+      }
+    }
+    try { const dfd = fs.openSync(dir, 'r'); try { fs.fsyncSync(dfd); } finally { fs.closeSync(dfd); } } catch { /* a folder fsync is best effort */ }
+  } catch {
+    return { ok: false, why: 'this copy\'s record of the release key list could not be written' };
+  } finally {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+  }
+  // A newer list recorded meanwhile wins: this one may hold a key that one dropped.
+  const now = storedKeyList(home, minSeq);
+  if (!now || now.seq > v.seq) return { ok: false, why: 'a newer release key list was taken meanwhile; check again' };
+  return { ok: true, why: v.why, keys: v.keys };
+}
+
+module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles,
+  RECOVERY_KEYS, KEY_LIST_STATE, KEY_LIST_TYPE, MIN_KEY_LIST_SEQ, MAX_SEQ, ed25519Key, verifyKeyList, storedKeyList, trustedKeys };
 
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before
  * using a call form: it greps the next line, which lists every form this copy understands beyond the original
