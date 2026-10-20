@@ -504,9 +504,14 @@ H6771=$(advance six-seven-seven-one); n0=$(ndeploys)
   && pass "6771: no token anywhere: red, names the secrets target, nothing deployed" || bad "6771 no token (rc=$(cat "$T/rc1")): $(cat "$T/out1")"
 { [ "$(cat "$T/rc2")" = 0 ] && grep -q "STILL FAILING (reported): no Vercel token" "$T/out2" && [ "$(ndeploys)" = "$n0" ] && [ ! -e "$ST/parked" ]; } \
   && pass "6771: the next tick without a token: green with STILL FAILING, still nothing deployed, never parked" || bad "6771 second tick (rc=$(cat "$T/rc2")): $(cat "$T/out2")"
+# A new site merge while the token is still missing stays green the same day (the record is the machine's, not the sha's).
+H6771n=$(advance six-seven-seven-one-new)
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; echo "$RC" > "$T/rcn"; printf '%s' "$OUT" > "$T/outn" )
+{ [ "$(cat "$T/rcn")" = 0 ] && grep -q "STILL FAILING (reported): no Vercel token" "$T/outn"; } \
+  && pass "6771: a new merge without the token: still green with STILL FAILING (red once a day, not once a sha)" || bad "6771 new sha re-red (rc=$(cat "$T/rcn")): $(cat "$T/outn")"
 grep -qx "value vercel-chaoskosmos-site" "$SECLOG" && pass "6771: the token is asked for by its secrets target, with the value accessor" || bad "6771: secrets asked with: $(cat "$SECLOG" 2>/dev/null)"
 ( unset VERCEL_TOKEN; SEC_TOKEN=from-the-map KOSMOS_AUTODEPLOY_SECRETS="$SEC" KOSMOS_AUTODEPLOY_DEPLOY='printf %s "$VERCEL_TOKEN" > '"$TOKSEEN"'; git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS" tick; echo "$RC" > "$T/rc3" )
-{ [ "$(cat "$T/rc3")" = 0 ] && [ "$(cat "$TOKSEEN" 2>/dev/null)" = from-the-map ] && [ "$(cat "$ST/last-deployed")" = "$H6771" ]; } \
+{ [ "$(cat "$T/rc3")" = 0 ] && [ "$(cat "$TOKSEEN" 2>/dev/null)" = from-the-map ] && [ "$(cat "$ST/last-deployed")" = "$H6771n" ]; } \
   && pass "6771: once the token is filed, the next tick deploys with it in VERCEL_TOKEN" || bad "6771 filed token (rc=$(cat "$T/rc3")): saw '$(cat "$TOKSEEN" 2>/dev/null)'"
 H6771b=$(advance six-seven-seven-one-b); : > "$SECLOG"
 KOSMOS_AUTODEPLOY_SECRETS="$SEC" KOSMOS_AUTODEPLOY_DEPLOY='printf %s "$VERCEL_TOKEN" > '"$TOKSEEN"'; git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS" tick
