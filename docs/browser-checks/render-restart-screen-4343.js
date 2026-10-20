@@ -365,8 +365,8 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     // The worst case: up to one 5 s poll before the first frozen request, its limit, then the wait,
     // which the next failing poll (every 5 s) crosses. So limit + wait + two polls, plus page slack.
     // kosmos#6721: the FIRST unanswered poll now only says Reconnecting and paints no failure, so the failure (and
-    // this screen) starts one poll cycle later: one more poll gap (5 s) and its limit.
-    const bound = limits.poll + limits.wait + 10000 + (5000 + limits.poll) + 1500;
+    // this screen) starts one poll later: the second miss comes one 5 s poll gap after the first.
+    const bound = limits.poll + limits.wait + 10000 + 5000 + 1500;
     ok('[frozen] a board that accepts the connection and never answers gets the restart screen', drawn, 'waited ' + took + ' ms');
     ok('[frozen] and within the poll limit + the wait + two polls + one more for the first-miss grace (' + bound + ' ms)', drawn && took <= bound, took + ' ms');
     // What the board underneath says: a plain sentence, never the browser's own abort text.

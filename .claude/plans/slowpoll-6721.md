@@ -38,3 +38,16 @@ design). The slow log records what the board answered slowly; it cannot see a re
 - Browser checks: render-offline-note (killed board: Reconnecting first, note second, Reconnecting gone), 
   render-phone-offline-718 (waits for two polls) 19/19, render-restart-screen-4343 (bound + one poll cycle) 78/78,
   render-agent-sort-4428 40/40.
+
+## Round 1 (opus): 1 blocker, 4 warnings, 3 nits, all addressed
+- BLOCKER: the slow line logged the whole path, and a webhook call carries its secret IN the path (/hooks/<id>/<secret>).
+  FIXED: gateLog's redaction is now one function, safeLogUrl, used by both logs; a test sends slow webhook calls in four
+  spellings and the secret never reaches the line (CONTROL: a settings route under "webhooks" keeps its path).
+- WARNING: nothing tested that an answered poll resets the count. FIXED as a source pin (the success path needs a whole
+  status body to run lifted; the pin says so): BOARD_MISSES = 0 and paintReconnecting(false) right after BOARD_LOOKED.
+- WARNING: var(--muted) is not defined, so the fallback failed contrast. FIXED: var(--k-ink-2), the page's muted ink.
+- WARNING: a revealed live region is often not announced. FIXED: always present, its TEXT changes.
+- WARNING: the restart screen now starts one poll later; the comment and the check's bound were off. FIXED: the comment
+  says so; the bound adds one 5 s poll gap, not gap plus limit.
+- NITs FIXED: "closed before an answer" (the server can close too); the comment admits piped downloads can log as slow;
+  no Reconnecting during a restart the person asked for.

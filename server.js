@@ -5603,6 +5603,30 @@ const { bindHost } = require('./engine/bindhost');
 const GATE_LOG = process.env.KOSMOS_INSTALL_GATE === '1' || process.env.KOSMOS_INSTALL_GATE_LOG
   ? (process.env.KOSMOS_INSTALL_GATE_LOG || path.join(os.homedir(), '.claude', 'logs', 'install-gate-requests.log'))
   : null;
+/* #1946/#2029/#1307: a request target as a log may carry it: the token and boot query values redacted, and a webhook
+   call's secret path (/hooks/<id>/<secret>) cut after "hooks". gateLog and the kosmos#6721 slow-request line share it,
+   so a second log cannot leak what the first one learned to hide. */
+function safeLogUrl(url) {
+  const queryless = String(url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED');
+  /* Everything after "hooks", in any spelling: an absolute-form target, a backslash, or dot
+     segments (/hooks/./<id>/<secret>) all reach the route, so no pattern for the secret's exact
+     position is safe. A webhook call logs as .../hooks/REDACTED. But when the path only names hooks
+     once DECODED (/%68ooks/...), or the text before the first literal "hooks" holds any escape, or
+     it cannot be decoded at all, the first literal "hooks" may sit INSIDE the secret, so the whole
+     path is redacted instead. Over-redacting is the safe direction here. */
+  // "hooks" as a whole path SEGMENT (after / or a backslash): the settings routes' .../webhooks/...
+  // carry no secret and are logged as they are.
+  const seg = /(^|[/\\])hooks(?=[/\\?#]|$)/i;
+  let decoded = null;
+  try { decoded = decodeURIComponent(queryless); } catch { /* undecodable: redacted whole below */ }
+  const hit = seg.exec(queryless);
+  const at = hit ? hit.index + hit[1].length : -1;
+  return decoded === null ? '/REDACTED'
+    : !seg.test(decoded) ? queryless
+      : at >= 0 && !queryless.slice(0, at).includes('%') ? queryless.slice(0, at + 5) + '/REDACTED'
+        : '/REDACTED';
+}
+
 function gateLog(req) {
   if (!GATE_LOG) return;
   try {
@@ -5619,24 +5643,7 @@ function gateLog(req) {
     // and not the one beside it stops being harmless the moment the nonce's
     // lifetime or reusability changes, and nothing else recorded the omission.
     // #1307: a webhook call carries its secret in the PATH (/hooks/<id>/<secret>), redacted too.
-    const queryless = String(req.url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED');
-    /* Everything after "hooks", in any spelling: an absolute-form target, a backslash, or dot
-       segments (/hooks/./<id>/<secret>) all reach the route, so no pattern for the secret's exact
-       position is safe. A webhook call logs as .../hooks/REDACTED. But when the path only names hooks
-       once DECODED (/%68ooks/...), or the text before the first literal "hooks" holds any escape, or
-       it cannot be decoded at all, the first literal "hooks" may sit INSIDE the secret, so the whole
-       path is redacted instead. Over-redacting is the safe direction here. */
-    // "hooks" as a whole path SEGMENT (after / or a backslash): the settings routes' .../webhooks/...
-    // carry no secret and are logged as they are.
-    const seg = /(^|[/\\])hooks(?=[/\\?#]|$)/i;
-    let decoded = null;
-    try { decoded = decodeURIComponent(queryless); } catch { /* undecodable: redacted whole below */ }
-    const hit = seg.exec(queryless);
-    const at = hit ? hit.index + hit[1].length : -1;
-    const safeUrl = decoded === null ? '/REDACTED'
-      : !seg.test(decoded) ? queryless
-        : at >= 0 && !queryless.slice(0, at).includes('%') ? queryless.slice(0, at + 5) + '/REDACTED'
-          : '/REDACTED';
+    const safeUrl = safeLogUrl(req.url);
     fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${safeUrl} ${ua}\n`);
   } catch { /* the instrument never becomes the defect */ }
 }
@@ -5691,9 +5698,10 @@ function setupGuideFailing() {
 
 /* kosmos#6721: a request this board answers slowly, or never, is logged with its method, path and duration, so the
    next "Your Mac is not answering" can be measured rather than inferred (on 10-20 the relay, the tunnel and the
-   coordinator were all up and nothing on this computer said why one poll went unanswered for 10 s). The path only,
-   never the query (#1946/#2029: a query can carry a token). No route here streams or long-polls, so any request past
-   the threshold is worth a line. `now` and `write` are seams for the tests. */
+   coordinator were all up and nothing on this computer said why one poll went unanswered for 10 s). The target goes
+   through safeLogUrl (gateLog's redaction: tokens, and a webhook's secret path) and the query is dropped. No route
+   long-polls; downloads and pictures are piped, so a large one over a slow link logs as slow too, which is honest.
+   `now` and `write` are seams for the tests. */
 const SLOW_REQUEST_MS = (() => { const v = Number(process.env.KOSMOS_SLOW_REQUEST_MS); return Number.isFinite(v) && v > 0 ? v : 5000; })();
 function watchSlowRequest(req, res, pathname, opts) {
   const o = opts || {};
@@ -5707,8 +5715,8 @@ function watchSlowRequest(req, res, pathname, opts) {
     said = true;
     const ms = now() - t0;
     if (ms < limit) return;
-    const how = res.writableFinished ? 'answered ' + res.statusCode : 'the browser gave up before an answer';
-    try { write('[slow request] ' + String(req.method || '-') + ' ' + String(pathname).replace(/[\r\n\t]+/g, ' ') + ' took ' + (ms / 1000).toFixed(1) + ' s (' + how + ')\n'); }
+    const how = res.writableFinished ? 'answered ' + res.statusCode : 'closed before an answer';
+    try { write('[slow request] ' + String(req.method || '-') + ' ' + safeLogUrl(req.url || pathname).split(/[?#]/)[0].replace(/[\r\n\t]+/g, ' ') + ' took ' + (ms / 1000).toFixed(1) + ' s (' + how + ')\n'); }
     catch { /* a log line never stops a response */ }
   };
   res.on('finish', say);
@@ -25483,7 +25491,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
-  watchSlowRequest, SLOW_REQUEST_MS, // kosmos#6721: the slow-request log, for its test
+  watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up

@@ -22,7 +22,7 @@ process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.KOSMOS_SLOW_REQUEST_MS = '1';   // read when server.js loads: every real request below is "slow"
 
-const { start, server, watchSlowRequest, SLOW_REQUEST_MS } = require('./server');
+const { start, server, watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl } = require('./server');
 
 test.after(() => { server.close(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
@@ -54,7 +54,7 @@ test('#6721: a request the browser gave up on before an answer is logged as that
   watchSlowRequest(req, res, '/api/status', { now: () => t, write: (l) => lines.push(l), limitMs: 5000 });
   t += 10000;
   res.emit('close');   // closed with nothing finished: the client's 10 s limit hit first
-  assert.deepEqual(lines, ['[slow request] GET /api/status took 10.0 s (the browser gave up before an answer)\n']);
+  assert.deepEqual(lines, ['[slow request] GET /api/status took 10.0 s (closed before an answer)\n']);
 });
 
 test('#6721 CONTROL: a request under the limit writes nothing', () => {
@@ -105,4 +105,21 @@ test('#6721: the real board logs a request past the limit, by path and never wit
   assert.equal(mine.length, 1, 'the request was not logged: ' + JSON.stringify(lines));
   assert.match(mine[0], /^\[slow request\] GET \/api\/health took \d+\.\d s \(answered 200\)\n$/);
   assert.ok(!lines.join('').includes('SECRET_6721'), 'the query reached the log');
+});
+
+test('#6721 (review 1): a slow webhook call never logs its secret, whichever way the path is spelled', () => {
+  const secret = 'S3CRET6721abcdefghijklmnopqrstuvwxyz0123456';
+  for (const url of ['/hooks/proj1/' + secret, '/hooks/./proj1/' + secret, '/%68ooks/proj1/' + secret, '/hooks/proj1/' + secret + '?token=T0K']) {
+    const req = { method: 'POST', url };
+    const res = new EventEmitter();
+    res.statusCode = 204; res.writableFinished = true;
+    let t = 0; const lines = [];
+    watchSlowRequest(req, res, url, { now: () => t, write: (l) => lines.push(l), limitMs: 1 });
+    t += 6000; res.emit('finish');
+    assert.equal(lines.length, 1, url);
+    assert.ok(!lines[0].includes(secret) && !lines[0].includes('T0K'), 'the secret reached the log: ' + lines[0]);
+  }
+  // CONTROL: gateLog's rule is the one applied (a settings route under "webhooks" keeps its path).
+  assert.equal(safeLogUrl('/api/project/p1/webhooks'), '/api/project/p1/webhooks');
+  assert.equal(safeLogUrl('/hooks/p1/' + secret), '/hooks/REDACTED');
 });

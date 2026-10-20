@@ -426,8 +426,7 @@ header > .tabs      { justify-self: center; }
 header > .headright { justify-self: end; }
 .headright { display: flex; align-items: baseline; gap: var(--space-5); }
 /* kosmos#6721: small and quiet; it says a moment's wait, not an outage. */
-.hdr-reconnect { font-size: .8125rem; color: var(--muted, #8a8f98); white-space: nowrap; }
-.hdr-reconnect[hidden] { display: none; }
+.hdr-reconnect { font-size: .8125rem; color: var(--k-ink-2); white-space: nowrap; }
 h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* The pack's stamp: an uppercase chrome label over a promoted bold line.
    The stale/failed variants are the app's honest extras (the pack draws
@@ -12578,7 +12577,7 @@ window.kosmosMeasureScrollbarWidth();
     <!-- #3755 (Josh 2026-09-25 11:07): no "?" beside the name. The tips show once each, by themselves;
          "Stop showing tips" and the Settings switch are the controls. -->
     <!-- kosmos#6721: one unanswered status poll says this, small, instead of the full "not answering" card. -->
-    <span class="hdr-reconnect" id="hdr-reconnect" role="status" aria-live="polite" hidden>Reconnecting…</span>
+    <span class="hdr-reconnect" id="hdr-reconnect" role="status" aria-live="polite"></span>
     <div class="userpop" id="userpop">
       <!-- #3051: NO aria-label. The accessible name derives from the visible name
            (#userpop-name; the avatar and chevron are aria-hidden), so it satisfies
@@ -24539,7 +24538,8 @@ const RESTART_SCREEN_AFTER_MS = 15000;
    answer inside this long counts as no answer. 10 s is the Windows launcher's own "stuck" limit (per
    #4543, Homer's launcher half, branch win-launcher-stuck-4543); any
    HTTP answer at all, even a refusal, still counts as the board answering. So a frozen board shows the
-   screen after about 10 s + RESTART_SCREEN_AFTER_MS; a board answering inside 10 s is never counted
+   screen after about 10 s + RESTART_SCREEN_AFTER_MS, plus one poll (kosmos#6721: the first miss only says Reconnecting,
+   so the clock starts at the second); a board answering inside 10 s is never counted
    down. (One whose every answer takes longer than 10 s would be: the premise is that a working board
    answers /api/status in well under that.) */
 const STATUS_POLL_TIMEOUT_MS = 10000;
@@ -25613,7 +25613,8 @@ async function tick() {
     if (answered) BOARD_MISSES = 0;
     else if (BOARD_LOOKED && !deviceOffline()) {
       BOARD_MISSES++;
-      if (BOARD_MISSES < 2) { paintReconnecting(true); return; }
+      // During a restart the person asked for, the board's own screens say so; no Reconnecting over them.
+      if (BOARD_MISSES < 2) { if (!(typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)) paintReconnecting(true); return; }
     }
     paintReconnecting(false);
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
@@ -38943,8 +38944,10 @@ let BOARD_DEVICE_OFFLINE = false;
    showed and the header says Reconnecting. The second in a row is the full failure, as before. */
 let BOARD_MISSES = 0;
 function paintReconnecting(on) {
+  /* The live region is always there and its TEXT changes, which screen readers announce (a revealed node often is not). */
   const el = document.getElementById('hdr-reconnect');
-  if (el && el.hidden === Boolean(on)) el.hidden = !on;
+  const want = on ? 'Reconnecting\u2026' : '';
+  if (el && el.textContent !== want) el.textContent = want;
 }
 function deviceOffline() {
   return kplusRemote() && typeof navigator !== 'undefined' && navigator.onLine === false;

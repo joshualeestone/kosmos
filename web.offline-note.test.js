@@ -420,3 +420,14 @@ test('#6721 CONTROL: before the board has ever answered, the first miss is the f
   await h.run(noAnswer);
   assert.deepEqual(h.painted, [true], 'with nothing on screen yet, a miss waited instead of saying so');
 });
+
+test('#6721 (review 1): a poll that answers resets the count and clears Reconnecting (pinned in the success path)', () => {
+  /* The success path needs a whole status body to run through the lifted tick, so this pins its two lines where they
+     must sit: right after BOARD_LOOKED is set. Deleting either leaves a recovered board one miss from the full card. */
+  const body = page.lift(SCRIPT, 'tick');
+  const at = body.indexOf('BOARD_LOOKED = true;');
+  assert.ok(at > 0, 'the success path no longer sets BOARD_LOOKED');
+  const after = body.slice(at, at + 200);
+  assert.match(after, /BOARD_MISSES = 0;/, 'a poll that answered no longer resets the miss count');
+  assert.match(after, /paintReconnecting\(false\)/, 'a poll that answered no longer clears Reconnecting');
+});
