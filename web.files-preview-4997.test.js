@@ -77,7 +77,7 @@ test('#6724: a text file opens the preview, read from the Files preview route (C
   assert.equal(fn(row('reports/notes.txt'), { agent: 'ava' }, plain), true);
   const a = PV_ATTS.get('files-preview');
   assert.equal(a.kind, 'text');
-  assert.equal(a.textUrl, '/api/agent/ava/files/preview?name=' + encodeURIComponent('reports/notes.txt'), 'the text is read only through textUrl (iteration 6)');
+  assert.deepEqual(a.textOf, { kind: 'agent', owner: 'ava', name: 'reports/notes.txt' }, 'the text is read only through textOf (iterations 6, 10)');
   assert.equal(a.name, 'notes.txt', 'the preview names the file, not its path');
   assert.equal(lift().fn(row('notes.txt'), { agent: 'ava' }, { button: 0, metaKey: true }), false, 'CONTROL');
 });

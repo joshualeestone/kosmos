@@ -70347,8 +70347,8 @@ function pvOpen(id, from) {
        type the server cannot preview) shows the file's card instead of a broken image on the whole screen. */
     img.addEventListener('error', () => { stage.textContent = ''; stage.appendChild(fileCard()); }, { once: true });
     pvZoomFrom(img, from);
-  } else if (how === 'textUrl') {
-    pvTextInto(stage, a.textUrl, fileCard);   // #6724: a Files-list text file
+  } else if (how === 'textOf') {
+    pvTextInto(stage, a.textOf, fileCard);   // #6724: a Files-list text file
   } else if (how === 'snippet') {
     const pre = document.createElement('pre');
     pre.className = 'pv-text';
@@ -70392,25 +70392,31 @@ function pvOpen(id, from) {
   return true;
 }
 /* What the preview's stage shows for a record. #6724 iteration 6: a text file is READ FROM THE BOARD only by an explicit
-   `textUrl`, which only the Files lists set (filesPvOpen) and which must name a Files route. An attachment's `preview`
+   `textOf` (which list, whose, the listed name; iteration 10: pvTextInto writes the address itself), which only the Files
+   lists set (filesPvOpen). An attachment's `preview`
    is the file's own first words, untrusted text, so it is never taken as an address (a file that begins "/api/..."
    must not make the viewer's browser fetch that path); as before, such a snippet shows the file's card. */
 function pvStageKind(a) {
   if (!a) return 'card';
   if ((a.kind === 'image' || a.kind === 'pdf') && a.preview && /^\/api\//.test(a.preview)) return 'media';
-  if (a.kind === 'text' && typeof a.textUrl === 'string' && /^\/api\/(agent\/[^/]+\/files\/preview|project\/[^/]+\/file-preview)\?name=/.test(a.textUrl)) return 'textUrl';
+  if (a.kind === 'text' && a.textOf && (a.textOf.kind === 'agent' || a.textOf.kind === 'project') && a.textOf.owner && a.textOf.name) return 'textOf';
   if (a.kind === 'text' && typeof a.preview === 'string' && a.preview && !/^\/api\//.test(a.preview)) return 'snippet';
   return 'card';
 }
 /* #6724: a Files-list text file in the preview: its start, read from the board's preview route (plain text, never
    markup), with a note when the file goes on past what is shown. One that will not read shows the file's card. An
    answer that arrives after the preview closed writes nothing. */
-function pvTextInto(stage, url, fileCard) {
+function pvTextInto(stage, of, fileCard) {
   const pre = document.createElement('pre');
   pre.className = 'pv-text';
   pre.textContent = 'Reading…';
   stage.appendChild(pre);
-  return fetch(url, { cache: 'no-store' }).then(async (res) => {
+  /* Iteration 10: the two addresses are written out here, once each, so the route test (#3957) reads them, as
+     kplusDownload's are; `of` names the file, never an address. */
+  const asked = of.kind === 'agent'
+    ? fetch('/api/agent/' + encodeURIComponent(of.owner) + '/files/preview?name=' + encodeURIComponent(of.name), { cache: 'no-store' })
+    : fetch('/api/project/' + encodeURIComponent(of.owner) + '/file-preview?name=' + encodeURIComponent(of.name), { cache: 'no-store' });
+  return asked.then(async (res) => {
     if (!res.ok) throw new Error('no preview');
     const text = await res.text();
     if (!document.contains(pre)) return;
@@ -70492,7 +70498,8 @@ function filesPvOpen(row, where, e) {
   PV_ATTS.set(FILES_PV_ID, {
     id: FILES_PV_ID, name: shown, kind, meta: sizeEl ? sizeEl.textContent : '',
     url: base.download + q, preview: base.preview + q,
-    textUrl: kind === 'text' ? base.preview + q : undefined,   // #6724: the only way a text preview is fetched (pvStageKind)
+    // #6724: the only way a text preview is fetched (pvStageKind): which list, whose, and the listed name. Never an address.
+    textOf: kind === 'text' ? { kind: where.agent ? 'agent' : 'project', owner: where.agent || where.project, name } : undefined,
     download: () => kplusDownload(where.agent ? 'agent' : 'project', where.agent || where.project, name,
       kplusSayer(document.getElementById('pv-msg'), () => !!document.getElementById('pv-msg'))),
     reveal: async () => {
