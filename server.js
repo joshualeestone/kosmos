@@ -1702,6 +1702,7 @@ const messages = require('./engine/messages');
 const unfurl = require('./engine/unfurl');
 const attachments = require('./engine/attachments');
 const filepreview = require('./engine/filepreview');   // #4997: the preview for a file in a Files list
+const zipwrite = require('./engine/zipwrite');   // #6724: a folder of an agent's Files, downloaded as one zip
 // #3485: the community feed's board->feed choke (feedguard scrub -> trust -> store).
 // The ONE primitive both the agent/board routes below and the community-site routes
 // call, so no content of any origin reaches communitystore un-scrubbed.
@@ -3442,6 +3443,12 @@ function withCreatorLock(creator, fn) {
  * folder of thousands costs that on each 5-second poll. Reversible. */
 const AGENT_FILES_DEFAULT_CAP = 20;
 const AGENT_FILES_MAX_CAP = 500;
+/* #6724: how deep the in-app browser of an agent's Files goes (folders below Files), and so how deep its preview,
+   download and folder zip reach: any file the browser shows, and nothing it does not. The glance list stays flat. */
+const AGENT_BROWSE_DEPTH = 8;
+/* #6724: a folder downloaded as one zip: refused, with the reason, past these (stored entries, no ZIP64). */
+const FOLDER_ZIP_MAX_FILES = 2000;
+const FOLDER_ZIP_MAX_BYTES = 1024 * 1024 * 1024;
 
 /* #3739: mark the setup guide's row, stated on every row (`isGuide`), and give it its title. Before its first
    session its model is unread and its job may name none (it starts on Claude's own default), so it says so
@@ -4922,15 +4929,18 @@ function refuseDownload(req, res, because, status = 404) {
   }
   sendJson(res, status, { ok: false, because });
 }
+/* An ASCII filename= for clients that do not read filename*, then the exact name as RFC 5987 (encodeURIComponent
+   leaves ' ( ) * ! as they are, and its attr-char set does not allow them). */
+function attachmentDisposition(base) {
+  return 'attachment; filename="' + base.replace(/[^\x20-\x7e]|["\\]/g, '_') + '"; filename*=UTF-8\'\''
+    + encodeURIComponent(base).replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+}
 function sendFileDownload(req, res, found, recheck) {
   const checkOnly = isDownloadCheck(req);
   const base = path.basename(found.given);
   const headersFor = (size) => ({
     'content-type': 'application/octet-stream', 'content-length': size, 'x-content-type-options': 'nosniff',
-    /* An ASCII filename= for clients that do not read filename*, then the exact name as RFC 5987 (encodeURIComponent
-       leaves ' ( ) * ! as they are, and its attr-char set does not allow them). */
-    'content-disposition': 'attachment; filename="' + base.replace(/[^\x20-\x7e]|["\\]/g, '_') + '"; filename*=UTF-8\'\''
-      + encodeURIComponent(base).replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()),
+    'content-disposition': attachmentDisposition(base),
     'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
   });
   // #4997: O_NOFOLLOW (a file swapped for a link after the gates is refused, not followed; undefined on win32, where
@@ -4955,6 +4965,102 @@ function sendFileDownload(req, res, found, recheck) {
       require('node:stream').pipeline(stream, res, () => {});
     });
   });
+}
+
+/* #6724: a folder of an agent's Files, downloaded as one zip (over Kosmos+ the person is on another device, and Finder
+   would open on the board's computer). The folder is named by its browsed path in ?dir= ('' is all of Files) and walked
+   by the browser's own rules (projects.walkListedDir: no link, no hidden or skipped name, the depth cap, bounded in
+   files and bytes before any byte is sent). The zip holds the folder itself as its one top-level folder. Every folder
+   and file is gated AGAIN as it is written (resolveListedDir, resolveListedFile in listed mode) and every file read from
+   ONE O_NOFOLLOW handle checked with sameOpenedFile. Entries are stored, so the zip's length is known and sent: a file
+   that changed size, or whose bytes changed between the CRC pass and the send, ends the connection (never a zip that
+   says one thing and holds another). Refusals are refuseDownload's, so a browser never saves one as the zip; ?check=1
+   is the page's look. Cross-site reads are refused (crossSiteRead), as the file download's are. */
+const ZIP_CHUNK = 1024 * 1024;
+function sendFolderZip(req, res, folder, rel, where, opts) {
+  const refusedRead = crossSiteRead(req);
+  if (refusedRead) { refuseDownload(req, res, refusedRead, 403); return; }
+  const maxDepth = opts.maxDepth;
+  const walk = projects.walkListedDir(folder, rel, where, { maxDepth, maxFiles: FOLDER_ZIP_MAX_FILES, maxBytes: FOLDER_ZIP_MAX_BYTES });
+  if (!walk.ok) { refuseDownload(req, res, walk.because, walk.tooBig ? 413 : 404); return; }
+  const top = walk.dir ? walk.dir.split('/').pop() : 'Files';
+  const inZip = (n) => top + '/' + (walk.dir ? n.slice(walk.dir.length + 1) : n);
+  const now = new Date();
+  const entries = [{ name: top, isDir: true, mtime: now }]
+    .concat(walk.dirs.map((d) => ({ name: inZip(d), isDir: true, rel: d, mtime: now })))
+    .concat(walk.files.map((f) => ({ name: inZip(f.name), isDir: false, rel: f.name, size: f.size, st: f.st, mtime: f.st.mtime })));
+  let length;
+  try { length = zipwrite.zipLength(entries); } catch { refuseDownload(req, res, 'that folder cannot be put into one zip', 413); return; }
+  if (isDownloadCheck(req)) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
+  res.writeHead(200, {
+    'content-type': 'application/zip', 'content-length': length, 'x-content-type-options': 'nosniff',
+    'content-disposition': attachmentDisposition(top + '.zip'),
+    'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
+  });
+  if (req.method === 'HEAD') { res.end(); return; }
+  writeZipEntries(res, folder, where, maxDepth, entries).catch(() => { if (!res.destroyed) res.destroy(); });
+}
+async function writeZipEntries(res, folder, where, maxDepth, entries) {
+  const zlib = require('node:zlib');
+  const changed = () => new Error('that folder changed while it was being downloaded');
+  // One write at a time, waiting for the socket to take it; a closed connection ends the walk.
+  const put = (buf) => new Promise((resolve, reject) => {
+    if (res.destroyed || res.writableEnded) { reject(new Error('the connection closed')); return; }
+    const gone = () => reject(new Error('the connection closed'));
+    res.once('close', gone);
+    const done = () => { res.removeListener('close', gone); resolve(); };
+    if (res.write(buf)) done(); else res.once('drain', done);
+  });
+  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
+  const central = [];
+  let offset = 0;
+  for (const e of entries) {
+    if (e.isDir) {
+      if (e.rel !== undefined && !projects.resolveListedDir(folder, e.rel, where, { maxDepth }).ok) throw changed();
+      const h = zipwrite.localHeader(e);
+      await put(h);
+      central.push(zipwrite.centralRecord(e, offset));
+      offset += h.length;
+      continue;
+    }
+    const gate = filepreview.resolve(folder, e.rel, where, { maxDepth, act: 'download' });
+    if (!gate.ok || !projects.sameOpenedFile(e.st, gate.st) || gate.st.size !== e.size) throw changed();
+    const fh = await fs.promises.open(gate.target, flags);
+    try {
+      const st = await fh.stat();
+      if (!projects.sameOpenedFile(gate.st, st) || st.size !== e.size) throw changed();
+      // The CRC first (the local header carries it), then the bytes, CRC'd again: a file rewritten in between is caught.
+      const scratch = Buffer.alloc(Math.min(ZIP_CHUNK, Math.max(1, e.size)));
+      let crc = 0;
+      for (let pos = 0; pos < e.size;) {
+        const { bytesRead } = await fh.read(scratch, 0, Math.min(scratch.length, e.size - pos), pos);
+        if (bytesRead <= 0) throw changed();
+        crc = zlib.crc32(scratch.subarray(0, bytesRead), crc);
+        pos += bytesRead;
+      }
+      const entry = { ...e, crc };
+      const h = zipwrite.localHeader(entry);
+      await put(h);
+      let again = 0;
+      for (let pos = 0; pos < e.size;) {
+        const chunk = Buffer.alloc(Math.min(ZIP_CHUNK, e.size - pos));   // its own buffer: the socket may hold it
+        const { bytesRead } = await fh.read(chunk, 0, chunk.length, pos);
+        if (bytesRead !== chunk.length) throw changed();
+        again = zlib.crc32(chunk, again);
+        await put(chunk);
+        pos += bytesRead;
+      }
+      if (again !== crc) throw changed();
+      central.push(zipwrite.centralRecord(entry, offset));
+      offset += h.length + e.size;
+    } finally {
+      await fh.close().catch(() => {});
+    }
+  }
+  const cd = Buffer.concat(central);
+  await put(cd);
+  await put(zipwrite.endRecord(entries.length, cd.length, offset));
+  res.end();
 }
 
 /* #4997: the full-page preview for a file in a Files list (an agent's Files folder, a project's folder). The file is
@@ -4997,7 +5103,8 @@ function listedFileVerb(req, res, verb, folder, where, opts) {
   const sandbox = "default-src 'none'; sandbox";
   filepreview.preview(folder, named, where, opts).then((pv) => {
     if (!pv.ok) { sendJson(res, 404, { ok: false, because: pv.because }); return; }
-    res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, no-cache', 'x-content-type-options': 'nosniff', 'content-security-policy': sandbox });
+    // #6724: a text preview is the START of the file; the page says so when it was cut.
+    res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, no-cache', 'x-content-type-options': 'nosniff', 'content-security-policy': sandbox, ...(pv.cut ? { 'x-kosmos-preview-cut': '1' } : {}) });
     res.end(req.method === 'HEAD' ? undefined : pv.bytes);
   }).catch(() => sendJson(res, 404, { ok: false, because: 'this computer could not draw that file' }));
   return true;
@@ -7679,11 +7786,14 @@ const server = http.createServer(async (req, res) => {
      #2245, a relative path; the target must resolve inside the folder), revealFolder (Finder, or File Explorer on Windows), and (#4997) preview,
      download and reveal-file for the full-page preview (listedFileVerb: only a file the flat list would show). A Files folder that does not
      exist yet is the EMPTY state, not an error: nothing has been saved there. */
-  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal|preview|download|reveal-file))?$/);
+  /* #6724: browse (one level of Files or a folder in it, ?dir=) and download-folder (that folder as one zip) are the
+     in-app browser, for a person viewing the board from another computer, where Finder opens on the far Mac. Both
+     resolve the folder by projects.resolveListedDir (the list's rules, for a folder) and take no path from the request. */
+  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal|preview|download|reveal-file|browse|download-folder))?$/);
   if (agentFiles) {
     const name = decodeSegment(agentFiles[1]);
     // #5165: a refusal of a download goes through refuseDownload, so a browser's download never saves it as the file.
-    const refuse = (status, because) => (agentFiles[2] === 'download' && (req.method === 'GET' || req.method === 'HEAD')
+    const refuse = (status, because) => ((agentFiles[2] === 'download' || agentFiles[2] === 'download-folder') && (req.method === 'GET' || req.method === 'HEAD')
       ? refuseDownload(req, res, because, status) : sendJson(res, status, { ok: false, because }));
     if (name === null) { refuse(400, 'that is not a name we can read'); return; }
     // The folder is dmfiles.filesDir (beside the agent's own instructions file), and the agent's
@@ -7723,7 +7833,27 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { ...listed, folder });
       return;
     }
-    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: 0, owner: { kind: 'agent', id: name } })) return;   // flat, as the list
+    const browsing = verb === 'browse' || verb === 'download-folder';
+    if (browsing && (req.method === 'GET' || req.method === 'HEAD')) {
+      let dir = '';
+      try { dir = new URL(req.url, ROUTING_BASE).searchParams.get('dir') || ''; } catch { dir = ''; }
+      if (verb === 'download-folder') {
+        sendFolderZip(req, res, folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH });
+        return;
+      }
+      const refusedRead = crossSiteRead(req);
+      if (refusedRead) { sendJson(res, 403, { ok: false, because: refusedRead }); return; }
+      // Not made yet is the empty state at the top, as the list's; below the top a missing folder is gone.
+      if (!dir && projects.folderState(folder).state === projects.FOLDER.MISSING) {
+        sendJson(res, 200, { ok: true, missing: true, dir: '', dirs: [], files: [], stamp: 'missing' });
+        return;
+      }
+      const listed = projects.listDir(folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH });
+      sendJson(res, listed.ok ? 200 : 404, listed);
+      return;
+    }
+    // #6724: as deep as the browser goes, so any file it shows can be previewed and downloaded (it was flat, the list).
+    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH, owner: { kind: 'agent', id: name } })) return;
     if (verb === 'open' && req.method === 'POST') {
       readBody(req)
         .then((buf) => {
@@ -7760,7 +7890,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'the folder did not open' });
       return;
     }
-    sendJson(res, 405, { ok: false, because: verb ? ((verb === 'preview' || verb === 'download') ? 'use GET for that' : 'use POST for that') : 'the Files list is read-only; use open, reveal, preview, download or reveal-file' });
+    sendJson(res, 405, { ok: false, because: verb ? ((verb === 'preview' || verb === 'download' || browsing) ? 'use GET for that' : 'use POST for that') : 'the Files list is read-only; use open, reveal, preview, download, reveal-file, browse or download-folder' });
     return;
   }
   /* #5153 slice 3: an agent's change receipts, newest close first (engine/receipt.js forAgent): the closed tasks it held,
