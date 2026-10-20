@@ -35,11 +35,16 @@ test-restart-local-board.sh           # #6730 (timed ( sleep 11 ) fixture)
 test-site-autodeploy-5589.sh          # #6730 (many sleep 300 &, some command-under-test)
 test-stopmark-6651.sh                 # #6730 (sleep 300 & live)
 "
-allowlisted() { case "$ALLOWLIST" in *"
-$1 "*|*"
-$1"*) return 0 ;; esac
-  # tolerate trailing-comment lines: match the basename token at a line start
-  printf '%s\n' "$ALLOWLIST" | grep -Eq "^$1([[:space:]]|$)"; }
+allowlisted() {
+  local entry tok
+  while IFS= read -r entry; do
+    tok="${entry%%[[:space:]]*}"      # first token on the line = the basename (drops the trailing comment)
+    [ -n "$tok" ] && [ "$tok" = "$1" ] && return 0
+  done <<EOF
+$ALLOWLIST
+EOF
+  return 1
+}
 
 # _is_sleep_control <line>: exit 0 if the line is a banned long-lived bare-sleep control.
 _is_sleep_control() {
@@ -47,19 +52,24 @@ _is_sleep_control() {
   case "$line" in *'# sleep-control-ok'*) return 1 ;; esac          # author opt-out
   trimmed="${line#"${line%%[![:space:]]*}"}"                        # strip leading whitespace
   case "$trimmed" in '#'*) return 1 ;; esac                          # comment-only line
-  # a sleep with an integer arg, as a word (not --sleep, not display sleep/FX_SLEEP):
+  # Cheap precondition (keeps this aligned with the pre-filter): some integer sleep on the line,
+  # as a word (not --sleep, not displaysleep/FX_SLEEP).
   printf '%s' "$line" | grep -Eq '(^|[^-[:alnum:]_./"])sleep[[:space:]]+[0-9]' || return 1
-  printf '%s' "$line" | grep -Eq '(^|[^-[:alnum:]_./"])sleep[[:space:]]+[0-9]+\.' && return 1   # fractional pause
-  printf '%s' "$line" | grep -Eq '(^|[^-[:alnum:]_./"])sleep[[:space:]]+\$'       && return 1   # $var or $((...))
-  printf '%s' "$line" | grep -Eq '(^|[^-[:alnum:]_./"])sleep[[:space:]]+"'        && return 1   # "$n" quoted var
-  printf '%s' "$line" | grep -Eq '(^|[^-[:alnum:]_./"])sleep[[:space:]]+0([^.0-9]|$)' && return 1 # `sleep 0`: a zero-duration dead-pid fixture, not a persistent control
-  # persistent-process shapes:
-  printf '%s' "$line" | grep -Eq '(^|[^-[:alnum:]_])exec[[:space:]]+sleep[[:space:]]+[0-9]' && return 0   # exec'd (not exec -a)
-  printf '%s' "$line" | grep -Eq '\([[:space:]]*sleep[[:space:]]+[0-9]'                     && return 0   # ( sleep N subshell
+  # The persistent-CONTROL shapes. Each requires a COMPLETE integer >= 1 (`[1-9][0-9]*` not followed
+  # by `.` or another digit), which is what excludes a fractional pause (sleep 0.1), a zero-duration
+  # dead-pid fixture (sleep 0), an arithmetic length (sleep $((...))) and a variable arg (sleep "$n").
+  # Baking the exclusion INTO each shape (rather than a separate whole-line grep that returns early)
+  # is deliberate: a whole-line exclusion short-circuited a real control that shared a line with a
+  # pause, e.g. `( exec sleep 30 ) & p=$!; sleep 0.1` went unflagged (found in review). A match here
+  # is decisive regardless of any other sleep on the line.
+  printf '%s' "$line" | grep -Eq '(^|[^-[:alnum:]_])exec[[:space:]]+sleep[[:space:]]+[1-9][0-9]*([^.0-9]|$)' && return 0   # exec'd (not exec -a)
+  printf '%s' "$line" | grep -Eq '\([[:space:]]*sleep[[:space:]]+[1-9][0-9]*([^.0-9]|$)'                     && return 0   # ( sleep N subshell
   # backgrounded: the & directly follows the sleep (allowing redirections between), NOT merely any &
-  # elsewhere on the line (which over-flagged a brief pause / a perl-internal sleep that shared a line
-  # with an unrelated backgrounded job):
-  printf '%s' "$line" | grep -Eq 'sleep[[:space:]]+[0-9]+([[:space:]]+[0-9]*[<>][&]?[^[:space:]&]*)*[[:space:]]+&([^&]|$)' && return 0
+  # elsewhere on the line. Two forms: a space before & (the common case; requiring the space is what
+  # keeps the & inside `2>&1` from reading as a job-control &), and the no-space `sleep 30&` form
+  # (whose digit-before-& can never be the `>&` of a redirection).
+  printf '%s' "$line" | grep -Eq 'sleep[[:space:]]+[1-9][0-9]*([[:space:]]+[0-9]*[<>][&]?[^[:space:]&]*)*[[:space:]]+&([^&]|$)' && return 0
+  printf '%s' "$line" | grep -Eq 'sleep[[:space:]]+[1-9][0-9]*&([^&]|$)' && return 0
   return 1
 }
 
@@ -74,6 +84,8 @@ mustflag 'sleep 300 & echo "$!" >> "$W/ahead"'                    "a backgrounde
 mustflag "bash -c 'sleep 60 </dev/null >/dev/null 2>&1 & wait'"    "a backgrounded sleep inside a bash -c"
 mustflag 'sleep 3600 </dev/null >/dev/null 2>&1 & SUITE=$!'       "a long backgrounded sleep holder"
 mustflag '  set -m; sleep 30 </dev/null >/dev/null 2>&1 & SPG=$!; set +m' "a backgrounded sleep under set -m"
+mustflag '( exec sleep 30 ) & p=$!; sleep 0.1'                     "a persistent control sharing a line with a fractional pause"
+mustflag 'sleep 30& p=$!'                                          "a no-space backgrounded sleep"
 
 # --- must-ACCEPT: legitimate shapes the matcher must NOT flag -------------------------------------
 mustok() { _is_sleep_control "$1" && bad "FALSE FLAG (should accept): $2 [$1]" || ok "accepts: $2"; }
@@ -92,6 +104,7 @@ mustok 'o=$(... /bin/bash $QH "d" sleep 3 2>&1); until_true 20 ...' "an inline s
 mustok 'do sleep 5 </dev/null >/dev/null 2>&1; alive || exit 0; done' "an inline sleep whose only & is inside 2>&1 before a ;"
 mustok 'sleep 5 && echo done'                                       "an inline sleep followed by && (not a backgrounding &)"
 mustok 'sleep 0 & DEAD=$!; wait "$DEAD"'                            "a zero-duration dead-pid fixture"
+mustok 'start_helper & sleep 0.1'                                  "a fractional pause on a line with an unrelated background job"
 
 # --- the real scan: every tools/test-*.sh not allowlisted must carry no bare-sleep control --------
 scanned=0; clean=0
