@@ -1158,6 +1158,196 @@ function scheduleUnsentTail(target, card, id, chain, since, schedule) {
   });
 }
 
+/* kosmos#6717: text that has sat unsent in an idle Claude Code agent's input box for STUCK_INPUT_MS (the board's minute
+   sweep in server.js decides that from the card's unsentInput) is cleared by Kosmos, so the agent hears again:
+     - the board's own remembered line, and nothing else in the box (rememberedShows, exact): pressed, as a #6436 retry
+       presses it. This also covers a line remembered across a board restart, which gets no retries;
+     - anything else (the person's typing, another tool's paste, our line with anything added): saved as a draft for
+       the person FIRST (the draft saver, engine/unsentdrafts.js), and only once that is written, cleared. Never sent.
+   Ghost text never counts: the box is read with colours and dim runs are dropped (status.composerText). */
+const STUCK_INPUT_MS = 10 * 60 * 1000;
+/* Claude Code folds a long paste (or fast typing) into "[Pasted text #1]" and an image into "[Image #1]": the words
+   behind it are not on screen, so they cannot be saved, and clearing would lose them. Such a box is left as it is. */
+const STUCK_FOLDED = /\[(?:Pasted text|Image) #\d+[^\]]*\]/;
+/* A box whose start may be out of sight is left as it is: only part of it could be saved. Measured on Claude Code
+   2.1.304 (private tmux socket): a line pasted as Kosmos pastes it scrolls inside the box, which then draws its last 7
+   rows at every pane height tried (15, 24, 40, 60) with nothing on screen to say the start is hidden (as #6436 measured
+   on 2.1.302). So a box drawing 7 rows or more may be hiding its start. Text typed slowly grew the box instead (39 rows
+   at 80x24), but the screen cannot tell the two apart. */
+const STUCK_ROWS_MAX = 6;
+/* Measured on Claude Code 2.1.303: one round of Ctrl-E, Ctrl-U, Ctrl-K empties a row (Ctrl-U a row before the cursor,
+   Ctrl-K the line break after an emptied line, Ctrl-E first so a cursor left mid-line loses nothing to its right) and
+   does nothing on an empty box. Ctrl-Y gives the cleared text back. Not Ctrl-C: one press empties the box but arms
+   "Press Ctrl-C again to exit", so a person's Ctrl-C right after would end the agent. Not Escape twice: on an empty
+   box it opens the rewind menu. */
+const STUCK_CLEAR_KEYS = ['C-e', 'C-u', 'C-k'];
+let draftSaver = null;   // (sessionName, text, { since }) => { ok, id }; set by server.js, the test seam too
+function setDraftSaver(fn) { draftSaver = typeof fn === 'function' ? fn : null; }
+/* After a round of the clearing keys, is `now` what was there (`prev`, both squashed) with a run taken out of it? A round
+   empties the cursor's row, which can be the last, the first or one in the middle, so what is left keeps the start of
+   `prev` up to that row and its end after it: shorter, and covered by their common start plus their common end. Anything
+   else (a letter typed, a paste) is someone else's, and the clearing stops. */
+function stuckShrunk(prev, now) {
+  if (now.length >= prev.length) return false;
+  let p = 0;
+  while (p < now.length && prev[p] === now[p]) p += 1;
+  let q = 0;
+  while (q < now.length && prev[prev.length - 1 - q] === now[now.length - 1 - q]) q += 1;
+  return p + q >= now.length;
+}
+/* The board's remembered line went out with the box (its words, with the person's added, are in the draft): forgotten,
+   so no retry or delivery waits on a line that is no longer there. Only the line read at the decision (`kept`). */
+function forgetDraftedLine(target, kept) {
+  if (!kept) return;
+  const still = recallUnsent(target);
+  if (still && still.id === kept.id) forgetUnsent(target);
+}
+async function stuckPause(ms) {
+  if (pauser) await pauser(ms);
+  else if (!runner) await new Promise((resolve) => setTimeout(resolve, ms));
+}
+/**
+ * Answers { outcome, because? }: 'pressed' (the board's own line was sent), 'drafted' (saved, and the box read empty
+ * after clearing), 'drafted-not-cleared' (saved, but the box did not read empty, or changed under the clearing, which
+ * then stopped), 'left' (not ours and cannot be saved whole: kept in the box, `because` says why), or 'waiting' (not
+ * now: a gate, a delivery typing there, the box unread or changed; `because` names it). Never throws.
+ */
+async function recoverStuckInput(card, since) {
+  try {
+    if (!composerReadable(card) || !card.target || !card.sessionName) return { outcome: 'waiting', because: 'not a Claude Code box' };
+    const target = paneTarget(card);
+    if (deliveryQueues.has(target)) return { outcome: 'waiting', because: 'busy' };
+    const box = readComposer(target);
+    if (!box.ok) return { outcome: 'waiting', because: 'unread' };
+    if (!box.text) return { outcome: 'waiting', because: 'empty' };
+    const kept = recallUnsent(target);
+    if (kept && rememberedShows(box.text, kept, true)) {
+      /* Idle on the roster as it is now, not only as the sweep read it: an Enter on a busy agent would queue the line.
+         pressRememberedNow then passes every gate a #6436 retry passes (menu, account and quota holds, typingGate,
+         verifyAtSend). Not the open-terminal check of the draft path: this is Kosmos's own message, which a #6436 retry
+         would press with the window open too, and pressing it loses nothing. */
+      let fresh = null;
+      try { const r = rosterSource ? rosterSource() : null; fresh = Array.isArray(r) ? resolveCard(r, card.sessionName) : null; } catch { fresh = null; }
+      if (!fresh || fresh.state !== status.STATE.IDLE) return { outcome: 'waiting', because: 'not idle' };
+      const answer = await pressRememberedNow(target, card);
+      if (answer === 'sent') return { outcome: 'pressed' };
+      /* Enter went and the box still holds the line (Enter rebound, say): said once in the log and not pressed again by
+         this sweep for the same text (`giveUp`), so #6436's own retries, and their one-day bound, are all that press it. */
+      if (answer === 'unsent') return { outcome: 'left', giveUp: true, because: 'Enter on the line Kosmos had left there did not send it' };
+      return { outcome: 'waiting', because: answer };
+    }
+    if (STUCK_FOLDED.test(box.text)) return { outcome: 'left', because: 'it holds a pasted block or image whose words are not on screen' };
+    if ((box.rows || 0) > STUCK_ROWS_MAX) return { outcome: 'left', because: 'it is too long to read whole' };
+    /* Someone has this agent's terminal window open (an attached tmux client): the text in the box is in front of them,
+       and clearing it there would make words vanish under their hands with nothing on that screen to say where. */
+    const seen = tmux(['display-message', '-p', '-t', target, '#{session_attached}']);
+    if (!seen.ran || seen.status !== 0 || !/^\d+\s*$/.test(String(seen.out))) return { outcome: 'waiting', because: 'unread' };
+    if (Number(String(seen.out).trim()) > 0) return { outcome: 'left', because: 'its terminal window is open, so the person there can see it' };
+    if (!draftSaver) return { outcome: 'waiting', because: 'nowhere to save it' };
+    /* The holds a retry passes, on the roster as it is now, and the pane must still be this agent's, idle. */
+    let roster = null;
+    try { roster = rosterSource ? rosterSource() : null; } catch { roster = null; }
+    if (!Array.isArray(roster)) return { outcome: 'waiting', because: 'gate' };
+    const name = card.sessionName;
+    try {
+      if (menuHeldVerdict(name, roster) || accountHeldVerdict(name, roster) || quotaHeldVerdict(name, roster)) return { outcome: 'waiting', because: 'gate' };
+    } catch { return { outcome: 'waiting', because: 'gate' }; }
+    const allowed = addressable(name, roster);
+    if (!allowed.ok) return { outcome: 'waiting', because: 'gate' };
+    const nowCard = allowed.card;
+    if (paneTarget(nowCard) !== target || !composerReadable(nowCard)) return { outcome: 'waiting', because: 'pane' };
+    if (QMENU_BUSY.has(target)) return { outcome: 'waiting', because: 'gate' };
+    if (nowCard.state !== status.STATE.IDLE) return { outcome: 'waiting', because: 'not idle' };
+    let release = () => {};
+    const mark = new Promise((resolve) => { release = resolve; });
+    deliveryQueues.set(target, mark);   // no delivery pastes while this runs (deliver refuses, deliverAsync waits)
+    try {
+      const again = readComposer(target);
+      if (!again.ok) return { outcome: 'waiting', because: 'unread' };
+      if (squash(again.text) !== squash(box.text)) return { outcome: 'waiting', because: 'changed' };
+      if (!verifyAtSend(nowCard).ok) return { outcome: 'waiting', because: 'pane' };
+      let saved = null;
+      try { saved = draftSaver(name, again.text, { since: since || null }); } catch { saved = null; }
+      if (saved && saved.full === true) return { outcome: 'left', because: String(saved.because || 'too many drafts are kept') + ', so the box was left as it is' };
+      /* Said in the log (once per text, by the sweep) and tried again next minute: a store that cannot be written or read
+         would otherwise leave the agent deaf with nothing said anywhere. */
+      if (!saved || saved.ok !== true) return { outcome: 'left', because: 'the draft could not be saved (' + String((saved && saved.because) || 'no answer') + '), so the box was left as it is' };
+      /* Saved: from here the words are safe. Clear a round at a time; stop as soon as the box shows anything that is
+         not what is left of the saved text (someone typing now), so their new words are not cleared too. */
+      const done = (outcome, because) => ({ outcome, id: saved.id, ...(saved.already ? { already: true } : {}), ...(because ? { because } : {}) });
+      /* Nothing was cleared and nothing is wrong with the box (tmux refused, a read failed): tried again next minute,
+         which saves nothing twice (the drafts keep one copy of a text). */
+      const notYet = (because) => ({ ...done('drafted-not-cleared', because), retry: true });
+      /* `expect` is the box as last read. Right before each round it must still read exactly that (so words typed since
+         are never cleared with it), and after the round what is left must be it with rows taken out (stuckShrunk). The
+         same read stops the clearing if anything replaces the box: a dialog or permission prompt leaves no box to read,
+         and a menu's own ❯ row reads as different text. */
+      let expect = squash(again.text);
+      let rowsWere = again.rows || 0;
+      let stale = 0;
+      const rounds = 2 * (again.rows || 1) + 6;
+      for (let i = 0; i < rounds; i += 1) {
+        const before = readComposer(target);
+        if (!before.ok) return notYet('the box could not be read');
+        if (squash(before.text) !== expect) return done('drafted-not-cleared', 'the box changed while it was being cleared');
+        const sent = tmux(['send-keys', '-t', target, ...STUCK_CLEAR_KEYS]);
+        if (!sent.ran || sent.status !== 0) return notYet('tmux refused the keys');
+        await stuckPause(SUBMIT_LOOK_MS);
+        let left = readComposer(target);
+        if (!left.ok) return notYet('the box could not be read');
+        if (!left.text) {
+          /* Empty only when two reads a look apart agree, as pressRememberedNow asks: one read can catch a redraw. */
+          await stuckPause(SUBMIT_LOOK_MS);
+          left = readComposer(target);
+          if (!left.ok) return notYet('the box could not be read');
+          if (!left.text) { forgetDraftedLine(target, kept); return done('drafted'); }
+        }
+        const now = squash(left.text);
+        /* A round that empties a blank row reads the same once squashed but draws one row fewer: that is progress. */
+        if (now === expect && (left.rows || 0) < rowsWere) { rowsWere = left.rows || 0; stale = 0; continue; }
+        rowsWere = left.rows || 0;
+        if (now === expect) {
+          stale += 1;   // the keys did nothing (vim mode, keys rebound): two such rounds and it is given up
+          if (stale >= 2) return done('drafted-not-cleared', 'the box did not empty');
+          continue;
+        }
+        if (!stuckShrunk(expect, now)) return done('drafted-not-cleared', 'the box changed while it was being cleared');
+        stale = 0;
+        expect = now;
+      }
+      return done('drafted-not-cleared', 'the box did not empty');
+    } finally {
+      if (deliveryQueues.get(target) === mark) deliveryQueues.delete(target);
+      release();
+    }
+  } catch (err) {
+    return { outcome: 'waiting', because: 'failed: ' + String((err && err.message) || err) };
+  }
+}
+/* kosmos#6717: each kept draft as one Kosmos line in the agent's conversation, placed at the time it was moved. Derived
+   on every read like withAccountRow, never stored as a message row: every reader of a thread takes a row as the
+   person's or the agent's, and this is neither. `draft: true` and `draftId` let the page offer Dismiss. */
+const DRAFT_ROW_ID_PREFIX = 'kosmos-draft:';
+function withDraftRows(messages, drafts) {
+  const list = Array.isArray(messages) ? messages : [];
+  const kept = Array.isArray(drafts) ? drafts.filter((d) => d && typeof d.id === 'string' && typeof d.text === 'string' && d.text
+    && typeof d.at === 'string' && Number.isFinite(Date.parse(d.at))) : [];
+  if (!kept.length) return list;
+  let out = list.slice();
+  for (const d of kept) {
+    const atMs = Date.parse(d.at);
+    let place = 0;
+    for (let i = 0; i < out.length; i += 1) {
+      const t = out[i] ? Date.parse(out[i].at) : NaN;
+      if (Number.isFinite(t) && t <= atMs) place = i + 1;
+    }
+    const row = { id: DRAFT_ROW_ID_PREFIX + d.id, at: d.at, text: d.text, from: null, delivery: null, kind: 'kosmos', draft: true, draftId: d.id,
+      ...(typeof d.since === 'string' ? { since: d.since } : {}) };
+    out = out.slice(0, place).concat([row], out.slice(place));
+  }
+  return out;
+}
+
 /* ── who may be sent to ──────────────────────────────────────────────────── */
 
 /**
@@ -4876,6 +5066,7 @@ module.exports = {
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
   composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
   setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
+  recoverStuckInput, setDraftSaver, withDraftRows, STUCK_INPUT_MS, stuckShrunk,   // kosmos#6717
   deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,

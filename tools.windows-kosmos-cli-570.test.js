@@ -226,6 +226,15 @@ test('#6420 parity: a held room\'s refusal says when the limit lifts', async () 
   }
 });
 
+test('#6608 parity: an owner-named refusal names the owner; without one the old words stay', async () => {
+  const r = await run(['post', 'proj-1', 'agreed'], () => ({ body: { delivery: { state: 'could_not', code: 'ack_only', because: 'x', owner: 'Mara' } } }));
+  assert.equal(r.code, 1);
+  assert.match(r.err, /Not posted: that post named Mara to take it, so Kosmos did not pass on an agreement-only reply from anyone else\. Nothing was sent\./);
+  assert.doesNotMatch(r.err, /already said/);
+  const plain = await run(['post', 'proj-1', 'agreed'], () => ({ body: { delivery: { state: 'could_not', code: 'ack_only', because: 'x' } } }));
+  assert.match(plain.err, /Not posted: this only agreed with what was already said/, 'CONTROL: the plain ack refusal lost its words');
+});
+
 test('#4934 parity: a loop-guard refusal (code room_held) says nothing was kept and not to send it another way', async () => {
   const r = await run(['post', 'proj-1', 'a long substantive update'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.' } } }));
   assert.equal(r.code, 1);
