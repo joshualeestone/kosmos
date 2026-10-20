@@ -39,3 +39,10 @@
   the same sentence. Measured with the reviewer's two probes (wait arm against the control, plain and
   KOSMOS_RECLAIM_BUSY=1): rc and the marker now match. The busy success gives the person the busy hint, as the other
   busy paths do.
+- Iteration 4 (a WARNING and a NIT: a state reached during the wait other than unreachable, such as a busy board under
+  reclaim, a stranger, or our board bound and silent, fell to the stuck refusal instead of its first-look verdict):
+  cmd_start's guards now sit in a loop that runs a second time after the wait, which itself runs once. Every state
+  then gets exactly the first look's verdict, and iteration 3's copied unreachable block is gone. The loop body keeps
+  its old indentation because other tests lift and pin those lines. The reviewer's probe held the port unbound in its
+  wait arm but bound in its control; the test's version binds it in both and differs only in when. Measured: five
+  first-look-versus-during-the-wait pairs equal, and removing the `continue` turns 8 cases red.
