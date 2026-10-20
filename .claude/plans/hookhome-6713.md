@@ -30,6 +30,8 @@ A source checkout or worktree has neither file two folders up from its engine.
   `hooksBecause`.
 - `engine/allowance.js` `ensureStatusLine`: the same gate. That covers both `prepare` and the Settings
   "usage reading" route. `leaveAlone` is injectable.
+- `engine/installroot-6713.test.js` also runs setup.sh's hooks block end to end (a default-place bundle writes the
+  hooks and the statusline, one elsewhere exits 3 and leaves the home byte for byte), and checks the exit-3 line.
 - `engine/installroot-6713.test.js`: unit checks, a real-filesystem measurement (this worktree is not installed, the
   real install is), a byte-for-byte prepare in a stand-in real home, a sandbox control, and the statusline route
   with a go-ahead control.

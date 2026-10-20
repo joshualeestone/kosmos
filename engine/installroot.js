@@ -13,7 +13,8 @@
  *          default ~/.local/share/kosmos. Measured 2026-10-20 on two real Mac installs (Agent1s, and Mortals for two
  *          users): every installed board runs as <root>/runtime/bin/node <root>/app/server.js with that root and its
  *          engine in <root>/app/engine. A source checkout or worktree has neither file two up from its engine. A
- *          bundle under any other KOSMOS_HOME is a sandbox here, as install/setup.sh write_install_config treats it
+ *          bundle under any other KOSMOS_HOME is a sandbox here, the stance install/setup.sh write_install_config takes
+ *          (compared here by identity rather than text)
  *          (that check also looks at AGENT_WORKFORCE_HOME; here leaveAlone supplies that half)
  *          (so a self-host install with a custom KOSMOS_HOME gets no account hooks or statusline from Kosmos in the real
  *          home, from the board or from setup.sh, which uses this same rule; the same stance setup.sh takes for its

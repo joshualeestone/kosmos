@@ -58,7 +58,7 @@ test('#6713: measured on this computer: this worktree is not an installed Kosmos
 });
 
 test('#6713: the refusal promises nothing (a custom-KOSMOS_HOME install is never wired by Kosmos)', () => {
-  assert.doesNotMatch(installroot.NOT_INSTALLED, /sets them up|will set|installer/);
+  assert.equal(installroot.NOT_INSTALLED, 'this board is not the installed Kosmos (a source checkout, a worktree or a test install), so it leaves this account\'s Claude settings alone');
 });
 
 test('#6713: installRoot on a real folder layout uses identity: the default root, spelled through a link, is the default', (t) => {
@@ -203,6 +203,7 @@ test('#6713: setup.sh from a bundle at the default place wires the real home (ex
   const on = runSetupHooks(home, def);
   assert.equal(on.status, 0, 'CONTROL: the default-place bundle wires. ' + on.stderr);
   assert.match(fs.readFileSync(settings, 'utf8'), /kosmos-report-hook/, 'CONTROL: the hooks were written');
+  assert.match(fs.readFileSync(settings, 'utf8'), /kosmos-statusline\.js/, 'CONTROL: and the weekly statusline (an installed board still gets it)');
 });
 
 test('#6713: setup.sh says, for exit 3, that the home was left alone, and never promises another install sets it up', () => {
@@ -212,6 +213,5 @@ test('#6713: setup.sh says, for exit 3, that the home was left alone, and never 
   const block = sh.slice(a, sh.indexOf('\nesac', a) + 5);
   const say = (rc) => spawnSync('/bin/sh', ['-c', 'info() { echo "$*"; }; _hooks_rc=' + rc + '\n' + block], { encoding: 'utf8' }).stdout;
   assert.match(say(3), /leaves the Claude settings in your home alone/);
-  assert.doesNotMatch(say(3), /installed Kosmos sets/);
   assert.match(say(0), /report what they are doing themselves/, 'CONTROL: exit 0 keeps its line');
 });

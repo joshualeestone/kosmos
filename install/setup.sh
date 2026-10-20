@@ -5263,7 +5263,7 @@ _sl_added=""
 for _sl in "$_sl_home/.claude/settings.json" "$_sl_home"/.claude-*/settings.json; do
   [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && _sl_added=yes
 done
-if [ -n "$_sl_added" ]; then
+if [ -n "$_sl_added" ] && [ "$_hooks_rc" != 3 ]; then   # #6713: after exit 3 this run wrote nothing, so it claims nothing
   info "Claude accounts that had no status line of their own carry Kosmos's, in every"
   info "Claude session on them: it notes how much of the weekly allowance is used and"
   info "prints nothing, which leaves an empty row under the prompt"

@@ -463,7 +463,7 @@ function prepare(label) {
      name is its own throwaway one (installroot.js has the rule). It says so in hooksBecause. */
   let leave = null;
   try { leave = require('./installroot').leaveAlone(path.join(dir, 'settings.json')); }
-  catch { leave = 'this board could not tell whether it is an installed Kosmos, so it leaves this account\'s Claude settings alone'; }
+  catch { leave = 'this board could not tell whether it is an installed Kosmos, so it leaves this account\'s Claude settings alone'; }   // its own copy: installroot.js may be what failed to load
   const hooks = leave ? { wired: false, because: leave }
     : reporthook.ensureWired(path.join(dir, 'settings.json'), reporthook.hookScriptPath(), { claudeVersion: claudeVersionForFolder(dir) });
   /* #3946: and with the statusline that records its weekly usage, so a swarm
