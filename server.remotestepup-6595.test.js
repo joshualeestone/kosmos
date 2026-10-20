@@ -370,3 +370,53 @@ test('R01: until this board has started its own tunnel, nothing is vouched for (
     assert.equal(remote.connectorCapabilities().size, 0, 'a tunnel this board did not start was vouched for');
   } finally { remote.resetConnectorCapabilitiesForTests(); await warm(); }
 });
+
+/* kosmos#6616 (R01b part 6): the RUNNING tunnel must list the capability too. The binary's yes alone described the file
+   on disk, which an update can replace while an older tunnel keeps forwarding. */
+test('R01b: while a tunnel runs here, only what that process lists in its status file counts', async () => {
+  const statusFile = path.join(require('./engine/store').ROOT, 'remote-status.json');
+  const pid = 424242;
+  const write = (body) => { fs.mkdirSync(path.dirname(statusFile), { recursive: true }); fs.writeFileSync(statusFile, JSON.stringify(body)); };
+  try {
+    remote.resetConnectorCapabilitiesForTests({ runningPid: pid });
+    await warm();                                                    // the binary on disk says yes
+    write({ state: 'up', pid, capabilities: ['session-headers'] });
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'CONTROL: the running process lists it');
+    write({ state: 'up', pid });                                      // an older tunnel, still running
+    assert.equal(remote.connectorCapabilities().size, 0, 'the binary vouched for an older running tunnel');
+    write({ state: 'up', pid: pid + 1, capabilities: ['session-headers'] });
+    assert.equal(remote.connectorCapabilities().size, 0, 'another process\'s status file vouched');
+    write({ state: 'up', pid, capabilities: 'session-headers' });
+    assert.equal(remote.connectorCapabilities().size, 0, 'a list that is not an array vouched');
+    fs.rmSync(statusFile, { force: true });
+    assert.equal(remote.connectorCapabilities().size, 0, 'no status file yet vouched');
+    // The running process cannot widen the binary's answer: it only narrows.
+    const no = path.join(SANDBOX, 'no-tunnel-6616');
+    fs.writeFileSync(no, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+    const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = no;
+    try {
+      remote.resetConnectorCapabilitiesForTests({ runningPid: pid });
+      await warm();
+      write({ state: 'up', pid, capabilities: ['session-headers'] });
+      assert.equal(remote.connectorCapabilities().size, 0, 'the status file widened a binary that says no');
+    } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; }
+  } finally { fs.rmSync(statusFile, { force: true }); remote.resetConnectorCapabilitiesForTests(); await warm(); }
+});
+
+test('R01b: over HTTP, an older running tunnel refuses a fresh remote session though the binary says yes', async () => {
+  const statusFile = path.join(require('./engine/store').ROOT, 'remote-status.json');
+  const pid = 424243;
+  try {
+    remote.resetConnectorCapabilitiesForTests({ runningPid: pid });
+    await warm();
+    fs.mkdirSync(path.dirname(statusFile), { recursive: true });
+    fs.writeFileSync(statusFile, JSON.stringify({ state: 'up', pid }));
+    const got = await post('/api/accounts/gemini/apikey', { ...VIA_PLUS, ...fresh() }, 'not json');
+    assert.equal(got.status, 403, JSON.stringify(got.body));
+    assert.equal(got.body.code, 'remote_step_up_unavailable');
+    fs.writeFileSync(statusFile, JSON.stringify({ state: 'up', pid, capabilities: ['session-headers'] }));
+    const ok = await post('/api/accounts/gemini/apikey', { ...VIA_PLUS, ...fresh() }, 'not json');
+    assert.equal(ok.status, 400, 'CONTROL: listed, the request passes the gate to the route: ' + JSON.stringify(ok.body));
+  } finally { fs.rmSync(statusFile, { force: true }); remote.resetConnectorCapabilitiesForTests(); await warm(); }
+});

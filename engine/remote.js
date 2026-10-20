@@ -181,7 +181,29 @@ function askConnectorCapabilities() {
 /* Whether this board has started the tunnel process that forwards. Until it has, nothing is vouched for: a tunnel
    left running by an earlier board (an older binary, say) must not borrow what this board's binary says. */
 let tunnelStartedHere = false;
+/* kosmos#6616 (R01b part 6): the binary's answer AND the running tunnel's own. While a tunnel this board started is
+   running, a capability counts only if that process also lists it in its status file (`capabilities`, written by the
+   process about itself, kosmos-relay runcaps-6616). The binary's answer alone described the file on disk, which an
+   update can replace while an older tunnel keeps forwarding, and the ten-minute recheck would then ask the NEW binary
+   about the OLD process. A status file from another process (its pid), not yet written, unreadable, or with no
+   `capabilities` (a connector older than that field) lists nothing, so this only ever narrows the binary's answer.
+   With no tunnel running here there is no process to describe, and the binary's answer stands as before. */
 function connectorCapabilities(now = Date.now()) {
+  const caps = binaryCapabilities(now);
+  const running = runningCapabilities();
+  return running === null ? caps : new Set([...caps].filter((c) => running.has(c)));
+}
+let runningPidForTests = null;   // kosmos#6616: tests only, the pid of a tunnel "running here" without spawning one
+/* What the tunnel process this board runs says it can do; null when none runs. Read on each ask: a small file. */
+function runningCapabilities() {
+  const pid = runningPidForTests !== null ? runningPidForTests : (child ? child.pid : null);
+  if (pid === null || pid === undefined) return null;
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(STATUS_FILE(), 'utf8')); } catch { return new Set(); }
+  if (!raw || raw.pid !== pid || !Array.isArray(raw.capabilities)) return new Set();
+  return new Set(raw.capabilities.filter((c) => typeof c === 'string'));
+}
+function binaryCapabilities(now) {
   if (!tunnelStartedHere) return new Set();
   if (capabilitiesSeen) {
     const wait = capabilitiesSeen.answered ? CAPABILITIES_RECHECK_MS : CAPABILITIES_UNANSWERED_RECHECK_MS;
@@ -210,8 +232,9 @@ function warmConnectorCapabilities(done = () => {}) {
     if (child && child.stdin) child.stdin.end();
   } catch { done(noteCapabilities(new Set(), false, Date.now(), generation, binary)); }
 }
-const resetConnectorCapabilitiesForTests = ({ startedHere = true } = {}) => {
+const resetConnectorCapabilitiesForTests = ({ startedHere = true, runningPid = null } = {}) => {
   tunnelStartedHere = startedHere;
+  runningPidForTests = runningPid;
   forgetConnectorCapabilities({ always: true, ask: false });
 };
 /* The production addresses are the defaults (#648): a bundle needs nothing
