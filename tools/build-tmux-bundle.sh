@@ -269,8 +269,11 @@ TARBALL="$OUTDIR/tmux-$ARCH.tar.gz"
 _extra=""
 [ -d "$OUT/licenses" ] && _extra="licenses"
 # #6562: a neutral owner NAME, as the Kosmos bundle stores, and the same refusal of the build account.
-tar -czf "$TARBALL" --uname kosmos --gname staff -C "$OUT" bin lib VERSION THIRD-PARTY-NOTICES.txt $_extra
+# #6678: and none of this Mac's own file metadata.
+COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs -czf "$TARBALL" --uname kosmos --gname staff -C "$OUT" bin lib VERSION THIRD-PARTY-NOTICES.txt $_extra
 . "$(dirname "${BASH_SOURCE[0]}")/lib/tar-owner-gate.sh"
 tar_owner_gate "$TARBALL" || exit 1
+. "$(dirname "${BASH_SOURCE[0]}")/lib/tar-metadata-gate.sh"
+tar_metadata_gate "$TARBALL" || exit 1
 ( cd "$(dirname "$TARBALL")" && shasum -a 256 "$(basename "$TARBALL")" > "$(basename "$TARBALL").sha256" )
 echo "==> packed: $(du -sh "$TARBALL" | cut -f1) at $TARBALL (+ .sha256)"
