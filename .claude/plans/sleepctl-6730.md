@@ -62,3 +62,15 @@ reference to sleep listed and read); not checked across the rest of tools/.
   arm by up to 30 s (older than this branch; it ends by itself) --> NOT CHANGED.
 - Reruns: pause-foreign 12/0; guard passes; the three comment-edited files parse; data-root the same 4 failures as
   main's copy in place.
+
+## Review round 2 (blind, sonnet)
+- [WARNING] test-site-autodeploy's test 26 fetch hang (`ext::sleep $Z26`) is the same command-under-test class as the
+  deploy hangs and was left bare; my plan had called its matcher "a different, fractional sleep" without saying why
+  the hang itself stayed --> CONVERTED with its matchers in lockstep: the remote runs `perl -e
+  select(undef,undef,undef,$Z26)` (no spaces: ext:: splits on them), and the leftover count and its control match it
+  ANCHORED (`^(/usr/bin/)?perl -e select\(...$Z26\)$`). First attempt used grep -F and counted ITSELF (its own
+  command line holds the text: "1 left", red); anchoring fixed it. MEASURED in a throwaway repo: during a fetch the
+  wait is alive as `/usr/bin/perl -e select(undef,undef,undef,4321.77)` (counted 1; git's own `git remote-ext ...`
+  line is not counted), and 0 after it is killed. Test ALL PASS, its control included.
+- [NIT] test 30's deploy-under-test `sleep 4; exit 0`: a stray pkill ends it with rc 0, which the arm also passes
+  on, so it cannot pass for a wrong reason --> NOT CHANGED (under the 5 s threshold, and harmless).
