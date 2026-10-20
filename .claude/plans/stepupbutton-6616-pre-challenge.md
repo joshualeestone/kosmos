@@ -1,8 +1,8 @@
 ---
 method: challenge-loop
 branch: stepupbutton-6616
-diff_hash: 6f829d8fd41b96ee65411e9c62db76b27b858297099600ed572a35d8369c86f9
-timestamp: 2026-10-20T06:05:22Z
+diff_hash: 850ee43026a1a00ac2e18bf5e38e0d1812ecaa02c96a554660569eaa50093952
+timestamp: 2026-10-20T07:52:16Z
 subdir_audit: passed
 iterations: 12
 converged: true
@@ -56,3 +56,8 @@ and still fails on overflow or a narrow ask).
 #### Iteration 12
 - [WARNING] a retry that lands on a different path leaves the ask up until Not now: DUPLICATE of a decided limit,
   written in the code. Nits: wording already covered by the fallback sentence and comments. Converged.
+
+That measure was still wrong in CI: the run at 354f8d3328 reported the root at 390 while it laid the page out at
+375 (sw 375, the fixed ask ending at 359). The arm now takes the smallest of the root's, the body's and the scroll
+width (86ba5660b4). Checked against CI's numbers (pass), locally against a sandbox board (pass), and a narrow box or
+a sideways-scrolling page still fails.
