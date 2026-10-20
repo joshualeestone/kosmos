@@ -419,6 +419,11 @@ _qh_clear() {
   fi
   kosmos_refuse_if_suite_live "$WHAT" "" || return 1
   kosmos_refuse_if_harness_live "$WHAT" "" || return 1
+  # kosmos#6756: nor beside a relay pre-push build (the queue's bound applies). A light turn is not held back: a light
+  # run beside a heavy one is what a side turn already allows.
+  if [ "${KOSMOS_QUEUE_CLASS:-heavy}" != light ] && command -v kosmos_refuse_if_prepush_build_live >/dev/null 2>&1; then
+    kosmos_refuse_if_prepush_build_live "$WHAT" || return 1
+  fi
   return 0
 }
 echo "QUEUED-HEAVY $(date '+%H:%M:%S') waiting for a turn: $WHAT (class ${KOSMOS_QUEUE_CLASS:-heavy})"
