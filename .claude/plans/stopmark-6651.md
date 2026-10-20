@@ -31,9 +31,19 @@
 - Not in this branch: what launched two installs 16 seconds apart (the card says no instrument recorded it).
 
 ## Proof
-- `bash tools/test-stopmark-6651.sh`: 23 PASS. Mutants, each red then restored: the start-time comparison removed
+- `bash tools/test-stopmark-6651.sh`: 29 PASS. Mutants, each red then restored: the start-time comparison removed
   (also caught by the byte-equal twin check), the watchdog's clear removed, the writer ignoring the attribution.
 - Neighbours, all green on this branch: test-board-watchdog-2955 (0 failures), test-update-putback-4818 (33/33;
   red at first because it pins the pause's stop line, updated), test-setup-pause-sandbox-4651 (0 failures),
   test-board-foreground-2956 (all pass).
 - Not run yet: the full suite (Mortals), which includes tools/test-install.sh and its install-static checks.
+- Iteration 1 (a BLOCKER and two WARNINGs, each fixed and mutant-checked):
+  - BLOCKER: the update attributed its stop even when the board was already off, so a person's empty marker became
+    an installer's and a failed update later started a board the person had turned off (connect computers too).
+    Now setup.sh attributes only when it is pausing a running board (`_kosmos_was_running=yes`, #5033's own case),
+    and write_stop_marker never writes an attributed marker over one already there.
+  - lstart is local time, so a different TZ between the installer and the launchd-run watchdog read a live installer
+    as gone. The token is now `start_token`: ps lstart under TZ=UTC0, or on Linux /proc/<pid>/stat field 22 (start
+    ticks since boot, which a clock step cannot move; reasoned, not measured on Linux).
+  - A ps that cannot run printed nothing, read as "gone". Empty now means "gone" only when kill -0 itself says
+    "No such process"; anything else leaves the pause.

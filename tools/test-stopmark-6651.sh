@@ -23,16 +23,18 @@ trap cleanup EXIT
 # Print one shell function's text, from its "name() {" line to the first line that is just "}".
 fn() { awk -v n="$2" '$0 ~ "^"n"\\(\\) \\{" { on=1 } on { print } on && /^}$/ { exit }' "$1"; }
 
-CLI_FN="$(fn install/kosmos stop_marker_stranded)"
-WD_FN="$(fn bin/board-watchdog.sh stop_marker_stranded)"
-[ -n "$CLI_FN" ] && [ "$CLI_FN" = "$WD_FN" ] && ok "the stranded test is the same in the CLI and the watchdog" \
-  || bad "the CLI's and the watchdog's stranded tests differ (or one is missing)"
+CLI_FN="$(fn install/kosmos stop_marker_stranded)"; CLI_TOK="$(fn install/kosmos start_token)"
+WD_FN="$(fn bin/board-watchdog.sh stop_marker_stranded)"; WD_TOK="$(fn bin/board-watchdog.sh start_token)"
+[ -n "$CLI_FN" ] && [ "$CLI_FN" = "$WD_FN" ] && [ -n "$CLI_TOK" ] && [ "$CLI_TOK" = "$WD_TOK" ] \
+  && ok "the stranded test and its start token are the same in the CLI and the watchdog" \
+  || bad "the CLI's and the watchdog's stranded test or start token differ (or one is missing)"
 
 # --- 1. the stranded test, on real processes ---------------------------------------------------------------
-eval "$CLI_FN"
+eval "$CLI_TOK"; eval "$CLI_FN"
 STOP_MARKER="$TMP/board.stopped"
 sleep 300 & LIVE=$!; disown "$LIVE" 2>/dev/null || true
-live_start="$(LC_ALL=C ps -o lstart= -p "$LIVE" | sed 's/^ *//; s/ *$//')"
+live_start="$(start_token "$LIVE")"
+[ -n "$live_start" ] || bad "fixture: no start token for a live process"
 ( exit 0 ) & DEAD=$!; wait "$DEAD" 2>/dev/null   # a pid that has just ended
 verdict() { if stop_marker_stranded; then echo stranded; else echo stands; fi; }
 
@@ -51,11 +53,26 @@ done
 rm -f "$STOP_MARKER"
 [ "$(verdict)" = stands ] && ok "no marker: nothing stranded" || bad "no marker read as stranded"
 
+# The token must not depend on the zone of whoever asks (the watchdog runs under launchd, an install from a shell).
+tok_tokyo="$(TZ=Asia/Tokyo start_token "$LIVE")"; tok_chicago="$(TZ=America/Chicago start_token "$LIVE")"
+[ "$tok_tokyo" = "$tok_chicago" ] && ok "the start token is the same in any TZ" || bad "start token depends on TZ: '$tok_tokyo' vs '$tok_chicago'"
+printf 'install %s %s\n' "$LIVE" "$tok_tokyo" > "$STOP_MARKER"
+[ "$(TZ=UTC verdict)" = stands ] && ok "a live pause written in one zone stands when read in another" || bad "a TZ change cleared a live pause"
+
+# A ps that cannot run (a sandbox) prints nothing: that alone must never clear a live pause.
+mkdir -p "$TMP/badps"; printf '#!/bin/sh\nexit 126\n' > "$TMP/badps/ps"; chmod +x "$TMP/badps/ps"
+printf 'install %s %s\n' "$LIVE" "$live_start" > "$STOP_MARKER"
+[ "$(PATH="$TMP/badps:$PATH" verdict)" = stands ] && ok "ps broken, installer alive: the pause stands" || bad "a broken ps cleared a live pause"
+printf 'install %s %s\n' "$DEAD" "$live_start" > "$STOP_MARKER"
+[ "$(PATH="$TMP/badps:$PATH" verdict)" = stranded ] && ok "ps broken, installer gone (kill says no such process): stranded" || bad "a dead installer was kept because ps was broken"
+
 # --- 2. the writer and the restorer ------------------------------------------------------------------------
 eval "$(fn install/kosmos write_stop_marker)"
 eval "$(fn install/kosmos restore_stop_marker)"
-KOSMOS_STOP_BY_INSTALL="$LIVE $live_start" write_stop_marker
+rm -f "$STOP_MARKER"; KOSMOS_STOP_BY_INSTALL="$LIVE $live_start" write_stop_marker
 [ "$(cat "$STOP_MARKER")" = "install $LIVE $live_start" ] && ok "an installer's stop says who it is" || bad "installer marker body: $(cat "$STOP_MARKER")"
+: > "$STOP_MARKER"; KOSMOS_STOP_BY_INSTALL="$LIVE $live_start" write_stop_marker
+[ -f "$STOP_MARKER" ] && [ ! -s "$STOP_MARKER" ] && ok "an installer's stop never overwrites a marker already there (a person's stop)" || bad "an installer's stop replaced a person's marker: $(cat "$STOP_MARKER")"
 rm -f "$STOP_MARKER"; KOSMOS_STOP_BY_INSTALL="" write_stop_marker
 [ -f "$STOP_MARKER" ] && [ ! -s "$STOP_MARKER" ] && ok "a person's stop writes the empty marker" || bad "a person's stop wrote: $(cat "$STOP_MARKER" 2>/dev/null)"
 rm -f "$STOP_MARKER"; KOSMOS_STOP_BY_INSTALL="not a pid" write_stop_marker
@@ -113,6 +130,8 @@ grep -q 'stop_marker_stranded; then clear_stranded_stop_marker agent-start' inst
   && ok "an agent's start clears a stranded pause before the #5450 refusal" || bad "agent start does not check for a stranded pause"
 grep -q 'KOSMOS_STOP_BY_INSTALL="${_kosmos_self_start:+$$ $_kosmos_self_start}" "$KOSMOS_HOME/bin/kosmos" stop --force' install/setup.sh \
   && ok "setup.sh's update pause passes its pid and start time" || bad "setup.sh's pause is not attributed"
+awk '/if \[ "\$_kosmos_was_running" = yes \]; then/ { w = NR } /KOSMOS_STOP_BY_INSTALL=/ { if (w && NR - w < 12) print "ok"; exit }' install/setup.sh | grep -q ok \
+  && ok "setup.sh attributes its pause only when it is pausing a running board" || bad "setup.sh attributes a pause it does not own"
 [ "$(grep -c 'KOSMOS_STOP_BY_INSTALL=' install/setup.sh)" = 1 ] \
   && ok "only the update pause is attributed (uninstall and connect stops stay a plain stop)" || bad "more than one stop in setup.sh is attributed"
 

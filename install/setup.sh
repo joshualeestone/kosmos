@@ -3847,7 +3847,16 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # dies without its EXIT trap (a kill, a full disk) the watchdog and board-run can tell a stranded pause from a
   # person's stop. Without a start time it writes the plain marker, as before. (The uninstall and connect stops
   # elsewhere in this file stay plain: those are meant to keep the board off.)
-  _kosmos_self_start="$(LC_ALL=C ps -o lstart= -p $$ 2>/dev/null | sed 's/^ *//; s/ *$//')" || _kosmos_self_start=""
+  # Only when this run is the one pausing a running board (#5033's own-marker case): a board already off (a
+  # person's stop, a connect computer) keeps its plain marker, which no stranded-pause clear will ever touch.
+  _kosmos_self_start=""
+  if [ "$_kosmos_was_running" = yes ]; then
+    if [ -r "/proc/$$/stat" ]; then   # the same token install/kosmos's start_token reads (Linux: start ticks)
+      _kosmos_self_start="$(sed -n 's/^.*) //p' "/proc/$$/stat" 2>/dev/null | awk 'NF >= 20 { print "proc:" $20 }')" || _kosmos_self_start=""
+    else
+      _kosmos_self_start="$(LC_ALL=C TZ=UTC0 ps -o lstart= -p $$ 2>/dev/null | sed 's/^ *//; s/ *$//')" || _kosmos_self_start=""
+    fi
+  fi
   _kosmos_marker_ours="$_kosmos_was_running"   # #5033: armed before the stop, which writes the marker and then waits
   KOSMOS_STOP_BY_INSTALL="${_kosmos_self_start:+$$ $_kosmos_self_start}" "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
