@@ -5689,9 +5689,36 @@ function setupGuideFailing() {
   return null;
 }
 
+/* kosmos#6721: a request this board answers slowly, or never, is logged with its method, path and duration, so the
+   next "Your Mac is not answering" can be measured rather than inferred (on 10-20 the relay, the tunnel and the
+   coordinator were all up and nothing on this computer said why one poll went unanswered for 10 s). The path only,
+   never the query (#1946/#2029: a query can carry a token). No route here streams or long-polls, so any request past
+   the threshold is worth a line. `now` and `write` are seams for the tests. */
+const SLOW_REQUEST_MS = (() => { const v = Number(process.env.KOSMOS_SLOW_REQUEST_MS); return Number.isFinite(v) && v > 0 ? v : 5000; })();
+function watchSlowRequest(req, res, pathname, opts) {
+  const o = opts || {};
+  const now = typeof o.now === 'function' ? o.now : Date.now;
+  const write = typeof o.write === 'function' ? o.write : (line) => process.stdout.write(line);
+  const limit = Number.isFinite(o.limitMs) ? o.limitMs : SLOW_REQUEST_MS;
+  const t0 = now();
+  let said = false;
+  const say = () => {
+    if (said) return;
+    said = true;
+    const ms = now() - t0;
+    if (ms < limit) return;
+    const how = res.writableFinished ? 'answered ' + res.statusCode : 'the browser gave up before an answer';
+    try { write('[slow request] ' + String(req.method || '-') + ' ' + String(pathname).replace(/[\r\n\t]+/g, ' ') + ' took ' + (ms / 1000).toFixed(1) + ' s (' + how + ')\n'); }
+    catch { /* a log line never stops a response */ }
+  };
+  res.on('finish', say);
+  res.on('close', say);
+}
+
 const server = http.createServer(async (req, res) => {
   gateLog(req);
   const pathname = pathOf(req);
+  if (pathname !== null) watchSlowRequest(req, res, pathname);
   if (pathname === null) {
     // Not addressed to us. Saying so is better than handing back the index,
     // which would look like a successful page load.
@@ -25456,6 +25483,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  watchSlowRequest, SLOW_REQUEST_MS, // kosmos#6721: the slow-request log, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up
