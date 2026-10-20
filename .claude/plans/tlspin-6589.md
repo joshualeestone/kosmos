@@ -34,7 +34,8 @@ answers `none` (ordinary checking): nothing changes for anyone.
      site), on 443;
    - ordinary trust evaluation first (a failure cancels);
    - then it hashes the leaf's key (P-256 SPKI SHA-256, as the computer hashes it) and asks the board;
-   - ordinary trust is evaluated off the main thread (SecTrustEvaluateAsyncWithError), the pin half on it; the
+   - ordinary trust is evaluated on a background queue (SecTrustEvaluateAsyncWithError), then the pin half and every
+     call to the completion handler run on the main thread; a trailing-dot spelling of a name is judged too; the
      selector is pinned with @objc; the async evaluation is called from its own queue (review 3), and the self-test
      runs it on a real certificate;
    - a refusal says WHY in two wordings: a key that does not match ("pair it again if you set it up again"), or a
@@ -81,6 +82,9 @@ is run by the party in the threat model, the handler skips it on purpose, and an
 one a computer's request could be coalesced onto. Until that is measured, this is a defence for new connections.
 - Non-P-256 certificate keys hash to nothing, so they are refused when a pin exists. Every computer's key is P-256
   (rcgen's default).
+
+- On a board that enforces no token (a sandboxed test board), any loopback caller can make it ask about an account
+  address and pin it. It only ever pins to the computer the person paired, so it is cheap, not a hole.
 
 ## Weakest premise
 NOT YET RUN IN THE REAL APP. Review 3 found that the first version of the handler would have crashed the app on the
