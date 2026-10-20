@@ -21,6 +21,9 @@
  *       verifies under the checkout's recovery keys AND names this signing key. An install with the check on takes the
  *       list before it checks an update, so a cut signed by a key the served list does not name would be refused by
  *       every such install. A list that is not served at all is a refusal (the files may be named but absent).
+ *   node tools/lib/manifest-sign.js verify-under-list <manifest.json> <sig> <release-keys.json> <release-keys.json.sig>
+ *       #6609 phase 2c, for promote: exit 0 when off, or when the served list checks out and names a key the manifest is
+ *       signed by.
  *   node tools/lib/manifest-sign.js needs-sig <manifest.json>
  *       exit 0 when that release ships engine/manifest-verify.js, i.e. its installs refuse an update with no signature.
  *
@@ -29,7 +32,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { KEYS, RECOVERY_KEYS, verifyKeyList } = require(path.join(__dirname, '..', '..', 'engine', 'manifest-verify.js'));
+const { KEYS, RECOVERY_KEYS, MIN_KEY_LIST_SEQ, verifyKeyList } = require(path.join(__dirname, '..', '..', 'engine', 'manifest-verify.js'));
 
 function load(keyPath) {
   const key = crypto.createPrivateKey(fs.readFileSync(keyPath));
@@ -87,8 +90,23 @@ function main(argv) {
     catch { console.error('the site serves no release key list (release-keys.json and its .sig), so installs with the check on would refuse every update'); return 1; }
     const v = verifyKeyList({ bytes, sig });
     if (!v.ok) { console.error('the served release key list does not check out: ' + v.why); return 1; }
+    // After a revocation the next release raises MIN_KEY_LIST_SEQ: a fresh install of THIS cut refuses an older list.
+    if (v.seq < MIN_KEY_LIST_SEQ) { console.error('the served release key list is ' + v.seq + ', older than the ' + MIN_KEY_LIST_SEQ + ' this release requires, so its fresh installs would refuse every update'); return 1; }
     if (!v.keys.includes(pub)) { console.error('the served release key list ' + v.seq + ' does not name this signing key, so installs with the check on would refuse this release'); return 1; }
     console.log('the served release key list ' + v.seq + ' names this signing key'); return 0;
+  }
+  if (verb === 'verify-under-list') {
+    // promote-channel: the manifest being promoted must be signed by a key the served list names (off: always 0).
+    const [mf, sg, list, listSig] = [keyPath, manifest, out, argv[4]];
+    if (!RECOVERY_KEYS.length) { console.log('no recovery key is pinned, so no release key list is needed'); return 0; }
+    let bytes, sig;
+    try { bytes = fs.readFileSync(list); sig = fs.readFileSync(listSig, 'utf8'); }
+    catch { console.error('the site serves no release key list, so installs with the check on would refuse this update'); return 1; }
+    const v = verifyKeyList({ bytes, sig });
+    if (!v.ok) { console.error('the served release key list does not check out: ' + v.why); return 1; }
+    if (v.seq < MIN_KEY_LIST_SEQ) { console.error('the served release key list is ' + v.seq + ', older than the ' + MIN_KEY_LIST_SEQ + ' this checkout requires'); return 1; }
+    if (verifyOnly(mf, sg, v.keys)) { console.log('the manifest is signed by a key the served release key list ' + v.seq + ' names'); return 0; }
+    console.error('the manifest is not signed by a key the served release key list ' + v.seq + ' names'); return 1;
   }
   if (verb === 'needs-sig') {
     // 0 yes, 1 no, 2 cannot tell (unreadable): promote refuses on 2 rather than read it as "no".
@@ -97,7 +115,7 @@ function main(argv) {
     if (!Array.isArray(m.files)) { console.error(keyPath + ' lists no files'); return 2; }
     return m.files.some((f) => f && f.path === 'app/engine/manifest-verify.js') ? 0 : 1;
   }
-  if (!['check', 'sign'].includes(verb)) { console.error('usage: manifest-sign.js check|sign|verify|verify-under|check-served|check-list|needs-sig ...'); return 2; }
+  if (!['check', 'sign'].includes(verb)) { console.error('usage: manifest-sign.js check|sign|verify|verify-under|check-served|check-list|verify-under-list|needs-sig ...'); return 2; }
   const key = load(keyPath);
   if (!pinned(key)) {
     console.error('the manifest-signing key is not one engine/manifest-verify.js pins, so installs would refuse this release');
