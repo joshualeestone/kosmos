@@ -42,6 +42,12 @@ to amend". Josh saw about 30 such lines in a chat with Renet Tilley.
   measured. If Claude Code draws its warning elsewhere, the card says "run a command" for it, still with the command
   under Show details.
 
+## Review 3 (applied)
+- The visible line under the ask is the agent's own description of its command, so it reads "It says: ..." rather
+  than as Kosmos's account of what will run. The command itself stays under Show details, as the card asks (Josh's
+  ruling: no raw terminal text in the chat). Rejected: the command's first line in the headline, which would bring
+  back exactly the text he asked to remove.
+
 ## Not covered
 - The project room's member panel (#pj-question) still shows "the part of its screen that asked". It is a screen view
   with its own answer box, not a chat; giving it the card is a follow-up, not this card.
@@ -52,5 +58,9 @@ wording, a trust prompt (not a permission card), a question menu (not one). Page
 presses Allow and Deny (the POST carries the right number), shows the details collapsed, and shows no chrome.
 
 ## Weakest premise
+That a person who cares what runs opens Show details before pressing Allow. The card cannot make them; an agent that
+misdescribes its command is still caught only by someone who looks. A terminal showed both at once.
+
+Also:
 That the box's title and description lines are stable across Claude Code versions. Measured on 2.1.296 only. When
 they are missing the card still says "needs your permission" and the details hold the raw text.

@@ -108,7 +108,7 @@ async function run() {
         await paint(page, fx);
         const c = await readCard(page);
         check(`${tag} CARD the ask says who and what, in plain words`, !!c && c.ask === 'April wants to run a command.', JSON.stringify(c && c.ask));
-        check(`${tag} CARD Claude's own description of the command sits under it`, !!c && c.says === 'Generate a UUID with uuidgen', JSON.stringify(c && c.says));
+        check(`${tag} CARD Claude's own description sits under it, marked as its own words`, !!c && c.says === 'It says: Generate a UUID with uuidgen', JSON.stringify(c && c.says));
         check(`${tag} CARD Allow then Deny, on the prompt's own Yes and No numbers`, !!c && JSON.stringify(c.main) === JSON.stringify(['Allow#' + fx.card.allow, 'Deny#' + fx.card.deny]), JSON.stringify(c && c.main));
         check(`${tag} CARD Show details is closed, and holds the command and the other options`, !!c && c.open === false
           && c.detail === '/usr/bin/uuidgen' && JSON.stringify(c.moreButtons) === '["2","3"]', JSON.stringify(c && { open: c.open, detail: c.detail, more: c.moreButtons }));

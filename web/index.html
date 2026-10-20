@@ -40736,7 +40736,8 @@ function dmPermissionHtml(m, who) {
   const more = typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m, 'more') : '';
   return '<div class="dmperm">'
     + '<p class="dmperm-ask">' + esc(who + ' wants to ' + does + (str(p.target) ? ': ' + str(p.target) : '') + '.') + '</p>'
-    + (str(p.says) ? '<p class="dmperm-says">' + esc(str(p.says)) + '</p>' : '')
+    // Review 3: the description is the agent's own words about its command, not Kosmos's reading of it, so it says so.
+    + (str(p.says) ? '<p class="dmperm-says">' + esc('It says: ' + str(p.says)) + '</p>' : '')
     + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m, 'main') : '')
     + '<details class="dmperm-more"><summary>Show details</summary>'
     + (str(p.reason) ? '<p class="dmperm-reason">' + esc(str(p.reason)) + '</p>' : '')
