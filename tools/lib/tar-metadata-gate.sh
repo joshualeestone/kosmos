@@ -101,11 +101,35 @@ tar_metadata_gate() {
   local n dbl xat
   n="$(printf '%s\n' "$out" | /usr/bin/sed -n 's/^N //p')"; dbl="$(printf '%s\n' "$out" | /usr/bin/sed -n 's/^DBL //p')"; xat="$(printf '%s\n' "$out" | /usr/bin/sed -n 's/^XAT //p')"
   [ "${n:-0}" -gt 0 ] || { echo "FAIL: the tarball metadata gate found no entries in $tarball" >&2; return 1; }
-  [ "${dbl:-1}" = 0 ] && [ "${xat:-1}" = 0 ] && return 0
+  [ "${dbl:-1}" = 0 ] && [ "${xat:-1}" = 0 ] && { tar_metadata_extracted "$tarball"; return $?; }
   [ "${dbl:-0}" = 0 ] || {
     echo "FAIL: $dbl AppleDouble entries in $(basename "$tarball") (#6678), first ones:" >&2
     printf '%s\n' "$out" | /usr/bin/sed -n 's/^FIRST /  /p' >&2
   }
   [ "${xat:-0}" = 0 ] || echo "FAIL: $(basename "$tarball") carries $xat metadata records (extended attributes, file flags or ACLs; #6678): pack with --no-xattrs --no-fflags" >&2
+  return 1
+}
+
+# Review 5: the header reader is a second implementation of libarchive's parser, and every round found another forged
+# shape it read differently (a NUL inside a long name or a pax path, GNU.sparse.name, a sized entry named like a
+# folder). So the source of truth is what bsdtar itself EXTRACTS: unpack the tarball the way install/setup.sh does
+# (/usr/bin/tar -xzf ... --no-same-owner, macOS default: an AppleDouble entry is folded into the file it describes)
+# into a temporary folder, and refuse when anything that comes out carries an extended attribute or a file flag, or
+# is a ._ file. A ._ entry that changes nothing on extraction is inert bytes; one that changes something is caught
+# here whatever shape hid it. Attributes are read with xattr -s, so a symlink in the tarball is never followed.
+tar_metadata_extracted() {
+  local tarball="$1" d bad
+  d="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tar-metadata-gate.XXXXXXXXXX")" || { echo "FAIL: the tarball metadata gate could not make a folder to unpack into" >&2; return 1; }
+  if ! /usr/bin/tar -xzf "$tarball" --no-same-owner -C "$d" 2>/dev/null; then
+    /bin/rm -rf "$d"; echo "FAIL: the tarball metadata gate could not unpack $(basename "$tarball") the way an install does" >&2; return 1
+  fi
+  bad="$( { /usr/bin/find "$d" -name '._*' -print | /usr/bin/sed 's/$/: an AppleDouble file/'
+            /usr/bin/find "$d" -exec /usr/bin/xattr -s {} + 2>/dev/null
+            /usr/bin/find "$d" -exec /usr/bin/stat -f '%f %N' {} + | /usr/bin/awk '$1 != 0 { $1 = ""; print substr($0, 2) ": a file flag" }'; } \
+          | /usr/bin/sed "s#^$d/##" )"
+  /bin/rm -rf "$d"
+  [ -z "$bad" ] && return 0
+  echo "FAIL: unpacked as an install does, $(basename "$tarball") puts this Mac metadata on $(printf '%s\n' "$bad" | /usr/bin/wc -l | /usr/bin/tr -d ' ') things (#6678), first ones:" >&2
+  printf '%s\n' "$bad" | /usr/bin/sed -n '1,3p' | /usr/bin/sed 's/^/  /' >&2
   return 1
 }

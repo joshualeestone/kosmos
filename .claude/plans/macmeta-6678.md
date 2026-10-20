@@ -16,10 +16,11 @@ an extended attribute. So both can go.
 ## The change
 
 - `tools/build-kosmos-bundle.sh` and `tools/build-tmux-bundle.sh` pack with
-  `COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs`, naming bsdtar explicitly (both builders are
+  `COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags`, naming bsdtar explicitly (both builders are
   macOS-only, so bsdtar's flags are always available, and a GNU tar earlier on PATH cannot take the line).
-- `tools/lib/tar-metadata-gate.sh` (new): refuses a tarball with an AppleDouble entry or an extended-attribute pax
-  record, and refuses rather than passes one it cannot read in full. Both builders call it after the owner gate.
+- `tools/lib/tar-metadata-gate.sh` (new), two layers: a header reader that refuses an AppleDouble entry or a
+  metadata record (and anything it cannot read in full), then an extraction check that unpacks the tarball the way
+  install/setup.sh does and refuses anything that comes out with an attribute, a file flag or a `._` name. Both builders call it after the owner gate.
 - `tools/test-tar-metadata-gate-6678.sh` (new, in `test:shell`), and the owner gate's test now pins the new pack
   lines.
 
@@ -61,11 +62,30 @@ an extended attribute. So both can go.
   64 KiB chunks and dropped (only record bodies are kept), so memory no longer grows with the largest file. Arms: a
   sized folder and a sized symlink before a bodiless `._hidden` (both red on their mutant), an unknown type (red on
   its mutant), and a control that a real tarball with a symlink, a hard link and folders passes.
+- **Review 5 (opus), and the decision it forced:** four more hand-forged shapes where bsdtar reads a `._` entry and
+  the header reader does not: a type-0 entry named like a folder with a size, a NUL inside a GNU long name, a NUL
+  inside a pax path, and `GNU.sparse.name`. Every round had found another such shape, because the header reader is a
+  second implementation of libarchive's parser. Rather than chase them one corner at a time, the source of truth is
+  now what bsdtar itself EXTRACTS: after the header layer, the gate unpacks the tarball as install/setup.sh does
+  (`/usr/bin/tar -xzf ... --no-same-owner`, macOS default, which folds an AppleDouble entry into the file it
+  describes) into a temporary folder and refuses anything that comes out with an extended attribute (read with
+  `xattr -s`, so a symlink is never followed), a file flag, or a `._` name. Measured: the served 0.7.60 tarball
+  unpacks with `com.apple.macl` on `app/Kosmos.app` and is refused by this layer alone; the 0.7.60 tree re-packed the
+  new way unpacks clean. A forged `._` entry that changes nothing when extracted is inert bytes; one that changes
+  anything is refused here whatever shape hid it. Arm: bsdtar --mac-metadata makes REAL AppleDouble bytes, re-emitted
+  under a GNU long name with a NUL in it; the header layer passes it and the gate refuses it naming the attribute it
+  planted. The four shapes are therefore NOT patched in the header reader (stated, on purpose). Also: an ACL arm; a
+  symlink-not-followed arm; a clean-extraction control. Mutants: the extraction call removed, `xattr -s` without
+  `-s`, and the ACL refusal removed each fail their own arm.
 - **Refuse, not strip after the fact.** A gate that edits the tarball would change the bytes after signing-adjacent
   checks; refusing keeps the pack line the only place the bytes are made.
 - **Both tarballs.** The tmux bundle is built the same way, so it gets the same line and gate.
 
 ## Weakest premise
+
+That bsdtar on the person's Mac extracts exactly as /usr/bin/tar on the build Mac does (the extraction layer
+stands in for the install). Both are the system bsdtar; a different macOS version could fold metadata differently.
+
 
 That nothing the Mac needs at install time is held in an extended attribute. Checked for the 0.7.60 tarball (only
 `com.apple.macl`, a per-machine record), not for every future file. If a later file needs one, the build will refuse
@@ -73,14 +93,15 @@ loudly, which is the safe direction.
 
 ## Tests
 
-- `bash tools/test-tar-metadata-gate-6678.sh`: 38 checks. The control packs a folder that HAS an extended attribute
+- `bash tools/test-tar-metadata-gate-6678.sh`: 43 checks. The control packs a folder that HAS an extended attribute
   the way the bundles pack, and passes. Then: plain packing refused; an AppleDouble entry refused and named (in a
   folder, at the top level, behind a long ustar-prefix path, behind a GNU long name, and behind a hand-made pax path
   record whose entry header says app/K, with a control that the same hand-made entry passes without it); a header
   whose checksum does not match refused; a name with `._` inside it not a hit; a half tarball, junk,
   an empty archive and a missing file refused; both builders pack once with the flags and call the gate.
-- Mutants: the AppleDouble detector removed fails 3 checks; the extended-attribute detector removed fails 1; the GNU
-  long-name reading, the pax-path reading and the checksum check each removed fail exactly their own check.
+- Mutants: the AppleDouble detector removed fails 3 checks; the extended-attribute detector removed fails 3 (the
+  well-formed control, LIBARCHIVE alone, the global header); the pax-path reading removed fails 2; the GNU long-name
+  reading and the checksum check each fail their own; the later rounds' guards are listed under each review below.
 - `bash tools/test-tar-owner-gate-6562.sh`: passes with the new pack lines.
 - The gate run on the served 0.7.60 tarball refuses it, naming `app/._Kosmos.app` and the 2 records.
 

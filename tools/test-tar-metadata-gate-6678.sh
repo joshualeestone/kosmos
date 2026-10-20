@@ -69,7 +69,7 @@ else fail "a missing tarball must be refused"; fi
 # A long path (over 100 bytes; bsdtar stores it in the ustar prefix) ending in an AppleDouble name.
 L="$T/l/app/$(printf 'x%.0s' $(seq 1 120))"; mkdir -p "$L"; printf 'x\n' > "$L/K"; printf 'm\n' > "$L/._K"
 COPYFILE_DISABLE=1 /usr/bin/tar -czf "$T/long.tgz" -C "$T/l" app
-if ! tar_metadata_gate "$T/long.tgz" 2>/dev/null; then pass "an AppleDouble entry behind a long path (the ustar prefix) is refused"
+if ! tar_metadata_gate "$T/long.tgz" 2>/dev/null; then pass "an AppleDouble entry at the end of a long path is refused (its last part is in the name field either way)"
 else fail "an AppleDouble entry with a long path must be refused"; fi
 
 # Review 1: a GNU long name (an L entry) is the next entry's name. Packed with --format gnutar and a deep path, the
@@ -151,6 +151,10 @@ if tar_metadata_gate "$T/psize.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'
 else fail "a pax size record must be refused"; fi
 paxtar "25 LIBARCHIVE.xattr.x=eA
 " app/K > "$T/libx.tgz"
+paxtar "31 SCHILY.acl.access=user::rw-
+" app/K > "$T/acl.tgz"
+if tar_metadata_gate "$T/acl.tgz" 2>&1 | /usr/bin/grep -q '1 metadata records'; then pass "an ACL record is refused (review 5)"
+else fail "an ACL record must be refused"; fi
 if tar_metadata_gate "$T/libx.tgz" 2>&1 | /usr/bin/grep -q '1 metadata records'; then pass "an attribute in the LIBARCHIVE form alone is refused"
 else fail "a LIBARCHIVE.xattr record alone must be refused"; fi
 { mkhdr "GlobalHead" g 20; blk "20 SCHILY.xattr.a=b
@@ -184,6 +188,43 @@ mkdir -p "$T/ln/app/sub"; printf 'x\n' > "$T/ln/app/f"; ln -s f "$T/ln/app/s"; l
 COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf "$T/links.tgz" -C "$T/ln" app
 if tar_metadata_gate "$T/links.tgz" 2>/dev/null; then pass "CONTROL: a real tarball with a symlink, a hard link and folders passes"
 else fail "CONTROL: a tarball with links and folders was refused"; fi
+# Review 5: the source of truth is what bsdtar extracts. A forged shape the header reader misreads (a GNU long name
+# with a NUL in it: bsdtar cuts the name there, this reader does not) carrying REAL AppleDouble bytes (made here by
+# bsdtar --mac-metadata from a file with an attribute) passes the header layer and is refused by the extraction layer.
+mkdir -p "$T/mm/a"; printf 'k\n' > "$T/mm/a/K"
+if command -v xattr >/dev/null 2>&1 && xattr -w com.example.kosmos6678 v "$T/mm/a/K" 2>/dev/null; then
+  /usr/bin/tar --mac-metadata -cf "$T/mm.tar" -C "$T/mm" a
+  /usr/bin/perl -e '
+    binmode STDIN; binmode STDOUT;
+    sub ck { my $h = shift; substr($h, 148, 8) = " " x 8; my $s = unpack("%32C*", $h); substr($h, 148, 8) = sprintf("%06o\0 ", $s); $h }
+    sub hd { my ($n, $t, $sz) = @_; ck(pack("a100 a8 a8 a8 a12 a12 a8 a1 a100 a6 a2 a32 a32 a8 a8 a155 a12", $n, "0000644", "0000000", "0000000", sprintf("%011o", $sz), "00000000000", " " x 8, $t, "", "ustar", "00", "", "", "", "", "", "")) }
+    sub pd { my $b = shift; $b . ("\0" x ((512 - length($b) % 512) % 512)) }
+    while (read(STDIN, my $h, 512) == 512) {
+      last if $h eq ("\0" x 512);
+      my ($n) = $h =~ /^([^\0]*)/; my $sz = oct("0" . ((substr($h, 124, 12) =~ /([0-7]+)/)[0] // 0)); my $t = substr($h, 156, 1);
+      my $b = ""; my $p = ($sz + 511) & ~511; read(STDIN, $b, $p) if $p;
+      next if $t eq "x";
+      if ($n eq "a/._K") { my $ln = "a/._K\0/zz"; print hd("././\@LongLink", "L", length($ln) + 1), pd($ln . "\0");
+        substr($h, 0, 100) = pack("a100", "a/zz"); print ck($h), $b; next }
+      print $h, $b;
+    }
+    print "\0" x 1024;' < "$T/mm.tar" | /usr/bin/gzip -c > "$T/nul.tgz"
+  hdr="$(tar_metadata_gate "$T/nul.tgz" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s' "$hdr" | /usr/bin/grep -q 'unpacked as an install does' && printf '%s' "$hdr" | /usr/bin/grep -q 'com.example.kosmos6678'; then pass "a forged ._ entry the header reader misreads (a NUL in its long name) is refused by what bsdtar extracts, naming the attribute it planted"
+  else fail "a forged ._ entry with a NUL in its long name must be refused by the extraction layer (rc=$rc): $hdr"; fi
+  /usr/bin/tar -czf "$T/plainx.tgz" -C "$T/mm" a
+  if ! tar_metadata_extracted "$T/plainx.tgz" 2>/dev/null; then pass "the extraction layer alone refuses a tarball that unpacks with an attribute"
+  else fail "the extraction layer must refuse a tarball that unpacks with an attribute"; fi
+  mkdir -p "$T/sl/a" "$T/outside"; printf 'o\n' > "$T/outside/o"; xattr -w com.example.kosmos6678 v "$T/outside/o"; ln -s "$T/outside/o" "$T/sl/a/link"
+  COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf "$T/symlink.tgz" -C "$T/sl" a
+  if tar_metadata_extracted "$T/symlink.tgz" 2>/dev/null; then pass "a symlink to a file with an attribute is not followed (xattr -s reads the link itself)"
+  else fail "the extraction layer followed a symlink out of the unpacked tree"; fi
+else
+  echo "SKIP  the extraction-layer arms: this machine cannot set an extended attribute"
+fi
+COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf "$T/cleanx.tgz" -C "$T/n" app
+if tar_metadata_extracted "$T/cleanx.tgz" 2>/dev/null; then pass "CONTROL: a clean tarball unpacks with nothing on it"
+else fail "CONTROL: a clean tarball was refused by the extraction layer"; fi
 # Complete entries but no end-of-archive blocks: only the end rule can refuse it (the body read and gzip are whole).
 { mkhdr app/K 0 2; blk "x"; } | /usr/bin/gzip -c > "$T/noendblk.tgz"
 if tar_metadata_gate "$T/noendblk.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "whole entries with no end-of-archive blocks are refused"
@@ -207,7 +248,7 @@ for B in "$HERE/build-kosmos-bundle.sh" "$HERE/build-tmux-bundle.sh"; do
     && [ "$(/usr/bin/grep -vE '^[[:space:]]*#' "$B" | /usr/bin/grep -c -E '(^|[^a-z])tar -c')" = 0 ] \
     && /usr/bin/grep -qx 'tar_metadata_gate "$TARBALL\(_OUT\)\{0,1\}" || exit 1' "$B"; then
     pass "$b packs once, without this Mac's metadata, and calls the gate"
-  else fail "$b must pack once with COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs and call tar_metadata_gate"; fi
+  else fail "$b must pack once with COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags and call tar_metadata_gate"; fi
 done
 
 # Review 3: in each builder the order is pack, owner gate, metadata gate, then the .sha256 (which publishes it).
