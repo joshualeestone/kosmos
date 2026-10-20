@@ -32,8 +32,10 @@ function sameDir(a, b) {
   try {
     const x = fs.statSync(a); const y = fs.statSync(b);
     return x.dev === y.dev && x.ino === y.ino;
-  } catch { return path.resolve(a) === path.resolve(b); }
+  } catch { return textKey(a) === textKey(b); }
 }
+/* Resolved text, without letter case on Windows (its paths are case-insensitive), for folders that cannot be stat'd. */
+function textKey(p) { const r = path.resolve(p); return process.platform === 'win32' ? r.toLowerCase() : r; }
 
 /* Is `file` inside `dir`: some folder above it (or it) is `dir`, by identity, else by text. */
 function inside(file, dir) {
@@ -44,7 +46,7 @@ function inside(file, dir) {
     d = up;
     if (sameDir(d, dir)) return true;
   }
-  const rel = path.relative(path.resolve(dir), path.resolve(file));
+  const rel = path.relative(textKey(dir), textKey(file));
   return rel !== '' && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
 }
 
@@ -60,19 +62,20 @@ function installRoot(opts) {
 }
 
 const NOT_INSTALLED = 'this board is not an installed Kosmos (a source checkout, a worktree or a test install), so it '
-  + 'leaves this account’s Claude settings alone; Kosmos’s installer or the installed board sets them up';
+  + 'leaves this account\'s Claude settings alone; Kosmos\'s installer or the installed board sets them up';
 
 function leaveAlone(file, opts) {
   const o = opts || {};
   if (typeof file !== 'string') return null;
   let home;
-  try { home = o.home || os.homedir(); } catch { return 'this board could not tell where the home folder is, so it leaves this account’s Claude settings alone'; }
+  try { home = o.home || os.homedir(); } catch { return 'this board could not tell where the home folder is, so it leaves this account\'s Claude settings alone'; }
   if (!inside(file, home)) return null;
   const sandbox = (o.env || process.env).AGENT_WORKFORCE_HOME;
-  if (sandbox && !sameDir(sandbox, home) && inside(file, sandbox)) return null;   // a sandboxed board's own folders
+  // A sandboxed board's own folders; a "sandbox" that is the home or above it is not one.
+  if (sandbox && !sameDir(sandbox, home) && !inside(home, sandbox) && inside(file, sandbox)) return null;
   let root = null;
   try { root = o.installRoot !== undefined ? o.installRoot : installRoot({ ...o, home }); }
-  catch { return 'this board could not tell whether it is an installed Kosmos, so it leaves this account’s Claude settings alone'; }
+  catch { return 'this board could not tell whether it is an installed Kosmos, so it leaves this account\'s Claude settings alone'; }
   return root ? null : NOT_INSTALLED;
 }
 

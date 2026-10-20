@@ -35,6 +35,9 @@ A source checkout or worktree has neither file two folders up from its engine.
 - **Gate on "installed AND real home", not on "installed" alone.** Every test, and every sandboxed test board, runs
   from source with its own `AGENT_WORKFORCE_HOME` and must keep wiring its own sandbox. The harm is only to the real
   accounts.
+- **Windows changes too:** `prepare` and `ensureStatusLine` were ungated there. Now a Windows board whose
+  `win32board.bundleRoot` is null (a source checkout, or a build in the updater's folder, as for #6601's
+  `wireDefaultHooks`) leaves real-home account settings alone.
 - **Rejected:** gating on a port or data folder (#6601 rejected it too; the harm is the script path), and a pointer
   file check (an update can move the engine before the pointer).
 - **The Mac install signal also requires the default root** `~/.local/share/kosmos`, compared by identity. A full bundle

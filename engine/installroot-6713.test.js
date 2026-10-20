@@ -59,7 +59,8 @@ test('#6713: leaveAlone skips only a non-installed board writing into the real h
   const file = '/Users/x/.claude-account-b/settings.json';
   assert.equal(installroot.leaveAlone(file, { home, env: {}, installRoot: null }), installroot.NOT_INSTALLED);
   assert.equal(installroot.leaveAlone(file, { home, env: {}, installRoot: '/Users/x/.local/share/kosmos' }), null, 'CONTROL: installed writes');
-  assert.equal(installroot.leaveAlone('/tmp/sandbox/.claude-account-b/settings.json', { home, env: { AGENT_WORKFORCE_HOME: '/tmp/sandbox' }, installRoot: null }), null, 'a sandboxed board writes its sandbox');
+  assert.equal(installroot.leaveAlone('/tmp/sandbox/.claude-account-b/settings.json', { home, env: { AGENT_WORKFORCE_HOME: '/tmp/sandbox' }, installRoot: null }), null, 'a file outside the home is never gated');
+  assert.equal(installroot.leaveAlone(file, { home, env: { AGENT_WORKFORCE_HOME: '/Users' }, installRoot: null }), installroot.NOT_INSTALLED, 'a "sandbox" above the home is not a sandbox');
   assert.equal(installroot.leaveAlone(file, { home, env: { AGENT_WORKFORCE_HOME: '/tmp/sandbox' }, installRoot: null }), installroot.NOT_INSTALLED, 'but never a real-home file, sandbox or not');
   assert.equal(installroot.leaveAlone('/Users/x/sb/.claude-account-b/settings.json', { home, env: { AGENT_WORKFORCE_HOME: '/Users/x/sb' }, installRoot: null }), null, 'a sandbox inside the home writes its own folders');
   assert.equal(installroot.leaveAlone(file, { home, env: { AGENT_WORKFORCE_HOME: '/Users/x' }, installRoot: null }), installroot.NOT_INSTALLED, 'a "sandbox" that is the home is the real home');
@@ -96,11 +97,11 @@ test('#6713: the real home under another spelling (a link to it) is still the re
   assert.equal(installroot.leaveAlone(file, { env: { AGENT_WORKFORCE_HOME: alias }, installRoot: '/x' }), null, 'CONTROL: installed writes');
 });
 
-test('#6713: CONTROL: the same prepare in a sandboxed home still wires the hooks (the gate is the real home, not every write)', (t) => {
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-6713-sb-'));
-  const saved = process.env.AGENT_WORKFORCE_HOME;
-  process.env.AGENT_WORKFORCE_HOME = sandbox;
-  t.after(() => { if (saved === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = saved; fs.rmSync(sandbox, { recursive: true, force: true }); });
+test('#6713: CONTROL: the same prepare in a sandbox INSIDE the real home still wires the hooks (the sandbox rule, not only "outside the home")', (t) => {
+  const home = realHome(t);
+  const sandbox = path.join(home, 'sb');
+  fs.mkdirSync(sandbox, { recursive: true });
+  process.env.AGENT_WORKFORCE_HOME = sandbox;   // realHome's t.after restores it
   const r = accounts.prepare('c6713');
   assert.equal(r.ok, true);
   assert.notEqual(r.hooksBecause, installroot.NOT_INSTALLED, 'not refused for the install rule');
