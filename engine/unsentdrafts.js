@@ -23,8 +23,12 @@ const store = require('./store');
 /* Per agent. Full means refused, never the oldest dropped: every kept draft is words the person has not yet seen or
    dismissed, so the box is left as it is instead (chat.recoverStuckInput says so in the board log). */
 const MAX_KEPT = 20;
-const MAX_TEXT = 64 * 1024;
-const PIECE_MIN = 20;   // characters (whitespace not counted) before a shorter text can be a piece of a kept one   // the box is read from at most 200 rows, well under this
+const MAX_TEXT = 64 * 1024;   // a box read whole draws at most six rows, far under this
+const PIECE_MIN = 20;   // characters (whitespace not counted) before a shorter text can be a piece of a kept one
+/* Only a draft kept this recently can have a piece of it come back: a clearing that stopped partway leaves the rest in
+   the box, which the sweep meets again about ten minutes later. An older draft that merely starts the same way is
+   another text. */
+const PIECE_WITHIN_MS = 60 * 60 * 1000;
 
 function dir() { return path.join(store.ROOT, 'unsent-drafts'); }
 /* The store key alone can make two names one file (it lowercases and strips); a short hash of the exact name keeps
@@ -83,6 +87,7 @@ function add(name, text, opts = {}) {
     const sd = squashed(d.text);
     if (sd === st) return true;
     if (st.length < PIECE_MIN || st.length >= sd.length) return false;
+    if (!(Date.now() - Date.parse(d.at) <= PIECE_WITHIN_MS)) return false;
     let p = 0;
     while (p < st.length && sd[p] === st[p]) p += 1;
     let q = 0;
