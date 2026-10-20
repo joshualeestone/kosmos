@@ -1,0 +1,23 @@
+# wakeboard-6586: `kosmos start` waits for a board that is starting, before calling it stuck (kosmos#6586)
+
+## What this branch does
+- install/kosmos `cmd_start`: a recorded board that is alive but not answering used to end the start at once ("already
+  running ... but is not answering", then the installer's "Something went wrong"). It now gets `_await_recorded_board`
+  first: the same bounded wait a fresh start gets (`_await_board_up`, 30 looks), and is a success if it answers.
+- tools/test-start-waits-for-starting-board-6586.sh (in test:shell).
+
+## Decisions
+- Every recorded live board gets the wait, not only one "younger than this run's pause" (the card's wording): the CLI
+  does not know the installer's pause time, and a wedged board only costs the bounded wait before the same message.
+  Rejected: reading the board's age from ps (one more platform-dependent parse for no change in outcome).
+- `_await_board_up` is called WITHOUT a pid: with one it treats the board as launched from this shell and, in a
+  sandbox, stops it again. A board found running is launchd's (or another start's), which the unpidded wait models.
+  Under KOSMOS_RECLAIM_BUSY=1 (setup.sh's final start) an unreachable board still ends in #4636's refusal, unchanged.
+- Weakest premise: that the slow board in the card was launchd's put-back starting up (as the card measured: it
+  answered /api/health 200 within ~20 s). A board that takes longer than the wait still gets the old message.
+
+## Proof
+- `bash tools/test-start-waits-for-starting-board-6586.sh`: 5 PASS (sources the real CLI; healthy and sleep stubbed).
+  Mutants red: the wait removed from cmd_start; a pid passed to the wait.
+- Neighbours green: test-kosmos-addr-reclaim-3079 (20/20), test-board-foreground-2956, test-stopmark-6651,
+  cli.startedby-5450.test.js (9/9). No test pins the old message.

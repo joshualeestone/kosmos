@@ -1615,6 +1615,13 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
 # it holds the port as ours and is working (a 25-agent board is busy the moment its agents reconnect), so
 # the start reports it running and slow, instead of "did not come up" (and the installer's "would not
 # start") on a board that is serving.
+# #6586: wait for a recorded board that is alive but not answering yet (one launchd is bringing back). No pid is
+# passed to _await_board_up on purpose: with a pid it treats the board as one this shell launched, and in a
+# sandbox it would stop it again. This board is launchd's, as an unpidded wait assumes.
+_await_recorded_board() { # $1: its pid (for the words only)
+  say "A Kosmos board from this install is already starting (process $1). Waiting for it to answer."
+  _await_board_up
+}
 _await_board_up() {
   local _i _pid="${1:-}" _unreach_seen=0
   for _i in $(seq 1 30); do
@@ -1856,6 +1863,10 @@ cmd_start() {
   # reboot), and the new one dies on the taken port anyway.
   local _oldpid
   if _oldpid="$(running_pid)"; then
+    # #6586: most often this board is not stuck but STARTING: launchd brought it back seconds ago after an
+    # update's pause, and it answers within about 20 s. It gets the same bounded wait a fresh start gets; only a
+    # board still silent after that is called stuck.
+    if _await_recorded_board "$_oldpid"; then return 0; fi
     die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. $(_stop_advice)"
   fi
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
