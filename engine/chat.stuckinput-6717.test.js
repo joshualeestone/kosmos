@@ -217,10 +217,13 @@ test('kosmos#6717: the board\'s line with the person\'s words added is not the b
   assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION');
   const p = pane(MSG + ' and also the invoice');
   saveInto(p);
+  const lines = () => { try { return JSON.parse(fs.readFileSync(path.join(require('./store').ROOT, 'unsent-lines.json'), 'utf8')); } catch { return {}; } };
+  assert.equal(Object.keys(lines()).length, 1, 'PRECONDITION: the board remembers its line');
   const r = await chat.recoverStuckInput(card, SINCE);
   assert.equal(r.outcome, 'drafted');
   assert.equal(p.enters(), 0);
   assert.equal(saved[0].text, MSG + ' and also the invoice');
+  assert.deepEqual(lines(), {}, 'its line went with the box, so it is forgotten');
 }));
 
 test('kosmos#6717: ghost (dim) text is not text: nothing is pressed, saved or cleared', () => withAgent(async (roster, card) => {
@@ -362,6 +365,10 @@ test('kosmos#6717: a draft is drawn in the conversation at its time as Kosmos\'s
   assert.equal(out[1].text, PERSON);
   assert.equal(out[1].from, null);
   assert.equal(rows.length, 2, 'the stored rows are untouched');
+  // An undated row (a question read off the screen) stays last: drafts go among dated rows only.
+  const q = { id: 'needs-you-question:al', at: null, text: 'which one?', from: 'al', kind: 'question' };
+  const withQ = chat.withDraftRows(rows.concat([q]), drafts.list('al'));
+  assert.equal(withQ[withQ.length - 1], q);
   assert.equal(drafts.dismiss('al', 'nope00000000'), false);
   assert.equal(drafts.dismiss('al', a.id), true);
   assert.deepEqual(drafts.list('al'), []);
@@ -530,7 +537,10 @@ test('kosmos#6717: a piece of a text already kept (a clearing that stopped partw
   rec.drafts = rec.drafts.map((d) => (d.id === whole.id ? { ...d, at: new Date(Date.now() - 61 * 60 * 1000).toISOString() } : d));
   fs.writeFileSync(file, JSON.stringify(rec));
   assert.notEqual(drafts.add('al', 'first row of it and second row').id, whole.id, 'an old draft that starts the same way is another text');
-  assert.equal(drafts.add('al', 'first row of it and second row of it').id, whole.id, 'the exact same text is still the same draft');
+  const again = drafts.add('al', 'first row of it and second row of it');
+  assert.equal(again.id, whole.id, 'the exact same text is still the same draft');
+  const movedAt = Date.parse(drafts.list('al').find((d) => d.id === whole.id).at);
+  assert.ok(Date.now() - movedAt < 60 * 1000, 'and it moves to now, so today\'s clear is seen today');
 });
 
 test('kosmos#6717: a store that keeps refusing the draft is said once in the log, and the box is never cleared', () => withAgent(async (roster) => {

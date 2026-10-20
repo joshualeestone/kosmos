@@ -72,4 +72,8 @@ Calls posted on the card before building: issuecomment-6292327812.
 - The tile sentence "Open it to send it with Enter" is unchanged (#6716 owns tile sentences).
 - A draft older than the conversation's latest 200 rows is drawn at the top of those 200; with earlier messages opened
   it sits after older rows it predates. Cosmetic.
+- The board's own line with the person's words added is drafted whole, envelope included (what the box held), and the
+  line is then forgotten. Its message row keeps saying Kosmos will press Enter on it; nothing updates that row.
+- A new text of at least 20 characters that is the start and end of a draft kept within the hour, with its middle
+  different, is taken for a leftover of that draft and cleared; its characters are all in that draft.
 - Codex, Gemini, Grok, Antigravity, Muse: no detection exists for them, so no recovery either.

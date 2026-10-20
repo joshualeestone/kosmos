@@ -83,18 +83,21 @@ function add(name, text, opts = {}) {
      so it keeps the kept text's start up to the cut and its end after it (chat's stuckShrunk, the same test), and long
      enough to say so (a short "ok" is never taken for a piece of an older draft that happens to hold those letters). */
   const st = squashed(t);
+  const { stuckShrunk } = require('./chat');   // lazy: chat is large, and this module is read by the conversation route
   const same = cur.drafts.find((d) => {
     const sd = squashed(d.text);
     if (sd === st) return true;
-    if (st.length < PIECE_MIN || st.length >= sd.length) return false;
-    if (!(Date.now() - Date.parse(d.at) <= PIECE_WITHIN_MS)) return false;
-    let p = 0;
-    while (p < st.length && sd[p] === st[p]) p += 1;
-    let q = 0;
-    while (q < st.length && sd[sd.length - 1 - q] === st[st.length - 1 - q]) q += 1;
-    return p + q >= st.length;
+    if (st.length < PIECE_MIN || !(Date.now() - Date.parse(d.at) <= PIECE_WITHIN_MS)) return false;
+    return stuckShrunk(sd, st);
   });
-  if (same) return { ok: true, id: same.id, already: true };
+  if (same) {
+    /* The same words cleared again today are said today: the kept draft moves to now (its words are unchanged). */
+    if (squashed(same.text) === st && Date.now() - Date.parse(same.at) > PIECE_WITHIN_MS) {
+      const moved = cur.drafts.filter((d) => d.id !== same.id).concat([{ ...same, at: new Date().toISOString() }]);
+      if (!writeDrafts(name, moved)) return { ok: false, because: 'the draft could not be written' };
+    }
+    return { ok: true, id: same.id, already: true };
+  }
   if (cur.drafts.length >= MAX_KEPT) return { ok: false, full: true, because: MAX_KEPT + ' drafts are already kept for this agent' };
   const since = typeof opts.since === 'string' && Number.isFinite(Date.parse(opts.since)) ? opts.since : null;
   const draft = { id: crypto.randomBytes(6).toString('hex'), at: new Date().toISOString(), text: t, ...(since ? { since } : {}) };

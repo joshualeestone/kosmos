@@ -1195,6 +1195,13 @@ function stuckShrunk(prev, now) {
   while (q < now.length && prev[prev.length - 1 - q] === now[now.length - 1 - q]) q += 1;
   return p + q >= now.length;
 }
+/* The board's remembered line went out with the box (its words, with the person's added, are in the draft): forgotten,
+   so no retry or delivery waits on a line that is no longer there. Only the line read at the decision (`kept`). */
+function forgetDraftedLine(target, kept) {
+  if (!kept) return;
+  const still = recallUnsent(target);
+  if (still && still.id === kept.id) forgetUnsent(target);
+}
 async function stuckPause(ms) {
   if (pauser) await pauser(ms);
   else if (!runner) await new Promise((resolve) => setTimeout(resolve, ms));
@@ -1293,7 +1300,7 @@ async function recoverStuckInput(card, since) {
           await stuckPause(SUBMIT_LOOK_MS);
           left = readComposer(target);
           if (!left.ok) return notYet('the box could not be read');
-          if (!left.text) return done('drafted');
+          if (!left.text) { forgetDraftedLine(target, kept); return done('drafted'); }
         }
         const now = squash(left.text);
         /* A round that empties a blank row reads the same once squashed but draws one row fewer: that is progress. */
