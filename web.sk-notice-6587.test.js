@@ -1,7 +1,7 @@
 'use strict';
 /**
  * kosmos#6587 (S-7a slice 2b): the floating notice for a Kosmos+ service key mismatch (paintSkNote), on every view but
- * Kosmos+. Put away for the browser session by Close or Review; one fixed sentence.
+ * Kosmos+. Put away for the tab by Close or Review, until an answer says anything but mismatch; one fixed sentence.
  *
  *   node --test web.sk-notice-6587.test.js
  */
