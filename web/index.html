@@ -4061,7 +4061,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    click-to-open to wake it), so this is built to his words rather than reinterpreted to hit
    the ratio. If Josh wants it softened, dropping the NAME to ~.65 clears AA while the avatar
    keeps the .5 "asleep" read; flagged to him as an FYI, not a blocker. */
-.lrow.off .lav, .lrow.off .lname { opacity: .5; }
+.lrow.off .lav, .lrow.off .lname > b { opacity: .5; }   /* #6719: the name, not the cell, so the row's star keeps its contrast */
 /* #3187 (Josh 6.70): "show the grey/green/red backgrounds for agents under the
    agents list". Status owns the GROUND on the list the same way it already does
    on the grid card (grep .acard.working / .acard.attn), reusing those exact
@@ -5518,6 +5518,12 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      needs-you warning stays, drawn over the avatar itself, which is the
      one state signal this rail still carries and the one that matters. */
   html[data-layout="consolidated"] body.consolidated .lrow { grid-template-columns: 34px minmax(0, 1fr); gap: 1px 10px; padding: 6px 10px; }
+  /* #6719: in the rail the name and the title stack in one narrow column and the unread badge hangs off the row's
+     corner, so the star is a compact box on the name line, pulled in from the corner (measured clear of both by
+     render-star-6719). The row itself stays the large target that opens the agent. */
+  html[data-layout="consolidated"] body.consolidated .lrow .lname { padding-right: 34px; }
+  html[data-layout="consolidated"] body.consolidated .lrow .lname .astar { width: 26px; height: 20px; right: 8px; border-radius: 6px; }
+  html[data-layout="consolidated"] body.consolidated .lrow .lname .astar svg { width: 15px; height: 15px; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav { grid-row: 1 / span 2; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lname { grid-column: 2; grid-row: 1; min-width: 0; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lname b { display: block; font-size: .8125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -12337,7 +12343,7 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
     column-gap: 14px; row-gap: 0; align-items: center; text-align: left; padding: 18px 18px 16px; }   /* no row gap: an absent line (alsowork) leaves an empty row; spacing is each line's own margin */
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .agauge { grid-area: g; width: 64px; margin: 0; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .agauge svg { width: 64px; height: 64px; }
-  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .aname { grid-area: n; align-self: end; min-width: 0; }
+  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .aname { grid-area: n; align-self: end; min-width: 0; padding-right: 30px; }   /* #6719: the 44 px corner star sits above the name's right end */
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .aname .namego { text-align: left; }   /* a button centres its text, so a wrapped name drifted to the middle */
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .ameta { grid-area: m; align-self: start; margin: 0; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .astate { grid-area: s; justify-self: start; margin: 6px 0 0; }   /* all four: the base auto side margins would centre it */
@@ -25056,7 +25062,11 @@ function paintRailTeamMap(op) {
    the head stays "Agents". Joined to the open project's roster by sessionName -- the same key lrow(a)
    and pjMember(m) share. boardEmpty() honours BOARD_SEEN, so a pre-first-poll call (LAST still [])
    draws the honest "Looking..." state, never a false empty. */
+/* #6719: every repaint of the list keeps a focused star focused (see keepStarFocus). */
 function paintAgentList() {
+  if (typeof keepStarFocus === 'function') keepStarFocus(paintAgentListNow); else paintAgentListNow();
+}
+function paintAgentListNow() {
   const alist = document.getElementById('alist');
   if (!alist) return;
   const lim = new URLSearchParams(location.search).get('limit');
@@ -25546,7 +25556,8 @@ async function tick() {
        first-run, and so does removing the last agent. (Mona Lisa, #? on the
        agents-page package, 2026-08-22.) */
     const orderedAgents = sortAgents(shown, AGENT_SORT, PROJECTS, typeof AGENT_STARS === 'undefined' ? null : AGENT_STARS);
-    document.getElementById('grid').innerHTML = orderedAgents.length ? orderedAgents.map(card).join('') : boardEmpty();
+    const paintGrid = () => { document.getElementById('grid').innerHTML = orderedAgents.length ? orderedAgents.map(card).join('') : boardEmpty(); };
+    if (typeof keepStarFocus === 'function') keepStarFocus(paintGrid); else paintGrid();   // #6719: a poll keeps a focused star
     // The list is the SAME agents through the same derivations, painted on
     // the same tick -- hidden or not. Painting only the visible layout would
     // hand the toggle a stale copy of whichever view was resting.
@@ -38576,6 +38587,7 @@ function sortAgents(list, mode, projects, stars) {
    board. Outline when off, filled when on; the page's own star is drawn in CSS from one path. */
 let AGENT_STARS = new Set();
 let STARS_SEQ = 0;   // the newest read or write wins: a slow read never puts back a star changed since it went out
+let STARS_WRITING = 0;   // writes in flight: a reload waits for them, or it could read the set from before the write
 const STAR_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M12 3.6l2.5 5.2 5.7.7-4.2 3.9 1.1 5.6L12 16.3 6.9 19l1.1-5.6-4.2-3.9 5.7-.7z"/></svg>';
 function starBtn(a) {
   const on = AGENT_STARS.has(a.sessionName);
@@ -38584,6 +38596,18 @@ function starBtn(a) {
 }
 /* The grid and the list in the chosen order, now. Shared by the sort control and a star, so the two cannot disagree
    about what "the board's order" is. A star that had focus keeps it (the repaint rebuilds the button). */
+/* A repaint rebuilds the star buttons, which drops a keyboard user's focus. Every repaint of the grid or the list goes
+   through this, so a focused star is focused again afterwards (the toggle, the sort control and the 5 s poll alike). */
+function keepStarFocus(paint) {
+  const had = document.activeElement && document.activeElement.closest ? document.activeElement.closest('[data-star]') : null;
+  const where = had ? had.closest('#grid, #alist') : null;
+  const who = had ? had.dataset.star : null;
+  paint();
+  if (who && where && document.activeElement !== had) {
+    const back = [...where.querySelectorAll('[data-star]')].find((b) => b.dataset.star === who);
+    if (back) back.focus();
+  }
+}
 function repaintAgentOrder(focusStar) {
   const had = document.activeElement && document.activeElement.closest ? document.activeElement.closest('[data-star]') : null;
   const where = had ? had.closest('#grid, #alist') : null;
@@ -38599,6 +38623,7 @@ function repaintAgentOrder(focusStar) {
   }
 }
 async function loadStars() {
+  if (STARS_WRITING > 0) return;   // the write's own answer is newer than anything this read could bring
   const seq = ++STARS_SEQ;
   try {
     const r = await fetch('/api/agent-stars', { cache: 'no-store' });
@@ -38613,18 +38638,25 @@ async function loadStars() {
 }
 /* Drawn at once (the tile moves as the person presses), then confirmed by the board; a refusal puts it back. */
 async function toggleStar(name) {
-  const before = new Set(AGENT_STARS);
-  const on = !before.has(name);
+  const on = !AGENT_STARS.has(name);
   const seq = ++STARS_SEQ;
   if (on) AGENT_STARS.add(name); else AGENT_STARS.delete(name);
   repaintAgentOrder(name);
+  STARS_WRITING += 1;
   try {
     const r = await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, on }) });
     const v = await r.json().catch(() => null);
     if (!r.ok || !v || !Array.isArray(v.names)) throw new Error('not saved');
     if (seq === STARS_SEQ) { AGENT_STARS = new Set(v.names); repaintAgentOrder(name); }
   } catch {
-    if (seq === STARS_SEQ) { AGENT_STARS = before; repaintAgentOrder(name); }
+    /* Only this star goes back, so a second press that did save is not undone with it; and the person is told,
+       since a star that flips back with no word reads as a click that did not register. */
+    if (on) AGENT_STARS.delete(name); else AGENT_STARS.add(name);
+    repaintAgentOrder(name);
+    const msg = document.getElementById('board-msg');
+    if (msg) msg.textContent = on ? 'That star could not be saved. Try again in a moment.' : 'That star could not be removed. Try again in a moment.';
+  } finally {
+    STARS_WRITING -= 1;
   }
 }
 let AGENT_SORT = (() => {

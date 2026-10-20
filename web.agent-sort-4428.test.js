@@ -213,3 +213,11 @@ test('#6719: no stars, an empty set, or stars naming nobody on the board leave e
     }
   }
 });
+
+test('#6719: every repaint of the grid (the 5 s poll included) and of the list keeps a focused star focused', () => {
+  // The browser check stubs the poll's timer, so the poll's own repaint is pinned here: it goes through keepStarFocus.
+  assert.match(SCRIPT, /const paintGrid = \(\) => \{ document\.getElementById\('grid'\)\.innerHTML = orderedAgents\.length \? orderedAgents\.map\(card\)\.join\(''\) : boardEmpty\(\); \};\s*if \(typeof keepStarFocus === 'function'\) keepStarFocus\(paintGrid\); else paintGrid\(\);/,
+    'the poll repaints the grid without keeping a focused star');
+  assert.match(SCRIPT, /function paintAgentList\(\) \{\s*if \(typeof keepStarFocus === 'function'\) keepStarFocus\(paintAgentListNow\); else paintAgentListNow\(\);\s*\}/,
+    'the list repaint no longer keeps a focused star');
+});

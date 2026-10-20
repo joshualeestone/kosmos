@@ -10,8 +10,13 @@
  *   - a second star keeps the chosen order within the starred group; Unstar puts the order back;
  *   - Enter on a focused star toggles it, and focus stays on that agent's star after the repaint;
  *   - a refused save (the stub answers 500) puts the star back as it was;
- *   - on the narrowest tile the corner star does not overlap the unread badge, and in a list row it does not cover the
- *     name; at 375 x 667 on a touch screen it is at least 44 px.
+ *   - all three tile paths (running, not running, waiting at a trust prompt) carry the star; on a card with a question
+ *     to answer, the star stars and neither answers nor opens (CONTROL: a click elsewhere on that card answers);
+ *   - a list repaint (as the 5 s poll does) keeps a focused star focused; a refused save says so;
+ *   - on the narrowest tile the corner star does not overlap the unread badge, and in a list row it does not cover a
+ *     long name; at 375 x 667 on a touch screen it is at least 44 px; on an upright tablet (touch, 768 x 1024) a
+ *     running tile's long name does not run under it; in the consolidated rail it clears the row's unread badge and
+ *     the title line under the name.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-star-6719.js [shots-dir]
  */
@@ -61,8 +66,16 @@ async function open(browser, eng, w, h, theme) {
       mk('Ada', { lastTalkedAt: '2026-10-20T12:00:00Z', dmUnread: 3 }),
       mk('Bea', { lastTalkedAt: '2026-10-20T11:00:00Z' }),
       mk('Cam', { lastTalkedAt: '2026-10-20T10:00:00Z' }),
-      mk('Dee', { lastTalkedAt: '2026-10-20T09:00:00Z', dmUnread: 12 }),
+      // A long name, so the "does not cover the name" arms can fail; and the most unread, for the badge arms.
+      { ...mk('Dee', { lastTalkedAt: '2026-10-20T09:00:00Z', dmUnread: 12 }), name: 'Delphine Montgomery-Ashworth' },
+      // A running agent with a question to answer (its card carries data-answer), long-named for the tablet arm.
+      { ...mk('Eve', { lastTalkedAt: '2026-10-20T08:00:00Z', running: true, state: 'needs_you', isNamedOurs: true, because: 'Which domain?' }),
+        name: 'Evangeline Rutherford-Blackwood' },
+      // Waiting at a workspace-trust prompt: the third tile path.
+      mk('Fin', { lastTalkedAt: '2026-10-20T07:00:00Z', needsTrust: true, state: 'needs_trust' }),
     ];
+    window.ANSWERED = [];
+    window.pjAnswerFrom = (who) => { window.ANSWERED.push(who); };
     PROJECTS = [];
     const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
     document.querySelectorAll('body > *').forEach((el) => { el.inert = false; });
@@ -95,11 +108,16 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme);
       const counts = await page.evaluate(() => ({ tiles: document.querySelectorAll('#grid .acard').length,
         tileStars: document.querySelectorAll('#grid .acard > .astar').length, rows: document.querySelectorAll('#alist .lrow').length,
-        rowStars: document.querySelectorAll('#alist .lrow .lname .astar').length }));
-      chk(counts.tiles === 4 && counts.tileStars === 4 && counts.rows === 4 && counts.rowStars === 4, `${t} every tile and every list row has a star`, JSON.stringify(counts));
+        rowStars: document.querySelectorAll('#alist .lrow .lname .astar').length,
+        paths: { running: !!document.querySelector('#grid .acard:not(.notrunning)[data-agent="eve"] > .astar'),
+          off: !!document.querySelector('#grid .acard.off.notrunning[data-agent="ada"] > .astar'),
+          trust: !!document.querySelector('#grid .acard.needstrust[data-agent="fin"] > .astar') } }));
+      chk(counts.tiles === 6 && counts.tileStars === 6 && counts.rows === 6 && counts.rowStars === 6, `${t} every tile and every list row has a star`, JSON.stringify(counts));
+      chk(counts.paths.running && counts.paths.off && counts.paths.trust, `${t} all three tile paths carry it (running, not running, trust prompt)`, JSON.stringify(counts.paths));
       const off = await star(page, '#grid', 'dee');
-      chk(off && !off.on && off.label === 'Star Dee' && /none|transparent|rgba\(0, 0, 0, 0\)/.test(off.fill), `${t} a star starts as an outline, labelled "Star <name>"`, JSON.stringify(off));
-      chk(JSON.stringify(await order(page, '#grid')) === JSON.stringify(['ada', 'bea', 'cam', 'dee']), `${t} CONTROL: the board's order before any star is Last talked to`, JSON.stringify(await order(page, '#grid')));
+      chk(off && !off.on && off.label === 'Star Delphine Montgomery-Ashworth' && /none|transparent|rgba\(0, 0, 0, 0\)/.test(off.fill), `${t} a star starts as an outline, labelled "Star <name>"`, JSON.stringify(off));
+      const START = ['ada', 'bea', 'cam', 'dee', 'eve', 'fin'];
+      chk(JSON.stringify(await order(page, '#grid')) === JSON.stringify(START), `${t} CONTROL: the board's order before any star is Last talked to`, JSON.stringify(await order(page, '#grid')));
 
       // Star the last agent by clicking its tile star.
       await page.locator('#grid [data-star="dee"]').click();
@@ -109,7 +127,7 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       const on = await star(page, '#grid', 'dee');
       const opened = await page.evaluate(() => (typeof CURRENT !== 'undefined' && CURRENT ? CURRENT.sessionName : null));
       chk(g1[0] === 'dee' && l1[0] === 'dee', `${t} the starred agent moves first in the grid and the list`, JSON.stringify({ g1, l1 }));
-      chk(on && on.on && on.label === 'Unstar Dee' && !/none|transparent|rgba\(0, 0, 0, 0\)/.test(on.fill), `${t} its star fills and reads "Unstar <name>"`, JSON.stringify(on));
+      chk(on && on.on && on.label === 'Unstar Delphine Montgomery-Ashworth' && !/none|transparent|rgba\(0, 0, 0, 0\)/.test(on.fill), `${t} its star fills and reads "Unstar <name>"`, JSON.stringify(on));
       chk(JSON.stringify(await page.evaluate(() => window.STAR_PUTS)) === JSON.stringify([{ name: 'dee', on: true }]), `${t} one PUT with { name, on: true }`, JSON.stringify(await page.evaluate(() => window.STAR_PUTS)));
       chk(!opened, `${t} the star does not open the agent`, String(opened));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `star-${eng}-${theme}.png`) });
@@ -119,7 +137,7 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       await page.waitForFunction(() => window.STAR_PUTS.length === 2);
       await page.waitForTimeout(50);
       const g2 = await order(page, '#grid');
-      chk(JSON.stringify(g2) === JSON.stringify(['cam', 'dee', 'ada', 'bea']), `${t} two starred agents keep Last talked to among themselves, then the rest`, JSON.stringify(g2));
+      chk(JSON.stringify(g2) === JSON.stringify(['cam', 'dee', 'ada', 'bea', 'eve', 'fin']), `${t} two starred agents keep Last talked to among themselves, then the rest`, JSON.stringify(g2));
 
       // Keyboard: focus Cam's star and press Enter to unstar it; focus stays on Cam's star.
       await page.focus('#grid [data-star="cam"]');
@@ -133,15 +151,36 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       await page.locator('#grid [data-star="dee"]').click();
       await page.waitForFunction(() => window.STAR_PUTS.length === 4);
       await page.waitForTimeout(50);
-      chk(JSON.stringify(await order(page, '#grid')) === JSON.stringify(['ada', 'bea', 'cam', 'dee']), `${t} Unstar puts the order back`, JSON.stringify(await order(page, '#grid')));
+      chk(JSON.stringify(await order(page, '#grid')) === JSON.stringify(START), `${t} Unstar puts the order back`, JSON.stringify(await order(page, '#grid')));
+
+      // A star on a card with a question: it stars, and neither answers nor opens.
+      await page.locator('#grid [data-star="eve"]').click();
+      await page.waitForFunction(() => window.STAR_PUTS.length === 5);
+      await page.waitForTimeout(50);
+      const ans = await page.evaluate(() => ({ answered: window.ANSWERED.slice(), opened: typeof CURRENT !== 'undefined' && CURRENT ? CURRENT.sessionName : null,
+        first: [...document.querySelectorAll('#grid [data-agent]')][0].dataset.agent }));
+      chk(ans.answered.length === 0 && !ans.opened && ans.first === 'eve', `${t} a star on a card with a question stars it and neither answers nor opens`, JSON.stringify(ans));
+      await page.locator('#grid [data-star="eve"]').click();
+      await page.waitForFunction(() => window.STAR_PUTS.length === 6);
+      // CONTROL: a click elsewhere on that card does answer, so the arm above can fail.
+      await page.locator('#grid .acard[data-agent="eve"] .ameta').click();
+      await page.waitForTimeout(50);
+      chk(JSON.stringify(await page.evaluate(() => window.ANSWERED)) === JSON.stringify(['eve']), `${t} CONTROL: a click elsewhere on that card answers`, JSON.stringify(await page.evaluate(() => window.ANSWERED)));
+
+      // A list repaint, as the 5 s poll does, keeps a focused star focused.
+      await page.focus('#alist [data-star="cam"]');
+      const kept = await page.evaluate(() => { paintAgentList(); const a = document.activeElement; return { star: a && a.dataset ? a.dataset.star : null, inList: !!(a && a.closest && a.closest('#alist')) }; });
+      chk(kept.star === 'cam' && kept.inList, `${t} a list repaint (the poll's) keeps a focused star focused`, JSON.stringify(kept));
 
       // A refused save puts the star back.
       await page.evaluate(() => { window.STAR_REFUSE = true; });
       await page.locator('#grid [data-star="bea"]').click();
-      await page.waitForFunction(() => window.STAR_PUTS.length === 5);
+      await page.waitForFunction(() => window.STAR_PUTS.length === 7);
       await page.waitForTimeout(100);
       const refused = await star(page, '#grid', 'bea');
+      const said = await page.evaluate(() => (document.getElementById('board-msg') || {}).textContent || '');
       chk(refused && !refused.on && (await order(page, '#grid'))[0] === 'ada', `${t} a refused save puts the star back`, JSON.stringify(refused));
+      chk(/could not be saved/.test(said), `${t} a refused save says so`, said);
       await page.evaluate(() => { window.STAR_REFUSE = false; });
 
       // CONTROL: a click on the name does open the agent, so the no-open arm above can fail.
@@ -154,7 +193,7 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
     }
 
     // Geometry: the narrowest tile, with an unread badge, and the list row; then a phone.
-    for (const [w, h] of [[300, 900], [375, 667]]) {
+    for (const [w, h] of [[300, 900], [375, 667]]) {   // the narrowest tile and a phone
       const t = `[${eng} ${w}x${h}]`;
       const { ctx, page, errs } = await open(browser, eng, w, h, 'light');
       const geo = await page.evaluate(() => {
@@ -177,6 +216,47 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       chk(geo.rowSized && geo.rowClear === true, `${t} the list row's star is drawn and does not cover the name`, JSON.stringify(geo));
       if (w < 700) chk(geo.starW >= 44 && geo.starH >= 44, `${t} on a touch screen the star is at least 44 px`, JSON.stringify(geo));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `star-${eng}-${w}.png`) });
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await ctx.close();
+    }
+    // An upright tablet: a running tile lays out sideways with the name at its top right, under the corner star's row.
+    {
+      const t = `[${eng} 768x1024 tablet]`;
+      const { ctx, page, errs } = await open(browser, eng, 768, 1024, 'light');
+      const tab = await page.evaluate(() => {
+        const tile = document.querySelector('#grid .acard[data-agent="eve"]');
+        const r = (el) => el.getBoundingClientRect();
+        const s = r(tile.querySelector('.astar')); const nm = r(tile.querySelector('.aname .namego'));
+        const hit = !(s.right <= nm.left || nm.right <= s.left || s.bottom <= nm.top || nm.bottom <= s.top);
+        return { sideways: getComputedStyle(tile.querySelector('.aname')).gridArea.startsWith('n'), clear: !hit, starW: Math.round(s.width) };
+      });
+      if (tab.sideways) chk(tab.clear, `${t} a running tile's long name does not run under the star`, JSON.stringify(tab));
+      else console.log(`NOTE  ${t} this engine did not apply the upright-tablet layout (no coarse pointer here), so its arm did not run`);
+      if (eng === 'chromium') chk(tab.sideways, `${t} CONTROL: chromium applies the upright-tablet layout, so the arm above ran`, JSON.stringify(tab));
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await ctx.close();
+    }
+    // The consolidated rail: name and title stack in one column, and the unread badge hangs off the row's corner.
+    {
+      const t = `[${eng} consolidated rail]`;
+      const { ctx, page, errs } = await open(browser, eng, 1280, 900, 'light');
+      const rail = await page.evaluate(() => {
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        showTab('projects');
+        repaintAgentOrder();
+        const row = document.querySelector('#alist .lrow[data-agent="dee"]');
+        if (!row) return { row: false };
+        const r = (el) => (el ? el.getBoundingClientRect() : null);
+        const hit = (a, b) => !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+        const s = r(row.querySelector('.lname .astar')); const b = r(row.querySelector(':scope > .dmbadge'));
+        const title = r(row.querySelector('.ltitle')); const nm = r(row.querySelector('.lname .namego'));
+        return { row: true, cons: document.body.classList.contains('consolidated'), sized: !!(s && s.width > 0), badge: !!b,
+          badgeClear: b ? !hit(s, b) : null, titleClear: title && title.width > 0 ? !hit(s, title) : null, nameClear: nm ? !hit(s, nm) : null };
+      });
+      chk(rail.row && rail.cons && rail.sized, `${t} CONTROL: the rail is drawn, consolidated, with a star`, JSON.stringify(rail));
+      chk(rail.badge && rail.badgeClear === true, `${t} the star clears the row's unread badge`, JSON.stringify(rail));
+      chk(rail.titleClear === true && rail.nameClear === true, `${t} the star clears the long name and the title line under it`, JSON.stringify(rail));
+      if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `star-${eng}-rail.png`) });
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await ctx.close();
     }
