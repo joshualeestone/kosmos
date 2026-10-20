@@ -102,7 +102,7 @@ pe_authenticode() {
   PE_SIGNER=''
   command -v powershell >/dev/null 2>&1 || command -v powershell.exe >/dev/null 2>&1 || { echo "pe_authenticode: no powershell here to ask Windows about the signature of $what" >&2; return 1; }
   win="$(cygpath -w "$f" 2>/dev/null || printf '%s' "$f")"
-  out="$(KOSMOS_CW_FILE="$win" powershell.exe -NoProfile -NonInteractive -Command '$s = Get-AuthenticodeSignature -LiteralPath $env:KOSMOS_CW_FILE; "$($s.Status)|$($s.SignerCertificate.Subject)"' 2>/dev/null | tr -d '')"
+  out="$(KOSMOS_CW_FILE="$win" powershell.exe -NoProfile -NonInteractive -Command '$s = Get-AuthenticodeSignature -LiteralPath $env:KOSMOS_CW_FILE; "$($s.Status)|$($s.SignerCertificate.Subject)"' 2>/dev/null | tr -d '\r')"
   status="${out%%|*}"; subject="${out#*|}"
   [ "$status" = Valid ] || { echo "pe_authenticode: Windows reports the signature of $what as '${status:-unknown}', not Valid ($f)" >&2; return 1; }
   case "$subject" in

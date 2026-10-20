@@ -165,7 +165,9 @@ function main(argv) {
   if (verb === 'set' && zip && stage) {
     const buf = fs.readFileSync(zip);
     const c = setModes(buf, stage);
-    fs.writeFileSync(zip, buf);
+    // Written beside the zip and renamed over it, so a full disk or a crash never leaves a torn zip.
+    const tmp = `${zip}.${process.pid}.modes.tmp`;
+    try { fs.writeFileSync(tmp, buf); fs.renameSync(tmp, zip); } finally { fs.rmSync(tmp, { force: true }); }
     console.log(`==> zip modes set: ${c.file} files 0644, ${c.exec} programs 0755, ${c.dir} folders 0755`);
     return 0;
   }
