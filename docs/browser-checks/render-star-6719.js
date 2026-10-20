@@ -33,8 +33,8 @@ const chk = (ok, label, extra) => {
   if (!ok) fail.push(label);
 };
 
-async function open(browser, eng, w, h, theme) {
-  const touch = w < 700;
+async function open(browser, eng, w, h, theme, touchArg) {
+  const touch = typeof touchArg === 'boolean' ? touchArg : w < 700;
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: theme, hasTouch: touch, isMobile: touch && eng === 'chromium' });
   const page = await ctx.newPage();
   const errs = [];
@@ -178,9 +178,9 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       await page.waitForFunction(() => window.STAR_PUTS.length === 7);
       await page.waitForTimeout(100);
       const refused = await star(page, '#grid', 'bea');
-      const said = await page.evaluate(() => (document.getElementById('board-msg') || {}).textContent || '');
+      const said = await page.evaluate(() => { const m = document.getElementById('board-msg'); return { text: m ? m.textContent : '', shown: !!(m && !m.hidden && m.getClientRects().length > 0) }; });
       chk(refused && !refused.on && (await order(page, '#grid'))[0] === 'ada', `${t} a refused save puts the star back`, JSON.stringify(refused));
-      chk(/could not be saved/.test(said), `${t} a refused save says so`, said);
+      chk(/could not be saved/.test(said.text) && said.shown, `${t} a refused save says so, on screen (not only in the text)`, JSON.stringify(said));
       await page.evaluate(() => { window.STAR_REFUSE = false; });
 
       // CONTROL: a click on the name does open the agent, so the no-open arm above can fail.
@@ -193,9 +193,10 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
     }
 
     // Geometry: the narrowest tile, with an unread badge, and the list row; then a phone.
-    for (const [w, h] of [[300, 900], [375, 667]]) {   // the narrowest tile and a phone
-      const t = `[${eng} ${w}x${h}]`;
-      const { ctx, page, errs } = await open(browser, eng, w, h, 'light');
+    // The narrowest tile with a mouse (the 36 px star) and with touch (44 px), and a phone.
+    for (const [w, h, touch] of [[300, 900, false], [300, 900, true], [375, 667, true]]) {
+      const t = `[${eng} ${w}x${h} ${touch ? 'touch' : 'mouse'}]`;
+      const { ctx, page, errs } = await open(browser, eng, w, h, 'light', touch);
       const geo = await page.evaluate(() => {
         const r = (el) => el.getBoundingClientRect();
         const hit = (a, b) => !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
@@ -214,15 +215,16 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       });
       chk(geo.badge && geo.badgeClear === true && geo.inTile, `${t} the corner star is inside the tile and clear of the unread badge (tile ${geo.tileW}px)`, JSON.stringify(geo));
       chk(geo.rowSized && geo.rowClear === true, `${t} the list row's star is drawn and does not cover the name`, JSON.stringify(geo));
-      if (w < 700) chk(geo.starW >= 44 && geo.starH >= 44, `${t} on a touch screen the star is at least 44 px`, JSON.stringify(geo));
-      if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `star-${eng}-${w}.png`) });
+      if (touch) chk(geo.starW >= 44 && geo.starH >= 44, `${t} on a touch screen the star is at least 44 px`, JSON.stringify(geo));
+      else chk(geo.starW === 36, `${t} CONTROL: with a mouse it is the 36 px star, so the badge arm measured that size`, JSON.stringify(geo));
+      if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `star-${eng}-${w}-${touch ? 'touch' : 'mouse'}.png`) });
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await ctx.close();
     }
     // An upright tablet: a running tile lays out sideways with the name at its top right, under the corner star's row.
     {
       const t = `[${eng} 768x1024 tablet]`;
-      const { ctx, page, errs } = await open(browser, eng, 768, 1024, 'light');
+      const { ctx, page, errs } = await open(browser, eng, 768, 1024, 'light', true);   // a tablet is a touch screen
       const tab = await page.evaluate(() => {
         const tile = document.querySelector('#grid .acard[data-agent="eve"]');
         const r = (el) => el.getBoundingClientRect();
