@@ -20,11 +20,11 @@
    - `listed`: the pinned key is on the set.
    - `mismatch`: a pinned key that is not on the set.
 
-   🛑 Before a recovery key is pinned (the switch that turns this on): the pin is first-use and never refreshed today, so
-   after a key rotation drops the old key from the set, every computer still pinned to it would read `mismatch` and be
-   told something may be posing as the service. The rotation plan already requires the tunnel steps that refresh the
-   pin (S-7a slice 3, the tunnel trust store) to ship before any key is promoted; turning this check on must wait for
-   them too. */
+   🛑 This is turned on by COMMITTING engine/service-keys.json (a recovery key in manifest-verify belongs to #6609 and
+   may be pinned for that alone). Do not commit a set until S-7a slice 3 (the tunnel trust store) ships: the tunnel
+   rewrites the pin only at setup and sign-in, so after a key rotation drops the old key, every computer that has not
+   signed in since would read `mismatch` and be told something may be posing as the service. The rotation plan already
+   requires slice 3 before any key is promoted. */
 
 const fs = require('fs');
 const path = require('path');

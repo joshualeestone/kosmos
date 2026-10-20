@@ -67,13 +67,9 @@ mkdir -p "$STAGE/app/engine" "$STAGE/app/bin"
 for f in "$REPO"/engine/*.js; do
   case "$f" in *.test.js) ;; *) cp "$f" "$STAGE/app/engine/" ;; esac
 done
-# kosmos#6587: the signed service key set ships beside the engine that checks it (engine/servicekeys-check.js), when this
-# version carries one. Both files or neither: a set without its signature (or the reverse) is a broken release.
-if [ -f "$REPO/engine/service-keys.json" ] || [ -f "$REPO/engine/service-keys.json.sig" ]; then
-  [ -f "$REPO/engine/service-keys.json" ] && [ -f "$REPO/engine/service-keys.json.sig" ] || { echo "FAIL: engine/service-keys.json and its .sig must ship together (#6587)" >&2; exit 1; }
-  cp "$REPO/engine/service-keys.json" "$STAGE/app/engine/"
-  cp "$REPO/engine/service-keys.json.sig" "$STAGE/app/engine/"
-fi
+# kosmos#6587: the signed service key set ships beside the engine that checks it, checked (tools/lib/stage-service-keys.sh).
+. "$REPO/tools/lib/stage-service-keys.sh"
+kosmos_stage_service_keys "$REPO" "$STAGE/app/engine" || exit 1
 cp -R "$REPO/web" "$STAGE/app/web"
 # 🛑 BAKE THE VERSION INTO THE PAGE. It used to be readable only from the status
 # poll, so on a machine whose board was not running the version was unknown for
