@@ -114,8 +114,8 @@ test('#4796 control: the check can see a file without a data root, in each shape
   assert.notEqual(leakIn(cli + 'const env = { ...withoutAgentIdentity(process.env), KOSMOS_PORT: p };\n'), null, 'withoutAgentIdentity inherits too');
   assert.equal(leakIn(cli + 'const env = { ...withoutAgentIdentity(process.env), AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: p };\n'), null, 'withoutAgentIdentity with its own root');
   // Review 1: the helper in any other shape is the parent's whole environment, flagged as env: process.env is.
-  assert.notEqual(leakIn(cli + 'execFile(CLI, args, { env: withoutAgentIdentity(process.env) });\n'), null, 'env: withoutAgentIdentity(process.env)');
-  assert.notEqual(leakIn(cli + 'const base = withoutAgentIdentity(process.env);\nexecFile(CLI, args, { env: base });\n'), null, 'a variable assigned from it');
+  assert.notEqual(leakIn(cli + 'drive(CLI, args, { env: withoutAgentIdentity(process.env) });\n'), null, 'env: withoutAgentIdentity(process.env)');
+  assert.notEqual(leakIn(cli + 'const base = withoutAgentIdentity(process.env);\ndrive(CLI, args, { env: base });\n'), null, 'a variable assigned from it');
   assert.notEqual(leakIn(cli), null, 'no env at all inherits the parent\'s');
   assert.equal(leakIn("process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');\n" + cli), null, 'a data root set on the test process itself');
   assert.notEqual(leakIn("  process.env.AGENT_WORKFORCE_DATA = '';\n" + cli), null, 'an indented or empty one is not the file-wide root');
