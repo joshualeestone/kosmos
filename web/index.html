@@ -17392,7 +17392,7 @@ window.kosmosMeasureScrollbarWidth();
              Same disable/say-nothing/ask/report shape as pjs-chats-reveal. -->
         <!-- #5865: this button and its hint are hidden on Linux, where revealFolder runs /usr/bin/open (not there). -->
         <button class="btn" id="tk-chats-reveal" data-remote-hide type="button" style="margin-top:12px;" data-linux-hide>Show me where the task conversations live</button>
-        <p class="fhint" style="margin:6px 0 0;" data-linux-hide>One folder, with a file for each task's conversation.</p>
+        <p class="fhint" style="margin:6px 0 0;" data-remote-hide data-linux-hide>One folder, with a file for each task's conversation.</p>
         <p class="fmsg" id="tk-chats-msg" aria-live="polite"></p>
       </section>
 
@@ -17634,7 +17634,7 @@ window.kosmosMeasureScrollbarWidth();
            ⚠️ The word is "conversations", not "dialogue": his phrasing was
            "stored dialogue", and dialogue is our word for it, not a reader's. -->
       <button class="btn" id="pjs-chats-reveal" data-remote-hide type="button" data-linux-hide>Show me where the conversations live</button>
-      <p class="fhint" style="margin:6px 0 0;" data-linux-hide>One folder for every project, with a file for each conversation.</p>
+      <p class="fhint" style="margin:6px 0 0;" data-remote-hide data-linux-hide>One folder for every project, with a file for each conversation.</p>
       <p class="fmsg" id="pjs-chats-msg" aria-live="polite"></p>
     </div>
 

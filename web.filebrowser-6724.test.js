@@ -40,6 +40,19 @@ test('every button that opens a folder window on the board’s computer carries 
   assert.doesNotMatch(zip, /data-remote-hide/);
 });
 
+test('iteration 5: a hint that only describes a hidden button goes with it: every Linux-hidden line right after a remote-hidden button is remote-hidden too', () => {
+  let checked = 0;
+  for (const id of FINDER_BUTTONS) {
+    const at = PAGE.indexOf('id="' + id + '"');
+    const end = PAGE.indexOf('</button>', at) + '</button>'.length;
+    const next = PAGE.slice(end, end + 400).match(/^\s*<p\b[^>]*>/);
+    if (!next || !/data-linux-hide/.test(next[0])) continue;
+    checked += 1;
+    assert.match(next[0], /data-remote-hide/, 'the hint under ' + id + ' stays on screen over Kosmos+ under nothing');
+  }
+  assert.ok(checked >= 2, 'premise: the two conversation-folder hints were found (' + checked + ')');
+});
+
 test('the page stamps data-kplus-remote on <html> only when it is reached through another address', () => {
   const remote = page.lift(SCRIPT, 'kplusRemote');
   const at = SCRIPT.indexOf("document.documentElement.setAttribute('data-kplus-remote', '')");

@@ -148,3 +148,7 @@ the attribute only when remote.
   - NIT, fixed: the refusal map's keys come from the request, so it has a hard size of 100 as well as the 10 s sweep.
   - NIT, fixed: a text preview cut inside a UTF-8 character ended in a replacement mark; the partial bytes are dropped.
     Tested with a euro sign across the cut (CONTROL: a cut between characters keeps every byte); mutant red.
+- Iteration 5 (opus): no escape found; the UTF-8 trim was checked at every cut point of 3- and 4-byte characters.
+  One NIT, fixed: over Kosmos+ two hints stayed on screen under the conversation-folder buttons they describe. They
+  carry data-remote-hide now, as each already carried data-linux-hide with its button. Tested (every Linux-hidden line
+  right after a remote-hidden button is remote-hidden too); mutant red.
