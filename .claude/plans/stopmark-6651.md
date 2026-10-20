@@ -1,19 +1,18 @@
 # stopmark-6651: an update's pause marker says who wrote it, so a stranded one does not keep the board off (kosmos#6651)
 
-## What this branch does
-- `install/setup.sh`'s update pause passes `KOSMOS_STOP_BY_INSTALL="<its pid> <that process's start time>"` to
-  `kosmos stop --force`. Only that stop: the uninstall and connect-mode stops stay a plain stop.
-- `install/kosmos`: `write_stop_marker` writes `install <pid> <start>` for that caller and the empty marker for
-  everyone else (a person's `kosmos stop`, unchanged). `stop_marker_stranded` says a marker is stranded only when it
-  is an install marker whose pid is gone or now belongs to a process with another start time. `board-run` and an
-  agent's `kosmos start` (the #5450 refusal) clear a stranded marker first, moving it aside as evidence and logging
-  it. A start that puts back a marker it removed (#4636) restores the words it found (`restore_stop_marker`), so an
-  installer's pause is never turned into a person's stop.
-- `bin/board-watchdog.sh`: the same `stop_marker_stranded` (pinned byte-equal by the test) at its stop gate; a
-  stranded marker is moved aside and logged, and the usual down-streak logic brings the board back. launchd's
-  KeepAlive (PathState on the marker) then sees no marker too.
-- `tools/test-stopmark-6651.sh` (in `test:shell`); `tools/test-update-putback-4818.sh`'s pin of the pause's stop
-  line updated to the attributed line (still immediately after the #5033 arming line).
+## What this branch does (redesigned at iteration 3: the attribution is a file NAME)
+- One shared POSIX block, byte-identical in install/setup.sh, install/kosmos and bin/board-watchdog.sh (pinned by
+  the test): `kosmos_start_token` (ps lstart under TZ=UTC0 with spaces as `_`, or Linux start ticks),
+  `kosmos_installer_gone`, `kosmos_stranded_pause`, `kosmos_clear_stranded_pause`.
+- setup.sh, when it pauses a RUNNING board, first creates an empty `board.stopped.by-install.<pid>.<token>` and
+  calls `kosmos stop` with KOSMOS_STOP_BY_INSTALL=1; its EXIT trap removes that name whatever the outcome. A later
+  update that finds a stranded pause adopts it (was-running, so its own put-back covers it) and removes the old names.
+- A person's `kosmos stop` removes every such name before it writes the marker (an update's own stop keeps them).
+- The pause is stranded when the marker is there, the mode lets the board run, and every name's update is provably
+  gone. The watchdog (after its board-job gate), board-run (before its refusal) and an agent's start (only once its
+  cooldown and claim pass) clear it: marker and names moved aside, kept, logged; a person's marker put back if their
+  stop raced the clear.
+- tools/test-stopmark-6651.sh (in test:shell); tools/test-update-putback-4818.sh's pin of the pause's stop line updated.
 
 ## Decisions
 - Attribution by pid AND start time (`ps -o lstart=`, LC_ALL=C): a pid alone can be reused by an unrelated
@@ -31,7 +30,7 @@
 - Not in this branch: what launched two installs 16 seconds apart (the card says no instrument recorded it).
 
 ## Proof
-- `bash tools/test-stopmark-6651.sh`: 35 PASS (also under LANG=fr_FR.UTF-8). Mutants, each red then restored: the start-time comparison removed
+- `bash tools/test-stopmark-6651.sh`: 38 PASS, including a real full disk (an 8 MB disk image, filled). Mutants, each red then restored: the start-time comparison removed
   (also caught by the byte-equal twin check), the watchdog's clear removed, the writer ignoring the attribution.
 - Neighbours, all green on this branch: test-board-watchdog-2955 (0 failures), test-update-putback-4818 (33/33;
   red at first because it pins the pause's stop line, updated), test-setup-pause-sandbox-4651 (0 failures),
@@ -56,3 +55,10 @@
     kill -0 runs under LC_ALL=C. A proc: token this reader cannot read (hidepid, another user) stands. Both Linux
     arms are reasoned, not measured: this Mac has no /proc, and macOS's messages are English in any locale, so a
     mutant of either cannot fail here (the suite passes under LANG=fr_FR.UTF-8 too).
+- Iteration 3: BLOCKER, the attributed BODY could not be written on a full disk (measured: `: >` succeeds, the printf
+  fails ENOSPC), so the card's own incident fell back to an empty person's marker. Redesigned: the attribution is an
+  empty file's NAME, which needs no data block (the test writes it on a filled disk image). Also: a second update
+  run adopts a stranded pause instead of washing it into a person's stop; the clear puts a person's marker back if
+  their stop raced it; the watchdog clears only after its board-job gate; an agent's start clears only after its
+  cooldown and claim; the shared block is one text in all three files. Mutants red: mode rule, always-gone, race
+  put-back, a person's stop removing the names, the EXIT trap's name removal, the watchdog's gate order.

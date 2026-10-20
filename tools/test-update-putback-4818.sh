@@ -279,7 +279,7 @@ L_MSET=$(ln '  _kosmos_marker_ours="$_kosmos_was_running"')
 # The pause's own stop, read as the line just above (an earlier `kosmos stop --force` elsewhere in setup.sh would
 # satisfy a first-match search and prove nothing about this one).
 L_STOP=""
-if [ -n "$L_MSET" ] && [ "$(sed -n "$((L_MSET + 1))p" "$SETUP")" = '  KOSMOS_STOP_BY_INSTALL="${_kosmos_self_start:+$$ $_kosmos_self_start}" "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true' ]; then
+if [ -n "$L_MSET" ] && [ "$(sed -n "$((L_MSET + 1))p" "$SETUP")" = '  KOSMOS_STOP_BY_INSTALL=1 "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true' ]; then
   L_STOP=$((L_MSET + 1))
 fi
 L_MOFF=$(ln '  _kosmos_marker_ours=no   # #5033')
