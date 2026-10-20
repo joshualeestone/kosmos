@@ -42,8 +42,14 @@ test('#6609: a list the recovery key signed is taken, its keys are the trusted o
   assert.equal(r.ok, true, r.why);
   assert.deepEqual(r.keys, [spki(rel1)]);
   assert.equal(mv.storedKeyList(h).seq, 3);
-  assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE, 'seq-3.json')).mode & 0o777), 0o600);
-  assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE)).mode & 0o777), 0o700);
+  // POSIX modes only: Windows has no mode bits (Node reports 0666 and 0777 there). This file runs on Windows too
+  // (tools/windows-tests.js), for the record's file operations. The record has no Windows caller yet: win32update.js checks
+  // its manifest with the built-in KEYS (#6607). When #6609 wires it to the list, the record is written on Windows and
+  // its privacy there needs a real access-list check in place of this skip (.claude/plans/rkwin-6609.md).
+  if (process.platform !== 'win32') {
+    assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE, 'seq-3.json')).mode & 0o777), 0o600);
+    assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE)).mode & 0o777), 0o700);
+  }
   assert.deepEqual(fs.readdirSync(path.join(h, mv.KEY_LIST_STATE)), ['seq-3.json'], 'no temp file left behind');
 });
 
@@ -180,6 +186,7 @@ test('#6609: the race window between reading the record and linking: a newer lis
     const r = mv.trustedKeys({ listBytes: v6.bytes, listSig: v6.sig, home: h, recoveryKeys: RK });
     assert.equal(r.ok, false, 'list 6 may hold a key list 7 dropped');
     assert.match(r.why, /a newer release key list was taken meanwhile/);
+    assert.equal(r.retry, true, "#6609 phase 2a: run-setup reports this one as retryable (96), not refused");
     assert.equal(mv.storedKeyList(h).seq, 7);
     // Another check records seq 5 with other keys in the same window: the link finds it, and this list is refused.
     const h2 = home();
@@ -254,6 +261,7 @@ test('#6609: a seq is never reused: the same seq with other keys is refused; a f
   fs.chmodSync(ro, 0o500);   // a home this check cannot write in
   try {
     if (process.getuid && process.getuid() === 0) return;   // root writes anyway: the arm cannot be exercised
+    if (process.platform === 'win32') return;   // a folder mode does not stop writes on Windows: the arm cannot be exercised there
     const w = mv.trustedKeys({ listBytes: a.bytes, listSig: a.sig, home: ro, recoveryKeys: RK });
     assert.equal(w.ok, false);
     assert.match(w.why, /could not be written/);

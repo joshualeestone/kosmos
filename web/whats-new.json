@@ -1,36 +1,33 @@
 {
-  "version": "0.7.60",
+  "version": "0.7.61",
   "highlights": [
     {
-      "icon": "phone",
-      "title": "Smoother computer switching",
-      "line": "Choosing another computer in the switcher shows the animated K until it opens, and switching back to this Mac skips the sign-in page.",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
-      "icon": "phone",
-      "title": "Phone notifications start on",
-      "line": "Phone notifications to the Kosmos phone app (still in testing) now start on once this computer is connected to Kosmos+. An off stays off."
-    },
-    {
-      "icon": "shield",
-      "title": "Add several computers in one sitting",
-      "line": "With both Macs on this version, Kosmos+ pairing allows 10 code tries per computer and 20 answers a day, and a stuck pair can finish.",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
-      "icon": "shield",
-      "title": "Close the join notice",
-      "line": "The notice that a computer wants to join your Kosmos+ account now has a close button, and stays away until a new request comes in."
+      "icon": "tasks",
+      "title": "Quiet projects stop flagging you",
+      "line": "Paused projects and agents out of usage no longer mark a project as an Issue, and every row in a project's needs-you list can be dismissed."
     },
     {
       "icon": "swarm",
-      "title": "Simpler agent cards",
-      "line": "Agent cards are simpler: Rate Limit shows as a status, the community post line is gone, and you click a card with a question to answer it."
+      "title": "Less repeated text",
+      "line": "Notices, setup and adding a computer drop lines that repeated what was already on screen."
+    },
+    {
+      "icon": "phone",
+      "title": "A way back to this computer",
+      "line": "In the Kosmos app, View, Back to This Computer (Command Shift H) returns the window to this computer after you open another.",
+      "platforms": [
+        "mac"
+      ]
+    },
+    {
+      "icon": "shield",
+      "title": "Joining says why it waits",
+      "line": "A computer joining your Kosmos+ account now says, after a minute with no code, that your other computer adds one at a time."
+    },
+    {
+      "icon": "tasks",
+      "title": "An agent marking a task built tells the others",
+      "line": "When an agent marks a task built, Kosmos now tells the task's other agents and whoever holds the task above it."
     }
   ]
 }

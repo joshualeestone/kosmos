@@ -31,6 +31,7 @@ function pe({ machine = 0x8664, magic = 0x20b, certAddr = 0, certSize = 0 } = {}
   b.write('PE\0\0', 64, 'latin1');
   b.writeUInt16LE(machine, 68);
   b.writeUInt16LE(magic, 64 + 24);
+  b.writeUInt32LE(16, 64 + 24 + 108);   // NumberOfRvaAndSizes: the usual 16 data directories
   b.writeUInt32LE(certAddr, 64 + 24 + 144);
   b.writeUInt32LE(certSize, 64 + 24 + 148);
   return b;
@@ -69,6 +70,86 @@ test('a signed x86-64 Windows connector passes; unsigned, 32-bit and Mac connect
   const mac = check('connector_pe_x64', macho);
   assert.equal(mac.code, 1);
   assert.match(mac.err, /not a Windows program/);
+});
+
+/* #6679: the launcher is a C# AnyCPU build, a PE32 with machine i386, so the connector's x86-64 check refuses it
+   whatever its signature. pe_signature_present reads the certificate table for either format. */
+function pe32({ certAddr = 0, certSize = 0 } = {}) {
+  const b = pe({ machine: 0x14c, magic: 0x10b });
+  b.writeUInt32LE(0, 64 + 24 + 108);
+  b.writeUInt32LE(16, 64 + 24 + 92);    // PE32 keeps the directory count 16 bytes earlier
+  b.writeUInt32LE(certAddr, 64 + 24 + 128);
+  b.writeUInt32LE(certSize, 64 + 24 + 132);
+  return b;
+}
+
+test('#6679: pe_signature_present sees a signature on a 32-bit or a 64-bit PE, and refuses one without', () => {
+  assert.equal(check('pe_signature_present', pe32({ certAddr: 400, certSize: 100 })).code, 0);
+  assert.equal(check('pe_signature_present', pe({ certAddr: 400, certSize: 100 })).code, 0);
+  /* The control: the connector's own check refuses that same signed PE32, which is why the launcher needs this one. */
+  assert.match(check('connector_pe_signed', pe32({ certAddr: 400, certSize: 100 })).err, /not an x86-64 program/);
+  /* A PE32 whose PE32+ offsets happen to be non-zero is still unsigned: the right table is read. */
+  const offByFormat = pe32();
+  offByFormat.writeUInt32LE(400, 64 + 24 + 144); offByFormat.writeUInt32LE(100, 64 + 24 + 148);
+  const wrongTable = check('pe_signature_present', offByFormat);
+  assert.equal(wrongTable.code, 1);
+  assert.match(wrongTable.err, /carries no signature/);
+  for (const bytes of [pe32(), pe()]) assert.match(check('pe_signature_present', bytes).err, /carries no signature/);
+  assert.match(check('pe_signature_present', pe({ magic: 0x107 })).err, /unknown optional header/);
+  /* Fewer than 5 data directories: there is no certificate table, whatever bytes sit where it would be. */
+  const fewDirs = pe({ certAddr: 400, certSize: 100 });
+  fewDirs.writeUInt32LE(4, 64 + 24 + 108);
+  assert.match(check('pe_signature_present', fewDirs).err, /no certificate table/);
+  const macho = Buffer.alloc(64); macho.writeUInt32BE(0xcafebabe, 0);
+  assert.match(check('pe_signature_present', macho).err, /not a Windows program/);
+  /* And the committed launcher itself, which the zip's read-me says is signed. */
+  assert.equal(check('pe_signature_present', fs.readFileSync('tools/windows/Kosmos.exe')).code, 0, 'the committed Kosmos.exe carries no signature');
+});
+
+/* #6679: the build's own launcher step, run as written (lifted out of the script), not only its pieces. On Windows
+   it asks pe_authenticode, stubbed here so a Mac can run it: the stub prints the signer the step asked for. */
+function launcherStep(bytes, { onWindows = false, authenticode = 'ok' } = {}) {
+  const at = WIN.indexOf('_launcher_why="$(pe_signature_present "$LAUNCHER"');
+  const end = WIN.indexOf('\nfi\n', WIN.indexOf('  _launcher_sig="Valid"', at));
+  assert.ok(at > -1 && end > at, 'the launcher signature step moved; this runs nothing');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'launcher-6679-'));
+  const f = path.join(dir, 'Kosmos.exe');
+  fs.writeFileSync(f, bytes);
+  const stub = authenticode === 'ok'
+    ? 'pe_authenticode() { echo "asked-signer=$KOSMOS_WIN_SIGNER" > "$ASKED"; return 0; }'
+    : 'pe_authenticode() { echo "pe_authenticode: Windows reports the signature of $2 as \'HashMismatch\', not Valid" >&2; return 1; }';
+  const script = '. "$LIB"; ' + stub + '; LAUNCHER="$F"; _on_windows=' + (onWindows ? 1 : 0) + '; ' + WIN.slice(at, end + 4) + '\necho "sig=$_launcher_sig"';
+  const asked = path.join(dir, 'asked');
+  const r = spawnSync('bash', ['-c', script], {
+    env: { ...process.env, KOSMOS_WIN_SIGNER: 'Somebody Else Ltd', LIB: LIB.split(path.sep).join('/'), F: f.split(path.sep).join('/'), ASKED: asked.split(path.sep).join('/') },
+    encoding: 'utf8',
+  });
+  /* The step keeps the check's stderr only on failure, so the stub records what it was asked in a file. */
+  const askedSigner = fs.existsSync(asked) ? fs.readFileSync(asked, 'utf8') : '';
+  fs.rmSync(dir, { recursive: true, force: true });
+  return { code: r.status, out: String(r.stdout || ''), err: String(r.stderr || ''), askedSigner };
+}
+
+test('#6679: the build refuses an unsigned Kosmos.exe, records what it checked, and holds Windows to the read-me\'s publisher', () => {
+  const signed = pe32({ certAddr: 400, certSize: 100 });
+  const off = launcherStep(signed);
+  assert.equal(off.code, 0, off.err);
+  assert.match(off.out, /sig=present \(not verified: this build did not run on Windows\)/);
+
+  const unsigned = launcherStep(pe32());
+  assert.equal(unsigned.code, 1, 'an unsigned Kosmos.exe got through the build');
+  assert.match(unsigned.err, /tools\/windows\/Kosmos\.exe is not signed, and the zip's read-me tells people it is \(#6679\): .*carries no signature/);
+  assert.doesNotMatch(unsigned.out, /sig=/);
+
+  const win = launcherStep(signed, { onWindows: true });
+  assert.equal(win.code, 0, win.err);
+  assert.match(win.out, /sig=Valid/);
+  /* KOSMOS_WIN_SIGNER says someone else; the step still asks for the publisher the read-me names. */
+  assert.match(win.askedSigner, /^asked-signer=Kosmos Agent Manager, Inc\.$/m);
+
+  const bad = launcherStep(signed, { onWindows: true, authenticode: 'fail' });
+  assert.equal(bad.code, 1);
+  assert.match(bad.err, /Windows does not accept tools\/windows\/Kosmos\.exe's signature \(#6679\): Windows reports the signature of Kosmos\.exe as 'HashMismatch'/);
 });
 
 test('the Windows build takes the connector as a checked input and stages it where the board looks', () => {

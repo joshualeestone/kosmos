@@ -11654,6 +11654,22 @@ test('the Plus state route carries the certificate check, and its switch writes 
   }
 });
 
+test('the Plus state route carries the service key check as a state only, off as shipped (kosmos#6587)', async () => {
+  const fsx = require('fs'), osx = require('os'), px = require('path');
+  const dir = fsx.mkdtempSync(px.join(osx.tmpdir(), 'sk-route-'));
+  const prev = process.env.AGENT_WORKFORCE_TUNNEL_STATE;
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = dir;
+  try {
+    let st = JSON.parse((await req('/api/remote')).body);
+    assert.deepEqual(st.serviceKeys, { state: 'off' }, 'no recovery key is pinned in this version');
+    fsx.writeFileSync(px.join(dir, 'coordinator_pubkey'), 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n');
+    st = JSON.parse((await req('/api/remote')).body);
+    assert.deepEqual(st.serviceKeys, { state: 'off' }, 'a pin changes nothing while off');
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_STATE; else process.env.AGENT_WORKFORCE_TUNNEL_STATE = prev;
+  }
+});
+
 test('the Plus state route says configured through the production default, and the env seam still wins (#790)', async () => {
   /* Until #722 this asserted false on a bare sandbox: the relay's domain was
      undecided and a default would have been wishful. The domain is ruled and
@@ -11824,6 +11840,42 @@ test('kosmos#6406: a ticket to open another computer is only for this computer\'
   const ok = await req('/api/remote/open-ticket', { method: 'POST', headers: page, body });
   assert.equal(ok.status, 400, ok.body);
   assert.match(JSON.parse(ok.body).error, /finish the Plus sign-up first/);
+});
+
+test('kosmos#6589: which key another computer vouches for is asked only on this computer, never through Kosmos+ or by an agent', async () => {
+  const q = '/api/remote/tls-pin?address=tmnt.kosmosplus.com';
+  for (const [what, headers] of [
+    ['an agent token', { 'x-kosmos-agent-token': 'f'.repeat(64) }],
+    ['a phone through Kosmos+', { 'x-forwarded-host': 'laptop.kosmosplus.com', 'x-forwarded-for': '203.0.113.9' }],
+    ['through Kosmos+, host only', { 'x-forwarded-host': 'laptop.kosmosplus.com' }],
+    ['through Kosmos+, for only', { 'x-forwarded-for': '203.0.113.9' }],
+    ['Forwarded', { forwarded: 'for=203.0.113.9' }],
+  ]) {
+    const r = await req(q, { headers });
+    assert.equal(r.status, 403, what + ' was answered: ' + r.body);
+    assert.match(JSON.parse(r.body).error, /Only the Kosmos app on this computer can ask this/, what);
+  }
+  /* The route keeps all four conditions (the test server's socket is always loopback and it enforces no token, so the
+     loopback and token halves are read from the route's own source). */
+  const src = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+  const at = src.indexOf("pathname === '/api/remote/tls-pin'");
+  assert.ok(at > 0, 'the route moved');
+  assert.match(src.slice(at, at + 800), /if \(!isLoopbackPeer\(req\) \|\| cameThroughForwarder\(req\.headers\) \|\| presentedAgentToken\(req, null\) \|\| \(boardAuthState\.on && !\(req\.headers\['x-kosmos-board-token'\] && boardTokenOk\(\{ url: String\(req\.url \|\| '\/'\)\.split\('\?'\)\[0\], method: req\.method, headers: \{ 'x-kosmos-board-token': req\.headers\['x-kosmos-board-token'\] \} \}\)\)\)\)/);
+  assert.match(src.slice(at, at + 2400), /remote\.tlsPin\(address, \{ fresh: q\.get\('fresh'\) === '1' \}\)/, 'fresh=1 reaches tlsPin as fresh');
+  /* Review 6: an address no computer of the account can have is answered none, before the tunnel (a staging
+     coordinator's domain must not read as required and refuse every computer). */
+  for (const address of ['evil.example', 'evil.example.com', 'a.b.kosmosplus.com', 'TMNT.KOSMOSPLUS.COM\u0000', '', 'tmnt.kosmosplus.com/x', '../x']) {
+    const r = await req('/api/remote/tls-pin?address=' + encodeURIComponent(address));
+    assert.equal(r.status, 200, address + ': ' + r.body);
+    assert.deepEqual(JSON.parse(r.body), { state: 'none', because: 'not an address of this account' }, address);
+  }
+  /* CONTROL: this computer's own request reaches tlsPin (this board is not enrolled: none, nothing to compare), so the
+     refusals above are the guards and not the whole route. Not a GET: not this route. */
+  const ok = await req(q);
+  assert.equal(ok.status, 200, ok.body);
+  assert.deepEqual(JSON.parse(ok.body), { state: 'none', because: 'not signed up for Plus here' }, 'tlsPin itself answered (review 7)');
+  const post = await req(q, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  assert.notEqual(post.status, 200, 'a POST was answered as this route');
 });
 
 test('the Allow seam (#567): pending is honest-empty off the switch, and the verbs refuse a bad id in words', async () => {

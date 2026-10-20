@@ -565,9 +565,17 @@ test('the zip README speaks Windows: Extract, sign in, the real prompts, a folde
   assert.doesNotMatch(readme, /[Uu]npack/, 'the README says "unpack"; Explorer says Extract');
   assert.doesNotMatch(readme, /log in|login/, 'the README says "log in"; Windows says sign in');
   assert.match(readme, /Extract All\.\.\./);
-  assert.match(readme, /If a box says "The publisher could not be verified", click Run\./);
+  /* #6679: Kosmos.exe is signed, so the Open File box names a verified publisher; the line telling people to
+     click past an unverified one is gone. */
+  assert.doesNotMatch(readme, /publisher could not be verified/, 'the README still tells people the publisher is unverified');
+  assert.match(readme, /printf 'If a box asks whether to run Kosmos\.exe\\r\\n'\n\s*printf 'from Kosmos Agent Manager, Inc\., click Run\./, 'the README does not say what to click in the Open File box');
   assert.match(readme, /Tip: before you extract, right-click the zip, choose Properties, tick\\r\\n'\n\s*printf 'Unblock/);
-  assert.match(readme, /This preview is not signed yet; signed builds are coming\./);
+  /* #6679: it says plainly that Kosmos.exe is signed, and why Windows may still warn (a new publisher). */
+  assert.doesNotMatch(readme, /not signed yet|signed builds are coming|unsigned/, 'the README still says Kosmos is unsigned');
+  assert.match(readme, /Kosmos\.exe is signed by Kosmos Agent Manager, Inc\. Kosmos is still\\r\\n'\n\s*printf 'new, so the first time you open it Windows may try to stop you/,
+    'the README does not say Kosmos.exe is signed, and why Windows may still warn');
+  assert.match(readme, /click the small "More info"|Click the small "More info"/, 'the README dropped the SmartScreen steps');
+  assert.doesNotMatch(readme, /—/, 'the README carries an em dash');
   assert.doesNotMatch(readme, /have not bought/, 'the README still says a certificate was not bought');
   /* #3286: Kosmos installs itself into the per-user Programs folder, so the README no longer walks a
      person through making that folder and pasting its path; it names where Kosmos goes, and says

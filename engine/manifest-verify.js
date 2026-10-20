@@ -173,6 +173,32 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     const get = (url, out) => spawnSync('curl', ['-fsSL', '--connect-timeout', '30', '--speed-limit', '1024', '--speed-time', '60', url, '-o', out], { stdio: ['ignore', 'ignore', 'inherit'] }).status === 0;
     const files = { setup: path.join(dir, 'setup'), manifest: path.join(dir, 'manifest.json'), sig: path.join(dir, 'manifest.sig') };
     const b = String(base || '').replace(/\/+$/, '');
+    /* #6609 phase 2a: with a recovery key pinned, the release key list comes FIRST: fetched from the release base and
+       taken (trustedKeys keeps this copy's record, so an older list cannot come back), and the installer's manifest is
+       checked with the list's keys, not the built-in ones. No list, no update: a site that withholds it must not leave
+       a revoked key trusted. Off (RECOVERY_KEYS empty), nothing more is fetched and KEYS decide exactly as before. */
+    let keys = KEYS;
+    if (RECOVERY_KEYS.length) {
+      const list = { bytes: path.join(dir, 'release-keys.json'), sig: path.join(dir, 'release-keys.json.sig') };
+      /* One address for every list, fetched as two files: a cache (or a publish in progress) can hand back a list and
+         a signature from different lists. One fresh query per attempt, shared by both, so a retry is not answered
+         from the same stale entry. Not on file:// (curl would read it as part of the path). */
+      const bust = /^https?:/i.test(b) ? '?r=' + crypto.randomBytes(8).toString('hex') : '';
+      if (!get(`${b}/release-keys.json${bust}`, list.bytes) || !get(`${b}/release-keys.json.sig${bust}`, list.sig)) {
+        return sayFetch('the release key list could not be downloaded');
+      }
+      let listBytes, listSig;
+      try { listBytes = fs.readFileSync(list.bytes); listSig = fs.readFileSync(list.sig, 'utf8'); }
+      catch { return sayFetch('the release key list could not be read'); }
+      /* A list that does not verify is retried (96), not refused (97): a torn or half-published pair looks exactly like
+         this, and a retry gets the matching pair. A list that verifies but is refused (older than this copy's record,
+         or another set of keys at a seq already taken) is 97: a retry gives the same answer. */
+      const v = verifyKeyList({ bytes: listBytes, sig: listSig });
+      if (!v.ok) return sayFetch(v.why + ' (it may be mid-publish)');
+      const t = trustedKeys({ listBytes, listSig, home });
+      if (!t.ok) return t.retry ? sayFetch(t.why) : say(t.why);
+      keys = t.keys;
+    }
     if (!get(setupUrl, files.setup)) return sayFetch('the installer could not be downloaded');
     // arm64 only, as setup.sh's ARCH is on a Mac (an Intel Mac is refused before any update is offered).
     if (!get(`${b}/kosmos-${version}-arm64.manifest.json`, files.manifest) || !get(`${b}/kosmos-${version}-arm64.manifest.json.sig`, files.sig)) {
@@ -180,7 +206,7 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     }
     let installedVersion = '';
     try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
-    const r = verifySetup({ manifest: files.manifest, sig: files.sig, setup: files.setup, version, installedVersion });
+    const r = verifySetup({ manifest: files.manifest, sig: files.sig, setup: files.setup, version, installedVersion, keys });
     // Exit 3 (no key pinned, or a manifest that records no installer) is NOT a pass here (review 1): every release this
     // code can update to is cut with setup_sha256, so a signed manifest without it is a cut gone wrong, and a site that
     // could serve one would run any installer it liked.
@@ -229,6 +255,11 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
  * stolen release key is a new list without it, seq + 1, signed with the recovery key (tools/lib/release-keys-sign.js),
  * and the next release raises MIN_KEY_LIST_SEQ to it. Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
 const RECOVERY_KEYS = Object.freeze([]);   // frozen: nothing in the process can turn the feature on by adding one
+/* 🛑 #6609: NOT filled in until the whole chain takes the list. Done: run-setup (2a) and setup.sh's checks (2b). NOT done:
+   the .pkg installer's pinned path (kosmos-pkg-verify, #6576), which still chooses the installer with the built-in keys;
+   the Windows updater (engine/win32update.js, #6607), which checks its manifest with the built-in KEYS; and serving the
+   list from the site (2c). Filled in before all three, a revoked key still opens a .pkg install or a Windows update,
+   and every update fails for want of a list (.claude/plans/recoverykey3-6609.md). */
 const KEY_LIST_STATE = 'release-keys.state';   // a folder: one seq-<n>.json per list taken
 // The lowest list seq this build accepts, even with no state stored (a fresh install): raised in the release after a
 // revocation, so a copy without a record still refuses the list from before it.
@@ -346,7 +377,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   }
   // A newer list recorded meanwhile wins: this one may hold a key that one dropped.
   const now = storedKeyList(home, minSeq);
-  if (!now || now.seq > v.seq) return { ok: false, why: 'a newer release key list was taken meanwhile; check again' };
+  if (!now || now.seq > v.seq) return { ok: false, retry: true, why: 'a newer release key list was taken meanwhile; check again' };
   return { ok: true, why: v.why, keys: v.keys };
 }
 
@@ -356,8 +387,29 @@ module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCH
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before
  * using a call form: it greps the next line, which lists every form this copy understands beyond the original
  * <manifest> <sig> <tarball> <stage> <version> <home>. Keep it one line, and add to it when adding a form.
- * manifest-verify capabilities: run-setup early tmux */
-if (require.main === module && process.argv[2] === 'run-setup') {
+ * manifest-verify capabilities: run-setup early tmux keylist */
+/* #6609 phase 2b: the keys the plain and tmux forms check with. Off: the built-in KEYS. On: the release key list setup.sh
+   fetched beside the manifest, named by KOSMOS_KEY_LIST and KOSMOS_KEY_LIST_SIG, taken through trustedKeys (this copy's
+   record, so an older list cannot come back). On with no list given is a refusal: an installer that does not fetch it
+   must not install past a revocation. { code, why, keys }. */
+function cliKeys(home) {
+  if (!RECOVERY_KEYS.length) return { code: 0, keys: KEYS };
+  const listFile = process.env.KOSMOS_KEY_LIST, sigFile = process.env.KOSMOS_KEY_LIST_SIG;
+  if (!listFile || !sigFile) return { code: 1, why: 'the release key list was not given, so the update could not be checked' };
+  let listBytes, listSig;
+  try { listBytes = fs.readFileSync(listFile); listSig = fs.readFileSync(sigFile, 'utf8'); }
+  catch { return { code: 1, why: 'the release key list could not be read, so the update could not be checked' }; }
+  // A list that does not verify may be one caught mid-publish (its file from one list, its signature from another): said so.
+  const v = verifyKeyList({ bytes: listBytes, sig: listSig });
+  if (!v.ok) return { code: 1, why: v.why + ' (it may be mid-publish; try again in a minute)' };
+  const t = trustedKeys({ listBytes, listSig, home });
+  return t.ok ? { code: 0, keys: t.keys } : { code: 1, why: t.why };
+}
+// needs-key-list: exit 0 when this copy checks updates with the release key list (a recovery key is pinned), 1 when not.
+// setup.sh asks before fetching the list, so nothing more is downloaded while the feature is off.
+if (require.main === module && process.argv[2] === 'needs-key-list') {
+  process.exit(RECOVERY_KEYS.length ? 0 : 1);
+} else if (require.main === module && process.argv[2] === 'run-setup') {
   // <installed node> manifest-verify.js run-setup <setup-url> <release-base> <version> <installed-home>
   const [setupUrl, base, version, home] = process.argv.slice(3);
   let code;
@@ -370,7 +422,8 @@ if (require.main === module && process.argv[2] === 'run-setup') {
   try {
     let installedVersion = '';
     try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
-    r = verifyTmux({ manifest, sig, tmux, version, installedVersion });
+    const k = cliKeys(home);
+    r = k.code === 0 ? verifyTmux({ manifest, sig, tmux, version, installedVersion, keys: k.keys }) : k;
   } catch (e) { r = { code: 1, why: 'the terminal manager could not be checked (' + (e && e.code || 'error') + ')' }; }
   process.stdout.write(r.why + '\n');
   process.exit(r.code);
@@ -380,7 +433,8 @@ if (require.main === module && process.argv[2] === 'run-setup') {
   try {
     let installedVersion = '';
     try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
-    r = verify({ manifest, sig, tarball, stage, version, installedVersion, skipTarball: tarball === '-' });
+    const k = cliKeys(home);
+    r = k.code === 0 ? verify({ manifest, sig, tarball, stage, version, installedVersion, skipTarball: tarball === '-', keys: k.keys }) : k;
   } catch (e) {
     r = { code: 1, why: 'the update could not be checked (' + (e && e.code || 'error') + ')' };
   }

@@ -10650,6 +10650,8 @@ const server = http.createServer(async (req, res) => {
         forgetKept: r.forget_kept || '',   // kosmos#6389
         /* kosmos#6602: the tunnel's certificate check, as counts and a state (no text from it). */
         certWatch: remote.certWatch(),
+        /* kosmos#6587: is the pinned coordinator key on the signed service key set (a state only). */
+        serviceKeys: remote.serviceKeys(),
       });
     } catch { sendJson(res, 500, { error: 'we could not read the Plus state' }); }
     return;
@@ -11072,7 +11074,7 @@ const server = http.createServer(async (req, res) => {
      is marked signedIn: false (kosmos#4815); any other ok: false is a failure the page retries. */
   if (pathname === '/api/remote/computers' && (req.method === 'GET' || req.method === 'HEAD')) {
     accountComputers.fetchComputers()
-      .then((r) => sendJson(res, 200, r))
+      .then((r) => { if (r && r.ok) remote.warmTlsPins(r.computers); sendJson(res, 200, r); })   // kosmos#6589
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read your computers' }));
     return;
   }
@@ -11282,6 +11284,34 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ticket: got.data.ticket });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not open that computer directly' }));
+    return;
+  }
+  /* kosmos#6589 (S-7c): which TLS key another of the person's computers vouches for, for the Mac app to compare with
+     the certificate it is handed before a window opens there. The app's own code asks it, with the board token it
+     reads from board.token (it has no page cookie), so: on this computer only (a loopback peer, nothing forwarded:
+     Kosmos+ remote access forwards), never with an agent token, and with the board's own token. The answer names
+     only key hashes the other computer publishes; asking also pins that computer's address here (the tunnel's
+     tls-pins.json), which only ever binds it to the computer the person paired. `fresh=1` skips the 5-minute cache. */
+  if (pathname === '/api/remote/tls-pin' && req.method === 'GET') {
+    // A board that enforces no token (a sandboxed test board) has none to ask for, as boardCookieHere.
+    if (!isLoopbackPeer(req) || cameThroughForwarder(req.headers) || presentedAgentToken(req, null) || (boardAuthState.on && !(req.headers['x-kosmos-board-token'] && boardTokenOk({ url: String(req.url || '/').split('?')[0], method: req.method, headers: { 'x-kosmos-board-token': req.headers['x-kosmos-board-token'] } })))) {   // review 9: the header token alone (no page cookie, no ?token=)
+      sendJson(res, 403, { error: 'Only the Kosmos app on this computer can ask this.' });
+      return;
+    }
+    let q;
+    try { q = new URL(req.url, ROUTING_BASE).searchParams; } catch { q = new URLSearchParams(); }
+    const address = String(q.get('address') || '').trim().toLowerCase();
+    const domain = accountComputers.computerDomain(remote.COORDINATOR());
+    if (!address || !domain || !accountComputers.validAddress(address, domain)) {
+      /* Review 6: the app names a computer by its own rule (one label under the Kosmos+ site); where this board's
+         coordinator has another domain (a staging or developer coordinator), that is no computer of this account, so
+         there is no pin to keep: none (ordinary checking), never an error the app would read as required. */
+      sendJson(res, 200, { state: 'none', because: 'not an address of this account' });
+      return;
+    }
+    remote.tlsPin(address, { fresh: q.get('fresh') === '1' })
+      .then((got) => sendJson(res, 200, got.data))
+      .catch(() => sendJson(res, 200, { state: 'required', because: "this computer's certificate could not be checked" }));
     return;
   }
   /* kosmos#6404: the joining computer's "Check the code" once allowed: one fresh code check is a try, so the same

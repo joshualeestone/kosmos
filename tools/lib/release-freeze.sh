@@ -137,6 +137,8 @@ release_bundle_expected_files() {
   [ -f "$tree/assets/Kosmos.icns" ] && printf 'app/assets/Kosmos.icns\n'
   ( cd "$tree" && [ -d web ] && find web -type f ! -name '.*' | sed 's|^|app/|' )
   ( cd "$tree" && [ -d engine ] && find engine -maxdepth 1 -name '*.js' ! -name '*.test.js' | sed 's|^|app/|' )
+  # kosmos#6587: the signed service key set, when the tree carries one (tools/lib/stage-service-keys.sh stages it).
+  ( cd "$tree" && find engine -maxdepth 1 \( -name 'service-keys.json' -o -name 'service-keys.json.sig' \) | sed 's|^|app/|' )
   # join( and resolve( both (reporthook.js resolves the hook with path.resolve).
   # The connector is resolved by path too (engine/remote.js) but is not a tree
   # file: the comparator's checksum argument owns it, so it is left out here.

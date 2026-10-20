@@ -1,4 +1,4 @@
-// Browser-check-surface: cwnote-slot plus-cw-ack plus-cw-line plus-cw-row plus-cw-switch plus-cw-label plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
+// Browser-check-surface: cwnote-slot plus-cw-ack plus-cw-line plus-sk-line plus-cw-row plus-cw-switch plus-cw-label plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
 'use strict';
 /**
  * #3829 (Josh, 2026-09-25 16:54: the connected Kosmos+ panel and the device approval are "terribly
@@ -524,6 +524,35 @@ const STATES = {
         await page.waitForTimeout(400);
         chk(puts.length === 1 && JSON.parse(puts[0]).on === (mode === 'off-foreign'), `${t} the switch asks its own route for the opposite of what it showed`, JSON.stringify(puts));
       }
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await page.close();
+    }
+    /* kosmos#6587 (S-7a slice 2a): the service key line on a connected pane. A mismatch is said in the warning colour,
+       a listed key says nothing (the control), and the line stays in the page either way (a live region). */
+    for (const mode of ['mismatch', 'listed']) {
+      const t = `[service keys ${mode}]`;
+      const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+      const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+      const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
+      await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? { ...STATES.connected.remote, serviceKeys: { state: mode } } : { ok: true })));
+      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', self_device_id: 'd-self' })));
+      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [], pending: [], self_device_id: 'd-self' })));
+      await page.goto(BASE, { waitUntil: 'networkidle' });
+      if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+      await page.evaluate(() => showTab('settings'));
+      await page.click('#s-nav button[data-go="plus"]');
+      await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+      await page.waitForTimeout(500);
+      const s = await page.evaluate(() => {
+        const line = document.getElementById('plus-sk-line');
+        return { text: line.textContent, state: line.getAttribute('data-state'), colour: getComputedStyle(line).color,
+          plain: getComputedStyle(document.getElementById('plus-cw-label')).color, height: line.getBoundingClientRect().height,
+          inTree: !line.hidden && !line.closest('[hidden]') && getComputedStyle(line).display !== 'none' };
+      });
+      chk(s.inTree, `${t} the line stays in the page (a live region)`, JSON.stringify(s));
+      if (mode === 'listed') chk(s.text === '' && s.height === 0, `${t} CONTROL: a listed key says nothing and takes no room`, JSON.stringify(s));
+      else chk(/^Warning: the key this computer trusts for the Kosmos\+ service is not on the signed list/.test(s.text) && s.state === 'mismatch'
+        && s.colour !== s.plain && s.height > 0, `${t} a mismatch is said, in the warning colour`, JSON.stringify(s));
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
     }

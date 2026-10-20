@@ -11719,6 +11719,8 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-cw-line:empty { display: block; margin: 0; }
 #s-sec-plus #plus-cw-ack { margin-top: 6px; }   /* kosmos#6613: not flush against the line or the switch row */
 #s-sec-plus .plus-cw-line[data-state="foreign"] { color: var(--danger); font-weight: 600; }
+#s-sec-plus .plus-sk-line:empty { display: block; margin: 0; }   /* kosmos#6587: as plus-cw-line, no room when it says nothing */
+#s-sec-plus .plus-sk-line[data-state="mismatch"] { color: var(--danger); font-weight: 600; }
 /* #4744: one line (Josh, "lets make sure this all fits on one line"). The Settings column caps this panel at 544px on
    a desktop window, where the sentence at .9rem needs ~452px of the ~404 left beside Copy (measured). So the box
    reaches into the panel's side padding, Copy is compact, and the sentence's size follows the box's width (container
@@ -19609,6 +19611,9 @@ window.kosmosMeasureScrollbarWidth();
             <button class="toggle" type="button" id="plus-cw-switch" role="switch" aria-labelledby="plus-cw-label" hidden><i></i></button>
             <span class="fhint" id="plus-cw-label">While Kosmos+ is on, check the public certificate logs for this computer's address once a day (this sends the address to Cert Spotter)</span>
           </div>
+          <!-- kosmos#6587: said only when the key this computer trusts for the Kosmos+ service is not on the signed list
+               this version came with. Painted by paintPlusServiceKeys. Never hidden, as plus-cw-line is not. -->
+          <p class="fhint plus-sk-line" id="plus-sk-line" role="status"></p>
           <!-- #4794 slice 1 (Mona Lisa's design): while this computer waits to be allowed, the code both computers show,
                in place of the coordinator's sentence above, and "The codes match". Painted by paintPlusJoin. -->
           <div class="plus-join" id="plus-join" aria-live="polite" tabindex="-1" hidden></div>
@@ -51602,6 +51607,7 @@ async function paintPlus() {
   if (!r || r.enrolled !== true) {
     // kosmos#6613: a computer no longer set up has no finding to raise when the person leaves Kosmos+.
     if (r && r.enrolled === false && typeof paintCwNote === 'function') paintCwNote(null);   // an error answer is not "not set up"
+    if (r && r.enrolled === false && typeof paintPlusServiceKeys === 'function') paintPlusServiceKeys({ state: '' });   // kosmos#6587: nothing to say off setup
     /* #4794 review 7: not enrolled (a Forget, or never signed in) ends any pairing this page knew; this return skips the
        pairing block's own clearing below, so it happens here. A failed read (r null) is not an answer and keeps it. */
     if (r && typeof plusJoinReset === 'function') plusJoinReset();
@@ -51679,6 +51685,8 @@ async function paintPlus() {
   /* r.on === true: a reply that does not say Kosmos+ is on counts as off, which quiets only the cannot-confirm
      sentences (the safe direction); a finding is said either way. */
   if (typeof paintPlusCertWatch === 'function') paintPlusCertWatch(r.certWatch, r.on === true);
+  /* kosmos#6587: whether the pinned coordinator key is on the signed service key set this version shipped. */
+  if (typeof paintPlusServiceKeys === 'function') paintPlusServiceKeys(r.serviceKeys);
   /* #4794: while this computer waits for one of the person's computers to allow it, the pairing code replaces the
      coordinator's sentence (paintPlusJoin). Anything else hides it. */
   if (typeof plusJoinTick === 'function') {   // the page tests lift paintPlus alone
@@ -52499,6 +52507,17 @@ function paintPlusCertWatch(cw, plusOn) {
     finally { cwBusy = false; cwSw.removeAttribute('aria-busy'); }
     paintPlus();
   }); }
+/* kosmos#6587 (S-7a slice 2a): the service key line. The server passes only a state (engine/servicekeys-check.js); the
+   one sentence is fixed. Off, refused (a broken build, not news), none, unknown and listed say nothing. An answer with
+   no serviceKeys (an older board) leaves the line as it is. */
+var PLUS_SK_MISMATCH = 'Warning: the key this computer trusts for the Kosmos+ service is not on the signed list that came with this version of Kosmos. Something may be posing as the Kosmos+ service.';
+function paintPlusServiceKeys(sk) {
+  const line = document.getElementById('plus-sk-line');
+  if (!line || !sk || typeof sk !== 'object') return;
+  const say = sk.state === 'mismatch' ? PLUS_SK_MISMATCH : '';
+  if (line.textContent !== say) line.textContent = say;   // rewritten only on a change, so it is not re-read every poll
+  if (line.dataset) line.dataset.state = say ? 'mismatch' : '';
+}
 /* kosmos#6613: the notice for a finding, a card in the floating stack (#cwnote-slot, the .utoast look and its red),
    on every view but Kosmos+. Its close (and Review) put away the finding set shown (its key, kept per browser, as
    #6315's request notice and #5018's login notice keep theirs); a new finding is a new key and brings it back. The
@@ -76662,6 +76681,10 @@ function pjFedMessage(body, fallback, opts) {
     'other-account': 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.',
     'no-remote': 'Sign in to Kosmos+ again in Settings on this computer, then paste the code again.',
     'old-code': 'This code was made by an older Kosmos. Update Kosmos on the computer that has the project, then make a new code there.',
+    // kosmos#6681 (S-11-fed): a code bound to one address. Names nobody: the person told is the one it was not for.
+    'wrong-invitee': 'That code was made for someone else. Ask whoever sent it to invite the email address you use for Kosmos+.',
+    'bad-email': 'That email address does not look right. Check it, or leave it empty.',
+    'invites-full': 'You have too many invitations nobody has used yet, across your projects. Withdraw some from a project\'s Members, or wait for them to expire, then try again.',
   };
   return (reason && M[reason]) || fallback;
 }
