@@ -183,6 +183,31 @@ test('#3991: the dot\'s trust exception reads needsTrust (the board poll\'s own 
   }
 });
 
+test('#6716: the screen-line fold starts closed each time it appears, and a poll leaves an opened one open', () => {
+  const board = fleet.install([fleet.agent('beatrix', { state: 'working',
+    screen: 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n' })]);
+  try {
+    const card = board.agents.find((x) => x.name === 'beatrix');
+    const waiting = { ...card, state: 'needs_you' };
+    pillFor(waiting, null, 1000);
+    const box = pillFor.els['d-said-box'];
+    assert.equal(box.hidden, false, 'control: the fold shows for a waiting agent');
+    assert.equal(box.open, false, 'the fold did not start closed');
+    box.open = true;   // the person opens it
+    pillFor.repaint(waiting);
+    assert.equal(box.open, true, 'a poll for the same agent closed the fold the person opened');
+    pillFor.repaint(card);   // back to working: hidden
+    assert.equal(box.hidden, true);
+    pillFor.repaint(waiting);   // waiting on something again
+    assert.equal(box.open, false, 'the fold came back already open for a new wait');
+    box.open = true;
+    pillFor.repaint({ ...waiting, sessionName: 'someone-else', name: 'Someone' });
+    assert.equal(box.open, false, 'another agent\'s quote opened already expanded');
+  } finally {
+    fleet.restore();
+  }
+});
+
 test('#3958: the poll does not rewrite an unchanged pill, task or said label (a selection survives)', () => {
   const board = fleet.install([fleet.agent('beatrix', { state: 'working' })]);
   try {

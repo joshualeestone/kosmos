@@ -42772,11 +42772,12 @@ function paintDetailState(card) {
        working or idle agent's line is the CLI's own chrome, never for a person. */
     const line = SAID_STATES.has(a.state) ? String(a.stateEvidence || '').trim() : '';
     if (saidBox) {
-      saidBox.hidden = !line;
-      /* Closed again for another agent, so each agent's quote starts folded; the poll for the same agent leaves an
-         opened fold as the person left it. */
+      /* Starts folded each time it appears: for another agent, or for this one when it is waiting on something again
+         after it was not. The poll while it stays shown for the same agent leaves an opened fold as the person left it. */
       const forName = a.sessionName || '';
-      if (saidBox.dataset.for !== forName) { saidBox.open = false; saidBox.dataset.for = forName; }
+      const appears = saidBox.hidden && !!line;
+      if (appears || saidBox.dataset.for !== forName) { saidBox.open = false; saidBox.dataset.for = forName; }
+      saidBox.hidden = !line;
     }
     if (said.textContent !== line) said.textContent = line;
     said.hidden = !line;
