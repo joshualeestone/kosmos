@@ -91,3 +91,18 @@ test('#6716 review 7: a session from more than two days before does not lend its
   session('aged', 'new.jsonl', [{ type: 'user', message: { content: 'hi' } }], 5);
   assert.equal(status.readModel('aged').model, null, 'a model from days ago reads as today\'s');
 });
+
+test('#6716 review 10: a session that replied, with a big paste filling its tail, borrows nothing', () => {
+  session('pasty', 'old.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-4-8' } }], 600);
+  session('pasty', 'new.jsonl', [
+    { type: 'assistant', message: { content: 'ok' } },   // a reply, with no model named
+    { type: 'user', message: { content: 'x'.repeat(200000) } },   // pushes it out of the 64 KB tail
+  ], 5);
+  assert.deepEqual(status.readModel('pasty'), { model: null, confidence: 'none' }, 'a session that replied took an earlier session\'s model');
+});
+
+test('#6716 review 10 CONTROL: a big first message with no reply still borrows', () => {
+  session('bigask', 'old.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-5-5' } }], 600);
+  session('bigask', 'new.jsonl', [{ type: 'user', message: { content: 'y'.repeat(200000) } }], 5);
+  assert.equal(status.readModel('bigask').model, 'claude-opus-5-5');
+});

@@ -7051,12 +7051,41 @@ function modelDisplayName(id) {
   return readableModelId(id) || id;   // #4416: raw only when reading it could mis-say the version
 }
 
+/** #6716 review 10: whether a transcript holds any assistant turn. The tail already read answers it when it is the whole
+    file; otherwise the file is scanned in chunks (only on this rare no-model path), stopping at the first one. */
+const REPLY_MARK = '"type":"assistant"';
+function hasReplied(file, tailText, whole) {
+  if (tailText && tailText.includes(REPLY_MARK)) return true;
+  if (whole) return false;
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(1 << 20);
+    let pos = 0; let carry = '';
+    for (;;) {
+      const n = fs.readSync(fd, buf, 0, buf.length, pos);
+      if (n <= 0) return false;
+      const chunk = carry + buf.toString('utf8', 0, n);
+      if (chunk.includes(REPLY_MARK)) return true;
+      carry = chunk.slice(-REPLY_MARK.length);
+      pos += n;
+    }
+  } catch {
+    return true;   // unreadable: fail closed, borrow nothing
+  } finally {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch { /* ignore */ }
+  }
+}
+
 function readModel(agentName, exactSession) {
   const file = transcriptFor(agentName, exactSession);
   if (!file) return { model: null, confidence: CONFIDENCE.NONE };
-  const { text } = tailBytes(file, 65536);
+  const { text, whole } = tailBytes(file, 65536);
   const now = text ? modelInText(text) : null;
   if (now) return { model: now, confidence: CONFIDENCE.STRUCTURED };
+  // Review 10: only a session that has had NO reply borrows. One that replied but whose last 64 KB is a large paste or
+  // tool result names no model in the tail, and must stay "Unknown Model" rather than take another session's.
+  if (hasReplied(file, text, whole)) return { model: null, confidence: CONFIDENCE.NONE };
   /**
    * #6716 (Josh, 2026-10-20: "I am not sure why it doesnt recognize Renet's model"). A session that has not had a reply
    * yet holds no model line: Renet's account move started a new session at 08:37, its sign-in was failing, and the
