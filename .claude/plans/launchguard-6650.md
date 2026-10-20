@@ -48,3 +48,9 @@ Linux (systemd user units) has the same shape, in a different folder, and is not
 - [NIT] fixed: on a new account where ~/Library/LaunchAgents does not exist yet, `-ef` matched nothing, so AGENT_WORKFORCE_LAUNCH spelled as that folder passed. It is now also matched by spelling, with or without a trailing slash. A control without the spelling match turns the new-account arm red.
 - [NIT] accepted: a fake-HOME harness that points AGENT_WORKFORCE_LAUNCH at its own fake LaunchAgents is refused. No caller does this, and refusing is the safe side.
 - Note: in the focused run after iteration 3, install.connect-pause-4676 failed once, after 50 s, beside another suite. Run alone it passes 13 of 13. Its pause code is unchanged here.
+### Iteration 5 (opus)
+- [WARNING] fixed: a temp HOME with no KOSMOS_HOME got through, because the home then equals the default. launchd would still register the job, and under the bare `com.kosmos.board` label, the real board's own. The default-home condition is dropped. A real install's default home is under a temp folder only when HOME itself is, so real installs and self-updates are unaffected. The refusal sentence now reads "puts Kosmos in a temporary folder". A control that restores the condition turns the new arm red.
+- [NIT] fixed: the LaunchAgents spelling compare is now case-blind, like the disk. A control without it turns the capitals arm red.
+- [NIT] fixed: a folder that cannot be entered no longer drops a prefix of the resolved spelling; only the written spelling is checked then.
+- [NIT] accepted (weakest premise): a TMPDIR the caller used but did not pass on to setup.sh is not seen. The fixed temp spellings still apply.
+- [NIT] fixed: the "release walk on its own port" arm could not fail. It now asserts that a kept home on the default port goes through, which guards against a port rule coming back.
