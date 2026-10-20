@@ -44,3 +44,9 @@ sign-in isn't working".
 **Weakest premise.** That an agent's earlier sessions sit in the same folder as its new one. On this fleet the account
 folders share one transcript tree, so they do. On a machine where each account keeps its own, an account move leaves
 no earlier session beside the new one, and the tile falls back as before (no worse than today).
+
+**Broad run (review 3).** `node --test *.test.js engine/*.test.js`: 22532 tests, 16 failed. One was this change (the
+#2519 snapshot fixture lacked `earlierModelName`; re-captured with tools/capture-agent-card.js, 35/35). The other 15
+(cli.limitmsg-5805, cli.msgqueue-5187, cli.task-webhook-1307, cli.unknown-flag-4889, server.subtasks-3861) fail the
+same way on a branch without this change ("we could not match that to one of your agents"), when run from inside an
+agent session; not this change.

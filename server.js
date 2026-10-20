@@ -2231,7 +2231,9 @@ function whoamiFor(card, known, live) {
        📌 Keyed on a KNOWN non-claude runner, so an answer carrying no runner at
        all (every injected reader that predates this field) takes the old path. */
     const foreignRunner = !!(resolvedRunner && resolvedRunner !== 'claude');
-    if (!foreignRunner && rec && rec.model) {
+    /* #6716: a model borrowed from an EARLIER session is not what this one runs (a switch or relaunch that has not
+       replied yet): skip it, so the launch argument below answers, as it did before the borrowing existed. */
+    if (!foreignRunner && rec && rec.model && rec.earlierSession !== true) {
       /* `modelDisplayName`, NOT the raw id, and this is the branch that normally
          answers. The LIVE path's display name was pinned; this one - the
          PREFERRED source for the model - was asserted nowhere, so swapping it

@@ -7132,11 +7132,12 @@ function modelInText(text) {
 const EARLIER_MODEL_TTL_MS = 60 * 1000;
 const earlierModelSeen = new Map();
 function modelInEarlierSession(file, agentName) {
-  const memo = earlierModelSeen.get(file);
+  const key = agentName + '\0' + file;
+  const memo = earlierModelSeen.get(key);
   if (memo && Date.now() - memo.at < EARLIER_MODEL_TTL_MS) return memo.model;
   const model = modelInEarlierSessionUncached(file, agentName);
   if (earlierModelSeen.size > 200) earlierModelSeen.clear();
-  earlierModelSeen.set(file, { at: Date.now(), model });
+  earlierModelSeen.set(key, { at: Date.now(), model });
   return model;
 }
 function modelInEarlierSessionUncached(file, agentName) {
