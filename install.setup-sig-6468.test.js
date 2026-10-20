@@ -117,7 +117,7 @@ test('#6659: run-setup installs into the home it was handed, not the default one
   for (const [what, extra] of [['no KOSMOS_HOME in the environment', {}], ['another KOSMOS_HOME in the environment', { KOSMOS_HOME: '/tmp/some-other-kosmos' }]]) {
     const mark = path.join(tmp, 'mark-home-' + crypto.randomBytes(4).toString('hex'));
     const h = home('1.2.0');
-    const env = { ...process.env, MARK: mark, ...extra };
+    const env = { ...process.env, MARK: mark, HOME: fs.mkdtempSync(path.join(tmp, 'person-')), ...extra };   // never the real default home
     if (!('KOSMOS_HOME' in extra)) delete env.KOSMOS_HOME;
     const r = spawnSync(process.execPath, [path.join(h, 'app', 'engine', 'manifest-verify.js'), 'run-setup',
       'file://' + hst.setup, 'file://' + hst.dist, '1.2.3', h], { encoding: 'utf8', env });
@@ -152,6 +152,9 @@ test('#6659 (review 1): the board is told the home it was installed under, and t
   const kosmos = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
   assert.equal((kosmos.match(/KOSMOS_INSTALLED_HOME="\$KOSMOS_HOME" (nohup )?"\$NODE" "\$APP"/g) || []).length, 2, 'both board launches');
   assert.doesNotMatch(kosmos, /export KOSMOS_HOME/, 'KOSMOS_HOME itself stays unexported (agents the board starts must not inherit it)');
+  // Review 3: the board takes the installed path out of its environment at startup, so its agents never inherit it.
+  const server = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  assert.match(server, /setInstalledHomeAsInstalled\(process\.env\.KOSMOS_INSTALLED_HOME\);\ndelete process\.env\.KOSMOS_INSTALLED_HOME;/);
   const update = fs.readFileSync(path.join(__dirname, 'engine', 'update.js'), 'utf8');
   const fn = update.slice(update.indexOf('function installedHomeAsInstalled() {'), update.indexOf('\n}\n', update.indexOf('function installedHomeAsInstalled() {')));
   assert.match(fn, /fs\.realpathSync\(said\) === fs\.realpathSync\(root\)\) return said;/, 'only when it is this very copy');
@@ -167,10 +170,9 @@ test('#6659 (review 2): installedHomeAsInstalled uses the installed path only wh
   const link = path.join(tmp, 'as-installed-' + crypto.randomBytes(3).toString('hex'));
   fs.symlinkSync(real, link);
   const other = home('1.2.0');
-  const saved = process.env.KOSMOS_INSTALLED_HOME;
   update.setInstalledRoot(() => fs.realpathSync(real));
   try {
-    const at = (v) => { if (v === undefined) delete process.env.KOSMOS_INSTALLED_HOME; else process.env.KOSMOS_INSTALLED_HOME = v; return update.installedHomeAsInstalled(); };
+    const at = (v) => { update.setInstalledHomeAsInstalled(v); return update.installedHomeAsInstalled(); };
     assert.equal(at(link), link, 'the path as installed, when it resolves to this copy');
     assert.equal(at(undefined), fs.realpathSync(real), 'none: the root');
     assert.equal(at(path.join(tmp, 'gone-' + crypto.randomBytes(3).toString('hex'))), fs.realpathSync(real), 'a path that is gone: the root');
@@ -178,7 +180,7 @@ test('#6659 (review 2): installedHomeAsInstalled uses the installed path only wh
     assert.equal(at(path.relative(process.cwd(), real)), fs.realpathSync(real), 'a relative path, even one that resolves here: the root');
   } finally {
     update.setInstalledRoot(null);
-    if (saved === undefined) delete process.env.KOSMOS_INSTALLED_HOME; else process.env.KOSMOS_INSTALLED_HOME = saved;
+    update.setInstalledHomeAsInstalled(undefined);
   }
 });
 

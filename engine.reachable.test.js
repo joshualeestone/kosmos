@@ -150,7 +150,6 @@ const EXCUSED = {
   setInstalledRoot: 'test seam (update root)',
   setRecordedChannel: 'test seam (#2969): replaces engine/update.js\'s read of the install stamp (<store.ROOT>/source-channel) that the Mac update channel falls back to, so a suite states a staging or prod install without writing the real store. Production reads the stamp (recordedChannel reads the recordedChannelFn variable, so the setter has no production caller).',
   setAutoPref: 'test seam (auto-update preference file)',
-  installedHomeAsInstalled: 'test seam (#6659): engine/update.js uses it for run-setup; exported so a suite runs its fallbacks (a moved or relative KOSMOS_INSTALLED_HOME must give the root)',
   setPlatform: 'test seam (win32-update-check): engine/update.js\'s platform for the pointer, manifest and channel rules, so the Windows arm is asserted from a Mac and the Mac contract (update.test.js) is pinned to darwin on the Windows box. Production reads process.platform.',
   setWindowsBundleRoot: 'test seam (win32-update-check): engine/update.js\'s answer to "is this a Windows bundle", so the manual-offer arm runs without a real runtime\\node.exe layout. Production asks win32board.bundleRoot().',
   projectsFor: 'superseded reader: list()/get() carry the same join; kept for its tests until they migrate (#265 sweep)',

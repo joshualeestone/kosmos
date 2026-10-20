@@ -20,7 +20,7 @@ it passes the default string, so nothing changes for it. The Mac app does not ca
 Review 1 (BLOCKER): installedRoot() is __dirname-based and Node resolves links in it, while setup.sh tells the default
 copy from a sandboxed one, and names its launch label, data folders and ~/.local/bin, by the path STRING. So:
 - install/kosmos exports KOSMOS_INSTALLED_HOME (the path it ran under) on both board launches. It is not KOSMOS_HOME,
-  which stays unexported, so the agents a board starts do not inherit a home;
+  which stays unexported, so the agents a board starts do not inherit the installed path;
 - update.js passes that path to run-setup when it resolves to this very copy, and installedRoot() otherwise;
 - runSetup hands a home that resolves to the default copy over as the default string itself (an older board, or one
   started without the variable).
@@ -44,6 +44,15 @@ install.setup-sig-6468.test.js, the run-setup harness with real signed fixtures:
 
 - The first update a board started BEFORE this change performs still runs that board's own older manifest-verify.js,
   which sets no KOSMOS_HOME, so a non-default copy is updated wrongly that one time. Not fixable from here.
+
+- (Review 3.) The board takes KOSMOS_INSTALLED_HOME out of its environment at startup (server.js, beside
+  KOSMOS_BOARD_STARTED_BY), so no agent inherits it. KOSMOS_HOME is a different matter: runSetup now hands it to
+  setup.sh, and a board setup.sh starts WITHOUT launchd (`kosmos start --force`, the fallback when launchd
+  registration fails) inherits it, and so do that board's agents. Its value is that board's own home, the right one,
+  and on Linux the systemd unit sets KOSMOS_HOME for the board on purpose; stripping it at those calls broke the Linux
+  install tests (the stand-in kosmos expects it), so it is kept and stated. A board under launchd is restarted with
+  kickstart and gets only the plist's environment.
+- A home reached through the default link is always treated as the default copy (asTheInstallerNamesIt).
 
 ## Weakest premise
 That nothing depends on a non-default board updating the default home. The only reading under which that was

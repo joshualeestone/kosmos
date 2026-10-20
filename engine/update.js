@@ -534,10 +534,12 @@ function autoPref() {
    setup.sh tells the default copy from a sandboxed one, and names its launch label, by the path STRING. install/kosmos
    exports the path it ran under as KOSMOS_INSTALLED_HOME (it is not KOSMOS_HOME, so agents the board starts do not
    inherit a home); used only when it resolves to this very copy. */
+let installedHomeSaid;   // #6659: set once by server.js at startup (then removed from the environment)
+function setInstalledHomeAsInstalled(v) { installedHomeSaid = typeof v === 'string' && v ? v : undefined; }
 function installedHomeAsInstalled() {
   const root = installedRoot();
   if (!root) return null;
-  const said = process.env.KOSMOS_INSTALLED_HOME;
+  const said = installedHomeSaid;
   try { if (said && path.isAbsolute(said) && fs.realpathSync(said) === fs.realpathSync(root)) return said; } catch { /* gone: the root */ }
   return root;
 }
@@ -1348,7 +1350,7 @@ function prodPublishesRunning() {
 }
 
 module.exports = {
-  installedHomeAsInstalled /* #6659: the home as the installer knows it; exported so a test RUNS its fallbacks */,
+  installedHomeAsInstalled /* #6659: the home as the installer knows it; exported so a test RUNS its fallbacks */, setInstalledHomeAsInstalled,
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, windowsBuildName, windowsGenericName, // the per-platform check (win32-update-check)
   installOffer, // S4: the [Update] offer (installedRoot AND not a refused win32 location); one derivation
