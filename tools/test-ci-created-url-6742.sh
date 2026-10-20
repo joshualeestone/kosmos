@@ -15,10 +15,12 @@
 #
 # WHY A TOP-LEVEL PARSE, NOT A GREP. test-linux-setup-4920.yml mentions the variable
 # only inside `run:` blocks (a `$GITHUB_ENV` export and systemd `Environment=` lines).
-# A bare `grep AGENT_WORKFORCE_CREATED_URL` would false-pass on a file that has no
+# A bare `grep AGENT_WORKFORCE_CREATED_URL` would false-pass a file that has no
 # top-level env at all. So the check loads the YAML and reads the TOP-LEVEL `env:`
 # key specifically (d["env"]), which is structurally distinct from job env
-# (d["jobs"][j]["env"]) and step env. Part B proves it reds on exactly those shapes.
+# (d["jobs"][j]["env"]) and step env. It ALSO fails a job-level or step-level `env:`
+# that sets the var to a DIFFERENT value (which would shadow the top-level one for that
+# job/step and let the ping out again). Part B proves it reds on exactly those shapes.
 #
 # RUNS IN test:shell (package.json) via .github/workflows/test.yml's `suite (shell)`
 # matrix on every pull_request and push to main. No network.
@@ -38,17 +40,43 @@ if ! command -v ruby >/dev/null 2>&1; then
   exit 0
 fi
 
-# Per-file check: exit 0 iff the file's TOP-LEVEL env: holds the exact dead address.
-# ARGV[0] the workflow file, ARGV[1] the required URL. load_file also fails loudly on
-# a file that is not parseable YAML, which is itself a reason to red.
-RUBY_CHECK='
-d = YAML.load_file(ARGV[0])
-v = (d.is_a?(Hash) && d["env"].is_a?(Hash)) ? d["env"]["AGENT_WORKFORCE_CREATED_URL"] : nil
-exit(v == ARGV[1] ? 0 : 1)
+# Per-file verdict, printed on one line (never fails the ruby process itself, so a
+# parse error is reported as data, not confused with a missing var):
+#   OK                 top-level env has the exact dead address, no bad override
+#   PARSE_ERROR        not loadable as YAML
+#   NOT_MAPPING        loads but the document is not a mapping
+#   TOP_MISSING        top-level env: lacks the var, or holds a different value
+#   OVERRIDE:<where>   a job/step env: sets the var to a value other than the dead address
+RUBY_VERDICT='
+require "yaml"
+begin
+  d = YAML.load_file(ARGV[0])
+rescue Exception
+  puts "PARSE_ERROR"; exit 0
+end
+url = ARGV[1]
+unless d.is_a?(Hash); puts "NOT_MAPPING"; exit 0; end
+top = d["env"].is_a?(Hash) ? d["env"]["AGENT_WORKFORCE_CREATED_URL"] : nil
+bad = []
+(d["jobs"].is_a?(Hash) ? d["jobs"] : {}).each do |jn, j|
+  next unless j.is_a?(Hash)
+  if j["env"].is_a?(Hash) && j["env"].key?("AGENT_WORKFORCE_CREATED_URL") && j["env"]["AGENT_WORKFORCE_CREATED_URL"] != url
+    bad << "job #{jn}"
+  end
+  (j["steps"].is_a?(Array) ? j["steps"] : []).each_with_index do |s, i|
+    next unless s.is_a?(Hash) && s["env"].is_a?(Hash)
+    if s["env"].key?("AGENT_WORKFORCE_CREATED_URL") && s["env"]["AGENT_WORKFORCE_CREATED_URL"] != url
+      bad << "job #{jn} step #{i}"
+    end
+  end
+end
+if top != url; puts "TOP_MISSING"; exit 0; end
+unless bad.empty?; puts "OVERRIDE:" + bad.join(","); exit 0; end
+puts "OK"
 '
-check_one() { ruby -ryaml -e "$RUBY_CHECK" "$1" "$URL" 2>/dev/null; }
+verdict() { ruby -e "$RUBY_VERDICT" "$1" "$URL" 2>/dev/null || echo "PARSE_ERROR"; }
 
-# --- Part A: every workflow file carries it at the top level ------------------------
+# --- Part A: every workflow file carries it at the top level, none overrides it -----
 shopt -s nullglob
 files=( "$WFDIR"/*.yml "$WFDIR"/*.yaml )
 [ "${#files[@]}" -ge 1 ] || fail "no workflow files under $WFDIR (glob matched nothing; the check would pass vacuously)"
@@ -58,18 +86,36 @@ disk=$(find "$WFDIR" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) |
 [ "${#files[@]}" -eq "$disk" ] || fail "glob saw ${#files[@]} workflow files but $disk exist under $WFDIR (glob is not seeing every file)"
 pass "found ${#files[@]} workflow file(s) under .github/workflows to check"
 
-missing=()
+missing=(); overrides=()
 for f in "${files[@]}"; do
-  check_one "$f" || missing+=( "$(basename "$f")" )
+  v="$(verdict "$f")"; b="$(basename "$f")"
+  case "$v" in
+    OK) ;;
+    PARSE_ERROR) fail "$b is not parseable YAML (fix it; a malformed workflow would also fail at GitHub)" ;;
+    NOT_MAPPING) fail "$b did not load as a YAML mapping" ;;
+    TOP_MISSING) missing+=( "$b" ) ;;
+    OVERRIDE:*) overrides+=( "$b (${v#OVERRIDE:})" ) ;;
+    *) fail "$b produced an unrecognized verdict: $v" ;;
+  esac
 done
 [ "${#missing[@]}" -eq 0 ] \
-  || fail "these workflows lack AGENT_WORKFORCE_CREATED_URL=$URL in their TOP-LEVEL env: block: ${missing[*]}. Add it (a bare top-level env:) so a board started by the workflow cannot send a real install ping; for a systemd/launchd service board, engine/linuxboard.js injects this top-level value into the unit."
-pass "all ${#files[@]} workflows carry AGENT_WORKFORCE_CREATED_URL=$URL at the top-level env"
+  || fail "these workflows lack AGENT_WORKFORCE_CREATED_URL=$URL in their TOP-LEVEL env: block: ${missing[*]}. Add it (a bare top-level env:) so a board started by the workflow cannot send a real install ping; for a systemd service board, engine/linuxboard.js injects this top-level value into the unit."
+[ "${#overrides[@]}" -eq 0 ] \
+  || fail "these workflows override AGENT_WORKFORCE_CREATED_URL at a job/step env: with a value other than $URL (that would let the ping out again for that job/step): ${overrides[*]}"
+pass "all ${#files[@]} workflows carry AGENT_WORKFORCE_CREATED_URL=$URL at the top-level env, with no job/step override to a different value"
 
 # --- Part B: red-capability. Prove the check reds on the shapes it must reject and ---
 # greens on the right one, so Part A's clean run is a real result, not a vacuous one.
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/test-ci-created-url-6742.XXXXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
+expect() { # $1 fixture, $2 expected verdict (exact, or OVERRIDE prefix), $3 label
+  local got; got="$(verdict "$1")"
+  case "$2" in
+    OVERRIDE) case "$got" in OVERRIDE:*) : ;; *) fail "Part B ($3): expected an OVERRIDE verdict, got '$got'";; esac ;;
+    *) [ "$got" = "$2" ] || fail "Part B ($3): expected '$2', got '$got'" ;;
+  esac
+  pass "Part B: $3 -> $got"
+}
 
 cat > "$tmp/good.yml" <<'YML'
 name: good
@@ -82,8 +128,7 @@ jobs:
     steps:
       - run: echo hi
 YML
-check_one "$tmp/good.yml" || fail "Part B positive control: a correct top-level env was REJECTED (the check itself is broken)"
-pass "Part B: a correct top-level env passes (positive control)"
+expect "$tmp/good.yml" OK "a correct top-level env passes (positive control)"
 
 cat > "$tmp/none.yml" <<'YML'
 name: none
@@ -94,8 +139,7 @@ jobs:
     steps:
       - run: echo hi
 YML
-check_one "$tmp/none.yml" && fail "Part B: a workflow with NO top-level env PASSED (the check is vacuous)"
-pass "Part B: no top-level env reds"
+expect "$tmp/none.yml" TOP_MISSING "no top-level env reds"
 
 cat > "$tmp/step.yml" <<'YML'
 name: step
@@ -108,8 +152,7 @@ jobs:
           AGENT_WORKFORCE_CREATED_URL: http://127.0.0.1:9/api/created
         run: echo hi
 YML
-check_one "$tmp/step.yml" && fail "Part B: the var only inside a STEP env PASSED (a grep false-passes this; the parse must not)"
-pass "Part B: var only in a step env reds"
+expect "$tmp/step.yml" TOP_MISSING "var only in a step env (no top-level) reds -- a grep would false-pass this"
 
 cat > "$tmp/run.yml" <<'YML'
 name: run
@@ -120,8 +163,7 @@ jobs:
     steps:
       - run: echo "AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created" >> "$GITHUB_ENV"
 YML
-check_one "$tmp/run.yml" && fail "Part B: the var only inside a run: block PASSED (a grep false-passes this; the parse must not)"
-pass "Part B: var only in a run: block reds"
+expect "$tmp/run.yml" TOP_MISSING "var only in a run: block reds -- a grep would false-pass this"
 
 cat > "$tmp/wrong.yml" <<'YML'
 name: wrong
@@ -134,7 +176,31 @@ jobs:
     steps:
       - run: echo hi
 YML
-check_one "$tmp/wrong.yml" && fail "Part B: a WRONG top-level value (the live endpoint) PASSED (the check must pin the dead address, not any value)"
-pass "Part B: wrong top-level value reds"
+expect "$tmp/wrong.yml" TOP_MISSING "a wrong top-level value reds (the check pins the dead address)"
+
+cat > "$tmp/override.yml" <<'YML'
+name: override
+on: [push]
+env:
+  AGENT_WORKFORCE_CREATED_URL: http://127.0.0.1:9/api/created
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    env:
+      AGENT_WORKFORCE_CREATED_URL: https://installkosmos.com/api/created
+    steps:
+      - run: echo hi
+YML
+expect "$tmp/override.yml" OVERRIDE "a job-level override to a different value reds even with a correct top-level env"
+
+cat > "$tmp/badyaml.yml" <<'YML'
+name: broken
+on: [push]
+env:
+  AGENT_WORKFORCE_CREATED_URL: http://127.0.0.1:9/api/created
+   bad-indent: oops
+jobs: [
+YML
+expect "$tmp/badyaml.yml" PARSE_ERROR "an unparseable workflow reds distinctly (not reported as a missing var)"
 
 echo "ci-created-url-6742: PASS"
