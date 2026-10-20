@@ -40,7 +40,7 @@ function world({ set, sig, recovery } = {}) {
 }
 function stage({ repo, dest }) {
   const r = spawnSync('bash', ['-c', '. "$1" && kosmos_stage_service_keys "$2" "$3" "$4"', '_', LIB, repo, dest, process.execPath], { encoding: 'utf8' });
-  return { rc: r.status, out: (r.stdout || '') + (r.stderr || ''), staged: ['service-keys.json', 'service-keys.json.sig'].filter((f) => fs.existsSync(path.join(dest, f))) };
+  return { rc: r.status, out: (r.stdout || '') + (r.stderr || ''), stdout: r.stdout || '', staged: ['service-keys.json', 'service-keys.json.sig'].filter((f) => fs.existsSync(path.join(dest, f))) };
 }
 
 test('no set in the repo: nothing staged, nothing refused (this version, today)', () => {
@@ -68,6 +68,8 @@ test('both, with the recovery key pinned: verified; a set that does not verify s
   const ok = stage(world({ set: VECTOR, sig: VECTOR_SIG + '\n', recovery: [ROOT_PUB] }));
   assert.equal(ok.rc, 0, ok.out);
   assert.match(ok.out, /service key set: verified, seq 1, 2 key\(s\)/);
+  // Nothing on stdout: deploy/install-board.sh captures stage_app's stdout as the version (review 4).
+  assert.equal(ok.stdout, '', 'the answer goes to stderr');
   const bad = stage(world({ set: VECTOR.replace('"seq": 1', '"seq": 2'), sig: VECTOR_SIG + '\n', recovery: [ROOT_PUB] }));
   assert.notEqual(bad.rc, 0, bad.out);
   assert.match(bad.out, /does not verify against the staged recovery keys \(#6587\)/);

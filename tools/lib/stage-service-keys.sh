@@ -21,7 +21,8 @@ kosmos_stage_service_keys() {
   if [ -z "$_sk_node" ]; then
     echo "FAIL: no node to check the staged service key set with (#6587)" >&2; return 1
   fi
-  "$_sk_node" "$_sk_repo/tools/check-service-keys.js" "$_sk_dest" || {
+  # Its answer goes to stderr: deploy/install-board.sh captures stage_app's stdout as the version.
+  "$_sk_node" "$_sk_repo/tools/check-service-keys.js" "$_sk_dest" >&2 || {
     echo "FAIL: the staged service key set does not verify against the staged recovery keys (#6587)" >&2; return 1; }
   return 0
 }

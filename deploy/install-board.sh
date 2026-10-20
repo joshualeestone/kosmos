@@ -227,6 +227,7 @@ fi
 say "app files that would be installed:"
 say "  server.js, package.json"
 say "  engine/*.js excluding *.test.js"
+say "  engine/service-keys.json and its .sig when present (checked first, #6587)"
 say "  web/ (whole)"
 say "  bin/agent-supervisor.sh, bin/codex-report-bridge.js, bin/gemini-report-bridge.js, bin/grok-report-bridge.js, bin/agy-report-bridge.js, bin/board-watchdog.sh"
 say "  assets/Kosmos.icns when present"
