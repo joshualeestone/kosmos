@@ -2516,7 +2516,8 @@ async function tlsPinAsk(address, now) {
   }
   // Only a definite answer is cached: a required one is asked again next time (it may be a passing failure).
   // A forget while this ran (a sign-out, a removed device): the answer is still returned, never kept.
-  // Nor over a NEWER answer (a fresh ask that finished first; review 3).
+  // Nor over a NEWER answer (review 3). A BACKSTOP since review 7: with one run per address an older run cannot finish
+  // after a newer one, so this cannot fire today; it stays so a change to that rule cannot quietly regress the cache.
   const newer = tlsPinCache.get(address);
   if (generation === tlsPinGeneration && !(newer && newer.at > now)) {
     if (answer.data.state !== 'required') tlsPinCache.set(address, { at: now, answer });

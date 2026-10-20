@@ -41,8 +41,8 @@ checking): nothing changes for anyone.
    - while this computer signs out of Plus, the board answers required;
    - no trust evaluation of its own (review 10: the leaf reads without one, and waiting on one could stall a page);
      the pin is judged at once on the main thread, and an allow hands back to WebKit's own checking; a trailing-dot spelling of a name is judged too; the
-     selector is pinned with @objc; the async evaluation is called from its own queue (review 3), and the self-test
-     runs it on a real certificate;
+     selector is pinned with @objc; the leaf is read with SecTrustGetCertificateAtIndex, never a call that evaluates
+     the trust (review 11: the chain call evaluated it on the main thread, 3 to 9 s per connection to a hostile server);
    - a refusal says WHY in two wordings: a key that does not match ("pair it again if you set it up again"), or a
      check that could not run ("try again in a moment"), so a board hiccup never tells the person to re-pair;
    - `tlsPinDecision`: pinned with a match allows; pinned without one, required, or any answer it does not know,
@@ -104,8 +104,8 @@ one a computer's request could be coalesced onto. Until that is measured, this i
 ## Weakest premise
 NOT YET RUN IN THE REAL APP. Review 3 found that the first version of the handler would have crashed the app on the
 first switch (SecTrustEvaluateAsyncWithError called from main with another queue traps), and no source-text test could
-see it. That call is now driven by the self-test with a real certificate (a misuse fails the bundle build), but the
-handler as a whole has never run in a real window. Until the real-app check below is done, read this as built and
+see it. Review 11 then measured a main-thread freeze inside a call the handler made. Both are fixed and the leaf read
+is driven by the self-test with a real certificate, but the handler as a whole has never run in a real window. Until the real-app check below is done, read this as built and
 unit-tested, not as working.
 
 That WebKit consults the challenge handler before any page script on that host runs. The handler decides the TLS

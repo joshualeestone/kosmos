@@ -19,7 +19,7 @@ function body(sig) {
   return SRC.slice(at, SRC.indexOf('\n    }\n', at) + 6);
 }
 
-test('#6589: the challenge handler judges only computers\' addresses, after ordinary checking, and a refusal cancels', () => {
+test('#6589: the challenge handler judges only computers\' addresses, hands an allow back to WebKit, and a refusal cancels', () => {
   const h = body('func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,');
   assert.match(h, /space\.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = space\.serverTrust/);
   assert.match(h, /isKosmosPlusURL\(target\), !isKosmosPlusSiteURL\(target\)/, 'computers only, never the Kosmos+ site');
