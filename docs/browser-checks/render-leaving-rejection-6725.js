@@ -9,11 +9,11 @@
  *
  *  1  a request held open across a reload, with no catch: no page error (WebKit and Chromium).
  *  2  CONTROL: a real TypeError rejection while the page is NOT leaving is still a page error, so the check can see one.
- *  4  the one-second reset on one document: a beforeunload that leads nowhere, then a rejection inside the second (not
- *     reported) and one after it (reported), so a reset that never comes would fail.
  *  3  the board's own polls that the reload cancels: WebKit's network message for each is not counted (cutOffByReload),
  *     and only during the reload (the `reloading` flag around page.reload). Arm 3 pins the predicate itself: this
  *     board's address matches; another origin, a lookalike port and any other message do not.
+ *  4  the one-second reset on one document: a beforeunload that leads nowhere, then a rejection inside the second (not
+ *     reported) and one after it (reported), so a reset that never comes would fail.
  */
 const fs = require('fs');
 const os = require('os');
