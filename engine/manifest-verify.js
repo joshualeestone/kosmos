@@ -47,8 +47,9 @@ function sha256File(p) {
   return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 }
 
-/** Every regular file under the stage's parts, relative to the stage; throws on a symlink or other non-file. */
-function listFiles(stage) {
+/** Every regular file under the stage's parts, relative to the stage; throws on a symlink or other non-file.
+    #6466: `parts` names the top-level entries to walk (the Windows build's are not the Mac's PARTS). */
+function listFiles(stage, parts = PARTS) {
   const out = [];
   const walk = (rel) => {
     const st = fs.lstatSync(path.join(stage, rel));
@@ -60,7 +61,7 @@ function listFiles(stage) {
       throw new Error(rel + ' is not a plain file');
     }
   };
-  for (const part of PARTS) {
+  for (const part of parts) {
     if (fs.existsSync(path.join(stage, part)) || isLink(path.join(stage, part))) walk(part);
   }
   return out.sort();
@@ -69,12 +70,15 @@ function isLink(p) {
   try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; }
 }
 
-function verify({ manifest, sig, tarball, stage, version, installedVersion, keys = KEYS, skipTarball = false }) {
+/* #6466: the two halves of verify(), shared with the Windows updater (engine/win32update.js), which holds the
+ * manifest's bytes in memory rather than in a file, and walks the Windows build's own top-level entries.
+ * signedManifest: the signature (over these exact bytes) under a pinned key, then the version rules. Returns
+ * { code, why, manifest }: 0 genuine, 1 refused, 3 no key pinned. */
+function signedManifest({ bytes, sigText, version, installedVersion, keys = KEYS }) {
   if (!keys.length) return { code: 3, why: 'no release signing key is pinned in this install' };
-  const bytes = fs.readFileSync(manifest);
   let signature;
-  try { signature = Buffer.from(fs.readFileSync(sig, 'utf8').trim(), 'base64'); } catch { signature = Buffer.alloc(0); }
-  const signed = signature.length === 64 && keys.some((k) => {
+  try { signature = Buffer.from(String(sigText).trim(), 'base64'); } catch { signature = Buffer.alloc(0); }
+  const signed = Buffer.isBuffer(bytes) && signature.length === 64 && keys.some((k) => {
     try {
       const key = crypto.createPublicKey({ key: Buffer.from(k, 'base64'), format: 'der', type: 'spki' });
       return crypto.verify(null, bytes, key, signature);
@@ -83,23 +87,56 @@ function verify({ manifest, sig, tarball, stage, version, installedVersion, keys
   if (!signed) return { code: 1, why: 'the release manifest is not signed by the Kosmos release key' };
   let m;
   try { m = JSON.parse(bytes.toString('utf8')); } catch { return { code: 1, why: 'the signed manifest is not readable' }; }
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return { code: 1, why: 'the signed manifest is not readable' };
   const want = parseVersion(version);
   if (!want || m.version !== version) return { code: 1, why: `the signed manifest is for ${m.version}, not ${version}` };
   const have = parseVersion(installedVersion);
   if (!have) return { code: 1, why: 'the installed version could not be read, so the update could not be checked' };
   if (older(want, have)) return { code: 1, why: `the update is ${version}, older than the installed ${installedVersion}` };
+  return { code: 0, why: `the signed manifest for ${version} is genuine`, manifest: m };
+}
+
+/* filesRefusal: the stage's `parts` hold exactly the manifest's files, each with its sha256, and nothing that is
+ * not a plain file. Returns the sentence to refuse with, or null. */
+function filesRefusal(m, stage, parts = PARTS) {
+  if (!m || !Array.isArray(m.files)) return 'the signed manifest lists no files';
+  const listed = new Map(m.files.map((f) => [f && f.path, f && f.sha256]));
+  let found;
+  try { found = listFiles(stage, parts); } catch (e) { return 'the update holds something that is not a plain file (' + e.message + ')'; }
+  if (found.length !== listed.size) return `the update holds ${found.length} files, its signed manifest ${listed.size}`;
+  for (const rel of found) {
+    if (!listed.has(rel)) return rel + ' is not in the signed manifest';
+    if (sha256File(path.join(stage, rel)) !== listed.get(rel)) return rel + ' does not match the signed manifest';
+  }
+  return null;
+}
+
+/* #6466: a signed WINDOWS manifest (tools/lib/win-release-manifest.js writes it) is for the download the update
+ * pointer named: the platform, the arch, the versioned zip's name, the zip's sha256 (which the download is then held
+ * to), and a file list. Returns the sentence to refuse with, or null. */
+function win32HeaderRefusal(m, { version, arch, sha }) {
+  const artifact = `kosmos-${version}-win-${arch}.zip`;
+  if (!m || m.platform !== 'win32') return `the signed manifest is for ${JSON.stringify(m && m.platform)}, not Windows`;
+  if (m.arch !== arch) return `the signed manifest is for ${JSON.stringify(m.arch)}, not ${arch}`;
+  if (m.artifact !== artifact) return `the signed manifest names ${JSON.stringify(m.artifact)}, not ${artifact}`;
+  if (typeof m.sha256 !== 'string' || m.sha256 !== sha) return 'the download does not match its signed manifest';
+  if (!Array.isArray(m.files) || !m.files.length) return 'the signed manifest lists no files';
+  return null;
+}
+
+function verify({ manifest, sig, tarball, stage, version, installedVersion, keys = KEYS, skipTarball = false }) {
+  if (!keys.length) return { code: 3, why: 'no release signing key is pinned in this install' };
+  const bytes = fs.readFileSync(manifest);
+  let sigText;
+  try { sigText = fs.readFileSync(sig, 'utf8'); } catch { sigText = ''; }
+  const r = signedManifest({ bytes, sigText, version, installedVersion, keys });
+  if (r.code !== 0) return r;
+  const m = r.manifest;
   if (skipTarball) return { code: 0, why: `the signed manifest for ${version} is genuine`, manifest: m };
   if (typeof m.sha256 !== 'string' || sha256File(tarball) !== m.sha256) return { code: 1, why: 'the download does not match its signed manifest' };
   if (stage === '-') return { code: 0, why: `the download matches the signed manifest for ${version}` };
-  if (!Array.isArray(m.files)) return { code: 1, why: 'the signed manifest lists no files' };
-  const listed = new Map(m.files.map((f) => [f.path, f.sha256]));
-  let found;
-  try { found = listFiles(stage); } catch (e) { return { code: 1, why: 'the update holds something that is not a plain file (' + e.message + ')' }; }
-  if (found.length !== listed.size) return { code: 1, why: `the update holds ${found.length} files, its signed manifest ${listed.size}` };
-  for (const rel of found) {
-    if (!listed.has(rel)) return { code: 1, why: rel + ' is not in the signed manifest' };
-    if (sha256File(path.join(stage, rel)) !== listed.get(rel)) return { code: 1, why: rel + ' does not match the signed manifest' };
-  }
+  const bad = filesRefusal(m, stage);
+  if (bad) return { code: 1, why: bad };
   return { code: 0, why: `the update matches the signed manifest for ${version}` };
 }
 
@@ -136,6 +173,32 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     const get = (url, out) => spawnSync('curl', ['-fsSL', '--connect-timeout', '30', '--speed-limit', '1024', '--speed-time', '60', url, '-o', out], { stdio: ['ignore', 'ignore', 'inherit'] }).status === 0;
     const files = { setup: path.join(dir, 'setup'), manifest: path.join(dir, 'manifest.json'), sig: path.join(dir, 'manifest.sig') };
     const b = String(base || '').replace(/\/+$/, '');
+    /* #6609 phase 2a: with a recovery key pinned, the release key list comes FIRST: fetched from the release base and
+       taken (trustedKeys keeps this copy's record, so an older list cannot come back), and the installer's manifest is
+       checked with the list's keys, not the built-in ones. No list, no update: a site that withholds it must not leave
+       a revoked key trusted. Off (RECOVERY_KEYS empty), nothing more is fetched and KEYS decide exactly as before. */
+    let keys = KEYS;
+    if (RECOVERY_KEYS.length) {
+      const list = { bytes: path.join(dir, 'release-keys.json'), sig: path.join(dir, 'release-keys.json.sig') };
+      /* One address for every list, fetched as two files: a cache (or a publish in progress) can hand back a list and
+         a signature from different lists. One fresh query per attempt, shared by both, so a retry is not answered
+         from the same stale entry. Not on file:// (curl would read it as part of the path). */
+      const bust = /^https?:/i.test(b) ? '?r=' + crypto.randomBytes(8).toString('hex') : '';
+      if (!get(`${b}/release-keys.json${bust}`, list.bytes) || !get(`${b}/release-keys.json.sig${bust}`, list.sig)) {
+        return sayFetch('the release key list could not be downloaded');
+      }
+      let listBytes, listSig;
+      try { listBytes = fs.readFileSync(list.bytes); listSig = fs.readFileSync(list.sig, 'utf8'); }
+      catch { return sayFetch('the release key list could not be read'); }
+      /* A list that does not verify is retried (96), not refused (97): a torn or half-published pair looks exactly like
+         this, and a retry gets the matching pair. A list that verifies but is refused (older than this copy's record,
+         or another set of keys at a seq already taken) is 97: a retry gives the same answer. */
+      const v = verifyKeyList({ bytes: listBytes, sig: listSig });
+      if (!v.ok) return sayFetch(v.why + ' (it may be mid-publish)');
+      const t = trustedKeys({ listBytes, listSig, home });
+      if (!t.ok) return t.retry ? sayFetch(t.why) : say(t.why);
+      keys = t.keys;
+    }
     if (!get(setupUrl, files.setup)) return sayFetch('the installer could not be downloaded');
     // arm64 only, as setup.sh's ARCH is on a Mac (an Intel Mac is refused before any update is offered).
     if (!get(`${b}/kosmos-${version}-arm64.manifest.json`, files.manifest) || !get(`${b}/kosmos-${version}-arm64.manifest.json.sig`, files.sig)) {
@@ -143,7 +206,7 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     }
     let installedVersion = '';
     try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
-    const r = verifySetup({ manifest: files.manifest, sig: files.sig, setup: files.setup, version, installedVersion });
+    const r = verifySetup({ manifest: files.manifest, sig: files.sig, setup: files.setup, version, installedVersion, keys });
     // Exit 3 (no key pinned, or a manifest that records no installer) is NOT a pass here (review 1): every release this
     // code can update to is cut with setup_sha256, so a signed manifest without it is a cut gone wrong, and a site that
     // could serve one would run any installer it liked.
@@ -192,6 +255,11 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
  * stolen release key is a new list without it, seq + 1, signed with the recovery key (tools/lib/release-keys-sign.js),
  * and the next release raises MIN_KEY_LIST_SEQ to it. Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
 const RECOVERY_KEYS = Object.freeze([]);   // frozen: nothing in the process can turn the feature on by adding one
+/* 🛑 #6609: NOT filled in until the whole chain takes the list. Done: run-setup (2a) and setup.sh's checks (2b). NOT done:
+   the .pkg installer's pinned path (kosmos-pkg-verify, #6576), which still chooses the installer with the built-in keys;
+   the Windows updater (engine/win32update.js, #6607), which checks its manifest with the built-in KEYS; and serving the
+   list from the site (2c). Filled in before all three, a revoked key still opens a .pkg install or a Windows update,
+   and every update fails for want of a list (.claude/plans/recoverykey3-6609.md). */
 const KEY_LIST_STATE = 'release-keys.state';   // a folder: one seq-<n>.json per list taken
 // The lowest list seq this build accepts, even with no state stored (a fresh install): raised in the release after a
 // revocation, so a copy without a record still refuses the list from before it.
@@ -258,6 +326,17 @@ function storedKeyList(home, minSeq = MIN_KEY_LIST_SEQ) {
   } catch { return damaged; }
 }
 
+/** Can the drive holding `file` make a hard link at all? Asked only after a link failed, with a fresh name nothing
+ * else can be using, so the drive is blamed only when that fails too. */
+function canHardLink(file) {
+  const probe = `${file}.${crypto.randomBytes(4).toString('hex')}.probe`;
+  // Only the answers a drive without links can give (EPERM, EXDEV, ENOTSUP or EISDIR, by driver and platform): a file
+  // held open by a scanner (EBUSY) is not the drive's fault. EPERM can also be a plain denial, hence "may" below.
+  try { fs.linkSync(file, probe); } catch (e) { return !['EPERM', 'EXDEV', 'ENOTSUP', 'ENOSYS', 'EISDIR'].includes(e && e.code); }
+  try { fs.rmSync(probe, { force: true }); } catch { /* best effort */ }
+  return true;
+}
+
 /** The release keys to check a manifest with. Off (no recovery key): the built-in KEYS. On: a key list that verifies
  * and is not older than this copy's record, recorded when not yet there. { ok, why, keys }. */
 function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, builtIn = KEYS, minSeq = MIN_KEY_LIST_SEQ }) {
@@ -284,6 +363,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   const dir = path.join(home, KEY_LIST_STATE);
   const file = path.join(dir, `seq-${v.seq}.json`);
   const tmp = path.join(dir, `.seq-${v.seq}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`);
+  let noHardLinks = false;
   try {
     try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (e) { if (!e || e.code !== 'EEXIST') throw e; }
     // Synced before it is linked in, and the folder after, so a crash should leave the record whole or absent. fsync on
@@ -294,7 +374,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
     // A damaged record at this seq (a power loss) is replaced by this list, which verified and is not below it.
     if (stored.damaged && v.seq === stored.seq) fs.renameSync(tmp, file);
     else try { fs.linkSync(tmp, file); } catch (e) {
-      if (!e || e.code !== 'EEXIST') throw e;
+      if (!e || e.code !== 'EEXIST') { noHardLinks = !canHardLink(tmp); throw e; }
       // Another check recorded this seq first: it must name the same keys.
       const other = JSON.parse(fs.readFileSync(file, 'utf8'));
       if (!Array.isArray(other.release_keys) || !sameKeys(other.release_keys, v.keys)) {
@@ -303,24 +383,47 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
     }
     try { const dfd = fs.openSync(dir, 'r'); try { fs.fsyncSync(dfd); } finally { fs.closeSync(dfd); } } catch { /* a folder fsync is best effort */ }
   } catch {
+    // #6692: a drive without hard links (FAT32, exFAT, some network drives) can never keep the record, so say so.
+    if (noHardLinks) return { ok: false, why: `this copy's record of the release key list could not be written: the drive holding ${home} may not be able to make hard links (FAT32 and exFAT drives cannot)` };
     return { ok: false, why: 'this copy\'s record of the release key list could not be written' };
   } finally {
     try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
   }
   // A newer list recorded meanwhile wins: this one may hold a key that one dropped.
   const now = storedKeyList(home, minSeq);
-  if (!now || now.seq > v.seq) return { ok: false, why: 'a newer release key list was taken meanwhile; check again' };
+  if (!now || now.seq > v.seq) return { ok: false, retry: true, why: 'a newer release key list was taken meanwhile; check again' };
   return { ok: true, why: v.why, keys: v.keys };
 }
 
-module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles,
+module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles, signedManifest, filesRefusal, win32HeaderRefusal, PARTS,
   RECOVERY_KEYS, KEY_LIST_STATE, KEY_LIST_TYPE, MIN_KEY_LIST_SEQ, MAX_SEQ, ed25519Key, verifyKeyList, storedKeyList, trustedKeys };
 
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before
  * using a call form: it greps the next line, which lists every form this copy understands beyond the original
  * <manifest> <sig> <tarball> <stage> <version> <home>. Keep it one line, and add to it when adding a form.
- * manifest-verify capabilities: run-setup early tmux */
-if (require.main === module && process.argv[2] === 'run-setup') {
+ * manifest-verify capabilities: run-setup early tmux keylist */
+/* #6609 phase 2b: the keys the plain and tmux forms check with. Off: the built-in KEYS. On: the release key list setup.sh
+   fetched beside the manifest, named by KOSMOS_KEY_LIST and KOSMOS_KEY_LIST_SIG, taken through trustedKeys (this copy's
+   record, so an older list cannot come back). On with no list given is a refusal: an installer that does not fetch it
+   must not install past a revocation. { code, why, keys }. */
+function cliKeys(home) {
+  if (!RECOVERY_KEYS.length) return { code: 0, keys: KEYS };
+  const listFile = process.env.KOSMOS_KEY_LIST, sigFile = process.env.KOSMOS_KEY_LIST_SIG;
+  if (!listFile || !sigFile) return { code: 1, why: 'the release key list was not given, so the update could not be checked' };
+  let listBytes, listSig;
+  try { listBytes = fs.readFileSync(listFile); listSig = fs.readFileSync(sigFile, 'utf8'); }
+  catch { return { code: 1, why: 'the release key list could not be read, so the update could not be checked' }; }
+  // A list that does not verify may be one caught mid-publish (its file from one list, its signature from another): said so.
+  const v = verifyKeyList({ bytes: listBytes, sig: listSig });
+  if (!v.ok) return { code: 1, why: v.why + ' (it may be mid-publish; try again in a minute)' };
+  const t = trustedKeys({ listBytes, listSig, home });
+  return t.ok ? { code: 0, keys: t.keys } : { code: 1, why: t.why };
+}
+// needs-key-list: exit 0 when this copy checks updates with the release key list (a recovery key is pinned), 1 when not.
+// setup.sh asks before fetching the list, so nothing more is downloaded while the feature is off.
+if (require.main === module && process.argv[2] === 'needs-key-list') {
+  process.exit(RECOVERY_KEYS.length ? 0 : 1);
+} else if (require.main === module && process.argv[2] === 'run-setup') {
   // <installed node> manifest-verify.js run-setup <setup-url> <release-base> <version> <installed-home>
   const [setupUrl, base, version, home] = process.argv.slice(3);
   let code;
@@ -333,7 +436,8 @@ if (require.main === module && process.argv[2] === 'run-setup') {
   try {
     let installedVersion = '';
     try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
-    r = verifyTmux({ manifest, sig, tmux, version, installedVersion });
+    const k = cliKeys(home);
+    r = k.code === 0 ? verifyTmux({ manifest, sig, tmux, version, installedVersion, keys: k.keys }) : k;
   } catch (e) { r = { code: 1, why: 'the terminal manager could not be checked (' + (e && e.code || 'error') + ')' }; }
   process.stdout.write(r.why + '\n');
   process.exit(r.code);
@@ -343,7 +447,8 @@ if (require.main === module && process.argv[2] === 'run-setup') {
   try {
     let installedVersion = '';
     try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
-    r = verify({ manifest, sig, tarball, stage, version, installedVersion, skipTarball: tarball === '-' });
+    const k = cliKeys(home);
+    r = k.code === 0 ? verify({ manifest, sig, tarball, stage, version, installedVersion, skipTarball: tarball === '-', keys: k.keys }) : k;
   } catch (e) {
     r = { code: 1, why: 'the update could not be checked (' + (e && e.code || 'error') + ')' };
   }

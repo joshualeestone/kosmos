@@ -113,7 +113,9 @@ function cut(start, end) {
   return SETUP.slice(i, j + end.length);
 }
 const INSTALL_BLOCK = cut('  if ! command -v systemctl >/dev/null 2>&1; then\n    if [ "$_kosmos_board_off" = yes ]; then\n      info "note: systemctl not available', '\n  fi\n  ok\nelse\n').replace(/\n  ok\nelse\n$/, '\n');
-const UNIT_FNS = cut('_kosmos_linux_unit_name() {', '\n  return 0\n}\n');
+// kosmos#6667: ends at the KillMode function's OWN closing lines. The pause-check helpers sit between the two and
+// end in `return 0` too, so a bare `return 0` + `}` marker stopped before the KillMode function.
+const UNIT_FNS = cut('_kosmos_linux_unit_name() {', '    rm -f "$_lk_tmp"\n  fi\n  return 0\n}\n');
 const UNINSTALL_BLOCK = cut('    if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then', '\n      done\n    fi\n');
 
 function world({ systemctl = true, app = true, legacy = false, nodeOut = '', nodeRc = 0, units = [], restartRc = 0 } = {}) {
@@ -349,7 +351,7 @@ test('#4920 the update pause runs the KillMode fix before it stops the board', (
   const k = lines.findIndex((l) => l.startsWith('  _kosmos_linux_unit_killmode   # #4920: before the stop'));
   assert.ok(k > 0, 'the KillMode fix is gone from the update pause');
   assert.match(lines[k + 1], /^  _kosmos_marker_ours="\$_kosmos_was_running"   # #5033/, 'the line after the KillMode fix is not the #5033 marker');
-  assert.equal(lines[k + 2], '  "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true', 'the update pause stop does not follow');
+  assert.equal(lines[k + 2], '  KOSMOS_STOP_BY_INSTALL=1 "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true', 'the update pause stop does not follow');
 });
 
 test('#4920 the sandbox sentence matches what the real installBoard says in a sandbox', () => {

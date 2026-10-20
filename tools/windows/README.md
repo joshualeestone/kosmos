@@ -436,7 +436,10 @@ check out (`fetch-depth: 0`); in a shallow clone it skips, so keep that setting.
 
 **A rebuild drops the signature, so it must be re-signed in the same commit**
 (see [Signing](#signing)). An unsigned rebuild still passes the provenance check,
-which is why the re-sign has to be a habit and not something the check forces.
+but since #6679 it cannot ship or merge green: the zip's read-me tells people
+Kosmos.exe is signed, so tools/build-kosmos-windows.sh refuses an unsigned one, and
+tools.build-windows-connector-4597.test.js fails CI when the committed exe carries
+no signature.
 
 If you change the icon master, regenerate the icon first
 (`powershell -ExecutionPolicy Bypass -File assets/make-kosmos-ico.ps1`), then

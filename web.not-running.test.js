@@ -293,7 +293,7 @@ test('on a partial read the headline tiles are marked as floors, never printed a
    * beside a summary saying agents may be missing; a person believes the
    * number. Ruled on the card: `11+`, not `?`, because this is knowable in
    * part and a `?` would hide a fact we hold. Working and Idle are cut from
-   * the same parsed list and carry the same mark.
+   * the same parsed list and carry the same mark (Idle until #6649 removed it).
    */
   const tileCount = new Function(page.lift(SCRIPT, 'tileCount') + '\nreturn tileCount;')();
   assert.equal(tileCount(11, true), '11+');
@@ -304,15 +304,15 @@ test('on a partial read the headline tiles are marked as floors, never printed a
   /* #5540: up to the Issue tile's write rather than a fixed 2600 characters, which a third state tile outgrew. */
   const paintFrom = SCRIPT.indexOf("const c = data.counts;");
   const paint = SCRIPT.slice(paintFrom, SCRIPT.indexOf("getElementById('st-attn').textContent", paintFrom));
-  assert.ok(paint.length > 0 && paint.includes("getElementById('st-idle')"), 'CONTROL: the tile writes were not found');
+  assert.ok(paint.length > 0 && paint.includes("getElementById('st-working')"), 'CONTROL: the tile writes were not found');
   assert.match(paint, /const floor = \(c\.unreadableLines \|\| 0\) > 0;/, 'the floor is not derived from unreadableLines');
   /* #369 split the gate: the Agents total floors only on unreadable lines,
-     while the state tiles (Working, Idle, Waiting #5540) also floor on any unknown agent, via `stateFloor`,
+     while the state tile (Working; Idle and Waiting went in #6649) also floors on any unknown agent, via `stateFloor`,
      which must itself INCLUDE the partial-read floor or #291 regresses. */
   assert.match(paint, /const stateFloor = floor \|\| unknowns > 0;/,
     'the state tiles\' floor no longer includes the partial-read floor');
   assert.match(paint, new RegExp("getElementById\\('st-agents'\\)\\.textContent =\\s*tileCount\\([^;]*, floor\\)"), 'st-agents is not marked as a floor');
-  for (const id of ['st-working', 'st-idle', 'st-blocked']) {
+  for (const id of ['st-working']) {
     assert.match(paint, new RegExp("getElementById\\('" + id + "'\\)\\.textContent =\\s*tileCount\\([^;]*, stateFloor\\)"), id + ' is not marked as a floor');
   }
   // And the engine really produces the gate on the mangled fixture (control).

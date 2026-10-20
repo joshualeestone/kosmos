@@ -86,6 +86,12 @@ test('#3312: pjFedMessage maps every coordinator reason to a person-facing sente
   assert.match(s.pjFedMessage({ reason: 'not-found' }), /not recognised/i);
   assert.match(s.pjFedMessage({ reason: 'self-join' }), /your own project/i);
   assert.match(s.pjFedMessage({ reason: 'double-join' }), /already on that project/i);
+  // kosmos#6681 (S-11-fed): a code bound to another address, an address that is not one, too many open invites. The
+  // wrong-invitee sentence names nobody (the person reading it is the one it was not for).
+  assert.match(s.pjFedMessage({ reason: 'wrong-invitee' }), /made for someone else/i);
+  assert.doesNotMatch(s.pjFedMessage({ reason: 'wrong-invitee' }), /@/);
+  assert.match(s.pjFedMessage({ reason: 'bad-email' }), /email address does not look right/i);
+  assert.match(s.pjFedMessage({ reason: 'invites-full' }), /too many invitations/i);
   assert.match(s.pjFedMessage({ reason: 'not-owner' }), /Only the owner of this project can invite people to it\./, 'kosmos#4649: the invite sheet\'s 409 not-owner');
   // kosmos#4649 slice B: Withdraw's two 409s. `joined` is the board's sentence; `unsupported` is shown as the
   // board wrote it, with the lapse date the screen adds (Kitty's Q-K2), and as given when there is no date.

@@ -453,6 +453,11 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           await p.fill('#pj-post', 'My failed post 4639-f' + slug);
           await p.click('#pj-post-go');
           await p.waitForFunction(() => !PJ_POSTING, null, { timeout: GROW_MS });
+          /* #6629: this arm failed in a cut with the reader 50 px short. The likely cause, reasoned from the source
+             and fixed with this, was the product: the floor was read after the note under the box had shrunk the
+             room, so the reader was not kept there. The product now pins at once; its second pin runs a frame later, so this waits two
+             frames and no longer. A longer wait would also pass a reader rescued late, which is the regression. */
+          await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
           afterFail = await roomPos();
           failSaid = await p.evaluate(() => document.getElementById('pj-room-msg').textContent.trim());
         } finally {

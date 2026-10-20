@@ -425,6 +425,17 @@ header > .headleft  { justify-self: start; }
 header > .tabs      { justify-self: center; }
 header > .headright { justify-self: end; }
 .headright { display: flex; align-items: baseline; gap: var(--space-5); }
+/* kosmos#6721: small and quiet; it says a moment's wait, not an outage. OUT of the flow (absolute, just left of the
+   right controls), so it takes no flex gap and moves nothing when it comes and goes; where it is drawn it stays in
+   the page, empty, as a live region must to be announced (below 64rem and on a Kosmos+ phone it is not drawn, so
+   there it is not announced either; the full card after two misses still is). (Review 3: an in-flow span, even empty, took the row's 14px .appright gap.) */
+.headright { position: relative; }
+.hdr-reconnect { position: absolute; right: calc(100% + 14px); top: 50%; transform: translateY(-50%);
+  font-size: .8125rem; color: var(--k-ink-2); white-space: nowrap; pointer-events: none; }
+/* Below 64rem the header's left side or the centred tabs can reach under where it would sit (measured: the left group
+   at 320-430px; the tabs at 897-960px with every tab shown and a long name), so it is not drawn there. Narrower
+   windows still get the rule that matters: the full card only after two unanswered polls. */
+@media (max-width: 64rem) { .hdr-reconnect { display: none; } }
 h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* The pack's stamp: an uppercase chrome label over a promoted bold line.
    The stale/failed variants are the app's honest extras (the pack draws
@@ -1498,6 +1509,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   .utoast.login-adv .utxt small { display: block; }
   /* #5359: the restart note's line is that Kosmos came back by itself, the point of it; kept the same way. */
   .utoast.reboot .utxt small { display: block; }
+  /* kosmos#6613: the certificate notice's small line says whether the check is still on; a phone keeps it. */
+  .utoast.cwnote .utxt small { display: block; }
 }
 /* The updating overlay: the board is about to vanish on purpose, and this is
    the sentence that stops that being alarming. Same ground as the modals. */
@@ -1568,6 +1581,9 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote .kplus-bar-menu svg { display: block; }
   html.kremote .apphead header .kmark, html.kremote .apphead header .klink, html.kremote .apphead header .worldsw, html.kremote .apphead header .userpop,
   html.kremote .apphead header .burger, html.kremote .apphead .tabs { display: none; }
+  /* kosmos#6721: the phone header row is meant to be empty under the navy bar; Reconnecting would add a line there. The
+     phone still gets the rule that matters: the full card only after two unanswered polls. */
+  html.kremote .apphead .hdr-reconnect { display: none; }
   /* With those gone the header row holds only notices, which are empty on a quiet board: no gap, no padding, no rule,
      so the navy bar is the whole header (the mock). */
   html.kremote .apphead { border-bottom: 0; }
@@ -2162,7 +2178,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
+#cwnote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -6594,6 +6610,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
   :is(.apphead .tab, #agent-sort) { min-height: 44px; }
   /* #5407: the login notice's Refresh login, at finger size. */
   .utoast .uacts button.login-adv-go { min-height: 44px; }   /* the row's main Sign in again already is (review 4) */
+  /* kosmos#6613: the certificate notice's Review, at finger size too. */
+  .utoast.cwnote .uacts button, #plus-cw-ack { min-height: 44px; }   /* and Got it, the lost sentence's one action */
   /* #5225: in the one-screen layout the name's b clips its overflow (the ellipsis), which clipped the name's hit area to
      its 16px line. The b's clip box grows instead (padding taken back by a negative margin): 14px above and below, and
      10px to the left for a short name's area; nothing drawn moves. */
@@ -11155,8 +11173,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    keeps its red and the could-not-read card its dash everywhere. Only the plain card loses its border here.
    🔑 The alert tile (Issue; #6180 removed No project) keeps its red outline (on the Agents page #5551 below gives the pressable
    Issue filters a grey ground at rest instead, as drawn), and a pressed or hovered tile keeps today's gold
-   (the Messages and alert filters), so a filter that is on still looks on. The tiles while inert (Agents, Working,
-   Idle) never show a box, not even on hover, since a box would say "click me" on a tile that does nothing. The
+   (the Messages and alert filters), so a filter that is on still looks on. The tiles while inert (Agents, Working;
+   Idle went in #6649) never show a box, not even on hover, since a box would say "click me" on a tile that does nothing. The
    Messages filter DOES something, so at rest it keeps a soft grey ground (no border) as its "you can press this",
    which a touch screen needs since it has no hover; its padding does not change with state, so it never jumps. */
 :root[data-look="new"] body:not(.consolidated) #boardbar .stats .stat:not(.alert):not([role="button"]) { border-color: transparent; background: transparent; padding-inline: 10px; }
@@ -11725,7 +11743,10 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* The global .fhint:empty rule takes an empty hint out of the layout AND the accessibility tree; this live line
    must stay rendered while empty (no height, no margin), or its first text may not be announced. */
 #s-sec-plus .plus-cw-line:empty { display: block; margin: 0; }
+#s-sec-plus #plus-cw-ack { margin-top: 6px; }   /* kosmos#6613: not flush against the line or the switch row */
 #s-sec-plus .plus-cw-line[data-state="foreign"] { color: var(--danger); font-weight: 600; }
+#s-sec-plus .plus-sk-line:empty { display: block; margin: 0; }   /* kosmos#6587: as plus-cw-line, no room when it says nothing */
+#s-sec-plus .plus-sk-line[data-state="mismatch"] { color: var(--danger); font-weight: 600; }
 /* #4744: one line (Josh, "lets make sure this all fits on one line"). The Settings column caps this panel at 544px on
    a desktop window, where the sentence at .9rem needs ~452px of the ~404 left beside Copy (measured). So the box
    reaches into the panel's side padding, Copy is compact, and the sentence's size follows the box's width (container
@@ -12501,6 +12522,9 @@ window.kosmosMeasureScrollbarWidth();
          never changes height. This reverses the in-flow placement above (2026-08-17) at his request; the stack is
          centred under the navigation, clear of the left column's primary actions. -->
     <div class="topnotes" id="topnotes">
+    <!-- kosmos#6613: a certificate check finding, on every view but Kosmos+ (where its own line says it). First in the
+         stack: it asks the person to look. Painted by paintCwNote; only fixed sentences, never text from the report. -->
+    <div id="cwnote-slot"></div>
     <div id="utoast-slot"></div>
     <!-- #2055: the update-abort notice. Its own slot so it can co-occur with the
          post-update note and the offline note rather than overwriting either; a
@@ -12576,6 +12600,8 @@ window.kosmosMeasureScrollbarWidth();
          #rail-me), reusing youFaceHtml(). Popover mechanics reuse the world-switcher pattern. -->
     <!-- #3755 (Josh 2026-09-25 11:07): no "?" beside the name. The tips show once each, by themselves;
          "Stop showing tips" and the Settings switch are the controls. -->
+    <!-- kosmos#6721: one unanswered status poll says this, small, instead of the full "not answering" card. -->
+    <span class="hdr-reconnect" id="hdr-reconnect" role="status" aria-live="polite"></span>
     <div class="userpop" id="userpop">
       <!-- #3051: NO aria-label. The accessible name derives from the visible name
            (#userpop-name; the avatar and chevron are aria-hidden), so it satisfies
@@ -17985,6 +18011,15 @@ window.kosmosMeasureScrollbarWidth();
         <label class="pj-mode-opt"><input type="radio" name="fedinv-kind" id="fedinv-kind-agent" value="agent"> Their agent</label>
       </div>
     </div>
+    <!-- kosmos#6681 (S-11-fed): optional. With it, only the Kosmos+ account with this address can use the code. 254 is
+         the board's INVITE_EMAIL_MAX (engine/federation.js, in bytes); the coordinator checks it is an address. -->
+    <div class="field">
+      <label class="flabel" for="fedinv-email">Their email address (optional)</label>
+      <p class="fhint" id="fedinv-email-hint">Then only the Kosmos+ account with this address can use the code.</p>
+      <!-- type=email gives the phone's @ keyboard; autocapitalize off. autocomplete stays off on purpose (design review,
+           Mona Lisa): "email" would fill in the person's OWN address, which is the one thing this field must not hold. -->
+      <input class="tk-inp" id="fedinv-email" type="email" maxlength="254" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="fedinv-email-hint fedinv-msg">
+    </div>
     <div class="fedinv-can" id="fedinv-can"><b>They can</b> read and post in this project's conversation, and add their own agents to it.<br><b>They cannot</b> see your files or tasks, or tell your computer or your agents to do anything. Your agents read what they write and decide for themselves.</div>
     <p class="fmsg" id="fedinv-msg" aria-live="polite"></p>
     <div class="rm-acts">
@@ -19607,10 +19642,15 @@ window.kosmosMeasureScrollbarWidth();
                not announced. It sits in #plus-flow, so a finding already there on the first paint after set-up (when
                the flow itself appears) may still not be read out. Empty, it takes no room (CSS below). -->
           <p class="fhint plus-cw-line" id="plus-cw-line" role="status"></p>
+          <!-- kosmos#6613: shown with the lost-report sentence; tells the board this person has seen it. -->
+          <button class="btn" type="button" id="plus-cw-ack" hidden>Got it: earlier report</button>
           <div class="plus-cw-row" id="plus-cw-row" hidden>
             <button class="toggle" type="button" id="plus-cw-switch" role="switch" aria-labelledby="plus-cw-label" hidden><i></i></button>
             <span class="fhint" id="plus-cw-label">While Kosmos+ is on, check the public certificate logs for this computer's address once a day (this sends the address to Cert Spotter)</span>
           </div>
+          <!-- kosmos#6587: said only when the key this computer trusts for the Kosmos+ service is not on the signed list
+               this version came with. Painted by paintPlusServiceKeys. Never hidden, as plus-cw-line is not. -->
+          <p class="fhint plus-sk-line" id="plus-sk-line" role="status"></p>
           <!-- #4794 slice 1 (Mona Lisa's design): while this computer waits to be allowed, the code both computers show,
                in place of the coordinator's sentence above, and "The codes match". Painted by paintPlusJoin. -->
           <div class="plus-join" id="plus-join" aria-live="polite" tabindex="-1" hidden></div>
@@ -19872,13 +19912,8 @@ window.kosmosMeasureScrollbarWidth();
          "0+" included (Josh 2026-09-30: "if there are 0 working, lets not show the tile"), the same
          grammar the alert tile uses. A failed poll shows "?" and keeps the tile (that is not a zero). -->
     <div class="stat" id="st-working-tile"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><b id="st-working" data-count="working">0</b><span class="slab">Working</span></div>
-    <div class="stat"><span class="rest" aria-hidden="true"></span><b id="st-idle" data-count="idle">0</b><span class="slab">Idle</span></div>
-    <!-- #5540 (a read-only pass on 0.7.27: 7 agents, 2 Waiting, and no tile counted them): agents whose card says
-         Waiting (state blocked) get a tile, hidden at zero like Working, with the card's own pause glyph. It sits
-         after Idle and before Issue: the row rises in urgency to the red tile, and Waiting is not red (CARD_ST's blocked
-         line: "red stays reserved for somebody is waiting on YOU"). Not every state has a tile (Not running has none, #653),
-         so the row still need not add up when an agent is stopped or paused. -->
-    <div class="stat" id="st-blocked-tile" hidden><span class="pause" aria-hidden="true"><i></i><i></i></span><b id="st-blocked" data-count="blocked">0</b><span class="slab">Waiting</span></div>
+    <!-- #6649 (Josh, 2026-10-19 19:32: "lets not show the IDLE or the WAITING tiles on windows or mac"): the Idle tile and
+         the Waiting tile (#5540) are gone. The row is Agents, Working, then the Issue and Messages tiles. -->
     <!-- 🔑 THE FOURTH TILE, and it is the row's existing grammar with one more
          member rather than a new idea: a TOTAL followed by STATES, with a rule
          already in place for a state that is not always interesting. It hides
@@ -20133,6 +20168,22 @@ window.kosmosMeasureScrollbarWidth();
 
 <script>
 'use strict';
+
+/* #6725: a request a reload or navigation cuts off rejects (WebKit: "Load failed" / "due to access control checks"),
+   and any caller without its own catch turns that into an uncaught error on a page that is going away. Those are
+   ignored, and only those: a TypeError (what fetch rejects with) while the page is leaving. The flag is set at
+   beforeunload, because WebKit rejects the cut-off requests BEFORE pagehide (measured), and clears itself after a
+   second, so a navigation that never happens (a download link) cannot hide a real failure later. */
+let PAGE_LEAVING = false;
+let PAGE_LEAVING_TIMER = null;
+window.addEventListener('beforeunload', () => {
+  PAGE_LEAVING = true;
+  clearTimeout(PAGE_LEAVING_TIMER);   // review 3: a later beforeunload gets its whole second
+  PAGE_LEAVING_TIMER = setTimeout(() => { PAGE_LEAVING = false; }, 1000);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (PAGE_LEAVING && e.reason instanceof TypeError) e.preventDefault();
+});
 
 /* #6192: a refused reply's body is always read. Left unread, the request did not finish (measured in Chromium against
    the board's own 404s: 19 still open 8 s after a load whose every read was refused), so anything waiting for the
@@ -21067,6 +21118,8 @@ function syncPlusChrome() {
   else if (plusMounted) plusTeardown();
   /* #3829 addendum: where the requests paint depends on whether Kosmos Plus is on screen. */
   if (typeof paintAsk === 'function' && typeof ASK !== 'undefined') paintAsk();
+  /* kosmos#6613: the certificate notice hides on Kosmos+ and comes back when the person leaves it. */
+  if (typeof paintCwNote === 'function' && typeof CW_NOTE !== 'undefined') paintCwNote(CW_NOTE.last, CW_NOTE.lastPlusOn);
 }
 if (typeof window !== 'undefined') window.addEventListener('resize', function () { if (plusMounted) { plusStarsResize(); plusMarkBuild(); plusMarkDraw(null); } });   // #3778: the field keeps its dots on a window resize too
 /* ================= end #1615 Plus canvases ================= */
@@ -24000,7 +24053,7 @@ async function updCheckNowClick() {
      press just made -- a second Enter or Space -- reloads the document
      immediately. The offer arm has the same relabel shape but a confirm
      dialog absorbs a stray press; this one has nothing in front of it, and the
-     page has no beforeunload, so anything typed and unsent is gone.
+     page has no unsaved-changes prompt (#6725's beforeunload asks nothing), so anything typed and unsent is gone.
      ⚠️ The accessibility reason for the refocus still holds for every other
      outcome, which is why this is a narrow exception rather than a removal. */
   /* A press that landed the Windows manual offer hid this button, so the keyboard's place is the
@@ -24610,7 +24663,8 @@ const RESTART_SCREEN_AFTER_MS = 15000;
    answer inside this long counts as no answer. 10 s is the Windows launcher's own "stuck" limit (per
    #4543, Homer's launcher half, branch win-launcher-stuck-4543); any
    HTTP answer at all, even a refusal, still counts as the board answering. So a frozen board shows the
-   screen after about 10 s + RESTART_SCREEN_AFTER_MS; a board answering inside 10 s is never counted
+   screen after about 10 s + RESTART_SCREEN_AFTER_MS, plus one poll (kosmos#6721: the first miss only says Reconnecting,
+   so the clock starts at the second); a board answering inside 10 s is never counted
    down. (One whose every answer takes longer than 10 s would be: the premise is that a working board
    answers /api/status in well under that.) */
 const STATUS_POLL_TIMEOUT_MS = 10000;
@@ -25150,6 +25204,8 @@ async function tick() {
     // still not told us what is on this machine.
     BOARD_LOOKED = true;
     BOARD_LOOK_FAILED = null;
+    BOARD_MISSES = 0;   // kosmos#6721
+    paintReconnecting(false);
     BOARD_NEEDS_SIGNIN = false; // #2023: a successful read means this browser is authed.
     BOARD_SIGNED_OUT = false;
     BOARD_DEVICE_OFFLINE = false;
@@ -25455,13 +25511,13 @@ async function tick() {
        unreadable; a tile printing `11` beside it is the number a person
        believes. Not `?`: unlike Not running, this is knowable in part, and
        replacing a true floor with nothing would hide a fact we hold. The state
-       tiles (Working, Idle, and Waiting since #5540) are cut from the same
-       parsed list, so they are floors on the same poll and carry the same mark. */
+       tile (Working; Idle and Waiting were removed in #6649) is cut from the same
+       parsed list, so it is a floor on the same poll and carries the same mark. */
     const floor = (c.unreadableLines || 0) > 0;
     /* ⚠️ AN UNKNOWN AGENT FLOORS THE STATE TILES TOO (#369). Measured on the
        live board: a Fable session mid-turn read unknown, and the row said
        "0 Working" while somebody was working. The engine is honest per agent;
-       the tile SUMS states, so any unknown makes Working and Idle floors, the
+       the tile SUMS states, so any unknown makes Working a floor, the
        same mark the unreadable-lines poll already wears. The Agents total is
        not floored by this: an unknown agent is still counted as an agent. */
     const unknowns = data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'unknown').length;
@@ -25473,13 +25529,7 @@ async function tick() {
        Working tile hides whenever its number is zero, "0+" included. It was kept for "0+" (unknowns cloud
        the count); he ruled for the simpler row. A failed poll's "?" is not a zero and still shows. */
     document.getElementById('st-working-tile').hidden = workingCount === 0;
-    document.getElementById('st-idle').textContent =
-      tileCount(data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'idle').length, stateFloor);
-    /* #5540: Waiting (state blocked), counted from the fleet as Working and Idle are, floored the same way, and hidden
-       whenever it reads zero ("0+" included), as Working is (#4736). */
-    const blockedCount = data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'blocked').length;
-    document.getElementById('st-blocked').textContent = tileCount(blockedCount, stateFloor);
-    document.getElementById('st-blocked-tile').hidden = blockedCount === 0;
+    /* #6649: no Idle or Waiting tile any more (Josh, 2026-10-19), so nothing is counted for them here. */
     /* ⚠️ FROM THE COUNT, not from filtering the roster on `running`. The two
        agree today and the tile is a claim about the FLEET, which is what the
        engine counted; a second derivation here is how a headline starts
@@ -25683,6 +25733,16 @@ async function tick() {
     clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
     if (answered && !(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;   // a refusal is an answer too (#268)
     if (!answered && tick.answeredSeq > pollSeq) return;   // a newer poll already answered: this is old news
+    /* kosmos#6721: the first unanswered poll, over a board that has answered before, keeps everything on screen and
+       only says Reconnecting in the header; the second in a row falls through to the full failure below. A refusal is
+       an answer (it resets the count), and this device being offline is known at once, so neither waits. */
+    if (answered) BOARD_MISSES = 0;
+    else if (BOARD_LOOKED && !deviceOffline()) {
+      BOARD_MISSES++;
+      // During a restart the person asked for, the board's own screens say so; no Reconnecting over them.
+      if (BOARD_MISSES < 2) { if (!(typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)) paintReconnecting(true); return; }
+    }
+    paintReconnecting(false);
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
     // the projects poll is suppressed while it is open — so a failure that only
@@ -25785,10 +25845,6 @@ async function tick() {
     /* #2157, #4736: a failed poll shows "?" and un-hides the Working tile. A prior zero tick
        ("0" or "0+") may have hidden it, and "?" is not a zero, so the tile shows it. */
     document.getElementById('st-working-tile').hidden = false;
-    document.getElementById('st-idle').textContent = '?';
-    /* #5540: the Waiting tile likewise ("?" is not a zero, so hiding it would say nobody is waiting). */
-    document.getElementById('st-blocked').textContent = '?';
-    document.getElementById('st-blocked-tile').hidden = false;
     /* ⚠️ SHOWN AS UNKNOWN RATHER THAN HIDDEN, unlike the alert tile beside it,
        and the two differ for a reason. Red hides at zero because a red zero
        teaches people to ignore red. This one hiding would say "none of them
@@ -30927,7 +30983,7 @@ function computersInApp() {
 /* kosmos#6406 (Josh 12:04): every link to another of the person's computers. In the Kosmos app, no target: the app keeps
    a same-window https://<name>.kosmosplus.com address in its window (Mac in every mode; Windows once the computer's mode
    is chosen, an unchosen Windows computer still sends it to the browser). In a browser, a new tab as before. The same
-   page then replaces this one, so unsent text in a composer goes, as it does on a reload (the page has no beforeunload). */
+   page then replaces this one, so unsent text in a composer goes, as it does on a reload (the page has no unsaved-changes prompt). */
 function computersLinkTarget(a) {
   if (!computersInApp()) a.target = '_blank';
   // kosmos#6406 step 2: marked, so a plain click in the app opens it with a ticket (computersOpenClick). An attribute,
@@ -39009,6 +39065,16 @@ const DEVICE_SIGNIN_BUTTON = '<button class="btn" type="button" data-device-sign
    network", which is no proof the internet is reachable, so it proves nothing either way.
    Set and cleared at the same points as BOARD_SIGNED_OUT. */
 let BOARD_DEVICE_OFFLINE = false;
+/* kosmos#6721 (Josh 10-20, decided by Splinter 09:04): status polls in a row that got NO answer. One is a busy computer
+   (the board answered in 0.4 s a moment later each time Josh saw the full card, at load 43): the board keeps what it
+   showed and the header says Reconnecting. The second in a row is the full failure, as before. */
+let BOARD_MISSES = 0;
+function paintReconnecting(on) {
+  /* The live region is always there and its TEXT changes, which screen readers announce (a revealed node often is not). */
+  const el = document.getElementById('hdr-reconnect');
+  const want = on ? 'Reconnecting\u2026' : '';
+  if (el && el.textContent !== want) el.textContent = want;
+}
 function deviceOffline() {
   return kplusRemote() && typeof navigator !== 'undefined' && navigator.onLine === false;
 }
@@ -51690,7 +51756,11 @@ async function paintPlus() {
      inventing a rule. Nobody can enrol or pay yet (#1742, #1886), so today this rests every
      machine at state1 (no switch). state2's paid sign-in still has no signal and stays
      hidden; an already-enrolled machine keeps the flow so it can still turn Plus OFF. */
+  if (r && r.enrolled === true && typeof CW_NOTE !== 'undefined') CW_NOTE.quietUntil = 0;   // kosmos#6613: set up now, so poll again
   if (!r || r.enrolled !== true) {
+    // kosmos#6613: a computer no longer set up has no finding to raise when the person leaves Kosmos+.
+    if (r && r.enrolled === false && typeof paintCwNote === 'function') paintCwNote(null);   // an error answer is not "not set up"
+    if (r && r.enrolled === false && typeof paintPlusServiceKeys === 'function') paintPlusServiceKeys({ state: '' });   // kosmos#6587: nothing to say off setup
     /* #4794 review 7: not enrolled (a Forget, or never signed in) ends any pairing this page knew; this return skips the
        pairing block's own clearing below, so it happens here. A failed read (r null) is not an answer and keeps it. */
     if (r && typeof plusJoinReset === 'function') plusJoinReset();
@@ -51768,6 +51838,8 @@ async function paintPlus() {
   /* r.on === true: a reply that does not say Kosmos+ is on counts as off, which quiets only the cannot-confirm
      sentences (the safe direction); a finding is said either way. */
   if (typeof paintPlusCertWatch === 'function') paintPlusCertWatch(r.certWatch, r.on === true);
+  /* kosmos#6587: whether the pinned coordinator key is on the signed service key set this version shipped. */
+  if (typeof paintPlusServiceKeys === 'function') paintPlusServiceKeys(r.serviceKeys);
   /* #4794: while this computer waits for one of the person's computers to allow it, the pairing code replaces the
      coordinator's sentence (paintPlusJoin). Anything else hides it. */
   if (typeof plusJoinTick === 'function') {   // the page tests lift paintPlus alone
@@ -52545,11 +52617,29 @@ function paintPlusCertWatch(cw, plusOn) {
   const line = document.getElementById('plus-cw-line');
   const row = document.getElementById('plus-cw-row');
   if (!line || !row) return;
-  if (!cw || typeof cw !== 'object') { line.textContent = ''; row.hidden = true; return; }
+  if (!cw || typeof cw !== 'object') {
+    line.textContent = ''; row.hidden = true;
+    if (line.dataset) { line.dataset.state = ''; line.dataset.key = ''; }
+    const ack0 = document.getElementById('plus-cw-ack'); if (ack0) ack0.hidden = true;
+    // Not a "no finding": an answer with no certWatch (an older board) is left alone, so a showing warning stays. A
+    // computer no longer set up clears the notice on paintPlus's own not-enrolled branch.
+    return;
+  }
   const say = plusCwSay(cw, plusOn);
   /* Rewritten only on a change, so a screen reader does not re-read it every poll. */
   if (line.textContent !== say) line.textContent = say;
-  if (line.dataset) line.dataset.state = String(cw.state || '');
+  /* kosmos#6613: Got it, with the lost-report sentence only (its marker is what an acknowledgement names). */
+  const ack = document.getElementById('plus-cw-ack');
+  if (ack) {
+    const lostSaid = cw.on === true && plusOn !== false && cw.lost === true && Number.isInteger(cw.lostAt);
+    ack.hidden = !lostSaid;
+    if (ack.dataset) ack.dataset.at = lostSaid ? String(cw.lostAt) : '';
+  }
+  // A poll already in flight carries an older answer than this one: bumping its sequence drops it when it lands.
+  if (typeof CW_NOTE !== 'undefined') CW_NOTE.seq = (CW_NOTE.seq || 0) + 1;
+  if (typeof paintCwNote === 'function') paintCwNote(cw, plusOn);
+  // kosmos#6613: Review reads this state, synchronously, right after paintPlus resolves: keep it set here, in this paint.
+  if (line.dataset) { line.dataset.state = String(cw.state || ''); line.dataset.key = typeof cw.key === 'string' ? cw.key : ''; }
   row.hidden = false;
   if (typeof paintSwitch === 'function') paintSwitch('plus-cw-switch', cw.on === true);
 }
@@ -52570,6 +52660,158 @@ function paintPlusCertWatch(cw, plusOn) {
     finally { cwBusy = false; cwSw.removeAttribute('aria-busy'); }
     paintPlus();
   }); }
+/* kosmos#6587 (S-7a slice 2a): the service key line. The server passes only a state (engine/servicekeys-check.js); the
+   one sentence is fixed. Off, refused (a broken build, not news), none, unknown and listed say nothing. An answer with
+   no serviceKeys (an older board) leaves the line as it is. */
+var PLUS_SK_MISMATCH = 'Warning: the key this computer trusts for the Kosmos+ service is not on the signed list that came with this version of Kosmos. Something may be posing as the Kosmos+ service.';
+function paintPlusServiceKeys(sk) {
+  const line = document.getElementById('plus-sk-line');
+  if (!line || !sk || typeof sk !== 'object') return;
+  const say = sk.state === 'mismatch' ? PLUS_SK_MISMATCH : '';
+  if (line.textContent !== say) line.textContent = say;   // rewritten only on a change, so it is not re-read every poll
+  if (line.dataset) line.dataset.state = say ? 'mismatch' : '';
+}
+/* kosmos#6613: the notice for a finding, a card in the floating stack (#cwnote-slot, the .utoast look and its red),
+   on every view but Kosmos+. Its close (and Review) put away the finding set shown (its key, kept per browser, as
+   #6315's request notice and #5018's login notice keep theirs); a new finding is a new key and brings it back. The
+   Kosmos+ pane's own line is never put away. Only fixed sentences are written. */
+var CW_NOTE = { key: null, sig: null, away: [], last: null, lastPlusOn: undefined, quietUntil: 0 };
+function cwNoteAway() {
+  let stored = [];
+  try { stored = (localStorage.getItem('kosmos.cwnote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { stored = []; }
+  return stored.concat(CW_NOTE.away.filter((k) => stored.indexOf(k) === -1));
+}
+/* Put `key` away (the one the person acted on, captured when they pressed: a repaint on the way to Kosmos+ clears
+   CW_NOTE.key, so it cannot be read afterwards). */
+function cwNoteDismiss(key) {
+  if (!key) return;
+  const keys = cwNoteAway().filter((k) => k !== key).concat([key]).slice(-50);
+  CW_NOTE.away = keys;
+  try { localStorage.setItem('kosmos.cwnote.dismissed', keys.join('\n')); } catch (e) { /* this tab's record holds */ }
+}
+function paintCwNote(cw, plusOn) {
+  CW_NOTE.last = cw || null; CW_NOTE.lastPlusOn = plusOn;
+  const slot = document.getElementById('cwnote-slot');
+  if (!slot) return;
+  const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
+  const key = cw && cw.state === 'foreign' && typeof cw.key === 'string' && /^[0-9a-f]{16}$/.test(cw.key) ? cw.key : null;
+  const held = !!(slot.contains && slot.contains(document.activeElement));   // a repaint or a clear must not drop focus to the page
+  // Leaving Kosmos+ with the finding still there shows the card again, and says it again: a reminder, by design.
+  if (!key || onPlus || cwNoteAway().indexOf(key) !== -1) {
+    CW_NOTE.key = null; CW_NOTE.sig = null; slot.textContent = '';
+    if (held && typeof rebootFocusAway === 'function') rebootFocusAway();   // the K mark, as the restart note does
+    return;
+  }
+  const here = cw.foreign > 0 || !(cw.earlier > 0);   // this computer's address, or only an earlier one
+  // What the small line can truly say: the check runs only while both it and Kosmos+ are on.
+  const runs = cw.on !== true ? 'off' : plusOn === false ? 'plus-off' : cw.failing === true ? 'failing' : 'on';
+  const sig = key + (here ? ':here' : ':earlier') + ':' + runs;
+  if (CW_NOTE.sig === sig && slot.firstChild) return;   // unchanged: not rewritten, so it is not read out again
+  CW_NOTE.key = key; CW_NOTE.sig = sig;
+  const head = here
+    ? 'Warning: a certificate was issued for this computer\'s address that this computer did not ask for.'
+    : 'Warning: a certificate, which this computer did not ask for, was issued for an address this computer used before.';
+  // role=status on the words, not the card, so the buttons are not read out with every announcement (#3532's rule).
+  // The card is inserted whole in one task; whether a reader announces a new live region is not measured (plan).
+  slot.innerHTML = '<div class="utoast cwnote"><span class="udot" aria-hidden="true"></span>'
+    + '<div class="utxt" role="status"><b></b><small>' + (runs === 'on' ? 'Kosmos+ checks the public certificate logs for this computer.'
+      : runs === 'plus-off' ? 'Kosmos+ is off, so nothing is checking now; this is what the check found before.'
+      : runs === 'failing' ? 'The check has been failing lately; this is what it found before.'
+      : 'The certificate check is off; this is what it found before.') + '</small></div>'
+    + '<div class="uacts"><button type="button" class="uprime" data-cw="open" aria-label="Review: certificate warning">Review</button></div>'
+    + '<button type="button" class="ux" data-cw="dismiss" aria-label="Close: certificate warning">&times;</button></div>';
+  slot.querySelector('.utxt b').textContent = head;
+  if (held) { const review = slot.querySelector('[data-cw="open"]'); if (review) review.focus(); }
+}
+async function pollCwNote() {
+  if (typeof document !== 'undefined' && document.hidden) return;   // a tab in the background asks nothing
+  // A computer not set up for Kosmos+ has no check: after one such answer, ask again only every ten minutes.
+  if (CW_NOTE.quietUntil && Date.now() < CW_NOTE.quietUntil) return;
+  const seq = (CW_NOTE.seq = (CW_NOTE.seq || 0) + 1);   // an older answer that lands after a newer one is dropped
+  let r = null;
+  try {
+    const res = await fetch('/api/remote', { cache: 'no-store' });
+    r = res.ok ? await res.json() : null;   // an error answer (a 500) is a failed read, not "not set up"
+  } catch { r = null; }
+  // A failed read (a board restarting) is not "no finding": keep what shows rather than blink a warning off and on.
+  if (seq !== CW_NOTE.seq) return;
+  if (!r || typeof r !== 'object' || typeof r.enrolled !== 'boolean') return;
+  // Set up, but no certWatch in the answer (an older board): not an answer about the check, so nothing changes.
+  if (r.enrolled === true && (!r.certWatch || typeof r.certWatch !== 'object')) return;
+  CW_NOTE.quietUntil = r.enrolled === true ? 0 : Date.now() + 10 * 60 * 1000;
+  paintCwNote(r.enrolled === true ? r.certWatch : null, r.on === true);
+}
+{ const cwSlot = document.getElementById('cwnote-slot');
+  if (cwSlot) cwSlot.addEventListener('click', (e) => {
+    const b = e.target && e.target.closest ? e.target.closest('[data-cw]') : null;
+    if (!b) return;
+    const open = b.getAttribute('data-cw') === 'open';
+    const shownKey = CW_NOTE.key;
+    if (!open) cwNoteDismiss(shownKey);
+    cwSlot.textContent = '';
+    /* Review puts the set away, as #6315's request notice does ("Its close button or Review puts that set away"), but
+       only once the pane's own line says the finding: a pane that did not paint must not cost the person the notice.
+       The button it pressed is gone, so keyboard focus goes to that line. */
+    if (open) {
+      showTab('settings'); settingsGo('plus');
+      const land = () => {
+        const line = document.getElementById('plus-cw-line'), sw = document.getElementById('plus-cw-switch');
+        const flow = document.getElementById('plus-flow');
+        // This paint's finding set (data-key), not a line left from an earlier one by a paint that was cut short.
+        if (line && line.textContent && line.dataset && line.dataset.state === 'foreign' && line.dataset.key === shownKey
+          && !(flow && flow.hidden)) {
+          cwNoteDismiss(shownKey);
+          if (line.focus) { line.setAttribute('tabindex', '-1'); line.focus(); }
+        } else {
+          // Not said there: the notice is kept for the next poll, and focus goes somewhere real.
+          const next = [sw && !sw.hidden ? sw : null, document.querySelector('.apphead .klink'), document.querySelector('.apphead h1')]
+            .find((el) => el && el.focus && (!el.getClientRects || el.getClientRects().length));
+          if (next) next.focus();
+        }
+      };
+      // If a status tick's paint overtook this one, the line may not be painted yet: land then keeps the notice.
+      Promise.resolve().then(() => paintPlus()).then(land, land);
+      return;
+    }
+    // Keyboard focus goes where #5018's notices send it when they close: the K mark, the remote bar's menu, the heading.
+    const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+    if (next) next.focus();
+  });
+  const ackBtn = document.getElementById('plus-cw-ack');
+  let ackBusy = false;   // a busy flag and aria-busy, not disabled: a disabled button drops keyboard focus (the switch's way)
+  if (ackBtn) ackBtn.addEventListener('click', async () => {
+    const at = Number(ackBtn.dataset && ackBtn.dataset.at);
+    if (!Number.isInteger(at) || at <= 0 || ackBusy) return;
+    ackBusy = true; ackBtn.setAttribute('aria-busy', 'true');
+    plusSay('');
+    let saved = false;
+    try {
+      const res = await fetch('/api/remote/cert-watch/ack-lost', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at }) });
+      if (!res.ok) plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not save that'), 'switch');
+      else saved = true;
+    } catch { plusSay('we could not save that', 'switch'); }
+    finally { ackBusy = false; ackBtn.removeAttribute('aria-busy'); }
+    await paintPlus();
+    const line = document.getElementById('plus-cw-line'), sw = document.getElementById('plus-cw-switch');
+    // Wherever Got it went, keyboard focus goes to the line when it still says something, else to the check's switch.
+    const refocus = () => {
+      if (line && line.textContent) { line.setAttribute('tabindex', '-1'); line.focus(); }
+      else if (sw && !sw.hidden) sw.focus();
+    };
+    if (!saved) {
+      // Refused: back on Got it when it is still there; gone (the marker cleared meanwhile), the line or the switch.
+      if (!ackBtn.hidden && ackBtn.focus) ackBtn.focus(); else refocus();
+      return;
+    }
+    // Saved: Got it goes away with the sentence it answered, and the pane says it was noted when the line is empty.
+    if (!(line && line.textContent)) plusSay('Noted.');
+    refocus();
+  });
+  setInterval(pollCwNote, 30000);
+  // Back in front, asked at once rather than at the next tick.
+  if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', () => { if (!document.hidden) pollCwNote(); });
+  pollCwNote();
+}
 /* The words of the code box (#729). Pete sat at it for twelve minutes, three
    sends in, unable to tell from the screen whether anything had happened;
    the emails had all delivered. A wait a person is in must be able to say
@@ -73712,9 +73954,11 @@ async function pjPostSend(attachment) {
   /* A post that did not go stays drawn, marked, with the reason; its words go back in an empty box to send again. If a
      read already showed the room holding it (paintRoom handed over and dropped the pending entry), it did go: nothing is
      marked and the words are NOT put back, or a second press would post it twice. */
-  const notKept = (because, unsure) => {
+  const notKept = (because, unsure, wasOnFloor) => {
     if (PJ_ROOM_PENDING[sentProject] !== pend) return;
-    const keepFloor = PJ_CURRENT === sentProject && onFloor();   // before the box refills and the pill grows the row
+    // Before the box refills and the pill grows the row. #6629: the caller can read it earlier still, before the note
+    // under the box (which, in the one-page layout, takes its height from the room) has been written.
+    const keepFloor = PJ_CURRENT === sentProject && (wasOnFloor === undefined ? onFloor() : wasOnFloor);
     restoreUnsent();
     pend.failed = true; pend.because = because; pend.unsure = !!unsure;
     try { repaintPending(keepFloor); } catch { /* the next read paints it; a throw here must not escape the catch below */ }
@@ -73732,8 +73976,14 @@ async function pjPostSend(attachment) {
       if (unsure || PJ_ROOM_PENDING[sentProject]) return;
       PJ_ROOM_PENDING[sentProject] = pend;
     }
+    // #6629: the floor is read BEFORE the note is written. Showing the note under the box shrinks the room in the
+    // one-page layout, so read after it, a reader on the floor looked above it and was not pinned. On a busy page the answer can
+    // beat the press-time scroll event's frame: that event then reads the shrunk room, marks the reader off the floor
+    // (__wasOnFloor), and the resize rescue leaves them there, 50 px short with the failed pill below the fold. Read
+    // first, the pin here lands before that event, which then reads the floor.
+    const wasOnFloor = PJ_CURRENT === sentProject && onFloor();
     verdict(line);
-    notKept(because, unsure);
+    notKept(because, unsure, wasOnFloor);
   };
   let answered = false;   // the board kept it: from here a throw is the page's own, not the post's
   try {
@@ -76584,6 +76834,10 @@ function pjFedMessage(body, fallback, opts) {
     'other-account': 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.',
     'no-remote': 'Sign in to Kosmos+ again in Settings on this computer, then paste the code again.',
     'old-code': 'This code was made by an older Kosmos. Update Kosmos on the computer that has the project, then make a new code there.',
+    // kosmos#6681 (S-11-fed): a code bound to one address. Names nobody: the person told is the one it was not for.
+    'wrong-invitee': 'That code was made for someone else. Ask whoever sent it to invite the email address you use for Kosmos+.',
+    'bad-email': 'That email address does not look right. Check it, or leave it empty.',
+    'invites-full': 'You have too many invitations nobody has used yet, across your projects. Withdraw some from a project\'s Members, or wait for them to expire, then try again.',
   };
   return (reason && M[reason]) || fallback;
 }
@@ -78036,6 +78290,8 @@ function fedInviteOpen(opener, prefill) {
   const label = document.getElementById('fedinv-label');
   label.value = '';
   pjFieldOk('fedinv-label', 'fedinv-msg');
+  document.getElementById('fedinv-email').value = '';   // kosmos#6681
+  pjFieldOk('fedinv-email', 'fedinv-msg');
   document.getElementById('fedinv-kind-person').checked = true;
   document.getElementById('fedinv-make').disabled = false;
   document.getElementById('fedinv-code').value = '';
@@ -78099,6 +78355,15 @@ async function fedInviteMake() {
   if (!label) { pjFieldBad('fedinv-label', 'fedinv-msg', 'Write who it is for, so you can tell your invitations apart.'); return; }
   pjFieldOk('fedinv-label', 'fedinv-msg');
   const kind = document.getElementById('fedinv-kind-agent').checked ? 'agent' : 'person';
+  const emailEl = document.getElementById('fedinv-email');
+  const email = emailEl.value.trim();   // kosmos#6681: optional; empty sends none
+  /* Review 1: an address the browser already sees is not one is answered here, without a round trip; the coordinator
+     stays the judge of everything else (its refusal lands on this field below). */
+  if (email && emailEl.validity && emailEl.validity.typeMismatch) {
+    pjFieldBad('fedinv-email', 'fedinv-msg', pjFedMessage({ reason: 'bad-email' }, 'That email address does not look right.'));
+    return;
+  }
+  pjFieldOk('fedinv-email', 'fedinv-msg');
   const seq = ++FEDINV_SEQ;
   const askedFor = FEDINV_PROJECT;
   make.disabled = true;
@@ -78116,7 +78381,7 @@ async function fedInviteMake() {
     try {
       res = await fetch('/api/federation/invite', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ project: FEDINV_PROJECT, invited_kind: kind, label }), signal: ctl ? ctl.signal : undefined,
+        body: JSON.stringify({ project: FEDINV_PROJECT, invited_kind: kind, label, ...(email ? { email } : {}) }), signal: ctl ? ctl.signal : undefined,
       });
       body = await res.json().catch(() => null);
     } finally { if (timer) clearTimeout(timer); }
@@ -78130,6 +78395,11 @@ async function fedInviteMake() {
     }
     if (!res.ok || !body || typeof body.code !== 'string' || !body.code) {
       // A 403 means the request did not read as from this screen: nothing the person can act on.
+      // kosmos#6681 review 1: a refused address marks the address field (and puts focus there), not "Who is it for?".
+      if (res.status !== 403 && body && body.reason === 'bad-email') {
+        pjFieldBad('fedinv-email', 'fedinv-msg', pjFedMessage(body, fallback));
+        return;
+      }
       msg.textContent = res.status === 403 ? fallback
         : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback);
       document.getElementById('fedinv-label').focus();   // back in the field (pjFieldBad's way), not on <body>
@@ -78145,12 +78415,20 @@ async function fedInviteMake() {
     // else "they" (a label like "my sister", or anyone who is not a person): the same test as the Remove dialog's
     // body (fedFirstName, for a person only).
     const first = kind === 'person' ? fedFirstName(label) : '';
-    document.getElementById('fedinv-until').textContent = (until ? 'It works once, until ' + until + '.' : 'It works once.')
-      + ' You can withdraw it from Members until ' + (first ? first + ' joins.' : 'they join.');
+    const boundTo = typeof body.email === 'string' ? body.email : '';   // kosmos#6708: the coordinator's echo
+    const withdraw = ' You can withdraw it from Members until ' + (first ? first + ' joins.' : 'they join.');
+    const once = until ? 'It works once, until ' + until + '.' : 'It works once.';
+    // kosmos#6708: only when the coordinator says it bound the code (review 1), never from the typed value alone. The
+    // address is bold (design review): it is the one thing the owner checks for a typo before sending. Built as nodes,
+    // never as HTML, so the address is text whatever it holds.
+    const bold = document.createElement('strong');
+    bold.textContent = boundTo;
+    document.getElementById('fedinv-until').replaceChildren(...(boundTo
+      ? [once + ' Only the Kosmos+ account with ', bold, ' can use it.' + withdraw] : [once + withdraw]));
     document.getElementById('fedinv-easier').textContent = 'Easier: copy the whole invitation. It has the code and the three steps '
       + (first ? first + ' needs' : 'they need') + ', ready to paste into an email or a text.';
     const proj = pjById(askedFor);
-    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '', projectId: askedFor };
+    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '', projectId: askedFor, email: boundTo };   // kosmos#6708: the address the coordinator bound it to
     document.getElementById('fedinv-copy-all').focus();
     // kosmos#4649 slice B: the new pending row appears in Members behind the sheet (and an expired row with
     // the same label goes, fedOutsideRows), so "Done" lands on the list as it now is.
@@ -78312,7 +78590,11 @@ function fedInviteText(made) {
     + '\n'
     + made.code + '\n'
     + '\n'
-    + (until ? 'The code works once, until ' + until + '.' : 'The code works once.');
+    + (until ? 'The code works once, until ' + until + '.' : 'The code works once.')
+    // kosmos#6708: a code bound to an address says so, so the person invited signs in with that one before pasting it.
+    + (made.email ? '\nIt works only for the Kosmos+ account with the email address ' + line(made.email) + '.'
+      // Design review: what to do when it is the wrong address, so the first they learn of it is not a refusal.
+      + '\nIf that is not your Kosmos+ email, ask for a new code.' : '');
 }
 // Copy the invitation: through fedCopyText (select-and-copy first, then the clipboard with its limit). A refusal of
 // both keeps its line on screen and says what to do instead; it never throws.

@@ -35,16 +35,27 @@ test('#6609: no recovery key set (as shipped today): the built-in KEYS decide, a
   assert.deepEqual(r.keys, mv.KEYS);
 });
 
-test('#6609: a list the recovery key signed is taken, its keys are the trusted ones, and its seq is stored', () => {
+test('#6609: a list the recovery key signed is taken, its keys are the trusted ones, and its seq is stored', async () => {
   const h = home();
   const l = list({ release_keys: [spki(rel1)], seq: 3 });
   const r = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: h, recoveryKeys: RK });
   assert.equal(r.ok, true, r.why);
   assert.deepEqual(r.keys, [spki(rel1)]);
   assert.equal(mv.storedKeyList(h).seq, 3);
-  assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE, 'seq-3.json')).mode & 0o777), 0o600);
-  assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE)).mode & 0o777), 0o700);
-  assert.deepEqual(fs.readdirSync(path.join(h, mv.KEY_LIST_STATE)), ['seq-3.json'], 'no temp file left behind');
+  const record = path.join(h, mv.KEY_LIST_STATE);
+  if (process.platform === 'win32') {
+    // #6692: Windows has no mode bits (Node reports 0666 and 0777 there), so the record's privacy is its access list,
+    // which the updater reads before taking a list (engine/win32recordacl.js): on a profile folder it is the person's
+    // own; granted Users read, it is refused.
+    const acl = require('./win32recordacl');
+    assert.equal(await acl.aclRefusal([h, record]), null, 'a record under the profile is the person\'s own');
+    spawnSync('icacls', [record, '/grant', '*S-1-5-32-545:(OI)(CI)(R)'], { stdio: 'ignore' });
+    assert.match(await acl.aclRefusal([h, record]), /can also be reached by Users/);
+  } else {
+    assert.equal((fs.statSync(path.join(record, 'seq-3.json')).mode & 0o777), 0o600);
+    assert.equal((fs.statSync(record).mode & 0o777), 0o700);
+  }
+  assert.deepEqual(fs.readdirSync(record), ['seq-3.json'], 'no temp file left behind');
 });
 
 test('#6609: refused: a list signed by another key, a tampered list, no list, no signature', () => {
@@ -180,6 +191,7 @@ test('#6609: the race window between reading the record and linking: a newer lis
     const r = mv.trustedKeys({ listBytes: v6.bytes, listSig: v6.sig, home: h, recoveryKeys: RK });
     assert.equal(r.ok, false, 'list 6 may hold a key list 7 dropped');
     assert.match(r.why, /a newer release key list was taken meanwhile/);
+    assert.equal(r.retry, true, "#6609 phase 2a: run-setup reports this one as retryable (96), not refused");
     assert.equal(mv.storedKeyList(h).seq, 7);
     // Another check records seq 5 with other keys in the same window: the link finds it, and this list is refused.
     const h2 = home();
@@ -254,6 +266,7 @@ test('#6609: a seq is never reused: the same seq with other keys is refused; a f
   fs.chmodSync(ro, 0o500);   // a home this check cannot write in
   try {
     if (process.getuid && process.getuid() === 0) return;   // root writes anyway: the arm cannot be exercised
+    if (process.platform === 'win32') return;   // a folder mode does not stop writes on Windows: the arm cannot be exercised there
     const w = mv.trustedKeys({ listBytes: a.bytes, listSig: a.sig, home: ro, recoveryKeys: RK });
     assert.equal(w.ok, false);
     assert.match(w.why, /could not be written/);

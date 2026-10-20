@@ -81,6 +81,8 @@ test('run-tests.sh keeps the coverage assertion that refuses to run a subset (#1
     'run-tests.sh no longer refuses on a considered-vs-exist mismatch (-ne, both directions); a narrowed glob or a find/glob discrepancy would pass green again (#1934)');
   // Only a preload (--require/--import, #3605) may sit before the set: a filter such as
   // --test-name-pattern there would narrow the run while this check stayed green.
-  assert.match(runner, /^node --test (?:--(?:require|import) "[^"\n]*" )*"\$\{KOSMOS_TEST_FILES\[@\]\}"/m,
+  // #6668: and the per-test timeout, which node applies only before the files (after them it was ignored, measured) and
+  // which narrows nothing: a test that hits it is red, never skipped.
+  assert.match(runner, /^node --test (?:--(?:require|import) "[^"\n]*" )*(?:--test-timeout="\$RT_TEST_TIMEOUT_MS" )?"\$\{KOSMOS_TEST_FILES\[@\]\}"/m,
     'run-tests.sh no longer runs the SAME counted set it asserted on, so the count and the run can drift apart (#1934)');
 });

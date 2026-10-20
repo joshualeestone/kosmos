@@ -8,6 +8,10 @@
 const SIGNED_KOSMOS = Object.freeze({
   status: 'Valid',
   signer: 'Kosmos Agent Manager, Inc.',
+  /* #6466: the leaf's whole subject, its EKUs and whether the chain built, read on the same box on 2026-10-19. */
+  subject: 'CN="Kosmos Agent Manager, Inc.", O="Kosmos Agent Manager, Inc.", L=Mckinney, S=Texas, C=US',
+  ekus: Object.freeze(['1.3.6.1.4.1.311.97.1.0', '1.3.6.1.5.5.7.3.3', '1.3.6.1.4.1.311.97.226463870.202526173.709419293.751579568']),
+  chainBuilt: true,
   rootThumbprint: 'F40042E2E5F7E8EF8189FED15519AECE42C3BFA2',
   chain: Object.freeze([
     'CN="Kosmos Agent Manager, Inc.", O="Kosmos Agent Manager, Inc.", L=Mckinney, S=Texas, C=US',

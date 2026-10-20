@@ -122,15 +122,17 @@ test('removeBoard stops, disables, deletes unit and reloads daemon', () => {
     linuxboard.removeBoard(home);
 
     assert.equal(fs.existsSync(unitFile), false);
-    assert.deepEqual(calls[0], {
+    // kosmos#6667: the pause check goes first (engine/linuxboard.pausecheck-6667.test.js covers it).
+    const board = calls.filter((c) => !c.args.some((a) => /^kosmos-pause-check/.test(a)));
+    assert.deepEqual(board[0], {
       cmd: 'systemctl',
       args: ['--user', 'stop', linuxboard.boardUnitName(home)],
     });
-    assert.deepEqual(calls[1], {
+    assert.deepEqual(board[1], {
       cmd: 'systemctl',
       args: ['--user', 'disable', linuxboard.boardUnitName(home)],
     });
-    assert.deepEqual(calls[2], {
+    assert.deepEqual(board[2], {
       cmd: 'systemctl',
       args: ['--user', 'daemon-reload'],
     });

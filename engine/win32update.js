@@ -15,10 +15,21 @@
  * The flow is the design's B0-B4:
  *   B0  preconditions, each a sentence (and the live-execution gate, convention 3);
  *   B1  the Windows pointer, read with the S1 rule (update.pointerFor / update.readManifest);
+ *   B1b #6466: the release's SIGNED manifest (kosmos-<v>-win-<arch>.manifest.json and its .sig), checked by
+ *       THIS installed copy against the release key it pins (engine/manifest-verify.js KEYS), before anything
+ *       is downloaded: the signature, the version (the pointer's, and not older than this install), and that
+ *       it names this platform, arch, versioned zip and the pointer's sha256. A release with no signed
+ *       manifest, or one that does not check out, is refused (as the Mac's installed copy refuses, #6468).
+ *       #6692: when a recovery key is set (manifest-verify.js RECOVERY_KEYS), the release key list is taken first
+ *       (releaseKeys) and the manifest is checked with ITS keys, not the built-in ones;
  *   B2  the checksum sidecar, then the versioned zip streamed into WORK\download.part while hashing,
- *       under caps on size and time; computed = pointer = sidecar;
+ *       under caps on size and time; computed = pointer = sidecar = the signed manifest's sha256;
  *   B3  the bytes that were hashed, unpacked with engine/win32zip.js into WORK\staged,
  *       allow-listed to ENTRIES;
+ *   B3b #6466: every file of the staged tree is exactly the signed manifest's, each by sha256, with nothing
+ *       that is not a plain file, BEFORE anything in it runs (Kosmos.exe's signature check and node.exe's run
+ *       below are the first things that touch it). So runtime\node.exe, app\, bin\, app\bin\kosmos-tunnel.exe
+ *       and the zip's own manifest.json are covered by the release signature, not by the host's word alone;
  *   B4  the staged tree checked: its manifest, its app version, its required files, Kosmos.exe's
  *       Authenticode signer (#1765, as tools/windows/setup.ps1 checks a fresh install), its node.exe
  *       actually running, whether that node.exe differs from the anchored one, and the board
@@ -54,6 +65,13 @@ const win32handoff = require('./win32handoff');
 const win32job = require('./win32job');
 const win32orphan = require('./win32orphan');
 const win32zip = require('./win32zip');
+const manifestVerify = require('./manifest-verify');
+const win32recordacl = require('./win32recordacl');
+
+/* #6466: tools/windows/publish-r2.ps1 reads this line (through tools/lib/win-release-manifest.js ships-checker) to
+ * know that installs of a build carrying this file refuse an update without a signed manifest, so it refuses to
+ * stage such a build without one. Keep it one line, and keep it while the check stands.
+ * win32update capabilities: signed-manifest */
 
 const MEGABYTE = 1024 * 1024;
 
@@ -103,6 +121,9 @@ const MAX_DOWNLOAD_MS = 15 * 60 * 1000;
 /** The pointer and the sidecar are under 1 KB each. */
 const MAX_SMALL_FETCH_BYTES = 64 * 1024;
 const MAX_SMALL_FETCH_MS = 15 * 1000;
+/** #6466: the signed release manifest lists every file with its sha256, about 100 bytes a file; a build of a few
+    thousand files is a few hundred KB, so this is many times a real one. */
+const MAX_MANIFEST_BYTES = 8 * MEGABYTE;
 /** Entries in the archive: the real build has 139. */
 const MAX_ARCHIVE_ENTRIES = 5000;
 /** One unpacked file: node.exe is 92.8 MB. */
@@ -173,21 +194,36 @@ const STAGED_NODE_ENV_KEYS = Object.freeze(['SystemRoot', 'windir', 'TEMP', 'TMP
 const EXPECTED_SIGNER = 'Kosmos Agent Manager, Inc.';
 const EXPECTED_ROOT_THUMBPRINT = 'F40042E2E5F7E8EF8189FED15519AECE42C3BFA2';
 const EXPECTED_INTERMEDIATE_PATTERN = /^CN=Microsoft ID Verified Code Signing PCA [0-9]{4}, O=Microsoft Corporation, C=US$/i;
+/**
+ * #6466 ask 2: more than the common name. The leaf's WHOLE subject, as Windows writes it (X509Certificate2.Subject,
+ * read off the committed, signed tools/windows/Kosmos.exe on 2026-10-19): Microsoft's ID Verified CA issues it only
+ * after validating the organisation, so the O, L, S and C fields are the validated identity, not a name anyone can
+ * type into a certificate request. The leaf must also carry the Code Signing EKU, and the chain must BUILD (not just
+ * end at the right root). Still no leaf thumbprint, and not the identity-validation EKU's value: both change when
+ * the certificate profile or its validation is redone, and a pin that changes would strand every install on its
+ * current build. setup.ps1 pins the same ($EXPECTED_SUBJECT, $EXPECTED_EKU).
+ */
+const EXPECTED_SUBJECT = 'CN="Kosmos Agent Manager, Inc.", O="Kosmos Agent Manager, Inc.", L=Mckinney, S=Texas, C=US';
+const EXPECTED_EKU = '1.3.6.1.5.5.7.3.3';
 /** Get-AuthenticodeSignature on the ~170 KB Kosmos.exe answers in a second or two; a first PowerShell start
     under an antivirus scan can take much longer. */
 const SIGNATURE_TIMEOUT_MS = 60 * 1000;
+/** #6692: the wait before asking again for a release key list that did not check out (a publish in progress). */
+const KEY_LIST_RETRY_MS = 3 * 1000;
 
 const DEFAULT_LIMITS = Object.freeze({
   maxDownloadBytes: MAX_DOWNLOAD_BYTES,
   maxDownloadMs: MAX_DOWNLOAD_MS,
   maxSmallFetchBytes: MAX_SMALL_FETCH_BYTES,
   maxSmallFetchMs: MAX_SMALL_FETCH_MS,
+  maxManifestBytes: MAX_MANIFEST_BYTES,
   maxEntries: MAX_ARCHIVE_ENTRIES,
   maxEntryBytes: MAX_ENTRY_BYTES,
   maxUnpackedBytes: MAX_UNPACKED_BYTES,
   stagedNodeTimeoutMs: STAGED_NODE_TIMEOUT_MS,
   signatureTimeoutMs: SIGNATURE_TIMEOUT_MS,
   diskHeadroomMultiple: DISK_HEADROOM_MULTIPLE,
+  keyListRetryMs: KEY_LIST_RETRY_MS,
 });
 
 const LIVE_REFUSAL = 'Kosmos is not allowed to change files on this computer from here (live execution is off), so nothing was downloaded';
@@ -348,19 +384,21 @@ const SIGNATURE_SCRIPT = [
   '$f = $env:KOSMOS_SIGNED_FILE',
   '$s = Get-AuthenticodeSignature -LiteralPath $f',
   '$leaf = $s.SignerCertificate',
-  "$signer = ''; $root = ''; $subjects = @()",
+  "$signer = ''; $subject = ''; $root = ''; $subjects = @(); $ekus = @(); $built = $false",
   'if ($leaf) {',
   '  $signer = $leaf.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)',
+  '  $subject = [string] $leaf.Subject',
+  "  $ekus = @($leaf.Extensions | Where-Object { $_.Oid -and $_.Oid.Value -eq '2.5.29.37' } | ForEach-Object { ([System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension] $_).EnhancedKeyUsages } | ForEach-Object { [string] $_.Value })",
   '  $chain = New-Object System.Security.Cryptography.X509Certificates.X509Chain',
   '  $chain.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck',
   '  $chain.ChainPolicy.VerificationFlags = [System.Security.Cryptography.X509Certificates.X509VerificationFlags]::IgnoreNotTimeValid',
   '  try { $carried = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection; $carried.Import($f); [void] $chain.ChainPolicy.ExtraStore.AddRange($carried) } catch { }',
-  '  [void] $chain.Build($leaf)',
+  '  $built = [bool] $chain.Build($leaf)',
   '  $elements = @($chain.ChainElements | ForEach-Object { $_.Certificate })',
   '  if ($elements.Count) { $root = [string] $elements[$elements.Count - 1].Thumbprint }',
   '  $subjects = @($elements | ForEach-Object { [string] $_.Subject })',
   '}',
-  '$json = ConvertTo-Json -Compress -InputObject @{ status = [string] $s.Status; signer = [string] $signer; rootThumbprint = $root; chain = $subjects }',
+  '$json = ConvertTo-Json -Compress -InputObject @{ status = [string] $s.Status; signer = [string] $signer; subject = $subject; ekus = $ekus; chainBuilt = $built; rootThumbprint = $root; chain = $subjects }',
   "$json = [regex]::Replace($json, '[^\\x00-\\x7F]', { param($m) '\\u{0:x4}' -f [int][char] $m.Value })",
   '[Console]::Out.Write($json)',
 ].join('\n');
@@ -397,7 +435,11 @@ function authenticodeOf(exe, timeoutMs, env) {
       try { j = JSON.parse(String(stdout).trim()); } catch { j = null; }
       if (!j || typeof j !== 'object' || Array.isArray(j)) { reject(new Error(unreadable)); return; }
       const chain = j.chain === null || j.chain === undefined ? [] : [].concat(j.chain);
-      resolve({ status: String(j.status || ''), signer: String(j.signer || ''), rootThumbprint: String(j.rootThumbprint || ''), chain: chain.map(String) });
+      const ekus = j.ekus === null || j.ekus === undefined ? [] : [].concat(j.ekus);
+      resolve({
+        status: String(j.status || ''), signer: String(j.signer || ''), subject: String(j.subject || ''), ekus: ekus.map(String),
+        chainBuilt: j.chainBuilt === true, rootThumbprint: String(j.rootThumbprint || ''), chain: chain.map(String),
+      });
     });
   });
 }
@@ -421,7 +463,8 @@ function asciiEqualIgnoringCase(a, b) {
 /**
  * #1765: the update's Kosmos.exe is refused unless its signature is Valid, its signer is
  * EXPECTED_SIGNER and its chain runs through Microsoft's ID Verified code-signing CA to the pinned
- * root: setup.ps1's Assert-KosmosSignature, rule for rule. PowerShell's -ne and -match ignore case,
+ * root (a chain that BUILDS, #6466), its leaf's whole subject is EXPECTED_SUBJECT and it carries the Code Signing
+ * EKU: setup.ps1's Assert-KosmosSignature, rule for rule. PowerShell's -ne and -match ignore case,
  * so these ignore ASCII case; a signer, root or intermediate with anything outside printable ASCII is
  * refused outright. Returns the sentence to refuse with, or null. Pure.
  */
@@ -436,6 +479,11 @@ function signatureRefusal(sig) {
   if (!asciiEqualIgnoringCase(root, EXPECTED_ROOT_THUMBPRINT) || !intermediate) {
     return `the update's Kosmos.exe signature does not come from Microsoft's code-signing service for ${EXPECTED_SIGNER} (its chain ends at ${chain.length ? shownName(chain[chain.length - 1]) : 'nothing'})`;
   }
+  if (s.chainBuilt !== true) return `the update's Kosmos.exe signature does not come from Microsoft's code-signing service for ${EXPECTED_SIGNER} (Windows could not build its certificate chain)`;
+  const subject = String(s.subject || '');
+  if (!asciiEqualIgnoringCase(subject, EXPECTED_SUBJECT)) return `the update's Kosmos.exe is signed for '${shownName(subject)}', not for the validated ${EXPECTED_SIGNER}`;
+  const ekus = Array.isArray(s.ekus) ? s.ekus.map(String) : [];
+  if (!ekus.includes(EXPECTED_EKU)) return `the update's Kosmos.exe is signed with a certificate that is not for code signing`;
   return null;
 }
 
@@ -648,6 +696,9 @@ function stageFromFolder(ctx) {
   if (verdict !== 'this-newer') {
     refuse(`${source} holds Kosmos ${mine.version}, which is not newer than the ${(installed && installed.version) || 'unknown version'} in ${ctx.root}, so there is nothing to update`);
   }
+  /* #6466 ask 3: a folder whose Kosmos.exe, or anything else the update would copy, is not a plain file (a link, a
+     junction) is refused before anything is copied; B4 checks the copy the same way. */
+  try { manifestVerify.listFiles(source, ENTRIES); } catch (e) { refuse(`${source} holds something that is not a plain file (${e.message}), so it cannot update ${ctx.root}`); }
   const bytes = ENTRIES.reduce((n, entry) => n + treeBytes(path.join(source, entry)), 0);
   const free = ctx.freeBytes(ctx.work);
   if (free < bytes) {
@@ -1186,6 +1237,18 @@ async function fetchSmallText(doFetch, url, what, limits, log, opts) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+/** #6466: the exact bytes of a small file (a signature covers bytes, so no text decoding in between). */
+async function fetchSmallBytes(doFetch, url, what, maxBytes, limits, log, opts) {
+  const startedAt = Date.now();
+  const deadlineAt = startedAt + limits.maxSmallFetchMs;
+  const { res, done } = await open(doFetch, url, what, deadlineAt, log, opts);
+  const chunks = [];
+  try {
+    await readBody(res, { what, maxBytes, startedAt, deadlineAt, onChunk: (c) => chunks.push(Buffer.from(c)) });
+  } finally { done(); }
+  return Buffer.concat(chunks);
+}
+
 /** The sidecar publish-kosmos-windows.sh writes: `shasum -a 256 <name>`, so "<hex>  <name>". */
 function sidecarSha(text, versioned) {
   const m = /^([0-9a-fA-F]{64})(?:[ \t]+\*?(\S+))?\s*$/.exec(String(text).trim());
@@ -1213,6 +1276,103 @@ async function readOffer(ctx) {
     refuse(`the site now offers ${latest.version}, not the ${ctx.expectVersion} that was on offer, so check for updates again`);
   }
   return latest;
+}
+
+/* ─── B1b (#6466) ─────────────────────────────────────────────────────────────────────────── */
+
+/* #6692: the release key list (engine/manifest-verify.js, #6609), beside the releases. */
+const KEY_LIST_NAME = 'release-keys.json';
+/* How many times one prepare asks for the list when it does not check out in a way a moment later can fix. */
+const KEY_LIST_ATTEMPTS = 3;
+
+/**
+ * #6692: the release keys this copy checks the release manifest with. With no recovery key set
+ * (manifestVerify.RECOVERY_KEYS empty): the built-in keys, nothing fetched, exactly as before. With one set: the
+ * release key list comes FIRST, taken by manifestVerify.trustedKeys, which keeps this copy's record in the anchor
+ * folder (a per-user profile folder, never the install folder), and its keys are the ones the manifest must be
+ * signed with. No list, no update. Each attempt asks for the list and its signature with one fresh query, so a
+ * retry is not answered by the same cached pair.
+ */
+async function releaseKeys(ctx) {
+  if (!manifestVerify.RECOVERY_KEYS.length) return ctx.manifestKeys;
+  let home;
+  try { home = win32anchor.anchorDir(process.platform, ctx.home, ctx.env); } catch (e) {
+    refuse(`we could not work out where Kosmos keeps its record of the release key list (${firstLine(e)}), so nothing was downloaded`);
+  }
+  /* The record is what keeps an older list from coming back, so it must be this person's alone. Refused, never
+     repaired: the person is told what to fix. */
+  if (!fs.existsSync(home)) {
+    refuse(`the folder Kosmos keeps its update records in (${home}) is missing, so the release key list cannot be checked and nothing was downloaded. Double-click Kosmos.exe once, then try again`);
+  }
+  const record = path.join(home, manifestVerify.KEY_LIST_STATE);
+  /* The folder above too: whoever may rename the anchor folder away could replace it with an empty one. */
+  const read = [path.dirname(home), home];
+  if (fs.existsSync(record)) {
+    read.push(record);
+    /* Each list file too: an entry set on one file alone (say, Users may delete) would let another account lower the floor. */
+    let names = [];
+    try { names = fs.readdirSync(record); } catch (e) { refuse(`this copy's record of the release key list could not be read (${e.code || firstLine(e)}), so nothing was downloaded`); }
+    for (const n of names.sort()) if (/^seq-\d+\.json$/.test(n)) read.push(path.join(record, n));
+  }
+  const aclBad = await ctx.recordAclRefusal(read, { env: ctx.env, timeoutMs: ctx.limits.signatureTimeoutMs });
+  if (aclBad) refuse(`${aclBad}, then try again. Nothing was downloaded`);
+  let retryWhy = '';
+  for (let attempt = 1; attempt <= KEY_LIST_ATTEMPTS; attempt += 1) {
+    if (attempt > 1 && ctx.limits.keyListRetryMs > 0) await new Promise((r) => setTimeout(r, ctx.limits.keyListRetryMs));
+    const q = `?r=${crypto.randomBytes(8).toString('hex')}`;
+    let bytes;
+    let sigBytes;
+    try {
+      bytes = await fetchSmallBytes(ctx.fetch, `${ctx.base}/${KEY_LIST_NAME}${q}`, 'the release key list', ctx.limits.maxSmallFetchBytes, ctx.limits, ctx.log, { allowNotFound: true });
+      sigBytes = await fetchSmallBytes(ctx.fetch, `${ctx.base}/${KEY_LIST_NAME}.sig${q}`, 'the release key list signature', ctx.limits.maxSmallFetchBytes, ctx.limits, ctx.log, { allowNotFound: true });
+    } catch (e) {
+      if (e instanceof HostNotFound) refuse('the site publishes no release key list, so this update cannot be checked and nothing was downloaded');
+      throw e;
+    }
+    const sig = sigBytes.toString('latin1');
+    /* A list that does not verify is asked for again: a list and a signature from two publishes look exactly like it. */
+    const v = manifestVerify.verifyKeyList({ bytes, sig });
+    if (!v.ok) { retryWhy = `${v.why} (it may be mid-publish)`; ctx.log(`attempt ${attempt}: ${retryWhy}`); continue; }
+    const t = manifestVerify.trustedKeys({ listBytes: bytes, listSig: sig, home });
+    if (t.ok) { ctx.log(`took ${t.why}`); return t.keys; }
+    /* Older than this copy's record, or other keys at a seq already taken: asking again gives the same answer. */
+    if (!t.retry) refuse(`${t.why}, so nothing was downloaded`);
+    retryWhy = t.why.replace(/; check again$/, '');
+    ctx.log(`attempt ${attempt}: ${retryWhy}`);
+  }
+  refuse(`${retryWhy}, so nothing was downloaded. Try again in a few minutes`);
+}
+
+/** The signed manifest's name beside the versioned zip (tools/lib/win-release-manifest.js writes it). */
+function releaseManifestName(version, arch) { return `kosmos-${version}-win-${arch}.manifest.json`; }
+
+/**
+ * Fetch the release's signed manifest and its signature and check them with THIS copy's pinned keys: the
+ * signature, the version, and that the manifest is for exactly the download the pointer names. Returns the
+ * manifest (the bytes the signature covered, parsed once); refuses otherwise. A 404 for either file is refused,
+ * never waved through: a host that could drop the manifest could otherwise serve anything (the Mac's installed
+ * copy refuses the same way, #6468). No key pinned (manifest-verify's code 3) is refused as well: every build
+ * that carries this check pins one.
+ */
+async function readSignedManifest(ctx, latest, keys) {
+  const name = releaseManifestName(latest.version, ctx.arch);
+  const q = `?v=${encodeURIComponent(latest.version)}`;
+  let bytes;
+  let sigBytes;
+  try {
+    bytes = await fetchSmallBytes(ctx.fetch, `${ctx.base}/${name}${q}`, 'the signed release manifest', ctx.limits.maxManifestBytes, ctx.limits, ctx.log, { allowNotFound: true });
+    sigBytes = await fetchSmallBytes(ctx.fetch, `${ctx.base}/${name}.sig${q}`, 'the release manifest signature', ctx.limits.maxSmallFetchBytes, ctx.limits, ctx.log, { allowNotFound: true });
+  } catch (e) {
+    if (e instanceof HostNotFound) refuse(`the site publishes no signed release manifest for ${latest.version}, so the update cannot be checked and nothing was downloaded`);
+    throw e;
+  }
+  const installed = (readJson(path.join(ctx.root, 'app', 'package.json')) || {}).version;
+  const r = manifestVerify.signedManifest({ bytes, sigText: sigBytes.toString('latin1'), version: latest.version, installedVersion: installed, keys });
+  if (r.code !== 0) refuse(`${r.why}, so nothing was downloaded`);
+  const bad = manifestVerify.win32HeaderRefusal(r.manifest, { version: latest.version, arch: ctx.arch, sha: latest.sha256 });
+  if (bad) refuse(`${bad}, so nothing was downloaded`);
+  ctx.log(`the signed release manifest for ${latest.version} is genuine (${r.manifest.files.length} files)`);
+  return r.manifest;
 }
 
 /* ─── B2 ─────────────────────────────────────────────────────────────────────────────────── */
@@ -1355,15 +1515,17 @@ async function verifyStaged(ctx, latest) {
   if (!pkg || pkg.version !== latest.version) {
     refuse(`the update's app says it is ${pkg ? JSON.stringify(pkg.version) : 'no version at all'}, but the site published it as ${latest.version}`);
   }
+  try { manifestVerify.listFiles(staged, ENTRIES); } catch (e) { refuse(`the update holds something that is not a plain file (${e.message})`); }
   for (const entry of REQUIRED_ENTRIES) {
     let st = null;
-    try { st = fs.statSync(path.join(staged, ...entry.split('/'))); } catch { st = null; }
+    try { st = fs.lstatSync(path.join(staged, ...entry.split('/'))); } catch { st = null; }
     if (!st || !st.isFile()) refuse(`the update is missing ${entry.split('/').join('\\')}`);
   }
 
   /* #1765: the staged Kosmos.exe must carry the signature setup.ps1 requires of a fresh install,
-     before anything in the staged tree is run. It covers the launcher only: app\ and runtime\ are
-     covered by the checksums (B2) or, for --from, by the person's own copy, as for setup.ps1. A
+     before anything in the staged tree is run. It covers the launcher only: on a download, app\ and
+     runtime\ (and Kosmos.exe again) are covered by the signed release manifest (B1b/B3b, #6466); on
+     --from, by the person's own copy, which is the code running this check, as for setup.ps1. A
      refusal leaves the installed build untouched: nothing has been swapped yet, and prepare()
      removes the staged tree. */
   const stagedExe = path.join(staged, 'Kosmos.exe');
@@ -1460,6 +1622,11 @@ async function prepare(opts) {
     freeBytes: typeof o.freeBytes === 'function' ? o.freeBytes : defaultFreeBytes,
     runStagedNode: typeof o.runStagedNode === 'function' ? o.runStagedNode : runStagedNode,
     checkSignature: typeof o.checkSignature === 'function' ? o.checkSignature : authenticodeOf,
+    /* #6466: the release keys this copy accepts. A seam for the suites only (prepare() is called in-process; no CLI
+       flag or setting reaches it); production is always the installed copy's own pins. */
+    manifestKeys: Array.isArray(o.manifestKeys) ? o.manifestKeys : manifestVerify.KEYS,
+    /* #6692: reads the access list of the release key list's record. A seam for the suites only, like the two above. */
+    recordAclRefusal: typeof o.recordAclRefusal === 'function' ? o.recordAclRefusal : win32recordacl.aclRefusal,
   };
   const lockPath = path.join(work, LOCK_NAME);
 
@@ -1496,9 +1663,14 @@ async function prepare(opts) {
       latest = stageFromFolder(ctx);
     } else {
       latest = await readOffer(ctx);
+      /* #6692: the release key list first (when a recovery key is set), then the manifest with its keys. */
+      const signed = await readSignedManifest(ctx, latest, await releaseKeys(ctx));
       const downloaded = await download(ctx, latest);
       unpack(ctx, downloaded.bytes);
       sha256 = downloaded.sha256;
+      /* B3b: every staged file against the signed list, before anything staged is run or even asked about. */
+      const differs = manifestVerify.filesRefusal(signed, ctx.staged, ENTRIES);
+      if (differs) refuse(`the update does not match its signed release (${differs}), so it was not installed`);
     }
     const verified = await verifyStaged(ctx, latest);
     result = { ok: true, version: latest.version, sha256, stagedDir: ctx.staged, runtimeChanged: verified.runtimeChanged, expectedIdentity: verified.expectedIdentity };
@@ -2055,8 +2227,8 @@ module.exports = {
   prepare, begin, rollbackToPrevious, keptPreviousBuild, connectComputerRefusal, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, releaseLock, sweepLockLeftovers, resolveWorld,
   readFileRetryingHolds, tryRetryingHolds, QUICK_HELD_READ_BUDGET, HELD_FILE_CODES,
   processImageFromTasklist, processImageStamp, sha256OfFile, unusualLocationRefusal, helperLaunch, waitForOutcome,
-  REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, STAGED_DIRNAME, DOWNLOAD_PART_NAME, LOCK_NAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,
-  signatureRefusal, authenticodeOf, EXPECTED_SIGNER, EXPECTED_ROOT_THUMBPRINT, EXPECTED_INTERMEDIATE_PATTERN,
+  REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, releaseManifestName, STAGED_DIRNAME, DOWNLOAD_PART_NAME, LOCK_NAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,
+  signatureRefusal, authenticodeOf, EXPECTED_SIGNER, EXPECTED_ROOT_THUMBPRINT, EXPECTED_INTERMEDIATE_PATTERN, EXPECTED_SUBJECT, EXPECTED_EKU,
   UNUSUAL_LOCATION_POLICY, APPLY_FLAG, RECOVER_FLAG, DEFAULT_BOARD_PORT,
 };
 
