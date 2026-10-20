@@ -1325,7 +1325,7 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 .utoast.survival { --utone: var(--warn-ink); }
 .utoast.survival.done, .utoast.survival.unknown { --utone: var(--label-2); }
 .utoast.survival.done .utxt b, .utoast.survival.unknown .utxt b { color: var(--label); font-weight: 400; }
-.utoast.survival.done .utxt b b { font-weight: 600; }
+.utoast.survival.done .utxt b b { display: inline; font-weight: 600; }   /* the name, inside its sentence */
 .utoast.login-adv.urgent { --utone: #b3261e; }
 /* #5018: the notices float over the page, centred on the header (under the navigation), instead of growing it (Josh). The
    header is their anchor (position: relative below); the stack takes no room, and only the notices take clicks.
