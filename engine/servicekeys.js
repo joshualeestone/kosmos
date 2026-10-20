@@ -15,11 +15,13 @@
  *                          "seq": <n>, "issued": "<YYYY-MM-DD>"}
  *   service-keys.json.sig  the recovery key's Ed25519 signature over that file's EXACT bytes, base64
  *
- * This slice only CHECKS. It is off while engine/manifest-verify.js RECOVERY_KEYS is empty (as it ships today): no
- * recovery key, no set can verify, and nothing here is called from the board yet. Its later slices: the release
+ * This slice only CHECKS. It is off while engine/manifest-verify.js RECOVERY_KEYS is empty (as it ships today): the
+ * check answers { off: true } and verifies nothing, and nothing here is called from the board yet. Its later slices: the release
  * ships the set, and the board compares the pinned key with it and tells the person on a mismatch.
  */
 const crypto = require('node:crypto');
+// The recovery keys are the release key list's (kosmos#6609): one pinned list, so turning the feature on is one change.
+const { RECOVERY_KEYS } = require('./manifest-verify');
 
 const SERVICE_KEYS_TYPE = 'kosmos-service-keys';
 const MAX_SEQ = 2147483647;
@@ -79,7 +81,7 @@ function kidOf(raw) {
 /** The pinned coordinator key (base64url of the 32 raw bytes, as the tunnel writes coordinator_pubkey) as its SPKI
  * base64 spelling, the one a set lists; null for anything else. */
 function pinnedSpki(pinned) {
-  const s = String(pinned == null ? '' : pinned).trim();
+  const s = String(pinned == null ? '' : pinned).replace(RUST_WS_ENDS, '');   // as the tunnel trims it (str::trim)
   if (!/^[A-Za-z0-9_-]{43}$/.test(s)) return null;
   const raw = Buffer.from(s, 'base64url');
   if (raw.length !== 32 || raw.toString('base64url') !== s) return null;
@@ -155,7 +157,10 @@ function realDate(s) {
  * { seq, sha256 } this computer took last, or null). Returns { ok: true, seq, sha256, keys: [{ kid, pub, role }] } or
  * { ok: false, why }.
  */
-function verifyServiceKeySet({ bytes, sig, recoveryKeys = [], held = null }) {
+function verifyServiceKeySet({ bytes, sig, recoveryKeys = RECOVERY_KEYS, held = null }) {
+  // Off (no recovery key pinned, as shipped today) is its own answer, not a refusal: a caller must not tell the
+  // person a set failed when there is simply nothing to check it with.
+  if (!Array.isArray(recoveryKeys) || !recoveryKeys.length) return { ok: false, off: true, why: 'no Kosmos recovery key is set, so service key sets are not checked yet' };
   const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes == null ? '' : bytes);
   // Trimmed as Rust's str::trim does (Unicode White_Space: U+0085 yes, U+FEFF no), not as String.prototype.trim.
   const sigText = String(sig == null ? '' : sig).replace(RUST_WS_ENDS, '');
@@ -163,10 +168,11 @@ function verifyServiceKeySet({ bytes, sig, recoveryKeys = [], held = null }) {
   let signature = /^[A-Za-z0-9+/]{86}==$/.test(sigText) ? Buffer.from(sigText, 'base64') : Buffer.alloc(0);
   if (signature.toString('base64') !== sigText) signature = Buffer.alloc(0);
   const roots = recoveryKeys.map(rawKey).filter(Boolean);
-  const signed = signature.length === 64 && roots.some((r) => {
+  // The root that signed it: the relay refuses a set listing ITS root (keyset.rs check_keys), not any other.
+  const signer = signature.length === 64 ? roots.find((r) => {
     try { return crypto.verify(null, buf, keyObject(r), signature); } catch { return false; }
-  });
-  if (!signed) return { ok: false, why: 'the service key set is not signed by the Kosmos recovery key' };
+  }) : undefined;
+  if (!signer) return { ok: false, why: 'the service key set is not signed by the Kosmos recovery key' };
   let doc; let top;
   let text;
   // Strict UTF-8, as serde_json reads bytes (toString would swap a bad byte for U+FFFD). A BOM is kept, so JSON.parse
@@ -193,7 +199,7 @@ function verifyServiceKeySet({ bytes, sig, recoveryKeys = [], held = null }) {
     const raw = rawKey(e.pub);
     if (!raw) return { ok: false, why: 'the signed service key set holds a key that is not one' };
     if (e.kid !== kidOf(raw)) return { ok: false, why: 'the signed service key set names a key under another kid' };
-    if (roots.some((r) => r.equals(raw))) return { ok: false, why: 'the signed service key set lists the recovery key as a service key' };
+    if (signer.equals(raw)) return { ok: false, why: 'the signed service key set lists the recovery key as a service key' };
     if (keys.some((k) => k.pub === e.pub)) return { ok: false, why: 'the signed service key set lists a key twice' };
     keys.push({ kid: e.kid, pub: e.pub, role: e.role });
   }
