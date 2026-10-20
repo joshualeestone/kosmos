@@ -12113,6 +12113,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   :is(#d-files, #d-sec-files) .pj-doc { min-height: 44px; }
   #d-files-all { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
   #d-files-back { display: inline-flex; align-items: center; min-height: 44px; }
+  #d-filesall-path button { min-height: 44px; padding: 0 10px; }   /* #6724 iteration 6: the only way back up, so a full tap target */
   /* #4088: Finder/File Explorer is on the computer running Kosmos, not the phone showing
      this page. Hide an action the phone cannot fulfil; the file rows remain available. */
   #d-files-finder { display: none; }
@@ -70334,7 +70335,8 @@ function pvOpen(id, from) {
     card.querySelector('span').textContent = a.meta || '';
     return card;
   };
-  if ((a.kind === 'image' || a.kind === 'pdf') && a.preview && /^\/api\//.test(a.preview)) {
+  const how = pvStageKind(a);
+  if (how === 'media') {
     const img = document.createElement('img');
     img.className = 'pv-media';
     img.alt = a.kind === 'pdf' ? 'The first page of ' + a.name : a.name;
@@ -70345,9 +70347,9 @@ function pvOpen(id, from) {
        type the server cannot preview) shows the file's card instead of a broken image on the whole screen. */
     img.addEventListener('error', () => { stage.textContent = ''; stage.appendChild(fileCard()); }, { once: true });
     pvZoomFrom(img, from);
-  } else if (a.kind === 'text' && typeof a.preview === 'string' && /^\/api\//.test(a.preview)) {
-    pvTextInto(stage, a.preview, fileCard);   // #6724: a Files-list text file
-  } else if (a.kind === 'text' && typeof a.preview === 'string' && a.preview && !/^\/api\//.test(a.preview)) {
+  } else if (how === 'textUrl') {
+    pvTextInto(stage, a.textUrl, fileCard);   // #6724: a Files-list text file
+  } else if (how === 'snippet') {
     const pre = document.createElement('pre');
     pre.className = 'pv-text';
     pre.textContent = a.preview;   // the file's own words, as text, never markup
@@ -70388,6 +70390,17 @@ function pvOpen(id, from) {
   document.body.appendChild(back);
   back.querySelector('.pv-box').focus();
   return true;
+}
+/* What the preview's stage shows for a record. #6724 iteration 6: a text file is READ FROM THE BOARD only by an explicit
+   `textUrl`, which only the Files lists set (filesPvOpen) and which must name a Files route. An attachment's `preview`
+   is the file's own first words, untrusted text, so it is never taken as an address (a file that begins "/api/..."
+   must not make the viewer's browser fetch that path); as before, such a snippet shows the file's card. */
+function pvStageKind(a) {
+  if (!a) return 'card';
+  if ((a.kind === 'image' || a.kind === 'pdf') && a.preview && /^\/api\//.test(a.preview)) return 'media';
+  if (a.kind === 'text' && typeof a.textUrl === 'string' && /^\/api\/(agent\/[^/]+\/files\/preview|project\/[^/]+\/file-preview)\?name=/.test(a.textUrl)) return 'textUrl';
+  if (a.kind === 'text' && typeof a.preview === 'string' && a.preview && !/^\/api\//.test(a.preview)) return 'snippet';
+  return 'card';
 }
 /* #6724: a Files-list text file in the preview: its start, read from the board's preview route (plain text, never
    markup), with a note when the file goes on past what is shown. One that will not read shows the file's card. An
@@ -70479,6 +70492,7 @@ function filesPvOpen(row, where, e) {
   PV_ATTS.set(FILES_PV_ID, {
     id: FILES_PV_ID, name: shown, kind, meta: sizeEl ? sizeEl.textContent : '',
     url: base.download + q, preview: base.preview + q,
+    textUrl: kind === 'text' ? base.preview + q : undefined,   // #6724: the only way a text preview is fetched (pvStageKind)
     download: () => kplusDownload(where.agent ? 'agent' : 'project', where.agent || where.project, name,
       kplusSayer(document.getElementById('pv-msg'), () => !!document.getElementById('pv-msg'))),
     reveal: async () => {
