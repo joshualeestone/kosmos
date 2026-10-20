@@ -1,16 +1,17 @@
 ---
 method: challenge-loop
 branch: boundtext-6708
-diff_hash: f70a4e9d930d4d37efd8af9423be49fb14bdc1f5d3286513d80ec6c8c8225ccf
-timestamp: 2026-10-20T13:55:25Z
+diff_hash: c2fa027df6d9d206a957a601dbda2f5677e79a7a56e296749a0d52c198cd4f1f
+timestamp: 2026-10-20T14:04:45Z
 subdir_audit: passed
-iterations: 4
+iterations: 5
 converged: true
 ---
 
 # Challenge-loop proof: boundtext-6708 (kosmos#6708: a bound code says which account can use it)
 
-Four blind iterations (iterations 3 and 4 on Sonnet and Opus; the models of 1 and 2 were not recorded). Iteration 4 returned no BLOCKER or WARNING, so it converged.
+Four blind iterations (iterations 3 and 4 on Sonnet and Opus; the models of 1 and 2 were not recorded). Iteration 4 returned no BLOCKER or WARNING, so it converged. A design review (Mona Lisa, approved) then added two
+optional changes, which iteration 5 reviewed: again no BLOCKER or WARNING.
 Stacked on fedfield-6681 (kosmos#6701, unmerged); the hash covers origin/main...HEAD, so it includes slice 2.
 
 ## Iteration 1
@@ -31,6 +32,15 @@ No new issues at WARNING or above.
 [NIT] the no-echo arm did not prove the done step was drawn (asserted)
 [NIT] the plan did not say kosmos-relay #502 makes it live (stated)
 [NIT] the page does not clean the echo itself (left on purpose: the engine is the only route that hands it one; stated in the plan)
+
+## Design review (Mona Lisa: approve, two optional notes, both taken)
+- bold the address on the done step (built from DOM nodes, never HTML; mutant: no bold element, red on exactly that arm)
+- the invitation says "If that is not your Kosmos+ email, ask for a new code."
+
+## Iteration 5 (Sonnet, the design-review commit)
+No new issues at WARNING or above.
+[NIT] the bold check counted elements, not weight (now computed font-weight >= 600)
+[NIT] the unbound control did not pin "no bold" (now asserts no strong element)
 
 ## Evidence
 - engine/federation.test.js: 18 pass, 0 fail.
