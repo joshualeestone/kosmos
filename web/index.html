@@ -42776,6 +42776,12 @@ function paintDetailState(card) {
       const forName = a.sessionName || '';
       const appears = saidBox.hidden && !!line;
       if (appears || saidBox.dataset.for !== forName) { saidBox.open = false; saidBox.dataset.for = forName; }
+      /* Hiding the fold while its summary has the keyboard would drop focus to the top of the page: it moves to the
+         state line beside the heading instead, which is what changed (tabindex -1, so it adds no Tab stop). */
+      if (!line && !saidBox.hidden && document.activeElement && saidBox.contains(document.activeElement)) {
+        const st = document.getElementById('d-state');
+        if (st) { st.tabIndex = -1; st.focus({ preventScroll: true }); }
+      }
       saidBox.hidden = !line;
     }
     if (said.textContent !== line) said.textContent = line;
@@ -42978,6 +42984,9 @@ function openDetail(sessionName, section, fromProject) {
   // cannot hide the loader during the update's own reload.
   for (const id of ['d-instr-updating', 'd-instr-loading', 'd-instr-retry-row']) document.getElementById(id).hidden = true;   // #4406 too
   document.getElementById('d-instr').placeholder = '';
+  // #6716: opening a page is an appearance too, so the screen-line fold starts closed even for the agent seen last.
+  const saidFold = document.getElementById('d-said-box');
+  if (saidFold) { saidFold.open = false; delete saidFold.dataset.for; }
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
   /* #5624 review 6: opening an agent (again) is first sight for conversation mode: the thread's poll stopped while it

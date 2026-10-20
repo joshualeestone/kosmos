@@ -75,7 +75,8 @@ function constSource(name) {
    echo the state they were handed, so the test reads which state the pill was painted from. */
 function pillFor(card, spokeLearnedAt, lastAt) {
   const els = {};
-  const doc = { getElementById: (id) => (els[id] = els[id] || { className: '', innerHTML: '', textContent: '', hidden: false, dataset: {} }) };
+  const doc = { activeElement: null, getElementById: (id) => (els[id] = els[id] || { id, className: '', innerHTML: '', textContent: '', hidden: false, dataset: {},
+    contains(x) { return x === this || (!!x && x.parent === this); }, focus() { doc.activeElement = this; } }) };
   // eslint-disable-next-line no-new-func
   const run = new Function('document', 'DM_SPOKE_AT', 'LAST_AT', [
     'const esc = (s) => String(s);',
@@ -95,6 +96,7 @@ function pillFor(card, spokeLearnedAt, lastAt) {
   ].join('\n'))(doc, new Map(spokeLearnedAt === null ? [] : [[card.sessionName, { at: 1, learnedAt: spokeLearnedAt }]]), lastAt);
   run(card);
   pillFor.els = els;
+  pillFor.doc = doc;
   pillFor.repaint = run;
   return els['d-state'].className;
 }
@@ -203,6 +205,51 @@ test('#6716: the screen-line fold starts closed each time it appears, and a poll
     box.open = true;
     pillFor.repaint({ ...waiting, sessionName: 'someone-else', name: 'Someone' });
     assert.equal(box.open, false, 'another agent\'s quote opened already expanded');
+  } finally {
+    fleet.restore();
+  }
+});
+
+test('#6716: opening a page closes the fold, even for the agent whose quote was open', () => {
+  /* openDetail runs on every real open and never on the poll; it must reset the fold so the next paint counts as an
+     appearance. Read from the real function's source, then replayed against the real paint. */
+  const src = pageFnSource('openDetail');
+  const reset = src.match(/const saidFold = document\.getElementById\('d-said-box'\);\n\s*if \(saidFold\) \{[^\n]*\}/);
+  assert.ok(reset, 'openDetail no longer resets the screen-line fold (#6716 review 6)');
+  const board = fleet.install([fleet.agent('beatrix', { state: 'working', screen: 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n' })]);
+  try {
+    const waiting = { ...board.agents.find((x) => x.name === 'beatrix'), state: 'needs_you' };
+    pillFor(waiting, null, 1000);
+    const box = pillFor.els['d-said-box'];
+    box.open = true;
+    pillFor.repaint(waiting);
+    assert.equal(box.open, true, 'control: without an open, the poll leaves it open');
+    // eslint-disable-next-line no-new-func
+    new Function('document', reset[0])(pillFor.doc);   // the person goes back to the grid and reopens Beatrix
+    pillFor.repaint(waiting);
+    assert.equal(box.open, false, 'reopening the same waiting agent showed the fold already open');
+  } finally {
+    fleet.restore();
+  }
+});
+
+test('#6716: when the fold hides under the keyboard, focus moves to the state line, not the top of the page', () => {
+  const board = fleet.install([fleet.agent('beatrix', { state: 'working', screen: 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n' })]);
+  try {
+    const card = board.agents.find((x) => x.name === 'beatrix');
+    const waiting = { ...card, state: 'needs_you' };
+    pillFor(waiting, null, 1000);
+    const box = pillFor.els['d-said-box'];
+    const summary = { parent: box };
+    pillFor.doc.activeElement = { parent: null };   // CONTROL: focus elsewhere is left alone
+    pillFor.repaint(card);
+    assert.notEqual(pillFor.doc.activeElement && pillFor.doc.activeElement.id, 'd-state', 'focus was moved though it was not in the fold');
+    pillFor.repaint(waiting);
+    pillFor.doc.activeElement = summary;   // the keyboard is on the summary
+    pillFor.repaint(card);   // back to working: the fold hides
+    assert.equal(box.hidden, true);
+    assert.equal(pillFor.doc.activeElement && pillFor.doc.activeElement.id, 'd-state', 'focus was left on the hidden fold');
+    assert.equal(pillFor.els['d-state'].tabIndex, -1, 'the state line became a Tab stop');
   } finally {
     fleet.restore();
   }
