@@ -264,6 +264,6 @@ test('#5254: the board sweeps at start and hourly, after a project is removed, a
   const SRC = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   assert.match(SRC, /function start\(port = PORT\) \{[\s\S]{0,400}filepreview\.sweep\(\);[\s\S]{0,200}setInterval\(\(\) => \{ try \{ filepreview\.sweep\(\);/);
   assert.match(SRC, /gone = projects\.remove\(id\);\n\s*try \{ filepreview\.sweep\(\); \}/);
-  assert.match(SRC, /maxDepth: 0, owner: \{ kind: 'agent', id: name \}/);
+  assert.match(SRC, /maxDepth: AGENT_BROWSE_DEPTH, owner: \{ kind: 'agent', id: name \}/);   // #6724: as deep as the browser
   assert.match(SRC, /'this project', \{ owner: \{ kind: 'project', id \} \}/);
 });

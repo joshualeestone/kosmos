@@ -355,6 +355,26 @@ test('a FOLDER swapped for a link after the walk (which O_NOFOLLOW on the file c
   assert.ok(!r.body.includes(Buffer.from(SECRET)), 'the secret was sent through a swapped folder');
 });
 
+test('a HARD link to a secret swapped in after the gate (a regular file inside Files: only the open handle’s identity can tell) is not sent', async () => {
+  const swap = path.join(SANDBOX, 'workers', 'swaphard', 'Files');
+  fs.mkdirSync(swap, { recursive: true });
+  fs.writeFileSync(path.join(swap, 'b.txt'), 'x'.repeat(SECRET.length));
+  const real = filepreview.resolve;
+  filepreview.resolve = (...args) => {
+    const got = real(...args);
+    if (got.ok && path.basename(got.target) === 'b.txt') {
+      fs.rmSync(got.target);
+      fs.linkSync(path.join(OUTSIDE, 'secret.txt'), got.target);
+    }
+    return got;
+  };
+  let r;
+  try { r = await rawGet('/api/agent/swaphard/files/download-folder'); } finally { filepreview.resolve = real; }
+  assert.equal(r.status, 200);
+  assert.ok(r.body.length < Number(r.headers['content-length']), 'the zip should end short of the length it promised');
+  assert.ok(!r.body.includes(Buffer.from(SECRET)), 'the secret was sent through a hard link');
+});
+
 /* The folder gate has two layers, and each must hold ALONE (a race can defeat either one): the lstat walk (no segment a
    link) and the resolved path equal to the walked one. The board's own filesystem seam stands each one up by itself. */
 const asIs = { realpath: (p) => fs.realpathSync.native(p), stat: (p) => fs.statSync(p), access: (p) => fs.accessSync(p, fs.constants.R_OK) };
