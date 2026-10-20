@@ -3570,12 +3570,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         updateBar?.isHidden = true
     }
 
-    /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. #5167: on every
-    /// computer, a download the page asks for is decided first.
-
-    /* 📌 PINNED, as createWebViewWith is: an optional delegate method with a slightly wrong Swift
-       signature compiles and is never called, which would switch the connect policy off silently.
-       The selector is WebKit's own (WKNavigationDelegate.h). */
     /* kosmos#6589 (S-7c): another of the person's computers must present a certificate whose key is the one it
        vouches for with the key its pairing carries (kosmos-relay tlspin.rs). The service can get a certificate for any
        computer's name with a key of its own, which a browser would accept; this is what refuses it, before the
@@ -3594,11 +3588,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
               space.port == 443 || space.port == 0,
               let target = URL(string: "https://" + host), isKosmosPlusURL(target), !isKosmosPlusSiteURL(target)
         else { completionHandler(.performDefaultHandling, nil); return }
-        // Review 1: evaluated off the main thread (it can wait on the network for revocation), then on as before.
-        evaluateTrustOffMain(trust) { [weak self] trusted in
-            // Review 7: a certificate that fails ordinary checking gets ordinary handling (WebKit then fails the load as
-            // untrusted, -1202, with its own error), not a cancel the failure path would read as superseded (-999).
-            guard trusted else { DispatchQueue.main.async { completionHandler(.performDefaultHandling, nil) }; return }
+        // Review 1: evaluated off the main thread (it can wait on the network for revocation), so the chain is built.
+        // Review 9: the pin is judged WHATEVER that evaluation says, and an allow hands the decision back to WebKit's own
+        // checking (.performDefaultHandling), so nothing rests on this evaluation agreeing with WebKit's: an untrusted
+        // certificate still fails there with WebKit's own error (-1202), and a pinned mismatch is refused here.
+        evaluateTrustOffMain(trust) { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self else { completionHandler(.cancelAuthenticationChallenge, nil); return }   // exactly once, always
                 self.judgePin(host: host, trust: trust, completionHandler: completionHandler)
@@ -3606,7 +3600,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    /// kosmos#6589: the pin half of the challenge, on the main thread, after ordinary checking passed.
+    /// kosmos#6589: the pin half of the challenge, on the main thread.
     private func judgePin(host: String, trust: SecTrust,
                           completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let leaf = tlsLeafKeyHash(trust)
@@ -3614,7 +3608,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let finish: (TlsPinDecision, String?) -> Void = { [weak self] d, state in
             DispatchQueue.main.async {
                 switch d {
-                case .allow: completionHandler(.useCredential, URLCredential(trust: trust))
+                case .allow: completionHandler(.performDefaultHandling, nil)   // review 9: WebKit's own checking still runs
                 case .ordinary: completionHandler(.performDefaultHandling, nil)
                 case .refuse, .askFresh:
                     self?.tlsPinRefused(host, mismatch: state == "pinned")
@@ -3674,6 +3668,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.addButton(withTitle: "OK")
         if let window { alert.beginSheetModal(for: window, completionHandler: nil) } else { alert.runModal() }
     }
+    /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. #5167: on every
+    /// computer, a download the page asks for is decided first.
+    /* 📌 PINNED, as createWebViewWith is: an optional delegate method with a slightly wrong Swift
+       signature compiles and is never called, which would switch the connect policy off silently.
+       The selector is WebKit's own (WKNavigationDelegate.h). */
     @objc(webView:decidePolicyForNavigationAction:decisionHandler:)
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
