@@ -4977,6 +4977,10 @@ function sendFileDownload(req, res, found, recheck) {
    says one thing and holds another). Refusals are refuseDownload's, so a browser never saves one as the zip; ?check=1
    is the page's look. Cross-site reads are refused (crossSiteRead), as the file download's are. */
 const ZIP_CHUNK = 1024 * 1024;
+/* Iteration 1: a client that stops reading would hold its response and an open file forever (Node sets no response
+   timeout). Past this long with nothing taken, the download is ended. */
+let ZIP_STALL_MS = 120 * 1000;
+function _setZipStallForTest(ms) { ZIP_STALL_MS = ms == null ? 120 * 1000 : ms; }
 function sendFolderZip(req, res, folder, rel, where, opts) {
   const refusedRead = crossSiteRead(req);
   if (refusedRead) { refuseDownload(req, res, refusedRead, 403); return; }
@@ -5000,17 +5004,24 @@ function sendFolderZip(req, res, folder, rel, where, opts) {
   if (req.method === 'HEAD') { res.end(); return; }
   writeZipEntries(res, folder, where, maxDepth, entries).catch(() => { if (!res.destroyed) res.destroy(); });
 }
+/* One write of the zip at a time, waiting for the socket to take it; a closed connection, or one that takes nothing for
+   ZIP_STALL_MS, ends the download (rejects, and the walk stops with its open file closed). */
+function zipPut(res, buf) {
+  return new Promise((resolve, reject) => {
+    if (res.destroyed || res.writableEnded) { reject(new Error('the connection closed')); return; }
+    let stall = null;
+    const gone = () => { if (stall) clearTimeout(stall); reject(new Error('the connection closed')); };
+    res.once('close', gone);
+    const done = () => { if (stall) clearTimeout(stall); res.removeListener('close', gone); resolve(); };
+    if (res.write(buf)) { done(); return; }
+    res.once('drain', done);
+    stall = setTimeout(() => { res.removeListener('drain', done); res.destroy(); }, ZIP_STALL_MS);   // 'close' then rejects
+  });
+}
 async function writeZipEntries(res, folder, where, maxDepth, entries) {
   const zlib = require('node:zlib');
   const changed = () => new Error('that folder changed while it was being downloaded');
-  // One write at a time, waiting for the socket to take it; a closed connection ends the walk.
-  const put = (buf) => new Promise((resolve, reject) => {
-    if (res.destroyed || res.writableEnded) { reject(new Error('the connection closed')); return; }
-    const gone = () => reject(new Error('the connection closed'));
-    res.once('close', gone);
-    const done = () => { res.removeListener('close', gone); resolve(); };
-    if (res.write(buf)) done(); else res.once('drain', done);
-  });
+  const put = (buf) => zipPut(res, buf);
   const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
   const central = [];
   let offset = 0;
@@ -7849,7 +7860,9 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const listed = projects.listDir(folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH });
-      sendJson(res, listed.ok ? 200 : 404, listed);
+      /* Iteration 1: 404 is kept for "no such agent" (the page says it has no folder of its own); a Files that is a file
+         or cannot be read answers 409 with its reason, and a folder inside Files that is not there is 404 as a file is. */
+      sendJson(res, listed.ok ? 200 : (dir ? 404 : 409), listed);
       return;
     }
     // #6724: as deep as the browser goes, so any file it shows can be previewed and downloaded (it was flat, the list).
@@ -25678,6 +25691,7 @@ if (require.main === module) {
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
+  _setZipStallForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up

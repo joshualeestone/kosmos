@@ -82,3 +82,25 @@ the attribute only when remote.
   the Finder buttons' exact markup (web.win32-board-copy, web.win32-update-offer), the flat Files screen's "And N more
   ... Open in Finder" line, now the browser's own overflow line (web.agent-files-3614, web.win32-board-copy), and a
   text file opening the preview (web.files-preview-4997).
+
+## Review
+- Iteration 1 (opus): no escape found (traversal, links, hard-link swaps, case and Unicode, Windows names and streams,
+  the walk-versus-read race), and the zip sends nothing it should not. Findings, all addressed:
+  - WARNING, fixed: a name with a backslash (legal on macOS) was listed but refused by preview, download and the zip
+    writer, and one such name sank the whole folder zip with an unnamed 413. The listing now applies the resolvers'
+    name rules, so the list, the preview, the download and the zip agree. Tested; mutant red.
+  - NIT, fixed: a Files that is a file (or unreadable) answered 404, which the page reads as "no folder of its own".
+    It answers 409 with its reason now; 404 stays for no such agent. Tested; mutant red.
+  - NIT, fixed: opendir follows a link, so a folder swapped for one between the gate and the read could list an
+    outside folder's names. The folder's identity is read before and after the read, and a changed one is refused.
+    Tested by swapping it inside opendir; mutant red.
+  - NIT, decided and kept: a file that grows or changes during a folder download ends the connection partway. Rejected:
+    sending the first bytes of a grown file, which makes a zip that looks whole and is not. The cost is that a person
+    downloading a folder an agent is writing into sees the browser's own "failed" and tries again. Weakest premise: that
+    folders are rarely downloaded while an agent is writing into them.
+  - NIT, fixed: a client that stops reading held its response and an open file forever. The sender (now `zipPut`) ends
+    a download that takes nothing for 120 s. Tested on the sender with a response that never drains (over loopback the
+    kernel's buffers took a whole test-sized zip from a paused client, so an end-to-end test could not see the stall);
+    the test has its own timeout, so the mutant shows as a timed-out (cancelled) test instead of a hang.
+  - Also fixed in the test: its requests now use a fresh connection each (`agent: false`). Under load, a fixture that
+    wrote 2001 files outlasted the board's 5 s keep-alive, and the next request on the pooled socket failed (status 0).
