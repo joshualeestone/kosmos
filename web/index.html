@@ -48018,6 +48018,7 @@ function paintSurvivalHidden(body) {
 function survivalFocusNext() {
   const next = document.querySelector('#survival-slot .utoast button');
   if (next && typeof next.focus === 'function') next.focus();
+  else if (typeof focusBoardHome === 'function') focusBoardHome();   // the last one closed: back to the board, not the page
 }
 
 /* The notice a button belongs to, for saying what went wrong beside it. */
@@ -48127,18 +48128,28 @@ document.addEventListener('click', async (e) => {
   const guessedLine = (r) => r.ok && r.guessed && r.guessed.model
     ? 'It had no record of which model it was set to run on, so it will start on the default. You can change it on its page.'
     : '';
-  const report = body.results.map((r) => survivalNotice(r.ok ? 'done report' : 'failed report',
+  /* Past the notice cap, one report lists every agent (still per agent, never a total), so pressing Start them at
+     login cannot stack a dozen notices over the board (review 5). */
+  const capNow = (typeof matchMedia === 'function' && matchMedia('(max-width: 720px)').matches) ? 1 : SURVIVAL_EACH_MAX;
+  const report = body.results.length > capNow
+    ? survivalNotice(body.results.every((r) => r.ok) ? 'done report' : 'failed report', 'Here is what happened',
+      body.results.map((r) => '<b>' + esc(r.shownAs || r.name) + '</b>: ' + esc(said(r))).join('<br>'), '',
+      body.results.map((r) => r.name).join(' '), 'Close the report')
+    : body.results.map((r) => survivalNotice(r.ok ? 'done report' : 'failed report',
     '<b>' + esc(r.shownAs || r.name) + '</b> ' + esc(said(r)), esc(guessedLine(r)), '', r.name,
     /* The Close button carries the result, and takes focus (review 3): a status region inserted already filled is not
        announced everywhere, and the button that had focus is gone. */
     'Close: ' + (r.shownAs || r.name) + ' ' + said(r))).join('');
+  /* Held only when the report reached the page: a tab switch mid-start empties the slot, and a hold with no report and
+     no x to release it would leave the notice blank (review 5). */
+  const onPage = (btn.closest('.utoast') && btn.closest('.utoast').isConnected) || false;
   const note = btn.closest('.utoast');
-  if (note) note.outerHTML = report; else if (slot) slot.insertAdjacentHTML('afterbegin', report);
+  if (onPage && note) note.outerHTML = report;
   if (slot) delete slot.dataset.v;   // the slot no longer holds what the signature describes
   const closeFirst = slot && slot.querySelector('.utoast.report .ux');
   if (closeFirst) closeFirst.focus();
   SURVIVAL_BUSY = false;
-  SURVIVAL_HELD = true;
+  SURVIVAL_HELD = onPage;
   /* The board can now see them, so ask it again rather than waiting out the
      poll: the whole point of the repair is that they are running. */
   try { await tick(); } catch { /* the poll will get there */ }

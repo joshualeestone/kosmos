@@ -1074,3 +1074,12 @@ test('#6714 review 4: the survey forgets a name whose agent now starts at login 
   const onDisk = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), 'utf8')).names;
   assert.deepEqual(onDisk, ['brigitte'], 'anna (now starting at login) should be forgotten and brigitte kept');
 });
+
+test('#6714 review 5: a hidden name no longer on the board at all is forgotten', () => {
+  reset();
+  agent('brigitte');
+  fs.writeFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), JSON.stringify({ names: ['brigitte', 'gone'] }));
+  mac.survey();
+  const onDisk = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), 'utf8')).names;
+  assert.deepEqual(onDisk, ['brigitte'], 'a name with no agent stayed hidden where Settings never shows it');
+});

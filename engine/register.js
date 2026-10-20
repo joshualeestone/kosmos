@@ -702,7 +702,9 @@ function survey(opts) {
   /* #6714 review 2: a hidden name whose agent now starts at login is forgotten, so if it ever loses its job again the
      notice comes back rather than staying silently closed. Written only when something changes; best effort. */
   /* A removed agent's name goes too (review 3), so an agent re-made under it does not start out hidden. */
-  const stale = hiddenList.filter((n) => agents.some((x) => x.name === n && (x.job === true || x.removed)));
+  /* And a name no longer on the board at all (forgotten, or its files deleted), so it cannot sit hidden where Settings
+     would never show it (review 5). */
+  const stale = hiddenList.filter((n) => !agents.some((x) => x.name === n && x.job !== true && !x.removed));
   if (stale.length) { try { forgetHidden(stale); } catch { /* next look */ } }
   return {
     ok: true,

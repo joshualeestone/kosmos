@@ -69,8 +69,10 @@ test('#6714: POST /api/register: {} and no body mean all, a name means that one,
   assert.equal((await post('/api/register', JSON.stringify({ name: 5 }))).status, 400);
   assert.equal((await post('/api/register', '{not json')).status, 400);
   const all = await post('/api/register', JSON.stringify({}));
-  assert.notEqual(all.status, 400, '{} was refused rather than read as all');
-  assert.ok(Array.isArray(all.body.results), JSON.stringify(all.body));
+  assert.equal(all.status, 200, '{} was not read as all: ' + JSON.stringify(all.body));
+  assert.ok(all.body.results.some((r) => r.name === 'rt-b'), '{} did not start the remaining agent: ' + JSON.stringify(all.body));
+  ranAgent('rt-c');
   const bare = await post('/api/register', '');
-  assert.notEqual(bare.status, 400, 'no body was refused');
+  assert.equal(bare.status, 200, 'no body was not read as all');
+  assert.ok(bare.body.results.some((r) => r.name === 'rt-c'), 'no body did not start the remaining agent');
 });

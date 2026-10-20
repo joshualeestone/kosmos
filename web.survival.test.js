@@ -184,10 +184,16 @@ test('#6714 review 1: a failed start keeps the warning look and is closable as a
 });
 
 test('#6714 review 4: inserting or closing a report clears the repaint signature, so a failed start gets its notice back', () => {
-  const insert = SCRIPT.indexOf("if (note) note.outerHTML = report;");
+  const insert = SCRIPT.indexOf("if (onPage && note) note.outerHTML = report;");
   assert.ok(insert > 0);
   assert.match(SCRIPT.slice(insert, insert + 200), /delete slot\.dataset\.v/);
   const close = SCRIPT.indexOf("if (hide.closest('.utoast.report')) {");
   assert.ok(close > 0);
   assert.match(SCRIPT.slice(close, close + 900), /if \(slot\) delete slot\.dataset\.v;/);
+});
+
+test('#6714 review 5: past the cap, Start them at login gives one report; a report is held only if it reached the page', () => {
+  assert.match(SCRIPT, /const report = body\.results\.length > capNow\s*\? survivalNotice\(/);
+  assert.match(SCRIPT, /SURVIVAL_HELD = onPage;/);
+  assert.doesNotMatch(SCRIPT, /SURVIVAL_BUSY = false;\n  SURVIVAL_HELD = true;/);
 });
