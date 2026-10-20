@@ -3306,6 +3306,37 @@ case "${1:-}" in
     ;;
 esac
 
+# #6650: a sandboxed install (another KOSMOS_HOME) whose login job would land in the REAL ~/Library/LaunchAgents
+# is refused, before anything is written, in the two shapes that left three test boards respawning on a release
+# Mac for 20 hours, one holding the real board off its port for three: a home under a temp folder (the cleaner
+# deletes it and leaves the job behind), or the account's own default port (it fights the real board for it). A
+# release walk names its own port and a home it keeps, so it is unaffected. AGENT_WORKFORCE_LAUNCH (a folder of
+# the caller's own) or KOSMOS_ALLOW_TEMP_LAUNCH=1 (on purpose) lets it through. Prints why and returns 1 to refuse.
+_kosmos_temp_launch_refusal() {
+  [ "$(uname -s)" = Darwin ] && [ "$KOSMOS_HOME" != "$_kosmos_home_default" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] \
+    && [ "${KOSMOS_ALLOW_TEMP_LAUNCH:-}" != 1 ] || return 0
+  _tl_why=""
+  # Only the account's own LaunchAgents is real: a HOME pointed elsewhere (a test's fake home) writes its own.
+  # Unreadable from the directory service counts as the real one, so the guard fails toward refusing.
+  # KOSMOS_ACCOUNT_HOME is the test seam for the directory service's answer.
+  _tl_real="${KOSMOS_ACCOUNT_HOME:-$(/usr/bin/dscl . -read "/Users/$(/usr/bin/id -un)" NFSHomeDirectory 2>/dev/null | /usr/bin/sed -n 's/^NFSHomeDirectory: //p')}"
+  _tl_here="$(cd "$HOME" 2>/dev/null && pwd -P)" || _tl_here="$HOME"
+  [ -n "$_tl_real" ] && _tl_real="$(cd "$_tl_real" 2>/dev/null && pwd -P)" || _tl_real="$_tl_here"
+  [ "$_tl_here" = "$_tl_real" ] || return 0
+  _tl_tmp="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P)" || _tl_tmp=""
+  case "$KOSMOS_HOME/" in
+    /tmp/*|/private/tmp/*|/var/folders/*|/private/var/folders/*) _tl_why="its folder ($KOSMOS_HOME) is a temporary one" ;;
+    *) [ -n "$_tl_tmp" ] && case "$KOSMOS_HOME/" in "$_tl_tmp"/*) _tl_why="its folder ($KOSMOS_HOME) is a temporary one" ;; esac ;;
+  esac
+  [ -n "$_tl_why" ] || [ "$PORT" != "$_kosmos_default_port" ] || _tl_why="it would use port $PORT, the one this account's own Kosmos uses"
+  [ -n "$_tl_why" ] || return 0
+  printf '\n  This install uses another Kosmos folder, and %s, so its background job would be left\n' "$_tl_why" >&2
+  printf '  running in your real login items. Nothing was changed. For a test install, set AGENT_WORKFORCE_LAUNCH to a\n' >&2
+  printf '  folder of its own (and KOSMOS_PORT to a free port); to do this on purpose, set KOSMOS_ALLOW_TEMP_LAUNCH=1.\n\n' >&2
+  return 1
+}
+_kosmos_temp_launch_refusal || exit 2
+
 # ---- preflight --------------------------------------------------------------
 # ⚠️ ASK WHETHER THIS IS A FRESH MACHINE **BEFORE** ANYTHING CREATES A DIRECTORY.
 # The first version asked afterwards, and `start_log` had already made
@@ -5513,6 +5544,11 @@ if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
   # `X` is not a newline, so nothing gets stripped until `%X` removes it.
   _extra_env_kv="$( { _env_kv AGENT_WORKFORCE_DATA "$AGENT_WORKFORCE_DATA"; _env_kv AGENT_WORKFORCE_PROJECTS "$AGENT_WORKFORCE_PROJECTS"; _env_kv AGENT_WORKFORCE_WORKERS "$AGENT_WORKFORCE_WORKERS"; _env_kv AGENT_WORKFORCE_HALF_SANDBOX_OK "$AGENT_WORKFORCE_HALF_SANDBOX_OK"; printf 'X'; } )"
   _extra_env_kv="${_extra_env_kv%X}"
+  # #6650: an install let through on purpose stays let through when its own self-update runs this script again.
+  if [ "${KOSMOS_ALLOW_TEMP_LAUNCH:-}" = 1 ]; then
+    _extra_env_kv="$_extra_env_kv$( { _env_kv KOSMOS_ALLOW_TEMP_LAUNCH 1; printf 'X'; } )"
+    _extra_env_kv="${_extra_env_kv%X}"
+  fi
 fi
 _board_ok=no
 # 🛑 THIS HEREDOC IS UNQUOTED, so every $(...) and every backtick in its body
