@@ -13,7 +13,9 @@
 # suite unchanged, and only if the suite is red prints that record beside the
 # failures: "this run shared the machine with a live board on :16180 from
 # <cwd> (pid), N other gate runs, load L". The person then knows whether to
-# rerun alone or read the red. Green runs print nothing extra.
+# rerun alone or read the red. Green runs print nothing extra (#6668: except two file-watchdog lines on stderr: "node
+# --test not found yet", which prints on a green run whenever node takes 5 s or more to start, at any limit, and
+# "could not make the file watchdog's flag file", when its flag file cannot be made).
 #
 # The suite itself is isolated by construction (every booted server takes
 # port 0, every store-using test sandboxes before requiring, every shell test
@@ -140,6 +142,171 @@ if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
     exit 2
   fi
 fi
+
+# --- #6668: a wall-clock limit per test FILE, outside node ---------------------
+# A test blocked in a sync call (spawnSync, execSync, execFileSync with no timeout) blocks its own event loop, so
+# nothing inside node can stop it, --test-timeout included. One such grep held the machine's test queue for 66 min.
+# So a watchdog beside the suite looks every few seconds at the DIRECT children of THIS run's `node --test` (scoped by
+# parent pid: only this runner's own node --test and its direct children), and stops any child older than the limit,
+# with its process tree (by parent pid: a descendant that was reparented or daemonised escapes it, and one re-parented
+# to launchd during the 5 s grace is not KILLed): TERM, then KILL for whatever still runs 5 s later. The TERM targets
+# come from one ps snapshot in which the root's parent is this run's node; its descendants are not rechecked one by
+# one before the TERM, while the KILL targets are. A file is stopped, printed and flagged once. Behind a non-exec node
+# shim it watches the shim's own node --test child instead.
+# It prints `run-tests: TIMED OUT after <limit>: <file>` (minutes when whole, else seconds), and the run is red even
+# if node reports 0 (a flag file, read after node exits). The limit: KOSMOS_TEST_FILE_TIMEOUT_MIN minutes (default 30:
+# three times the slowest file estimated from summed per-test times under the incident's load, about 10 min, and 4.6x
+# the slowest file sampled in a full run on 2026-10-20, 388 s at mean load 18.7; see
+# .claude/plans/filewatchdog-6668.md), scaled by KOSMOS_TEST_TIME_SCALE like the other liveness ceilings but never
+# past 60 min by the scaling: the point is to bound how long one node test file can hold the shared queue (an N set
+# above 60 is taken as given). KOSMOS_TEST_FILE_TIMEOUT_S, in seconds and unscaled, is for this runner's own tests.
+# Both refuse a leading 0 (bash would read 010 as octal) and more than a day (1440 min, 86400 s).
+# KOSMOS_TEST_TIMEOUT_MS overrides node's per-test --test-timeout (default 600000, scaled below by
+# KOSMOS_TEST_TIME_SCALE like the suite's other liveness ceilings); validated the same way.
+RT_FILE_TIMEOUT_MIN="${KOSMOS_TEST_FILE_TIMEOUT_MIN:-30}"
+# (Never empty here: an empty KOSMOS_TEST_FILE_TIMEOUT_MIN means the default, by the :- above.)
+case "$RT_FILE_TIMEOUT_MIN" in *[!0-9]*|0*) echo "run-tests: KOSMOS_TEST_FILE_TIMEOUT_MIN must be a whole number of minutes above 0, with no leading 0 (got '$RT_FILE_TIMEOUT_MIN')" >&2; exit 2 ;; esac
+[ "${#RT_FILE_TIMEOUT_MIN}" -le 4 ] && [ "$RT_FILE_TIMEOUT_MIN" -le 1440 ] || { echo "run-tests: KOSMOS_TEST_FILE_TIMEOUT_MIN must be at most 1440 (a day; got '$RT_FILE_TIMEOUT_MIN')" >&2; exit 2; }
+if [ -n "${KOSMOS_TEST_FILE_TIMEOUT_S:-}" ]; then
+  case "$KOSMOS_TEST_FILE_TIMEOUT_S" in *[!0-9]*|0*) echo "run-tests: KOSMOS_TEST_FILE_TIMEOUT_S must be a whole number of seconds above 0, with no leading 0 (got '$KOSMOS_TEST_FILE_TIMEOUT_S')" >&2; exit 2 ;; esac
+  [ "${#KOSMOS_TEST_FILE_TIMEOUT_S}" -le 5 ] && [ "$KOSMOS_TEST_FILE_TIMEOUT_S" -le 86400 ] || { echo "run-tests: KOSMOS_TEST_FILE_TIMEOUT_S must be at most 86400 (a day; got '$KOSMOS_TEST_FILE_TIMEOUT_S')" >&2; exit 2; }
+fi
+if [ -n "${KOSMOS_TEST_TIMEOUT_MS:-}" ]; then
+  case "$KOSMOS_TEST_TIMEOUT_MS" in *[!0-9]*|0*) echo "run-tests: KOSMOS_TEST_TIMEOUT_MS must be a whole number of milliseconds above 0, with no leading 0 (got '$KOSMOS_TEST_TIMEOUT_MS')" >&2; exit 2 ;; esac
+  [ "${#KOSMOS_TEST_TIMEOUT_MS}" -le 9 ] || { echo "run-tests: KOSMOS_TEST_TIMEOUT_MS must be at most 9 digits (got '$KOSMOS_TEST_TIMEOUT_MS')" >&2; exit 2; }
+fi
+# $1 and every process under it, by parent pid, from ONE `ps` snapshot; nothing unless $1 is running AND its parent
+# in that same snapshot is $2 (this run's node), so the scoping and the walk read the same instant.
+rt_wd_tree() {
+  ps -A -o pid=,ppid= 2>/dev/null | awk -v root="$1" -v want="$2" '
+    { kids[$2] = kids[$2] " " $1; up[$1] = $2 }
+    END { if (!(root in up) || up[root] != want) exit
+          q[1] = root; n = 1; for (i = 1; i <= n; i++) { print q[i]; c = split(kids[q[i]], k, " "); for (j = 1; j <= c; j++) q[++n] = k[j] } }'
+}
+# The loop itself, run in the background: $1 this runner's pid, $2 the flag file.
+rt_wd_loop() {
+  local parent="$1" flag="$2" node="" tick=5 p f cmd kids old pid file victims alive fresh
+  local sl="" stop=0 looks=0 stopped="" ent
+  [ "$RT_FILE_TIMEOUT_S" -lt 30 ] && tick=1
+  # A TERM from rt_file_watchdog_stop ends the loop at once: the tick is a BACKGROUND sleep plus wait, which the trap
+  # interrupts. The grace sleeps (the up to 5 s between TERM and KILL) are foreground, so the trap runs after the one
+  # in progress; the file loop then checks stop before each file and before the KILL, and stops there. So a stop
+  # during a grace skips that KILL: a file that ignored the TERM can outlive a run whose node has already exited.
+  trap 'stop=1; [ -n "${sl:-}" ] && kill "$sl" 2>/dev/null' TERM
+  while [ "$stop" = 0 ] && kill -0 "$parent" 2>/dev/null; do
+    if [ -z "$node" ]; then
+      for p in $(pgrep -P "$parent" 2>/dev/null); do
+        cmd="$(ps -ww -o command= -p "$p" 2>/dev/null)"
+        case "$cmd" in "node --test "*|*"/node --test "*) node="$p" ;; esac   # by name, or by full path
+      done
+      # Found: say so beside the flag, so the record beside a red can tell "not found" from a limit that held.
+      [ -n "$node" ] && : > "$flag.node"
+      looks=$((looks + 1))
+      # Looks come every 0.2 s until node is found, so a short run is seen too. node starts right after this loop
+      # does, so 25 looks (5 s or more: each look also runs ps) without it means it is not where this looks; a node
+      # that slow to start under load can print this on a green run too.
+      if [ -z "$node" ] && [ "$looks" = 25 ]; then
+        echo "run-tests: node --test not found yet; the per-file limit is off until it is (#6668)" >&2
+      fi
+    elif ! kill -0 "$node" 2>/dev/null; then
+      # $node itself is only rechecked with kill -0: a pid reused in the microseconds after node exits is not covered.
+      return 0
+    else
+      # A non-exec node shim (Volta and similar): the runner's child reads as node --test but only starts the real
+      # one as its child and waits. When this node --test's ONLY child is itself a node --test (by command line, and
+      # by parent pid as everywhere here), watch that one instead, so a file and not the whole suite meets the limit.
+      # It relies on a per-file child's command line never containing "node --test " (Node 26 starts each file as
+      # node --test-concurrency=...), so a real node --test with one file is not mistaken for a shim.
+      kids="$(pgrep -P "$node" 2>/dev/null)"
+      if [ -n "$kids" ] && [ "$(printf '%s\n' "$kids" | wc -l | tr -d ' ')" = 1 ]; then
+        cmd="$(ps -ww -o command= -p "$kids" 2>/dev/null)"
+        case "$cmd" in "node --test "*|*"/node --test "*) node="$kids"; continue ;; esac
+      fi
+      # Direct children of node --test older than the limit. etime is [[dd-]hh:]mm:ss of WALL clock, so a host
+      # sleep or suspend counts as test time and can produce a TIMED OUT red (known limit; fleet Macs do not sleep).
+      # Each is printed as pid@start (its start time, lstart, from the same snapshot), so "once per file" below is
+      # keyed on the process, not on a pid that a long run may hand to a new process later.
+      old="$(ps -A -o pid=,ppid=,etime=,lstart= 2>/dev/null | awk -v n="$node" -v lim="$RT_FILE_TIMEOUT_S" '
+        $2 == n { e = $3; d = 0; if (index(e, "-")) { split(e, a, "-"); d = a[1]; e = a[2] }
+                  c = split(e, t, ":"); s = 0; for (i = 1; i <= c; i++) s = s * 60 + t[i]
+                  if (d * 86400 + s >= lim) print $1 "@" $4 "-" $5 "-" $6 "-" $7 "-" $8 }')"
+      # One at a time: several files over the limit on the same look are each stopped in turn, so each can wait
+      # up to the 5 s TERM grace of the ones before it.
+      for ent in $old; do
+        [ "$stop" = 0 ] || break
+        pid="${ent%%@*}"
+        # Each file once: one that outlived its KILL (or lingers unreaped) is not TERMed, printed or flagged again.
+        # Keyed on pid and start time, so a new process that reuses an old pid is still seen.
+        case "$stopped " in *" $ent "*) continue ;; esac
+        cmd="$(ps -ww -o command= -p "$pid" 2>/dev/null)" || continue
+        # node --test starts each file with the file as its LAST argument: name it by the longest file of this
+        # run that the command line ends with (so a path with a space survives), else by the last word (which is
+        # also what a run with arguments after the files gets, since then no file ends the command line).
+        file="${cmd##* }"; p=""
+        for f in "${KOSMOS_TEST_FILES[@]}"; do
+          case "$cmd" in *" $f"|*"/$f") [ "${#f}" -gt "${#p}" ] && p="$f" ;; esac
+        done
+        [ -n "$p" ] && file="$p"
+        # The TERM targets come from ONE ps snapshot in which the root's parent is this run's node: a root pid that
+        # ended and was reused since the look above gives nothing. Its descendants are not rechecked one by one
+        # before the TERM (a pid reused in those microseconds is not covered); the KILL targets below are rechecked.
+        victims="$(rt_wd_tree "$pid" "$node")"
+        # Gone (or no longer node's) between the age check and the walk: it timed nothing out.
+        [ -n "$victims" ] || continue
+        stopped="$stopped $ent"
+        kill -TERM $victims 2>/dev/null
+        echo "run-tests: TIMED OUT after $RT_FILE_TIMEOUT_LABEL: $file (#6668; stopped it and its process tree)" >&2
+        printf '%s\n' "$file" >> "$flag"
+        for p in 1 2 3 4 5 6 7 8 9 10; do kill -0 $victims 2>/dev/null || break; sleep 0.5; done   # up to 5 s
+        [ "$stop" = 0 ] || break
+        # KILL, from one fresh ps, only a pid that is running now AND either was in the first snapshot with its
+        # current parent also in that snapshot, or is in a fresh walk from the root, which gives nothing unless the
+        # root is still a child of this node in that walk's own snapshot (so the root itself is KILLed only that
+        # way). A pid reused in those 5 s by an unrelated process fails both (reasoned: not proven by a test). Not
+        # covered: a first-snapshot process whose parent died and that was adopted by launchd is left running.
+        fresh="$(rt_wd_tree "$pid" "$node")"
+        alive="$(ps -A -o pid=,ppid= 2>/dev/null | awk -v first=" $(echo $victims) " -v fresh=" $(echo $fresh) " '
+          { me = " " $1 " "; up = " " $2 " "
+            if (index(fresh, me) || (index(first, me) && index(first, up))) print $1 }')"
+        [ -n "$alive" ] && kill -KILL $alive 2>/dev/null
+      done
+    fi
+    [ "$stop" = 0 ] || break
+    if [ -z "$node" ] && [ "$looks" -lt 25 ]; then sleep 0.2 & sl=$!; else sleep "$tick" & sl=$!; fi
+    # A stop that landed between the check above and sl=$! found no sleep to kill: kill it here.
+    [ "$stop" = 0 ] || { kill "$sl" 2>/dev/null; break; }
+    wait "$sl" 2>/dev/null; sl=""
+  done
+}
+rt_file_watchdog_start() {
+  [ "$KOSMOS_TEST_PART" != shell ] || return 0
+  # Beside the run root, not in it: the tests get the run root as TMPDIR, so none of them can touch the flag. When no
+  # run root exists it lands in TMPDIR itself, which the tests then share. A signal in the microseconds between mktemp
+  # creating the file and this assignment leaves it behind (the traps remove only a flag they can name).
+  _rt_wd_flag="$(mktemp "$(dirname "$KOSMOS_RUN_TMPDIR")/kt$$-file-timeout.XXXXXXXXXX")" || { echo "run-tests: could not make the file watchdog's flag file; running without a per-file limit (#6668)" >&2; _rt_wd_flag=""; return 0; }
+  rt_wd_loop "$$" "$_rt_wd_flag" &
+  _rt_wd_pid=$!
+  _rt_wd_started=1
+  # On a TERM to the runner, its EXIT trap signals the watchdog at once (both traps name _rt_wd_pid and remove the
+  # flag), not only at the loop's next look at its parent. On a Ctrl-C, bash waits for node and the normal stop
+  # (rt_file_watchdog_stop) follows. The trap for a run with no run root is not proven by a test.
+  # ⚠️ A TERMed runner leaves its node --test running without the per-file limit (bash exits at once and node is not
+  # its signal's target): stop the inner node too. The runner's TERM behaviour is deliberately unchanged here.
+}
+# After node: stop the loop, and a file it timed out makes the run red whatever node said (that backstop for a node
+# that reports 0 is not proven by a test: node already fails a killed file).
+rt_file_watchdog_stop() {
+  [ -n "$_rt_wd_pid" ] && { kill "$_rt_wd_pid" 2>/dev/null; wait "$_rt_wd_pid" 2>/dev/null; }
+  _rt_wd_pid=""
+  [ -n "$_rt_wd_flag" ] || return 0
+  [ -e "$_rt_wd_flag.node" ] && _rt_wd_found=1
+  if [ -s "$_rt_wd_flag" ]; then
+    echo "run-tests: $(wc -l < "$_rt_wd_flag" | tr -d ' ') test file(s) ran longer than $RT_FILE_TIMEOUT_LABEL and were stopped (#6668):" >&2
+    sed 's/^/  /' "$_rt_wd_flag" >&2
+    [ "$NODE_STATUS" -eq 0 ] && NODE_STATUS=1
+  fi
+  rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"; _rt_wd_flag=""
+}
 
 # #2858: strip the ambient Codex-home vars ONCE here, at the single runner every
 # `yarn test` (and the canonical validation / pre-challenge gate) routes through,
@@ -306,6 +473,19 @@ else
   KOSMOS_TEST_TIME_SCALE=1.00
 fi
 export KOSMOS_TEST_TIME_SCALE
+# #6668: node's per-test --test-timeout, a liveness ceiling, scaled like the others (600000 = 3.3x an estimated
+# lower bound, 183.5 s from log lines; see plan), rounded to a whole ms (the scale has two decimals, so it is
+# exact). KOSMOS_TEST_TIMEOUT_MS (validated above) is taken as given.
+# The per-file limit, scaled the same way, but never past 60 min by the scaling (an N set above 60 stays as set):
+# it bounds how long one file can hold the shared queue. KOSMOS_TEST_FILE_TIMEOUT_S is taken as given.
+if [ -n "${KOSMOS_TEST_FILE_TIMEOUT_S:-}" ]; then
+  RT_FILE_TIMEOUT_S="$KOSMOS_TEST_FILE_TIMEOUT_S"
+else
+  RT_FILE_TIMEOUT_S="$(awk -v n="$RT_FILE_TIMEOUT_MIN" -v s="$KOSMOS_TEST_TIME_SCALE" 'BEGIN { b = n * 60; v = b * s
+    if (v < b || v != v) v = b; c = (b > 3600) ? b : 3600; if (v > c) v = c; printf "%d", v + 0.5 }')"
+fi
+if [ $((RT_FILE_TIMEOUT_S % 60)) = 0 ]; then RT_FILE_TIMEOUT_LABEL="$((RT_FILE_TIMEOUT_S / 60)) min"; else RT_FILE_TIMEOUT_LABEL="$RT_FILE_TIMEOUT_S s"; fi
+RT_TEST_TIMEOUT_MS="${KOSMOS_TEST_TIMEOUT_MS:-$(awk -v s="$KOSMOS_TEST_TIME_SCALE" 'BEGIN { v = 600000 * s; if (v < 600000 || v != v) v = 600000; printf "%d", v + 0.5 }')}"
 BEFORE="$(seen_before)"
 
 # #1962: refuse to run the suite while a RELEASE holds the machine. This is every
@@ -467,7 +647,7 @@ unset ${KOSMOS_WAIT_CONTROL_VARS:-}
 # fragile suite, which is #1264.
 #
 # 📌 A hard kill skips the trap and leaves ONE directory instead of 92, named
-# for the run that made it.
+# for the run that made it, plus (#6668) the file watchdog's flag file beside it, kt<pid>-file-timeout.*.
 #
 # ⚠️ WHAT THIS DOES NOT COVER, MEASURED, BECAUSE THE OBVIOUS ASSUMPTION IS
 # WRONG: macOS `mktemp` IGNORES TMPDIR. It reads the per-user directory from
@@ -481,11 +661,13 @@ unset ${KOSMOS_WAIT_CONTROL_VARS:-}
 KOSMOS_RUN_TMPDIR="${TMPDIR:-/tmp}"
 KOSMOS_RUN_TMPDIR="${KOSMOS_RUN_TMPDIR%/}/kt$$"
 if mkdir -p "$KOSMOS_RUN_TMPDIR" 2>/dev/null; then
+  # #6668: this trap signals the file watchdog and removes its flag and .node files; in the moment before the
+  # watchdog acts on the signal it can still write either one again, which this trap does not see (a stray file).
   # kosmos#4273: an INTERRUPTED run (Ctrl-C, a runner's timeout) never reaches the leak
   # guard, and removing the root under a launchd job loaded from a plist in it is the
   # 8,096-respawn shape. So while the labels snapshot is still unused (the guard removes
   # it), the trap boots out this run's jobs before the root goes.
-  trap '[ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
+  trap '[ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"; [ -n "${_tl_labels_before:-}" ] && [ -f "$_tl_labels_before" ] && type leak_launchd_check >/dev/null 2>&1 && leak_launchd_check "$_tl_labels_before" "$KOSMOS_RUN_TMPDIR" >&2; rm -rf "$KOSMOS_RUN_TMPDIR"' EXIT
   export TMPDIR="$KOSMOS_RUN_TMPDIR"
   export KOSMOS_TEST_RUN="$KOSMOS_RUN_TMPDIR"   # #5418, see above
 else
@@ -493,6 +675,9 @@ else
   echo "run-tests: could not make a per-run temp dir; the suite will use TMPDIR directly and leave its scratch behind" >&2
   # #5418: the marker is the temp folder in use, so this run's processes keep the real-root rule.
   export KOSMOS_TEST_RUN="${TMPDIR:-/tmp}"
+  # #6668: with no run root there is no exit trap above, so this one signals the file watchdog on a TERM (a Ctrl-C
+  # waits for node, and the normal stop follows).
+  trap '[ -n "${_rt_wd_pid:-}" ] && kill "$_rt_wd_pid" 2>/dev/null; [ -n "${_rt_wd_flag:-}" ] && rm -f "$_rt_wd_flag" "$_rt_wd_flag.node"' EXIT
 fi
 
 # --- coverage assertion: every *.test.js is CONSIDERED (kosmos#1934) -----------
@@ -571,11 +756,23 @@ fi
 # #4317: which part runs is decided (and a bad value refused) at the top of this file.
 # ⚠️ The node --test line stays FLUSH LEFT: three guards find the suite by `^node --test`
 # (#1934's count-and-run pin, #3605's preload pin, #4273's guard-after-suite order).
+#
+# #6668: --test-timeout (10 min, scaled; per test, including its subtests; not per describe or per file) catches
+# an async hang, but it runs on the test's own event loop, so it cannot stop a test blocked in a sync call
+# (spawnSync with no timeout held the queue 66 min). The file watchdog below is outside node: it stops any one
+# test FILE that runs longer than its limit and the run goes red.
 NODE_STATUS=0
+_rt_wd_pid=""
+_rt_wd_flag=""
+_rt_wd_started=0
+_rt_wd_found=0
+rt_file_watchdog_start   # not for a shell-only run
 if [ "$KOSMOS_TEST_PART" != shell ]; then
-node --test --require "$REPO/test-support/launch-guard.js" --require "$REPO/test-support/tool-guard.js" "${KOSMOS_TEST_FILES[@]}" "$@"
+node --test --require "$REPO/test-support/launch-guard.js" --require "$REPO/test-support/tool-guard.js" --test-timeout="$RT_TEST_TIMEOUT_MS" "${KOSMOS_TEST_FILES[@]}" "$@"
 NODE_STATUS=$?
 fi
+rt_file_watchdog_stop
+_rt_node_status="$NODE_STATUS"   # #6668: the node part's own verdict, before the shell part and the gates fold in
 if [ "$KOSMOS_ONLY" = 1 ]; then
   :   # #4929: --only runs named node files; the shell part is the whole suite's
 elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
@@ -665,6 +862,16 @@ if [ "$NODE_STATUS" -ne 0 ]; then
     echo "A test that dies on 'we could not see what is running' or a timeout met a busy machine, not a missing thing (#704)."
   else
     echo "Nothing else was on the default port and no page gate was running, so this red is not contention with a board; read it."
+  fi
+  # #6668: the limits this run's node part had (scaled by the time-scale above), under their own label, so a red
+  # beside a TIMED OUT line or a cancelled test reads against the limit it met. Only when the NODE part itself was red: a
+  # green node part (a shell-part or gate red, or a shell-only run) prints no limit line. A watchdog that could not
+  # start enforced nothing, and says so.
+  if [ "${_rt_node_status:-0}" -ne 0 ]; then
+    if [ "${_rt_wd_started:-0}" != 1 ]; then _rt_wd_said="per-file limit: off (the watchdog could not start)"
+    elif [ "${_rt_wd_found:-0}" != 1 ]; then _rt_wd_said="per-file limit: off (node --test not found before the run ended)"
+    else _rt_wd_said="per-file limit $RT_FILE_TIMEOUT_LABEL"; fi
+    echo "Limits this run: $_rt_wd_said, per-test limit ${RT_TEST_TIMEOUT_MS} ms (#6668)"
   fi
 fi
 exit "$NODE_STATUS"
