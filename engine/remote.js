@@ -1275,6 +1275,7 @@ async function assistantChat(body) {
  * setup in progress and an open browser secret. A final refusal is wiped as before:
  * keeping a key Kosmos+ will never accept would say "try again" forever. */
 async function forget({ anyway = false } = {}) {
+  forgetTlsPins();   // kosmos#6589
   // #3827: a sign-in in flight ends with the Mac's identity. Cancel it (its register
   // must not turn the switch back on), and WAIT for a register already out, so what
   // is retired and wiped below includes it; otherwise it writes a fresh identity
@@ -2336,6 +2337,7 @@ async function deviceRemove(id) {
 }
 /* kosmos#5786 (b): a removed device (the notice's Undo, or the list's Remove) is no longer "on this computer". */
 function forgetVouched(id, answer) {
+  forgetTlsPins();   // kosmos#6589: a removed device may be one a cached pin rests on
   const vouched = read().vouched || {};
   // A remove that timed out may not have happened: the note stays, so the device keeps saying where it came from.
   if (answer && answer.ok && Object.prototype.hasOwnProperty.call(vouched, id) && !(answer.data && answer.data.timed_out)) {
@@ -2467,12 +2469,20 @@ async function openTicket(address) {
    answers `none`: it has never pinned anything, so there is nothing it could fail to enforce. */
 const TLS_PIN_TTL_MS = 5 * 60 * 1000;
 const tlsPinCache = new Map();
+const tlsPinInFlight = new Map();   // review 1: WebKit's parallel connections to one host share one tunnel run
 const SPKI = /^[0-9a-f]{64}$/;
 async function tlsPin(address, { fresh = false } = {}) {
   if (!enrolled()) return { ok: true, because: null, data: { state: 'none', because: 'not signed up for Plus here' } };
   const now = Date.now();
   const hit = tlsPinCache.get(address);
   if (!fresh && hit && now - hit.at < TLS_PIN_TTL_MS) return hit.answer;
+  const key = address + (fresh ? '#fresh' : '');
+  if (tlsPinInFlight.has(key)) return tlsPinInFlight.get(key);
+  const p = tlsPinAsk(address, now).finally(() => tlsPinInFlight.delete(key));
+  tlsPinInFlight.set(key, p);
+  return p;
+}
+async function tlsPinAsk(address, now) {
   // The statement fetch has its own 10 s limit in the tunnel; this bounds the whole call.
   const r = await tracked(setupRun(['tls-pin', '--state-dir', STATE_DIR(), '--to', 'https://' + address], null, 20000));
   const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
@@ -2483,7 +2493,7 @@ async function tlsPin(address, { fresh = false } = {}) {
     const got = parseSaid(r);
     const d = got.ok && got.data ? got.data : null;
     if (d && d.state === 'pinned' && Array.isArray(d.spki) && d.spki.length && d.spki.every((k) => typeof k === 'string' && SPKI.test(k))) {
-      answer = { ok: true, because: null, data: { state: 'pinned', spki: d.spki.slice(0, 4) } };
+      answer = { ok: true, because: null, data: { state: 'pinned', spki: d.spki.slice(0, 4) } };   // the relay sends one
     } else if (d && d.state === 'none') {
       answer = { ok: true, because: null, data: { state: 'none', because: 'never checked here' } };
     } else {
@@ -2497,6 +2507,19 @@ async function tlsPin(address, { fresh = false } = {}) {
   else tlsPinCache.delete(address);
   return answer;
 }
+
+/* kosmos#6589 (review 1): ask about each of the account's other computers in the background whenever the list is read,
+   so the FIRST switch to one finds its address already pinned (a pin is made only when a statement verifies, and
+   whoever re-routes a name could answer the first ask with a 404). Bounded to 10, and the cache makes it cheap. */
+function warmTlsPins(computers) {
+  if (!Array.isArray(computers)) return;
+  for (const c of computers.filter((x) => x && !x.this && typeof x.address === 'string').slice(0, 10)) {
+    tlsPin(c.address).catch(() => {});
+  }
+}
+/* A sign-out or a removed device may end the trust a cached pin rests on: forget the cache (the tunnel's own
+   check runs again on the next ask). */
+function forgetTlsPins() { tlsPinCache.clear(); }
 
 /** kosmos#6404, "Check the code": this computer was allowed, but its code ran out before The codes match was pressed
     here, so it does not trust the other computer yet. Asks for ONE fresh code check with it (the next round starts it).
@@ -3615,7 +3638,7 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   joinConfirm,
   joinRetry,
   openTicket,
-  tlsPin, TLS_PIN_TTL_MS /* kosmos#6589 */,
+  tlsPin, TLS_PIN_TTL_MS, warmTlsPins, forgetTlsPins /* kosmos#6589 */,
   joinRecheck,
   deviceDeny,
   deviceRemove,
@@ -3651,7 +3674,7 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   bumpSelfEpochForTests: () => { selfEpoch += 1; },
-  resetForTests: () => { tlsPinCache.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
+  resetForTests: () => { tlsPinCache.clear(); tlsPinInFlight.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,

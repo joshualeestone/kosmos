@@ -108,3 +108,18 @@ test('#6589: a definite answer is cached five minutes, fresh asks again, and req
   assert.equal(recorded().filter((a) => a[4] === 'https://e.kosmosplus.com').length, 2);
   assert.equal(remote.TLS_PIN_TTL_MS, 5 * 60 * 1000);
 });
+
+test('#6589 (review 1): parallel asks share one tunnel run; a sign-out or removal forgets the cache; the list warms pins', async () => {
+  enrol();
+  const [a, b] = await Promise.all([remote.tlsPin('f.kosmosplus.com'), remote.tlsPin('f.kosmosplus.com')]);
+  assert.deepEqual(a, b);
+  assert.equal(recorded().filter((r) => r[4] === 'https://f.kosmosplus.com').length, 1, 'one run for two parallel asks');
+  remote.forgetTlsPins();
+  await remote.tlsPin('f.kosmosplus.com');
+  assert.equal(recorded().filter((r) => r[4] === 'https://f.kosmosplus.com').length, 2, 'asked again after the cache was forgotten');
+  fs.rmSync(RECORD, { force: true });
+  remote.warmTlsPins([{ address: 'g.kosmosplus.com' }, { address: 'self.kosmosplus.com', this: true }, null, { address: 7 }]);
+  for (let i = 0; i < 100 && !recorded().length; i++) await new Promise((r) => setTimeout(r, 20));
+  await new Promise((r) => setTimeout(r, 200));
+  assert.deepEqual(recorded().map((r) => r[4]), ['https://g.kosmosplus.com'], 'only the other computers, never this one');
+});
