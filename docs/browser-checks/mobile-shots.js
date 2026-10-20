@@ -547,6 +547,21 @@ const SCREENS = [
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
   } },
+  /* kosmos#6681: the invite sheet (Members "+", Invite someone outside), ask step, with its optional email field. The
+     throwaway board has no Kosmos+, so the federation gate is stamped "show" here and kept so: a later poll's own stamp
+     would hide the sheet mid-shot. */
+  { name: 'fed-invite', owner: 'Mona Lisa', go: async (page, data) => {
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => {
+      document.documentElement.setAttribute('data-fed-ui', 'show');
+      window.fedGateStamp = () => document.documentElement.setAttribute('data-fed-ui', 'show');   // eslint-disable-line no-undef
+      fedInviteOpen(null);   // eslint-disable-line no-undef
+    });
+    await page.waitForSelector('#fedinv-ask', { state: 'visible', timeout: 8000 });
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+  } },
   { name: 'agents-list', owner: 'Raiden', go: async (page) => {
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
     await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
