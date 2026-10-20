@@ -142,7 +142,7 @@ if (args[0] === 'signin') {
     if (flag('--device-key')) {
       if (mode.includes('devkey-slow-start')) { const until = Date.now() + 800; while (Date.now() < until) { /* making the key */ } }
       // kosmos#6770: a start that outlasts any Forget bound, asleep rather than spinning, so it adds no load of its own.
-      if (mode.split(/[ ,]+/).includes('devkey-hang-start')) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.env.FAKE_HANG_START_MS));
+      if (mode.split(/[ ,]+/).includes('devkey-hang-start')) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.env.FAKE_HANG_START_MS) || 3000);
       fs.mkdirSync(path.dirname(flag('--device-key')), { recursive: true });
       if (!fs.existsSync(flag('--device-key'))) fs.writeFileSync(flag('--device-key'), newFakeKey());
     }

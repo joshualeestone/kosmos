@@ -37,3 +37,10 @@ the start, this test still fails on it (the start outlasts the bound at every sc
   scale 4 (4458 ms, bound 2800, start 4300).
 - engine/remote.test.js whole file: 239/239.
 - Cost: the test now takes about bound + 1.5 s (2.2 s at scale 1) instead of about 1 s.
+
+## Review round 1 (blind, sonnet): no issues
+- Verified: the start outlasts the bound by 1500 ms at every scale (eventually.js clamps 1 to 4); passes at 1x (2.6 s)
+  and 4x (4.7 s); no mode-word collision (exact word match, like devkey-slow); env cleaned in finally; Atomics.wait is
+  allowed on node's main thread and already used in the repo; no guard reads remote.test.js or forbids the pattern.
+- [NIT] an unset FAKE_HANG_START_MS would be NaN, an infinite wait --> FIXED: `|| 3000`.
+- [NIT] the test takes about 2.6 s instead of 1 s --> NOT CHANGED (the documented cost).
