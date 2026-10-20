@@ -12,7 +12,7 @@ again from its own history (Muse resumes one session; Grok runs one long one). T
 (a "room-hold: ... told of ..." line before the repeat means A), and that log is not on this machine.
 
 **The call.** Ship the one change that helps under both causes now: the addressed held-post line ends "Any you already
-answered need nothing more." (review 1: per post, never a blanket "them" that could cover a post still unanswered). Defer the board-side change for (A) (count an uncited post made after reading
+answered need nothing more." (per post, never a blanket "them" that could cover a post still unanswered). Defer the board-side change for (A) (count an uncited post made after reading
 the room as answering the held one) until the next five-model run's board log shows A, because it changes what counts as
 answered for every agent and could drop a real reminder.
 
@@ -25,5 +25,8 @@ answered for every agent and could drop a real reminder.
 - The addressed line ends with the sentence; CONTROL: the neutral line has no such sentence (its byte-exact test above
   still passes). Whole room-hold and messages room-hold test files run: 28, 2, 5, 12, 14 and 21 pass.
 
-**Weakest premise.** That a sentence in the reminder changes the model's behaviour. If the next run still shows repeats
+**Weakest premise, both directions.** (1) A missed reply: an agent that wrongly believes it answered (it only read the
+post, or it answered a sibling) may skip a post it never answered, and the board does not remind it again. The per-post
+wording keeps this narrow, and the next run should look for an asked post left with no reply. (2) That a sentence in the
+reminder changes the model's behaviour at all. If the next run still shows repeats
 with a "told of" line before them, cause A is confirmed and the board-side change is the fix.

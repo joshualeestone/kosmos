@@ -337,7 +337,7 @@ function clauseFor(projectId, shown, ids) {
       + projectId + ' and answer one with: kosmos post --in-reply-to <its id> ' + projectId
       /* kosmos#6593 item 3 (N7, Josh's five-model reports): long-lived sessions (Meta, Grok) answered posts again that
          they had already answered. Either the earlier answer cited nothing, so the board could not see it, or the model
-         acted on the post again from its own history. Per post, never a blanket "you may stop" (review 1): every id left
+         acted on the post again from its own history. Per post, never a blanket "you may stop": every id left
          here is one the board believes unanswered, and an agent that answered only some must still answer the rest. */
       + '. Any you already answered need nothing more.]';
   }
