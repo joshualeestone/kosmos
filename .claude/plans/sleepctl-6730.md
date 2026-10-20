@@ -74,3 +74,12 @@ reference to sleep listed and read); not checked across the rest of tools/.
   line is not counted), and 0 after it is killed. Test ALL PASS, its control included.
 - [NIT] test 30's deploy-under-test `sleep 4; exit 0`: a stray pkill ends it with rc 0, which the arm also passes
   on, so it cannot pass for a wrong reason --> NOT CHANGED (under the 5 s threshold, and harmless).
+
+## Review round 3 (blind, opus)
+- [WARNING] test 26's leftover regex allowed only `perl` or `/usr/bin/perl`, and the control started a bare `perl`,
+  while git runs the remote by the full PATH it resolves: on a box whose first perl is Homebrew's or a CI image's, a
+  leaked hang would never be counted while the control still passed --> FIXED: `^([^ ]*/)?perl -e select\(...\)$`,
+  and the control starts `"$(command -v perl)"`, the form git produces. MEASURED: a full-path live wait counted 1, 0
+  after; of three sample lines (a Homebrew perl, the grep's own line, git's remote-ext line) only the perl matches.
+  Test ALL PASS.
+- The whole-diff re-check found nothing else.

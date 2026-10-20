@@ -380,7 +380,9 @@ Z26="$(( 4000 + $$ % 900 )).$RANDOM$RANDOM"   # a fractional length: no two runs
 git -C "$T/site" config protocol.ext.allow always
 HOLD26="select(undef,undef,undef,$Z26)"
 # Anchored at the start of the line, so the grep below never counts its own command line (which holds this text).
-HOLD26RE="^(/usr/bin/)?perl -e select\\(undef,undef,undef,${Z26//./\\.}\\)\$"
+# Any path before perl: git runs the remote by the full path it found on PATH (/usr/bin/perl here, a Homebrew or
+# CI perl elsewhere), and the control below is started the same way, so it proves the form git produces.
+HOLD26RE="^([^ ]*/)?perl -e select\\(undef,undef,undef,${Z26//./\\.}\\)\$"
 git -C "$T/site" remote set-url origin "ext::perl -e $HOLD26"
 t0=$SECONDS; KOSMOS_AUTODEPLOY_FETCH_MAX_S=2 tick; el=$((SECONDS - t0)); sleep 1
 left=$(ps -axo command= | command grep -cE "$HOLD26RE")
@@ -391,7 +393,7 @@ git -C "$T/site" remote set-url origin "$T/origin.git"; git -C "$T/site" config 
 #  processes. A leftover wait ends by itself within 82 minutes.)
 tick   # a good tick (the fetch record stays: see test 21)
 # Control: the count above can see a leftover (a wait of the same length, started here, is counted).
-perl -e "$HOLD26" & ctl26=$!; sleep 0.3; seen=$(ps -axo command= | command grep -cE "$HOLD26RE"); kill "$ctl26"; wait "$ctl26" 2>/dev/null
+"$(command -v perl)" -e "$HOLD26" & ctl26=$!; sleep 0.3; seen=$(ps -axo command= | command grep -cE "$HOLD26RE"); kill "$ctl26"; wait "$ctl26" 2>/dev/null
 [ "$seen" -ge 1 ] && pass "the leftover count sees a wait of that length (control)" || bad "the leftover count cannot see a wait (it counted $seen)"
 
 # 27) a SECOND signal while a killed tick is stopping a deploy that ignores TERM (a runner's cancel
