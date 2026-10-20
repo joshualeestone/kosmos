@@ -18,8 +18,8 @@ person invited learned it only from a refusal ("made for someone else") if they 
 - An unbound code's text is unchanged.
 
 ## Decided
-- The address shown is the one the owner typed (trimmed), not the coordinator's normalised form: the owner recognises
-  their own typing, and the coordinator compares ignoring case.
+- The address shown is the coordinator's echo (its normalised form, lowercased), since that is what it will check;
+  review 1 replaced "as typed".
 - The address goes into the invitation text the owner chooses to send; it names the recipient to the recipient.
 
 ## Tests
