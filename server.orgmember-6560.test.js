@@ -129,11 +129,13 @@ test('#6560 review 1: a failed answer leaves the cheap check on (a network blip 
 
 test('#6560 review 1: when the full ask does not confirm the cheap check\'s "ended", the cheap check stops (no 22 KB ask every 10 minutes)', async (t) => {
   const r = rig(t, () => ({ lite: true, member: false }));
-  const at = Date.now();
-  await orgMemberCheckIfDue(at);   // the rig's refresh leaves the enrollment in place: the full ask disagreed
+  await orgMemberCheckIfDue(Date.now());   // the rig's refresh leaves the enrollment in place: the full ask disagreed
   assert.equal(r.refreshes(), 1, 'CONTROL: the cheap "ended" did run the full ask');
-  await orgMemberCheckIfDue(at + 10 * 60 * 1000 + 1);
-  await orgMemberCheckIfDue(at + 20 * 60 * 1000 + 2);
+  // #6643: due times come from the clock AFTER the ask, which records the real time it asked at: one counted from
+  // before it could fall short of ten minutes on a slow machine and read "not due", passing for the wrong reason.
+  const after = Date.now();
+  await orgMemberCheckIfDue(after + 10 * 60 * 1000 + 1);
+  await orgMemberCheckIfDue(after + 20 * 60 * 1000 + 2);
   assert.equal(r.refreshes(), 1, 'a disagreement ran the full ask every ten minutes');
 });
 
@@ -141,10 +143,10 @@ test('#6560 review 2: a full ask that gets no clear answer leaves the cheap chec
   const r = rig(t, () => ({ lite: true, member: false }));
   let full = 0;
   oe.refresh = async () => { full += 1; return { ok: false, because: 'unreachable' }; };   // the full ask could not be answered
-  const at = Date.now();
-  await orgMemberCheckIfDue(at);
+  await orgMemberCheckIfDue(Date.now());
   assert.equal(full, 1, 'CONTROL: the cheap "ended" ran the full ask');
-  await orgMemberCheckIfDue(at + 10 * 60 * 1000 + 1);
+  // #6643: counted from after the ask (it records the real time), not from before it, which failed once on a slow run.
+  await orgMemberCheckIfDue(Date.now() + 10 * 60 * 1000 + 1);
   assert.equal(full, 2, 'an unreachable full ask turned the cheap check off, so the removal waits for the hour');
   assert.ok(r.sent.length >= 2, 'the cheap check was not asked again');
 });
