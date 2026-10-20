@@ -53,3 +53,7 @@ Built from this branch on the Windows box through the bsdtar shim (KOSMOS_ALLOW_
 - [NIT] fixed: the set failure no longer blames PATH (node is checked at the top).
 - [NIT] fixed (comment): connector.signature repeats signatures' connector entry on purpose; symlink entries noted.
 - [NIT] noted: a zip with exactly 65535 entries and no ZIP64 record would be refused; this zip has ~370.
+### Iteration 4 (sonnet)
+- [WARNING] fixed: my scripted edit turned `tr -d '\r'` into a literal CR byte inside the quotes. Restored the escape; every changed file now carries no CR byte (none on main either). Authenticode re-checked on this box after the fix: launcher and connector Valid.
+- [NIT] fixed: set writes beside the zip and renames over it, so a failed write never leaves a torn zip.
+- [NIT] noted: names are decoded as UTF-8 regardless of the flag (all staged names are ASCII); the message-prefix strips are tied to the function names.
