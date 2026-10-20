@@ -19,7 +19,9 @@
  *       THIS installed copy against the release key it pins (engine/manifest-verify.js KEYS), before anything
  *       is downloaded: the signature, the version (the pointer's, and not older than this install), and that
  *       it names this platform, arch, versioned zip and the pointer's sha256. A release with no signed
- *       manifest, or one that does not check out, is refused (as the Mac's installed copy refuses, #6468);
+ *       manifest, or one that does not check out, is refused (as the Mac's installed copy refuses, #6468).
+ *       #6692: when a recovery key is set (manifest-verify.js RECOVERY_KEYS), the release key list is taken first
+ *       (releaseKeys) and the manifest is checked with ITS keys, not the built-in ones;
  *   B2  the checksum sidecar, then the versioned zip streamed into WORK\download.part while hashing,
  *       under caps on size and time; computed = pointer = sidecar = the signed manifest's sha256;
  *   B3  the bytes that were hashed, unpacked with engine/win32zip.js into WORK\staged,
@@ -64,6 +66,7 @@ const win32job = require('./win32job');
 const win32orphan = require('./win32orphan');
 const win32zip = require('./win32zip');
 const manifestVerify = require('./manifest-verify');
+const win32recordacl = require('./win32recordacl');
 
 /* #6466: tools/windows/publish-r2.ps1 reads this line (through tools/lib/win-release-manifest.js ships-checker) to
  * know that installs of a build carrying this file refuse an update without a signed manifest, so it refuses to
@@ -205,6 +208,8 @@ const EXPECTED_EKU = '1.3.6.1.5.5.7.3.3';
 /** Get-AuthenticodeSignature on the ~170 KB Kosmos.exe answers in a second or two; a first PowerShell start
     under an antivirus scan can take much longer. */
 const SIGNATURE_TIMEOUT_MS = 60 * 1000;
+/** #6692: the wait before asking again for a release key list that did not check out (a publish in progress). */
+const KEY_LIST_RETRY_MS = 3 * 1000;
 
 const DEFAULT_LIMITS = Object.freeze({
   maxDownloadBytes: MAX_DOWNLOAD_BYTES,
@@ -218,6 +223,7 @@ const DEFAULT_LIMITS = Object.freeze({
   stagedNodeTimeoutMs: STAGED_NODE_TIMEOUT_MS,
   signatureTimeoutMs: SIGNATURE_TIMEOUT_MS,
   diskHeadroomMultiple: DISK_HEADROOM_MULTIPLE,
+  keyListRetryMs: KEY_LIST_RETRY_MS,
 });
 
 const LIVE_REFUSAL = 'Kosmos is not allowed to change files on this computer from here (live execution is off), so nothing was downloaded';
@@ -1274,6 +1280,69 @@ async function readOffer(ctx) {
 
 /* ─── B1b (#6466) ─────────────────────────────────────────────────────────────────────────── */
 
+/* #6692: the release key list (engine/manifest-verify.js, #6609), beside the releases. */
+const KEY_LIST_NAME = 'release-keys.json';
+/* How many times one prepare asks for the list when it does not check out in a way a moment later can fix. */
+const KEY_LIST_ATTEMPTS = 3;
+
+/**
+ * #6692: the release keys this copy checks the release manifest with. With no recovery key set
+ * (manifestVerify.RECOVERY_KEYS empty): the built-in keys, nothing fetched, exactly as before. With one set: the
+ * release key list comes FIRST, taken by manifestVerify.trustedKeys, which keeps this copy's record in the anchor
+ * folder (a per-user profile folder, never the install folder), and its keys are the ones the manifest must be
+ * signed with. No list, no update. Each attempt asks for the list and its signature with one fresh query, so a
+ * retry is not answered by the same cached pair.
+ */
+async function releaseKeys(ctx) {
+  if (!manifestVerify.RECOVERY_KEYS.length) return ctx.manifestKeys;
+  let home;
+  try { home = win32anchor.anchorDir(process.platform, ctx.home, ctx.env); } catch (e) {
+    refuse(`we could not work out where Kosmos keeps its record of the release key list (${firstLine(e)}), so nothing was downloaded`);
+  }
+  /* The record is what keeps an older list from coming back, so it must be this person's alone. Refused, never
+     repaired: the person is told what to fix. */
+  if (!fs.existsSync(home)) {
+    refuse(`the folder Kosmos keeps its update records in (${home}) is missing, so the release key list cannot be checked and nothing was downloaded. Double-click Kosmos.exe once, then try again`);
+  }
+  const record = path.join(home, manifestVerify.KEY_LIST_STATE);
+  /* The folder above too: whoever may rename the anchor folder away could replace it with an empty one. */
+  const read = [path.dirname(home), home];
+  if (fs.existsSync(record)) {
+    read.push(record);
+    /* Each list file too: an entry set on one file alone (say, Users may delete) would let another account lower the floor. */
+    let names = [];
+    try { names = fs.readdirSync(record); } catch (e) { refuse(`this copy's record of the release key list could not be read (${e.code || firstLine(e)}), so nothing was downloaded`); }
+    for (const n of names.sort()) if (/^seq-\d+\.json$/.test(n)) read.push(path.join(record, n));
+  }
+  const aclBad = await ctx.recordAclRefusal(read, { env: ctx.env, timeoutMs: ctx.limits.signatureTimeoutMs });
+  if (aclBad) refuse(`${aclBad}, then try again. Nothing was downloaded`);
+  let retryWhy = '';
+  for (let attempt = 1; attempt <= KEY_LIST_ATTEMPTS; attempt += 1) {
+    if (attempt > 1 && ctx.limits.keyListRetryMs > 0) await new Promise((r) => setTimeout(r, ctx.limits.keyListRetryMs));
+    const q = `?r=${crypto.randomBytes(8).toString('hex')}`;
+    let bytes;
+    let sigBytes;
+    try {
+      bytes = await fetchSmallBytes(ctx.fetch, `${ctx.base}/${KEY_LIST_NAME}${q}`, 'the release key list', ctx.limits.maxSmallFetchBytes, ctx.limits, ctx.log, { allowNotFound: true });
+      sigBytes = await fetchSmallBytes(ctx.fetch, `${ctx.base}/${KEY_LIST_NAME}.sig${q}`, 'the release key list signature', ctx.limits.maxSmallFetchBytes, ctx.limits, ctx.log, { allowNotFound: true });
+    } catch (e) {
+      if (e instanceof HostNotFound) refuse('the site publishes no release key list, so this update cannot be checked and nothing was downloaded');
+      throw e;
+    }
+    const sig = sigBytes.toString('latin1');
+    /* A list that does not verify is asked for again: a list and a signature from two publishes look exactly like it. */
+    const v = manifestVerify.verifyKeyList({ bytes, sig });
+    if (!v.ok) { retryWhy = `${v.why} (it may be mid-publish)`; ctx.log(`attempt ${attempt}: ${retryWhy}`); continue; }
+    const t = manifestVerify.trustedKeys({ listBytes: bytes, listSig: sig, home });
+    if (t.ok) { ctx.log(`took ${t.why}`); return t.keys; }
+    /* Older than this copy's record, or other keys at a seq already taken: asking again gives the same answer. */
+    if (!t.retry) refuse(`${t.why}, so nothing was downloaded`);
+    retryWhy = t.why.replace(/; check again$/, '');
+    ctx.log(`attempt ${attempt}: ${retryWhy}`);
+  }
+  refuse(`${retryWhy}, so nothing was downloaded. Try again in a few minutes`);
+}
+
 /** The signed manifest's name beside the versioned zip (tools/lib/win-release-manifest.js writes it). */
 function releaseManifestName(version, arch) { return `kosmos-${version}-win-${arch}.manifest.json`; }
 
@@ -1285,7 +1354,7 @@ function releaseManifestName(version, arch) { return `kosmos-${version}-win-${ar
  * copy refuses the same way, #6468). No key pinned (manifest-verify's code 3) is refused as well: every build
  * that carries this check pins one.
  */
-async function readSignedManifest(ctx, latest) {
+async function readSignedManifest(ctx, latest, keys) {
   const name = releaseManifestName(latest.version, ctx.arch);
   const q = `?v=${encodeURIComponent(latest.version)}`;
   let bytes;
@@ -1298,7 +1367,7 @@ async function readSignedManifest(ctx, latest) {
     throw e;
   }
   const installed = (readJson(path.join(ctx.root, 'app', 'package.json')) || {}).version;
-  const r = manifestVerify.signedManifest({ bytes, sigText: sigBytes.toString('latin1'), version: latest.version, installedVersion: installed, keys: ctx.manifestKeys });
+  const r = manifestVerify.signedManifest({ bytes, sigText: sigBytes.toString('latin1'), version: latest.version, installedVersion: installed, keys });
   if (r.code !== 0) refuse(`${r.why}, so nothing was downloaded`);
   const bad = manifestVerify.win32HeaderRefusal(r.manifest, { version: latest.version, arch: ctx.arch, sha: latest.sha256 });
   if (bad) refuse(`${bad}, so nothing was downloaded`);
@@ -1556,6 +1625,8 @@ async function prepare(opts) {
     /* #6466: the release keys this copy accepts. A seam for the suites only (prepare() is called in-process; no CLI
        flag or setting reaches it); production is always the installed copy's own pins. */
     manifestKeys: Array.isArray(o.manifestKeys) ? o.manifestKeys : manifestVerify.KEYS,
+    /* #6692: reads the access list of the release key list's record. A seam for the suites only, like the two above. */
+    recordAclRefusal: typeof o.recordAclRefusal === 'function' ? o.recordAclRefusal : win32recordacl.aclRefusal,
   };
   const lockPath = path.join(work, LOCK_NAME);
 
@@ -1592,7 +1663,8 @@ async function prepare(opts) {
       latest = stageFromFolder(ctx);
     } else {
       latest = await readOffer(ctx);
-      const signed = await readSignedManifest(ctx, latest);
+      /* #6692: the release key list first (when a recovery key is set), then the manifest with its keys. */
+      const signed = await readSignedManifest(ctx, latest, await releaseKeys(ctx));
       const downloaded = await download(ctx, latest);
       unpack(ctx, downloaded.bytes);
       sha256 = downloaded.sha256;
