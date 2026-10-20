@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: '52783dd7981ce771', 30: '459a0b50b68e5660', 31: 'abc33c9b62fa12ae', 32: '73e44376fbc76c20', 33: '2133561e3eab26ea', 34: 'a39a0bc29b3835a1', 35: '6b57ebef325d31bd' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: '52783dd7981ce771', 30: '459a0b50b68e5660', 31: 'abc33c9b62fa12ae', 32: '73e44376fbc76c20', 33: '2133561e3eab26ea', 34: 'a39a0bc29b3835a1', 35: '6b57ebef325d31bd', 36: '4b7d0a2e4d7c2bbb' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -403,6 +403,8 @@ test('#3570: the block says how to read a reaction and when to react back', () =
   // Match within one wrapped line: the doctrine is stored as newline-joined lines, so
   // "agreement-only replies" spans a wrap and a spaced regex would never match it.
   assert.match(t, /stops passing on agreement-only/, 'the instruction does not say Kosmos stops passing on agreement-only replies');
+  // #6608: a post that names someone else to take it is left to them.
+  assert.match(t, /When a post names someone else to take it, leave it to them/, 'agents are not told to leave an owner-named post to its owner');
   assert.doesNotMatch(t, /holds a room|holds an acknowledgement/i, 'the doctrine still teaches a hold; the ack trigger is not a hold (the next content post goes through)');
 });
 
