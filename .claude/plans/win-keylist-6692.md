@@ -1,5 +1,7 @@
 # win-keylist-6692: the Windows updater takes the release key list before the manifest (kosmos#6692)
 
+**Posture:** production
+
 **Card.** #6692. Builds on origin/main; overlaps #6691 (the recovery test runs on the Windows job) and #6687
 (`retry: true` on "taken meanwhile"), each by a few identical or neighbouring lines.
 
