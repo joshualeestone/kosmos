@@ -150,6 +150,11 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     if (r.code !== 0) return say(r.why);
     const env = { ...process.env };
     delete env.NODE_OPTIONS;
+    /* #6659: the installer updates THIS copy, the home it was handed. The board runs with no KOSMOS_HOME exported
+       (install/kosmos sets it unexported), so without this the installer took its default, ~/.local/share/kosmos: a
+       board installed anywhere else (a test board, a home of the person's choosing) updated the default copy instead,
+       stopping and replacing the person's own Kosmos. */
+    env.KOSMOS_HOME = home;
     // stdin is not handed on: under curl | sh the installer's stdin was its own bytes, so it never read one.
     const run = spawnSync('/bin/sh', [files.setup], { stdio: ['ignore', 'inherit', 'inherit'], env });
     // 96 and 97 are reserved for "not run": an installer that exits either itself is reported as a plain failure.
