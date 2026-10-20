@@ -52,7 +52,8 @@ tar_macmeta_gate() {
           push @bad, "extended attribute $key" if $key =~ /\.xattr\./;
           push @bad, "file flags $key" if $key =~ /fflags/;
           push @bad, "access control list $key" if $key =~ /\.acl/;
-          if ($key eq "path") { my $vs = length($len) + 1 + length($key) + 1; $next = substr($data, $at + $vs, $len - $vs - 1) }
+          # only a per-file x header names the next entry; a global g header does not
+          if ($key eq "path" && $type eq "x") { my $vs = length($len) + 1 + length($key) + 1; $next = substr($data, $at + $vs, $len - $vs - 1) }
           $at += $len;
         }
         next;
