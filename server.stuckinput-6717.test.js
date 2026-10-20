@@ -65,6 +65,9 @@ test('kosmos#6717: the conversation shows the draft as Kosmos\'s line; only the 
   assert.equal(stored.some((m) => m && m.text === 'the words that were stuck'), false, 'never stored as a message row');
   // An agent's token cannot dismiss it; a malformed or unknown id is refused.
   assert.equal((await dismiss(added.id, { 'x-kosmos-agent-token': 'a'.repeat(64) })).status, 403);
+  const inBody = await fetch(`${base}/api/agent/${NAME}/unsent-draft/dismiss`,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: added.id, token: 'a'.repeat(64) }) });
+  assert.equal(inBody.status, 403, 'an agent token in the body is refused too');
   assert.equal((await dismiss('not-an-id')).status, 400);
   assert.equal((await dismiss('ffffffffffff')).status, 404);
   assert.equal(drafts.list(NAME).length, 1, 'still kept after the refusals');

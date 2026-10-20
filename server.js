@@ -17545,6 +17545,7 @@ const server = http.createServer(async (req, res) => {
       .then((buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'this is the person\'s to dismiss, not an agent\'s' }); return; }   // in the body too
         if (typeof body.id !== 'string' || !/^[0-9a-f]{12}$/.test(body.id)) { sendJson(res, 400, { error: 'say which draft (its id)' }); return; }
         const drafts = require('./engine/unsentdrafts');
         /* The card's own name, as the conversation route draws them (a URL in other capitals finds the same drafts). */

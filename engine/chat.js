@@ -1247,10 +1247,10 @@ async function recoverStuckInput(card, since) {
     } catch { return { outcome: 'waiting', because: 'gate' }; }
     const allowed = addressable(name, roster);
     if (!allowed.ok) return { outcome: 'waiting', because: 'gate' };
-    const now = allowed.card;
-    if (paneTarget(now) !== target || !composerReadable(now)) return { outcome: 'waiting', because: 'pane' };
+    const nowCard = allowed.card;
+    if (paneTarget(nowCard) !== target || !composerReadable(nowCard)) return { outcome: 'waiting', because: 'pane' };
     if (QMENU_BUSY.has(target)) return { outcome: 'waiting', because: 'gate' };
-    if (now.state !== status.STATE.IDLE) return { outcome: 'waiting', because: 'not idle' };
+    if (nowCard.state !== status.STATE.IDLE) return { outcome: 'waiting', because: 'not idle' };
     let release = () => {};
     const mark = new Promise((resolve) => { release = resolve; });
     deliveryQueues.set(target, mark);   // no delivery pastes while this runs (deliver refuses, deliverAsync waits)
@@ -1258,11 +1258,13 @@ async function recoverStuckInput(card, since) {
       const again = readComposer(target);
       if (!again.ok) return { outcome: 'waiting', because: 'unread' };
       if (squash(again.text) !== squash(box.text)) return { outcome: 'waiting', because: 'changed' };
-      if (!verifyAtSend(now).ok) return { outcome: 'waiting', because: 'pane' };
+      if (!verifyAtSend(nowCard).ok) return { outcome: 'waiting', because: 'pane' };
       let saved = null;
       try { saved = draftSaver(name, again.text, { since: since || null }); } catch { saved = null; }
       if (saved && saved.full === true) return { outcome: 'left', because: String(saved.because || 'too many drafts are kept') + ', so the box was left as it is' };
-      if (!saved || saved.ok !== true) return { outcome: 'waiting', because: 'the draft could not be saved, so the box was left as it is' };
+      /* Said in the log (once per text, by the sweep) and tried again next minute: a store that cannot be written or read
+         would otherwise leave the agent deaf with nothing said anywhere. */
+      if (!saved || saved.ok !== true) return { outcome: 'left', because: 'the draft could not be saved (' + String((saved && saved.because) || 'no answer') + '), so the box was left as it is' };
       /* Saved: from here the words are safe. Clear a round at a time; stop as soon as the box shows anything that is
          not what is left of the saved text (someone typing now), so their new words are not cleared too. */
       const done = (outcome, because) => ({ outcome, id: saved.id, ...(saved.already ? { already: true } : {}), ...(because ? { because } : {}) });
@@ -1274,6 +1276,7 @@ async function recoverStuckInput(card, since) {
          same read stops the clearing if anything replaces the box: a dialog or permission prompt leaves no box to read,
          and a menu's own ❯ row reads as different text. */
       let expect = squash(again.text);
+      let rowsWere = again.rows || 0;
       let stale = 0;
       const rounds = 2 * (again.rows || 1) + 6;
       for (let i = 0; i < rounds; i += 1) {
@@ -1293,6 +1296,9 @@ async function recoverStuckInput(card, since) {
           if (!left.text) return done('drafted');
         }
         const now = squash(left.text);
+        /* A round that empties a blank row reads the same once squashed but draws one row fewer: that is progress. */
+        if (now === expect && (left.rows || 0) < rowsWere) { rowsWere = left.rows || 0; stale = 0; continue; }
+        rowsWere = left.rows || 0;
         if (now === expect) {
           stale += 1;   // the keys did nothing (vim mode, keys rebound): two such rounds and it is given up
           if (stale >= 2) return done('drafted-not-cleared', 'the box did not empty');
