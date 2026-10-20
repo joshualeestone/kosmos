@@ -3319,7 +3319,10 @@ _kosmos_temp_launch_refusal() {
   # A launch folder that IS this account's LaunchAgents is no folder of the caller's own: the plist written there
   # is loaded at the next login.
   _tl_launch="${AGENT_WORKFORCE_LAUNCH:-}"
-  [ -n "$_tl_launch" ] && [ "$_tl_launch" -ef "$HOME/Library/LaunchAgents" ] && _tl_launch=""
+  # Compared as spelled too: on a new account that folder may not exist yet, and -ef then matches nothing.
+  [ -n "$_tl_launch" ] && { [ "$_tl_launch" -ef "$HOME/Library/LaunchAgents" ] \
+    || [ "$(printf '%s' "$_tl_launch" | /usr/bin/tr -s '/')" = "$(printf '%s' "${HOME%/}/Library/LaunchAgents/" | /usr/bin/tr -s '/')" ] \
+    || [ "$(printf '%s' "$_tl_launch/" | /usr/bin/tr -s '/')" = "$(printf '%s' "${HOME%/}/Library/LaunchAgents/" | /usr/bin/tr -s '/')" ]; } && _tl_launch=""
   [ "$(uname -s)" = Darwin ] && [ "$KOSMOS_HOME" != "$_kosmos_home_default" ] && [ -z "$_tl_launch" ] \
     && [ "${KOSMOS_ALLOW_TEMP_LAUNCH:-}" != 1 ] || return 0
   # The home as written and as resolved (its nearest existing folder, so a symlink into a temp folder or the
