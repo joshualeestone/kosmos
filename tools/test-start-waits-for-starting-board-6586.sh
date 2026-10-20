@@ -127,6 +127,19 @@ waits="$(printf '%s\n' "$out" | grep -c 'not answering yet; waiting for it')"
 case "$out" in *"is not answering on port"*) ex="$(printf '%s\n' "$out" | grep -c 'exited while starting\.')"
     [ "$waits" = 2 ] && [ "$ex" = 2 ] && ok "a board replaced again and again: two waits, each ended by the board's exit, then the stuck refusal" || bad "waits $waits, exits seen $ex" ;;
   *) bad "the cap: $out" ;; esac
+# Iteration 7: a stop during the wait (the marker written, the board ended) wins: nothing reaches the launch, whose
+# first check is the runtime ("Kosmos looks incomplete"), and the marker stays.
+healthy() { N=$((N+1)); if [ "$N" = 3 ]; then : > "$STOP_MARKER"; end_board "$OLD"; fi; HEALTH_STATE=down; return 1; }
+stop_during_wait() { OLD="$(victim)"; N=0; printf '%s' "$OLD" > "$PIDFILE"
+  ( cmd_start ) 2>&1; echo "rc=$? marker=$([ -e "$STOP_MARKER" ] && echo there || echo gone)"; end_board "$OLD"; OLD=""; }
+out="$(stop_during_wait)"
+case "$out" in *"looks incomplete"*) bad "a stop during the wait still reached the launch: $out" ;;
+  *"stopped while this start waited for it. Nothing was started."*"rc=0 marker=there") ok "a stop during the wait wins: nothing launched, the marker stays, a plain start returns 0" ;;
+  *) bad "stop during the wait: $out" ;; esac
+out="$(KOSMOS_RECLAIM_BUSY=1 stop_during_wait)"
+case "$out" in *"looks incomplete"*) bad "a stop during a reclaim's wait reached the launch: $out" ;;
+  *"stopped while this start waited for it."*"rc=1 marker=there") ok "under reclaim a stop during the wait is a failure (the caller asked for a board), nothing launched" ;;
+  *) bad "stop during a reclaim's wait: $out" ;; esac
 n="$(grep -c '_await_recorded_board "\$_oldpid"' install/kosmos)"; [ "$n" = 1 ] && ok "cmd_start waits in one place" || bad "wait call sites: $n"
 
 echo

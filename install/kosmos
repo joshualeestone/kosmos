@@ -1894,6 +1894,16 @@ cmd_start() {
       if [ "$_arb" -eq 2 ]; then
         # It ended while starting: the guards run again; with nothing recorded, this is a normal start.
         if [ "$(cat "$PIDFILE" 2>/dev/null)" = "$_oldpid" ]; then rm -f "$PIDFILE" 2>/dev/null || true; fi
+        # A stop marker written since the top of this function (which removed it) means a person's stop or an
+        # update's pause ended that board while this start waited: the stop wins and nothing is launched. A reclaim
+        # caller asked for a running board, so for it this is a failure.
+        if [ -e "$STOP_MARKER" ]; then
+          if [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ]; then
+            die "That board (process $_oldpid) was stopped while this start waited for it. Nothing was started."
+          fi
+          say "That board (process $_oldpid) was stopped while this start waited for it. Nothing was started."
+          return 0
+        fi
         say "That board (process $_oldpid) exited while starting."
       fi
       continue
