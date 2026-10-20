@@ -29,8 +29,9 @@ design rules (m6341). Reviewer: Raiden.
    line, cleanMessage). The ties:
    - right after our paste (the check before our Enter, and the confirm after it): only when the box was READ and
      EMPTY just before pasting (a failed read ties nothing), our line is at least 800 characters (shorter never folds),
-     the pane's delivery lock is held (no other delivery pastes), and the chip appears within the couple of seconds
-     before the Enter. The first chip seen is then pinned, number and all, for every later look and the retry.
+     the pane's delivery lock is held (no other delivery pastes), and the chip is seen BEFORE our Enter (our fold
+     happens while we paste; the Enter submits what is there). That chip is pinned, number and all, for the watch after
+     the Enter and its retry. A chip seen for the first time after our Enter is never ours (review 2).
      Weakest point, named: a person pasting exactly one long line in that same second looks the same.
    - a line left unsent: the exact chip seen then, its number included, and the pane's process id are kept with the
      line (and on disk); a later delivery or retry presses it only if the box shows that same chip in that same process.
@@ -45,6 +46,10 @@ design rules (m6341). Reviewer: Raiden.
    is the new part, and the cause the card confirmed (our own chip) no longer jams.
 
 ## Residuals
+
+- The process tie uses the pane's pid. A Kosmos agent's pane runs Claude Code as its own process (bin/agent-supervisor.sh
+  starts the pane with an entry that ends in `exec "$@"`, which keeps the pid), so a restart means a new pane and a new
+  pid. Someone who starts `claude` by hand from a shell in a pane would share the shell's pid across restarts.
 
 - A person who pastes a single long line into the box in the second between our paste and our Enter would have it read
   as ours (decision 1, weakest point).
