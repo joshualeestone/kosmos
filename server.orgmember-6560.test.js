@@ -132,7 +132,8 @@ test('#6560 review 1: when the full ask does not confirm the cheap check\'s "end
   await orgMemberCheckIfDue(Date.now());   // the rig's refresh leaves the enrollment in place: the full ask disagreed
   assert.equal(r.refreshes(), 1, 'CONTROL: the cheap "ended" did run the full ask');
   // #6643: due times come from the clock AFTER the ask, which records the real time it asked at: one counted from
-  // before it could fall short of ten minutes on a slow machine and read "not due", passing for the wrong reason.
+  // before it could fall short of ten minutes on a slow machine and read "not due", leaving only the later call to
+  // catch a missing latch.
   const after = Date.now();
   await orgMemberCheckIfDue(after + 10 * 60 * 1000 + 1);
   await orgMemberCheckIfDue(after + 20 * 60 * 1000 + 2);
