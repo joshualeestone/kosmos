@@ -21,7 +21,8 @@ All three leaked jobs ran `<mktemp -d>/home/bin/kosmos board-run`, with HOME set
 That no legitimate caller runs a sandboxed install with the real HOME, no launch folder, and the default port or a temp home. If a release step does exactly that, the next cut fails at that step with the sentence above, instead of leaking. That is louder, and it names the caller the card could not find.
 
 ## Not covered
-Linux (systemd user units) has the same shape, in a different folder, and is not changed here.
+- Linux (systemd user units) has the same shape, in a different folder, and is not changed here.
+- A temp HOME with a KEPT KOSMOS_HOME and no launch folder: launchd registers the job and the cleaner deletes its plist, but the job runs a kept home until logout. Not the incident shape (real HOME, temp home), and no caller found.
 
 ## Review log
 ### Iteration 1 (opus)
@@ -58,3 +59,8 @@ Linux (systemd user units) has the same shape, in a different folder, and is not
 - [BLOCKER] fixed: the release install gate's own default-home control (tools/test-install.sh, #924/#5831) would have been refused. It installs with a fake HOME in its temp sandbox, no KOSMOS_HOME, and AGENT_WORKFORCE_LAUNCH at that fake HOME's LaunchAgents. The guard read that as "the account's own LaunchAgents". Iteration 4's note "no caller does this" was wrong. Since a set launch folder means setup.sh runs no launchctl at all, the only harm left is a plist in the ACCOUNT's real LaunchAgents, which loads at the next login. The compare now targets the account's home from the directory service (HOME when that cannot be read; KOSMOS_ACCOUNT_HOME is the test seam), not HOME. New arms: the gate's exact shape goes through, and an unpinned arm exercises the dscl read for real. A control comparing HOME turns the gate arm red, and a control blanking dscl turns the unpinned arm red.
 - [WARNING] fixed with that: the arms for the account's real LaunchAgents now pin the account to the HOME they use.
 - [NIT] fixed: a /Users/Shared sub-check that cannot run now says so in a diagnostic instead of passing silently.
+### Iteration 7 (opus)
+Every setup.sh run in tools/test-install.sh was traced (HOME, KOSMOS_HOME, AGENT_WORKFORCE_LAUNCH, TMPDIR); none is refused, and no BLOCKER was found.
+- [WARNING] fixed: the unpinned arm compared against os.homedir(), which only echoes HOME, so it would go red under a redirected HOME. It now uses os.userInfo().homedir (the account record), and skips with a diagnostic when the directory service does not answer.
+- [NIT] fixed: `dscl .` misses network and directory accounts, and puts a home with a space on its own indented line, so the guard fell back to HOME and could refuse the gate's fake-HOME control on such a Mac. It now reads `/Search` and joins the two-line form. Measured on both forms: "/Users/agent1", and "/Users/a b" from the two-line shape.
+- [NIT] recorded under "Not covered": a temp HOME with a kept KOSMOS_HOME.
