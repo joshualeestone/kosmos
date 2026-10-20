@@ -1521,23 +1521,21 @@ html:has(> body > #cswitch-screen) { overflow: hidden; scrollbar-gutter: auto; }
    | right group) on the warm ground, gold underline on the selected tab.
    The pull-out tracks the app's own stage padding (--space-8), per the
    pack's rule that the bar must track the stage exactly. */
-/* #3837 F (Josh 2026-09-25 17:21-17:22): viewed remotely through a Kosmos+ address, a thin Kosmos+ bar sits above the
+/* kosmos#6718 (Josh 2026-10-20 08:42): the wide bar is gone. On an agent's page it was cut to half its height, and its
+   one job, Log out, now sits at the bottom of Settings > Kosmos+. So .kplus-bar is display:none, and only the phone
+   rule below shows it, where it is still the whole header (the Kosmos+ mark and the menu, #4823). The history below
+   is kept for the phone bar, which inherits these rules.
+   #3837 F (Josh 2026-09-25 17:21-17:22): viewed remotely through a Kosmos+ address, a thin Kosmos+ bar sits above the
    board, visually its own: "a tiny KOSMOS+ logo on the left, and a Log Out on the far right with a blue background".
    The first row of the sticky header (so it stays with it), pulled to the page edges as the header is (its side
    margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter; #5379 pads it
    by the width where none is reserved). The bar's fills
    are Kosmos+ navy and blue (the gate's own values), never gold (the 09-16 ruling); the mark keeps its own colours. */
-.kplus-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px;
+.kplus-bar { display: none; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px;
   margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6); padding: 4px var(--space-8);
   background: #17233d; border-bottom: 1px solid #2a3f6b; color: #e6ebf7; }
 .kplus-bar-mark { display: block; height: 14px; width: auto; }
 .kplus-bar-end { display: flex; align-items: center; gap: 12px; }
-.kplus-bar-msg { font-size: .8125rem; color: #e8a79c; }
-.kplus-bar-out { background: linear-gradient(150deg,#3a68d8,#2f57c4); color: #fff; border: 0; border-radius: 7px; padding: 5px 14px;
-  font: inherit; font-size: .8125rem; font-weight: 650; cursor: pointer; }
-.kplus-bar-out:hover { filter: brightness(1.06); }
-.kplus-bar-out:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-.kplus-bar-out:disabled { opacity: .6; cursor: default; }
 html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { margin: 0; }
 /* #4823 (Josh 2026-09-30 20:54, mockups navigation-mock.png and agents-listview-mock.png): on a phone viewing the board
    through Kosmos+ (html.kremote, set by kplusBar, AND the 40rem phone width) the navy bar IS the header: apple.com's
@@ -1550,8 +1548,7 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
    sideways (over 56rem) are past that definition, here as everywhere else on the board. */
 .kplus-bar-menu { display: none; }
 @media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
-  html.kremote .kplus-bar { height: 48px; min-height: 48px; padding: 0 16px; border-bottom: 0; margin-bottom: 0; }
-  html.kremote .kplus-bar-out, html.kremote .kplus-bar-msg { display: none; }
+  html.kremote .kplus-bar { display: flex; height: 48px; min-height: 48px; padding: 0 16px; border-bottom: 0; margin-bottom: 0; }
   html.kremote .kplus-bar-menu { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px;
     margin-right: -16px; padding: 0; border: 0; background: none; color: #fff; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   html.kremote .kplus-bar-menu:focus-visible { outline: 2px solid #fff; outline-offset: -7px; }
@@ -19745,6 +19742,12 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="fmsg" id="plus-msg" role="alert" aria-live="assertive"></p>
     </div>
+    <!-- kosmos#6718 (Josh 2026-10-20 08:42): Log out, at the bottom of Kosmos+. It ends THIS browser's Kosmos+ session
+         (kplusLogout), so kplusBar reveals it only through a Kosmos+ address; at the computer there is nothing to end. -->
+    <div class="frow" id="plus-logout-row" hidden>
+      <button class="btn" type="button" id="plus-logout">Log out</button>
+      <p class="fmsg" id="plus-logout-msg" role="status" aria-live="polite"></p>
+    </div>
 <!-- #4080: "Lost your phone?" opens this, in place of the essay that sat on the Kosmos Plus pane (Josh, 22:06:
        "all of this probably doesnt belong on that page"). The reset keeps its ids and its two-step arm (#733).
        The words are shortened; "always" is kept, per Josh's 2026-08-29 ruling that the second step ALWAYS happens.
@@ -20498,8 +20501,8 @@ function kplusBar() {
   bar.id = 'kplus-bar'; bar.className = 'kplus-bar';
   bar.setAttribute('role', 'region'); bar.setAttribute('aria-label', 'Kosmos+ remote session');
   bar.innerHTML = '<canvas class="kplus-bar-mark" role="img" aria-label="Kosmos+"></canvas>'
-    + '<span class="kplus-bar-end"><span class="kplus-bar-msg" id="kplus-bar-msg" role="status"></span>'
-    + '<button type="button" class="kplus-bar-out" id="kplus-logout">Log out</button>'
+    + '<span class="kplus-bar-end">'
+    /* kosmos#6718: no Log out here any more; it is at the bottom of Settings > Kosmos+ (plus-logout below). */
     /* #4823: the two lines that open the phone menu (#pnav). Shown only at phone width, by CSS. */
     + '<button type="button" class="kplus-bar-menu" id="kplus-menu" aria-label="Menu" aria-haspopup="dialog" aria-expanded="false" aria-controls="pnav">'
     + '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M.5 4.5h17M.5 13.5h17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></span>';
@@ -20518,11 +20521,17 @@ function kplusBar() {
     new ResizeObserver(kplusBarFit).observe(head, { box: 'border-box' });
     new ResizeObserver(kplusBarFit).observe(head);
   }
-  const out = bar.querySelector('#kplus-logout'), msg = bar.querySelector('#kplus-bar-msg');
-  out.addEventListener('click', () => kplusLogout(out, msg));
+  /* kosmos#6718 (Josh 2026-10-20): Log out lives at the bottom of Settings > Kosmos+, shown only here, through a
+     Kosmos+ address: at the computer itself there is no Kosmos+ browser session to end. */
+  const logoutRow = document.getElementById('plus-logout-row');
+  const out = document.getElementById('plus-logout'), msg = document.getElementById('plus-logout-msg');
+  if (logoutRow && out && msg) {
+    logoutRow.hidden = false;
+    out.addEventListener('click', () => kplusLogout(out, msg));
+  }
   pnavBuild();
 }
-/* Log out of this browser's Kosmos+ session. One function for both doors, the bar's button and the phone menu's
+/* Log out of this browser's Kosmos+ session. One function for both doors, Settings > Kosmos+ (kosmos#6718; it was the bar's button) and the phone menu's
    (#4823), so they cannot come to disagree about what logging out does or says. */
 async function kplusLogout(out, msg) {
   out.disabled = true; msg.textContent = '';
