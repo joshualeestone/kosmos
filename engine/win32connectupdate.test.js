@@ -317,6 +317,22 @@ test('#4382: the control: the same update held to the board-task rule is refused
   assert.deepEqual(c.spawned, []);
 });
 
+test('kosmos#6620: a new install waits out the fleet update pause, before anything is staged; CONTROL: not paused, it goes on', T, async () => {
+  setMode('connect\n');
+  const { PAUSED_SENTENCE } = require('./manifest-verify');
+  const answer = (paused) => async () => ({ ok: true, text: async () => JSON.stringify({ updates_paused: paused }) });
+  const c = freshCase();
+  const sim = stoppedBoard(c);
+  const seams = seamsFor(c, site(NEXT), sim);
+  const env = { ...c.env, KOSMOS_UPDATE_PAUSE_URL: 'https://pause.invalid/v1/meta' };
+  const held = await win32update.begin({ ...seams.helperOptions, root: c.root, env, port: PORT, liveExecutionAllowed: () => true, fetchImpl: answer(true) });
+  assert.equal(held.ok, false);
+  assert.equal(held.because, PAUSED_SENTENCE);
+  assert.deepEqual(c.spawned, [], 'nothing was started during a pause');
+  const control = await win32update.begin({ ...seams.helperOptions, root: c.root, env, port: PORT, liveExecutionAllowed: () => true, fetchImpl: answer(false) });
+  assert.notEqual(control.because, PAUSED_SENTENCE, 'CONTROL: not paused, the install goes past the pause');
+});
+
 test('#4382: nothing is done on a computer that does not connect, while a board answers, or for an agent', T, async () => {
   setConsent(true);
   for (const [label, bytes] of [['no choice', null], ['run', 'run\n'], ['both', 'both\n'], ['a CRLF ending', 'connect\r\n'], ['a byte order mark', Buffer.from([0xef, 0xbb, 0xbf, ...Buffer.from('connect')])]]) {
