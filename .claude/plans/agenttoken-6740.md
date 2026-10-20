@@ -13,9 +13,22 @@ tests as inherited and 0 with the identity cleared (subtasks-3861 is the one #59
 
 ## What changes
 - test-support/agent-env.js: AGENT_IDENTITY (the three names) and withoutAgentIdentity(env), a copy without them.
-- The three tests build the CLI's environment from withoutAgentIdentity(process.env).
+- The three tests build the CLI's environment from withoutAgentIdentity(process.env), and so do two more the sweep
+  found: cli.task-webhook-1307 (1 red as inherited, 0 cleared) and cli.unknown-flag-4889 (4 red, 0 cleared).
+- cli.sandbox-data-4796 (the #4796 guard that no CLI test can send the LIVE board token to a stub board) recognised
+  only a literal `...process.env`, so the helper hid the inheritance from it and it reported the tests as having "no
+  environment of its own". That is a security guard going blind, not a cosmetic red: a later test inheriting the live
+  data root through the helper would have passed it. Its pattern now reads `...withoutAgentIdentity(process.env)` as
+  inheriting, held to the same data-root rule, with two control cases (flagged without a root, passed with one; the
+  old pattern fails the first).
 - tools.agent-env-6740.test.js: every name the helper clears is also unset by tools/run-tests.sh (the lists cannot
   drift), and the helper removes exactly those names and leaves its input alone.
+
+## Sweep (measured)
+Every test file that both spreads process.env and runs the CLI (98, plus the five changed), run DIRECTLY in my agent
+shell, then re-run with the identity cleared where it failed. After the fixes: 102 of 102 files pass as inherited (one line per file
+recorded). The first sweep reported 0 failures and was false: xargs
+could not build its command, so no test ran. The second wrote one line per file (98 of 98) before trusting the count.
 
 ## Decided
 - A shared helper used by the failing tests, not an edit to all 76 CLI tests that spread process.env: most pass today.
