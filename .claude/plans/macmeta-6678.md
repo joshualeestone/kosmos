@@ -77,6 +77,15 @@ an extended attribute. So both can go.
   planted. The four shapes are therefore NOT patched in the header reader (stated, on purpose). Also: an ACL arm; a
   symlink-not-followed arm; a clean-extraction control. Mutants: the extraction call removed, `xattr -s` without
   `-s`, and the ACL refusal removed each fail their own arm.
+- **Review 6 (sonnet):** the extraction layer is now always cleaned up. A 0555 folder in the tarball made rm fail and
+  left about 160 MB behind while the gate passed, so permissions are restored before removal, an interrupt trap
+  covers the unpack, and a folder that will not go is a refusal. Its scans count: a find or xattr that fails is a
+  refusal, not a clean answer, and `xattr -s` must read a probe attribute before an empty answer means clean. MEASURED:
+  an install-style extraction does not restore a stored file flag (only `tar --fflags` does), so the header layer is
+  what refuses a flag record and the extraction layer's flag scan is a backstop; an arm records that behaviour and
+  goes red if bsdtar ever restores flags on a plain `-x`, and the scan's own mutant is equivalent today (stated).
+  Arms: the read-only folder (passes, leaves nothing; red with the permission restore removed), and the
+  flag-restore behaviour.
 - **Refuse, not strip after the fact.** A gate that edits the tarball would change the bytes after signing-adjacent
   checks; refusing keeps the pack line the only place the bytes are made.
 - **Both tarballs.** The tmux bundle is built the same way, so it gets the same line and gate.
@@ -93,7 +102,7 @@ loudly, which is the safe direction.
 
 ## Tests
 
-- `bash tools/test-tar-metadata-gate-6678.sh`: 43 checks. The control packs a folder that HAS an extended attribute
+- `bash tools/test-tar-metadata-gate-6678.sh`: 45 checks. The control packs a folder that HAS an extended attribute
   the way the bundles pack, and passes. Then: plain packing refused; an AppleDouble entry refused and named (in a
   folder, at the top level, behind a long ustar-prefix path, behind a GNU long name, and behind a hand-made pax path
   record whose entry header says app/K, with a control that the same hand-made entry passes without it); a header
@@ -110,4 +119,6 @@ loudly, which is the safe direction.
 - ACLs: bsdtar 3.5.3 stores none by default (measured by review 3); the gate refuses them anyway.
 - A real bundle build here: the cut builds it. The first cut after merge (0.7.61) is the end-to-end check, and its
   served tarball should be run through the gate.
+- No size or time limit on the extraction: the builders unpack their own output, which is not hostile (review 6,
+  stated).
 - Windows: its zip is built elsewhere and carries no macOS metadata.

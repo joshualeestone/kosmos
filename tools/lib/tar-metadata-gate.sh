@@ -118,16 +118,33 @@ tar_metadata_gate() {
 # is a ._ file. A ._ entry that changes nothing on extraction is inert bytes; one that changes something is caught
 # here whatever shape hid it. Attributes are read with xattr -s, so a symlink in the tarball is never followed.
 tar_metadata_extracted() {
-  local tarball="$1" d bad
+  local tarball="$1" d bad scan=0
   d="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tar-metadata-gate.XXXXXXXXXX")" || { echo "FAIL: the tarball metadata gate could not make a folder to unpack into" >&2; return 1; }
-  if ! /usr/bin/tar -xzf "$tarball" --no-same-owner -C "$d" 2>/dev/null; then
-    /bin/rm -rf "$d"; echo "FAIL: the tarball metadata gate could not unpack $(basename "$tarball") the way an install does" >&2; return 1
+  # Review 6: removed whatever the tarball's modes (a 0555 folder made rm fail and left ~160 MB behind), and on an
+  # interrupt too; a folder that will not go is a refusal, not a quiet leftover.
+  trap '/bin/chmod -R u+rwX "$d" 2>/dev/null; /bin/rm -rf "$d"' INT TERM
+  # The attribute reader must be seen to work (a probe file with one attribute) before an empty answer means clean.
+  if ! { printf 'p\n' > "$d/.kosmos-probe" && /usr/bin/xattr -w com.kosmos.probe 1 "$d/.kosmos-probe" 2>/dev/null \
+         && [ "$(/usr/bin/xattr -s "$d/.kosmos-probe" 2>/dev/null)" = com.kosmos.probe ]; }; then
+    /bin/rm -rf "$d"; trap - INT TERM; echo "FAIL: the tarball metadata gate could not read an extended attribute on this Mac, so it cannot vouch for one" >&2; return 1
   fi
-  bad="$( { /usr/bin/find "$d" -name '._*' -print | /usr/bin/sed 's/$/: an AppleDouble file/'
-            /usr/bin/find "$d" -exec /usr/bin/xattr -s {} + 2>/dev/null
-            /usr/bin/find "$d" -exec /usr/bin/stat -f '%f %N' {} + | /usr/bin/awk '$1 != 0 { $1 = ""; print substr($0, 2) ": a file flag" }'; } \
+  /bin/rm -f "$d/.kosmos-probe"
+  if ! /usr/bin/tar -xzf "$tarball" --no-same-owner -C "$d" 2>/dev/null; then
+    /bin/chmod -R u+rwX "$d" 2>/dev/null; /bin/rm -rf "$d"; trap - INT TERM
+    echo "FAIL: the tarball metadata gate could not unpack $(basename "$tarball") the way an install does" >&2; return 1
+  fi
+  /bin/chmod -R u+rX "$d" 2>/dev/null   # so every folder can be scanned (modes on disk are not what is judged)
+  local a b c
+  a="$(/usr/bin/find "$d" -name '._*' -print)" || scan=1
+  b="$(/usr/bin/find "$d" -exec /usr/bin/xattr -s {} +)" || scan=1
+  c="$(/usr/bin/find "$d" -exec /usr/bin/stat -f '%f %N' {} +)" || scan=1
+  bad="$( { [ -z "$a" ] || printf '%s\n' "$a" | /usr/bin/sed 's/$/: an AppleDouble file/'
+            [ -z "$b" ] || printf '%s\n' "$b"
+            printf '%s\n' "$c" | /usr/bin/awk 'NF && $1 != 0 { $1 = ""; print substr($0, 2) ": a file flag" }'; } \
           | /usr/bin/sed "s#^$d/##" )"
-  /bin/rm -rf "$d"
+  /bin/chmod -R u+rwX "$d" 2>/dev/null; /bin/rm -rf "$d"; trap - INT TERM
+  [ -e "$d" ] && { echo "FAIL: the tarball metadata gate could not remove the folder it unpacked into ($d)" >&2; return 1; }
+  [ "$scan" = 0 ] || { echo "FAIL: the tarball metadata gate could not scan all of what $(basename "$tarball") unpacks to" >&2; return 1; }
   [ -z "$bad" ] && return 0
   echo "FAIL: unpacked as an install does, $(basename "$tarball") puts this Mac metadata on $(printf '%s\n' "$bad" | /usr/bin/wc -l | /usr/bin/tr -d ' ') things (#6678), first ones:" >&2
   printf '%s\n' "$bad" | /usr/bin/sed -n '1,3p' | /usr/bin/sed 's/^/  /' >&2

@@ -145,6 +145,16 @@ COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs -czf "$T/fflags.tg
 if [ "$(/usr/bin/gzip -dc "$T/fflags.tgz" | LC_ALL=C /usr/bin/grep -a -c 'SCHILY.fflags')" -ge 1 ] && ! tar_metadata_gate "$T/fflags.tgz" 2>/dev/null; then pass "a file flag (chflags hidden), packed without --no-fflags, is refused"
 else fail "a tarball carrying a file flag must be refused"; fi
 chflags nohidden "$T/fl/app/f" 2>/dev/null
+# Review 6: an install-style extraction does NOT restore a stored file flag (only tar --fflags does; measured), so the
+# header layer is what refuses one, and the extraction layer's flag scan is a backstop for a future default. This arm
+# records that: if bsdtar ever starts restoring flags on a plain -x, it goes red and the scan is then what catches it.
+if tar_metadata_extracted "$T/fflags.tgz" 2>/dev/null; then pass "an install-style extraction restores no stored file flag (the header layer refuses the record)"
+else fail "an install-style extraction now restores a stored file flag: the header layer is no longer the only refusal"; fi
+# Review 6: a read-only folder in the tarball must not leave the unpacked copy behind (rm alone failed on it).
+mkdir -p "$T/ro/app/locked" "$T/gtmp"; printf 'x\n' > "$T/ro/app/locked/f"; chmod 0555 "$T/ro/app/locked"
+COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf "$T/ro.tgz" -C "$T/ro" app; chmod 0755 "$T/ro/app/locked"
+if ( TMPDIR="$T/gtmp" tar_metadata_gate "$T/ro.tgz" ) 2>/dev/null && [ -z "$(ls -A "$T/gtmp")" ]; then pass "a tarball with a read-only folder passes and leaves nothing behind"
+else fail "a read-only folder left the unpacked copy behind, or was refused: $(ls -A "$T/gtmp" | tr '\n' ' ')"; chmod -R u+rwX "$T/gtmp" 2>/dev/null; fi
 paxtar "10 size=0
 " app/K > "$T/psize.tgz"
 if tar_metadata_gate "$T/psize.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "a pax size record is refused (bsdtar would follow it and read different entries)"
