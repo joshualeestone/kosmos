@@ -53,17 +53,19 @@ const BASE = require('./fixtures/agent-card.json');
         host.innerHTML = card(mk('left', { since })) + card(mk('clear', null));
         const cards = [...host.querySelectorAll('.acard')];
         if (cards.length !== 2) return { error: 'expected 2 cards, got ' + cards.length };
-        const find = (c) => [...c.querySelectorAll('*')].find((e) => e.children.length === 0 && /sitting unsent in its input box/.test(e.textContent));
-        const el = find(cards[0]);
-        const box = el ? el.getBoundingClientRect() : null;
+        /* #6716 (Josh, 2026-10-20): no sentence on a tile. The words are the pill's hover and its visually hidden text. */
+        const shown = (c) => [...c.querySelectorAll('*')].filter((e) => e.children.length === 0 && /sitting unsent in its input box/.test(e.textContent))
+          .filter((e) => { const b = e.getBoundingClientRect(); return b.width > 2 && b.height > 2; });
+        const pill = cards[0].querySelector('.astate');
         return { texts: cards.map((c) => c.textContent.replace(/\s+/g, ' ').trim()),
-          visible: !!box && box.width > 0 && box.height > 0, title: el ? (el.getAttribute('title') || '') : '' };
+          visibleOnTile: shown(cards[0]).length, title: pill ? (pill.getAttribute('title') || '') : '' };
       }, BASE);
       if (r.error) { chk(false, tag + ' ' + r.error); await page.close(); continue; }
       const [left, clear] = r.texts;
-      chk(/Text has been sitting unsent in its input box for about 7 minutes, and Kosmos's messages to it may wait behind it\./.test(left) || /sitting unsent in its input box/.test(r.title),
-        tag + ' an idle card with text left in its box says so, with the minutes', left);
-      chk(r.visible, tag + ' the sentence is drawn with a size (not clipped away)');
+      chk(/Text has been sitting unsent in its input box for about 7 minutes, and Kosmos's messages to it may wait behind it\./.test(r.title),
+        tag + ' #6716: the pill hover says it, with the minutes', r.title);
+      chk(/sitting unsent in its input box/.test(left), tag + ' a screen reader still hears it (the pill\'s hidden text)', left);
+      chk(r.visibleOnTile === 0, tag + ' #6716: no sentence is drawn on the tile', String(r.visibleOnTile));
       chk(!/input box/.test(clear), tag + ' NEGATIVE: an idle card with an empty box says nothing about it', clear);
       chk(errs.length === 0, tag + ' no page errors', errs.join(' | '));
       await page.close();
