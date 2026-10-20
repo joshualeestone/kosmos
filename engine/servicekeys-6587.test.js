@@ -214,7 +214,7 @@ test('seq only goes up: a lower seq is refused, the same seq only with the same 
 });
 
 test('the pinned key (base64url of the raw bytes) is matched against the listed SPKI keys', () => {
-  const keys = check(VECTOR, VECTOR_SIG).keys;
+  const keys = check(VECTOR, VECTOR_SIG);
   const pin7 = rawOf(K7).toString('base64url');
   assert.equal(sk.pinnedSpki(pin7), K7_PUB);
   assert.equal(sk.pinnedIsListed(pin7 + '\n', keys), true, 'the listed current key, with the trailing newline the file may hold');
@@ -225,5 +225,30 @@ test('the pinned key (base64url of the raw bytes) is matched against the listed 
   assert.equal(sk.pinnedIsListed('\u0085' + pin7 + '\n', keys), true, 'U+0085 is whitespace to Rust');
   for (const bad of ['', null, 'not a key', rawOf(K7).toString('base64'), pin7 + '=']) {
     assert.equal(sk.pinnedIsListed(bad, keys), false, 'unreadable pin ' + JSON.stringify(bad));
+  }
+  // No verified set, no answer: off (as shipped), a refused set, or a bare key array are null, never "not listed".
+  const off = sk.verifyServiceKeySet({ bytes: Buffer.from(VECTOR), sig: VECTOR_SIG });
+  assert.equal(off.off, true, 'CONTROL: this is the shipped off answer');
+  assert.equal(sk.pinnedIsListed(pin7, off), null, 'off');
+  assert.equal(sk.pinnedIsListed(pin7, check(VECTOR, sign(K7, VECTOR))), null, 'a refused set');
+  assert.equal(sk.pinnedIsListed(pin7, keys.keys), null, 'a bare array of keys, not a verified result');
+  assert.equal(sk.pinnedIsListed(pin7, null), null, 'nothing');
+});
+
+test('the default recovery keys ARE manifest-verify\'s: pinning one there turns the check on', () => {
+  // A fresh load of servicekeys.js with manifest-verify's RECOVERY_KEYS replaced by the vector root: the default call
+  // (no recoveryKeys passed) must then take the vector set. A module that kept its own [] would answer off.
+  const mvPath = require.resolve('./manifest-verify');
+  const skPath = require.resolve('./servicekeys');
+  const saved = { mv: require.cache[mvPath], sk: require.cache[skPath] };
+  try {
+    require.cache[mvPath] = { id: mvPath, filename: mvPath, loaded: true, exports: { ...require('./manifest-verify'), RECOVERY_KEYS: Object.freeze([ROOT_PUB]) } };
+    delete require.cache[skPath];
+    const fresh = require('./servicekeys');
+    const r = fresh.verifyServiceKeySet({ bytes: Buffer.from(VECTOR), sig: VECTOR_SIG });
+    assert.equal(r.ok, true, 'the default did not read manifest-verify RECOVERY_KEYS: ' + r.why);
+  } finally {
+    require.cache[mvPath] = saved.mv;
+    if (saved.sk) require.cache[skPath] = saved.sk; else delete require.cache[skPath];
   }
 });

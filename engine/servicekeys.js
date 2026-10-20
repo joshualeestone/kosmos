@@ -221,10 +221,13 @@ function verifyServiceKeySet({ bytes, sig, recoveryKeys = RECOVERY_KEYS, held = 
   return { ok: true, seq, sha256, keys };
 }
 
-/** Whether a pinned coordinator key (as coordinator_pubkey holds it) is one of a verified set's keys. */
-function pinnedIsListed(pinned, keys) {
+/** Whether a pinned coordinator key (as coordinator_pubkey holds it) is on a set: true or false only for a set that
+ * VERIFIED (a verifyServiceKeySet result with ok: true); null for off, a refused set, or anything else, because "not
+ * on the list" must never be read off a list nobody checked. */
+function pinnedIsListed(pinned, verified) {
+  if (!verified || verified.ok !== true || !Array.isArray(verified.keys)) return null;
   const spki = pinnedSpki(pinned);
-  return !!spki && Array.isArray(keys) && keys.some((k) => k && k.pub === spki);
+  return !!spki && verified.keys.some((k) => k && k.pub === spki);
 }
 
 module.exports = { SERVICE_KEYS_TYPE, MAX_SEQ, MAX_SERVICE_KEYS, verifyServiceKeySet, pinnedIsListed, pinnedSpki, kidOf, rawKey };
