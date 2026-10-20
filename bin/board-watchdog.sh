@@ -118,62 +118,94 @@ state_put() { # $1 down_since  $2 last_kickstart  $3 fail_count  [$4 busy_since]
 
 log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$1" >> "$LOG" 2>/dev/null || true; }
 
-# --- gate 1: nothing to supervise / user turned it off ----------------------
-[ -f "$KOSMOS_BIN" ] || exit 0            # broken/partial install: do nothing
-# kosmos#6651: the twin of install/kosmos's stop_marker_stranded (tools/test-stopmark-6651.sh pins them equal).
-# A marker reading "install <pid> <start>" whose installer is gone (that pid dead, or now a different process) is
-# an update's pause stranded by a run that died without its EXIT trap, not a person's stop. Empty, or anything
-# else, is a person's stop, exactly as before.
-start_token() { # $1 pid: a token for when that process started, stable for its life; empty if unknown
-  # Linux: the start time in clock ticks since boot (/proc/<pid>/stat field 22, read after the last ") " since
-  # the name may hold spaces), which a wall-clock step cannot move. Elsewhere: ps's lstart in UTC (TZ=UTC0), so
-  # the zone of whoever asks cannot change it.
+# ---- kosmos#6651: a stranded update pause ------------------------------------------------------------------
+# BEGIN kosmos#6651 shared block (byte-identical in install/setup.sh, install/kosmos and bin/board-watchdog.sh;
+# tools/test-stopmark-6651.sh compares them). POSIX sh: setup.sh runs under /bin/sh.
+# An update pausing a running board leaves, beside the plain empty board.stopped, an EMPTY file whose NAME says
+# who paused it: board.stopped.by-install.<pid>.<start token>. A name needs no data block, so it is written even
+# on a full disk (where an attributed body could not be; that full disk is how this card's pause was stranded).
+# The update's EXIT trap removes it. A run killed without its trap leaves it, and then: the pause is STRANDED when
+# the marker is there, the mode lets the board run, and every such name belongs to an installer that is provably
+# gone (its pid has ended, or now belongs to a process that started at another time). Any live installer, any name
+# that cannot be read, or no name at all (a person's stop: `kosmos stop` removes them all) means the pause stands.
+kosmos_start_token() { # $1 pid: when that process started, stable for its life; no spaces; empty if unknown
+  # Linux: start ticks since boot (/proc/<pid>/stat field 22, after the last ") " since the name may hold spaces),
+  # which a wall-clock step cannot move. Elsewhere: ps's lstart in UTC (TZ=UTC0), so the asker's zone cannot change it.
   if [ -r "/proc/$1/stat" ]; then
     sed -n 's/^.*) //p' "/proc/$1/stat" 2>/dev/null | awk 'NF >= 20 { print "proc:" $20 }'
   else
-    LC_ALL=C TZ=UTC0 ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//'
+    LC_ALL=C TZ=UTC0 ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//; s/  */_/g'
   fi
 }
-stop_marker_stranded() {
-  local line pid start live
-  [ -f "$STOP_MARKER" ] || return 1
-  IFS= read -r line < "$STOP_MARKER" 2>/dev/null || return 1   # empty (a person's stop) or unreadable
-  case "$line" in "install "*) ;; *) return 1 ;; esac
-  line="${line#install }"; pid="${line%% *}"; start="${line#* }"
-  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
-  [ -n "$start" ] && [ "$start" != "$line" ] || return 1
-  # A computer whose mode keeps the board off (connect; an unreadable choice) is never started by this: the same
-  # rule as setup.sh's _kosmos_mode_keeps_board_off (no mode file: the board runs; else only run or both).
+kosmos_installer_gone() { # $1 pid, $2 token recorded at the pause: 0 only when that installer has provably ended
+  _kig_live="$(kosmos_start_token "$1")"
+  if [ -d /proc/self ]; then
+    [ -e "/proc/$1" ] || return 0                                  # no /proc entry: gone, in any language
+    case "$2" in proc:*) case "$_kig_live" in proc:*) ;; *) return 1 ;; esac ;; esac   # unreadable here: unknowable
+  elif [ -z "$_kig_live" ]; then
+    # Nothing came back: gone, or ps could not run (a sandbox). Only kill's own "No such process" proves gone.
+    case "$(LC_ALL=C kill -0 "$1" 2>&1)" in *"o such process"*) return 0 ;; esac
+    return 1
+  fi
+  [ -n "$_kig_live" ] && [ "$_kig_live" != "$2" ]                  # that pid is now another process
+}
+kosmos_stranded_pause() { # prints the stranded pause's name files, one per line, and returns 0; else returns 1
+  [ -e "$KOSMOS_HOME/board.stopped" ] || return 1
+  # The same rule as setup.sh's _kosmos_mode_keeps_board_off: no mode file runs the board; else only run or both.
   if [ -e "$KOSMOS_HOME/mode" ]; then
     case "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" in run|both) ;; *) return 1 ;; esac
   fi
-  live="$(start_token "$pid")"
-  if [ -d /proc/self ]; then
-    # Linux: no /proc entry is the proof the installer is gone, in any language. A proc: token this reader
-    # cannot read (hidepid, another user) cannot be compared, so the pause stands.
-    [ -e "/proc/$pid" ] || return 0
-    case "$start" in proc:*) case "$live" in proc:*) ;; *) return 1 ;; esac ;; esac
-  elif [ -z "$live" ]; then
-    # Nothing came back: either the process is gone, or ps could not run (a sandbox). Only kill's own
-    # "No such process" (in English: LC_ALL=C) proves the first; anything else leaves the pause.
-    case "$(LC_ALL=C kill -0 "$pid" 2>&1)" in *"o such process"*) return 0 ;; esac
-    return 1
-  fi
-  [ -n "$live" ] || return 1
-  [ "$live" = "$start" ] && return 1   # that installer is still running: its pause stands
-  return 0                             # that pid is now another process: the installer is gone
+  _ksp_list=""
+  for _ksp_f in "$KOSMOS_HOME"/board.stopped.by-install.*; do
+    [ -e "$_ksp_f" ] || continue
+    _ksp_rest="${_ksp_f##*/board.stopped.by-install.}"; _ksp_pid="${_ksp_rest%%.*}"; _ksp_tok="${_ksp_rest#*.}"
+    case "$_ksp_pid" in ''|*[!0-9]*) return 1 ;; esac
+    case "$_ksp_tok" in ''|*[!A-Za-z0-9:_]*) return 1 ;; esac
+    [ "$_ksp_tok" != "$_ksp_rest" ] || return 1
+    kosmos_installer_gone "$_ksp_pid" "$_ksp_tok" || return 1        # a live installer: its pause stands
+    _ksp_list="$_ksp_list$_ksp_f
+"
+  done
+  [ -n "$_ksp_list" ] || return 1                                   # no name: a person's stop
+  printf '%s' "$_ksp_list"
 }
-if [ -f "$STOP_MARKER" ]; then
-  # Moved aside (kept as evidence), never deleted; then the usual down-streak logic brings the board back.
-  if stop_marker_stranded && _aside="$STOP_MARKER.stranded.$(date +%s)" && mv -f "$STOP_MARKER" "$_aside" 2>/dev/null; then
-    log "cleared a stranded update pause ($(head -1 "$_aside" 2>/dev/null)); kept at $_aside"
-  else
-    exit 0                                # deliberate stop: stay out
-  fi
-fi
-# gate 2: the board is SUPPOSED to auto-start. If its login job is gone the user
+kosmos_clear_stranded_pause() { # $1 who is clearing. Moves the marker aside (kept as evidence) and logs it.
+  _kcs_names="$(kosmos_stranded_pause)" || return 1
+  _kcs_aside="$KOSMOS_HOME/board.stopped.stranded.$(date +%s)"
+  mv -f "$KOSMOS_HOME/board.stopped" "$_kcs_aside" 2>/dev/null || return 1
+  # A person's stop between the check and the move removes the names first: then it was theirs, so put it back.
+  # (Read line by line from a here-document: no word splitting, so a KOSMOS_HOME with a space in it is safe.)
+  while IFS= read -r _kcs_f; do
+    [ -n "$_kcs_f" ] || continue
+    if [ ! -e "$_kcs_f" ]; then mv -f "$_kcs_aside" "$KOSMOS_HOME/board.stopped" 2>/dev/null; return 1; fi
+  done <<KOSMOS_6651_NAMES
+$_kcs_names
+KOSMOS_6651_NAMES
+  while IFS= read -r _kcs_f; do
+    [ -n "$_kcs_f" ] || continue
+    mv -f "$_kcs_f" "$_kcs_aside.${_kcs_f##*/board.stopped.}" 2>/dev/null || rm -f "$_kcs_f"
+  done <<KOSMOS_6651_NAMES
+$_kcs_names
+KOSMOS_6651_NAMES
+  mkdir -p "$KOSMOS_HOME/logs" 2>/dev/null
+  printf '[%s] %s: cleared a stranded update pause (%s); kept at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" \
+    "$(printf '%s' "$_kcs_names" | sed 's|.*/||' | tr '\n' ' ')" "$_kcs_aside" \
+    >> "$KOSMOS_HOME/logs/board-watchdog.log" 2>/dev/null || true
+}
+# END kosmos#6651 shared block
+
+# --- gate 1: nothing to supervise / user turned it off ----------------------
+[ -f "$KOSMOS_BIN" ] || exit 0            # broken/partial install: do nothing
+# gate 2 (checked first since kosmos#6651, so a stranded pause is only cleared where something will start the
+# board): the board is SUPPOSED to auto-start. If its login job is gone the user
 # has auto-restart off (or is mid-uninstall), so the watchdog must not resurrect it.
 [ -f "$BOARD_PLIST" ] || exit 0
+# kosmos#6651: an update's pause whose update is gone is cleared (moved aside and logged); the down-streak logic
+# below then brings the board back, and launchd's PathState KeepAlive sees no marker either. Anything else is a
+# deliberate stop: stay out.
+if [ -f "$STOP_MARKER" ]; then
+  kosmos_clear_stranded_pause watchdog || exit 0
+fi
 
 LAST_KICK="$(num "$(state_get last_kickstart)")"
 FAILS="$(num "$(state_get fail_count)")"

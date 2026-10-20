@@ -1,15 +1,17 @@
 #!/bin/bash
-# kosmos#6651: an update's pause marker is attributable, and one whose installer is gone (killed, or died under a
-# full disk, so its EXIT trap never ran) no longer keeps the board off for good. A person's stop is unchanged.
+# kosmos#6651: an update's pause is named by an empty file beside board.stopped (board.stopped.by-install.<pid>.<token>),
+# so a pause whose update was killed (or died under a full disk) no longer keeps the board off for good. A person's
+# stop, a board the mode keeps off, and a live update's pause are unchanged.
 #
-# 1. The stranded test is the SAME in install/kosmos and bin/board-watchdog.sh (compared byte for byte), and it
-#    is driven against real processes: a live one (pause stands), a dead pid, and a live pid with another start
-#    time (a reused pid). Empty and unrecognised markers are a person's stop.
-# 2. install/kosmos's writer and restorer, run as extracted functions.
-# 3. The real bin/board-watchdog.sh against a stub CLI (as tools/test-board-watchdog-2955.sh does): a stranded
-#    marker is moved aside, logged, and the board comes back; a person's marker still keeps it off.
-# 4. The callers: board-run and an agent's start clear a stranded marker before their refusal; setup.sh's
-#    update pause passes its own pid and start time.
+# 0. The shared block is byte-identical in install/setup.sh, install/kosmos and bin/board-watchdog.sh.
+# 1. Its functions, against real processes (a live one, one that has ended, a live pid with another start time),
+#    with the mode file, TZ, a ps that cannot run, and a FULL DISK (a small disk image, filled: the name must still
+#    be written there, which is the point of using a name).
+# 2. The clear: moves the marker and names aside (kept), logs, and puts a person's marker back if their stop raced it.
+# 3. The real bin/board-watchdog.sh against a stub CLI.
+# 4. The callers, by the order of their lines (the real CLI is never run here: its stop reaches this Mac's own
+#    launchd job): a person's stop removes the names before it writes the marker, board-run and an agent's start
+#    clear a stranded pause, setup.sh names only the pause it makes and its EXIT trap removes the name.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 REPO="$PWD"
@@ -17,87 +19,102 @@ fails=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; fails=1; }
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/test-stopmark-6651.XXXXXXXXXX")"
-cleanup() { [ -n "${LIVE:-}" ] && kill "$LIVE" 2>/dev/null; rm -rf "${TMP:?}"; }
+DISK=""
+cleanup() {
+  [ -n "${LIVE:-}" ] && kill "$LIVE" 2>/dev/null
+  [ -n "$DISK" ] && hdiutil detach -quiet "$DISK" >/dev/null 2>&1
+  rm -rf "${TMP:?}"
+}
 trap cleanup EXIT
 
-# Print one shell function's text, from its "name() {" line to the first line that is just "}".
-fn() { awk -v n="$2" '$0 ~ "^"n"\\(\\) \\{" { on=1 } on { print } on && /^}$/ { exit }' "$1"; }
+block() { awk '/^# BEGIN kosmos#6651 shared block/ { on=1 } on { print } /^# END kosmos#6651 shared block/ { exit }' "$1"; }
+B_SETUP="$(block install/setup.sh)"; B_CLI="$(block install/kosmos)"; B_WD="$(block bin/board-watchdog.sh)"
+{ [ -n "$B_CLI" ] && [ "$B_CLI" = "$B_SETUP" ] && [ "$B_CLI" = "$B_WD" ]; } \
+  && ok "the shared block is the same in setup.sh, the CLI and the watchdog" || bad "the shared block differs between files (or is missing)"
 
-CLI_FN="$(fn install/kosmos stop_marker_stranded)"; CLI_TOK="$(fn install/kosmos start_token)"
-WD_FN="$(fn bin/board-watchdog.sh stop_marker_stranded)"; WD_TOK="$(fn bin/board-watchdog.sh start_token)"
-[ -n "$CLI_FN" ] && [ "$CLI_FN" = "$WD_FN" ] && [ -n "$CLI_TOK" ] && [ "$CLI_TOK" = "$WD_TOK" ] \
-  && ok "the stranded test and its start token are the same in the CLI and the watchdog" \
-  || bad "the CLI's and the watchdog's stranded test or start token differ (or one is missing)"
-
-# --- 1. the stranded test, on real processes ---------------------------------------------------------------
-eval "$CLI_TOK"; eval "$CLI_FN"
-KOSMOS_HOME="$TMP"; STOP_MARKER="$TMP/board.stopped"
+# --- 1. the functions -------------------------------------------------------------------------------------------
+eval "$B_CLI"
+export KOSMOS_HOME="$TMP/home"; mkdir -p "$KOSMOS_HOME"
+M="$KOSMOS_HOME/board.stopped"
 sleep 300 & LIVE=$!; disown "$LIVE" 2>/dev/null || true
-live_start="$(start_token "$LIVE")"
-[ -n "$live_start" ] || bad "fixture: no start token for a live process"
-( exit 0 ) & DEAD=$!; wait "$DEAD" 2>/dev/null   # a pid that has just ended
-verdict() { if stop_marker_stranded; then echo stranded; else echo stands; fi; }
+LTOK="$(kosmos_start_token "$LIVE")"
+[ -n "$LTOK" ] || bad "fixture: no start token for a live process"
+case "$LTOK" in *" "*) bad "the token holds a space (it must fit a file name)" ;; *) ok "the token fits a file name ($LTOK)" ;; esac
+( exit 0 ) & DEAD=$!; wait "$DEAD" 2>/dev/null
+OTHER="Mon_Jan_1_00:00:00_2001"
+reset() { rm -f "$M" "$KOSMOS_HOME"/board.stopped.* "$KOSMOS_HOME/mode"; }
+name() { : > "$KOSMOS_HOME/board.stopped.by-install.$1.$2"; }
+verdict() { if kosmos_stranded_pause >/dev/null; then echo stranded; else echo stands; fi; }
+check() { # $1 expected, $2 label
+  [ "$(verdict)" = "$1" ] && ok "$2" || bad "$2 (got $(verdict))"
+}
 
-: > "$STOP_MARKER"
-[ "$(verdict)" = stands ] && ok "an empty marker (a person's stop) stands" || bad "an empty marker read as stranded"
-printf 'install %s %s\n' "$LIVE" "$live_start" > "$STOP_MARKER"
-[ "$(verdict)" = stands ] && ok "a running installer's pause stands" || bad "a live installer's pause read as stranded"
-printf 'install %s %s\n' "$DEAD" "Mon Oct 19 12:00:00 2026" > "$STOP_MARKER"
-[ "$(verdict)" = stranded ] && ok "an installer that is gone: stranded" || bad "a dead installer's pause still stands"
-printf 'install %s %s\n' "$LIVE" "Mon Jan  1 00:00:00 2001" > "$STOP_MARKER"
-[ "$(verdict)" = stranded ] && ok "a reused pid (another start time): stranded" || bad "a reused pid kept the pause"
-for body in 'stopped by me' 'install' 'install abc Mon' "install $DEAD"; do
-  printf '%s\n' "$body" > "$STOP_MARKER"
-  [ "$(verdict)" = stands ] && ok "an unrecognised marker stands: '$body'" || bad "an unrecognised marker read as stranded: '$body'"
+reset; : > "$M";                                 check stands   "a person's stop (marker, no names) stands"
+reset; : > "$M"; name "$LIVE" "$LTOK";           check stands   "a running update's pause stands"
+reset; : > "$M"; name "$DEAD" "$LTOK";           check stranded "an update that has ended: stranded"
+reset; : > "$M"; name "$LIVE" "$OTHER";          check stranded "a reused pid (another start time): stranded"
+reset; : > "$M"; name "$DEAD" "$LTOK"; name "$LIVE" "$LTOK"; check stands "one gone and one live update: the live one's pause stands"
+reset; name "$DEAD" "$LTOK";                     check stands   "a name with no marker (the board was started since): nothing to clear"
+for bogus in "abc.$LTOK" "$DEAD" "$DEAD.has space" "$DEAD.semi;colon" "$DEAD."; do
+  reset; : > "$M"; : > "$KOSMOS_HOME/board.stopped.by-install.$bogus"
+  check stands "an unreadable name stands: '$bogus'"
 done
-rm -f "$STOP_MARKER"
-[ "$(verdict)" = stands ] && ok "no marker: nothing stranded" || bad "no marker read as stranded"
-
-# A computer whose mode keeps the board off is never started by a stranded-pause clear (the person may have chosen
-# connect during the very run that was killed). Same rule as setup.sh: no mode file runs; else only run or both.
-printf 'install %s %s\n' "$DEAD" "Mon Oct 19 12:00:00 2026" > "$STOP_MARKER"
 for m in connect "" garbage; do
-  printf '%s\n' "$m" > "$KOSMOS_HOME/mode"
-  [ "$(verdict)" = stands ] && ok "mode '$m' keeps a stranded pause in place" || bad "mode '$m': a stranded pause would start the board"
+  reset; : > "$M"; name "$DEAD" "$LTOK"; printf '%s\n' "$m" > "$KOSMOS_HOME/mode"
+  check stands "mode '$m' keeps a stranded pause in place (the board must stay off)"
 done
 for m in run both; do
-  printf '%s\n' "$m" > "$KOSMOS_HOME/mode"
-  [ "$(verdict)" = stranded ] && ok "mode '$m': a stranded pause is cleared" || bad "mode '$m' kept a stranded pause"
+  reset; : > "$M"; name "$DEAD" "$LTOK"; printf '%s\n' "$m" > "$KOSMOS_HOME/mode"
+  check stranded "mode '$m': a stranded pause is stranded"
 done
-rm -f "$KOSMOS_HOME/mode"
-
-# The token must not depend on the zone of whoever asks (the watchdog runs under launchd, an install from a shell).
-tok_tokyo="$(TZ=Asia/Tokyo start_token "$LIVE")"; tok_chicago="$(TZ=America/Chicago start_token "$LIVE")"
-[ "$tok_tokyo" = "$tok_chicago" ] && ok "the start token is the same in any TZ" || bad "start token depends on TZ: '$tok_tokyo' vs '$tok_chicago'"
-printf 'install %s %s\n' "$LIVE" "$tok_tokyo" > "$STOP_MARKER"
-[ "$(TZ=UTC verdict)" = stands ] && ok "a live pause written in one zone stands when read in another" || bad "a TZ change cleared a live pause"
-
-# A ps that cannot run (a sandbox) prints nothing: that alone must never clear a live pause.
+[ "$(TZ=Asia/Tokyo kosmos_start_token "$LIVE")" = "$(TZ=America/Chicago kosmos_start_token "$LIVE")" ] \
+  && ok "the token is the same in any TZ" || bad "the token depends on TZ"
+reset; : > "$M"; name "$LIVE" "$(TZ=Asia/Tokyo kosmos_start_token "$LIVE")"
+[ "$(TZ=UTC verdict)" = stands ] && ok "a live pause named in one zone stands when read in another" || bad "a TZ change cleared a live pause"
 mkdir -p "$TMP/badps"; printf '#!/bin/sh\nexit 126\n' > "$TMP/badps/ps"; chmod +x "$TMP/badps/ps"
-printf 'install %s %s\n' "$LIVE" "$live_start" > "$STOP_MARKER"
-[ "$(PATH="$TMP/badps:$PATH" verdict)" = stands ] && ok "ps broken, installer alive: the pause stands" || bad "a broken ps cleared a live pause"
-printf 'install %s %s\n' "$DEAD" "$live_start" > "$STOP_MARKER"
-[ "$(PATH="$TMP/badps:$PATH" verdict)" = stranded ] && ok "ps broken, installer gone (kill says no such process): stranded" || bad "a dead installer was kept because ps was broken"
+reset; : > "$M"; name "$LIVE" "$LTOK"
+[ "$(PATH="$TMP/badps:$PATH" verdict)" = stands ] && ok "ps cannot run, update alive: the pause stands" || bad "a broken ps cleared a live pause"
+reset; : > "$M"; name "$DEAD" "$LTOK"
+[ "$(PATH="$TMP/badps:$PATH" verdict)" = stranded ] && ok "ps cannot run, update gone (kill: no such process): stranded" || bad "a broken ps kept a dead update's pause"
 
-# --- 2. the writer and the restorer ------------------------------------------------------------------------
-eval "$(fn install/kosmos write_stop_marker)"
-eval "$(fn install/kosmos restore_stop_marker)"
-rm -f "$STOP_MARKER"; KOSMOS_STOP_BY_INSTALL="$LIVE $live_start" write_stop_marker
-[ "$(cat "$STOP_MARKER")" = "install $LIVE $live_start" ] && ok "an installer's stop says who it is" || bad "installer marker body: $(cat "$STOP_MARKER")"
-: > "$STOP_MARKER"; KOSMOS_STOP_BY_INSTALL="$LIVE $live_start" write_stop_marker
-[ -f "$STOP_MARKER" ] && [ ! -s "$STOP_MARKER" ] && ok "an installer's stop never overwrites a marker already there (a person's stop)" || bad "an installer's stop replaced a person's marker: $(cat "$STOP_MARKER")"
-rm -f "$STOP_MARKER"; KOSMOS_STOP_BY_INSTALL="" write_stop_marker
-[ -f "$STOP_MARKER" ] && [ ! -s "$STOP_MARKER" ] && ok "a person's stop writes the empty marker" || bad "a person's stop wrote: $(cat "$STOP_MARKER" 2>/dev/null)"
-rm -f "$STOP_MARKER"; KOSMOS_STOP_BY_INSTALL="not a pid" write_stop_marker
-[ -f "$STOP_MARKER" ] && [ ! -s "$STOP_MARKER" ] && ok "a malformed attribution falls back to the empty marker" || bad "malformed attribution wrote: $(cat "$STOP_MARKER" 2>/dev/null)"
-restore_stop_marker "install $DEAD Mon Oct 19 12:00:00 2026"
-[ "$(cat "$STOP_MARKER")" = "install $DEAD Mon Oct 19 12:00:00 2026" ] && ok "a restore keeps an installer's words" || bad "restore changed the body: $(cat "$STOP_MARKER")"
-restore_stop_marker ""
-[ ! -s "$STOP_MARKER" ] && ok "a restore of a person's stop is empty again" || bad "a person's restore wrote words"
+# A full disk: the card's own case. A name is an empty file, so it needs no data block.
+if command -v hdiutil >/dev/null 2>&1 && hdiutil create -quiet -size 8m -fs APFS -volname s6651 "$TMP/full.dmg" >/dev/null 2>&1 \
+   && DISK="$(hdiutil attach -nobrowse "$TMP/full.dmg" 2>/dev/null | awk '/s6651/ { print $NF }')" && [ -n "$DISK" ]; then
+  dd if=/dev/zero of="$DISK/fill" bs=1m 2>/dev/null; dd if=/dev/zero of="$DISK/fill2" bs=4k 2>/dev/null
+  ( printf 'x\n' > "$DISK/probe" ) >/dev/null 2>&1
+  if [ -s "$DISK/probe" ]; then
+    bad "fixture: the disk image is not full, so this proves nothing"
+  else
+    : > "$DISK/board.stopped" 2>/dev/null; : > "$DISK/board.stopped.by-install.$DEAD.$LTOK" 2>/dev/null
+    { [ -e "$DISK/board.stopped" ] && [ -e "$DISK/board.stopped.by-install.$DEAD.$LTOK" ]; } \
+      && ok "on a FULL disk the marker and the pause's name are still written" || bad "the marker or the name could not be written on a full disk"
+    [ "$(KOSMOS_HOME="$DISK" verdict)" = stranded ] && ok "and read there as stranded once that update is gone" || bad "a full-disk pause read as stands"
+  fi
+else
+  echo "SKIP  full-disk case: hdiutil could not make a disk image here (macOS only)"
+fi
 
-# --- 3. the real watchdog -----------------------------------------------------------------------------------
+# --- 2. the clear -----------------------------------------------------------------------------------------------
+reset; : > "$M"; name "$DEAD" "$LTOK"; mkdir -p "$KOSMOS_HOME/logs"
+kosmos_clear_stranded_pause test-clear
+aside="$(ls "$KOSMOS_HOME"/board.stopped.stranded.* 2>/dev/null | grep -v by-install | head -1)"
+{ [ ! -e "$M" ] && [ -n "$aside" ] && [ -z "$(ls "$KOSMOS_HOME"/board.stopped.by-install.* 2>/dev/null)" ] \
+  && [ -n "$(ls "$KOSMOS_HOME"/board.stopped.stranded.*.by-install.* 2>/dev/null)" ] \
+  && grep -q "test-clear: cleared a stranded update pause (board.stopped.by-install.$DEAD" "$KOSMOS_HOME/logs/board-watchdog.log"; } \
+  && ok "the clear moves the marker and its name aside (kept) and logs it" || bad "the clear: $(ls "$KOSMOS_HOME")"
+reset; : > "$M"; name "$LIVE" "$LTOK"
+kosmos_clear_stranded_pause test-clear; rc=$?
+{ [ "$rc" -ne 0 ] && [ -e "$M" ]; } && ok "CONTROL: a live update's pause is not cleared" || bad "a live pause was cleared"
+# A person's stop racing the clear: it removes the names between the check and the move. Modelled by a check that
+# names a file which is already gone.
+reset; : > "$M"
+( kosmos_stranded_pause() { printf '%s\n' "$KOSMOS_HOME/board.stopped.by-install.$DEAD.$LTOK"; }
+  kosmos_clear_stranded_pause test-race; echo "rc=$?" > "$TMP/race" )
+{ grep -q 'rc=1' "$TMP/race" && [ -e "$M" ]; } && ok "a person's stop racing the clear: their marker is put back" || bad "a raced clear lost a person's marker"
+
+# --- 3. the real watchdog ---------------------------------------------------------------------------------------
 new_home() {
-  local h; h="$(mktemp -d "$TMP/home.XXXXXX")"; mkdir -p "$h/bin" "$h/logs"
+  local h; h="$(mktemp -d "$TMP/wd.XXXXXX")"; mkdir -p "$h/bin" "$h/logs"
   cat > "$h/bin/kosmos" <<'STUB'
 #!/bin/bash
 H="$(cd "$(dirname "$0")/.." && pwd)"
@@ -113,44 +130,39 @@ STUB
   printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\nbusy_since=\n' "$(( $(date +%s) - 100 ))" > "$h/logs/board-watchdog.state"
   printf '%s' "$h"
 }
-run_wd() { KOSMOS_WATCHDOG_GRACE=45 KOSMOS_WATCHDOG_THROTTLE=180 KOSMOS_WATCHDOG_MAX_FAILS=5 KOSMOS_WATCHDOG_COOLDOWN=3600 \
+run_wd() { env -u KOSMOS_HOME KOSMOS_WATCHDOG_GRACE=45 KOSMOS_WATCHDOG_THROTTLE=180 KOSMOS_WATCHDOG_MAX_FAILS=5 KOSMOS_WATCHDOG_COOLDOWN=3600 \
   KOSMOS_WATCHDOG_LAUNCHCTL="$1/bin/launchctl" bash "$REPO/bin/board-watchdog.sh" "$1" "$1/board.plist" >/dev/null 2>&1; }
 starts() { [ -f "$1/.stub-start-calls" ] && wc -l < "$1/.stub-start-calls" | tr -d ' ' || echo 0; }
-
-H="$(new_home)"; printf 'install %s %s\n' "$DEAD" "Mon Oct 19 12:00:00 2026" > "$H/board.stopped"
-[ -f "$H/logs/board-watchdog.state" ] || bad "fixture: the state file is not where the watchdog reads it"
-run_wd "$H"
-aside="$(ls "$H"/board.stopped.stranded.* 2>/dev/null | head -1)"
-{ [ ! -e "$H/board.stopped" ] && [ -n "$aside" ] && grep -q 'cleared a stranded update pause' "$H/logs/board-watchdog.log" 2>/dev/null; } \
-  && ok "watchdog: a stranded pause is moved aside (kept) and logged" || bad "watchdog left a stranded pause in place"
-[ "$(starts "$H")" -ge 1 ] && ok "watchdog: and the board comes back" || bad "watchdog cleared it but did not start the board"
-
-H="$(new_home)"; : > "$H/board.stopped"
-run_wd "$H"
+H="$(new_home)"; : > "$H/board.stopped"; : > "$H/board.stopped.by-install.$DEAD.$LTOK"; run_wd "$H"
+{ [ ! -e "$H/board.stopped" ] && grep -q 'watchdog: cleared a stranded update pause' "$H/logs/board-watchdog.log" && [ "$(starts "$H")" -ge 1 ]; } \
+  && ok "watchdog: a stranded pause is cleared, logged, and the board comes back" || bad "watchdog: stranded pause not cleared (starts=$(starts "$H"))"
+H="$(new_home)"; : > "$H/board.stopped"; run_wd "$H"
 { [ -e "$H/board.stopped" ] && [ "$(starts "$H")" = 0 ]; } && ok "watchdog CONTROL: a person's stop still keeps it off" || bad "watchdog overrode a person's stop"
-
-H="$(new_home)"; printf 'install %s %s\n' "$DEAD" "Mon Oct 19 12:00:00 2026" > "$H/board.stopped"; printf 'connect\n' > "$H/mode"
-run_wd "$H"
+H="$(new_home)"; : > "$H/board.stopped"; : > "$H/board.stopped.by-install.$LIVE.$LTOK"; run_wd "$H"
+{ [ -e "$H/board.stopped" ] && [ "$(starts "$H")" = 0 ]; } && ok "watchdog: a running update's pause is left alone" || bad "watchdog broke a live update's pause"
+H="$(new_home)"; : > "$H/board.stopped"; : > "$H/board.stopped.by-install.$DEAD.$LTOK"; printf 'connect\n' > "$H/mode"; run_wd "$H"
 { [ -e "$H/board.stopped" ] && [ "$(starts "$H")" = 0 ]; } && ok "watchdog: a connect computer's stranded pause is left alone" || bad "watchdog started a connect computer's board"
+H="$(new_home)"; : > "$H/board.stopped"; : > "$H/board.stopped.by-install.$DEAD.$LTOK"; rm -f "$H/board.plist"; run_wd "$H"
+[ -e "$H/board.stopped" ] && ok "watchdog: with auto-restart off (no board job) it clears nothing" || bad "watchdog cleared a pause it would not restart"
 
-H="$(new_home)"; printf 'install %s %s\n' "$LIVE" "$live_start" > "$H/board.stopped"
-run_wd "$H"
-{ [ -e "$H/board.stopped" ] && [ "$(starts "$H")" = 0 ]; } && ok "watchdog: a running installer's pause is left alone" || bad "watchdog broke a live update's pause"
-
-# --- 4. the callers -----------------------------------------------------------------------------------------
-before_refusal() { # $1 function, $2 the refusal line's text: the stranded clear must come first, inside it
-  fn install/kosmos "$1" | awk -v r="$2" '/stop_marker_stranded/ && !seen { c=NR } index($0, r) { if (c) print "ok"; exit }'
-}
-[ "$(before_refusal cmd_board_run 'Kosmos was deliberately stopped; not starting.')" = ok ] \
-  && ok "board-run clears a stranded pause before it refuses" || bad "board-run does not check for a stranded pause first"
-grep -q 'stop_marker_stranded; then clear_stranded_stop_marker agent-start' install/kosmos \
-  && ok "an agent's start clears a stranded pause before the #5450 refusal" || bad "agent start does not check for a stranded pause"
-grep -q 'KOSMOS_STOP_BY_INSTALL="${_kosmos_self_start:+$$ $_kosmos_self_start}" "$KOSMOS_HOME/bin/kosmos" stop --force' install/setup.sh \
-  && ok "setup.sh's update pause passes its pid and start time" || bad "setup.sh's pause is not attributed"
-awk '/if \[ "\$_kosmos_was_running" = yes \]; then/ { w = NR } /KOSMOS_STOP_BY_INSTALL=/ { if (w && NR - w < 12) print "ok"; exit }' install/setup.sh | grep -q ok \
-  && ok "setup.sh attributes its pause only when it is pausing a running board" || bad "setup.sh attributes a pause it does not own"
-[ "$(grep -c 'KOSMOS_STOP_BY_INSTALL=' install/setup.sh)" = 1 ] \
-  && ok "only the update pause is attributed (uninstall and connect stops stay a plain stop)" || bad "more than one stop in setup.sh is attributed"
+# --- 4. the callers ---------------------------------------------------------------------------------------------
+fnbody() { awk -v n="$2" '$0 ~ "^"n"\\(\\) \\{" { on=1 } on { print } on && /^}$/ { exit }' "$1"; }
+# a person's stop: both of cmd_stop's marker writes are right after the name removal, which only an update skips
+cnt="$(fnbody install/kosmos cmd_stop | awk '/KOSMOS_STOP_BY_INSTALL:-}" = 1 \] \|\| rm -f "\$STOP_MARKER".by-install/ { r = NR } /^ *: > "\$STOP_MARKER"/ { if (r && NR == r + 1) n++ } END { print n + 0 }')"
+[ "$cnt" = 2 ] && ok "a person's stop removes an update's names just before each marker write ($cnt of 2)" || bad "cmd_stop's marker writes are not each preceded by the name removal ($cnt of 2)"
+fnbody install/kosmos cmd_board_run | awk '/kosmos_clear_stranded_pause board-run/ { c = NR } /Kosmos was deliberately stopped; not starting/ { exit !(c) }' \
+  && ok "board-run clears a stranded pause before it refuses" || bad "board-run does not clear a stranded pause first"
+fnbody install/kosmos agent_board_guard | awk '/local _claim=/ { l = NR } /kosmos_clear_stranded_pause agent-start/ { n++; if (!l || NR < l) bad = 1 } END { exit !(n == 2 && !bad) }' \
+  && ok "an agent's start clears a stranded pause only after the cooldown and claim pass (both success returns)" \
+  || bad "an agent's start clears a stranded pause before its cooldown or claim (or not on both success returns)"
+awk '/^  _kosmos_pause_name=""$/ { if (!a) a = NR } /if \[ "\$_kosmos_was_running" = yes \]; then/ { if (a && !w) w = NR }
+     /: > "\$_kosmos_pause_name"/ { n = NR } /^  _kosmos_marker_ours="\$_kosmos_was_running"/ { m = NR }
+     END { exit !(a && w > a && n > w && m > n) }' install/setup.sh \
+  && ok "setup.sh names its pause only when pausing a running board, before the stop" || bad "setup.sh's pause name is not where it should be"
+awk '/^_kosmos_on_exit\(\) \{/ { on = 1 } on && /rm -f "\$_kosmos_pause_name"/ { f = 1 } on && /^}/ { exit !f }' install/setup.sh \
+  && ok "setup.sh's EXIT trap removes its own pause name" || bad "setup.sh's EXIT trap does not remove its pause name"
+grep -q 'elif ! _kosmos_mode_keeps_board_off && kosmos_stranded_pause >/dev/null; then' install/setup.sh \
+  && ok "a later update adopts a stranded pause (its own put-back covers it)" || bad "a later update does not adopt a stranded pause"
 
 echo
 [ "$fails" -eq 0 ] && echo "test-stopmark-6651: all passed" || { echo "test-stopmark-6651: FAILED"; exit 1; }
