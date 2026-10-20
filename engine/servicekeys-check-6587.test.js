@@ -41,7 +41,8 @@ const on = (appDir) => ({ appDir, recoveryKeys: [ROOT_PUB] });
 test('off as shipped: no recovery key is pinned, so a shipped set and a pin say nothing', () => {
   assert.deepEqual(serviceKeyCheck(state(PIN7), { appDir: app() }), { state: 'off' }, 'the shipped (empty) recovery keys');
   assert.deepEqual(serviceKeyCheck(state(PIN7), { appDir: app(), recoveryKeys: [] }), { state: 'off' }, 'an empty list');
-  // This version ships no set beside the engine yet: off with the real app folder too. Flip this on the day the set is first committed.
+  // This version ships no set beside the engine yet: off with the real app folder too. That commit turns the check on and
+  // must wait for S-7a slice 3 (servicekeys-check.js header); flip this line in it.
   assert.equal(fs.existsSync(path.join(__dirname, SET_FILE)), false, 'CONTROL: no set ships in this tree yet');
   assert.deepEqual(serviceKeyCheck(state(PIN7), { recoveryKeys: [ROOT_PUB] }), { state: 'off' }, 'the real app folder, no set');
 });
