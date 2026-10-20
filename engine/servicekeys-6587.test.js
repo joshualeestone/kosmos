@@ -305,7 +305,7 @@ test('seq only goes up: a lower seq is refused, the same seq only with the same 
   refused(check(VECTOR, VECTOR_SIG, { seq: 2, sha256: VECTOR_SHA.replace(/^00/, '11') }), /is older \(1\)/, 'a lower seq');
   assert.equal(check(...signed(doc({ seq: 2 })), held).ok, true, 'CONTROL: a higher seq');
   // A held record that cannot be read fails closed rather than switching the rollback check off.
-  for (const bad of [{ seq: '5', sha256: VECTOR_SHA }, { seq: 5n, sha256: VECTOR_SHA }, { seq: 0, sha256: VECTOR_SHA }, { seq: 1, sha256: 'x' }, {}, 'held']) {
+  for (const bad of [{ seq: '5', sha256: VECTOR_SHA }, { seq: 5n, sha256: VECTOR_SHA }, { seq: 0, sha256: VECTOR_SHA }, { seq: 1, sha256: 'x' }, {}, 'held', 0, false, '', NaN]) {   // falsy junk too (review 18)
     refused(check(...signed(doc({ seq: 3 })), bad), /holds is not readable/, 'held ' + String(bad.seq));
   }
 });
