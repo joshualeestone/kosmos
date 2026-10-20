@@ -88,7 +88,7 @@ function newId() { return crypto.randomBytes(12).toString('hex'); }
  * Store bytes as an attachment. Returns the record (with `dir` and `file`
  * for the server, which strips them before the row goes out).
  */
-function save(scope, owner, { name, type, bytes }) {
+function save(scope, owner, { name, type, bytes, by }) {
   if (!Buffer.isBuffer(bytes) || !bytes.length) throw new Error('there is nothing in that file');
   if (bytes.length > MAX_BYTES) throw new Error('that file is larger than 25 MB, which is the most a conversation can carry');
   const id = newId();
@@ -102,6 +102,7 @@ function save(scope, owner, { name, type, bytes }) {
   const record = {
     id, name: clean, type: String(type || 'application/octet-stream').split(';')[0].trim().slice(0, 100) || 'application/octet-stream',
     size: bytes.length, kind, at: new Date().toISOString(), scope, owner: String(owner),
+    ...(by === 'agent' ? { by: 'agent' } : {}),   // #6726: a file the agent attached to its reply, counted against its daily total
   };
   fs.writeFileSync(path.join(dir, 'record.json'), JSON.stringify(record, null, 2) + '\n');
   return { ...record, dir, file };

@@ -3972,6 +3972,8 @@ function keepAgentReply(who, text, at, opts) {
     from: who,
     // #4354: Kosmos's own words in the agent's name (the daily-limit notice), so dmOwes can tell them from a reply
     ...(opts && opts.kosmos === true ? { kosmos: true } : {}),
+    // #6726: a file the agent attached, as the same record a person's upload rides its row with
+    ...(opts && Array.isArray(opts.files) ? attachments.rowFields(opts.files) : {}),
   });
 }
 
@@ -16840,8 +16842,25 @@ const server = http.createServer(async (req, res) => {
            refusing), and the block's warning is the compensating control that
            reaches the agent BEFORE the guard. The outbox drain (#1704 PR2) runs
            the same function, so a kept reply is refused exactly as a live one. */
+        /* #6726: `file` attaches one of the agent's own files (engine/replyfile.js). With no words, the
+           file's name is the text, as the page sends a person's wordless upload (pjWords hides it). */
+        if (body.file !== undefined && body.file !== null && typeof body.file !== 'string') {
+          const bad = new Error('file is the path of one file'); bad.status = 400; throw bad;
+        }
+        const replyFile = typeof body.file === 'string' && body.file ? body.file : null;
+        /* With no words the file's name is the text: provisionally the path's last part, for the checks below, then the
+           name the copy was SAVED under (review r2 finding 6), which safeName may cut or change, so the bubble never
+           shows a second spelling beside the card. */
+        const wordless = Boolean(replyFile) && (typeof body.text !== 'string' || !body.text.trim());
+        if (wordless) body.text = path.basename(replyFile);
         const problem = agentReplyProblem(body.text);
         if (problem) { const bad = new Error(problem); bad.status = 400; throw bad; }
+        /* The path names a file on THIS computer, so it is taken only from a caller on it: a remote agent's
+           folders are on its own computer, and a forwarded request must not make this one read a path. */
+        if (replyFile && isRemoteRequest(req)) {
+          sendJson(res, 200, { kept: false, because: 'a file can be attached only by an agent running on this computer' });
+          return;
+        }
 
         const roster = safeRoster();
         if (roster === null) {
@@ -16868,8 +16887,37 @@ const server = http.createServer(async (req, res) => {
         if (!sender.ok) { sendJson(res, 200, { kept: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
+        /* #6726: checked and copied only now that the sender is known, since which folders count is the sender's. */
+        let attached = null;
+        if (replyFile) {
+          /* Review r1 finding 5, r2 finding 2 (decided): a file goes only from a sender its AGENT token named. Then
+             resolveAgentSender took the token path (above), so `who` is the token's agent and its folders are the ones
+             judged, whatever pane the body names.
+             CLOSED: a pane name alone (guessable by any process of this user) cannot attach; nor can the board token,
+             which names no agent and which every agent of this user can read, so it would let agent A send agent B's
+             file as B.
+             NOT CLOSED: an agent token is a file readable by this same user, so a process that reads another agent's
+             token can still send as that agent. That is the reach every same-user process already has over the
+             other agents' files; this route adds no new one. */
+          if (!presentedAgentToken(req, body)) {
+            sendJson(res, 200, { kept: false, because: 'a file can be attached only by an agent Kosmos started with its own agent token; this reply came without one, so nothing was sent' });
+            return;
+          }
+          const got = require('./engine/replyfile').attach(who, replyFile, { roster });
+          if (!got.ok) { sendJson(res, 200, { kept: false, because: got.because }); return; }
+          attached = got.rec;
+          if (wordless) body.text = attached.name;
+        }
         const replyAt = new Date().toISOString();
-        const kept = keepAgentReply(who, body.text, replyAt);
+        /* Review r1 finding 6: a copy no message carries is taken back, whether the keep said no or threw. */
+        let kept;
+        try {
+          kept = keepAgentReply(who, body.text, replyAt, attached ? { files: [attached] } : undefined);
+        } catch (err) {
+          if (attached) require('./engine/replyfile').discard(attached);
+          throw err;
+        }
+        if (attached && kept.recorded !== true) require('./engine/replyfile').discard(attached);
         // #718: phone notifications, only when the person turned them on
         // (engine/phonenotify.js). Never the reply's words.
         if (kept.recorded === true) {
@@ -16878,6 +16926,8 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, {
           kept: kept.recorded === true,
           because: kept.recorded === true ? null : kept.because,
+          /* #6726 review r3 NIT 6: the name the file was saved under (the real file's), for the command to say. */
+          ...(attached && kept.recorded === true ? { attached: attached.name } : {}),
         });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
@@ -25436,6 +25486,9 @@ if (require.main === module) {
          above, once the board is listening, and never in a test that merely
          requires this file. */
       startOutboxDrain();
+      /* #6726 review r2 finding 4: the day's reply-attachment totals, read from the store once, here, so no reply
+         walks it. Not fatal: a reply that finds no ledger seeds it then. */
+      try { require('./engine/replyfile').seed(); } catch { /* seeded on the first reply instead */ }
     }).catch((err) => {
       // Say what to do rather than name an exception. A raw EADDRINUSE stack is
       // exactly what start()'s promise exists to replace, and leaving this
