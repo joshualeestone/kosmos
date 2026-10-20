@@ -71,6 +71,34 @@ test('a signed x86-64 Windows connector passes; unsigned, 32-bit and Mac connect
   assert.match(mac.err, /not a Windows program/);
 });
 
+/* #6679: the launcher is a C# AnyCPU build, a PE32 with machine i386, so the connector's x86-64 check refuses it
+   whatever its signature. pe_signature_present reads the certificate table for either format. */
+function pe32({ certAddr = 0, certSize = 0 } = {}) {
+  const b = pe({ machine: 0x14c, magic: 0x10b });
+  b.writeUInt32LE(certAddr, 64 + 24 + 128);
+  b.writeUInt32LE(certSize, 64 + 24 + 132);
+  return b;
+}
+
+test('#6679: pe_signature_present sees a signature on a 32-bit or a 64-bit PE, and refuses one without', () => {
+  assert.equal(check('pe_signature_present', pe32({ certAddr: 400, certSize: 100 })).code, 0);
+  assert.equal(check('pe_signature_present', pe({ certAddr: 400, certSize: 100 })).code, 0);
+  /* The control: the connector's own check refuses that same signed PE32, which is why the launcher needs this one. */
+  assert.match(check('connector_pe_signed', pe32({ certAddr: 400, certSize: 100 })).err, /not an x86-64 program/);
+  /* A PE32 whose PE32+ offsets happen to be non-zero is still unsigned: the right table is read. */
+  const offByFormat = pe32();
+  offByFormat.writeUInt32LE(400, 64 + 24 + 144); offByFormat.writeUInt32LE(100, 64 + 24 + 148);
+  const wrongTable = check('pe_signature_present', offByFormat);
+  assert.equal(wrongTable.code, 1);
+  assert.match(wrongTable.err, /carries no signature/);
+  for (const bytes of [pe32(), pe()]) assert.match(check('pe_signature_present', bytes).err, /carries no signature/);
+  assert.match(check('pe_signature_present', pe({ magic: 0x107 })).err, /unknown optional header/);
+  const macho = Buffer.alloc(64); macho.writeUInt32BE(0xcafebabe, 0);
+  assert.match(check('pe_signature_present', macho).err, /not a Windows program/);
+  /* And the committed launcher itself, which the zip's read-me says is signed. */
+  assert.equal(check('pe_signature_present', fs.readFileSync('tools/windows/Kosmos.exe')).code, 0, 'the committed Kosmos.exe carries no signature');
+});
+
 test('the Windows build takes the connector as a checked input and stages it where the board looks', () => {
   assert.match(WIN, /TUNNEL_BIN="\$\{KOSMOS_TUNNEL_BIN:-/, 'the connector is not an input');
   assert.match(WIN, /\[ -f "\$TUNNEL_BIN" \] \|\| \{[^\n]*exit 1; \}/, 'a missing connector does not stop the build');
