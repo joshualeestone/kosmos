@@ -1326,7 +1326,7 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 .utoast.survival { --utone: var(--warn-ink); }
 .utoast.survival.done, .utoast.survival.unknown { --utone: var(--label-2); }
 .utoast.survival.done .utxt b, .utoast.survival.unknown .utxt b { color: var(--label); font-weight: 400; }
-.utoast.survival.report .utxt b b { display: inline; font-weight: 600; }   /* the name, inside its sentence */
+.utoast.survival.report .utxt b b, .utoast.survival.report .utxt small b { display: inline; font-weight: 600; }   /* the name, inside its sentence */
 .utoast.login-adv.urgent { --utone: #b3261e; }
 /* #5018: the notices float over the page, centred on the header (under the navigation), instead of growing it (Josh). The
    header is their anchor (position: relative below); the stack takes no room, and only the notices take clicks.
@@ -47970,7 +47970,7 @@ async function paintSurvival() {
     html += survivalNotice('unknown', head,
       'Something we need for this check could not be read. '
       + (unknown.length === 1 ? 'We will leave it as it is.' : 'We will leave them as they are.')
-      + (unknown.length > 1 ? ' <span data-survival-unknown>' + unknown.map((n) => esc(shownFor(n))).join(', ') + '</span>' : '<span data-survival-unknown hidden></span>'),
+      + (unknown.length > 1 ? ' <span data-survival-unknown>' + unknown.map((n) => esc(shownFor(n))).join(', ') + '</span>' : ''),
       '', unknown.join(' '), unknown.length === 1 ? 'Stop reminding me about ' + shownFor(unknown[0]) : 'Stop reminding me about these agents');
   }
   /* Repainted only when the words change: a repaint every poll would take focus off a button the person is on and
@@ -48136,7 +48136,9 @@ document.addEventListener('click', async (e) => {
   const capNow = (typeof matchMedia === 'function' && matchMedia('(max-width: 720px)').matches) ? 1 : SURVIVAL_EACH_MAX;
   const report = body.results.length > capNow
     ? survivalNotice(body.results.every((r) => r.ok) ? 'done report' : 'failed report', 'Here is what happened',
-      body.results.map((r) => '<b>' + esc(r.shownAs || r.name) + '</b>: ' + esc(said(r))).join('<br>'), '',
+      /* Each row keeps what we had to assume (review 7): the guessed-model sentence is the disclosure, not a detail. */
+      body.results.map((r) => '<b>' + esc(r.shownAs || r.name) + '</b>: ' + esc(said(r))
+        + (guessedLine(r) ? ' ' + esc(guessedLine(r)) : '')).join('<br>'), '',
       body.results.map((r) => r.name).join(' '), 'Close the report')
     : body.results.map((r) => survivalNotice(r.ok ? 'done report' : 'failed report',
     '<b>' + esc(r.shownAs || r.name) + '</b> ' + esc(said(r)), esc(guessedLine(r)), '', r.name,
@@ -48147,9 +48149,14 @@ document.addEventListener('click', async (e) => {
      no x to release it would leave the notice blank (review 5). */
   const onPage = (btn.closest('.utoast') && btn.closest('.utoast').isConnected) || false;
   const note = btn.closest('.utoast');
+  if (onPage && note) note.insertAdjacentHTML('beforebegin', '<div data-survival-new hidden></div>');
   if (onPage && note) note.outerHTML = report;
   if (slot) delete slot.dataset.v;   // the slot no longer holds what the signature describes
-  const closeFirst = slot && slot.querySelector('.utoast.report .ux');
+  /* Focus goes to the report just put in (review 7), not to an older one still open above it. */
+  const mark = slot && slot.querySelector('[data-survival-new]');
+  const fresh = mark && mark.nextElementSibling;
+  if (mark) mark.remove();
+  const closeFirst = (fresh && fresh.querySelector('.ux')) || (slot && slot.querySelector('.utoast.report .ux'));
   if (closeFirst) closeFirst.focus();
   SURVIVAL_BUSY = false;
   SURVIVAL_HELD = onPage;

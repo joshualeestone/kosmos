@@ -197,3 +197,9 @@ test('#6714 review 5: past the cap, Start them at login gives one report; a repo
   assert.match(SCRIPT, /SURVIVAL_HELD = onPage;/);
   assert.doesNotMatch(SCRIPT, /SURVIVAL_BUSY = false;\n  SURVIVAL_HELD = true;/);
 });
+
+test('#6714 review 7: the combined report keeps each agent\'s guessed-model sentence', () => {
+  const at = SCRIPT.indexOf("const report = body.results.length > capNow");
+  assert.ok(at > 0, 'the combined report is not where this test looks: re-derive it');
+  assert.match(SCRIPT.slice(at, at + 900), /guessedLine\(r\)/, 'the combined report dropped what we had to assume');
+});
