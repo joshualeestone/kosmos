@@ -15,19 +15,26 @@ design rules (m6341). Reviewer: Raiden.
 
 - A bracketed paste of one 1,540-character line shows as `[Pasted text #1]`; a 12-line paste as `[Pasted text #2 +12
   lines]`; the next one-line paste `[Pasted text #3]`: N rises through the session and is not reused after clearing.
-- Kosmos's own way (256-byte unbracketed chunks) of a 1,540-character line landed as full text on an idle box here; the
-  install that reported the jam got chips. Which conditions fold Kosmos's chunks was not reproduced; the fix handles the
-  chip however it arises.
+- Fold threshold: a bracketed paste of 800 characters stays as text, 1,000 folds (#2), 1,200 folds (#3).
+- Chip numbers start again at #1 after Claude Code restarts in the pane (respawn).
+- Kosmos's own way (256-byte unbracketed chunks), sent slowly or chained back to back, landed as full text here; the
+  install that reported the jam got chips. Each chunk is far under the fold threshold, so a single chunk cannot fold on
+  its own: a fold covers the whole paste, which is the one-chip shape this handles. Not reproduced here, stated, not
+  assumed: if some install showed several chips, or a chip and text, the box reads as someone else's and stays jammed
+  (safely, nothing pressed), as before this change.
 
 ## Decisions
 
 1. **A chip counts as ours only when tied to our paste**, and only in its one-line form (a Kosmos message is always one
    line, cleanMessage). The ties:
-   - right after our paste (the check before our Enter, and the confirm after it): the delivery read the box EMPTY just
-     before pasting, holds the pane's delivery lock (no other delivery pastes), and the chip appears within the gap of
-     a couple of seconds. Weakest point, named: a person pasting exactly one line in that same second looks the same.
-   - a line left unsent: the exact chip seen then, its number included, is kept with the line (and on disk); a later
-     delivery or retry presses it only if the box shows that same chip. A person's later paste gets a higher number.
+   - right after our paste (the check before our Enter, and the confirm after it): only when the box was READ and
+     EMPTY just before pasting (a failed read ties nothing), our line is at least 800 characters (shorter never folds),
+     the pane's delivery lock is held (no other delivery pastes), and the chip appears within the couple of seconds
+     before the Enter. The first chip seen is then pinned, number and all, for every later look and the retry.
+     Weakest point, named: a person pasting exactly one long line in that same second looks the same.
+   - a line left unsent: the exact chip seen then, its number included, and the pane's process id are kept with the
+     line (and on disk); a later delivery or retry presses it only if the box shows that same chip in that same process.
+     A person's later paste gets a higher number; a restarted Claude Code (numbers from #1 again) is another process.
    Rejected: "any chip is ours" (presses a person's paste); comparing the chip's number with the box before our paste
    (an empty box shows no number to compare).
 2. **A chip not tied to us is someone else's text**: never pressed, and never read as "ours went" (the confirm used to
