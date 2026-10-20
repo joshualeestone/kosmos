@@ -35,6 +35,14 @@ the instruction tells agents to leave such a post to its owner.
 - The instruction now reads: if the latest room post @-names one agent, that agent is not you, and it asks you nothing,
   do not post only to agree; still answer a question put to you. v36 re-pinned (unreleased).
 
+## Review 2 changes
+- A room-wide ask with no question mark (ROOM_ASK: everyone, everybody, all of you, anyone, confirm, let me know, reply,
+  respond, thumbs up...) lifts it, as a "?" does. Deliberately wide: a missed ask drops an answer, a false one only lets
+  an acknowledgement through.
+- Freshness is countFrom, not the window: the person's later post (even an agreement-only one) or a reopen ends it, as
+  it ends the run and the volume count.
+- install/kosmos drops an owner name that arrived escaped (a quote or backslash), and says the general words.
+
 ## Tests (engine/messages.test.js, engine/defaults.test.js, cli.room-reopen-2710.test.js, tools.windows-kosmos-cli-570.test.js)
 - One owner named by the person: leo's first "agreed" refused (ack_only, names the owner, no quote characters, no
   hold words, not typed, not stored, no valve or refused row); mara's (the owner's) "on it" placed; leo's content
@@ -45,7 +53,9 @@ the instruction tells agents to leave such a post to its owner.
   not.
 - Review 1 arms: a hand-off that asks a question; a replyTo answering an earlier post (CONTROL: replying to the hand-off
   itself is refused); a hand-off three hours old.
-- Both CLIs: ack_only with owner names the owner; without it the old words stay (CONTROL).
+- Review 2 arms: a room-wide ask with no "?"; the person's later "ok thanks"; an outside content post.
+- Both CLIs: ack_only with owner names the owner; without it the old words stay (CONTROL); a quoted name falls back
+  (bash).
 - Mutations: the rule switched off reds all three first tests; the author exemption removed reds the second; each of
   the three review-1 exemptions removed reds the review-1 test.
 - defaults.test.js: the new sentence is present; the version and fingerprint move together.
