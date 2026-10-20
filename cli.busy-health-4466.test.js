@@ -233,7 +233,10 @@ test('#4466 an --auto report stays inside the hook timeout END TO END: a slow he
   assert.ok(budgetMs >= 10000, `the POST must have been given what was left of the budget, not cut short (took ${budgetMs} ms)`);
   assert.match(out.stdout, /did not answer in time, so we could not record that\. It may still have happened: check before doing it again\. It does not need a restart\./);
   assert.doesNotMatch(out.stdout, /Is it running|kosmos start/);
-  assert.match(out.stderr, /busy, retrying/, 'the first probe must have missed, or the arm never measured a slow health answer');
+  /* #6682: ONE slow answer (2.5 s, past the first 2 s probe) that the retry catches is an ordinary moment, so the busy
+     line is not said. The CONTROL is the 'slow' status test above: every answer takes 5 s, two probes miss, and it
+     does say busy. (The fixture's 2.5 s against the 2 s probe is what makes the first probe miss here.) */
+  assert.doesNotMatch(out.stderr, /busy, retrying/, '#6682: one slow answer that the retry caught said busy');
 }, 2500));
 
 test('#4466 `kosmos msg` whose reply is CUT (not timed out) says busy and "may still have happened", not "is it running?"', () => withBoard('msgcut', async (port) => {
