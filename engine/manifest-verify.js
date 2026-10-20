@@ -47,8 +47,9 @@ function sha256File(p) {
   return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 }
 
-/** Every regular file under the stage's parts, relative to the stage; throws on a symlink or other non-file. */
-function listFiles(stage) {
+/** Every regular file under the stage's parts, relative to the stage; throws on a symlink or other non-file.
+    #6466: `parts` names the top-level entries to walk (the Windows build's are not the Mac's PARTS). */
+function listFiles(stage, parts = PARTS) {
   const out = [];
   const walk = (rel) => {
     const st = fs.lstatSync(path.join(stage, rel));
@@ -60,7 +61,7 @@ function listFiles(stage) {
       throw new Error(rel + ' is not a plain file');
     }
   };
-  for (const part of PARTS) {
+  for (const part of parts) {
     if (fs.existsSync(path.join(stage, part)) || isLink(path.join(stage, part))) walk(part);
   }
   return out.sort();
@@ -69,12 +70,15 @@ function isLink(p) {
   try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; }
 }
 
-function verify({ manifest, sig, tarball, stage, version, installedVersion, keys = KEYS, skipTarball = false }) {
+/* #6466: the two halves of verify(), shared with the Windows updater (engine/win32update.js), which holds the
+ * manifest's bytes in memory rather than in a file, and walks the Windows build's own top-level entries.
+ * signedManifest: the signature (over these exact bytes) under a pinned key, then the version rules. Returns
+ * { code, why, manifest }: 0 genuine, 1 refused, 3 no key pinned. */
+function signedManifest({ bytes, sigText, version, installedVersion, keys = KEYS }) {
   if (!keys.length) return { code: 3, why: 'no release signing key is pinned in this install' };
-  const bytes = fs.readFileSync(manifest);
   let signature;
-  try { signature = Buffer.from(fs.readFileSync(sig, 'utf8').trim(), 'base64'); } catch { signature = Buffer.alloc(0); }
-  const signed = signature.length === 64 && keys.some((k) => {
+  try { signature = Buffer.from(String(sigText).trim(), 'base64'); } catch { signature = Buffer.alloc(0); }
+  const signed = Buffer.isBuffer(bytes) && signature.length === 64 && keys.some((k) => {
     try {
       const key = crypto.createPublicKey({ key: Buffer.from(k, 'base64'), format: 'der', type: 'spki' });
       return crypto.verify(null, bytes, key, signature);
@@ -83,23 +87,56 @@ function verify({ manifest, sig, tarball, stage, version, installedVersion, keys
   if (!signed) return { code: 1, why: 'the release manifest is not signed by the Kosmos release key' };
   let m;
   try { m = JSON.parse(bytes.toString('utf8')); } catch { return { code: 1, why: 'the signed manifest is not readable' }; }
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return { code: 1, why: 'the signed manifest is not readable' };
   const want = parseVersion(version);
   if (!want || m.version !== version) return { code: 1, why: `the signed manifest is for ${m.version}, not ${version}` };
   const have = parseVersion(installedVersion);
   if (!have) return { code: 1, why: 'the installed version could not be read, so the update could not be checked' };
   if (older(want, have)) return { code: 1, why: `the update is ${version}, older than the installed ${installedVersion}` };
+  return { code: 0, why: `the signed manifest for ${version} is genuine`, manifest: m };
+}
+
+/* filesRefusal: the stage's `parts` hold exactly the manifest's files, each with its sha256, and nothing that is
+ * not a plain file. Returns the sentence to refuse with, or null. */
+function filesRefusal(m, stage, parts = PARTS) {
+  if (!m || !Array.isArray(m.files)) return 'the signed manifest lists no files';
+  const listed = new Map(m.files.map((f) => [f && f.path, f && f.sha256]));
+  let found;
+  try { found = listFiles(stage, parts); } catch (e) { return 'the update holds something that is not a plain file (' + e.message + ')'; }
+  if (found.length !== listed.size) return `the update holds ${found.length} files, its signed manifest ${listed.size}`;
+  for (const rel of found) {
+    if (!listed.has(rel)) return rel + ' is not in the signed manifest';
+    if (sha256File(path.join(stage, rel)) !== listed.get(rel)) return rel + ' does not match the signed manifest';
+  }
+  return null;
+}
+
+/* #6466: a signed WINDOWS manifest (tools/lib/win-release-manifest.js writes it) is for the download the update
+ * pointer named: the platform, the arch, the versioned zip's name, the zip's sha256 (which the download is then held
+ * to), and a file list. Returns the sentence to refuse with, or null. */
+function win32HeaderRefusal(m, { version, arch, sha }) {
+  const artifact = `kosmos-${version}-win-${arch}.zip`;
+  if (!m || m.platform !== 'win32') return `the signed manifest is for ${JSON.stringify(m && m.platform)}, not Windows`;
+  if (m.arch !== arch) return `the signed manifest is for ${JSON.stringify(m.arch)}, not ${arch}`;
+  if (m.artifact !== artifact) return `the signed manifest names ${JSON.stringify(m.artifact)}, not ${artifact}`;
+  if (typeof m.sha256 !== 'string' || m.sha256 !== sha) return 'the download does not match its signed manifest';
+  if (!Array.isArray(m.files) || !m.files.length) return 'the signed manifest lists no files';
+  return null;
+}
+
+function verify({ manifest, sig, tarball, stage, version, installedVersion, keys = KEYS, skipTarball = false }) {
+  if (!keys.length) return { code: 3, why: 'no release signing key is pinned in this install' };
+  const bytes = fs.readFileSync(manifest);
+  let sigText;
+  try { sigText = fs.readFileSync(sig, 'utf8'); } catch { sigText = ''; }
+  const r = signedManifest({ bytes, sigText, version, installedVersion, keys });
+  if (r.code !== 0) return r;
+  const m = r.manifest;
   if (skipTarball) return { code: 0, why: `the signed manifest for ${version} is genuine`, manifest: m };
   if (typeof m.sha256 !== 'string' || sha256File(tarball) !== m.sha256) return { code: 1, why: 'the download does not match its signed manifest' };
   if (stage === '-') return { code: 0, why: `the download matches the signed manifest for ${version}` };
-  if (!Array.isArray(m.files)) return { code: 1, why: 'the signed manifest lists no files' };
-  const listed = new Map(m.files.map((f) => [f.path, f.sha256]));
-  let found;
-  try { found = listFiles(stage); } catch (e) { return { code: 1, why: 'the update holds something that is not a plain file (' + e.message + ')' }; }
-  if (found.length !== listed.size) return { code: 1, why: `the update holds ${found.length} files, its signed manifest ${listed.size}` };
-  for (const rel of found) {
-    if (!listed.has(rel)) return { code: 1, why: rel + ' is not in the signed manifest' };
-    if (sha256File(path.join(stage, rel)) !== listed.get(rel)) return { code: 1, why: rel + ' does not match the signed manifest' };
-  }
+  const bad = filesRefusal(m, stage);
+  if (bad) return { code: 1, why: bad };
   return { code: 0, why: `the update matches the signed manifest for ${version}` };
 }
 
@@ -313,7 +350,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   return { ok: true, why: v.why, keys: v.keys };
 }
 
-module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles,
+module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles, signedManifest, filesRefusal, win32HeaderRefusal, PARTS,
   RECOVERY_KEYS, KEY_LIST_STATE, KEY_LIST_TYPE, MIN_KEY_LIST_SEQ, MAX_SEQ, ed25519Key, verifyKeyList, storedKeyList, trustedKeys };
 
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before

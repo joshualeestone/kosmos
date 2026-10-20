@@ -530,5 +530,123 @@ else fail "approval line field order: $_given"; fi
 if [ "$rc" -eq 1 ] && grep -qF "prod-facing writes had begun" "$TMP/out"; then pass "a failure after the first prod-facing write says what may have changed"
 else fail "partial-state note: rc=$rc $(tail -2 "$TMP/out")"; fi
 
+# 6. #6466: the signed release manifest. The happy path needs the release key, so it is measured by the node
+# suite (tools.win-release-manifest-6466.test.js, under a test key); these pin the refusals, offline.
+cp "$TMP/staging.lock-keep" "$FAKE/latest-win-staging.json"; rm -f "$FAKE/publish.lock"
+# A build whose updater checks signed manifests (it carries the capability line).
+mkzip_checker() { mkzip "$1" "$2" "$3"; python3 - "$1" "$HERE/../engine/win32update.js" <<'PYEOF'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], 'a') as z:
+    z.writestr('app/engine/win32update.js', open(sys.argv[2], 'rb').read())
+PYEOF
+}
+mkzip_checker "$TMP/chk.zip" 9.9.20 CHK
+fake -Zip "$TMP/chk.zip"; rc=$?
+refuses_clean "#6466: a build that checks signed manifests is refused without one, nothing written" "refuses any update without a signed release manifest"
+printf '{"manifest":1,"version":"9.9.20"}\n' > "$TMP/kosmos-9.9.20-win-x64.manifest.json"
+fake -Zip "$TMP/chk.zip"; rc=$?
+refuses_clean "#6466: a manifest with no .sig beside it, by -Sig or in the bucket is refused, nothing written" "or in the bucket"
+printf 'bm90IGEgc2lnbmF0dXJl\n' > "$TMP/kosmos-9.9.20-win-x64.manifest.json.sig"
+fake -Zip "$TMP/chk.zip"; rc=$?
+refuses_clean "#6466: a manifest whose signature does not verify under the pinned key is refused, nothing written" "does not check out against this zip (the release manifest is not signed by the Kosmos release key)"
+# A build that does NOT check them is still refused a manifest that is there and does not verify.
+mkzip "$TMP/nochk.zip" 9.9.21 NOCHK
+cp "$TMP/kosmos-9.9.20-win-x64.manifest.json" "$TMP/kosmos-9.9.21-win-x64.manifest.json"; cp "$TMP/kosmos-9.9.20-win-x64.manifest.json.sig" "$TMP/kosmos-9.9.21-win-x64.manifest.json.sig"
+fake -Zip "$TMP/nochk.zip"; rc=$?
+refuses_clean "#6466: a manifest that is there must verify, even for a build that does not require one" "does not check out against this zip"
+rm -f "$TMP"/kosmos-9.9.2[01]-win-x64.manifest.json*
+# The control: the same older-shaped build with no manifest at all stages, and says it went without one.
+fake -Zip "$TMP/nochk.zip" -DryRun; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF "NOTICE (#6466): no release manifest beside the zip" "$TMP/out" && [ "$(writes)" -eq 0 ]; then pass "#6466: a build that does not check signatures still stages without a manifest, and says so"
+else fail "#6466 control: rc=$rc $(tail -2 "$TMP/out")"; fi
+# Promote: a staged manifest that does not check out against the staged zip is refused.
+_ptr_v=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$FAKE/latest-win-staging.json")
+_ptr_sha=$(sed -n 's/.*"sha256":"\([^"]*\)".*/\1/p' "$FAKE/latest-win-staging.json")
+printf '{"manifest":1}\n' > "$FAKE/kosmos-$_ptr_v-win-x64.manifest.json"; printf 'bm90IGEgc2lnbmF0dXJl\n' > "$FAKE/kosmos-$_ptr_v-win-x64.manifest.json.sig"
+fake -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399; rc=$?
+refuses_clean "#6466: promote refuses a staged manifest that does not check out against the staged zip, nothing written" "the staged signed manifest does not check out"
+rm -f "$FAKE/kosmos-$_ptr_v-win-x64.manifest.json.sig"
+fake -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399; rc=$?
+refuses_clean "#6466: promote refuses a staged manifest without its .sig, nothing written" "holds only one of"
+rm -f "$FAKE/kosmos-$_ptr_v-win-x64.manifest.json"
+# Promote: no staged manifest, while prod's CURRENT build was published with one (its installs check), is refused.
+# (prod is set to a known other build for this arm, and put back after.)
+cp "$FAKE/latest-win.json" "$TMP/prod.keep6466" 2>/dev/null || : > "$TMP/prod.keep6466"
+printf '{"version":"9.8.9","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"kosmos-9.8.9-win-x64.zip","arch":"x64"}\n' "$(printf 'c%.0s' $(seq 64))" > "$FAKE/latest-win.json"
+printf '{"manifest":1}\n' > "$FAKE/kosmos-9.8.9-win-x64.manifest.json"
+fake -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399; rc=$?
+refuses_clean "#6466: promote refuses a build with no signed manifest over a prod whose installs check one, nothing written" "was published with one, so its installs check signatures"
+# The control: the same prod without its manifest gets past this check (to the next gate, or through).
+rm -f "$FAKE/kosmos-9.8.9-win-x64.manifest.json"
+fake -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399 -DryRun; rc=$?
+if grep -qF "NOTICE (#6466): the staged build has no signed manifest; prod's current build has none either" "$TMP/out" && [ "$(writes)" -eq 0 ]; then pass "#6466: with no manifest on either side the promote goes on past the check, and says so"
+else fail "#6466 promote control: rc=$rc $(tail -2 "$TMP/out")"; fi
+if [ -s "$TMP/prod.keep6466" ]; then cp "$TMP/prod.keep6466" "$FAKE/latest-win.json"; else rm -f "$FAKE/latest-win.json"; fi
+rm -f "$FAKE/publish.lock"
+
+# 7. #6466 -ForSigning: the zip, its sidecar and the UNSIGNED manifest go up for the key holder, and nothing that
+# moves a channel (no pointer, no alias, no .sig) is ever written. Then the stage takes the .sig from the bucket or -Sig.
+cp "$TMP/staging.lock-keep" "$FAKE/latest-win-staging.json"; rm -f "$FAKE/publish.lock"
+# A build of exactly the Windows top-level names (the manifest checks can only describe those), whose updater checks.
+SDIR="$TMP/sign"; mkdir -p "$SDIR"
+mkzip_win() { python3 - "$1" "$2" "$EXE" "$3" "$HERE/../engine/win32update.js" <<'PYEOF'
+import sys, zipfile
+out, ver, exe, tag, upd = sys.argv[1:6]
+with zipfile.ZipFile(out, 'w') as z:
+    z.writestr('app/package.json', '{"version":"%s"}' % ver); z.writestr('Kosmos.exe', open(exe, 'rb').read()); z.writestr('app/tag.txt', tag)
+    z.writestr('app/bin/kosmos-tunnel.exe', open(exe, 'rb').read()); z.writestr('app/engine/win32update.js', open(upd, 'rb').read())
+PYEOF
+}
+# The manifest the build writes for it, from the same files (tools/lib/win-release-manifest.js write).
+mkmanifest() { rm -rf "$SDIR/stage"; mkdir -p "$SDIR/stage"; python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$1" "$SDIR/stage" \
+  && node "$HERE/lib/win-release-manifest.js" write "$SDIR/stage" "$1" "$2" x64 "$SDIR/kosmos-$2-win-x64.manifest.json" >/dev/null; }
+mkzip_win "$SDIR/kosmos-win-x64.zip" 9.9.30 S1; mkmanifest "$SDIR/kosmos-win-x64.zip" 9.9.30
+MAN="kosmos-9.9.30-win-x64.manifest.json"
+channel_snapshot() { for f in latest-win-staging.json latest-win.json kosmos-win-x64.zip kosmos-win-x64.zip.sha256; do printf '%s ' "$f"; [ -e "$FAKE/$f" ] && shasum -a 256 "$FAKE/$f" | cut -c1-64 || echo absent; done; }
+before=$(channel_snapshot)
+fake -Zip "$SDIR/kosmos-win-x64.zip" -ForSigning; rc=$?
+order=$(grep '^PUT ' "$FAKE/.calls" | grep -v '^PUT publish\.lock ' | awk '{print $2}' | tr '\n' ' ')
+if [ "$rc" -eq 0 ] && [ "$order" = "kosmos-9.9.30-win-x64.zip kosmos-9.9.30-win-x64.zip.sha256 $MAN " ] && [ "$(channel_snapshot)" = "$before" ] \
+   && ! grep -qE '^(PUT|DELETE) (latest-win|kosmos-win-x64\.zip|.*\.sig)' "$FAKE/.calls" \
+   && grep -qF "UP FOR SIGNING: version 9.9.30, manifest $MAN sha256 $(shasum -a 256 "$SDIR/$MAN" | cut -c1-64)" "$TMP/out"; then
+  pass "#6466 -ForSigning writes only the zip, its sidecar and the manifest, never a pointer, the alias or a .sig, and prints the version and manifest sha"
+else fail "#6466 -ForSigning: rc=$rc order=[$order] $(tail -3 "$TMP/out" | tr '\n' ' ')"; fi
+# The site does not redirect the manifest yet: read back from the bucket's own address, and said.
+before=$(channel_snapshot)
+KOSMOS_PUBLISH_R2_FAKE_SITE_404="$MAN" fake -Zip "$SDIR/kosmos-win-x64.zip" -ForSigning; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF "answers 404 (installkosmos.com does not redirect this name yet); reading it from the bucket's own address" "$TMP/out" && [ "$(channel_snapshot)" = "$before" ]; then
+  pass "#6466 -ForSigning reads the manifest back from the bucket when the site 404s it, says so, and still moves no pointer"
+else fail "#6466 -ForSigning site 404: rc=$rc $(tail -3 "$TMP/out" | tr '\n' ' ')"; fi
+fake -Zip "$SDIR/kosmos-win-x64.zip" -ForSigning -DryRun; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(writes)" -eq 0 ]; then pass "#6466 -ForSigning -DryRun writes nothing"; else fail "#6466 -ForSigning dry run: rc=$rc writes=$(writes)"; fi
+fake -Zip "$SDIR/kosmos-win-x64.zip" -ForSigning -Sig "$SDIR/$MAN"; rc=$?
+refuses_clean "#6466 -ForSigning with -Sig is refused, nothing written" "-Sig is for the stage after signing"
+# A manifest that does not describe the zip is never put up to be signed.
+mkzip_win "$SDIR/other/kosmos-win-x64.zip" 9.9.30 S2 2>/dev/null || { mkdir -p "$SDIR/other"; mkzip_win "$SDIR/other/kosmos-win-x64.zip" 9.9.30 S2; }
+cp "$SDIR/$MAN" "$SDIR/other/$MAN"
+fake -Zip "$SDIR/other/kosmos-win-x64.zip" -ForSigning; rc=$?
+refuses_clean "#6466 -ForSigning refuses a manifest that is not this zip's, nothing written" "does not describe this zip"
+rm -f "$SDIR/other/$MAN"
+fake -Zip "$SDIR/other/kosmos-win-x64.zip" -ForSigning; rc=$?
+refuses_clean "#6466 -ForSigning refuses with no manifest beside the zip, nothing written" "needs the manifest the build wrote beside the zip"
+# The stage after -ForSigning: with no .sig anywhere it is refused before any write, and the pointer stays put.
+before=$(channel_snapshot)
+fake -Zip "$SDIR/kosmos-win-x64.zip"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "there is no $MAN.sig beside the zip, from -Sig, or in the bucket" "$TMP/out" && [ "$(writes)" -eq 0 ] && [ "$(channel_snapshot)" = "$before" ]; then
+  pass "#6466 a stage with no .sig beside the zip, by -Sig or in the bucket is refused, nothing written"
+else fail "#6466 stage without sig: rc=$rc writes=$(writes) $(tail -2 "$TMP/out" | tr '\n' ' ')"; fi
+# A .sig in the bucket (the key holder's upload) is read and checked: one that does not verify is refused.
+printf 'bm90IGEgc2lnbmF0dXJl\n' > "$FAKE/$MAN.sig"
+fake -Zip "$SDIR/kosmos-win-x64.zip"; rc=$?
+refuses_clean "#6466 a stage whose bucket .sig does not verify is refused, nothing written" "in the bucket does not check out against this zip and its manifest"
+rm -f "$FAKE/$MAN.sig"
+# A .sig sent as a file (-Sig) is checked the same way.
+printf 'bm90IGEgc2lnbmF0dXJl\n' > "$SDIR/sent.sig"
+fake -Zip "$SDIR/kosmos-win-x64.zip" -Sig "$SDIR/sent.sig"; rc=$?
+refuses_clean "#6466 a stage with a -Sig that does not verify is refused, nothing written" "does not check out against this zip"
+fake -Zip "$SDIR/kosmos-win-x64.zip" -Sig "$SDIR/missing.sig"; rc=$?
+refuses_clean "#6466 a -Sig that is not a file is refused, nothing written" "no such signature file"
+rm -f "$FAKE/publish.lock"
+
 [ "$fails" -eq 0 ] && { echo "test-publish-r2-3725: all passed"; exit 0; }
 echo "test-publish-r2-3725: $fails failed"; exit 1
