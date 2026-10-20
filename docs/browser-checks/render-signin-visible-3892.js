@@ -134,6 +134,12 @@ function notesAndMeasure(opts) {
         /* #6716: the screen line sits in a fold whose summary is a stop of its own (a keyboard must be able to open
            it), between Start and Sign in again in page order. Stepped over only when that is where Tab landed. */
         if (await page.evaluate(() => (document.activeElement || {}).id === 'd-said-lab')) {
+          /* The reason it is a stop: a keyboard opens and closes it. Enter toggles it, twice, back as it was. */
+          const before = await page.evaluate(() => document.getElementById('d-said-box').open);
+          await page.keyboard.press('Enter');
+          const toggled = await page.evaluate(() => document.getElementById('d-said-box').open);
+          await page.keyboard.press('Enter');
+          chk(toggled === !before, `${t} the screen line's summary takes Tab and Enter opens or closes it`, JSON.stringify({ before, toggled }));
           await page.keyboard.press(eng === 'webkit' ? 'Alt+Tab' : 'Tab');
         }
         const ring = await page.evaluate(() => {

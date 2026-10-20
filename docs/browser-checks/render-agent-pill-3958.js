@@ -151,14 +151,26 @@ async function read(page) {
            opened shows the Sign in again button and its screen evidence; back to working hides them. */
         setState('auth_failed');
         await page.waitForTimeout(6500);
-        const af = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden, said: !document.getElementById('d-said').hidden && !document.getElementById('d-said-box').hidden }));
+        const af = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden, said: !document.getElementById('d-said').hidden && !document.getElementById('d-said-box').hidden, open: document.getElementById('d-said-box').open }));
         chk(af.reauth && af.said, `${engineName} -> auth_failed: the Sign in again button and the screen evidence appear without reopening`, JSON.stringify(af));
+        /* #6716: it appears folded (a real <details>, not a stub). */
+        chk(af.open === false, `${engineName} -> auth_failed: the screen line appears folded`, JSON.stringify(af));
         setState('working');
         await page.waitForTimeout(6500);
-        const ok = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden, saidBox: !document.getElementById('d-said-box').hidden }));
+        const ok = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden }));
         chk(!ok.reauth, `${engineName} -> working again: the Sign in again button is gone`, JSON.stringify(ok));
-        /* #6716 (Josh, 2026-10-20): a working agent never shows its screen line (Claude Code's raw spinner). */
-        chk(!ok.saidBox, `${engineName} -> working again: the screen line fold is gone`, JSON.stringify(ok));
+        /* #6716 (Josh, 2026-10-20): a working agent never shows its screen line. The working agent here carries raw CLI
+           text (Claude Code's retry line), so the arm can fail; the CONTROL is the same screen on a waiting agent, which
+           shows it. */
+        const RAW_SCREEN = 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n';
+        const saidNow = () => page.evaluate(() => ({ box: !document.getElementById('d-said-box').hidden, text: document.getElementById('d-said').textContent }));
+        setState('needs_you', { screen: RAW_SCREEN });
+        await page.waitForTimeout(6500);
+        const ctl = await saidNow();
+        setState('working', { screen: RAW_SCREEN });
+        await page.waitForTimeout(6500);
+        const wk = await saidNow();
+        chk(ctl.box && /Retrying in 5s/.test(ctl.text) && !wk.box, `${engineName} -> working with raw CLI text on screen: no screen line (CONTROL: the same screen while waiting shows it)`, JSON.stringify({ ctl, wk }));
         const startShown = () => page.evaluate(() => {
           const w = document.getElementById('d-start-wrap');
           const b = document.getElementById('d-start-agent');
