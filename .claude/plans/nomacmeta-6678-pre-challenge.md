@@ -17,7 +17,7 @@ converged: true
 **Total findings:** 37 (0 BLOCKERs, 12 WARNINGs, 0 CONVENTIONs, 25 NITs)
 **Fixed:** 10 WARNINGs + 15 NITs | **Deferred:** 2 WARNINGs as duplicates of stated decisions, 10 NITs | **Asked (awaiting user):** 0
 
-Re-hashed 2026-10-20 15:30 CDT after merging origin/main (one conflict, package.json test:shell: resolved to main's line plus this branch's two entries; the reviewed code is unchanged). The validation below ran at the pre-merge hash 945f4245ef56; the PR CI validates the merged tree before it merges.
+Re-hashed 2026-10-20 18:16 CDT after REBASING onto origin/main a2e49f0538 (the repo merges by rebase, which refused the earlier merge commit). One conflict, package.json test:shell: resolved to main's line plus this branch's two entries (checked: every other key equals main's). The reviewed code is unchanged. The validation below ran at the pre-rebase hash 945f4245ef56; the PR CI validates the rebased tree before it merges.
 
 Final validation: Mortals (mortals-validate), entry "status":"clean", hash 945f4245ef56 (equals this diff), 22524 tests,
 22206 pass, 0 fail (2026-10-20 13:25 CDT). Each fix was shown red against the version before it (mutants and controls).
