@@ -320,7 +320,7 @@ function measure() {
           const { page: np, errs: nerrs } = await open(browser, w, h, theme);
           await np.evaluate(() => {
             const show = (id, text) => { const e = document.getElementById(id); e.hidden = false; if (text) e.textContent = text; };
-            show('d-said-lab', 'Its last words'); show('d-said', 'You have hit your usage limit. It resets at 5pm. Upgrade your plan to keep going, or wait for the reset and try again then.');
+            { const sb = document.getElementById('d-said-box'); sb.hidden = false; sb.open = true; } show('d-said-lab', 'Its last words'); show('d-said', 'You have hit your usage limit. It resets at 5pm. Upgrade your plan to keep going, or wait for the reset and try again then.');
             show('d-instr-stale', 'These instructions changed since the agent last started. Restart it to use them.');
             show('d-reauth'); show('d-start-wrap');
           });
@@ -600,7 +600,7 @@ function measure() {
         await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
         const swn = await page.evaluate(() => {
           const show = (id, text) => { const e = document.getElementById(id); e.hidden = false; if (text) e.textContent = text; };
-          show('d-said-lab', 'Its last words'); show('d-said', 'You have hit your usage limit. It resets at 5pm. Upgrade your plan to keep going, or wait for the reset and try again then.');
+          { const sb = document.getElementById('d-said-box'); sb.hidden = false; sb.open = true; } show('d-said-lab', 'Its last words'); show('d-said', 'You have hit your usage limit. It resets at 5pm. Upgrade your plan to keep going, or wait for the reset and try again then.');
           show('d-instr-stale', 'These instructions changed since the agent last started. Restart it to use them.');
           const box = document.getElementById('d-nav-swarm').getBoundingClientRect();
           return { boxTop: box.top, boxBottom: box.bottom, boxH: box.height, vh: innerHeight, threadH: document.getElementById('d-dmthread').clientHeight };

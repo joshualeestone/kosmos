@@ -645,7 +645,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* The agent's own words, marked as a quotation rather than as our sentence: a
    rule down the left, the terminal's own face, and no italics (this is copied
    text, not emphasis). */
-.detail-saidlab { margin: 10px 0 0; font-size: .75rem; color: var(--k-ink-2); }
+.detail-saidbox { margin: 10px 0 0; }
+.detail-saidlab { margin: 0; font-size: .75rem; color: var(--k-ink-2); cursor: pointer; }
 .detail-said { margin: 2px 0 0; padding: 6px 0 6px 12px;
                border-left: 2px solid var(--k-rule); color: var(--k-ink-2);
                font: .8125rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -12910,8 +12911,13 @@ window.kosmosMeasureScrollbarWidth();
            their wording changes. What changes is that it is now ATTRIBUTED, so
            a slash command inside it reads as something its screen showed rather
            than something we are asking for. -->
-      <p class="detail-saidlab" id="d-said-lab" hidden></p>
-      <blockquote class="detail-said" id="d-said" hidden></blockquote>
+      <!-- #6716 (Josh, 2026-10-20): the quote is folded and shown only for a state that is waiting on something.
+           A working agent's line is Claude Code's raw spinner ("Fermenting... (10m 20s ...)"), which is not for a
+           person; the pill already says Working. -->
+      <details class="detail-saidbox" id="d-said-box" hidden>
+        <summary class="detail-saidlab" id="d-said-lab" hidden></summary>
+        <blockquote class="detail-said" id="d-said" hidden></blockquote>
+      </details>
       <!-- kosmos#1918: the evidence quote above can relay the CLI's "Please run
            /login", which is correct in a terminal and FALSE here: the Terminal tab is
            read-only and the message box under it talks to the AGENT, not the shell, so
@@ -42731,6 +42737,9 @@ const LINK_LOST_SEEN = new Map();   // #5333: per agent, { n, card, at }: polls 
 /* Six of the board's 5-second polls (setInterval(tick, 5000)): wide enough for a slow answer or a tab the browser
    throttled while hidden (it polls every 5 s again once looked at), narrow enough that a visit long ago never counts. */
 const LINK_LOST_WINDOW_MS = 6 * 5000;
+/* #6716: the states whose screen line the agent page shows, folded. Each is waiting on a person or on something outside
+   the agent; working, idle, stopped, restarting and unknown show none. needs_trust is the board's own state (#3013). */
+const SAID_STATES = new Set(['needs_you', 'needs_trust', 'blocked', 'auth_failed', 'rate_limited', 'connection_lost']);
 function paintDetailState(card) {
   /* The same stale-sample rule as the DM line (workingSampleIsStale), so the two never split.
      ⚠️ The grid card does NOT apply it: on the one poll where a reply has landed after the
@@ -42753,8 +42762,12 @@ function paintDetailState(card) {
      escape, and the engine has already trimmed and capped it. */
   const said = document.getElementById('d-said');
   const saidLab = document.getElementById('d-said-lab');
+  const saidBox = document.getElementById('d-said-box');
   if (said) {
-    const line = String(a.stateEvidence || '').trim();
+    /* #6716: only a state waiting on something shows what its screen said (a prompt, a limit, a failed sign-in). A
+       working or idle agent's line is the CLI's own chrome, never for a person. */
+    const line = SAID_STATES.has(a.state) ? String(a.stateEvidence || '').trim() : '';
+    if (saidBox) saidBox.hidden = !line;
     if (said.textContent !== line) said.textContent = line;
     said.hidden = !line;
     /* The label follows the quote exactly, or an empty agent page keeps a
@@ -42764,7 +42777,7 @@ function paintDetailState(card) {
          called a `dispName()` that DOES NOT EXIST -- it would have thrown the
          moment a rate-limited agent's page opened, and every text-matching test
          passed over it because a regex cannot call a function. */
-      const lab = line ? a.name + '\u2019s screen said:' : '';
+      const lab = line ? 'What ' + a.name + '\u2019s screen said' : '';
       /* Written only when it changes: this runs every poll, and reassigning identical text
          replaces the node, which drops a selection somebody is copying from. */
       if (saidLab.textContent !== lab) saidLab.textContent = lab;

@@ -89,6 +89,7 @@ function pillFor(card, spokeLearnedAt, lastAt) {
     RAW.match(/^const HEALTH_READ_STATES = [^\n]*/m)[0],
     pageFnSource('seenAtWords'),
     pageFnSource('healthLine'),
+    RAW.match(/^const SAID_STATES = [^\n]*/m)[0],   // #6716: which states show their screen line
     pageFnSource('paintDetailState'),
     'return paintDetailState;',
   ].join('\n'))(doc, new Map(spokeLearnedAt === null ? [] : [[card.sessionName, { at: 1, learnedAt: spokeLearnedAt }]]), lastAt);
@@ -116,7 +117,7 @@ test('#3958: a working sample older than the reply on screen paints the pill idl
   }
 });
 
-test('#3958: a stale working sample is dropped whole: its evidence line does not stay beside the Idle pill', () => {
+test('#3958 / #6716: a working sample\'s screen line is never shown, stale or fresh; a waiting state\'s is', () => {
   /* A working card that DOES carry evidence: Claude Code's live retry line (engine/status.js #3410). */
   const board = fleet.install([fleet.agent('beatrix', { state: 'working',
     screen: 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n' })]);
@@ -124,11 +125,18 @@ test('#3958: a stale working sample is dropped whole: its evidence line does not
     const card = board.agents.find((x) => x.name === 'beatrix');
     assert.ok(card && card.state === 'working' && /Retrying in 5s/.test(String(card.stateEvidence || '')),
       'the fixture did not produce a working card with evidence: ' + JSON.stringify(card && [card.state, card.stateEvidence]));
+    const saidOf = () => pillFor.els['d-said'].innerHTML + pillFor.els['d-said'].textContent;
+    /* #6716 (Josh, 2026-10-20): a working agent's screen line is never shown, fresh or stale: it is the CLI's own
+       chrome. The control is the same card's line in a waiting state, which IS shown, folded, so the arms below can
+       red. (Spread from the real card: only the state differs.) */
+    pillFor({ ...card, state: 'needs_you' }, null, 1000);
+    assert.match(saidOf(), /Retrying in 5s/, 'control: a waiting state shows its screen line (else the arms prove nothing)');
+    assert.equal(pillFor.els['d-said-box'].hidden, false, 'control: the fold around it is shown');
     pillFor(card, null, 1000);
-    assert.match(pillFor.els['d-said'].innerHTML + pillFor.els['d-said'].textContent, /Retrying in 5s/,
-      'control: a sample that stands shows its evidence (else the arm below proves nothing)');
+    assert.doesNotMatch(saidOf(), /Retrying in 5s/, 'a working agent showed its raw screen line (#6716)');
+    assert.equal(pillFor.els['d-said-box'].hidden, true, 'a working agent showed the screen-line fold (#6716)');
     assert.match(pillFor(card, 2000, 1000), /\bst-idle\b/);
-    assert.doesNotMatch(pillFor.els['d-said'].innerHTML + pillFor.els['d-said'].textContent, /Retrying in 5s/,
+    assert.doesNotMatch(saidOf(), /Retrying in 5s/,
       'the Idle pill kept the working sample\'s evidence line beside it');
   } finally {
     fleet.restore();

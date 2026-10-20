@@ -1,4 +1,4 @@
-// Browser-check-surface: d-reauth d-start-wrap d-start-agent dhead d-said d-instr-stale d-sec-talk d-swarm-panel d-nav-swarm d-dmthread linkish d-name d-task d-meta detail-state dnamerow
+// Browser-check-surface: d-reauth d-start-wrap d-start-agent dhead d-said d-said-box d-instr-stale d-sec-talk d-swarm-panel d-nav-swarm d-dmthread linkish d-name d-task d-meta detail-state dnamerow
 'use strict';
 
 /**
@@ -81,7 +81,7 @@ async function open(browser, eng, w, h, theme, card, swarms) {
 /* Runs in the page: show the notes (all four, or without Start), then measure both actions in the header. */
 function notesAndMeasure(opts) {
   const show = (id, text) => { const e = document.getElementById(id); e.hidden = false; if (text) e.textContent = text; };
-  show('d-said-lab', 'Its last words');
+  { const sb = document.getElementById('d-said-box'); sb.hidden = false; sb.open = true; } show('d-said-lab', 'Its last words');
   show('d-said', 'You have hit your usage limit. It resets at 5pm. Upgrade your plan to keep going, or wait for the reset and try again then.');
   show('d-instr-stale', 'These instructions changed since the agent last started. Restart it to use them.');
   if (opts.start) show('d-start-wrap'); else document.getElementById('d-start-wrap').hidden = true;
@@ -144,7 +144,7 @@ function notesAndMeasure(opts) {
         const s = m.top.start;
         chk(s.inHead && s.onTop, `${t} with every note, Start this agent is on screen in the header and not covered`, JSON.stringify(s));
         chk(w > 375 ? m.threadH >= m.baseThreadH : m.threadH >= m.baseThreadH - SE_BUDGET_PX, `${t} the conversation keeps its height without Sign in again (an SE gives up at most ${SE_BUDGET_PX}px)`, `threadH=${m.threadH} base=${m.baseThreadH}`);
-        await page.evaluate(() => { document.querySelectorAll('#d-said-lab, #d-said, #d-instr-stale, #d-reauth, #d-start-wrap').forEach((e) => { e.hidden = true; }); });
+        await page.evaluate(() => { document.querySelectorAll('#d-said-box, #d-said-lab, #d-said, #d-instr-stale, #d-reauth, #d-start-wrap').forEach((e) => { e.hidden = true; }); });
         const plainCap = await page.evaluate(() => Math.round(parseFloat(getComputedStyle(document.querySelector('.dhead')).maxHeight)));
         const alone = await page.evaluate(notesAndMeasure, { start: false });
         chk(alone.top.reauth.inHead && alone.top.reauth.onTop && alone.bottom.reauth.inHead && alone.bottom.reauth.onTop && alone.capPx === plainCap, `${t} Sign in again alone (no Start) is on screen at the block's top and bottom and the header cap is unchanged`, JSON.stringify({ top: alone.top.reauth, bottom: alone.bottom.reauth, cap: alone.capPx, plainCap }));
@@ -158,7 +158,7 @@ function notesAndMeasure(opts) {
           const painted = await p2.evaluate(() => {
             const show = (id, text) => { const e = document.getElementById(id); e.hidden = false; if (text) e.textContent = text; };
             const shownByPainter = !document.getElementById('d-reauth').hidden;
-            show('d-said-lab', 'Its last words');
+            { const sb = document.getElementById('d-said-box'); sb.hidden = false; sb.open = true; } show('d-said-lab', 'Its last words');
             show('d-said', 'Please run /login. Your sign-in has expired. Sign in again to keep working, then try the last message again.');
             show('d-instr-stale', 'These instructions changed since the agent last started. Restart it to use them.');
             const head = document.querySelector('.dhead'); head.scrollTop = 0; const H = head.getBoundingClientRect();

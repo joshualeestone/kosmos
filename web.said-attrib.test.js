@@ -27,11 +27,12 @@ const fs = require('node:fs');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 
 test('the quote carries a visible attribution', () => {
-  assert.match(PAGE, /<p class="detail-saidlab" id="d-said-lab" hidden><\/p>/,
+  /* #6716: the attribution is now the summary of a closed fold around the quote. */
+  assert.match(PAGE, /<details class="detail-saidbox" id="d-said-box" hidden>\s*<summary class="detail-saidlab" id="d-said-lab" hidden><\/summary>\s*<blockquote class="detail-said" id="d-said" hidden><\/blockquote>\s*<\/details>/,
     'the attribution line is gone, so scraped pane text renders bare and a slash command in it reads as an instruction');
   /* #3958: the label is computed into `lab` and written only when it changes (the painter runs
      every poll, and an identical rewrite drops a selection). */
-  assert.match(PAGE, /const lab = line \? a\.name \+ '\\u2019s screen said:' : '';\n\s*(?:\/\*[\s\S]*?\*\/\n\s*)?if \(saidLab\.textContent !== lab\) saidLab\.textContent = lab;/,
+  assert.match(PAGE, /const lab = line \? 'What ' \+ a\.name \+ '\\u2019s screen said' : '';\n\s*(?:\/\*[\s\S]*?\*\/\n\s*)?if \(saidLab\.textContent !== lab\) saidLab\.textContent = lab;/,
     'the attribution no longer names the agent, or no longer uses a.name');
 });
 

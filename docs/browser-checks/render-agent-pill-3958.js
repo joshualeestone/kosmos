@@ -151,12 +151,14 @@ async function read(page) {
            opened shows the Sign in again button and its screen evidence; back to working hides them. */
         setState('auth_failed');
         await page.waitForTimeout(6500);
-        const af = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden, said: !document.getElementById('d-said').hidden }));
+        const af = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden, said: !document.getElementById('d-said').hidden && !document.getElementById('d-said-box').hidden }));
         chk(af.reauth && af.said, `${engineName} -> auth_failed: the Sign in again button and the screen evidence appear without reopening`, JSON.stringify(af));
         setState('working');
         await page.waitForTimeout(6500);
-        const ok = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden }));
+        const ok = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden, saidBox: !document.getElementById('d-said-box').hidden }));
         chk(!ok.reauth, `${engineName} -> working again: the Sign in again button is gone`, JSON.stringify(ok));
+        /* #6716 (Josh, 2026-10-20): a working agent never shows its screen line (Claude Code's raw spinner). */
+        chk(!ok.saidBox, `${engineName} -> working again: the screen line fold is gone`, JSON.stringify(ok));
         const startShown = () => page.evaluate(() => {
           const w = document.getElementById('d-start-wrap');
           const b = document.getElementById('d-start-agent');
