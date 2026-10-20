@@ -42,9 +42,9 @@ test('#6609: a list the recovery key signed is taken, its keys are the trusted o
   assert.equal(r.ok, true, r.why);
   assert.deepEqual(r.keys, [spki(rel1)]);
   assert.equal(mv.storedKeyList(h).seq, 3);
-  // POSIX modes only: Windows has no mode bits (Node reports 0666 and 0777 there), and the record's privacy rests on
-  // the install home's own access list. The record is only consulted by the Mac update path (Windows checks updates
-  // with Authenticode, engine/win32update.js), so the mode is what matters where it is used.
+  // POSIX modes only: Windows has no mode bits (Node reports 0666 and 0777 there). No Windows path writes the record yet
+  // (engine/win32update.js checks its manifest with the built-in KEYS, not trustedKeys); when it does, this becomes a
+  // Windows access-list check and the file joins the Windows CI job (.claude/plans/rkwin-6609.md).
   if (process.platform !== 'win32') {
     assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE, 'seq-3.json')).mode & 0o777), 0o600);
     assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE)).mode & 0o777), 0o700);
