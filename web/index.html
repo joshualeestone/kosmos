@@ -78271,12 +78271,20 @@ async function fedInviteMake() {
     // else "they" (a label like "my sister", or anyone who is not a person): the same test as the Remove dialog's
     // body (fedFirstName, for a person only).
     const first = kind === 'person' ? fedFirstName(label) : '';
-    document.getElementById('fedinv-until').textContent = (until ? 'It works once, until ' + until + '.' : 'It works once.')
-      + ' You can withdraw it from Members until ' + (first ? first + ' joins.' : 'they join.');
+    const boundTo = typeof body.email === 'string' ? body.email : '';   // kosmos#6708: the coordinator's echo
+    const withdraw = ' You can withdraw it from Members until ' + (first ? first + ' joins.' : 'they join.');
+    const once = until ? 'It works once, until ' + until + '.' : 'It works once.';
+    // kosmos#6708: only when the coordinator says it bound the code (review 1), never from the typed value alone. The
+    // address is bold (design review): it is the one thing the owner checks for a typo before sending. Built as nodes,
+    // never as HTML, so the address is text whatever it holds.
+    const bold = document.createElement('strong');
+    bold.textContent = boundTo;
+    document.getElementById('fedinv-until').replaceChildren(...(boundTo
+      ? [once + ' Only the Kosmos+ account with ', bold, ' can use it.' + withdraw] : [once + withdraw]));
     document.getElementById('fedinv-easier').textContent = 'Easier: copy the whole invitation. It has the code and the three steps '
       + (first ? first + ' needs' : 'they need') + ', ready to paste into an email or a text.';
     const proj = pjById(askedFor);
-    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '', projectId: askedFor };
+    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '', projectId: askedFor, email: boundTo };   // kosmos#6708: the address the coordinator bound it to
     document.getElementById('fedinv-copy-all').focus();
     // kosmos#4649 slice B: the new pending row appears in Members behind the sheet (and an expired row with
     // the same label goes, fedOutsideRows), so "Done" lands on the list as it now is.
@@ -78438,7 +78446,11 @@ function fedInviteText(made) {
     + '\n'
     + made.code + '\n'
     + '\n'
-    + (until ? 'The code works once, until ' + until + '.' : 'The code works once.');
+    + (until ? 'The code works once, until ' + until + '.' : 'The code works once.')
+    // kosmos#6708: a code bound to an address says so, so the person invited signs in with that one before pasting it.
+    + (made.email ? '\nIt works only for the Kosmos+ account with the email address ' + line(made.email) + '.'
+      // Design review: what to do when it is the wrong address, so the first they learn of it is not a refusal.
+      + '\nIf that is not your Kosmos+ email, ask for a new code.' : '');
 }
 // Copy the invitation: through fedCopyText (select-and-copy first, then the clipboard with its limit). A refusal of
 // both keeps its line on screen and says what to do instead; it never throws.

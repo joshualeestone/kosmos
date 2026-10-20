@@ -562,6 +562,25 @@ const SCREENS = [
     await page.waitForSelector('#fedinv-ask', { state: 'visible', timeout: 8000 });
     await page.fill('#fedinv-label', 'Dana Ruiz');
   } },
+  /* kosmos#6708: the done step for a code the coordinator bound to one address. The throwaway board has no coordinator,
+     so the invite answer is stubbed in this screen's own context with the echo a binding coordinator gives. */
+  { name: 'fed-invite-bound', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    await page.route('**/api/federation/invite', (r) => r.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ code: 'KOS-SAMPLE-CODE-6708', expires_at: new Date(Date.now() + 7 * 86400000).toISOString(), invite_id: 'inv-6708', email: 'dana@example.com' }) }));
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => {
+      document.documentElement.setAttribute('data-fed-ui', 'show');
+      window.fedGateStamp = () => document.documentElement.setAttribute('data-fed-ui', 'show');   // eslint-disable-line no-undef
+      fedInviteOpen(null);   // eslint-disable-line no-undef
+    });
+    await page.waitForSelector('#fedinv-ask', { state: 'visible', timeout: 8000 });
+    await page.fill('#fedinv-label', 'Dana Ruiz');
+    await page.fill('#fedinv-email', 'dana@example.com');
+    await page.click('#fedinv-make');
+    await page.waitForFunction(() => /Only the Kosmos\+ account with/.test(document.getElementById('fedinv-until').textContent), { timeout: 8000 });
+  } },
   { name: 'agents-list', owner: 'Raiden', go: async (page) => {
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
     await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });

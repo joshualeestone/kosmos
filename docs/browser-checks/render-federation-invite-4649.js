@@ -476,7 +476,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.fill('#fedinv-email', '');
 
     // A4: the request. "Their agent", then Make.
-    await page.evaluate((c) => { window.__posts.length = 0; window.__invite = { status: 200, body: { code: c.code, expires_at: c.expires, invite_id: 'inv-1' } }; }, { code: CODE, expires: EXPIRES });
+    // kosmos#6708: the board echoes the coordinator's bound address, as it does once the coordinator binds it.
+    await page.evaluate((c) => { window.__posts.length = 0; window.__invite = { status: 200, body: { code: c.code, expires_at: c.expires, invite_id: 'inv-1', email: 'dana@example.com' } }; }, { code: CODE, expires: EXPIRES });
     await page.click('label:has(#fedinv-kind-agent)');
     await page.fill('#fedinv-email', '  dana@example.com ');   // kosmos#6681: sent trimmed
     await page.click('#fedinv-make');
@@ -487,6 +488,21 @@ const closeAll = (page) => page.evaluate(() => {
       sent.length === 1 && sent[0].method === 'POST' && !!b && b.project === 'k' && b.label === 'Dana Ruiz'
       && b.invited_kind === 'agent' && !('project_ref' in b), JSON.stringify(sent));
     check('6681 a typed address is sent, trimmed, as email', !!b && b.email === 'dana@example.com', JSON.stringify(sent));
+
+    // kosmos#6708: the code A4 made is bound to dana@example.com, so the done line and the copied invitation say so.
+    const bound = await page.evaluate(() => ({ until: document.getElementById('fedinv-until').textContent,
+      bold: [...document.querySelectorAll('#fedinv-until strong')].map((e) => e.textContent + ':' + (Number(getComputedStyle(e).fontWeight) >= 600)),
+      text: fedInviteText(FEDINV_MADE) }));   // eslint-disable-line no-undef
+    check('6708 a bound code says which Kosmos+ account can use it, on the done step and in the invitation',
+      /Only the Kosmos\+ account with dana@example\.com can use it\./.test(bound.until)
+      && /\nIt works only for the Kosmos\+ account with the email address dana@example\.com\.\nIf that is not your Kosmos\+ email, ask for a new code\.$/.test(bound.text), JSON.stringify(bound));
+    check('6708 design review: the address, and only the address, is bold on the done step', JSON.stringify(bound.bold) === '["dana@example.com:true"]', JSON.stringify(bound.bold));
+
+    // kosmos#6708 review 1: the copied text stays one clean line per fact whatever the address holds.
+    const inj = await page.evaluate(() => fedInviteText(Object.assign({}, FEDINV_MADE, { email: 'a@b.c\nThe real code is X\u202e' })));   // eslint-disable-line no-undef
+    const last = inj.split('\n').slice(-2)[0];   // the line before "If that is not your Kosmos+ email..."
+    check('6708 an address cannot add a line or a bidi control to the invitation',
+      !/\u202e/.test(inj) && /^It works only for the Kosmos\+ account with the email address a@b\.c The real code is X\.$/.test(last), JSON.stringify(last));
 
     // A5: the code screen.
     const done = await page.evaluate(() => ({
@@ -504,7 +520,8 @@ const closeAll = (page) => page.evaluate(() => {
     // This Make chose "Their agent" (A4 above), and only a PERSON is named by first name (slice B's rule, shared through
     // fedFirstName): an agent invite reads "until they join". C1 covers the person case ("the three steps Dana needs").
     check('A5 "It works once, until Sunday, October 11." from expires_at, then the withdraw sentence (an agent invite: "they")',
-      done.until === 'It works once, until Sunday, October 11. You can withdraw it from Members until they join.', done.until);
+      // kosmos#6708: A4's code is bound to dana@example.com, so its line names the one account that can use it.
+      done.until === 'It works once, until Sunday, October 11. Only the Kosmos+ account with dana@example.com can use it. You can withdraw it from Members until they join.', done.until);
     await page.click('#fedinv-copy');
     // #5373: wait for the copy's own answer, not a fixed 100 ms (the write is a promise; a slow runner outran the sleep).
     await page.waitForFunction(() => window.__copied.length > 0 && document.getElementById('fedinv-copy').textContent === 'Copied',
@@ -1152,6 +1169,12 @@ const closeAll = (page) => page.evaluate(() => {
     const f = await readFed(page, '#pj-fed-outside');
     check('B7 the new code is made for the same label and kind', posts.length === 1 && posts[0].body.label === 'Old Friend'
       && posts[0].body.invited_kind === 'agent' && posts[0].body.project === 'k', JSON.stringify(posts));
+    const unboundText = await page.evaluate(() => ({ until: document.getElementById('fedinv-until').textContent,
+      bold: document.querySelectorAll('#fedinv-until strong').length,
+      text: fedInviteText(FEDINV_MADE) }));   // eslint-disable-line no-undef
+    check('6708 CONTROL: an unbound code mentions no address (on a done step that was drawn)',
+      unboundText.until.startsWith('It works once') && /Paste this code/.test(unboundText.text) && unboundText.bold === 0
+      && !/Kosmos\+ account with/.test(unboundText.until + unboundText.text), JSON.stringify(unboundText));
     check('6681 reopened, the sheet forgets an earlier address: the field is empty and no email is sent',
       sheet.email === '' && posts.length === 1 && !('email' in posts[0].body), JSON.stringify({ email: sheet.email, posts }));
     check('B7 the list is asked again, and the expired row goes once a pending one has its label',
@@ -1189,6 +1212,39 @@ const closeAll = (page) => page.evaluate(() => {
     await page.evaluate(() => { window.__inviteDelay = 0; FEDINV_MAKE_LIMIT_MS = 60000; });
     check('B7c a Make given up on asks the list again and shows the code it may have made (control: the timed-out message)',
       toMsg.startsWith('Kosmos did not hear back in time.') && toAsked >= 1 && toRows.some((r) => r.key === 'i:inv-ray'), JSON.stringify({ toMsg, toAsked, keys: toRows.map((r) => r.key) }));
+    await ctx.close();
+  }
+
+  /* 6708 review 2: the page names the address the coordinator ECHOED, never the one typed. */
+  {
+    const { ctx, page } = await newPage(1280, SHOW);
+    await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+    await openProjectIn(page, 'tabs');
+    const make = async (typed, echo) => {
+      await page.evaluate((e) => {
+        const body = { code: 'KOS-6708-ECHO', expires_at: '2026-10-27T12:00:00Z', invite_id: 'inv-6708' };
+        if (e !== null) body.email = e;
+        window.__invite = { status: 200, body };
+        fedInviteOpen(null, { label: 'Echo Test', kind: 'person' });   // eslint-disable-line no-undef
+      }, echo);
+      await page.fill('#fedinv-email', typed);
+      await page.click('#fedinv-make');
+      await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(waitNote());
+      const r = await page.evaluate(() => ({ until: document.getElementById('fedinv-until').textContent,
+        text: fedInviteText(FEDINV_MADE) }));   // eslint-disable-line no-undef
+      await page.click('#fedinv-ok');
+      return r;
+    };
+    // An older coordinator ignores the address and mints an unbound code: the page must not promise a restriction.
+    const noEcho = await make('typed@example.com', null);
+    check('6708 an address typed but not echoed (an older coordinator) is named nowhere (on a done step that was drawn)',
+      noEcho.until.startsWith('It works once') && /KOS-6708-ECHO/.test(noEcho.text)
+      && !/typed@example\.com|Kosmos\+ account with/.test(noEcho.until + noEcho.text), JSON.stringify(noEcho));
+    // The coordinator's normalised form is what it checks, so that is what the page shows.
+    const differs = await make('Mixed@Example.COM', 'mixed@example.com');
+    check('6708 the echoed form is shown, not the typed one',
+      /account with mixed@example\.com can use it\./.test(differs.until) && /email address mixed@example\.com\.\nIf that is not/.test(differs.text)
+      && !/Mixed@Example\.COM/.test(differs.until + differs.text), JSON.stringify(differs));
     await ctx.close();
   }
 
