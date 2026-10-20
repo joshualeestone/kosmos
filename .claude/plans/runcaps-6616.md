@@ -27,7 +27,8 @@ tunnel gets `remote_step_up_unavailable` and the listed one reaches the route (4
 ignoring the running list (both red), dropping the pid check (one red). R01c: no per-pid keep, no kill, the prefix
 match, and not judging a foreign pid on read, each one red; then (review 4) the parent-is-1 rule, the pid range, the
 program check and asking again after a failed ps, each one red. One test reads the real process table with real
-orphans (double-forked), a live board's tunnel, a lookalike path and another program.
+orphans (double-forked), a live board's tunnel, a lookalike path and another program. Review 5: the re-ask after a
+minute and the for-good record, each mutant red (Date.now moved). Not tested: status() noting the child's write.
 
 ## The orphan, closed here too (kosmos#6669, R01c; review 3)
 A tunnel orphaned by an EARLIER board (killed hard, so it could not reap it) still forwards: on the relay's "replaced by
@@ -43,7 +44,12 @@ refused every gated remote action until this board's tunnel next changed state.
   match ended a tunnel for `<file>.elsewhere` in the tests). A pid outside 2..2^22 is never looked at (0 and -1 signal a
   group); our pid and child are excluded again right before the signal. A definite ps answer is kept per pid; a failed
   one is asked again. Not closed: a pid that exits and is reused between ps and the signal.
-- Not on Windows (no command line is read there): an orphan there is still the old behaviour. Stated on #6669.
+- Kept for good per pid: "not our tunnel" and "ended". Asked again after a minute (review 5): a live parent (its board
+  may die later) and a pid that is gone (it may be reused by one). A failed ps: next time.
+- Not on Windows (no command line is read there), nor on Linux where a subreaper makes an orphan's parent other than
+  1: such an orphan is not ended. It still alternates on the relay as before, AND (new with part 6, review 5) its
+  writes to the status file refuse gated remote actions until this board's child's own write has been seen once.
+  To shorten that, status() (read often, for the page) notes the child's write too. Stated on #6669.
 - Not tested: the read at tunnel start (startChild); the same function, reached by status() and the capability read,
   is.
 

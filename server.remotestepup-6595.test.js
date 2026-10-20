@@ -510,3 +510,27 @@ test('R01c: reading the status file is what notices it: a foreign pid there is j
     assert.ok(alive(bystander.pid), 'a process that is not our tunnel was ended');
   } finally { try { bystander.kill('SIGKILL'); } catch {} reset(); await warm(); }
 });
+
+test('R01c: a live board\'s tunnel is asked again after a minute (its board may die); not-our-tunnel is kept for good', async () => {
+  const asked = [];
+  let answer = null;
+  const realNow = Date.now;
+  let skew = 0;
+  try {
+    Date.now = () => realNow() + skew;
+    reset({ commandOf: (pid) => { asked.push(pid); return answer; } });
+    const ours = CONNECTOR + ' run --status-file ' + STATUS;
+    answer = { ppid: 4242, command: ours };   // a live board's
+    await ended(424301); await ended(424301);
+    assert.deepEqual(asked, [424301], 'asked again inside the minute');
+    skew = 61 * 1000;
+    answer = { ppid: 1, command: ours };      // its board died
+    await ended(424301);
+    assert.deepEqual(asked, [424301, 424301], 'an orphan judged earlier with a live parent was never asked again');
+    answer = { ppid: 1, command: '/usr/bin/other run --status-file ' + STATUS };   // not our tunnel
+    await ended(424302);
+    skew = 10 * 60 * 1000;
+    await ended(424302);
+    assert.deepEqual(asked.filter((p) => p === 424302), [424302], 'not-our-tunnel was asked again');
+  } finally { Date.now = realNow; reset(); await warm(); }
+});
