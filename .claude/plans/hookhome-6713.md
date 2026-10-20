@@ -37,7 +37,14 @@ A source checkout or worktree has neither file two folders up from its engine.
   accounts.
 - **Rejected:** gating on a port or data folder (#6601 rejected it too; the harm is the script path), and a pointer
   file check (an update can move the engine before the pointer).
-- **Weakest premise:** a second built bundle extracted elsewhere and started as a test board passes `installRoot`,
-  as on Windows. A stronger check (the root equals the KOSMOS_HOME setup wrote) can tighten both later.
+- **The Mac install signal also requires the default root** `~/.local/share/kosmos`, compared by identity. A full bundle
+  under any other KOSMOS_HOME is a test install, as `install/setup.sh` `write_install_config` treats it. A self-host
+  install with a custom KOSMOS_HOME keeps relying on setup.sh's own wiring.
+- **Folders are compared by identity** (device and inode, like setup.sh's `-ef`), so `/System/Volumes/Data/Users/<u>`
+  and a differently cased spelling still name the real home.
+- **Follow-up, not done here:** `allowance.stableNode` answers "is this the installed engine" by folder names. Moving it
+  onto `installRoot` would change which node it bakes in for a custom-KOSMOS_HOME install, so it is left as it is.
+- **Weakest premise:** on Windows a second built bundle extracted elsewhere still passes `win32board.bundleRoot`
+  (#6601's gap); on a Mac the default-root check closes it. A stronger check (the root equals the KOSMOS_HOME setup wrote) can tighten both later.
 - **What would change my mind:** an installed Mac board whose engine is not at `<root>/app/engine`, for example a
   future layout change.

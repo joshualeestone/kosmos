@@ -5,6 +5,9 @@
  * engine). An installed board, and any sandboxed board, still writes them.
  *
  *   node --test engine/installroot-6713.test.js
+ *
+ * Posix only as written: the stand-in real home is made by setting HOME, which os.homedir() reads on a Mac or Linux
+ * but not on Windows (USERPROFILE). Do not add it to tools/windows-tests.js without changing that.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -31,12 +34,16 @@ function realHome(t) {
 }
 
 test('#6713: installRoot on a Mac layout: both files two up from the engine, or null', () => {
+  const home = '/Users/x';
   const root = '/Users/x/.local/share/kosmos';
   const have = (set) => (f) => set.has(f);
   const both = new Set([root + '/runtime/bin/node', root + '/app/server.js']);
-  assert.equal(installroot.installRoot({ platform: 'darwin', root, exists: have(both) }), root);
-  assert.equal(installroot.installRoot({ platform: 'darwin', root, exists: have(new Set([root + '/app/server.js'])) }), null, 'no bundled node: not installed');
-  assert.equal(installroot.installRoot({ platform: 'darwin', root, exists: have(new Set([root + '/runtime/bin/node'])) }), null, 'no app/server.js: not installed');
+  assert.equal(installroot.installRoot({ platform: 'darwin', home, root, exists: have(both) }), root);
+  assert.equal(installroot.installRoot({ platform: 'darwin', home, root, exists: have(new Set([root + '/app/server.js'])) }), null, 'no bundled node: not installed');
+  assert.equal(installroot.installRoot({ platform: 'darwin', home, root, exists: have(new Set([root + '/runtime/bin/node'])) }), null, 'no app/server.js: not installed');
+  const sb = '/tmp/sb/home';
+  assert.equal(installroot.installRoot({ platform: 'darwin', home, root: sb, exists: have(new Set([sb + '/runtime/bin/node', sb + '/app/server.js'])) }), null,
+    'a full bundle under another KOSMOS_HOME is a test install, not the installed Kosmos (as setup.sh write_install_config)');
   assert.equal(installroot.installRoot({ platform: 'win32', root: 'C:\\K', exists: have(new Set(['C:\\K\\runtime\\node.exe', 'C:\\K\\app\\server.js'])) }), 'C:\\K', 'win32 asks win32board.bundleRoot');
 });
 
@@ -52,7 +59,9 @@ test('#6713: leaveAlone skips only a non-installed board writing into the real h
   const file = '/Users/x/.claude-account-b/settings.json';
   assert.equal(installroot.leaveAlone(file, { home, env: {}, installRoot: null }), installroot.NOT_INSTALLED);
   assert.equal(installroot.leaveAlone(file, { home, env: {}, installRoot: '/Users/x/.local/share/kosmos' }), null, 'CONTROL: installed writes');
-  assert.equal(installroot.leaveAlone(file, { home, env: { AGENT_WORKFORCE_HOME: '/tmp/sandbox' }, installRoot: null }), null, 'a sandboxed board writes its sandbox');
+  assert.equal(installroot.leaveAlone('/tmp/sandbox/.claude-account-b/settings.json', { home, env: { AGENT_WORKFORCE_HOME: '/tmp/sandbox' }, installRoot: null }), null, 'a sandboxed board writes its sandbox');
+  assert.equal(installroot.leaveAlone(file, { home, env: { AGENT_WORKFORCE_HOME: '/tmp/sandbox' }, installRoot: null }), installroot.NOT_INSTALLED, 'but never a real-home file, sandbox or not');
+  assert.equal(installroot.leaveAlone('/Users/x/sb/.claude-account-b/settings.json', { home, env: { AGENT_WORKFORCE_HOME: '/Users/x/sb' }, installRoot: null }), null, 'a sandbox inside the home writes its own folders');
   assert.equal(installroot.leaveAlone(file, { home, env: { AGENT_WORKFORCE_HOME: '/Users/x' }, installRoot: null }), installroot.NOT_INSTALLED, 'a "sandbox" that is the home is the real home');
   assert.equal(installroot.leaveAlone('/tmp/elsewhere/settings.json', { home, env: {}, installRoot: null }), null, 'a file outside the home is not the real home');
   assert.match(installroot.leaveAlone(file, { home, env: {}, root: '/r', exists: () => { throw new Error('io'); } }), /could not tell/, 'a check that fails leaves it alone');
@@ -76,6 +85,17 @@ test('#6713: a source board adding an account in the real home leaves its settin
   assert.equal(fs.readFileSync(settings, 'utf8'), before, 'the installed Kosmos\'s wiring is untouched, byte for byte');
 });
 
+test('#6713: the real home under another spelling (a link to it) is still the real home: no sandbox, nothing written', (t) => {
+  const home = realHome(t);
+  const alias = home + '-alias';
+  fs.symlinkSync(home, alias);
+  t.after(() => fs.rmSync(alias, { force: true }));
+  const file = path.join(alias, '.claude-account-e6713', 'settings.json');
+  assert.equal(installroot.leaveAlone(file, { env: { AGENT_WORKFORCE_HOME: alias }, installRoot: null }), installroot.NOT_INSTALLED,
+    'AGENT_WORKFORCE_HOME naming the home by another path is not a sandbox, and a file spelled through it is in the home');
+  assert.equal(installroot.leaveAlone(file, { env: { AGENT_WORKFORCE_HOME: alias }, installRoot: '/x' }), null, 'CONTROL: installed writes');
+});
+
 test('#6713: CONTROL: the same prepare in a sandboxed home still wires the hooks (the gate is the real home, not every write)', (t) => {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-6713-sb-'));
   const saved = process.env.AGENT_WORKFORCE_HOME;
@@ -85,6 +105,8 @@ test('#6713: CONTROL: the same prepare in a sandboxed home still wires the hooks
   assert.equal(r.ok, true);
   assert.notEqual(r.hooksBecause, installroot.NOT_INSTALLED, 'not refused for the install rule');
   assert.equal(r.hooksWired, true, 'a sandboxed board wires its own sandbox account');
+  assert.equal(r.hooksBecause, null);
+  assert.notEqual(r.weeklyBecause, installroot.NOT_INSTALLED, 'nor is the statusline refused for the install rule');
 });
 
 test('#6713: the Settings route\'s writer (ensureStatusLine) is gated the same way, and an explicit go-ahead still writes', (t) => {
