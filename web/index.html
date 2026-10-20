@@ -23939,7 +23939,7 @@ async function updCheckNowClick() {
      press just made -- a second Enter or Space -- reloads the document
      immediately. The offer arm has the same relabel shape but a confirm
      dialog absorbs a stray press; this one has nothing in front of it, and the
-     page has no beforeunload, so anything typed and unsent is gone.
+     page has no unsaved-changes prompt (#6725's beforeunload asks nothing), so anything typed and unsent is gone.
      ⚠️ The accessibility reason for the refocus still holds for every other
      outcome, which is why this is a narrow exception rather than a removal. */
   /* A press that landed the Windows manual offer hid this button, so the keyboard's place is the
@@ -30854,7 +30854,7 @@ function computersInApp() {
 /* kosmos#6406 (Josh 12:04): every link to another of the person's computers. In the Kosmos app, no target: the app keeps
    a same-window https://<name>.kosmosplus.com address in its window (Mac in every mode; Windows once the computer's mode
    is chosen, an unchosen Windows computer still sends it to the browser). In a browser, a new tab as before. The same
-   page then replaces this one, so unsent text in a composer goes, as it does on a reload (the page has no beforeunload). */
+   page then replaces this one, so unsent text in a composer goes, as it does on a reload (the page has no unsaved-changes prompt). */
 function computersLinkTarget(a) {
   if (!computersInApp()) a.target = '_blank';
   // kosmos#6406 step 2: marked, so a plain click in the app opens it with a ticket (computersOpenClick). An attribute,

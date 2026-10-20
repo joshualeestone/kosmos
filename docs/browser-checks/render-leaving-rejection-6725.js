@@ -60,14 +60,24 @@ const chk = (ok, label, extra) => {
       page.on('pageerror', (e) => { if (reloading && cutOffByReload(e.message, BASE)) ignored += 1; else errs.push(e.message); });
       // Held open by the check: answered only after the reload has cut it off (and never awaited by anyone).
       await page.route('**/api/leave-6725', (r) => { setTimeout(() => { r.fulfill({ status: 200, body: 'late' }).catch(() => {}); }, 3000); });
+      await page.addInitScript(() => {
+        addEventListener('unhandledrejection', () => {
+          try { sessionStorage.setItem('ur6725', String(Number(sessionStorage.getItem('ur6725') || 0) + 1)); } catch { /* none */ }
+        });
+      });
       await page.goto(BASE, { waitUntil: 'load' });
+      await page.evaluate(() => { try { sessionStorage.removeItem('ur6725'); } catch { /* none */ } });
       await page.evaluate(() => { fetch('/api/leave-6725').then((r) => r.text()); });   // no catch, on purpose
       await page.waitForTimeout(200);
-      reloading = true;
-      await page.reload({ waitUntil: 'load' });
+      reloading = true;   // only until the new page commits (review 1)
+      await page.reload({ waitUntil: 'commit' });
       reloading = false;
+      await page.waitForLoadState('load');
       await page.waitForTimeout(1500);
-      chk(errs.length === 0, `[${engine}] 1 a request cut off by a reload is not a page error`, 'ignored=' + ignored + (errs.length ? ' ' + errs.join(' | ') : ''));
+      const seen = await page.evaluate(() => { try { return Number(sessionStorage.getItem('ur6725') || 0); } catch { return -1; } });
+      chk(errs.length === 0, `[${engine}] 1 a request cut off by a reload is not a page error`, 'ignored=' + ignored + ' rejections=' + seen + (errs.length ? ' ' + errs.join(' | ') : ''));
+      // Review 1: the arm above passes with no rejection at all, so on WebKit (the engine that rejects) prove there was one.
+      if (engine === 'webkit') chk(seen >= 1, '[webkit] 1 PRECONDITION: the leaving page did see the cut-off request reject', 'rejections=' + seen);
       // 2. The CONTROL, on the reloaded page well past the leaving window: a real one is still reported.
       errs.length = 0;
       await page.waitForTimeout(1200);
@@ -79,6 +89,9 @@ const chk = (ok, label, extra) => {
       await browser.close();
     }
   }
+  const lineOf = (f) => (fs.readFileSync(path.join(__dirname, f), 'utf8').match(/^const cutOffByReload = .*$/m) || [''])[0];
+  chk(lineOf('render-leaving-rejection-6725.js') !== '' && lineOf('render-leaving-rejection-6725.js') === lineOf('render-shell-noscroll-4872.js'),
+    '3 render-shell-noscroll-4872 uses the same predicate as this check (so arm 3 pins both)');
   // 3. The predicate, with its controls: only this board's own address, only WebKit's cancelled-request message.
   const own = 'Fetch API cannot load ' + BASE + '/api/tips due to access control checks.';
   chk(cutOffByReload(own, BASE), '3 the board\'s own cancelled request is recognised', own);

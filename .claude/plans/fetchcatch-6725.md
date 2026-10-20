@@ -18,7 +18,8 @@ Chromium reports neither, so only the WebKit arm sees them.
   (`PAGE_LEAVING`, set at beforeunload, cleared after a second).
 - docs/browser-checks/render-shell-noscroll-4872.js and the new check: a WebKit "due to access control checks" page
   error is not counted when it names THIS board's own address (host:port and the slash) AND arrives while a reload the
-  check started is in flight (`cutOffByReload`, a `reloading` flag around page.reload).
+  check started is in flight (`cutOffByReload`, a `reloading` flag set only until the new page COMMITS: review 1 found a
+  window to networkidle would also hide a real network failure while the new page loads).
 - docs/browser-checks/render-leaving-rejection-6725.js: a request held open across a reload is no page error; CONTROL:
   a real rejection while not leaving still is; the predicate's own arms (another origin, a lookalike port, any other
   message: not matched). The lookalike-port arm caught a substring bug in the first version of the predicate.
@@ -49,6 +50,9 @@ fixes nothing for it. What would change my mind: such an error in a CI log after
   WebKit message came once in about 17 local runs and could not be produced on demand (a request held open at the
   route, or on the network before or after its headers, caught or not, never produced it). Both checks print
   `ignored=N`, so the first CI runs show whether the filter is what keeps the arm green.
+
+Review 1 also made arm 1 able to fail: on WebKit it asserts the leaving page saw at least one rejection (counted in
+sessionStorage by an init script), and arm 3 pins that the flaky check's copy of the predicate is the same line.
 
 ## Not covered
 A real TypeError rejection in the one second after beforeunload is hidden too. It is on a page that is going away.
