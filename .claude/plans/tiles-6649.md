@@ -18,6 +18,11 @@ two tiles now pin their absence, each shown red by putting a tile or a write bac
   asserts the painter leaves them untouched on four fleets including idle and blocked agents; asserts the markup holds
   neither id (CONTROL: `#st-working-tile` is found). Shown red by re-adding an Idle write, and separately by re-adding an
   Idle tile to the markup.
+- `server.test.js` "a failed poll blanks the stats tiles": the removed ids stay seeded ('4', '2', hidden) and must be
+  left exactly so; shown red by re-adding the Idle "?" write.
+- `release/whats-new-pool.json`: "The home row counts waiting agents" (pending since 0.7.33) is set `held` with the
+  reason, so no What's New line promises the removed tile.
+- `docs/browser-checks/README.md`: the render-workchip row describes the #6649 absence arm.
 - `web.not-running.test.js`: the floor test reads only Working now; its CONTROL looks for the Working write.
 - Browser checks `render-workchip-zero-2157.js` and `render-not-running.js`: the #5540 Waiting arms become an absence
   check read by the row's labels (not by the removed ids), with Working / Agents as the control. render-workchip shown

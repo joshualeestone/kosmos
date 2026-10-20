@@ -11147,8 +11147,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    keeps its red and the could-not-read card its dash everywhere. Only the plain card loses its border here.
    🔑 The alert tile (Issue; #6180 removed No project) keeps its red outline (on the Agents page #5551 below gives the pressable
    Issue filters a grey ground at rest instead, as drawn), and a pressed or hovered tile keeps today's gold
-   (the Messages and alert filters), so a filter that is on still looks on. The tiles while inert (Agents, Working,
-   Idle) never show a box, not even on hover, since a box would say "click me" on a tile that does nothing. The
+   (the Messages and alert filters), so a filter that is on still looks on. The tiles while inert (Agents, Working;
+   Idle went in #6649) never show a box, not even on hover, since a box would say "click me" on a tile that does nothing. The
    Messages filter DOES something, so at rest it keeps a soft grey ground (no border) as its "you can press this",
    which a touch screen needs since it has no hover; its padding does not change with state, so it never jumps. */
 :root[data-look="new"] body:not(.consolidated) #boardbar .stats .stat:not(.alert):not([role="button"]) { border-color: transparent; background: transparent; padding-inline: 10px; }
@@ -25373,13 +25373,13 @@ async function tick() {
        unreadable; a tile printing `11` beside it is the number a person
        believes. Not `?`: unlike Not running, this is knowable in part, and
        replacing a true floor with nothing would hide a fact we hold. The state
-       tiles (Working, Idle, and Waiting since #5540) are cut from the same
-       parsed list, so they are floors on the same poll and carry the same mark. */
+       tile (Working; Idle and Waiting were removed in #6649) is cut from the same
+       parsed list, so it is a floor on the same poll and carries the same mark. */
     const floor = (c.unreadableLines || 0) > 0;
     /* ⚠️ AN UNKNOWN AGENT FLOORS THE STATE TILES TOO (#369). Measured on the
        live board: a Fable session mid-turn read unknown, and the row said
        "0 Working" while somebody was working. The engine is honest per agent;
-       the tile SUMS states, so any unknown makes Working and Idle floors, the
+       the tile SUMS states, so any unknown makes Working a floor, the
        same mark the unreadable-lines poll already wears. The Agents total is
        not floored by this: an unknown agent is still counted as an agent. */
     const unknowns = data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'unknown').length;

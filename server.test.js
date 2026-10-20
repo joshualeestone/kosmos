@@ -3581,12 +3581,13 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
        actually owns, which is the one that always exists. */
     orgmap: el(''),
     orgnote: { textContent: '', hidden: false, innerHTML: '' },
-    'st-agents': el('14'), 'st-working': el('9'), 'st-idle': el('4'), 'st-attn': el('1'),
+    'st-agents': el('14'), 'st-working': el('9'), 'st-attn': el('1'),
+    // #6649: the Idle and Waiting tiles are gone; their old ids are seeded so a failed poll that writes them again shows.
+    'st-idle': el('4'),
     /* #2157: seeded HIDDEN (as a prior known-zero tick would have left it), so the
        failed poll must bring the Working tile BACK showing "?", not leave it hidden
        claiming none are working -- the same rule as the not-running tile below. */
     'st-working-tile': { textContent: '', hidden: true, innerHTML: '' },
-    // #5540: seeded with a last-success count and hidden, so "?" and showing are both measured transitions.
     'st-blocked': el('2'), 'st-blocked-tile': { textContent: '', hidden: true, innerHTML: '' },
     'st-attn-tile': { textContent: '', hidden: false, innerHTML: '' },
     /* ⚠️ Seeded with a last-success number for the same presence-before-absence
@@ -3641,7 +3642,7 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     'the failure card must reach both containers, whichever layout is up');
   assert.match(els.grid.innerHTML, /not the same as having none/,
     'the failure card stopped drawing the distinction it exists for');
-  for (const id of ['st-agents', 'st-working', 'st-idle', 'st-blocked', 'st-attn']) {
+  for (const id of ['st-agents', 'st-working', 'st-attn']) {
     assert.equal(els[id].textContent, '?',
       `${id} still asserts a count beside "we cannot see them" -- a headline number the failed poll cannot stand behind`);
   }
@@ -3649,7 +3650,9 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     'the alert tile must hide on a blind poll: red is reserved for a known alarm');
   assert.equal(els['st-working-tile'].hidden, false,
     '#2157: the Working tile (seeded hidden, as a prior known-zero tick left it) must come BACK on a blind poll showing "?", unlike the alert tile -- hiding it would claim none are working on the one poll that knows nothing');
-  assert.equal(els['st-blocked-tile'].hidden, false, '#5540: a failed poll left the Waiting tile hidden, which says nobody is waiting');
+  // #6649: the removed Idle and Waiting tiles are left exactly as seeded (a write coming back would change them).
+  assert.deepEqual([els['st-idle'].textContent, els['st-blocked'].textContent, els['st-blocked-tile'].hidden], ['4', '2', true],
+    '#6649: the failed poll wrote a removed Idle or Waiting tile');
   // (#734) There is no summary slot any more, so nothing here can assert last-tick counts beside the failure card.
   assert.equal(els.orgmap.innerHTML, '',
     'the org view still draws the last fleet it saw beside "we cannot see them"');
