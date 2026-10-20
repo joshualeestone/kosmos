@@ -131,6 +131,11 @@ function notesAndMeasure(opts) {
         await page.evaluate(() => { document.querySelector('.dhead').scrollTop = 0; document.getElementById('d-start-agent').focus(); });
         // WebKit, like Safari by default, moves Tab between text fields only; Option-Tab reaches buttons.
         await page.keyboard.press(eng === 'webkit' ? 'Alt+Tab' : 'Tab');
+        /* #6716: the screen line sits in a fold whose summary is a stop of its own (a keyboard must be able to open
+           it), between Start and Sign in again in page order. Stepped over only when that is where Tab landed. */
+        if (await page.evaluate(() => (document.activeElement || {}).id === 'd-said-lab')) {
+          await page.keyboard.press(eng === 'webkit' ? 'Alt+Tab' : 'Tab');
+        }
         const ring = await page.evaluate(() => {
           const e = document.activeElement; const head = document.querySelector('.dhead').getBoundingClientRect();
           if (!e || e.id !== 'd-reauth') return { error: 'Tab did not reach Sign in again', at: e && e.id };

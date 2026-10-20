@@ -647,8 +647,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    text, not emphasis). */
 .detail-saidbox { margin: 10px 0 0; }
 .detail-saidlab { margin: 0; font-size: .75rem; color: var(--k-ink-2); cursor: pointer; }
-.detail-said { margin: 2px 0 0; padding: 6px 0 6px 12px;
-               border-left: 2px solid var(--k-rule); color: var(--k-ink-2);
+/* #6716: a full hairline box, not a left bar (Josh: no solid left accent bars). */
+.detail-said { margin: 4px 0 0; padding: 6px 10px;
+               border: 1px solid var(--k-rule); border-radius: 8px; color: var(--k-ink-2);
                font: .8125rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
                white-space: pre-wrap; overflow-wrap: anywhere; }
 /* What the agent is doing, its own element rather than merged into the badge.
