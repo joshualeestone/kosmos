@@ -42,8 +42,13 @@ test('#6609: a list the recovery key signed is taken, its keys are the trusted o
   assert.equal(r.ok, true, r.why);
   assert.deepEqual(r.keys, [spki(rel1)]);
   assert.equal(mv.storedKeyList(h).seq, 3);
-  assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE, 'seq-3.json')).mode & 0o777), 0o600);
-  assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE)).mode & 0o777), 0o700);
+  // POSIX modes only: Windows has no mode bits (Node reports 0666 and 0777 there), and the record's privacy rests on
+  // the install home's own access list. The record is only consulted by the Mac update path (Windows checks updates
+  // with Authenticode, engine/win32update.js), so the mode is what matters where it is used.
+  if (process.platform !== 'win32') {
+    assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE, 'seq-3.json')).mode & 0o777), 0o600);
+    assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE)).mode & 0o777), 0o700);
+  }
   assert.deepEqual(fs.readdirSync(path.join(h, mv.KEY_LIST_STATE)), ['seq-3.json'], 'no temp file left behind');
 });
 
@@ -254,6 +259,7 @@ test('#6609: a seq is never reused: the same seq with other keys is refused; a f
   fs.chmodSync(ro, 0o500);   // a home this check cannot write in
   try {
     if (process.getuid && process.getuid() === 0) return;   // root writes anyway: the arm cannot be exercised
+    if (process.platform === 'win32') return;   // a folder mode does not stop writes on Windows: the arm cannot be exercised there
     const w = mv.trustedKeys({ listBytes: a.bytes, listSig: a.sig, home: ro, recoveryKeys: RK });
     assert.equal(w.ok, false);
     assert.match(w.why, /could not be written/);
