@@ -39,3 +39,10 @@ Built from this branch on the Windows box through the bsdtar shim (KOSMOS_ALLOW_
 - [NIT] fixed: check now requires 0755 for a program by extension; a test covers Kosmos.exe at 0644.
 - [NIT] fixed (comment): relabelling a DOS-hosted entry Unix changes how Info-ZIP reads a non-ASCII name; all staged names are ASCII.
 - [NIT] not taken: connector_authenticode's messages say "connector" when the launcher fails. The build's own line names Kosmos.exe first; the 4597 tests pin those messages.
+### Iteration 2 (sonnet)
+- [WARNING] fixed: check allowed a .js at 0755 (it cannot see a shebang). The build now passes the stage folder, and with it check requires exactly the mode set gives; a test covers a 0755 .js with and without the stage.
+- [WARNING] fixed: an empty zip passed check. It is now refused.
+- [WARNING] deferred: tools.build-windows-connector-4597 reads Kosmos.exe by a cwd-relative path. That file resolves every path from the cwd ('tools/build-kosmos-windows.sh', path.resolve('tools/lib/...')); one __dirname read would be the odd one out.
+- [WARNING] fixed: tools/windows/README.md said re-signing a rebuilt exe was a habit no check forced. The build and a CI test now force it; the README says so.
+- [NIT] noted: the 2>&1 >/dev/null capture order, the 65535-entry sentinel edge, zlib.crc32 needing Node 22.2+ (CI runs 24).
+- [NIT] fixed: the module header no longer carries 0.7.60's exact counts.
