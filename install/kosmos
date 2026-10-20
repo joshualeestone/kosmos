@@ -2760,6 +2760,41 @@ cmd_reply() {
   # _read_piped_message does the read; from_stdin arms _keep_piped, so every failure after the
   # read keeps the piped reply in a private file (it may have no other copy).
   local from_stdin=0 _orig="" _trimmed _keep
+  # #6726: --file <path> (or --file=<path>) attaches one of the agent's own files, as the attachment a person's
+  # upload is. Taken out of the args before `--`, wherever it sits, so the rest parse as before; past `--` it is
+  # words. The board decides which files may go (engine/replyfile.js); this only makes a relative path absolute.
+  local _rfile="" _rgot=0 _rpast=0 _rargs=()
+  while [ $# -gt 0 ]; do
+    if [ "$_rpast" = 0 ]; then
+      case "$1" in
+        --) _rpast=1 ;;
+        --file|--file=*)
+          if [ "$_rgot" = 1 ]; then say "--file was given twice, so nothing was sent. Attach one file per reply."; exit 2; fi
+          _rgot=1
+          if [ "$1" = --file ]; then
+            if [ $# -ge 2 ]; then _rfile="$2"; shift; fi
+          else
+            _rfile="${1#--file=}"
+          fi
+          case "$_rfile" in
+            ''|--|--[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*)
+              say "--file needs the path of the file to attach, so nothing was sent: kosmos reply --file <path> \"what it is\""
+              exit 2 ;;
+          esac
+          case "$_rfile" in /*) ;; *) _rfile="$PWD/$_rfile" ;; esac
+          # Review r1 finding 7: a path with a control character (a line break, a tab, any other) cannot be sent
+          # as written, so it is refused here rather than mangled into a path that names another file or none.
+          case "$_rfile" in
+            *[[:cntrl:]]*)
+              say "That file's path has a line break or another control character in it, so it cannot be attached. Rename the file, then send it again."
+              exit 2 ;;
+          esac
+          shift; continue ;;
+      esac
+    fi
+    _rargs+=("$1"); shift
+  done
+  set -- ${_rargs[@]+"${_rargs[@]}"}
   if [ "${1:-}" = "--stdin" ]; then from_stdin=1; shift; fi
   text="$*"
   if [ "$from_stdin" = 1 ]; then
@@ -2780,8 +2815,9 @@ cmd_reply() {
     _text_args reply "Usage: kosmos reply [--stdin] <what you want to tell them>" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
     text="$*"
   fi
-  if [ -z "$text" ]; then
+  if [ -z "$text" ] && [ -z "$_rfile" ]; then
     say "Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and \$ arrive as written)"
+    say "       kosmos reply --file <path> [\"what it is\"]   (attach one file from your Files folder, or from inside a project you are on, up to 25 MB: they download it from your conversation)"   # #6726
     exit 2
   fi
   # With --stdin the pipe is read BEFORE this check on purpose (as in cmd_msg): a live pipe cannot
@@ -2813,6 +2849,11 @@ cmd_reply() {
     *) _tok="$KOSMOS_AGENT_TOKEN" ;;
   esac
   local _data="{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
+  if [ -n "$_rfile" ]; then   # #6726: the board copies the file from this path and checks it is the agent's own
+    local esc_file
+    esc_file=$(printf '%s' "$_rfile" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g')   # control characters were refused at the flag
+    _data="{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\",\"file\":\"$esc_file\"}"
+  fi
   # #4582: refuse a body over the board's read limit with the real reason (the board would drop the
   # connection, which reads as unreachable), and send it to curl on stdin, not argv, so a long piped
   # reply meets the board's own 2000-character refusal instead of an argument-length failure.
@@ -2836,7 +2877,16 @@ cmd_reply() {
     exit 1
   fi
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
-  case "$body" in '{"wrongWorld":true'*) keep_in_outbox reply "$_data" ;; esac
+  case "$body" in
+    '{"wrongWorld":true'*)
+      # #6726: a reply with a file is not kept for later: the file is read when it is sent, and it may change before then.
+      if [ -n "$_rfile" ]; then
+        say "Not sent: your Kosmos is not the one open right now, and a reply with a file is not kept for later. Send it again once your Kosmos is open."
+        _keep_piped
+        exit 1
+      fi
+      keep_in_outbox reply "$_data" ;;
+  esac
   case "$body" in
     *'"error"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
@@ -2845,6 +2895,13 @@ cmd_reply() {
       _keep_piped
       exit 1 ;;
     *'"kept":true'*)
+      if [ -n "$_rfile" ]; then   # #6726: the name the board saved it under (a link's target's name), else the given one
+        local _aname
+        _aname=$(printf '%s' "$body" | sed -n 's/.*"attached":"\([^"]*\)".*/\1/p')
+        case "$_aname" in *\\*) _aname="" ;; esac   # a JSON-escaped name (a quote, a backslash) is cut by that read: use the given name
+        say "Sent, with ${_aname:-${_rfile##*/}} attached. It is in their conversation with you."
+        return 0
+      fi
       # ⚠️ "It is on their screen" is what this can claim and the LIMIT of it:
       # the reply is in the record the page reads. Whether anybody is looking is
       # not ours to say, and a sentence implying they saw it would be the
