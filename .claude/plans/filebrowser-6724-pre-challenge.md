@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: filebrowser-6724
-diff_hash: dbbbe47f47c57424514f4e57a80b3a4d73979b7bb725763173aade8a329eae28
-validation: passed (Mortals)
+diff_hash: 93803b3c4085c70b229e7d6f24c3259ad58f7928e5d43551bf7df0628e18b92c
+validation: passed on Mortals but for two unrelated #6668 arms (see Validation)
 subdir_audit: passed (no subdirectory CLAUDE.md changed)
-timestamp: 2026-10-20T18:37:19Z
+timestamp: 2026-10-20T22:43:01Z
 iterations: 10
 converged: true
 ---
@@ -17,6 +17,16 @@ converged: true
 Decisions, accepted items, every mutant run and the iteration-by-iteration fixes are in .claude/plans/filebrowser-6724.md.
 
 **Validation, measured:**
+- **After the rebase (2026-10-20 16:3x):** the merge with main conflicted after main moved 50 commits. The only conflict
+  was the server.js exports line, where #6721 added its slow-request names; both lines were kept. Re-checked on the
+  rebased head 450c5eeb:
+  - 14 focused files green, both browser-check gates rc 0.
+  - Mortals full suite, twice: 22724 tests, 22402 passed, 2 failed, 320 skipped, the same 2 both times. They are
+    #6668's watchdog arms in tools.run-tests-file-timeout-6668.test.js (untouched here), failing "node --test not
+    started" under suite load. That file passes alone on Mortals at this head (16/16) and here on the branch and on
+    origin/main a2e49f05 (16/16). The evidence is on kosmos#6668. Weakest premise: that nothing in this branch
+    slows the runner start that arm waits for; its file and its runner are untouched.
+- **Before the rebase:**
 - **Mortals full suite** at 9ed5b655 (hash dbbbe47f): 22615 tests, 22297 passed, 0 failed, 318 skipped. Recorded clean.
 - **The run before it**, at a952af30, had 27 reds:
   - 6 were this branch's, all fixed: web.api-routes-3957; the 2 #1732 audits (the read-flags line is now one shared constant, not a bumped count); the #1777 Windows test list (the route test is excluded with its reason); and 2 more cleared by the same fixes.
