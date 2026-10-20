@@ -791,7 +791,7 @@ healthy() {
     if [ "$HEALTH_STATE" = up ]; then return 0; fi
     return 1
   fi
-  local _limit _start="$SECONDS" _t=2 _left _said=""
+  local _limit _start="$SECONDS" _t=2 _left _said="" _busy=0
   _limit="$(_busy_wait)"
   local _ps _w
   while :; do
@@ -801,7 +801,11 @@ healthy() {
     if [ "$HEALTH_STATE" != busy ]; then return 1; fi
     _left=$(( _limit - (SECONDS - _start) ))
     if [ "$_left" -le 0 ]; then return 1; fi
-    if [ -z "$_said" ]; then printf '%sKosmos is busy, retrying...\n' "${KOSMOS_SAY_INDENT:-  }" >&2; _said=1; fi
+    # #6682: said only from the SECOND busy reading on. One slow answer that the next probe catches is an ordinary
+    # moment, and saying "busy" for it on most commands read as steady contention; two in a row (about 6 s with no
+    # answer) is a board that really is slow, and the line says so.
+    _busy=$(( _busy + 1 ))
+    if [ -z "$_said" ] && [ "$_busy" -ge 2 ]; then printf '%sKosmos is busy, retrying...\n' "${KOSMOS_SAY_INDENT:-  }" >&2; _said=1; fi
     # A busy reading can come back FAST (a reset or empty reply, an older board's 5xx page): wait out the
     # rest of this probe's budget before the next one, so a board already too loaded to answer is not hit
     # in a tight loop for the whole busy window.
