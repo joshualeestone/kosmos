@@ -25,13 +25,15 @@ tests as inherited and 0 with the identity cleared (subtasks-3861 is the one #59
   drift), and the helper removes exactly those names and leaves its input alone.
 
 ## Sweep (measured)
-Every test file that both spreads process.env and runs the CLI (98, plus the five changed), run DIRECTLY in my agent
-shell, then re-run with the identity cleared where it failed. After the fixes: 102 of 102 files pass as inherited (one line per file
-recorded). The first sweep reported 0 failures and was false: xargs
+The population, stated by what was counted: 98 test files (repo root and engine/) whose source both contains
+`...process.env` and names the CLI (install/kosmos, kosmos-cli.js or 'install','kosmos'), excluding the three already
+known to leak. Each was run DIRECTLY in my agent shell, then re-run with the identity cleared where it failed. After the fixes, the 98 plus the five files this branch changes or adds,
+102 distinct (cli.sandbox-data-4796 is in both), all pass as inherited, one line per file recorded. The first sweep reported 0 failures and was false: xargs
 could not build its command, so no test ran. The second wrote one line per file (98 of 98) before trusting the count.
 
 ## Decided
-- A shared helper used by the failing tests, not an edit to all 76 CLI tests that spread process.env: most pass today.
+- A shared helper used by the failing tests, not an edit to every CLI test that spreads process.env (76 of the 81
+  cli.*.test.js files do): most pass today.
   Which others fail when run directly in an agent's shell is MEASURED by a sweep (see below), not assumed.
 - No change to tools/run-tests.sh: it already does this for the suite.
 
@@ -46,6 +48,11 @@ could not build its command, so no test ran. The second wrote one line per file 
 - [NIT] the pin now runs both ways (a KOSMOS_AGENT_* the runner clears must be in the helper too).
 - [NIT] left, recorded: install/kosmos also reads an inherited TMUX_PANE (through the pane's @kosmos_agent claim) as
   an agent. These tests set TMUX_PANE themselves and the sweep is green, so it is not red today.
+
+## Review 2 (converged: no new issues at WARNING or above)
+Left, recorded: the guard keys on the helper's literal name, so a renamed import (`{ withoutAgentIdentity: clean }`)
+would slip past it, as any wrapper of process.env always has; the pin parses only top-level `unset` lines, so a
+runner that moved its unset into a function would empty direction 2 silently (direction 1 would go red).
 
 ## Weakest premise
 That these three names are the whole of the agent identity a CLI test can inherit. install/kosmos recognises an agent
