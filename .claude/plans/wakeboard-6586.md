@@ -52,3 +52,8 @@
   longer promises a start before the guards run again. Every first-look pair now also asserts its verdict text, not
   only that the arms agree. New cases: the relaunch race against its control; a board replaced again and again (two
   waits, then the stuck refusal); a silent board's exact look count (33). Both mutants (back to a flag; no cap) red.
+- Iteration 6 (a WARNING and two NITs, all in the test): a stand-in board killed inside a command substitution stayed
+  a zombie of the outer shell, and a zombie answers kill -0, so the exit could go unseen (the reviewer measured 1 flake
+  in 25 runs). Stand-ins are now orphaned at once, so launchd reaps them, and a kill waits until the pid is gone. The
+  EXIT trap ends any left. The cap test also asserts the two exits it relies on. Measured: 30 of 30 runs green, no
+  orphaned stand-ins left, both mutants still red.
