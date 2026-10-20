@@ -13,8 +13,13 @@
  *   - a phone photo whose rotation tag says "turned" comes in upright (its sides swapped), and the same photo with no
  *     tag does not (the CONTROL that the tag, not the photo, did it);
  *   - a GIF is handed back exactly as chosen (an animated one would stop moving);
- *   - wired: choosing a picture of yourself opens the editor; Cancel uploads nothing; Save uploads one 512 PNG;
- *   - at 375 x 667 the whole editor, both buttons included, is on screen.
+ *   - a small picture is saved at its own size, not blown up to 512;
+ *   - a key with a modifier (Ctrl+=) is left to the browser; a drag that ends on the backdrop does not cancel;
+ *   - wired, all three pickers: the person's own picture and an agent's page (Cancel uploads nothing; Save uploads
+ *     one picture to the right place), and a new agent ("Use picture"; the held picture is the 512 cut named as
+ *     chosen, the hint names it, nothing uploads yet);
+ *   - at 375 x 667 (both themes) the whole editor is on screen with 44 px buttons; at 667 x 375 it fits and Save can
+ *     be reached.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-avatar-crop-6722.js [shots-dir]
  */
@@ -95,7 +100,7 @@ async function start(page) {
     window.PROBE = window.PROBE || Object.assign(document.createElement('button'), { textContent: 'probe' });
     document.body.appendChild(window.PROBE); window.PROBE.focus();
     window.CROP_RESULT = undefined;
-    const f = await T.twoTone(800, 400);
+    const f = await T.twoTone(1600, 800);
     window.CROP_P = cropPicture(f).then((r) => { window.CROP_RESULT = r; return r; });
   });
   await page.waitForFunction(() => !document.getElementById('cropmodal').hidden);
@@ -173,6 +178,15 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     chk(turn.plain[0] === 300 && turn.plain[1] === 120, `${t} CONTROL: a photo with no rotation tag is read as it is`, JSON.stringify(turn));
     chk(turn.tagged[0] === 120 && turn.tagged[1] === 300, `${t} a phone photo tagged as turned is read upright (its sides swapped)`, JSON.stringify(turn));
 
+    // A small picture is not blown up: its cut is saved at its own size, so it is not blurred.
+    const small = await page.evaluate(async () => {
+      const f = await T.twoTone(200, 100);
+      window.CROP_P = cropPicture(f);
+      for (let i = 0; i < 100 && document.getElementById('cropmodal').hidden; i += 1) await new Promise((r) => setTimeout(r, 20));
+      document.getElementById('crop-go').click();
+      return T.sides(await window.CROP_P);
+    });
+    chk(small && small.w === 100 && small.h === 100 && small.left === 'red' && small.right === 'blue', `${t} a small picture is saved at its own size, not enlarged (CONTROL: a big one is 512)`, JSON.stringify(small));
     // A GIF is handed back untouched, with no editor.
     const gif = await page.evaluate(async () => {
       const f = new File([new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])], 'moving.gif', { type: 'image/gif' });
@@ -183,7 +197,7 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
 
     // Wired: the person's own picture.
     const pick = async () => page.evaluate(async () => {
-      const f = await T.twoTone(800, 400);
+      const f = await T.twoTone(1600, 800);
       const dt = new DataTransfer(); dt.items.add(f);
       const input = document.getElementById('you-file');
       input.files = dt.files;
@@ -225,7 +239,7 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     // Wired: an agent's own page. Cancel uploads nothing; Save uploads one picture to that agent.
     await page.evaluate(() => { window.PUTS.length = 0; CURRENT = { sessionName: 'ada', name: 'Ada' }; });
     const pickAgent = () => page.evaluate(async () => {
-      const f = await T.twoTone(800, 400); const dt = new DataTransfer(); dt.items.add(f);
+      const f = await T.twoTone(1600, 800); const dt = new DataTransfer(); dt.items.add(f);
       const input = document.getElementById('d-file'); input.files = dt.files; input.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await pickAgent();
@@ -245,7 +259,7 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     // Wired: a new agent. Nothing uploads yet; the button says Use picture; the held file is the cut, named as chosen.
     const created = await page.evaluate(async () => {
       window.PUTS.length = 0;
-      const f = await T.twoTone(800, 400); const dt = new DataTransfer(); dt.items.add(f);
+      const f = await T.twoTone(1600, 800); const dt = new DataTransfer(); dt.items.add(f);
       const input = document.getElementById('create-avatar'); input.files = dt.files; input.dispatchEvent(new Event('change', { bubbles: true }));
       for (let i = 0; i < 100 && document.getElementById('cropmodal').hidden; i += 1) await new Promise((r) => setTimeout(r, 20));
       const verb = document.getElementById('crop-go').textContent;
@@ -292,7 +306,8 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     await browser.close();
   }
   // The count is part of the result: a run that skipped arms (or an empty ENGINES) must not read as green.
-  const EXPECTED_PER_ENGINE = 23;
+  if (engines.length === 0) chk(false, 'ENGINES named no engine, so nothing ran');
+  const EXPECTED_PER_ENGINE = 24;
   if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
   console.log(`render-avatar-crop-6722: ${RAN - fail.length} PASS, ${fail.length} FAIL`);
   process.exit(fail.length ? 1 : 0);

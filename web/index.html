@@ -5079,8 +5079,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      (--k-side-2, the .me treatment), full column width with no radius or
      float-gap, so the agents column reads as ONE column with the person
      pinned at its foot and the rule running unbroken down its edge. */
-  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 42
-     is the body grid's last track, sized by this element, so while the grid
+  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 44
+     (since #6722; 42 before) is the body grid's last track, sized by this element, so while the grid
      fits 100vh the strip sits at the viewport foot by construction.
      ⚠️ THAT IS NO LONGER "ALWAYS", and the qualifier is not decoration. The
      body is `overflow-y: auto` with a `minmax(200px, 1fr)` floor on the list
@@ -5810,7 +5810,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      against #rail-agents, traced to #pj-list-view's own top padding
      (shared with #alist at :1995, which needs it; the projects rail
      does not, since #panel-projects already zeroes its own top padding
-     to sit flush with row 40). */
+     to sit flush with row 42, the first rail row since #6722). */
   html[data-layout="consolidated"] body.consolidated #pj-list-view { grid-column: 1; padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > :not(#pj-list-view) { grid-column: 2; }
   /* #3126 (Josh, 6.68): tighter spacing between projects (was gap 8px). */
@@ -13940,22 +13940,6 @@ window.kosmosMeasureScrollbarWidth();
      working throughout; only the board restarts. The sentence order is the
      design: first what happens to the person, then the line that stops it
      being alarming. "Kosmos closes", never "the board closes". -->
-<!-- #6722 (Josh, 2026-10-20): "a little avatar editor so if I upload an image I get some basic cropping tools before
-     i save". Opened by cropPicture() for every picture chosen for an agent or for the person. -->
-<div class="rm-back" id="cropmodal" hidden>
-  <div class="rm-box crop-box" role="dialog" aria-modal="true" aria-labelledby="crop-t" aria-describedby="crop-help">
-    <h2 class="rm-title" id="crop-t">Fit the picture</h2>
-    <div class="crop-stage" id="crop-stage" tabindex="0" role="application" aria-roledescription="picture"
-         aria-label="The picture" aria-describedby="crop-help"><canvas id="crop-cv" width="576" height="576" aria-hidden="true"></canvas></div>
-    <label class="crop-zoom" for="crop-zoom">Zoom <input type="range" id="crop-zoom" min="1" max="4" step="0.01" value="1"></label>
-    <p class="rm-small" id="crop-help">Drag to move it, or use the arrow keys. Plus and minus zoom. What is inside the circle is what shows.</p>
-    <div class="rm-acts">
-      <button class="btn" type="button" id="crop-no">Cancel</button>
-      <button class="btn uprime" type="button" id="crop-go">Save</button>
-    </div>
-  </div>
-</div>
-
 <div class="rm-back" id="updconfirm" hidden>
   <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="uc-t" aria-describedby="uc-small">
     <h2 class="rm-title" id="uc-t">Update Kosmos?</h2>
@@ -13965,6 +13949,22 @@ window.kosmosMeasureScrollbarWidth();
     <div class="rm-acts">
       <button class="btn" type="button" id="uc-no">Not now</button>
       <button class="btn uprime" type="button" id="uc-go">Update</button>
+    </div>
+  </div>
+</div>
+
+<!-- #6722 (Josh, 2026-10-20): "a little avatar editor so if I upload an image I get some basic cropping tools before
+     i save". Opened by cropPicture() for every picture chosen for an agent or for the person. -->
+<div class="rm-back" id="cropmodal" hidden>
+  <div class="rm-box crop-box" role="dialog" aria-modal="true" aria-labelledby="crop-t">
+    <h2 class="rm-title" id="crop-t">Fit the picture</h2>
+    <div class="crop-stage" id="crop-stage" tabindex="0" role="application" aria-roledescription="picture"
+         aria-label="The picture" aria-describedby="crop-help"><canvas id="crop-cv" width="576" height="576" aria-hidden="true"></canvas></div>
+    <label class="crop-zoom" for="crop-zoom">Zoom <input type="range" id="crop-zoom" min="1" max="4" step="0.1" value="1" aria-valuetext="100%"></label>
+    <p class="rm-small" id="crop-help">Drag to move it, and pinch or use the slider to zoom. On a keyboard, the arrow keys move it and plus and minus zoom. What is inside the circle is what shows.</p>
+    <div class="rm-acts">
+      <button class="btn" type="button" id="crop-no">Cancel</button>
+      <button class="btn uprime" type="button" id="crop-go">Save</button>
     </div>
   </div>
 </div>
@@ -46930,6 +46930,7 @@ function cropPaint() {
   g.restore();
   const z = document.getElementById('crop-zoom');
   if (z && Number(z.value) !== c.zoom) z.value = String(c.zoom);
+  if (z) z.setAttribute('aria-valuetext', Math.round(c.zoom * 100) + '%');   // read as a size, not 1.37
 }
 /* Moves the picture by (dx, dy) STAGE pixels as shown on screen (a drag or a key), so it follows the finger. */
 function cropMove(dx, dy) {
@@ -46958,11 +46959,13 @@ async function cropFinish(save) {
   if (save) {
     try {
       const cv = document.createElement('canvas');
-      cv.width = CROP_OUT_PX; cv.height = CROP_OUT_PX;
+      const side = cropSide(c);
+      // Never larger than the part cut out: a small picture is not blown up (it would only be blurred).
+      const outPx = Math.max(1, Math.min(CROP_OUT_PX, Math.round(side)));
+      cv.width = outPx; cv.height = outPx;
       const g = cv.getContext('2d');
       g.imageSmoothingQuality = 'high';
-      const side = cropSide(c);
-      g.drawImage(c.bmp, c.cx - side / 2, c.cy - side / 2, side, side, 0, 0, CROP_OUT_PX, CROP_OUT_PX);
+      g.drawImage(c.bmp, c.cx - side / 2, c.cy - side / 2, side, side, 0, 0, outPx, outPx);
       const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
       // The chosen file's own name, so "<name> will be its picture." names what they picked; the type says PNG.
       if (blob) out = new File([blob], String(c.name || 'picture'), { type: 'image/png' });
@@ -46997,6 +47000,8 @@ function cropPicture(file, verb) {
   const zoom = document.getElementById('crop-zoom');
   stage.addEventListener('pointerdown', (e) => {
     if (!CROP) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;   // a right or middle press is not a drag
+    if (CROP.ptrs.size >= 2) return;                           // a third finger is ignored, not a jump
     try { stage.setPointerCapture(e.pointerId); } catch { /* the pointer already went; nothing to follow */ }
     CROP.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
   });
@@ -47044,7 +47049,9 @@ function cropPicture(file, verb) {
       const ring = [stage, zoom, document.getElementById('crop-no'), document.getElementById('crop-go')];
       const i = ring.indexOf(document.activeElement);
       e.preventDefault();
-      ring[(i + (e.shiftKey ? ring.length - 1 : 1) + (i < 0 ? 1 : 0)) % ring.length].focus();
+      // From outside the ring, Tab starts at the picture and Shift+Tab at Save.
+      if (i < 0) { (e.shiftKey ? ring[ring.length - 1] : ring[0]).focus(); return; }
+      ring[(i + (e.shiftKey ? ring.length - 1 : 1)) % ring.length].focus();
       return;
     }
     // A key with a modifier is the browser's or the system's (page zoom, back, forward), never the editor's.
