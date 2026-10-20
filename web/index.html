@@ -76662,6 +76662,10 @@ function pjFedMessage(body, fallback, opts) {
     'other-account': 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.',
     'no-remote': 'Sign in to Kosmos+ again in Settings on this computer, then paste the code again.',
     'old-code': 'This code was made by an older Kosmos. Update Kosmos on the computer that has the project, then make a new code there.',
+    // kosmos#6681 (S-11-fed): a code bound to one address. Names nobody: the person told is the one it was not for.
+    'wrong-invitee': 'That code was made for someone else. Ask whoever sent it to invite the email address you use for Kosmos+.',
+    'bad-email': 'That email address does not look right. Check it, or leave it empty.',
+    'invites-full': 'You have too many invitations nobody has used yet. Withdraw some from Members, then try again.',
   };
   return (reason && M[reason]) || fallback;
 }
