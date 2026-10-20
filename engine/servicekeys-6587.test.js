@@ -129,6 +129,13 @@ test('refused: JSON the relay refuses (bad UTF-8, a lone surrogate, a number out
   refused(check(...signedBuf(withExtra(Buffer.from('[{"a": 1, "a": 2}]')))), /names the member "a" twice/, 'a member twice inside an array element');
   refused(check(...signedBuf(withExtra(Buffer.from('1e400')))), /out of range/, 'a number out of range');
   refused(check(...signedBuf(withExtra(Buffer.from('['.repeat(127) + ']'.repeat(127))))), /nested too deeply/, '128 nested, the outer object counted');
+  refused(check(...signedBuf(withExtra(Buffer.from('{"a":'.repeat(127) + '1' + '}'.repeat(127))))), /nested too deeply/, '128 nested objects');
+  assert.equal(check(...signedBuf(withExtra(Buffer.from('{"a":'.repeat(126) + '1' + '}'.repeat(126))))).ok, true, '127 nested objects');
+  refused(check(...signedBuf(withExtra(Buffer.from('"a\\udc00"')))), /lone surrogate/, 'a lone low surrogate after a character');
+  // JSON whitespace the scanner must skip: tabs, CRLF line ends, and a tab after a number.
+  assert.equal(check(...signed(doc({}).replace(/  /g, '\t'))).ok, true, 'tab-indented');
+  assert.equal(check(...signed(doc({}).replace(/\n/g, '\r\n'))).ok, true, 'CRLF line ends');
+  assert.equal(check(...signed(doc({}).replace('"seq": 1,', '"seq": 1\t,'))).ok, true, 'a tab after seq');
   // CONTROLS: a real surrogate pair, a large finite number, and 127 nested (the deepest the relay takes) are fine.
   assert.equal(check(...signedBuf(withExtra(Buffer.from('"\\ud83d\\ude00"')))).ok, true, 'a surrogate pair');
   assert.equal(check(...signedBuf(withExtra(Buffer.from('1e300')))).ok, true, 'a finite large number');
@@ -255,6 +262,8 @@ test('refused: the keys break a rule (none, four, a wrong kid, zero or two curre
   // CONTROL for the curve check: every real key used here (seeds 07 to 0b) is on the curve.
   for (const b of [7, 8, 9, 10, 11]) assert.ok(sk.rawKey(spkiOf(keyFromSeed(b))), 'seed ' + b + ' is a key');
   assert.equal(check(...signed(doc({ service_keys: [k7, k8] }))).ok, true, 'CONTROL: the two good keys are taken');
+  // Three keys, one of each role (a rotation in flight), is the most a set may list, and is taken.
+  assert.equal(check(...signed(doc({ service_keys: [k7, k8, k9] }))).ok, true, 'three keys: current, next and retiring');
 });
 
 test('seq only goes up: a lower seq is refused, the same seq only with the same bytes', () => {
@@ -278,6 +287,9 @@ test('the pinned key (base64url of the raw bytes) is matched against the listed 
   assert.equal(sk.pinnedIsListed(rawOf(ROOT).toString('base64url'), keys), false, 'a key not on the list');
   // Trimmed as the tunnel trims it (Rust str::trim): a BOM is not whitespace there, so it is no key here either.
   assert.equal(sk.pinnedIsListed('\ufeff' + pin7, keys), false, 'a BOM before the pin');
+  assert.equal(sk.pinnedIsListed('\ufeff', keys), false, 'a pin that is only a BOM: there, not a key (Rust does not trim it)');
+  for (const junk of [{}, 5, ['x']]) assert.equal(sk.pinnedIsListed(junk, keys), null, 'a pin that is not text: ' + JSON.stringify(junk));
+  assert.equal(sk.pinnedIsListed(Buffer.from(pin7), keys), true, 'CONTROL: a Buffer read from the file');
   assert.equal(sk.pinnedIsListed('\u0085' + pin7 + '\n', keys), true, 'U+0085 is whitespace to Rust');
   for (const bad of ['not a key', rawOf(K7).toString('base64'), pin7 + '=']) {
     assert.equal(sk.pinnedIsListed(bad, keys), false, 'a pin that is not a key ' + JSON.stringify(bad));
