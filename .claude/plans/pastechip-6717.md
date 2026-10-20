@@ -9,7 +9,7 @@ design rules (m6341). Reviewer: Raiden.
    agent takes the next message.
 2. A person's paste chip (one line or several) is never pressed: not before a delivery, not in the gap before our
    Enter, not when it replaces ours.
-3. A test with both, and a mutant each way.
+3. A test with both, and mutants run by hand each way (recorded in the review proof, not in the test file).
 
 ## Measured (Claude Code 2.1.305, private tmux, 80x24, Enter never pressed)
 
