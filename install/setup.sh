@@ -3322,33 +3322,38 @@ case "${1:-}" in
     ;;
 esac
 
-# #6650: a sandboxed install (another KOSMOS_HOME) with no launch folder of its own (AGENT_WORKFORCE_LAUNCH) is
-# refused, before anything is written, when its home is under a temp folder: the shape that left three test boards
-# respawning on a release Mac for 20 hours, one holding the real board off its port for three (the cleaner deletes
-# the home and leaves the job behind, still on whatever port it took). A person's own kept home is not refused,
-# whatever its port: it is no stray, and is the one board there is to fight for the port. A fake HOME
-# does not make it safe: it scopes the plist file, not launchd, which still registers the job in this account's
-# own domain. A release walk in a kept folder is unaffected; KOSMOS_ALLOW_TEMP_LAUNCH=1
-# lets one through on purpose. macOS only: a Linux systemd user unit has the same shape and is not guarded here.
-# Prints why and returns 1 to refuse.
+# #6650: an install with no launch folder of its own (AGENT_WORKFORCE_LAUNCH) is refused, before anything is
+# written, when its home is under a temp folder (another KOSMOS_HOME, or the default one under a temp HOME). That
+# shape left three test boards respawning on a release Mac for 20 hours, one holding the real board off its port
+# for three: the cleaner deletes the home and leaves the job behind. A fake HOME does not make it safe: it scopes
+# the plist file, not launchd, which still registers the job in this account's own domain. A person's own kept
+# home is not refused, whatever its port, and a release walk in a kept folder is unaffected;
+# KOSMOS_ALLOW_TEMP_LAUNCH=1 lets one through on purpose. macOS only: a Linux systemd user unit has the same shape
+# and is not guarded here. Prints why and returns 1 to refuse.
 _kosmos_temp_launch_refusal() {
-  # A launch folder that IS this account's LaunchAgents is no folder of the caller's own: the plist written there
-  # is loaded at the next login.
-  _tl_launch="${AGENT_WORKFORCE_LAUNCH:-}"
-  # Compared as spelled too: on a new account that folder may not exist yet, and -ef then matches nothing.
-  [ -n "$_tl_launch" ] && { [ "$_tl_launch" -ef "$HOME/Library/LaunchAgents" ] \
-    || [ "$(printf '%s' "$_tl_launch" | /usr/bin/tr -s '/')" = "$(printf '%s' "${HOME%/}/Library/LaunchAgents/" | /usr/bin/tr -s '/')" ] \
-    || [ "$(printf '%s' "$_tl_launch/" | /usr/bin/tr -s '/')" = "$(printf '%s' "${HOME%/}/Library/LaunchAgents/" | /usr/bin/tr -s '/')" ]; } && _tl_launch=""
-  [ "$(uname -s)" = Darwin ] && [ "$KOSMOS_HOME" != "$_kosmos_home_default" ] && [ -z "$_tl_launch" ] \
-    && [ "${KOSMOS_ALLOW_TEMP_LAUNCH:-}" != 1 ] || return 0
-  # The home as written and as resolved (its nearest existing folder, so a symlink into a temp folder or the
-  # /System/Volumes/Data spelling counts), slash-squeezed and lowercased: the default disk ignores case.
+  [ "$(uname -s)" = Darwin ] && [ "${KOSMOS_ALLOW_TEMP_LAUNCH:-}" != 1 ] || return 0
   _tl_low() { printf '%s' "$1" | /usr/bin/tr -s '/' | /usr/bin/tr '[:upper:]' '[:lower:]'; }
+  # A launch folder that IS this account's LaunchAgents is no folder of the caller's own: the plist written there
+  # is loaded at the next login. Compared as spelled too (case-blind, like the disk): on a new account that folder
+  # may not exist yet, and -ef then matches nothing.
+  _tl_launch="${AGENT_WORKFORCE_LAUNCH:-}"
+  if [ -n "$_tl_launch" ]; then
+    _tl_la="$(_tl_low "${HOME%/}/Library/LaunchAgents")"; _tl_la="${_tl_la%/}"
+    _tl_ll="$(_tl_low "$_tl_launch")"; _tl_ll="${_tl_ll%/}"
+    { [ "$_tl_launch" -ef "$HOME/Library/LaunchAgents" ] || [ "$_tl_ll" = "$_tl_la" ]; } && _tl_launch=""
+  fi
+  [ -z "$_tl_launch" ] || return 0
+  # The home as written and as resolved (its nearest existing folder, so a symlink into a temp folder or the
+  # /System/Volumes/Data spelling counts), slash-squeezed and lowercased: the default disk ignores case. A folder
+  # that cannot be entered leaves only the written spelling.
   _tl_d="$KOSMOS_HOME"
   while [ ! -d "$_tl_d" ] && [ -n "$_tl_d" ]; do _tl_d="${_tl_d%/*}"; done
-  _tl_res="$(cd "${_tl_d:-/}" 2>/dev/null && pwd -P)" || _tl_res=""
-  _tl_res="$(_tl_low "$_tl_res/${KOSMOS_HOME#"$_tl_d"}")/"
-  _tl_res="${_tl_res#/system/volumes/data}"
+  if _tl_res="$(cd "${_tl_d:-/}" 2>/dev/null && pwd -P)"; then
+    _tl_res="$(_tl_low "$_tl_res/${KOSMOS_HOME#"$_tl_d"}")/"
+    _tl_res="${_tl_res#/system/volumes/data}"
+  else
+    _tl_res="$(_tl_low "$KOSMOS_HOME")/"
+  fi
   _tl_raw="$(_tl_low "$KOSMOS_HOME")/"
   # This run's TMPDIR as given and resolved, each kept only if it is narrower than HOME (a TMPDIR of /, HOME or a
   # folder above it names no temp folder, and would refuse every home).
@@ -3366,7 +3371,7 @@ _kosmos_temp_launch_refusal() {
     [ -n "$_tl_t2" ] && case "$_tl_h" in "$_tl_t2"/*) _tl_why=yes ;; esac
   done
   [ -n "$_tl_why" ] || return 0
-  printf '\n  This install uses another Kosmos folder (%s), and it is a temporary one, so its background job would be\n' "$KOSMOS_HOME" >&2
+  printf '\n  This install puts Kosmos in a temporary folder (%s), so its background job would be\n' "$KOSMOS_HOME" >&2
   printf '  left running in your real login items. Nothing was changed. For a test install, set AGENT_WORKFORCE_LAUNCH to\n' >&2
   printf '  a folder of its own, or install into a folder you keep; to do this on purpose, set KOSMOS_ALLOW_TEMP_LAUNCH=1.\n\n' >&2
   return 1
