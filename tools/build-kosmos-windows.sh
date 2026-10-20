@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the unsigned Windows package: a zip somebody downloads, unpacks and runs.
+# Build the Windows package: a zip somebody downloads, unpacks and runs.
 #
 # 🛑 JOSH'S v1, HIS WORDS (2026-08-29): "visit installkosmos.com and click
 # Download for Windows. It downloads an application that they can run locally,
@@ -8,9 +8,16 @@
 # function and then let's walk through the process of what we have to do to buy
 # a certificate."
 #
-# ⇒ SO THIS IS DELIBERATELY UNSIGNED. Windows will show "Windows protected your
-# PC" with More info -> Run anyway. That is expected, it is his call, and the
-# certificate is a separate purchase with its own lead time.
+# 🔏 THAT CERTIFICATE NOW EXISTS, SO THIS IS NO LONGER UNSIGNED (#6679). The two
+# programs Kosmos makes are Authenticode-signed by Kosmos Agent Manager, Inc.
+# BEFORE they reach this script, which signs nothing itself: Kosmos.exe (the
+# committed launcher, see "the entry point" below) and the Plus connector,
+# app/bin/kosmos-tunnel.exe. The build refuses either one unsigned, and the
+# manifest's "signatures" records each one as this build saw it. node.exe and
+# WebView2Loader.dll are other publishers' signed files, shipped as downloaded.
+# ⚠️ SIGNED IS NOT "NO WARNING". A new certificate has no SmartScreen reputation
+# yet, so Windows can still show "Windows protected your PC" with More info ->
+# Run anyway the first time, and the read-me still walks a person through it.
 #
 # 🛑 WHAT THIS PACKAGE DOES AND DOES NOT DO, so nobody ships it believing more.
 # It carries the BOARD, a Node runtime, and everything Windows AGENTS need (#570,
@@ -233,8 +240,8 @@ fi
 
 # ---- the runtime -----------------------------------------------------------
 # ⚠️ CHECKSUM-VERIFIED AGAINST nodejs.org's OWN SHASUMS, and the build DIES on a
-# mismatch. An unsigned installer is already asking somebody to click through a
-# warning; shipping an unverified runtime inside it would be asking them to
+# mismatch. A package from a new publisher is already asking somebody to click
+# through a warning; shipping an unverified runtime inside it would be asking them to
 # trust something we did not check ourselves.
 echo "==> downloading node v$NODE_VERSION (win-$ARCH)"
 ZIP="node-v$NODE_VERSION-win-$ARCH.zip"
@@ -407,6 +414,24 @@ LAUNCHER_PORT="$(sed -n 's/.*DefaultPort *= *\([0-9][0-9]*\).*/\1/p' "$REPO/tool
   echo "(see tools/windows/README.md), and commit both together." >&2
   exit 1
 }
+# 🔏 #6679: THE READ-ME SAYS Kosmos.exe IS SIGNED, so the build holds the launcher to
+# what the read-me says, the way it holds the connector above: a signature must be
+# PRESENT on any host, and on Windows, Windows itself must call it Valid and by
+# Kosmos Agent Manager, Inc. (connector-windows.sh's checks; their messages name the
+# connector, so this prints its own). What was checked lands in the manifest.
+if ! connector_pe_signed "$LAUNCHER" 2>/dev/null; then
+  echo "tools/windows/Kosmos.exe carries no signature, and the zip's read-me tells people it is signed." >&2
+  echo "Sign it on the Windows box (tools/windows/README.md) and commit it (#6679)." >&2
+  exit 1
+fi
+_launcher_sig="present (not verified: this build did not run on Windows)"
+if [ "$_on_windows" = 1 ]; then
+  _launcher_why="$(connector_authenticode "$LAUNCHER" 2>&1 >/dev/null)" || {
+    echo "Windows does not accept tools/windows/Kosmos.exe's signature (#6679): ${_launcher_why#connector_authenticode: }" >&2
+    exit 1
+  }
+  _launcher_sig="Valid"
+fi
 cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 
 # 🛑 THE FILENAME IS THE WARNING, BECAUSE THE README CANNOT REACH HER IN TIME.
@@ -438,7 +463,7 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 # %LOCALAPPDATA%\Programs\Kosmos, the per-user program folder, and NOT
 # C:\Users\<name>\Kosmos, which is where Kosmos keeps the person's Projects.
 {
-  printf 'Kosmos for Windows (unsigned preview)\r\n'
+  printf 'Kosmos for Windows\r\n'
   printf '\r\n'
   printf 'To install: right-click the zip in your Downloads folder, choose\r\n'
   printf 'Extract All..., and click Extract. Then open the extracted folder\r\n'
@@ -454,15 +479,14 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'Unblock at the bottom, then click OK. Windows then warns you less\r\n'
   printf 'about the files inside it.\r\n'
   printf '\r\n'
-  printf 'The first time, Windows will try to stop you, and that is expected.\r\n'
+  printf 'Kosmos.exe is signed by Kosmos Agent Manager, Inc. Kosmos is still\r\n'
+  printf 'new, so the first time you open it Windows may try to stop you\r\n'
+  printf 'anyway. That is expected.\r\n'
   printf '\r\n'
   printf 'A blue box says "Windows protected your PC". The only button you can\r\n'
   printf 'see says "Don\047t run". DO NOT PRESS IT. Click the small "More info"\r\n'
-  printf 'text above it, and then "Run anyway".\r\n'
-  printf '\r\n'
-  printf 'If a box says "The publisher could not be verified", click Run.\r\n'
-  printf '\r\n'
-  printf 'This preview is not signed yet; signed builds are coming.\r\n'
+  printf 'text above it, and then "Run anyway". After "More info", the box\r\n'
+  printf 'names Kosmos Agent Manager, Inc. as the publisher.\r\n'
   printf '\r\n'
   printf 'Kosmos opens in its own window. Closing that window does not stop\r\n'
   printf 'Kosmos: it keeps running in the background and starts by itself when\r\n'
@@ -487,6 +511,15 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 } > "$STAGE/! READ ME FIRST - Windows will warn you.txt"
 
 # ---- the manifest ----------------------------------------------------------
+# 🔏 #6679: "signatures" replaces the old `"signed": false`, which stopped being
+# true the day Kosmos.exe was signed. It is PER FILE, for the two programs Kosmos
+# signs, and says what THIS BUILD checked: "Valid" (Windows said so, by Kosmos
+# Agent Manager, Inc.) or "present (not verified: ...)" (a non-Windows build can
+# only see that a signature is there). It is a record for people, never a trust
+# input: nothing reads it to decide anything, and the updater asks Windows about
+# the update's own Kosmos.exe itself (win32update.js signatureRefusal). There is
+# deliberately no single "signed": true, which a reader could take as covering
+# every file in the zip.
 cat > "$STAGE/manifest.json" <<JSON
 {
   "product": "kosmos",
@@ -495,7 +528,7 @@ cat > "$STAGE/manifest.json" <<JSON
   "version": "$_ver",
   "source_sha": "$SOURCE_SHA",
   "source_dirty": $SOURCE_DIRTY,
-  "signed": false,
+  "signatures": { "Kosmos.exe": "$_launcher_sig", "app/bin/kosmos-tunnel.exe": "$_tunnel_sig" },
   "node": { "version": "v$NODE_VERSION", "download_sha256": "$NODE_SHA" },
   "webview2_loader": { "sdk_version": "$WEBVIEW2_SDK_VERSION", "download_sha256": "$WEBVIEW2_SDK_SHA256" },
   "agents_supported": true,
@@ -520,6 +553,13 @@ mkdir -p "$OUTDIR"
 ZIPOUT="$OUTDIR/kosmos-win-$ARCH.zip"
 rm -f "$ZIPOUT"
 ( cd "$STAGE" && zip -qr "$ZIPOUT" . )
+# 🛑 #6677: SANE MODES, WHICHEVER TOOL MADE THE ZIP. On the Windows release box `zip`
+# is a shim over Windows' bsdtar, which stores every file 0666 and every folder and
+# .exe 0777 (0.7.60: all 369 entries world-writable); Info-ZIP on a Mac copies
+# whatever the checkout had. tools/lib/zip-modes.js rewrites each entry to 0644,
+# 0755 for programs (.exe .dll .cmd .bat, or a #! script) and 0755 for folders, in
+# place, BEFORE the .sha256 is taken, and the checks below read the result back.
+node "$REPO/tools/lib/zip-modes.js" set "$ZIPOUT" "$STAGE" || { rm -f "$ZIPOUT"; echo "could not set the zip's file modes (#6677); node must be on PATH" >&2; exit 1; }
 shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
 
 # 🛑 ASSERT THE ZIP CONTAINS WHAT WE THINK, rather than trusting that the staging
@@ -587,6 +627,8 @@ _zipmods="$(printf '%s\n' "$LISTING" | grep -c ' app/engine/[^ ]*\.js$' || true)
 _repomods="$(ls "$REPO"/engine/*.js | grep -vc '\.test\.js')"
 [ "$_zipmods" = "$_repomods" ] || refuse "the zip carries $_zipmods engine modules and the repo has $_repomods"
 echo "==> $_repomods engine modules, 0 test files"
+# #6677: read the modes back from the finished zip, not from what `set` said it did.
+node "$REPO/tools/lib/zip-modes.js" check "$ZIPOUT" || refuse "the zip carries entries with the wrong file mode (#6677)"
 
 echo "==> $ZIPOUT"
 # The zip's own size first: unzip -l's total line is the UNPACKED size, which
