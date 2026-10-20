@@ -1771,9 +1771,10 @@ cmd_start() {
   done
   rm -f "$STOP_MARKER" "$STOP_MARKER".by-install.* 2>/dev/null || true
   # #6586: the guards from here to the recorded-board check run a second time after that check's wait, so a board
-  # that reached a state DURING the wait gets the verdict it would have had at the first look. The wait runs once.
+  # that reached a state DURING the wait gets the verdict it would have had at the first look. Each recorded board gets
+  # the wait once (a board launchd relaunched in place of one that exited gets its own), and there are at most two.
   # (The loop body keeps its old indentation, which other tests lift and pin.)
-  local _waited=""
+  local _waited="" _waits=0
   while :; do
   if healthy; then
     say "Kosmos is already running at $URL"
@@ -1885,15 +1886,15 @@ cmd_start() {
     # #6586: most often this board is not stuck but STARTING: launchd brought it back seconds ago after an
     # update's pause, and it answers within about 20 s. It gets the same bounded wait a fresh start gets; only a
     # board still silent after that is called stuck. Any other outcome goes back through the guards above.
-    if [ -z "$_waited" ]; then
-      _waited=1
+    if [ "$_waited" != "$_oldpid" ] && [ "$_waits" -lt 2 ]; then
+      _waited="$_oldpid"; _waits=$((_waits + 1))
       local _arb=0
       _await_recorded_board "$_oldpid" || _arb=$?
       [ "$_arb" -eq 0 ] && return 0
       if [ "$_arb" -eq 2 ]; then
-        # It ended while starting: the guards run again and, with nothing recorded, this is a normal start.
+        # It ended while starting: the guards run again; with nothing recorded, this is a normal start.
         if [ "$(cat "$PIDFILE" 2>/dev/null)" = "$_oldpid" ]; then rm -f "$PIDFILE" 2>/dev/null || true; fi
-        say "That board (process $_oldpid) exited while starting; starting Kosmos."
+        say "That board (process $_oldpid) exited while starting."
       fi
       continue
     fi

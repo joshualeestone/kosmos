@@ -51,7 +51,7 @@ printf '%s\n' "$fnb" | grep -q '_await_board_up' && bad "the wait reuses _await_
 awk '/^cmd_start\(\) \{/ { on = 1 } on && /_await_recorded_board "\$_oldpid" \|\| _arb=\$\?/ { w = NR } on && /already running \(process \$_oldpid\) but is not answering/ { if (w && w < NR) f = 1; exit }
      END { exit !f }' install/kosmos \
   && ok "cmd_start waits for a starting board before calling it stuck" || bad "cmd_start calls a starting board stuck without waiting"
-awk '/^cmd_start\(\) \{/ { on = 1 } on && /if \[ "\$_arb" -eq 2 \]; then/ { a = 1 } on && a && /rm -f "\$PIDFILE"/ { b = 1 } on && a && /exited while starting; starting Kosmos/ { c = 1; exit } END { exit !(b && c) }' install/kosmos \
+awk '/^cmd_start\(\) \{/ { on = 1 } on && /if \[ "\$_arb" -eq 2 \]; then/ { a = 1 } on && a && /rm -f "\$PIDFILE"/ { b = 1 } on && a && /exited while starting\./ { c = 1; exit } END { exit !(b && c) }' install/kosmos \
   && ok "a board that exited while starting: its pidfile goes and the start goes ahead" || bad "an exited board does not lead to a normal start"
 
 # The verdict after the wait is the one the first look gives the same state (iteration 4): cmd_start itself runs, with
@@ -72,23 +72,52 @@ start_as() { # X AT -> the outcome without the waiting line and the pid, then rc
   ( cmd_start ) 2>&1 | grep -v 'not answering yet; waiting' | sed 's/process [0-9]*/process P/g'
   echo "rc=${PIPESTATUS[0]} marker=$([ -e "$STOP_MARKER" ] && echo back || echo gone)"
 }
-same_as_first_look() { # name, then the env for the run
+same_as_first_look() { # state, name, the verdict text expected in both
   local want got; want="$(start_as "$1" 0)"; got="$(start_as "$1" 3)"
-  [ -n "$want" ] && [ "$want" = "$got" ] && ok "$2: the same verdict as at the first look ($(printf '%s' "$want" | tail -1))" \
+  [ -n "$want" ] && [ "$want" = "$got" ] && case "$want" in *"$3"*) true ;; *) false ;; esac && ok "$2: the same verdict as at the first look ($(printf '%s' "$want" | tail -1))" \
     || bad "$2: first look '$want' vs during the wait '$got'"
 }
-same_as_first_look stranger "plain start, a stranger takes the port during the wait"
-same_as_first_look down "plain start, our board binds and stays silent during the wait"
-same_as_first_look unreachable "plain start, the board turns unreachable during the wait"
+same_as_first_look stranger "plain start, a stranger takes the port during the wait" "Another app on this computer is already using port"
+same_as_first_look down "plain start, our board binds and stays silent during the wait" "but it did not answer this command."
+same_as_first_look unreachable "plain start, the board turns unreachable during the wait" "Nothing was started."
 export KOSMOS_RECLAIM_BUSY=1
-same_as_first_look busy "reclaim, the board binds busy during the wait (the #3079 reclaim, not a stuck die)"
-same_as_first_look unreachable "reclaim, unreachable during the wait (refused, the stop marker put back)"
+same_as_first_look busy "reclaim, the board binds busy during the wait (the #3079 reclaim, not a stuck die)" "Reclaiming it."
+same_as_first_look unreachable "reclaim, unreachable during the wait (refused, the stop marker put back)" "Nothing was started or stopped"
 unset KOSMOS_RECLAIM_BUSY
 case "$(start_as unreachable 3)" in *"rc=1 marker=back"*) bad "plain unreachable refused" ;; *"Nothing was started."*"rc=0"*) ok "plain unreachable during the wait: already running, nothing started" ;; *) bad "plain unreachable: $(start_as unreachable 3)" ;; esac
 case "$(KOSMOS_RECLAIM_BUSY=1 start_as unreachable 3)" in *"rc=1 marker=back"*) ok "reclaim unreachable during the wait: refused and the stop marker is back" ;; *) bad "reclaim unreachable: $(KOSMOS_RECLAIM_BUSY=1 start_as unreachable 3)" ;; esac
 case "$(KOSMOS_RECLAIM_BUSY=1 start_as busy 3)" in *"Reclaiming it."*) ok "reclaim busy during the wait reaches the reclaim" ;; *) bad "reclaim busy: $(KOSMOS_RECLAIM_BUSY=1 start_as busy 3)" ;; esac
 X=down; AT=1000; N=0; printf '%s' "$LIVE_PID" > "$PIDFILE"
 case "$( ( cmd_start ) 2>&1; echo "rc=$?" )" in *"is not answering on port"*"rc=1"*) ok "a board that never binds is still called stuck after one wait" ;; *) bad "never-binding board not called stuck" ;; esac
+# Iteration 5: a board that exits during the wait while launchd already recorded its replacement: the replacement gets
+# its own wait (the control: the same board recorded at the first look, answering at the same look).
+healthy() { N=$((N+1))
+  if [ "$N" = 2 ] && [ -n "$OLD" ]; then command kill "$OLD" 2>/dev/null; wait "$OLD" 2>/dev/null; printf '%s' "$LIVE_PID" > "$PIDFILE"; fi
+  if [ "$N" -ge "$ANS" ]; then HEALTH_STATE=ok; return 0; fi; HEALTH_STATE=down; return 1; }
+X=down; AT=1000; ANS=6
+OLD=""; N=0; printf '%s' "$LIVE_PID" > "$PIDFILE"; ctl="$( ( cmd_start ) 2>&1; echo "rc=$?" )"
+command sleep 60 & OLD=$!; N=0; printf '%s' "$OLD" > "$PIDFILE"; race="$( ( cmd_start ) 2>&1; echo "rc=$?" )"
+command kill "$OLD" 2>/dev/null; wait "$OLD" 2>/dev/null; OLD=""
+case "$ctl|$race" in *"Kosmos is running at"*"rc=0|"*"exited while starting."*"Kosmos is running at"*"rc=0") ok "a replacement recorded after an exit gets its own wait, as at the first look" ;;
+  *) bad "relaunch race: control '$ctl' race '$race'" ;; esac
+# The looks are counted inside the subshell cmd_start dies in (the parent's N never moves). One wait for the one board:
+# the first look, its 31, and the second pass's.
+ANS=1000; printf '%s' "$LIVE_PID" > "$PIDFILE"; looks="$( ( N=0; trap 'echo "$N"' EXIT; cmd_start >/dev/null 2>&1 ) )"
+[ "$looks" = 33 ] && ok "a board that never answers gets one wait, then the stuck refusal ($looks looks)" || bad "looks for a silent board: '$looks'"
+
+# The cap: a board replaced again and again gets two waits, then the stuck refusal (not a wait per replacement).
+SLEEPERS=""; for _i in 1 2 3 4; do command sleep 60 & SLEEPERS="$SLEEPERS $!"; done
+# Looks 2, 3 and 4 each end the recorded board and record the next one; the fourth then stays, silent.
+healthy() { N=$((N+1)); local cur
+  if [ "$N" -ge 2 ] && [ "$REPL" -lt 4 ]; then cur="$(cat "$PIDFILE")"; command kill "$cur" 2>/dev/null; wait "$cur" 2>/dev/null
+    set -- $SLEEPERS; shift "$REPL"; REPL=$((REPL + 1)); printf '%s' "$1" > "$PIDFILE"; fi
+  HEALTH_STATE=down; return 1; }
+set -- $SLEEPERS; REPL=1; printf '%s' "$1" > "$PIDFILE"
+out="$( ( N=0; cmd_start ) 2>&1 )"
+for _p in $SLEEPERS; do command kill "$_p" 2>/dev/null; wait "$_p" 2>/dev/null; done
+waits="$(printf '%s\n' "$out" | grep -c 'not answering yet; waiting for it')"
+case "$out" in *"is not answering on port"*) [ "$waits" = 2 ] && ok "a board replaced again and again gets two waits, then the stuck refusal" || bad "waits: $waits" ;;
+  *) bad "the cap: $out" ;; esac
 n="$(grep -c '_await_recorded_board "\$_oldpid"' install/kosmos)"; [ "$n" = 1 ] && ok "cmd_start waits in one place" || bad "wait call sites: $n"
 
 echo
