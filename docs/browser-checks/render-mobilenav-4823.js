@@ -73,7 +73,9 @@ const look = (page) => page.evaluate(() => {
     cw: document.documentElement.clientWidth, iw: window.innerWidth,
     bar: rect(q('#kplus-bar')), barBg: q('#kplus-bar') ? getComputedStyle(q('#kplus-bar')).backgroundColor : null,
     mark: rect(q('#kplus-bar canvas')), menuBtn: vis(q('#kplus-menu')) ? rect(q('#kplus-menu')) : null,
-    logoutBtn: vis(q('#plus-logout'))   /* kosmos#6718: Log out left the bar for Settings > Kosmos+ */, klink: vis(q('#klink')), userpop: vis(q('#userpop')), burger: vis(q('#burger')),
+    /* Any Log out drawn in the header, whatever its id (kosmos#6718 review 1: #plus-logout sits in Settings, never shown
+       on the board, so testing it could not fail). The phone menu's Log out is in #pnav, on body, not the header. */
+    logoutBtn: [...document.querySelectorAll('.apphead button, .apphead a')].some((b) => vis(b) && /log\s*out/i.test(b.textContent)), klink: vis(q('#klink')), userpop: vis(q('#userpop')), burger: vis(q('#burger')),
     apphead: rect(q('.apphead')), stats: vis(q('#boardbar .stats')), gridBtn: vis(q('#boardbar .vt[data-layout="grid"]')),
     newAgent: rect(q('#new-agent')), newAgentName: q('#new-agent') ? q('#new-agent').textContent.replace(/\s+/g, ' ').trim() : '',
     sortH: rect(q('#agent-sort')) && rect(q('#agent-sort')).h, vtH: rect(q('#boardbar .vt[data-layout="list"]')) && rect(q('#boardbar .vt[data-layout="list"]')).h,

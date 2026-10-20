@@ -102,7 +102,7 @@ const openPlus = async (page) => {
     await page.waitForTimeout(400);
     chk(await page.evaluate(() => { const s = document.getElementById('d-sec-talk'); return !!s && !s.hidden && s.getClientRects().length > 0; }), 'P3 precondition: an agent\'s talk view is open');
     const talk = await head(page);
-    chk(!board.shown && !talk.shown && board.headTop === 0 && talk.headTop === 0, 'P3 on the board and on an agent\'s page alike, no bar and the header at the top (no jump, nothing cut)', JSON.stringify({ board, talk }));
+    chk(!board.shown && !talk.shown && board.headTop === 0 && talk.headTop === 0 && board.headH === talk.headH, 'P3 on the board and on an agent\'s page alike, no bar, the header at the top and the same height (no jump, nothing cut)', JSON.stringify({ board, talk }));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'plus-nobar-talk.png'), clip: { x: 0, y: 0, width: 1280, height: 160 } });
 
     // P4: Log out is at the bottom of Settings > Kosmos+ through a Kosmos+ address.
@@ -110,6 +110,29 @@ const openPlus = async (page) => {
     const l4 = await logoutRow(page);
     chk(l4.present && l4.shown && l4.last && l4.text === 'Log out', 'P4 through a Kosmos+ address Settings > Kosmos+ ends with Log out', JSON.stringify(l4));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'plus-logout-settings.png'), fullPage: true });
+
+    // P4b: and while connected, the state anyone reaching the board through Kosmos+ is in (review 1: P4 saw only the
+    // not-connected pane, since this sandbox has no Kosmos+ account). The connected pane's own parts are answered here
+    // the way render-plus-panel-3829.js answers them; Log out still ends the section, under Remove this computer.
+    {
+      const cp = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+      try {
+        const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
+        const remote = { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: 'remote.test' } };
+        await cp.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? remote : { ok: true })));
+        await cp.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', self_device_id: 'd-self' })));
+        await cp.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [{ device_id: 'd-self', allowed_at: Math.floor(Date.now() / 1000) - 60 }], pending: [], self_device_id: 'd-self' })));
+        await cp.goto('http://remote.test:' + port + '/', { waitUntil: 'networkidle' });
+        if (await cp.$('#firstrun:not([hidden])')) { await cp.keyboard.press('Escape'); await cp.waitForTimeout(200); }
+        await openPlus(cp);
+        await cp.waitForFunction(() => { const f = document.getElementById('plus-forget'); return !!f && !f.hidden; }, null, { timeout: 8000 }).catch(() => {});
+        chk(await cp.evaluate(() => { const f = document.getElementById('plus-forget'); return !!f && !f.hidden && f.getClientRects().length > 0; }),
+          'P4b precondition: the connected pane is drawn (Remove this computer is shown)');
+        const l4b = await logoutRow(cp);
+        chk(l4b.present && l4b.shown && l4b.last && l4b.text === 'Log out', 'P4b while connected, Settings > Kosmos+ still ends with Log out', JSON.stringify(l4b));
+        if (SHOTS) await cp.screenshot({ path: path.join(SHOTS, 'plus-logout-connected.png'), fullPage: true });
+      } finally { await cp.close(); }
+    }
 
     // P5: a log out the tunnel refuses (here, a 403): it says so, the button works again, and the page stays.
     let asked = 0, answer = 403;

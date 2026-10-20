@@ -3505,14 +3505,13 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      an engine reserves the gutter on a page that does not scroll: Playwright's WebKit does not (A1n).
      The cost there: a page that really scrolls sits its header 15px right of the content edge. */
   /* #5379: the tab view reserves the scrollbar gutter and consolidated does not, so where scrollbars take width the
-     header jumped on every flip. Consolidated pads its inner header (it carries the background and bottom rule), and
-     the Kosmos+ bar, by the same width less what the page gives up. */
-  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header,
-  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar {
+     header jumped on every flip. Consolidated pads its inner header (it carries the background and bottom rule) by the
+     same width less what the page gives up. (It padded the Kosmos+ bar too, until kosmos#6718 took the bar off wide
+     screens.) */
+  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header {
     padding-right: max(var(--space-8), calc(var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   /* #5379: with consolidated chosen, the whole-page tabs (Settings and the rest: body is not .consolidated there) reserve
-     no gutter either, so they take this rule too and their header ends where Agents and Projects' does. kplusBarFit
-     tests the same state in script (consolidated chosen, body not .consolidated, wide); the 2624 bar arm pins both. */
+     no gutter either, so they take this rule too and their header ends where Agents and Projects' does. */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead,
   html[data-scrollbar-measured][data-layout="consolidated"] > body:not(.consolidated) > .apphead {
     padding-right: max(0px, calc(3 * var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
@@ -20474,8 +20473,8 @@ function kplusBarDrawMark(cv, hh) {
   ctx.setTransform(PLUS_DPR, 0, 0, PLUS_DPR, 0, 0);
   for (const d of md.DOTS) { ctx.beginPath(); ctx.arc(d[0] * s, d[1] * s, Math.max(0.35, d[2] * s), 0, 7); ctx.fillStyle = d[3]; ctx.fill(); }
 }
-/* The bar runs edge to edge: its side margins cancel the header's own padding, read from the header, since the tab
-   layout computes the right one from the scrollbar gutter. */
+/* The phone bar (the only one drawn since kosmos#6718) runs edge to edge: its side margins cancel the header's own
+   padding, read from the header, since the tab layout computes the right one from the scrollbar gutter. */
 function kplusBarFit() {
   const bar = document.getElementById('kplus-bar'), head = document.querySelector('.apphead');
   if (!bar || !head) return;
@@ -20483,15 +20482,6 @@ function kplusBarFit() {
   const l = '-' + (parseFloat(cs.paddingLeft) || 0) + 'px', r = '-' + (parseFloat(cs.paddingRight) || 0) + 'px';
   if (bar.style.marginLeft !== l) bar.style.marginLeft = l;
   if (bar.style.marginRight !== r) bar.style.marginRight = r;
-  /* #5379: with consolidated chosen, a whole-page tab (body not .consolidated) reserves no gutter, so the header's right
-     padding there also holds the scrollbar width, and the bar ends Log out on the same x by padding as much. Wide only:
-     the phone bar keeps its own padding. Elsewhere the stylesheet's padding stands (consolidated pads by CSS). */
-  const doc = document.documentElement;
-  const whole = doc.getAttribute('data-layout') === 'consolidated' && !document.body.classList.contains('consolidated')
-    && window.matchMedia('(min-width: 56.01rem)').matches;
-  /* At least the bar's own side padding (its left one), so a header padded by less never pulls Log out to the edge. */
-  const pr = whole ? Math.max(parseFloat(getComputedStyle(bar).paddingLeft) || 0, parseFloat(cs.paddingRight) || 0) + 'px' : '';
-  if (bar.style.paddingRight !== pr) bar.style.paddingRight = pr;
 }
 function kplusBar() {
   if (!kplusRemote() || document.getElementById('kplus-bar')) return;
@@ -20514,9 +20504,10 @@ function kplusBar() {
   /* #4506: BOTH of the header's boxes, one observer each (one observer holds one box per element). The bar's margins
      cancel the header's padding, and that padding changes in two ways that no window resize reports. When the
      scrollbar gutter comes or goes, the padding moves with it by design (#3497):
-     the border box changes and the content box does not (CI, render-plus-bar-3837 P2, 15px past the page). When
+     the border box changes and the content box does not (CI, 15px past the page). When
      kosmosMeasureScrollbarWidth updates --scrollbar-width (on a press, a focus, a return to the tab), the padding
-     changes and the border box does not. render-plus-bar-3837 P8 drives both. */
+     changes and the border box does not. render-plus-bar-3837 drove both while the bar showed at desktop widths; since
+     kosmos#6718 only the phone bar is drawn, where scrollbars seldom take width, and no check drives them now. */
   if (typeof ResizeObserver === 'function') {
     new ResizeObserver(kplusBarFit).observe(head, { box: 'border-box' });
     new ResizeObserver(kplusBarFit).observe(head);

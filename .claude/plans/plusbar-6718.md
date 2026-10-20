@@ -37,3 +37,18 @@ check after this change (it had one, P4, when the button was on the bar).
   /#signed-out; P7 no page errors; P8 CONTROL at phone width the 48px bar and its menu are still drawn. 12/12.
 - render-mobilenav-4823.js W1: at 1280 no bar and no bar Log out. 173/173.
 - render-tophead-stable-2624.js: the 1440px bar-Log-out alignment arm removed (no desktop bar). OK.
+
+## Review round 1 (blind, opus) and what was done
+- [WARNING] W1 untrue comments (the #5379 padding rule, kplusBarFit, the #4506 observer note named P2/P8 arms that
+  no longer drive it) --> FIXED, each comment now says what is true after #6718.
+- [WARNING] W2 dead wide-bar code: the consolidated padding selector for .kplus-bar and kplusBarFit's wide
+  (min-width 56.01rem) padding branch, both for a bar that is display:none there --> DELETED.
+- [WARNING] W3 the mobilenav header probe read #plus-logout, which sits in Settings and is never drawn on the board,
+  so H4 and W1's "no Log out" could not fail --> FIXED: it now finds any visible Log out in .apphead. MUTANT (a
+  desktop bar with a Log out put back): H4 and W1 go red in chromium and webkit; restored by byte copy (cmp clean).
+- [WARNING] W4 P4 saw only the not-connected pane --> FIXED: P4b answers the connected pane's routes as
+  render-plus-panel-3829 does, precondition Remove this computer is drawn, and Log out is still last. 14/14.
+- [NIT] assert headH equal in P3 --> DONE (51 = 51).
+- [NIT] Log out contrast, use an outline pill --> NOT CHANGED: it is the board's standard .btn, the same as Leave
+  company and Cancel in the same section; a different style for one button is a design call outside this card.
+- [NIT] wording "Log out of Kosmos+" --> NOT CHANGED: it sits under the Kosmos+ heading, and Josh's word is "Log out".
