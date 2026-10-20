@@ -82,9 +82,9 @@ else fail "an AppleDouble entry with a GNU long name must be refused"; fi
 # (it keeps the start of a name in the header), so it is made by hand; only reading the pax path can refuse it.
 # mkhdr NAME TYPE SIZE prints one 512-byte ustar header with a right checksum.
 mkhdr() { /usr/bin/perl -e '
-  my ($name, $type, $size) = @ARGV;
+  my ($name, $type, $size, $mode) = @ARGV; $mode = "0000644" unless defined $mode;
   my $h = pack("a100 a8 a8 a8 a12 a12 a8 a1 a100 a6 a2 a32 a32 a8 a8 a155 a12",
-    $name, "0000644", "0000000", "0000000", sprintf("%011o", $size), "00000000000", " " x 8, $type, "",
+    $name, $mode, "0000000", "0000000", sprintf("%011o", $size), "00000000000", " " x 8, $type, "",
     "ustar", "00", "kosmos", "staff", "", "", "", "");
   my $sum = unpack("%32C*", $h); substr($h, 148, 8) = sprintf("%06o\0 ", $sum); print $h;' "$@"; }
 { rec2="path=app/._K"; len=$(( ${#rec2} + 4 )); r="$len $rec2"; [ ${#r} -lt "$len" ] || len=$(( len + 1 )); r="$len $rec2"
@@ -150,6 +150,11 @@ chflags nohidden "$T/fl/app/f" 2>/dev/null
 # records that: if bsdtar ever starts restoring flags on a plain -x, it goes red and the scan is then what catches it.
 if tar_metadata_extracted "$T/fflags.tgz" 2>/dev/null; then pass "an install-style extraction restores no stored file flag (the header layer refuses the record)"
 else fail "an install-style extraction now restores a stored file flag: the header layer is no longer the only refusal"; fi
+# Review 7: a folder with no permissions at all (0000) is still scanned and still removed.
+mkdir -p "$T/gtmp3"   # hand-made: tar cannot pack the inside of a 0000 folder, but bsdtar extracts one (modes last)
+{ mkhdr app/ 5 0 0000755; mkhdr app/shut/ 5 0 0000000; mkhdr app/shut/f 0 2; blk "x"; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/z0.tgz"
+if ( TMPDIR="$T/gtmp3" tar_metadata_gate "$T/z0.tgz" ) 2>/dev/null && [ -z "$(ls -A "$T/gtmp3")" ]; then pass "a tarball with a 0000 folder is scanned and passes, leaving nothing behind"
+else fail "a 0000 folder was refused or left behind: $(ls -A "$T/gtmp3" | tr '\n' ' ')"; chmod -R u+rwX "$T/gtmp3" 2>/dev/null; fi
 # Review 6: a read-only folder in the tarball must not leave the unpacked copy behind (rm alone failed on it).
 mkdir -p "$T/ro/app/locked" "$T/gtmp"; printf 'x\n' > "$T/ro/app/locked/f"; chmod 0555 "$T/ro/app/locked"
 COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf "$T/ro.tgz" -C "$T/ro" app; chmod 0755 "$T/ro/app/locked"
@@ -204,7 +209,8 @@ else fail "CONTROL: a tarball with links and folders was refused"; fi
 mkdir -p "$T/mm/a"; printf 'k\n' > "$T/mm/a/K"
 if command -v xattr >/dev/null 2>&1 && xattr -w com.example.kosmos6678 v "$T/mm/a/K" 2>/dev/null; then
   /usr/bin/tar --mac-metadata -cf "$T/mm.tar" -C "$T/mm" a
-  /usr/bin/perl -e '
+  # forge IN OUT: re-emit the a/._K entry of IN under a GNU long name with a NUL in it (bsdtar cuts there).
+  forge() { /usr/bin/perl -e '
     binmode STDIN; binmode STDOUT;
     sub ck { my $h = shift; substr($h, 148, 8) = " " x 8; my $s = unpack("%32C*", $h); substr($h, 148, 8) = sprintf("%06o\0 ", $s); $h }
     sub hd { my ($n, $t, $sz) = @_; ck(pack("a100 a8 a8 a8 a12 a12 a8 a1 a100 a6 a2 a32 a32 a8 a8 a155 a12", $n, "0000644", "0000000", "0000000", sprintf("%011o", $sz), "00000000000", " " x 8, $t, "", "ustar", "00", "", "", "", "", "", "")) }
@@ -218,7 +224,8 @@ if command -v xattr >/dev/null 2>&1 && xattr -w com.example.kosmos6678 v "$T/mm/
         substr($h, 0, 100) = pack("a100", "a/zz"); print ck($h), $b; next }
       print $h, $b;
     }
-    print "\0" x 1024;' < "$T/mm.tar" | /usr/bin/gzip -c > "$T/nul.tgz"
+    print "\0" x 1024;' < "$1" | /usr/bin/gzip -c > "$2"; }
+  forge "$T/mm.tar" "$T/nul.tgz"
   hdr="$(tar_metadata_gate "$T/nul.tgz" 2>&1)"; rc=$?
   if [ "$rc" -ne 0 ] && printf '%s' "$hdr" | /usr/bin/grep -q 'unpacked as an install does' && printf '%s' "$hdr" | /usr/bin/grep -q 'com.example.kosmos6678'; then pass "a forged ._ entry the header reader misreads (a NUL in its long name) is refused by what bsdtar extracts, naming the attribute it planted"
   else fail "a forged ._ entry with a NUL in its long name must be refused by the extraction layer (rc=$rc): $hdr"; fi
@@ -229,6 +236,18 @@ if command -v xattr >/dev/null 2>&1 && xattr -w com.example.kosmos6678 v "$T/mm/
   COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf "$T/symlink.tgz" -C "$T/sl" a
   if tar_metadata_extracted "$T/symlink.tgz" 2>/dev/null; then pass "a symlink to a file with an attribute is not followed (xattr -s reads the link itself)"
   else fail "the extraction layer followed a symlink out of the unpacked tree"; fi
+  # Review 7: the same forged shape carrying an ACL (a deny-delete one, so cleanup is tested too) instead of an
+  # attribute: refused naming the ACL, and the unpacked copy is still removed.
+  mkdir -p "$T/acl/a" "$T/gtmp2"; printf 'k\n' > "$T/acl/a/K"
+  if /bin/chmod +a "everyone deny delete" "$T/acl/a/K" 2>/dev/null; then
+    /usr/bin/tar --mac-metadata --no-acls -cf "$T/acl.tar" -C "$T/acl" a; /bin/chmod -N "$T/acl/a/K"
+    forge "$T/acl.tar" "$T/aclnul.tgz"
+    out="$( ( TMPDIR="$T/gtmp2" tar_metadata_gate "$T/aclnul.tgz" ) 2>&1 )"; rc=$?
+    if [ "$rc" -ne 0 ] && printf '%s' "$out" | /usr/bin/grep -q 'an ACL' && [ -z "$(ls -A "$T/gtmp2")" ]; then pass "an ACL a forged ._ entry restores on extraction is refused, and the unpacked copy is removed despite deny-delete"
+    else fail "a forged ._ entry restoring an ACL must be refused with nothing left behind (rc=$rc): $out $(ls -A "$T/gtmp2" | tr '\n' ' ')"; /bin/chmod -RN "$T/gtmp2" 2>/dev/null; fi
+  else
+    echo "SKIP  the ACL arm: this machine cannot set an ACL"
+  fi
 else
   echo "SKIP  the extraction-layer arms: this machine cannot set an extended attribute"
 fi

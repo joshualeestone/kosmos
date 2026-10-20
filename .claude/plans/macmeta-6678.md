@@ -86,6 +86,15 @@ an extended attribute. So both can go.
   goes red if bsdtar ever restores flags on a plain `-x`, and the scan's own mutant is equivalent today (stated).
   Arms: the read-only folder (passes, leaves nothing; red with the permission restore removed), and the
   flag-restore behaviour.
+- **Review 7 (opus):** an AppleDouble entry folded on extraction restores an ACL as well as attributes (measured),
+  which the extraction layer did not look at, so the claim "whatever shape hid it" was false for ACLs. It now scans
+  ACLs (`ls -lde`) on everything unpacked, and strips ACLs (`chmod -RN`) before every removal, since a deny-delete ACL
+  also stopped rm. An interrupt during the unpack is passed on after the cleanup (it was swallowed), and the caller's
+  own INT and TERM traps are restored. Arms: the forged NUL-long-name shape carrying a deny-delete ACL (refused naming
+  the ACL, nothing left behind; red with the ACL scan or `chmod -RN` removed), and a hand-made 0000 folder (scanned,
+  passes, nothing left; red with the pre-scan permission restore removed). UNTESTED BACKSTOPS, stated: the `xattr -s`
+  probe failing, a scan's own failure (`|| scan=1`), and the leftover-folder check cannot be reached by any tarball on
+  this Mac (with permissions and ACLs stripped, removal always succeeds), so their mutants are equivalent here.
 - **Refuse, not strip after the fact.** A gate that edits the tarball would change the bytes after signing-adjacent
   checks; refusing keeps the pack line the only place the bytes are made.
 - **Both tarballs.** The tmux bundle is built the same way, so it gets the same line and gate.
@@ -102,7 +111,7 @@ loudly, which is the safe direction.
 
 ## Tests
 
-- `bash tools/test-tar-metadata-gate-6678.sh`: 45 checks. The control packs a folder that HAS an extended attribute
+- `bash tools/test-tar-metadata-gate-6678.sh`: 47 checks. The control packs a folder that HAS an extended attribute
   the way the bundles pack, and passes. Then: plain packing refused; an AppleDouble entry refused and named (in a
   folder, at the top level, behind a long ustar-prefix path, behind a GNU long name, and behind a hand-made pax path
   record whose entry header says app/K, with a control that the same hand-made entry passes without it); a header
@@ -116,7 +125,9 @@ loudly, which is the safe direction.
 
 ## Not covered
 
-- ACLs: bsdtar 3.5.3 stores none by default (measured by review 3); the gate refuses them anyway.
+- ACLs: bsdtar 3.5.3 stores none by default (measured by review 3). The header layer refuses an ACL pax record (a
+  non-root `-x` does not restore one anyway), and the extraction layer refuses an ACL that a folded AppleDouble entry
+  restores (review 7).
 - A real bundle build here: the cut builds it. The first cut after merge (0.7.61) is the end-to-end check, and its
   served tarball should be run through the gate.
 - No size or time limit on the extraction: the builders unpack their own output, which is not hostile (review 6,

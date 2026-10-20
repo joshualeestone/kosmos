@@ -4,8 +4,8 @@
 #   - an AppleDouble entry (app/._Kosmos.app), the file macOS writes beside a file to hold what tar cannot;
 #   - an extended attribute (com.apple.macl on app/Kosmos.app), the build Mac's own privacy record for that folder.
 # Neither is a code signature (the app's and the binaries' signatures live inside the files), so neither is needed.
-# The bundles pack with COPYFILE_DISABLE=1 and bsdtar's --no-mac-metadata --no-xattrs; this gate refuses a tarball
-# that still carries either kind, so a later change to the pack line cannot bring them back quietly.
+# The bundles pack with COPYFILE_DISABLE=1 and bsdtar's --no-mac-metadata --no-xattrs --no-fflags; this gate refuses a
+# tarball that still carries this Mac's file metadata, so a later change to the pack line cannot bring it back quietly.
 #
 # How it looks: it reads the tar headers itself (perl, from the decompressed stream). macOS tar cannot be asked:
 # bsdtar folds an AppleDouble entry into the next entry when it reads, so `tar -t` never lists one (measured on the
@@ -16,7 +16,7 @@
 # `size` (it would move where the next entry ends) and anything after the end of the archive that is not zero padding. No python: /usr/bin/python3 on a build Mac without the Xcode license exits 69.
 #
 # Usage: source this file, then `tar_metadata_gate <tarball> || exit 1`.
-# Prints what it found and returns 1 when the tarball carries either kind, or when it cannot read all of it.
+# Prints what it found and returns 1 when the tarball carries this Mac's file metadata, or when it cannot look.
 
 tar_metadata_gate() {
   local tarball="$1" out rc
@@ -117,32 +117,40 @@ tar_metadata_gate() {
 # into a temporary folder, and refuse when anything that comes out carries an extended attribute or a file flag, or
 # is a ._ file. A ._ entry that changes nothing on extraction is inert bytes; one that changes something is caught
 # here whatever shape hid it. Attributes are read with xattr -s, so a symlink in the tarball is never followed.
+# _tmg_rm DIR: remove an unpacked copy whatever its modes and ACLs (review 7: a deny-delete ACL also stopped rm).
+_tmg_rm() { /bin/chmod -RN "$1" 2>/dev/null; /bin/chmod -R u+rwX "$1" 2>/dev/null; /bin/rm -rf "$1"; }
 tar_metadata_extracted() {
-  local tarball="$1" d bad scan=0
+  local tarball="$1" d bad scan=0 oldtrap
   d="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tar-metadata-gate.XXXXXXXXXX")" || { echo "FAIL: the tarball metadata gate could not make a folder to unpack into" >&2; return 1; }
-  # Review 6: removed whatever the tarball's modes (a 0555 folder made rm fail and left ~160 MB behind), and on an
-  # interrupt too; a folder that will not go is a refusal, not a quiet leftover.
-  trap '/bin/chmod -R u+rwX "$d" 2>/dev/null; /bin/rm -rf "$d"' INT TERM
+  # Review 6: removed whatever the tarball's modes, and on an interrupt too; a folder that will not go is a refusal.
+  # Review 7: the interrupt is passed on after the cleanup (never swallowed), and the caller's own traps come back.
+  oldtrap="$(trap -p INT TERM)"
+  trap '_tmg_rm "$d"; trap - INT; kill -s INT $$' INT
+  trap '_tmg_rm "$d"; trap - TERM; kill -s TERM $$' TERM
+  _tmg_done() { _tmg_rm "$d"; trap - INT TERM; [ -z "$oldtrap" ] || eval "$oldtrap"; }
   # The attribute reader must be seen to work (a probe file with one attribute) before an empty answer means clean.
   if ! { printf 'p\n' > "$d/.kosmos-probe" && /usr/bin/xattr -w com.kosmos.probe 1 "$d/.kosmos-probe" 2>/dev/null \
          && [ "$(/usr/bin/xattr -s "$d/.kosmos-probe" 2>/dev/null)" = com.kosmos.probe ]; }; then
-    /bin/rm -rf "$d"; trap - INT TERM; echo "FAIL: the tarball metadata gate could not read an extended attribute on this Mac, so it cannot vouch for one" >&2; return 1
+    _tmg_done; echo "FAIL: the tarball metadata gate could not read an extended attribute on this Mac, so it cannot vouch for one" >&2; return 1
   fi
   /bin/rm -f "$d/.kosmos-probe"
   if ! /usr/bin/tar -xzf "$tarball" --no-same-owner -C "$d" 2>/dev/null; then
-    /bin/chmod -R u+rwX "$d" 2>/dev/null; /bin/rm -rf "$d"; trap - INT TERM
-    echo "FAIL: the tarball metadata gate could not unpack $(basename "$tarball") the way an install does" >&2; return 1
+    _tmg_done; echo "FAIL: the tarball metadata gate could not unpack $(basename "$tarball") the way an install does" >&2; return 1
   fi
   /bin/chmod -R u+rX "$d" 2>/dev/null   # so every folder can be scanned (modes on disk are not what is judged)
-  local a b c
+  local a b c e
   a="$(/usr/bin/find "$d" -name '._*' -print)" || scan=1
   b="$(/usr/bin/find "$d" -exec /usr/bin/xattr -s {} +)" || scan=1
   c="$(/usr/bin/find "$d" -exec /usr/bin/stat -f '%f %N' {} +)" || scan=1
+  # Review 7: an AppleDouble entry folded on extraction can restore an ACL as well as attributes (measured), so ACLs
+  # on what comes out are this Mac metadata too. ls -lde prints a file, then one indented "N: ..." line per entry.
+  e="$(/usr/bin/find "$d" -exec /bin/ls -lde {} +)" || scan=1
   bad="$( { [ -z "$a" ] || printf '%s\n' "$a" | /usr/bin/sed 's/$/: an AppleDouble file/'
             [ -z "$b" ] || printf '%s\n' "$b"
-            printf '%s\n' "$c" | /usr/bin/awk 'NF && $1 != 0 { $1 = ""; print substr($0, 2) ": a file flag" }'; } \
+            printf '%s\n' "$c" | /usr/bin/awk 'NF && $1 != 0 { $1 = ""; print substr($0, 2) ": a file flag" }'
+            printf '%s\n' "$e" | /usr/bin/awk '/^ [0-9]+: / { if (f != "") print f ": an ACL"; f = ""; next } NF >= 9 { f = $NF }' | /usr/bin/sort -u; } \
           | /usr/bin/sed "s#^$d/##" )"
-  /bin/chmod -R u+rwX "$d" 2>/dev/null; /bin/rm -rf "$d"; trap - INT TERM
+  _tmg_done
   [ -e "$d" ] && { echo "FAIL: the tarball metadata gate could not remove the folder it unpacked into ($d)" >&2; return 1; }
   [ "$scan" = 0 ] || { echo "FAIL: the tarball metadata gate could not scan all of what $(basename "$tarball") unpacks to" >&2; return 1; }
   [ -z "$bad" ] && return 0
