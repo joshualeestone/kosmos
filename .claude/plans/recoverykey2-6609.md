@@ -30,3 +30,6 @@ No BLOCKER, WARNING or CONVENTION. Off path unchanged; exit codes and every call
 - [NIT] accepted: a correctly signed but structurally bad list is retried (96) though a retry cannot change it; the signing tool checks its own output with verifyKeyList, so such a list is not published.
 - [NIT] fixed: the Validation count (43, not 41).
 - [NIT] noted: test 1 alone passes with the list's keys not passed through (RELEASE is also built in); test 4 covers that mutant.
+
+### Rebased onto origin/main edb3387d25 (04:22)
+- One conflict in engine.reachable.test.js (main added the S-7a excuses beside trustedKeys): both kept. 156 focused tests pass from the worktree root.
