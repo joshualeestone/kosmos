@@ -193,6 +193,22 @@ test('kosmos#6717: the board\'s own line is pressed, even after a restart that l
   assert.equal(p.clears(), 0);
 }));
 
+test('kosmos#6717: the board\'s own line on an agent that is no longer idle is not pressed', () => withAgent(async (roster, card) => {
+  const MSG = 'Kosmos here: please read the ruling on the card and carry on with the fix you described this morning.';
+  const first = pane('');
+  chat.setRunner((args) => (args[0] === 'send-keys' && args[args.length - 1] === 'Enter' ? ok() : first(args)));
+  assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION');
+  const p = pane(MSG);
+  roster[0].state = 'working';
+  const r = await chat.recoverStuckInput(card, SINCE);
+  assert.equal(r.outcome, 'waiting');
+  assert.equal(r.because, 'not idle');
+  assert.equal(p.enters(), 0);
+  // CONTROL: idle again, it is pressed.
+  roster[0].state = 'idle';
+  assert.equal((await chat.recoverStuckInput(card, SINCE)).outcome, 'pressed');
+}));
+
 test('kosmos#6717: the board\'s line with the person\'s words added is not the board\'s: drafted whole, not sent', () => withAgent(async (roster, card) => {
   const MSG = 'Kosmos here: please read the ruling on the card and carry on with the fix you described this morning.';
   const first = pane('');
@@ -352,6 +368,7 @@ test('kosmos#6717: a draft is drawn in the conversation at its time as Kosmos\'s
   // Kept privately, and one agent's drafts are not another's.
   drafts.add('al', 'x');
   assert.equal(fs.statSync(drafts.fileFor('al')).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(path.dirname(drafts.fileFor('al'))).mode & 0o777, 0o700, 'the folder too');
   assert.deepEqual(drafts.list('Al'), []);
 });
 
