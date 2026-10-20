@@ -513,6 +513,50 @@ test('iteration 2 + 3: the zip limit COUNTS: one held open fills a place of one;
   }
 });
 
+test('iteration 4: a refusal on record does not make the look say busy once a place has freed', { timeout: 120000 }, async () => {
+  const { _setZipLimitForTest } = require('./server');
+  const files = path.join(SANDBOX, 'workers', 'freed', 'Files');
+  fs.mkdirSync(path.join(files, 'big'), { recursive: true });
+  fs.mkdirSync(path.join(files, 'small'), { recursive: true });
+  fs.writeFileSync(path.join(files, 'big', 'huge.bin'), Buffer.alloc(80 * 1024 * 1024, 7));
+  fs.writeFileSync(path.join(files, 'small', 'a.txt'), 'a');
+  let heldReq = null;
+  const held = await new Promise((resolve) => {
+    const u = new URL(base + '/api/agent/freed/files/download-folder?dir=big');
+    heldReq = require('node:http').request({ host: u.hostname, port: u.port, path: u.pathname + u.search, method: 'GET', agent: false }, (res) => { res.pause(); resolve(res.statusCode); });
+    heldReq.on('error', () => {});
+    heldReq.end();
+  });
+  try {
+    _setZipLimitForTest(1);
+    assert.equal(held, 200, 'premise');
+    assert.equal((await rawGet('/api/agent/freed/files/download-folder?dir=small', { 'sec-fetch-mode': 'navigate' })).status, 204, 'premise: refused, so on record');
+    assert.equal((await rawGet('/api/agent/freed/files/download-folder?check=1&dir=small')).status, 429, 'CONTROL: while still full, the look says busy');
+    heldReq.destroy();
+    let look = 0;
+    for (let i = 0; i < 30 && look !== 204; i++) { look = (await rawGet('/api/agent/freed/files/download-folder?check=1&dir=small')).status; if (look !== 204) await new Promise((r) => setTimeout(r, 100)); }
+    assert.equal(look, 204, 'a place is free, and the look still said busy from the old refusal');
+  } finally {
+    heldReq.destroy();
+    _setZipLimitForTest(null);
+    fs.rmSync(path.join(files, 'big'), { recursive: true, force: true });
+  }
+});
+
+test('iteration 4: a text preview cut inside a UTF-8 character ends on a whole one', async () => {
+  const dir = path.join(SANDBOX, 'workers', 'utf', 'Files');
+  fs.mkdirSync(dir, { recursive: true });
+  const n = filepreview.TEXT_PREVIEW_BYTES;
+  fs.writeFileSync(path.join(dir, 'euro.txt'), Buffer.concat([Buffer.alloc(n - 1, 'a'), Buffer.from('\u20ac and more')]));   // the euro sign straddles the cut
+  const r = await rawGet('/api/agent/utf/files/preview?name=euro.txt');
+  assert.equal(r.status, 200);
+  assert.equal(r.headers['x-kosmos-preview-cut'], '1');
+  assert.equal(r.body.length, n - 1, 'the partial character was sent');
+  assert.ok(!r.body.toString('utf8').includes('\ufffd'), 'the start ends in a replacement mark');
+  fs.writeFileSync(path.join(dir, 'whole.txt'), Buffer.concat([Buffer.alloc(n - 3, 'a'), Buffer.from('\u20ac'), Buffer.from('tail')]));
+  assert.equal((await rawGet('/api/agent/utf/files/preview?name=whole.txt')).body.length, n, 'CONTROL: a cut between characters keeps every byte');
+});
+
 test('iteration 3: the zip walk has a read budget that hidden names count against; the browse list says which limit stopped it', () => {
   const dir = path.join(SANDBOX, 'scan-budget');
   fs.mkdirSync(dir, { recursive: true });

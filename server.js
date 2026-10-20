@@ -4999,6 +4999,9 @@ function zipBusyRecent(key) {
   const t = zipBusyRefusedAt.get(key);
   return Boolean(t) && Date.now() - t < ZIP_BUSY_SAID_MS;
 }
+/* Iteration 4: a record only speaks while the places are still full; once one frees, the look says nothing is wrong
+   (the download it sits beside will take that place). */
+function zipBusyNow(key) { return ZIPS_IN_FLIGHT >= ZIP_MAX_IN_FLIGHT && zipBusyRecent(key); }
 function sendFolderZip(req, res, folder, rel, where, opts) {
   const refusedRead = crossSiteRead(req);
   if (refusedRead) { refuseDownload(req, res, refusedRead, 403); return; }
@@ -5007,6 +5010,8 @@ function sendFolderZip(req, res, folder, rel, where, opts) {
   // A real download past the limit is refused before the folder is walked (iteration 3: a refusal costs no walk).
   if (!checkOnly && req.method !== 'HEAD' && ZIPS_IN_FLIGHT >= ZIP_MAX_IN_FLIGHT) {
     for (const [k, t] of zipBusyRefusedAt) if (Date.now() - t >= ZIP_BUSY_SAID_MS) zipBusyRefusedAt.delete(k);
+    // Iteration 4: keys come from the request, so the map has a hard size too (the oldest go first).
+    while (zipBusyRefusedAt.size >= 100) zipBusyRefusedAt.delete(zipBusyRefusedAt.keys().next().value);
     zipBusyRefusedAt.set(key, Date.now());
     refuseDownload(req, res, ZIP_BUSY, 429);
     return;
@@ -5024,11 +5029,11 @@ function sendFolderZip(req, res, folder, rel, where, opts) {
   try { length = zipwrite.zipLength(entries); } catch { refuseDownload(req, res, 'that folder cannot be put into one zip', 413); return; }
   if (checkOnly) {
     const answer = () => {
-      if (zipBusyRecent(key)) { refuseDownload(req, res, ZIP_BUSY, 429); return; }
+      if (zipBusyNow(key)) { refuseDownload(req, res, ZIP_BUSY, 429); return; }
       res.writeHead(204, { 'cache-control': 'no-store' });
       res.end();
     };
-    if (zipBusyRecent(key) || ZIPS_IN_FLIGHT < ZIP_MAX_IN_FLIGHT) answer(); else setTimeout(answer, ZIP_LOOK_WAIT_MS);
+    if (ZIPS_IN_FLIGHT < ZIP_MAX_IN_FLIGHT || zipBusyNow(key)) answer(); else setTimeout(answer, ZIP_LOOK_WAIT_MS);
     return;
   }
   res.writeHead(200, {

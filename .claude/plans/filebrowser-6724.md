@@ -140,3 +140,11 @@ the attribute only when remote.
     partway (`scanCut`), as the project list does.
 - Mutants for iteration 3's fixes, all red: the counter never counting, the look reading the live count, no walk
   budget, scanCut not sent, the page ignoring it.
+- Iteration 4 (sonnet): no escape found. Findings, all addressed:
+  - WARNING, fixed: the mirror of iteration 3's. A refusal still on record made the look say busy after a place had
+    freed (when the look arrived before the download that would take it). A record speaks now only while every place
+    is still taken (`zipBusyNow`). Tested: refused, place freed, look answers 204 (the record would have said busy for
+    10 s); mutant red.
+  - NIT, fixed: the refusal map's keys come from the request, so it has a hard size of 100 as well as the 10 s sweep.
+  - NIT, fixed: a text preview cut inside a UTF-8 character ended in a replacement mark; the partial bytes are dropped.
+    Tested with a euro sign across the cut (CONTROL: a cut between characters keeps every byte); mutant red.
