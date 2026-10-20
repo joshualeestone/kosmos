@@ -15,6 +15,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+const { spawnSync } = require('node:child_process');
 const installroot = require('./installroot');
 const accounts = require('./accounts');
 const allowance = require('./allowance');
@@ -26,7 +27,7 @@ function realHome(t) {
   process.env.HOME = home;
   delete process.env.AGENT_WORKFORCE_HOME;
   t.after(() => {
-    process.env.HOME = saved.home;
+    if (saved.home === undefined) delete process.env.HOME; else process.env.HOME = saved.home;
     if (saved.awh === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = saved.awh;
     fs.rmSync(home, { recursive: true, force: true });
   });
@@ -138,4 +139,59 @@ test('#6713: the Settings route\'s writer (ensureStatusLine) is gated the same w
   const wrote = allowance.ensureStatusLine(settings, { leaveAlone: null, node, script });
   assert.equal(wrote.wired, true, 'CONTROL: with the install check passed, the same call writes');
   assert.match(fs.readFileSync(settings, 'utf8'), /kosmos-statusline\.js/);
+});
+
+/* setup.sh's hooks block, run as setup.sh runs it: the program between its heredoc markers, under the bundle's node,
+   with a stand-in real HOME and no AGENT_WORKFORCE_HOME. The bundle is built in the installed layout at `kh`. */
+function setupHooksProgram() {
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
+  const start = sh.indexOf("<<'HOOKSEOF'");
+  assert.ok(start > 0, 'the hook block moved in setup.sh');
+  const body = sh.slice(sh.indexOf('\n', start) + 1);
+  return body.slice(0, body.indexOf('\nHOOKSEOF\n'));
+}
+function bundleAt(kh) {
+  const eng = path.join(kh, 'app', 'engine');
+  fs.mkdirSync(eng, { recursive: true });
+  for (const f of fs.readdirSync(__dirname)) if (f.endsWith('.js') && !f.endsWith('.test.js')) fs.copyFileSync(path.join(__dirname, f), path.join(eng, f));
+  fs.writeFileSync(path.join(kh, 'app', 'server.js'), '// stand-in\n');
+  fs.mkdirSync(path.join(kh, 'runtime', 'bin'), { recursive: true });
+  fs.copyFileSync(process.execPath, path.join(kh, 'runtime', 'bin', 'node'));
+  fs.chmodSync(path.join(kh, 'runtime', 'bin', 'node'), 0o755);
+  fs.mkdirSync(path.join(kh, 'app', 'bin'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '..', 'install', 'kosmos-report-hook.sh'), path.join(kh, 'app', 'bin', 'kosmos-report-hook.sh'));
+}
+function runSetupHooks(home, kh) {
+  const env = { ...process.env, HOME: home, AGENT_WORKFORCE_DATA: path.join(home, 'data') };
+  delete env.AGENT_WORKFORCE_HOME;
+  // This node runs it (a copied Homebrew node cannot load its library); the copy in the bundle is there for the layout check.
+  return spawnSync(process.execPath, ['-', kh], { input: setupHooksProgram(), encoding: 'utf8', env });
+}
+
+test('#6713: setup.sh from a bundle at the default place wires the real home (exit 0); from anywhere else it leaves it alone (exit 3)', (t) => {
+  const home = realHome(t);
+  const settings = path.join(home, '.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(settings), { recursive: true });
+  fs.writeFileSync(settings, '{}\n');
+  const elsewhere = path.join(home, 'elsewhere', 'kosmos');
+  bundleAt(elsewhere);
+  const off = runSetupHooks(home, elsewhere);
+  assert.equal(off.status, 3, 'every target left alone: exit 3. ' + off.stderr);
+  assert.equal(fs.readFileSync(settings, 'utf8'), '{}\n', 'neither hooks nor statusline were written');
+  const def = path.join(home, '.local', 'share', 'kosmos');
+  bundleAt(def);
+  const on = runSetupHooks(home, def);
+  assert.equal(on.status, 0, 'CONTROL: the default-place bundle wires. ' + on.stderr);
+  assert.match(fs.readFileSync(settings, 'utf8'), /kosmos-report-hook/, 'CONTROL: the hooks were written');
+});
+
+test('#6713: setup.sh says, for exit 3, that the home was left alone, and never promises another install sets it up', () => {
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
+  const a = sh.indexOf('case "$_hooks_rc" in');
+  assert.ok(a > 0, 'the message block moved in setup.sh');
+  const block = sh.slice(a, sh.indexOf('\nesac', a) + 5);
+  const say = (rc) => spawnSync('/bin/sh', ['-c', 'info() { echo "$*"; }; _hooks_rc=' + rc + '\n' + block], { encoding: 'utf8' }).stdout;
+  assert.match(say(3), /leaves the Claude settings in your\s+home alone/);
+  assert.doesNotMatch(say(3), /installed Kosmos sets/);
+  assert.match(say(0), /report what they are doing themselves/, 'CONTROL: exit 0 keeps its line');
 });

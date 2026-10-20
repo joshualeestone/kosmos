@@ -5241,15 +5241,16 @@ try {
   for (const t of targets) { try { allowance.ensureStatusLine(t); } catch { /* fail soft */ } }
 } catch { /* missing from this bundle, or it failed to load: the hooks' answer stands */ }
 // 3: every target was left alone on purpose (#6713), which is neither a success to announce nor a failure.
-process.exit(targets.length > 0 && skipped === targets.length ? 3 : refused === 0 ? 0 : 1);
+// A mixed run (some left alone, the rest wired) is not full success either, so it reports like a refusal.
+process.exit(targets.length > 0 && skipped === targets.length ? 3 : (refused === 0 && skipped === 0) ? 0 : 1);
 HOOKSEOF
 case "$_hooks_rc" in
   0)
     info "agents on this computer report what they are doing themselves; the board reads their"
     info "own words instead of their screens" ;;
   3)
-    info "this install is not at the default place (KOSMOS_HOME), so it counts as a test install and leaves"
-    info "the agent settings in your home alone; the installed Kosmos sets them up" ;;
+    info "this install is not at the default place (KOSMOS_HOME), so it leaves the Claude settings in your"
+    info "home alone; agents on it are read from their screens instead" ;;
   *)
     info "some agent settings could not carry the reporting hook (an unreadable settings"
     info "file is left alone on purpose); those agents stay readable the older way" ;;

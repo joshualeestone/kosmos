@@ -19,9 +19,11 @@ A source checkout or worktree has neither file two folders up from its engine.
 
 - `engine/installroot.js` (new):
   - `installRoot()` returns the install root or null. win32 asks `win32board.bundleRoot`; elsewhere it checks
-    `runtime/bin/node` and `app/server.js` two folders up.
+    `runtime/bin/node` and `app/server.js` two folders up, with that root being the default `~/.local/share/kosmos`
+    (by identity).
   - `leaveAlone(file)` returns why a write must be skipped, or null. It skips only when the board is not installed
-    and the file is in the real home: no sandbox, or a sandbox that is the home itself, and the file inside the home.
+    and the file is in the real home (as spelled or where links lead), unless the file really lies inside a sandbox
+    that is neither the home nor above it. A real-home file is skipped even while a sandbox elsewhere is set.
 - `install/setup.sh` (the hooks loop): skips a target `leaveAlone` names, so the installer's hooks and statusline
   follow one rule.
 - `engine/accounts.js` `prepare`: the report-hooks block is skipped under `leaveAlone`, and the result carries
