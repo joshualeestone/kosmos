@@ -51,3 +51,10 @@ Card: kosmos#6761, from a user feedback report (a project-manager agent, 2026-10
   no count check. Neighbours green: cli.task-list-state-5705, cli.task-webhook-1307, cli.task-who-4887, cli.gaps-4891,
   tools.windows-kosmos-cli-570, bundle.contents, engine.reachable, fixture-discipline, the two Windows audits.
 - The fingerprint half waits for #6724 (PR #6753) to merge: it changes the same Files views.
+- `kosmos task built ... --file` (both CLIs) now prints `Fingerprint sent: sha256:<hex> for <file>` under the mark's
+  sentence: whole, so a copy can be checked against it exactly (the list rows show a short form). Asserted in
+  server.builtsha-6330 (Mac) and tools.windows-kosmos-cli-570 (Windows, with a control that no --file prints none);
+  mutant (the line removed from both) red in both.
+- engine/filehash.js (background sha256 for Files rows, keyed by dev/ino/size/mtime/ctime, never on the request, a file
+  changed mid-read not cached, O_NOFOLLOW): engine/filehash-6761.test.js 5/5; mutants red (no before/after check; a
+  cache that ignores identity).
