@@ -73,3 +73,7 @@ Every setup.sh run in tools/test-install.sh was traced (HOME, KOSMOS_HOME, AGENT
 No BLOCKER, WARNING or CONVENTION.
 - [NIT] fixed: the plan still described the dropped port rule in "Finished looks like" and "Weakest premise".
 - Accepted residual, second spelling: a launch folder written `.../LaunchAgents/.` slips past the name match, as the symlink case does. No known caller.
+
+### The release install gate, and the rebase (05:55)
+- tools/test-install.sh on 58f2700846, bundles built with the 0.7.60 cut's release connector (KOSMOS_TUNNEL_BIN; the local dev one names a home folder, #6549): TMUX_BUILD_RC=0, KOSMOS_BUILD_RC=0, 415 passed, 0 failed, TEST_INSTALL_RC=0. (The 01:42 run, 391/1, used the dev connector and is not a result.)
+- Rebased onto origin/main bb6a41c899, clean. Install tests 342 pass; the six setup.sh shell tests pass.
