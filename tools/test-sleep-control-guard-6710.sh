@@ -11,6 +11,10 @@
 # (`sleep $((...))`) and variable (`sleep "$n"`) args, `exec -a NAME sleep` (renamed: no "sleep" at
 # runtime), comment lines, and any line carrying the author opt-out `# sleep-control-ok`.
 #
+# Known limitation: a sleep FOREGROUND inside a quoted sh -c/bash -c body that a WRAPPER then
+# backgrounds (e.g. `start sh -c "sleep 30; : marker"`, where the & is not on the sleep's line) is
+# not auto-detected; such a control needs the `# sleep-control-ok` opt-out or an allowlist entry.
+#
 # Like tools/test-precommit-pipe-lint-4911.sh, it has a must-FLAG battery and must-ACCEPT controls so
 # a matcher that cannot refuse, or one that refuses everything, turns this red.
 set -u
@@ -34,6 +38,7 @@ test-pause-foreign-board-964.sh       # #6730 (sleep 30 & foreign board)
 test-restart-local-board.sh           # #6730 (timed ( sleep 11 ) fixture)
 test-site-autodeploy-5589.sh          # #6730 (many sleep 300 &, some command-under-test)
 test-stopmark-6651.sh                 # #6730 (sleep 300 & live)
+test-running-anchor-5470.sh           # #6730 (sh -c \"sleep 30; : marker\" stand-ins, backgrounded by a wrapper; the matcher does not auto-detect a sleep foreground inside a quoted -c body, so this deferral is explicit)
 "
 allowlisted() {
   local entry tok
@@ -54,7 +59,7 @@ _is_sleep_control() {
   case "$trimmed" in '#'*) return 1 ;; esac                          # comment-only line
   # Cheap precondition (keeps this aligned with the pre-filter): some integer sleep on the line,
   # as a word (not --sleep, not displaysleep/FX_SLEEP).
-  printf '%s' "$line" | grep -Eq '(^|[^-[:alnum:]_./"])sleep[[:space:]]+[0-9]' || return 1
+  printf '%s' "$line" | grep -Eq '(^|[^-[:alnum:]_.])sleep[[:space:]]+[0-9]' || return 1
   # The persistent-CONTROL shapes. Each requires a COMPLETE integer >= 1 (`[1-9][0-9]*` not followed
   # by `.` or another digit), which is what excludes a fractional pause (sleep 0.1), a zero-duration
   # dead-pid fixture (sleep 0), an arithmetic length (sleep $((...))) and a variable arg (sleep "$n").
@@ -68,8 +73,8 @@ _is_sleep_control() {
   # elsewhere on the line. Two forms: a space before & (the common case; requiring the space is what
   # keeps the & inside `2>&1` from reading as a job-control &), and the no-space `sleep 30&` form
   # (whose digit-before-& can never be the `>&` of a redirection).
-  printf '%s' "$line" | grep -Eq 'sleep[[:space:]]+[1-9][0-9]*([[:space:]]+[0-9]*[<>][&]?[^[:space:]&]*)*[[:space:]]+&([^&]|$)' && return 0
-  printf '%s' "$line" | grep -Eq 'sleep[[:space:]]+[1-9][0-9]*&([^&]|$)' && return 0
+  printf '%s' "$line" | grep -Eq 'sleep[[:space:]]+[1-9][0-9]*([[:space:]]+[0-9]*[<>][[:space:]]*[&]?[^[:space:]&]*)*[[:space:]]+&([^&>]|$)' && return 0
+  printf '%s' "$line" | grep -Eq 'sleep[[:space:]]+[1-9][0-9]*&([^&>]|$)' && return 0
   return 1
 }
 
@@ -86,6 +91,9 @@ mustflag 'sleep 3600 </dev/null >/dev/null 2>&1 & SUITE=$!'       "a long backgr
 mustflag '  set -m; sleep 30 </dev/null >/dev/null 2>&1 & SPG=$!; set +m' "a backgrounded sleep under set -m"
 mustflag '( exec sleep 30 ) & p=$!; sleep 0.1'                     "a persistent control sharing a line with a fractional pause"
 mustflag 'sleep 30& p=$!'                                          "a no-space backgrounded sleep"
+mustflag 'bash -c "sleep 60 </dev/null >/dev/null 2>&1 & wait"'    "a backgrounded sleep inside a DOUBLE-quoted bash -c (sleep preceded by a quote)"
+mustflag '/bin/sleep 30 & p=$!'                                    "a /bin/sleep path (sleep preceded by a slash)"
+mustflag 'sleep 30 > "$f" &'                                       "a backgrounded sleep with a space-separated redirect target"
 
 # --- must-ACCEPT: legitimate shapes the matcher must NOT flag -------------------------------------
 mustok() { _is_sleep_control "$1" && bad "FALSE FLAG (should accept): $2 [$1]" || ok "accepts: $2"; }
@@ -105,6 +113,7 @@ mustok 'do sleep 5 </dev/null >/dev/null 2>&1; alive || exit 0; done' "an inline
 mustok 'sleep 5 && echo done'                                       "an inline sleep followed by && (not a backgrounding &)"
 mustok 'sleep 0 & DEAD=$!; wait "$DEAD"'                            "a zero-duration dead-pid fixture"
 mustok 'start_helper & sleep 0.1'                                  "a fractional pause on a line with an unrelated background job"
+mustok 'sleep 30 &>/dev/null'                                      "a foreground &> redirect (not a backgrounding &)"
 
 # --- the real scan: every tools/test-*.sh not allowlisted must carry no bare-sleep control --------
 scanned=0; clean=0
@@ -129,6 +138,17 @@ for f in "$HERE"/test-*.sh; do
   fi
 done
 ok "scanned $scanned non-allowlisted test-*.sh, $clean clean"
+
+# Each allowlist entry must name a file that still exists: a stale entry for a file that was
+# converted away, renamed or deleted would otherwise read as coverage forever. (We do not also
+# require it still carry a flagged line, because some allowlisted controls are shapes the matcher
+# deliberately does not auto-detect, e.g. the wrapper-backgrounded sh -c case.)
+while IFS= read -r al; do
+  alb="${al%%[[:space:]]*}"; [ -n "$alb" ] || continue
+  [ -f "$HERE/$alb" ] || bad "stale allowlist entry: tools/$alb is allowlisted but does not exist (converted/renamed/deleted?); drop the entry"
+done <<EOF
+$ALLOWLIST
+EOF
 
 # The four files #6710 converts MUST be in the scanned (non-allowlisted) set and clean.
 for g in test-cut-guard.sh test-light-side-4911.sh test-queued-heavy-4977.sh test-tunnel-handshake-gate.sh; do
