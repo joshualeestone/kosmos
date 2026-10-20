@@ -48,10 +48,10 @@ real fix.
   - It is byte-identical under the C, en_US and da_DK locales (code-point order; locale-aware sorting changed it under
     da_DK, found in review 1).
   - The control: rustls reads 0.23.43, the version that release shipped before the O05 fix (#457, 0.23.46).
-- **Against `cargo tree` (review 1, offline, locked):** none of its 189 macOS crates is missing. Of the 40 extras,
+- **Against `cargo tree` (review 1, offline, locked):** none of its 190 macOS crates (189 for aarch64, one more for x86_64: the connector is a universal binary, review 39) is missing. Of the 40 extras,
   26 are Windows-only or dev-only and 14 are optional dependencies of features the connector does not turn on (h2 and
   untrusted 0.7.1 among them). So a scan of this SBOM must treat an advisory on an extra crate as NOT shipped until it
-  checks the macOS build graph; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
+  checks the macOS build graph of both targets; the SBOM says so in its own metadata (a kosmos:cargo-closure property), not only in
   the source.
 - **`tools.sbom-o05.test.js`:** 55 arms. The command line is run END TO END (review 10): a copy of the tool in a temp
   folder, next to a stand-in engine/manifest-verify.js that pins a test key, signs and builds, and the file it writes
@@ -130,6 +130,9 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- (Review 39.) The .pkg installer (a separate signed artifact, with its own install/pkg-verify) is not in this SBOM.
+- (Review 39.) Release-key revocation: readSignedManifest trusts engine/manifest-verify.js KEYS only. Main is adding a
+  RECOVERY_KEYS list (empty today); when keys are revoked this tool must follow that list.
 - (Review 38.) The two real-Cargo arms skip where cargo cannot run, and the checksum arm also skips when itoa 1.0.18 is
   not in CARGO_HOME (a cold cache). Read "skipped 0" before trusting a pass.
 - (Review 38.) GIT_NO_LAZY_FETCH needs git 2.44 or later; an older git ignores it (this Mac has 2.53). The arms would
@@ -236,7 +239,8 @@ real fix.
   construction (the bundle build lists every file of the same stage it packs, and refuses anything that is not a plain
   file; on an update the installed copy also checks every file against it). The shipped runtime/bin/node is not tied to the nodejs.org hash here; the bundle build checks
   it against nodejs.org's SHASUMS256 before packing.
-- Of the shipped files, only app/package.json is tied by hash to an independent source (git). app/bin/kosmos-tunnel
+- Of the shipped files, only app/package.json is tied by hash to an independent source (git); the installer is tied too
+  (install/setup.sh at the app commit must hash to setup_sha256, review 39). app/bin/kosmos-tunnel
   and app/bin/kosmos-app agree with their manifest records, which the bundle build takes from the same files.
 - That the connector binary was built from the Cargo.lock at its recorded relay commit: the commit is the relay
   build's own record (its sidecar); this tool does not rebuild the connector to check it.
@@ -258,6 +262,6 @@ real fix.
 
 ## Weakest premise
 That the lockfile closure is an acceptable SBOM for the connector. It over-lists (Windows and test crates) rather than
-under-lists. A reviewer may prefer the exact macOS build graph (`cargo tree --target aarch64-apple-darwin -e normal,build`, 189 crates; `-e normal` alone drops build dependencies),
+under-lists. A reviewer may prefer the exact macOS build graph (`cargo tree -e normal,build` for both targets of the universal binary, 190 crates; `-e normal` alone drops build dependencies),
 and the tool now runs Cargo anyway (reviews 25 to 27); switching the crate list to that graph is a follow-up, not this
 change.
