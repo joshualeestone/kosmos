@@ -140,6 +140,10 @@ test('refused: JSON the relay refuses (bad UTF-8, a lone surrogate, a number out
   assert.equal(check(...signedBuf(withExtra(Buffer.from('"\\ud83d\\ude00"')))).ok, true, 'a surrogate pair');
   assert.equal(check(...signedBuf(withExtra(Buffer.from('1e300')))).ok, true, 'a finite large number');
   for (const lit of ['true', 'false', 'null']) assert.equal(check(...signedBuf(withExtra(Buffer.from(lit)))).ok, true, 'an unknown member that is ' + lit);
+  // Empty objects and arrays, and escaped quotes and backslashes in strings, are walked, not misread.
+  for (const extra of ['{}', '{"a": {}}', '[]', '[[], {}]', '"a\\"b"', '"a\\\\"', '"\\\\\\""']) {
+    assert.equal(check(...signedBuf(withExtra(Buffer.from(extra)))).ok, true, 'an unknown member ' + extra);
+  }
   // A member named seq INSIDE an entry, after the top-level seq, does not stand in for it.
   const reordered = '{"type": "kosmos-service-keys", "seq": 1, "issued": "2025-08-24", "service_keys": [{"kid": "_oEsEvOrTOY", "pub": "' + K7_PUB + '", "role": "current", "seq": "zz"}]}\n';
   assert.equal(check(...signed(reordered)).ok, true, 'a nested seq AFTER the top-level one');
