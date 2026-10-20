@@ -94,3 +94,8 @@ check after this change (it had one, P4, when the button was on the bar).
   name instead of by index. 2/2.
 - render-tophead-stable-2624 OK and render-plus-bar-3837 14/14 after the selector change.
 - Lesson recorded: a selector edit can complete ANOTHER rule's pinned anchor text; the web tests read index.html as text.
+
+## Validation 2 (on 89b4e9c7, tree untouched)
+- 22524 tests, 2 failed, both engine/create.test.js "the startup script, actually run ..." (26.9 s and 36.6 s):
+  load timeouts in code this branch does not touch (it changes only web/index.html, browser checks and one test).
+  Both pass run alone (2/2, load 18). AUDIT_RC 0. Validation 1's two real failures (mine) are fixed and stay green.
