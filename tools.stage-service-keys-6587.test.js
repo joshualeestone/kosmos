@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope');   // kosmos#4273: every temp folder this file makes is removed when it exits
 /**
  * kosmos#6587 (S-7a slice 2a): tools/lib/stage-service-keys.sh, which all three staging lists call, run for real against
  * a scratch repo: nothing to do without a set, a lone file refused, a set copied and then checked with the STAGED

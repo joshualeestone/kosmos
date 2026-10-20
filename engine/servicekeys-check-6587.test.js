@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope');   // kosmos#4273: every temp folder this file makes is removed when it exits
 /*
  * kosmos#6587 (S-7a slice 2a): engine/servicekeys-check.js says whether this computer's pinned coordinator key is on
  * the signed service key set shipped with this version. Built on the relay's published vectors (the same seeds,
