@@ -16464,7 +16464,8 @@ const server = http.createServer(async (req, res) => {
       const atMs = rep && rep.found === true ? Date.parse(rep.askedAt || rep.at || '') : NaN;
       const ageMs = Number.isFinite(atMs) ? Date.now() - atMs : null;
       const stale = !!(rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state)
-        && ageMs !== null && ageMs > selfreport.STALE_WAIT_MS);
+        && ageMs !== null && ageMs > selfreport.STALE_WAIT_MS
+        && !selfreport.untilDefers(rep, Date.now()));   // kosmos#6683: the same until rule as the reminder
       /* A no-report agent is a SUCCESSFUL read of "you have no state yet" -- 200,
          found:false -- never a refusal, so the CLI exits 0 on it. Only auth /
          server-fault paths above are non-2xx. */

@@ -9,6 +9,7 @@
  *  - its latest report (selfreport.read) is `blocked`, not written by Kosmos, and its waiting run began over
  *    STALE_WAIT_MS ago
  *    (selfreport.STALE_WAIT_MS, with the comparison `kosmos report show` uses);
+ *  - its `until` does not hold it back (selfreport.untilDefers, kosmos#6683: also report show's rule);
  *  - its card shows that report (stateReported, and the same state: the board's reconcile can set a report aside);
  *  - its card is ours, a Claude agent, not mid-turn (activeWhileWaiting: a later sweep tells it), and not a switched-off
  *    swarm.
@@ -88,21 +89,6 @@ function nudgeText(rep, ageMs) {
     + 'To see your card as the person sees it, run: kosmos report show';
 }
 
-/* kosmos#6683: when a report's `until` names a time, the time; null when it names something else. Only exact forms are
-   read (as status.quotaResetOf does): a whole ISO time with its Z, or a date, which counts to the end of that day (UTC).
-   Date.parse alone reads stray words and bare numbers as dates. */
-function untilTimeOf(until) {
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z$/.test(until)) {
-    const at = Date.parse(until);
-    return Number.isFinite(at) ? at : null;
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(until)) {
-    const at = Date.parse(until + 'T00:00:00Z');
-    return Number.isFinite(at) ? at + 24 * 3600 * 1000 : null;
-  }
-  return null;
-}
-
 function plan(card, rep, entry, now, remindedAt) {
   if (!card || !rep || rep.found !== true) return { act: 'none', because: 'no report' };
   if (rep.state !== REMINDED_STATE) return { act: 'none', because: 'its report is not ' + REMINDED_STATE };
@@ -117,15 +103,8 @@ function plan(card, rep, entry, now, remindedAt) {
   if (!Number.isFinite(at) || !Number.isFinite(now)) return { act: 'none', because: 'no readable time for its report' };
   // The comparison `kosmos report show` uses (the run's start, over STALE_WAIT_MS), so the two agree on which is stale.
   if (!(now - at > selfreport.STALE_WAIT_MS)) return { act: 'none', because: 'its report is not over a day old' };
-  /* kosmos#6683: a report that says until when is not re-raised at a fixed age. A time: not before it has passed. Any
-     other words ("the owner says", "Monday's release"): the agent named its own end, and the card shows it to the
-     person ("until ..."), so the age alone is no reason to ask again. */
-  const until = typeof rep.until === 'string' ? rep.until.trim() : '';
-  if (until) {
-    const when = untilTimeOf(until);
-    if (when === null) return { act: 'none', because: 'its report says until when (not a time), so no age re-raises it' };
-    if (now < when) return { act: 'none', because: 'its report stands until a time that has not come' };
-  }
+  // kosmos#6683: a report that says until when is held back by it (selfreport.untilDefers: one rule with report show).
+  if (selfreport.untilDefers(rep, now)) return { act: 'none', because: 'its report says until when, and that holds it back' };
   if (remindedAt === runOf(rep) || (entry && entry.forAt === runOf(rep) && entry.nudgedAt != null)) return { act: 'none', because: 'already reminded about this report' };
   if (entry && entry.forAt === runOf(rep) && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) {
     return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
@@ -248,4 +227,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { untilTimeOf /* kosmos#6683 */, plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, remindedFile, screenOpen, MAX_TRIES, REMINDED_STATE, PRUNE_MS };
+module.exports = { untilTimeOf: selfreport.untilTimeOf, plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, remindedFile, screenOpen, MAX_TRIES, REMINDED_STATE, PRUNE_MS };

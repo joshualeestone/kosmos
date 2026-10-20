@@ -45,6 +45,37 @@ const WAITING_ON_A_PERSON = Object.freeze(['blocked', 'needs_you']);
    waiting run began (askedAt below), or from the latest line when that is not known, which can only be shorter. */
 const STALE_WAIT_MS = 24 * 3600 * 1000;
 
+/* kosmos#6683: a waiting report's `until` (the agent's own "until when"), as one rule for everything that calls a
+   report stale (stalereport-nudge.plan, and `kosmos report show`), so the two never disagree.
+   untilTimeOf: the time `until` names, or null. Only exact forms (as status.quotaResetOf): an ISO time with its Z, or a
+   date, counted to the end of that day (UTC). Date.parse alone reads stray words and bare numbers as dates.
+   untilDefers: whether `until` holds the report back from being stale at `now`:
+   - a time it reads: until that time has passed;
+   - plain words with no digit ("the owner says", "the release"): always, since the agent named its own end and the
+     person sees it on the card;
+   - anything with a digit it cannot read ("2026-10-20 09:30", "10/20", an ISO time with an offset): never, so a
+     deadline written in a form it does not know falls back to the age rule rather than switching the reminder off
+     (review 1). */
+function untilTimeOf(until) {
+  if (typeof until !== 'string') return null;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z$/.test(until)) {
+    const at = Date.parse(until);
+    return Number.isFinite(at) ? at : null;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(until)) {
+    const at = Date.parse(until + 'T00:00:00Z');
+    return Number.isFinite(at) ? at + 24 * 3600 * 1000 : null;
+  }
+  return null;
+}
+function untilDefers(rep, now) {
+  const until = rep && typeof rep.until === 'string' ? rep.until.trim() : '';
+  if (!until) return false;
+  const when = untilTimeOf(until);
+  if (when !== null) return now < when;
+  return !/\d/.test(until);
+}
+
 const DIR = path.join(store.ROOT, 'selfreports');
 
 /* The reader's window. 64KB holds hundreds of transitions; anything older
@@ -646,5 +677,5 @@ function blockedOwnerNote(state, owner, opts) {
   return isPerson ? BLOCKED_PERSON_NOTE : '';
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, DIR, NO_READING, TAIL_BYTES, HISTORY_MAX_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean, finalOf,
+module.exports = { STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, untilTimeOf, untilDefers /* kosmos#6683 */, DIR, NO_READING, TAIL_BYTES, HISTORY_MAX_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean, finalOf,
   blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE };
