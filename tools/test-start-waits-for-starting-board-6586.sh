@@ -108,10 +108,14 @@ OLD="$(victim)"; N=0; printf '%s' "$OLD" > "$PIDFILE"; race="$( ( cmd_start ) 2>
 end_board "$OLD"; OLD=""
 case "$ctl|$race" in *"Kosmos is running at"*"rc=0|"*"exited while starting."*"Kosmos is running at"*"rc=0") ok "a replacement recorded after an exit gets its own wait, as at the first look" ;;
   *) bad "relaunch race: control '$ctl' race '$race'" ;; esac
-# The looks are counted inside the subshell cmd_start dies in (the parent's N never moves). One wait for the one board:
-# the first look, its 31, and the second pass's.
-ANS=1000; printf '%s' "$LIVE_PID" > "$PIDFILE"; looks="$( ( N=0; trap 'echo "$N"' EXIT; cmd_start >/dev/null 2>&1 ) )"
-[ "$looks" = 33 ] && ok "a board that never answers gets one wait, then the stuck refusal ($looks looks)" || bad "looks for a silent board: '$looks'"
+# The looks are counted in a file: cmd_start dies in a subshell, so the parent's N never moves, and a count that rests
+# on how that subshell ends (an EXIT trap) once came back empty in the full suite on Mortals, never alone. One wait
+# for the one board: the first look, its 31, and the second pass's. On a mismatch, the start's own words are shown.
+LOOKS="$SANDBOX/looks"; : > "$LOOKS"
+healthy() { echo look >> "$LOOKS"; HEALTH_STATE=down; return 1; }
+printf '%s' "$LIVE_PID" > "$PIDFILE"; said="$( ( cmd_start ) 2>&1; echo "rc=$?" )"; looks="$(wc -l < "$LOOKS" | tr -d ' ')"
+case "$looks|$said" in "33|"*"is not answering on port"*"rc=1") ok "a board that never answers gets one wait, then the stuck refusal ($looks looks)" ;;
+  *) bad "a silent board: $looks looks, and the start said: $said" ;; esac
 
 # The cap: a board replaced again and again gets two waits, then the stuck refusal (not a wait per replacement).
 SLEEPERS=""; for _i in 1 2 3 4; do SLEEPERS="$SLEEPERS $(victim)"; done

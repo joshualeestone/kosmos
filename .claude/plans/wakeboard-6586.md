@@ -71,3 +71,10 @@
     matches the first look's verdict exactly, but in the card's own case (setup.sh's put-back while launchd brings the
     new board up) it would reclaim, that is kill, a freshly relaunched board that is only booting. Weakest premise:
     that a booting board answers busy rather than down for most of its boot; if it reads down, the cost is moot.
+- Iteration 8: NO NEW FINDINGS (converged at 563f6d6f).
+- Mortals full suite at 563f6d6f: 22342 node tests, 0 failed, but one shell assertion of this card's own test failed:
+  the silent board's look count came back empty (''). It read the count from an EXIT trap inside the subshell
+  cmd_start dies in. NOT reproduced: alone on Mortals 20 of 20 green and 8 in parallel green, at home 10 of 10 green
+  with the runner's environment and through shell-shard's own `sh -c` spawn. The cause is unknown. The count now
+  rests on a file each look appends to, which does not depend on how the subshell ends, and a mismatch prints the
+  start's own words, so a recurrence explains itself. Mutant (29 looks) red with that output.
