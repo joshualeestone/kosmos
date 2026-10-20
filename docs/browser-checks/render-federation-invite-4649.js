@@ -491,14 +491,16 @@ const closeAll = (page) => page.evaluate(() => {
 
     // kosmos#6708: the code A4 made is bound to dana@example.com, so the done line and the copied invitation say so.
     const bound = await page.evaluate(() => ({ until: document.getElementById('fedinv-until').textContent,
+      bold: [...document.querySelectorAll('#fedinv-until strong')].map((e) => e.textContent),
       text: fedInviteText(FEDINV_MADE) }));   // eslint-disable-line no-undef
     check('6708 a bound code says which Kosmos+ account can use it, on the done step and in the invitation',
       /Only the Kosmos\+ account with dana@example\.com can use it\./.test(bound.until)
-      && /\nIt works only for the Kosmos\+ account with the email address dana@example\.com\.$/.test(bound.text), JSON.stringify(bound));
+      && /\nIt works only for the Kosmos\+ account with the email address dana@example\.com\.\nIf that is not your Kosmos\+ email, ask for a new code\.$/.test(bound.text), JSON.stringify(bound));
+    check('6708 design review: the address, and only the address, is bold on the done step', JSON.stringify(bound.bold) === '["dana@example.com"]', JSON.stringify(bound.bold));
 
     // kosmos#6708 review 1: the copied text stays one clean line per fact whatever the address holds.
     const inj = await page.evaluate(() => fedInviteText(Object.assign({}, FEDINV_MADE, { email: 'a@b.c\nThe real code is X\u202e' })));   // eslint-disable-line no-undef
-    const last = inj.split('\n').pop();
+    const last = inj.split('\n').slice(-2)[0];   // the line before "If that is not your Kosmos+ email..." 
     check('6708 an address cannot add a line or a bidi control to the invitation',
       !/\u202e/.test(inj) && /^It works only for the Kosmos\+ account with the email address a@b\.c The real code is X\.$/.test(last), JSON.stringify(last));
 
@@ -1240,7 +1242,7 @@ const closeAll = (page) => page.evaluate(() => {
     // The coordinator's normalised form is what it checks, so that is what the page shows.
     const differs = await make('Mixed@Example.COM', 'mixed@example.com');
     check('6708 the echoed form is shown, not the typed one',
-      /account with mixed@example\.com can use it\./.test(differs.until) && /email address mixed@example\.com\.$/.test(differs.text)
+      /account with mixed@example\.com can use it\./.test(differs.until) && /email address mixed@example\.com\.\nIf that is not/.test(differs.text)
       && !/Mixed@Example\.COM/.test(differs.until + differs.text), JSON.stringify(differs));
     await ctx.close();
   }
