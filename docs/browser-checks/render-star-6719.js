@@ -163,7 +163,7 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       await page.locator('#grid [data-star="eve"]').click();
       await page.waitForFunction(() => window.STAR_PUTS.length === 6);
       // CONTROL: a click elsewhere on that card does answer, so the arm above can fail.
-      await page.locator('#grid .acard[data-agent="eve"] .ameta').click();
+      await page.locator('#grid .acard[data-agent="eve"] .agauge').click();   // the avatar: always drawn, never empty
       await page.waitForTimeout(50);
       chk(JSON.stringify(await page.evaluate(() => window.ANSWERED)) === JSON.stringify(['eve']), `${t} CONTROL: a click elsewhere on that card answers`, JSON.stringify(await page.evaluate(() => window.ANSWERED)));
 
