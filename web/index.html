@@ -425,11 +425,15 @@ header > .headleft  { justify-self: start; }
 header > .tabs      { justify-self: center; }
 header > .headright { justify-self: end; }
 .headright { display: flex; align-items: baseline; gap: var(--space-5); }
-/* kosmos#6721: small and quiet; it says a moment's wait, not an outage. */
-.hdr-reconnect { font-size: .8125rem; color: var(--k-ink-2); white-space: nowrap; }
-/* Empty, it stays in the page (a live region must exist to be announced) but cancels its own flex gap, so the header's
-   right controls sit exactly where they did before it existed. */
-.hdr-reconnect:empty { margin-inline-end: calc(-1 * var(--space-5)); }
+/* kosmos#6721: small and quiet; it says a moment's wait, not an outage. OUT of the flow (absolute, just left of the
+   right controls), so it takes no flex gap and moves nothing when it comes and goes; it stays in the page, empty, as
+   a live region must to be announced. (Review 3: an in-flow span, even empty, took the row's 14px .appright gap.) */
+.headright { position: relative; }
+.hdr-reconnect { position: absolute; right: calc(100% + 14px); top: 50%; transform: translateY(-50%);
+  font-size: .8125rem; color: var(--k-ink-2); white-space: nowrap; pointer-events: none; }
+/* At phone widths the header's left side reaches under where it would sit (measured: it overlaps at 320-430px), so it
+   is not drawn there; a phone still gets the rule that matters, the full card only after two unanswered polls. */
+@media (max-width: 40rem) { .hdr-reconnect { display: none; } }
 h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* The pack's stamp: an uppercase chrome label over a promoted bold line.
    The stale/failed variants are the app's honest extras (the pack draws
@@ -1563,6 +1567,9 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote .kplus-bar-menu svg { display: block; }
   html.kremote .apphead header .kmark, html.kremote .apphead header .klink, html.kremote .apphead header .worldsw, html.kremote .apphead header .userpop,
   html.kremote .apphead header .burger, html.kremote .apphead .tabs { display: none; }
+  /* kosmos#6721: the phone header row is meant to be empty under the navy bar; Reconnecting would add a line there. The
+     phone still gets the rule that matters: the full card only after two unanswered polls. */
+  html.kremote .apphead .hdr-reconnect { display: none; }
   /* With those gone the header row holds only notices, which are empty on a quiet board: no gap, no padding, no rule,
      so the navy bar is the whole header (the mock). */
   html.kremote .apphead { border-bottom: 0; }

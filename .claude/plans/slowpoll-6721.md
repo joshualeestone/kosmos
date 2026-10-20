@@ -59,3 +59,13 @@ design). The slow log records what the board answered slowly; it cannot see a re
 - NIT: the restart skip was untested. FIXED: a test with ENGINE_RESTARTING (no Reconnecting, no note on the first miss).
 - NITs not changed: the default-limit test reads source text; safeLogUrl covers /hooks only (as gateLog; no other route
   carries a secret in its path today); the deviceOffline exemption is untested in the lifted harness (navigator).
+
+## Round 3 (opus, measured with Playwright from file://): no blocker, 2 warnings, 1 nit
+- WARNING: the :empty negative margin cancelled 12px of the row's real 14px gap (.appright overrides .headright); the
+  controls did not move only by alignment luck, and the comment was wrong. FIXED differently: the span is OUT of the
+  flow (absolute, just left of the right controls; .headright is the containing block), so it takes no gap at all.
+  MEASURED: #userpop's left edge and the header height are identical with the span empty, shown and removed, at 1440
+  (tabs and consolidated), 800 and 375.
+- WARNING: on a phone through Kosmos+ it added a 16px line to a header row meant to be empty. FIXED: hidden there.
+- NIT -> FIXED: at phone widths it overlapped the header's left side (measured 320-430px). Hidden at max-width 40rem
+  (the board's phone width); measured no overlap at 641-1024px. A phone keeps the two-miss rule, just not the word.
