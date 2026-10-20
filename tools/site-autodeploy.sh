@@ -545,6 +545,12 @@ if [ "$rc" = 75 ]; then
   say "retry: the live site moved or could not be read during the deploy of ${TARGET:0:9} ($n in a row); the next tick tries again"
   exit 0
 fi
+# 77: deploy-site.sh says Vercel refused this machine's authorization (kosmos#6771): a token to make or replace, not a
+# finding about this sha. Not counted and NOT parked, so a new token is the whole fix; red once a day, on no sha.
+if [ "$rc" = 77 ]; then
+  accounted=1
+  TARGET="" red_once vercelauth "FAIL: Vercel refused this machine's authorization for the deploy (deploy-site.sh exit 77; its own line above says whether a token was given). Make a scoped token for the chaoskosmos-site project and file it as vercel-chaoskosmos-site (kosmos#6771); nothing counted, not parked"
+fi
 printf '%s rc=%s %s\n' "$TARGET" "$rc" "$(now)" > "$STATE/last-failure"
 n=$(( $(count_for "$STATE/failures") + 1 )); echo "$TARGET $n" > "$STATE/failures"; accounted=1
 if [ "$n" -ge 2 ]; then

@@ -114,8 +114,9 @@ CURL
 chmod +x "$BIN/curl"
 cat > "$BIN/vercel" <<'VERCEL'
 #!/bin/bash
-# kosmos#6771: VERCEL_REFUSE=1 answers as the CLI does when its sign-in or token is refused.
+# kosmos#6771: VERCEL_REFUSE=auth answers as the CLI does when its sign-in or token is refused; =other fails otherwise.
 [ "${VERCEL_REFUSE:-}" = auth ] && { echo "Deploying chaoskosmos"; echo "Error: Not authorized" >&2; exit 7; }
+[ "${VERCEL_REFUSE:-}" = colour ] && { printf '\033[31mError:\033[39m Not authorized\n' >&2; exit 7; }
 [ "${VERCEL_REFUSE:-}" = other ] && { echo "Deploying chaoskosmos"; echo "Error: The deployment exceeded the size limit" >&2; exit 5; }
 # `vercel deploy --prod --yes` runs with the EXPORT as cwd. Publish it into LIVE (additive copy is
 # enough to run the served-verify honestly).
@@ -240,20 +241,28 @@ fi
 # only "Not authorized", which is still shown.
 read -r S5 L5 <<<"$(make_publish_scenario ok)"
 VERCEL_REFUSE=auth run_deploy "$S5" "$L5" --publish
-if [ "$RC" = 1 ] && has "$out" "Error: Not authorized" && has "$out" "no VERCEL_TOKEN was given" && has "$out" "vercel-chaoskosmos-site" && has "$out" "vercel deploy --prod failed (rc 7)"; then
-  pass "B5: a refused deploy with no token: rc 1, the CLI's own line kept, its own code (7) reported, the missing token named"
+if [ "$RC" = 77 ] && has "$out" "Error: Not authorized" && has "$out" "no VERCEL_TOKEN was given" && has "$out" "vercel-chaoskosmos-site" && has "$out" "refused (rc 7): exiting 77"; then
+  pass "B5: a refused deploy with no token: exit 77, the CLI's own line kept, its own code (7) reported, the missing token named"
 else
   bad "B5: a refused deploy with no token (rc=$RC); out=$out"
 fi
 # B6) the same refusal with a token given says the TOKEN was refused (and never prints it).
 read -r S6 L6 <<<"$(make_publish_scenario ok)"
 VERCEL_TOKEN=tok-6771-not-printed VERCEL_REFUSE=auth run_deploy "$S6" "$L6" --publish
-if [ "$RC" = 1 ] && has "$out" "REFUSED the token in VERCEL_TOKEN" && ! has "$out" "tok-6771-not-printed"; then
-  pass "B6: a refused deploy with a token: rc 1, says the token was refused, and does not print it"
+if [ "$RC" = 77 ] && has "$out" "REFUSED the token in VERCEL_TOKEN" && has "$out" "wins over the map" && ! has "$out" "tok-6771-not-printed"; then
+  pass "B6: a refused deploy with a token: exit 77, says the token was refused and that an inherited one wins, and deploy-site's own lines do not print it"
 else
   bad "B6: a refused deploy with a token (rc=$RC); out=$out"
 fi
 
+# B5c) the same refusal with the CLI's colour codes on its line is still recognised.
+read -r S8 L8 <<<"$(make_publish_scenario ok)"
+VERCEL_REFUSE=colour run_deploy "$S8" "$L8" --publish
+if [ "$RC" = 77 ] && has "$out" "no VERCEL_TOKEN was given"; then
+  pass "B5c: a coloured 'Error: Not authorized' is still read as the refusal (exit 77)"
+else
+  bad "B5c: a coloured refusal (rc=$RC); out=$out"
+fi
 # B7) a failure that is NOT an authorization refusal says only that the deploy failed, with its code: no token words.
 read -r S7 L7 <<<"$(make_publish_scenario ok)"
 VERCEL_REFUSE=other run_deploy "$S7" "$L7" --publish

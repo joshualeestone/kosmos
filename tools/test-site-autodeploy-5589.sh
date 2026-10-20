@@ -537,6 +537,16 @@ H6771d=$(advance six-seven-seven-one-d)
 ( unset VERCEL_TOKEN GITHUB_ACTIONS; SEC_TOKEN=do-not-print KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; printf '%s' "$OUT" > "$T/out7" )
 ! grep -q 'do-not-print' "$T/out7" && pass "6771: outside Actions the token is never printed" || bad "6771 token printed outside Actions"
 
+# deploy-site.sh's exit 77 (Vercel refused the authorization) is red once, never counted, never parked, so a new token
+# deploys on the next tick.
+H6771e=$(advance six-seven-seven-one-e); rm -rf "$ST/reported.d"; rm -f "$ST/failures" "$ST/parked"
+KOSMOS_AUTODEPLOY_DEPLOY='exit 77' tick; r77a=$RC; o77a=$OUT
+KOSMOS_AUTODEPLOY_DEPLOY='exit 77' tick; r77b=$RC; o77b=$OUT
+{ [ "$r77a" = 1 ] && printf '%s' "$o77a" | grep -q "Vercel refused this machine's authorization" && [ "$r77b" = 0 ] && printf '%s' "$o77b" | grep -q "STILL FAILING (reported): Vercel refused" && [ ! -e "$ST/parked" ] && [ ! -s "$ST/failures" ]; } \
+  && pass "6771: exit 77 twice: red once, then STILL FAILING, no failure counted, not parked" || bad "6771 exit 77 (r=$r77a/$r77b, parked=$(cat "$ST/parked" 2>/dev/null), failures=$(cat "$ST/failures" 2>/dev/null)): $o77b"
+tick
+[ "$RC" = 0 ] && [ "$(cat "$ST/last-deployed")" = "$H6771e" ] && pass "6771: after the refusals, the next tick with a working deploy deploys (nothing parked it)" || bad "6771 after 77 (rc=$RC): $OUT"
+
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
 { [ "$RC" = 2 ] && [ "$(ndeploys)" = "$nfinal" ]; } && pass "no KOSMOS_AUTODEPLOY_SITE: exit 2, nothing deployed" || bad "unset site (rc=$RC)"

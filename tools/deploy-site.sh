@@ -194,6 +194,7 @@ _fetch_cleanup() {
   _FETCH_TMP_A=""; _FETCH_TMP_S=""; _FETCH_TMP_P=""
 }
 # Every exit path removes a temp in flight: the refusals below remove it explicitly, and these
+# (this trap also removes the deploy step's output and code files, VOUT and VRC, kosmos#6771)
 # traps cover an interrupt or an unexpected set -e abort mid-fetch.
 trap '_fetch_cleanup' EXIT
 trap '_fetch_cleanup; exit 130' INT
@@ -850,17 +851,23 @@ case "$LIVE_PTRS_NOW" in *" 000 "*) echo "deploy-site: could not re-read the liv
 VOUT=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel.XXXXXX") && VRC=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel-rc.XXXXXX") \
   || { echo "deploy-site: could not make temp files for the deploy's output"; rm -rf "$EXPORT"; exit 1; }
 vercel_deploy_rc() { ( cd "$EXPORT" && vercel deploy --prod --yes ) && echo 0 > "$VRC" || echo $? > "$VRC"; }
-vercel_deploy_rc 2>&1 | tee "$VOUT"
+# A person at a terminal gets the CLI exactly as before (its own progress display and prompts); only a run whose
+# output is not a terminal (the autodeploy, a cut's step 8 over ssh) goes through tee, so its refusal can be read.
+if [ -t 1 ]; then vercel_deploy_rc; : > "$VOUT"; else vercel_deploy_rc 2>&1 | tee "$VOUT"; fi
 vrc=$(cat "$VRC"); rm -f "$VRC"
 case "$vrc" in ''|*[!0-9]*) vrc=1 ;; esac   # no code written is a failure, never a pass
 if [ "$vrc" != 0 ]; then
-  # Only the CLI's own error lines, so a build line that happens to say "not authorized" is not read as one.
-  if grep -qiE '^Error: .*(not authorized|token .*is not valid|no existing credentials found)' "$VOUT"; then
+  # Only the CLI's own error lines (colour codes removed first), so a build line that happens to say "not authorized"
+  # is not read as one. Exit 77 (EX_NOPERM) for that refusal, so the autodeploy can tell it from a failed deploy and
+  # not park the site on it: a new token is then the whole fix.
+  _esc=$(printf '\033')
+  if sed "s/${_esc}\[[0-9;]*m//g" "$VOUT" | grep -qiE '^Error: .*(not authorized|token .*is not valid|no existing credentials found)'; then
     if [ -n "${VERCEL_TOKEN:-}" ]; then
-      echo "deploy-site: Vercel REFUSED the token in VERCEL_TOKEN (expired, revoked, or not for this project). Make a new scoped token for the chaoskosmos-site project and file it again (kosmos#6771). Nothing was deployed."
+      echo "deploy-site: Vercel REFUSED the token in VERCEL_TOKEN (expired, revoked, or not for this project). Make a new scoped token for the chaoskosmos-site project and file it again for the secrets target vercel-chaoskosmos-site; a VERCEL_TOKEN set in this job's environment wins over the map, so check that first (kosmos#6771). The CLI refused before deploying."
     else
-      echo "deploy-site: the Vercel CLI on this machine is not signed in for this project, and no VERCEL_TOKEN was given. On the autodeploy box: file a scoped project token for the secrets target vercel-chaoskosmos-site (kosmos#6771). Elsewhere: sign the CLI in. Nothing was deployed."
+      echo "deploy-site: the Vercel CLI on this machine is not signed in for this project, and no VERCEL_TOKEN was given. On the autodeploy box: file a scoped project token for the secrets target vercel-chaoskosmos-site (kosmos#6771). Elsewhere: sign the CLI in. The CLI refused before deploying."
     fi
+    rm -f "$VOUT"; echo "deploy-site: vercel deploy --prod refused (rc $vrc): exiting 77"; rm -rf "$EXPORT"; exit 77
   fi
   rm -f "$VOUT"; echo "deploy-site: vercel deploy --prod failed (rc $vrc)"; rm -rf "$EXPORT"; exit 1
 fi
