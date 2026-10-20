@@ -10277,6 +10277,8 @@ html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #a
 #fedinv-modal .rm-title { font: 600 var(--text-title-1) var(--font-ui); color: var(--label); margin: 0 0 var(--space-5); }
 #fedinv-modal p.fhint { font: var(--text-callout) var(--font-ui); color: var(--label-3); line-height: inherit; margin-bottom: var(--space-4); }
 #fedinv-modal p.fmsg { font: var(--text-callout) var(--font-ui); color: var(--label-2); line-height: inherit; margin-bottom: 0; }
+/* kosmos#6707 (Mona Lisa, the #6681 design review): both of the sheet's text fields are a 44 px tap target on phones. */
+@media (max-width: 40rem) { #fedinv-label, #fedinv-email { min-height: 44px; } }
 #fedinv-modal p.rm-small { font: var(--text-callout) var(--font-ui); color: var(--label-2); line-height: 1.45; margin-bottom: var(--space-8); }
 #fedinv-modal p.fedinv-josh { margin-bottom: var(--space-4); }
 /* kosmos#4649 slice C (Mona's NIT 4): shot 02 has no hairline between the title and the first question or
