@@ -21,7 +21,7 @@ Add a top-level `env: AGENT_WORKFORCE_CREATED_URL: http://127.0.0.1:9/api/create
   (`node tools/windows-tests.js` + spawned children), and `browser-checks*.yml`.
 - For a board started as a **systemd service**, the unit does not inherit the step
   env, but `engine/linuxboard.js` reads `AGENT_WORKFORCE_CREATED_URL` from its own
-  env at unit-creation time (`:88`) and injects it into the unit (`:107`). So the
+  env at unit-creation time (`:140`) and injects it into the unit (`:159`). So the
   top-level env reaches the live systemd boards in `linux-systemd.yml`
   (`linuxboard.installBoard`, via `test-linux-systemd-live-4918.sh`) and in
   `test-linux-setup-4920.yml`.
@@ -68,7 +68,7 @@ Add a top-level `env: AGENT_WORKFORCE_CREATED_URL: http://127.0.0.1:9/api/create
 ## Measured: no CI job boots a launchd or win32 SERVICE board outside node --test
 
 A top-level env reaches a service board only where the unit is written from the inherited
-env (the systemd path, via `engine/linuxboard.js:107`). So the claim that CI is fully
+env (the systemd path, via `engine/linuxboard.js:159`). So the claim that CI is fully
 covered rests on CI never starting a macOS-launchd or Windows-win32 SERVICE board outside
 `node --test`. Searched and measured:
 
@@ -88,7 +88,7 @@ covered rests on CI never starting a macOS-launchd or Windows-win32 SERVICE boar
 - `browser-checks.yml` / `browser-checks-full.yml`: `tools/browser-checks.sh:85` exports the
   dead URL; the boards are foreground Playwright boards (inherit env), not services.
 - `linux-systemd.yml` / `test-linux-setup-4920.yml`: the only real OS-service boards in CI
-  (systemd), covered by `linuxboard.js:107` injecting the inherited top-level env into the
+  (systemd), covered by `linuxboard.js:159` injecting the inherited top-level env into the
   unit; test-linux-setup asserts the unit and the running board carry it. Its old-0.7.27
   update path uses a pre-systemd setup.sh whose unit cannot carry the var, so that step
   injects the dead address into the old unit with `sed` BEFORE `systemctl --user start`
@@ -111,7 +111,7 @@ above. `grep` for `launchctl`/`sc.exe`/`schtasks` across the workflows returns n
 
 A dead address set in a PARENT environment does not carry into a macOS launchd or Windows
 win32 SERVICE board, because those boards get a fresh environment from their own
-plist/scheduled-task definition. `engine/linuxboard.js:107` injects
+plist/scheduled-task definition. `engine/linuxboard.js:159` injects
 `AGENT_WORKFORCE_CREATED_URL` into the systemd unit from the installer's env; the macOS
 board LaunchAgent writer in `install/setup.sh` (the RunAtLoad/KeepAlive /
 ProgramArguments `kosmos board-run` plist, ~setup.sh:5403) and the Windows board in
@@ -120,9 +120,9 @@ boots those service boards outside node --test / the sandbox, per the measured s
 above), but it means a real macOS or Windows USER install's board is not covered by a
 parent-env dead address the way Linux is. Real user installs must still count; the gap is
 only that the parent-env value does not reach these two service boards. Fixing it means the
-installer-side injection (symmetric with `linuxboard.js:107`), which is installer code and
+installer-side injection (symmetric with `linuxboard.js:159`), which is installer code and
 out of scope for this CI-ping card. Anchors for the follow-up: `install/setup.sh` board
-plist writer (~:5403), `engine/win32board.js`, model `engine/linuxboard.js:107`.
+plist writer (~:5403), `engine/win32board.js`, model `engine/linuxboard.js:159`.
 
 ## Reviewer
 
