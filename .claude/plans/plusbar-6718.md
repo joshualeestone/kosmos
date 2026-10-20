@@ -82,3 +82,15 @@ check after this change (it had one, P4, when the button was on the bar).
 ## Review round 4 (blind, sonnet): converged
 - No new issues found. [NIT] the consolidated .kplus-bar margin rule now touches only the phone bar (harmless);
   [NIT] spacing above #plus-logout-row is not asserted (P4/P4b assert it is last and shown). Neither changed.
+
+## Validation 1 (on e38ad69b, tree untouched): 22524 tests, 2 FAILED, both mine (source pins on lines this branch changed)
+- web.rhythm-1303a "item 1: the grey band is gone": it pins the anchor `body.consolidated > .apphead header {` to ONE
+  rule. Taking `.kplus-bar` out of the #5379 selector list left that rule ending in exactly that text, so it matched
+  twice. FIXED: the #5379 rule says `.apphead > header`, the same element (the page's one header is a direct child of
+  .apphead) with the same specificity. 6/6 (run from the repo root; the test reads web/index.html by a relative path).
+- browser-checks-gutter-yardstick #3973: it pinned the root-gutter measurement in render-plus-bar-3837, which the
+  rewrite removed with the desktop bar's edge-to-edge check. FIXED: that check leaves the list (the bar is not drawn
+  at desktop widths; the phone bar's fit was measured unobservable in review 3), and the #4213 arm picks its file by
+  name instead of by index. 2/2.
+- render-tophead-stable-2624 OK and render-plus-bar-3837 14/14 after the selector change.
+- Lesson recorded: a selector edit can complete ANOTHER rule's pinned anchor text; the web tests read index.html as text.

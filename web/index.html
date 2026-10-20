@@ -3508,7 +3508,9 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      header jumped on every flip. Consolidated pads its inner header (it carries the background and bottom rule) by the
      same width less what the page gives up. (It padded the Kosmos+ bar too, until kosmos#6718 took the bar off wide
      screens.) */
-  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header {
+  /* `> header` (the one header, a direct child): the same element as a descendant match, written so this rule does not
+     repeat the anchor text web.rhythm-1303a pins to the rule near the 'grey band' fix (kosmos#6718 validation). */
+  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead > header {
     padding-right: max(var(--space-8), calc(var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   /* #5379: with consolidated chosen, the whole-page tabs (Settings and the rest: body is not .consolidated there) reserve
      no gutter either, so they take this rule too and their header ends where Agents and Projects' does. */
