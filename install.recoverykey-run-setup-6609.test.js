@@ -85,9 +85,9 @@ test('on: no list served is no update (a retry can succeed), and nothing runs', 
   assert.match(r.err, /the release key list could not be downloaded/);
 });
 
-test('on: a list not signed by the recovery key is refused, and nothing runs', () => {
+test('on: a list that does not verify is not run and is RETRIED (96): a torn pair looks the same (review 1)', () => {
   const r = runSetup(home('1.2.0'), host('1.2.3', { listBy: OTHER }), '1.2.3');
-  assert.equal(r.code, NOT_RUN, r.err);
+  assert.equal(r.code, NOT_FETCHED, r.err);
   assert.equal(r.ran, false);
   assert.match(r.err, /not signed by the Kosmos recovery key/);
 });
@@ -119,4 +119,32 @@ test('off (as shipped): no list is fetched, a missing or bad one changes nothing
     assert.deepEqual(recorded(h), [], 'off writes no record');
   }
   assert.match(VERIFIER, /const RECOVERY_KEYS = Object\.freeze\(\[\]\);/, 'CONTROL: the shipped copy is off');
+});
+
+test('on: a torn pair (the list from one publish, the signature from another) is retried, not refused', () => {
+  const hst = host('1.2.3', { list: { seq: 2, keys: [RELEASE.pub] } });
+  const older = host('1.2.3', { list: { seq: 1, keys: [RELEASE.pub] } });
+  fs.copyFileSync(path.join(older.dist, 'release-keys.json.sig'), path.join(hst.dist, 'release-keys.json.sig'));
+  const r = runSetup(home('1.2.0'), hst, '1.2.3');
+  assert.equal(r.code, NOT_FETCHED, r.err);
+  assert.equal(r.ran, false);
+});
+
+test('on: over https both list downloads carry one fresh query, and file:// carries none', () => {
+  const h = home('1.2.0');
+  const mv = require(path.join(h, 'app', 'engine', 'manifest-verify.js'));
+  const urls = (base) => {
+    const seen = [];
+    // A curl that "downloads" empty files: the list and its signature are both asked for, then the empty list fails to
+    // verify, so nothing else is fetched and nothing runs.
+    mv.runSetup({ setupUrl: base + '/setup', base, version: '1.2.3', home: h, spawnSync: (cmd, args) => { seen.push(args[args.length - 3]); fs.writeFileSync(args[args.length - 1], ''); return { status: 0 }; } });
+    return seen;
+  };
+  const web = urls('https://example.test/dist');
+  assert.match(web[0], /^https:\/\/example\.test\/dist\/release-keys\.json\?r=[0-9a-f]{16}$/, 'the list is asked for first: ' + web.join(' '));
+  assert.equal(web[1], web[0].replace('release-keys.json?', 'release-keys.json.sig?'), 'the signature with the same query');
+  assert.equal(web.length, 2, 'nothing else is fetched once the list fails');
+  const again = urls('https://example.test/dist');
+  assert.notEqual(again[0], web[0], 'a retry asks with a new query');
+  assert.deepEqual(urls('file:///tmp/dist'), ['file:///tmp/dist/release-keys.json', 'file:///tmp/dist/release-keys.json.sig']);
 });
