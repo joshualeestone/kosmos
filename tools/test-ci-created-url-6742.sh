@@ -22,6 +22,16 @@
 # that sets the var to a DIFFERENT value (which would shadow the top-level one for that
 # job/step and let the ping out again). Part B proves it reds on exactly those shapes.
 #
+# WHAT THIS DOES NOT CHECK. It inspects the DECLARED env (the top-level env: and every
+# job/step env: mapping), NOT `run:` script bodies. A step that re-sets the var at runtime
+# to a different value (`echo "AGENT_WORKFORCE_CREATED_URL=<other>" >> "$GITHUB_ENV"`) or
+# unsets it would pass here and reopen the leak for later steps. That is left to review on
+# purpose: parsing shell inside every `run:` is fragile, and test-linux-setup-4920.yml
+# legitimately exports the SAME dead value via `$GITHUB_ENV` (and injects it into a systemd
+# unit), so a run:-body scan would have to tell a benign dead-value export from a malicious
+# live-value one. This guard pins the declared env; a run-time mutation is a visible,
+# deliberate act for a human reviewer to catch.
+#
 # RUNS IN test:shell (package.json) via .github/workflows/test.yml's `suite (shell)`
 # matrix on every pull_request and push to main. No network.
 set -euo pipefail
