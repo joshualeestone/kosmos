@@ -17512,8 +17512,11 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (typeof body.id !== 'string' || !/^[0-9a-f]{12}$/.test(body.id)) { sendJson(res, 400, { error: 'say which draft (its id)' }); return; }
         const drafts = require('./engine/unsentdrafts');
-        if (!drafts.list(name).some((d) => d.id === body.id)) { sendJson(res, 404, { error: 'that draft is not kept any more' }); return; }
-        if (!drafts.dismiss(name, body.id)) { sendJson(res, 500, { error: 'we could not dismiss that draft just now' }); return; }
+        /* The card's own name, as the conversation route draws them (a URL in other capitals finds the same drafts). */
+        let key = name;
+        try { const card = chat.resolveCard(safeRoster(), name); if (card && card.sessionName) key = card.sessionName; } catch { key = name; }
+        if (!drafts.list(key).some((d) => d.id === body.id)) { sendJson(res, 404, { error: 'that draft is not kept any more' }); return; }
+        if (!drafts.dismiss(key, body.id)) { sendJson(res, 500, { error: 'we could not dismiss that draft just now' }); return; }
         sendJson(res, 200, { dismissed: true });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));

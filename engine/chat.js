@@ -1169,9 +1169,12 @@ const STUCK_INPUT_MS = 10 * 60 * 1000;
 /* Claude Code folds a long paste (or fast typing) into "[Pasted text #1]" and an image into "[Image #1]": the words
    behind it are not on screen, so they cannot be saved, and clearing would lose them. Such a box is left as it is. */
 const STUCK_FOLDED = /\[(?:Pasted text|Image) #\d+[^\]]*\]/;
-/* The box is read from the last 200 rows of the pane (readComposer). A box drawing near that many may have its start
-   cut off, so only part of it could be saved: left as it is. */
-const STUCK_ROWS_MAX = 150;
+/* A box whose start may be out of sight is left as it is: only part of it could be saved. Measured on Claude Code
+   2.1.304 (private tmux socket): a line pasted as Kosmos pastes it scrolls inside the box, which then draws its last 7
+   rows at every pane height tried (15, 24, 40, 60) with nothing on screen to say the start is hidden (as #6436 measured
+   on 2.1.302). So a box drawing 7 rows or more may be hiding its start. Text typed slowly grew the box instead (39 rows
+   at 80x24), but the screen cannot tell the two apart. */
+const STUCK_ROWS_MAX = 6;
 /* Measured on Claude Code 2.1.303: one round of Ctrl-E, Ctrl-U, Ctrl-K empties a row (Ctrl-U a row before the cursor,
    Ctrl-K the line break after an emptied line, Ctrl-E first so a cursor left mid-line loses nothing to its right) and
    does nothing on an empty box. Ctrl-Y gives the cleared text back. Not Ctrl-C: one press empties the box but arms
@@ -1220,6 +1223,11 @@ async function recoverStuckInput(card, since) {
     }
     if (STUCK_FOLDED.test(box.text)) return { outcome: 'left', because: 'it holds a pasted block or image whose words are not on screen' };
     if ((box.rows || 0) > STUCK_ROWS_MAX) return { outcome: 'left', because: 'it is too long to read whole' };
+    /* Someone has this agent's terminal window open (an attached tmux client): the text in the box is in front of them,
+       and clearing it there would make words vanish under their hands with nothing on that screen to say where. */
+    const seen = tmux(['display-message', '-p', '-t', target, '#{session_attached}']);
+    if (!seen.ran || seen.status !== 0 || !/^\d+\s*$/.test(String(seen.out))) return { outcome: 'waiting', because: 'unread' };
+    if (Number(String(seen.out).trim()) > 0) return { outcome: 'left', because: 'its terminal window is open, so the person there can see it' };
     if (!draftSaver) return { outcome: 'waiting', because: 'nowhere to save it' };
     /* The holds a retry passes, on the roster as it is now, and the pane must still be this agent's, idle. */
     let roster = null;
@@ -1250,25 +1258,28 @@ async function recoverStuckInput(card, since) {
       /* Saved: from here the words are safe. Clear a round at a time; stop as soon as the box shows anything that is
          not what is left of the saved text (someone typing now), so their new words are not cleared too. */
       const done = (outcome, because) => ({ outcome, id: saved.id, ...(saved.already ? { already: true } : {}), ...(because ? { because } : {}) });
+      /* Nothing was cleared and nothing is wrong with the box (tmux refused, a read failed): tried again next minute,
+         which saves nothing twice (the drafts keep one copy of a text). */
+      const notYet = (because) => ({ ...done('drafted-not-cleared', because), retry: true });
       /* `expect` is the box as last read. Right before each round it must still read exactly that (so words typed since
          are never cleared with it), and after the round what is left must be it with rows taken out (stuckShrunk). */
       let expect = squash(again.text);
       let stale = 0;
-      const rounds = Math.min(2 * (again.rows || 1) + 6, 2 * STUCK_ROWS_MAX);
+      const rounds = 2 * (again.rows || 1) + 6;
       for (let i = 0; i < rounds; i += 1) {
         const before = readComposer(target);
-        if (!before.ok) return done('drafted-not-cleared', 'the box could not be read');
+        if (!before.ok) return notYet('the box could not be read');
         if (squash(before.text) !== expect) return done('drafted-not-cleared', 'the box changed while it was being cleared');
         const sent = tmux(['send-keys', '-t', target, ...STUCK_CLEAR_KEYS]);
-        if (!sent.ran || sent.status !== 0) return done('drafted-not-cleared', 'tmux refused the keys');
+        if (!sent.ran || sent.status !== 0) return notYet('tmux refused the keys');
         await stuckPause(SUBMIT_LOOK_MS);
         let left = readComposer(target);
-        if (!left.ok) return done('drafted-not-cleared', 'the box could not be read');
+        if (!left.ok) return notYet('the box could not be read');
         if (!left.text) {
           /* Empty only when two reads a look apart agree, as pressRememberedNow asks: one read can catch a redraw. */
           await stuckPause(SUBMIT_LOOK_MS);
           left = readComposer(target);
-          if (!left.ok) return done('drafted-not-cleared', 'the box could not be read');
+          if (!left.ok) return notYet('the box could not be read');
           if (!left.text) return done('drafted');
         }
         const now = squash(left.text);
