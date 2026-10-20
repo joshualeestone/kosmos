@@ -60,6 +60,7 @@ _site_served_versions() {
   # non-zero for an expected reason (grep -c counting 0, a failed cp, mktemp) is guarded, so this can only ever warn.
   local site="$1" out="$2" sha="$3" gd tab tmp rows want grc=0 why
   tab="$out/api/_servedversions.js"   # its own line: bash expands every word of one `local` before assigning any (set -u)
+  _SITE_SERVED_REBUILT=0
   [ -f "$out/tools/served-versions.sh" ] || return 0
   gd="$(git -C "$site" rev-parse --absolute-git-dir 2>/dev/null)" || { echo "   ⚠️ served-versions table NOT rebuilt (cannot find $site's .git); the committed one ships" >&2; return 0; }
   # Review 1: the committed table is kept aside and comes back on ANY doubt (a failed run, or fewer rows than it had:
@@ -70,12 +71,16 @@ _site_served_versions() {
   want="$(grep -c "^  \['" "$tmp/keep" 2>/dev/null || true)"; want="${want:-0}"
   GIT_DIR="$gd" bash "$out/tools/served-versions.sh" "$sha" >/dev/null 2>"$tmp/err" || grc=$?
   rows="$(grep -c "^  \['" "$tab" 2>/dev/null || true)"; rows="${rows:-0}"
-  if [ "$grc" = 0 ] && grep -q '^export const SERVED' "$tab" 2>/dev/null && [ "$rows" -ge "$want" ]; then
+  # Review 3: a whole module (its opening and its closing line), not just a header, or the admin API would fail to parse.
+  if [ "$grc" = 0 ] && grep -q '^export const SERVED' "$tab" 2>/dev/null && grep -q '^]);$' "$tab" 2>/dev/null && [ "$rows" -ge "$want" ]; then
+    _SITE_SERVED_REBUILT=1
     echo "   rebuilt api/_servedversions.js from the history of $(printf '%.8s' "$sha") ($rows rows; the commit had $want)"
   else
-    if [ -s "$tmp/keep" ]; then cp -p "$tmp/keep" "$tab" 2>/dev/null || true; else rm -f "$tab"; fi
+    # The reason is read from what the generator left, BEFORE the committed table is put back over it.
     if [ "$grc" != 0 ]; then why="the generator failed, exit $grc: $( [ -s "$tmp/err" ] && tail -1 "$tmp/err" || echo 'no message')"
+    elif ! grep -q '^export const SERVED' "$tab" 2>/dev/null || ! grep -q '^]);$' "$tab" 2>/dev/null; then why="the generator wrote no whole table"
     else why="it gave $rows rows, fewer than the commit's $want"; fi
+    if [ -s "$tmp/keep" ]; then cp -p "$tmp/keep" "$tab" 2>/dev/null || true; else rm -f "$tab"; fi
     echo "   ⚠️ served-versions table NOT rebuilt ($why); the committed one ships" >&2
   fi
   rm -rf "$tmp"
@@ -145,7 +150,7 @@ site_deploy_export() {
   fi
   cp -R "$site/.vercel/." "$out/.vercel/" || { rm -rf "$out"; return 1; }
   echo "   carried: .vercel/ (project link)"
-  echo "   pages:   commit $head"
+  echo "   pages:   commit $head$( [ "${_SITE_SERVED_REBUILT:-0}" = 1 ] && echo ', except api/_servedversions.js (rebuilt from its history, above)')"
   # What the working tree holds that this export does NOT ship, named, so a
   # person who expected a file to go live sees why it did not.
   _site_left_behind "$site" "$out" || { rm -rf "$out"; return 1; }

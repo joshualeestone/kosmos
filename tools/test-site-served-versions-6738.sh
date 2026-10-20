@@ -45,6 +45,8 @@ grep -q "'0.9.2'" "$T/out/api/_servedversions.js" && grep -q "'0.9.1'" "$T/out/a
   || bad "the exported table is stale: $(cat "$T/out/api/_servedversions.js")"
 printf '%s\n' "$man" | grep -q "rebuilt api/_servedversions.js from the history of $(printf '%.8s' "$SHA") (2 rows; the commit had 1)" \
   && ok "the export says it rebuilt the table, from which commit, and how many rows" || bad "no rebuild line: $man"
+printf '%s\n' "$man" | grep -q "pages:   commit $SHA, except api/_servedversions.js (rebuilt from its history, above)" \
+  && ok "the manifest's pages line says which file is not the commit's" || bad "the pages line reads as an exact copy: $man"
 [ "$(shasum "$S/api/_servedversions.js")" = "$before" ] && [ "$(git -C "$S" status --porcelain)" = "$status_before" ] \
   && ok "the shared site checkout is untouched (its table byte for byte, its status)" || bad "the export wrote the site checkout"
 
@@ -79,6 +81,16 @@ SHORT="$(git -C "$S" rev-parse HEAD)"
 site_deploy_export "$S" "$T/out5" "$SHORT" >/dev/null 2>"$T/err5"; rc5=$?
 [ "$rc5" = 0 ] && cmp -s "$T/out5/api/_servedversions.js" <(git -C "$S" show "$SHORT:api/_servedversions.js") && grep -q "it gave 0 rows, fewer than the commit's 1" "$T/err5" \
   && ok "a short table (fewer rows than the commit's) is not shipped; the committed one is, and the warning says why" || bad "short table: rc=$rc5 $(cat "$T/err5")"
+# Review 3: a generator that exits 0 with a header but no closing line: an unparseable module never ships.
+git -C "$S" checkout -q "$SHA" -- api/_servedversions.js 2>/dev/null || true
+printf '#!/bin/bash\nprintf "export const SERVED = Object.freeze([\\n  [1],\\n  [2],\\n" > "$(dirname "$0")/../api/_servedversions.js"\n' > "$S/tools/served-versions.sh"
+git -C "$S" add -A && git -C "$S" commit -q -m "a generator that writes half a module"
+HALF="$(git -C "$S" rev-parse HEAD)"
+man7="$(site_deploy_export "$S" "$T/out7" "$HALF" 2>"$T/err7")"; rc7=$?
+[ "$rc7" = 0 ] && cmp -s "$T/out7/api/_servedversions.js" <(git -C "$S" show "$HALF:api/_servedversions.js") && grep -q "the generator wrote no whole table" "$T/err7" \
+  && printf '%s\n' "$man7" | grep -q "pages:   commit $HALF\$" \
+  && ok "half a module (no closing line) is not shipped, says why, and the pages line is the plain commit" || bad "half module: rc=$rc7 $(cat "$T/err7") | $man7"
+
 # Review 2: called BARE under `set -e` (no `||` to suspend errexit), in the case that used to abort: a commit with no
 # table at all and a generator giving zero rows (grep -c counts 0 and exits 1).
 git -C "$S" rm -q api/_servedversions.js && git -C "$S" commit -q -m "no table, short generator"

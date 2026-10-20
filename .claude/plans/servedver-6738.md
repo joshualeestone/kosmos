@@ -17,7 +17,7 @@ not only release.sh. It never writes the shared site checkout.
   a second commit and a second push in the cut's race-handled site commit (site_commit_on_fresh_main), and it covers
   release.sh only; promote-channel.sh, publish-kosmos-windows.sh and deploy-site.sh move or ship pointers too.
 - Refusing the deploy when the generator fails: a stale admin count is not worth blocking a release. It WARNS, and the
-  committed table ships unchanged (the generator writes through a temp file).
+  committed table ships unchanged (kept aside before the run and restored; review 1).
 
 ## Weakest premise
 The served table is correct, but the COMMITTED table in the site repo still lags until someone runs the generator. Any
@@ -64,3 +64,12 @@ what is served, so it stops firing.
   no trap (the caller owns traps; a signal mid-deploy leaves one small dir beside the build root).
 - [NIT] the plan credited the generator's temp file with protecting the table --> the keep-aside is the guarantee.
 - Tests 11/11 under /bin/bash (the new case: called bare under set -euo pipefail, no committed table, zero rows).
+
+## Review round 3 (blind, opus): no blocker; verified under /bin/sh `set -eu` too (deploy-site.sh's shell), bare call
+- [NIT] a run that wrote no table got the row-count wording ("0 rows, fewer than the commit's 0") --> FIXED: its own
+  reason ("the generator wrote no whole table"), read from what the generator left BEFORE the committed table is put
+  back (the first version read it after the restore and fell through; the new test caught that ordering).
+- [NIT] a header without the closing line would ship an unparseable module --> FIXED: a whole module is required.
+- [NIT] the manifest's "pages: commit" line hid the rebuilt file --> FIXED: it says ", except api/_servedversions.js".
+- [NIT] a stale line in this plan --> FIXED.
+- Tests 13/13 under /bin/bash; the lib sources under /bin/sh with set -eu.
