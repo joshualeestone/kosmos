@@ -39,6 +39,11 @@ Chromium reports neither, so only the WebKit arm sees them.
 That Playwright delivers WebKit's cancelled-request page errors BEFORE page.reload resolves, so they land while the
 `reloading` flag is set (the diagnostic saw all of them between beforeunload and pagehide, so before the new load). If
 one arrives after, it still counts and the arm can still flake, never the other way round.
+Third (review 4): that the new check is not itself a flake, which would block #6655 again. MEASURED: the WebKit
+precondition held (rejections=1) in all 30 runs. One of those 30 runs, taken while two other suites loaded the
+machine, failed an arm the run did not record; the next 15 runs had no failure. The one timing-sensitive arm (4, the
+one-second reset) was then moved onto the page's own timers (100 ms, the reset at 1000 ms, 1600 ms), which may run late
+but never out of order, so it no longer depends on how fast the check talks to the browser.
 Second: that every page error in the flaky arm is a cut-off request. If a failing attempt shows an error that is not, this
 fixes nothing for it. What would change my mind: such an error in a CI log after this merges.
 

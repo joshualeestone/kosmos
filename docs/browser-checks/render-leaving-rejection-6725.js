@@ -92,12 +92,15 @@ const chk = (ok, label, extra) => {
       chk(errs.length === 1 && /a real failure 6725/.test(errs[0]), `[${engine}] 2 CONTROL: a real rejection while not leaving is still a page error`, JSON.stringify(errs));
       // 4. The reset, on one live document: a beforeunload that leads nowhere (a download link does this).
       errs.length = 0;
-      await page.evaluate(() => { dispatchEvent(new Event('beforeunload')); });
-      await page.waitForTimeout(200);
-      await page.evaluate(() => { Promise.reject(new TypeError('inside the leaving second 6725')); });
-      await page.waitForTimeout(1500);
-      await page.evaluate(() => { Promise.reject(new TypeError('after the leaving second 6725')); });
-      await page.waitForTimeout(500);
+      // All three on the page's own timers: they may run late under load but never out of order (100 ms, the page's
+      // reset at 1000 ms, then 1600 ms), so the arm does not depend on how fast the check talks to the browser.
+      await page.evaluate(() => {
+        dispatchEvent(new Event('beforeunload'));
+        setTimeout(() => { Promise.reject(new TypeError('inside the leaving second 6725')); }, 100);
+        setTimeout(() => { Promise.reject(new TypeError('after the leaving second 6725')); window.__after6725 = true; }, 1600);
+      });
+      await page.waitForFunction(() => window.__after6725 === true, null, { timeout: 15000 });
+      await page.waitForTimeout(300);
       const inside = errs.filter((e) => /inside the leaving second/.test(e)).length;
       const after = errs.filter((e) => /after the leaving second/.test(e)).length;
       chk(inside === 0, `[${engine}] 4 inside the second after a beforeunload, a TypeError rejection is not a page error`, JSON.stringify(errs));
@@ -109,7 +112,7 @@ const chk = (ok, label, extra) => {
   }
   const lineOf = (f) => (fs.readFileSync(path.join(__dirname, f), 'utf8').match(/^const cutOffByReload = [\s\S]*?;$/m) || [''])[0];
   chk(lineOf('render-leaving-rejection-6725.js') !== '' && lineOf('render-leaving-rejection-6725.js') === lineOf('render-shell-noscroll-4872.js'),
-    '3 render-shell-noscroll-4872 uses the same predicate as this check (so arm 3 pins both)');
+    '3 render-shell-noscroll-4872 uses the same predicate line (arm 3 pins the predicate in both; its reload window is not pinned here)');
   // 3. The predicate, with its controls: only this board's own address, only WebKit's cancelled-request message.
   const own = 'Fetch API cannot load ' + BASE + '/api/tips due to access control checks.';
   chk(cutOffByReload(own, BASE), '3 the board\'s own cancelled request is recognised', own);
