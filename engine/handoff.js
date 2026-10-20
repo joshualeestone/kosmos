@@ -243,9 +243,32 @@ function stateFact(session, now) {
   if (typeof r.owner === 'string' && r.owner) parts.push('owner ' + r.owner);
   if (typeof r.until === 'string' && r.until) parts.push('until ' + r.until);
   const when = saneIso(Date.parse(r.at), now);   // same 1970/future floor as the instruction time: never print a bad date
-  if (when) parts.push('as of ' + when);
-  else if (r.at) parts.push('reported at a time that cannot be read');
+  if (when) {
+    parts.push('as of ' + when);
+    /* kosmos#6593 item 2 (Josh's five-model reports on 0.7.59 and 0.7.60): GPT and Grok runners do not report working,
+       so the last hand-written state stays, and a line from two weeks back read like the present. The age is said in
+       words, and past a day the line says it may not describe now. Kept, not dropped: an old state is still a fact the
+       reader can weigh, and leaving it out would read as "never reported". */
+    const age = (Number.isFinite(now) ? now : Date.now()) - Date.parse(r.at);
+    const said = agoWords(age);
+    if (said) parts.push(age > STALE_REPORT_MS ? said + ', so it may not describe what the agent is doing now' : said);
+  } else if (r.at) parts.push('reported at a time that cannot be read');
   return parts.join('; ');
+}
+
+/* #6593: a self-report older than this is said to be old. A day: a working session reports far more often than that,
+   so an older line is the leftover of an earlier one. */
+const STALE_REPORT_MS = 24 * 60 * 60 * 1000;
+/* The age in plain words; '' for a time in the future (clock skew, which saneIso already bounds to a day). */
+function agoWords(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return min === 1 ? 'a minute ago' : min + ' minutes ago';
+  const h = Math.floor(min / 60);
+  if (h < 24) return h === 1 ? 'an hour ago' : h + ' hours ago';
+  const d = Math.floor(h / 24);
+  return d === 1 ? 'a day ago' : d + ' days ago';
 }
 
 /** When the instruction file last changed, its sha256 version, and whether the
