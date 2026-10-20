@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: s7b-6587
-diff_hash: c36fe78436f51fc5bc92f6beee76102307e9c6b8c319d1a231f244134ec0c744
+diff_hash: d456f109812a7a2568aa8d7cc147593e308f486e98351228435165e6f3097e1b
 validation: passed (131 focused tests from the worktree root on the rebased tree, incl. engine/servicekeys-check-6587, engine/remote-servicekeys-6587, web.plus-service-keys-6587, tools.stage-service-keys-6587, server route test, standing guards and bundle.*; tools/test-release-detached.sh 0 failures; tools/test-board-deploy-manifest.sh 3/3; render-plus-panel-3829 browser check passed with a red control; both browser gates rc 0)
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
-timestamp: 2026-10-20T09:13:52Z
-iterations: 6
+timestamp: 2026-10-20T10:19:52Z
+iterations: 7
 converged: true
 ---
 
@@ -45,3 +45,7 @@ Reviewer models alternated opus (odd iterations) and sonnet (even).
 - [NIT] deferred to the change that commits the set: with a set committed but RECOVERY_KEYS still empty, the build passes with "off" and ships the set unchecked. That commit should make the staging line say NOT VERIFIED (or refuse); today no set exists, so nothing reaches it.
 - [NIT] accepted: `. file || return 1` under POSIX sh exits the shell if the lib is missing, rather than returning. It is always in the deployed repo, and it fails closed.
 - [NIT] accepted: the staging test runs the lib under bash while install-board runs it under sh; the lib uses no bash-only syntax (two reviewers read it for that).
+
+#### Iteration 7
+**Reviewer model:** sonnet
+- [BLOCKER] fixed: three new test files left their temp folders behind and failed the suite leak check (#4273) after every test passed. Each now requires test-support/tmpscope first; 50 leftovers before, 0 after; reviewed, no findings.
