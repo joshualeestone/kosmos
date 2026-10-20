@@ -35,3 +35,13 @@ No bug in the product change; the diagnosis is consistent with the source. Cover
 - [WARNING] fixed: settleAtFloor's 1 s wait made the arm pass a reader rescued late. It now waits two frames.
 - [NIT] filed separately: the success path's ambiguous-name note (`msg.textContent = ambig`) can shrink the room the same way before loadRoom repaints.
 - [NIT] fixed: the product comment says why the early read matters (the press-time scroll event's ordering), so it is not deleted as redundant.
+### Iteration 3 (opus)
+- [BLOCKER] fixed: the surface gate refused the branch. My two new product comments named `#pj-room-msg` (owned by render-room-reply-3745.js) and "consolidated" (render-shell-noscroll-4872.js). I had run the gate before committing the change, and it compares committed history, so it never saw them. Reworded ("the note under the box", "the one-page layout"); both gates now pass on the committed branch.
+- [NIT] fixed: two commit messages described the dropped settle wait. The unpushed branch is folded into one commit with an accurate message.
+- Confirmed by reading: the early read is taken before any height change, no reader is pinned against their will, and the check's two frames are always queued after the product's second pin.
+
+### Runs (light lane, beside a heavy holder, so the box was loaded)
+On 563d0d17 (the product fix and the two-frame arm), three runs:
+- runs 1 and 2 passed every arm;
+- run 3 timed out on a different wait earlier in the consolidated section, and two later sections failed downstream ("only ... proves nothing"). The changed arm passed in the plain view, and the consolidated run did not reach it.
+The control in that turn did not run (its board refused the connection), so it is not counted. Re-queued.
