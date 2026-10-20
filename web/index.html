@@ -7142,7 +7142,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dmperm-reason { margin: 6px 0 0; font-size: .8125rem; color: var(--k-ink-2); }
 .dmperm-detail { margin: 6px 0 0; padding: 8px 10px; background: var(--k-sunk); border-radius: 8px; font-family: var(--k-mono);
   font-size: .8125rem; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14em; overflow: auto; }
-@media (max-width: 600px) { .dmperm-main .dmchoice { min-height: 44px; } }
+@media (max-width: 600px) { .dmperm-main .dmchoice { min-height: 44px; }
+  .dmperm-more > summary { min-height: 44px; display: flex; align-items: center; gap: 6px; } }
 /* #5943: under a reported question, its age and the person's own "Answered, clear this" (the .dmchoice tokens, AA). */
 .dmq-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 2px; }
 .dmq-age { font-size: .8125rem; color: var(--k-ink-2); }
