@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope');   // kosmos#4273: every temp folder this file makes is removed when it exits
 /*
  * kosmos#6587 (S-7a slice 2a): remote.serviceKeys() asks engine/servicekeys-check.js about the tunnel's OWN state dir,
  * and tells it whether this board is set to Kosmos+'s own coordinator. Each arm can fail: the off answer as shipped
