@@ -55,4 +55,9 @@ Review 1 also made arm 1 able to fail: on WebKit it asserts the leaving page saw
 sessionStorage by an init script), and arm 3 pins that the flaky check's copy of the predicate is the same line.
 
 ## Not covered
+- The filter's window runs 250 ms past the new page's commit (review 2: a page error may arrive just after it), so a
+  real own-origin "access control checks" failure in those first 250 ms of the new page is not counted. So is a real
+  own-origin CORS or redirect regression that happens during the reload itself.
+- The beforeunload listener may make the page ineligible for the back-forward cache in some browsers. The board is an
+  app opened in its own window, not navigated back to, so this costs nothing measurable here.
 A real TypeError rejection in the one second after beforeunload is hidden too. It is on a page that is going away.

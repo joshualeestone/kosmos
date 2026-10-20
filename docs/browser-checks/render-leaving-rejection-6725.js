@@ -61,23 +61,26 @@ const chk = (ok, label, extra) => {
       // Held open by the check: answered only after the reload has cut it off (and never awaited by anyone).
       await page.route('**/api/leave-6725', (r) => { setTimeout(() => { r.fulfill({ status: 200, body: 'late' }).catch(() => {}); }, 3000); });
       await page.addInitScript(() => {
-        addEventListener('unhandledrejection', () => {
+        // Review 2: only the HELD request's own rejection counts (PromiseRejectionEvent carries the promise), not a poll's.
+        addEventListener('unhandledrejection', (e) => {
+          if (e.promise !== window.__held6725) return;
           try { sessionStorage.setItem('ur6725', String(Number(sessionStorage.getItem('ur6725') || 0) + 1)); } catch { /* none */ }
         });
       });
       await page.goto(BASE, { waitUntil: 'load' });
       await page.evaluate(() => { try { sessionStorage.removeItem('ur6725'); } catch { /* none */ } });
-      await page.evaluate(() => { fetch('/api/leave-6725').then((r) => r.text()); });   // no catch, on purpose
+      await page.evaluate(() => { window.__held6725 = fetch('/api/leave-6725').then((r) => r.text()); });   // no catch, on purpose
       await page.waitForTimeout(200);
       reloading = true;   // only until the new page commits (review 1)
       await page.reload({ waitUntil: 'commit' });
+      await page.waitForTimeout(250);   // review 2: a page error crosses its own channel and may land just after the commit
       reloading = false;
       await page.waitForLoadState('load');
       await page.waitForTimeout(1500);
       const seen = await page.evaluate(() => { try { return Number(sessionStorage.getItem('ur6725') || 0); } catch { return -1; } });
       chk(errs.length === 0, `[${engine}] 1 a request cut off by a reload is not a page error`, 'ignored=' + ignored + ' rejections=' + seen + (errs.length ? ' ' + errs.join(' | ') : ''));
       // Review 1: the arm above passes with no rejection at all, so on WebKit (the engine that rejects) prove there was one.
-      if (engine === 'webkit') chk(seen >= 1, '[webkit] 1 PRECONDITION: the leaving page did see the cut-off request reject', 'rejections=' + seen);
+      if (engine === 'webkit') chk(seen >= 1, '[webkit] 1 PRECONDITION: the held request itself rejected on the leaving page', 'rejections=' + seen);
       // 2. The CONTROL, on the reloaded page well past the leaving window: a real one is still reported.
       errs.length = 0;
       await page.waitForTimeout(1200);

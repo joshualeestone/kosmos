@@ -82,6 +82,7 @@ const chk = (ok, label, extra) => {
       await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) }).then((r) => r.text()));
       reloading = true;   // #6725: only until the new page commits, so a failure while it loads still counts
       await page.reload({ waitUntil: 'commit' });
+      await page.waitForTimeout(250);   // review 2: a page error crosses its own channel and may land just after the commit
       reloading = false;
       await page.waitForLoadState('networkidle');
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(300); }
