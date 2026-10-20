@@ -82,3 +82,10 @@ design). The slow log records what the board answered slowly; it cannot see a re
   display:none. FIXED in the comment (text only). Not changed: a visually-hidden clip instead of display:none would
   keep the announcement there; it is a behaviour change after convergence, recorded as a possible follow-up.
 - NIT: this plan's Call section quoted the old log wording and placement. FIXED.
+
+## Validation (on 21bd349a, the code this proof covers, tree untouched throughout)
+- 22536 tests, 0 failed; shell shard 260/260; AUDIT_RC 0. VALIDATION_RC 1 for ONE step: the browser-check surface gate
+  (#2518) named render-plus-bar-3837.js and render-phone-taps-5218.js (token 'apphead' changed). Both run green on this
+  branch (22/22; all passed). The reconnect note is hidden except after a missed poll at desktop width, which neither
+  drives, so each got a per-check Browser-check-surface trailer (commit after 21bd349a, empty); the gate run alone then
+  passes (rc 0, both overridden).
