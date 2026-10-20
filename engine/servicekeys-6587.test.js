@@ -1,0 +1,164 @@
+'use strict';
+/*
+ * kosmos#6587 (S-7a slice 1): engine/servicekeys.js checks a service key set exactly as kosmos-relay does (relay #474,
+ * crates/proto/src/keyset.rs). The fixtures are the relay's published test vectors (docs/token-format.md, "Service
+ * key set test vectors"): the same seeds, the same document bytes and the same signature, so the two languages are
+ * held to one answer. Every refusal the spec lists has an arm here.
+ *   node --test engine/servicekeys-6587.test.js
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const sk = require('./servicekeys');
+
+const PKCS8 = Buffer.from('302e020100300506032b657004220420', 'hex');
+const keyFromSeed = (byte) => crypto.createPrivateKey({ key: Buffer.concat([PKCS8, Buffer.alloc(32, byte)]), format: 'der', type: 'pkcs8' });
+const spkiOf = (priv) => crypto.createPublicKey(priv).export({ format: 'der', type: 'spki' }).toString('base64');
+const rawOf = (priv) => crypto.createPublicKey(priv).export({ format: 'der', type: 'spki' }).subarray(12);
+const sign = (priv, bytes) => crypto.sign(null, Buffer.from(bytes), priv).toString('base64');
+
+const ROOT = keyFromSeed(0x09);
+const K7 = keyFromSeed(0x07);
+const K8 = keyFromSeed(0x08);
+const ROOT_PUB = 'MCowBQYDK2VwAyEA/RckOFqgx1tk+3jNYC+h2ZH96/drE8WO1wLqyDXp9hg=';
+const K7_PUB = 'MCowBQYDK2VwAyEA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=';
+const K8_PUB = 'MCowBQYDK2VwAyEAE5j2LG0aRXxRumpLXz29L2n8qTIWIY3ImX5Ba9F9k8o=';
+const VECTOR = '{\n  "type": "kosmos-service-keys",\n  "service_keys": [\n    {\n      "kid": "_oEsEvOrTOY",\n      "pub": "MCowBQYDK2VwAyEA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=",\n      "role": "current"\n    },\n    {\n      "kid": "XCm3jxCjWkk",\n      "pub": "MCowBQYDK2VwAyEAE5j2LG0aRXxRumpLXz29L2n8qTIWIY3ImX5Ba9F9k8o=",\n      "role": "next"\n    }\n  ],\n  "seq": 1,\n  "issued": "2025-08-24"\n}\n';
+const VECTOR_SIG = 'Z4eSzkTKtuFexVyEhVtfSo2kWevcWC8xvaCNfxJVxInx40cOLCm6LtjLiX7fJ7oKWcDK+ydIXv+FybM4H2M3Bg==';
+const VECTOR_SHA = '0064ab6f7651aabd7418060caa131ff34f2811b25d3485b08da6881ff9aa7aac';
+
+const check = (bytes, sig, held = null) => sk.verifyServiceKeySet({ bytes: Buffer.from(bytes), sig, recoveryKeys: [ROOT_PUB], held });
+// A document as the signing tool writes it (two-space indent, final newline), signed by the root.
+const doc = (fields) => JSON.stringify(Object.assign({
+  type: 'kosmos-service-keys',
+  service_keys: [{ kid: '_oEsEvOrTOY', pub: K7_PUB, role: 'current' }],
+  seq: 1,
+  issued: '2025-08-24',
+}, fields), null, 2) + '\n';
+const signed = (text, by = ROOT) => [text, sign(by, text)];
+
+test('the fixtures are the relay vectors: seeds give the published keys and kids', () => {
+  assert.equal(spkiOf(ROOT), ROOT_PUB);
+  assert.equal(spkiOf(K7), K7_PUB);
+  assert.equal(spkiOf(K8), K8_PUB);
+  assert.equal(sk.kidOf(rawOf(K7)), '_oEsEvOrTOY');
+  assert.equal(sk.kidOf(rawOf(K8)), 'XCm3jxCjWkk');
+  assert.equal(crypto.createHash('sha256').update(VECTOR).digest('hex'), VECTOR_SHA);
+  // Ed25519 signing is deterministic, so the root signing the vector bytes gives the published signature.
+  assert.equal(sign(ROOT, VECTOR), VECTOR_SIG);
+});
+
+test('the published set is taken, with both keys and its seq and sha256', () => {
+  const r = check(VECTOR, VECTOR_SIG);
+  assert.equal(r.ok, true, r.why);
+  assert.equal(r.seq, 1);
+  assert.equal(r.sha256, VECTOR_SHA);
+  assert.deepEqual(r.keys, [
+    { kid: '_oEsEvOrTOY', pub: K7_PUB, role: 'current' },
+    { kid: 'XCm3jxCjWkk', pub: K8_PUB, role: 'next' },
+  ]);
+  // A trailing newline on the .sig file is trimmed, as the relay does.
+  assert.equal(check(VECTOR, VECTOR_SIG + '\n').ok, true);
+});
+
+test('off as shipped: with no recovery key nothing verifies, the published set included', () => {
+  const r = sk.verifyServiceKeySet({ bytes: Buffer.from(VECTOR), sig: VECTOR_SIG });
+  assert.equal(r.ok, false);
+  assert.match(r.why, /not signed by the Kosmos recovery key/);
+});
+
+test('refused: signed by a service key, one changed byte, no signature, a non-canonical signature', () => {
+  assert.equal(check(VECTOR, sign(K7, VECTOR)).ok, false, 'signed by a service key');
+  const changed = Buffer.from(VECTOR); changed[changed.length - 3] ^= 1;
+  assert.equal(check(changed, VECTOR_SIG).ok, false, 'one changed byte');
+  assert.equal(check(VECTOR, '').ok, false, 'no signature');
+  // The same 64 bytes spelled with a non-zero trailing bit: lenient base64 would read it, the relay's does not.
+  const last = VECTOR_SIG.at(-3);
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const bumped = VECTOR_SIG.slice(0, -3) + alphabet[alphabet.indexOf(last) + 1] + '==';
+  assert.deepEqual(Buffer.from(bumped, 'base64'), Buffer.from(VECTOR_SIG, 'base64'), 'CONTROL: the bumped spelling decodes to the same bytes');
+  assert.equal(check(VECTOR, bumped).ok, false, 'non-canonical signature');
+});
+
+test('refused: the release key list type (domain separation), and a document that is not an object', () => {
+  const r = check(...signed(doc({ type: 'kosmos-release-keys' })));
+  assert.equal(r.ok, false);
+  assert.match(r.why, /not a service key set/);
+  assert.equal(check(...signed('[1]\n')).ok, false);
+  // CONTROL: the same document with its own type is taken, so the arm above refused on the type alone.
+  assert.equal(check(...signed(doc({}))).ok, true);
+});
+
+test('refused: a member named twice, at the top or inside an entry', () => {
+  const twiceType = '{"type": "kosmos-service-keys", "type": "kosmos-service-keys", "service_keys": [{"kid": "_oEsEvOrTOY", "pub": "' + K7_PUB + '", "role": "current"}], "seq": 1, "issued": "2025-08-24"}\n';
+  const r = check(...signed(twiceType));
+  assert.equal(r.ok, false);
+  assert.match(r.why, /names the member "type" twice/);
+  const twicePub = '{"type": "kosmos-service-keys", "service_keys": [{"kid": "_oEsEvOrTOY", "pub": "' + K8_PUB + '", "pub": "' + K7_PUB + '", "role": "current"}], "seq": 1, "issued": "2025-08-24"}\n';
+  assert.equal(check(...signed(twicePub)).ok, false);
+  // Names are compared after unescaping: "type" is "type".
+  const escaped = '{"type": "kosmos-service-keys", "typ\\u0065": "kosmos-service-keys", "service_keys": [{"kid": "_oEsEvOrTOY", "pub": "' + K7_PUB + '", "role": "current"}], "seq": 1, "issued": "2025-08-24"}\n';
+  assert.equal(check(...signed(escaped)).ok, false);
+});
+
+test('refused: a seq out of range or not a plain integer (1.0 and 1e0 read as 1 to JSON.parse, not to the relay)', () => {
+  for (const s of ['0', '-1', '2147483648', '1.0', '1e0', '"1"']) {
+    const text = doc({}).replace('"seq": 1', '"seq": ' + s);
+    assert.notEqual(text, doc({}), 'the seq was replaced');
+    assert.equal(check(...signed(text)).ok, false, 'seq ' + s);
+  }
+  assert.equal(check(...signed(doc({ seq: 2147483647 }))).ok, true, 'CONTROL: the largest seq is taken');
+});
+
+test('refused: an issue date that is not a real YYYY-MM-DD', () => {
+  for (const d of ['2025-02-29', '2025-13-01', '0000-01-01', '2025-1-01', '2025-08-24T00:00', 20250824]) {
+    assert.equal(check(...signed(doc({ issued: d }))).ok, false, 'issued ' + d);
+  }
+  assert.equal(check(...signed(doc({ issued: '2024-02-29' }))).ok, true, 'CONTROL: a leap day');
+});
+
+test('refused: the keys break a rule (none, four, a wrong kid, zero or two current, the root, twice, weak, non-canonical)', () => {
+  const k7 = { kid: '_oEsEvOrTOY', pub: K7_PUB, role: 'current' };
+  const k8 = { kid: 'XCm3jxCjWkk', pub: K8_PUB, role: 'next' };
+  const rootEntry = { kid: sk.kidOf(rawOf(ROOT)), pub: ROOT_PUB, role: 'next' };
+  const cases = {
+    'no keys': [],
+    'four keys': [k7, k8, { ...k8, role: 'retiring' }, rootEntry],
+    'a wrong kid': [{ ...k7, kid: 'XCm3jxCjWkk' }],
+    'no current key': [{ ...k7, role: 'next' }],
+    'two current keys': [k7, { ...k8, role: 'current' }],
+    'the root listed': [k7, rootEntry],
+    'a key twice': [k7, { ...k7, role: 'next' }],
+    'an unknown role': [{ ...k7, role: 'primary' }],
+    'a raw 32-byte key': [{ ...k7, pub: rawOf(K7).toString('base64') }],
+    'missing padding': [{ ...k7, pub: K7_PUB.slice(0, -1) }],
+  };
+  for (const [name, keys] of Object.entries(cases)) {
+    assert.equal(check(...signed(doc({ service_keys: keys }))).ok, false, name);
+  }
+  // A weak (small-order) key, in its canonical SPKI spelling: the identity point.
+  const weak = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from('01' + '00'.repeat(31), 'hex')]).toString('base64');
+  const weakKid = sk.kidOf(Buffer.from('01' + '00'.repeat(31), 'hex'));
+  assert.equal(check(...signed(doc({ service_keys: [k7, { kid: weakKid, pub: weak, role: 'next' }] }))).ok, false, 'a weak key');
+  assert.equal(check(...signed(doc({ service_keys: [k7, k8] }))).ok, true, 'CONTROL: the two good keys are taken');
+});
+
+test('seq only goes up: a lower seq is refused, the same seq only with the same bytes', () => {
+  const held = { seq: 1, sha256: VECTOR_SHA };
+  assert.equal(check(VECTOR, VECTOR_SIG, held).ok, true, 'the same set again');
+  assert.equal(check(...signed(doc({})), held).ok, false, 'seq 1 with other bytes');
+  assert.equal(check(VECTOR, VECTOR_SIG, { seq: 2, sha256: 'x' }).ok, false, 'a lower seq');
+  assert.equal(check(...signed(doc({ seq: 2 })), held).ok, true, 'CONTROL: a higher seq');
+});
+
+test('the pinned key (base64url of the raw bytes) is matched against the listed SPKI keys', () => {
+  const keys = check(VECTOR, VECTOR_SIG).keys;
+  const pin7 = rawOf(K7).toString('base64url');
+  assert.equal(sk.pinnedSpki(pin7), K7_PUB);
+  assert.equal(sk.pinnedIsListed(pin7 + '\n', keys), true, 'the listed current key, with the trailing newline the file may hold');
+  assert.equal(sk.pinnedIsListed(rawOf(K8).toString('base64url'), keys), true, 'the listed next key');
+  assert.equal(sk.pinnedIsListed(rawOf(ROOT).toString('base64url'), keys), false, 'a key not on the list');
+  for (const bad of ['', null, 'not a key', rawOf(K7).toString('base64'), pin7 + '=']) {
+    assert.equal(sk.pinnedIsListed(bad, keys), false, 'unreadable pin ' + JSON.stringify(bad));
+  }
+});
