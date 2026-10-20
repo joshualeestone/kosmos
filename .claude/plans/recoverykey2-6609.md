@@ -18,10 +18,15 @@ This slice alone stops nothing against someone who holds a stolen release key an
 
 ## Validation
 - install.recoverykey-run-setup-6609.test.js (8): end to end over file://, with throwaway release, other and recovery keys rewritten into an installed copy. Mutants measured red: the list's keys not passed (1), the list skipped (5), a refused list ignored (2).
-- install.setup-sig-6468.test.js, engine/manifest-verify.recovery-6609.test.js, engine.reachable.test.js unchanged and passing (41 with the new file). engine.reachable's trustedKeys excuse text corrected: runSetup now calls it.
+- install.setup-sig-6468.test.js, engine/manifest-verify.recovery-6609.test.js, engine.reachable.test.js unchanged and passing (43 across the four files: 8, 17, 10, 8; measured in review 2). engine.reachable's trustedKeys excuse text corrected: runSetup now calls it.
 
 ## Review log
 ### Iteration 1 (opus)
 - [WARNING] fixed: a torn or cached list/signature pair, and the "taken meanwhile" race, answered 97 (permanent; the .pkg path does not retry it) when a retry would succeed. Now 96, with a fresh shared query per attempt over http(s); a verified-but-refused list stays 97. Arms: a list from the wrong signer and a torn pair are 96; the https query is on both files and changes per attempt, none on file://; trustedKeys's race result carries retry: true (phase-1 race test). Mutants measured red: the signature failure back to 97 (2), no query (1), different queries (1), a fixed query (1), the retry flag removed (1). Not reachable end to end: runSetup's use of the retry flag (the race needs the phase-1 linkSync stand-in), stated rather than faked.
 - [WARNING] fixed: the weakest premise named the wrong mechanism. setup.sh checks with the INSTALLED copy's built-in KEYS, so this slice alone stops nothing. Rule written beside RECOVERY_KEYS and in the plan: not filled in before phase 2b.
 - [NIT] recorded for activation: a refused rollback reaches update.js as the generic 97 "could not be checked, try again" sentence; it is an attack signal and deserves its own words when activation is documented.
+### Iteration 2 (sonnet): converged
+No BLOCKER, WARNING or CONVENTION. Off path unchanged; exit codes and every caller's retry rule checked (install/kosmos runs once, update.js backs off an hour after an unattended failure, the .pkg retries 96 at most 5 to 10 times), so a 96 that never clears does not hammer the site.
+- [NIT] accepted: a correctly signed but structurally bad list is retried (96) though a retry cannot change it; the signing tool checks its own output with verifyKeyList, so such a list is not published.
+- [NIT] fixed: the Validation count (43, not 41).
+- [NIT] noted: test 1 alone passes with the list's keys not passed through (RELEASE is also built in); test 4 covers that mutant.
