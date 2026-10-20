@@ -41,6 +41,10 @@ tests is about (repairing an agent that lost its job), not a way around the rule
 existing, which reads true only once a job is really written, so this cannot drop a dismissal on a flicker; and a later
 loss showing the notice again is the intended behaviour (pinned in register.test.js).
 
+**Decided (review 12).** Hiding a notice is behind the remote step-up (a stale remote session could otherwise silence
+a warning); Show again is not. A notice held by an open report keeps its layout across a rotation until the report
+closes (self-heals). Two Kosmos copies sharing one data folder could race on the hidden list; no such setup exists today.
+
 **Behaviour change, stated.** An imported agent a company policy held has never run here, so it is no longer on the
 notice (before, it was listed and Repair refused it with the policy's reason). It loses nothing on a restart.
 

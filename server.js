@@ -4324,6 +4324,9 @@ const REMOTE_STEP_UP_EXACT = new Set([
   'POST /api/agents', 'POST /api/team', 'POST /api/connect-agent', 'POST /api/worlds', 'POST /api/worlds/import',
   // Writing an agent's launchd job (it starts processes), the same class as bringing an agent back.
   'POST /api/register',
+  // #6714 review 12: closing an agent's restart notice silences a warning that it will not come back, so a stale remote
+  // session may not do it. Show again only brings a warning back, so it is not here.
+  'POST /api/register/hide',
   // Federation: joining another Kosmos's project opens a room here that outsiders post into and agents act on;
   // inviting one, or sharing this project's own code, lets another Kosmos in. Removing and withdrawing take away.
   'POST /api/federation/join', 'POST /api/federation/invite', 'POST /api/federation/own-code',
@@ -18572,7 +18575,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   /* #6714: stop reminding about one agent's restart notice, or show it again (Settings > Computer). A notice, not a
-     fix: neither changes whether the agent comes back, so neither is behind the step-up that writing a job is. */
+     fix: neither changes whether the agent comes back. Hiding silences a warning, so it is behind the remote step-up
+     (REMOTE_STEP_UP_EXACT); showing only brings one back, so it is not. */
   if ((pathname === '/api/register/hide' || pathname === '/api/register/show') && req.method === 'POST') {
     readBody(req).then((raw) => {
       let body = null;
