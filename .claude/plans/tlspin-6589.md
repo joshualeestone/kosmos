@@ -39,8 +39,8 @@ checking): nothing changes for anyone.
      checking (review 9), so nothing rests on the two evaluations agreeing;
    - then it hashes the leaf's key (P-256 SPKI SHA-256, as the computer hashes it) and asks the board;
    - while this computer signs out of Plus, the board answers required;
-   - ordinary trust is evaluated on a background queue (SecTrustEvaluateAsyncWithError), then the pin half and every
-     call to the completion handler run on the main thread; a trailing-dot spelling of a name is judged too; the
+   - no trust evaluation of its own (review 10: the leaf reads without one, and waiting on one could stall a page);
+     the pin is judged at once on the main thread, and an allow hands back to WebKit's own checking; a trailing-dot spelling of a name is judged too; the
      selector is pinned with @objc; the async evaluation is called from its own queue (review 3), and the self-test
      runs it on a real certificate;
    - a refusal says WHY in two wordings: a key that does not match ("pair it again if you set it up again"), or a
@@ -52,11 +52,11 @@ checking): nothing changes for anyone.
      be in flight (review 1);
    - a refusal cancels the challenge and says so (an alert at most once a minute per computer; always logged).
 4. Tests:
-   - engine/remote.tlspin-6589.test.js (9);
+   - engine/remote.tlspin-6589.test.js (10);
    - a server route test;
    - native-app.tlspin-6589.test.js (the wiring);
-   - 16 new --kosmos-app-mode-selftest rows (the hash against an openssl P-256 vector; the decision table, a fresh renewal match included; a real self-signed certificate through tlsLeafKeyHash and evaluateTrustOffMain, untrusted, and a test server certificate set as its own anchor, trusted, so neither direction can be faked). The
-     row-count pins in two native tests move from 191 to 207.
+   - 14 new --kosmos-app-mode-selftest rows (the hash against an openssl P-256 vector; the decision table, a fresh renewal match included; a real self-signed certificate's leaf through tlsLeafKeyHash). The
+     row-count pins in two native tests move from 191 to 205.
 
 ## Decisions
 - NO board means ordinary checking: a connect-only Mac could otherwise open no computer at all. A board that fails an

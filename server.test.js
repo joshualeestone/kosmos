@@ -11848,7 +11848,7 @@ test('kosmos#6589: which key another computer vouches for is asked only on this 
   assert.match(src.slice(at, at + 2400), /remote\.tlsPin\(address, \{ fresh: q\.get\('fresh'\) === '1' \}\)/, 'fresh=1 reaches tlsPin as fresh');
   /* Review 6: an address no computer of the account can have is answered none, before the tunnel (a staging
      coordinator's domain must not read as required and refuse every computer). */
-  for (const address of ['evil.example', '', 'tmnt.kosmosplus.com/x', '../x']) {
+  for (const address of ['evil.example', 'evil.example.com', 'a.b.kosmosplus.com', 'TMNT.KOSMOSPLUS.COM\u0000', '', 'tmnt.kosmosplus.com/x', '../x']) {
     const r = await req('/api/remote/tls-pin?address=' + encodeURIComponent(address));
     assert.equal(r.status, 200, address + ': ' + r.body);
     assert.deepEqual(JSON.parse(r.body), { state: 'none', because: 'not an address of this account' }, address);
