@@ -1,0 +1,110 @@
+'use strict';
+/**
+ * kosmos#6589 (S-7c): tlsPin asks the tunnel which TLS key another of the person's computers vouches for. Every tunnel
+ * call goes to a FAKE binary through AGENT_WORKFORCE_TUNNEL_BIN; nothing reaches a network.
+ *  - it runs `tls-pin --state-dir <dir> --to https://<address>`, local only;
+ *  - it passes on `pinned` only with well-formed key hashes, `none` as none, and EVERY other answer as `required`;
+ *  - a connector from before tls-pin answers none (it never pinned anything); before the sign-up nothing is spawned;
+ *  - a definite answer is cached for five minutes, `fresh` asks again, and `required` is never cached.
+ */
+require('../test-support/tmpscope');
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-tlspin-'));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+const DATA_ROOT = require('./store').ROOT;
+const FAKE_BIN = nodePath.join(SANDBOX, 'fake-kosmos-tunnel');
+const RECORD = nodePath.join(SANDBOX, 'fake-record.jsonl');
+const MODE = nodePath.join(SANDBOX, 'fake-mode');
+process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_BIN;
+process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+const KEY = 'a'.repeat(64);
+
+/* The fake prints what kosmos-relay's `tls-pin` prints (main.rs, tlspin.rs Answer::printed); the mode file picks the
+   answer, so a cached answer can be told from a fresh one. */
+fs.writeFileSync(FAKE_BIN, `#!/usr/bin/env node
+'use strict';
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(args) + '\\n');
+let mode = ''; try { mode = fs.readFileSync(${JSON.stringify(MODE)}, 'utf8').trim(); } catch {}
+if (args[0] === 'tls-pin') {
+  if (mode === 'old') { process.stderr.write("error: unrecognized subcommand 'tls-pin'\\n"); process.exit(2); }
+  if (mode === 'none') { console.log(JSON.stringify({ state: 'none', because: 'the computer answered 404' })); process.exit(0); }
+  if (mode === 'required') { console.log(JSON.stringify({ state: 'required', because: 'statement refused: other_peer' })); process.exit(0); }
+  if (mode === 'badkey') { console.log(JSON.stringify({ state: 'pinned', spki: ['ABC'], from: 'mac-b' })); process.exit(0); }
+  if (mode === 'nokey') { console.log(JSON.stringify({ state: 'pinned', spki: [], from: 'mac-b' })); process.exit(0); }
+  if (mode === 'odd') { console.log(JSON.stringify({ state: 'maybe' })); process.exit(0); }
+  if (mode === 'crash') { process.stderr.write('boom at /Users/someone/secret/path\\n'); process.exit(1); }
+  if (mode === 'other') { console.log(JSON.stringify({ state: 'pinned', spki: ['${'b'.repeat(64)}'], from: 'mac-b' })); process.exit(0); }
+  console.log(JSON.stringify({ state: 'pinned', spki: ['${KEY}'], from: 'mac-b' }));
+  process.exit(0);
+}
+process.stderr.write('fake: unexpected ' + args.join(' ') + '\\n');
+process.exit(9);
+`, { mode: 0o755 });
+
+const remote = require('./remote');
+
+function enrol() {
+  const dir = nodePath.join(DATA_ROOT, 'remote');
+  fs.mkdirSync(dir, { recursive: true });
+  for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(nodePath.join(dir, f), 'fake');
+  return dir;
+}
+function unenrol() { fs.rmSync(nodePath.join(DATA_ROOT, 'remote'), { recursive: true, force: true }); }
+function recorded() {
+  try { return fs.readFileSync(RECORD, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); } catch { return []; }
+}
+const mode = (m) => fs.writeFileSync(MODE, m);
+test.beforeEach(() => { fs.rmSync(RECORD, { force: true }); mode(''); });
+test.afterEach(() => { remote.resetForTests(); unenrol(); });
+test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+
+test('#6589: tlsPin runs tls-pin locally for the other computer and hands back only its key hashes', async () => {
+  const dir = enrol();
+  const got = await remote.tlsPin('tmnt.kosmosplus.com');
+  assert.deepEqual(got, { ok: true, because: null, data: { state: 'pinned', spki: [KEY] } });
+  assert.deepEqual(recorded(), [['tls-pin', '--state-dir', dir, '--to', 'https://tmnt.kosmosplus.com']]);
+});
+
+test('#6589: none passes as none; every other answer, a malformed pinned one included, is required', async () => {
+  enrol();
+  mode('none');
+  assert.equal((await remote.tlsPin('a.kosmosplus.com')).data.state, 'none');
+  for (const m of ['required', 'badkey', 'nokey', 'odd', 'crash']) {
+    remote.resetForTests(); mode(m);
+    const got = await remote.tlsPin('b.kosmosplus.com');
+    assert.deepEqual(got.data, { state: 'required', because: "this computer's certificate could not be checked" }, m);
+    assert.ok(!JSON.stringify(got).includes('/Users/'), 'the tunnel\'s own words stay here');
+  }
+});
+
+test('#6589: a connector from before tls-pin answers none; before the sign-up nothing is spawned', async () => {
+  enrol(); mode('old');
+  assert.equal((await remote.tlsPin('c.kosmosplus.com')).data.state, 'none');
+  unenrol(); fs.rmSync(RECORD, { force: true }); remote.resetForTests();
+  assert.equal((await remote.tlsPin('c.kosmosplus.com')).data.state, 'none');
+  assert.deepEqual(recorded(), [], 'not enrolled: no spawn');
+});
+
+test('#6589: a definite answer is cached five minutes, fresh asks again, and required is never cached', async () => {
+  enrol();
+  assert.deepEqual((await remote.tlsPin('d.kosmosplus.com')).data.spki, [KEY]);
+  mode('other');
+  // Cached: the renewed key is not seen yet.
+  assert.deepEqual((await remote.tlsPin('d.kosmosplus.com')).data.spki, [KEY]);
+  assert.equal(recorded().length, 1);
+  // fresh: the app's one retry on a mismatch sees the renewal.
+  assert.deepEqual((await remote.tlsPin('d.kosmosplus.com', { fresh: true })).data.spki, ['b'.repeat(64)]);
+  assert.equal(recorded().length, 2);
+  // required is asked again every time.
+  mode('required');
+  await remote.tlsPin('e.kosmosplus.com'); await remote.tlsPin('e.kosmosplus.com');
+  assert.equal(recorded().filter((a) => a[4] === 'https://e.kosmosplus.com').length, 2);
+  assert.equal(remote.TLS_PIN_TTL_MS, 5 * 60 * 1000);
+});

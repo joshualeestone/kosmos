@@ -1,0 +1,53 @@
+'use strict';
+/**
+ * kosmos#6589 (S-7c): in the Mac app, another of the person's computers must present a certificate whose key is the
+ * one it vouches for. The rules (p256SpkiSha256Hex against an openssl vector, and tlsPinDecision's table) are proved
+ * by their rows in --kosmos-app-mode-selftest; this file pins the wiring the selftest cannot reach: which connections
+ * the challenge handler judges, that ordinary checking comes first, that a refusal cancels, and what it asks the board.
+ * What no file here can prove is that WebKit calls the handler for every connection (a resumed TLS session, a
+ * coalesced one): that is measured on the real app, with a deliberately wrong pin, on a second navigation too.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const SRC = fs.readFileSync(path.join(__dirname, 'native-app', 'main.swift'), 'utf8');
+function body(sig) {
+  const at = SRC.indexOf(sig);
+  assert.notEqual(at, -1, sig + ' is gone from main.swift');
+  return SRC.slice(at, SRC.indexOf('\n    }\n', at) + 6);
+}
+
+test('#6589: the challenge handler judges only computers\' addresses, after ordinary checking, and a refusal cancels', () => {
+  const h = body('func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,');
+  assert.match(h, /space\.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = space\.serverTrust/);
+  assert.match(h, /isKosmosPlusURL\(target\), !isKosmosPlusSiteURL\(target\)/, 'computers only, never the Kosmos+ site');
+  assert.match(h, /else \{ completionHandler\(\.performDefaultHandling, nil\); return \}/, 'anything else is ordinary');
+  const evalAt = h.indexOf('SecTrustEvaluateWithError(trust, &err)');
+  const askAt = h.indexOf('askTlsPin(host: host, fresh: false)');
+  assert.ok(evalAt > 0 && askAt > evalAt, 'ordinary checking comes before the pin');
+  assert.match(h.slice(evalAt - 6, askAt), /guard SecTrustEvaluateWithError\(trust, &err\) else \{ completionHandler\(\.cancelAuthenticationChallenge, nil\); return \}/);
+  assert.match(h, /case \.allow: completionHandler\(\.useCredential, URLCredential\(trust: trust\)\)/);
+  assert.match(h, /case \.refuse, \.askFresh:\n\s+self\?\.tlsPinRefused\(host\)\n\s+completionHandler\(\.cancelAuthenticationChallenge, nil\)/);
+  assert.match(h, /guard first == \.askFresh, let self else \{ finish\(first\); return \}\n\s+self\.askTlsPin\(host: host, fresh: true\)/, 'one fresh retry, then the decision with fresh: true');
+  assert.match(h, /fresh: true\)\)\n/, 'the retry is judged as fresh, so a second mismatch refuses');
+});
+
+test('#6589: it asks this computer\'s own board, with the board token, for that address', () => {
+  const a = body('private func askTlsPin(host: String, fresh: Bool, done: @escaping (String?, [String]) -> Void) {');
+  assert.match(a, /parts\.scheme = "http"; parts\.host = "127\.0\.0\.1"; parts\.port = resolvedPort; parts\.path = "\/api\/remote\/tls-pin"/);
+  assert.match(a, /URLQueryItem\(name: "address", value: host\)/);
+  assert.match(a, /\(fresh \? \[URLQueryItem\(name: "fresh", value: "1"\)\] : \[\]\)/);
+  assert.match(a, /req\.setValue\(tok, forHTTPHeaderField: "x-kosmos-board-token"\)/);
+  assert.match(a, /else \{ done\(nil, \[\]\); return \}/, 'no readable answer is (nil, []): ordinary, as the table says');
+});
+
+test('#6589: the leaf\'s key is hashed as the computer hashes it, and a refusal is said once a minute per computer', () => {
+  const k = body('private func tlsLeafKeyHash(_ trust: SecTrust) -> String? {');
+  assert.match(k, /SecTrustCopyCertificateChain\(trust\) as\? \[SecCertificate\], let cert = chain\.first/);
+  assert.match(k, /return p256SpkiSha256Hex\(point: point\)/);
+  const r = body('private func tlsPinRefused(_ host: String) {');
+  assert.match(r, /if let at = tlsPinToldAt\[host\], now - at < 60 \{ return \}/);
+  assert.match(r, /logLine\(/, 'the refusal is logged even when the person is not told again');
+});
