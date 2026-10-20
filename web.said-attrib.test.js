@@ -41,7 +41,7 @@ test('the quote carries a visible attribution', () => {
 test('the label follows the quote exactly', () => {
   const i = PAGE.indexOf("const said = document.getElementById('d-said');");
   assert.ok(i > -1, 'the evidence painter moved; re-anchor');
-  const block = PAGE.slice(i, i + 1400); // #3958 added a guard and its comment inside
+  const block = PAGE.slice(i, i + 2200); // #3958 added a guard and its comment inside; #6716 the fold's gate
   assert.match(block, /said\.hidden = !line;/, 'the quote no longer hides when empty');
   assert.match(block, /saidLab\.hidden = !line;/,
     'the label does not hide with the quote, so an agent with no evidence keeps a stranded heading');

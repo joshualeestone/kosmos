@@ -643,10 +643,13 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    stacks in the name column (#3385: .dnamerow is a flex column). */
 .dnamerow .detail-state { margin: 0; }
 /* The agent's own words, marked as a quotation rather than as our sentence: a
-   rule down the left, the terminal's own face, and no italics (this is copied
-   text, not emphasis). */
-.detail-saidbox { margin: 10px 0 0; }
-.detail-saidlab { margin: 0; font-size: .75rem; color: var(--k-ink-2); cursor: pointer; }
+   hairline box, the terminal's own face, and no italics (this is copied text,
+   not emphasis). #6716: folded under a summary, which is a full 44px tap. */
+.detail-saidbox { margin: 6px 0 0; }
+/* Height from padding, not flex: a flex summary loses its disclosure triangle. 12 + 20 + 12 = 44px. */
+.detail-saidlab { margin: 0; padding: 12px 0; line-height: 20px;
+                  font-size: .75rem; color: var(--k-ink-2); cursor: pointer; border-radius: 6px; }
+.detail-saidlab:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
 /* #6716: a full hairline box, not a left bar (Josh: no solid left accent bars). */
 .detail-said { margin: 4px 0 0; padding: 6px 10px;
                border: 1px solid var(--k-rule); border-radius: 8px; color: var(--k-ink-2);
@@ -42747,7 +42750,7 @@ function paintDetailState(card) {
      sample, this pill and the DM line say idle while the card still says working. Chosen: the
      split Josh reported was the pill against the DM line on this same page, and a card one
      poll behind resolves on the next sample. The stale sample is dropped whole: its evidence line
-     described the work, so an Idle pill beside "Its screen said: <that work>" would be the same
+     described the work, so an Idle pill beside the screen line about that work would be the same
      split one row lower. */
   /* #5949: and its remembered mark goes with it: that idle comes from a later reply, not from the remembered look. */
   const a = workingSampleIsStale(card) ? { ...card, state: 'idle', stateEvidence: '', stateRead: '' } : card;
@@ -42768,11 +42771,16 @@ function paintDetailState(card) {
     /* #6716: only a state waiting on something shows what its screen said (a prompt, a limit, a failed sign-in). A
        working or idle agent's line is the CLI's own chrome, never for a person. */
     const line = SAID_STATES.has(a.state) ? String(a.stateEvidence || '').trim() : '';
-    if (saidBox) saidBox.hidden = !line;
+    if (saidBox) {
+      saidBox.hidden = !line;
+      /* Closed again for another agent, so each agent's quote starts folded; the poll for the same agent leaves an
+         opened fold as the person left it. */
+      if (saidBox.dataset.for !== a.sessionName) { saidBox.open = false; saidBox.dataset.for = a.sessionName || ''; }
+    }
     if (said.textContent !== line) said.textContent = line;
     said.hidden = !line;
     /* The label follows the quote exactly, or an empty agent page keeps a
-       stranded "Its screen said:" with nothing under it. */
+       stranded "What X's screen said" with nothing under it. */
     if (saidLab) {
       /* `a.name`, which is what the heading two lines up uses. My first version
          called a `dispName()` that DOES NOT EXIST -- it would have thrown the
