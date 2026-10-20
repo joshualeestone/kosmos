@@ -5242,19 +5242,24 @@ try {
   for (const t of targets) { try { allowance.ensureStatusLine(t); } catch { /* fail soft */ } }
 } catch { /* missing from this bundle, or it failed to load: the hooks' answer stands */ }
 // 3: every target was left alone on purpose (#6713), which is neither a success to announce nor a failure.
-// 4: some left alone, the rest wired, none refused. 1: something was refused.
-process.exit(targets.length > 0 && skipped === targets.length ? 3 : refused > 0 ? 1 : skipped > 0 ? 4 : 0);
+// 4: some left alone, the rest wired, none refused. 1: something was refused. 5: something refused AND some left alone.
+process.exit(targets.length > 0 && skipped === targets.length ? 3 : refused > 0 ? (skipped > 0 ? 5 : 1) : skipped > 0 ? 4 : 0);
 HOOKSEOF
 case "$_hooks_rc" in
   0)
     info "agents on this computer report what they are doing themselves; the board reads their"
     info "own words instead of their screens" ;;
   3)
-    info "this install is not recognised as the installed Kosmos (its layout, or KOSMOS_HOME, is not the default one),"
-    info "so it leaves the Claude settings in your home alone; agents on it are read from their screens instead" ;;
+    info "this install is not recognised, or could not be checked, as the installed Kosmos (its layout, or KOSMOS_HOME,"
+    info "is not the default one), so it leaves the Claude settings in your home alone; agents on it are read from"
+    info "their screens instead" ;;
   4)
-    info "agent settings outside your home carry the reporting hook; those in your home were left alone, because"
-    info "this install is not recognised as the installed Kosmos, so agents on them are read from their screens" ;;
+    info "agent settings in this install's own folder carry the reporting hook; those in your real home were left"
+    info "alone, because this install is not recognised as the installed Kosmos, so agents on them are read from their screens" ;;
+  5)
+    info "some agent settings could not carry the reporting hook (an unreadable settings file is left alone on"
+    info "purpose), and those in your real home were left alone because this install is not recognised as the"
+    info "installed Kosmos; those agents are read from their screens" ;;
   *)
     info "some agent settings could not carry the reporting hook (an unreadable settings"
     info "file is left alone on purpose); those agents stay readable the older way" ;;

@@ -57,7 +57,8 @@ test('#6713: measured on this computer: this worktree is not an installed Kosmos
   if (fs.existsSync(firm)) assert.equal(installroot.installRoot({ platform: 'darwin', root: firm }), firm, 'the default root under another spelling is still the default, by identity');
 });
 
-test('#6713: the refusal promises nothing (a custom-KOSMOS_HOME install is never wired by Kosmos)', () => {
+test('#6713: the refusal pins its wording, and promises no later setup', () => {
+  assert.doesNotMatch(installroot.NOT_INSTALLED, /another install|will set|later/);
   assert.equal(installroot.NOT_INSTALLED, 'this board is not the installed Kosmos (a source checkout, a worktree or a test install), so it leaves this account\'s Claude settings alone');
 });
 
@@ -213,8 +214,10 @@ test('#6713: setup.sh says, for exit 3, that the home was left alone, and never 
   const block = sh.slice(a, sh.indexOf('\nesac', a) + 5);
   const say = (rc) => spawnSync('/bin/sh', ['-c', 'info() { echo "$*"; }; _hooks_rc=' + rc + '\n' + block], { encoding: 'utf8' }).stdout;
   assert.match(say(3), /leaves the Claude settings in your home alone/);
-  assert.match(say(4), /those in your home were left alone/);
+  assert.match(say(4), /those in your real home were left/);
   assert.doesNotMatch(say(4), /unreadable/, 'a mixed run says nothing was unreadable');
+  assert.match(say(4), /this install's own folder/, 'exit 4 names what it wired without claiming it is outside the home');
+  assert.match(say(5), /unreadable/); assert.match(say(5), /your real home were left alone/, 'exit 5 says both');
   assert.match(say(0), /report what they are doing themselves/, 'CONTROL: exit 0 keeps its line');
 });
 
@@ -281,4 +284,14 @@ test('#6713: a filesystem that reports inode 0 for every folder does not make a 
   t.after(() => { fs.statSync = real; });
   assert.equal(installroot.leaveAlone(file, { home, env: { AGENT_WORKFORCE_HOME: sb }, installRoot: null }), null, 'the sandbox writes its own folders');
   assert.equal(installroot.leaveAlone(path.join(home, '.claude', 'settings.json'), { home, env: { AGENT_WORKFORCE_HOME: sb }, installRoot: null }), installroot.NOT_INSTALLED, 'CONTROL: the real home is still left alone');
+});
+
+test('#6713: setup.sh with a target refused and another left alone exits 5, not 1', (t) => {
+  const { home, kh, def } = homeWithAccount(t);
+  fs.writeFileSync(def, 'not json\n');   // an unreadable settings file is refused, and left as it is
+  const r = runSetupHooksWith(home, kh, '(f) => (f.includes(".claude-account-g6713") ? "left alone" : null)');
+  assert.equal(r.status, 5, 'refused and left alone: exit 5. ' + r.stderr);
+  assert.equal(fs.readFileSync(def, 'utf8'), 'not json\n');
+  const only = runSetupHooksWith(home, kh, '() => null');
+  assert.equal(only.status, 1, 'CONTROL: refused with nothing left alone is still exit 1. ' + only.stderr);
 });
