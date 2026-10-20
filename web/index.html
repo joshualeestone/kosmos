@@ -48120,6 +48120,8 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (!btn) return;
+  /* One start at a time (review 20): a second press while one runs would race the first's repaint. */
+  if (SURVIVAL_BUSY) { survivalSayIn(btn, 'One moment: another agent is being set up.'); return; }
   const only = btn.getAttribute('data-survival-fix');
   const slot = document.getElementById('survival-slot');
   const label = btn.textContent;

@@ -219,3 +219,9 @@ test('#6714 review 17: the notice words are focusable and inert, and a poll re-c
   assert.ok(afterFetch > 0);
   assert.match(paint.slice(afterFetch, afterFetch + 300), /if \(SURVIVAL_BUSY\) return;/, 'a poll can paint over a running start');
 });
+
+test('#6714 review 20: a second Start at login while one runs is refused with a line, not raced', () => {
+  const at = SCRIPT.indexOf("const only = btn.getAttribute('data-survival-fix');");
+  assert.ok(at > 0, 'the start handler is not where this test looks: re-derive it');
+  assert.match(SCRIPT.slice(at - 300, at), /if \(SURVIVAL_BUSY\) \{ survivalSayIn\(btn, /, 'a second start can run while the first is in flight');
+});
