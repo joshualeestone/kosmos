@@ -417,13 +417,14 @@ LAUNCHER_PORT="$(sed -n 's/.*DefaultPort *= *\([0-9][0-9]*\).*/\1/p' "$REPO/tool
 # 🔏 #6679: THE READ-ME SAYS Kosmos.exe IS SIGNED, so the build holds the launcher to
 # what the read-me says, the way it holds the connector above: a signature must be
 # PRESENT on any host, and on Windows, Windows itself must call it Valid and by
-# Kosmos Agent Manager, Inc. (connector-windows.sh's checks; their messages name the
-# connector, so this prints its own). What was checked lands in the manifest.
-if ! connector_pe_signed "$LAUNCHER" 2>/dev/null; then
-  echo "tools/windows/Kosmos.exe carries no signature, and the zip's read-me tells people it is signed." >&2
-  echo "Sign it on the Windows box (tools/windows/README.md) and commit it (#6679)." >&2
+# Kosmos Agent Manager, Inc. Both checks are connector-windows.sh's, the presence one
+# being pe_signature_present because the launcher is a 32-bit (AnyCPU) PE, which the
+# connector's x86-64 check rightly refuses. What was checked lands in the manifest.
+_launcher_why="$(pe_signature_present "$LAUNCHER" 2>&1 >/dev/null)" || {
+  echo "tools/windows/Kosmos.exe is not signed, and the zip's read-me tells people it is (#6679): ${_launcher_why#pe_signature_present: }" >&2
+  echo "Sign it on the Windows box (tools/windows/README.md) and commit it." >&2
   exit 1
-fi
+}
 _launcher_sig="present (not verified: this build did not run on Windows)"
 if [ "$_on_windows" = 1 ]; then
   _launcher_why="$(connector_authenticode "$LAUNCHER" 2>&1 >/dev/null)" || {

@@ -60,6 +60,33 @@ connector_pe_signed() {
   return 0
 }
 
+# #6679: the same PRESENCE check for any PE, 32- or 64-bit. The launcher
+# (tools/windows/Kosmos.exe) is a C# AnyCPU build, which is PE32 with machine
+# i386 (332), so connector_pe_x64 rightly refuses it as a connector; this reads the
+# certificate table wherever the optional header's magic puts it (PE32: data
+# directories 96 bytes in; PE32+: 112).
+pe_signature_present() {
+  local f="${1:?pe_signature_present needs a file}" pe magic dirs addr size
+  [ -f "$f" ] || { echo "pe_signature_present: no file at $f" >&2; return 1; }
+  [ "$(_cw_u16 "$f" 0)" = 23117 ] || { echo "pe_signature_present: $f is not a Windows program (no MZ header)" >&2; return 1; }
+  pe="$(_cw_u32 "$f" 60)"
+  case "$pe" in ''|*[!0-9]*) echo "pe_signature_present: $f has no readable PE offset" >&2; return 1 ;; esac
+  [ "$(_cw_u32 "$f" "$pe")" = 17744 ] || { echo "pe_signature_present: $f has no PE signature at $pe" >&2; return 1; }
+  magic="$(_cw_u16 "$f" $((pe + 24)))"
+  case "$magic" in
+    267) dirs=$((pe + 24 + 96)) ;;
+    523) dirs=$((pe + 24 + 112)) ;;
+    *) echo "pe_signature_present: $f has an unknown optional header (magic $magic)" >&2; return 1 ;;
+  esac
+  addr="$(_cw_u32 "$f" $((dirs + 32)))"
+  size="$(_cw_u32 "$f" $((dirs + 36)))"
+  if [ "${addr:-0}" = 0 ] || [ "${size:-0}" = 0 ]; then
+    echo "pe_signature_present: $f carries no signature" >&2
+    return 1
+  fi
+  return 0
+}
+
 # Windows only (Git Bash): Get-AuthenticodeSignature must say Valid, and the signer
 # must be KOSMOS_WIN_SIGNER (default: Kosmos Agent Manager, Inc.).
 connector_authenticode() {
