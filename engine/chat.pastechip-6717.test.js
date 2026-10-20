@@ -237,22 +237,32 @@ test('kosmos#6717: Claude Code restarted in the pane (chip numbers start again):
   assert.equal(p.state.enters, 0);
 }));
 
-test('kosmos#6717: a chip that first appears during the watch after our Enter is pinned at its first sight', () => withAgent((roster) => {
+test('kosmos#6717: a chip that first appears only after our Enter is never ours (nothing ties it to our paste)', () => withAgent((roster) => {
   const p = pane({ enterTakes: false, fold: 1e9 });   // before the Enter the box shows our words, not a chip
   let looks = 0;
   chat.setRunner((args) => {
-    // After our Enter it folds to #1 (ours), then a person's #2 takes its place.
+    // After our Enter a chip appears (a person's paste in the instant after ours went) and stays.
     if (args[0] === 'capture-pane' && args.includes('-e') && p.state.enters > 0) {
       looks += 1;
       if (looks === 1) { p.state.chipNo = 1; p.state.shown = '[Pasted text #1]'; }
-      if (looks === 2) { p.state.chipNo = 2; p.state.shown = '[Pasted text #2]'; }
     }
     return p(args);
   });
-  chat.deliver('al', LONG, roster);
-  assert.equal(looks >= 2, true, 'PRECONDITION: the watch looked at least twice');
-  assert.equal(p.state.enters, 1, 'only our own Enter');
+  const v = chat.deliver('al', LONG, roster);
+  assert.equal(looks >= 1, true, 'PRECONDITION: the watch looked after the Enter');
+  assert.equal(p.state.enters, 1, 'only our own Enter, never one on a chip that appeared after it');
+  assert.notEqual(v.state, chat.DELIVERY.PLACED);
   let kept = {};
   try { kept = JSON.parse(fs.readFileSync(path.join(require('./store').ROOT, 'unsent-lines.json'), 'utf8')); } catch { kept = {}; }
-  assert.equal(Object.values(kept).some((e) => e && e.chip === '[Pastedtext#2]'), false, 'the person\'s #2 is never kept as our line');
+  assert.equal(Object.values(kept).some((e) => e && e.chip), false, 'no chip is ever kept as our line');
+}));
+
+test('kosmos#6717: async delivery: a chip appearing only after our Enter is never pressed by the retry', () => withAgent(async (roster) => {
+  const p = pane({ enterTakes: false, fold: 1e9 });
+  chat.setRunner((args) => {
+    if (args[0] === 'capture-pane' && args.includes('-e') && p.state.enters > 0) { p.state.chipNo = 1; p.state.shown = '[Pasted text #1]'; }
+    return p(args);
+  });
+  await chat.deliverAsync('al', LONG, roster);
+  assert.equal(p.state.enters, 1, 'the async retry never presses a chip that appeared after our Enter');
 }));
