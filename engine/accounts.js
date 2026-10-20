@@ -525,6 +525,8 @@ function defaultFolderClaudeVersion(plat, env) {
  * on its own port and data folder) would point every agent's hooks on this computer at its throwaway engine, since
  * the script path is its own; it is the same question win32board.bundleRoot answers for the logon task (null for a
  * source checkout and for a build in the updater's folder), so such a board skips, says why, and touches nothing.
+ * The launch-time call (win32launch) is gated the same way, so a source board's own agents never get the hooks wired
+ * and report through scraping instead: visible (the board's start says why) and the safe side.
  * NOT covered: a second BUILT bundle extracted elsewhere and started as a test board passes bundleRoot and still writes
  * its own path here (an engine-path pointer check was rejected: an update may move the engine before the pointer).
  * `platform`, `script`, `node`, `claudeVersion`, `bundleRoot` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
@@ -535,7 +537,9 @@ function wireDefaultHooks(opts) {
   const o = opts || {};
   const plat = o.platform || process.platform;
   if (plat !== 'win32') return { wired: false, skipped: true, because: 'setup.sh wires the hooks on this platform' };
-  const root = o.bundleRoot !== undefined ? o.bundleRoot : require('./win32board').bundleRoot({ platform: plat });
+  let root = null;
+  try { root = o.bundleRoot !== undefined ? o.bundleRoot : require('./win32board').bundleRoot({ platform: plat }); }
+  catch { return { wired: false, skipped: false, because: 'this board could not tell whether it is an installed Kosmos, so the hooks were not written' }; }
   if (!root) {
     return { wired: false, skipped: true,
       because: 'this board is not an installed Kosmos (a source checkout, a worktree or the updater\'s folder), so it leaves this computer\'s shared Claude settings alone' };

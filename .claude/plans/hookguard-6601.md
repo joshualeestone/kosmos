@@ -41,3 +41,20 @@ engine/accounts.wiredefaulthooks-5612.test.js: the existing 11 calls pass the sa
 bundle); new: a non-installed board skips, says why, and leaves an existing settings file byte for byte (control:
 the installed bundle wires first); with nothing injected, this source checkout skips and writes no file. A mutant
 with the gate removed reds both new tests.
+
+## Round 1 (opus): no blocker, 2 warnings, 3 nits
+- WARNING: the status line writer (allowance.ensureStatusLine, via accounts.prepare and the usage-reading route) has the
+  same flaw. Filed onto #6713's scope (out of this card's writer).
+- WARNING: the comment read as complete coverage. FIXED: it names the second-built-bundle gap.
+- NIT: the "nothing injected" test cannot tell a checkout from a bundle on a Mac (bundleRoot joins with path.win32).
+  FIXED: its comment says so; the Windows runner (tools/windows-tests.js) does.
+- NIT: win32launch's comment said the board wires them at start. FIXED: an installed board.
+- NIT (unverified): the engine-path pointer has the same class of risk unless the test board set AGENT_WORKFORCE_DATA.
+  Recorded on #6601 for whoever ran the 10-19 board.
+
+## Round 2 (sonnet): no blocker, 2 warnings, nits
+- WARNING: the launch-time wiring is gated too, so a source board's own agents are never wired (they report by
+  scraping). Intended (the safe side, and the board's start says why); FIXED: said in the comment and here.
+- WARNING: the win32board lookup sat outside the try, breaking "returned, never thrown". FIXED: inside a try; a failure
+  returns a refusal with a fixed sentence.
+- NITs not changed: two long lines; the test's 'worktree' substring check is redundant beside the byte comparison.
