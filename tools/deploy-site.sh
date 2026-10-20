@@ -854,7 +854,8 @@ vercel_deploy_rc 2>&1 | tee "$VOUT"
 vrc=$(cat "$VRC"); rm -f "$VRC"
 case "$vrc" in ''|*[!0-9]*) vrc=1 ;; esac   # no code written is a failure, never a pass
 if [ "$vrc" != 0 ]; then
-  if grep -qiE 'not authorized|token .*is not valid|no credentials found' "$VOUT"; then
+  # Only the CLI's own error lines, so a build line that happens to say "not authorized" is not read as one.
+  if grep -qiE '^Error: .*(not authorized|token .*is not valid|no existing credentials found)' "$VOUT"; then
     if [ -n "${VERCEL_TOKEN:-}" ]; then
       echo "deploy-site: Vercel REFUSED the token in VERCEL_TOKEN (expired, revoked, or not for this project). Make a new scoped token for the chaoskosmos-site project and file it again (kosmos#6771). Nothing was deployed."
     else
