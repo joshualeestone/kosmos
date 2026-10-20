@@ -190,7 +190,7 @@ if tar_metadata_gate "$T/b256.tgz" 2>&1 | /usr/bin/grep -q 'could not read all';
 else fail "a base-256 size must be refused"; fi
 # Review 4: bsdtar reads no body for a folder or a link whatever its size says; one with a size would make the
 # reader skip the next entry (a ._ file bsdtar extracts). Refused, as is a type byte bsdtar does not know.
-for ty in 5 2; do
+for ty in 5 2 1; do
   # The ._ entry has no body, so a reader that skipped it as the sized entry's body would see a clean end and pass.
   { mkhdr a/file 0 2; blk "x"; mkhdr a/thing "$ty" 512; mkhdr a/._hidden 0 0; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/sized$ty.tgz"
   if tar_metadata_gate "$T/sized$ty.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "a type-$ty entry with a size is refused (it would hide the ._ entry after it)"
@@ -254,6 +254,25 @@ fi
 COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf "$T/cleanx.tgz" -C "$T/n" app
 if tar_metadata_extracted "$T/cleanx.tgz" 2>/dev/null; then pass "CONTROL: a clean tarball unpacks with nothing on it"
 else fail "CONTROL: a clean tarball was refused by the extraction layer"; fi
+# Review 9: signals during the unpack. The gate runs in a child bash (its own process group, so the signal reaches it
+# alone) on a tarball of 20000 small files, whose unpack takes a few seconds; TERM and HUP are sent as soon as its unpack folder appears. Each
+# must end the child with the signal (143, 129: passed on, not swallowed) and leave nothing behind. And a caller's
+# own trap must survive a normal run.
+mkdir -p "$T/big/app"; ( cd "$T/big/app" && /usr/bin/perl -e 'for (1..20000) { open my $f, ">", "f$_" or die; print $f "x\n" }' )   # many small files: the unpack takes seconds
+COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf "$T/big.tgz" -C "$T/big" app; rm -rf "$T/big"
+for pair in TERM:143 HUP:129; do
+  sig=${pair%%:*}; want=${pair#*:}; st="$T/st-$sig"; mkdir -p "$st"
+  TMPDIR="$st" /usr/bin/perl -e 'setpgrp(0, 0); exec @ARGV' /bin/bash -c '. "$1"; tar_metadata_gate "$2"' _ "$HERE/lib/tar-metadata-gate.sh" "$T/big.tgz" > /dev/null 2>&1 &
+  cpid=$!; i=0
+  while [ "$i" -lt 200 ] && [ -z "$(ls -A "$st" 2>/dev/null)" ]; do /bin/sleep 0.05; i=$((i + 1)); done
+  kill -s "$sig" "$cpid" 2>/dev/null; { wait "$cpid"; } 2>/dev/null; rc=$?
+  if [ "$i" -lt 200 ] && [ "$rc" = "$want" ] && [ -z "$(ls -A "$st")" ]; then pass "$sig during the unpack ends the gate with the signal ($want) and leaves nothing behind"
+  else fail "$sig during the unpack: rc=$rc (want $want), left: $(ls -A "$st" | tr '\n' ' ') (waited $i)"; /bin/chmod -RN "$st" 2>/dev/null; fi
+done
+rm -f "$T/big.tgz"
+kept="$( /bin/bash -c 'trap "echo caller" TERM; . "$1"; tar_metadata_gate "$2" > /dev/null 2>&1; trap -p TERM' _ "$HERE/lib/tar-metadata-gate.sh" "$T/cleanx.tgz" )"
+if printf '%s' "$kept" | /usr/bin/grep -q 'echo caller'; then pass "a caller's own TERM trap is restored after the gate runs"
+else fail "the gate did not restore the caller's TERM trap: $kept"; fi
 # Complete entries but no end-of-archive blocks: only the end rule can refuse it (the body read and gzip are whole).
 { mkhdr app/K 0 2; blk "x"; } | /usr/bin/gzip -c > "$T/noendblk.tgz"
 if tar_metadata_gate "$T/noendblk.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "whole entries with no end-of-archive blocks are refused"

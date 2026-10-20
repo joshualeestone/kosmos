@@ -128,10 +128,10 @@ tar_metadata_extracted() {
   d="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/tar-metadata-gate.XXXXXXXXXX")" || { echo "FAIL: the tarball metadata gate could not make a folder to unpack into" >&2; return 1; }
   # Review 6: removed whatever the tarball's modes, and on an interrupt too; a folder that will not go is a refusal.
   # Review 7: the interrupt is passed on after the cleanup (never swallowed), and the caller's own traps come back.
-  oldtrap="$(trap -p INT TERM)"
-  trap '_tmg_rm "$d"; trap - INT; kill -s INT $$' INT
-  trap '_tmg_rm "$d"; trap - TERM; kill -s TERM $$' TERM
-  _tmg_done() { _tmg_rm "$d"; trap - INT TERM; [ -z "$oldtrap" ] || eval "$oldtrap"; }
+  # Review 9: a hangup too (a cut in tmux can get one when its session closes), and QUIT.
+  oldtrap="$(trap -p INT TERM HUP QUIT)"
+  local sig; for sig in INT TERM HUP QUIT; do trap '_tmg_rm "$d"; trap - '"$sig"'; kill -s '"$sig"' $$' "$sig"; done
+  _tmg_done() { _tmg_rm "$d"; trap - INT TERM HUP QUIT; [ -z "$oldtrap" ] || eval "$oldtrap"; }
   # The attribute reader must be seen to work (a probe file with one attribute) before an empty answer means clean.
   if ! { printf 'p\n' > "$d/.kosmos-probe" && /usr/bin/xattr -w com.kosmos.probe 1 "$d/.kosmos-probe" 2>/dev/null \
          && [ "$(/usr/bin/xattr -s "$d/.kosmos-probe" 2>/dev/null)" = com.kosmos.probe ]; }; then

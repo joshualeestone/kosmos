@@ -103,13 +103,21 @@ an extended attribute. So both can go.
   scan joins the untested backstops (every forged `._` entry tried is refused earlier, by the header layer or by
   bsdtar failing to unpack it). Not measured here: the CI runner's macOS and bsdtar; the first PR run of `test:shell`
   is that check.
+- **Review 9 (opus):** a hangup mid-unpack left the unpacked copy behind (only INT and TERM were trapped; a cut in tmux
+  can get a HUP when its session closes). HUP and QUIT are trapped the same way now. The review-7 signal fixes were
+  untested; arms now run the gate in a child bash in its own process group on 20000 small files, send TERM and HUP
+  as soon as its unpack folder appears, and require the signal's own exit (143, 129) with nothing left behind; and a
+  caller's TERM trap must survive a normal run. Mutants: the traps removed, the signal swallowed, HUP not trapped,
+  and the caller's traps not restored each fail an arm. The sized-entry arm covers type 1 (hard link) too.
 - **Refuse, not strip after the fact.** A gate that edits the tarball would change the bytes after signing-adjacent
   checks; refusing keeps the pack line the only place the bytes are made.
 - **Both tarballs.** The tmux bundle is built the same way, so it gets the same line and gate.
 
 ## Weakest premise
 
-That bsdtar on the person's Mac extracts exactly as /usr/bin/tar on the build Mac does (the extraction layer
+That the person's Mac extracts exactly as /usr/bin/tar on the build Mac does. install/setup.sh calls `tar` from PATH
+(review 9), so this holds when PATH's tar is the system bsdtar; a person with GNU tar first on PATH unpacks
+differently (the header layer still refuses `._` names and metadata records for them). Otherwise, that bsdtar on the person's Mac extracts as it does here (the extraction layer
 stands in for the install). Both are the system bsdtar; a different macOS version could fold metadata differently.
 
 That nothing the Mac needs at install time is held in an extended attribute. Checked for the 0.7.60 tarball (only
@@ -118,7 +126,7 @@ loudly, which is the safe direction.
 
 ## Tests
 
-- `bash tools/test-tar-metadata-gate-6678.sh`: 47 checks. The control packs a folder that HAS an extended attribute
+- `bash tools/test-tar-metadata-gate-6678.sh`: 51 checks. The control packs a folder that HAS an extended attribute
   the way the bundles pack, and passes. Then: plain packing refused; an AppleDouble entry refused and named (in a
   folder, at the top level, behind a long ustar-prefix path, behind a GNU long name, and behind a hand-made pax path
   record whose entry header says app/K, with a control that the same hand-made entry passes without it); a header
