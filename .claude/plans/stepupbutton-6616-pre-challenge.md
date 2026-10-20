@@ -1,8 +1,8 @@
 ---
 method: challenge-loop
 branch: stepupbutton-6616
-diff_hash: d336c21c7c9fecabc6fdbe0d2ccea3661f11441eb2f430c130534365265e4fa6
-timestamp: 2026-10-20T01:56:58Z
+diff_hash: 52701d9eeb44bfd3bd61e71e05db72728d4275efa3f37081f8f0eb8f4d540ff7
+timestamp: 2026-10-20T02:47:27Z
 subdir_audit: passed
 iterations: 12
 converged: true
@@ -22,6 +22,12 @@ After convergence the branch was rebased onto main once R01 (#6654) merged (only
 On the rebased tree: its node tests and R01's (61 of 61), both browser-check gates, and the four browser checks it
 touches or names in trailers (render-stepupask-6616, render-firstrun-choice-4356 38 of 38, render-layer-gutter-4494
 13 of 13, render-restart-screen-4343 78 of 78) all pass.
+
+After the PR opened, CI's full node suite found one red the focused runs could not: the consolidated grid's body-child
+headroom guard (web.consolidated-980), because the ask is one more body child and main had added one since. Fixed by
+the guard's own named five-site renumbering (repeat(41, auto); rails 42, 43, 44; projects 42 / span 3) and the three
+tests that pin those numbers. A mechanical change named by the failing guard, not reviewed in a further round: every
+web page test passes on it (3060 of 3060) and both browser-check gates pass.
 
 #### Iterations 1 and 2
 - [BLOCKER] the ask was not wired into the B8 board check: FIXED, check wired in, button only through the gate.
