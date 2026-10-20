@@ -349,7 +349,7 @@ test('#4920 the update pause runs the KillMode fix before it stops the board', (
   const k = lines.findIndex((l) => l.startsWith('  _kosmos_linux_unit_killmode   # #4920: before the stop'));
   assert.ok(k > 0, 'the KillMode fix is gone from the update pause');
   assert.match(lines[k + 1], /^  _kosmos_marker_ours="\$_kosmos_was_running"   # #5033/, 'the line after the KillMode fix is not the #5033 marker');
-  assert.equal(lines[k + 2], '  "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true', 'the update pause stop does not follow');
+  assert.equal(lines[k + 2], '  KOSMOS_STOP_BY_INSTALL=1 "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true', 'the update pause stop does not follow');
 });
 
 test('#4920 the sandbox sentence matches what the real installBoard says in a sandbox', () => {

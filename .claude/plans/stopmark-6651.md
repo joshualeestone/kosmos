@@ -121,3 +121,11 @@
   Accepted residuals, both needing the changeover window: a JOINING run that cannot make any name (no inode) cannot
   protect the other update's pause; and an update killed between creating its name and its stop's marker write,
   followed by a person's stop through an older kosmos, reads as stranded.
+- Iteration 10 (a BLOCKER, a NIT): tools/test-setup-pause-sandbox-4651.sh lifts setup.sh's pause block into a harness
+  and failed 32 cases on this branch (the block now calls the shared functions and reads the new variables), which
+  CI's test:shell would have shown red; I had last run it before the adoption change. Its harness now sources the
+  shared block, sets the two variables, and starts each run with no names (a real run's EXIT trap removes its own;
+  this harness never runs it, so names from earlier cases read as stranded pauses in later ones). Also found by
+  searching for the other tests that pin setup.sh's lines: install.linux-board-4920.test.js pins KillMode, the #5033
+  line and the stop as consecutive lines; the naming block now sits above the KillMode line and the pin names the
+  new stop line. And a moved-aside unnamed-adopt name now lives outside the by-install glob.
