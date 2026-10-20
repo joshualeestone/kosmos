@@ -153,6 +153,10 @@ function ensureStatusLine(settingsPath, opts) {
   const script = o.script === undefined ? scriptPath() : o.script;
   if (!script) return { wired: false, because: 'the statusline script is not on this machine' };
   if (typeof settingsPath !== 'string') return { wired: false, because: 'there is no settings file to wire' };
+  /* kosmos#6713: the command names THIS engine's script, so a source or worktree board leaves a settings file in the
+     real home alone (installroot.js). `leaveAlone` is injectable for tests. */
+  const leave = o.leaveAlone !== undefined ? o.leaveAlone : require('./installroot').leaveAlone(settingsPath);
+  if (leave) return { wired: false, because: leave };
   const node = o.node || stableNode();
   const accountDir = o.accountDir || path.dirname(settingsPath);
   /* The command is a shell string, so every path in it is vetted the way the
