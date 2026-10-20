@@ -1135,7 +1135,8 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    restart, is the one home-screen button with nothing bigger around it: 34px tall at 375 (the
    agent names are 16px but a tap anywhere on the card or row opens the agent, and "Answer" has its
    own touch hit area below). Phone width only; .btn is shared, so this is scoped to its box. */
-@media (max-width: 40rem) { #restart-wrap .btn { min-height: 44px; } }
+/* #6714: the restart notice is a .utoast now; its buttons get the same phone tap height. */
+@media (max-width: 40rem) { .utoast.survival .uacts button, .utoast.survival .ux { min-height: 44px; } .utoast.survival .ux { min-width: 44px; } }
 /* 🛑 #2615: THE aria-disabled ARM NEEDS ITS OWN RULE, AND ITS ABSENCE SHIPPED A
    CARD TITLED "grey out the control" THAT GREYED NOTHING OUT. `disabled` was
    doing TWO jobs: the semantics AND the dimming, via `.btn:disabled` right
@@ -1319,6 +1320,12 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 .utoast.streak { --utone: var(--gold-edge); }
 .utoast.streak .utxt b { color: var(--label); }
 .utoast.login-adv.warn { --utone: var(--warn-ink); }
+/* #6714: an agent that will not come back after a restart: a warning with a remedy, so the amber of an expiring login.
+   Its report (.done) is a fact, neutral like .reboot. Restated in each theme block below. */
+.utoast.survival { --utone: var(--warn-ink); }
+.utoast.survival.done, .utoast.survival.unknown { --utone: var(--label-2); }
+.utoast.survival.done .utxt b, .utoast.survival.unknown .utxt b { color: var(--label); font-weight: 400; }
+.utoast.survival.done .utxt b b { font-weight: 600; }
 .utoast.login-adv.urgent { --utone: #b3261e; }
 /* #5018: the notices float over the page, centred on the header (under the navigation), instead of growing it (Josh). The
    header is their anchor (position: relative below); the stack takes no room, and only the notices take clicks.
@@ -1486,6 +1493,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   .utoast.login-adv .utxt small { display: block; }
   /* #5359: the restart note's line is that Kosmos came back by itself, the point of it; kept the same way. */
   .utoast.reboot .utxt small { display: block; }
+  /* #6714: the restart notice's line says nothing is lost, the reassurance that makes it calm; a phone keeps it. */
+  .utoast.survival .utxt small { display: block; }
   /* kosmos#6613: the certificate notice's small line says whether the check is still on; a phone keeps it. */
   .utoast.cwnote .utxt small { display: block; }
 }
@@ -2152,7 +2161,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#cwnote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
+#cwnote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -6104,7 +6113,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      the news line already lives in the header notice slot. removed-wrap and
      restart-wrap are board-management chrome for the tab view. #3048: the
      found/scan discovery panels and their trigger were removed from the home. */
-  html[data-layout="consolidated"] body.consolidated > #removed-wrap, html[data-layout="consolidated"] body.consolidated > #restart-wrap { display: none; }
+  html[data-layout="consolidated"] body.consolidated > #removed-wrap { display: none; }
   /* #867 shipped this as flat, borderless cards "like the mock" -- a
      citation nobody actually checked. The real mock (installkosmos.com/
      consolidated-mock) draws Tasks/Members/Files as white, bordered,
@@ -9221,6 +9230,8 @@ svg { display: block; }
   :root:not([data-theme="light"]) .utoast.reboot { --utone: var(--label-2); }
   :root:not([data-theme="light"]) .utoast.streak { --utone: var(--gold-edge); }
   :root:not([data-theme="light"]) .utoast.login-adv.warn { --utone: var(--warn-ink); }
+  :root:not([data-theme="light"]) .utoast.survival { --utone: var(--warn-ink); }
+  :root:not([data-theme="light"]) .utoast.survival.done, :root:not([data-theme="light"]) .utoast.survival.unknown { --utone: var(--label-2); }
   :root:not([data-theme="light"]) .utoast.login-adv.urgent { --utone: #ff8c82; }
 }
 .note  { margin-top: var(--space-4); padding: var(--space-4) var(--space-5);
@@ -11183,7 +11194,6 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    exclusion is there so a future one does not turn into a grey box inside that page's grey column. */
 :root[data-look="new"] body:not(.consolidated) .pj-empty:not(#pj-one-view .pj-empty) { background: var(--nl-grey); border-radius: 28px; }
 :root[data-look="new"] body:not(.consolidated) .pj-empty:not(.boardfail):not(#pj-one-view .pj-empty) { border-color: transparent; }
-:root[data-look="new"] body:not(.consolidated) #restart-wrap .pj-empty { margin-bottom: 18px; }
 /* Cards: the project page's corners. The plain card (no state stroke; stopped and paused cards keep the plain
    treatment, per the same 08-21 ruling) loses its border and shadow, since its grey ground is the separation. */
 :root[data-look="new"] body:not(.consolidated) #grid .acard { border-radius: 24px; }
@@ -11414,6 +11424,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-theme="dark"] .utoast.reboot { --utone: var(--label-2); }
 :root[data-theme="dark"] .utoast.streak { --utone: var(--gold-edge); }
 :root[data-theme="dark"] .utoast.login-adv.warn { --utone: var(--warn-ink); }
+:root[data-theme="dark"] .utoast.survival { --utone: var(--warn-ink); }
+:root[data-theme="dark"] .utoast.survival.done, :root[data-theme="dark"] .utoast.survival.unknown { --utone: var(--label-2); }
 :root[data-theme="dark"] .utoast.login-adv.urgent { --utone: #ff8c82; }
 
 :root[data-theme="dark"] .pcombo-list { box-shadow: 0 8px 24px rgba(0,0,0,.4); }
@@ -11573,6 +11585,8 @@ body.plus-active .utoast { --utone: #ff8c82; }
 body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice, body.plus-active .utoast.reboot { --utone: var(--label-2); }
 body.plus-active .utoast.streak { --utone: var(--gold-edge); }
 body.plus-active .utoast.login-adv.warn { --utone: var(--warn-ink); }
+body.plus-active .utoast.survival { --utone: var(--warn-ink); }
+body.plus-active .utoast.survival.done, body.plus-active .utoast.survival.unknown { --utone: var(--label-2); }
 body.plus-active .utoast.login-adv.urgent { --utone: #ff8c82; }
 /* #3692: the cards and warnings that lost their left bar are marked by a hairline and a tint, and
    those tokens' light values nearly vanish on navy, so they take the dark values here. Set on just
@@ -12509,6 +12523,9 @@ window.kosmosMeasureScrollbarWidth();
          the update/offline notices rather than overwriting them; role=status per
          the pack; renders only when data.loginAdvisories is non-empty. -->
     <div id="login-adv-slot"></div>
+    <!-- #6714: agents that will not come back if this computer restarts, one compact notice each (Start at login,
+         Remove, x). It asks for action, so it sits with the login notice, above the facts. -->
+    <div id="survival-slot"></div>
     <!-- #5359: the computer restarted while Kosmos was running and Kosmos came back by itself. A fact, so it sits
          below the notices that need action (update, login); its own slot so it co-occurs with them (Mona Lisa). -->
     <div id="reboot-slot"></div>
@@ -18529,6 +18546,14 @@ window.kosmosMeasureScrollbarWidth();
       </div>
     </section>
 
+    <!-- #6714: the restart notices the person closed with their x. Closing one changes nothing about whether that agent
+         comes back, so this is where they are, with Show again. Painted by paintSurvivalHidden; hidden when none. -->
+    <section class="dbox" id="survival-hidden-box" hidden>
+      <h3 class="dlab">Restart notices you closed</h3>
+      <p class="dhint" style="margin:0 0 12px;">These agents will not come back if you restart this computer. You asked not to be reminded.</p>
+      <div id="survival-hidden-list"></div>
+    </section>
+
     <section class="dbox" id="tips-box" hidden>
       <!-- #3574: "Stop showing tips" on any tip turns them all off; this is the way back on. -->
       <!-- #3034 (Josh, 2026-09-24 18:02): titled Help, and the Setup assistant switch sits under Show tips,
@@ -19961,7 +19986,6 @@ window.kosmosMeasureScrollbarWidth();
      fleet, and it is the one thing on this screen that a person cannot
      discover by looking at it. Absent entirely when every agent has a job,
      which is the ordinary case and must not carry a banner. -->
-<div id="restart-wrap" hidden></div>
 <div class="cards" id="grid"></div>
 <!-- kosmos#4812: the agents of this account's OTHER computers, read by this browser from each of them (each
      computer decides who reads it). Only on a page served from this computer's own Kosmos+ address; absent
@@ -25868,8 +25892,8 @@ function showTab(tab) {
     RESTORE_REFUSED_SAID_FOR = null;
     /* Same reason: it describes the agents screen and must not stand under
        Projects or Settings. */
-    const rw = document.getElementById('restart-wrap');
-    if (rw) rw.hidden = true;
+    const rw = document.getElementById('survival-slot');
+    if (rw) rw.innerHTML = '';
     /* Leaving the screen is what finishes a repair report; see SURVIVAL_HELD. */
     SURVIVAL_HELD = false;
   } else { paintRemoved(); paintSurvival(); }
@@ -47566,10 +47590,11 @@ function removedUnreadable() {
  * session that was holding the unregistered one up is gone. Josh restarted on
  * 2026-08-22 and one of his sixteen agents came back.
  *
- * ⚠️ IT IS A STATE WITH A REMEDY, not a notice, so there is no dismiss. Closing
- * it would change nothing about the machine and the sentence would still be
- * true tomorrow — the same reason the update-reload line has one action and no
- * Later. It goes away by being fixed.
+ * #6714 (Josh, 2026-10-20 08:35): "i need a dismiss option". Until then this was
+ * a state with a remedy and no dismiss, on the reasoning that closing it changes
+ * nothing about the machine. He overruled that, so the × is honest about what it
+ * does instead: it says "Stop reminding me about ...", and Settings > Computer
+ * lists every hidden one with Show again.
  *
  * ⚠️ AND IT NAMES THEM. "12 agents" is a number a person cannot act on; the
  * list is what lets them notice that the one they care about is or is not in
@@ -47851,12 +47876,12 @@ async function paintScanBoard() {
  * which agents came back and which could not be started, which is the half of
  * the report that matters.
  *
- * ⚠️ CLEARED BY LEAVING THE SCREEN, not by a timer. The report is finished
- * being read when they go somewhere else; on return the panel asks the machine
- * again, and anything that genuinely failed is still there to say so.
+ * ⚠️ CLEARED BY LEAVING THE SCREEN OR BY ITS ×, not by a timer. The report is
+ * finished being read when they close it or go somewhere else; on return the
+ * notice asks the machine again, and anything that genuinely failed is still
+ * there to say so.
  */
 let SURVIVAL_HELD = false;
-let SURVIVAL_UNKNOWN_BLOCK = '';   // #6320: the last painted "could not check" paragraph, kept for the repair report
 function survivalSay(n) {
   /* Singular and plural written out rather than assembled, because "1 agents"
      is exactly the seam this screen keeps being caught on. */
@@ -47864,9 +47889,25 @@ function survivalSay(n) {
     ? 'One of your agents will not come back if you restart this computer.'
     : n + ' of your agents will not come back if you restart this computer.';
 }
+/* #6714: at most this many agents get a notice of their own; past it, one notice names them all, so the floating
+   stack never covers the board. */
+const SURVIVAL_EACH_MAX = 3;
+/* #6714 (Josh, 2026-10-20: "i need a dismiss option, and also this is an ugly 100% wide button"): one compact notice
+   per agent in the floating notice stack (.topnotes), in the board's .utoast shape, with Start at login, Remove and
+   a ×. The × does not claim to fix anything: its name says what it does ("Stop reminding me about ..."), and
+   Settings > Computer lists the hidden ones with Show again. */
+function survivalNotice(cls, head, line, acts, hideFor, hideLabel) {
+  return '<div class="utoast survival' + (cls ? ' ' + cls : '') + '">'
+    + '<span class="udot" aria-hidden="true"></span>'
+    + '<div class="utxt" role="status"><b>' + head + '</b>' + (line ? '<small>' + line + '</small>' : '') + '</div>'
+    + (acts ? '<div class="uacts">' + acts + '</div>' : '')
+    + '<button type="button" class="ux" data-survival-hide="' + esc(hideFor) + '" aria-label="' + esc(hideLabel)
+    + '" title="' + esc(hideLabel) + '">&times;</button>'
+    + '</div>';
+}
 async function paintSurvival() {
-  const wrap = document.getElementById('restart-wrap');
-  if (!wrap) return;
+  const slot = document.getElementById('survival-slot');
+  if (!slot) return;
   /* ⚠️ NEVER OVER AN IN-FLIGHT REPAIR. The five-second poll would otherwise
      replace the result list the person is reading with the question they have
      already answered, and re-offer a button for work that is running. */
@@ -47875,16 +47916,16 @@ async function paintSurvival() {
   try {
     const res = await fetch('/api/register', { cache: 'no-store' });
     /* ⚠️ A failed look leaves the screen alone rather than writing "everything
-       is fine". This whole panel exists because a silence read as an all-clear,
+       is fine". This whole notice exists because a silence read as an all-clear,
        and a 500 whose JSON body parses is exactly how that happens. */
     if (!res.ok) return;
     body = await res.json().catch(() => null);
   } catch { return; }
   if (!body || body.ok !== true || !Array.isArray(body.missing)) return;
-  if (!onAgentsTab()) { wrap.hidden = true; return; }
+  paintSurvivalHidden(body);
+  if (!onAgentsTab()) { slot.innerHTML = ''; return; }
   /* #6320: an agent we could not check is said, not dropped: silence here reads as "they all come back". */
   const unknown = Array.isArray(body.unknown) ? body.unknown : [];
-  if (!body.missing.length && !unknown.length) { wrap.hidden = true; wrap.innerHTML = ''; return; }
   /* ⚠️ THE NAME THE PERSON GAVE IT, resolved from the survey's own rows. The
      first version printed `body.missing`, which is the machine name, so the
      list read `ava, bob, brigitte` beside cards saying Ava, Brigitte and
@@ -47894,93 +47935,154 @@ async function paintSurvival() {
     const row = (body.agents || []).find((a) => a && a.name === n);
     return (row && row.shownAs) || n;
   };
-  const names = body.missing.map((n) => esc(shownFor(n))).join(', ');
-  const unknownNames = unknown.map((n) => esc(shownFor(n))).join(', ');
-  /* #6518: under the "will not come back" headline the unknown group says only that
-     it could not be checked; the restart is already said once above it. Alone, and
-     in the Done report (which no longer repeats the restart fact), it keeps the
-     full headline. */
-  const unknownBlockWith = (headline) => unknown.length
-    ? '<div class="survival-unknown"><p><b>' + esc(headline) + '</b><br>'
-      + 'Something we need for this check could not be read. ' + (unknown.length === 1
-        ? 'We will leave it as it is, and this message goes away once we can read it.'
-        : 'We will leave them as they are, and this message goes away once we can read it.') + '</p>'
-      + '<p class="dhint" data-survival-unknown>' + unknownNames + '</p></div>'
-    : '';
-  const unknownBlock = SURVIVAL_UNKNOWN_BLOCK = unknownBlockWith(unknown.length === 1
-    ? 'We could not check whether one of your agents comes back if you restart this computer.'
-    : 'We could not check whether ' + unknown.length + ' of your agents come back if you restart this computer.');
-  wrap.hidden = false;
-  // "We could not read this" is an unanswered question, not an empty slot: the solid boardfail shape (see .boardfail).
-  if (!body.missing.length) { wrap.innerHTML = '<div class="pj-empty boardfail">' + unknownBlock + '</div>'; return; }
-  wrap.innerHTML = '<div class="pj-empty boardfail">'
-    + '<p><b>' + esc(survivalSay(body.missing.length)) + '</b><br>'
-    /* #6518: the cause is the button's own words and the effect is the headline,
-       so the body says only what the headline does not. */
-    + 'Their folders and everything they remember are untouched.</p>'
-    + '<p class="dhint">' + names + '</p>'
-    + '<button class="btn" type="button" data-survival-fix>Set them to start at login</button>'
-    + unknownBlockWith(unknown.length === 1
-      ? 'We could not check one more agent.'
-      : 'We could not check ' + unknown.length + ' more agents.')
-    + '</div>';
+  const kept = 'Its folder and everything it remembers are untouched.';
+  let html = '';
+  if (body.missing.length && body.missing.length <= SURVIVAL_EACH_MAX) {
+    for (const n of body.missing) {
+      const shown = esc(shownFor(n));
+      html += survivalNotice('', shown + ' will not come back if you restart this computer', kept,
+        '<button type="button" class="uprime" data-survival-fix="' + esc(n) + '">Start at login</button>'
+        + '<button type="button" data-survival-remove="' + esc(n) + '">Remove…</button>',
+        n, 'Stop reminding me about ' + shownFor(n));
+    }
+  } else if (body.missing.length) {
+    html += survivalNotice('', esc(survivalSay(body.missing.length)),
+      '<span data-survival-names>' + body.missing.map((n) => esc(shownFor(n))).join(', ') + '</span>. '
+      + 'Their folders and everything they remember are untouched.',
+      '<button type="button" class="uprime" data-survival-fix="">Start them at login</button>',
+      body.missing.join(' '), 'Stop reminding me about these agents');
+  }
+  if (unknown.length) {
+    /* #6518: under a "will not come back" notice the unknown group says only that it could not be checked. */
+    const head = unknown.length === 1
+      ? 'We could not check whether ' + esc(shownFor(unknown[0])) + ' comes back if you restart this computer'
+      : 'We could not check whether ' + unknown.length + ' of your agents come back if you restart this computer';
+    html += survivalNotice('unknown', head,
+      'Something we need for this check could not be read. '
+      + (unknown.length === 1 ? 'We will leave it as it is.' : 'We will leave them as they are.')
+      + (unknown.length > 1 ? ' <span data-survival-unknown>' + unknown.map((n) => esc(shownFor(n))).join(', ') + '</span>' : '<span data-survival-unknown hidden></span>'),
+      '', unknown.join(' '), unknown.length === 1 ? 'Stop reminding me about ' + shownFor(unknown[0]) : 'Stop reminding me about these agents');
+  }
+  slot.innerHTML = html;
+}
+
+/* #6714: Settings > Computer lists the notices the person hid, each with Show again. Only names that would still
+   have a notice: one that now starts at login has nothing to show again. */
+function paintSurvivalHidden(body) {
+  const box = document.getElementById('survival-hidden-box');
+  const list = document.getElementById('survival-hidden-list');
+  if (!box || !list) return;
+  const hidden = Array.isArray(body.hidden) ? body.hidden : [];
+  box.hidden = !hidden.length;
+  if (!hidden.length) { list.innerHTML = ''; return; }
+  const shownFor = (n) => {
+    const row = (body.agents || []).find((a) => a && a.name === n);
+    return (row && row.shownAs) || n;
+  };
+  list.innerHTML = hidden.map((n) => '<div class="setrow"><div><b>' + esc(shownFor(n)) + '</b></div>'
+    + '<button class="btn-quiet" type="button" data-survival-show="' + esc(n) + '">Show again</button></div>').join('');
+}
+
+/* The notice a button belongs to, for saying what went wrong beside it. */
+function survivalSayIn(btn, said) {
+  const note = btn.closest('.utoast');
+  const txt = note && note.querySelector('.utxt');
+  if (!txt) return;
+  const old = txt.querySelector('[data-survival-err]'); if (old) old.remove();   // one line, the latest
+  const say = document.createElement('small');
+  say.setAttribute('data-survival-err', '');
+  say.setAttribute('role', 'alert');
+  say.textContent = said;
+  txt.appendChild(say);
 }
 
 document.addEventListener('click', async (e) => {
+  const hide = e.target.closest('[data-survival-hide]');
+  const show = e.target.closest('[data-survival-show]');
+  const remove = e.target.closest('[data-survival-remove]');
   const btn = e.target.closest('[data-survival-fix]');
+  if (hide) {
+    /* A report the person has read: the × just closes it. */
+    if (hide.closest('.utoast.done')) { hide.closest('.utoast').remove(); SURVIVAL_HELD = false; return; }
+    const names = hide.getAttribute('data-survival-hide').split(' ').filter(Boolean);
+    hide.disabled = true;
+    let ok = true;
+    for (const name of names) {
+      try {
+        const r = await fetch('/api/register/hide', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
+        await r.text(); ok = ok && r.ok;
+      } catch { ok = false; }
+    }
+    /* Taken down only once the board has recorded it: an × that did not stick leaves the notice there, never a dead button. */
+    if (!ok) { hide.disabled = false; survivalSayIn(hide, 'We could not record that just now. Try again.'); return; }
+    hide.closest('.utoast').remove();
+    paintSurvival();
+    return;
+  }
+  if (show) {
+    show.disabled = true;
+    let ok = false;
+    try {
+      const r = await fetch('/api/register/show', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: show.getAttribute('data-survival-show') }) });
+      await r.text(); ok = r.ok;
+    } catch { ok = false; }
+    if (!ok) { show.disabled = false; show.textContent = 'Show again (that did not go through)'; return; }
+    paintSurvival();
+    return;
+  }
+  if (remove) {
+    /* The agent page's own removal: the same question from the engine and the same dialog, never a second copy. */
+    const name = remove.getAttribute('data-survival-remove');
+    remove.disabled = true;
+    let ask = null;
+    try {
+      const r = await fetch('/api/agent/' + encodeURIComponent(name) + '/removal', { cache: 'no-store' });
+      ask = r.ok ? await r.json().catch(() => null) : null;
+    } catch { ask = null; }
+    remove.disabled = false;
+    if (!ask || !ask.ok) { survivalSayIn(remove, (ask && ask.because) || 'We could not reach the board just now. Try again.'); return; }
+    openRemoveModal(name, ask);
+    return;
+  }
   if (!btn) return;
-  const wrap = document.getElementById('restart-wrap');
+  const only = btn.getAttribute('data-survival-fix');
+  const slot = document.getElementById('survival-slot');
+  const label = btn.textContent;
   SURVIVAL_BUSY = true;
   btn.disabled = true;
-  btn.textContent = 'Setting them up…';
+  btn.textContent = 'Setting up…';
   let body = null;
   try {
-    const res = await fetch('/api/register', { method: 'POST' });
+    const res = await fetch('/api/register', only
+      ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: only }) }
+      : { method: 'POST' });
     body = await res.json().catch(() => null);
   } catch { body = null; }
   if (!body || body.ok !== true || !Array.isArray(body.results)) {
     btn.disabled = false;
-    btn.textContent = 'Set them to start at login';
-    const old = wrap && wrap.querySelector('[data-survival-err]'); if (old) old.remove();   // one line, the latest
-    const say = document.createElement('p');
-    say.className = 'dhint';
-    say.setAttribute('data-survival-err', '');
-    say.setAttribute('role', 'alert');
-    say.textContent = (body && body.because)
-      ? body.because
-      : 'That did not go through, and nothing was changed. Try again.';
-    btn.after(say);   // beside the button it is about, not under the unknown paragraph (#6320)
+    btn.textContent = label;
+    survivalSayIn(btn, (body && body.because) ? body.because : 'That did not go through, and nothing was changed. Try again.');
     SURVIVAL_BUSY = false;
     return;
   }
   /* ⚠️ PER AGENT, never a total. "12 set up" over a run where three could not
      be started is the shape of sentence this product keeps removing: the ones
      that did not start are exactly the ones somebody will go looking for. */
-  const rows = body.results.map((r) => {
-    const said = r.ok
-      ? (r.started
-        ? 'starts at login, and is running now'
-        : 'starts at your next login, but we could not start it just now')
-      : (r.because || 'we could not set that one up');
-    return '<p class="dhint"><b>' + esc(r.shownAs || r.name) + '</b>: ' + esc(said) + '</p>';
-  }).join('');
+  const said = (r) => r.ok
+    ? (r.started ? 'starts at login, and is running now' : 'starts at your next login, but we could not start it just now')
+    : (r.because || 'we could not set that one up');
   /* ⚠️ WHAT WE HAD TO ASSUME, said once and out loud. The model an agent was
      SET to run on lived only in the job that never existed, so what goes in is
-     what it last ran as — and where even that could not be read, Claude's own
+     what it last ran as, and where even that could not be read, Claude's own
      default. A person whose agent quietly changes model would have no way to
      find out why. */
-  const guessed = body.results.filter((r) => r.ok && r.guessed && r.guessed.model).length;
-  wrap.innerHTML = '<div class="pj-empty boardfail">'
-    + '<p><b>Done.</b></p>'   // #6518: each row below says it starts at login
-    + rows
-    + (guessed
-      ? '<p class="dhint">' + esc(guessed === 1
-        ? 'One of them had no record of which model it was set to run on, so it will start on the default. You can change it on its page.'
-        : guessed + ' of them had no record of which model they were set to run on, so they will start on the default. You can change that on their pages.')
-        + '</p>'
-      : '')
-    + SURVIVAL_UNKNOWN_BLOCK   // #6320: the agents we could not check are still not known; the report must not hide them
-    + '</div>';
+  const guessedLine = (r) => r.ok && r.guessed && r.guessed.model
+    ? 'It had no record of which model it was set to run on, so it will start on the default. You can change it on its page.'
+    : '';
+  const report = body.results.map((r) => survivalNotice(r.ok ? 'done' : 'done failed',
+    '<b>' + esc(r.shownAs || r.name) + '</b> ' + esc(said(r)), esc(guessedLine(r)), '', r.name, 'Close')).join('');
+  const note = btn.closest('.utoast');
+  if (note) note.outerHTML = report; else if (slot) slot.insertAdjacentHTML('afterbegin', report);
   SURVIVAL_BUSY = false;
   SURVIVAL_HELD = true;
   /* The board can now see them, so ask it again rather than waiting out the

@@ -18539,19 +18539,49 @@ const server = http.createServer(async (req, res) => {
      the set the GET above reports, so the two can never describe different
      work. A body would let a caller name an agent the survey refused. */
   if (pathname === '/api/register' && req.method === 'POST') {
-    try {
-      /* The model each one LAST RAN AS, which is the only surviving record of
-         it: the model an agent was SET to run on lived in the job that does not
-         exist. A reading we cannot make travels as nothing, and that agent
-         comes back on Claude's own default rather than not coming back. */
-      const out = register.repair({
-        modelFor: (name) => {
-          try { const m = status.readModel(name); return (m && m.model) || null; }
-          catch { return null; }
-        },
-      });
-      sendJson(res, out.ok ? 200 : 500, out);
-    } catch { sendJson(res, 500, { error: 'we could not set your agents to start on their own' }); }
+    /* #6714: an optional { name } starts one agent from its own notice. The repair accepts only a name the survey
+       offers, so the set it acts on is still exactly what the GET reports. No body (or an empty one) is all of them. */
+    readBody(req).then((raw) => {
+      let only;
+      if (raw && String(raw).trim()) {
+        let body = null;
+        try { body = JSON.parse(raw); } catch { body = null; }
+        if (!body || typeof body !== 'object' || typeof body.name !== 'string') {
+          sendJson(res, 400, { error: 'we could not read that request' }); return;
+        }
+        only = body.name;
+      }
+      try {
+        /* The model each one LAST RAN AS, which is the only surviving record of
+           it: the model an agent was SET to run on lived in the job that does not
+           exist. A reading we cannot make travels as nothing, and that agent
+           comes back on Claude's own default rather than not coming back. */
+        const out = register.repair({
+          only,
+          modelFor: (name) => {
+            try { const m = status.readModel(name); return (m && m.model) || null; }
+            catch { return null; }
+          },
+        });
+        sendJson(res, out.ok ? 200 : (only !== undefined && out.results.length === 0 ? 400 : 500), out);
+      } catch { sendJson(res, 500, { error: 'we could not set your agents to start on their own' }); }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+  /* #6714: stop reminding about one agent's restart notice, or show it again (Settings > Computer). A notice, not a
+     fix: neither changes whether the agent comes back, so neither is behind the step-up that writing a job is. */
+  if ((pathname === '/api/register/hide' || pathname === '/api/register/show') && req.method === 'POST') {
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || typeof body.name !== 'string' || !create.NAME_RE.test(body.name)) {
+        sendJson(res, 400, { error: 'we could not read that request' }); return;
+      }
+      let out;
+      try { out = pathname === '/api/register/hide' ? register.hide(body.name) : register.show(body.name); }
+      catch { out = { ok: false, because: 'we could not record that' }; }
+      sendJson(res, out.ok ? 200 : 400, out);
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
   /* #5359: the note that this computer restarted while Kosmos was running and Kosmos came back by itself
