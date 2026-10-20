@@ -1169,7 +1169,9 @@ const closeAll = (page) => page.evaluate(() => {
       && posts[0].body.invited_kind === 'agent' && posts[0].body.project === 'k', JSON.stringify(posts));
     const unboundText = await page.evaluate(() => ({ until: document.getElementById('fedinv-until').textContent,
       text: fedInviteText(FEDINV_MADE) }));   // eslint-disable-line no-undef
-    check('6708 CONTROL: an unbound code mentions no address', !/Kosmos\+ account with/.test(unboundText.until + unboundText.text), JSON.stringify(unboundText));
+    check('6708 CONTROL: an unbound code mentions no address (on a done step that was drawn)',
+      unboundText.until.startsWith('It works once') && /Paste this code/.test(unboundText.text)
+      && !/Kosmos\+ account with/.test(unboundText.until + unboundText.text), JSON.stringify(unboundText));
     check('6681 reopened, the sheet forgets an earlier address: the field is empty and no email is sent',
       sheet.email === '' && posts.length === 1 && !('email' in posts[0].body), JSON.stringify({ email: sheet.email, posts }));
     check('B7 the list is asked again, and the expired row goes once a pending one has its label',

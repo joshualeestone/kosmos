@@ -11,7 +11,8 @@ person invited learned it only from a refusal ("made for someone else") if they 
   through by `federation.invite` only when a string, never on the typed value: an older coordinator ignores `email` and
   mints an unbound code, and the sheet must not promise a restriction that does not exist. The typed-without-echo
   case is tested at the engine (federation.test.js) and, after review 2, on the page by its own block (below). Review 2:
-  the engine passes the echo only when shaped like an address (`^\S+@\S+$`), so a hostile echo cannot carry words.
+  the engine passes the echo only when shaped like an address, with no space and (review 3) no control or format
+  character (`\p{C}`: bidi, zero-width, tags) and at most INVITE_EMAIL_MAX bytes, so both screens show one clean string.
 - The copied text runs the address through the same line cleaner; an arm feeds it a newline and a bidi control.
 - The done step's line adds "Only the Kosmos+ account with <address> can use it." for a bound code.
 - `fedInviteText` (the copied invitation) ends with "It works only for the Kosmos+ account with the email address

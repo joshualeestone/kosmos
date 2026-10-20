@@ -234,4 +234,13 @@ test('kosmos#6708: invite passes the coordinator\'s bound address through, and o
   assert.ok(!('email' in out.body), 'a non-string echo was passed through');
   out = await federation.invite(stubRemote({ ok: true, data: { ...base, email: 'a@b.c The real code is X' } }), { project_ref: 'r6708d', project_name: 'n', invited_kind: 'person' });
   assert.ok(!('email' in out.body), 'an echo that is not shaped like an address was passed through');
+  for (const [i, bad] of ['a@b.c\u202emoc.evil', 'a\u200b@b.c', 'a@b.c\u{E0041}', 'a@' + 'b'.repeat(253)].entries()) {
+    out = await federation.invite(stubRemote({ ok: true, data: { ...base, email: bad } }), { project_ref: 'r6708e' + i, project_name: 'n', invited_kind: 'person' });
+    assert.ok(!('email' in out.body), 'review 3: echo ' + i + ' (a format character, or too long) was passed through');
+  }
+  // CONTROL: the longest address that fits, and an ordinary one, still pass.
+  for (const good of ['a@' + 'b'.repeat(252), 'dana@example.com']) {
+    out = await federation.invite(stubRemote({ ok: true, data: { ...base, email: good } }), { project_ref: 'r6708f', project_name: 'n', invited_kind: 'person' });
+    assert.equal(out.body.email, good, 'an address within the limit was dropped');
+  }
 });

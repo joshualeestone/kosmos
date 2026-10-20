@@ -383,7 +383,11 @@ async function invite(remote, body) {
   // kosmos#6708 review 1: the address the COORDINATOR bound the code to, when it says one (an older coordinator ignores
   // `email` and echoes none, and then the page must not promise a restriction that does not exist).
   // Review 2: and only one shaped like an address (no spaces), so a hostile echo cannot carry words into the text.
-  const bound = typeof r.data.email === 'string' && /^\S+@\S+$/.test(r.data.email) ? { email: r.data.email } : {};
+  // Review 3: no control or format character either (\p{C}: bidi, zero-width, tags), which \S lets through and which
+  // would reorder the done step on screen; and no longer than an address can be. Both screens then show one string.
+  const echo = r.data.email;
+  const bound = typeof echo === 'string' && Buffer.byteLength(echo, 'utf8') <= INVITE_EMAIL_MAX
+    && /^[^\s\p{C}]+@[^\s\p{C}]+$/u.test(echo) ? { email: echo } : {};
   return { status: 200, body: { code: r.data.code + '.' + s, expires_at: r.data.expires_at, invite_id: r.data.invite_id, ...bound } };
 }
 
