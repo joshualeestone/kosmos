@@ -640,6 +640,11 @@ write_fleet_rich() {
     > "$sb/data/Kosmos/profiles/ghosty.json"
   printf '%s\n' '{"role":"helper"}' \
     > "$sb/data/Kosmos/profiles/brigitte.json"
+  # #6714: the restart notice names only an agent that has RUN on this computer (a liveness or self-report record), so
+  # brigitte, the agent render-survival watches, carries one. Without it the notice is honestly absent and the check
+  # waits for it forever (CI, 2026-10-20). ghosty gets none: render-not-running needs only "exists, not running".
+  mkdir -p "$sb/data/Kosmos/liveness"
+  printf '%s\n' '{"at":"2026-10-20T00:00:00Z"}' > "$sb/data/Kosmos/liveness/brigitte.json"
 }
 # 🛑 THE BOARD SCANS THE OPERATOR'S REAL $HOME UNLESS THIS IS SET.
 # `status.configRoots()` (engine/status.js:56) returns [CONFIG_ROOT] when the
