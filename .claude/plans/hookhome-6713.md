@@ -25,14 +25,14 @@ A source checkout or worktree has neither file two folders up from its engine.
     and the file is in the real home (as spelled or where links lead), unless the file really lies inside a sandbox
     that is neither the home nor above it. A real-home file is skipped even while a sandbox elsewhere is set.
 - `install/setup.sh` (the hooks loop): skips a target `leaveAlone` names, so the installer's hooks and statusline
-  follow one rule. Exits: 0 all wired, 3 all left alone, 4 some left alone and the rest wired, 1 refused, 5 refused
+  follow one rule. Exits: 0 all wired, 20 all left alone, 21 some left alone and the rest wired, 1 refused, 22 refused
   and some left alone, each with its own line.
 - `engine/accounts.js` `prepare`: the report-hooks block is skipped under `leaveAlone`, and the result carries
   `hooksBecause`.
 - `engine/allowance.js` `ensureStatusLine`: the same gate. That covers both `prepare` and the Settings
   "usage reading" route. `leaveAlone` is injectable.
 - `engine/installroot-6713.test.js`: runs setup.sh's hooks block end to end (a default-place bundle writes the hooks
-  and the statusline; one elsewhere exits 3 and leaves the home byte for byte; mixed runs exit 4 or 5) and checks
+  and the statusline; one elsewhere exits 20 and leaves the home byte for byte; mixed runs exit 21 or 22) and checks
   each exit's line; plus unit checks, a real-filesystem measurement (this worktree is not installed, the
   real install is), a byte-for-byte prepare in a stand-in real home, a sandbox control, and the statusline route
   with a go-ahead control.

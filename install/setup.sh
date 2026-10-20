@@ -5241,22 +5241,23 @@ try {
   const allowance = require(path.join(kosmosHome, 'app', 'engine', 'allowance.js'));
   for (const t of targets) { try { allowance.ensureStatusLine(t); } catch { /* fail soft */ } }
 } catch { /* missing from this bundle, or it failed to load: the hooks' answer stands */ }
-// 3: every target was left alone on purpose (#6713), which is neither a success to announce nor a failure.
-// 4: some left alone, the rest wired, none refused. 1: something was refused. 5: something refused AND some left alone.
-process.exit(targets.length > 0 && skipped === targets.length ? 3 : refused > 0 ? (skipped > 0 ? 5 : 1) : skipped > 0 ? 4 : 0);
+// #6713, codes in the 20s so node's own exit codes (3, 4, 5 for its internal failures) cannot read as one of these:
+// 20 every target left alone on purpose, 21 some left alone and the rest wired, 22 something refused AND some left
+// alone. 1: something was refused (nothing left alone).
+process.exit(targets.length > 0 && skipped === targets.length ? 20 : refused > 0 ? (skipped > 0 ? 22 : 1) : skipped > 0 ? 21 : 0);
 HOOKSEOF
 case "$_hooks_rc" in
   0)
     info "agents on this computer report what they are doing themselves; the board reads their"
     info "own words instead of their screens" ;;
-  3)
+  20)
     info "this install is not recognised, or could not be checked, as the installed Kosmos (its layout, or KOSMOS_HOME,"
     info "is not the default one), so it leaves the Claude settings in your home alone; agents on it are read from"
     info "their screens instead" ;;
-  4)
-    info "agent settings in this install's own folder carry the reporting hook; those in your real home were left"
-    info "alone, because this install is not recognised as the installed Kosmos, so agents on them are read from their screens" ;;
-  5)
+  21)
+    info "some agent settings carry the reporting hook; those in your real home were left alone, because this"
+    info "install is not recognised as the installed Kosmos, so agents on them are read from their screens" ;;
+  22)
     info "some agent settings could not carry the reporting hook (an unreadable settings file is left alone on"
     info "purpose), and those in your real home were left alone because this install is not recognised as the"
     info "installed Kosmos; those agents are read from their screens" ;;
@@ -5272,7 +5273,9 @@ _sl_added=""
 for _sl in "$_sl_home/.claude/settings.json" "$_sl_home"/.claude-*/settings.json; do
   [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && _sl_added=yes
 done
-if [ -n "$_sl_added" ] && [ "$_hooks_rc" != 3 ]; then   # #6713: after exit 3 this run wrote nothing, so it claims nothing
+# #6713: only when nothing was left alone; after 20, 21 or 22 the files scanned here may be ones this run skipped.
+case "$_hooks_rc" in 0|1) ;; *) _sl_added="" ;; esac
+if [ -n "$_sl_added" ]; then
   info "Claude accounts that had no status line of their own carry Kosmos's, in every"
   info "Claude session on them: it notes how much of the weekly allowance is used and"
   info "prints nothing, which leaves an empty row under the prompt"
