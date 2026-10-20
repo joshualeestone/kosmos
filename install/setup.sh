@@ -3332,18 +3332,40 @@ esac
 # lets one through on purpose. macOS only: a Linux systemd user unit has the same shape and is not guarded here.
 # Prints why and returns 1 to refuse.
 _kosmos_temp_launch_refusal() {
-  [ "$(uname -s)" = Darwin ] && [ "$KOSMOS_HOME" != "$_kosmos_home_default" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] \
+  # A launch folder that IS this account's LaunchAgents is no folder of the caller's own: the plist written there
+  # is loaded at the next login.
+  _tl_launch="${AGENT_WORKFORCE_LAUNCH:-}"
+  [ -n "$_tl_launch" ] && [ "$_tl_launch" -ef "$HOME/Library/LaunchAgents" ] && _tl_launch=""
+  [ "$(uname -s)" = Darwin ] && [ "$KOSMOS_HOME" != "$_kosmos_home_default" ] && [ -z "$_tl_launch" ] \
     && [ "${KOSMOS_ALLOW_TEMP_LAUNCH:-}" != 1 ] || return 0
+  # The home as written and as resolved (its nearest existing folder, so a symlink into a temp folder or the
+  # /System/Volumes/Data spelling counts), slash-squeezed and lowercased: the default disk ignores case.
+  _tl_low() { printf '%s' "$1" | /usr/bin/tr -s '/' | /usr/bin/tr '[:upper:]' '[:lower:]'; }
+  _tl_d="$KOSMOS_HOME"
+  while [ ! -d "$_tl_d" ] && [ -n "$_tl_d" ]; do _tl_d="${_tl_d%/*}"; done
+  _tl_res="$(cd "${_tl_d:-/}" 2>/dev/null && pwd -P)" || _tl_res=""
+  _tl_res="$(_tl_low "$_tl_res/${KOSMOS_HOME#"$_tl_d"}")/"
+  _tl_res="${_tl_res#/system/volumes/data}"
+  _tl_raw="$(_tl_low "$KOSMOS_HOME")/"
+  # This run's TMPDIR as given and resolved, each kept only if it is narrower than HOME (a TMPDIR of /, HOME or a
+  # folder above it names no temp folder, and would refuse every home).
+  _tl_hl="$(_tl_low "$HOME")"; _tl_hl="${_tl_hl%/}/"
+  _tl_t1="$(_tl_low "${TMPDIR:-}")"; _tl_t1="${_tl_t1%/}"
+  _tl_t2="$(_tl_low "$(cd "${TMPDIR:-/nonexistent-6650}" 2>/dev/null && pwd -P)")"; _tl_t2="${_tl_t2%/}"
+  case "$_tl_t1" in /*) case "$_tl_hl" in "$_tl_t1"/*) _tl_t1="" ;; esac ;; *) _tl_t1="" ;; esac
+  case "$_tl_t2" in /*) case "$_tl_hl" in "$_tl_t2"/*) _tl_t2="" ;; esac ;; *) _tl_t2="" ;; esac
   _tl_why=""
-  _tl_tmp="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P)" || _tl_tmp=""
-  case "$KOSMOS_HOME/" in
-    /tmp/*|/private/tmp/*|/var/tmp/*|/private/var/tmp/*|/var/folders/*|/private/var/folders/*) _tl_why="its folder ($KOSMOS_HOME) is a temporary one" ;;
-    *) [ -n "$_tl_tmp" ] && case "$KOSMOS_HOME/" in "$_tl_tmp"/*) _tl_why="its folder ($KOSMOS_HOME) is a temporary one" ;; esac ;;
-  esac
+  for _tl_h in "$_tl_raw" "$_tl_res"; do
+    case "$_tl_h" in
+      /tmp/*|/private/tmp/*|/var/tmp/*|/private/var/tmp/*|/var/folders/*|/private/var/folders/*) _tl_why=yes ;;
+    esac
+    [ -n "$_tl_t1" ] && case "$_tl_h" in "$_tl_t1"/*) _tl_why=yes ;; esac
+    [ -n "$_tl_t2" ] && case "$_tl_h" in "$_tl_t2"/*) _tl_why=yes ;; esac
+  done
   [ -n "$_tl_why" ] || return 0
-  printf '\n  This install uses another Kosmos folder, and %s, so its background job would be left\n' "$_tl_why" >&2
-  printf '  running in your real login items. Nothing was changed. For a test install, set AGENT_WORKFORCE_LAUNCH to a\n' >&2
-  printf '  folder of its own, or install into a folder you keep; to do this on purpose, set KOSMOS_ALLOW_TEMP_LAUNCH=1.\n\n' >&2
+  printf '\n  This install uses another Kosmos folder (%s), and it is a temporary one, so its background job would be\n' "$KOSMOS_HOME" >&2
+  printf '  left running in your real login items. Nothing was changed. For a test install, set AGENT_WORKFORCE_LAUNCH to\n' >&2
+  printf '  a folder of its own, or install into a folder you keep; to do this on purpose, set KOSMOS_ALLOW_TEMP_LAUNCH=1.\n\n' >&2
   return 1
 }
 _kosmos_temp_launch_refusal || exit 2

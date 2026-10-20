@@ -31,14 +31,14 @@ const KEPT = '/Users/launchguard-6650-nobody/kosmos-walk/home';
 const ACCOUNT_HOME = '/Users/launchguard-6650-nobody';
 
 // Runs the REAL guard under set -eu (as setup.sh runs) with the given inputs.
-function guard({ home = ACCOUNT_HOME, kosmosHome, port = '16180', defaultPort = '16180', env = {} }) {
+function guard({ home = ACCOUNT_HOME, kosmosHome, env = {} }) {
   const script = [
     'set -eu',
     fnSource(SETUP, '_kosmos_temp_launch_refusal'),
-    'KOSMOS_HOME="$1"; _kosmos_home_default="$2/.local/share/kosmos"; PORT="$3"; _kosmos_default_port="$4"',
+    'KOSMOS_HOME="$1"; _kosmos_home_default="$2/.local/share/kosmos"',
     'rc=0; _kosmos_temp_launch_refusal || rc=$?; echo "rc=$rc"',
   ].join('\n');
-  const r = spawnSync('/bin/sh', ['-c', script, 'sh', kosmosHome, home, port, defaultPort], {
+  const r = spawnSync('/bin/sh', ['-c', script, 'sh', kosmosHome, home], {
     env: { PATH: '/usr/bin:/bin', HOME: home, TMPDIR: os.tmpdir(), ...env },
     encoding: 'utf8',
   });
@@ -49,7 +49,7 @@ function guard({ home = ACCOUNT_HOME, kosmosHome, port = '16180', defaultPort = 
 const isMac = process.platform === 'darwin';
 
 test('#6650: a temp-folder home is refused, naming the folder and the way through', { skip: !isMac }, () => {
-  const r = guard({ kosmosHome: path.join(tmpRoot, 'tmp.abc', 'home'), port: '57015' });
+  const r = guard({ kosmosHome: path.join(tmpRoot, 'tmp.abc', 'home') });
   assert.equal(r.rc, '1', r.err);
   assert.match(r.err, /is a temporary one/);
   assert.match(r.err, /Nothing was changed/);
@@ -58,16 +58,40 @@ test('#6650: a temp-folder home is refused, naming the folder and the way throug
 });
 
 test('#6650: the /var/folders spelling of a temp home is refused too (the incident path)', { skip: !isMac }, () => {
-  const r = guard({ kosmosHome: '/var/folders/zz/x/T/tmp.QOwO2AIR4W/home', port: '57015' });
+  const r = guard({ kosmosHome: '/var/folders/zz/x/T/tmp.QOwO2AIR4W/home' });
   assert.equal(r.rc, '1', r.err);
   assert.match(r.err, /is a temporary one/);
 });
 
-test('#6650: a kept home is not refused on any port, the default included (a person self-hosting)', { skip: !isMac }, () => {
-  for (const port of ['16180', '57015']) {
-    const r = guard({ kosmosHome: KEPT, port, defaultPort: '16180' });
-    assert.equal(r.rc, '0', port + ': ' + r.err);
-  }
+test('#6650: a kept home is not refused (a person self-hosting, or a release walk)', { skip: !isMac }, () => {
+  const r = guard({ kosmosHome: KEPT });
+  assert.equal(r.rc, '0', r.err);
+  assert.equal(r.err, '');
+});
+
+test('#6650: other spellings of a temp folder are refused: capitals, /System/Volumes/Data, a symlink into one', { skip: !isMac }, () => {
+  assert.equal(guard({ kosmosHome: '/Private/Var/Folders/zz/x/T/tmp.a/home' }).rc, '1');
+  assert.equal(guard({ kosmosHome: '/System/Volumes/Data/private/var/folders/zz/x/T/tmp.b/home' }).rc, '1');
+  // A link in a kept folder (/Users/Shared) that points into a temp one: refused through what it resolves to.
+  const kept = fs.mkdtempSync('/Users/Shared/launchguard-6650-');
+  try {
+    fs.symlinkSync(tmpRoot, path.join(kept, 'scratch'));
+    const r = guard({ kosmosHome: path.join(kept, 'scratch', 'tmp.c', 'home'), env: { TMPDIR: '/nonexistent-6650' } });
+    assert.equal(r.rc, '1', r.err);
+  } finally { fs.rmSync(kept, { recursive: true, force: true }); }
+});
+
+test('#6650: AGENT_WORKFORCE_LAUNCH set to the real LaunchAgents is no way through (it loads at next login)', { skip: !isMac }, () => {
+  const home = path.join(tmpRoot, 'acct');
+  fs.mkdirSync(path.join(home, 'Library', 'LaunchAgents'), { recursive: true });
+  const r = guard({ home, kosmosHome: path.join(tmpRoot, 'tmp.d', 'home'), env: { AGENT_WORKFORCE_LAUNCH: path.join(home, 'Library', 'LaunchAgents') } });
+  assert.equal(r.rc, '1', r.err);
+});
+
+test('#6650: a TMPDIR as broad as HOME (or above it) names no temp folder, so a kept home under it goes through', { skip: !isMac }, () => {
+  assert.equal(guard({ kosmosHome: KEPT, env: { TMPDIR: ACCOUNT_HOME } }).rc, '0');
+  assert.equal(guard({ kosmosHome: KEPT, env: { TMPDIR: '/' } }).rc, '0');
+  assert.equal(guard({ kosmosHome: KEPT, env: { TMPDIR: '/Users' } }).rc, '0');
 });
 
 test('#6650: a home under this run\'s own TMPDIR is refused, wherever TMPDIR points', { skip: !isMac }, () => {
@@ -82,7 +106,7 @@ test('#6650: the /var/tmp spelling is refused too', { skip: !isMac }, () => {
 });
 
 test('#6650: a release walk (kept home, its own port) goes through, saying nothing', { skip: !isMac }, () => {
-  const r = guard({ kosmosHome: KEPT, port: '57015' });
+  const r = guard({ kosmosHome: KEPT, env: { KOSMOS_PORT: '57015' } });
   assert.equal(r.rc, '0', r.err);
   assert.equal(r.err, '');
 });
