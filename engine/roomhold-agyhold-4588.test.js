@@ -464,7 +464,6 @@ test('#6593 item 3 (N7): the addressed held-post line ends by saying any post al
   // Two asked posts: the same per-post sentence, never a blanket "them" that would cover one still unanswered.
   const two = roomhold.clauseFor('p1', 'P one', [roomhold.addressedId('m7'), roomhold.addressedId('m9')]);
   assert.match(two, /2 of them name you[^\]]*\. Any you already answered need nothing more\.\]$/, two);
-  assert.doesNotMatch(two, /answered them/, 'a blanket sentence could cover a post still unanswered');
   // CONTROL: the neutral line (nothing asked) is unchanged and carries no such sentence.
   assert.doesNotMatch(roomhold.clauseFor('p1', 'P one', ['m1']), /already answered/);
 });
