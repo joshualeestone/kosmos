@@ -23,7 +23,7 @@ tar_metadata_gate() {
   /usr/bin/gzip -t "$tarball" 2>/dev/null || { echo "FAIL: the tarball metadata gate could not read all of $tarball" >&2; return 1; }
   out="$(/usr/bin/gzip -dc "$tarball" 2>/dev/null | /usr/bin/perl -e '
     use strict; binmode STDIN;
-    my ($n, $dbl, $xat, @first, $path, $psize, $end) = (0, 0, 0);
+    my ($n, $dbl, $xat, @first, $path, $lname, $end) = (0, 0, 0);
     while (1) {
       my $got = read(STDIN, my $h, 512);
       last if !$got;
@@ -45,10 +45,16 @@ tar_metadata_gate() {
       # A pax size overrides the header size of the entry it belongs to, but the bytes on disk are the header size:
       # it is the header size that was read above, so the stream stays in step either way.
       if ($type eq "x" || $type eq "g") {
-        while ($body =~ /\G(\d+) /gc) {
-          my $len = $1; my $start = pos($body) - length($len) - 1;
-          my $rec = substr($body, $start, $len); pos($body) = $start + $len;
-          my ($k, $v) = $rec =~ /^\d+ ([^=]*)=(.*)\n\z/s or next;
+        # Review 2: every record must be whole and the body read to its end. A record of length 0 looped for ever
+        # (pos went back to its own start), and one that did not parse ended the loop quietly, hiding every record
+        # after it, an extended attribute included. Either is refused now, as anything not read in full is.
+        my $at = 0;
+        while ($at < length($body)) {
+          my ($len) = substr($body, $at) =~ /^(\d+) /;
+          if (!defined $len || $len < length($len) + 3 || $at + $len > length($body)) { print "SHORT\n"; exit 3 }
+          my $rec = substr($body, $at, $len); $at += $len;
+          my ($k, $v) = $rec =~ /^\d+ ([^=]*)=(.*)\n\z/s;
+          if (!defined $k) { print "SHORT\n"; exit 3 }
           $xat++ if $k =~ /^(SCHILY|LIBARCHIVE)\.xattr\./;
           $path = $v if $k eq "path" && $type eq "x";
         }
@@ -56,15 +62,18 @@ tar_metadata_gate() {
       }
       # A GNU long name (L) is the name of the next entry, as a pax path is (review 1: skipping it let app/<long>/._K
       # through, since the header of that entry holds only the first 100 bytes). A long link target (K) is not a name.
-      if ($type eq "L") { ($path = $body) =~ s/\0+\z//; next }
+      if ($type eq "L") { ($lname = $body) =~ s/\0+\z//; next }
       next if $type eq "K";
       my ($name) = substr($h, 0, 100) =~ /^([^\0]*)/;
       my ($pre) = substr($h, 345, 155) =~ /^([^\0]*)/;
-      my $full = defined $path ? $path : (length($pre) ? "$pre/$name" : $name);
-      undef $path; $n++;
-      (my $t = $full) =~ s{/+\z}{};
-      my ($base) = $t =~ m{([^/]*)\z};
-      if (substr($base, 0, 2) eq "._") { $dbl++; push @first, $full if @first < 3 }
+      # Every name this entry could be extracted under is checked: its pax path, its GNU long name, and its header
+      # name (review 2: a pax path then a long name used to lose the pax name).
+      my @names = grep { defined } ($path, $lname, (length($pre) ? "$pre/$name" : $name));
+      my $full = $names[0];
+      undef $path; undef $lname; $n++;
+      my $hit = 0;
+      for my $c (@names) { (my $t = $c) =~ s{/+\z}{}; my ($base) = $t =~ m{([^/]*)\z}; $hit = 1 if substr($base, 0, 2) eq "._" }
+      if ($hit) { $dbl++; push @first, $full if @first < 3 }
     }
     if (!$end) { print "SHORT\n"; exit 3 }
     print "N $n\nDBL $dbl\nXAT $xat\n"; print "FIRST $_\n" for @first;

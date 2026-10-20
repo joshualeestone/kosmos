@@ -96,6 +96,48 @@ else fail "a pax path naming an AppleDouble entry must be refused (fixture holds
 if tar_metadata_gate "$T/plain-made.tgz" 2>/dev/null; then pass "CONTROL: the same hand-made entry without the pax path passes (the fixture maker is sound)"
 else fail "CONTROL: a hand-made plain entry was refused, so the pax arm above proves nothing"; fi
 
+# Review 2: pax records the reader cannot read whole are refused. blk BODY prints BODY padded to 512-byte blocks;
+# paxtar BODY ENTRY... makes a tarball whose x header holds BODY, then plain entries (each "x\n").
+blk() { /usr/bin/perl -e 'my $b = shift; print $b, "\0" x ((512 - length($b) % 512) % 512)' "$1"; }
+paxtar() { local body="$1"; shift; { mkhdr "PaxHeader/x" x ${#body}; blk "$body"
+  for e in "$@"; do case "$e" in L:*) mkhdr "././@LongLink" L $(( ${#e} - 2 + 1 )); blk "${e#L:}"; ;; *) mkhdr "$e" 0 2; blk "x"; ;; esac; done
+  /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c; }
+# A record of length 0 looped the reader for ever; under a 20-second alarm it must be refused, not hang (142).
+paxtar "0 path=x
+" app/K > "$T/zero.tgz"
+/usr/bin/perl -e 'alarm 20; exec @ARGV' bash -c '. "$1"; tar_metadata_gate "$2"' _ "$HERE/lib/tar-metadata-gate.sh" "$T/zero.tgz" 2>/dev/null; rc=$?
+if [ "$rc" = 1 ]; then pass "a pax record of length 0 is refused, not looped on"
+else fail "a pax record of length 0 must be refused (rc=$rc; 142 is the alarm: it hung)"; fi
+# A record that does not parse used to end the loop quietly, hiding an extended attribute after it.
+paxtar "garbage
+20 SCHILY.xattr.a=b
+" app/K > "$T/hidden.tgz"
+if tar_metadata_gate "$T/hidden.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "a pax record that does not parse is refused (it hid the attribute after it)"
+else fail "an unreadable pax record must be refused"; fi
+# A record that claims more bytes than the body holds would swallow the attribute record after it into its own
+# value; the length rule refuses it.
+paxtar "99 path=x
+20 SCHILY.xattr.a=b
+" app/K > "$T/long-rec.tgz"
+if tar_metadata_gate "$T/long-rec.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "a pax record longer than its body is refused (it would swallow the attribute after it)"
+else fail "a pax record longer than its body must be refused"; fi
+# A record of the right length that is not KEY=VALUE, then an attribute: refused too, by the KEY=VALUE rule.
+paxtar "12 noequals
+20 SCHILY.xattr.a=b
+" app/K > "$T/noeq.tgz"
+if tar_metadata_gate "$T/noeq.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "a pax record that is not KEY=VALUE is refused"
+else fail "a pax record that is not KEY=VALUE must be refused"; fi
+paxtar "20 SCHILY.xattr.a=b
+" app/K > "$T/goodx.tgz"
+out="$(tar_metadata_gate "$T/goodx.tgz" 2>&1)"
+if printf '%s' "$out" | /usr/bin/grep -q '1 extended-attribute records'; then pass "CONTROL: the same attribute as a well-formed record is read and refused for what it is"
+else fail "CONTROL: a well-formed attribute record was not read as one: $out"; fi
+# A pax path followed by a GNU long name: both are names the entry could be extracted under, so both are checked.
+paxtar "17 path=app/._P2
+" L:app/ok2 app/ok2 > "$T/paxL.tgz"
+if tar_metadata_gate "$T/paxL.tgz" 2>&1 | /usr/bin/grep -q 'AppleDouble entries'; then pass "a pax path naming an AppleDouble entry is still seen when a GNU long name follows it"
+else fail "a pax path followed by a long name must still be checked"; fi
+
 # Review 1: a header whose checksum does not match is refused, never read as something else.
 { mkhdr "app/K" 0 2 | /usr/bin/perl -pe 'BEGIN { binmode STDIN; binmode STDOUT } substr($_, 0, 1) = "b" if $. == 1'; printf 'x\n'; /usr/bin/head -c 510 /dev/zero; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/badsum.tgz"
 if ! tar_metadata_gate "$T/badsum.tgz" 2>/dev/null; then pass "a header whose checksum does not match is refused"

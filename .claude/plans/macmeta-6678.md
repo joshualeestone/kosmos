@@ -35,6 +35,14 @@ an extended attribute. So both can go.
   Developer ID) all pass, and all four Mach-O files verify. It also found the reader skipped GNU long names (an
   AppleDouble entry there passed) and that the pax-path reading had no test; both are fixed and tested. The reader now
   checks every header's checksum and refuses a base-256 size (a file of 8 GiB or more).
+- **Review 2 (sonnet):** a pax record of length 0 looped the reader for ever, and one that did not parse ended the
+  record loop quietly, hiding an extended attribute after it. Every record must now be whole (its length at least
+  its own header, within the body) and KEY=VALUE, and the body read to its end; anything else is refused. Each entry
+  is checked under every name it could be extracted under (its pax path, its GNU long name, its header name), so a
+  pax path followed by a long name is no longer lost; this also makes the "a pax path applies to the next entry
+  only" rule unable to change a verdict, which is why no check tests it. Arms: length 0 (under a 20-second alarm, so
+  a regression fails rather than hangs), a record that does not parse, one that is not KEY=VALUE, one longer than its
+  body, and a pax path then a long name; each guard removed fails its own arm.
 - **Refuse, not strip after the fact.** A gate that edits the tarball would change the bytes after signing-adjacent
   checks; refusing keeps the pack line the only place the bytes are made.
 - **Both tarballs.** The tmux bundle is built the same way, so it gets the same line and gate.
@@ -47,7 +55,7 @@ loudly, which is the safe direction.
 
 ## Tests
 
-- `bash tools/test-tar-metadata-gate-6678.sh`: 16 checks. The control packs a folder that HAS an extended attribute
+- `bash tools/test-tar-metadata-gate-6678.sh`: 22 checks. The control packs a folder that HAS an extended attribute
   the way the bundles pack, and passes. Then: plain packing refused; an AppleDouble entry refused and named (in a
   folder, at the top level, behind a long ustar-prefix path, behind a GNU long name, and behind a hand-made pax path
   record whose entry header says app/K, with a control that the same hand-made entry passes without it); a header
