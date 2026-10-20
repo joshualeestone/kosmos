@@ -21581,7 +21581,8 @@ function offlineNote(a) {
 function stateReason(a, opts) {
   /* #6716 (Josh, 2026-10-20: "i dont want to show these messages on these agent tiles"): a tile and a list row carry
      no sentence. What it would say is the pill's hover and screen-reader text (pillSay) and stays on the agent's own
-     page, which calls this without `card`. (#6398 did this for a rate limit alone.) */
+     page, which calls this without `card`. (#6398 did this for a rate limit alone.) The tile keeps its .atask slot,
+     empty, so every tile stays one height. */
   if (opts && opts.card === true) return '';
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }

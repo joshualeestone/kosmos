@@ -7153,8 +7153,8 @@ function modelInEarlierSessionUncached(file, agentName) {
   const belongs = workdirBelongs(agentName);
   if (!belongs) return null;
   let siblings;
-  let mine = Infinity;
-  try { mine = fs.statSync(file).mtimeMs; } catch { mine = Infinity; }
+  let mine;
+  try { mine = fs.statSync(file).mtimeMs; } catch { return null; }   // cannot tell what is earlier: lend nothing (review 6)
   try {
     const dir = path.dirname(file);
     siblings = fs.readdirSync(dir)

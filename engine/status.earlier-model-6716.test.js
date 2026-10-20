@@ -80,3 +80,8 @@ test('#6716 review 5: only an EARLIER session lends; a newer one in the folder n
   assert.ok(older);
   assert.equal(status.modelInEarlierSession(mid, 'trio'), 'claude-opus-4-8', 'a newer session lent its model');
 });
+
+test('#6716 review 6: a session file whose time cannot be read lends nothing (fails closed)', () => {
+  session('closed', 'old.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-4-8' } }], 600);
+  assert.equal(status.modelInEarlierSession(path.join(SB, 'nowhere', 'gone.jsonl'), 'closed'), null);
+});

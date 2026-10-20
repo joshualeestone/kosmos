@@ -55,6 +55,9 @@ no earlier session beside the new one, and the tile falls back as before (no wor
 same way on a branch without this change ("we could not match that to one of your agents"), when run from inside an
 agent session; not this change.
 
+**Review 6.** A session whose time cannot be read lends nothing (fails closed). The tile keeps its empty .atask slot so
+tiles stay one height. whoami test cards come from test-support/fleet (fixture-discipline).
+
 **Decided (review 4).** Start at login's repair (`/api/register` modelFor) takes a borrowed model on purpose: it restores
 what the agent last ran as and acts only on agents with no login job, so no planned model competes. The re-captured card
 fixture also changed `lastWorked` (null to a pinned date): the capture tool records a live card from this machine, and
