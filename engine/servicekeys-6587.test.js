@@ -257,7 +257,7 @@ test('the default recovery keys ARE manifest-verify\'s: pinning one there turns 
     const r = fresh.verifyServiceKeySet({ bytes: Buffer.from(VECTOR), sig: VECTOR_SIG });
     assert.equal(r.ok, true, 'the default did not read manifest-verify RECOVERY_KEYS: ' + r.why);
   } finally {
-    require.cache[mvPath] = saved.mv;
+    if (saved.mv) require.cache[mvPath] = saved.mv; else delete require.cache[mvPath];
     if (saved.sk) require.cache[skPath] = saved.sk; else delete require.cache[skPath];
   }
 });
