@@ -198,7 +198,12 @@ function gitShow(repo, commit, file) {
     throw err;
   }
   if (mode !== '100644' && mode !== '100755') throw new Error(`${repo} ${file} at ${commit} is not a plain file (mode ${mode}); this SBOM reads plain files only`);
-  return execFileSync('git', ['-C', repo, 'show', `${commit}:${file}`], { encoding: 'utf8', env: GIT_ENV, timeout: LIMITS.git, maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'] });
+  const raw = execFileSync('git', ['-C', repo, 'show', `${commit}:${file}`], { env: GIT_ENV, timeout: LIMITS.git, maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Review 40: strict UTF-8 with the BOM kept, so the text re-encodes to exactly the committed bytes and a hash of it
+  // (package.json, install/setup.sh) is a hash of the file. A lossy decode would let two files hash alike.
+  try { return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(raw); } catch {
+    throw new Error(`${repo} ${file} at ${commit} is not UTF-8 text; this SBOM ties text files to their hashes and cannot read it`);
+  }
 }
 
 // Cargo.lock v3/v4: [[package]] tables of name, version, source, checksum, dependencies. A dependency names a package
