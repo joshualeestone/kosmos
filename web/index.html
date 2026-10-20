@@ -54169,8 +54169,8 @@ async function pollCwNote() {
 }
 /* kosmos#6587 (S-7a slice 2b): the service key warning, raised in the floating stack (#sknote-slot, the certificate
    notice's look) on every view but Kosmos+, where its own line (#plus-sk-line) says it. The server passes only a state,
-   so there is no finding to key a put-away on: Close and Review put it away for this browser session, and it comes back
-   on the next visit while the mismatch lasts. Kosmos+'s own line is never put away. Only fixed sentences are written. */
+   so there is no finding to key a put-away on: Close and Review put it away for this tab (sessionStorage) until an
+   answer says anything but mismatch, so a later mismatch is raised again. Kosmos+'s own line is never put away. Only fixed sentences are written. */
 var SK_NOTE = { last: null, shown: false, away: false };
 var SK_NOTE_HEAD = 'Warning: the key this computer trusts for the Kosmos+ service is not on the signed list that came with this version of Kosmos.';
 function skNoteAway() {
@@ -54182,6 +54182,11 @@ function skNoteDismiss() {
 }
 function paintSkNote(sk) {
   SK_NOTE.last = sk || null;
+  // A real answer that is not a mismatch ends the one the person put away: a later mismatch in this tab is raised again.
+  if (sk && typeof sk.state === 'string' && sk.state !== 'mismatch') {
+    SK_NOTE.away = false;
+    try { sessionStorage.removeItem('kosmos.sknote.away'); } catch (e) { /* the tab's record is cleared above */ }
+  }
   const slot = document.getElementById('sknote-slot');
   if (!slot) return;
   const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
@@ -54211,8 +54216,9 @@ function paintSkNote(sk) {
       showTab('settings'); settingsGo('plus');
       // The button it pressed is gone: keyboard focus goes to the pane's line when it says the warning, else the heading.
       const land = () => {
-        const line = document.getElementById('plus-sk-line');
-        if (line && line.textContent) { line.setAttribute('tabindex', '-1'); line.focus(); return; }
+        const line = document.getElementById('plus-sk-line'), flow = document.getElementById('plus-flow');
+        // Not a line left from an earlier paint in a pane that did not paint now (#plus-flow hidden), as #6613 checks.
+        if (line && line.textContent && !(flow && flow.hidden)) { line.setAttribute('tabindex', '-1'); line.focus(); return; }
         const h = document.querySelector('.apphead h1'); if (h && h.focus) h.focus();
       };
       Promise.resolve().then(() => paintPlus()).then(land, land);
