@@ -3768,6 +3768,18 @@ kosmos_stranded_pause() { # prints the stranded pause's name files, one per line
   [ -n "$_ksp_list" ] && [ "${_ksp_support:-}" = yes ] || return 1   # no name, or only leftovers: a person's stop
   printf '%s' "$_ksp_list"
 }
+kosmos_live_pause() { # 0 when the marker is there and at least one name is a running update's (its pause is live)
+  [ -e "$KOSMOS_HOME/board.stopped" ] || return 1
+  for _klp_f in "$KOSMOS_HOME"/board.stopped.by-install.*; do
+    [ -e "$_klp_f" ] || continue
+    _klp_rest="${_klp_f##*/board.stopped.by-install.}"; _klp_pid="${_klp_rest%%.*}"; _klp_tok="${_klp_rest#*.}"
+    case "$_klp_pid" in ''|*[!0-9]*) continue ;; esac
+    case "$_klp_tok" in ''|*[!A-Za-z0-9:_]*) continue ;; esac
+    [ "$_klp_tok" != "$_klp_rest" ] || continue
+    kosmos_installer_gone "$_klp_pid" "$_klp_tok" || return 0
+  done
+  return 1
+}
 kosmos_clear_stranded_pause() { # $1 who is clearing. Moves the marker aside (kept as evidence) and logs it.
   _kcs_names="$(kosmos_stranded_pause)" || return 1
   _kcs_aside="$KOSMOS_HOME/board.stopped.stranded.$(date +%s).$$"
@@ -3948,8 +3960,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     # moves them aside: removing them before this run's own name exists would leave a bare marker, a person's stop.
     _kosmos_was_running=yes
     _kosmos_adopted_names="$(kosmos_stranded_pause)" || _kosmos_adopted_names=""
-  elif ! _kosmos_mode_keeps_board_off && [ -e "$KOSMOS_HOME/board.stopped" ] \
-       && [ -n "$(ls -1 "$KOSMOS_HOME"/board.stopped.by-install.* 2>/dev/null)" ]; then
+  elif ! _kosmos_mode_keeps_board_off && kosmos_live_pause; then
     # kosmos#6651: another update's LIVE pause (its names, not a person's stop). This run adds its own name, so if
     # that update is killed the pause still stands while this one runs; it does not take that update's put-back. (If
     # that update FINISHES, its own start clears the marker and every name, this run's too, as before this card.)

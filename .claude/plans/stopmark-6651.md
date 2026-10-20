@@ -30,7 +30,7 @@
 - Not in this branch: what launched two installs 16 seconds apart (the card says no instrument recorded it).
 
 ## Proof
-- `bash tools/test-stopmark-6651.sh`: 66 PASS, including a real full disk (an 8 MB disk image, filled), dash, and setup.sh's own decision lines run under dash set -eu over a marker x names x mode matrix. Mutants, each red then restored: the start-time comparison removed
+- `bash tools/test-stopmark-6651.sh`: 72 PASS, including a real full disk (an 8 MB disk image, filled), dash, and setup.sh's own decision lines run under dash set -eu over a marker x names x mode matrix. Mutants, each red then restored: the start-time comparison removed
   (also caught by the byte-equal twin check), the watchdog's clear removed, the writer ignoring the attribution.
 - Neighbours, all green on this branch: test-board-watchdog-2955 (0 failures), test-update-putback-4818 (33/33;
   red at first because it pins the pause's stop line, updated), test-setup-pause-sandbox-4651 (0 failures),
@@ -107,3 +107,8 @@
   - Accepted: within the same second as a start, -nt is false (whole seconds in dash and bash 3.2), so a leftover
     made in the very second the board started would still count; and a kosmos older than #4466 writes no start
     record, so on such a machine a leftover always counts (the transition window iteration 6 named).
+- Iteration 8 (a WARNING and a NIT; mutants red): the join branch took any name as "another update's live pause",
+  so beside a person's stop (an older kosmos's) with only a leftover name, a killed joiner left the person's stop
+  reading as stranded. It now joins only when some name's update is provably running (`kosmos_live_pause`, in the
+  shared block). And a start no longer saves leftover names (older than the last start) for its refusal paths to
+  put back with a fresh time, which would make them count again.
