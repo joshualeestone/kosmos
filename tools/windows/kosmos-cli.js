@@ -908,12 +908,28 @@ async function roomReopen(ctx, args) {
 
 async function taskList(ctx, args) {
   const project = args[0];
-  if (!project) { ctx.err('Usage: kosmos task list <project-id> [--state open|built|held|done]'); return 2; }
+  if (!project) { ctx.err('Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built]'); return 2; }
   /* #5705, as install/kosmos: grouped (open, built, on hold, done); --state keeps one group, checked here. */
   let only = '';
   if (args[1] === '--state') {
     if (!['open', 'built', 'held', 'done'].includes(args[2])) { ctx.err('--state takes one of: open, built, held, done.'); return 2; }
     only = '&state=' + args[2];
+  }
+  /* #6761, as install/kosmos: --open, --blocked (the on-hold group) and --built print one group compactly, through
+     engine/tasklist.js, the one copy both CLIs run. */
+  const compactFlag = /^--(open|blocked|built)$/.test(args[1] || '') ? args[1].slice(2) : '';
+  if (compactFlag) {
+    if (args.length > 2) { ctx.err(args[1] + ' takes nothing after it: kosmos task list <project-id> ' + args[1]); return 2; }
+    let tasklist;
+    try { tasklist = require(path.join(engineDir(), 'tasklist.js')); }
+    catch { ctx.err('This install of Kosmos has no compact task list yet; update Kosmos, or list without ' + args[1] + '.'); return 1; }
+    only = '&state=' + tasklist.COMPACT[compactFlag];
+    const rc = await ctx.call('GET', '/api/tasks?project=' + projectSlug(project) + '&order=state' + only);
+    if (!rc.reached) return ctx.unreachable('list tasks');
+    if (ctx.refusedBy(rc)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(rc) + '.'); return 1; }
+    const shown = tasklist.compactLines(rc.json, compactFlag, project);
+    for (const line of shown.lines) (shown.rc ? ctx.err : ctx.out)(line);
+    return shown.rc;
   }
   const r = await ctx.call('GET', '/api/tasks?project=' + projectSlug(project) + '&order=state' + only);   // #4491 slice 4: with the agent's own token
   if (!r.reached) return ctx.unreachable('list tasks');
