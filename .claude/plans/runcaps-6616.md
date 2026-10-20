@@ -25,7 +25,9 @@ tunnel orphaned by an EARLIER board stays open (below). Relay half: kosmos-relay
 pid, a non-array, and no file are refused; a status file cannot widen a binary that says no; over HTTP an older running
 tunnel gets `remote_step_up_unavailable` and the listed one reaches the route (400 on an unreadable body). Mutants:
 ignoring the running list (both red), dropping the pid check (one red). R01c: no per-pid keep, no kill, the prefix
-match, and not judging a foreign pid on read, each one red; one test reads the real process table.
+match, and not judging a foreign pid on read, each one red; then (review 4) the parent-is-1 rule, the pid range, the
+program check and asking again after a failed ps, each one red. One test reads the real process table with real
+orphans (double-forked), a live board's tunnel, a lookalike path and another program.
 
 ## The orphan, closed here too (kosmos#6669, R01c; review 3)
 A tunnel orphaned by an EARLIER board (killed hard, so it could not reap it) still forwards: on the relay's "replaced by
@@ -34,9 +36,13 @@ writes this board's status file under its own pid, so neither check described it
 refused every gated remote action until this board's tunnel next changed state.
 - A pid's list is kept once read (`runningSeen`): a process's capabilities are compiled in, so a foreign write cannot
   take this board's child's answer away.
-- A foreign pid in the status file (read at tunnel start, by status(), and by the capability read) is judged once: if
-  `ps` shows a `run` with THIS board's `--status-file` path (the whole argument; a prefix match ended a tunnel for
-  `<file>.elsewhere` in the tests), it gets SIGTERM. Anything else is left alone, so a reused pid is never touched.
+- A foreign pid in the status file (read at tunnel start, by status(), and by the capability read) is judged: it gets
+  SIGTERM only when `/bin/ps` (never PATH) shows its parent is 1 (re-parented, its board gone; review 4: a second LIVE
+  board on the same account shares this file, and ending its child would start a kill loop), its program's basename is
+  the tunnel's and its first argument `run`, and its `--status-file` is this board's path, the whole argument (a prefix
+  match ended a tunnel for `<file>.elsewhere` in the tests). A pid outside 2..2^22 is never looked at (0 and -1 signal a
+  group); our pid and child are excluded again right before the signal. A definite ps answer is kept per pid; a failed
+  one is asked again. Not closed: a pid that exits and is reused between ps and the signal.
 - Not on Windows (no command line is read there): an orphan there is still the old behaviour. Stated on #6669.
 - Not tested: the read at tunnel start (startChild); the same function, reached by status() and the capability read,
   is.

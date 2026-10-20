@@ -455,36 +455,58 @@ test('R01c: once this board\'s tunnel has said what it lists, a foreign write to
   } finally { reset(); await warm(); }
 });
 
-const { spawn: spawnProc } = require('node:child_process');
-const exited = (p) => new Promise((resolve) => { if (p.exitCode !== null || p.signalCode !== null) resolve(p.signalCode); else p.once('exit', (code, sig) => resolve(sig)); });
+const { spawn: spawnProc, execFileSync } = require('node:child_process');
 const ended = (pid) => new Promise((resolve) => remote.endForeignTunnel(pid, resolve));
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const ppidOf = (pid) => { try { return Number(execFileSync('/bin/ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).trim()); } catch { return null; } };
+// A process ps shows as `<CONNECTOR> run --status-file <file> 30` (bash's exec -a names it; CONNECTOR's basename is
+// kosmos-tunnel). orphan: double-forked, so its parent is 1, as a tunnel whose board was killed hard.
+function fakeTunnel(file, { orphan, program = CONNECTOR }) {
+  const name = program + ' run --status-file ' + file;
+  if (!orphan) return { pid: spawnProc('/bin/bash', ['-c', 'exec -a "$0" sleep 30', name], { stdio: 'ignore' }).pid };
+  const out = execFileSync('/bin/bash', ['-c', '(exec -a "$0" sleep 30) >/dev/null 2>&1 & echo $!', name], { encoding: 'utf8' });
+  return { pid: Number(out.trim()) };
+}
 
-test('R01c: a tunnel another board left running is ended, read from the real process table, and only when it is ours', { skip: process.platform === 'win32' }, async () => {
-  // A process whose command line is a tunnel `run` with this board's status file (`; true` keeps sh from exec'ing
-  // sleep, which would drop the arguments the check reads).
-  const orphan = spawnProc('/bin/sh', ['-c', 'sleep 30; true', 'kosmos-tunnel', 'run', '--status-file', STATUS], { stdio: 'ignore' });
-  // The same, with ANOTHER status file: a reused pid, or another account's tunnel. Never touched.
-  const other = spawnProc('/bin/sh', ['-c', 'sleep 30; true', 'kosmos-tunnel', 'run', '--status-file', STATUS + '.elsewhere'], { stdio: 'ignore' });
+test('R01c: an orphaned tunnel is ended, read from the real process table; a live board\'s, a lookalike path\'s, are not', { skip: process.platform === 'win32' }, async () => {
+  const orphan = fakeTunnel(STATUS, { orphan: true });
+  const elsewhere = fakeTunnel(STATUS + '.elsewhere', { orphan: true });
+  const liveBoards = fakeTunnel(STATUS, { orphan: false });   // a second LIVE board on this account: its parent lives
+  const notTunnel = fakeTunnel(STATUS, { orphan: true, program: path.join(SANDBOX, 'other-program') });
   try {
+    assert.ok(await until(() => [orphan, elsewhere, notTunnel].every((p) => ppidOf(p.pid) === 1)), 'CONTROL: the orphans were re-parented');
+    assert.notEqual(ppidOf(liveBoards.pid), 1, 'CONTROL: the live one has its parent');
     remote.resetConnectorCapabilitiesForTests({ runningPid: TEST_PID });   // real ps, no stand-in
-    assert.equal(await ended(other.pid), false, 'a tunnel for another status file was ended');
-    assert.equal(other.exitCode, null, 'CONTROL: still running');
+    assert.equal(await ended(liveBoards.pid), false, 'a live board\'s tunnel was ended (two boards would kill each other)');
+    assert.equal(await ended(elsewhere.pid), false, 'an orphan for another status file was ended');
+    assert.equal(await ended(notTunnel.pid), false, 'another program with our arguments was ended');
+    assert.ok(alive(liveBoards.pid) && alive(elsewhere.pid) && alive(notTunnel.pid), 'CONTROL: all three still running');
     assert.equal(await ended(orphan.pid), true, 'our orphan was not ended');
-    assert.equal(await exited(orphan), 'SIGTERM');
-    assert.equal(await ended(orphan.pid), false, 'a pid is looked at once');
-  } finally { try { orphan.kill('SIGKILL'); } catch {} try { other.kill('SIGKILL'); } catch {} reset(); await warm(); }
+    assert.ok(await until(() => !alive(orphan.pid)), 'the orphan did not end');
+    assert.equal(await ended(orphan.pid), false, 'a pid is judged once');
+  } finally { for (const p of [orphan, elsewhere, liveBoards, notTunnel]) { try { process.kill(p.pid, 'SIGKILL'); } catch {} } reset(); await warm(); }
+});
+
+test('R01c: a pid outside 2..2^22, our own pid, and a failed ps are never signalled; a failed ps is asked again', async () => {
+  const asked = [];
+  try {
+    reset({ commandOf: (pid) => { asked.push(pid); return undefined; } });   // ps fails: no answer
+    for (const pid of [0, -1, 1, 2 ** 23, 1.5, process.pid]) assert.equal(await ended(pid), false, String(pid));
+    assert.deepEqual(asked, [], 'an out-of-range pid, or our own, was looked up');
+    await ended(424299); await ended(424299);
+    assert.deepEqual(asked, [424299, 424299], 'a failed ps was not asked again');
+  } finally { reset(); await warm(); }
 });
 
 test('R01c: reading the status file is what notices it: a foreign pid there is judged, and a non-tunnel is left alone', async () => {
   const asked = [];
-  const bystander = spawnProc('/bin/sh', ['-c', 'sleep 30'], { stdio: 'ignore' });
+  const bystander = spawnProc('/bin/sh', ['-c', 'sleep 30; true'], { stdio: 'ignore' });
   try {
-    reset({ commandOf: (pid, file) => { asked.push(pid); return '/bin/sh -c sleep 30'; } });
+    reset({ commandOf: (pid) => { asked.push(pid); return { ppid: 1, command: '/bin/sh -c sleep 30; true' }; } });
     listRunning({ state: 'up', pid: bystander.pid });
     remote.connectorCapabilities();
     assert.deepEqual(asked, [bystander.pid], 'the foreign pid in the status file was not judged');
     await new Promise((r) => setTimeout(r, 50));
-    assert.equal(bystander.exitCode, null, 'a process that is not a tunnel run with our status file was ended');
-    assert.equal(bystander.signalCode, null);
+    assert.ok(alive(bystander.pid), 'a process that is not our tunnel was ended');
   } finally { try { bystander.kill('SIGKILL'); } catch {} reset(); await warm(); }
 });

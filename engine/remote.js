@@ -221,28 +221,51 @@ function runningCapabilities() {
 /* kosmos#6669 (R01c): a tunnel this board did not start that writes this board's status file is one an earlier board
    left behind (killed hard, so it could not reap it). Its reconnect loop takes the relay connection back from this
    board's tunnel after each "replaced by a newer connection", so it forwards part of the time, as whatever binary it
-   was, and neither capability check describes it. It is ended: TERM, to the pid the file names, ONLY when that process
-   is a `run` started with this board's own `--status-file` path (so a reused pid is never touched). Each pid is
-   looked at once. Not on Windows (no command line read there; stated, kosmos#6669). */
+   was, and neither capability check describes it. It is ended (SIGTERM, to the pid the file names) ONLY when ps shows
+   all of: its parent is 1 (it was re-parented: its board is gone; review 4, a second LIVE board on the same account
+   shares this file, and killing its child would start a kill loop between the two), its program is the tunnel (the
+   basename of BIN()) and its first argument is `run`, and it was started with this board's own `--status-file` path,
+   the whole argument. A pid outside 2..2^22 is never looked at (0 and -1 would signal a group). Our own pid and our
+   child are excluded both when asked and again right before the signal. Not closed (stated): a pid that exits and is
+   reused between ps and the signal. A definite answer is recorded per pid; a failed ps is asked again next time.
+   Not on Windows (no command line is read there; stated on kosmos#6669). */
 const foreignLooked = new Set();
-let endForeignForTests = null;   // tests only: (pid, statusFile) => command line, instead of ps
+const foreignAsking = new Set();
+let endForeignForTests = null;   // tests only: (pid, statusFile) => { ppid, command } or null, instead of ps
+const PS = fs.existsSync('/bin/ps') ? '/bin/ps' : '/usr/bin/ps';   // never PATH: a writable PATH entry could answer
+function notOurs(pid) { return pid === process.pid || (child && pid === child.pid); }
+/* Whether ps's line names this board's tunnel, orphaned. Exported for tests. */
+function isOrphanedTunnel(proc, statusFile, bin = BIN()) {
+  if (!proc || proc.ppid !== 1 || typeof proc.command !== 'string') return false;
+  const command = proc.command.split('\n')[0];
+  const at = command.indexOf(' run ');
+  if (at <= 0 || path.basename(command.slice(0, at)) !== path.basename(bin)) return false;
+  const esc = statusFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // The whole path, ending where the argument ends: `<file>.elsewhere` is another file (a prefix match ended it).
+  return new RegExp(' --status-file ' + esc + '( |$)').test(command.slice(at));
+}
 function endForeignTunnel(pid, done = () => {}) {
-  if (foreignLooked.has(pid) || pid === process.pid || (child && pid === child.pid)) { done(false); return; }
-  foreignLooked.add(pid);
-  if (process.platform === 'win32' && !endForeignForTests) { done(false); return; }
+  if (!Number.isInteger(pid) || pid < 2 || pid > 4194304 || notOurs(pid) || foreignLooked.has(pid) || foreignAsking.has(pid)) { done(false); return; }
+  if (process.platform === 'win32' && !endForeignForTests) { foreignLooked.add(pid); done(false); return; }
   const statusFile = STATUS_FILE();
-  const judge = (command) => {
-    // The whole path, ending where the argument ends: `<file>.elsewhere` is another file (a prefix match ended it).
-    const esc = statusFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const ours = typeof command === 'string' && /(^|\s)run(\s|$)/.test(command) &&
-      new RegExp('(^|\\s)--status-file\\s+' + esc + '(\\s|$)').test(command);
-    if (!ours) { done(false); return; }
+  const judge = (proc) => {
+    foreignAsking.delete(pid);
+    if (proc === undefined) { done(false); return; }   // ps failed: no answer, asked again next time
+    foreignLooked.add(pid);
+    if (!isOrphanedTunnel(proc, statusFile) || notOurs(pid)) { done(false); return; }
     try { process.kill(pid, 'SIGTERM'); console.error('[remote] ended a Kosmos+ tunnel an earlier board left running (pid ' + pid + ')'); done(true); } catch { done(false); }
   };
+  foreignAsking.add(pid);
   if (endForeignForTests) { judge(endForeignForTests(pid, statusFile)); return; }
   try {
-    execFile('ps', ['-ww', '-o', 'command=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 }, (err, out) => judge(err ? null : String(out).trim()));
-  } catch { done(false); }
+    execFile(PS, ['-ww', '-o', 'ppid=,command=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 }, (err, out) => {
+      // ps exits 1 for a pid that is gone: a definite "not a tunnel". Any other failure is no answer.
+      if (err && err.code === 1 && !String(out || '').trim()) { judge(null); return; }
+      if (err) { judge(undefined); return; }
+      const m = String(out).trim().match(/^(\d+)\s+([\s\S]*)$/);
+      judge(m ? { ppid: Number(m[1]), command: m[2] } : null);
+    });
+  } catch { judge(undefined); }
 }
 function binaryCapabilities(now) {
   if (!tunnelStartedHere) return new Set();
@@ -277,7 +300,7 @@ const resetConnectorCapabilitiesForTests = ({ startedHere = true, runningPid = n
   tunnelStartedHere = startedHere;
   runningPidForTests = runningPid;
   runningSeen = null;
-  foreignLooked.clear();
+  foreignLooked.clear(); foreignAsking.clear();
   endForeignForTests = commandOf;
   forgetConnectorCapabilities({ always: true, ask: false });
 };
@@ -3600,7 +3623,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,
