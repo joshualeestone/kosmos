@@ -52,6 +52,10 @@ the instruction tells agents to leave such a post to its owner.
 - Deferred: the cut-reply retry keeps the general words in both CLIs (they stay in step; the general words are not false
   there, only less specific).
 
+## Review 4 changes
+- A hand-off that also has an ambiguous @-word (ambiguousMentions) is not one owner. An outside row's display name never
+  makes a local agent its author. A word-like name can match the plain-text check by accident; noted, safe direction.
+
 ## Tests (engine/messages.test.js, engine/defaults.test.js, cli.room-reopen-2710.test.js, tools.windows-kosmos-cli-570.test.js)
 - One owner named by the person: leo's first "agreed" refused (ack_only, names the owner, no quote characters, no
   hold words, not typed, not stored, no valve or refused row); mara's (the owner's) "on it" placed; leo's content
