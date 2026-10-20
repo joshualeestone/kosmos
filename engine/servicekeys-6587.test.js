@@ -73,6 +73,11 @@ test('off as shipped: the recovery keys are manifest-verify\'s, empty today, and
   // CONTROL: with a recovery key given, the same set is checked (and taken), and a refusal is not "off".
   assert.equal(sk.verifyServiceKeySet({ bytes: Buffer.from(VECTOR), sig: VECTOR_SIG, recoveryKeys: [ROOT_PUB] }).ok, true);
   assert.equal(sk.verifyServiceKeySet({ bytes: Buffer.from(VECTOR), sig: sign(K7, VECTOR), recoveryKeys: [ROOT_PUB] }).off, undefined);
+  // Only an empty list is off: junk passed for the keys is refused, never read as "nothing to check".
+  for (const junk of [null, 'MCow', {}, 5]) {
+    const j = sk.verifyServiceKeySet({ bytes: Buffer.from(VECTOR), sig: VECTOR_SIG, recoveryKeys: junk });
+    assert.equal(j.ok, false); assert.equal(j.off, undefined, 'junk keys read as off: ' + JSON.stringify(junk));
+  }
 });
 
 test('refused: signed by a service key, one changed byte, no signature, a non-canonical signature', () => {
