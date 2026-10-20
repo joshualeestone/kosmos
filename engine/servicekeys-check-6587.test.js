@@ -89,3 +89,10 @@ test('a board set to another coordinator is elsewhere, not a mismatch; the produ
   assert.deepEqual(serviceKeyCheck(pinned, on(app())), { state: 'mismatch' }, 'not said: production');
   assert.deepEqual(serviceKeyCheck(pinned, { appDir: app(), production: false }), { state: 'off' }, 'off comes first');
 });
+
+test('the cache follows the signature too: the same set with a bad signature is not answered from the cache', () => {
+  const d = app();
+  assert.deepEqual(serviceKeyCheck(state(PIN7), on(d)), { state: 'listed' });
+  fs.writeFileSync(path.join(d, SIG_FILE), VECTOR_SIG.replace(/^./, (c) => (c === 'A' ? 'B' : 'A')) + '\n');
+  assert.deepEqual(serviceKeyCheck(state(PIN7), on(d)), { state: 'refused' }, 'a changed signature');
+});

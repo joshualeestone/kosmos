@@ -115,6 +115,13 @@ out="$(release_bundle_matches_tree "$T/nobin.tgz" "$BUILD")" && bad "a bundle wi
 mkdir -p "$BUILD/bin"; echo 'x' > "$BUILD/bin/needed.sh"; cp "$BUILD/bin/needed.sh" "$T/bundle/app/bin/needed.sh"; bundle withbin.tgz
 release_bundle_matches_tree "$T/withbin.tgz" "$BUILD" >/dev/null && ok "CONTROL: with the bin/ file present it matches again" || bad "CONTROL: a bundle with the bin/ file was called incomplete"
 rm -f "$BUILD/engine/paths.js" "$T/bundle/app/engine/paths.js" "$T/bundle/app/bin/needed.sh" "$BUILD/bin/needed.sh"
+# kosmos#6587: a tree that carries the signed service key set demands it of the bundle (a dropped staging call cannot ship).
+printf '{}\n' > "$BUILD/engine/service-keys.json"; printf 'sig\n' > "$BUILD/engine/service-keys.json.sig"
+bundle nosk.tgz
+out="$(release_bundle_matches_tree "$T/nosk.tgz" "$BUILD")" && bad "a bundle without the tree's service key set was called matching" || { printf '%s' "$out" | grep -q "missing from the bundle.*app/engine/service-keys.json" && ok "a bundle that forgot the service key set is caught (#6587)" || bad "the red did not name the service key set: $out"; }
+cp "$BUILD/engine/service-keys.json" "$BUILD/engine/service-keys.json.sig" "$T/bundle/app/engine/"; bundle withsk.tgz
+release_bundle_matches_tree "$T/withsk.tgz" "$BUILD" >/dev/null && ok "CONTROL: with the set and its signature present it matches again (#6587)" || bad "CONTROL: a bundle with the set was called incomplete: $(release_bundle_matches_tree "$T/withsk.tgz" "$BUILD")"
+rm -f "$BUILD/engine/service-keys.json" "$BUILD/engine/service-keys.json.sig" "$T/bundle/app/engine/service-keys.json" "$T/bundle/app/engine/service-keys.json.sig"
 
 echo 'other' > "$T/bundle/app/bin/kosmos-report-hook.sh"; bundle relocbad.tgz; cp "$BUILD/install/kosmos-report-hook.sh" "$T/bundle/app/bin/kosmos-report-hook.sh"
 release_bundle_matches_tree "$T/relocbad.tgz" "$BUILD" >/dev/null && bad "a changed relocated hook was called matching" || ok "a changed relocated hook is caught (compared against install/)"
