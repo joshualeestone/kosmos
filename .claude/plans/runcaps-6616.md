@@ -29,7 +29,7 @@ ignoring the running list (both red), dropping the pid check (one red).
 ## Not closed (review 1, stated)
 - A tunnel orphaned by an EARLIER board that still forwards: it writes the same status file, and its pid is not this
   board's child, so its file is ignored, but it is the one forwarding. Neither check describes it. The fix is to end
-  such orphans when a board starts its own tunnel, a separate change.
+  such orphans when a board starts its own tunnel: kosmos#6669 (R01c), mine.
 
 ## Weakest premise
 The pid check: a pid reused by an unrelated process that writes a status file in the board's 0600 data dir. Anything

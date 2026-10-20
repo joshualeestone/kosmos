@@ -382,7 +382,7 @@ test('R01: until this board has started its own tunnel, nothing is vouched for (
 /* kosmos#6616 (R01b part 6): the RUNNING tunnel must list the capability too. The binary's yes alone described the file
    on disk, which an update can replace while an older tunnel keeps forwarding. */
 test('R01b: while a tunnel runs here, only what that process lists in its status file counts', async () => {
-  const statusFile = path.join(require('./engine/store').ROOT, 'remote-status.json');
+  const statusFile = STATUS;
   const pid = 424242;
   const write = (body) => { fs.mkdirSync(path.dirname(statusFile), { recursive: true }); fs.writeFileSync(statusFile, JSON.stringify(body)); };
   try {
@@ -420,7 +420,7 @@ test('R01b: while a tunnel runs here, only what that process lists in its status
 });
 
 test('R01b: over HTTP, an older running tunnel refuses a fresh remote session though the binary says yes', async () => {
-  const statusFile = path.join(require('./engine/store').ROOT, 'remote-status.json');
+  const statusFile = STATUS;
   const pid = 424243;
   try {
     reset({ runningPid: pid });

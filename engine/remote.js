@@ -189,7 +189,7 @@ let tunnelStartedHere = false;
    `capabilities` (a connector older than that field) lists nothing, and so does a moment with no child running
    (crash backoff, a stop): nothing legitimate arrives then, so it fails closed. This only ever narrows the binary's
    answer. NOT closed (stated): a tunnel orphaned by an EARLIER board that still forwards is described by neither
-   check, since it shares this board's status file and its pid is not the child's; ending such orphans is the fix. */
+   check, since it shares this board's status file and its pid is not the child's; ending such orphans is the fix (kosmos#6669). */
 function connectorCapabilities(now = Date.now()) {
   const caps = binaryCapabilities(now);
   const running = runningCapabilities();
@@ -200,8 +200,8 @@ let runningPidForTests = null;
 /* What the tunnel process this board runs says it can do; null only before this board has started any (the binary's
    answer is then gated by tunnelStartedHere alone). Read on each ask: a small file. */
 function runningCapabilities() {
-  const pid = child ? child.pid : runningPidForTests;
   if (!tunnelStartedHere) return null;
+  const pid = child ? child.pid : runningPidForTests;
   if (pid === null || pid === undefined) return new Set();
   let raw;
   try { raw = JSON.parse(fs.readFileSync(STATUS_FILE(), 'utf8')); } catch { return new Set(); }
