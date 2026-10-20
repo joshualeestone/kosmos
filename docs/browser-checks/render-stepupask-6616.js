@@ -109,9 +109,13 @@ const WORDS = 'From a remote session this needs a fresh sign-in. (check 6616)';
     }
     // PHONE: at 390 px wide the ask fits inside the screen with its 16 px gutter, and Not now is pressable there.
     await page.setViewportSize({ width: 390, height: 844 });
-    const fit = await page.evaluate(() => { const r = document.getElementById('stepup-ask').getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }; });
-    // Measured against the page's own width (cw), not 390: a browser with a classic scrollbar (CI's) leaves 375 px.
-    say(fit.l >= 16 && fit.r <= fit.cw - 16 && fit.r - fit.l >= fit.cw - 32 - 2 && fit.sw <= fit.cw, 'phone: the ask uses the 390 px screen\'s width inside its gutter (the sentence is long), and the page does not scroll sideways', JSON.stringify(fit));
+    const fit = await page.evaluate(() => { const r = document.getElementById('stepup-ask').getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, bw: document.body.clientWidth }; });
+    // Measured against the width the page lays out in, not 390. CI's browser reported the root at 390 (cw) while it laid
+    // the page out at 375 (sw 375, the fixed ask's right edge at 359 = 375 - 16), so the smallest reported width is the
+    // one the ask is laid out against (root, body, or the document's own scroll width). A box that does not use the
+    // width (a 200 px one, say) still fails: none of the three is below the layout width.
+    const w = Math.min(fit.cw, fit.bw, fit.sw);
+    say(fit.l >= 16 && fit.r <= w - 16 && fit.r - fit.l >= w - 32 - 2 && fit.sw <= fit.cw, 'phone: the ask uses the 390 px screen\'s width inside its gutter (the sentence is long), and the page does not scroll sideways', JSON.stringify(fit));
     await page.locator('#stepup-close').click({ timeout: 5000 });
     const gone = await page.evaluate(() => { const e = document.getElementById('stepup-ask'); return e.hidden && getComputedStyle(e).display === 'none'; });
     say(gone, 'close: Not now hides the ask and it takes no space');
