@@ -239,6 +239,12 @@ stage_app() {
   for f in "$REPO"/engine/*.js; do
     case "$f" in *.test.js) ;; *) cp "$f" "$_d/engine/" || return 1 ;; esac
   done
+  # kosmos#6587: the signed service key set ships beside the engine that checks it, both files or neither.
+  if [ -f "$REPO/engine/service-keys.json" ] || [ -f "$REPO/engine/service-keys.json.sig" ]; then
+    [ -f "$REPO/engine/service-keys.json" ] && [ -f "$REPO/engine/service-keys.json.sig" ] || { echo "engine/service-keys.json and its .sig must ship together (#6587)" >&2; return 1; }
+    cp "$REPO/engine/service-keys.json" "$_d/engine/" || return 1
+    cp "$REPO/engine/service-keys.json.sig" "$_d/engine/" || return 1
+  fi
   cp -R "$REPO/web" "$_d/web" || return 1
   cp "$REPO/bin/agent-supervisor.sh" "$_d/bin/" || return 1
   chmod +x "$_d/bin/agent-supervisor.sh"
