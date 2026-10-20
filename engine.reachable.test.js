@@ -224,6 +224,12 @@ const EXCUSED = {
    read the module). Keyed by FILE, like TRIAGED_5548, because several names are generic (setClock, setBin, _lock):
    a by-name excuse would also hide a real orphan of the same name in another module (#5548 review 2). */
 const SEAMS_5548 = {
+  // #6705: engine/communityself.js's name-refresh cache. The first forgets it so each test in
+  // engine/communityself-6705.test.js starts clean; the second reads one agent's entry so that test can pin RETRY_MS and
+  // REFRESH_MS without waiting ten minutes. Named for this module alone (a bare `_reset` was covered by accident:
+  // readjobs' EXCUSED entry and each module's mention of the other). Production never calls them.
+  _resetSelfCacheForTests: 'engine/communityself.js',
+  _selfCacheForTests: 'engine/communityself.js',
   setLateMsForTests: 'engine/toolloop.js',   // #6071: the late-digest window, which route tests cross in milliseconds
   // #5805 slice 3: forgets every first-seen time of a dateless usage-limit line, so each test in
   // engine/limituntil-5805.test.js (and slice 3b's) starts clean. Production never clears them.

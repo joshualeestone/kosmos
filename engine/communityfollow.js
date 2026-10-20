@@ -78,7 +78,14 @@ async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {
      floor is met when it is not. Missing one real new follow is the safer error. */
   let knownNew = false;
   const noSuch = { ok: false, because: 'there is no agent named ' + who + ' in the community' };
+  /* kosmos#6705: the following list below is read by this agent's name, and a rename leaves the stored one answering
+     404, so the name is refreshed first (communityself: at most every 10 min, the stored name when it cannot be). */
+  /* The refresh counts against the follow's own budget (budgetFrom), so the two together still answer inside the CLI's
+     wait. */
+  const began = Date.now();
+  if (!unfollow) { try { await require('./communityself').current(agentKey, { deadline: began + communitysend.agentBudget() }); } catch { /* the stored name stands */ } }
   const r = await communitysend.agentCall(agentKey, unfollow ? 'DELETE' : 'POST', '/agents/by-name/' + enc + '/follow', {
+    budgetFrom: began,
     register: !unfollow,
     /* Review 1: an agent with no account is registered (a public profile) only once the target is known to exist. */
     beforeRegister: async (publicGet) => {

@@ -32,6 +32,7 @@ const communitysend = require('./communitysend');
 const communitystore = require('./communitystore');
 const communityread = require('./communityread');
 const communitynudge = require('./communitynudge');
+const communityself = require('./communityself');   // kosmos#6705: the one own-agent rule
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REPLY_DAYS = 3;
@@ -51,11 +52,6 @@ function shownText(v, max = TITLE_SHOWN_MAX) {
   const s = communityread.scrub(v, max * 2, true).replace(/["\u201c\u201d\u201e\u201f\u2033\u02ba\u275d\u275e\u301d\u301e\u301f]/g, '\'').trim();
   const chars = Array.from(s);
   return chars.length > max ? chars.slice(0, max - 1).join('') + '…' : s;
-}
-function registeredName(agentKey) {
-  const keys = readObj(communitysend._paths.keysFile());
-  const n = keys && keys[agentKey] && keys[agentKey].name;
-  return typeof n === 'string' && n ? n : null;
 }
 
 /* This agent's own posts the service took and still shows, from the last `days` days, newest first:
@@ -106,7 +102,8 @@ function doneFollowing(agentKey) {
 }
 
 /* One post's thread: { score, comments, unanswered: [{ id, by }] } from public reads, or null when unreadable.
-   unanswered is null (unknown, never a full list) when this agent's own name or its answers here cannot be known. */
+   unanswered is null (unknown, never a full list) when this agent's own name or its answers here cannot be known.
+   `me`: this agent's { id, name } (communityself; kosmos#6705: by id when the comment carries one). */
 async function threadOf(remoteId, me, answered) {
   const p = await communityread.getJson('/posts/' + remoteId);
   if (p && p.status === 429) return { limited: true };   // April's review 6: the service is limiting; stop reading
@@ -114,7 +111,7 @@ async function threadOf(remoteId, me, answered) {
   let more = false;
   const score = Number.isInteger(p.json.score) ? p.json.score : null;
   const count = Number.isInteger(p.json.comment_count) ? p.json.comment_count : null;
-  if (!me || !answered) return { score, comments: count, unanswered: null };   // review 1 (BLOCKER): without them every comment would read owed
+  if (!communityself.known(me) || !answered) return { score, comments: count, unanswered: null };   // review 1 (BLOCKER): without them every comment would read owed
   const unanswered = [];
   if (count !== 0) {
     // April's review 2: the page size and byte cap every other thread read uses (a page of long comments passes 256 KB).
@@ -124,11 +121,11 @@ async function threadOf(remoteId, me, answered) {
     more = Boolean(t.json.next_cursor);   // April's review 3: older comments are not read; the count says "or more"
     for (const c of t.json.comments) {
       if (!c || c.state !== 'live' || !c.agent || typeof c.agent.name !== 'string' || !UUID_RE.test(String(c.id || ''))) continue;
-      if (key(c.agent.name) === key(me)) continue;                              // your own comment on your post
+      if (communityself.isOwn(me, c.agent)) continue;                          // your own comment on your post
       if (answered.has(key(c.id))) continue;                                     // answered from this board (maybe not public yet)
       const replies = Array.isArray(c.replies) ? c.replies : [];
       if (c.replies_cursor) continue;                                          // more replies than carried: may be answered
-      if (replies.some((r) => r && r.agent && typeof r.agent.name === 'string' && key(r.agent.name) === key(me))) continue;
+      if (replies.some((r) => r && communityself.isOwn(me, r.agent))) continue;
       unanswered.push({ id: String(c.id).toLowerCase(), by: shownText(communityread.authorOf(c.agent), 40) });
     }
   }
@@ -157,7 +154,8 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
     out.counts = communitynudge.localCounts(agentKey, now);
     try { out.floors = require('./communityblock').FLOORS || null; } catch { out.floors = null; }
     if (!out.switchedOn) return out;
-    const me = registeredName(agentKey);
+    // kosmos#6705: refreshed from the service (at most every 10 min), so a renamed agent's feed is read by its new name.
+    const me = late() ? communityself.stored(agentKey) : await communityself.current(agentKey, { deadline });
     const own = ownRecentPosts(agentKey, now);
     const answered = answeredHere(agentKey);
     let limited = false;   // April's review 6: a 429 stops the rest of this read (what is unread stays unknown)
@@ -170,8 +168,8 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
         out.posts.push({ id: p.remoteId, title: shownText(p.title), score: ok ? ok.score : null, comments: ok ? ok.comments : null, unanswered: ok ? ok.unanswered : null, more: Boolean(ok && ok.more) });
       }
     }
-    if (me && !late() && !limited) {
-      const f = await communityread.getJson('/agents/by-name/' + encodeURIComponent(me) + '/following/feed?limit=50');
+    if (me.name && !late() && !limited) {
+      const f = await communityread.getJson('/agents/by-name/' + encodeURIComponent(me.name) + '/following/feed?limit=50');
       if (f && f.status === 200 && f.json && Array.isArray(f.json.items)) {
         const recent = f.json.items.filter((it) => it && it.kind === 'post' && Date.parse(it.created_at) > now - DAY_MS);
         /* kosmos#5372: not a post this agent was already shown in read --following, nor one it commented on from this
