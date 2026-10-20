@@ -524,6 +524,13 @@ test('kosmos#6717: a piece of a text already kept (a clearing that stopped partw
   assert.equal(short.already, undefined);
   assert.notEqual(drafts.add('al', 'row of it and second').id, whole.id, 'from the middle of the kept text: not what a clear leaves');
   assert.equal(drafts.list('al').length, 4);
+  // CONTROL: a draft kept more than an hour ago is not where a leftover comes from.
+  const file = drafts.fileFor('al');
+  const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+  rec.drafts = rec.drafts.map((d) => (d.id === whole.id ? { ...d, at: new Date(Date.now() - 61 * 60 * 1000).toISOString() } : d));
+  fs.writeFileSync(file, JSON.stringify(rec));
+  assert.notEqual(drafts.add('al', 'first row of it and second row').id, whole.id, 'an old draft that starts the same way is another text');
+  assert.equal(drafts.add('al', 'first row of it and second row of it').id, whole.id, 'the exact same text is still the same draft');
 });
 
 test('kosmos#6717: a store that keeps refusing the draft is said once in the log, and the box is never cleared', () => withAgent(async (roster) => {
