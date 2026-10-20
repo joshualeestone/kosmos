@@ -2862,12 +2862,27 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .oa-card .oa-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .oa-card .oa-sub { font-size: 12px; color: var(--k-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .oa-card.oa-off { opacity: .55; }
-.acard { display: flex; flex-direction: column; background: var(--k-surface);
+.acard { position: relative; display: flex; flex-direction: column; background: var(--k-surface);
          color: var(--k-ink);
          border: 1px solid var(--k-rule); border-radius: 16px;
          padding: 24px 22px 20px; text-align: center; cursor: pointer;
          box-shadow: 0 1px 2px rgba(20,22,26,.04); }
 .acard.attn { border-color: rgba(179,38,30,.42); box-shadow: 0 1px 3px rgba(179,38,30,.12); }
+/* #6719 (Josh, 2026-10-20): the star, in the tile's top-right corner and at the right of a list row's name. Outline
+   when off, filled gold when on. The unread badge sits on the avatar's corner, inside the centred gauge: on the
+   narrowest tile (--k-card-min) the corner star is well clear of it, measured by render-star-6719. */
+.astar { position: absolute; top: 6px; right: 6px; z-index: 1; width: 36px; height: 36px; padding: 0;
+         display: grid; place-items: center; border: 0; border-radius: 10px; background: transparent;
+         color: var(--k-ink-2); cursor: pointer; }
+.astar svg path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
+.astar:hover { color: var(--k-ink); background: rgba(120,120,128,.12); }
+.astar.on { color: var(--gold-deep); }
+.astar.on svg path { fill: currentColor; }
+.astar:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+@media (pointer: coarse) { .acard .astar { top: 2px; right: 2px; width: 44px; height: 44px; }
+  .lname { padding-right: 48px; } .lname .astar { width: 44px; height: 44px; } }
+.lname { position: relative; padding-right: 40px; }
+.lname .astar { top: 50%; right: 0; transform: translateY(-50%); }
 .acard.unk { border-style: dashed; }
 /* 🔑 STATE OWNS THE GROUND AND THE STROKE (Josh, 2026-08-21), ported from the
    pack cut of the same day. Working takes a green wash, needs-you a red one, and
@@ -22723,7 +22738,7 @@ function card(a) {
        attn pill make it read as an agent that wants a person, not one that is off. */
     if (a.needsTrust === true) {
       return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
-      <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
+      ${typeof starBtn === 'function' ? starBtn(a) : ''}<div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="astate st-attn"${pillTitle(needsTrustSay(a))}><span class="haz" aria-hidden="true">!</span><b>${esc(STATE_COPY.needs_trust.label)}</b>${pillVh(needsTrustSay(a))}</div>
@@ -22737,7 +22752,7 @@ function card(a) {
        shape: there is still no pane to act on. */
     const split = a.jobRunningUnseen === true;
     return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
-    <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. ${split ? 'Could not check.' : 'Not running.'}">${face(a)}</svg>
+    ${typeof starBtn === 'function' ? starBtn(a) : ''}<div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. ${split ? 'Could not check.' : 'Not running.'}">${face(a)}</svg>
       <!-- ⚠️ THE DOT IS DECORATIVE HERE, unlike on a running card. Its hidden
            text is PRESSAY.off, which is the same words as the pill two rows
            down, so a screen reader announced "Not running" twice per card. The
@@ -22783,7 +22798,7 @@ function card(a) {
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
   return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${answerAttrs(a)}${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
-    <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
+    ${typeof starBtn === 'function' ? starBtn(a) : ''}<div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="${esc(nameGoLabel(a))}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, say) : pillTitle(say)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${pillVh(say)}</div>
@@ -22930,7 +22945,7 @@ function lrow(a) {
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
       return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
       <div class="lav">${tav}<span class="pres lpres unsure" aria-hidden="true"></span></div>${dmBadge(a)}
-      <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
+      <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b>${typeof starBtn === 'function' ? starBtn(a) : ''}</div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate st-attn"><span class="haz" aria-hidden="true">!</span>${esc(STATE_COPY.needs_trust.label)}</div>
       <div class="ltask"></div>
@@ -22943,7 +22958,7 @@ function lrow(a) {
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
     return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
       <div class="lav">${off}<span class="pres lpres off" aria-hidden="true"></span></div>${dmBadge(a)}
-      <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
+      <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b>${typeof starBtn === 'function' ? starBtn(a) : ''}</div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}"${a.jobRunningUnseen === true ? '' : pillTitle(offlineNote(a))}>${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}${a.jobRunningUnseen === true ? '' : pillVh(offlineNote(a))}</div>
       <div class="ltask"></div>
@@ -22973,7 +22988,7 @@ function lrow(a) {
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
   return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${answerAttrs(a)}${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}<span class="pres lpres ${m.pres}" aria-hidden="true"></span></div>${dmBadge(a)}
-    <div class="lname"><b><button class="namego" type="button" aria-label="${esc(nameGoLabel(a))}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
+    <div class="lname"><b><button class="namego" type="button" aria-label="${esc(nameGoLabel(a))}">${esc(a.name)}</button>${staleBadge(a)}</b>${typeof starBtn === 'function' ? starBtn(a) : ''}</div>
     <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <!-- #569: the said line stacks INSIDE the state cell -- the seven-slot
          rule above forbids an eighth child, and .lstate already stacks a
@@ -25046,7 +25061,7 @@ function paintAgentList() {
   if (!alist) return;
   const lim = new URLSearchParams(location.search).get('limit');
   const src = (LAST || []).filter((a) => !(a && a.isGuide === true));
-  const shown = sortAgents(lim ? src.slice(0, Number(lim)) : src, AGENT_SORT, PROJECTS);
+  const shown = sortAgents(lim ? src.slice(0, Number(lim)) : src, AGENT_SORT, PROJECTS, typeof AGENT_STARS === 'undefined' ? null : AGENT_STARS);
   /* #3948: the project notice (#3923) in the consolidated layout, where the Members card is hidden: the
      same pjNotice from the same roster (p.agents) the tab layout paints, above this list; empty when no
      project is open or in the tab layout (its own notice speaks there). Before the empty-board return, so
@@ -25530,7 +25545,7 @@ async function tick() {
        agents", which lands here having created nothing. So does skipping
        first-run, and so does removing the last agent. (Mona Lisa, #? on the
        agents-page package, 2026-08-22.) */
-    const orderedAgents = sortAgents(shown, AGENT_SORT, PROJECTS);
+    const orderedAgents = sortAgents(shown, AGENT_SORT, PROJECTS, typeof AGENT_STARS === 'undefined' ? null : AGENT_STARS);
     document.getElementById('grid').innerHTML = orderedAgents.length ? orderedAgents.map(card).join('') : boardEmpty();
     // The list is the SAME agents through the same derivations, painted on
     // the same tick -- hidden or not. Painting only the visible layout would
@@ -38510,8 +38525,11 @@ function agentFirstProject(agent, projects) {
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   return names[0] || null;
 }
-function sortAgents(list, mode, projects) {
+function sortAgents(list, mode, projects, stars) {
   const rows = (list || []).map((agent, index) => ({ agent, index }));
+  /* #6719: starred agents first, in every order; within each group the chosen order applies. `stars` is a Set of
+     session names, or absent (another computer's agents, which this board's stars do not name). */
+  const starred = (r) => (stars && r.agent && stars.has(r.agent.sessionName) ? 0 : 1);
   const text = (v) => { const s = String(v == null ? '' : v).trim(); return s || null; };
   const time = (v) => { const n = Date.parse(v || ''); return Number.isFinite(n) ? n : null; };
   const name = (r) => text(r.agent && (r.agent.name || r.agent.sessionName));
@@ -38551,7 +38569,63 @@ function sortAgents(list, mode, projects) {
       const field = mode === 'active' ? 'lastActiveAt' : mode === 'newest' ? 'createdAt' : 'lastTalkedAt';
       return cmpTime(time(a.agent && a.agent[field]), time(b.agent && b.agent[field])) || byName(a, b);
     };
-  return rows.sort(cmp).map((r) => r.agent);
+  return rows.sort((a, b) => starred(a) - starred(b) || cmp(a, b)).map((r) => r.agent);
+}
+/* #6719 (Josh, 2026-10-20): "if I starred you it would basically pin you to the top". The person's stars, by session
+   name, kept on the board (/api/agent-stars), so a star holds across restarts and on every screen that views this
+   board. Outline when off, filled when on; the page's own star is drawn in CSS from one path. */
+let AGENT_STARS = new Set();
+let STARS_SEQ = 0;   // the newest read or write wins: a slow read never puts back a star changed since it went out
+const STAR_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M12 3.6l2.5 5.2 5.7.7-4.2 3.9 1.1 5.6L12 16.3 6.9 19l1.1-5.6-4.2-3.9 5.7-.7z"/></svg>';
+function starBtn(a) {
+  const on = AGENT_STARS.has(a.sessionName);
+  const say = (on ? 'Unstar ' : 'Star ') + (a.name || a.sessionName || '');
+  return `<button class="astar${on ? ' on' : ''}" type="button" data-star="${esc(a.sessionName)}" aria-label="${esc(say)}" title="${esc(say)}">${STAR_SVG}</button>`;
+}
+/* The grid and the list in the chosen order, now. Shared by the sort control and a star, so the two cannot disagree
+   about what "the board's order" is. A star that had focus keeps it (the repaint rebuilds the button). */
+function repaintAgentOrder(focusStar) {
+  const had = document.activeElement && document.activeElement.closest ? document.activeElement.closest('[data-star]') : null;
+  const where = had ? had.closest('#grid, #alist') : null;
+  const lim = new URLSearchParams(location.search).get('limit');
+  const listed = (LAST || []).filter((a) => !(a && a.isGuide === true));
+  const shown = lim ? listed.slice(0, Number(lim)) : listed;
+  const ordered = sortAgents(shown, AGENT_SORT, PROJECTS, AGENT_STARS);
+  document.getElementById('grid').innerHTML = ordered.length ? ordered.map(card).join('') : boardEmpty();
+  paintAgentList();
+  if (focusStar && where) {
+    const back = [...where.querySelectorAll('[data-star]')].find((b) => b.dataset.star === focusStar);
+    if (back) back.focus();
+  }
+}
+async function loadStars() {
+  const seq = ++STARS_SEQ;
+  try {
+    const r = await fetch('/api/agent-stars', { cache: 'no-store' });
+    if (!r.ok) return;
+    const v = await r.json();
+    if (seq !== STARS_SEQ || !v || !Array.isArray(v.names)) return;
+    const next = new Set(v.names);
+    if (next.size === AGENT_STARS.size && [...next].every((n) => AGENT_STARS.has(n))) return;
+    AGENT_STARS = next;
+    repaintAgentOrder();
+  } catch { /* keep the last answer; the next read tries again */ }
+}
+/* Drawn at once (the tile moves as the person presses), then confirmed by the board; a refusal puts it back. */
+async function toggleStar(name) {
+  const before = new Set(AGENT_STARS);
+  const on = !before.has(name);
+  const seq = ++STARS_SEQ;
+  if (on) AGENT_STARS.add(name); else AGENT_STARS.delete(name);
+  repaintAgentOrder(name);
+  try {
+    const r = await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, on }) });
+    const v = await r.json().catch(() => null);
+    if (!r.ok || !v || !Array.isArray(v.names)) throw new Error('not saved');
+    if (seq === STARS_SEQ) { AGENT_STARS = new Set(v.names); repaintAgentOrder(name); }
+  } catch {
+    if (seq === STARS_SEQ) { AGENT_STARS = before; repaintAgentOrder(name); }
+  }
 }
 let AGENT_SORT = (() => {
   let saved = null;
@@ -38578,12 +38652,7 @@ document.addEventListener('change', (e) => {
   AGENT_SORT = agentSortMode(select.value);
   try { localStorage.setItem('kosmos.sort.agents', AGENT_SORT); } catch { /* display preference only */ }
   agentSortVisibility();
-  const lim = new URLSearchParams(location.search).get('limit');
-  const listed = (LAST || []).filter((a) => !(a && a.isGuide === true));
-  const shown = lim ? listed.slice(0, Number(lim)) : listed;
-  const ordered = sortAgents(shown, AGENT_SORT, PROJECTS);
-  document.getElementById('grid').innerHTML = ordered.length ? ordered.map(card).join('') : boardEmpty();
-  paintAgentList();
+  repaintAgentOrder();
   if (typeof oaPaint === 'function') oaPaint();   // kosmos#4812: and the other computers' groups
 });
 /* #4345: true while the consolidated display column shows the Agents view (openConsolidatedAgents).
@@ -45721,6 +45790,9 @@ function setWritesOffered(a, tied) {
 
 for (const boardEl of [document.getElementById('grid'), document.getElementById('alist')]) {
   boardEl.addEventListener('click', (e) => {
+    // #6719: the star stars; it never also opens the agent or answers it.
+    const star = e.target.closest('[data-star]');
+    if (star) { e.preventDefault(); toggleStar(star.dataset.star); return; }
     // #6400: an agent with a question carries its answer target on the card or row itself (answerAttrs), so it is
     // checked FIRST: the plain open below would take the same click and skip focusing the reply box.
     const answer = e.target.closest('[data-answer]');
@@ -86646,6 +86718,9 @@ document.addEventListener('animationstart', (e) => {
 paintBuildLine(null);
 tick();
 setInterval(tick, 5000);
+/* #6719: the stars, at start and every 30 s, so one set on another screen of this board shows here too. */
+loadStars();
+setInterval(loadStars, 30000);
 /* #718 state 1: the moment this phone or computer is back online, ask again rather than
    leaving "You are offline" up until the next poll. The same pair Try again runs. */
 window.addEventListener('online', () => { tick(); loadProjects(); });

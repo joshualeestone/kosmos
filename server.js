@@ -10195,6 +10195,30 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* #6719 (Josh, 2026-10-20): the person's starred agents, which sort first on the board. GET reads them; PUT
+     { name, on } stars or unstars one agent by its session name. The person's, like the settings above: an agent's
+     token is refused on PUT. A file that could not be read answers ok false and is never overwritten from that. */
+  if (pathname === '/api/agent-stars' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const r = require('./engine/stars').read();
+    sendJson(res, 200, { names: r.names, ok: r.ok });
+    return;
+  }
+  if (pathname === '/api/agent-stars' && req.method === 'PUT') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'stars are the person\'s, not an agent\'s' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const r = require('./engine/stars').set(body.name, body.on);
+        if (r.refused) { sendJson(res, 400, { error: r.refused }); return; }
+        if (!r.ok) { sendJson(res, 500, { error: 'we could not save that star' }); return; }
+        sendJson(res, 200, { names: r.names, ok: true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that star' }));
+    return;
+  }
   if (pathname === '/api/undo/keep' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
