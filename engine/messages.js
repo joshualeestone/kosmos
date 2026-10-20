@@ -2526,9 +2526,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        that post's author) only blurs who has it. So it is not passed on, from the FIRST such reply rather than after a
        run, with the same not-a-hold ack_only answer and, as below, no valve or refused row; `owner` lets the CLI say why.
        The person's own posts count here (naming an owner is usually theirs), unlike the run above, which starts after
-       them. It does NOT apply (review 1): when that post asks a question (a "?": "everyone OK with Friday?" wants the
-       answers the run trigger also protects), when this reply answers a different post (replyTo), or when the post is
-       older than the room's counting window. A reply with anything new is content and always goes through; the owner
+       them. It does NOT apply (reviews 1 and 2): when that post asks something of the room (a "?", or a room-wide ask
+       such as "everyone confirm": its answers are wanted, as the run trigger also protects), when this reply answers a
+       different post (replyTo), or when the post is from before countFrom (the person's later post or a reopen ends
+       it, as it ends the run and the volume count). A reply with anything new is content and always goes through; the owner
        and the author may still acknowledge each other. Rejected: an owner-status line on the post (new interface). */
     if (incomingIsAck && typeof from === 'string' && from !== '') {
       let said = null;
@@ -2538,8 +2539,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         if (!chat.acknowledgementOnly(m.text)) { said = m; break; }
       }
       const named = said && Array.isArray(said.mentioned) ? said.mentioned : [];
-      const fresh = said && Date.parse(said.at) >= windowFrom;
-      const asks = said && said.text.includes('?');
+      const fresh = said && Date.parse(said.at) >= countFrom;
+      const asks = said && (said.text.includes('?') || ROOM_ASK.test(said.text));
       const answersOther = answered && said && answered.id !== said.id;
       if (named.length === 1 && fresh && !asks && !answersOther && named[0] !== from && said.from !== from) {
         const owner = shown.get(named[0]) || named[0];
@@ -3469,6 +3470,9 @@ const ROOM_HELD_REFUSAL = 'the room was going back and forth without landing, so
 // the loop a user's Windows room hit (eleven "agreed"/"acknowledged" posts before the volume
 // valve fired). Reversible constant.
 const ACK_RUN_LIMIT = 4;
+// #6608 review 2: words that ask the whole room for an answer, so a hand-off that also says them is not left to its owner
+// alone. Deliberately wide (a missed ask drops an answer someone wanted; a false one only lets an acknowledgement through).
+const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|confirm|let (me|us) know|reply|respond|thumbs up)\b/i;
 function logRoomRefusal({ from, project, because, at, doing, addable }) {
   if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway
   const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';

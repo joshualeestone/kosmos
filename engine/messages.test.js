@@ -1430,6 +1430,26 @@ test('#6608 review 1: it does not apply to a post that asks something, a reply t
   });
 });
 
+test('#6608 review 2: a room-wide ask with no question mark, a later post by the person, and an outside post all lift it', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara please take the renewal letter, everyone confirm you have seen it', mentioned: ['mara'] }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'a confirmation the hand-off asked the room for was dropped');
+    // The person's later post (even an agreement-only one) moves countFrom, so the earlier hand-off no longer decides.
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [
+      { from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] },
+      { from: 'you', operator: true, text: 'ok thanks' },
+    ]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'a hand-off before the person\'s later post still refused an ack');
+    // An outside (federated) post that says something is the latest content and names no one here.
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] }]);
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'external', id: 'x-1', project: 'henderson-lease', from: 'partner', fromKind: 'person', external: true, text: 'the printer moved the date to the 4th', at: new Date(now - 100).toISOString() }) + '\n');
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'an outside content post did not lift the hand-off');
+  });
+});
+
 test('#4934/#5967: a content post resets the run, so ack, ack, content, ack, ack does not hold', () => {
   withFleet(room3(), (board) => {
     const now = Date.now();

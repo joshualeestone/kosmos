@@ -3189,6 +3189,8 @@ cmd_post() {
         *'"code":"ack_only"'*)
           # #6608: an owner-named post (the board sends who it named): say so, not "already said", which is untrue there.
           _owner=$(printf '%s' "$body" | sed -n 's/.*"owner":"\([^"]*\)".*/\1/p')
+          # a name with a quote or backslash arrives escaped and the sed halves it: say the general words instead
+          if [ "${_owner#*\\}" != "$_owner" ]; then _owner=""; fi
           if [ -n "${_retried:-}" ]; then
             say "Not posted this time: this only agreed with what was already said, so Kosmos did not pass it on. Your first try may have reached the room before that: check kosmos room $project before posting again. A post with something new goes through straight away."
           elif [ -n "$_owner" ]; then
