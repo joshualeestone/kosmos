@@ -41,3 +41,10 @@ Linux (systemd user units) has the same shape, in a different folder, and is not
 - [NIT] fixed: a TMPDIR as broad as HOME, or above it (/, /Users), is ignored, so it cannot refuse every kept home.
 - [NIT] fixed: the unused port parameters are gone from the test.
 - Each of the four new defences has a control that turns its arm red when that defence alone is removed.
+### Iteration 4 (sonnet)
+- [WARNING] fixed: the test said the guard runs "under set -eu", but it is called in an `||` context (in setup.sh as in the test), so `-e` is off inside it. The comment now says so. Every fallible step in it is already guarded.
+- [WARNING] fixed: three arms refused only because this machine's TMPDIR is a standard temp folder, a false red where it is not. They now use fixed /private/tmp homes, and the symlink arm links into /private/tmp.
+- [CONVENTION] fixed: the /Users/Shared sub-check skips where that folder cannot be written.
+- [NIT] fixed: on a new account where ~/Library/LaunchAgents does not exist yet, `-ef` matched nothing, so AGENT_WORKFORCE_LAUNCH spelled as that folder passed. It is now also matched by spelling, with or without a trailing slash. A control without the spelling match turns the new-account arm red.
+- [NIT] accepted: a fake-HOME harness that points AGENT_WORKFORCE_LAUNCH at its own fake LaunchAgents is refused. No caller does this, and refusing is the safe side.
+- Note: in the focused run after iteration 3, install.connect-pause-4676 failed once, after 50 s, beside another suite. Run alone it passes 13 of 13. Its pause code is unchanged here.
