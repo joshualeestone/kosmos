@@ -40,7 +40,7 @@ if [ "$(uname -s)" = Darwin ] && command -v xattr >/dev/null 2>&1 && xattr -w us
   if printf '%s' "$out" | /usr/bin/grep -qF 'extended attribute' && ! printf '%s' "$out" | /usr/bin/grep -qF 'AppleDouble'; then pass "--no-mac-metadata alone still leaves the xattr header, and it is caught"
   else fail "--no-mac-metadata alone: the xattr header must be caught: $out"; fi
 else
-  echo "  skip the xattr arms: not a Mac, or no xattr here (the bundles are built on a Mac)"
+  echo "  skip the xattr arms: uname=$(uname -s), xattr command $(command -v xattr >/dev/null 2>&1 && echo present || echo absent), xattr -w on TMPDIR $( [ "$(uname -s)" = Darwin ] && echo failed || echo not tried) (the bundles are built on a Mac)"
 fi
 
 # Fixtures are written entry by entry with /usr/bin/perl (no python3: see the gate's header). mk <out.tgz> <spec>...
@@ -61,7 +61,7 @@ out="$(tar_macmeta_gate "$T/ad.tgz" 2>&1)"; rc=$?
 if [ "$rc" -ne 0 ] && printf '%s' "$out" | /usr/bin/grep -qF 'AppleDouble entry app/._f' && printf '%s' "$out" | /usr/bin/grep -qF 'SCHILY.xattr.com.apple.provenance' && printf '%s' "$out" | /usr/bin/grep -qF 'AppleDouble entry ._app'; then pass "a built tarball with both kinds, and a ._ folder, is refused and each named (any OS)"
 else fail "a built tarball with both kinds must be refused (rc=$rc): $out"; fi
 
-tar -czf "$T/clean.tgz" -C "$T/s" VERSION
+mk "$T/clean.tgz" "0:VERSION:y"   # written byte by byte: a Mac that tags new files (com.apple.provenance) cannot add metadata to it
 if tar_macmeta_gate "$T/clean.tgz" 2>/dev/null; then pass "a tarball of a file with no attributes passes"
 else fail "a clean tarball must pass"; fi
 
@@ -93,6 +93,15 @@ out="$(tar_macmeta_gate "$T/glob.tgz" 2>&1)"
 if printf '%s' "$out" | /usr/bin/grep -qF 'AppleDouble entry ._x'; then pass "a global (g) header's path does not rename the next entry, so its ._x is still caught"
 else fail "a g header's path must not rename the next entry: $out"; fi
 
+deep="app/$(printf 'c%.0s' $(seq 1 120))"
+mk "$T/xpath.tgz" "x:PaxHeader/p:$(rec path "$deep/._long")" "0:placeholder:x"
+out="$(tar_macmeta_gate "$T/xpath.tgz" 2>&1)"
+if printf '%s' "$out" | /usr/bin/grep -qxF "  AppleDouble entry $deep/._long"; then pass "an x header's path renames the next entry exactly (how bsdtar names a ._ path over 100 bytes)"
+else fail "an x header's path must rename the next entry, exactly: $out"; fi
+mk "$T/xpath2.tgz" "x:PaxHeader/p:$(rec path "$deep/clean")" "0:._placeholder:x"
+if tar_macmeta_gate "$T/xpath2.tgz" 2>/dev/null; then pass "and the renamed entry is judged by that path, not its ._ placeholder"
+else fail "the x header's path must replace the placeholder name: $(tar_macmeta_gate "$T/xpath2.tgz" 2>&1)"; fi
+
 long="$(printf 'd%.0s' $(seq 1 120))/plain"
 mk "$T/gnu.tgz" "L:././@LongLink:$long" "K:././@LongLink:somewhere" "0:._x:x"
 if tar_macmeta_gate "$T/gnu.tgz" 2>/dev/null; then pass "a GNU long name survives a long-link (K) entry: the file is judged by its long name, not its ._x placeholder"
@@ -117,9 +126,9 @@ else fail "a missing tarball must be refused"; fi
 
 for f in build-kosmos-bundle.sh:TARBALL_OUT build-tmux-bundle.sh:TARBALL; do
   s="$HERE/${f%%:*}"; v="${f##*:}"
-  if [ "$(/usr/bin/grep -cE '^COPYFILE_DISABLE=1 tar -czf "\$'"$v"'" --uname kosmos --gname staff -C "\$[A-Z]+" --no-mac-metadata --no-xattrs --no-fflags ' "$s")" = 1 ] \
+  if [ "$(/usr/bin/grep -cE '^COPYFILE_DISABLE=1 /usr/bin/tar -czf "\$'"$v"'" --uname kosmos --gname staff -C "\$[A-Z]+" --no-mac-metadata --no-xattrs --no-fflags ' "$s")" = 1 ] \
      && /usr/bin/grep -qx 'tar_macmeta_gate "$'"$v"'" || exit 1' "$s"; then pass "${f%%:*} packs with all four metadata flags and calls the gate"
-  else fail "${f%%:*} must pack with COPYFILE_DISABLE=1 --no-mac-metadata --no-xattrs --no-fflags and call tar_macmeta_gate"; fi
+  else fail "${f%%:*} must pack with COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags and call tar_macmeta_gate"; fi
 done
 
 [ "$fails" -eq 0 ] && { echo "tar macmeta gate: all arms passed"; exit 0; }
