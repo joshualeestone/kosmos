@@ -158,9 +158,10 @@ function verifySetup({ manifest, sig, setup, version, installedVersion, keys = K
 /**
  * During a release incident the operator turns the pause on at the coordinator (kosmos-relay
  * `deploy/updates-pause.sh on`), and its public `/v1/meta` answers `"updates_paused": true`. Before this Kosmos
- * installs a NEWER version (engine/manifest-verify.js runSetup on a Mac, engine/win32update.js begin on Windows, the
- * two places every such install passes), it asks, and holds back while the answer is true. Rolling back is not
- * asked: it installs no new code.
+ * installs (engine/manifest-verify.js runSetup on a Mac, any version it is asked for, a same-version reinstall too;
+ * engine/win32update.js begin on Windows, a new install), it asks, and holds back while the answer is true. Rolling
+ * back is not asked: it installs no new code. Only a Kosmos that already carries this code can be paused: one on an
+ * older version installs as it always has.
  *
  * Why the coordinator: the release site, its pointer and its signing key are the suspect part in that incident, so a
  * pause carried there could be removed by whoever holds them.

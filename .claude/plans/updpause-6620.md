@@ -50,6 +50,18 @@ want one line saying so: a follow-up there, not built here.
   `deploy/coordinator-monitor.sh`, as its own small PR.
 - The release pointer freeze (runbook e step 1).
 
+## Review 2 decisions
+
+- The board's answer is per look (the 15-minute TTL), so a pause turned on or off shows on the board by the next look;
+  in that window a manual install can still reach run-setup, which holds it itself (96). Set only on the look's own
+  cache, so a newer look's answer is never overwritten.
+- A test file run with plain `node` (no runner, no harness) can ask the real coordinator: accepted, since only
+  `node --test` and tools/run-tests.sh run the suite, and both ask nothing real.
+- Board-level tests in engine/update-pause-6620.test.js against a local HTTP server; mutating out the ask, the skip,
+  or the "only when newer" condition each turns one red.
+- Only a Kosmos that already carries this code can be paused. Older installs keep updating during a pause, which
+  bounds this step's reach until the fleet has taken this release.
+
 ## Not held today (decided, a follow-up card)
 
 A .pkg install that takes the pinned path (once install/pkg-verify/floor stops reading "off") and a pasted install

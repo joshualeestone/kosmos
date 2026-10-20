@@ -15575,8 +15575,6 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/update' && req.method === 'POST') {
     const avail = updates.available();
     if (!avail) { sendJson(res, 409, { error: 'there is no update to install right now' }); return; }
-    // kosmos#6620: the fleet's update pause, in the words the confirm dialog shows.
-    if (updates.paused()) { sendJson(res, 409, { error: updates.PAUSED_SENTENCE.charAt(0).toUpperCase() + updates.PAUSED_SENTENCE.slice(1) + '.' }); return; }
     /* 🛑 #570: THE PLATFORM ARM GOES FIRST, AND ITS ORDER IS THE WHOLE POINT.
        The updater ends in `spawn('/bin/sh', ...)`, which cannot exist on Windows;
        the engine refuses it (update.selfInstallRefusal) and this is where that
@@ -15601,6 +15599,8 @@ const server = http.createServer(async (req, res) => {
        skipped) on the Mac and for a normal win32 bundle. */
     const locationRefusal = updates.windowsLocationRefusal();
     if (locationRefusal) { sendJson(res, 409, { error: locationRefusal }); return; }
+    // kosmos#6620: the fleet's update pause, after the platform and source refusals (theirs is the truer sentence).
+    if (updates.paused()) { sendJson(res, 409, { error: updates.PAUSED_SENTENCE.charAt(0).toUpperCase() + updates.PAUSED_SENTENCE.slice(1) + '.' }); return; }
     if (updates.alreadyInstalling()) {
       // Idempotent: the first POST started it; a retry, a double click, or a
       // second tab gets the same true answer without a second installer

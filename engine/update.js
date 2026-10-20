@@ -417,8 +417,13 @@ async function refresh() {
       cache = { at: Date.now(), latest, reached: true, readable: latest !== null, base: lookBase, channel, pointer };
       landed = true;
       // kosmos#6620: only with a newer version on offer, ask whether the fleet's updates are paused (fails open), so
-      // the board can say so instead of an installer that "stopped" (run-setup's own sentence goes to no screen).
-      if (available()) cache.paused = await manifestVerify.pausedAsync({});
+      // the board can say so (run-setup's own sentence reaches no board screen). Set on THIS look's cache only: a look
+      // that replaced it meanwhile keeps its own answer. A pause turned on or off shows by the next look (the TTL).
+      if (available()) {
+        const mine = cache;
+        const paused = await manifestVerify.pausedAsync({});
+        if (cache === mine) cache.paused = paused;
+      }
     }
   } finally {
     clearTimeout(timer);
