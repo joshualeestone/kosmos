@@ -26,3 +26,10 @@
 - Iteration 1 (a WARNING, NITs; mutants red: busy under reclaim, the exit check, the unreachable stop): see the
   wait's decision above. Callers checked by the reviewer: the watchdog ignores the exit code, the native app allows
   300 s, the installer has no timeout, restart cannot reach this branch with a lingering board.
+- Iteration 2 (NITs only): the new function moved above _await_board_up's doc comment (it had split them); one last
+  look after the loop (a board answering at the very end is up); an unreachable board's stuck message uses
+  _unreachable_lead/_unreachable_why; a comment records that a fall-through after rc 2 reuses the guards checked before
+  the wait. Accepted: under a reclaim (KOSMOS_RECLAIM_BUSY=1) a recorded board that answers UP during the wait is a
+  success, as it is for any start (busy is not); a slow-binding OLD build cannot be told apart here without a build
+  check, which is out of this card. The last two test assertions read source order, not behaviour (the loop itself
+  is tested by behaviour).

@@ -30,11 +30,11 @@ case "$out" in
   *) bad "a starting board that answers: $out" ;;
 esac
 n="$( CALLS=0; ANSWER_AT=1000; STATE=down; _await_recorded_board "$LIVE_PID" >/dev/null; echo "$? $CALLS" )"
-[ "$n" = "1 30" ] && ok "a board still silent after the bounded wait (30 looks, as a fresh start's) is stuck (rc 1)" || bad "a silent board: rc and looks '$n'"
+[ "$n" = "1 31" ] && ok "a board still silent after the bounded wait (30 looks, as a fresh start's, and one last) is stuck (rc 1)" || bad "a silent board: rc and looks '$n'"
 out="$( CALLS=0; ANSWER_AT=1000; STATE=busy; arb "$LIVE_PID" )"
 case "$out" in *"busy right now"*"rc=0"*) ok "busy is up for a plain start" ;; *) bad "busy, plain start: $out" ;; esac
 n="$( CALLS=0; ANSWER_AT=1000; STATE=busy; KOSMOS_RECLAIM_BUSY=1; _await_recorded_board "$LIVE_PID" >/dev/null; echo "$? $CALLS" )"
-[ "$n" = "1 30" ] && ok "busy is NOT a success for a reclaim (KOSMOS_RECLAIM_BUSY=1: the caller judged it stale)" || bad "busy under reclaim: '$n'"
+[ "$n" = "1 31" ] && ok "busy is NOT a success for a reclaim (KOSMOS_RECLAIM_BUSY=1: the caller judged it stale)" || bad "busy under reclaim: '$n'"
 n="$( CALLS=0; ANSWER_AT=1000; STATE=unreachable; _await_recorded_board "$LIVE_PID" >/dev/null; echo "$? $CALLS" )"
 [ "$n" = "1 1" ] && ok "unreachable from this shell: stuck at once (waiting cannot change it)" || bad "unreachable: '$n'"
 ( exit 0 ) & DEAD=$!; wait "$DEAD" 2>/dev/null
