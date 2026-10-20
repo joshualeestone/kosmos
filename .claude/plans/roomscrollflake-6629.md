@@ -41,7 +41,12 @@ No bug in the product change; the diagnosis is consistent with the source. Cover
 - Confirmed by reading: the early read is taken before any height change, no reader is pinned against their will, and the check's two frames are always queued after the product's second pin.
 
 ### Runs (light lane, beside a heavy holder, so the box was loaded)
-On 563d0d17 (the product fix and the two-frame arm), three runs:
+On 563d0d17 (before the fold into d670a169: the same product fix and two-frame arm; the fold changed only two comments), three runs:
 - runs 1 and 2 passed every arm;
 - run 3 timed out on a different wait earlier in the consolidated section, and two later sections failed downstream ("only ... proves nothing"). The changed arm passed in the plain view, and the consolidated run did not reach it.
 The control in that turn did not run (its board refused the connection), so it is not counted. Re-queued.
+### Iteration 4 (sonnet): converged
+No BLOCKER, WARNING or CONVENTION. Both gates were checked by reading: 913 surface tokens against the changed index.html lines gave 0 hits, and a control token hit.
+- [NIT] fixed: the check's comment now says "the likely cause, reasoned from the source", matching the plan.
+- [NIT] fixed: the pre-fold sha is labelled as such.
+- Known and stated: the check guards "a reader left short", not this exact ordering. The cut race is not reproducible on demand.
