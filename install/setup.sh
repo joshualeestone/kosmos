@@ -5227,7 +5227,8 @@ let leaveAlone = () => null;
 try { leaveAlone = require(path.join(kosmosHome, 'app', 'engine', 'installroot.js')).leaveAlone; } catch { /* an older bundle: as before */ }
 let skipped = 0;
 for (const t of targets) {
-  if (leaveAlone(t)) { skipped += 1; continue; }
+  let why; try { why = leaveAlone(t); } catch { why = 'could not tell'; }   // a rule that throws leaves it alone
+  if (why) { skipped += 1; continue; }
   const got = reporthook.ensureWired(t, script, { claudeVersion: versionFor(t) });
   if (got.wired !== true) refused += 1;
 }

@@ -215,3 +215,57 @@ test('#6713: setup.sh says, for exit 3, that the home was left alone, and never 
   assert.match(say(3), /leaves the Claude settings in your home alone/);
   assert.match(say(0), /report what they are doing themselves/, 'CONTROL: exit 0 keeps its line');
 });
+
+/* The hooks block with its leaveAlone replaced by `stub` (JS source of a function), to reach the mixed and throwing cases. */
+function runSetupHooksWith(home, kh, stub) {
+  const line = "leaveAlone = require(path.join(kosmosHome, 'app', 'engine', 'installroot.js')).leaveAlone;";
+  const prog = setupHooksProgram();
+  assert.ok(prog.includes(line), 'the leaveAlone line moved in setup.sh');
+  const env = { ...process.env, HOME: home, AGENT_WORKFORCE_DATA: path.join(home, 'data') };
+  delete env.AGENT_WORKFORCE_HOME;
+  return spawnSync(process.execPath, ['-', kh], { input: prog.replace(line, 'leaveAlone = ' + stub + ';'), encoding: 'utf8', env });
+}
+function homeWithAccount(t) {
+  const home = realHome(t);
+  const def = path.join(home, '.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(def), { recursive: true }); fs.writeFileSync(def, '{}\n');
+  const dir = path.join(home, '.claude-account-g6713');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'a@example.invalid' } }));
+  fs.writeFileSync(path.join(dir, 'settings.json'), '{}\n');
+  const kh = path.join(home, '.local', 'share', 'kosmos'); bundleAt(kh);
+  return { home, kh, def, acct: path.join(dir, 'settings.json') };
+}
+
+test('#6713: setup.sh with some targets left alone and the rest wired exits 1, not 0 or 3', (t) => {
+  const { home, kh, def, acct } = homeWithAccount(t);
+  const r = runSetupHooksWith(home, kh, '(f) => (f.includes(".claude-account-g6713") ? "left alone" : null)');
+  assert.equal(r.status, 1, 'a mixed run is not full success. ' + r.stderr);
+  assert.match(fs.readFileSync(def, 'utf8'), /kosmos-report-hook/, 'the target not left alone was wired');
+  assert.doesNotMatch(fs.readFileSync(acct, 'utf8'), /kosmos-report-hook/, 'the one left alone has no hooks (its statusline is ensureStatusLine\'s own gate)');
+  const all = runSetupHooksWith(home, kh, '() => null');
+  assert.equal(all.status, 0, 'CONTROL: two targets, none left alone, exits 0. ' + all.stderr);
+});
+
+test('#6713: setup.sh leaves a target alone when its rule throws, instead of wiring it or dying', (t) => {
+  const { home, kh, def, acct } = homeWithAccount(t);
+  const r = runSetupHooksWith(home, kh, '() => { throw new Error("boom"); }');
+  assert.equal(r.status, 3, 'every target left alone: exit 3. ' + r.stderr);
+  assert.doesNotMatch(fs.readFileSync(def, 'utf8'), /kosmos-report-hook/);
+  assert.doesNotMatch(fs.readFileSync(acct, 'utf8'), /kosmos-report-hook/);
+});
+
+test('#6713: after exit 3 setup.sh does not claim a status line, even when one is already there', (t) => {
+  const home = realHome(t);
+  const settings = path.join(home, '.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(settings), { recursive: true });
+  fs.writeFileSync(settings, JSON.stringify({ statusLine: { command: 'node /x/kosmos-statusline.js' } }));
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
+  const a = sh.indexOf('_sl_home="${AGENT_WORKFORCE_HOME:-$HOME}"');
+  assert.ok(a > 0, 'the status-line message block moved in setup.sh');
+  const block = sh.slice(a, sh.indexOf('\nfi\n', a) + 4);
+  const env = { ...process.env, HOME: home }; delete env.AGENT_WORKFORCE_HOME;
+  const say = (rc) => spawnSync('/bin/sh', ['-c', 'info() { echo "$*"; }; _hooks_rc=' + rc + '\n' + block], { encoding: 'utf8', env }).stdout;
+  assert.doesNotMatch(say(3), /status line/, 'exit 3 wrote nothing, so it claims nothing');
+  assert.match(say(0), /status line of their own carry Kosmos/, 'CONTROL: exit 0 with the line present says so');
+});
