@@ -42,9 +42,10 @@ for (const which of ['card', 'lrow']) {
 
 /* #6045 (Josh, 0.7.45 review): in the list, the note is the AI model column's size, not a task line's. The note cell
    carries .lnote (sized as .lmodel) and the whole note as its title; any other text in that cell does not. */
-test('#6045 lrow: the far-behind note is drawn as a note (.lnote, with a title); a row without it is a plain task cell', () => {
+test('#6045 / #6716 lrow: the far-behind sentence is on the pill (its title and hidden text), not a note in the row', () => {
   const html = api.lrow(row({ rulesBehind: 13 }));
-  assert.ok(html.includes('<div class="ltask lnote" title="' + SAID + '">' + SAID + '</div>'), 'the note is not in an .lnote cell with its title: ' + html);
+  assert.ok(!html.includes('lnote'), 'the row draws the sentence as a note again (#6716): ' + html);
+  assert.ok(html.includes(' title="' + SAID + '"') && html.includes('<span class="vh">. ' + SAID + '</span>'), 'the pill does not carry the sentence: ' + html);
   const plain = api.lrow(row({ rulesBehind: null }));
   assert.ok(!plain.includes('lnote'), 'control: a row with no note has no .lnote cell');
   assert.ok(/<div class="ltask">[^<]*<\/div>/.test(plain), 'control: the plain task cell is unchanged');

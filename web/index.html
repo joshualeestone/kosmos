@@ -21227,7 +21227,9 @@ const STATE_COPY = {
      merely throttled it. "Working" forever was the bug; "Paused" would be
      the wrong reassurance (it implies "will resume on its own"), so this
      gets its own label. */
-  auth_failed:  { label: "Sign-in isn't working", attn: true  },
+  /* #6716 (Josh, 2026-10-20: "lets shorten it to \"Sign-in Issue\""): the pill is a word, like the others; the sentence
+     is its hover and its page's. */
+  auth_failed:  { label: 'Sign-in Issue', attn: true  },
   /* #3410: a TRANSIENT network error (DNS/network blip) took the agent's
      connection to the API, distinct from auth_failed (the account is fine).
      An attention state, but a RECOVERABLE one: it is the kind of thing a retry
@@ -21582,6 +21584,10 @@ function offlineNote(a) {
   return [rulesBehindLine(a, true), idleLine(a)].filter(Boolean).join(' ');
 }
 function stateReason(a, opts) {
+  /* #6716 (Josh, 2026-10-20: "i dont want to show these messages on these agent tiles"): a tile and a list row carry
+     no sentence. What it would say is the pill's hover and screen-reader text (pillSay) and stays on the agent's own
+     page, which calls this without `card`. (#6398 did this for a rate limit alone.) */
+  if (opts && opts.card === true) return '';
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
   /* #5154 slice A: Kosmos keeps restarting this agent and it keeps stopping within minutes (engine/crashloop.js).
@@ -21592,10 +21598,6 @@ function stateReason(a, opts) {
     const n = Number(a.crashLoop.count) || 3;
     return 'Kosmos has restarted it ' + n + ' times in the last half hour, and each time it stopped within a couple of minutes. Kosmos will keep trying. Open it to see what it shows.';
   }
-  /* #6398: a rate-limited agent's card and list row say only the pill ("Rate Limit"); the sentence (how long, what
-     to do) is the pill's hover and screen-reader text and stays on the agent's own page, which calls this without card.
-     Below the crash-loop arm: a crash-looping agent's pill reads "Keeps stopping", so it keeps its own sentence. */
-  if (a && a.state === 'rate_limited' && opts && opts.card === true) return '';
   /* #5154 slice C: the same terminal error has stood past its threshold (engine/stuckterminal.js), so the card
      names what is wrong and what to do. Placed before the plain auth_failed / rate_limited rules below so a
      STUCK agent gets this sharper sentence; a brief one still falls through to the ordinary state sentence.
@@ -21696,9 +21698,6 @@ function stateReason(a, opts) {
      it, so a working agent is not pointed at it mid-task, and it is never in the slot a person reads
      as what a needs-you, question or blocked agent is stuck on (#986/#2833), and never over a sign-in, connection or
      usage problem. Last of the general reasons; plain words; the card's look is unchanged. */
-  if (a && opts && opts.card === true && (a.state === 'idle' || a.state === 'stopped') && rulesBehindLine(a)) {
-    return rulesBehindLine(a);
-  }
   if (!a || a.state !== 'rate_limited') return '';
   /* #4588: an Antigravity agent paused on its account's shared Google quota carries the reset, so the card says
      when the quota comes back. The reset, not a promise: the resume (engine/agyquota.js) can be switched off and
@@ -22384,19 +22383,23 @@ function pillIsRateLimit(a) {
 function nameGoLabel(a) {
   return isAnswerable(a) ? 'Answer ' + a.name + '\u2019s question' : 'Open ' + a.name;
 }
-/* #6398: the rate-limit sentence for a screen reader, inside the pill's visually hidden text (a title is not read
-   reliably, and the list pill is aria-hidden). Nothing is drawn. */
-function rateLimitVh(a) {
-  if (!pillIsRateLimit(a)) return '';
-  const why = stateReason(a);
+/* #6716 (Josh, 2026-10-20: "i dont want to show these messages on these agent tiles"): a tile and a list row say only
+   the pill. The sentence that explains it is the pill's hover (a title) and its screen-reader text (a visually hidden
+   span: a title is not read reliably, and the list pill is aria-hidden), and the agent's own page still shows it in
+   full. #6398 did this for a rate limit alone; this is every state, plus the rules-behind note an idle or stopped
+   card used to carry (#5957). */
+/* The needs-trust card's sentence when the engine sent none; on the pill's hover like every other (#6716). */
+function needsTrustSay(a) {
+  return (a && a.because) || 'It started but has not registered, most likely waiting at a workspace-trust prompt no one can see.';
+}
+function pillSay(a) {
+  if (!a) return '';
+  return stateReason(a) || ((a.state === 'idle' || a.state === 'stopped') ? rulesBehindLine(a) : '');
+}
+function pillVh(why) {
   return why ? `<span class="vh">. ${esc(why)}</span>` : '';
 }
-/* #6398: the hover text of a rate-limited pill: the sentence its page shows (how long, what to do). */
-function rateLimitSay(a) {
-  return pillIsRateLimit(a) ? (stateReason(a) || '') : '';
-}
-function rateLimitTitle(a) {
-  const why = rateLimitSay(a);
+function pillTitle(why) {
   return why ? ` title="${esc(why)}"` : '';
 }
 
@@ -22672,8 +22675,7 @@ function card(a) {
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-      <div class="astate st-attn"><span class="haz" aria-hidden="true">!</span><b>${esc(STATE_COPY.needs_trust.label)}</b></div>
-      <div class="note">${esc(a.because || 'It started but has not registered -- most likely waiting at a workspace-trust prompt no one can see.')}</div>
+      <div class="astate st-attn"${pillTitle(needsTrustSay(a))}><span class="haz" aria-hidden="true">!</span><b>${esc(STATE_COPY.needs_trust.label)}</b>${pillVh(needsTrustSay(a))}</div>
     </div>`;
     }
     /* #668: the one offline row whose "Not running" would be a lie. The board
@@ -22692,8 +22694,7 @@ function card(a) {
       <span class="pres off" aria-hidden="true"></span>${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-    <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
-    ${!split && offlineNote(a) ? `<div class="arules">${esc(offlineNote(a))}</div>` : ''}
+    <div class="astate ${split ? 'st-unknown' : 'st-stopped'}"${split ? '' : pillTitle(offlineNote(a))}>${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b>${split ? '' : pillVh(offlineNote(a))}</div>
   </div>`;
   }
   /* ⚠️ THE PACK'S CARD (stage 3). Column order: gauge -> name -> state pill
@@ -22733,7 +22734,7 @@ function card(a) {
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="${esc(nameGoLabel(a))}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-    <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, rateLimitSay(a)) : rateLimitTitle(a)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${rateLimitVh(a)}</div>
+    <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, pillSay(a)) : pillTitle(pillSay(a))}>${glyphOf(a)}<b>${esc(copy.label)}</b>${pillVh(pillSay(a))}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
     <div class="atask">${esc(taskLine(a, { card: true }))}</div>
@@ -22892,8 +22893,8 @@ function lrow(a) {
       <div class="lav">${off}<span class="pres lpres off" aria-hidden="true"></span></div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-      <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
-      ${a.jobRunningUnseen === true ? '<div class="ltask"></div>' : lrowTask(offlineNote(a), offlineNote(a))}
+      <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}"${a.jobRunningUnseen === true ? '' : pillTitle(offlineNote(a))}>${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}${a.jobRunningUnseen === true ? '' : pillVh(offlineNote(a))}</div>
+      <div class="ltask"></div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
@@ -22937,8 +22938,8 @@ function lrow(a) {
          .lav above) still marks needs-you visually, and alsowork stays because
          it is an action, not status text (#6400: the Answer link went; the row itself answers). This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
-    <div class="lstate"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a) : ''}><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${rateLimitVh(a)}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${rateLimitTitle(a)}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
-    ${lrowTask(taskLine(a, { card: true }), rulesBehindLine(a, false))}
+    <div class="lstate"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a) : ''}><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${pillVh(pillSay(a))}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${pillTitle(pillSay(a))}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
+    ${lrowTask(taskLine(a, { card: true }), '')}
     <div class="lmodel">${lmodelCell(a)}</div>
     <div class="lmem">${mem}</div>
   </div>`;
