@@ -27,7 +27,7 @@ test('#6589: the challenge handler judges only computers\' addresses, after ordi
   // Review 1: the selector is pinned (a near-miss signature would compile and never be called), and ordinary checking
   // runs off the main thread, then the pin half on it.
   assert.match(SRC, /@objc\(webView:didReceiveAuthenticationChallenge:completionHandler:\)[^\n]*\n\s+func webView\(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,/);
-  assert.match(h, /evaluateTrustOffMain\(trust\) \{ \[weak self\] trusted in\n\s+guard trusted else \{ DispatchQueue\.main\.async \{ completionHandler\(\.cancelAuthenticationChallenge, nil\) \}; return \}/);
+  assert.match(h, /evaluateTrustOffMain\(trust\) \{ \[weak self\] trusted in\n(\s+\/\/[^\n]*\n)*\s+guard trusted else \{ DispatchQueue\.main\.async \{ completionHandler\(\.performDefaultHandling, nil\) \}; return \}/);
   assert.match(h, /let host = named\.hasSuffix\("\."\) \? String\(named\.dropLast\(\)\) : named/, 'a trailing-dot spelling is judged too');
   // Review 3: the async API is CALLED FROM the queue it is given (SecTrust.h); from main with a global queue it traps.
   // The self-test drives this helper with a real certificate, so a misuse fails the bundle build.

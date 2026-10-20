@@ -2479,11 +2479,16 @@ async function tlsPin(address, { fresh = false } = {}) {
   const now = Date.now();
   const hit = tlsPinCache.get(address);
   if (!fresh && hit && now - hit.at < TLS_PIN_TTL_MS) return hit.answer;
-  const key = address + (fresh ? '#fresh' : '');
-  if (tlsPinInFlight.has(key)) return tlsPinInFlight.get(key);
-  // Only its OWN entry: a forget may have cleared it and a newer ask taken the key since (review 3).
-  const p = tlsPinAsk(address, now).finally(() => { if (tlsPinInFlight.get(key) === p) tlsPinInFlight.delete(key); });
-  tlsPinInFlight.set(key, p);
+  /* Review 7: ONE run per address at a time. The computer signs a new statement per request and the tunnel refuses
+     one older than the newest it has seen, so two runs side by side could have the slower one refused. A plain ask
+     joins whatever is running; a fresh ask joins a fresh run, or waits for a plain one to finish and then runs. */
+  const running = tlsPinInFlight.get(address);
+  if (running && (!fresh || running.fresh)) return running.p;
+  const start = () => tlsPinAsk(address, Date.now());
+  const p = (running ? running.p.catch(() => {}).then(start) : start())
+    // Only its OWN entry: a forget may have cleared it and a newer ask taken the address since (review 3).
+    .finally(() => { const cur = tlsPinInFlight.get(address); if (cur && cur.p === p) tlsPinInFlight.delete(address); });
+  tlsPinInFlight.set(address, { p, fresh });
   return p;
 }
 async function tlsPinAsk(address, now) {

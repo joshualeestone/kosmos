@@ -17,8 +17,9 @@ checking): nothing changes for anyone.
 1. engine/remote.js `tlsPin(address, {fresh})`:
    - runs the verb, local only;
    - passes `pinned` only with well-formed 64-hex key hashes, `none` as none, and anything else as `required`;
-   - caches a definite answer 5 minutes (`fresh` skips it; `required` is never cached); parallel asks for one
-     address share one run; a sign-out or a removed device forgets the cache;
+   - caches a definite answer 5 minutes (`fresh` skips it; `required` is never cached); ONE run per address at a
+     time (a plain ask joins whatever runs; a fresh one waits for a plain run, then runs: two at once could have the
+     slower refused as older); a sign-out or a removed device forgets the cache;
    - keeps at most 4 key hashes from an answer (the relay sends one);
    - `warmTlsPins`: whenever the board reads the account's computer list, it asks about each OTHER computer in the
      background (at most 10), so a first switch finds the address already pinned;
@@ -28,7 +29,7 @@ checking): nothing changes for anyone.
    - from a loopback peer;
    - not forwarded (Kosmos+ remote access forwards);
    - without an agent token;
-   - with the board's token on a board that enforces one.
+   - with the board's token IN THE HEADER on a board that enforces one (the page's cookie does not count).
 
    The address must be one an account computer can have.
 3. native-app/main.swift:
@@ -36,6 +37,8 @@ checking): nothing changes for anyone.
      site), on 443;
    - ordinary trust evaluation first (a failure cancels);
    - then it hashes the leaf's key (P-256 SPKI SHA-256, as the computer hashes it) and asks the board;
+   - a certificate that fails ordinary trust gets ordinary handling (WebKit's own -1202 error), never a cancel
+     that would read as a superseded load;
    - ordinary trust is evaluated on a background queue (SecTrustEvaluateAsyncWithError), then the pin half and every
      call to the completion handler run on the main thread; a trailing-dot spelling of a name is judged too; the
      selector is pinned with @objc; the async evaluation is called from its own queue (review 3), and the self-test
@@ -49,11 +52,11 @@ checking): nothing changes for anyone.
      be in flight (review 1);
    - a refusal cancels the challenge and says so (an alert at most once a minute per computer; always logged).
 4. Tests:
-   - engine/remote.tlspin-6589.test.js (8);
+   - engine/remote.tlspin-6589.test.js (9);
    - a server route test;
    - native-app.tlspin-6589.test.js (the wiring);
-   - 14 new --kosmos-app-mode-selftest rows (the hash against an openssl P-256 vector; the decision table; a real self-signed certificate through tlsLeafKeyHash and evaluateTrustOffMain). The
-     row-count pins in two native tests move from 191 to 205.
+   - 16 new --kosmos-app-mode-selftest rows (the hash against an openssl P-256 vector; the decision table, a fresh renewal match included; a real self-signed certificate through tlsLeafKeyHash and evaluateTrustOffMain, untrusted, and a test server certificate set as its own anchor, trusted, so neither direction can be faked). The
+     row-count pins in two native tests move from 191 to 207.
 
 ## Decisions
 - NO board means ordinary checking: a connect-only Mac could otherwise open no computer at all. A board that fails an

@@ -3595,7 +3595,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         else { completionHandler(.performDefaultHandling, nil); return }
         // Review 1: evaluated off the main thread (it can wait on the network for revocation), then on as before.
         evaluateTrustOffMain(trust) { [weak self] trusted in
-            guard trusted else { DispatchQueue.main.async { completionHandler(.cancelAuthenticationChallenge, nil) }; return }   // review 4: on main, as every other path
+            // Review 7: a certificate that fails ordinary checking gets ordinary handling (WebKit then fails the load as
+            // untrusted, -1202, with its own error), not a cancel the failure path would read as superseded (-999).
+            guard trusted else { DispatchQueue.main.async { completionHandler(.performDefaultHandling, nil) }; return }
             DispatchQueue.main.async {
                 guard let self else { completionHandler(.cancelAuthenticationChallenge, nil); return }   // exactly once, always
                 self.judgePin(host: host, trust: trust, completionHandler: completionHandler)
@@ -7642,6 +7644,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     let K = "012d1d2df841a050cda88d5afb40122df2ce90caed3a105cf5c9a08529e345a2", O = String(repeating: "b", count: 64)
     for (state, keys, leaf, fresh, want, why) in [
         ("pinned", [K], K, false, TlsPinDecision.allow, "pinned, and the certificate carries that key: allow"),
+        ("pinned", [K], K, true, .allow, "the fresh answer after a renewal matches: allow (review 7)"),
         ("pinned", [O], K, false, .askFresh, "pinned to another key: ask once more past the cache (a renewal)"),
         ("pinned", [O], K, true, .refuse, "still another key when asked fresh: refuse"),
         ("pinned", [K], nil, true, .refuse, "a certificate whose key cannot be read, against a pin: refuse"),
@@ -7669,8 +7672,26 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
             certRows = 2
         }
     }
-    while certRows < 2 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 205   // kosmos#6589: +14 (3 key hash, 9 decision, 2 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    // Review 7: the trusted direction too, so a helper that always says untrusted cannot pass: a test server
+    // certificate (openssl: SAN t.kosmosplus.com, serverAuth, 397 days, as Apple allows a server certificate at most 398)
+    // set as the only anchor, checked at a fixed date inside it, so the row never expires.
+    if let cert2 = SecCertificateCreateWithData(nil, hexData("308201bf30820165a0030201020214573fdbcd3808efae4436ea87f4a3f01d2fb72345300a06082a8648ce3d040302301b3119301706035504030c10742e6b6f736d6f73706c75732e636f6d301e170d3236313032303033333934325a170d3237313132313033333934325a301b3119301706035504030c10742e6b6f736d6f73706c75732e636f6d3059301306072a8648ce3d020106082a8648ce3d03010703420004ccec7c4aa8723a91acb11c5fdf995087a3019e7dae887d27f302785589d7148cc53b7f641e06d181f4079a421371c8d1bf9d3320a1fa33023034d1464303e454a38186308183301d0603551d0e0416041400d5313fdea7081bfaa32356f3b11c90ecd5c343301f0603551d2304183016801400d5313fdea7081bfaa32356f3b11c90ecd5c343300f0603551d130101ff040530030101ff301b0603551d11041430128210742e6b6f736d6f73706c75732e636f6d30130603551d25040c300a06082b06010505070301300a06082a8648ce3d040302034800304502207fa25433d5a5e86eacce8ae524c5e82486d4572d1b9f7aa6303b1aeb69ed3fb4022100e850b6e1eaf5c93469630406a63e03ba87157e3c09fced8dc3a2b3adef3afb0f") as CFData) {
+        var t2: SecTrust?
+        SecTrustCreateWithCertificates(cert2, SecPolicyCreateSSL(true, "t.kosmosplus.com" as CFString), &t2)
+        if let trust2 = t2 {
+            SecTrustSetAnchorCertificates(trust2, [cert2] as CFArray)
+            SecTrustSetAnchorCertificatesOnly(trust2, true)
+            SecTrustSetVerifyDate(trust2, Date(timeIntervalSince1970: 1792553982) as CFDate)
+            let sem2 = DispatchSemaphore(value: 0)
+            var said2: Bool?
+            evaluateTrustOffMain(trust2) { trusted in said2 = trusted; sem2.signal() }
+            let back2 = sem2.wait(timeout: .now() + 20) == .success
+            pin(back2 ? (said2 == true ? "trusted" : "untrusted") : "no answer", "trusted", "evaluateTrustOffMain says trusted for a certificate its anchor vouches for")
+            certRows += 1
+        }
+    }
+    while certRows < 3 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
+    let expected = 207   // kosmos#6589: +16 (3 key hash, 10 decision, 3 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
