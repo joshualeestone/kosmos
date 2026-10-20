@@ -487,6 +487,44 @@ test('#2909 v15: the section\'s shell examples run as written in bash and zsh, a
   assert.ok(ran >= 1, 'neither /bin/bash nor /bin/zsh exists, so the examples were never run');
 });
 
+/* #6653 (agent feedback, 10-19): dollar amounts arrived mangled, because the shell reads `$1` in a
+   double-quoted argument. The trap paragraph names it and gives kosmos msg a stdin route, since the
+   line-breaks section deliberately shows no msg form. The route is RUN, with a control proving the
+   double-quoted form really loses the number in the same shell, so the test can show the danger. */
+test('#6653: the shell-trap rule names dollar amounts and its kosmos msg stdin route delivers them', (t) => {
+  const { spawnSync } = require('node:child_process');
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const sec = defaults.sections().find((x) => x.text.includes('**One trap, and it is your shell rather than Kosmos:**'));
+  assert.ok(sec, 'the shell-trap paragraph is gone');
+  const flat = sec.text.replace(/\s+/g, ' ');
+  assert.match(flat, /a dollar amount loses its number: `"\$1,200"` reaches Kosmos as `,200`/, 'dollar amounts are not named');
+  const m = flat.match(/`(kosmos msg --stdin <name> <<'KOSMOS_MSG')`/);
+  assert.ok(m, 'kosmos msg is given no stdin route');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-doctrine-6653-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const out = path.join(dir, 'got');
+  const stub = 'kosmos() { printf "%s|" "$@" >> "' + out + '"; case "$2" in --stdin) cat >> "' + out + '";; esac; echo >> "' + out + '"; }\n';
+  const routed = m[1].replace('<name>', 'pete') + "\nit's $1,200\nKOSMOS_MSG\n";
+  const control = 'kosmos msg pete "it costs $1,200"\n';
+  let ran = 0;
+  for (const sh of ['/bin/bash', '/bin/zsh']) {
+    if (!fs.existsSync(sh)) continue;
+    ran += 1;
+    fs.writeFileSync(out, '');
+    const script = path.join(dir, 's.sh');
+    /* -e only: under -u the control's unset $1 would abort the script instead of expanding to nothing. */
+    fs.writeFileSync(script, 'set -e\n' + stub + routed + control);
+    const r = spawnSync(sh, [script], { encoding: 'utf8' });
+    assert.equal(r.status, 0, sh + ' ran the route: ' + r.stderr);
+    const got = fs.readFileSync(out, 'utf8');
+    assert.match(got, /msg\|--stdin\|pete\|it's \$1,200\n/, sh + ': the stdin route delivers the amount and the apostrophe');
+    assert.match(got, /msg\|pete\|it costs ,200\|/, sh + ': CONTROL: the double-quoted form did not lose the number, so this test cannot show the danger');
+  }
+  assert.ok(ran >= 1, 'neither /bin/bash nor /bin/zsh exists, so the route was never run');
+});
+
 /* #4467 (Josh, 2026-09-28 22:07): agents left hundreds of tabs open in his browser. Pinned as
    CONTENT: the rule, closing only what is certainly yours, never opening to read, and both exceptions.
    Its own heading, so missingFrom re-offers it to agents that already exist. */
