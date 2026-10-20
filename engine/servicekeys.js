@@ -158,7 +158,7 @@ function realDate(s) {
  * { ok: false, why }, or, when no recovery key is pinned, { ok: false, off: true, why }. A caller checks `off` BEFORE
  * `ok`: off is the shipped default and is not a failure to tell anyone about.
  */
-function verifyServiceKeySet({ bytes, sig, recoveryKeys = RECOVERY_KEYS, held = null }) {
+function verifyServiceKeySet({ bytes, sig, recoveryKeys = RECOVERY_KEYS, held = null } = {}) {
   // Off (no recovery key pinned, as shipped today) is its own answer, not a refusal: a caller must not tell the
   // person a set failed when there is simply nothing to check it with.
   // Only an empty LIST is off. Anything else (a null or junk from a bad read) is refused, never read as "nothing to do".
@@ -222,10 +222,13 @@ function verifyServiceKeySet({ bytes, sig, recoveryKeys = RECOVERY_KEYS, held = 
 }
 
 /** Whether a pinned coordinator key (as coordinator_pubkey holds it) is on a set: true or false only for a set that
- * VERIFIED (a verifyServiceKeySet result with ok: true); null for off, a refused set, or anything else, because "not
- * on the list" must never be read off a list nobody checked. */
+ * VERIFIED (a verifyServiceKeySet result with ok: true) and a pin that is there; null for off, a refused set, or no
+ * pin, because "not on the list" must never be read off a list nobody checked or a pin nobody set. A pin that is there
+ * but is not a key is false: a mismatch. */
 function pinnedIsListed(pinned, verified) {
   if (!verified || verified.ok !== true || !Array.isArray(verified.keys)) return null;
+  // No pin yet (before setup, or an empty file) is not a mismatch either: nothing was pinned to compare.
+  if (String(pinned == null ? '' : pinned).replace(RUST_WS_ENDS, '') === '') return null;
   const spki = pinnedSpki(pinned);
   return !!spki && verified.keys.some((k) => k && k.pub === spki);
 }
