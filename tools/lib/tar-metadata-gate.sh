@@ -39,10 +39,21 @@ tar_metadata_gate() {
       if (ord(substr($h, 124, 1)) & 0x80) { print "SHORT\n"; exit 3 }
       my $size = oct("0" . ((substr($h, 124, 12) =~ /^\s*([0-7]+)/)[0] // "0"));
       my $type = substr($h, 156, 1);
+      # Review 4: bsdtar reads no body for a link, device, folder or FIFO (types 1 to 6) whatever its size says, so a
+      # size there would make this reader skip what bsdtar reads as the next entry; it is refused. So is any type
+      # outside the ones bsdtar reads as a file, one of those, or a pax or GNU name record.
+      if ($type =~ /^[1-6]\z/ && $size != 0) { print "SHORT\n"; exit 3 }
+      if ($type !~ /^[0-7xgLK\0]\z/) { print "SHORT\n"; exit 3 }
       my $body = "";
       my $pad = ($size + 511) & ~511;
-      if ($pad) { my $g = read(STDIN, $body, $pad); if (!defined $g || $g != $pad) { print "SHORT\n"; exit 3 } }
-      $body = substr($body, 0, $size);
+      my $keep = ($type eq "x" || $type eq "g" || $type eq "L" || $type eq "K");
+      while ($pad > 0) {   # a file body is read in chunks and dropped; only a record body is kept
+        my $want = $pad > 65536 ? 65536 : $pad;
+        my $g = read(STDIN, my $chunk, $want);
+        if (!defined $g || $g != $want) { print "SHORT\n"; exit 3 }
+        $body .= $chunk if $keep; $pad -= $want;
+      }
+      $body = substr($body, 0, $size) if $keep;
       if ($type eq "x" || $type eq "g") {
         # Review 2: every record must be whole and the body read to its end. A record of length 0 looped for ever
         # (pos went back to its own start), and one that did not parse ended the loop quietly, hiding every record

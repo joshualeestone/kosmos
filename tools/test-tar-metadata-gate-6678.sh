@@ -169,6 +169,21 @@ mkhdr app/K 0 2 | /usr/bin/perl -e 'binmode STDIN; binmode STDOUT; local $/; my 
 { cat "$T/b256.hdr"; blk "x"; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/b256.tgz"
 if tar_metadata_gate "$T/b256.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "a base-256 size (8 GiB or more) is refused"
 else fail "a base-256 size must be refused"; fi
+# Review 4: bsdtar reads no body for a folder or a link whatever its size says; one with a size would make the
+# reader skip the next entry (a ._ file bsdtar extracts). Refused, as is a type byte bsdtar does not know.
+for ty in 5 2; do
+  # The ._ entry has no body, so a reader that skipped it as the sized entry's body would see a clean end and pass.
+  { mkhdr a/file 0 2; blk "x"; mkhdr a/thing "$ty" 512; mkhdr a/._hidden 0 0; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/sized$ty.tgz"
+  if tar_metadata_gate "$T/sized$ty.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "a type-$ty entry with a size is refused (it would hide the ._ entry after it)"
+  else fail "a type-$ty entry with a size must be refused"; fi
+done
+{ mkhdr a/file Z 0; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/badtype.tgz"
+if tar_metadata_gate "$T/badtype.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "an entry type bsdtar does not know is refused"
+else fail "an unknown entry type must be refused"; fi
+mkdir -p "$T/ln/app/sub"; printf 'x\n' > "$T/ln/app/f"; ln -s f "$T/ln/app/s"; ln "$T/ln/app/f" "$T/ln/app/h"
+COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf "$T/links.tgz" -C "$T/ln" app
+if tar_metadata_gate "$T/links.tgz" 2>/dev/null; then pass "CONTROL: a real tarball with a symlink, a hard link and folders passes"
+else fail "CONTROL: a tarball with links and folders was refused"; fi
 # Complete entries but no end-of-archive blocks: only the end rule can refuse it (the body read and gzip are whole).
 { mkhdr app/K 0 2; blk "x"; } | /usr/bin/gzip -c > "$T/noendblk.tgz"
 if tar_metadata_gate "$T/noendblk.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "whole entries with no end-of-archive blocks are refused"

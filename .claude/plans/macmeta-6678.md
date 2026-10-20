@@ -55,6 +55,12 @@ an extended attribute. So both can go.
   LIBARCHIVE, global-header and order guards each fail their own arm. Three are EQUIVALENT and stated, not tested:
   removing the short-header check, the short-body check or the base-256 refusal leaves each case refused by another
   guard (the checksum on a short or zero-sized next header, or the end rule), so no tarball tells them apart.
+- **Review 4 (sonnet):** bsdtar reads no body for a link, device, folder or FIFO (types 1 to 6) whatever its size
+  field says, while this reader skipped one, so a sized folder or symlink hid a `._` entry bsdtar extracts. A non-zero
+  size on those types is refused, and so is any type byte outside the ones bsdtar reads. File bodies are now read in
+  64 KiB chunks and dropped (only record bodies are kept), so memory no longer grows with the largest file. Arms: a
+  sized folder and a sized symlink before a bodiless `._hidden` (both red on their mutant), an unknown type (red on
+  its mutant), and a control that a real tarball with a symlink, a hard link and folders passes.
 - **Refuse, not strip after the fact.** A gate that edits the tarball would change the bytes after signing-adjacent
   checks; refusing keeps the pack line the only place the bytes are made.
 - **Both tarballs.** The tmux bundle is built the same way, so it gets the same line and gate.
@@ -67,7 +73,7 @@ loudly, which is the safe direction.
 
 ## Tests
 
-- `bash tools/test-tar-metadata-gate-6678.sh`: 34 checks. The control packs a folder that HAS an extended attribute
+- `bash tools/test-tar-metadata-gate-6678.sh`: 38 checks. The control packs a folder that HAS an extended attribute
   the way the bundles pack, and passes. Then: plain packing refused; an AppleDouble entry refused and named (in a
   folder, at the top level, behind a long ustar-prefix path, behind a GNU long name, and behind a hand-made pax path
   record whose entry header says app/K, with a control that the same hand-made entry passes without it); a header
