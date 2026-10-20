@@ -617,7 +617,8 @@ _lsof_present() { _lsof_cmd >/dev/null 2>&1; }
 #     evidence, a health curl killed by a signal or an lsof refused: this shell cannot check at all,
 #     _UNREACH_BLIND);
 #   - on busy it tries again with a longer wait each time (2, 4, 8, 8... s) until KOSMOS_BUSY_WAIT
-#     (default 20 s) has passed, saying once on stderr that it is waiting. Only then does it give up,
+#     (default 20 s) has passed, saying once on stderr that it is waiting from the SECOND busy reading on
+#     (#6682; a budget too short for a second reading never says it). Only then does it give up,
 #     still as busy, so the caller says "busy" (say_not_up), never "not running" and never "start it".
 #   - `healthy --once` is a single short probe, for the start/stop loops that poll on their own.
 # #4636: a refused connect while a listener holds the port is "unreachable" (this shell is blocked, not the
@@ -791,7 +792,7 @@ healthy() {
     if [ "$HEALTH_STATE" = up ]; then return 0; fi
     return 1
   fi
-  local _limit _start="$SECONDS" _t=2 _left _said=""
+  local _limit _start="$SECONDS" _t=2 _left _said="" _busy=0
   _limit="$(_busy_wait)"
   local _ps _w
   while :; do
@@ -801,7 +802,12 @@ healthy() {
     if [ "$HEALTH_STATE" != busy ]; then return 1; fi
     _left=$(( _limit - (SECONDS - _start) ))
     if [ "$_left" -le 0 ]; then return 1; fi
-    if [ -z "$_said" ]; then printf '%sKosmos is busy, retrying...\n' "${KOSMOS_SAY_INDENT:-  }" >&2; _said=1; fi
+    # #6682: said only from the SECOND busy reading on. One slow answer that the next probe catches is an ordinary
+    # moment, and saying "busy" for it on most commands read as steady contention; two in a row (two timeouts is about
+    # 6 s with no answer; two fast refusals, about 2 s) is a board that really is busy, and the line says so. A budget
+    # too short for a second reading (the --auto report's 6 s) never says it; its give-up message says busy itself.
+    _busy=$(( _busy + 1 ))
+    if [ -z "$_said" ] && [ "$_busy" -ge 2 ]; then printf '%sKosmos is busy, retrying...\n' "${KOSMOS_SAY_INDENT:-  }" >&2; _said=1; fi
     # A busy reading can come back FAST (a reset or empty reply, an older board's 5xx page): wait out the
     # rest of this probe's budget before the next one, so a board already too loaded to answer is not hit
     # in a tight loop for the whole busy window.
@@ -1982,6 +1988,27 @@ cmd_start() {
   # only witness.
   _await_board_up "$_launched" && return 0
   die "Kosmos did not come up. What it said is in $BOARD_LOG"
+}
+
+# kosmos#6667 (Linux): run every minute by the board's pause check (engine/linuxboard.js pauseCheckUnitsFor).
+# systemd's ConditionPathExists=!board.stopped cannot read an update's name files, so an update killed mid-pause left
+# the board down until a person started it; the Mac's watchdog clears that (#6651). This clears ONLY a stranded update
+# pause, only while the board's unit is enabled (it is supposed to run: the watchdog's gate 2), then asks systemd to
+# start the board. A person's stop, a running update, or a board down for any other reason is left alone. Internal,
+# not for people.
+cmd_board_revive() {
+  [ -e "$STOP_MARKER" ] || exit 0
+  local unit; unit="$(_kosmos_board_systemd_unit)"   # the same name linuxboard.js gives this home's board
+  [ "$("$SYSTEMCTL" --user is-enabled "$unit" 2>/dev/null)" = enabled ] || exit 0
+  kosmos_clear_stranded_pause pause-check || exit 0
+  # --no-block: this oneshot does not wait for the board's start. systemd still re-checks the board's
+  # ConditionPathExists when the start runs, so a stop landing after the clear wins. Exit 1 catches a start systemd
+  # would not take (unit missing or masked, no user bus), not a board that fails after it is started.
+  if ! "$SYSTEMCTL" --user start --no-block "$unit" 2>/dev/null; then
+    ( printf '[%s] pause-check: cleared the pause, but systemd would not start %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$unit" \
+      >> "$KOSMOS_HOME/logs/board-watchdog.log" ) >/dev/null 2>&1 || true
+    exit 1
+  fi
 }
 
 # #2956: the SUPERVISED foreground entry. A launchd (or Task Scheduler) job runs
@@ -3187,8 +3214,14 @@ cmd_post() {
         # this one reply only agreed with what was already said, so Kosmos did not pass it on. A post with something new
         # goes through straight away, so the copy says exactly that and never speaks of a pause, an hour, or the person.
         *'"code":"ack_only"'*)
+          # #6608: an owner-named post (the board sends who it named): say so, not "already said", which is untrue there.
+          _owner=$(printf '%s' "$body" | sed -n 's/.*"owner":"\([^"]*\)".*/\1/p')
+          # a name with a quote or backslash arrives escaped and the sed halves it: say the general words instead
+          if [ "${_owner#*\\}" != "$_owner" ]; then _owner=""; fi
           if [ -n "${_retried:-}" ]; then
             say "Not posted this time: this only agreed with what was already said, so Kosmos did not pass it on. Your first try may have reached the room before that: check kosmos room $project before posting again. A post with something new goes through straight away."
+          elif [ -n "$_owner" ]; then
+            say "Not posted: that post named $_owner to take it, so Kosmos did not pass on an agreement-only reply from anyone else. Nothing was sent. If you see a problem with it or have something new to add, post that; it goes through straight away."
           else
             say "Not posted: this only agreed with what was already said, so Kosmos did not pass it on. Nothing was sent. Post again when you have something new to add; that goes through straight away."
           fi ;;
@@ -6146,6 +6179,7 @@ case "${1:-}" in
   stop)    agent_board_guard "$@"; cmd_stop ;;
   restart) agent_board_guard "$@"; cmd_restart ;;
   board-run) cmd_board_run ;;   # #2956: internal supervised foreground entry (launchd/Task Scheduler), not for people
+  board-revive) cmd_board_revive ;;   # kosmos#6667: internal, the Linux pause check's timer, not for people
   keep-copy) shift; cmd_keep_copy "$@" ;;   # #5153: internal, the report hook's copy before an edit, not for people
   tool-failed) shift; cmd_tool_failed "$@" ;;   # #6071: internal, the report hook's digest of a failed tool call, not for people
   status)  cmd_status ;;

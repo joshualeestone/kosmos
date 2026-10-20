@@ -135,6 +135,7 @@ render-inline-field-errors-2606
 render-instradd-5293
 render-keyed-install-3713
 render-layer-gutter-4494
+render-leaving-rejection-6725
 render-limit-until-5805
 render-long-title
 render-made-before
@@ -266,6 +267,7 @@ render-tophead-stable-2624
 render-trust-restart-0644
 render-type-to-focus-3283
 render-unread-edge-3743
+render-unsent-draft-6717
 render-unsent-input-6249
 render-url-state
 render-user-menu-3051

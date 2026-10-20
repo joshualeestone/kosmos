@@ -380,7 +380,15 @@ async function invite(remote, body) {
     return { status: 500, body: { error: 'We could not keep this invite\'s key on this computer, so no code was made. Try again. (' + String((err && err.message) || 'unknown') + ')' } };
   }
   // #4649: invite_id lets the owner's Members list tie this code to the connection redeemed from it.
-  return { status: 200, body: { code: r.data.code + '.' + s, expires_at: r.data.expires_at, invite_id: r.data.invite_id } };
+  // kosmos#6708 review 1: the address the COORDINATOR bound the code to, when it says one (an older coordinator ignores
+  // `email` and echoes none, and then the page must not promise a restriction that does not exist).
+  // Review 2: and only one shaped like an address (no spaces), so a hostile echo cannot carry words into the text.
+  // Review 3: no control or format character either (\p{C}: bidi, zero-width, tags), which \S lets through and which
+  // would reorder the done step on screen; and no longer than an address can be. Both screens then show one string.
+  const echo = r.data.email;
+  const bound = typeof echo === 'string' && Buffer.byteLength(echo, 'utf8') <= INVITE_EMAIL_MAX
+    && /^[^\s\p{C}]+@[^\s\p{C}]+$/u.test(echo) ? { email: echo } : {};
+  return { status: 200, body: { code: r.data.code + '.' + s, expires_at: r.data.expires_at, invite_id: r.data.invite_id, ...bound } };
 }
 
 /** Redeem a code into a connection and show the owner's read-only snapshot. */

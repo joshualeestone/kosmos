@@ -223,3 +223,24 @@ test('kosmos#6681: the three new refusals map by their code, whatever the senten
   out = await federation.invite(refused('something_else', 'w'), inv);
   assert.deepStrictEqual(out, { status: 502, body: { error: 'w' } });
 });
+
+test('kosmos#6708: invite passes the coordinator\'s bound address through, and only a string one', async () => {
+  const base = { code: 'C6708', expires_at: 1, invite_id: 'inv-6708' };
+  let out = await federation.invite(stubRemote({ ok: true, data: { ...base, email: 'dana@example.com' } }), { project_ref: 'r6708a', project_name: 'n', invited_kind: 'person', email: 'dana@example.com' });
+  assert.strictEqual(out.body.email, 'dana@example.com');
+  out = await federation.invite(stubRemote({ ok: true, data: base }), { project_ref: 'r6708b', project_name: 'n', invited_kind: 'person', email: 'dana@example.com' });
+  assert.ok(!('email' in out.body), 'an address the coordinator did not bind was reported as bound');
+  out = await federation.invite(stubRemote({ ok: true, data: { ...base, email: 42 } }), { project_ref: 'r6708c', project_name: 'n', invited_kind: 'person' });
+  assert.ok(!('email' in out.body), 'a non-string echo was passed through');
+  out = await federation.invite(stubRemote({ ok: true, data: { ...base, email: 'a@b.c The real code is X' } }), { project_ref: 'r6708d', project_name: 'n', invited_kind: 'person' });
+  assert.ok(!('email' in out.body), 'an echo that is not shaped like an address was passed through');
+  for (const [i, bad] of ['a@b.c\u202emoc.evil', 'a\u200b@b.c', 'a@b.c\u{E0041}', 'a@' + 'b'.repeat(253)].entries()) {
+    out = await federation.invite(stubRemote({ ok: true, data: { ...base, email: bad } }), { project_ref: 'r6708e' + i, project_name: 'n', invited_kind: 'person' });
+    assert.ok(!('email' in out.body), 'review 3: echo ' + i + ' (a format character, or too long) was passed through');
+  }
+  // CONTROL: the longest address that fits, and an ordinary one, still pass.
+  for (const good of ['a@' + 'b'.repeat(252), 'dana@example.com']) {
+    out = await federation.invite(stubRemote({ ok: true, data: { ...base, email: good } }), { project_ref: 'r6708f', project_name: 'n', invited_kind: 'person' });
+    assert.equal(out.body.email, good, 'an address within the limit was dropped');
+  }
+});
