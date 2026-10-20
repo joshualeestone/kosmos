@@ -89,7 +89,17 @@ covered rests on CI never starting a macOS-launchd or Windows-win32 SERVICE boar
   dead URL; the boards are foreground Playwright boards (inherit env), not services.
 - `linux-systemd.yml` / `test-linux-setup-4920.yml`: the only real OS-service boards in CI
   (systemd), covered by `linuxboard.js:107` injecting the inherited top-level env into the
-  unit; test-linux-setup asserts the unit and the running board carry it.
+  unit; test-linux-setup asserts the unit and the running board carry it. Its old-0.7.27
+  update path uses a pre-systemd setup.sh whose unit cannot carry the var, so that step
+  injects the dead address into the old unit with `sed` BEFORE `systemctl --user start`
+  (`test-linux-setup-4920.yml:330-334`) and the old kosmos "knows no systemd"
+  (asserted `:321`), so no board runs the old unit before the injection.
+
+The search was at the SPAWNED-SCRIPT level, not only the workflow text: the scripts the
+workflows run (`run-tests.sh`, `browser-checks.sh`, `test-install.sh`, `windows-tests.js`)
+were read for board starts, and the only real service-board start in CI is the systemd one
+above. `grep` for `launchctl`/`sc.exe`/`schtasks` across the workflows returns nothing, and
+`setup.sh` is invoked only by the systemd workflow.
 - `windows.yml`: `node tools/windows-tests.js` runs every file under `node --test`
   (`tools/windows-tests.js:291`), so NODE_TEST_CONTEXT suppresses the ping; the win32
   scheduled-task board (`engine/win32board.js`, `schtasks ... "Kosmos\board"`) is never
