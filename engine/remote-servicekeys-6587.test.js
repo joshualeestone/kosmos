@@ -85,3 +85,38 @@ test('without them (off, as shipped), the run inherits exactly as before: no env
     assert.equal('env' in opts, false, 'no env key: the child inherits this process environment');
   } finally { w.done(); }
 });
+
+test('a board on another coordinator asks with production false (review 1)', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coord.example.test';
+  const w = spawnOpts(null);
+  try {
+    await remote.setupStart('a@example.com');
+    assert.equal(w.seen[0].production, false, 'asked for another coordinator, so the engine hands nothing');
+    assert.equal('env' in w.seen.find((s) => s.spawned).spawned, false);
+  } finally { w.done(); delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; }
+  // And the engine itself answers no keys for production false (servicekeys-check-6587.test.js pins that with a real set).
+});
+
+test('a KOSMOS_EXPECT_COORDINATOR_KEYS inherited from the launcher is removed when the board decides no check (review 1)', async () => {
+  process.env.Kosmos_Expect_Coordinator_Keys = 'stale-from-a-developer';
+  const w = spawnOpts(null);
+  try {
+    await remote.setupStart('a@example.com');
+    const opts = w.seen.find((s) => s.spawned).spawned;
+    assert.ok(opts.env, 'a copy of the environment is passed so the stale one can be left out');
+    assert.equal(Object.keys(opts.env).some((k) => k.toUpperCase() === 'KOSMOS_EXPECT_COORDINATOR_KEYS'), false, 'in any spelling');
+    assert.equal(opts.env.PATH, process.env.PATH, 'the rest is kept');
+  } finally { w.done(); delete process.env.Kosmos_Expect_Coordinator_Keys; }
+});
+
+test('with keys and an inherited spelling, the child gets ONE key with the board\'s value (review 1, #5386)', async () => {
+  process.env.kosmos_expect_coordinator_keys = 'stale';
+  const w = spawnOpts('MCowBQYDK2VwAyEAkey1');
+  try {
+    await remote.setupStart('a@example.com');
+    const env = w.seen.find((s) => s.spawned).spawned.env;
+    const names = Object.keys(env).filter((k) => k.toUpperCase() === 'KOSMOS_EXPECT_COORDINATOR_KEYS');
+    assert.deepEqual(names, ['KOSMOS_EXPECT_COORDINATOR_KEYS']);
+    assert.equal(env.KOSMOS_EXPECT_COORDINATOR_KEYS, 'MCowBQYDK2VwAyEAkey1');
+  } finally { w.done(); delete process.env.kosmos_expect_coordinator_keys; }
+});

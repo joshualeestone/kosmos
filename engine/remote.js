@@ -879,10 +879,15 @@ const serviceKeyFiles = require('./servicekeys-check');
 function serviceKeys() { return serviceKeyFiles.serviceKeyCheck(STATE_DIR(), { production: COORDINATOR() === DEFAULT_COORDINATOR }); }
 /* kosmos#6587 (S-7a slice 3): the environment for a setup or sign-in run. With a verified service key set (and the
    production coordinator), the connector is handed its keys and refuses to register under any other (kosmos-relay
-   expectkey-6587); otherwise null, and the run inherits this process's environment exactly as before. */
+   expectkey-6587). Otherwise null, and the run inherits this process's environment exactly as before, except that a
+   KOSMOS_EXPECT_COORDINATOR_KEYS inherited from the launcher (a developer's export, say) is removed in every spelling:
+   the board decided "no check", and an inherited list would refuse every registration on another coordinator. Set
+   and removed through win32env, so a Windows child never gets two spellings (#5386). */
 function setupEnv() {
   const keys = serviceKeyFiles.expectedCoordinatorKeys({ production: COORDINATOR() === DEFAULT_COORDINATOR });
-  return keys ? { ...process.env, KOSMOS_EXPECT_COORDINATOR_KEYS: keys } : null;
+  if (keys) return envSet({ ...process.env }, 'KOSMOS_EXPECT_COORDINATOR_KEYS', keys);
+  const inherited = Object.keys(process.env).some((k) => k.toUpperCase() === 'KOSMOS_EXPECT_COORDINATOR_KEYS');
+  return inherited ? envDelete({ ...process.env }, 'KOSMOS_EXPECT_COORDINATOR_KEYS') : null;
 }
 
 /** The switch. Turning on does not start anything by itself unless setup
