@@ -3973,7 +3973,6 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     # that update FINISHES, its own start clears the marker and every name, this run's too, as before this card.)
     _kosmos_join_pause=yes
   fi
-  _kosmos_linux_unit_killmode   # #4920: before the stop, so an old unit's cgroup kill cannot take this run with it
   # kosmos#6651: name this run's pause (an empty file: written even on a full disk) before the stop writes the
   # marker. Only when this run pauses a running board: a board already off (a person's stop, connect) gets none.
   _kosmos_pause_name=""
@@ -3991,9 +3990,10 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # stranded while this run swaps files. Moved aside, they leave the bare marker of before this card, and this
   # run's put-back covers a failure. (A JOIN with no name has nothing safe to remove: that residual is accepted.)
   if [ -n "$_kosmos_adopted_names" ] && [ -z "$_kosmos_pause_name" ]; then
-    printf '%s\n' "$_kosmos_adopted_names" | while IFS= read -r _f; do [ -n "$_f" ] && mv -f "$_f" "$_f.unnamed-adopt" 2>/dev/null; done || true
+    printf '%s\n' "$_kosmos_adopted_names" | while IFS= read -r _f; do [ -n "$_f" ] && mv -f "$_f" "$KOSMOS_HOME/board.stopped.unnamed-adopt.${_f##*/board.stopped.by-install.}" 2>/dev/null; done || true
     _kosmos_adopted_names=""
   fi
+  _kosmos_linux_unit_killmode   # #4920: before the stop, so an old unit's cgroup kill cannot take this run with it
   _kosmos_marker_ours="$_kosmos_was_running"   # #5033: armed before the stop, which writes the marker and then waits
   KOSMOS_STOP_BY_INSTALL=1 "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is

@@ -58,6 +58,10 @@ printf '%s\n' "$PUTBACK" > "$T/putback.sh"
 NOTE="$(awk '/^_kosmos_note_pause_abort\(\) \{/{f=1} f{print} f && /^\}$/{exit}' "$SETUP")"
 case "$NOTE" in *'reason=%s'*) ;; *) echo "FAIL: could not extract _kosmos_note_pause_abort (anchor drift?)" >&2; exit 1 ;; esac
 printf '%s\n' "$NOTE" > "$T/note.sh"
+# kosmos#6651: the pause block reads the stranded-pause functions, defined above it in setup.sh.
+SHARED="$(awk '/^# BEGIN kosmos#6651 shared block/{f=1} f{print} /^# END kosmos#6651 shared block/{exit}' "$SETUP")"
+case "$SHARED" in *'kosmos_stranded_pause()'*) ;; *) echo "FAIL: could not extract the kosmos#6651 shared block (anchor drift?)" >&2; exit 1 ;; esac
+printf '%s\n' "$SHARED" > "$T/shared6651.sh"
 # setup.sh reads the board's marker once, defaults it to no, and takes it out of the environment (it goes on to start
 # the board, whose agents must not inherit it). Those lines are lifted and RUN here, not mirrored: from the default to
 # the unset.
@@ -85,6 +89,7 @@ die() {
 _kosmos_board_decide() { _kosmos_board_off=no; }
 . "$T/putback.sh"
 . "$T/note.sh"
+. "$T/shared6651.sh"
 . "$T/byboard.sh"   # setup.sh's own lines: reads KOSMOS_UPDATE_BY_BOARD from this run's environment, then unsets it
 echo "BYBOARD=$_kosmos_by_board child-sees=$(/bin/sh -c 'echo "${KOSMOS_UPDATE_BY_BOARD:-gone}"')"
 _kosmos_mode_keeps_board_off() { return 1; }
@@ -92,6 +97,7 @@ _kosmos_mode_keeps_board_off() { return 1; }
 _kosmos_linux_unit_killmode() { :; }
 # As setup.sh sets them above the block (the block reads them).
 _kosmos_was_running=no; _kosmos_paused_board=no; _kosmos_marker_ours=no; _kosmos_putback_unsure=no
+_kosmos_join_pause=no; _kosmos_adopted_names=""   # kosmos#6651, as setup.sh sets them
 if [ -n "${PRESTOPPED:-}" ]; then : > "$KOSMOS_HOME/board.stopped"; fi
 # #5907: the block waits for a stopping board with up to ten 'sleep 1's, and no listener here ever lets go of its port.
 # The wait is said, not slept; the loop still makes its port checks. Printed rather than written to a file: profile C
@@ -121,6 +127,9 @@ start_listener() {
 stop_listener() { if [ -n "$LISTENER" ]; then kill "$LISTENER" 2>/dev/null; wait "$LISTENER" 2>/dev/null; LISTENER=""; fi; }
 run_pause() { # profile-or-empty port
   rm -f "$T/home/board.stopped"   # outside the sandbox: profile C cannot remove it
+  # kosmos#6651: and the pause names an earlier run left. Each real run's EXIT trap removes its own; this harness runs
+  # only the block, so without this a name from an earlier case would read as a stranded pause in the next.
+  rm -f "$T/home"/board.stopped.by-install.* "$T/home"/board.stopped.unnamed-adopt.* 2>/dev/null || true
   # /bin/sh: setup.sh ships as curl | sh, so the block runs in that dialect here too.
   if [ -n "$1" ]; then /usr/bin/sandbox-exec -p "$1" /bin/sh "$T/run.sh" "$T" "$2" 2>&1
   else /bin/sh "$T/run.sh" "$T" "$2" 2>&1; fi
