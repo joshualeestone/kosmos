@@ -95,6 +95,7 @@ function main(argv) {
     if (!v.keys.includes(pub)) { console.error('the served release key list ' + v.seq + ' does not name this signing key, so installs with the check on would refuse this release'); return 1; }
     console.log('the served release key list ' + v.seq + ' names this signing key'); return 0;
   }
+  if (verb === 'needs-list') return RECOVERY_KEYS.length ? 0 : 1;   // promote-channel asks before fetching the list
   if (verb === 'verify-under-list') {
     // promote-channel: the manifest being promoted must be signed by a key the served list names (off: always 0).
     const [mf, sg, list, listSig] = [keyPath, manifest, out, argv[4]];
@@ -115,7 +116,7 @@ function main(argv) {
     if (!Array.isArray(m.files)) { console.error(keyPath + ' lists no files'); return 2; }
     return m.files.some((f) => f && f.path === 'app/engine/manifest-verify.js') ? 0 : 1;
   }
-  if (!['check', 'sign'].includes(verb)) { console.error('usage: manifest-sign.js check|sign|verify|verify-under|check-served|check-list|verify-under-list|needs-sig ...'); return 2; }
+  if (!['check', 'sign'].includes(verb)) { console.error('usage: manifest-sign.js check|sign|verify|verify-under|check-served|check-list|verify-under-list|needs-list|needs-sig ...'); return 2; }
   const key = load(keyPath);
   if (!pinned(key)) {
     console.error('the manifest-signing key is not one engine/manifest-verify.js pins, so installs would refuse this release');

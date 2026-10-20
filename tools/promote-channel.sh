@@ -223,11 +223,6 @@ if [ "$FAMILY" = mac ]; then
         *) echo "promote-channel: prod's current manifest ($_cur) cannot be read to tell which keys its installs accept - refusing (#6468)" >&2; exit 1 ;;
       esac
     fi
-    # #6609 phase 2c: with a recovery key pinned, installs take the served release key list before they check an update,
-    # so the build being promoted must be signed by a key that list names (a list published after the staging cut can
-    # drop it). Off (no recovery key): it says so and passes.
-    node "$_sign_js" verify-under-list "$SITE/dist/$MANIFEST" "$SITE/dist/$MANIFEST.sig" "$SITE/dist/release-keys.json" "$SITE/dist/release-keys.json.sig" >/dev/null \
-      || { echo "promote-channel: $MANIFEST is not signed by a key the served release key list names - refusing; installs with the recovery key check on would refuse this update (#6609)" >&2; exit 1; }
   else
     _prod_manifest="$(sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SITE/dist/$PROD_NAME" 2>/dev/null | head -1)" || _prod_manifest=""
     [ -z "$_prod_manifest" ] || reject_pathy manifest "$_prod_manifest"
@@ -241,6 +236,19 @@ if [ "$FAMILY" = mac ]; then
         *) echo "promote-channel: $MANIFEST has no .sig, and prod's current manifest ($_prod_manifest) cannot be read to tell whether its installs check signatures - refusing (#6468)" >&2; exit 1 ;;
       esac
     fi
+  fi
+  # #6609 phase 2c: with a recovery key pinned, installs take the served release key list before they check an update, so
+  # the build being promoted must be signed by a key that list names (a list published after the staging cut can drop
+  # it), signed or not. Read from the site's origin/main after a fetch, as release.sh step 1c reads it: this checkout
+  # may be behind what is served. Off (no recovery key): nothing is fetched or checked.
+  if node "$_sign_js" needs-list; then
+    git -C "$SITE" fetch -q origin main 2>/dev/null || { echo "promote-channel: could not fetch the site to read the served release key list - refusing (#6609)" >&2; exit 1; }
+    _kl_dir="$(mktemp -d)"
+    git -C "$SITE" show "origin/main:dist/release-keys.json" > "$_kl_dir/release-keys.json" 2>/dev/null || rm -f "$_kl_dir/release-keys.json"
+    git -C "$SITE" show "origin/main:dist/release-keys.json.sig" > "$_kl_dir/release-keys.json.sig" 2>/dev/null || rm -f "$_kl_dir/release-keys.json.sig"
+    _kl=0; node "$_sign_js" verify-under-list "$SITE/dist/$MANIFEST" "$SITE/dist/$MANIFEST.sig" "$_kl_dir/release-keys.json" "$_kl_dir/release-keys.json.sig" >/dev/null || _kl=$?
+    rm -rf "$_kl_dir"
+    [ "$_kl" = 0 ] || { echo "promote-channel: $MANIFEST is not signed by a key the served release key list names - refusing; installs with the recovery key check on would refuse this update (#6609)" >&2; exit 1; }
   fi
 
   # THE EXPERIENCE GATE (#2063). 0 = a fresh session can use the board -> promote; 1 = the
