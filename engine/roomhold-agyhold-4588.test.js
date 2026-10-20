@@ -458,6 +458,13 @@ test('#4588 B clause: without an addressed id the #4624 line is byte-unchanged',
   assert.deepEqual(roomhold.heldIn('zed', 'p1'), ['@m7']);
 });
 
+test('#6593 item 3 (N7): the addressed held-post line ends by saying an agent that already answered needs do nothing more', () => {
+  const asked = roomhold.clauseFor('p1', 'P one', [roomhold.addressedId('m7'), 'm8']);
+  assert.match(asked, /answer one with: kosmos post --in-reply-to <its id> p1\. If you already answered them, nothing more is needed\.\]$/, asked);
+  // CONTROL: the neutral line (nothing asked) is unchanged and carries no such sentence.
+  assert.doesNotMatch(roomhold.clauseFor('p1', 'P one', ['m1']), /already answered/);
+});
+
 test('#4797: the log line says "told of" only when something was told', () => {
   const placed = roomhold.toldLine('mara', { n: 2, projectId: PROJECT, state: chat.DELIVERY.PLACED }, 'after the quota hold');
   assert.match(placed, /^room-hold: mara told of 2 held post\(s\) in .+ after the quota hold, delivery=/);

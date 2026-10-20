@@ -334,7 +334,11 @@ function clauseFor(projectId, shown, ids) {
     return '[While you were away, ' + n + ' room post' + (n === 1 ? '' : 's') + ' arrived in project ' + shown + ' (' + named + '). '
       + k + ' of them name' + (k === 1 ? 's' : '') + ' you and ask' + (k === 1 ? 's' : '') + ' for your answer ('
       + asked.slice(-SHOWN).join(', ') + (k > SHOWN ? ' and ' + (k - SHOWN) + ' earlier' : '') + '). Read them with: kosmos room '
-      + projectId + ' and answer one with: kosmos post --in-reply-to <its id> ' + projectId + ']';
+      + projectId + ' and answer one with: kosmos post --in-reply-to <its id> ' + projectId
+      /* kosmos#6593 item 3 (N7, Josh's five-model reports): long-lived sessions (Meta, Grok) answered posts they had
+         already answered. Either the earlier answer cited nothing, so the board did not count it, or the model acted on
+         the post again from its own history; either way, an agent that already answered needs to be told to stop. */
+      + '. If you already answered them, nothing more is needed.]';
   }
   // Neutral since the H7 follow-up: posts are held for a working member AND an idle one.
   return '[Since you last heard from this room, ' + n + ' room post' + (n === 1 ? '' : 's') + ' not addressed to you arrived in project '
