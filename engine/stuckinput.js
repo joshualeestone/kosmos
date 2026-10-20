@@ -43,20 +43,19 @@ function makeTick(deps) {
       const now = deps.now ? deps.now() : Date.now();
       const cards = stuckCards(roster, now, deps.stuckMs);
       const names = new Set(cards.map((c) => c.sessionName));
-      for (const k of [...told.keys()]) if (!names.has(k)) told.delete(k);
-      /* Kept while the agent is on the board at all (a minute busy does not forget it); a new text has a new since. */
+      /* Both kept while the agent is on the board at all (a minute busy does not forget them); a new text has a new since. */
       const onBoard = new Set((Array.isArray(roster) ? roster : []).map((c) => c && c.sessionName));
-      for (const k of [...gaveUp.keys()]) if (!onBoard.has(k)) gaveUp.delete(k);
+      for (const m of [told, gaveUp]) for (const k of [...m.keys()]) if (!onBoard.has(k)) m.delete(k);
       for (const card of cards) {
         const since = card.unsentInput.since;
         if (gaveUp.get(card.sessionName) === since) continue;
         let r;
         try { r = await deps.recover(card, since); } catch (err) { r = { outcome: 'waiting', because: 'failed: ' + String((err && err.message) || err) }; }
         if (!r || r.outcome === 'waiting') continue;   // tried again next minute; not news
-        if (r.outcome === 'drafted-not-cleared') gaveUp.set(card.sessionName, since);
+        if (r.outcome === 'drafted-not-cleared' && !r.retry) gaveUp.set(card.sessionName, since);
         const mins = Math.round((now - Date.parse(since)) / 60000);
         const key = since + '|' + r.outcome + '|' + (r.because || '');
-        if (r.outcome === 'left' && told.get(card.sessionName) === key) continue;
+        if ((r.outcome === 'left' || r.outcome === 'drafted-not-cleared') && told.get(card.sessionName) === key) continue;
         told.set(card.sessionName, key);
         const what = r.outcome === 'pressed' ? 'pressed Enter on the line Kosmos had left there'
           : r.outcome === 'drafted' ? (r.already ? 'the same text was already kept as a draft in its conversation; cleared the box'

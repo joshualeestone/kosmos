@@ -39,6 +39,11 @@ Calls posted on the card before building: issuecomment-6292327812.
 6. A box holding a folded paste ("[Pasted text #N]", "[Image #N]") is left in place and logged once: its words are not
    on screen, so they cannot be saved, and clearing them would lose them. Measured: a 2,000-character paste, and fast
    send-keys typing, both fold.
+6b. A box drawing 7 rows or more is left in place too: measured on 2.1.304, a line pasted the way Kosmos pastes scrolls
+   inside the box, which then shows its last 7 rows at every pane height tried (15, 24, 40, 60) with nothing marking the
+   start as hidden, so only a fragment could be saved. Six rows (about 450 characters at 80 columns) or fewer is read whole.
+6c. An agent whose terminal window someone has open (tmux `session_attached` > 0) is left alone: the text is in front of
+   them, and clearing it there would make words vanish under their hands.
 7. The page offers "Put in the message box" (fills the page's own box after anything typed, sends nothing) and Dismiss
    (POST /api/agent/:name/unsent-draft/dismiss, an agent token refused).
 8. Holds for the draft path: roster read now, menu/account/quota holds, addressable, QMENU_BUSY, idle on the fresh card,
@@ -59,7 +64,8 @@ Calls posted on the card before building: issuecomment-6292327812.
   the masked words; the file on disk (mode 600) holds them as typed, as the person's own stored messages do.
 - Drafts are kept by session name. An agent renamed or moved keeps its drafts behind, and a new agent later given the
   same name would be shown them.
-- A folded paste stays stuck (decision 6). The tile sentence (#6249) still says it, until #6716 changes tiles.
+- A folded paste, a box of 7 rows or more, and an agent with its terminal window open stay stuck (decisions 6, 6b, 6c),
+  each logged once. The tile sentence (#6249) still says it, until #6716 changes tiles.
 - Text with line breaks is saved with its rows joined by spaces (the box reader squashes whitespace); the words survive,
   the breaks do not. A word longer than a row gets a space where it wrapped.
 - A line Kosmos typed whose memory is gone (older than a day, or never remembered) is drafted, not sent. Safe direction.

@@ -45,9 +45,11 @@ function wrap(text) {
   if (row) rows.push(row);
   return rows;
 }
-function draw(text) {
+/* `keep`: the rows a scrolled box shows (measured: its last 7, ❯ on the first of them). */
+function draw(text, keep) {
   if (!text) return [RULE, '\x1b[39m❯ \x1b[2mTry "write a test"\x1b[0m', RULE, '  scratch · Haiku 5.5'].join('\n') + '\n';
-  const rows = wrap(text);
+  let rows = wrap(text);
+  if (keep && rows.length > keep) rows = rows.slice(-keep);
   return [RULE, ...rows.map((r, i) => (i === 0 ? '\x1b[39m❯ ' : '  ') + r), RULE, '  scratch · Haiku 5.5'].join('\n') + '\n';
 }
 /* A pane whose box behaves as Claude Code's did when measured: Enter sends it (the box empties), one round of the
@@ -57,8 +59,9 @@ function pane(initial, opts = {}) {
   const state = { text: initial, rounds: 0, sent: [] };
   const fn = (args) => {
     calls.push(args);
+    if (args[0] === 'display-message' && args.includes('#{session_attached}')) return ok(opts.attached ? '1\n' : '0\n');
     if (args[0] === 'display-message') return ok('2.1.303\t\t0\n');
-    if (args[0] === 'capture-pane' && args.includes('-e')) return ok(opts.raw ? opts.raw : draw(state.text));
+    if (args[0] === 'capture-pane' && args.includes('-e')) return ok(opts.raw ? opts.raw : draw(state.text, opts.keep));
     if (args[0] === 'capture-pane') return ok('');
     if (args[0] === 'send-keys' && args[args.length - 1] === 'Enter') { if (state.text) state.sent.push(state.text); state.text = ''; return ok(); }
     if (args[0] === 'send-keys' && args.includes('C-u')) {
@@ -251,14 +254,56 @@ test('kosmos#6717: someone typing while the box is cleared stops the clearing, a
   assert.equal(saved[0].text.replace(/\s+/g, ''), LONG.replace(/\s+/g, ''), 'the draft still holds all of the stuck text');
 }));
 
-test('kosmos#6717: a long stuck text is cleared row by row and kept whole', () => withAgent(async (roster, card) => {
-  const LONG = Array.from({ length: 12 }, (_, i) => `line ${i} of what the person wrote out at length`).join(' ');
+test('kosmos#6717: a stuck text of several rows is cleared row by row and kept word for word', () => withAgent(async (roster, card) => {
+  const LONG = Array.from({ length: 9 }, (_, i) => `line ${i} of what the person wrote out at length`).join(' ');
+  assert.equal(wrap(LONG).length, 6, 'PRECONDITION: six rows, the most a box can draw and still show all it holds');
   const p = pane(LONG);
   saveInto(p);
   const r = await chat.recoverStuckInput(card, SINCE);
   assert.equal(r.outcome, 'drafted');
   assert.equal(p.clears(), wrap(LONG).length, 'one round a row');
   assert.equal(saved[0].text, LONG, 'word for word');
+}));
+
+test('kosmos#6717: a box drawing seven rows may be hiding its start (a pasted line scrolls), so it is left whole', () => withAgent(async (roster, card) => {
+  const PASTED = Array.from({ length: 40 }, (_, i) => `point ${i} about the release plan`).join(', ');
+  for (const keep of [7, 0]) {   // scrolled to its last 7 rows; and typed slowly, all of it drawn
+    chat.resetForTests();
+    chat.setRosterSource(() => roster);
+    const p = pane(PASTED, { keep });
+    saveInto(p);
+    const r = await chat.recoverStuckInput(card, SINCE);
+    assert.equal(r.outcome, 'left', 'rows kept: ' + keep);
+    assert.equal(r.because, 'it is too long to read whole');
+    assert.equal(p.clears() + p.enters(), 0);
+  }
+  assert.equal(saved.length, 0, 'no fragment saved as if it were the whole text');
+}));
+
+test('kosmos#6717: an agent whose terminal window someone has open is left alone (the text is in front of them)', () => withAgent(async (roster, card) => {
+  const p = pane(PERSON, { attached: true });
+  saveInto(p);
+  const r = await chat.recoverStuckInput(card, SINCE);
+  assert.equal(r.outcome, 'left');
+  assert.match(r.because, /terminal window is open/);
+  assert.equal(p.clears() + p.enters(), 0);
+  assert.equal(saved.length, 0);
+}));
+
+test('kosmos#6717: a clearing that tmux refused is tried again next minute, and the text is kept once', () => withAgent(async (roster) => {
+  const p = pane(PERSON);
+  let refuse = true;
+  chat.setRunner((args) => (refuse && args[0] === 'send-keys' && args.includes('C-u') ? { ran: true, spawnFailed: false, status: 1, out: '', err: 'no' } : p(args)));
+  saveInto(p);
+  const lines = [];
+  const tick = stuck.makeTick({ allowed: () => true, roster: () => roster, recover: (c, s) => chat.recoverStuckInput(c, s), stuckMs: chat.STUCK_INPUT_MS, log: (l) => lines.push(l) });
+  await tick(); await tick();
+  assert.equal(lines.length, 1, 'said once');
+  assert.match(lines[0], /tmux refused the keys/);
+  refuse = false;
+  await tick();
+  assert.equal(p.state.text, '', 'cleared once tmux took the keys');
+  assert.equal(drafts.list('al').length, 1, 'one draft for the three tries');
 }));
 
 test('kosmos#6717: the sweep picks idle Claude Code cards whose box has held text ten minutes, and says a left text once', async () => {

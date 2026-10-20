@@ -72,7 +72,8 @@ function add(name, text, opts = {}) {
   if (t.length > MAX_TEXT) return { ok: false, because: 'it is too long to keep' };
   const cur = readDrafts(name);
   if (!cur.ok) return { ok: false, because: 'the drafts kept for this agent cannot be read right now' };
-  const same = cur.drafts.find((d) => d.text === t);
+  const squashed = (v) => String(v).replace(/\s+/g, '');   // the box's rows wrap differently after a resize
+  const same = cur.drafts.find((d) => squashed(d.text) === squashed(t));
   if (same) return { ok: true, id: same.id, already: true };
   if (cur.drafts.length >= MAX_KEPT) return { ok: false, full: true, because: MAX_KEPT + ' drafts are already kept for this agent' };
   const since = typeof opts.since === 'string' && Number.isFinite(Date.parse(opts.since)) ? opts.since : null;
