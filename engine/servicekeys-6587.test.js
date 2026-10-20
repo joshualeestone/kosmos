@@ -235,8 +235,13 @@ test('the pinned key (base64url of the raw bytes) is matched against the listed 
   assert.equal(sk.pinnedIsListed(pin7, check(VECTOR, sign(K7, VECTOR))), null, 'a refused set');
   assert.equal(sk.pinnedIsListed(pin7, keys.keys), null, 'a bare array of keys, not a verified result');
   assert.equal(sk.pinnedIsListed(pin7, null), null, 'nothing');
-  // Called with nothing at all, the check refuses rather than throwing.
-  assert.equal(sk.verifyServiceKeySet().ok, false);
+  // Called with nothing, or with junk, the check answers rather than throwing: off with no key set, and a refusal
+  // once a key is set.
+  assert.equal(sk.verifyServiceKeySet().off, true, 'no argument reads as off (no recovery key)');
+  assert.equal(sk.verifyServiceKeySet(null).off, true, 'null reads as off too');
+  refused(sk.verifyServiceKeySet({ recoveryKeys: [ROOT_PUB] }), /not signed/, 'no bytes, a key set');
+  for (const junk of [5, {}, [1, 2]]) refused(sk.verifyServiceKeySet({ bytes: junk, sig: VECTOR_SIG, recoveryKeys: [ROOT_PUB] }), /not readable/, 'bytes ' + JSON.stringify(junk));
+  assert.equal(sk.verifyServiceKeySet({ bytes: VECTOR, sig: VECTOR_SIG, recoveryKeys: [ROOT_PUB] }).ok, true, 'CONTROL: a string is read');
 });
 
 test('the default recovery keys ARE manifest-verify\'s: pinning one there turns the check on', () => {
