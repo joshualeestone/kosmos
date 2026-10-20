@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * #570: the unsigned Windows package, and the ways it can go wrong silently.
+ * #570: the Windows package, and the ways it can go wrong silently.
  *
  *   node --test tools.build-windows-570.test.js
  *
@@ -162,7 +162,16 @@ test('the build summary prints the zip size, and labels the unpacked total', () 
 });
 
 test('the package tells the truth about itself', () => {
-  assert.match(WIN, /"signed": false/, 'the manifest does not record that this build is unsigned');
+  /* #6679: Kosmos.exe and the connector are signed, so `"signed": false` was a false claim. The manifest records
+     each signed program's signature as the build saw it, and carries no blanket "signed" a reader could take as
+     covering every file in the zip. */
+  const manifestAt = WIN.indexOf('cat > "$STAGE/manifest.json" <<JSON');
+  const manifest = WIN.slice(manifestAt, WIN.indexOf('\nJSON\n', manifestAt));
+  assert.ok(manifestAt > -1 && manifest.includes('"product": "kosmos"'), 'the manifest block moved; this reads nothing');
+  assert.doesNotMatch(manifest, /"signed":/, 'the manifest still carries a blanket "signed" field');
+  assert.match(manifest, /"signatures": \{ "Kosmos\.exe": "\$_launcher_sig", "app\/bin\/kosmos-tunnel\.exe": "\$_tunnel_sig" \}/,
+    'the manifest does not record what is signed, per file');
+  assert.match(WIN, /connector_pe_signed "\$LAUNCHER"/, 'the build does not refuse an unsigned Kosmos.exe, which the README says is signed');
   /* #570 7c: agents work on Windows now (measured, R1-R8), so the package says so.
      The old warnings are pinned ABSENT, because a README that still says "agents
      do not work" over a build where they do sends people away from the thing
@@ -243,7 +252,8 @@ test('🛑 the warning reaches her BEFORE the launcher does, which a README cann
      README names the dialog a person can actually see, and unblocks the ZIP
      before extracting rather than each file after. */
   assert.doesNotMatch(WIN, /came from another computer/, 'the README describes a checkbox label as if it were a prompt');
-  assert.match(WIN, /The publisher could not be verified", click Run\./, 'the README does not cover the Open File security warning');
+  /* #6679: a signed Kosmos.exe names its publisher in the Open File box, so the "could not be verified" line went. */
+  assert.doesNotMatch(WIN, /The publisher could not be verified/, 'the README still describes an unverified publisher');
   assert.match(WIN, /Tip: before you extract, right-click the zip, choose Properties, tick/, 'the README does not say to unblock the zip before extracting');
 });
 
