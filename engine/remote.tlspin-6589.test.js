@@ -189,8 +189,9 @@ test('#6589 (reviews 7 and 9): one run per address: a fresh ask runs only AFTER 
   await new Promise((r) => setTimeout(r, 100));
   const fresh = remote.tlsPin('m.kosmosplus.com', { fresh: true });
   await plain;
-  // The plain run is over and the fresh one is running: a new plain ask must JOIN it, not start a third run.
-  const joined = remote.tlsPin('m.kosmosplus.com');
+  // The plain run is over and the fresh one is running: another FRESH ask (a plain one would just read the cache) must
+  // JOIN it, which needs the fresh run's entry to survive the plain run finishing.
+  const joined = remote.tlsPin('m.kosmosplus.com', { fresh: true });
   await Promise.all([fresh, joined]);
   assert.equal(recorded().filter((r) => r[4] === 'https://m.kosmosplus.com').length, 2, 'never a third run');
   const t = fs.readFileSync(RECORD + '.times', 'utf8').trim().split('\n').map((l) => l.split(' '));
