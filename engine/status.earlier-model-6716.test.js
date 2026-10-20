@@ -85,3 +85,9 @@ test('#6716 review 6: a session file whose time cannot be read lends nothing (fa
   session('closed', 'old.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-4-8' } }], 600);
   assert.equal(status.modelInEarlierSession(path.join(SB, 'nowhere', 'gone.jsonl'), 'closed'), null);
 });
+
+test('#6716 review 7: a session from more than two days before does not lend its model', () => {
+  session('aged', 'old.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-4-8' } }], 3 * 24 * 3600);
+  session('aged', 'new.jsonl', [{ type: 'user', message: { content: 'hi' } }], 5);
+  assert.equal(status.readModel('aged').model, null, 'a model from days ago reads as today\'s');
+});

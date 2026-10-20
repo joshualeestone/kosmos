@@ -55,6 +55,9 @@ no earlier session beside the new one, and the tile falls back as before (no wor
 same way on a branch without this change ("we could not match that to one of your agents"), when run from inside an
 agent session; not this change.
 
+**Review 7.** Only a session from within two days before the current one lends (an old account or runner never reads as
+today's), and an unreadable sibling never lends. Each pill's sentence is computed once per tile and row.
+
 **Review 6.** A session whose time cannot be read lends nothing (fails closed). The tile keeps its empty .atask slot so
 tiles stay one height. whoami test cards come from test-support/fleet (fixture-discipline).
 

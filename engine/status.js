@@ -7061,9 +7061,10 @@ function readModel(agentName, exactSession) {
    * #6716 (Josh, 2026-10-20: "I am not sure why it doesnt recognize Renet's model"). A session that has not had a reply
    * yet holds no model line: Renet's account move started a new session at 08:37, its sign-in was failing, and the
    * file had nothing to read, so her card fell back to "Made before Kosmos recorded this". Her previous session, in
-   * the same folder, said claude-opus-5-5. So: the newest earlier session that names one, flagged `earlierSession`; the
-   * card prefers the model it is SET to run on when it has one (a model switch is exactly a new session that has not
-   * replied yet), and shows this only when there is none (the fleet's agents, which no Kosmos job describes).
+   * the same folder, said claude-opus-5-5. So: the newest earlier session (within two days) that names one, flagged
+   * `earlierSession`. Only the tile shows it, and only where it would otherwise say "Made before Kosmos recorded this"
+   * or "Unknown Model": an agent with no planned model, which is the fleet's agents and any Kosmos agent whose job
+   * names no --model. The card prefers the model it is SET to run on whenever there is one.
    * `exactSession` is the tmux session that picks the registry entry, not a transcript, so it does not opt out.
    */
   const before = modelInEarlierSession(file, agentName);
@@ -7139,6 +7140,7 @@ function modelInText(text) {
     session recorded in this agent's own folder (the same check transcriptFor's workdir arm makes). Remembered per
     new-session file for a minute: the board polls every few seconds, and a folder can hold hundreds of sessions. */
 const EARLIER_MODEL_TTL_MS = 60 * 1000;
+const EARLIER_MODEL_MAX_AGE_MS = 2 * 24 * 60 * 60 * 1000;
 const earlierModelSeen = new Map();
 function modelInEarlierSession(file, agentName) {
   const key = agentName + '\0' + file;
@@ -7159,8 +7161,10 @@ function modelInEarlierSessionUncached(file, agentName) {
     const dir = path.dirname(file);
     siblings = fs.readdirSync(dir)
       .filter((f) => f.endsWith('.jsonl') && path.join(dir, f) !== file)
-      .map((f) => { const full = path.join(dir, f); let m = 0; try { m = fs.statSync(full).mtimeMs; } catch { m = 0; } return { full, m }; })
-      .filter((x) => x.m <= mine)   // EARLIER only (review 5): a newer, concurrent session in the folder never lends
+      .map((f) => { const full = path.join(dir, f); let m = null; try { m = fs.statSync(full).mtimeMs; } catch { m = null; } return { full, m }; })
+      /* EARLIER only (review 5), readable only (review 7), and recent (review 7): within two days before this session,
+         so a model from long ago (another account, another runner) never reads as today's. */
+      .filter((x) => x.m !== null && x.m <= mine && mine - x.m <= EARLIER_MODEL_MAX_AGE_MS)
       .sort((x, y) => y.m - x.m)
       .slice(0, 5);
   } catch { return null; }

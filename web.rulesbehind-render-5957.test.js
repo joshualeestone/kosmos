@@ -40,8 +40,8 @@ for (const which of ['card', 'lrow']) {
   });
 }
 
-/* #6045 (Josh, 0.7.45 review): in the list, the note is the AI model column's size, not a task line's. The note cell
-   carries .lnote (sized as .lmodel) and the whole note as its title; any other text in that cell does not. */
+/* #6045, then #6716: the far-behind note left the row's task cell (no sentence on a tile or row); it is the pill's
+   hover and hidden text, and the .lnote styling went with it. */
 test('#6045 / #6716 lrow: the far-behind sentence is on the pill (its title and hidden text), not a note in the row', () => {
   const html = api.lrow(row({ rulesBehind: 13 }));
   assert.ok(!html.includes('lnote'), 'the row draws the sentence as a note again (#6716): ' + html);

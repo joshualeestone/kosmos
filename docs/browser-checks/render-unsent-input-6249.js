@@ -2,12 +2,14 @@
 // Browser-check-functions: stateReason, card
 
 /**
- * #6249: an agent whose input box has held unsent text for a few minutes says so on its card, "Text has been sitting
+ * #6249: an agent whose input box has held unsent text for a few minutes says so (since #6716 on its card's pill: the
+ * hover and a screen reader's hidden text, never a line on the tile), "Text has been sitting
  * unsent in its input box for about N minutes, and Kosmos's messages to it may wait behind it. Open it to send it with Enter." (engine/status.js
  * unsentInputOf sets the card's unsentInput.since).
  *
  * Drives the real card() builder with the golden card shape, in Chromium and WebKit, at desktop and phone width, and
- * reads the rendered card: the sentence is there, and visible (not clipped to nothing).
+ * reads the rendered card: the pill's hover carries the sentence, a screen reader still hears it, and no element
+ * drawn on the tile shows it.
  * NEGATIVE ARM: the same idle card with no unsentInput says nothing about an input box.
  *
  * Run:

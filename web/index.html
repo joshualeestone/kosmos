@@ -22725,13 +22725,14 @@ function card(a) {
      badge below stays: it is a measured reading, absolutely positioned (so it
      never pushes the name), and guarded by server.test.js. */
   const badge = (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
+  const say = pillSay(a);   // #6716: once, so the pill's hover and its hidden text can never disagree
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
   return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${answerAttrs(a)}${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="${esc(nameGoLabel(a))}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-    <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, pillSay(a)) : pillTitle(pillSay(a))}>${glyphOf(a)}<b>${esc(copy.label)}</b>${pillVh(pillSay(a))}</div>
+    <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, say) : pillTitle(say)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${pillVh(say)}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(tileModelLine(a))}</div>
     <div class="atask">${esc(taskLine(a, { card: true }))}</div>
@@ -22912,6 +22913,7 @@ function lrow(a) {
      memUnknown's SENTENCE (never the word with a noun stuck on, which announced "Not yet read memory"), and the
      dash is aria-hidden so it adds nothing to the accessible name. The agent page keeps the word. */
   const memu = memUnknown(a.context);
+  const lsay = pillSay(a);   // #6716: once, so the pill's hover and its hidden text can never disagree
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">–</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
@@ -22935,7 +22937,7 @@ function lrow(a) {
          .lav above) still marks needs-you visually, and alsowork stays because
          it is an action, not status text (#6400: the Answer link went; the row itself answers). This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
-    <div class="lstate"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a) : ''}><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${pillVh(pillSay(a))}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${pillTitle(pillSay(a))}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
+    <div class="lstate"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a) : ''}><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${pillVh(lsay)}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${pillTitle(lsay)}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
     ${lrowTask(taskLine(a, { card: true }))}
     <div class="lmodel">${lmodelCell(a)}</div>
     <div class="lmem">${mem}</div>
