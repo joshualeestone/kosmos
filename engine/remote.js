@@ -877,6 +877,13 @@ function ackCertWatchLost(at) {
    the coordinator also receives, since the coordinator is the party a mismatch suspects. */
 const serviceKeyFiles = require('./servicekeys-check');
 function serviceKeys() { return serviceKeyFiles.serviceKeyCheck(STATE_DIR(), { production: COORDINATOR() === DEFAULT_COORDINATOR }); }
+/* kosmos#6587 (S-7a slice 3): the environment for a setup or sign-in run. With a verified service key set (and the
+   production coordinator), the connector is handed its keys and refuses to register under any other (kosmos-relay
+   expectkey-6587); otherwise null, and the run inherits this process's environment exactly as before. */
+function setupEnv() {
+  const keys = serviceKeyFiles.expectedCoordinatorKeys({ production: COORDINATOR() === DEFAULT_COORDINATOR });
+  return keys ? { ...process.env, KOSMOS_EXPECT_COORDINATOR_KEYS: keys } : null;
+}
 
 /** The switch. Turning on does not start anything by itself unless setup
     already happened; the Settings flow calls setupStart/setupComplete and
@@ -1222,7 +1229,8 @@ function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
       resolve(result);
     };
     try {
-      spawned = setupSpawn(BIN(), args, connectorSpawnOptions({ stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'] }));
+      const env = setupEnv();
+      spawned = setupSpawn(BIN(), args, connectorSpawnOptions({ stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) }));
     } catch (err) {
       finish({ ok: false, because: 'the tunnel program could not be started: ' + (err && err.message) });
       return;

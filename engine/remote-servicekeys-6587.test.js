@@ -50,3 +50,38 @@ test('as shipped (no recovery key pinned) the real answer is off', () => {
   fs.writeFileSync(path.join(STATE, 'coordinator_pubkey'), 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n');
   assert.deepEqual(remote.serviceKeys(), { state: 'off' });
 });
+
+/* kosmos#6587 (S-7a slice 3): a setup or sign-in run hands the connector the verified keys, or inherits as before. */
+function spawnOpts(answer) {
+  const { EventEmitter } = require('node:events');
+  const real = check.expectedCoordinatorKeys;
+  const seen = [];
+  check.expectedCoordinatorKeys = (opts) => { seen.push(opts); return answer; };
+  remote.setSetupSpawnForTests((bin, args, opts) => {
+    seen.push({ spawned: opts });
+    const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => {};
+    setImmediate(() => { child.emit('exit', 0); child.emit('close', 0); });
+    return child;
+  });
+  return { seen, done: () => { check.expectedCoordinatorKeys = real; remote.resetForTests(); } };
+}
+
+test('with verified keys, the connector run gets KOSMOS_EXPECT_COORDINATOR_KEYS (and the rest of the environment)', async () => {
+  const w = spawnOpts('MCowBQYDK2VwAyEAkey1,MCowBQYDK2VwAyEAkey2');
+  try {
+    await remote.setupStart('a@example.com');
+    const opts = w.seen.find((s) => s.spawned).spawned;
+    assert.equal(opts.env.KOSMOS_EXPECT_COORDINATOR_KEYS, 'MCowBQYDK2VwAyEAkey1,MCowBQYDK2VwAyEAkey2');
+    assert.equal(opts.env.PATH, process.env.PATH, 'the rest of the environment is kept');
+    assert.equal(w.seen[0].production, true, 'asked for the production coordinator');
+  } finally { w.done(); }
+});
+
+test('without them (off, as shipped), the run inherits exactly as before: no env passed at all', async () => {
+  const w = spawnOpts(null);
+  try {
+    await remote.setupStart('a@example.com');
+    const opts = w.seen.find((s) => s.spawned).spawned;
+    assert.equal('env' in opts, false, 'no env key: the child inherits this process environment');
+  } finally { w.done(); }
+});
