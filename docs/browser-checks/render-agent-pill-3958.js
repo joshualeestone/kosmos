@@ -160,17 +160,20 @@ async function read(page) {
         const ok = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden }));
         chk(!ok.reauth, `${engineName} -> working again: the Sign in again button is gone`, JSON.stringify(ok));
         /* #6716 (Josh, 2026-10-20): a working agent never shows its screen line. The working agent here carries raw CLI
-           text (Claude Code's retry line), so the arm can fail; the CONTROL is the same screen on a waiting agent, which
-           shows it. */
+           text (Claude Code's retry line): the CONTROL is that the board's own card for it has that text, so the page
+           had something to show and chose not to (the auth_failed arm above shows a waiting state's text does show). */
         const RAW_SCREEN = 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n';
-        const saidNow = () => page.evaluate(() => ({ box: !document.getElementById('d-said-box').hidden, text: document.getElementById('d-said').textContent }));
-        setState('needs_you', { screen: RAW_SCREEN });
-        await page.waitForTimeout(6500);
-        const ctl = await saidNow();
         setState('working', { screen: RAW_SCREEN });
         await page.waitForTimeout(6500);
-        const wk = await saidNow();
-        chk(ctl.box && /Retrying in 5s/.test(ctl.text) && !wk.box, `${engineName} -> working with raw CLI text on screen: no screen line (CONTROL: the same screen while waiting shows it)`, JSON.stringify({ ctl, wk }));
+        // The CONTROL is read from the card the page itself received on this poll, the one paintDetailState is handed.
+        const work = await page.evaluate(() => {
+          const card = (typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST : []).find((x) => x && (x.sessionName === 'beatrix' || /^beatrix$/i.test(String(x.name || ''))));
+          return { state: card && card.state, evidence: card && card.stateEvidence,
+            box: !document.getElementById('d-said-box').hidden, text: document.getElementById('d-said').textContent };
+        });
+        chk(work.state === 'working' && /Retrying in 5s/.test(String(work.evidence || '')) && !work.box && !/Retrying/.test(work.text),
+          `${engineName} -> working with raw CLI text on screen: no screen line (CONTROL: the page's card carries that text)`,
+          JSON.stringify(work));
         const startShown = () => page.evaluate(() => {
           const w = document.getElementById('d-start-wrap');
           const b = document.getElementById('d-start-agent');

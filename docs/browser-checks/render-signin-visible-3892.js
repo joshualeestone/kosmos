@@ -128,18 +128,22 @@ function notesAndMeasure(opts) {
         }
         // A keyboard reaches Sign in again with its whole focus ring visible: Tab (Option-Tab in WebKit) from Start this agent (a
         // real key, so :focus-visible applies), then the ring (outline box) must lie inside the header.
-        await page.evaluate(() => { document.querySelector('.dhead').scrollTop = 0; document.getElementById('d-start-agent').focus(); });
-        // WebKit, like Safari by default, moves Tab between text fields only; Option-Tab reaches buttons.
-        await page.keyboard.press(eng === 'webkit' ? 'Alt+Tab' : 'Tab');
-        /* #6716: the screen line sits in a fold whose summary is a stop of its own (a keyboard must be able to open
-           it), between Start and Sign in again in page order. Stepped over only when that is where Tab landed. */
-        if (await page.evaluate(() => (document.activeElement || {}).id === 'd-said-lab')) {
-          /* The reason it is a stop: a keyboard opens and closes it. Enter toggles it, twice, back as it was. */
+        /* #6716: the screen line's summary opens and closes from the keyboard; both engines reach it by Tab (below). */
+        const toggleSaid = async (how) => {
           const before = await page.evaluate(() => document.getElementById('d-said-box').open);
           await page.keyboard.press('Enter');
           const toggled = await page.evaluate(() => document.getElementById('d-said-box').open);
           await page.keyboard.press('Enter');
-          chk(toggled === !before, `${t} the screen line's summary takes Tab and Enter opens or closes it`, JSON.stringify({ before, toggled }));
+          chk(toggled === !before, `${t} the screen line's summary ${how} and Enter opens or closes it`, JSON.stringify({ before, toggled }));
+        };
+        await page.evaluate(() => { document.querySelector('.dhead').scrollTop = 0; document.getElementById('d-start-agent').focus(); });
+        // WebKit, like Safari by default, moves Tab between text fields only; Option-Tab reaches buttons.
+        await page.keyboard.press(eng === 'webkit' ? 'Alt+Tab' : 'Tab');
+        /* #6716: the screen line sits in a fold whose summary is a stop of its own (a keyboard must be able to open
+           it), between Start and Sign in again in page order, in both engines. If Tab ever stops landing there, the
+           per-engine count below reds. */
+        if (await page.evaluate(() => (document.activeElement || {}).id === 'd-said-lab')) {
+          await toggleSaid('takes Tab');   // the reason it is a stop: a keyboard opens and closes it
           await page.keyboard.press(eng === 'webkit' ? 'Alt+Tab' : 'Tab');
         }
         const ring = await page.evaluate(() => {
@@ -252,7 +256,7 @@ function notesAndMeasure(opts) {
   // A run cut short, or a loop that ran nothing, must not read as a pass: the count is part of the result.
   /* 8 phone and theme runs x 16 checks, 2 sideways, 4 on wide screens. 21 per run until #4433 moved the swarm's
      controls out of the header: its 11 Stop-now checks per run became 6 (two painted swarm agents x 3). */
-  const EXPECTED_PER_ENGINE = 134;
+  const EXPECTED_PER_ENGINE = 142;   // #6716: + the summary's keyboard toggle, once per phone and theme
   const want = EXPECTED_PER_ENGINE * (process.env.ENGINES || 'chromium').split(',').length;
   if (RAN !== want) { console.log(`FAIL  ran ${RAN} checks, expected ${want}`); fail.push('check count'); }
   console.log(fail.length ? `\n${fail.length} FAILED` : `\nALL PASS (${RAN} checks)`);
