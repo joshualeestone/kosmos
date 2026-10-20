@@ -19,7 +19,7 @@ trap 'rm -rf "$T"' EXIT
 # #6710: the long-lived stand-in controls in this file are bounded waits (perl select), not `sleep N`,
 # so a stray `pkill -f sleep` (which matches any command line containing "sleep") cannot end one mid-test;
 # a perl select still ends by itself if cleanup never runs. The /bin/sleep copies at the real-matcher
-# fixture (lines ~324-338) keep a browser path as their command line (no "sleep"), so they are left as-is.
+# fixture below keep a browser path as their command line (no "sleep"), so they are left as-is.
 perl -e 'select(undef, undef, undef, 600)' </dev/null >/dev/null 2>&1 & HOLDER=$!
 perl -e 'select(undef, undef, undef, 600)' </dev/null >/dev/null 2>&1 & OTHER=$!
 # A stand-in suite that is NOT this shell's descendant (this shell holds a queue marker in the side arms, and a

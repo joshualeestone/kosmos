@@ -19,7 +19,7 @@ T="$(mktemp -d "${TMPDIR:-/tmp}/test-cut-guard.XXXXXXXXXX")"; trap 'kill "${SUIT
 # stand-in for the release, browser and harness arms, which do not check that a candidate exists.
 # #6710: the long-lived stand-in controls in this file are bounded waits (perl select), not `sleep N`, so a
 # stray `pkill -f sleep` (which matches any command line that contains "sleep") cannot end one mid-test; a
-# perl select still ends by itself if cleanup never runs. q_ready's default glob (line ~35) is `perl*` to match.
+# perl select still ends by itself if cleanup never runs. q_ready's default glob (in q_ready itself) is `perl*` to match.
 # NOT converted (documented on #6710): the `--sleep N` seams of the fixture test-install.sh / run-tests.sh
 # (the real installer CLI, matched by script name, degrading to a SKIP if killed) and the fake run-tests.sh
 # busy-loop `while :; do sleep 1`.
@@ -33,7 +33,7 @@ fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
 has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
-# q_ready <pid> [glob]: waits (up to 3 s) until <pid> has exec'd its bounded wait (perl select, #6710) (or a command matching [glob]). Between the fork and the exec, ps shows the forking
+# q_ready <pid> [glob]: waits (up to 3 s) until <pid> has exec'd its bounded wait (a perl select, #6710; or a command matching [glob]). Between the fork and the exec, ps shows the forking
 # shell's command (this script's). A marker that records that command reads as stale once the exec has happened, so the
 # guard deletes it and the arm tests a box with no waiter (#5914: measured 1 read in 600 on a loaded box, and one red
 # on CI). So a stand-in whose command goes into a marker is waited for first, and one that never gets there FAILS by
