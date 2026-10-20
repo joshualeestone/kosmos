@@ -701,14 +701,13 @@ function survey(opts) {
     ? agents.filter((x) => !x.removed && x.folder && x.job === null && x.profile && x.ran && jobs.whyNull(x.name) !== 'waiting').map((x) => x.name) : [];
   const hiddenList = readHidden();
   const hiddenSet = new Set(hiddenList);
-  /* #6714 review 2: a hidden name whose agent now starts at login is forgotten, so if it ever loses its job again the
-     notice comes back rather than staying silently closed. Written only when something changes; best effort. */
-  /* A removed agent's name goes too (review 3), so an agent re-made under it does not start out hidden. */
-  /* And a name no longer on the board at all (forgotten, or its files deleted), so it cannot sit hidden where Settings
-     would never show it (review 5). (An agent with a profile but no folder keeps its hidden name, and Settings cannot
-     list it until the folder is back: a small residual, review 13.) */
-  /* (A hidden agent whose job is not readable yet, waiting its turn for plutil, is kept but drops out of `hidden` for
-     that look, so Settings can miss it for one poll. It comes back on the next.) */
+  /* #6714: a hidden name is forgotten when its agent now starts at login, was removed, or is no longer on the board, so
+     a later loss shows the notice again and nothing sits hidden where Settings would never list it. "Starts at login"
+     is `job === true`, which every reader gives only for a job really found: the Mac's plist or a login job covering
+     the agent, Linux's unit file, Windows's name in a Task Scheduler list that answered (a failed list is unknown,
+     never true). Read afresh at the write (forgetHidden); written only when something changes. Residuals: an agent
+     with a profile but no folder keeps its name and Settings cannot list it until the folder is back; a job waiting
+     its plutil turn drops out of `hidden` for one look. */
   const stale = hiddenList.filter((n) => !agents.some((x) => x.name === n && x.job !== true && !x.removed));
   if (stale.length) { try { forgetHidden(stale); } catch { /* next look */ } }
   return {

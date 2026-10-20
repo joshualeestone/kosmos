@@ -48080,7 +48080,8 @@ document.addEventListener('click', async (e) => {
     } catch { ok = false; }
     if (!ok) {
       show.disabled = false;
-      /* The button keeps its name; what went wrong is a line beside it (review 11), as every other failure here. */
+      /* The button keeps its name; what went wrong is a line beside it (review 11), as every other failure here. (Show
+         is not behind the remote step-up; if it ever is, read the step-up words here as hide does.) */
       const row = show.closest('.setrow');
       const old = row && row.querySelector('[data-survival-err]'); if (old) old.remove();
       const say = document.createElement('small');
