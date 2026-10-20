@@ -11,8 +11,8 @@ All three leaked jobs ran `<mktemp -d>/home/bin/kosmos board-run`, with HOME set
 ## Decided
 - Refuse in setup.sh, before preflight and after `--uninstall` has branched away, because the leak is a class: any caller in this shape leaks, whichever test it is. A per-caller fix would miss the next caller.
 - Two triggers. A temp-folder home (/tmp, /private/tmp, /var/folders, or TMPDIR), because the cleaner deletes it and leaves the job behind. Or the account's default port, because it fights the real board, which is what cost Mortals three hours.
-- The guard fires only when HOME is the account's own home as the directory service records it. A harness's fake HOME writes its own LaunchAgents and must keep working.
-- Ways through: AGENT_WORKFORCE_LAUNCH (a folder of the caller's own), or KOSMOS_ALLOW_TEMP_LAUNCH=1. The opt-in is persisted in the login job, so that install's own self-update is not refused later.
+- A fake HOME is NOT an exemption (iteration 1): it scopes the plist file, not launchd, which still bootstraps the job into this account's own domain. test-install.sh records the same fact.
+- Ways through: AGENT_WORKFORCE_LAUNCH (a folder of the caller's own), or KOSMOS_ALLOW_TEMP_LAUNCH=1. The opt-in is not persisted: a self-update runs with the default home (the board's env carries no KOSMOS_HOME), so a persisted key would never be read there, and it would leak into every process the board starts.
 - Rejected:
   - Auto-routing such installs to a sandbox launch folder. A loaded job keeps respawning wherever its plist lives, and that would silently hide the caller.
   - Refusing at plist-write time. Too late: the pause and the board start have run by then.
@@ -22,3 +22,12 @@ That no legitimate caller runs a sandboxed install with the real HOME, no launch
 
 ## Not covered
 Linux (systemd user units) has the same shape, in a different folder, and is not changed here.
+
+## Review log
+### Iteration 1 (opus)
+- [BLOCKER] fixed: the test's "kept" homes were inside the checkout, which a release cut copies into a temp folder, so the cut's `yarn test` would have gone red. It now uses fixed non-temp path strings; the guard never creates or enters them.
+- [BLOCKER] fixed: the fake-HOME exemption let the incident through, because launchd registers the job in the real domain regardless. It is removed (with the dscl lookup and its seam), and the fake-HOME arm now expects a refusal. All 325 install tests and the six setup.sh shell tests pass without it.
+- [WARNING] fixed: the persisted opt-in never reached a self-update and would have spread to the board's children. Dropped.
+- [WARNING] moot: the dscl branch was untested. It is gone.
+- [NIT] fixed: the comment now says Linux is not covered. The test runs the guard under `set -eu`, as setup.sh does.
+- Noted for a card: a sandboxed board's in-app update runs setup.sh with the default home (the board env has no KOSMOS_HOME). This is pre-existing and not changed here.
