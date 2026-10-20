@@ -42,7 +42,7 @@ LTOK="$(kosmos_start_token "$LIVE")"
 case "$LTOK" in *" "*) bad "the token holds a space (it must fit a file name)" ;; *) ok "the token fits a file name ($LTOK)" ;; esac
 ( exit 0 ) & DEAD=$!; wait "$DEAD" 2>/dev/null
 OTHER="Mon_Jan_1_00:00:00_2001"
-reset() { rm -f "$M" "$KOSMOS_HOME"/board.stopped.* "$KOSMOS_HOME/mode"; }
+reset() { rm -f "$M" "$KOSMOS_HOME"/board.stopped.* "$KOSMOS_HOME/mode" "$KOSMOS_HOME/board.started-at"; }
 name() { : > "$KOSMOS_HOME/board.stopped.by-install.$1.$2"; }
 verdict() { if kosmos_stranded_pause >/dev/null; then echo stranded; else echo stands; fi; }
 check() { # $1 expected, $2 label
@@ -77,16 +77,20 @@ reset; : > "$M"; name "$LIVE" "$LTOK"
 reset; : > "$M"; name "$DEAD" "$LTOK"
 [ "$(PATH="$TMP/badps:$PATH" verdict)" = stranded ] && ok "ps cannot run, update gone (kill: no such process): stranded" || bad "a broken ps kept a dead update's pause"
 
-# Age: an update's name is touched after its stop wrote the marker. A marker NEWER than a gone update's name was
-# written by a later stop (a person's, even through an older kosmos that does not know names): that name is a leftover.
-reset; name "$DEAD" "$LTOK"; touch -t 202001010000 "$KOSMOS_HOME/board.stopped.by-install.$DEAD.$LTOK"; : > "$M"
-check stands "a gone update's name older than the marker (a later person's stop) supports nothing"
-reset; : > "$M"; touch -t 202001010000 "$M"; name "$DEAD" "$LTOK"
-check stranded "a gone update's name newer than the marker: stranded"
-reset; name "$LIVE" "$LTOK"; touch -t 202001010000 "$KOSMOS_HOME/board.stopped.by-install.$LIVE.$LTOK"; : > "$M"
-check stands "a LIVE update's name older than the marker still holds the pause"
-reset; name "$DEAD" "x1"; touch -t 202001010000 "$KOSMOS_HOME/board.stopped.by-install.$DEAD.x1"; : > "$M"; touch -t 202101010000 "$M"; name "$DEAD" "$LTOK"
+# A leftover: a gone update's name older than the board's last start (board.started-at) supports nothing, so a
+# later stop beside it (a person's, even through an older kosmos that leaves names) stands.
+SA="$KOSMOS_HOME/board.started-at"
+reset; name "$DEAD" "$LTOK"; touch -t 202001010000 "$KOSMOS_HOME/board.stopped.by-install.$DEAD.$LTOK"; date +%s > "$SA"; : > "$M"
+check stands "a gone update's name older than the board's last start (a leftover) supports nothing"
+reset; date +%s > "$SA"; touch -t 202001010000 "$SA"; : > "$M"; name "$DEAD" "$LTOK"
+check stranded "a gone update's name newer than the board's last start: stranded"
+reset; date +%s > "$SA"; touch -t 202001010000 "$SA"; name "$DEAD" "$LTOK"; sleep 1; : > "$M"
+check stranded "an update killed during its own stop (the marker written after its name): still stranded"
+reset; name "$LIVE" "$LTOK"; touch -t 202001010000 "$KOSMOS_HOME/board.stopped.by-install.$LIVE.$LTOK"; date +%s > "$SA"; : > "$M"
+check stands "a LIVE update's name older than the board's last start still holds the pause"
+reset; name "$DEAD" "x1"; touch -t 202001010000 "$KOSMOS_HOME/board.stopped.by-install.$DEAD.x1"; date +%s > "$SA"; touch -t 202101010000 "$SA"; : > "$M"; name "$DEAD" "$LTOK"
 check stranded "an old leftover beside a newer gone update's name: stranded"
+rm -f "$SA"
 
 # Tokens of two kinds cannot be compared: a proc: token read where there is no /proc (this Mac) stands.
 reset; : > "$M"; name "$LIVE" "proc:12345"
@@ -259,8 +263,8 @@ fnbody install/kosmos cmd_board_run | awk '/kosmos_clear_stranded_pause board-ru
 fnbody install/kosmos agent_board_guard | awk '/local _claim=/ { l = NR } /agent_clear_stranded_or_refuse/ { n++; if (!l || NR < l) bad = 1 } END { exit !(n == 2 && !bad) }' \
   && ok "an agent's start clears a stranded pause only after the cooldown and claim pass (both success returns)" \
   || bad "an agent's start clears a stranded pause before its cooldown or claim (or not on both success returns)"
-grep -q '^  \[ -z "\$_kosmos_pause_name" \] || touch "\$_kosmos_pause_name" 2>/dev/null || true$' install/setup.sh \
-  && ok "setup.sh touches its name again after the stop writes the marker" || bad "setup.sh does not touch its name after the stop"
+! grep -q 'touch "\$_kosmos_pause_name"' install/setup.sh \
+  && ok "setup.sh never touches its name after the stop (a touch would re-create a name a person's stop removed)" || bad "setup.sh touches its name after the stop"
 awk '/^  _kosmos_pause_name=""$/ { if (!a) a = NR } /if \[ "\$_kosmos_was_running" = yes \] \|\| \[ "\$\{_kosmos_join_pause:-no\}" = yes \]; then/ { if (a && !w) w = NR }
      /: > "\$_kosmos_pause_name"/ { n = NR } /^  _kosmos_marker_ours="\$_kosmos_was_running"/ { m = NR }
      END { exit !(a && w > a && n > w && m > n) }' install/setup.sh \
