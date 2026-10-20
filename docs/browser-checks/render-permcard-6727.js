@@ -10,6 +10,7 @@
  *            closed with the command and the other options inside; no rule, option number, key hint or question in the
  *            visible text; Allow posts the prompt's "Yes" number, Deny its "No" number (one press each).
  *   DELETE   the dangerous-rm prompt: "April wants to run a command that deletes files."
+ *   PRESENCE OFF  the card served while the composer is closed (no buttons): drawn as before, no card (review 1).
  *   CONTROL  the same question served WITHOUT `permission`: drawn as before (its text and numbered buttons), so the card
  *            comes from the field and nothing else.
  * Light and dark, at desktop and phone width. HEADLESS-safe (DOM-state assertions). SHOT=<file.png> saves the light card.
@@ -135,6 +136,12 @@ async function run() {
         await paint(page, served(RM, true));
         const d = await readCard(page);
         check(`${tag} DELETE the dangerous rm reads as a command that deletes files`, !!d && d.ask === 'April wants to run a command that deletes files.', JSON.stringify(d && d.ask));
+
+        // PRESENCE OFF (review 1): the composer is closed, so no buttons are drawn, and so no card either: the old text.
+        await paint(page, { ...served(BASH, true), presence: 'off' });
+        const off = await page.evaluate(() => ({ card: !!document.querySelector('#d-dmthread .dmperm'),
+          text: [...document.querySelectorAll('#d-dmthread .msg')].some((x) => /Do you want to proceed/.test(x.textContent)) }));
+        check(`${tag} PRESENCE OFF no buttons, so no card that promises them: the question as before`, !off.card && off.text, JSON.stringify(off));
 
         // CONTROL
         await paint(page, served(BASH, false));

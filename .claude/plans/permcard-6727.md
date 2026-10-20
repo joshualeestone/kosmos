@@ -33,6 +33,19 @@ to amend". Josh saw about 30 such lines in a chat with Renet Tilley.
 - Deny is the prompt's own "No" option, pressed by its number (measured on 2.1.296: "3" rejected a write). Escape is
   not added: it is a second key path for the same answer.
 
+## Review 1 (applied)
+- The card is attached only where the buttons are (`pressable`, which also keeps it out of the setup guide's masked
+  thread: a card would carry its screen unmasked), and the page draws it only while Allow and Deny are drawn (the
+  composer closed: the old text).
+- The dangerous-rm screen in the tests is SYNTHETIC (the bash capture with the words from Josh's screenshot): auto mode
+  denied such a command instead of prompting when I tried to capture one (2.1.304), so its exact layout is not
+  measured. If Claude Code draws its warning elsewhere, the card says "run a command" for it, still with the command
+  under Show details.
+
+## Not covered
+- The project room's member panel (#pj-question) still shows "the part of its screen that asked". It is a screen view
+  with its own answer box, not a chat; giving it the card is a follow-up, not this card.
+
 ## Tests
 Engine: the permission fields from the captured bash and edit screens (test-support/claude-screens), the dangerous-rm
 wording, a trust prompt (not a permission card), a question menu (not one). Page: a browser check that draws the card,

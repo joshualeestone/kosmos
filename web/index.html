@@ -40372,8 +40372,10 @@ function dmRow(m, name, replyAdjacent) {
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(shownFrom) + '</b>'
       + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256 (guarded: the lifted dmRow tests run without it)
-      + ((m.kind === 'question' && m.permission && typeof dmPermissionHtml === 'function')
-        ? dmPermissionHtml(m, shownFrom)   // #6727: a permission prompt is a short card, never its screen
+      + ((m.kind === 'question' && m.permission && typeof dmPermissionHtml === 'function' && dmChoicesHtml(m, 'main'))
+        // #6727: a permission prompt is a short card, never its screen; only while Allow and Deny can be drawn (review 1:
+        // with the composer closed there are no buttons, and a card would promise an action it cannot take)
+        ? dmPermissionHtml(m, shownFrom)
         : pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
           + pjPreviewCard(m.preview) + pjAttachmentCards(m)
           + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m) : ''))   // #5406 (guarded: the lifted dmRow tests run without it)
@@ -40704,10 +40706,16 @@ function dmChoicesHtml(m, part) {
   const armedN = DM_CHOICES.options.map((o) => o.n).find((n) => dmChoiceArmed(DM_CHOICES, n));
   const note = pressing ? 'Sending…' : (locked && done.sure) ? 'Sent.' : armedN !== undefined ? DM_CHOICE_ARM_NOTE : '';
   const noteId = 'dmchoices-msg-' + DM_CHOICES.gen + (part === 'more' ? '-more' : '');
+  /* #6727: on a card, "Sending…" and "Sent." are said once, under Allow and Deny; "press it again" sits in the part that
+     holds the armed button (a lasting choice lives under Show details), so the button it describes points at it. */
+  const armedHere = armedN !== undefined && shown.some((o) => o.n === armedN);
+  const partNote = !perm ? note
+    : (pressing || (locked && done.sure)) ? (part === 'main' ? note : '')
+    : armedHere ? DM_CHOICE_ARM_NOTE : '';
   return '<div class="dmchoices' + (perm ? ' dmperm-' + part : '') + '" role="group" aria-label="' + (perm && part === 'main' ? 'Allow or deny' : 'Choices') + '">'
     + shown.map((o) => '<button type="button" class="dmchoice' + (perm && part === 'main' ? (o.n === perm.allow ? ' dmperm-allow' : ' dmperm-deny') : '') + (o.n === armedN ? ' armed" aria-describedby="' + noteId : '') + '" data-n="' + esc(String(o.n)) + '" data-gen="' + esc(String(DM_CHOICES.gen)) + '"' + (off ? ' disabled' : '') + '>'
       + (perm && part === 'main' ? '' : '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ') + esc(labelOf(o)) + '</button>').join('')
-    + '<span class="dmchoices-msg" id="' + noteId + '" role="status" aria-live="polite">' + esc(part === 'more' ? '' : note) + '</span></div>';
+    + '<span class="dmchoices-msg" id="' + noteId + '" role="status" aria-live="polite">' + esc(partNote) + '</span></div>';
 }
 /* #6727 (Josh, 10-20: "yikes.. what is this"): an agent stopped on its permission prompt reads as one short card, built
    from the server's reading of the box (chat.permissionCard): what it wants to do in plain words, Allow and Deny, and

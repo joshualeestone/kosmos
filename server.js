@@ -17889,13 +17889,6 @@ const server = http.createServer(async (req, res) => {
       } catch { askedAt = null; }
       if (!permissionWait) questionRow = { ...question, clearable: true, ...(askedAt ? { at: askedAt } : {}) };
     }
-    /* kosmos#6727: a permission prompt read off the screen is drawn as a short card (what the agent wants to do, Allow,
-       Deny, the raw request under Show details), not as its screen. Only for the live pane question, and only when its
-       whole box is on screen (chat.permissionCard is null otherwise, and the old text stays). */
-    if (question && question === paneQuestion && view && typeof view.text === 'string') {
-      const pc = chat.permissionCard(view.text);
-      if (pc) questionRow = { ...questionRow, permission: pc };
-    }
     const servedMessages = Array.isArray(messages)
       ? chat.withAccountRow(chat.withQuestionRow(messages, (card && card.sessionName) || name, questionRow),
         (card && card.sessionName) || name, accountProblemOf(card))
@@ -17921,8 +17914,16 @@ const server = http.createServer(async (req, res) => {
       // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
       && cqNow.options.length === options.length
       && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
+    /* kosmos#6727: a permission prompt read off the screen is served as a short card (what the agent wants to do,
+       Allow, Deny, the raw request under Show details), not as its screen. Only where its buttons are offered
+       (`pressable`, which also keeps it out of the setup guide's masked thread, review 1): a card with no Allow or Deny
+       would promise an action it cannot take, so there the old text stays. Only the live pane question. */
+    const permCard = (pressable && question === paneQuestion && view && typeof view.text === 'string')
+      ? chat.permissionCard(view.text) : null;
     sendJson(res, 200, {
-      messages: servedRows,
+      messages: permCard
+        ? servedRows.map((m) => (m && m.kind === 'question' && !m.reported ? { ...m, permission: permCard } : m))
+        : servedRows,
       olderCount,
       historyBecause,
       historyUnfilable,

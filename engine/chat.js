@@ -3007,7 +3007,7 @@ function permissionCard(text) {
   if (/^Bash command\b/i.test(title)) kind = /\brm\b|delet|remov/i.test(reason) ? 'delete' : 'command';
   else if (/^Create file\b/i.test(title)) kind = 'create';
   else if (/^(Edit|Update|Write) file\b/i.test(title)) kind = 'edit';
-  else if (/fetch|web/i.test(title)) kind = 'fetch';
+  else if (/^(Fetch|Web ?fetch|Web search)\b/i.test(title)) kind = 'fetch';   // review 1: the known titles only
   const opts = box.pp.options;
   const allow = opts.find((o) => o.label === 'Yes');
   const deny = opts.find((o) => /^No\b/.test(o.label));
@@ -3810,7 +3810,6 @@ function withQuestionRow(messages, agentName, question) {
     kind: 'question',
     reported: Boolean(question.reported),
     ...(question.clearable === true ? { clearable: true } : {}),
-    ...(question.permission && typeof question.permission === 'object' ? { permission: question.permission } : {}),   // #6727
   };
   /* #5943: a question the agent REPORTED carries when it was first asked (selfreport askedAt). That time is stable
      across polls, so it is not the per-poll clock the note above forbids: the row takes its place in time, and the

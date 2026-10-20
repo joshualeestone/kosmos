@@ -73,9 +73,3 @@ test('#6727 not a permission card: the trust dialog, a question menu, an idle sc
   assert.equal(chat.permissionAnswerable(cut), false, 'premise: the cut box is not answerable');
   assert.equal(chat.permissionCard(cut), null);
 });
-
-test('#6727 the question row carries the card to the page, and only when given one', () => {
-  const rows = chat.withQuestionRow([], 'casey', { text: 'whole box', permission: { kind: 'command' } });
-  assert.deepEqual(rows[0].permission, { kind: 'command' });
-  assert.equal('permission' in chat.withQuestionRow([], 'casey', { text: 'a question' })[0], false);
-});

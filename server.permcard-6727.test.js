@@ -91,3 +91,35 @@ test('#6727 CONTROL: a question menu, served as a question, is not a permission 
     assert.equal('permission' in row, false, 'a question menu was served as a permission card');
   });
 });
+
+test('#6727 review 1: no buttons, no card. A prompt whose box top scrolled away is served without Allow or Deny, so as its text', async () => {
+  const cut = BASH.split('\n').filter((l) => !/^─{8,}/.test(l)).join('\n');
+  assert.equal(chat.permissionAnswerable(cut), false, 'premise: the cut box is not answerable');
+  await withPrompt(cut, async () => {
+    const j = await getThread();
+    const row = questionRow(j);
+    assert.ok(row, 'premise: the prompt is still served as a question: ' + JSON.stringify(j).slice(0, 200));
+    assert.equal(j.asked, null, 'premise: no buttons are offered');
+    assert.equal('permission' in row, false, 'a card was served where no button is');
+  });
+});
+
+test('#6727 review 1: no card in the setup guide thread, whose text is masked (the card would carry the screen raw)', async () => {
+  const setup = require('./engine/setup-assistant');
+  const file = require('./engine/instructions').fileFor('casey');
+  assert.ok(typeof file === 'string' && file, 'premise: casey has an instructions path');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const marker = path.join(path.dirname(file), '.kosmos-setup-guide');
+  fs.writeFileSync(marker, '');
+  try {
+    assert.equal(setup.isGuideFolder('casey'), true, 'premise: casey is the setup guide now');
+    assert.ok(chat.permissionCard(BASH), 'premise: the screen alone would make a card');
+    await withPrompt(BASH, async () => {
+      const j = await getThread();
+      const row = questionRow(j);
+      assert.ok(row, 'premise: the prompt is served as a question: ' + JSON.stringify(j).slice(0, 200));
+      assert.equal('permission' in row, false, 'a card (the screen unmasked) was served in the guide thread');
+    });
+  } finally { fs.rmSync(marker, { force: true }); }
+});
+
