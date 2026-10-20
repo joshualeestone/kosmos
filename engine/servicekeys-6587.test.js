@@ -223,9 +223,11 @@ test('the pinned key (base64url of the raw bytes) is matched against the listed 
   // Trimmed as the tunnel trims it (Rust str::trim): a BOM is not whitespace there, so it is no key here either.
   assert.equal(sk.pinnedIsListed('\ufeff' + pin7, keys), false, 'a BOM before the pin');
   assert.equal(sk.pinnedIsListed('\u0085' + pin7 + '\n', keys), true, 'U+0085 is whitespace to Rust');
-  for (const bad of ['', null, 'not a key', rawOf(K7).toString('base64'), pin7 + '=']) {
-    assert.equal(sk.pinnedIsListed(bad, keys), false, 'unreadable pin ' + JSON.stringify(bad));
+  for (const bad of ['not a key', rawOf(K7).toString('base64'), pin7 + '=']) {
+    assert.equal(sk.pinnedIsListed(bad, keys), false, 'a pin that is not a key ' + JSON.stringify(bad));
   }
+  // No pin at all is no answer, not a mismatch.
+  for (const none of ['', null, undefined, ' \n']) assert.equal(sk.pinnedIsListed(none, keys), null, 'no pin ' + JSON.stringify(none));
   // No verified set, no answer: off (as shipped), a refused set, or a bare key array are null, never "not listed".
   const off = sk.verifyServiceKeySet({ bytes: Buffer.from(VECTOR), sig: VECTOR_SIG });
   assert.equal(off.off, true, 'CONTROL: this is the shipped off answer');
@@ -233,6 +235,8 @@ test('the pinned key (base64url of the raw bytes) is matched against the listed 
   assert.equal(sk.pinnedIsListed(pin7, check(VECTOR, sign(K7, VECTOR))), null, 'a refused set');
   assert.equal(sk.pinnedIsListed(pin7, keys.keys), null, 'a bare array of keys, not a verified result');
   assert.equal(sk.pinnedIsListed(pin7, null), null, 'nothing');
+  // Called with nothing at all, the check refuses rather than throwing.
+  assert.equal(sk.verifyServiceKeySet().ok, false);
 });
 
 test('the default recovery keys ARE manifest-verify\'s: pinning one there turns the check on', () => {
