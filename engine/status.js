@@ -7055,7 +7055,25 @@ function readModel(agentName, exactSession) {
   const file = transcriptFor(agentName, exactSession);
   if (!file) return { model: null, confidence: CONFIDENCE.NONE };
   const { text } = tailBytes(file, 65536);
-  if (!text) return { model: null, confidence: CONFIDENCE.NONE };
+  const now = text ? modelInText(text) : null;
+  if (now) return { model: now, confidence: CONFIDENCE.STRUCTURED };
+  /**
+   * #6716 (Josh, 2026-10-20: "I am not sure why it doesnt recognize Renet's model"). A session that has not had a reply
+   * yet holds no model line: Renet's account move started a new session at 08:37, its sign-in was failing, and the
+   * file had nothing to read, so her card fell back to "Made before Kosmos recorded this". Her previous session, in
+   * the same folder, said claude-opus-5-5. So: the newest earlier session that names one, flagged `earlierSession` so
+   * nothing presents it as what the new session is running. Exact-session reads (a caller asking about ONE session)
+   * do not borrow another's.
+   */
+  if (exactSession) return { model: null, confidence: CONFIDENCE.NONE };
+  const before = modelInEarlierSession(file, agentName);
+  return before
+    ? { model: before, confidence: CONFIDENCE.STRUCTURED, earlierSession: true }
+    : { model: null, confidence: CONFIDENCE.NONE };
+}
+
+/** The model a transcript tail names, or null (the rules below are readModel's, unchanged). */
+function modelInText(text) {
   /**
    * 🛑 `<synthetic>` IS NOT A MODEL, AND IT IS THE LAST ONE IN THE FILE EXACTLY
    * WHEN SOMEBODY IS LOOKING.
@@ -7083,7 +7101,7 @@ function readModel(agentName, exactSession) {
   const matches = [...text.matchAll(/"model":"([^"]+)"/g)]
     .map((m) => m[1])
     .filter((v) => !/^<.*>$/.test(v));
-  if (!matches.length) return { model: null, confidence: CONFIDENCE.NONE };
+  if (!matches.length) return null;
   /**
    * 🔑 A RECOGNISED ID WINS OVER A MERELY RECENT ONE, which is Mona Lisa's
    * point on this defect and is worth more than the bracket rule above.
@@ -7105,7 +7123,31 @@ function readModel(agentName, exactSession) {
    */
   const known = matches.filter((v) => MODEL_NAMES[v] || MODEL_NAMES[v.replace(/-\d{8}$/, '')]);
   const chosen = known.length ? known[known.length - 1] : matches[matches.length - 1];
-  return { model: chosen, confidence: CONFIDENCE.STRUCTURED };
+  return chosen;
+}
+
+/** The model the newest earlier session beside `file` names, or null. Five sessions at most, newest first, and only a
+    session recorded in this agent's own folder (the same check transcriptFor's workdir arm makes). */
+function modelInEarlierSession(file, agentName) {
+  const belongs = workdirBelongs(agentName);
+  if (!belongs) return null;
+  let siblings;
+  try {
+    const dir = path.dirname(file);
+    siblings = fs.readdirSync(dir)
+      .filter((f) => f.endsWith('.jsonl') && path.join(dir, f) !== file)
+      .map((f) => { const full = path.join(dir, f); let m = 0; try { m = fs.statSync(full).mtimeMs; } catch { m = 0; } return { full, m }; })
+      .sort((x, y) => y.m - x.m)
+      .slice(0, 5);
+  } catch { return null; }
+  for (const s of siblings) {
+    if (!belongs(transcriptCwd(s.full))) continue;
+    let text = '';
+    try { text = tailBytes(s.full, 65536).text; } catch { text = ''; }
+    const m = text ? modelInText(text) : null;
+    if (m) return m;
+  }
+  return null;
 }
 
 /**
