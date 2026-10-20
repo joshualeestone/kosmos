@@ -3759,10 +3759,11 @@ kosmos_stranded_pause() { # prints the stranded pause's name files, one per line
     kosmos_installer_gone "$_ksp_pid" "$_ksp_tok" || return 1        # a live installer: its pause stands
     _ksp_list="$_ksp_list$_ksp_f
 "
-    # An update touches its name AFTER its stop wrote the marker, so the name is never older than its own marker. A
-    # marker newer than a gone update's name was written by a later stop (a person's, even through an older kosmos
-    # that does not know these names): that name is a leftover and supports nothing.
-    [ "$KOSMOS_HOME/board.stopped" -nt "$_ksp_f" ] || _ksp_support=yes
+    # A gone update's name older than the board's last start is a leftover: that pause ended when the board started
+    # again (every start writes board.started-at, and an older kosmos's start removes only the marker, not names).
+    # A later stop beside such a leftover is therefore a person's. Kill an update at any point of its pause and its
+    # name is newer than the last start, so it still counts.
+    [ "$KOSMOS_HOME/board.started-at" -nt "$_ksp_f" ] || _ksp_support=yes
   done
   [ -n "$_ksp_list" ] && [ "${_ksp_support:-}" = yes ] || return 1   # no name, or only leftovers: a person's stop
   printf '%s' "$_ksp_list"
@@ -3969,10 +3970,6 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   fi
   _kosmos_marker_ours="$_kosmos_was_running"   # #5033: armed before the stop, which writes the marker and then waits
   KOSMOS_STOP_BY_INSTALL=1 "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
-  # kosmos#6651: touched again now the stop has written the marker, so this run's name is never older than it (a
-  # marker newer than a gone update's name was written by a later stop, and that name then supports nothing).
-  # touch sets times only, so it needs no free space.
-  [ -z "$_kosmos_pause_name" ] || touch "$_kosmos_pause_name" 2>/dev/null || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
   # earlier, where it is a precondition instead.

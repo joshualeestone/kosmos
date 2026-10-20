@@ -30,7 +30,7 @@
 - Not in this branch: what launched two installs 16 seconds apart (the card says no instrument recorded it).
 
 ## Proof
-- `bash tools/test-stopmark-6651.sh`: 65 PASS, including a real full disk (an 8 MB disk image, filled), dash, and setup.sh's own decision lines run under dash set -eu over a marker x names x mode matrix. Mutants, each red then restored: the start-time comparison removed
+- `bash tools/test-stopmark-6651.sh`: 66 PASS, including a real full disk (an 8 MB disk image, filled), dash, and setup.sh's own decision lines run under dash set -eu over a marker x names x mode matrix. Mutants, each red then restored: the start-time comparison removed
   (also caught by the byte-equal twin check), the watchdog's clear removed, the writer ignoring the attribution.
 - Neighbours, all green on this branch: test-board-watchdog-2955 (0 failures), test-update-putback-4818 (33/33;
   red at first because it pins the pause's stop line, updated), test-setup-pause-sandbox-4651 (0 failures),
@@ -97,3 +97,13 @@
     rows of marker x names x mode.
   - The Linux token carries the boot id, so a pid and tick from an earlier boot cannot pass for a live installer
     (reasoned, not measured: no /proc here).
+- Iteration 7 (two WARNINGs, both against iteration 6's age rule, which is withdrawn):
+  - The post-stop `touch` re-created a name a person's stop had removed during the update's own stop, so a person's
+    stop could read as stranded; and an update killed during its own stop (after the marker write, before the
+    touch) had a name older than its marker, so its pause read as a person's (measured 2 to 8 in 10). Both are gone:
+    no touch, and the age is now taken against the board's last START (board.started-at, written by every start
+    since #4466), not the marker. A gone update's name older than the last start is a leftover (that pause ended
+    when the board started); a kill at any point of a pause leaves a name newer than the last start. Mutant red.
+  - Accepted: within the same second as a start, -nt is false (whole seconds in dash and bash 3.2), so a leftover
+    made in the very second the board started would still count; and a kosmos older than #4466 writes no start
+    record, so on such a machine a leftover always counts (the transition window iteration 6 named).
