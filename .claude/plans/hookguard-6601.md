@@ -58,3 +58,11 @@ with the gate removed reds both new tests.
 - WARNING: the win32board lookup sat outside the try, breaking "returned, never thrown". FIXED: inside a try; a failure
   returns a refusal with a fixed sentence.
 - NITs not changed: two long lines; the test's 'worktree' substring check is redundant beside the byte comparison.
+
+## Round 3 (opus): no blocker, 1 warning, nits
+- WARNING: the new refusal path (the lookup throwing) had no test. FIXED: bundleRoot may be injected as a function;
+  a test makes it throw and asserts { wired:false, skipped:false }, a fixed sentence without the error text, and no
+  file written. Mutant (the catch rethrows) reds it.
+- NIT: the launch-path comment said a source board's agents get no hooks; where the installed Kosmos already wired the
+  shared file they run its hook. FIXED: the comment says exactly that.
+- NITs not changed: win32launch is silent on a skip (the board's start says it once); an empty-string bundleRoot skips.
