@@ -193,3 +193,11 @@ the attribute only when remote.
   checks them. Measured: web.api-routes-3957 29/29. NIT, fixed: the render-docs-seg-4937 trailer said 127.0.0.1; that
   check loads file:// (no hostname, so not remote either); corrected in a newer trailer, which the gate reads first.
   My miss: no run of the whole web.* set before the review; the Mortals run is the first full one.
+- First full suite (Mortals, a952af30, before the iteration-10 fix): 22615 tests, 27 failed. Mine, all fixed:
+  web.api-routes-3957 (iteration 10's finding), engine/windows-coupling-audit-1732 (two: my zip reader repeated
+  sendFileDownload's O_NOFOLLOW/O_NONBLOCK flags line, which the inventory counts; both now use ONE shared
+  LISTED_READ_FLAGS, so the classified site is still one, rather than a bumped count), and engine/windows-tests-1777 (my
+  route test branches on win32: excluded in tools/windows-tests.js with why: the arm it skips is a backslash name, which
+  cannot exist on Windows, and the file needs real symlinks and hard links; the gates' Windows paths are tested in
+  engine/projects.download.win32-5165.test.js). The other 21, in 16 CLI and tool files this branch does not touch,
+  were 20 to 50 s timeouts; re-run alone, see below.
