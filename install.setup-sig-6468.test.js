@@ -109,6 +109,22 @@ test('run-setup: NODE_OPTIONS is not handed to the installer, and it gets no std
   assert.equal(fs.existsSync(mark + '.in'), false, 'the installer read stdin');
 });
 
+test('#6659: run-setup installs into the home it was handed, not the default one, whatever the environment says', () => {
+  /* The board runs with no KOSMOS_HOME exported (install/kosmos sets it unexported), so without this the installer took
+     its default, ~/.local/share/kosmos: a board installed anywhere else updated (and paused) the person's default copy
+     instead of itself. The installer here only records what home it was given. */
+  const hst = host('1.2.3', { setupBody: 'printf "home=[%s]\\n" "${KOSMOS_HOME:-unset}" > "$MARK.env"; : > "$MARK"\n' });
+  for (const [what, extra] of [['no KOSMOS_HOME in the environment', {}], ['another KOSMOS_HOME in the environment', { KOSMOS_HOME: '/tmp/some-other-kosmos' }]]) {
+    const mark = path.join(tmp, 'mark-home-' + crypto.randomBytes(4).toString('hex'));
+    const h = home('1.2.0');
+    const env = { ...process.env, MARK: mark, ...extra };
+    if (!('KOSMOS_HOME' in extra)) delete env.KOSMOS_HOME;
+    const r = spawnSync(process.execPath, [path.join(h, 'app', 'engine', 'manifest-verify.js'), 'run-setup',
+      'file://' + hst.setup, 'file://' + hst.dist, '1.2.3', h], { encoding: 'utf8', env });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(fs.readFileSync(mark + '.env', 'utf8'), `home=[${h}]\n`, what);
+  }
+});
 test('the build records setup_sha256 from install/setup.sh in the manifest it signs', () => {
   const src = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
   assert.match(src, /KM_SETUP_SHA="\$\(shasum -a 256 "\$REPO\/install\/setup\.sh"/);
