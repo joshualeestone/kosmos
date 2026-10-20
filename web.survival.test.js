@@ -183,19 +183,15 @@ test('#6714 review 1: a failed start keeps the warning look and is closable as a
   assert.doesNotMatch(PAGE, /\.utoast\.survival\.failed[^{]*\{[^}]*label-2/, 'a failed start is styled as a calm fact');
 });
 
-test('#6714 review 4: inserting or closing a report clears the repaint signature, so a failed start gets its notice back', () => {
-  const insert = SCRIPT.indexOf("if (onPage && note) note.outerHTML = report;");
-  assert.ok(insert > 0);
-  assert.match(SCRIPT.slice(insert, insert + 200), /delete slot\.dataset\.v/);
-  const close = SCRIPT.indexOf("if (hide.closest('.utoast.report')) {");
-  assert.ok(close > 0);
-  assert.match(SCRIPT.slice(close, close + 900), /if \(slot\) delete slot\.dataset\.v;/);
+test('#6714 review 18: a start report goes in its own slot, which no poll touches; the notices keep repainting', () => {
+  assert.match(PAGE, /<div id="survival-report-slot"><\/div>\s*<div id="survival-slot"><\/div>/);
+  assert.doesNotMatch(page.lift(SCRIPT, 'paintSurvival'), /survival-report-slot/, 'a poll can wipe a report the person is reading');
+  assert.match(SCRIPT, /reports\.insertAdjacentHTML\('afterbegin', report\)/);
+  assert.doesNotMatch(SCRIPT, /SURVIVAL_HELD/, 'the hold that froze every notice is back');
 });
 
-test('#6714 review 5: past the cap, Start them at login gives one report; a report is held only if it reached the page', () => {
+test('#6714 review 5: past the cap, Start them at login gives one report', () => {
   assert.match(SCRIPT, /const report = body\.results\.length > capNow\s*\? survivalNotice\(/);
-  assert.match(SCRIPT, /SURVIVAL_HELD = onPage;/);
-  assert.doesNotMatch(SCRIPT, /SURVIVAL_BUSY = false;\n  SURVIVAL_HELD = true;/);
 });
 
 test('#6714 review 7: the combined report keeps each agent\'s guessed-model sentence', () => {
@@ -206,7 +202,7 @@ test('#6714 review 7: the combined report keeps each agent\'s guessed-model sent
 
 test('#6714 review 15: after a notice closes, focus goes to the next one\'s x, never to Start at login', () => {
   const f = page.lift(SCRIPT, 'survivalFocusNext');
-  assert.match(f, /querySelector\('#survival-slot \.utoast \.utxt'\)/, 'focus no longer goes to the notice words (review 17)');
+  assert.match(f, /querySelector\('#survival-report-slot \.utoast \.utxt, #survival-slot \.utoast \.utxt'\)/, 'focus no longer goes to the notice words (review 17)');
   assert.doesNotMatch(f, /\.utoast button'\)|\.utoast \.ux'\)/, 'focus can land on a button, so a repeated Enter acts');
 });
 
@@ -221,5 +217,5 @@ test('#6714 review 17: the notice words are focusable and inert, and a poll re-c
   const paint = page.lift(SCRIPT, 'paintSurvival');
   const afterFetch = paint.indexOf('paintSurvivalHidden(body);');
   assert.ok(afterFetch > 0);
-  assert.match(paint.slice(afterFetch, afterFetch + 300), /if \(SURVIVAL_BUSY \|\| SURVIVAL_HELD\) return;/, 'a poll can paint over a running start');
+  assert.match(paint.slice(afterFetch, afterFetch + 300), /if \(SURVIVAL_BUSY\) return;/, 'a poll can paint over a running start');
 });

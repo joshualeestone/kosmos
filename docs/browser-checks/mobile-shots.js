@@ -460,8 +460,8 @@ const SCREENS = [
     await page.click('#survival-slot [data-survival-fix]');
     // #6320: after the report replaces Roo's notice, the could-not-check notice for Cleo is still there. Wait for the
     // REPORT (Roo's button gone and the report shown), since Cleo's notice was already up before the click.
-    await page.waitForFunction(() => { const w = document.getElementById('survival-slot');
-      return w && !w.querySelector('[data-survival-fix]') && !!w.querySelector('.utoast.survival.done') && !!w.querySelector('.utoast.survival.unknown'); }, null, { timeout: 15000 });
+    await page.waitForFunction(() => { const w = document.getElementById('survival-slot'); const rep = document.getElementById('survival-report-slot');
+      return w && rep && !w.querySelector('[data-survival-fix]') && !!rep.querySelector('.utoast.survival.done') && !!w.querySelector('.utoast.survival.unknown'); }, null, { timeout: 15000 });
   } },
   { name: 'login-notice', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     const adv = [{ agents: ['roo-lane', 'pixel-moss', 'cleo-park'], names: ['Roo', 'Pixel', 'Cleo'], provider: 'Claude', service: 'Claude Code-credentials',

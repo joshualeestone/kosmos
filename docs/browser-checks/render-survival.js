@@ -85,8 +85,8 @@ function chk(ok, label, extra) {
       chk(true, theme + ': Show again brings marilyn back');
       // Start at login for brigitte only.
       await pg.click('[data-survival-fix="brigitte"]');
-      await pg.waitForSelector('#survival-slot .utoast.survival.done', { timeout: 15000 });
-      const after = await pg.innerText('#survival-slot');
+      await pg.waitForSelector('#survival-report-slot .utoast.survival.done', { timeout: 15000 });
+      const after = await pg.innerText('#survival-report-slot');
       chk(/brigitte/.test(after) && /login/.test(after), theme + ': the report names brigitte', after.slice(0, 80).replace(/\n/g, ' '));
       chk(Boolean(await pg.$('[data-survival-fix="marilyn"]')), theme + ': starting brigitte left marilyn alone');
       await pg.screenshot({ path: path.join(OUT, 'survival-' + theme + '.png'), fullPage: false });
