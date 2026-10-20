@@ -143,13 +143,23 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     let keys = KEYS;
     if (RECOVERY_KEYS.length) {
       const list = { bytes: path.join(dir, 'release-keys.json'), sig: path.join(dir, 'release-keys.json.sig') };
-      if (!get(`${b}/release-keys.json`, list.bytes) || !get(`${b}/release-keys.json.sig`, list.sig)) {
+      /* One address for every list, fetched as two files: a cache (or a publish in progress) can hand back a list and
+         a signature from different lists. One fresh query per attempt, shared by both, so a retry is not answered
+         from the same stale entry. Not on file:// (curl would read it as part of the path). */
+      const bust = /^https?:/i.test(b) ? '?r=' + crypto.randomBytes(8).toString('hex') : '';
+      if (!get(`${b}/release-keys.json${bust}`, list.bytes) || !get(`${b}/release-keys.json.sig${bust}`, list.sig)) {
         return sayFetch('the release key list could not be downloaded');
       }
-      let t;
-      try { t = trustedKeys({ listBytes: fs.readFileSync(list.bytes), listSig: fs.readFileSync(list.sig, 'utf8'), home }); }
-      catch { t = { ok: false, why: 'the release key list could not be read' }; }
-      if (!t.ok) return say(t.why);
+      let listBytes, listSig;
+      try { listBytes = fs.readFileSync(list.bytes); listSig = fs.readFileSync(list.sig, 'utf8'); }
+      catch { return sayFetch('the release key list could not be read'); }
+      /* A list that does not verify is retried (96), not refused (97): a torn or half-published pair looks exactly like
+         this, and a retry gets the matching pair. A list that verifies but is refused (older than this copy's record,
+         or another set of keys at a seq already taken) is 97: a retry gives the same answer. */
+      const v = verifyKeyList({ bytes: listBytes, sig: listSig });
+      if (!v.ok) return sayFetch(v.why + ' (it may be mid-publish)');
+      const t = trustedKeys({ listBytes, listSig, home });
+      if (!t.ok) return t.retry ? sayFetch(t.why) : say(t.why);
       keys = t.keys;
     }
     if (!get(setupUrl, files.setup)) return sayFetch('the installer could not be downloaded');
@@ -208,6 +218,8 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
  * stolen release key is a new list without it, seq + 1, signed with the recovery key (tools/lib/release-keys-sign.js),
  * and the next release raises MIN_KEY_LIST_SEQ to it. Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
 const RECOVERY_KEYS = Object.freeze([]);   // frozen: nothing in the process can turn the feature on by adding one
+/* 🛑 #6609 phase 2a: not filled in before phase 2b. run-setup takes the list, but setup.sh still checks the tarball with this
+   file's plain form and the built-in KEYS, so on its own the list stops nothing (.claude/plans/recoverykey2-6609.md). */
 const KEY_LIST_STATE = 'release-keys.state';   // a folder: one seq-<n>.json per list taken
 // The lowest list seq this build accepts, even with no state stored (a fresh install): raised in the release after a
 // revocation, so a copy without a record still refuses the list from before it.
@@ -325,7 +337,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   }
   // A newer list recorded meanwhile wins: this one may hold a key that one dropped.
   const now = storedKeyList(home, minSeq);
-  if (!now || now.seq > v.seq) return { ok: false, why: 'a newer release key list was taken meanwhile; check again' };
+  if (!now || now.seq > v.seq) return { ok: false, retry: true, why: 'a newer release key list was taken meanwhile; check again' };
   return { ok: true, why: v.why, keys: v.keys };
 }
 

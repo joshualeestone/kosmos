@@ -180,6 +180,7 @@ test('#6609: the race window between reading the record and linking: a newer lis
     const r = mv.trustedKeys({ listBytes: v6.bytes, listSig: v6.sig, home: h, recoveryKeys: RK });
     assert.equal(r.ok, false, 'list 6 may hold a key list 7 dropped');
     assert.match(r.why, /a newer release key list was taken meanwhile/);
+    assert.equal(r.retry, true, "#6609 phase 2a: run-setup reports this one as retryable (96), not refused");
     assert.equal(mv.storedKeyList(h).seq, 7);
     // Another check records seq 5 with other keys in the same window: the link finds it, and this list is refused.
     const h2 = home();
