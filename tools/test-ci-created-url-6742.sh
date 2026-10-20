@@ -216,6 +216,28 @@ jobs:
 YML
 expect "$tmp/override.yml" OVERRIDE "a job-level override to a different value reds even with a correct top-level env"
 
+cat > "$tmp/stepoverride.yml" <<'YML'
+name: step-override
+on: [push]
+env:
+  AGENT_WORKFORCE_CREATED_URL: http://127.0.0.1:9/api/created
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          AGENT_WORKFORCE_CREATED_URL: https://installkosmos.com/api/created
+        run: echo hi
+YML
+expect "$tmp/stepoverride.yml" OVERRIDE "a STEP-level override to a different value reds even with a correct top-level env"
+
+cat > "$tmp/notmapping.yml" <<'YML'
+- this document
+- is a sequence
+- not a mapping
+YML
+expect "$tmp/notmapping.yml" NOT_MAPPING "a workflow that loads but is not a mapping reds distinctly"
+
 cat > "$tmp/anchored.yml" <<'YML'
 name: anchored
 on: [push]
