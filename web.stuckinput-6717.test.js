@@ -25,7 +25,7 @@ test('kosmos#6717: a draft row says it was not sent, shows the words escaped, an
   assert.match(html, /look at &lt;b&gt;the invoice&lt;\/b&gt; &amp; the &quot;second&quot; one/, 'the words, escaped');
   assert.match(html, /<button type="button" class="pj-refused-add dm-draft-use" data-draft-id="0123456789ab">Put in the message box<\/button>/);
   assert.match(html, /<button type="button" class="pj-refused-add dm-draft-dismiss" data-draft-id="0123456789ab">Dismiss<\/button>/);
-  assert.doesNotMatch(html, /—/, 'no em dash');
+  assert.doesNotMatch(html, /\u2014/, 'no em dash');
   // CONTROL: the account line (#3723), also kind kosmos but no draft, keeps its own shape and offers no buttons.
   const account = dmRow({ id: 'kosmos-account:al', at: null, text: 'Its account is signed out.', from: null, kind: 'kosmos' }, 'Al');
   assert.doesNotMatch(account, /dm-draft/);
