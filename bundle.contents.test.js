@@ -55,9 +55,14 @@ test('#731: a missing runtime file is named in the refusal, not blamed on the fi
 test('kosmos#6587: the service key set the engine checks is copied beside it into app/engine, set and signature together', () => {
   const { SET_FILE, SIG_FILE } = require('./engine/servicekeys-check');
   const q = (n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  for (const n of [SET_FILE, SIG_FILE]) {
-    assert.match(BUILD, new RegExp('cp "\\$REPO/engine/' + q(n) + '" "\\$STAGE/app/engine/"'), 'the build never copies engine/' + n + ' (it copies engine/*.js only)');
+  // Every staging list (the Mac and Linux bundle, the Windows zip, a deployed board), so none answers "off" forever.
+  const LISTS = { 'tools/build-kosmos-bundle.sh': '\\$STAGE/app/engine/', 'tools/build-kosmos-windows.sh': '\\$STAGE/app/engine/', 'deploy/install-board.sh': '\\$_d/engine/' };
+  for (const [file, dest] of Object.entries(LISTS)) {
+    const src = fs.readFileSync(path.join(__dirname, file), 'utf8');
+    for (const n of [SET_FILE, SIG_FILE]) {
+      assert.match(src, new RegExp('cp "\\$REPO/engine/' + q(n) + '" "' + dest + '"'), file + ' never copies engine/' + n + ' (it copies engine/*.js only)');
+    }
+    // A set without its signature is refused at staging, not shipped to answer "off" forever.
+    assert.match(src, /must ship together \(#6587\)/, file + ' no longer refuses a lone set or signature');
   }
-  // A set without its signature is refused at build time, not shipped to answer "off" forever.
-  assert.match(BUILD, /must ship together \(#6587\)/, 'the build no longer refuses a lone set or signature');
 });

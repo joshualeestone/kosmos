@@ -18,7 +18,13 @@
    - `unknown`: the pin file is there but cannot be read as text. The tunnel reads it with read_to_string, which
      fails the same way, so it cannot sign in with that pin either: not a mismatch.
    - `listed`: the pinned key is on the set.
-   - `mismatch`: a pinned key that is not on the set. */
+   - `mismatch`: a pinned key that is not on the set.
+
+   🛑 Before a recovery key is pinned (the switch that turns this on): the pin is first-use and never refreshed today, so
+   after a key rotation drops the old key from the set, every computer still pinned to it would read `mismatch` and be
+   told something may be posing as the service. The rotation plan already requires the tunnel steps that refresh the
+   pin (S-7a slice 3, the tunnel trust store) to ship before any key is promoted; turning this check on must wait for
+   them too. */
 
 const fs = require('fs');
 const path = require('path');
