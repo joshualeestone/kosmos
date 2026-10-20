@@ -349,7 +349,7 @@ case "$(ps -ww -o command= -p "$PM")" in *ms-playwright/*) ;; *) fail "the real-
 { ! printf '%s\n' "$seen" | grep -qx "$PC"; } && pass "the real matcher leaves out Chrome's crash reporter" || fail "the real matcher listed chrome_crashpad_handler"
 { ! printf '%s\n' "$seen" | grep -qx "$PM"; } && pass "the real matcher leaves out a command that only mentions the folder" || fail "the real matcher listed a mention"
 kill "$PB" "$PX" "$PM" "$PC" 2>/dev/null; wait "$PB" "$PX" "$PM" "$PC" 2>/dev/null
-# Review 9/10: the fixture drop on the Playwright list, through the intruder. The stand-in is a plain sleep whose cwd
+# Review 9/10: the fixture drop on the Playwright list, through the intruder. The stand-in is a plain perl wait whose cwd
 # is a run-tests.sh-shaped sandbox (T/kt<digits>) or elsewhere, reported by the probe under a browser path. No real
 # Playwright-shaped process is made, so a real side turn on the box cannot see this arm (review 10: the first
 # version's control was a real browser-path process outside the sandbox, which a side turn beside the suite saw).
