@@ -525,8 +525,8 @@ function defaultFolderClaudeVersion(plat, env) {
  * on its own port and data folder) would point every agent's hooks on this computer at its throwaway engine, since
  * the script path is its own; it is the same question win32board.bundleRoot answers for the logon task (null for a
  * source checkout and for a build in the updater's folder), so such a board skips, says why, and touches nothing.
- * The launch-time call (win32launch) is gated the same way, so a source board's own agents never get the hooks wired
- * and report through scraping instead: visible (the board's start says why) and the safe side.
+ * The launch-time call (win32launch) is gated the same way, so a source board's own agents never get THIS board's hooks:
+ * where the installed Kosmos already wired the shared file they run its hook; where nothing did, they report by scraping.
  * NOT covered: a second BUILT bundle extracted elsewhere and started as a test board passes bundleRoot and still writes
  * its own path here (an engine-path pointer check was rejected: an update may move the engine before the pointer).
  * `platform`, `script`, `node`, `claudeVersion`, `bundleRoot` are injectable for tests. `waitMs` is withFileLock's wait for a held lock (its default
@@ -538,7 +538,11 @@ function wireDefaultHooks(opts) {
   const plat = o.platform || process.platform;
   if (plat !== 'win32') return { wired: false, skipped: true, because: 'setup.sh wires the hooks on this platform' };
   let root = null;
-  try { root = o.bundleRoot !== undefined ? o.bundleRoot : require('./win32board').bundleRoot({ platform: plat }); }
+  try {
+    // A test may inject the answer, or a function giving it (one that throws reaches the refusal below).
+    root = o.bundleRoot === undefined ? require('./win32board').bundleRoot({ platform: plat })
+      : (typeof o.bundleRoot === 'function' ? o.bundleRoot() : o.bundleRoot);
+  }
   catch { return { wired: false, skipped: false, because: 'this board could not tell whether it is an installed Kosmos, so the hooks were not written' }; }
   if (!root) {
     return { wired: false, skipped: true,

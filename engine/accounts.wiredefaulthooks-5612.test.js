@@ -198,6 +198,15 @@ test('#6601: a board that is not an installed bundle skips, says why, and leaves
   assert.ok(!fs.readFileSync(s.settings, 'utf8').includes('worktree'), 'the hooks now point at the worktree');
 });
 
+test('#6601: when the board cannot tell whether it is installed, it refuses with a reason and writes nothing', (t) => {
+  const s = sandbox(t);
+  const r = accounts.wireDefaultHooks({ platform: 'win32', bundleRoot: () => { throw new Error('boom'); }, script: s.script, node: s.node });
+  assert.deepEqual([r.wired, r.skipped], [false, false], JSON.stringify(r));
+  assert.match(String(r.because), /could not tell whether it is an installed Kosmos/);
+  assert.ok(!String(r.because).includes('boom'), 'the refusal carries the error text');
+  assert.equal(fs.existsSync(s.settings), false, 'a refusal wrote the settings file');
+});
+
 /* On a Mac this shows the gate is reached with nothing injected, not that bundleRoot tells a checkout from a bundle:
    bundleRoot asked about win32 joins with path.win32, which no Mac path can satisfy. On the Windows runner
    (tools/windows-tests.js lists this file) it does tell them apart. */
