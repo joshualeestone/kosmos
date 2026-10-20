@@ -817,6 +817,14 @@ if [ -z "${KOSMOS_MANIFEST_KEY_PROBE_BIN:-}" ]; then
   if [ "${#_srv[@]}" -gt 0 ] && ! node "$REPO/tools/lib/manifest-sign.js" check-served "$KOSMOS_MANIFEST_KEY" "${_srv[@]}"; then
     echo "the manifest-signing key is not one the releases now served accept (#6468): installs would refuse this cut. Ship a release that pins it first."; rm -rf "$_srv_dir"; exit 1
   fi
+  # #6609 phase 2c: with a recovery key pinned in the checkout, installs take the release key list the site serves before
+  # they check an update, so this cut's signing key must be on that list. Read from the site's origin/main, as above. A
+  # list the site does not hold is left absent here and refused by check-list. Off (no recovery key): it says so and passes.
+  git -C "$SITE" show "origin/main:dist/release-keys.json" > "$_srv_dir/release-keys.json" 2>/dev/null || rm -f "$_srv_dir/release-keys.json"
+  git -C "$SITE" show "origin/main:dist/release-keys.json.sig" > "$_srv_dir/release-keys.json.sig" 2>/dev/null || rm -f "$_srv_dir/release-keys.json.sig"
+  if ! node "$REPO/tools/lib/manifest-sign.js" check-list "$KOSMOS_MANIFEST_KEY" "$_srv_dir/release-keys.json" "$_srv_dir/release-keys.json.sig"; then
+    echo "the release key list the site serves does not name this cut's signing key (#6609): installs with the recovery key check on would refuse it. Sign and publish a list that names it first."; rm -rf "$_srv_dir"; exit 1
+  fi
   rm -rf "$_srv_dir"
 fi
 
