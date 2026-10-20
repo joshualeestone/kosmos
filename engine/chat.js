@@ -1215,7 +1215,10 @@ async function recoverStuckInput(card, since) {
     if (!box.text) return { outcome: 'waiting', because: 'empty' };
     const kept = recallUnsent(target);
     if (kept && rememberedShows(box.text, kept, true)) {
-      /* Idle on the roster as it is now, not only as the sweep read it: an Enter on a busy agent would queue the line. */
+      /* Idle on the roster as it is now, not only as the sweep read it: an Enter on a busy agent would queue the line.
+         pressRememberedNow then passes every gate a #6436 retry passes (menu, account and quota holds, typingGate,
+         verifyAtSend). Not the open-terminal check of the draft path: this is Kosmos's own message, which a #6436 retry
+         would press with the window open too, and pressing it loses nothing. */
       let fresh = null;
       try { const r = rosterSource ? rosterSource() : null; fresh = Array.isArray(r) ? resolveCard(r, card.sessionName) : null; } catch { fresh = null; }
       if (!fresh || fresh.state !== status.STATE.IDLE) return { outcome: 'waiting', because: 'not idle' };

@@ -511,11 +511,16 @@ test('kosmos#6717: a round that only takes out a line break (the text reads the 
 test('kosmos#6717: a piece of a text already kept (a clearing that stopped partway) is not kept again', () => {
   const whole = drafts.add('al', 'first row of it and second row of it');
   assert.equal(whole.ok, true);
-  const piece = drafts.add('al', 'first row of it');
-  assert.equal(piece.id, whole.id);
+  const piece = drafts.add('al', 'first row of it and second row');
+  assert.equal(piece.id, whole.id, 'the start, rows cut from the end');
   assert.equal(piece.already, true);
   assert.equal(drafts.list('al').length, 1);
-  // CONTROL: different words are a new draft.
+  assert.equal(drafts.add('al', 'row of it and second row of it').id, whole.id, 'the end, rows cut from the start');
+  // CONTROL: different words are a new draft, and so is a short text the kept one merely contains.
   assert.notEqual(drafts.add('al', 'something else entirely').id, whole.id);
-  assert.equal(drafts.list('al').length, 2);
+  const short = drafts.add('al', 'row');
+  assert.notEqual(short.id, whole.id, 'a short text is never taken for a piece');
+  assert.equal(short.already, undefined);
+  assert.notEqual(drafts.add('al', 'row of it and second').id, whole.id, 'from the middle of the kept text: not what a clear leaves');
+  assert.equal(drafts.list('al').length, 4);
 });

@@ -11,7 +11,8 @@
  * 🛑 NOTHING SENDS FROM HERE. A draft is never typed into any agent and never becomes a message row: nothing that
  * delivers reads this file. Only the conversation route (to draw the line) and the dismiss route touch it.
  *
- * One small file per agent under the store. Never throws.
+ * One small file per agent under the store, read and rewritten whole (one writer: the board; a second process writing
+ * the same store could lose a draft between its read and its write). Never throws.
  */
 
 const crypto = require('node:crypto');
@@ -22,7 +23,8 @@ const store = require('./store');
 /* Per agent. Full means refused, never the oldest dropped: every kept draft is words the person has not yet seen or
    dismissed, so the box is left as it is instead (chat.recoverStuckInput says so in the board log). */
 const MAX_KEPT = 20;
-const MAX_TEXT = 64 * 1024;   // the box is read from at most 200 rows, well under this
+const MAX_TEXT = 64 * 1024;
+const PIECE_MIN = 20;   // characters (whitespace not counted) before a shorter text can be a piece of a kept one   // the box is read from at most 200 rows, well under this
 
 function dir() { return path.join(store.ROOT, 'unsent-drafts'); }
 /* The store key alone can make two names one file (it lowercases and strips); a short hash of the exact name keeps
@@ -73,8 +75,20 @@ function add(name, text, opts = {}) {
   const cur = readDrafts(name);
   if (!cur.ok) return { ok: false, because: 'the drafts kept for this agent cannot be read right now' };
   const squashed = (v) => String(v).replace(/\s+/g, '');   // the box's rows wrap differently after a resize
-  /* The same text, or a piece of one already kept (what a clearing stopped partway left in the box): the kept one. */
-  const same = cur.drafts.find((d) => squashed(d.text).includes(squashed(t)));
+  /* The same text, or what a clearing stopped partway left of a kept one: that text with whole rows taken out of it,
+     so it keeps the kept text's start up to the cut and its end after it (chat's stuckShrunk, the same test), and long
+     enough to say so (a short "ok" is never taken for a piece of an older draft that happens to hold those letters). */
+  const st = squashed(t);
+  const same = cur.drafts.find((d) => {
+    const sd = squashed(d.text);
+    if (sd === st) return true;
+    if (st.length < PIECE_MIN || st.length >= sd.length) return false;
+    let p = 0;
+    while (p < st.length && sd[p] === st[p]) p += 1;
+    let q = 0;
+    while (q < st.length && sd[sd.length - 1 - q] === st[st.length - 1 - q]) q += 1;
+    return p + q >= st.length;
+  });
   if (same) return { ok: true, id: same.id, already: true };
   if (cur.drafts.length >= MAX_KEPT) return { ok: false, full: true, because: MAX_KEPT + ' drafts are already kept for this agent' };
   const since = typeof opts.since === 'string' && Number.isFinite(Date.parse(opts.since)) ? opts.since : null;
