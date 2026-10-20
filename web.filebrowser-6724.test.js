@@ -248,3 +248,18 @@ test('iteration 3: a list stopped by the read budget says Kosmos stopped looking
   await h.api.paintAgentFilesAll('ana');
   assert.equal(h.el['d-filesall-more'].textContent, 'This folder holds a lot, so Kosmos stopped looking partway through it. Some files may not be listed here.');
 });
+
+test('iteration 6: the preview fetches a text file only through an explicit Files address, never from an attachment\u2019s own words', () => {
+  const kind = new Function(page.lift(SCRIPT, 'pvStageKind') + '\nreturn pvStageKind;')();
+  // An attachment's preview is the file's first characters: untrusted, and never an address.
+  assert.equal(kind({ kind: 'text', preview: '/api/accounts' }), 'card', 'a text attachment beginning "/api/" would make the viewer fetch that path');
+  assert.equal(kind({ kind: 'text', preview: 'hello there' }), 'snippet', 'CONTROL: an attachment\u2019s words show as its snippet');
+  assert.equal(kind({ kind: 'text', textUrl: '/api/agent/ana/files/preview?name=a.txt' }), 'textUrl');
+  assert.equal(kind({ kind: 'text', textUrl: '/api/project/p-1/file-preview?name=a.txt' }), 'textUrl');
+  assert.equal(kind({ kind: 'text', textUrl: '/api/accounts' }), 'card', 'textUrl must name a Files preview route');
+  assert.equal(kind({ kind: 'image', preview: '/api/attachment/1/preview' }), 'media', 'CONTROL: pictures as before');
+  const open = page.lift(SCRIPT, 'pvOpen');
+  assert.match(open, /pvTextInto\(stage, a\.textUrl, fileCard\)/);
+  assert.doesNotMatch(open, /pvTextInto\(stage, a\.preview/, 'the preview text is used as an address again');
+  assert.match(PAGE, /#d-filesall-path button \{ min-height: 44px;/, 'the path line\u2019s buttons are small on a phone');
+});

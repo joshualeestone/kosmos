@@ -152,3 +152,13 @@ the attribute only when remote.
   One NIT, fixed: over Kosmos+ two hints stayed on screen under the conversation-folder buttons they describe. They
   carry data-remote-hide now, as each already carried data-linux-hide with its button. Tested (every Linux-hidden line
   right after a remote-hidden button is remote-hidden too); mutant red.
+- Iteration 6 (sonnet): no escape on the server. Findings:
+  - WARNING, fixed: a regression in the PAGE that this branch made. The new text branch of the preview took any text
+    record whose `preview` began "/api/" as an address and fetched it with the viewer's session. An attachment's
+    `preview` is the file's own first words (untrusted), so a text file beginning "/api/accounts" would have made the
+    viewer's browser fetch that path and show the answer. The stage's choice is a pure function now (`pvStageKind`):
+    a text file is read from the board only through an explicit `textUrl`, which only filesPvOpen sets and which must
+    name a Files preview route; an attachment's words keep their old handling (a snippet, or the file card). Tested
+    with the hostile attachment and a hostile textUrl; the mutant that takes the words as an address is red.
+  - NIT, fixed: the path line's buttons were a small tap target on a phone; 44 px there, as the rows and Back are.
+  - Checked by the reviewer: every route that opens a window on the board's computer has its button tagged or gated.
