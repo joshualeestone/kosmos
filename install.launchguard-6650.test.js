@@ -3,7 +3,7 @@
  * #6650: a sandboxed install (another KOSMOS_HOME) left three test boards as real launch agents on a release
  * Mac, respawning for 20 hours, one holding the real board off its port for three. setup.sh now refuses, before
  * it writes anything, a sandboxed install whose login job would land in the account's REAL LaunchAgents when its
- * home is a temporary folder or it would use the account's own default port. The REAL guard function is lifted out
+ * home is a temporary folder. The REAL guard function is lifted out
  * of setup.sh and run under /bin/sh with each input set, so no install runs here at all.
  */
 const test = require('node:test');
@@ -63,13 +63,25 @@ test('#6650: the /var/folders spelling of a temp home is refused too (the incide
   assert.match(r.err, /is a temporary one/);
 });
 
-test('#6650: a kept home on the account default port is refused (it would fight the real board)', { skip: !isMac }, () => {
-  const r = guard({ kosmosHome: KEPT, port: '16180', defaultPort: '16180' });
-  assert.equal(r.rc, '1', r.err);
-  assert.match(r.err, /port 16180, the one this account's own Kosmos uses/);
+test('#6650: a kept home is not refused on any port, the default included (a person self-hosting)', { skip: !isMac }, () => {
+  for (const port of ['16180', '57015']) {
+    const r = guard({ kosmosHome: KEPT, port, defaultPort: '16180' });
+    assert.equal(r.rc, '0', port + ': ' + r.err);
+  }
 });
 
-test('#6650: a release walk (kept home, its own port) goes through', { skip: !isMac }, () => {
+test('#6650: a home under this run\'s own TMPDIR is refused, wherever TMPDIR points', { skip: !isMac }, () => {
+  // /Users/Shared is a real folder and in none of the fixed temp spellings, so only the TMPDIR arm can refuse this.
+  const r = guard({ kosmosHome: '/Users/Shared/launchguard-6650-x/home', env: { TMPDIR: '/Users/Shared' } });
+  assert.equal(r.rc, '1', r.err);
+  assert.match(r.err, /is a temporary one/);
+});
+
+test('#6650: the /var/tmp spelling is refused too', { skip: !isMac }, () => {
+  assert.equal(guard({ kosmosHome: '/var/tmp/tmp.x/home' }).rc, '1');
+});
+
+test('#6650: a release walk (kept home, its own port) goes through, saying nothing', { skip: !isMac }, () => {
   const r = guard({ kosmosHome: KEPT, port: '57015' });
   assert.equal(r.rc, '0', r.err);
   assert.equal(r.err, '');

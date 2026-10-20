@@ -3323,11 +3323,12 @@ case "${1:-}" in
 esac
 
 # #6650: a sandboxed install (another KOSMOS_HOME) with no launch folder of its own (AGENT_WORKFORCE_LAUNCH) is
-# refused, before anything is written, in the two shapes that left three test boards respawning on a release Mac
-# for 20 hours, one holding the real board off its port for three: a home under a temp folder (the cleaner deletes
-# it and leaves the job behind), or the account's own default port (it fights the real board for it). A fake HOME
+# refused, before anything is written, when its home is under a temp folder: the shape that left three test boards
+# respawning on a release Mac for 20 hours, one holding the real board off its port for three (the cleaner deletes
+# the home and leaves the job behind, still on whatever port it took). A person's own kept home is not refused,
+# whatever its port: it is no stray, and is the one board there is to fight for the port. A fake HOME
 # does not make it safe: it scopes the plist file, not launchd, which still registers the job in this account's
-# own domain. A release walk names its own port and a home it keeps, so it is unaffected; KOSMOS_ALLOW_TEMP_LAUNCH=1
+# own domain. A release walk in a kept folder is unaffected; KOSMOS_ALLOW_TEMP_LAUNCH=1
 # lets one through on purpose. macOS only: a Linux systemd user unit has the same shape and is not guarded here.
 # Prints why and returns 1 to refuse.
 _kosmos_temp_launch_refusal() {
@@ -3336,14 +3337,13 @@ _kosmos_temp_launch_refusal() {
   _tl_why=""
   _tl_tmp="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P)" || _tl_tmp=""
   case "$KOSMOS_HOME/" in
-    /tmp/*|/private/tmp/*|/var/folders/*|/private/var/folders/*) _tl_why="its folder ($KOSMOS_HOME) is a temporary one" ;;
+    /tmp/*|/private/tmp/*|/var/tmp/*|/private/var/tmp/*|/var/folders/*|/private/var/folders/*) _tl_why="its folder ($KOSMOS_HOME) is a temporary one" ;;
     *) [ -n "$_tl_tmp" ] && case "$KOSMOS_HOME/" in "$_tl_tmp"/*) _tl_why="its folder ($KOSMOS_HOME) is a temporary one" ;; esac ;;
   esac
-  [ -n "$_tl_why" ] || [ "$PORT" != "$_kosmos_default_port" ] || _tl_why="it would use port $PORT, the one this account's own Kosmos uses"
   [ -n "$_tl_why" ] || return 0
   printf '\n  This install uses another Kosmos folder, and %s, so its background job would be left\n' "$_tl_why" >&2
   printf '  running in your real login items. Nothing was changed. For a test install, set AGENT_WORKFORCE_LAUNCH to a\n' >&2
-  printf '  folder of its own (and KOSMOS_PORT to a free port); to do this on purpose, set KOSMOS_ALLOW_TEMP_LAUNCH=1.\n\n' >&2
+  printf '  folder of its own, or install into a folder you keep; to do this on purpose, set KOSMOS_ALLOW_TEMP_LAUNCH=1.\n\n' >&2
   return 1
 }
 _kosmos_temp_launch_refusal || exit 2
