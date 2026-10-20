@@ -50,3 +50,7 @@ No BLOCKER, WARNING or CONVENTION. Both gates were checked by reading: 913 surfa
 - [NIT] fixed: the check's comment now says "the likely cause, reasoned from the source", matching the plan.
 - [NIT] fixed: the pre-fold sha is labelled as such.
 - Known and stated: the check guards "a reader left short", not this exact ordering. The cut race is not reproducible on demand.
+
+### Final runs (light lane, 02:02 to 02:05, on 9eab1650eb, clean tree)
+- Three runs: every arm passed in both views (rc 0, 0 failing lines).
+- Control in the same turn (jumpToOwnSend removed, applied, 1 line changed): rc 1, the failed-send arm fails in both views (afterFail gap 3709). Restored, tree clean.
