@@ -78,3 +78,7 @@ check after this change (it had one, P4, when the button was on the bar).
 - [NIT] the kept #3837 history said #5379 pads the bar --> FIXED ("padded it ... until #6718").
 - The reviewer traced first load at phone width, a header not yet laid out, desktop to phone and phone to desktop
   and found no stale-margin path.
+
+## Review round 4 (blind, sonnet): converged
+- No new issues found. [NIT] the consolidated .kplus-bar margin rule now touches only the phone bar (harmless);
+  [NIT] spacing above #plus-logout-row is not asserted (P4/P4b assert it is last and shown). Neither changed.
