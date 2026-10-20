@@ -1215,6 +1215,10 @@ async function recoverStuckInput(card, since) {
     if (!box.text) return { outcome: 'waiting', because: 'empty' };
     const kept = recallUnsent(target);
     if (kept && rememberedShows(box.text, kept, true)) {
+      /* Idle on the roster as it is now, not only as the sweep read it: an Enter on a busy agent would queue the line. */
+      let fresh = null;
+      try { const r = rosterSource ? rosterSource() : null; fresh = Array.isArray(r) ? resolveCard(r, card.sessionName) : null; } catch { fresh = null; }
+      if (!fresh || fresh.state !== status.STATE.IDLE) return { outcome: 'waiting', because: 'not idle' };
       const answer = await pressRememberedNow(target, card);
       if (answer === 'sent') return { outcome: 'pressed' };
       /* Enter went and the box still holds the line (Enter rebound, say): said once in the log, tried again next minute. */
@@ -1262,7 +1266,9 @@ async function recoverStuckInput(card, since) {
          which saves nothing twice (the drafts keep one copy of a text). */
       const notYet = (because) => ({ ...done('drafted-not-cleared', because), retry: true });
       /* `expect` is the box as last read. Right before each round it must still read exactly that (so words typed since
-         are never cleared with it), and after the round what is left must be it with rows taken out (stuckShrunk). */
+         are never cleared with it), and after the round what is left must be it with rows taken out (stuckShrunk). The
+         same read stops the clearing if anything replaces the box: a dialog or permission prompt leaves no box to read,
+         and a menu's own ❯ row reads as different text. */
       let expect = squash(again.text);
       let stale = 0;
       const rounds = 2 * (again.rows || 1) + 6;

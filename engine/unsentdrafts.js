@@ -51,7 +51,7 @@ function readDrafts(name) {
 function writeDrafts(name, drafts) {
   const file = fileFor(name);
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });   // the names of agents, and words that may be secret
     const tmp = file + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({ agent: String(name), drafts }), { mode: 0o600 });
     try { fs.renameSync(tmp, file); } catch (err) { try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ } throw err; }
