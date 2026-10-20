@@ -1340,7 +1340,7 @@ function seedRows(now, rows) {
   rows.forEach((r, i) => {
     fs.appendFileSync(messages.LOG, JSON.stringify({
       kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease', from: r.from,
-      to: MEMBERS.filter((m) => m !== r.from), text: r.text, at: new Date(now - (rows.length - i) * 1000).toISOString(), outcomes: {},
+      to: MEMBERS.filter((m) => m !== r.from), text: r.text, at: new Date(now - (r.ago || (rows.length - i) * 1000)).toISOString(), outcomes: {},
       ...(r.mentioned ? { mentioned: r.mentioned } : {}), ...(r.operator ? { operator: true } : {}),
     }) + '\n');
   });
@@ -1358,6 +1358,7 @@ test('#6608: a post naming one owner: another agent\'s FIRST agreement-only repl
     assert.equal(leo.out.state, chat.DELIVERY.COULD_NOT, 'another agent agreeing with a post that named one owner was passed on');
     assert.equal(leo.out.code, 'ack_only', 'the refusal must be the not-a-hold ack_only code');
     assert.match(leo.out.because, /named \S+ to take it/, 'the refusal does not say who the post named');
+    assert.equal(typeof leo.out.owner, 'string', 'the refusal does not carry the owner the CLI names');
     assert.doesNotMatch(leo.out.because, /["`]/, 'the CLI reads because with a sed that stops at a quote');
     assert.doesNotMatch(leo.out.because, /paused|for the person|bring you in/i, 'the refusal speaks of a hold; it is not one');
     assert.equal(leo.tmux.sends().length, 0, 'the refused reply was typed anyway');
@@ -1400,6 +1401,32 @@ test('#6608: the LATEST post that says something decides: a later content post n
     wipeLog(); chat.resetForTests();
     seedRows(now, [{ from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] }, { from: 'mara', text: 'ok' }]);
     assert.equal(sendAs(board, 'leo', 'agreed').out.code, 'ack_only', 'CONTROL: an ack after the owner\'s ack was passed on');
+  });
+});
+
+test('#6608 review 1: it does not apply to a post that asks something, a reply to another post, or an old post', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // A question to the room alongside the hand-off: the answers are wanted.
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara please draft the renewal letter. Everyone OK with Friday?', mentioned: ['mara'] }]);
+    assert.equal(sendAs(board, 'leo', 'yes').out.state, chat.DELIVERY.PLACED, 'an answer to a question the owner-naming post asked was dropped');
+    // A reply to a DIFFERENT, earlier post (mara asked leo something) answers that post, not the hand-off.
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [
+      { from: 'mara', text: '@leo is the lease date fixed', mentioned: ['leo'] },
+      { from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] },
+    ]);
+    armSender('leo-discord'); arm([]);
+    const answered = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'yes', replyTo: 'm1' }, board.agents, MEMBERS);
+    assert.equal(answered.state, chat.DELIVERY.PLACED, 'a reply answering an earlier post was refused by the later hand-off');
+    // CONTROL: the same "yes" replying to the hand-off itself is refused.
+    armSender('april-discord'); arm([]);
+    const toHandoff = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'agreed', replyTo: 'm2' }, board.agents, MEMBERS);
+    assert.equal(toHandoff.code, 'ack_only', 'CONTROL: an ack replying to the hand-off itself was passed on');
+    // An owner-naming post older than the room's counting window no longer decides.
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'], ago: 3 * 60 * 60 * 1000 }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'a hand-off from hours ago still refused an ack');
   });
 });
 

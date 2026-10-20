@@ -126,6 +126,24 @@ test('#6420: one minute reads as a minute', () => {
   });
 });
 
+/* #6608: an agreement-only reply to a post that named one owner. The board sends `owner`; the CLI names them rather than
+   saying the reply "only agreed with what was already said", which is untrue there. CONTROL: no owner, the old words. */
+test('#6608: an owner-named refusal (ack_only with owner) names the owner; without one the old words stay', async () => {
+  const at = (owner) => ({ 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', code: 'ack_only', because: 'x', ...(owner ? { owner } : {}) } } } });
+  await withBoard(at('Mara'), async (port) => {
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+    const out = await runCli(['post', 'henderson', 'agreed'], env);
+    assert.match(out.stdout, /Not posted: that post named Mara to take it, so Kosmos did not pass on an agreement-only reply from anyone else\. Nothing was sent\./);
+    assert.doesNotMatch(out.stdout, /already said/, 'the owner-named refusal still said the reply repeated what was already said');
+    assert.equal(out.code, 1);
+  });
+  await withBoard(at(null), async (port) => {
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+    const out = await runCli(['post', 'henderson', 'agreed'], env);
+    assert.match(out.stdout, /Not posted: this only agreed with what was already said/, 'CONTROL: the plain ack refusal lost its words');
+  });
+});
+
 test('#2710: `kosmos room reopen <project>` clears a held room and says so', () => {
   const routes = { 'POST /api/project/henderson/room/reopen': { code: 200, body: { ok: true, at: '2026-09-10T20:00:00.000Z' } } };
   return withBoard(routes, async (port) => {
