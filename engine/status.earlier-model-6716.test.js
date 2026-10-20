@@ -65,3 +65,18 @@ test('#6716: the snapshot\'s call (with a session) also reads the earlier sessio
   assert.equal(r.model, 'claude-opus-5-5');
   assert.equal(r.earlierSession, true);
 });
+
+test('#6716 review 5: the snapshot keeps a borrowed model out of model and carries it as earlierModelName', () => {
+  assert.deepEqual(status.splitModelReading({ model: 'claude-opus-4-8', earlierSession: true }),
+    { model: null, earlierModelName: 'Claude Opus 4.8' }, 'a borrowed model reached `model`');
+  // CONTROL: the session's own reading is `model`, with nothing borrowed.
+  assert.deepEqual(status.splitModelReading({ model: 'claude-opus-4-8' }), { model: 'claude-opus-4-8', earlierModelName: null });
+});
+
+test('#6716 review 5: only an EARLIER session lends; a newer one in the folder never does', () => {
+  const older = session('trio', 'a-older.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-4-8' } }], 900);
+  const mid = session('trio', 'b-mid.jsonl', [{ type: 'user', message: { content: 'hi' } }], 600);
+  session('trio', 'c-newer.jsonl', [{ type: 'assistant', message: { model: 'claude-fable-5' } }], 5);
+  assert.ok(older);
+  assert.equal(status.modelInEarlierSession(mid, 'trio'), 'claude-opus-4-8', 'a newer session lent its model');
+});

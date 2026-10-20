@@ -23,9 +23,12 @@ sign-in isn't working".
    transcript, so the reading was empty, and with no Kosmos login job (the fleet launcher starts her) the tile fell back
    to "Made before Kosmos recorded this". Now, when the newest session has no model, readModel takes the newest earlier
    session in the agent's own folder (same cwd check as transcriptFor's workdir arm, five at most), flagged
-   `earlierSession: true`. The snapshot keeps that out of `model` (context sizing, the model panel's "Right now", a
-   switch's label and the server's checks all read it) and carries it as `earlierModelName`, which only the card's
-   model line uses, after the running and the planned model (review 2). Cached a minute per new-session file.
+   `earlierSession: true`. The snapshot keeps that out of `model` (splitModelReading: context sizing, the model panel's
+   "Right now", a switch's label and the server's checks all read `model`) and carries it as `earlierModelName`, which
+   only `tileModelLine` (the tile and the list row) uses, and only where it would otherwise say "Made before Kosmos
+   recorded this" or "Unknown Model"; modelLine, the picker and Runs on never show it (review 5). Only sessions older
+   than the current one lend (review 5). whoami skips a borrowed model (the launch reading answers). Cached a minute
+   per agent and file.
 
 **Done when.** No tile or list row draws a sentence; the pill's hover and screen-reader text carry it; the auth pill reads
 "Sign-in Issue" at normal size; a session with no reply yet shows the model its earlier session ran.
@@ -34,7 +37,8 @@ sign-in isn't working".
 - All web.*.test.js and cardlabel tests: 3100 pass. Updated to the new rule: web.not-running (offline tile/row on the
   pill), web.trust-wait-card-3013 (trust note on the pill), web.rulesbehind-5957 and -render-5957 (pillSay), 
   web.muse-waiting-4569 (card ''), web.quoted-line-986 and web.stateread-5949 (markup shape).
-- engine/status.earlier-model-6716.test.js: earlier session lends its model, flagged; CONTROL a replied session reads
+- engine/status.earlier-model-6716.test.js (7): splitModelReading keeps a borrowed model out of `model`; only an
+  EARLIER session lends; earlier session lends its model, flagged; CONTROL a replied session reads
   itself; nothing invented with no earlier model; another folder's session never lends. Mutation: without the fallback
   the first arm reds.
 - Browser: render-unsent-input-6249 (20: the pill hover carries it, a screen reader hears it, no sentence on the tile),
@@ -55,3 +59,5 @@ agent session; not this change.
 what the agent last ran as and acts only on agents with no login job, so no planned model competes. The re-captured card
 fixture also changed `lastWorked` (null to a pinned date): the capture tool records a live card from this machine, and
 only keys and types are pinned (render-talk-goldencard-2519 35/35).
+- server.whoami-earlier-6716.test.js: whoami does not report a borrowed model (CONTROL: a replied session is used).
+- web.tile-model-6716.test.js: the tile names the earlier model only as a last resort; modelLine never does.

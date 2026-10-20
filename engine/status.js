@@ -7072,6 +7072,15 @@ function readModel(agentName, exactSession) {
     : { model: null, confidence: CONFIDENCE.NONE };
 }
 
+/** #6716: a reading's model as the snapshot carries it. A model borrowed from an EARLIER session is not what this one
+    runs, so it stays out of `model` (context sizing, the model panel, a switch, the server's checks read that) and
+    travels as `earlierModelName`, for the tile only. */
+function splitModelReading(reading) {
+  const r = reading || {};
+  if (r.earlierSession === true) return { model: null, earlierModelName: r.model ? modelDisplayName(r.model) : null };
+  return { model: r.model || null, earlierModelName: null };
+}
+
 /** The model a transcript tail names, or null (the rules below are readModel's, unchanged). */
 function modelInText(text) {
   /**
@@ -7144,11 +7153,14 @@ function modelInEarlierSessionUncached(file, agentName) {
   const belongs = workdirBelongs(agentName);
   if (!belongs) return null;
   let siblings;
+  let mine = Infinity;
+  try { mine = fs.statSync(file).mtimeMs; } catch { mine = Infinity; }
   try {
     const dir = path.dirname(file);
     siblings = fs.readdirSync(dir)
       .filter((f) => f.endsWith('.jsonl') && path.join(dir, f) !== file)
       .map((f) => { const full = path.join(dir, f); let m = 0; try { m = fs.statSync(full).mtimeMs; } catch { m = 0; } return { full, m }; })
+      .filter((x) => x.m <= mine)   // EARLIER only (review 5): a newer, concurrent session in the folder never lends
       .sort((x, y) => y.m - x.m)
       .slice(0, 5);
   } catch { return null; }
@@ -9269,8 +9281,7 @@ function snapshot() {
     /* #6716 review 2: a model borrowed from an EARLIER session (a new one that has not replied yet) is NOT this session's
        model: it stays out of `model` (context sizing, the model panel's "Right now", a switch's label, the server's
        checks all read that) and travels as `earlierModelName`, which only the card's model line uses, last. */
-    const model = earlierSession === true ? null : modelRead;
-    const earlierModelName = earlierSession === true ? modelDisplayName(modelRead) : null;
+    const { model, earlierModelName } = splitModelReading({ model: modelRead, earlierSession });
     /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
        read "Not yet read" forever. Its context lives in the Codex rollout, which
@@ -9819,7 +9830,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = {
+module.exports = { modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)

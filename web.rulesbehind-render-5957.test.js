@@ -51,10 +51,10 @@ test('#6045 / #6716 lrow: the far-behind sentence is on the pill (its title and 
   assert.ok(/<div class="ltask">[^<]*<\/div>/.test(plain), 'control: the plain task cell is unchanged');
 });
 
-test('#6045 CSS: .ltask.lnote is the model column size, and the plain task cell keeps its own', () => {
+test('#6045 / #6716 CSS: the note styling went with the notes, and the plain task cell keeps its own size', () => {
   const PAGE = require('node:fs').readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
   const size = (sel) => { const m = PAGE.match(new RegExp('^' + sel.replace(/\./g, '\\.') + ' \\{[^}]*font-size: ([^;]+);', 'm')); return m && m[1]; };
   assert.ok(size('.lmodel'), 'the .lmodel rule is not where this test looks: re-derive it');
-  assert.equal(size('.ltask.lnote'), size('.lmodel'), 'the note is not the model column size');
+  assert.equal(size('.ltask.lnote'), null, '#6716: a note style is back with no note to dress');
   assert.notEqual(size('.ltask'), size('.lmodel'), 'control: a task line keeps its own, larger size');
 });

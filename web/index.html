@@ -3156,7 +3156,6 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    heights still line their model up, and shrunk a long way — Josh: "very much
    smaller". This is the change that let the whole card get shorter. */
 .acard .amodel { font-size: .75rem; color: var(--k-ink-2); margin-top: auto; padding-top: 16px; }
-.acard .note { text-align: left; margin-top: 12px; }
 /* presence is NOT status: three states, and the third does not look like off */
 .pres { position: absolute; right: 6px; bottom: 6px; width: 14px; height: 14px;
         border-radius: 50%; border: 2.5px solid var(--k-surface); box-sizing: content-box; }
@@ -4087,7 +4086,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .ltask { font-size: .9375rem; color: var(--k-ink-2); overflow: hidden;
          text-overflow: ellipsis; white-space: nowrap; }
 /* #6045: a note in the task cell (rules behind, not run in N days) is the model column's size, not a task line's. */
-.ltask.lnote { font-size: .75rem; }
 .lmem { display: flex; align-items: center; gap: 10px; }
 .bar { flex: 1; height: 6px; border-radius: 100px; background: rgba(20,22,26,.10);
        overflow: hidden; display: block; }
@@ -21571,12 +21569,10 @@ function idleLine(a) {
   if (!(a && Number.isSafeInteger(a.idleDays) && a.idleDays > 0)) return '';
   return 'Has not run in ' + a.idleDays + ' days. If it is no longer needed, remove it under AI Settings on its page.';
 }
-/* #6045 (Josh, 0.7.45 review): the list row's task cell. When what it holds is one of the notes above (rules behind,
-   not run in N days), it is drawn at the model column's size (.lnote), not as a task line, and carries the whole note
-   as its title since the cell ends in an ellipsis. Any other text (a task, a state sentence) is unchanged. */
-function lrowTask(text, note) {
-  const isNote = !!text && text === note;
-  return '<div class="ltask' + (isNote ? ' lnote' : '') + '"' + (isNote ? ' title="' + esc(text) + '"' : '') + '>' + esc(text || '') + '</div>';
+/* The list row's task cell. #6716: no sentence sits in it any more (each is its pill's hover), so it holds a task line or
+   nothing; #6045's note styling (.lnote) went with the notes. */
+function lrowTask(text) {
+  return '<div class="ltask">' + esc(text || '') + '</div>';
 }
 /* The offline card and list row's one note: rules behind, then not run in N days, whichever apply. */
 function offlineNote(a) {
@@ -21770,8 +21766,18 @@ function asSentence(s) {
    card and the agent page still show it, so #150's words are unchanged. Recognised by modelLine's own answer for a
    never-recorded agent, so the sentence is written once, in modelLine. */
 function lmodelCell(a) {
-  const line = modelLine(a);
+  const line = tileModelLine(a);
   return line === modelLine({ neverRecorded: true }) ? '<span class="vh">' + esc(line) + '</span>' : esc(line);
+}
+/* #6716 (Josh: "I am not sure why it doesnt recognize Renet's model"): the TILE's and the list row's model line. Where
+   modelLine has nothing to name (it would say "Made before Kosmos recorded this" or "Unknown Model"), the model the
+   agent's EARLIER session ran (a new one that has not replied yet) is named instead. Only here: the model picker, the
+   agent page's Runs on and every other modelLine reader keep saying what the agent runs or is set to run (review 5). */
+function tileModelLine(a) {
+  const line = modelLine(a);
+  if (!a || !a.earlierModelName || a.modelName || a.plannedModelName) return line;
+  if (line !== 'Made before Kosmos recorded this' && line !== 'Unknown Model') return line;
+  return /^claude/i.test(a.earlierModelName) ? a.earlierModelName : 'Claude ' + a.earlierModelName;
 }
 function modelLine(a) {
   /* Provider-first ("Claude Opus 5"), guarded so a modelName that already
@@ -21810,9 +21816,7 @@ function modelLine(a) {
      rollout (turn_context), never scraped off the screen; the provider is
      the fallback while no turn has named one. */
   const notRunning = cardStOf(a).pres === 'off';
-  /* #6716: last, the model the agent's EARLIER session ran (a new one that has not replied yet: Renet after an account
-     move). Never ahead of what it runs now or is set to run, so a model switch never shows the old model. */
-  const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName || a.earlierModelName;
+  const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
   /* #4416 (Josh 15:18: knowing "what actual model these things are on"): the model its rollout names (engine
      codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
   // #5977 (UI review): a Qwen agent runs on codex too, and is never "OpenAI": its model, or Qwen while none is known.
@@ -22728,7 +22732,7 @@ function card(a) {
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, pillSay(a)) : pillTitle(pillSay(a))}>${glyphOf(a)}<b>${esc(copy.label)}</b>${pillVh(pillSay(a))}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
-    <div class="amodel">${esc(modelLine(a))}</div>
+    <div class="amodel">${esc(tileModelLine(a))}</div>
     <div class="atask">${esc(taskLine(a, { card: true }))}</div>
   </div>`;
 }
@@ -22931,7 +22935,7 @@ function lrow(a) {
          it is an action, not status text (#6400: the Answer link went; the row itself answers). This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
     <div class="lstate"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a) : ''}><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${pillVh(pillSay(a))}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${pillTitle(pillSay(a))}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
-    ${lrowTask(taskLine(a, { card: true }), '')}
+    ${lrowTask(taskLine(a, { card: true }))}
     <div class="lmodel">${lmodelCell(a)}</div>
     <div class="lmem">${mem}</div>
   </div>`;
