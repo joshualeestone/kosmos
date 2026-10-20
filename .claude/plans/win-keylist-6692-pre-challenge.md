@@ -19,14 +19,29 @@ Validation: win32update, win32update.keylist-6692, win32recordacl, manifest-veri
 windows-tests-1777 and engine.reachable run on the Windows box through the no-schtasks preload: 218 tests, 217 pass,
 1 skipped (the macOS-only arm), 0 fail.
 
-### Per-iteration
-1. Six low/medium items: record files' own access lists not read (FIXED: each seq file read); PowerShell timeout (FIXED:
-   60 s, the signature limit); non-ASCII output (FIXED: escaped as the signature check does); hard-link wording
-   (FIXED: names the folder); a busy file blamed on the drive (FIXED: only link-incapable codes); "try again" twice
-   (FIXED). Retrying a signed but malformed list: kept, the card asks that any failing list be retried.
-2. FAT drives answered as "Everyone" (FIXED: FAT/exFAT named in the refusal); the folder above the anchor (FIXED: read
-   too); a missing anchor folder (FIXED: its own sentence).
-3. EPERM can be a plain denial (FIXED: the hard-link sentence says "may"); the real-ACL test's timeout (FIXED: 120 s).
-4. The recovery test branched on a win32 host without running on the Windows job (FIXED: added to windows-tests.js
-   ALSO, read-only arm skipped there).
-5. NO FINDINGS.
+### Per-Iteration Breakdown
+
+#### Iteration 1
+- [WARNING] record files' own access lists not read --> FIXED (each seq file read)
+- [NIT] PowerShell timeout shorter than the signature check's --> FIXED (60 s)
+- [NIT] non-ASCII output garbled --> FIXED (escaped as the signature check does)
+- [NIT] hard-link sentence pointed at the install folder --> FIXED (names the folder)
+- [NIT] a busy file blamed on the drive --> FIXED (only link-incapable codes)
+- [NIT] "try again" twice --> FIXED
+- [NIT] retrying a signed but malformed list --> kept (the card asks that any failing list be retried)
+
+#### Iteration 2
+- [WARNING] FAT drives answer as "Everyone", advice unusable --> FIXED (FAT/exFAT named in the refusal)
+- [NIT] the folder above the anchor not read --> FIXED
+- [NIT] a missing anchor folder read as a PowerShell failure --> FIXED (its own sentence)
+
+#### Iteration 3
+- [NIT] EPERM can be a plain denial --> FIXED (the hard-link sentence says "may")
+- [NIT] the real-ACL test's timeout --> FIXED (120 s)
+
+#### Iteration 4
+- [BLOCKER] the recovery test branched on a win32 host without running on the Windows job (windows-tests-1777 guard)
+  --> FIXED (added to windows-tests.js ALSO; read-only arm skipped there)
+
+#### Iteration 5
+No issues found.
