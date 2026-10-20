@@ -425,6 +425,17 @@ header > .headleft  { justify-self: start; }
 header > .tabs      { justify-self: center; }
 header > .headright { justify-self: end; }
 .headright { display: flex; align-items: baseline; gap: var(--space-5); }
+/* kosmos#6721: small and quiet; it says a moment's wait, not an outage. OUT of the flow (absolute, just left of the
+   right controls), so it takes no flex gap and moves nothing when it comes and goes; where it is drawn it stays in
+   the page, empty, as a live region must to be announced (below 64rem and on a Kosmos+ phone it is not drawn, so
+   there it is not announced either; the full card after two misses still is). (Review 3: an in-flow span, even empty, took the row's 14px .appright gap.) */
+.headright { position: relative; }
+.hdr-reconnect { position: absolute; right: calc(100% + 14px); top: 50%; transform: translateY(-50%);
+  font-size: .8125rem; color: var(--k-ink-2); white-space: nowrap; pointer-events: none; }
+/* Below 64rem the header's left side or the centred tabs can reach under where it would sit (measured: the left group
+   at 320-430px; the tabs at 897-960px with every tab shown and a long name), so it is not drawn there. Narrower
+   windows still get the rule that matters: the full card only after two unanswered polls. */
+@media (max-width: 64rem) { .hdr-reconnect { display: none; } }
 h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* The pack's stamp: an uppercase chrome label over a promoted bold line.
    The stale/failed variants are the app's honest extras (the pack draws
@@ -1558,6 +1569,9 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote .kplus-bar-menu svg { display: block; }
   html.kremote .apphead header .kmark, html.kremote .apphead header .klink, html.kremote .apphead header .worldsw, html.kremote .apphead header .userpop,
   html.kremote .apphead header .burger, html.kremote .apphead .tabs { display: none; }
+  /* kosmos#6721: the phone header row is meant to be empty under the navy bar; Reconnecting would add a line there. The
+     phone still gets the rule that matters: the full card only after two unanswered polls. */
+  html.kremote .apphead .hdr-reconnect { display: none; }
   /* With those gone the header row holds only notices, which are empty on a quiet board: no gap, no padding, no rule,
      so the navy bar is the whole header (the mock). */
   html.kremote .apphead { border-bottom: 0; }
@@ -12574,6 +12588,8 @@ window.kosmosMeasureScrollbarWidth();
          #rail-me), reusing youFaceHtml(). Popover mechanics reuse the world-switcher pattern. -->
     <!-- #3755 (Josh 2026-09-25 11:07): no "?" beside the name. The tips show once each, by themselves;
          "Stop showing tips" and the Settings switch are the controls. -->
+    <!-- kosmos#6721: one unanswered status poll says this, small, instead of the full "not answering" card. -->
+    <span class="hdr-reconnect" id="hdr-reconnect" role="status" aria-live="polite"></span>
     <div class="userpop" id="userpop">
       <!-- #3051: NO aria-label. The accessible name derives from the visible name
            (#userpop-name; the avatar and chevron are aria-hidden), so it satisfies
@@ -24543,7 +24559,8 @@ const RESTART_SCREEN_AFTER_MS = 15000;
    answer inside this long counts as no answer. 10 s is the Windows launcher's own "stuck" limit (per
    #4543, Homer's launcher half, branch win-launcher-stuck-4543); any
    HTTP answer at all, even a refusal, still counts as the board answering. So a frozen board shows the
-   screen after about 10 s + RESTART_SCREEN_AFTER_MS; a board answering inside 10 s is never counted
+   screen after about 10 s + RESTART_SCREEN_AFTER_MS, plus one poll (kosmos#6721: the first miss only says Reconnecting,
+   so the clock starts at the second); a board answering inside 10 s is never counted
    down. (One whose every answer takes longer than 10 s would be: the premise is that a working board
    answers /api/status in well under that.) */
 const STATUS_POLL_TIMEOUT_MS = 10000;
@@ -25082,6 +25099,8 @@ async function tick() {
     // still not told us what is on this machine.
     BOARD_LOOKED = true;
     BOARD_LOOK_FAILED = null;
+    BOARD_MISSES = 0;   // kosmos#6721
+    paintReconnecting(false);
     BOARD_NEEDS_SIGNIN = false; // #2023: a successful read means this browser is authed.
     BOARD_SIGNED_OUT = false;
     BOARD_DEVICE_OFFLINE = false;
@@ -25609,6 +25628,16 @@ async function tick() {
     clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
     if (answered && !(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;   // a refusal is an answer too (#268)
     if (!answered && tick.answeredSeq > pollSeq) return;   // a newer poll already answered: this is old news
+    /* kosmos#6721: the first unanswered poll, over a board that has answered before, keeps everything on screen and
+       only says Reconnecting in the header; the second in a row falls through to the full failure below. A refusal is
+       an answer (it resets the count), and this device being offline is known at once, so neither waits. */
+    if (answered) BOARD_MISSES = 0;
+    else if (BOARD_LOOKED && !deviceOffline()) {
+      BOARD_MISSES++;
+      // During a restart the person asked for, the board's own screens say so; no Reconnecting over them.
+      if (BOARD_MISSES < 2) { if (!(typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)) paintReconnecting(true); return; }
+    }
+    paintReconnecting(false);
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
     // the projects poll is suppressed while it is open — so a failure that only
@@ -38931,6 +38960,16 @@ const DEVICE_SIGNIN_BUTTON = '<button class="btn" type="button" data-device-sign
    network", which is no proof the internet is reachable, so it proves nothing either way.
    Set and cleared at the same points as BOARD_SIGNED_OUT. */
 let BOARD_DEVICE_OFFLINE = false;
+/* kosmos#6721 (Josh 10-20, decided by Splinter 09:04): status polls in a row that got NO answer. One is a busy computer
+   (the board answered in 0.4 s a moment later each time Josh saw the full card, at load 43): the board keeps what it
+   showed and the header says Reconnecting. The second in a row is the full failure, as before. */
+let BOARD_MISSES = 0;
+function paintReconnecting(on) {
+  /* The live region is always there and its TEXT changes, which screen readers announce (a revealed node often is not). */
+  const el = document.getElementById('hdr-reconnect');
+  const want = on ? 'Reconnecting\u2026' : '';
+  if (el && el.textContent !== want) el.textContent = want;
+}
 function deviceOffline() {
   return kplusRemote() && typeof navigator !== 'undefined' && navigator.onLine === false;
 }
