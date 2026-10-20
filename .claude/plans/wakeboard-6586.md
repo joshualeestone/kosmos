@@ -33,3 +33,9 @@
   success, as it is for any start (busy is not); a slow-binding OLD build cannot be told apart here without a build
   check, which is out of this card. The last two test assertions read source order, not behaviour (the loop itself
   is tested by behaviour).
+- Iteration 3 (two WARNINGs against iteration 2's unreachable die, a NIT): a board that turns unreachable DURING the
+  wait now gets exactly the verdict cmd_start gives one unreachable at its first look (#4636): a plain start says it
+  is already running and returns 0; a reclaim, or a board that is not ours, restores the stop marker and refuses with
+  the same sentence. Measured with the reviewer's two probes (wait arm against the control, plain and
+  KOSMOS_RECLAIM_BUSY=1): rc and the marker now match. The busy success gives the person the busy hint, as the other
+  busy paths do.
