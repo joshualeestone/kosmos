@@ -687,7 +687,12 @@ function survey(opts) {
   const missingAll = agents.filter((x) => !x.removed && x.folder && x.job === false && x.profile && x.ran).map((x) => x.name);
   const unknownAll = jobs.mac
     ? agents.filter((x) => !x.removed && x.folder && x.job === null && x.profile && x.ran && jobs.whyNull(x.name) !== 'waiting').map((x) => x.name) : [];
-  const hiddenSet = new Set(readHidden());
+  const hiddenList = readHidden();
+  const hiddenSet = new Set(hiddenList);
+  /* #6714 review 2: a hidden name whose agent now starts at login is forgotten, so if it ever loses its job again the
+     notice comes back rather than staying silently closed. Written only when something changes; best effort. */
+  const healthy = hiddenList.filter((n) => agents.some((x) => x.name === n && x.job === true));
+  if (healthy.length) { try { writeHidden(hiddenList.filter((n) => !healthy.includes(n))); } catch { /* next look */ } }
   return {
     ok: true,
     because: null,

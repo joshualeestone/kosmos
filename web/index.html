@@ -18557,7 +18557,7 @@ window.kosmosMeasureScrollbarWidth();
          comes back, so this is where they are, with Show again. Painted by paintSurvivalHidden; hidden when none. -->
     <section class="dbox" id="survival-hidden-box" hidden>
       <h3 class="dlab">Restart notices you closed</h3>
-      <p class="dhint" style="margin:0 0 12px;">These agents will not come back after a restart. You asked not to be reminded.</p>
+      <p class="dhint" style="margin:0 0 12px;">You closed the restart notice for these agents. Show one again to be reminded about it.</p>
       <div id="survival-hidden-list"></div>
     </section>
 
@@ -48008,6 +48008,12 @@ function paintSurvivalHidden(body) {
     + '<button class="btn-quiet" type="button" data-survival-show="' + esc(n) + '">Show again</button></div>').join('');
 }
 
+/* After a notice closes, focus goes to the next one's first button rather than dropping to the page (#6714 review 2). */
+function survivalFocusNext() {
+  const next = document.querySelector('#survival-slot .utoast button');
+  if (next && typeof next.focus === 'function') next.focus();
+}
+
 /* The notice a button belongs to, for saying what went wrong beside it. */
 function survivalSayIn(btn, said) {
   const note = btn.closest('.utoast');
@@ -48030,6 +48036,7 @@ document.addEventListener('click', async (e) => {
     /* A report the person has read: the × just closes it. The notices are held until the last report is closed. */
     if (hide.closest('.utoast.report')) {
       hide.closest('.utoast').remove();
+      survivalFocusNext();
       const slot = document.getElementById('survival-slot');
       if (!slot || !slot.querySelector('.utoast.report')) { SURVIVAL_HELD = false; if (slot) delete slot.dataset.v; }
       return;
@@ -48040,12 +48047,14 @@ document.addEventListener('click', async (e) => {
     for (const name of names) {
       try {
         const r = await fetch('/api/register/hide', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
-        await r.text(); ok = ok && r.ok;
+        /* A 400 is a name that no longer needs a notice (it was started, or removed): already done, not a failure. */
+        await r.text(); ok = ok && (r.ok || r.status === 400);
       } catch { ok = false; }
     }
     /* Taken down only once the board has recorded it: an × that did not stick leaves the notice there, never a dead button. */
     if (!ok) { hide.disabled = false; survivalSayIn(hide, 'We could not record that just now. Try again.'); return; }
     hide.closest('.utoast').remove();
+    survivalFocusNext();
     paintSurvival();
     return;
   }

@@ -27,6 +27,16 @@ card; (4) a choice per real agent: start at login, or remove.
    offers, so the set it acts on is still what the GET reports), and Remove..., which opens the agent page's own
    removal dialog with the engine's own question (`/api/agent/<name>/removal`), never a second copy.
 
+**Never started, decided (review 2).** An agent that was created and never ran is not on the notice either. That is
+Josh's rule in his words ("a login it has run"), and a restart takes nothing from it. The case a reviewer raised, a
+created agent whose login job failed to install, does not persist: create rolls an agent back when its job was not
+written (create.js, `if (... || !wroteJob) { rollBack(); ...}`, outcome partial), and on Windows when the job did not
+appear (`undo(appeared.because)`, win32StartViaJob). The leftover Josh saw was a test agent whose create reported success and
+which never ran. The five fixture files that now record a run model agents that have run, which is what each of those
+tests is about (repairing an agent that lost its job), not a way around the rule.
+
+**Hidden names are forgotten once the agent starts at login** (review 2), so a later loss shows the notice again.
+
 **Behaviour change, stated.** An imported agent a company policy held has never run here, so it is no longer on the
 notice (before, it was listed and Repair refused it with the policy's reason). It loses nothing on a restart.
 

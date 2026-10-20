@@ -1044,3 +1044,19 @@ test('#6714: Start at login for one agent starts only that one, and refuses a na
   assert.ok(!fs.existsSync(create.plistPath('brigitte')), 'starting one started another');
   for (const n of ['anna', 'nobody']) assert.equal(mac.repair({ only: n }).ok, false, n + ' was repaired');
 });
+
+test('#6714 review 2: a hidden name whose agent now starts at login is forgotten, so a later loss shows the notice', () => {
+  reset();
+  agent('brigitte');
+  assert.equal(register.hide('brigitte', { platform: 'darwin' }).ok, true);
+  assert.deepEqual(mac.survey().hidden, ['brigitte']);
+  // It gets its job: the next look forgets the hide.
+  fs.mkdirSync(path.dirname(create.plistPath('brigitte')), { recursive: true });
+  fs.writeFileSync(create.plistPath('brigitte'), '<plist/>', 'utf8');
+  mac.survey();
+  // It loses the job again: the notice is back, not silently closed.
+  fs.rmSync(create.plistPath('brigitte'));
+  const s = mac.survey();
+  assert.deepEqual(s.missing, ['brigitte']);
+  assert.deepEqual(s.hidden, []);
+});
