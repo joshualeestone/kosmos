@@ -12,6 +12,9 @@
    - `refused`: a set ships but does not verify. The manifest covers it, so this is a broken build, not news for the
      person; the page says nothing.
    - `none`: no pin yet (before setup).
+   - `elsewhere`: this board is set to a coordinator other than Kosmos+'s own (self-hosted, staging, tests). Its pin is
+     that coordinator's key, which is never on Kosmos+'s set, so a mismatch would be a false alarm. Weakest premise: the
+     setting can change after setup; only the tunnel knows which coordinator a pin came from (slice 3).
    - `unknown`: the pin file is there but cannot be read as text. The tunnel reads it with read_to_string, which
      fails the same way, so it cannot sign in with that pin either: not a mismatch.
    - `listed`: the pinned key is on the set.
@@ -42,7 +45,8 @@ function verifiedSet(appDir, recoveryKeys) {
   return cached.result;
 }
 
-/** The state, from the tunnel's state dir. `opts.appDir` and `opts.recoveryKeys` are for tests. Never throws. */
+/** The state, from the tunnel's state dir. `opts.production` is false when the board is set to another coordinator.
+ *  `opts.appDir` and `opts.recoveryKeys` are for tests. Never throws. */
 function serviceKeyCheck(stateDir, opts = {}) {
   try {
     const appDir = opts.appDir || __dirname;
@@ -51,6 +55,7 @@ function serviceKeyCheck(stateDir, opts = {}) {
     const set = verifiedSet(appDir, recoveryKeys);
     if (!set || set.off === true) return { state: 'off' };
     if (set.ok !== true) return { state: 'refused' };
+    if (opts.production === false) return { state: 'elsewhere' };
     const pin = readOr(path.join(stateDir, PIN_FILE));
     if (!pin) return { state: 'none' };
     let text;

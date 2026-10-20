@@ -80,3 +80,11 @@ test('a new set is read again: the cache follows the content, not the folder', (
   fs.writeFileSync(path.join(d, SET_FILE), VECTOR.replace('"seq": 1', '"seq": 2'));
   assert.deepEqual(serviceKeyCheck(state(PIN7), on(d)), { state: 'refused' }, 'the changed set is not answered from the cache');
 });
+
+test('a board set to another coordinator is elsewhere, not a mismatch; the production answer is unchanged', () => {
+  const pinned = state(PIN_ROOT);
+  assert.deepEqual(serviceKeyCheck(pinned, { ...on(app()), production: false }), { state: 'elsewhere' }, 'another coordinator');
+  assert.deepEqual(serviceKeyCheck(pinned, { ...on(app()), production: true }), { state: 'mismatch' }, 'CONTROL: production');
+  assert.deepEqual(serviceKeyCheck(pinned, on(app())), { state: 'mismatch' }, 'not said: production');
+  assert.deepEqual(serviceKeyCheck(pinned, { appDir: app(), production: false }), { state: 'off' }, 'off comes first');
+});

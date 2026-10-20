@@ -51,3 +51,13 @@ test('#731: a missing runtime file is named in the refusal, not blamed on the fi
   assert.match(src, /missingFile/, 'installSupervisor no longer reports WHICH file is absent');
   assert.match(src, /\$\{supervisorMissingFile \|\| 'the start script'\}/, 'the person-facing sentence no longer names the file');
 });
+
+test('kosmos#6587: the service key set the engine checks is copied beside it into app/engine, set and signature together', () => {
+  const { SET_FILE, SIG_FILE } = require('./engine/servicekeys-check');
+  const q = (n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  for (const n of [SET_FILE, SIG_FILE]) {
+    assert.match(BUILD, new RegExp('cp "\\$REPO/engine/' + q(n) + '" "\\$STAGE/app/engine/"'), 'the build never copies engine/' + n + ' (it copies engine/*.js only)');
+  }
+  // A set without its signature is refused at build time, not shipped to answer "off" forever.
+  assert.match(BUILD, /must ship together \(#6587\)/, 'the build no longer refuses a lone set or signature');
+});
