@@ -76,6 +76,8 @@ function chk(ok, label, extra) {
       await pg.click('[data-survival-hide="marilyn"]');
       await pg.waitForFunction(() => !document.querySelector('[data-survival-fix="marilyn"]'), null, { timeout: 10000 });
       chk(true, theme + ': the x took marilyn off the board');
+      // The notice goes first and the list is read from the board after it, so wait for the list, not the notice.
+      await pg.waitForFunction(() => /marilyn/.test(document.getElementById('survival-hidden-list').textContent), null, { timeout: 10000 }).catch(() => {});
       const hiddenRow = await pg.evaluate(() => document.getElementById('survival-hidden-list').textContent   /* the Settings screen is not open, so innerText is '' */);
       chk(/marilyn/.test(hiddenRow), theme + ': Settings lists marilyn as hidden', hiddenRow);
       await pg.evaluate(() => document.querySelector('[data-survival-show="marilyn"]').click());
