@@ -140,6 +140,9 @@ test('refused: JSON the relay refuses (bad UTF-8, a lone surrogate, a number out
   assert.equal(check(...signed(doc({}).replace('"seq": 1,', '"seq": 1\t,'))).ok, true, 'a tab after seq');
   // Every JSON whitespace ends a number: a space, and seq last before a space or a CRLF (review 17).
   assert.equal(check(...signed(doc({}).replace('"seq": 1,', '"seq": 1 ,'))).ok, true, 'a space after seq');
+  const spaced = doc({}).replace(/": /g, '" : ');
+  assert.notEqual(spaced, doc({}), 'CONTROL: the colons were respaced');
+  assert.equal(check(...signed(spaced)).ok, true, 'a space before every colon (review 19)');
   const seqLast = (end) => doc({}).replace('  "seq": 1,\n', '').replace('\n}\n', ',\n  "seq": 1' + end + '}\n');
   assert.equal(check(...signed(seqLast(' '))).ok, true, 'seq last, then a space');
   assert.equal(check(...signed(seqLast('\r\n'))).ok, true, 'seq last, then CRLF');
@@ -149,7 +152,7 @@ test('refused: JSON the relay refuses (bad UTF-8, a lone surrogate, a number out
   assert.equal(check(...signedBuf(withExtra(Buffer.from('1e300')))).ok, true, 'a finite large number');
   for (const lit of ['true', 'false', 'null']) assert.equal(check(...signedBuf(withExtra(Buffer.from(lit)))).ok, true, 'an unknown member that is ' + lit);
   // Empty objects and arrays, and escaped quotes and backslashes in strings, are walked, not misread.
-  for (const extra of ['{}', '{"a": {}}', '[]', '[[], {}]', '"a\\"b"', '"a\\\\"', '"\\\\\\""']) {
+  for (const extra of ['{}', '{ }', '{\n}', '{"a": {}}', '[]', '[[], {}]', '"a\\"b"', '"a\\\\"', '"\\\\\\""']) {
     assert.equal(check(...signedBuf(withExtra(Buffer.from(extra)))).ok, true, 'an unknown member ' + extra);
   }
   // A member named seq INSIDE an entry, after the top-level seq, does not stand in for it.
