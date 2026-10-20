@@ -154,13 +154,16 @@ function realDate(s) {
 /**
  * Checks a service key set's bytes and signature, in kosmos-relay's order: the recovery key's signature over the exact
  * bytes first, then JSON with no member named twice, the type, seq and issued, the keys, and seq against `held` (the
- * { seq, sha256 } this computer took last, or null). Returns { ok: true, seq, sha256, keys: [{ kid, pub, role }] } or
- * { ok: false, why }.
+ * { seq, sha256 } this computer took last, or null). Returns { ok: true, seq, sha256, keys: [{ kid, pub, role }] },
+ * { ok: false, why }, or, when no recovery key is pinned, { ok: false, off: true, why }. A caller checks `off` BEFORE
+ * `ok`: off is the shipped default and is not a failure to tell anyone about.
  */
 function verifyServiceKeySet({ bytes, sig, recoveryKeys = RECOVERY_KEYS, held = null }) {
   // Off (no recovery key pinned, as shipped today) is its own answer, not a refusal: a caller must not tell the
   // person a set failed when there is simply nothing to check it with.
-  if (!Array.isArray(recoveryKeys) || !recoveryKeys.length) return { ok: false, off: true, why: 'no Kosmos recovery key is set, so service key sets are not checked yet' };
+  // Only an empty LIST is off. Anything else (a null or junk from a bad read) is refused, never read as "nothing to do".
+  if (!Array.isArray(recoveryKeys)) return { ok: false, why: 'the Kosmos recovery keys are not a list' };
+  if (!recoveryKeys.length) return { ok: false, off: true, why: 'no Kosmos recovery key is set, so service key sets are not checked yet' };
   const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes == null ? '' : bytes);
   // Trimmed as Rust's str::trim does (Unicode White_Space: U+0085 yes, U+FEFF no), not as String.prototype.trim.
   const sigText = String(sig == null ? '' : sig).replace(RUST_WS_ENDS, '');
