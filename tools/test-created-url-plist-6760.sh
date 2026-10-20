@@ -38,7 +38,7 @@ got="$(run http://127.0.0.1:9/api/created; printf X)"   # X keeps the trailing n
 X" ] && ok "a plain http address is carried as one EnvironmentVariables entry, ending in its newline (so </dict> stays on its own line)" || bad "carried wrong: [$got]"
 got="$(run 'https://x.example/c?a=1&b=2')"
 printf '%s' "$got" | grep -qF '<string>https://x.example/c?a=1&amp;b=2</string>' && ok "https is carried, XML-escaped" || bad "https: [$got]"
-for v in 'http://x/a b' 'http://x/"' "http://x/'" 'http://x/%h' 'file:///etc/passwd' 'http://x/\' '' 'http://' 'ftp://x'; do
+for v in 'http://x/a b' 'http://x/"' "http://x/'" 'http://x/%h' 'file:///etc/passwd' 'http://x/\' '' 'http://' 'ftp://x' "$(printf 'http://x/\001')" "$(printf 'http://x/\177')"; do
   [ -z "$(run "$v")" ] || bad "carried an unsafe value: [$v] -> [$(run "$v")]"
 done
 ok "unsafe values (space, quotes, %, backslash, empty, other schemes) add nothing"

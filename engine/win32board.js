@@ -235,11 +235,13 @@ const BOOT_JS = [
  * updates, as engine/linuxboard.js does for a systemd unit. A scheduled task starts with the user's environment, not
  * the installer's, so without this the address is lost and the board pings the real counter. Unset, which every real
  * install is, the shim is BOOT_JS byte for byte. Only a plain http(s) URL is carried, the rule linuxboard.js applies
- * (no whitespace, quotes, backslash or %), and it is written as a JSON string, so it cannot add code to the shim.
+ * (no whitespace, quotes, backslash or %; nor control characters), written as a JSON string, so it cannot add code.
+ * The LAST install's environment wins (every board start re-runs install), as for the Linux unit: a start without
+ * the variable writes the plain shim again.
  */
 function bootJsFor(env) {
   const raw = env && env.AGENT_WORKFORCE_CREATED_URL;
-  if (typeof raw !== 'string' || !/^https?:\/\/[^\s"'\\%]+$/.test(raw)) return BOOT_JS;
+  if (typeof raw !== 'string' || !/^https?:\/\/[^\s"'\\%\x00-\x1f\x7f]+$/.test(raw)) return BOOT_JS;
   const marker = 'process.env[' + JSON.stringify(MARKER_ENV) + '] = ' + JSON.stringify(TASK_NAME) + ';\n';
   const at = BOOT_JS.indexOf(marker);
   if (at < 0) return BOOT_JS;   // the shim's shape moved; carrying nothing is the safe side
@@ -503,7 +505,7 @@ function install(spec) {
   try {
     /* Atomic, for the pointer's reason: the task runs this at every logon, and a
        torn shim is a syntax error there, so no board comes back. */
-    win32swap.writeFileAtomic(bootAt, bootJsFor(s.env || process.env));   // kosmos#6760: the INSTALLER's own environment
+    win32swap.writeFileAtomic(bootAt, bootJsFor(env));   // kosmos#6760: the same launch environment the rest of install reads
   } catch (e) {
     return { ok: false, because: 'we could not write the file that starts the board at logon (' + ((e && e.message) || 'no detail') + ')' };
   }

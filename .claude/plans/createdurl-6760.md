@@ -30,3 +30,14 @@ each tested with the same bad inputs as Linux's test, but nothing checks the thr
 - tools/test-created-url-plist-6760.sh (wired into test:shell): extracts the block and both helpers from setup.sh,
   runs them under /bin/sh: unset zero bytes, http carried with its newline, https XML-escaped, nine unsafe values add
   nothing, and the block sits between `_extra_env_kv=""` and the board plist. MUTANT (no unsafe check): 5 red.
+
+## Review round 1 (blind, opus): no blocker, no warning
+- Verified: the variable is in the installer's environment at both points (update.js re-runs setup.sh with
+  process.env; server.js calls win32board.ensureInstalled on every boot and the shim sets the variable before the
+  board loads); win32board.js is the only writer of board-boot.js (win32anchor writes supervisor-boot.js); nothing
+  else rewrites the board plist; escaping holds (XML via _xmlq, JSON.stringify).
+- [NIT] the shim read `s.env || process.env` while install reads machineEnv(s) --> FIXED: one source, `env`.
+- [NIT] "kept across logons and updates" hid that the LAST install's environment wins --> said in both comments.
+- [NIT] control characters passed both filters (XML forbids them; launchd would refuse the plist) --> FIXED in both,
+  tested (\001, \177). MUTANT (no [:cntrl:]): red.
+- [NIT] the watchdog plist shares the block --> said in the comment.

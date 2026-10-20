@@ -220,7 +220,7 @@ test('kosmos#6760: the logon shim carries AGENT_WORKFORCE_CREATED_URL only when 
   assert.ok(lines[0].startsWith('process.env.AGENT_WORKFORCE_CREATED_URL = ' + JSON.stringify(url) + ';'), lines[0]);
   assert.equal(ci.split('\n').filter((l) => !l.includes('AGENT_WORKFORCE_CREATED_URL')).join('\n'), board.BOOT_JS, 'nothing else in the shim changes');
   assert.ok(ci.indexOf('AGENT_WORKFORCE_CREATED_URL') > ci.indexOf(JSON.stringify(board.MARKER_ENV)), 'set beside the marker, before the board loads');
-  for (const bad of ['http://x/a b', 'http://x/"); require("child_process")', "http://x/'", 'http://x/%h', 'file:///etc/passwd', 'http://x/\\', '']) {
+  for (const bad of ['http://x/a b', 'http://x/"); require("child_process")', "http://x/'", 'http://x/%h', 'file:///etc/passwd', 'http://x/\\', '', 'http://x/\x01', 'http://x/\x7f']) {
     assert.equal(board.bootJsFor({ AGENT_WORKFORCE_CREATED_URL: bad }), board.BOOT_JS, 'carried an unsafe value: ' + JSON.stringify(bad));
   }
 });
