@@ -29,3 +29,7 @@ The .pkg installer's pinned path (install/pkg-scripts/postinstall, #6576) choose
 - [NIT] fixed: the plan claimed a list published mid-run is taken; it is not (one fetch per attempt).
 - [NIT] fixed: a list caught mid-publish read as an attack in setup.sh; the verifier now adds "it may be mid-publish; try again in a minute".
 - [NIT] fixed: the new test now runs post too (a VERSION file the manifest lists). Remaining, failing safe: the http(s) query branch (od/tr) is never run by a test (every case uses file://), and a tmux form that took the list but used KEYS would pass (tmux checks the same manifest early already checked with the list).
+### Iteration 2 (sonnet): converged
+No BLOCKER, WARNING or CONVENTION. Off path, every installer/installed-copy combination, the capability grep, the list across steps, the record's place outside the swapped folders, and POSIX sh portability checked.
+- [NIT] accepted: the "may be mid-publish" suffix is added to every list that does not verify, including a structurally bad one; the signing tool checks its own output with verifyKeyList, so such a list is not published.
+- [NIT] accepted: the manifest downloads carry no fresh query (their names are versioned and never change; a stale cached one paired with a fresh list fails closed). The query branch is still run by no test (already recorded).
