@@ -48,6 +48,7 @@ import ApplicationServices  // #2125 slice 3: AXIsProcessTrusted / AXIsProcessTr
 import UserNotifications    // #3996: whether the person turned Kosmos's badges off
 import Speech               // #4409: dictation, on-device only
 import AVFoundation         // #4409: the microphone, while the mic button is on
+import CryptoKit             // kosmos#6589: SHA-256 of a certificate's key, to compare with what the computer vouches for
 
 // MARK: - Install-time configuration
 //
@@ -336,6 +337,39 @@ func isKosmosPlusURL(_ url: URL) -> Bool {
 /// exception below: a connect computer's own board (josh.kosmosplus.com) would then count as a Kosmos+
 /// page and a board page could script an unclicked foreign nav away -- which is the #5169 bug. Keyed to
 /// the site, a board page (local 127.0.0.1 or a computer's kosmosplus.com address) stays blocked.
+/// kosmos#6589 (S-7c): the SHA-256 of a P-256 key's SubjectPublicKeyInfo, lowercase hex, from the key's X9.63 point
+/// (what SecKeyCopyExternalRepresentation gives for an EC public key: 0x04, then 64 bytes). It is the same hash a
+/// computer vouches for (kosmos-relay ctwatch::key_hash, over rcgen's DER). PURE, for --kosmos-app-mode-selftest.
+/// nil for any other key: every computer's TLS key is P-256, so another shape can never match what one vouches for.
+func p256SpkiSha256Hex(point: Data) -> String? {
+    guard point.count == 65, point.first == 0x04 else { return nil }
+    // SEQUENCE { SEQUENCE { id-ecPublicKey, prime256v1 }, BIT STRING (no unused bits) } before the point.
+    let prefix: [UInt8] = [0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,
+                           0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00]
+    return SHA256.hash(data: Data(prefix) + point).map { String(format: "%02x", $0) }.joined()
+}
+
+/// kosmos#6589: what to do with another computer's certificate, from what this computer's board says it vouches
+/// for (`state`, `keys`: GET /api/remote/tls-pin) and the hash of the key the certificate carries (`leaf`). PURE, for
+/// --kosmos-app-mode-selftest.
+/// - pinned: the certificate's key must be one it vouches for; otherwise ask once more past the board's 5-minute
+///   cache (a renewal), and refuse if it still does not match.
+/// - required: ask once more (a passing failure is not cached), then refuse.
+/// - none, or no answer from this computer's own board: ordinary checking only. A ticket into another computer is
+///   made only by this computer's board, so with no board answering, no ticket is at risk.
+enum TlsPinDecision: String { case allow, refuse, askFresh, ordinary }
+func tlsPinDecision(state: String?, keys: [String], leaf: String?, fresh: Bool) -> TlsPinDecision {
+    switch state {
+    case "pinned":
+        if let leaf, keys.contains(leaf) { return .allow }
+        return fresh ? .refuse : .askFresh
+    case "required":
+        return fresh ? .refuse : .askFresh
+    default:
+        return .ordinary
+    }
+}
+
 func isKosmosPlusSiteURL(_ url: URL?) -> Bool {
     guard let url = url, url.scheme?.lowercased() == "https",
           let host = url.host?.lowercased(), !host.isEmpty,
@@ -2133,6 +2167,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
     var window: NSWindow!
+    private var tlsPinToldAt: [String: TimeInterval] = [:]   // kosmos#6589: when the person was last told, per computer
     var webView: WKWebView!
     /// #4409: the mic's bridge, so closing or minimising the window can turn the mic off.
     var voice: VoiceBridge?
@@ -3514,6 +3549,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. #5167: on every
     /// computer, a download the page asks for is decided first.
+    /* kosmos#6589 (S-7c): another of the person's computers must present a certificate whose key is the one it
+       vouches for with the key its pairing carries (kosmos-relay tlspin.rs). The service can get a certificate for any
+       computer's name with a key of its own, which a browser would accept; this is what refuses it, before the
+       window's page (and the ticket in its address) reaches whatever answered. Ordinary checking comes first: the
+       pin is on top of a certificate a browser would accept, never instead of one. Only computers' addresses;
+       the Kosmos+ site itself is not a computer. ⚠️ WebKit asks for each NEW connection; whether a resumed TLS
+       session or a coalesced one skips it is measured on the real app, not assumed (the card says how). */
+    func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
+                 completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        let space = challenge.protectionSpace
+        let host = space.host.lowercased()
+        guard space.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = space.serverTrust,
+              space.port == 443 || space.port == 0,
+              let target = URL(string: "https://" + host), isKosmosPlusURL(target), !isKosmosPlusSiteURL(target)
+        else { completionHandler(.performDefaultHandling, nil); return }
+        var err: CFError?
+        guard SecTrustEvaluateWithError(trust, &err) else { completionHandler(.cancelAuthenticationChallenge, nil); return }
+        let leaf = tlsLeafKeyHash(trust)
+        let finish: (TlsPinDecision) -> Void = { [weak self] d in
+            DispatchQueue.main.async {
+                switch d {
+                case .allow: completionHandler(.useCredential, URLCredential(trust: trust))
+                case .ordinary: completionHandler(.performDefaultHandling, nil)
+                case .refuse, .askFresh:
+                    self?.tlsPinRefused(host)
+                    completionHandler(.cancelAuthenticationChallenge, nil)
+                }
+            }
+        }
+        askTlsPin(host: host, fresh: false) { [weak self] state, keys in
+            let first = tlsPinDecision(state: state, keys: keys, leaf: leaf, fresh: false)
+            guard first == .askFresh, let self else { finish(first); return }
+            self.askTlsPin(host: host, fresh: true) { state2, keys2 in
+                finish(tlsPinDecision(state: state2, keys: keys2, leaf: leaf, fresh: true))
+            }
+        }
+    }
+
+    /// kosmos#6589: the hash of the key the certificate's leaf carries, as p256SpkiSha256Hex gives it.
+    private func tlsLeafKeyHash(_ trust: SecTrust) -> String? {
+        guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let cert = chain.first,
+              let key = SecCertificateCopyKey(cert),
+              let point = SecKeyCopyExternalRepresentation(key, nil) as Data? else { return nil }
+        return p256SpkiSha256Hex(point: point)
+    }
+
+    /// kosmos#6589: ask this computer's own board which key `host` vouches for. No board, or no readable answer:
+    /// (nil, []), which tlsPinDecision treats as ordinary checking.
+    private func askTlsPin(host: String, fresh: Bool, done: @escaping (String?, [String]) -> Void) {
+        var parts = URLComponents()
+        parts.scheme = "http"; parts.host = "127.0.0.1"; parts.port = resolvedPort; parts.path = "/api/remote/tls-pin"
+        parts.queryItems = [URLQueryItem(name: "address", value: host)] + (fresh ? [URLQueryItem(name: "fresh", value: "1")] : [])
+        guard resolvedPort != nil, let url = parts.url else { done(nil, []); return }
+        var req = URLRequest(url: url)
+        if let tok = boardTokenValue() { req.setValue(tok, forHTTPHeaderField: "x-kosmos-board-token") }
+        req.timeoutInterval = 25   // the board's own call is bounded at 20 s
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        URLSession.shared.dataTask(with: req) { data, response, _ in
+            guard (response as? HTTPURLResponse)?.statusCode == 200, let data,
+                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let state = obj["state"] as? String
+            else { done(nil, []); return }
+            done(state, (obj["spki"] as? [String]) ?? [])
+        }.resume()
+    }
+
+    /// kosmos#6589: say so, once a minute per computer at most (a page may open several connections at once).
+    private func tlsPinRefused(_ host: String) {
+        logLine("tls-pin: refused \(host): its certificate's key is not the one it vouches for")
+        let now = ProcessInfo.processInfo.systemUptime
+        if let at = tlsPinToldAt[host], now - at < 60 { return }
+        tlsPinToldAt[host] = now
+        let alert = NSAlert()
+        alert.messageText = "Kosmos did not open \(host)"
+        alert.informativeText = "That computer did not present the certificate it vouches for, so Kosmos stopped before sending it anything. If you just set that computer up again, pair it with this one again. If this keeps happening, contact Kosmos support."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        if let window { alert.beginSheetModal(for: window, completionHandler: nil) } else { alert.runModal() }
+    }
+
     /* 📌 PINNED, as createWebViewWith is: an optional delegate method with a slightly wrong Swift
        signature compiles and is never called, which would switch the connect policy off silently.
        The selector is WebKit's own (WKNavigationDelegate.h). */
@@ -7472,7 +7587,34 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 191   // #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    // kosmos#6589: the key hash a computer vouches for (a real P-256 key, made with openssl: its SPKI's SHA-256), and
+    // the decision table. A wrong prefix, or a point of another shape, must never produce a hash a statement names.
+    func pin(_ got: String?, _ want: String?, _ why: String) {
+        ran += 1
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "tls-pin     " + why)
+    }
+    func hexData(_ h: String) -> Data { var d = Data(); var i = h.startIndex
+        while i < h.endIndex { let j = h.index(i, offsetBy: 2); d.append(UInt8(h[i..<j], radix: 16)!); i = j }; return d }
+    let point = hexData("048152925fa8a4c2297b4b05beb4bde5ed7bd1baffbe0d0ba345c2fb4facfc147d20f7c6fc83690691bfdcc9bded2c7590adee4d4aac6ce66076585f210788260d")
+    pin(p256SpkiSha256Hex(point: point), "012d1d2df841a050cda88d5afb40122df2ce90caed3a105cf5c9a08529e345a2", "a P-256 point hashes to its SPKI's SHA-256 (openssl's answer)")
+    pin(p256SpkiSha256Hex(point: point.dropLast()), nil, "a point one byte short is no key")
+    pin(p256SpkiSha256Hex(point: Data([0x02]) + point.dropFirst()), nil, "a point not in X9.63 uncompressed form is no key")
+    let K = "012d1d2df841a050cda88d5afb40122df2ce90caed3a105cf5c9a08529e345a2", O = String(repeating: "b", count: 64)
+    for (state, keys, leaf, fresh, want, why) in [
+        ("pinned", [K], K, false, TlsPinDecision.allow, "pinned, and the certificate carries that key: allow"),
+        ("pinned", [O], K, false, .askFresh, "pinned to another key: ask once more past the cache (a renewal)"),
+        ("pinned", [O], K, true, .refuse, "still another key when asked fresh: refuse"),
+        ("pinned", [K], nil, true, .refuse, "a certificate whose key cannot be read, against a pin: refuse"),
+        ("required", [], K, false, .askFresh, "required: ask once more (a passing failure is not cached)"),
+        ("required", [], K, true, .refuse, "required again: refuse"),
+        ("none", [], K, false, .ordinary, "none (an older computer): ordinary checking"),
+        ("maybe", [K], K, false, .ordinary, "an unknown answer is not a pin"),
+    ] as [(String, [String], String?, Bool, TlsPinDecision, String)] {
+        pin(tlsPinDecision(state: state, keys: keys, leaf: leaf, fresh: fresh).rawValue, want.rawValue, why)
+    }
+    pin(tlsPinDecision(state: nil, keys: [], leaf: K, fresh: false).rawValue, TlsPinDecision.ordinary.rawValue, "no answer from this computer's own board: ordinary (no ticket is at risk)")
+    let expected = 203   // kosmos#6589: +12 (3 key hash, 9 decision); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

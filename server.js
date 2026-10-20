@@ -11284,6 +11284,31 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not open that computer directly' }));
     return;
   }
+  /* kosmos#6589 (S-7c): which TLS key another of the person's computers vouches for, for the Mac app to compare with
+     the certificate it is handed before a window opens there. The app's own code asks it, with the board token it
+     reads from board.token (it has no page cookie), so: on this computer only (a loopback peer, nothing forwarded:
+     Kosmos+ remote access forwards), never with an agent token, and with the board's own token. The answer names
+     only key hashes the other computer publishes; asking also pins that computer's address here (the tunnel's
+     tls-pins.json), which only ever binds it to the computer the person paired. `fresh=1` skips the 5-minute cache. */
+  if (pathname === '/api/remote/tls-pin' && req.method === 'GET') {
+    // A board that enforces no token (a sandboxed test board) has none to ask for, as boardCookieHere.
+    if (!isLoopbackPeer(req) || cameThroughForwarder(req.headers) || presentedAgentToken(req, null) || (boardAuthState.on && !boardTokenOk(req))) {
+      sendJson(res, 403, { error: 'Only the Kosmos app on this computer can ask this.' });
+      return;
+    }
+    let q;
+    try { q = new URL(req.url, ROUTING_BASE).searchParams; } catch { q = new URLSearchParams(); }
+    const address = String(q.get('address') || '').trim().toLowerCase();
+    const domain = accountComputers.computerDomain(remote.COORDINATOR());
+    if (!address || !domain || !accountComputers.validAddress(address, domain)) {
+      sendJson(res, 400, { error: 'that is not the address of one of your computers' });
+      return;
+    }
+    remote.tlsPin(address, { fresh: q.get('fresh') === '1' })
+      .then((got) => sendJson(res, 200, got.data))
+      .catch(() => sendJson(res, 200, { state: 'required', because: "this computer's certificate could not be checked" }));
+    return;
+  }
   /* kosmos#6404: the joining computer's "Check the code" once allowed: one fresh code check is a try, so the same
      screen check as Try again. */
   if (pathname === '/api/remote/join/recheck' && req.method === 'POST') {
