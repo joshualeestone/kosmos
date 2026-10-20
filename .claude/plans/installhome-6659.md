@@ -42,6 +42,9 @@ install.setup-sig-6468.test.js, the run-setup harness with real signed fixtures:
 - Not measured with a real installer and a real non-default install: the stand-in proves what the installer is
   given, and setup.sh's own `KOSMOS_HOME="${KOSMOS_HOME:-$HOME/.local/share/kosmos}"` (line 105) does the rest.
 
+- The first update a board started BEFORE this change performs still runs that board's own older manifest-verify.js,
+  which sets no KOSMOS_HOME, so a non-default copy is updated wrongly that one time. Not fixable from here.
+
 ## Weakest premise
 That nothing depends on a non-default board updating the default home. The only reading under which that was
 intended would be a person who moved their board but still expects the default copy updated; nothing in the tree
