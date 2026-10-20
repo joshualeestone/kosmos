@@ -64,3 +64,17 @@ check after this change (it had one, P4, when the button was on the bar).
 - [NIT] .kplus-bar-end now wraps one button --> NOT CHANGED (harmless; the phone CSS keys on the structure).
 - [NIT] the phone H4 "no Log out in the header" is weak because the header never held one there --> TRUE and kept:
   it is the guard that one is not put back; the W3 mutant shows it goes red when one is.
+
+## Review round 3 (blind, opus)
+- [WARNING] docs/browser-checks/README.md rows for render-plus-bar-3837 and render-tophead-stable-2624 described the
+  old bar and a deleted arm --> FIXED, both rows say what the checks hold now.
+- [WARNING] no check loads at desktop width and turns to a phone width, the path the early return relies on -->
+  MEASURED, NOT ADDED. I wrote that arm (load at 1280, turn to 390, assert the bar edge to edge) and it passed; then
+  a MUTANT with the resize listener and both ResizeObservers removed passed it too. At phone width the base rule's
+  calc(-1 * var(--space-8)) margins already equal the header's padding, so an unfitted phone bar is already edge to
+  edge: the refit is not observable there and an arm for it cannot fail. Removed rather than kept as a guard that
+  cannot go red. Weakest premise: a future change to the phone header's padding would make the fit matter again,
+  and then nothing checks it.
+- [NIT] the kept #3837 history said #5379 pads the bar --> FIXED ("padded it ... until #6718").
+- The reviewer traced first load at phone width, a header not yet laid out, desktop to phone and phone to desktop
+  and found no stale-margin path.
