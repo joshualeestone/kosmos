@@ -617,7 +617,8 @@ _lsof_present() { _lsof_cmd >/dev/null 2>&1; }
 #     evidence, a health curl killed by a signal or an lsof refused: this shell cannot check at all,
 #     _UNREACH_BLIND);
 #   - on busy it tries again with a longer wait each time (2, 4, 8, 8... s) until KOSMOS_BUSY_WAIT
-#     (default 20 s) has passed, saying once on stderr that it is waiting. Only then does it give up,
+#     (default 20 s) has passed, saying once on stderr that it is waiting from the SECOND busy reading on
+#     (#6682; a budget too short for a second reading never says it). Only then does it give up,
 #     still as busy, so the caller says "busy" (say_not_up), never "not running" and never "start it".
 #   - `healthy --once` is a single short probe, for the start/stop loops that poll on their own.
 # #4636: a refused connect while a listener holds the port is "unreachable" (this shell is blocked, not the
@@ -791,7 +792,7 @@ healthy() {
     if [ "$HEALTH_STATE" = up ]; then return 0; fi
     return 1
   fi
-  local _limit _start="$SECONDS" _t=2 _left _said=""
+  local _limit _start="$SECONDS" _t=2 _left _said="" _busy=0
   _limit="$(_busy_wait)"
   local _ps _w
   while :; do
@@ -801,7 +802,12 @@ healthy() {
     if [ "$HEALTH_STATE" != busy ]; then return 1; fi
     _left=$(( _limit - (SECONDS - _start) ))
     if [ "$_left" -le 0 ]; then return 1; fi
-    if [ -z "$_said" ]; then printf '%sKosmos is busy, retrying...\n' "${KOSMOS_SAY_INDENT:-  }" >&2; _said=1; fi
+    # #6682: said only from the SECOND busy reading on. One slow answer that the next probe catches is an ordinary
+    # moment, and saying "busy" for it on most commands read as steady contention; two in a row (two timeouts is about
+    # 6 s with no answer; two fast refusals, about 2 s) is a board that really is busy, and the line says so. A budget
+    # too short for a second reading (the --auto report's 6 s) never says it; its give-up message says busy itself.
+    _busy=$(( _busy + 1 ))
+    if [ -z "$_said" ] && [ "$_busy" -ge 2 ]; then printf '%sKosmos is busy, retrying...\n' "${KOSMOS_SAY_INDENT:-  }" >&2; _said=1; fi
     # A busy reading can come back FAST (a reset or empty reply, an older board's 5xx page): wait out the
     # rest of this probe's budget before the next one, so a board already too loaded to answer is not hit
     # in a tight loop for the whole busy window.
@@ -3187,8 +3193,14 @@ cmd_post() {
         # this one reply only agreed with what was already said, so Kosmos did not pass it on. A post with something new
         # goes through straight away, so the copy says exactly that and never speaks of a pause, an hour, or the person.
         *'"code":"ack_only"'*)
+          # #6608: an owner-named post (the board sends who it named): say so, not "already said", which is untrue there.
+          _owner=$(printf '%s' "$body" | sed -n 's/.*"owner":"\([^"]*\)".*/\1/p')
+          # a name with a quote or backslash arrives escaped and the sed halves it: say the general words instead
+          if [ "${_owner#*\\}" != "$_owner" ]; then _owner=""; fi
           if [ -n "${_retried:-}" ]; then
             say "Not posted this time: this only agreed with what was already said, so Kosmos did not pass it on. Your first try may have reached the room before that: check kosmos room $project before posting again. A post with something new goes through straight away."
+          elif [ -n "$_owner" ]; then
+            say "Not posted: that post named $_owner to take it, so Kosmos did not pass on an agreement-only reply from anyone else. Nothing was sent. If you see a problem with it or have something new to add, post that; it goes through straight away."
           else
             say "Not posted: this only agreed with what was already said, so Kosmos did not pass it on. Nothing was sent. Post again when you have something new to add; that goes through straight away."
           fi ;;

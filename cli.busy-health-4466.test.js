@@ -173,6 +173,18 @@ test('#4466 slow board: `kosmos status` waits, says busy on stderr, and reports 
   assert.ok(out.ms >= 4000, `it must actually have waited for the slow answer (took ${out.ms} ms)`);
 }));
 
+/* #6682: ONE slow answer on the full 20 s budget. The first health answer takes 2.5 s (past the 2 s first probe) and
+   the retry is answered at once, so the board was only slow for a moment: `status` says RUNNING without the busy line.
+   CONTROL: the 'slow' status test above, where every answer takes 5 s and two probes miss, does say busy. */
+test('#6682 one slow answer that the retry catches does not say busy (full budget)', () => withBoard('reporthang', async (port) => {
+  const env = baseEnv(port, { KOSMOS_BUSY_WAIT: '20' });
+  const out = await runCli(['status'], env);
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.match(out.stdout, /Kosmos is running at/);
+  assert.ok(out.ms >= 2000, `the first probe must have missed the 2.5 s answer (took ${out.ms} ms)`);
+  assert.doesNotMatch(out.stderr, /busy, retrying/, 'one slow answer that the retry caught said busy');
+}, 2500));
+
 test('#4466 one probe keeps to ONE budget: an older board whose 404 is slow does not give the page a second one', () => withBoard('oldslow', async (port, firstFile) => {
   // Health 404s after 5 s, the page never answers, the probe's budget is 6 s. The page gets what is left
   // (about 1 s), so the probe ends near 6 s and says busy; with a fresh 6 s for the page it took ~11 s.
@@ -233,7 +245,8 @@ test('#4466 an --auto report stays inside the hook timeout END TO END: a slow he
   assert.ok(budgetMs >= 10000, `the POST must have been given what was left of the budget, not cut short (took ${budgetMs} ms)`);
   assert.match(out.stdout, /did not answer in time, so we could not record that\. It may still have happened: check before doing it again\. It does not need a restart\./);
   assert.doesNotMatch(out.stdout, /Is it running|kosmos start/);
-  assert.match(out.stderr, /busy, retrying/, 'the first probe must have missed, or the arm never measured a slow health answer');
+  // #6682: an --auto report's 6 s budget ends before a second busy reading, so it never says the busy line.
+  assert.doesNotMatch(out.stderr, /busy, retrying/, '#6682: the --auto report said the busy line');
 }, 2500));
 
 test('#4466 `kosmos msg` whose reply is CUT (not timed out) says busy and "may still have happened", not "is it running?"', () => withBoard('msgcut', async (port) => {
@@ -696,6 +709,8 @@ test('#4466 a busy reading that comes back FAST is not retried in a tight loop (
   assert.ok(n >= 1, 'the stub must have been asked at least once (else the arm measures nothing)');
   // Probes wait out their budget (2 s, then what is left): a handful of requests in 3 s, not hundreds.
   assert.ok(n <= 8, `a 3 s busy window sent ${n} requests to a board that cut each one at once`);
+  // #6682: two fast refusals are two busy readings, so the line IS said (about 2 s in), unlike one slow answer.
+  if (n >= 2) assert.match(out.stderr, /Kosmos is busy, retrying/, 'two fast refusals did not say the busy line');
 }));
 
 test('#4466 an agent may not start a board the person stopped ON PURPOSE (board.stopped); a person still can', async () => {

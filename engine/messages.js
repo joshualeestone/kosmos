@@ -2066,12 +2066,13 @@ function mentionedMembers(cleaned, recipients, roster) {
    character here. The @-word is [A-Za-z0-9._-] by the tokenizer; handles are session names, held to
    NAME_RE (engine/create.js) for agents Kosmos made, and cleaned the same way in case an adopted one is
    not. '' when there is nothing to say. */
+/* Also C1 controls (U+009B is a one-character CSI on some terminals), zero-widths and joiners, line and
+   paragraph separators, bidi controls, the BOM and lone surrogates: a display name is printed straight to an
+   agent's terminal. Shared by ambiguousNote (#4653) and the #6608 owner-named refusal. */
+const printableName = (s) => String(s == null ? '' : s)
+  .replace(/["\\\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '').trim();
 function ambiguousNote(ambiguous, mentioned, shown) {
-  /* Also C1 controls (U+009B is a one-character CSI on some terminals), zero-widths and joiners, line and
-     paragraph separators, bidi controls, the BOM and lone surrogates: the name is printed straight to an
-     agent's terminal. */
-  const clean = (s) => String(s == null ? '' : s)
-    .replace(/["\\\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '').trim();
+  const clean = printableName;
   /* A handle is offered only if it is typeable as it stands (the tokenizer's charset): an adopted session
      name outside it would be a name that reaches nobody, so that agent is shown by display name alone. */
   const handle = (m) => (/^[A-Za-z0-9._-]+$/.test(String(m)) ? String(m) : '');
@@ -2521,6 +2522,55 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     // acknowledgement-only; otherwise it is content and the run is broken (0).
     const incomingIsAck = chat.acknowledgementOnly(stored);
     ackRun = incomingIsAck ? ackRun + 1 : 0;
+    /* #6608 (agent feedback, 2026-10-19): when the room's latest post that SAYS something @-names exactly one member and
+       asks nothing, that member owns the next step, and an agreement-only reply from anyone else (not the owner, not
+       that post's author) only blurs who has it. So it is not passed on, from the FIRST such reply rather than after a
+       run, with the same not-a-hold ack_only answer and, as below, no valve or refused row; `owner` lets the CLI say why.
+       The person's own posts count here (naming an owner is usually theirs), unlike the run above, which starts after
+       them. It does NOT apply (reviews 1 and 2): when that post asks something of the room (a "?", or a room-wide ask
+       such as "everyone confirm": its answers are wanted, as the run trigger also protects), when this reply answers a
+       different post (replyTo), or when the post is from before countFrom (the person's later post or a reopen ends
+       it, as it ends the run and the volume count). A reply with anything new is content and always goes through; the owner
+       and the author may still acknowledge each other. Rejected: an owner-status line on the post (new interface). */
+    if (incomingIsAck && typeof from === 'string' && from !== '') {
+      let said = null;
+      /* Review 5: a post since countFrom that @-names this replier and that it has not spoken after is still owed an
+         answer, and a later hand-off to someone else must not swallow that answer (it may carry no replyTo). */
+      let owed = false; let spokeSince = false;
+      for (let i = log.length - 1; i >= 0; i -= 1) {   // newest first; the log is appended in time order
+        const m = log[i];
+        if (!m || (m.kind !== 'post' && m.kind !== 'external') || m.project !== projectId || typeof m.text !== 'string') continue;
+        if (Date.parse(m.at) < countFrom) break;   // review 5: nothing older can be fresh, and an acks-only room scans no further
+        if (m.kind === 'post' && m.from === from) spokeSince = true;
+        if (!spokeSince && Array.isArray(m.mentioned) && m.mentioned.includes(from) && m.from !== from) owed = true;
+        if (!said && !chat.acknowledgementOnly(m.text)) said = m;
+        if (said && (owed || spokeSince)) break;
+      }
+      const named = said && Array.isArray(said.mentioned) ? said.mentioned : [];
+      // Review 4: an @-word that named two members (ambiguousMentions) may have meant someone else, so not one owner.
+      const unclear = said && Array.isArray(said.ambiguousMentions) && said.ambiguousMentions.length > 0;
+      // Review 4: an outside row's `from` is a display name, not a local session, so it never makes a local agent the author.
+      const authored = said && said.kind !== 'external' && said.from === from;
+      const fresh = said && Date.parse(said.at) >= countFrom;
+      const asks = said && (said.text.includes('?') || ROOM_ASK.test(said.text));
+      const answersOther = answered && said && answered.id !== said.id;
+      /* Review 3: an agent named in PLAIN text ("leo, send her the dates") is being asked something too, so ITS reply is an
+         answer; the others' acknowledgements are still left out. Session and display names, whole words, any case. A
+         word-like name ("Max" in "max out the cache") can match by accident; that only lets an acknowledgement through
+         (review 4), the safe direction. */
+      const word = (n) => { const t = String(n == null ? '' : n).trim(); if (t.length < 2) return false;
+        return new RegExp('(^|[^A-Za-z0-9])' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^A-Za-z0-9])', 'i').test(said.text); };
+      const mine = (Array.isArray(roster) ? roster : []).find((c) => c && c.sessionName === from);   // `shown` holds recipients only
+      const alsoAsks = said && (word(from) || word(mine && mine.name));
+      // Review 3: an owner who has since left the room cannot be the one it is left to.
+      const stillHere = named.length === 1 && members.includes(named[0]);
+      if (stillHere && fresh && !unclear && !asks && !alsoAsks && !owed && !answersOther && named[0] !== from && !authored) {
+        const owner = printableName(shown.get(named[0])) || (/^[A-Za-z0-9._-]+$/.test(named[0]) ? named[0] : 'another agent');
+        const because = 'That post named ' + owner + ' to take it, so Kosmos did not pass on an agreement-only reply '
+          + 'from anyone else; posts with something new still go through.';
+        return { state: chat.DELIVERY.COULD_NOT, code: 'ack_only', owner, because, id: null, at, outcomes: null };
+      }
+    }
     // Refuse this incoming ack ONLY when its OWN sender is CONTINUING the run: its sessionName
     // already appears earlier in the trailing run, so it is adding yet another acknowledgement to a
     // back-and-forth it is already part of. A sender posting its FIRST ack in the run is ANSWERING,
@@ -3442,6 +3492,9 @@ const ROOM_HELD_REFUSAL = 'the room was going back and forth without landing, so
 // the loop a user's Windows room hit (eleven "agreed"/"acknowledged" posts before the volume
 // valve fired). Reversible constant.
 const ACK_RUN_LIMIT = 4;
+// #6608 review 2: words that ask the whole room for an answer, so a hand-off that also says them is not left to its owner
+// alone. Deliberately wide (a missed ask drops an answer someone wanted; a false one only lets an acknowledgement through).
+const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|you all|y'?all|anyone|confirm|let (me|us) know|reply|respond|thumbs up)\b/i;
 function logRoomRefusal({ from, project, because, at, doing, addable }) {
   if (typeof from !== 'string' || !from) return;   // a row with no sender is dropped on read anyway
   const toLogged = String(project == null ? '' : project).slice(0, 120) || '(no project named)';
