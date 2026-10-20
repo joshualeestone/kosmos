@@ -23,7 +23,9 @@ sign-in isn't working".
    transcript, so the reading was empty, and with no Kosmos login job (the fleet launcher starts her) the tile fell back
    to "Made before Kosmos recorded this". Now, when the newest session has no model, readModel takes the newest earlier
    session in the agent's own folder (same cwd check as transcriptFor's workdir arm, five at most), flagged
-   `earlierSession: true`. An exact-session read never borrows another session's model.
+   `earlierSession: true`. The snapshot keeps that out of `model` (context sizing, the model panel's "Right now", a
+   switch's label and the server's checks all read it) and carries it as `earlierModelName`, which only the card's
+   model line uses, after the running and the planned model (review 2). Cached a minute per new-session file.
 
 **Done when.** No tile or list row draws a sentence; the pill's hover and screen-reader text carry it; the auth pill reads
 "Sign-in Issue" at normal size; a session with no reply yet shows the model its earlier session ran.
