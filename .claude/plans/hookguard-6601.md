@@ -66,3 +66,13 @@ with the gate removed reds both new tests.
 - NIT: the launch-path comment said a source board's agents get no hooks; where the installed Kosmos already wired the
   shared file they run its hook. FIXED: the comment says exactly that.
 - NITs not changed: win32launch is silent on a skip (the board's start says it once); an empty-string bundleRoot skips.
+
+## Round 4 (sonnet): converged
+- No new issues found.
+
+## Validation (on 9fe3cad2, the tree this proof covers, untouched throughout)
+- 22527 tests, 2 failed, both timeouts under load in files this branch does not touch:
+  engine/create.test.js "the startup script, actually run..." (`spawnSync /bin/bash ETIMEDOUT` after 34 s) and
+  engine/manipcheck-5683.test.js "a long line full of exempt asks is read in linear time" (34 s). Each passed run
+  alone on this branch (1 test each, the filter matched exactly one), at load average 15. AUDIT_RC 0,
+  TREE_CLEAN_THROUGHOUT yes. Recorded as load flakes, not a pass; the PR's CI runs the suite again.
