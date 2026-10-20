@@ -34,6 +34,9 @@ fs.writeFileSync(FAKE_BIN, `#!/usr/bin/env node
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+// kosmos#6595: the board asks every connector it starts what it vouches for, in the background; answered here, never
+// recorded, so it cannot land in a test's record after the test cleared it.
+if (process.argv[2] === 'capabilities') process.exit(0);
 fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(process.argv.slice(2)) + '\\n');
 if (process.argv[2] === 'run') {
   fs.writeFileSync(${JSON.stringify(RECORD)} + '.run-env', process.env.KOSMOS_BOARD_TOKEN_FILE || '(unset)');

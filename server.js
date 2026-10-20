@@ -4278,6 +4278,107 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
   joinConfirm: Object.freeze({ code: 'remote_not_allowed', error: "Finishing this computer's join is done at the computer itself, not from a remote session." }),
   agentToken: Object.freeze({ code: 'remote_not_allowed', error: 'Agent tokens are made at the computer itself, not from a remote session.' }),
 });
+/* kosmos#6595 (R01, the step-up half; Splinter's ruling 09:44 2026-10-19): from a remote session, entering a key or
+   token, updating Kosmos, and making an agent (every agent here runs with an unsandboxed shell) need a FRESH sign-in
+   with the second factor. The Kosmos+ gate states the session it admitted in two headers it writes over any client
+   value and strips on every other path (kosmos-relay sessioniat-6595): x-kosmos-session-iat, the decimal second the
+   session's email code was proven, and x-kosmos-session-second, 1 when the second factor was. Missing or malformed
+   counts as NOT fresh. A tunnel older than sessioniat-6595 does not strip client copies, so its headers are trusted
+   only when the bundled connector says it does (`kosmos-tunnel capabilities` lists session-headers; asked by
+   remote.connectorCapabilities, in the background): an older connector, on any platform, makes every gated remote
+   request refused with remote_step_up_unavailable. A local
+   request is not asked: the person is at the computer. Taking things away (deleting a key, forgetting a token) is
+   not asked either. */
+/* Twelve minutes, a little longer than the coordinator's own STEP_UP_SECS (ten): a handoff minted near the end of the
+   coordinator's window must still be fresh when the page reaches this board (Renet, 13:54). The refusal still says
+   ten, the coordinator's figure, so the person is never told more time than they have. */
+const REMOTE_STEP_UP_SECS = 12 * 60;
+/* The gate's two headers, read one way: { second, iat }, iat null unless it is a plain decimal (a value Node joined
+   from repeated headers, "a, b", is not). */
+function remoteSessionHeaders(headers) {
+  const h = headers || {};
+  const raw = h['x-kosmos-session-iat'];
+  return { second: h['x-kosmos-session-second'] === '1', iat: typeof raw === 'string' && /^[0-9]{1,12}$/.test(raw) ? Number(raw) : null };
+}
+function remoteSessionFresh(headers, nowSecs) {
+  const { second, iat } = remoteSessionHeaders(headers);
+  if (!second || iat === null) return false;
+  const age = nowSecs - iat;
+  // Bounded both sides: an issue time ahead of this clock is fresh only within a minute of drift.
+  return age >= -60 && age <= REMOTE_STEP_UP_SECS;
+}
+const REMOTE_STEP_UP_EXACT = new Set([
+  // Updating, and anything that downloads and runs software here. PUT /api/autoupdate is gated whole, off as well as
+  // on: telling them apart needs the body, which the gate does not read, and asking once more to switch it off costs
+  // little.
+  // POST /api/update/check too: with automatic updates on (the default) a check can start an install (#5084).
+  'POST /api/update', 'POST /api/update/rollback', 'POST /api/update/check', 'PUT /api/autoupdate', 'POST /api/connect/start',
+  'POST /api/antigravity/install', 'POST /api/muse/install',
+  // A key, a token, or a sign-in that leaves a provider's or a service's credential on this computer.
+  'POST /api/accounts/openai', 'POST /api/accounts/claude/apikey', 'POST /api/accounts/gemini/apikey',
+  'POST /api/accounts/grok/apikey', 'POST /api/accounts/qwen', 'POST /api/cloudflare/token',
+  'POST /api/accounts/openai/subscription/start', 'POST /api/accounts/grok/subscription/start',
+  'POST /api/antigravity/signin', 'POST /api/antigravity/win32signin', 'POST /api/muse/signin',
+  'POST /api/muse/signin/retry', 'POST /api/github/start', 'POST /api/github-device/start', 'POST /api/vercel/start',
+  // Making an agent, including by copying one in with another Kosmos (which starts it at once).
+  'POST /api/agents', 'POST /api/team', 'POST /api/connect-agent', 'POST /api/worlds', 'POST /api/worlds/import',
+  // Writing an agent's launchd job (it starts processes), the same class as bringing an agent back.
+  'POST /api/register',
+  // Federation: joining another Kosmos's project opens a room here that outsiders post into and agents act on;
+  // inviting one, or sharing this project's own code, lets another Kosmos in. Removing and withdrawing take away.
+  'POST /api/federation/join', 'POST /api/federation/invite', 'POST /api/federation/own-code',
+  // Signing this computer in to Kosmos+ anew, enrolling it, or forgetting its enrolment (review iteration 17): from a
+  // stale remote session, someone could sign this computer in to THEIR account, then make a fresh sign-in of their
+  // own and pass every gate here. The steps after a start (verify, second, enrol, confirm, cancel) follow it.
+  'POST /api/remote/signin-start', 'POST /api/remote/signin-register', 'POST /api/remote/setup-start',
+  'POST /api/remote/setup-complete', 'POST /api/remote/company/start', 'POST /api/remote/forget',
+  // Joining a company or family: it applies that org's policy here and starts reporting this computer's activity to
+  // it. Previewing a code and leaving are not gated (one reads, the other takes away).
+  'POST /api/org/enroll',
+  // Resetting the account's second factor: from a stolen session it would let the thief enrol their own, and then
+  // pass this very step-up. At the computer it needs nothing more.
+  'POST /api/remote/second-reset',
+]);
+/* The gated routes whose path carries a name: a service's token, a provider runner's install, an agent brought back,
+   and a project webhook (making one mints a secret address an outside party can post tasks to, for as long as it lives). */
+const REMOTE_STEP_UP_PATTERNS = [
+  /^\/api\/svc\/[a-z0-9-]+\/token$/, /^\/api\/runners\/[a-z]+\/install$/, /^\/api\/agent\/[^/]+\/restore$/,
+  /^\/api\/project\/[^/]+\/webhooks$/,
+];
+function needsRemoteStepUp(pathname, method) {
+  if (REMOTE_STEP_UP_EXACT.has(method + ' ' + pathname)) return true;
+  // A gated path is gated for every writing method but DELETE, so a later PUT or PATCH handler on it is covered too.
+  if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH') return false;
+  for (const m of ['POST', 'PUT', 'PATCH']) if (REMOTE_STEP_UP_EXACT.has(m + ' ' + pathname)) return true;
+  return REMOTE_STEP_UP_PATTERNS.some((re) => re.test(pathname));
+}
+const REMOTE_STEP_UP = Object.freeze({
+  code: 'remote_step_up',
+  error: 'From a remote session this needs a fresh sign-in. Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, sign in again with your email code and authenticator code, then try again within 10 minutes. Not using Kosmos+? Do this at the computer itself.',
+});
+/* A sign-in that the gate says happened more than a minute AHEAD of this clock: signing in again cannot help, the
+   clocks disagree, so it is told apart (review iteration 8). */
+const REMOTE_STEP_UP_CLOCK = Object.freeze({
+  code: 'remote_step_up_clock',
+  error: "This computer's clock is behind Kosmos+, so a fresh sign-in reads as from the future. Set this computer's clock to the right time, then try again.",
+});
+/* A connector that does not say it strips client copies of the session headers (an older one, on any platform)
+   cannot vouch for them, so nothing it forwards is fresh (review iteration 11: the cut's stale-connector check runs
+   for the Mac build only, so merge order alone could not keep an old connector away). */
+const REMOTE_STEP_UP_CONNECTOR = Object.freeze({
+  code: 'remote_step_up_unavailable',
+  error: "This computer's Kosmos+ connector cannot vouch for a fresh sign-in right now, so this cannot be done from a remote session. Do it at the computer, or try again in a minute; if this keeps happening, update Kosmos.",
+});
+/* The refusal for this request, or null. One place, before any route reads a body. */
+function remoteStepUpRefusal(req, pathname, nowSecs, caps) {
+  if (!needsRemoteStepUp(pathname, req.method) || !isRemoteRequest(req)) return null;
+  // Asked only for a remote request to a gated route, so no other request ever waits on the connector.
+  if (!(caps || remote.connectorCapabilities()).has('session-headers')) return REMOTE_STEP_UP_CONNECTOR;
+  if (remoteSessionFresh(req.headers, nowSecs)) return null;
+  const { second, iat } = remoteSessionHeaders(req.headers);
+  if (second && iat !== null && iat - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
+  return REMOTE_STEP_UP;
+}
 /* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
    Kosmos+ reaches the board over loopback, which is why the header rule stays). */
 function ticketCallerHere(req) {
@@ -5614,6 +5715,14 @@ const server = http.createServer(async (req, res) => {
   const remoteRefusal = remoteWriteGuard(req, pathname);
   if (remoteRefusal) {
     sendJson(res, 403, { error: remoteRefusal });
+    return;
+  }
+  // kosmos#6595 (R01): a key, an update or a new agent from a remote session needs a fresh second-factor sign-in.
+  // Before board auth on purpose: a forwarded request to a gated route is refused the same way signed in or not, and
+  // reveals only which routes are gated, which the docs already say.
+  const stepUp = remoteStepUpRefusal(req, pathname, Math.floor(Date.now() / 1000));
+  if (stepUp) {
+    sendJson(res, 403, stepUp);
     return;
   }
 
@@ -25304,6 +25413,7 @@ module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
+  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test

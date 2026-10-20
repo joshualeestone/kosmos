@@ -69,7 +69,7 @@ const fs = require('node:fs');
 const { envDelete, envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn, execFileSync } = require('node:child_process');
+const { spawn, execFile, execFileSync } = require('node:child_process');
 // Narrow test seam for setupRun's child lifecycle. The supervised tunnel uses
 // spawn directly and cannot be replaced through this seam.
 let setupSpawn = spawn;
@@ -127,6 +127,93 @@ const BIN = () => {
  * CreateProcess as one quoted argv (paths with spaces included), never through
  * cmd.exe, which would re-parse them. */
 const connectorSpawnOptions = (opts) => ({ ...opts, windowsHide: true });
+/* kosmos#6595 (R01): what this computer's connector says it does, one name per line from `kosmos-tunnel
+   capabilities`. The board trusts the session headers the gate writes only when the connector lists
+   "session-headers" (it strips client copies, kosmos-relay sessioniat-6595). A connector older than that verb, or one
+   that cannot be run, lists nothing, so its headers are never trusted: this is what makes an old connector fail
+   closed on every platform, whatever order things merge or ship in. Asked once and kept; a connector that lacked it
+   is asked again after ten minutes, one that did not answer at all after thirty seconds. A YES is kept: never
+   downgraded within a generation, and kept across a tunnel restart on the same binary (path, mtime, size). Asked only
+   once this board has started its own tunnel (a tunnel left by an earlier board vouches for nothing), and always in
+   the background, never while a request waits. */
+// A connector that answered without the capability changes only with an update: asked again after ten minutes.
+const CAPABILITIES_RECHECK_MS = 10 * 60 * 1000;
+// One that did not answer at all (timed out, or could not be started) says nothing about its age: thirty seconds.
+const CAPABILITIES_UNANSWERED_RECHECK_MS = 30 * 1000;
+// How long one ask may take before it counts as unanswered (a cold start on Windows can scan the exe first).
+const CAPABILITIES_ASK_TIMEOUT_MS = 5000;
+let capabilitiesSeen = null;
+let askingCapabilities = false;
+// Each ask carries the generation it started in; forgetting the answer starts a new one, so a late answer from an
+// earlier ask (an earlier connector) is dropped, never written over the new state.
+let capabilitiesGeneration = 0;
+// Kept, never downgraded within a generation: once the connector has said it strips the headers, a later slow or
+// failed ask does not undo it.
+function noteCapabilities(caps, answered, now, generation = capabilitiesGeneration, binary = connectorBinaryKey()) {
+  if (generation !== capabilitiesGeneration) return capabilitiesSeen ? capabilitiesSeen.caps : new Set();
+  if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) return capabilitiesSeen.caps;
+  // `binary` is the one that was ASKED (taken when the ask started), so a binary swapped mid-ask is not credited.
+  capabilitiesSeen = { caps, answered, at: now, binary };
+  return caps;
+}
+/* Which connector binary an answer came from: its path and when it last changed. */
+function connectorBinaryKey() {
+  const bin = BIN();
+  try { const st = fs.statSync(bin); return bin + ':' + st.mtimeMs + ':' + st.size; } catch { return bin + ':?'; }
+}
+/* Forget the answer: the connector process that forwards is about to change (a tunnel is started), so what the
+   binary says is asked again for the process it will be. Unless the binary is the one that already said yes: a tunnel
+   that restarts on the same binary keeps its answer (a flapping tunnel must not close gated actions each restart). */
+function forgetConnectorCapabilities({ always = false, ask = true } = {}) {
+  if (!always && capabilitiesSeen && capabilitiesSeen.caps.has('session-headers') && capabilitiesSeen.binary === connectorBinaryKey()) return;
+  capabilitiesSeen = null; askingCapabilities = false; capabilitiesGeneration += 1;
+  // Asked again at once, in the background (review iteration 17: a forget right after the start-up ask used to drop
+  // that answer and leave nothing asking until a request was refused).
+  if (ask) askConnectorCapabilities();
+}
+/* One background ask at a time; its answer lands through noteCapabilities. */
+function askConnectorCapabilities() {
+  if (askingCapabilities) return;
+  askingCapabilities = true;
+  const generation = capabilitiesGeneration;
+  warmConnectorCapabilities(() => { if (generation === capabilitiesGeneration) askingCapabilities = false; });
+}
+/* Whether this board has started the tunnel process that forwards. Until it has, nothing is vouched for: a tunnel
+   left running by an earlier board (an older binary, say) must not borrow what this board's binary says. */
+let tunnelStartedHere = false;
+function connectorCapabilities(now = Date.now()) {
+  if (!tunnelStartedHere) return new Set();
+  if (capabilitiesSeen) {
+    const wait = capabilitiesSeen.answered ? CAPABILITIES_RECHECK_MS : CAPABILITIES_UNANSWERED_RECHECK_MS;
+    if (capabilitiesSeen.caps.has('session-headers') || now - capabilitiesSeen.at < wait) return capabilitiesSeen.caps;
+  }
+  // Never asked synchronously: a request never waits on the connector. With no answer kept (or one due again), this
+  // answers "nothing" now, so the request is refused with "try again in a minute", and asks in the background.
+  askConnectorCapabilities();
+  return capabilitiesSeen ? capabilitiesSeen.caps : new Set();
+}
+const capabilityLines = (out) => new Set(String(out || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+/* One ask of the connector, without blocking. Run when this board starts its tunnel (forgetConnectorCapabilities) and
+   when a kept answer is due again (connectorCapabilities); never at board start, and never while a request waits. */
+function warmConnectorCapabilities(done = () => {}) {
+  // As the other connector spawns here: under the test runner, only a connector a test names is ever run.
+  if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) { done(new Set()); return; }
+  const generation = capabilitiesGeneration;
+  const binary = connectorBinaryKey();
+  try {
+    const child = execFile(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: CAPABILITIES_ASK_TIMEOUT_MS }), (err, stdout) => {
+      // Answered = it ran to an exit code (an old connector's unknown verb is an answer); killed or unstartable is not.
+      const answered = !err || (typeof err.code === 'number' && !err.killed);
+      done(noteCapabilities(err ? new Set() : capabilityLines(stdout), answered, Date.now(), generation, binary));
+    });
+    // Nothing to say on stdin: closed at once, so a connector that reads it cannot sit until the timeout.
+    if (child && child.stdin) child.stdin.end();
+  } catch { done(noteCapabilities(new Set(), false, Date.now(), generation, binary)); }
+}
+const resetConnectorCapabilitiesForTests = ({ startedHere = true } = {}) => {
+  tunnelStartedHere = startedHere;
+  forgetConnectorCapabilities({ always: true, ask: false });
+};
 /* The production addresses are the defaults (#648): a bundle needs nothing
  * baked for a Mac to reach the real relay and coordinator. Precedence: env
  * (tests, self-host), then the relay saved in remote.json, then production. */
@@ -754,6 +841,9 @@ function spawnFedSeat(target) {
 }
 
 function startChild() {
+  // kosmos#6595 (R01): the process that forwards is about to be this binary's, so what it vouches for is asked anew.
+  tunnelStartedHere = true;
+  forgetConnectorCapabilities();
   if (restartPending) { restarts += 1; restartPending = false; }
   lastTunnelFailure = null;   // a new process has written nothing yet
   dialingSince = performance.now();
@@ -3435,7 +3525,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,
