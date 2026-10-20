@@ -27,16 +27,20 @@ test('#6589: the challenge handler judges only computers\' addresses, after ordi
   // Review 1: the selector is pinned (a near-miss signature would compile and never be called), and ordinary checking
   // runs off the main thread, then the pin half on it.
   assert.match(SRC, /@objc\(webView:didReceiveAuthenticationChallenge:completionHandler:\)[^\n]*\n\s+func webView\(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,/);
-  assert.match(h, /SecTrustEvaluateAsyncWithError\(trust, DispatchQueue\.global\(qos: \.userInitiated\)\)/);
-  assert.match(h, /guard trusted else \{ DispatchQueue\.main\.async \{ completionHandler\(\.cancelAuthenticationChallenge, nil\) \}; return \}/);
+  assert.match(h, /evaluateTrustOffMain\(trust\) \{ \[weak self\] trusted in\n\s+guard trusted else \{ completionHandler\(\.cancelAuthenticationChallenge, nil\); return \}/);
+  // Review 3: the async API is CALLED FROM the queue it is given (SecTrust.h); from main with a global queue it traps.
+  // The self-test drives this helper with a real certificate, so a misuse fails the bundle build.
+  const ev = SRC.slice(SRC.indexOf('func evaluateTrustOffMain('), SRC.indexOf('\n}\n', SRC.indexOf('func evaluateTrustOffMain(')));
+  assert.match(ev, /let q = DispatchQueue\.global\(qos: \.userInitiated\)\n\s+q\.async \{ SecTrustEvaluateAsyncWithError\(trust, q\)/);
+  assert.match(SRC, /evaluateTrustOffMain\(trust\) \{ trusted in said = trusted; sem\.signal\(\) \}/, 'the self-test calls the real helper');
   assert.match(h, /guard let self else \{ completionHandler\(\.cancelAuthenticationChallenge, nil\); return \}[^\n]*\n\s+self\.judgePin\(host: host, trust: trust, completionHandler: completionHandler\)/);
   assert.doesNotMatch(h, /SecTrustEvaluateWithError\(/, 'never the blocking form on the main thread');
   const hj = body('private func judgePin(host: String, trust: SecTrust,');
   assert.ok(hj.indexOf('askTlsPin(host: host, fresh: false)') > 0, 'the pin half asks the board');
   assert.match(hj, /case \.allow: completionHandler\(\.useCredential, URLCredential\(trust: trust\)\)/);
-  assert.match(hj, /case \.refuse, \.askFresh:\n\s+self\?\.tlsPinRefused\(host\)\n\s+completionHandler\(\.cancelAuthenticationChallenge, nil\)/);
-  assert.match(hj, /guard first == \.askFresh, let self else \{ finish\(first\); return \}\n\s+self\.askTlsPin\(host: host, fresh: true\)/, 'one fresh retry, then the decision with fresh: true');
-  assert.match(hj, /fresh: true\)\)\n/, 'the retry is judged as fresh, so a second mismatch refuses');
+  assert.match(hj, /case \.refuse, \.askFresh:\n\s+self\?\.tlsPinRefused\(host, mismatch: state == "pinned"\)\n\s+completionHandler\(\.cancelAuthenticationChallenge, nil\)/);
+  assert.match(hj, /guard first == \.askFresh, let self else \{ finish\(first, state\); return \}\n\s+self\.askTlsPin\(host: host, fresh: true\)/, 'one fresh retry, then the decision with fresh: true');
+  assert.match(hj, /fresh: true\), state2\)\n/, 'the retry is judged as fresh, so a second mismatch refuses');
 });
 
 test('#6589: it asks this computer\'s own board, with the board token, for that address', () => {
@@ -53,10 +57,13 @@ test('#6589: it asks this computer\'s own board, with the board token, for that 
 });
 
 test('#6589: the leaf\'s key is hashed as the computer hashes it, and a refusal is said once a minute per computer', () => {
-  const k = body('private func tlsLeafKeyHash(_ trust: SecTrust) -> String? {');
+  const k = SRC.slice(SRC.indexOf('func tlsLeafKeyHash(_ trust: SecTrust) -> String? {'), SRC.indexOf('\n}\n', SRC.indexOf('func tlsLeafKeyHash(')));
   assert.match(k, /SecTrustCopyCertificateChain\(trust\) as\? \[SecCertificate\], let cert = chain\.first/);
   assert.match(k, /return p256SpkiSha256Hex\(point: point\)/);
-  const r = body('private func tlsPinRefused(_ host: String) {');
+  const r = body('private func tlsPinRefused(_ host: String, mismatch: Bool) {');
+  // Review 3: a check that could not run is not "the computer is wrong": two wordings.
+  assert.match(r, /alert\.informativeText = mismatch\n\s+\? "That computer did not present the certificate it vouches for/);
+  assert.match(r, /: "Kosmos could not check that computer's certificate just now/);
   assert.match(r, /if let at = tlsPinToldAt\[host\], now - at < 60 \{ return \}/);
   assert.match(r, /logLine\(/, 'the refusal is logged even when the person is not told again');
 });

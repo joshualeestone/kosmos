@@ -330,13 +330,6 @@ func isKosmosPlusURL(_ url: URL) -> Bool {
     }
 }
 
-/// #5169: PURE, for --kosmos-app-mode-selftest. The Kosmos+ SITE's OWN hosts only -- the sign-in
-/// coordinator (login.kosmosplus.com) and the apex (kosmosplus.com), where signin.html is served and
-/// starts the Stripe checkout hand-off by script. NOT a computer's board address (<name>.kosmosplus.com).
-/// isKosmosPlusURL is true for BOTH the site and computer boards, so it must NOT decide the checkout
-/// exception below: a connect computer's own board (josh.kosmosplus.com) would then count as a Kosmos+
-/// page and a board page could script an unclicked foreign nav away -- which is the #5169 bug. Keyed to
-/// the site, a board page (local 127.0.0.1 or a computer's kosmosplus.com address) stays blocked.
 /// kosmos#6589 (S-7c): the SHA-256 of a P-256 key's SubjectPublicKeyInfo, lowercase hex, from the key's X9.63 point
 /// (what SecKeyCopyExternalRepresentation gives for an EC public key: 0x04, then 64 bytes). It is the same hash a
 /// computer vouches for (kosmos-relay ctwatch::key_hash, over rcgen's DER). PURE, for --kosmos-app-mode-selftest.
@@ -370,6 +363,30 @@ func tlsPinDecision(state: String?, keys: [String], leaf: String?, fresh: Bool) 
     }
 }
 
+/// kosmos#6589: the hash of the key a certificate chain's leaf carries, as p256SpkiSha256Hex gives it. Driven by
+/// --kosmos-app-mode-selftest with a real certificate.
+func tlsLeafKeyHash(_ trust: SecTrust) -> String? {
+    guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let cert = chain.first,
+          let key = SecCertificateCopyKey(cert),
+          let point = SecKeyCopyExternalRepresentation(key, nil) as Data? else { return nil }
+    return p256SpkiSha256Hex(point: point)
+}
+
+/// kosmos#6589 (review 3): ordinary trust evaluation off the main thread. SecTrust.h: the async form "MUST be called
+/// from that queue", so it is called FROM the queue it is given (called from main with a global queue, it traps).
+/// `done` runs on that queue. Driven by --kosmos-app-mode-selftest, so a misuse fails the bundle build, not the app.
+func evaluateTrustOffMain(_ trust: SecTrust, done: @escaping (Bool) -> Void) {
+    let q = DispatchQueue.global(qos: .userInitiated)
+    q.async { SecTrustEvaluateAsyncWithError(trust, q) { _, trusted, _ in done(trusted) } }
+}
+
+/// #5169: PURE, for --kosmos-app-mode-selftest. The Kosmos+ SITE's OWN hosts only -- the sign-in
+/// coordinator (login.kosmosplus.com) and the apex (kosmosplus.com), where signin.html is served and
+/// starts the Stripe checkout hand-off by script. NOT a computer's board address (<name>.kosmosplus.com).
+/// isKosmosPlusURL is true for BOTH the site and computer boards, so it must NOT decide the checkout
+/// exception below: a connect computer's own board (josh.kosmosplus.com) would then count as a Kosmos+
+/// page and a board page could script an unclicked foreign nav away -- which is the #5169 bug. Keyed to
+/// the site, a board page (local 127.0.0.1 or a computer's kosmosplus.com address) stays blocked.
 func isKosmosPlusSiteURL(_ url: URL?) -> Bool {
     guard let url = url, url.scheme?.lowercased() == "https",
           let host = url.host?.lowercased(), !host.isEmpty,
@@ -3549,6 +3566,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. #5167: on every
     /// computer, a download the page asks for is decided first.
+
+    /* 📌 PINNED, as createWebViewWith is: an optional delegate method with a slightly wrong Swift
+       signature compiles and is never called, which would switch the connect policy off silently.
+       The selector is WebKit's own (WKNavigationDelegate.h). */
     /* kosmos#6589 (S-7c): another of the person's computers must present a certificate whose key is the one it
        vouches for with the key its pairing carries (kosmos-relay tlspin.rs). The service can get a certificate for any
        computer's name with a key of its own, which a browser would accept; this is what refuses it, before the
@@ -3566,8 +3587,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
               let target = URL(string: "https://" + host), isKosmosPlusURL(target), !isKosmosPlusSiteURL(target)
         else { completionHandler(.performDefaultHandling, nil); return }
         // Review 1: evaluated off the main thread (it can wait on the network for revocation), then on as before.
-        SecTrustEvaluateAsyncWithError(trust, DispatchQueue.global(qos: .userInitiated)) { [weak self] trust, trusted, _ in
-            guard trusted else { DispatchQueue.main.async { completionHandler(.cancelAuthenticationChallenge, nil) }; return }
+        evaluateTrustOffMain(trust) { [weak self] trusted in
+            guard trusted else { completionHandler(.cancelAuthenticationChallenge, nil); return }
             DispatchQueue.main.async {
                 guard let self else { completionHandler(.cancelAuthenticationChallenge, nil); return }   // exactly once, always
                 self.judgePin(host: host, trust: trust, completionHandler: completionHandler)
@@ -3579,32 +3600,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func judgePin(host: String, trust: SecTrust,
                           completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let leaf = tlsLeafKeyHash(trust)
-        let finish: (TlsPinDecision) -> Void = { [weak self] d in
+        // The last answer decides the wording: a key that does not match, or a check that could not run (required).
+        let finish: (TlsPinDecision, String?) -> Void = { [weak self] d, state in
             DispatchQueue.main.async {
                 switch d {
                 case .allow: completionHandler(.useCredential, URLCredential(trust: trust))
                 case .ordinary: completionHandler(.performDefaultHandling, nil)
                 case .refuse, .askFresh:
-                    self?.tlsPinRefused(host)
+                    self?.tlsPinRefused(host, mismatch: state == "pinned")
                     completionHandler(.cancelAuthenticationChallenge, nil)
                 }
             }
         }
         askTlsPin(host: host, fresh: false) { [weak self] state, keys in
             let first = tlsPinDecision(state: state, keys: keys, leaf: leaf, fresh: false)
-            guard first == .askFresh, let self else { finish(first); return }
+            guard first == .askFresh, let self else { finish(first, state); return }
             self.askTlsPin(host: host, fresh: true) { state2, keys2 in
-                finish(tlsPinDecision(state: state2, keys: keys2, leaf: leaf, fresh: true))
+                finish(tlsPinDecision(state: state2, keys: keys2, leaf: leaf, fresh: true), state2)
             }
         }
-    }
-
-    /// kosmos#6589: the hash of the key the certificate's leaf carries, as p256SpkiSha256Hex gives it.
-    private func tlsLeafKeyHash(_ trust: SecTrust) -> String? {
-        guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let cert = chain.first,
-              let key = SecCertificateCopyKey(cert),
-              let point = SecKeyCopyExternalRepresentation(key, nil) as Data? else { return nil }
-        return p256SpkiSha256Hex(point: point)
     }
 
     /// kosmos#6589: ask this computer's own board which key `host` vouches for. NO board at all (a connect-only Mac):
@@ -3635,22 +3649,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /// kosmos#6589: say so, once a minute per computer at most (a page may open several connections at once).
-    private func tlsPinRefused(_ host: String) {
-        logLine("tls-pin: refused \(host): its certificate's key is not the one it vouches for")
+    private func tlsPinRefused(_ host: String, mismatch: Bool) {
+        logLine(mismatch ? "tls-pin: refused \(host): its certificate's key is not the one it vouches for"
+                         : "tls-pin: refused \(host): its certificate could not be checked (see the line above)")
         let now = ProcessInfo.processInfo.systemUptime
         if let at = tlsPinToldAt[host], now - at < 60 { return }
         tlsPinToldAt[host] = now
         let alert = NSAlert()
         alert.messageText = "Kosmos did not open \(host)"
-        alert.informativeText = "That computer did not present the certificate it vouches for, so Kosmos stopped before sending it anything. If you just set that computer up again, pair it with this one again. If this keeps happening, contact Kosmos support."
+        alert.informativeText = mismatch
+            ? "That computer did not present the certificate it vouches for, so Kosmos stopped before sending it anything. If you just set that computer up again, pair it with this one again. If this keeps happening, contact Kosmos support."
+            : "Kosmos could not check that computer's certificate just now, so it stopped before sending it anything. Try again in a moment."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         if let window { alert.beginSheetModal(for: window, completionHandler: nil) } else { alert.runModal() }
     }
-
-    /* 📌 PINNED, as createWebViewWith is: an optional delegate method with a slightly wrong Swift
-       signature compiles and is never called, which would switch the connect policy off silently.
-       The selector is WebKit's own (WKNavigationDelegate.h). */
     @objc(webView:decidePolicyForNavigationAction:decisionHandler:)
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -7633,7 +7646,24 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         pin(tlsPinDecision(state: state, keys: keys, leaf: leaf, fresh: fresh).rawValue, want.rawValue, why)
     }
     pin(tlsPinDecision(state: nil, keys: [], leaf: K, fresh: false).rawValue, TlsPinDecision.ordinary.rawValue, "no answer from this computer's own board: ordinary (no ticket is at risk)")
-    let expected = 203   // kosmos#6589: +12 (3 key hash, 9 decision); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    // Review 3: the real API, with a real self-signed P-256 certificate (openssl): the leaf's key hashes as openssl
+    // hashes its SPKI, and the off-main evaluation answers (untrusted: self-signed) instead of trapping.
+    var certRows = 0
+    if let cert = SecCertificateCreateWithData(nil, hexData("3082018d30820133a00302010202142dc5e2c04849c1bf623e99bd418c22de601b1221300a06082a8648ce3d040302301b3119301706035504030c10742e6b6f736d6f73706c75732e636f6d3020170d3236313032303033303431375a180f32313236303932363033303431375a301b3119301706035504030c10742e6b6f736d6f73706c75732e636f6d3059301306072a8648ce3d020106082a8648ce3d030107034200042be37a5cfde2fb4a03e4be23735418513c386216eb626fd6b1faadae11963b6625b2caf6eafbc00ab4fecde3575962214ea19afc4565a1a8862914794ce986c0a3533051301d0603551d0e041604142834cb5c01ce60992e4af123d51d620e8aa26162301f0603551d230418301680142834cb5c01ce60992e4af123d51d620e8aa26162300f0603551d130101ff040530030101ff300a06082a8648ce3d040302034800304502204046dbb0b563ad8631cdc27a828d68f4d858c94daabdaf0e8f77f1df0757013b022100fea25a806be786b1503393ef698c3d6ee48b03d5c73578f9555964db5baffe84") as CFData) {
+        var trustOut: SecTrust?
+        SecTrustCreateWithCertificates(cert, SecPolicyCreateSSL(true, "t.kosmosplus.com" as CFString), &trustOut)
+        if let trust = trustOut {
+            pin(tlsLeafKeyHash(trust), "d161c11eec9bb5a8dc633fe00020f1d0049348b446a02c00228000f8f5008d84", "a real certificate's leaf key hashes as openssl hashes its SPKI")
+            let sem = DispatchSemaphore(value: 0)
+            var said: Bool?
+            evaluateTrustOffMain(trust) { trusted in said = trusted; sem.signal() }
+            let back = sem.wait(timeout: .now() + 20) == .success
+            pin(back ? (said == false ? "untrusted" : "trusted") : "no answer", "untrusted", "evaluateTrustOffMain answers from its own queue (a self-signed certificate is not trusted)")
+            certRows = 2
+        }
+    }
+    while certRows < 2 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
+    let expected = 205   // kosmos#6589: +14 (3 key hash, 9 decision, 2 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
