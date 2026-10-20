@@ -210,7 +210,7 @@ test('win32-board-copy (W-25): the manual offer is numbered steps that name Wind
   ]);
   assert.doesNotMatch(card.line + card.steps, /unpack/i, 'Mac vocabulary is back in the Windows offer');
   /* The button is the same engine reveal as Settings' "Open the Kosmos folder". */
-  assert.match(PAGE, /<button class="btn-quiet" type="button" id="upd-open-folder" hidden data-win-copy="updateOpenFolder">Open my Kosmos folder<\/button>/);
+  assert.match(PAGE, /<button class="btn-quiet" type="button" id="upd-open-folder" data-remote-hide hidden data-win-copy="updateOpenFolder">Open my Kosmos folder<\/button>/);   // #6724: hidden over Kosmos+
   const handlerAt = SCRIPT.indexOf("getElementById('upd-open-folder').addEventListener('click'");
   assert.ok(handlerAt > -1, 'the folder button has no handler');
   assert.match(SCRIPT.slice(handlerAt, handlerAt + 400), /fetch\('\/api\/reveal-app', \{ method: 'POST' \}\)/,
