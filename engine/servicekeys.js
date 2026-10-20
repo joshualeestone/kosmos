@@ -1,0 +1,189 @@
+'use strict';
+/**
+ * kosmos#6587 (S-7a, slice 1): the Kosmos+ SERVICE KEY SET, checked on this computer.
+ *
+ * Every Kosmos+ token is signed by the service key, and this computer's tunnel pins one such key at setup (the
+ * remote state dir's coordinator_pubkey), first use only. A service key set is a short list of the service keys that
+ * are genuine, signed by the offline Kosmos recovery key (the one that signs the release key list, kosmos#6609), and
+ * shipped inside the signed release. With it, a computer can tell that the key it pinned is one Kosmos vouches for,
+ * which also catches a past first-use compromise (a key planted at setup), not only a future one.
+ *
+ * The format and every rule are kosmos-relay's (relay #474, crates/proto/src/keyset.rs, docs/token-format.md
+ * "Service key set"), and this file checks the same way, against the same test vectors:
+ *
+ *   service-keys.json      {"type": "kosmos-service-keys", "service_keys": [{"kid", "pub", "role"}, ...],
+ *                          "seq": <n>, "issued": "<YYYY-MM-DD>"}
+ *   service-keys.json.sig  the recovery key's Ed25519 signature over that file's EXACT bytes, base64
+ *
+ * This slice only CHECKS. It is off while engine/manifest-verify.js RECOVERY_KEYS is empty (as it ships today): no
+ * recovery key, no set can verify, and nothing here is called from the board yet. Its later slices: the release
+ * ships the set, and the board compares the pinned key with it and tells the person on a mismatch.
+ */
+const crypto = require('node:crypto');
+
+const SERVICE_KEYS_TYPE = 'kosmos-service-keys';
+const MAX_SEQ = 2147483647;
+const MAX_SERVICE_KEYS = 3;
+const ROLES = new Set(['current', 'next', 'retiring']);
+const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+
+/* The small-order (weak) Ed25519 points, as libsodium lists them. A point is weak when it equals one of these in its
+   first 31 bytes and in the low 7 bits of the last (the sign bit is ignored, so both spellings of each are caught).
+   kosmos-relay refuses these keys (ed25519-dalek is_weak), so a set naming one is refused here too. */
+const WEAK = [
+  '0000000000000000000000000000000000000000000000000000000000000000',
+  '0100000000000000000000000000000000000000000000000000000000000000',
+  '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05',
+  'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a',
+  'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+  'edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+  'eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+].map((h) => Buffer.from(h, 'hex'));
+function weak(raw) {
+  return WEAK.some((w) => w.subarray(0, 31).equals(raw.subarray(0, 31)) && (w[31] & 0x7f) === (raw[31] & 0x7f));
+}
+
+/** The raw 32-byte key of a canonical, non-weak Ed25519 SPKI base64 string, or null. Only the canonical spelling is a
+ * key (re-encoding gives the same string), so comparing strings compares keys. */
+function rawKey(spkiB64) {
+  if (typeof spkiB64 !== 'string' || !/^[A-Za-z0-9+/]{59}=$/.test(spkiB64)) return null;
+  const der = Buffer.from(spkiB64, 'base64');
+  if (der.length !== 44 || der.toString('base64') !== spkiB64 || !der.subarray(0, 12).equals(SPKI_PREFIX)) return null;
+  const raw = der.subarray(12);
+  return weak(raw) ? null : Buffer.from(raw);
+}
+const spkiOf = (raw) => Buffer.concat([SPKI_PREFIX, raw]).toString('base64');
+const keyObject = (raw) => crypto.createPublicKey({ key: Buffer.concat([SPKI_PREFIX, raw]), format: 'der', type: 'spki' });
+
+/** A key's kid: base64url, no padding, of the first 8 bytes of sha256 over the RAW 32-byte key. */
+function kidOf(raw) {
+  return crypto.createHash('sha256').update(raw).digest().subarray(0, 8).toString('base64url');
+}
+
+/** The pinned coordinator key (base64url of the 32 raw bytes, as the tunnel writes coordinator_pubkey) as its SPKI
+ * base64 spelling, the one a set lists; null for anything else. */
+function pinnedSpki(pinned) {
+  const s = String(pinned == null ? '' : pinned).trim();
+  if (!/^[A-Za-z0-9_-]{43}$/.test(s)) return null;
+  const raw = Buffer.from(s, 'base64url');
+  if (raw.length !== 32 || raw.toString('base64url') !== s) return null;
+  return spkiOf(raw);
+}
+
+/* JSON.parse keeps the last of two same-named members without a word, and turns 1.0 and 1e0 into the integer 1;
+   serde_json (relay) refuses a duplicate here and a non-integer seq. So the bytes are walked once more: member names
+   compared after unescaping, at any depth, and the raw spelling of each top-level number kept. Called only on text
+   that JSON.parse accepted, so the walk needs no error reporting of its own beyond the duplicate. */
+function scan(text) {
+  let i = 0;
+  const top = {};
+  const ws = () => { while (i < text.length && ' \t\n\r'.includes(text[i])) i += 1; };
+  const str = () => {
+    const start = i; i += 1;
+    while (text[i] !== '"') i += text[i] === '\\' ? 2 : 1;
+    i += 1;
+    return JSON.parse(text.slice(start, i));
+  };
+  const value = (depth) => {
+    ws();
+    const c = text[i];
+    if (c === '{') {
+      i += 1; const names = new Set(); ws();
+      if (text[i] === '}') { i += 1; return undefined; }
+      for (;;) {
+        ws(); const name = str();
+        if (names.has(name)) throw new Error('names the member "' + name + '" twice');
+        names.add(name);
+        ws(); i += 1;   // the colon
+        const raw = value(depth + 1);
+        if (depth === 0) top[name] = raw;
+        ws();
+        if (text[i] === ',') { i += 1; continue; }
+        i += 1; return undefined;   // the closing brace
+      }
+    }
+    if (c === '[') {
+      i += 1; ws();
+      if (text[i] === ']') { i += 1; return undefined; }
+      for (;;) { value(depth + 1); ws(); if (text[i] === ',') { i += 1; continue; } i += 1; return undefined; }
+    }
+    if (c === '"') { str(); return undefined; }
+    const start = i;
+    while (i < text.length && !',}] \t\n\r'.includes(text[i])) i += 1;
+    return text.slice(start, i);   // a number, true, false or null, as spelled
+  };
+  value(0);
+  return top;
+}
+
+const DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+function realDate(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const y = Number(s.slice(0, 4)); const m = Number(s.slice(5, 7)); const d = Number(s.slice(8, 10));
+  if (y === 0 || m < 1 || m > 12 || d === 0) return false;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  return d <= (m === 2 && leap ? 29 : DAYS[m - 1]);
+}
+
+/**
+ * Checks a service key set's bytes and signature, in kosmos-relay's order: the recovery key's signature over the exact
+ * bytes first, then JSON with no member named twice, the type, seq and issued, the keys, and seq against `held` (the
+ * { seq, sha256 } this computer took last, or null). Returns { ok: true, seq, sha256, keys: [{ kid, pub, role }] } or
+ * { ok: false, why }.
+ */
+function verifyServiceKeySet({ bytes, sig, recoveryKeys = [], held = null }) {
+  const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes == null ? '' : bytes);
+  const sigText = String(sig == null ? '' : sig).trim();
+  // Strict base64, as the relay's decoder: padded, and canonical (re-encoding gives the same text, so no trailing bits).
+  let signature = /^[A-Za-z0-9+/]{86}==$/.test(sigText) ? Buffer.from(sigText, 'base64') : Buffer.alloc(0);
+  if (signature.toString('base64') !== sigText) signature = Buffer.alloc(0);
+  const roots = recoveryKeys.map(rawKey).filter(Boolean);
+  const signed = signature.length === 64 && roots.some((r) => {
+    try { return crypto.verify(null, buf, keyObject(r), signature); } catch { return false; }
+  });
+  if (!signed) return { ok: false, why: 'the service key set is not signed by the Kosmos recovery key' };
+  let doc; let top;
+  const text = buf.toString('utf8');
+  try { doc = JSON.parse(text); } catch { return { ok: false, why: 'the signed service key set is not readable' }; }
+  try { top = scan(text); } catch (e) { return { ok: false, why: 'the signed service key set ' + e.message }; }
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc) || doc.type !== SERVICE_KEYS_TYPE) {
+    return { ok: false, why: 'the signed file is not a service key set' };
+  }
+  if (!/^[1-9]\d{0,9}$/.test(top.seq || '') || Number(top.seq) > MAX_SEQ) {
+    return { ok: false, why: 'the signed service key set has no valid sequence number' };
+  }
+  const seq = Number(top.seq);
+  if (!realDate(doc.issued)) return { ok: false, why: 'the signed service key set has no valid issue date' };
+  const entries = doc.service_keys;
+  if (!Array.isArray(entries) || !entries.length) return { ok: false, why: 'the signed service key set names no key' };
+  if (entries.length > MAX_SERVICE_KEYS) return { ok: false, why: 'the signed service key set names more than ' + MAX_SERVICE_KEYS + ' keys' };
+  const keys = [];
+  for (const e of entries) {
+    if (!e || typeof e !== 'object' || typeof e.kid !== 'string' || typeof e.pub !== 'string' || !ROLES.has(e.role)) {
+      return { ok: false, why: 'the signed service key set holds an entry that is not one' };
+    }
+    const raw = rawKey(e.pub);
+    if (!raw) return { ok: false, why: 'the signed service key set holds a key that is not one' };
+    if (e.kid !== kidOf(raw)) return { ok: false, why: 'the signed service key set names a key under another kid' };
+    if (roots.some((r) => r.equals(raw))) return { ok: false, why: 'the signed service key set lists the recovery key as a service key' };
+    if (keys.some((k) => k.pub === e.pub)) return { ok: false, why: 'the signed service key set lists a key twice' };
+    keys.push({ kid: e.kid, pub: e.pub, role: e.role });
+  }
+  if (keys.filter((k) => k.role === 'current').length !== 1) {
+    return { ok: false, why: 'the signed service key set does not name exactly one current key' };
+  }
+  const sha256 = crypto.createHash('sha256').update(buf).digest('hex');
+  if (held && Number.isInteger(held.seq)) {
+    if (seq < held.seq) return { ok: false, why: `the service key set is older (${seq}) than the one this computer holds (${held.seq})` };
+    if (seq === held.seq && sha256 !== held.sha256) return { ok: false, why: `the service key set reuses sequence number ${seq} with other contents` };
+  }
+  return { ok: true, seq, sha256, keys };
+}
+
+/** Whether a pinned coordinator key (as coordinator_pubkey holds it) is one of a verified set's keys. */
+function pinnedIsListed(pinned, keys) {
+  const spki = pinnedSpki(pinned);
+  return !!spki && Array.isArray(keys) && keys.some((k) => k && k.pub === spki);
+}
+
+module.exports = { SERVICE_KEYS_TYPE, MAX_SEQ, MAX_SERVICE_KEYS, verifyServiceKeySet, pinnedIsListed, pinnedSpki, kidOf, rawKey };
