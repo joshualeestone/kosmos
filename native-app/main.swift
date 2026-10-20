@@ -3646,7 +3646,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         logToSystem(mismatch ? "tls-pin: refused a computer: its certificate's key is not the one it vouches for"
                              : "tls-pin: refused a computer: its certificate could not be checked")
         logLine(mismatch ? "tls-pin: refused \(host): its certificate's key is not the one it vouches for"
-                         : "tls-pin: refused \(host): its certificate could not be checked (see the line above)")
+                         : "tls-pin: refused \(host): its certificate could not be checked (see the "did not answer" line before it)")
         let now = ProcessInfo.processInfo.systemUptime
         if let at = tlsPinToldAt[host], now - at < 60 { return }
         tlsPinToldAt[host] = now
