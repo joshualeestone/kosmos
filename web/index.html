@@ -425,6 +425,9 @@ header > .headleft  { justify-self: start; }
 header > .tabs      { justify-self: center; }
 header > .headright { justify-self: end; }
 .headright { display: flex; align-items: baseline; gap: var(--space-5); }
+/* kosmos#6721: small and quiet; it says a moment's wait, not an outage. */
+.hdr-reconnect { font-size: .8125rem; color: var(--muted, #8a8f98); white-space: nowrap; }
+.hdr-reconnect[hidden] { display: none; }
 h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* The pack's stamp: an uppercase chrome label over a promoted bold line.
    The stale/failed variants are the app's honest extras (the pack draws
@@ -12574,6 +12577,8 @@ window.kosmosMeasureScrollbarWidth();
          #rail-me), reusing youFaceHtml(). Popover mechanics reuse the world-switcher pattern. -->
     <!-- #3755 (Josh 2026-09-25 11:07): no "?" beside the name. The tips show once each, by themselves;
          "Stop showing tips" and the Settings switch are the controls. -->
+    <!-- kosmos#6721: one unanswered status poll says this, small, instead of the full "not answering" card. -->
+    <span class="hdr-reconnect" id="hdr-reconnect" role="status" aria-live="polite" hidden>Reconnecting…</span>
     <div class="userpop" id="userpop">
       <!-- #3051: NO aria-label. The accessible name derives from the visible name
            (#userpop-name; the avatar and chevron are aria-hidden), so it satisfies
@@ -25073,6 +25078,8 @@ async function tick() {
     // still not told us what is on this machine.
     BOARD_LOOKED = true;
     BOARD_LOOK_FAILED = null;
+    BOARD_MISSES = 0;   // kosmos#6721
+    paintReconnecting(false);
     BOARD_NEEDS_SIGNIN = false; // #2023: a successful read means this browser is authed.
     BOARD_SIGNED_OUT = false;
     BOARD_DEVICE_OFFLINE = false;
@@ -25600,6 +25607,15 @@ async function tick() {
     clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
     if (answered && !(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;   // a refusal is an answer too (#268)
     if (!answered && tick.answeredSeq > pollSeq) return;   // a newer poll already answered: this is old news
+    /* kosmos#6721: the first unanswered poll, over a board that has answered before, keeps everything on screen and
+       only says Reconnecting in the header; the second in a row falls through to the full failure below. A refusal is
+       an answer (it resets the count), and this device being offline is known at once, so neither waits. */
+    if (answered) BOARD_MISSES = 0;
+    else if (BOARD_LOOKED && !deviceOffline()) {
+      BOARD_MISSES++;
+      if (BOARD_MISSES < 2) { paintReconnecting(true); return; }
+    }
+    paintReconnecting(false);
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
     // the projects poll is suppressed while it is open — so a failure that only
@@ -38922,6 +38938,14 @@ const DEVICE_SIGNIN_BUTTON = '<button class="btn" type="button" data-device-sign
    network", which is no proof the internet is reachable, so it proves nothing either way.
    Set and cleared at the same points as BOARD_SIGNED_OUT. */
 let BOARD_DEVICE_OFFLINE = false;
+/* kosmos#6721 (Josh 10-20, decided by Splinter 09:04): status polls in a row that got NO answer. One is a busy computer
+   (the board answered in 0.4 s a moment later each time Josh saw the full card, at load 43): the board keeps what it
+   showed and the header says Reconnecting. The second in a row is the full failure, as before. */
+let BOARD_MISSES = 0;
+function paintReconnecting(on) {
+  const el = document.getElementById('hdr-reconnect');
+  if (el && el.hidden === Boolean(on)) el.hidden = !on;
+}
 function deviceOffline() {
   return kplusRemote() && typeof navigator !== 'undefined' && navigator.onLine === false;
 }
