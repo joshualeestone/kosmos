@@ -80,7 +80,7 @@ if [ "$rc" -eq 0 ]; then pass "does not refuse itself"; else fail "does not refu
 # #1391: THE CALLER'S OWN SUBTREE MUST NOT COUNT. The disarm happened because a
 # `bash tools/browser-checks.sh` that is the caller's own DESCENDANT (an argv-
 # inheriting subshell) survived a single-pid exclusion and the gate refused
-# itself. These two use a REAL pid (a cheap `sleep`, never a browser process, so
+# itself. These two use a REAL pid (a cheap perl bounded wait, never a browser process, so
 # they are safe by default on a shared Mac) fed through the seam's command line,
 # and drive `self` to the ancestor vs. an unrelated sibling.
 perl -e 'select(undef, undef, undef, 30)' & kid=$!

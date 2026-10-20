@@ -47,3 +47,18 @@ reference to sleep listed and read); not checked across the rest of tools/.
 - data-root-1511: 4 failures (fallback-leaf and symlink CONTROL arms), IDENTICAL on origin/main's copy run in place,
   so not this change: a direct run from this shell picks up the real environment.
 - No perl waits left behind after the runs (checked with ps).
+
+## Review round 1 (blind, opus)
+- [WARNING] a control in a touched file was missed: test-pause-foreign-board-964's stub server.js ran a foreground
+  `sleep 30`, whose death would end OURPID and send the "our board" arms down the foreign path --> CONVERTED (the
+  same shape as the browser decoy). My premise only grepped for sleep MATCHERS, never for foreground children: a
+  missed class, named here. 12/0.
+- [WARNING] my `# sleep-control-ok` on its own comment line was inert (the guard's opt-out is per line) and read as
+  an exemption in force --> reworded as a plain note that the guard does not flag a pgrep line.
+- [WARNING] data-root's failure path ran `pkill -fx 'sleep 37'`, ending any agent's sleep 37 on the box (#6710's own
+  hazard) --> REMOVED; the leak is still reported, a leaked one ends by itself in 37 s, and the KOSMOS_HOME=$FAKE
+  pkill (a unique path) stays.
+- [NIT] three comments still said "sleep" of perl waits --> FIXED. [NIT] browser-run-guard's decoy wait outlives its
+  arm by up to 30 s (older than this branch; it ends by itself) --> NOT CHANGED.
+- Reruns: pause-foreign 12/0; guard passes; the three comment-edited files parse; data-root the same 4 failures as
+  main's copy in place.
