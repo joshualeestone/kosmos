@@ -1341,7 +1341,7 @@ function seedRows(now, rows) {
     fs.appendFileSync(messages.LOG, JSON.stringify({
       kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease', from: r.from,
       to: MEMBERS.filter((m) => m !== r.from), text: r.text, at: new Date(now - (r.ago || (rows.length - i) * 1000)).toISOString(), outcomes: {},
-      ...(r.mentioned ? { mentioned: r.mentioned } : {}), ...(r.operator ? { operator: true } : {}),
+      ...(r.mentioned ? { mentioned: r.mentioned } : {}), ...(r.operator ? { operator: true } : {}), ...(r.ambiguousMentions ? { ambiguousMentions: r.ambiguousMentions } : {}),
     }) + '\n');
   });
 }
@@ -1462,6 +1462,11 @@ test('#6608 review 3: another member asked by plain name, or an owner who left, 
     wipeLog(); chat.resetForTests();
     seedRows(now, [{ from: 'you', operator: true, text: '@nova please draft the renewal letter', mentioned: ['nova'] }]);
     assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'an ack was refused in favour of an owner who is not in the room');
+  });
+  // Review 4: an ambiguous @-word beside the one clear name: not one owner.
+  withFleet(room3(), (board) => {
+    seedRows(Date.now(), [{ from: 'you', operator: true, text: '@mara draft the letter with @sam', mentioned: ['mara'], ambiguousMentions: ['sam'] }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'a hand-off with an ambiguous second @-word was treated as one owner');
   });
   // Asked by DISPLAY name in plain text: leo shows as Leon here.
   withFleet([fleet.agent('leo', { displayName: 'Leon' }), fleet.agent('mara'), fleet.agent('april')], (board) => {

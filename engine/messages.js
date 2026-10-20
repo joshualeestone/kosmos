@@ -2540,18 +2540,24 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         if (!chat.acknowledgementOnly(m.text)) { said = m; break; }
       }
       const named = said && Array.isArray(said.mentioned) ? said.mentioned : [];
+      // Review 4: an @-word that named two members (ambiguousMentions) may have meant someone else, so not one owner.
+      const unclear = said && Array.isArray(said.ambiguousMentions) && said.ambiguousMentions.length > 0;
+      // Review 4: an outside row's `from` is a display name, not a local session, so it never makes a local agent the author.
+      const authored = said && said.kind !== 'external' && said.from === from;
       const fresh = said && Date.parse(said.at) >= countFrom;
       const asks = said && (said.text.includes('?') || ROOM_ASK.test(said.text));
       const answersOther = answered && said && answered.id !== said.id;
       /* Review 3: an agent named in PLAIN text ("leo, send her the dates") is being asked something too, so ITS reply is an
-         answer; the others' acknowledgements are still left out. Session and display names, whole words, any case. */
+         answer; the others' acknowledgements are still left out. Session and display names, whole words, any case. A
+         word-like name ("Max" in "max out the cache") can match by accident; that only lets an acknowledgement through
+         (review 4), the safe direction. */
       const word = (n) => { const t = String(n == null ? '' : n).trim(); if (t.length < 2) return false;
         return new RegExp('(^|[^A-Za-z0-9])' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^A-Za-z0-9])', 'i').test(said.text); };
       const mine = (Array.isArray(roster) ? roster : []).find((c) => c && c.sessionName === from);   // `shown` holds recipients only
       const alsoAsks = said && (word(from) || word(mine && mine.name));
       // Review 3: an owner who has since left the room cannot be the one it is left to.
       const stillHere = named.length === 1 && members.includes(named[0]);
-      if (stillHere && fresh && !asks && !alsoAsks && !answersOther && named[0] !== from && said.from !== from) {
+      if (stillHere && fresh && !unclear && !asks && !alsoAsks && !answersOther && named[0] !== from && !authored) {
         const owner = printableName(shown.get(named[0])) || (/^[A-Za-z0-9._-]+$/.test(named[0]) ? named[0] : 'another agent');
         const because = 'That post named ' + owner + ' to take it, so Kosmos did not pass on an agreement-only reply '
           + 'from anyone else; posts with something new still go through.';
