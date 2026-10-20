@@ -162,3 +162,17 @@ the attribute only when remote.
     with the hostile attachment and a hostile textUrl; the mutant that takes the words as an address is red.
   - NIT, fixed: the path line's buttons were a small tap target on a phone; 44 px there, as the rows and Back are.
   - Checked by the reviewer: every route that opens a window on the board's computer has its button tagged or gated.
+- Iteration 7 (opus): NO NEW FINDINGS on the product (every place data reaches an address, attribute, header or path
+  checked).
+- After it, the browser checks were swept by hand for what this change moved, and two updated:
+  render-remote-file-download-5165 (the folder buttons are not displayed over Kosmos+; at the computer they are) and
+  render-files-preview-4997 (the no-preview arm uses a .docx; a text row shows its words).
+- Iteration 8 (sonnet), on those checks: BLOCKER, fixed: render-agent-files-3614 (not touched by the first sweep)
+  plain-clicked a .txt row on the Files screen and expected the opener; a text row previews now. That arm takes a
+  Cmd-click (as the file's PDF arms already do), and a new arm asserts the plain click shows the words and opens
+  nothing. NITs, fixed: the remote arm now clears each button's own `hidden` first (two start hidden, so it could not
+  fail for them); its label R3 duplicated an existing arm (now R9, and L9); the local control asserts the buttons are
+  displayed, not only that the stamp is absent. My sweep missed render-agent-files-3614 because it matched ids and
+  routes, not what a click on a .txt row is expected to do.
+- None of the browser checks was RUN yet: the driver forbids it during a release cut (0.7.61 was cutting). They run
+  after the lift, before the PR.
