@@ -1032,8 +1032,8 @@ COPYFILE_DISABLE=1 tar -czf "$TARBALL_OUT" --uname kosmos --gname staff -C "$STA
 tar_owner_gate "$TARBALL_OUT" || exit 1
 . "$(dirname "${BASH_SOURCE[0]}")/lib/tar-macmeta-gate.sh"
 tar_macmeta_gate "$TARBALL_OUT" || exit 1
-echo "==> the tarball carries no macOS metadata from this Mac (#6678)"
 echo "==> the tarball records no build account as owner (#6562)"
+echo "==> the tarball carries no macOS metadata from this Mac (#6678)"
 # ⚠️ The .sha256 is what install/setup.sh verifies before extracting; a
 # tarball published without it refuses to install, on purpose.
 ( cd "$OUT" && shasum -a 256 "$(basename "$TARBALL_OUT")" > "$(basename "$TARBALL_OUT").sha256" )

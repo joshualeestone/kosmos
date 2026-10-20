@@ -41,14 +41,20 @@ else
   echo "  skip the xattr arms: not a Mac, or no xattr here (the bundles are built on a Mac)"
 fi
 
-python3 - "$T/ad.tgz" <<'PY'
-import io, sys, tarfile
-with tarfile.open(sys.argv[1], 'w:gz', format=tarfile.PAX_FORMAT) as t:
-    for name, data, pax in (('app/f', b'x\n', {}), ('app/._f', b'Mac OS X', {}), ('app/g', b'y\n', {'SCHILY.xattr.com.apple.provenance': 'p'}), ('._app/', None, {})):
-        i = tarfile.TarInfo(name); i.pax_headers = pax
-        if data is None: i.type = tarfile.DIRTYPE; t.addfile(i)
-        else: i.size = len(data); t.addfile(i, io.BytesIO(data))
-PY
+# Fixtures are written entry by entry with /usr/bin/perl (no python3: see the gate's header). mk <out.tgz> <spec>...
+# where each spec is TYPE:NAME:PAYLOAD (payload with \n escapes; TYPE 0 file, 5 folder, x pax, L/K GNU long name/link),
+# then the two zero blocks.
+mk() { local out="$1"; shift; /usr/bin/perl -e '
+  binmode STDOUT;
+  for my $s (@ARGV) { my ($t, $n, $p) = split /:/, $s, 3; $p //= ""; $p =~ s/\\n/\n/g;
+    my $h = pack("a100 a8 a8 a8 a12 a12 A8 a1 a100 a6 a2 a32 a32 a8 a8 a155 a12", $n, "0000644", "0000000", "0000000",
+      sprintf("%011o", length $p), sprintf("%011o", 0), "", $t, "", "ustar", "00", "", "", "", "", "", "");
+    my $sum = 0; $sum += $_ for unpack("C*", substr($h, 0, 148) . (" " x 8) . substr($h, 156));
+    substr($h, 148, 8) = sprintf("%06o\0 ", $sum);
+    print $h, $p, "\0" x ((512 - length($p) % 512) % 512) }
+  print "\0" x 1024' "$@" | /usr/bin/gzip -c > "$out"; }
+rec() { /usr/bin/perl -e 'my $kv = "$ARGV[0]=$ARGV[1]\n"; my $l = length($kv) + 2; $l++ while length("$l $kv") != $l; (my $o = "$l $kv") =~ s/\n/\\n/g; print $o' "$1" "$2"; }   # newline as a \n escape, which mk decodes
+mk "$T/ad.tgz" "0:app/f:x" "0:app/._f:Mac OS X" "x:app/PaxHeader/g:$(rec SCHILY.xattr.com.apple.provenance p)" "0:app/g:y" "5:._app/:"
 out="$(tar_macmeta_gate "$T/ad.tgz" 2>&1)"; rc=$?
 if [ "$rc" -ne 0 ] && printf '%s' "$out" | /usr/bin/grep -qF 'AppleDouble entry app/._f' && printf '%s' "$out" | /usr/bin/grep -qF 'SCHILY.xattr.com.apple.provenance' && printf '%s' "$out" | /usr/bin/grep -qF 'AppleDouble entry ._app'; then pass "a built tarball with both kinds, and a ._ folder, is refused and each named (any OS)"
 else fail "a built tarball with both kinds must be refused (rc=$rc): $out"; fi
@@ -63,6 +69,27 @@ else fail "the gate must not depend on PATH"; fi
 /usr/bin/perl -e 'print "x" x 512, "\0" x 1024' | /usr/bin/gzip -c > "$T/badsum.tgz"
 if ! tar_macmeta_gate "$T/badsum.tgz" 2>/dev/null; then pass "a header with a bad checksum is refused, not read as an entry"
 else fail "a corrupt header must be refused"; fi
+
+# bounded CMD...: runs CMD in its own process group and kills the WHOLE group after 20 s (exit 142), so a reader that
+# loops forever fails the arm instead of hanging the test. A bare alarm+exec is not enough: it kills the shell and leaves
+# the looping reader holding the output pipe open, so the $(...) never returns (measured on the previous gate).
+bounded() { /usr/bin/perl -e 'my $pid = fork() // exit 127; if (!$pid) { setpgrp(0, 0); exec @ARGV; exit 127 }
+  $SIG{ALRM} = sub { kill "KILL", -$pid; waitpid($pid, 0); exit 142 }; alarm 20; waitpid($pid, 0); exit($? >> 8)' "$@"; }
+mk "$T/tail.tgz" "0:app/f:x"; { /usr/bin/gzip -dc "$T/tail.tgz"; /usr/bin/head -c 1048576 /dev/zero; } | /usr/bin/gzip -c > "$T/tail2.tgz"
+if tar_macmeta_gate "$T/tail2.tgz" 2>/dev/null; then pass "a clean tarball with 1 MB of padding after its end marker passes (the reader drains, so gzip is not killed by SIGPIPE)"
+else fail "a long tail after the end marker must not fail a clean tarball: $(tar_macmeta_gate "$T/tail2.tgz" 2>&1)"; fi
+
+for bad in '0 k=v\n' 'garbage\n' '99 k=v\n'; do
+  mk "$T/pax.tgz" "x:app/PaxHeader/f:$bad" "0:app/f:x"
+  out="$(bounded bash -c '. "$1"; tar_macmeta_gate "$2"' _ "$HERE/lib/tar-macmeta-gate.sh" "$T/pax.tgz" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ] && [ "$rc" -ne 142 ] && printf '%s' "$out" | /usr/bin/grep -qF 'malformed pax record'; then pass "a malformed pax record ($bad) is refused, not skipped or looped on"
+  else fail "a malformed pax record ($bad) must be refused (rc=$rc, 142 = hung): $out"; fi
+done
+
+long="$(printf 'd%.0s' $(seq 1 120))/plain"
+mk "$T/gnu.tgz" "L:././@LongLink:$long" "K:././@LongLink:somewhere" "0:._x:x"
+if tar_macmeta_gate "$T/gnu.tgz" 2>/dev/null; then pass "a GNU long name survives a long-link (K) entry: the file is judged by its long name, not its ._x placeholder"
+else fail "after a K entry the file must keep its long name: $(tar_macmeta_gate "$T/gnu.tgz" 2>&1)"; fi
 
 printf 'not a tarball\n' > "$T/junk.tgz"
 if ! tar_macmeta_gate "$T/junk.tgz" 2>/dev/null; then pass "a file that is not a tarball is refused, never passed"
