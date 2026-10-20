@@ -3719,7 +3719,9 @@ kosmos_start_token() { # $1 pid: when that process started, stable for its life;
   # Linux: start ticks since boot (/proc/<pid>/stat field 22, after the last ") " since the name may hold spaces),
   # which a wall-clock step cannot move. Elsewhere: ps's lstart in UTC (TZ=UTC0), so the asker's zone cannot change it.
   if [ -r "/proc/$1/stat" ]; then
-    sed -n 's/^.*) //p' "/proc/$1/stat" 2>/dev/null | awk 'NF >= 20 { print "proc:" $20 }'
+    # The boot id too: ticks restart at every boot, so a pid and tick from an earlier boot are not this process.
+    sed -n 's/^.*) //p' "/proc/$1/stat" 2>/dev/null | awk -v b="$(tr -c 'A-Za-z0-9\n' '_' < /proc/sys/kernel/random/boot_id 2>/dev/null)" \
+      'NF >= 20 { print "proc:" $20 (b != "" ? "_" b : "") }'
   else
     LC_ALL=C TZ=UTC0 ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//; s/  */_/g'
   fi
@@ -3747,7 +3749,7 @@ kosmos_stranded_pause() { # prints the stranded pause's name files, one per line
   if [ -e "$KOSMOS_HOME/mode" ]; then
     case "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" in run|both) ;; *) return 1 ;; esac
   fi
-  _ksp_list=""
+  _ksp_list=""; _ksp_support=""
   for _ksp_f in "$KOSMOS_HOME"/board.stopped.by-install.*; do
     [ -e "$_ksp_f" ] || continue
     _ksp_rest="${_ksp_f##*/board.stopped.by-install.}"; _ksp_pid="${_ksp_rest%%.*}"; _ksp_tok="${_ksp_rest#*.}"
@@ -3757,8 +3759,12 @@ kosmos_stranded_pause() { # prints the stranded pause's name files, one per line
     kosmos_installer_gone "$_ksp_pid" "$_ksp_tok" || return 1        # a live installer: its pause stands
     _ksp_list="$_ksp_list$_ksp_f
 "
+    # An update touches its name AFTER its stop wrote the marker, so the name is never older than its own marker. A
+    # marker newer than a gone update's name was written by a later stop (a person's, even through an older kosmos
+    # that does not know these names): that name is a leftover and supports nothing.
+    [ "$KOSMOS_HOME/board.stopped" -nt "$_ksp_f" ] || _ksp_support=yes
   done
-  [ -n "$_ksp_list" ] || return 1                                   # no name: a person's stop
+  [ -n "$_ksp_list" ] && [ "${_ksp_support:-}" = yes ] || return 1   # no name, or only leftovers: a person's stop
   printf '%s' "$_ksp_list"
 }
 kosmos_clear_stranded_pause() { # $1 who is clearing. Moves the marker aside (kept as evidence) and logs it.
@@ -3943,8 +3949,9 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     _kosmos_adopted_names="$(kosmos_stranded_pause)" || _kosmos_adopted_names=""
   elif ! _kosmos_mode_keeps_board_off && [ -e "$KOSMOS_HOME/board.stopped" ] \
        && [ -n "$(ls -1 "$KOSMOS_HOME"/board.stopped.by-install.* 2>/dev/null)" ]; then
-    # kosmos#6651: another update's LIVE pause (its names, not a person's stop). This run adds its own name, so the
-    # pause stands while either update runs, but it does not take that update's put-back.
+    # kosmos#6651: another update's LIVE pause (its names, not a person's stop). This run adds its own name, so if
+    # that update is killed the pause still stands while this one runs; it does not take that update's put-back. (If
+    # that update FINISHES, its own start clears the marker and every name, this run's too, as before this card.)
     _kosmos_join_pause=yes
   fi
   _kosmos_linux_unit_killmode   # #4920: before the stop, so an old unit's cgroup kill cannot take this run with it
@@ -3962,6 +3969,10 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   fi
   _kosmos_marker_ours="$_kosmos_was_running"   # #5033: armed before the stop, which writes the marker and then waits
   KOSMOS_STOP_BY_INSTALL=1 "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
+  # kosmos#6651: touched again now the stop has written the marker, so this run's name is never older than it (a
+  # marker newer than a gone update's name was written by a later stop, and that name then supports nothing).
+  # touch sets times only, so it needs no free space.
+  [ -z "$_kosmos_pause_name" ] || touch "$_kosmos_pause_name" 2>/dev/null || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
   # earlier, where it is a precondition instead.

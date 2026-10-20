@@ -77,6 +77,17 @@ reset; : > "$M"; name "$LIVE" "$LTOK"
 reset; : > "$M"; name "$DEAD" "$LTOK"
 [ "$(PATH="$TMP/badps:$PATH" verdict)" = stranded ] && ok "ps cannot run, update gone (kill: no such process): stranded" || bad "a broken ps kept a dead update's pause"
 
+# Age: an update's name is touched after its stop wrote the marker. A marker NEWER than a gone update's name was
+# written by a later stop (a person's, even through an older kosmos that does not know names): that name is a leftover.
+reset; name "$DEAD" "$LTOK"; touch -t 202001010000 "$KOSMOS_HOME/board.stopped.by-install.$DEAD.$LTOK"; : > "$M"
+check stands "a gone update's name older than the marker (a later person's stop) supports nothing"
+reset; : > "$M"; touch -t 202001010000 "$M"; name "$DEAD" "$LTOK"
+check stranded "a gone update's name newer than the marker: stranded"
+reset; name "$LIVE" "$LTOK"; touch -t 202001010000 "$KOSMOS_HOME/board.stopped.by-install.$LIVE.$LTOK"; : > "$M"
+check stands "a LIVE update's name older than the marker still holds the pause"
+reset; name "$DEAD" "x1"; touch -t 202001010000 "$KOSMOS_HOME/board.stopped.by-install.$DEAD.x1"; : > "$M"; touch -t 202101010000 "$M"; name "$DEAD" "$LTOK"
+check stranded "an old leftover beside a newer gone update's name: stranded"
+
 # Tokens of two kinds cannot be compared: a proc: token read where there is no /proc (this Mac) stands.
 reset; : > "$M"; name "$LIVE" "proc:12345"
 if [ -d /proc/self ]; then echo "SKIP  cross-kind token case: this host has /proc"; else check stands "a token of another kind (proc: read through ps) stands"; fi
@@ -205,6 +216,39 @@ H="$(new_home)"; : > "$H/board.stopped"; : > "$H/board.stopped.by-install.$DEAD.
 H="$(new_home)"; : > "$H/board.stopped"; : > "$H/board.stopped.by-install.$DEAD.$LTOK"; rm -f "$H/board.plist"; run_wd "$H"
 [ -e "$H/board.stopped" ] && ok "watchdog: with auto-restart off (no board job) it clears nothing" || bad "watchdog cleared a pause it would not restart"
 
+# --- 3b. setup.sh's own decision lines, run under dash set -eu ---------------------------------------------------
+FRAG="$(awk '/^  if ! _kosmos_mode_keeps_board_off && \[ ! -e "\$KOSMOS_HOME\/board.stopped" \]; then/ { on = 1 } /^  _kosmos_marker_ours="\$_kosmos_was_running"/ { exit } on { print }' install/setup.sh)"
+[ -n "$FRAG" ] || bad "setup.sh's decision lines were not found"
+printf '%s\n' "$B_CLI" > "$TMP/block.sh"; printf '%s\n' "$FRAG" > "$TMP/frag.sh"
+SH=/bin/sh; [ -x /bin/dash ] && SH=/bin/dash
+decide() { # $1 marker yes/no, $2 names none|live|gone, $3 mode none|run|connect -> "was join adopted named"
+  reset
+  [ "$1" = yes ] && : > "$M"
+  case "$2" in live) name "$LIVE" "$LTOK" ;; gone) touch -t 202001010000 "$M" 2>/dev/null; name "$DEAD" "$LTOK" ;; esac
+  case "$3" in run) printf 'run\n' > "$KOSMOS_HOME/mode" ;; connect) printf 'connect\n' > "$KOSMOS_HOME/mode" ;; esac
+  KOSMOS_HOME="$KOSMOS_HOME" "$SH" -c 'set -eu
+    . "$1"
+    _kosmos_mode_file=no; _kosmos_mode_word=""
+    if [ -e "$KOSMOS_HOME/mode" ]; then _kosmos_mode_file=yes; _kosmos_mode_word="$(cat "$KOSMOS_HOME/mode")"; fi
+    _kosmos_mode_keeps_board_off() { [ "$_kosmos_mode_file" = yes ] || return 1; case "$_kosmos_mode_word" in run|both) return 1 ;; esac; return 0; }
+    _kosmos_linux_unit_killmode() { :; }
+    _kosmos_was_running=no; _kosmos_join_pause=no; _kosmos_adopted_names=""
+    . "$2"
+    named=no; [ -n "$_kosmos_pause_name" ] && [ -e "$_kosmos_pause_name" ] && named=yes
+    adopted=no; [ -n "$_kosmos_adopted_names" ] && adopted=yes
+    echo "$_kosmos_was_running $_kosmos_join_pause $adopted $named"' sh "$TMP/block.sh" "$TMP/frag.sh" 2>&1
+}
+row() { # $1 marker $2 names $3 mode $4 expected $5 label
+  got="$(decide "$1" "$2" "$3")"
+  [ "$got" = "$4" ] && ok "setup.sh ($SH): $5" || bad "setup.sh ($SH): $5: got '$got', want '$4'"
+}
+row no  none none    "yes no no yes" "a running board: paused and named"
+row no  none connect "no no no no"   "a connect computer: neither paused-running nor named"
+row yes none run     "no no no no"   "a person's stop: left alone, no name"
+row yes gone run     "yes no yes yes" "a stranded pause: adopted and named"
+row yes gone connect "no no no no"   "a stranded pause on a connect computer: left alone"
+row yes live run     "no yes no yes"  "another update's live pause: joined (named) but not adopted"
+
 # --- 4. the callers ---------------------------------------------------------------------------------------------
 fnbody() { awk -v n="$2" '$0 ~ "^"n"\\(\\) \\{" { on=1 } on { print } on && /^}$/ { exit }' "$1"; }
 # a person's stop: both of cmd_stop's marker writes are right after the name removal, which only an update skips
@@ -215,6 +259,8 @@ fnbody install/kosmos cmd_board_run | awk '/kosmos_clear_stranded_pause board-ru
 fnbody install/kosmos agent_board_guard | awk '/local _claim=/ { l = NR } /agent_clear_stranded_or_refuse/ { n++; if (!l || NR < l) bad = 1 } END { exit !(n == 2 && !bad) }' \
   && ok "an agent's start clears a stranded pause only after the cooldown and claim pass (both success returns)" \
   || bad "an agent's start clears a stranded pause before its cooldown or claim (or not on both success returns)"
+grep -q '^  \[ -z "\$_kosmos_pause_name" \] || touch "\$_kosmos_pause_name" 2>/dev/null || true$' install/setup.sh \
+  && ok "setup.sh touches its name again after the stop writes the marker" || bad "setup.sh does not touch its name after the stop"
 awk '/^  _kosmos_pause_name=""$/ { if (!a) a = NR } /if \[ "\$_kosmos_was_running" = yes \] \|\| \[ "\$\{_kosmos_join_pause:-no\}" = yes \]; then/ { if (a && !w) w = NR }
      /: > "\$_kosmos_pause_name"/ { n = NR } /^  _kosmos_marker_ours="\$_kosmos_was_running"/ { m = NR }
      END { exit !(a && w > a && n > w && m > n) }' install/setup.sh \
@@ -222,7 +268,7 @@ awk '/^  _kosmos_pause_name=""$/ { if (!a) a = NR } /if \[ "\$_kosmos_was_runnin
 awk '/^_kosmos_on_exit\(\) \{/ { on = 1 } on && /rm -f "\$_kosmos_pause_name"/ { f = 1 } on && /_kosmos_adopted_names/ { g = 1 } on && /^}/ { exit !(f && g) }' install/setup.sh \
   && ok "setup.sh's EXIT trap removes its own pause name and the names it adopted" || bad "setup.sh's EXIT trap does not remove its own and adopted names"
 awk '/_kosmos_join_pause=yes$/ { j = 1 } /if \[ "\$_kosmos_was_running" = yes \] \|\| \[ "\$\{_kosmos_join_pause:-no\}" = yes \]; then/ { if (j) w = 1 } END { exit !w }' install/setup.sh \
-  && ok "an update that finds another update's live pause names itself too (the pause holds while either runs)" || bad "a second update does not name itself on a live pause"
+  && ok "an update that finds another update's live pause names itself too (it holds if that update is killed)" || bad "a second update does not name itself on a live pause"
 fnbody install/kosmos cmd_start | grep -q 'rm -f "$STOP_MARKER" "$STOP_MARKER".by-install.\* 2>/dev/null || true' \
   && ok "a start removes an update's names with the marker" || bad "a start leaves an update's names behind"
 awk '/elif ! _kosmos_mode_keeps_board_off && kosmos_stranded_pause >\/dev\/null; then/ { on = 1; next } on && /^  fi$/ { exit } on && /rm -f/ { bad = 1 } END { exit bad }' install/setup.sh \
