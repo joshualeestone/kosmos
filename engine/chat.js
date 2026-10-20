@@ -974,10 +974,13 @@ const SCROLLED_ROWS = 4;
    composerHolds asks of a piece of ours. */
 function rememberedShows(text, kept, exact = false, rows = 0) {
   if (!kept) return false;
+  /* kosmos#6717: a box showing a chip is decided only by the chip kept with our line: exactly that chip (its number), in
+     that same process; never by comparing the chip's text with the line (a line could read like a chip). */
+  if (isChipBox(text)) {
+    return typeof kept.chip === 'string' && !!kept.chip && squash(text) === kept.chip
+      && !!kept.chipPid && !!kept.target && panePidOf(kept.target) === kept.chipPid;
+  }
   if (composerIsAll(text, kept.wire)) return true;
-  /* kosmos#6717: our line left there as a chip: exactly the chip recorded then (its number), and nothing else. */
-  if (typeof kept.chip === 'string' && kept.chip && squash(text) === kept.chip
-    && kept.chipPid && kept.target && panePidOf(kept.target) === kept.chipPid) return true;
   const t = squash(text);
   if (!t || !squash(kept.wire).endsWith(t)) return false;
   if (kept.seen && t === kept.seen && t.length >= 20) return true;
@@ -1026,12 +1029,13 @@ const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then he
 function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SETTLE_MS, chip = null) {   // chip: composerHolds'
   let waited = 0;
   let retried = false;
-  let pin = chip;   // kosmos#6717: `true` becomes the exact chip at the first look that shows one, for the rest of the watch
+  /* kosmos#6717: after an Enter only an exact chip ties a chip to our paste (one seen before our Enter, or the one kept
+     with a line); a bare `true` is never accepted here, since a chip first seen after our Enter is not ours. */
+  const pin = typeof chip === 'string' && chip ? chip : null;
   for (;;) {
     /* Read first, wait only while ours is still there: a pane with no box to read pays nothing over today. */
     const box = readComposer(target);
     if (!box.ok) return { outcome: 'unread', retried };
-    if (pin === true && ONE_LINE_CHIP.test(squash(box.text))) pin = squash(box.text);
     const holds = composerHolds(box.text, wire, pin);
     if (holds === 'empty') return { outcome: 'sent', retried };
     /* Round 9: other text, but none of our ending in it: ours went and someone has started typing since. kosmos#6717:
