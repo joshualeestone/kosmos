@@ -31,7 +31,7 @@
 - Not in this branch: what launched two installs 16 seconds apart (the card says no instrument recorded it).
 
 ## Proof
-- `bash tools/test-stopmark-6651.sh`: 29 PASS. Mutants, each red then restored: the start-time comparison removed
+- `bash tools/test-stopmark-6651.sh`: 35 PASS (also under LANG=fr_FR.UTF-8). Mutants, each red then restored: the start-time comparison removed
   (also caught by the byte-equal twin check), the watchdog's clear removed, the writer ignoring the attribution.
 - Neighbours, all green on this branch: test-board-watchdog-2955 (0 failures), test-update-putback-4818 (33/33;
   red at first because it pins the pause's stop line, updated), test-setup-pause-sandbox-4651 (0 failures),
@@ -47,3 +47,12 @@
     ticks since boot, which a clock step cannot move; reasoned, not measured on Linux).
   - A ps that cannot run printed nothing, read as "gone". Empty now means "gone" only when kill -0 itself says
     "No such process"; anything else leaves the pause.
+- Iteration 2 (two WARNINGs and a NIT):
+  - A person can choose connect during the very run that is then killed, leaving an attributed marker on a computer
+    whose board must stay off. The stranded test now returns "stands" whenever the mode keeps the board off, by
+    setup.sh's own rule (no mode file runs; else only run or both). Tested with connect, empty and garbage modes,
+    and through the real watchdog; mutant red.
+  - "Gone" no longer rests on an error message's language: on Linux, the absence of /proc/<pid> is the proof; elsewhere
+    kill -0 runs under LC_ALL=C. A proc: token this reader cannot read (hidepid, another user) stands. Both Linux
+    arms are reasoned, not measured: this Mac has no /proc, and macOS's messages are English in any locale, so a
+    mutant of either cannot fail here (the suite passes under LANG=fr_FR.UTF-8 too).

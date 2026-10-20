@@ -142,13 +142,24 @@ stop_marker_stranded() {
   line="${line#install }"; pid="${line%% *}"; start="${line#* }"
   case "$pid" in ''|*[!0-9]*) return 1 ;; esac
   [ -n "$start" ] && [ "$start" != "$line" ] || return 1
+  # A computer whose mode keeps the board off (connect; an unreadable choice) is never started by this: the same
+  # rule as setup.sh's _kosmos_mode_keeps_board_off (no mode file: the board runs; else only run or both).
+  if [ -e "$KOSMOS_HOME/mode" ]; then
+    case "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" in run|both) ;; *) return 1 ;; esac
+  fi
   live="$(start_token "$pid")"
-  if [ -z "$live" ]; then
+  if [ -d /proc/self ]; then
+    # Linux: no /proc entry is the proof the installer is gone, in any language. A proc: token this reader
+    # cannot read (hidepid, another user) cannot be compared, so the pause stands.
+    [ -e "/proc/$pid" ] || return 0
+    case "$start" in proc:*) case "$live" in proc:*) ;; *) return 1 ;; esac ;; esac
+  elif [ -z "$live" ]; then
     # Nothing came back: either the process is gone, or ps could not run (a sandbox). Only kill's own
-    # "No such process" proves the first; anything else (it is alive, or not ours, or unknowable) leaves the pause.
-    case "$(kill -0 "$pid" 2>&1)" in *"o such process"*) return 0 ;; esac
+    # "No such process" (in English: LC_ALL=C) proves the first; anything else leaves the pause.
+    case "$(LC_ALL=C kill -0 "$pid" 2>&1)" in *"o such process"*) return 0 ;; esac
     return 1
   fi
+  [ -n "$live" ] || return 1
   [ "$live" = "$start" ] && return 1   # that installer is still running: its pause stands
   return 0                             # that pid is now another process: the installer is gone
 }
