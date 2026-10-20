@@ -47980,6 +47980,7 @@ async function paintSurvival() {
   /* If that button is gone, the notice's words, never a button: Start at login would start an agent and the x would
      silence a warning, both on a held key (reviews 16, 17; the same rule as survivalFocusNext). */
   if (key) { const back = slot.querySelector(key) || slot.querySelector('.utoast .utxt'); if (back) back.focus(); }
+  else if (had) { const back = slot.querySelector('.utoast .utxt'); if (back) back.focus(); }   // it was on a notice's words (review 21)
 }
 
 /* #6714: Settings > Computer is read on its own, so a board opened straight into Settings (or left there) shows the
@@ -48097,8 +48098,9 @@ document.addEventListener('click', async (e) => {
     await refreshSurvivalHidden();   // the list itself (review 6)
     /* The row is gone once shown again: focus the next Show again, or the box's heading (review 19). */
     const nextShow = document.querySelector('#survival-hidden-list [data-survival-show]');
-    const head = document.querySelector('#survival-hidden-box .dlab');
-    if (nextShow) nextShow.focus(); else if (head) { head.setAttribute('tabindex', '-1'); head.focus(); }
+    /* The last one shown again hides the box, so its heading cannot take focus: the Computer section does (review 21). */
+    const sec = document.getElementById('s-sec-mac');
+    if (nextShow) nextShow.focus(); else if (sec) sec.focus();
     return;
   }
   if (remove) {

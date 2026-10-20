@@ -574,9 +574,10 @@ function strays(profileNames, jobs) {
  * `leftover-unrelated` with exactly those two and a CLAUDE.md, and the board told Josh it "will not come back if you
  * restart", offering only to start it at login (2026-10-20). Something that has never run loses nothing on a restart.
  *
- * ⚠️ IT FAILS TOWARD "NOT RUN", and that is the direction this check exists to take: an agent with no record is left
- * off the restart notice, never started by the repair. A real agent always has one, because reporting in is how its
- * card shows what it is doing.
+ * ⚠️ IT FAILS TOWARD "NOT RUN": an agent with no record is left off the restart notice and never started by the
+ * repair. That is safe for the repair and NOT for the warning: a real agent whose report hook was never wired (its
+ * settings file could not be merged, or hooks are off) writes no record, so it drops off the notice silently
+ * (review 21). Kept, on Josh's rule ("a login it has run"), and named as the plan's weakest premise.
  */
 function hasRun(name) {
   for (const fileFor of [liveness.fileFor, selfreport.fileFor]) {
@@ -651,7 +652,7 @@ function show(name) {
  * real reboot (R8, 2026-09-08). Measured here before the fix: three agents with
  * registered tasks, three `job: false` rows.
  *
- * ⚠️ AND IT WOULD HAVE ACTED ON IT. `missing` feeds the "Set them to start at
+ * ⚠️ AND IT WOULD HAVE ACTED ON IT. `missing` feeds the restart notice's "Start at
  * login" button, so every Windows agent was offered for repair -- and
  * `installJob`'s never-overwrite guard stat-ed the same plist, so it would not
  * have fired either. On win32 that path launches, so the repair would have put a
