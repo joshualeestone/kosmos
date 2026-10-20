@@ -76,3 +76,7 @@ Built from this branch on the Windows box through the bsdtar shim (KOSMOS_ALLOW_
 - [NIT] fixed: the What's new block's node check (and its "or set KOSMOS_CUT_NO_WHATS_NEW=1" remedy) went; node is checked once at the top.
 - [NIT] fixed: the end-of-central-directory record must end the file (its comment length reaches the end), so a signature inside a comment, or appended bytes, are refused.
 - [NIT] fixed: the 570 test's message no longer claims a grep proves the refusal; it points at the 4597 test that runs the step.
+### Iteration 8 (sonnet)
+- [WARNING] fixed: "After More info, the box names Kosmos Agent Manager, Inc. as the publisher" was my addition and unverified here (checking it means raising SmartScreen on Josh's desktop). Removed; the More info, Run anyway steps stay.
+- [WARNING] deferred (reviewer: "a note, not a defect"): the central-directory reader ignores prepended data and multi-disk fields. bsdtar and Info-ZIP write neither, and an unexpected shape fails loudly.
+- [NIT] noted: a rename retry on antivirus EPERM; the printf line-wrap pins match the file's style; the header keeps Josh's v1 words as history above the correction.
