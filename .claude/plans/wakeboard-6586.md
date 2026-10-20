@@ -10,14 +10,19 @@
 - Every recorded live board gets the wait, not only one "younger than this run's pause" (the card's wording): the CLI
   does not know the installer's pause time, and a wedged board only costs the bounded wait before the same message.
   Rejected: reading the board's age from ps (one more platform-dependent parse for no change in outcome).
-- `_await_board_up` is called WITHOUT a pid: with one it treats the board as launched from this shell and, in a
-  sandbox, stops it again. A board found running is launchd's (or another start's), which the unpidded wait models.
-  Under KOSMOS_RECLAIM_BUSY=1 (setup.sh's final start) an unreachable board still ends in #4636's refusal, unchanged.
+- The wait is its own short loop (iteration 1), not `_await_board_up`: this board was not launched by this command, so
+  nothing may signal it (only `kill -0`, a probe) or speak of launching it. Busy counts as up for a plain start but
+  never under KOSMOS_RECLAIM_BUSY=1 (the watchdog's or the app's reclaim already judged it stale); unreachable from
+  this shell ends the wait at once; a board that exits while starting returns 2, and cmd_start clears its pidfile
+  and goes on to a normal start instead of dying about a dead pid.
 - Weakest premise: that the slow board in the card was launchd's put-back starting up (as the card measured: it
   answered /api/health 200 within ~20 s). A board that takes longer than the wait still gets the old message.
 
 ## Proof
-- `bash tools/test-start-waits-for-starting-board-6586.sh`: 5 PASS (sources the real CLI; healthy and sleep stubbed).
+- `bash tools/test-start-waits-for-starting-board-6586.sh`: 10 PASS (sources the real CLI; healthy and sleep stubbed).
   Mutants red: the wait removed from cmd_start; a pid passed to the wait.
 - Neighbours green: test-kosmos-addr-reclaim-3079 (20/20), test-board-foreground-2956, test-stopmark-6651,
   cli.startedby-5450.test.js (9/9). No test pins the old message.
+- Iteration 1 (a WARNING, NITs; mutants red: busy under reclaim, the exit check, the unreachable stop): see the
+  wait's decision above. Callers checked by the reviewer: the watchdog ignores the exit code, the native app allows
+  300 s, the installer has no timeout, restart cannot reach this branch with a lingering board.
