@@ -47,6 +47,11 @@ refused every gated remote action until this board's tunnel next changed state.
   group); our pid and child are excluded again right before the signal. A definite ps answer is kept per pid; a failed
   one is asked again after 15 s (review 9: a host with no working ps forked one per read). Not closed: a pid that
   exits and is reused between ps and the signal.
+- While the status file names a foreign pid not yet settled as one to leave alone (a live board's, not ours, gone,
+  Windows), gated remote actions are refused (review 10: ending is asynchronous and both tunnels forward to the same
+  port, so a request in that window may be the orphan's). After an orphan is ended this lasts until its pid is asked
+  again (a minute) and found gone, unless this board's child writes the file first.
+- An install path containing ` run ` makes the program unreadable, so such an orphan is never ended (fails safe).
 - The program is read from the COMMAND LINE (argv), not the kernel's executable name (review 6 asked). Rejected: a
   portable fixture needs a real executable whose own file is named `kosmos-tunnel` (a copied /bin/sleep is killed by
   code signing, a symlink reports its target, a hard link to node cannot load its libraries). What argv alone lets

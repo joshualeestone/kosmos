@@ -504,13 +504,15 @@ test('R01c: a pid outside 2..2^22, our own pid, and a failed ps are never signal
   try {
     Date.now = () => realNow() + skew;
     reset({ commandOf: (pid) => { asked.push(pid); return undefined; }, kill: (pid) => killed.push(pid) });   // ps fails: no answer
-    for (const pid of [0, -1, 1, 2 ** 23, 1.5, process.pid]) assert.equal(await ended(pid), false, String(pid));
+    for (const pid of [0, -1, 1, 4194305, 2 ** 23, 1.5, process.pid]) assert.equal(await ended(pid), false, String(pid));
     assert.deepEqual(asked, [], 'an out-of-range pid, or our own, was looked up');
+    await ended(4194304);
+    assert.deepEqual(asked, [4194304], 'CONTROL: the top of the range is looked up');
     await ended(424299); await ended(424299);
-    assert.deepEqual(asked, [424299], 'a failed ps was asked again at once (a ps fork per status read)');
+    assert.deepEqual(asked.filter((x) => x === 424299), [424299], 'a failed ps was asked again at once (a ps fork per status read)');
     skew = 16 * 1000;
     await ended(424299);
-    assert.deepEqual(asked, [424299, 424299], 'a failed ps was not asked again after 15 s');
+    assert.deepEqual(asked.filter((x) => x === 424299), [424299, 424299], 'a failed ps was not asked again after 15 s');
     assert.deepEqual(killed, [], 'something was signalled');
   } finally { Date.now = realNow; reset(); await warm(); }
 });
@@ -529,13 +531,16 @@ test('R01c: reading the status file is what notices it: a foreign pid there is j
     listRunning({ state: 'up', pid: notTunnel });
     remote.connectorCapabilities();
     assert.deepEqual(asked, [notTunnel], 'the foreign pid in the status file was not judged');
-    assert.deepEqual(killed, [], 'a process that is not our tunnel was signalled');
+    assert.deepEqual(killed, [], 'a process that is not our tunnel was signalled');   // (isOurTunnel: no ` run --status-file`)
     // Review 7: after this board's child's list is kept, the gated read still notices a foreign writer.
     listRunning();                                   // the child writes: its list is now kept
     assert.ok(remote.connectorCapabilities().has('session-headers'));
     listRunning({ state: 'restarting', pid: orphan }); // then an orphan writes
-    assert.ok(remote.connectorCapabilities().has('session-headers'), 'CONTROL: the kept list holds');
+    assert.equal(remote.connectorCapabilities().size, 0, 'trusted while an orphan, being ended, may be the one forwarding (review 10)');
     assert.deepEqual(killed, [orphan], 'an orphan writing after the child\'s list was kept was not judged');
+    // A foreign writer that is NOT an orphaned tunnel (here, not ours) is left alone and the kept list holds again.
+    listRunning({ state: 'up', pid: notTunnel });
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'a foreign writer to leave alone refused every gated action (review 3)');
   } finally { reset(); await warm(); }
 });
 
