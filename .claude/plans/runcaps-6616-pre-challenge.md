@@ -30,5 +30,8 @@ tunnel's own `run`, this board's exact `--status-file`). Eleven blind iterations
 | 11 | Sonnet | no WARNING: stale verdict on expiry, out-of-range verdict, kill-throw verdict, a dead arm |
 
 Every rule added has a mutant that turns a test red (listed in the plan). 30 tests in
-server.remotestepup-6595.test.js; with engine/remote.test.js and engine.reachable.test.js, 277 pass (three runs; one
-earlier combined run had one unexplained red that did not recur).
+server.remotestepup-6595.test.js; with engine/remote.test.js and engine.reachable.test.js, 277 pass on the final
+tree (3ad73fe0d5, one run). Earlier runs on pre-iteration-10 trees: 277 twice, and once 276 with
+`#5786 (b): a Not me pressed after the secret stopped` red at 5.6 s, in engine/remote.test.js. That run overlapped a
+second suite on the same machine AND my own edits to engine/remote.js, so it is not attributable either way; that
+test's fake tunnel writes its own pid, so the foreign-tunnel path does not run in it.
