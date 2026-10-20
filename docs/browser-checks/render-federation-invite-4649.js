@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText pj-mode-join pj-join-verify copyTextViaExec fedCopyText fedInviteCopyReset fedInviteCopy copyKeysWord copyKeysGlyph fedFirstName FEDINV_CLIP_HOLDS FEDINV_COPY_TOKEN FEDINV_COPY_TEXT FEDINV_COPY_BUSY FEDINV_BUSY_LINE fedInviteCopySaid PLUS_NAME_RULE fedInviteLongDate fedInviteSay FEDINV_SAY pj-invite-copy pj-invite-code pj-invite-status pjCopyInvite pjs-own-copy pjs-own-code pjs-own-msg pjsOwnCopy fedinv-whole selectForCopy selectAllKeysWord copyTextOrdered PJ_COPY_BUSY PJS_OWN_COPY_BUSY COPY_LATE_OLDER copyFocusStillOn
+// Browser-check-surface: pj-addmenu pj-addmenu-agent pj-addmenu-agent-sub pj-addmenu-outside fedinv-modal fedinv-label fedinv-email fedinv-kind-agent fedinv-make fedinv-msg fedinv-josh fedinv-code fedinv-copy fedinv-until fedinv-ok pjAddPlus fedInviteMake pj-fed-outside alist-fed-outside fedout-row fedout-act fedout-note mem-msg fedMembersLoad fedRemoveGo fedWithdraw pjFedMessage fedinv-copy-all fedinv-easier fedinv-status fedInviteCopyAll fedInviteText pj-mode-join pj-join-verify copyTextViaExec fedCopyText fedInviteCopyReset fedInviteCopy copyKeysWord copyKeysGlyph fedFirstName FEDINV_CLIP_HOLDS FEDINV_COPY_TOKEN FEDINV_COPY_TEXT FEDINV_COPY_BUSY FEDINV_BUSY_LINE fedInviteCopySaid PLUS_NAME_RULE fedInviteLongDate fedInviteSay FEDINV_SAY pj-invite-copy pj-invite-code pj-invite-status pjCopyInvite pjs-own-copy pjs-own-code pjs-own-msg pjsOwnCopy fedinv-whole selectForCopy selectAllKeysWord copyTextOrdered PJ_COPY_BUSY PJS_OWN_COPY_BUSY COPY_LATE_OLDER copyFocusStillOn
 'use strict';
 /**
  * kosmos#4649 slice A: inviting someone outside from the Members "+" (Mona's shots 01, 02, 03).
@@ -439,9 +439,22 @@ const closeAll = (page) => page.evaluate(() => {
     err = await page.evaluate(() => ({ msg: document.getElementById('fedinv-msg').textContent, label: document.getElementById('fedinv-label').value }));
     check('A5 a 502 shows the board\'s sentence as given', err.msg === 'The connection service said no just now.' && err.label === 'Dana Ruiz', JSON.stringify(err));
 
+    // kosmos#6681 (S-11-fed): the optional address. Empty on open, an email field marked optional, and an empty one
+    // sends no `email` at all (the two requests above were made with it empty).
+    const em = await page.evaluate(() => {
+      const i = document.getElementById('fedinv-email');
+      const l = i && document.querySelector('label[for="fedinv-email"]');
+      return { here: !!i, type: i && i.type, value: i && i.value, label: l && l.textContent, max: i && i.getAttribute('maxlength'),
+        sent: window.__posts.map((p) => p.body && typeof p.body === 'object' && 'email' in p.body) };
+    });
+    check('6681 the invite sheet has an optional email field, empty, and an empty one sends no email',
+      em.here && em.type === 'email' && em.value === '' && /\(optional\)/.test(em.label || '') && em.max === '254'
+      && em.sent.length >= 1 && em.sent.every((x) => x === false), JSON.stringify(em));
+
     // A4: the request. "Their agent", then Make.
     await page.evaluate((c) => { window.__posts.length = 0; window.__invite = { status: 200, body: { code: c.code, expires_at: c.expires, invite_id: 'inv-1' } }; }, { code: CODE, expires: EXPIRES });
     await page.click('label:has(#fedinv-kind-agent)');
+    await page.fill('#fedinv-email', '  dana@example.com ');   // kosmos#6681: sent trimmed
     await page.click('#fedinv-make');
     await page.waitForFunction(() => !document.getElementById('fedinv-done').hidden, { timeout: 3000 }).catch(() => {});
     const sent = await page.evaluate(() => window.__posts.slice());
@@ -449,6 +462,7 @@ const closeAll = (page) => page.evaluate(() => {
     check('A4 Make POSTs /api/federation/invite once with project (the id), label and invited_kind, and no project_ref',
       sent.length === 1 && sent[0].method === 'POST' && !!b && b.project === 'k' && b.label === 'Dana Ruiz'
       && b.invited_kind === 'agent' && !('project_ref' in b), JSON.stringify(sent));
+    check('6681 a typed address is sent, trimmed, as email', !!b && b.email === 'dana@example.com', JSON.stringify(sent));
 
     // A5: the code screen.
     const done = await page.evaluate(() => ({
