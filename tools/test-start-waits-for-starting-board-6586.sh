@@ -7,7 +7,8 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-6586.XXXXXX")"
-trap 'rm -rf "${SANDBOX:?}"' EXIT
+VICTIMS=""   # stand-in boards this test starts (orphaned, so launchd reaps them), ended on any exit
+trap 'for _v in $VICTIMS; do command kill "$_v" 2>/dev/null; done; rm -rf "${SANDBOX:?}"' EXIT
 export KOSMOS_HOME="$SANDBOX/home"; mkdir -p "$KOSMOS_HOME"
 export KOSMOS_PORT=17686
 fails=0
@@ -89,15 +90,22 @@ case "$(KOSMOS_RECLAIM_BUSY=1 start_as unreachable 3)" in *"rc=1 marker=back"*) 
 case "$(KOSMOS_RECLAIM_BUSY=1 start_as busy 3)" in *"Reclaiming it."*) ok "reclaim busy during the wait reaches the reclaim" ;; *) bad "reclaim busy: $(KOSMOS_RECLAIM_BUSY=1 start_as busy 3)" ;; esac
 X=down; AT=1000; N=0; printf '%s' "$LIVE_PID" > "$PIDFILE"
 case "$( ( cmd_start ) 2>&1; echo "rc=$?" )" in *"is not answering on port"*"rc=1"*) ok "a board that never binds is still called stuck after one wait" ;; *) bad "never-binding board not called stuck" ;; esac
+# A stand-in board: a sleep orphaned at once, so launchd reaps it when it ends. (A child of this shell would stay a
+# zombie inside a command substitution, and a zombie still answers kill -0, so its exit would go unseen.)
+victim() { local v; v="$( ( command sleep 60 >/dev/null 2>&1 & echo $! ) )"; VICTIMS="$VICTIMS $v"; printf '%s' "$v"; }
+# End one and return only once it is gone (bounded: about 5 s).
+end_board() { local i=0; command kill "$1" 2>/dev/null
+  while command kill -0 "$1" 2>/dev/null && [ "$i" -lt 100 ]; do command sleep 0.05; i=$((i + 1)); done; }
+
 # Iteration 5: a board that exits during the wait while launchd already recorded its replacement: the replacement gets
 # its own wait (the control: the same board recorded at the first look, answering at the same look).
 healthy() { N=$((N+1))
-  if [ "$N" = 2 ] && [ -n "$OLD" ]; then command kill "$OLD" 2>/dev/null; wait "$OLD" 2>/dev/null; printf '%s' "$LIVE_PID" > "$PIDFILE"; fi
+  if [ "$N" = 2 ] && [ -n "$OLD" ]; then end_board "$OLD"; printf '%s' "$LIVE_PID" > "$PIDFILE"; fi
   if [ "$N" -ge "$ANS" ]; then HEALTH_STATE=ok; return 0; fi; HEALTH_STATE=down; return 1; }
 X=down; AT=1000; ANS=6
 OLD=""; N=0; printf '%s' "$LIVE_PID" > "$PIDFILE"; ctl="$( ( cmd_start ) 2>&1; echo "rc=$?" )"
-command sleep 60 & OLD=$!; N=0; printf '%s' "$OLD" > "$PIDFILE"; race="$( ( cmd_start ) 2>&1; echo "rc=$?" )"
-command kill "$OLD" 2>/dev/null; wait "$OLD" 2>/dev/null; OLD=""
+OLD="$(victim)"; N=0; printf '%s' "$OLD" > "$PIDFILE"; race="$( ( cmd_start ) 2>&1; echo "rc=$?" )"
+end_board "$OLD"; OLD=""
 case "$ctl|$race" in *"Kosmos is running at"*"rc=0|"*"exited while starting."*"Kosmos is running at"*"rc=0") ok "a replacement recorded after an exit gets its own wait, as at the first look" ;;
   *) bad "relaunch race: control '$ctl' race '$race'" ;; esac
 # The looks are counted inside the subshell cmd_start dies in (the parent's N never moves). One wait for the one board:
@@ -106,17 +114,18 @@ ANS=1000; printf '%s' "$LIVE_PID" > "$PIDFILE"; looks="$( ( N=0; trap 'echo "$N"
 [ "$looks" = 33 ] && ok "a board that never answers gets one wait, then the stuck refusal ($looks looks)" || bad "looks for a silent board: '$looks'"
 
 # The cap: a board replaced again and again gets two waits, then the stuck refusal (not a wait per replacement).
-SLEEPERS=""; for _i in 1 2 3 4; do command sleep 60 & SLEEPERS="$SLEEPERS $!"; done
+SLEEPERS=""; for _i in 1 2 3 4; do SLEEPERS="$SLEEPERS $(victim)"; done
 # Looks 2, 3 and 4 each end the recorded board and record the next one; the fourth then stays, silent.
 healthy() { N=$((N+1)); local cur
-  if [ "$N" -ge 2 ] && [ "$REPL" -lt 4 ]; then cur="$(cat "$PIDFILE")"; command kill "$cur" 2>/dev/null; wait "$cur" 2>/dev/null
+  if [ "$N" -ge 2 ] && [ "$REPL" -lt 4 ]; then cur="$(cat "$PIDFILE")"; end_board "$cur"
     set -- $SLEEPERS; shift "$REPL"; REPL=$((REPL + 1)); printf '%s' "$1" > "$PIDFILE"; fi
   HEALTH_STATE=down; return 1; }
 set -- $SLEEPERS; REPL=1; printf '%s' "$1" > "$PIDFILE"
 out="$( ( N=0; cmd_start ) 2>&1 )"
-for _p in $SLEEPERS; do command kill "$_p" 2>/dev/null; wait "$_p" 2>/dev/null; done
+for _p in $SLEEPERS; do end_board "$_p"; done
 waits="$(printf '%s\n' "$out" | grep -c 'not answering yet; waiting for it')"
-case "$out" in *"is not answering on port"*) [ "$waits" = 2 ] && ok "a board replaced again and again gets two waits, then the stuck refusal" || bad "waits: $waits" ;;
+case "$out" in *"is not answering on port"*) ex="$(printf '%s\n' "$out" | grep -c 'exited while starting\.')"
+    [ "$waits" = 2 ] && [ "$ex" = 2 ] && ok "a board replaced again and again: two waits, each ended by the board's exit, then the stuck refusal" || bad "waits $waits, exits seen $ex" ;;
   *) bad "the cap: $out" ;; esac
 n="$(grep -c '_await_recorded_board "\$_oldpid"' install/kosmos)"; [ "$n" = 1 ] && ok "cmd_start waits in one place" || bad "wait call sites: $n"
 
