@@ -221,9 +221,11 @@ KOSMOS_6651_NAMES
 $_kcs_names
 KOSMOS_6651_NAMES
   mkdir -p "$KOSMOS_HOME/logs" 2>/dev/null
-  printf '[%s] %s: cleared a stranded update pause (%s); kept at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" \
+  # On a full disk a failed append leaves printf's buffer, which bash then writes to stdout: measured. So the
+  # subshell's own stdout goes nowhere too (a subshell alone still shares the caller's stdout).
+  ( printf '[%s] %s: cleared a stranded update pause (%s); kept at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" \
     "$(printf '%s' "$_kcs_names" | sed 's|.*/||' | tr '\n' ' ')" "$_kcs_aside" \
-    >> "$KOSMOS_HOME/logs/board-watchdog.log" 2>/dev/null || true
+    >> "$KOSMOS_HOME/logs/board-watchdog.log" ) >/dev/null 2>&1 || true
   # Keep the newest ten clears as evidence; older ones go.
   ls -1t "$KOSMOS_HOME"/board.stopped.stranded.* 2>/dev/null | awk -F. '{ k = $0; sub(/\.by-install\..*$/, "", k) } !seen[k]++ { n++ } n > 10' \
     | while IFS= read -r _kcs_old; do rm -f "$_kcs_old"; done
@@ -231,10 +233,21 @@ KOSMOS_6651_NAMES
 # END kosmos#6651 shared block
 # kosmos#6651 (CLI only): a start that refuses puts back the marker it removed, and an update's names with it
 # (cmd_start's _had_stop_names, visible here because bash locals are dynamically scoped).
+# An agent's start that found a stranded pause clears it now that its cooldown and claim passed. If the clear
+# backs off (a person's stop or a new update came in meanwhile) and a marker stands, it refuses like any stop.
+agent_clear_stranded_or_refuse() {
+  [ "${_agent_clears_stranded:-no}" = yes ] || return 0
+  kosmos_clear_stranded_pause agent-start && return 0
+  if [ -f "$STOP_MARKER" ]; then
+    say "Kosmos was stopped on purpose by the person who runs this computer, so an agent may not start it. Tell them if you need it running."
+    exit 1
+  fi
+  return 0
+}
 restore_stop_marker() {
   : > "$STOP_MARKER" 2>/dev/null || true
   [ -n "${_had_stop_names:-}" ] || return 0
-  printf '%s\n' "$_had_stop_names" | while IFS= read -r _n; do [ -n "$_n" ] && { : > "$_n"; } 2>/dev/null; done
+  printf '%s\n' "$_had_stop_names" | while IFS= read -r _n; do [ -n "$_n" ] && { : > "$_n"; } 2>/dev/null || true; done
   return 0
 }
 # #5450: left by a person's `kosmos start` (first thing, before the stop marker goes), so board-run can tell a person's
@@ -1555,7 +1568,7 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
         if [ $(( _now - _c )) -ge "$_cool" ] && printf '%s\n' "$_now" > "$_claim.new.$$" 2>/dev/null \
            && mv -f "$_claim.new.$$" "$_claim" 2>/dev/null; then
           rmdir "$_claim.lock" 2>/dev/null || true
-          [ "$_agent_clears_stranded" = yes ] && { kosmos_clear_stranded_pause agent-start || true; }
+          agent_clear_stranded_or_refuse
           return 0
         fi
         rm -f "$_claim.new.$$" 2>/dev/null || true
@@ -1567,7 +1580,7 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
     say "Another agent is starting Kosmos right now, so this one may not. If it still is not answering in a few minutes, tell the person who runs this computer."
     exit 1
   fi
-  [ "$_agent_clears_stranded" = yes ] && { kosmos_clear_stranded_pause agent-start || true; }   # kosmos#6651: cooldown and claim passed
+  agent_clear_stranded_or_refuse   # kosmos#6651: cooldown and claim passed
   return 0
 }
 

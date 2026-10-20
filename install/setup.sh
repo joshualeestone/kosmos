@@ -3782,9 +3782,11 @@ KOSMOS_6651_NAMES
 $_kcs_names
 KOSMOS_6651_NAMES
   mkdir -p "$KOSMOS_HOME/logs" 2>/dev/null
-  printf '[%s] %s: cleared a stranded update pause (%s); kept at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" \
+  # On a full disk a failed append leaves printf's buffer, which bash then writes to stdout: measured. So the
+  # subshell's own stdout goes nowhere too (a subshell alone still shares the caller's stdout).
+  ( printf '[%s] %s: cleared a stranded update pause (%s); kept at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" \
     "$(printf '%s' "$_kcs_names" | sed 's|.*/||' | tr '\n' ' ')" "$_kcs_aside" \
-    >> "$KOSMOS_HOME/logs/board-watchdog.log" 2>/dev/null || true
+    >> "$KOSMOS_HOME/logs/board-watchdog.log" ) >/dev/null 2>&1 || true
   # Keep the newest ten clears as evidence; older ones go.
   ls -1t "$KOSMOS_HOME"/board.stopped.stranded.* 2>/dev/null | awk -F. '{ k = $0; sub(/\.by-install\..*$/, "", k) } !seen[k]++ { n++ } n > 10' \
     | while IFS= read -r _kcs_old; do rm -f "$_kcs_old"; done
@@ -3800,6 +3802,7 @@ KOSMOS_6651_NAMES
 # started, so a failure after that does not restart anything.
 # BEGIN #4818 put-back
 _kosmos_was_running=no
+_kosmos_join_pause=no; _kosmos_adopted_names=""   # kosmos#6651
 _kosmos_paused_board=no
 # #2055, #4675: record a stop at the update's pause, durably, in the same logs/ dir the board reads install.status
 # from. On the automatic update path the die that follows goes to stderr and install.log, which nobody reads (one
@@ -3903,6 +3906,9 @@ _kosmos_on_exit() {
   # kosmos#6651: this run's pause name goes with this run, whatever its outcome. Only a run that cannot run this
   # trap (killed, or dead under a full disk) leaves it, and that is what makes its pause read as stranded.
   [ -z "${_kosmos_pause_name:-}" ] || rm -f "$_kosmos_pause_name" 2>/dev/null || true
+  # The stranded names this run adopted go too: it covered them, and left behind they would make a marker this run
+  # writes on purpose (the board kept off at its end) read as stranded. A killed run leaves both, still stranded.
+  printf '%s\n' "${_kosmos_adopted_names:-}" | while IFS= read -r _f; do [ -n "$_f" ] && rm -f "$_f" 2>/dev/null; done || true
   if [ "$_kosmos_exit_rc" -ne 0 ]; then _kosmos_put_board_back || true; _kosmos_clear_own_marker || true; fi
 }
 trap '_kosmos_on_exit' EXIT
@@ -3934,12 +3940,18 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     # meant to be running, so this run adopts it (its own put-back covers it now). The old names stay until a clear
     # moves them aside: removing them before this run's own name exists would leave a bare marker, a person's stop.
     _kosmos_was_running=yes
+    _kosmos_adopted_names="$(kosmos_stranded_pause)" || _kosmos_adopted_names=""
+  elif ! _kosmos_mode_keeps_board_off && [ -e "$KOSMOS_HOME/board.stopped" ] \
+       && [ -n "$(ls -1 "$KOSMOS_HOME"/board.stopped.by-install.* 2>/dev/null)" ]; then
+    # kosmos#6651: another update's LIVE pause (its names, not a person's stop). This run adds its own name, so the
+    # pause stands while either update runs, but it does not take that update's put-back.
+    _kosmos_join_pause=yes
   fi
   _kosmos_linux_unit_killmode   # #4920: before the stop, so an old unit's cgroup kill cannot take this run with it
   # kosmos#6651: name this run's pause (an empty file: written even on a full disk) before the stop writes the
   # marker. Only when this run pauses a running board: a board already off (a person's stop, connect) gets none.
   _kosmos_pause_name=""
-  if [ "$_kosmos_was_running" = yes ]; then
+  if [ "$_kosmos_was_running" = yes ] || [ "${_kosmos_join_pause:-no}" = yes ]; then
     _kosmos_tok="$(kosmos_start_token $$)" || _kosmos_tok=""
     if [ -n "$_kosmos_tok" ]; then
       _kosmos_pause_name="$KOSMOS_HOME/board.stopped.by-install.$$.$_kosmos_tok"
