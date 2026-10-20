@@ -78272,11 +78272,12 @@ async function fedInviteMake() {
     // body (fedFirstName, for a person only).
     const first = kind === 'person' ? fedFirstName(label) : '';
     document.getElementById('fedinv-until').textContent = (until ? 'It works once, until ' + until + '.' : 'It works once.')
+      + (email ? ' Only the Kosmos+ account with ' + email + ' can use it.' : '')   // kosmos#6708
       + ' You can withdraw it from Members until ' + (first ? first + ' joins.' : 'they join.');
     document.getElementById('fedinv-easier').textContent = 'Easier: copy the whole invitation. It has the code and the three steps '
       + (first ? first + ' needs' : 'they need') + ', ready to paste into an email or a text.';
     const proj = pjById(askedFor);
-    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '', projectId: askedFor };
+    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '', projectId: askedFor, email };   // kosmos#6708: the address it is bound to, as typed
     document.getElementById('fedinv-copy-all').focus();
     // kosmos#4649 slice B: the new pending row appears in Members behind the sheet (and an expired row with
     // the same label goes, fedOutsideRows), so "Done" lands on the list as it now is.
@@ -78438,7 +78439,9 @@ function fedInviteText(made) {
     + '\n'
     + made.code + '\n'
     + '\n'
-    + (until ? 'The code works once, until ' + until + '.' : 'The code works once.');
+    + (until ? 'The code works once, until ' + until + '.' : 'The code works once.')
+    // kosmos#6708: a code bound to an address says so, so the person invited signs in with that one before pasting it.
+    + (made.email ? '\nIt works only for the Kosmos+ account with the email address ' + line(made.email) + '.' : '');
 }
 // Copy the invitation: through fedCopyText (select-and-copy first, then the clipboard with its limit). A refusal of
 // both keeps its line on screen and says what to do instead; it never throws.

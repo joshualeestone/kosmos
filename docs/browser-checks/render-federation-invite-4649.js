@@ -488,6 +488,13 @@ const closeAll = (page) => page.evaluate(() => {
       && b.invited_kind === 'agent' && !('project_ref' in b), JSON.stringify(sent));
     check('6681 a typed address is sent, trimmed, as email', !!b && b.email === 'dana@example.com', JSON.stringify(sent));
 
+    // kosmos#6708: the code A4 made is bound to dana@example.com, so the done line and the copied invitation say so.
+    const bound = await page.evaluate(() => ({ until: document.getElementById('fedinv-until').textContent,
+      text: fedInviteText(FEDINV_MADE) }));   // eslint-disable-line no-undef
+    check('6708 a bound code says which Kosmos+ account can use it, on the done step and in the invitation',
+      /Only the Kosmos\+ account with dana@example\.com can use it\./.test(bound.until)
+      && /\nIt works only for the Kosmos\+ account with the email address dana@example\.com\.$/.test(bound.text), JSON.stringify(bound));
+
     // A5: the code screen.
     const done = await page.evaluate(() => ({
       title: document.getElementById('fedinv-t').textContent,
@@ -504,7 +511,8 @@ const closeAll = (page) => page.evaluate(() => {
     // This Make chose "Their agent" (A4 above), and only a PERSON is named by first name (slice B's rule, shared through
     // fedFirstName): an agent invite reads "until they join". C1 covers the person case ("the three steps Dana needs").
     check('A5 "It works once, until Sunday, October 11." from expires_at, then the withdraw sentence (an agent invite: "they")',
-      done.until === 'It works once, until Sunday, October 11. You can withdraw it from Members until they join.', done.until);
+      // kosmos#6708: A4's code is bound to dana@example.com, so its line names the one account that can use it.
+      done.until === 'It works once, until Sunday, October 11. Only the Kosmos+ account with dana@example.com can use it. You can withdraw it from Members until they join.', done.until);
     await page.click('#fedinv-copy');
     // #5373: wait for the copy's own answer, not a fixed 100 ms (the write is a promise; a slow runner outran the sleep).
     await page.waitForFunction(() => window.__copied.length > 0 && document.getElementById('fedinv-copy').textContent === 'Copied',
@@ -1152,6 +1160,9 @@ const closeAll = (page) => page.evaluate(() => {
     const f = await readFed(page, '#pj-fed-outside');
     check('B7 the new code is made for the same label and kind', posts.length === 1 && posts[0].body.label === 'Old Friend'
       && posts[0].body.invited_kind === 'agent' && posts[0].body.project === 'k', JSON.stringify(posts));
+    const unboundText = await page.evaluate(() => ({ until: document.getElementById('fedinv-until').textContent,
+      text: fedInviteText(FEDINV_MADE) }));   // eslint-disable-line no-undef
+    check('6708 CONTROL: an unbound code mentions no address', !/Kosmos\+ account with/.test(unboundText.until + unboundText.text), JSON.stringify(unboundText));
     check('6681 reopened, the sheet forgets an earlier address: the field is empty and no email is sent',
       sheet.email === '' && posts.length === 1 && !('email' in posts[0].body), JSON.stringify({ email: sheet.email, posts }));
     check('B7 the list is asked again, and the expired row goes once a pending one has its label',
