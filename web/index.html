@@ -40693,6 +40693,7 @@ function dmChoicesHtml(m, part) {
   const shown = perm ? DM_CHOICES.options.filter((o) => ((o.n === perm.allow || o.n === perm.deny) ? part === 'main' : part === 'more'))
     .sort((a, b) => (part === 'main' ? (a.n === perm.allow ? -1 : 1) : a.n - b.n)) : DM_CHOICES.options;
   if (!shown.length) return '';
+  if (perm && part === 'main' && shown.length !== 2) return '';   // review 5: Allow AND Deny, or no card (the old text)
   const labelOf = (o) => (perm && part === 'main' ? (o.n === perm.allow ? 'Allow' : 'Deny') : o.label);
   /* Any press in the air for this agent draws its buttons off (a press on another question of the same agent would be
      ignored by dmChoicePress, so it must not look pressable). */
