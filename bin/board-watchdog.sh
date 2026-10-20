@@ -120,7 +120,30 @@ log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$1" >> "$LOG" 2>/dev/null || tr
 
 # --- gate 1: nothing to supervise / user turned it off ----------------------
 [ -f "$KOSMOS_BIN" ] || exit 0            # broken/partial install: do nothing
-[ -f "$STOP_MARKER" ] && exit 0           # deliberate stop: stay out
+# kosmos#6651: the twin of install/kosmos's stop_marker_stranded (tools/test-stopmark-6651.sh pins them equal).
+# A marker reading "install <pid> <start>" whose installer is gone (that pid dead, or now a different process) is
+# an update's pause stranded by a run that died without its EXIT trap, not a person's stop. Empty, or anything
+# else, is a person's stop, exactly as before.
+stop_marker_stranded() {
+  local line pid start live
+  [ -f "$STOP_MARKER" ] || return 1
+  IFS= read -r line < "$STOP_MARKER" 2>/dev/null || return 1   # empty (a person's stop) or unreadable
+  case "$line" in "install "*) ;; *) return 1 ;; esac
+  line="${line#install }"; pid="${line%% *}"; start="${line#* }"
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  [ -n "$start" ] && [ "$start" != "$line" ] || return 1
+  live="$(LC_ALL=C ps -o lstart= -p "$pid" 2>/dev/null | sed 's/^ *//; s/ *$//')"
+  [ "$live" = "$start" ] && return 1   # that installer is still running: its pause stands
+  return 0
+}
+if [ -f "$STOP_MARKER" ]; then
+  # Moved aside (kept as evidence), never deleted; then the usual down-streak logic brings the board back.
+  if stop_marker_stranded && _aside="$STOP_MARKER.stranded.$(date +%s)" && mv -f "$STOP_MARKER" "$_aside" 2>/dev/null; then
+    log "cleared a stranded update pause ($(head -1 "$_aside" 2>/dev/null)); kept at $_aside"
+  else
+    exit 0                                # deliberate stop: stay out
+  fi
+fi
 # gate 2: the board is SUPPOSED to auto-start. If its login job is gone the user
 # has auto-restart off (or is mid-uninstall), so the watchdog must not resurrect it.
 [ -f "$BOARD_PLIST" ] || exit 0
