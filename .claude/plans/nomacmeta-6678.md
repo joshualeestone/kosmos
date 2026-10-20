@@ -32,8 +32,10 @@ folds it back into its file when listing, so a listing-based check cannot see it
 - python3 for the reader (review 1): a developer-tools dependency the tmux build had removed.
 
 ## Weakest premise
-That stripping extended attributes cannot break a signature in the bundle. Reasoned, NOT measured: everything the
-build signs is a Mach-O (`kosmos-tunnel`, `kosmos-app`, whose signatures are embedded) or the sealed Kosmos.app (its
-seal is in `Contents/_CodeSignature`). `codesign` keeps a NON-Mach-O file's signature in xattrs, so if the bundle ever
-signs a script this would break it. A measurement on a real signed app was not possible from this session. The next cut's
-step 4b (a real install from the built bundle) and 9e (the outside audit) are where it would show.
+That stripping extended attributes cannot break a signature in the bundle. Now MEASURED for what ships today: every
+pax key in the real served 0.7.60 tarball, listed in full, is `com.apple.macl` (a privacy-permission record on the
+app folder, twice: LIBARCHIVE and SCHILY forms) plus one `mtime`, and there is one `._Kosmos.app`. No
+`com.apple.cs.*` key exists, so no shipped file keeps its signature in xattrs; signatures are embedded (Mach-O) or in
+`Contents/_CodeSignature`. What would change it: the bundle starting to sign a non-Mach-O file (a script), whose
+signature codesign keeps in xattrs. The gate would then still pass (it strips, it does not check signatures), so a
+step-4b install from the bundle is where that would show.
