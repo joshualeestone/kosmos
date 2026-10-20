@@ -32,7 +32,7 @@ const ACCOUNT_HOME = '/Users/launchguard-6650-nobody';
 
 // Runs the REAL guard with the given inputs, under set -u as setup.sh runs (set -e is off inside it there too: it
 // is called as `_kosmos_temp_launch_refusal || exit 2`).
-function guard({ home = ACCOUNT_HOME, kosmosHome, env = {} }) {
+function guard({ home = ACCOUNT_HOME, account = ACCOUNT_HOME, kosmosHome, env = {} }) {
   const script = [
     'set -eu',
     fnSource(SETUP, '_kosmos_temp_launch_refusal'),
@@ -40,7 +40,7 @@ function guard({ home = ACCOUNT_HOME, kosmosHome, env = {} }) {
     'rc=0; _kosmos_temp_launch_refusal || rc=$?; echo "rc=$rc"',
   ].join('\n');
   const r = spawnSync('/bin/sh', ['-c', script, 'sh', kosmosHome, home], {
-    env: { PATH: '/usr/bin:/bin', HOME: home, TMPDIR: os.tmpdir(), ...env },
+    env: { PATH: '/usr/bin:/bin', HOME: home, TMPDIR: os.tmpdir(), ...(account === null ? {} : { KOSMOS_ACCOUNT_HOME: account }), ...env },
     encoding: 'utf8',
   });
   const rc = (r.stdout.match(/rc=(\d+)/) || [])[1];
@@ -70,12 +70,12 @@ test('#6650: a kept home is not refused (a person self-hosting, or a release wal
   assert.equal(r.err, '');
 });
 
-test('#6650: other spellings of a temp folder are refused: capitals, /System/Volumes/Data, a symlink into one', { skip: !isMac }, () => {
+test('#6650: other spellings of a temp folder are refused: capitals, /System/Volumes/Data, a symlink into one', { skip: !isMac }, (t) => {
   assert.equal(guard({ kosmosHome: '/Private/Var/Folders/zz/x/T/tmp.a/home' }).rc, '1');
   assert.equal(guard({ kosmosHome: '/System/Volumes/Data/private/var/folders/zz/x/T/tmp.b/home' }).rc, '1');
   // A link in a kept folder (/Users/Shared) that points into a temp one: refused through what it resolves to.
   let kept;
-  try { kept = fs.mkdtempSync('/Users/Shared/launchguard-6650-'); } catch { return; }   // no writable kept folder here
+  try { kept = fs.mkdtempSync('/Users/Shared/launchguard-6650-'); } catch { t.diagnostic('symlink sub-check not run: /Users/Shared is not writable here'); return; }
   try {
     fs.symlinkSync('/private/tmp', path.join(kept, 'scratch'));
     const r = guard({ kosmosHome: path.join(kept, 'scratch', 'tmp.c', 'home'), env: { TMPDIR: '/nonexistent-6650' } });
@@ -87,12 +87,12 @@ test('#6650: AGENT_WORKFORCE_LAUNCH set to the real LaunchAgents is no way throu
   const home = path.join(tmpRoot, 'acct');
   fs.mkdirSync(path.join(home, 'Library', 'LaunchAgents'), { recursive: true });
   const kosmosHome = '/private/tmp/launchguard-6650-d/home';
-  const r = guard({ home, kosmosHome, env: { AGENT_WORKFORCE_LAUNCH: path.join(home, 'Library', 'LaunchAgents') } });
+  const r = guard({ home, account: home, kosmosHome, env: { AGENT_WORKFORCE_LAUNCH: path.join(home, 'Library', 'LaunchAgents') } });
   assert.equal(r.rc, '1', r.err);
   // A new account, where the folder does not exist yet: refused by its spelling (with or without a trailing slash).
   const fresh = path.join(tmpRoot, 'fresh-acct');
   for (const launch of [path.join(fresh, 'Library', 'LaunchAgents'), path.join(fresh, 'Library', 'LaunchAgents') + '/']) {
-    assert.equal(guard({ home: fresh, kosmosHome, env: { AGENT_WORKFORCE_LAUNCH: launch } }).rc, '1', launch);
+    assert.equal(guard({ home: fresh, account: fresh, kosmosHome, env: { AGENT_WORKFORCE_LAUNCH: launch } }).rc, '1', launch);
   }
 });
 
@@ -140,8 +140,24 @@ test('#6650: a temp HOME with the default home is refused (launchd would registe
 
 test('#6650: the real LaunchAgents spelled in other capitals is no launch folder of its own either', { skip: !isMac }, () => {
   const fresh = path.join(tmpRoot, 'fresh-caps');
-  const r = guard({ home: fresh, kosmosHome: '/private/tmp/launchguard-6650-c2/home', env: { AGENT_WORKFORCE_LAUNCH: fresh + '/library/launchagents' } });
+  const r = guard({ home: fresh, account: fresh, kosmosHome: '/private/tmp/launchguard-6650-c2/home', env: { AGENT_WORKFORCE_LAUNCH: fresh + '/library/launchagents' } });
   assert.equal(r.rc, '1', r.err);
+});
+
+test('#6650: a fake HOME pointing AGENT_WORKFORCE_LAUNCH at its OWN LaunchAgents goes through (the install gate does this)', { skip: !isMac }, () => {
+  // tools/test-install.sh's default-home control: HOME under its temp sandbox, KOSMOS_HOME unset, LAUNCH at the fake
+  // HOME's LaunchAgents. With a launch folder set setup.sh runs no launchctl, and that folder is not the account's.
+  const fake = path.join(tmpRoot, 'd924-defaulthome');
+  const r = guard({ home: fake, kosmosHome: fake + '/.local/share/kosmos', env: { AGENT_WORKFORCE_LAUNCH: fake + '/Library/LaunchAgents' } });
+  assert.equal(r.rc, '0', r.err);
+});
+
+test('#6650: the account home comes from the directory service when nothing pins it', { skip: !isMac }, () => {
+  // Unpinned: dscl answers for the account running this test, whose real home is os.homedir().
+  const fake = path.join(tmpRoot, 'unpinned-home');
+  const kosmosHome = '/private/tmp/launchguard-6650-u/home';
+  assert.equal(guard({ home: fake, account: null, kosmosHome, env: { AGENT_WORKFORCE_LAUNCH: fake + '/Library/LaunchAgents' } }).rc, '0');
+  assert.equal(guard({ home: fake, account: null, kosmosHome, env: { AGENT_WORKFORCE_LAUNCH: path.join(os.homedir(), 'Library', 'LaunchAgents') } }).rc, '1');
 });
 
 test('#6650: the default home under a kept HOME (a real install or its self-update) is never refused', { skip: !isMac }, () => {
