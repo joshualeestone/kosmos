@@ -195,9 +195,11 @@ KOSMOS_6651_NAMES
 $_kcs_names
 KOSMOS_6651_NAMES
   mkdir -p "$KOSMOS_HOME/logs" 2>/dev/null
-  printf '[%s] %s: cleared a stranded update pause (%s); kept at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" \
+  # On a full disk a failed append leaves printf's buffer, which bash then writes to stdout: measured. So the
+  # subshell's own stdout goes nowhere too (a subshell alone still shares the caller's stdout).
+  ( printf '[%s] %s: cleared a stranded update pause (%s); kept at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" \
     "$(printf '%s' "$_kcs_names" | sed 's|.*/||' | tr '\n' ' ')" "$_kcs_aside" \
-    >> "$KOSMOS_HOME/logs/board-watchdog.log" 2>/dev/null || true
+    >> "$KOSMOS_HOME/logs/board-watchdog.log" ) >/dev/null 2>&1 || true
   # Keep the newest ten clears as evidence; older ones go.
   ls -1t "$KOSMOS_HOME"/board.stopped.stranded.* 2>/dev/null | awk -F. '{ k = $0; sub(/\.by-install\..*$/, "", k) } !seen[k]++ { n++ } n > 10' \
     | while IFS= read -r _kcs_old; do rm -f "$_kcs_old"; done

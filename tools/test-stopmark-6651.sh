@@ -114,6 +114,10 @@ if command -v hdiutil >/dev/null 2>&1 && hdiutil create -quiet -size 8m -fs APFS
     { [ -e "$DISK/board.stopped" ] && [ -e "$DISK/board.stopped.by-install.$DEAD.$LTOK" ]; } \
       && ok "on a FULL disk the marker and the pause's name are still written" || bad "the marker or the name could not be written on a full disk"
     [ "$(KOSMOS_HOME="$DISK" verdict)" = stranded ] && ok "and read there as stranded once that update is gone" || bad "a full-disk pause read as stands"
+    mkdir -p "$DISK/logs" 2>/dev/null
+    out="$(KOSMOS_HOME="$DISK" kosmos_clear_stranded_pause full-disk 2>/dev/null)"
+    { [ ! -e "$DISK/board.stopped" ] && [ -z "$out" ]; } && ok "the clear works on a full disk, and its failed log line does not leak to stdout" \
+      || bad "full-disk clear: marker $( [ -e "$DISK/board.stopped" ] && echo left || echo gone ), stdout '$out'"
   fi
 else
   echo "SKIP  full-disk case: hdiutil could not make a disk image here (macOS only)"
@@ -150,8 +154,23 @@ eval "$(awk '/^restore_stop_marker\(\) \{/ { on=1 } on { print } on && /^}$/ { e
 reset; STOP_MARKER="$M"; _had_stop_names="$KOSMOS_HOME/board.stopped.by-install.$DEAD.$LTOK"
 restore_stop_marker
 { [ -e "$M" ] && [ -e "$_had_stop_names" ]; } && ok "a refused start puts the marker and the update's names back" || bad "restore lost the names"
+_had_stop_names="$TMP/no-such-dir/name.x
+$KOSMOS_HOME/board.stopped.by-install.$DEAD.$LTOK"; reset
+out="$(set -euo pipefail; restore_stop_marker; echo carried-on)"
+{ [ "$out" = carried-on ] && [ -e "$KOSMOS_HOME/board.stopped.by-install.$DEAD.$LTOK" ]; } \
+  && ok "under pipefail, a name that cannot be put back does not end the CLI, and the rest are" || bad "restore under pipefail: '$out'"
 _had_stop_names=""; reset; restore_stop_marker
 { [ -e "$M" ] && [ -z "$(ls "$KOSMOS_HOME"/board.stopped.by-install.* 2>/dev/null)" ]; } && ok "CONTROL: a person's marker is restored with no names" || bad "restore invented names"
+
+# An agent's start whose clear backs off (a person's stop came in) refuses rather than starting over the stop.
+eval "$(awk '/^agent_clear_stranded_or_refuse\(\) \{/ { on=1 } on { print } on && /^}$/ { exit }' install/kosmos)"
+say() { printf '%s\n' "$*"; }
+reset; : > "$M"   # the person's marker; the names are gone, so the clear backs off
+out="$( _agent_clears_stranded=yes; agent_clear_stranded_or_refuse; echo went-ahead )"; rc=$?
+case "$out" in *"stopped on purpose"*) ok "an agent's start whose clear backs off refuses (a person's stop came in)" ;; *) bad "agent clear backed off and went ahead: $out" ;; esac
+reset; : > "$M"; name "$DEAD" "$LTOK"
+out="$( _agent_clears_stranded=yes; agent_clear_stranded_or_refuse; echo went-ahead )"
+{ [ "$out" = went-ahead ] && [ ! -e "$M" ]; } && ok "CONTROL: an agent's start with a stranded pause clears it and goes ahead" || bad "agent clear: $out"
 
 # --- 3. the real watchdog ---------------------------------------------------------------------------------------
 new_home() {
@@ -193,15 +212,17 @@ cnt="$(fnbody install/kosmos cmd_stop | awk '/KOSMOS_STOP_BY_INSTALL:-}" = 1 \] 
 [ "$cnt" = 2 ] && ok "a person's stop removes an update's names just before each marker write ($cnt of 2)" || bad "cmd_stop's marker writes are not each preceded by the name removal ($cnt of 2)"
 fnbody install/kosmos cmd_board_run | awk '/kosmos_clear_stranded_pause board-run/ { c = NR } /Kosmos was deliberately stopped; not starting/ { exit !(c) }' \
   && ok "board-run clears a stranded pause before it refuses" || bad "board-run does not clear a stranded pause first"
-fnbody install/kosmos agent_board_guard | awk '/local _claim=/ { l = NR } /kosmos_clear_stranded_pause agent-start/ { n++; if (!l || NR < l) bad = 1 } END { exit !(n == 2 && !bad) }' \
+fnbody install/kosmos agent_board_guard | awk '/local _claim=/ { l = NR } /agent_clear_stranded_or_refuse/ { n++; if (!l || NR < l) bad = 1 } END { exit !(n == 2 && !bad) }' \
   && ok "an agent's start clears a stranded pause only after the cooldown and claim pass (both success returns)" \
   || bad "an agent's start clears a stranded pause before its cooldown or claim (or not on both success returns)"
-awk '/^  _kosmos_pause_name=""$/ { if (!a) a = NR } /if \[ "\$_kosmos_was_running" = yes \]; then/ { if (a && !w) w = NR }
+awk '/^  _kosmos_pause_name=""$/ { if (!a) a = NR } /if \[ "\$_kosmos_was_running" = yes \] \|\| \[ "\$\{_kosmos_join_pause:-no\}" = yes \]; then/ { if (a && !w) w = NR }
      /: > "\$_kosmos_pause_name"/ { n = NR } /^  _kosmos_marker_ours="\$_kosmos_was_running"/ { m = NR }
      END { exit !(a && w > a && n > w && m > n) }' install/setup.sh \
   && ok "setup.sh names its pause only when pausing a running board, before the stop" || bad "setup.sh's pause name is not where it should be"
-awk '/^_kosmos_on_exit\(\) \{/ { on = 1 } on && /rm -f "\$_kosmos_pause_name"/ { f = 1 } on && /^}/ { exit !f }' install/setup.sh \
-  && ok "setup.sh's EXIT trap removes its own pause name" || bad "setup.sh's EXIT trap does not remove its pause name"
+awk '/^_kosmos_on_exit\(\) \{/ { on = 1 } on && /rm -f "\$_kosmos_pause_name"/ { f = 1 } on && /_kosmos_adopted_names/ { g = 1 } on && /^}/ { exit !(f && g) }' install/setup.sh \
+  && ok "setup.sh's EXIT trap removes its own pause name and the names it adopted" || bad "setup.sh's EXIT trap does not remove its own and adopted names"
+awk '/_kosmos_join_pause=yes$/ { j = 1 } /if \[ "\$_kosmos_was_running" = yes \] \|\| \[ "\$\{_kosmos_join_pause:-no\}" = yes \]; then/ { if (j) w = 1 } END { exit !w }' install/setup.sh \
+  && ok "an update that finds another update's live pause names itself too (the pause holds while either runs)" || bad "a second update does not name itself on a live pause"
 fnbody install/kosmos cmd_start | grep -q 'rm -f "$STOP_MARKER" "$STOP_MARKER".by-install.\* 2>/dev/null || true' \
   && ok "a start removes an update's names with the marker" || bad "a start leaves an update's names behind"
 awk '/elif ! _kosmos_mode_keeps_board_off && kosmos_stranded_pause >\/dev\/null; then/ { on = 1; next } on && /^  fi$/ { exit } on && /rm -f/ { bad = 1 } END { exit bad }' install/setup.sh \

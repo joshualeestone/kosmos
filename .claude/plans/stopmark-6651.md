@@ -30,7 +30,7 @@
 - Not in this branch: what launched two installs 16 seconds apart (the card says no instrument recorded it).
 
 ## Proof
-- `bash tools/test-stopmark-6651.sh`: 49 PASS, including a real full disk (an 8 MB disk image, filled) and dash. Mutants, each red then restored: the start-time comparison removed
+- `bash tools/test-stopmark-6651.sh`: 54 PASS, including a real full disk (an 8 MB disk image, filled) and dash. Mutants, each red then restored: the start-time comparison removed
   (also caught by the byte-equal twin check), the watchdog's clear removed, the writer ignoring the attribution.
 - Neighbours, all green on this branch: test-board-watchdog-2955 (0 failures), test-update-putback-4818 (33/33;
   red at first because it pins the pause's stop line, updated), test-setup-pause-sandbox-4651 (0 failures),
@@ -74,3 +74,14 @@
   - Evidence keeps the newest ten clears (aside names carry the pid as well as the second); the clear's comment says
     the window it cannot close. Known and accepted: `kosmos restart` on a stranded pause writes a person's marker
     (restart is a deliberate act) and, if its start is then refused, that marker stays.
+- Iteration 5 (a WARNING and NITs; each fixed, mutant red):
+  - Two updates at once (the card saw two 16 s apart): a second update finding another's LIVE pause now names itself
+    too (without taking that update's put-back), so the pause holds while either runs and is stranded only once
+    both are gone. Before, killing the first released the board in the middle of the second's swap.
+  - An agent's start whose clear backs off (a person's stop or a new update came in) now refuses instead of going
+    ahead (`agent_clear_stranded_or_refuse`).
+  - restore_stop_marker never ends the CLI under pipefail when one name cannot be put back.
+  - Names a run adopted go with its EXIT trap, so a marker the run writes on purpose (kept off at its end) is not
+    read as stranded.
+  - The clear's log line on a full disk leaked printf's buffer to stdout; a subshell alone did not stop it
+    (measured), so the subshell's stdout goes to /dev/null too.
