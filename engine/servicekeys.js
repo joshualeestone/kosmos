@@ -26,6 +26,8 @@ const MAX_SEQ = 2147483647;
 const MAX_SERVICE_KEYS = 3;
 const ROLES = new Set(['current', 'next', 'retiring']);
 const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+const RUST_WS = '[\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]';
+const RUST_WS_ENDS = new RegExp('^' + RUST_WS + '+|' + RUST_WS + '+$', 'g');
 
 /* The small-order (weak) Ed25519 points, as libsodium lists them. A point is weak when it equals one of these in its
    first 31 bytes and in the low 7 bits of the last (the sign bit is ignored, so both spellings of each are caught).
@@ -43,6 +45,20 @@ function weak(raw) {
   return WEAK.some((w) => w.subarray(0, 31).equals(raw.subarray(0, 31)) && (w[31] & 0x7f) === (raw[31] & 0x7f));
 }
 
+/* A point on the curve: ed25519-dalek's decompression accepts y (its low 255 bits, taken mod p) when (y^2 - 1) /
+   (d y^2 + 1) is zero or a square mod p, and refuses the key otherwise. Node's createPublicKey takes any 32 bytes. */
+const P = 2n ** 255n - 19n;
+const modPow = (b, e) => { let r = 1n; b %= P; while (e > 0n) { if (e & 1n) r = (r * b) % P; b = (b * b) % P; e >>= 1n; } return r; };
+const D = ((P - 121665n) * modPow(121666n, P - 2n)) % P;
+function onCurve(raw) {
+  let y = 0n;
+  for (let i = 31; i >= 0; i -= 1) y = (y << 8n) | BigInt(i === 31 ? raw[i] & 0x7f : raw[i]);
+  y %= P;
+  const y2 = (y * y) % P;
+  const x2 = (((y2 - 1n + P) % P) * modPow((D * y2 + 1n) % P, P - 2n)) % P;
+  return x2 === 0n || modPow(x2, (P - 1n) / 2n) === 1n;
+}
+
 /** The raw 32-byte key of a canonical, non-weak Ed25519 SPKI base64 string, or null. Only the canonical spelling is a
  * key (re-encoding gives the same string), so comparing strings compares keys. */
 function rawKey(spkiB64) {
@@ -50,7 +66,7 @@ function rawKey(spkiB64) {
   const der = Buffer.from(spkiB64, 'base64');
   if (der.length !== 44 || der.toString('base64') !== spkiB64 || !der.subarray(0, 12).equals(SPKI_PREFIX)) return null;
   const raw = der.subarray(12);
-  return weak(raw) ? null : Buffer.from(raw);
+  return weak(raw) || !onCurve(raw) ? null : Buffer.from(raw);
 }
 const spkiOf = (raw) => Buffer.concat([SPKI_PREFIX, raw]).toString('base64');
 const keyObject = (raw) => crypto.createPublicKey({ key: Buffer.concat([SPKI_PREFIX, raw]), format: 'der', type: 'spki' });
@@ -82,11 +98,16 @@ function scan(text) {
     const start = i; i += 1;
     while (text[i] !== '"') i += text[i] === '\\' ? 2 : 1;
     i += 1;
-    return JSON.parse(text.slice(start, i));
+    const s = JSON.parse(text.slice(start, i));
+    // A lone surrogate (only an escape can make one here: the bytes were strict UTF-8) is refused by serde_json.
+    if (/[\ud800-\udbff](?![\udc00-\udfff])|(?:^|[^\ud800-\udbff])[\udc00-\udfff]/.test(s)) throw new Error('holds a lone surrogate');
+    return s;
   };
   const value = (depth) => {
     ws();
     const c = text[i];
+    // serde_json's recursion limit: 127 nested arrays and objects, the outermost counted.
+    if ((c === '{' || c === '[') && depth >= 127) throw new Error('is nested too deeply');
     if (c === '{') {
       i += 1; const names = new Set(); ws();
       if (text[i] === '}') { i += 1; return undefined; }
@@ -110,7 +131,10 @@ function scan(text) {
     if (c === '"') { str(); return undefined; }
     const start = i;
     while (i < text.length && !',}] \t\n\r'.includes(text[i])) i += 1;
-    return text.slice(start, i);   // a number, true, false or null, as spelled
+    const raw = text.slice(start, i);   // a number, true, false or null, as spelled
+    // serde_json refuses a number out of a double's range (1e400); JSON.parse would read Infinity.
+    if (raw !== 'true' && raw !== 'false' && raw !== 'null' && !Number.isFinite(Number(raw))) throw new Error('holds a number out of range');
+    return raw;
   };
   value(0);
   return top;
@@ -133,7 +157,8 @@ function realDate(s) {
  */
 function verifyServiceKeySet({ bytes, sig, recoveryKeys = [], held = null }) {
   const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes == null ? '' : bytes);
-  const sigText = String(sig == null ? '' : sig).trim();
+  // Trimmed as Rust's str::trim does (Unicode White_Space: U+0085 yes, U+FEFF no), not as String.prototype.trim.
+  const sigText = String(sig == null ? '' : sig).replace(RUST_WS_ENDS, '');
   // Strict base64, as the relay's decoder: padded, and canonical (re-encoding gives the same text, so no trailing bits).
   let signature = /^[A-Za-z0-9+/]{86}==$/.test(sigText) ? Buffer.from(sigText, 'base64') : Buffer.alloc(0);
   if (signature.toString('base64') !== sigText) signature = Buffer.alloc(0);
@@ -143,7 +168,10 @@ function verifyServiceKeySet({ bytes, sig, recoveryKeys = [], held = null }) {
   });
   if (!signed) return { ok: false, why: 'the service key set is not signed by the Kosmos recovery key' };
   let doc; let top;
-  const text = buf.toString('utf8');
+  let text;
+  // Strict UTF-8, as serde_json reads bytes (toString would swap a bad byte for U+FFFD). A BOM is kept, so JSON.parse
+  // refuses it, as the relay does.
+  try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buf); } catch { return { ok: false, why: 'the signed service key set is not readable' }; }
   try { doc = JSON.parse(text); } catch { return { ok: false, why: 'the signed service key set is not readable' }; }
   try { top = scan(text); } catch (e) { return { ok: false, why: 'the signed service key set ' + e.message }; }
   if (!doc || typeof doc !== 'object' || Array.isArray(doc) || doc.type !== SERVICE_KEYS_TYPE) {
@@ -173,7 +201,11 @@ function verifyServiceKeySet({ bytes, sig, recoveryKeys = [], held = null }) {
     return { ok: false, why: 'the signed service key set does not name exactly one current key' };
   }
   const sha256 = crypto.createHash('sha256').update(buf).digest('hex');
-  if (held && Number.isInteger(held.seq)) {
+  if (held != null) {
+    // A record that cannot be read as one fails closed: skipping it would let an older set back in.
+    if (typeof held !== 'object' || !Number.isInteger(held.seq) || held.seq < 1 || held.seq > MAX_SEQ || typeof held.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(held.sha256)) {
+      return { ok: false, why: 'the service key set this computer holds is not readable, so no other is taken' };
+    }
     if (seq < held.seq) return { ok: false, why: `the service key set is older (${seq}) than the one this computer holds (${held.seq})` };
     if (seq === held.seq && sha256 !== held.sha256) return { ok: false, why: `the service key set reuses sequence number ${seq} with other contents` };
   }

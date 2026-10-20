@@ -36,6 +36,8 @@ const doc = (fields) => JSON.stringify(Object.assign({
   issued: '2025-08-24',
 }, fields), null, 2) + '\n';
 const signed = (text, by = ROOT) => [text, sign(by, text)];
+// A refusal for the named reason, so an arm cannot pass because an earlier check refused everything.
+const refused = (r, why, label) => { assert.equal(r.ok, false, label); assert.match(r.why, why, label + ': ' + r.why); };
 
 test('the fixtures are the relay vectors: seeds give the published keys and kids', () => {
   assert.equal(spkiOf(ROOT), ROOT_PUB);
@@ -68,16 +70,16 @@ test('off as shipped: with no recovery key nothing verifies, the published set i
 });
 
 test('refused: signed by a service key, one changed byte, no signature, a non-canonical signature', () => {
-  assert.equal(check(VECTOR, sign(K7, VECTOR)).ok, false, 'signed by a service key');
+  refused(check(VECTOR, sign(K7, VECTOR)), /not signed/, 'signed by a service key');
   const changed = Buffer.from(VECTOR); changed[changed.length - 3] ^= 1;
-  assert.equal(check(changed, VECTOR_SIG).ok, false, 'one changed byte');
-  assert.equal(check(VECTOR, '').ok, false, 'no signature');
+  refused(check(changed, VECTOR_SIG), /not signed/, 'one changed byte');
+  refused(check(VECTOR, ''), /not signed/, 'no signature');
   // The same 64 bytes spelled with a non-zero trailing bit: lenient base64 would read it, the relay's does not.
   const last = VECTOR_SIG.at(-3);
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
   const bumped = VECTOR_SIG.slice(0, -3) + alphabet[alphabet.indexOf(last) + 1] + '==';
   assert.deepEqual(Buffer.from(bumped, 'base64'), Buffer.from(VECTOR_SIG, 'base64'), 'CONTROL: the bumped spelling decodes to the same bytes');
-  assert.equal(check(VECTOR, bumped).ok, false, 'non-canonical signature');
+  refused(check(VECTOR, bumped), /not signed/, 'non-canonical signature');
 });
 
 test('refused: the release key list type (domain separation), and a document that is not an object', () => {
@@ -95,24 +97,46 @@ test('refused: a member named twice, at the top or inside an entry', () => {
   assert.equal(r.ok, false);
   assert.match(r.why, /names the member "type" twice/);
   const twicePub = '{"type": "kosmos-service-keys", "service_keys": [{"kid": "_oEsEvOrTOY", "pub": "' + K8_PUB + '", "pub": "' + K7_PUB + '", "role": "current"}], "seq": 1, "issued": "2025-08-24"}\n';
-  assert.equal(check(...signed(twicePub)).ok, false);
+  refused(check(...signed(twicePub)), /names the member "pub" twice/, 'pub twice');
   // Names are compared after unescaping: "type" is "type".
   const escaped = '{"type": "kosmos-service-keys", "typ\\u0065": "kosmos-service-keys", "service_keys": [{"kid": "_oEsEvOrTOY", "pub": "' + K7_PUB + '", "role": "current"}], "seq": 1, "issued": "2025-08-24"}\n';
-  assert.equal(check(...signed(escaped)).ok, false);
+  refused(check(...signed(escaped)), /names the member "type" twice/, 'type escaped twice');
+});
+
+test('refused: JSON the relay refuses (bad UTF-8, a lone surrogate, a number out of range, nested too deeply)', () => {
+  const base = doc({});
+  const withExtra = (raw) => Buffer.concat([Buffer.from(base.slice(0, base.lastIndexOf('}'))), Buffer.from(',\n  "x": '), Buffer.from(raw), Buffer.from('\n}\n')]);
+  const signedBuf = (b) => [b, crypto.sign(null, b, ROOT).toString('base64')];
+  refused(check(...signedBuf(withExtra(Buffer.from([0x22, 0xff, 0x22])))), /not readable/, 'a byte that is not UTF-8');
+  refused(check(...signedBuf(withExtra(Buffer.from('"\\ud800"')))), /lone surrogate/, 'a lone high surrogate');
+  refused(check(...signedBuf(withExtra(Buffer.from('"\\udc00x"')))), /lone surrogate/, 'a lone low surrogate');
+  refused(check(...signedBuf(withExtra(Buffer.from('1e400')))), /out of range/, 'a number out of range');
+  refused(check(...signedBuf(withExtra(Buffer.from('['.repeat(127) + ']'.repeat(127))))), /nested too deeply/, '128 nested, the outer object counted');
+  // CONTROLS: a real surrogate pair, a large finite number, and 127 nested (the deepest the relay takes) are fine.
+  assert.equal(check(...signedBuf(withExtra(Buffer.from('"\\ud83d\\ude00"')))).ok, true, 'a surrogate pair');
+  assert.equal(check(...signedBuf(withExtra(Buffer.from('1e300')))).ok, true, 'a finite large number');
+  assert.equal(check(...signedBuf(withExtra(Buffer.from('['.repeat(126) + ']'.repeat(126))))).ok, true, '127 nested');
+  // A leading BOM on the document is refused, as by the relay.
+  refused(check(...signedBuf(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(base)]))), /not readable/, 'a BOM');
+});
+
+test('the .sig is trimmed as Rust trims (U+0085 is whitespace, U+FEFF is not)', () => {
+  assert.equal(check(VECTOR, '\u0085' + VECTOR_SIG + '\n').ok, true, 'U+0085 trimmed');
+  refused(check(VECTOR, '\ufeff' + VECTOR_SIG), /not signed/, 'a BOM is not trimmed');
 });
 
 test('refused: a seq out of range or not a plain integer (1.0 and 1e0 read as 1 to JSON.parse, not to the relay)', () => {
   for (const s of ['0', '-1', '2147483648', '1.0', '1e0', '"1"']) {
     const text = doc({}).replace('"seq": 1', '"seq": ' + s);
     assert.notEqual(text, doc({}), 'the seq was replaced');
-    assert.equal(check(...signed(text)).ok, false, 'seq ' + s);
+    refused(check(...signed(text)), /sequence number/, 'seq ' + s);
   }
   assert.equal(check(...signed(doc({ seq: 2147483647 }))).ok, true, 'CONTROL: the largest seq is taken');
 });
 
 test('refused: an issue date that is not a real YYYY-MM-DD', () => {
   for (const d of ['2025-02-29', '2025-13-01', '0000-01-01', '2025-1-01', '2025-08-24T00:00', 20250824]) {
-    assert.equal(check(...signed(doc({ issued: d }))).ok, false, 'issued ' + d);
+    refused(check(...signed(doc({ issued: d }))), /issue date/, 'issued ' + d);
   }
   assert.equal(check(...signed(doc({ issued: '2024-02-29' }))).ok, true, 'CONTROL: a leap day');
 });
@@ -121,34 +145,44 @@ test('refused: the keys break a rule (none, four, a wrong kid, zero or two curre
   const k7 = { kid: '_oEsEvOrTOY', pub: K7_PUB, role: 'current' };
   const k8 = { kid: 'XCm3jxCjWkk', pub: K8_PUB, role: 'next' };
   const rootEntry = { kid: sk.kidOf(rawOf(ROOT)), pub: ROOT_PUB, role: 'next' };
+  const K9 = keyFromSeed(0x0a);
+  const k9 = { kid: sk.kidOf(rawOf(K9)), pub: spkiOf(K9), role: 'retiring' };
   const cases = {
-    'no keys': [],
-    'four keys': [k7, k8, { ...k8, role: 'retiring' }, rootEntry],
-    'a wrong kid': [{ ...k7, kid: 'XCm3jxCjWkk' }],
-    'no current key': [{ ...k7, role: 'next' }],
-    'two current keys': [k7, { ...k8, role: 'current' }],
-    'the root listed': [k7, rootEntry],
-    'a key twice': [k7, { ...k7, role: 'next' }],
-    'an unknown role': [{ ...k7, role: 'primary' }],
-    'a raw 32-byte key': [{ ...k7, pub: rawOf(K7).toString('base64') }],
-    'missing padding': [{ ...k7, pub: K7_PUB.slice(0, -1) }],
+    'no keys': [[], /names no key/],
+    'four keys': [[k7, k8, k9, { kid: sk.kidOf(rawOf(keyFromSeed(0x0b))), pub: spkiOf(keyFromSeed(0x0b)), role: 'next' }], /more than 3 keys/],
+    'a wrong kid': [[{ ...k7, kid: 'XCm3jxCjWkk' }], /under another kid/],
+    'no current key': [[{ ...k7, role: 'next' }], /exactly one current/],
+    'two current keys': [[k7, { ...k8, role: 'current' }], /exactly one current/],
+    'the root listed': [[k7, rootEntry], /recovery key as a service key/],
+    'a key twice': [[k7, { ...k7, role: 'next' }], /lists a key twice/],
+    'an unknown role': [[{ ...k7, role: 'primary' }], /entry that is not one/],
+    'a raw 32-byte key': [[{ ...k7, pub: rawOf(K7).toString('base64') }], /key that is not one/],
+    'missing padding': [[{ ...k7, pub: K7_PUB.slice(0, -1) }], /key that is not one/],
   };
-  for (const [name, keys] of Object.entries(cases)) {
-    assert.equal(check(...signed(doc({ service_keys: keys }))).ok, false, name);
-  }
+  for (const [name, [keys, why]] of Object.entries(cases)) refused(check(...signed(doc({ service_keys: keys }))), why, name);
   // A weak (small-order) key, in its canonical SPKI spelling: the identity point.
   const weak = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from('01' + '00'.repeat(31), 'hex')]).toString('base64');
   const weakKid = sk.kidOf(Buffer.from('01' + '00'.repeat(31), 'hex'));
-  assert.equal(check(...signed(doc({ service_keys: [k7, { kid: weakKid, pub: weak, role: 'next' }] }))).ok, false, 'a weak key');
+  refused(check(...signed(doc({ service_keys: [k7, { kid: weakKid, pub: weak, role: 'next' }] }))), /key that is not one/, 'a weak key');
+  // Not a point on the curve (y = 2): the relay's key decoding refuses it, and so must this.
+  const y2 = Buffer.from('02' + '00'.repeat(31), 'hex');
+  const offCurve = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), y2]).toString('base64');
+  refused(check(...signed(doc({ service_keys: [k7, { kid: sk.kidOf(y2), pub: offCurve, role: 'next' }] }))), /key that is not one/, 'a key off the curve');
+  // CONTROL for the curve check: every real key used here (seeds 07 to 0b) is on the curve.
+  for (const b of [7, 8, 9, 10, 11]) assert.ok(sk.rawKey(spkiOf(keyFromSeed(b))), 'seed ' + b + ' is a key');
   assert.equal(check(...signed(doc({ service_keys: [k7, k8] }))).ok, true, 'CONTROL: the two good keys are taken');
 });
 
 test('seq only goes up: a lower seq is refused, the same seq only with the same bytes', () => {
   const held = { seq: 1, sha256: VECTOR_SHA };
   assert.equal(check(VECTOR, VECTOR_SIG, held).ok, true, 'the same set again');
-  assert.equal(check(...signed(doc({})), held).ok, false, 'seq 1 with other bytes');
-  assert.equal(check(VECTOR, VECTOR_SIG, { seq: 2, sha256: 'x' }).ok, false, 'a lower seq');
+  refused(check(...signed(doc({})), held), /reuses sequence number 1/, 'seq 1 with other bytes');
+  refused(check(VECTOR, VECTOR_SIG, { seq: 2, sha256: VECTOR_SHA.replace(/^00/, '11') }), /is older \(1\)/, 'a lower seq');
   assert.equal(check(...signed(doc({ seq: 2 })), held).ok, true, 'CONTROL: a higher seq');
+  // A held record that cannot be read fails closed rather than switching the rollback check off.
+  for (const bad of [{ seq: '5', sha256: VECTOR_SHA }, { seq: 5n, sha256: VECTOR_SHA }, { seq: 0, sha256: VECTOR_SHA }, { seq: 1, sha256: 'x' }, {}, 'held']) {
+    refused(check(...signed(doc({ seq: 3 })), bad), /holds is not readable/, 'held ' + String(bad.seq));
+  }
 });
 
 test('the pinned key (base64url of the raw bytes) is matched against the listed SPKI keys', () => {
