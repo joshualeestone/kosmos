@@ -132,7 +132,9 @@ function setModes(buf, stageDir) {
     const mode = modeFor(e.name, stageDir);
     const spec = Math.max(e.madeBy & 0xff, 20);
     buf.writeUInt16LE((3 << 8) | spec, e.at + 4);
-    let dos = e.attrs & 0xffff;
+    // The DOS bits are kept, but read-only (0x01) is cleared: Info-ZIP sets it for a file without owner
+    // write, and a Windows extract would then disagree with the 0644 Unix mode.
+    let dos = e.attrs & 0xffff & ~0x01;
     if (mode === MODE_DIR) dos |= 0x10;
     buf.writeUInt32LE(((mode << 16) | dos) >>> 0, e.at + 38);
     counts[mode === MODE_DIR ? 'dir' : mode === MODE_EXEC ? 'exec' : 'file']++;

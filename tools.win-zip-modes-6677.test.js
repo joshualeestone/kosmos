@@ -210,6 +210,29 @@ test('#6677: set refuses a symlink entry rather than turning it into a file, and
   assert.throws(() => zm.listEntries(appended), /does not end the file/);
 });
 
+/* The updater unpacks the served zip with engine/win32zip.js, using win32update's own top-level names. A zip
+   set has rewritten must still be one it accepts: that is a promise between two modules, so it is held here. */
+function updaterReads(buf) {
+  const win32zip = require('./engine/win32zip');
+  const { ENTRIES } = require('./engine/win32update');
+  return win32zip.readZipDirectory(buf, { allowedTopLevel: ENTRIES, maxEntries: 5000, maxEntryBytes: 1 << 30, maxTotalBytes: 1 << 30 });
+}
+
+test('#6677: the updater\'s zip reader accepts a zip after set, as it accepted it before', () => {
+  const stage = stageFor(BAD);
+  try {
+    const buf = makeZip(BAD);
+    assert.equal(updaterReads(buf).length, BAD.length, 'the control: the updater does not read the fixture as written');
+    zm.setModes(buf, stage);
+    assert.equal(updaterReads(buf).length, BAD.length);
+    /* The check can fail: the same zip with one entry marked a symlink is refused by the updater. */
+    const linked = Buffer.from(buf);
+    const e = zm.listEntries(linked).find((x) => x.name === 'app/server.js');
+    linked.writeUInt32LE(((0o120644 << 16) | (e.attrs & 0xffff)) >>> 0, e.at + 38);
+    assert.throws(() => updaterReads(linked), /is a link/);
+  } finally { fs.rmSync(stage, { recursive: true, force: true }); }
+});
+
 test('#6677: without a stage folder a shebang cannot be seen, so such a file is 0644, never writable', () => {
   assert.equal(zm.modeFor('bin/kosmos'), zm.MODE_FILE);
   assert.equal(zm.modeFor('x/Kosmos.EXE'), zm.MODE_EXEC);
@@ -273,6 +296,8 @@ test('#6677 on Windows: a zip made by tar.exe -a, as the release box makes it, c
       }
       assert.ok(got['Kosmos.exe'] && got['app/server.js'] && got['bin/kosmos'], 'tar.exe left out entries this test reads');
       assert.deepEqual(zm.checkModes(fs.readFileSync(z)).problems, []);
+      /* And the updater still reads the real (deflated) tar.exe zip after set. */
+      assert.equal(updaterReads(fs.readFileSync(z)).length, zm.listEntries(fs.readFileSync(z)).length);
       const out = path.join(dir, 'out');
       fs.mkdirSync(out);
       const x = spawnSync(TAR, ['-xf', z], { cwd: out, encoding: 'utf8' });
