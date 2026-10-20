@@ -289,7 +289,9 @@ function measure(page) {
           for (let i = 1; i <= 4; i++) await page.mouse.move(p0.x + i * 6, p0.y + i * 6);
           await page.evaluate(() => { window.__realFetch2 = window.fetch;
             window.fetch = function (u) { if (String(u).includes('/api/status')) return Promise.reject(new TypeError('offline (check)')); return window.__realFetch2.apply(this, arguments); }; });
-          await page.waitForTimeout(6500);   // one failed 5s poll: the chart is cleared
+          // kosmos#6721: one missed poll now keeps the board as shown ("Reconnecting..."); only the SECOND in a row
+          // paints the failure and clears the chart. So wait out two failed 5 s polls, not one.
+          await page.waitForTimeout(11500);
           const cleared = await page.evaluate(() => document.querySelectorAll('#orgmap .onode').length);
           await page.evaluate(() => { window.fetch = window.__realFetch2; });
           await page.mouse.move(p0.x + 60, p0.y + 60);
