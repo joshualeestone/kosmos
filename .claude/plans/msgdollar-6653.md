@@ -40,8 +40,8 @@ layer would look the same. The help lines already covered stdin, so if agents re
 
 ## Not changed
 `install/kosmos` and `tools/windows/kosmos-cli.js` help (already right). The `kosmos msg <name> "..."` examples in
-"Answering where you were asked" stay double-quoted: they show which verb goes where, and the trap paragraph is the
-rule for what goes inside.
+"Answering where you were asked" stay double-quoted (they show which verb goes where), but since round 1 they point at
+the trap paragraph, and for PowerShell at the here-string.
 
 ## Round 1 (opus): no blocker
 - NIT: other amounts expand differently per shell ("$50" is 0 in bash, empty in zsh). The sentence stays true; no change.
