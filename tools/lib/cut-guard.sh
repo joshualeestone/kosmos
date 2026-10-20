@@ -1234,6 +1234,46 @@ kosmos_refuse_if_machine_claimed() {
   return 1
 }
 
+# kosmos#6756: a relay pre-push build running here. As the card says, that build holds a kernel lock (lockf) on
+# ~/.cache/prepush/machine.lock for each long cargo step and publishes no claim or marker of its own, so before this a cut or a heavy turn that started during a step could not see it. Liveness is the kernel
+# lock itself, never anything read from the file: the kernel drops the lock the moment its holder exits, so a file left
+# behind by a finished or killed build is simply not held.
+# Live means held right now: `lockf -k -s -t 0 <file> true`, where exit 75 (EX_TEMPFAIL) is held, asked twice a moment
+# apart (another probe holds it for an instant too). -k leaves the file in place for anyone waiting on it, and the
+# `[ -f ]` check first means asking never creates it. When the lock is free this probe holds it only while `true`
+# runs; a build step starting in that instant waits that long, which is harmless. Any other answer (no file, no lockf,
+# an error) is not a build. A cut that starts while no step holds the lock is covered by its claim: the card says the
+# build reads the machine claim before each step, so the cut's claim (release.sh) stops the next one.
+# KOSMOS_PREPUSH_MACHINE_LOCK, KOSMOS_CUT_LOCKF_BIN and KOSMOS_PREPUSH_RECHECK_S are this file's own seams.
+_kosmos_prepush_lock_file() { printf '%s' "${KOSMOS_PREPUSH_MACHINE_LOCK:-${HOME:-/tmp}/.cache/prepush/machine.lock}"; }
+kosmos_prepush_build_live() {
+  local f rc=0
+  f="$(_kosmos_prepush_lock_file)"
+  [ -f "$f" ] || return 1   # never create the hook's file by asking
+  "${KOSMOS_CUT_LOCKF_BIN:-/usr/bin/lockf}" -k -s -t 0 "$f" true 2>/dev/null || rc=$?
+  [ "$rc" = 75 ] || return 1
+  # Held at that instant. Another probe holds it that long too, so ask once more a moment later: a build holds it for
+  # minutes.
+  rc=0; sleep "${KOSMOS_PREPUSH_RECHECK_S:-0.3}"
+  "${KOSMOS_CUT_LOCKF_BIN:-/usr/bin/lockf}" -k -s -t 0 "$f" true 2>/dev/null || rc=$?
+  [ "$rc" = 75 ]
+}
+# kosmos_refuse_if_prepush_build_live <what> [override]: refuses (prints why on stderr, returns 1) while a relay pre-push
+# build holds the lock, naming its holder for the person; callers wait on it with kosmos_wait_until_clear.
+kosmos_refuse_if_prepush_build_live() {
+  local what="${1:-this run}" override="${2:-}" f holder="" p
+  kosmos_prepush_build_live || return 0
+  f="$(_kosmos_prepush_lock_file)"
+  # The holder, for the message only (liveness is the lock above): lsof names who has the file open. The pid and the
+  # program name only, never the command line (this goes to logs, and a command line does not belong there).
+  for p in $(/usr/sbin/lsof -n -P -t -- "$f" 2>/dev/null | head -3); do   # -n -P: no name lookups, on every poll
+    holder="${holder:+$holder; }pid $p: $(basename "$(ps -o comm= -p "$p" 2>/dev/null)" 2>/dev/null || true)"
+    case "$holder" in *": ") holder="${holder}gone" ;; esac   # it exited between lsof and ps
+  done
+  echo "a relay pre-push build is running on this machine (${holder:-holder not readable}), holding $f for one long cargo step; $what would share the box with it. It ends on its own, and once the machine is claimed the hook starts no further step.${override:+ $override.}" >&2
+  return 1
+}
+
 # #4410: true only when THIS run holds the live machine claim (a cut, or a gate run the cut
 # started, which inherits KOSMOS_MACHINE_CLAIM_COOKIE). The suite and harness checks stand down for
 # a cut's own runs, which never overlap (step 3's suite ends before step 4b's install gate);
