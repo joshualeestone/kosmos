@@ -13,7 +13,7 @@ mkdir -p "$T/s/app"; printf 'x\n' > "$T/s/app/f"; printf 'y\n' > "$T/s/VERSION"
 
 if [ "$(uname -s)" = Darwin ] && command -v xattr >/dev/null 2>&1 && xattr -w user.kev6678 probe "$T/s/app/f" 2>/dev/null; then
   pack() { env "$@" -czf "$T/p.tgz" --uname kosmos --gname staff -C "$T/s" app VERSION; }
-  pack COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs
+  pack COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --no-fflags
   if tar_macmeta_gate "$T/p.tgz" 2>/dev/null; then pass "CONTROL: a file with an xattr, packed the way the bundles pack, passes"
   else fail "CONTROL: the bundles' own packing was refused, so every refusal below is vacuous"; fi
   pack X=1 tar
@@ -24,6 +24,15 @@ if [ "$(uname -s)" = Darwin ] && command -v xattr >/dev/null 2>&1 && xattr -w us
   out="$(tar_macmeta_gate "$T/p.tgz" 2>&1)"
   if printf '%s' "$out" | /usr/bin/grep -qF 'AppleDouble entry'; then pass "--no-xattrs alone still leaves the AppleDouble entry, and it is caught"
   else fail "--no-xattrs alone: the AppleDouble entry must be caught: $out"; fi
+  chflags hidden "$T/s/VERSION"
+  pack COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs
+  out="$(tar_macmeta_gate "$T/p.tgz" 2>&1)"
+  if printf '%s' "$out" | /usr/bin/grep -qF 'file flags SCHILY.fflags'; then pass "file flags (chflags hidden) without --no-fflags are caught; bsdtar would restore them on extract"
+  else fail "file flags must be caught: $out"; fi
+  pack COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --no-fflags
+  if tar_macmeta_gate "$T/p.tgz" 2>/dev/null; then pass "with --no-fflags too, the flagged file packs clean"
+  else fail "the bundles' full packing must pass with a flagged file"; fi
+  chflags nohidden "$T/s/VERSION"
   pack COPYFILE_DISABLE=1 tar --no-mac-metadata
   out="$(tar_macmeta_gate "$T/p.tgz" 2>&1)"
   if printf '%s' "$out" | /usr/bin/grep -qF 'extended attribute' && ! printf '%s' "$out" | /usr/bin/grep -qF 'AppleDouble'; then pass "--no-mac-metadata alone still leaves the xattr header, and it is caught"
@@ -35,16 +44,25 @@ fi
 python3 - "$T/ad.tgz" <<'PY'
 import io, sys, tarfile
 with tarfile.open(sys.argv[1], 'w:gz', format=tarfile.PAX_FORMAT) as t:
-    for name, data, pax in (('app/f', b'x\n', {}), ('app/._f', b'Mac OS X', {}), ('app/g', b'y\n', {'SCHILY.xattr.com.apple.provenance': 'p'})):
-        i = tarfile.TarInfo(name); i.size = len(data); i.pax_headers = pax; t.addfile(i, io.BytesIO(data))
+    for name, data, pax in (('app/f', b'x\n', {}), ('app/._f', b'Mac OS X', {}), ('app/g', b'y\n', {'SCHILY.xattr.com.apple.provenance': 'p'}), ('._app/', None, {})):
+        i = tarfile.TarInfo(name); i.pax_headers = pax
+        if data is None: i.type = tarfile.DIRTYPE; t.addfile(i)
+        else: i.size = len(data); t.addfile(i, io.BytesIO(data))
 PY
 out="$(tar_macmeta_gate "$T/ad.tgz" 2>&1)"; rc=$?
-if [ "$rc" -ne 0 ] && printf '%s' "$out" | /usr/bin/grep -qF 'AppleDouble entry app/._f' && printf '%s' "$out" | /usr/bin/grep -qF 'SCHILY.xattr.com.apple.provenance'; then pass "a built tarball with both kinds is refused and each named (any OS)"
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | /usr/bin/grep -qF 'AppleDouble entry app/._f' && printf '%s' "$out" | /usr/bin/grep -qF 'SCHILY.xattr.com.apple.provenance' && printf '%s' "$out" | /usr/bin/grep -qF 'AppleDouble entry ._app'; then pass "a built tarball with both kinds, and a ._ folder, is refused and each named (any OS)"
 else fail "a built tarball with both kinds must be refused (rc=$rc): $out"; fi
 
 tar -czf "$T/clean.tgz" -C "$T/s" VERSION
 if tar_macmeta_gate "$T/clean.tgz" 2>/dev/null; then pass "a tarball of a file with no attributes passes"
 else fail "a clean tarball must pass"; fi
+
+if ( PATH=/nonexistent; tar_macmeta_gate "$T/clean.tgz" ) 2>/dev/null; then pass "the gate runs with an empty PATH (no python3, no developer tools: /usr/bin/perl and gzip only)"
+else fail "the gate must not depend on PATH"; fi
+
+/usr/bin/perl -e 'print "x" x 512, "\0" x 1024' | /usr/bin/gzip -c > "$T/badsum.tgz"
+if ! tar_macmeta_gate "$T/badsum.tgz" 2>/dev/null; then pass "a header with a bad checksum is refused, not read as an entry"
+else fail "a corrupt header must be refused"; fi
 
 printf 'not a tarball\n' > "$T/junk.tgz"
 if ! tar_macmeta_gate "$T/junk.tgz" 2>/dev/null; then pass "a file that is not a tarball is refused, never passed"
@@ -65,9 +83,9 @@ else fail "a missing tarball must be refused"; fi
 
 for f in build-kosmos-bundle.sh:TARBALL_OUT build-tmux-bundle.sh:TARBALL; do
   s="$HERE/${f%%:*}"; v="${f##*:}"
-  if [ "$(/usr/bin/grep -cE '^COPYFILE_DISABLE=1 tar -czf "\$'"$v"'" --uname kosmos --gname staff -C "\$[A-Z]+" --no-mac-metadata --no-xattrs ' "$s")" = 1 ] \
-     && /usr/bin/grep -qx 'tar_macmeta_gate "$'"$v"'" || exit 1' "$s"; then pass "${f%%:*} packs with all three metadata flags and calls the gate"
-  else fail "${f%%:*} must pack with COPYFILE_DISABLE=1 --no-mac-metadata --no-xattrs and call tar_macmeta_gate"; fi
+  if [ "$(/usr/bin/grep -cE '^COPYFILE_DISABLE=1 tar -czf "\$'"$v"'" --uname kosmos --gname staff -C "\$[A-Z]+" --no-mac-metadata --no-xattrs --no-fflags ' "$s")" = 1 ] \
+     && /usr/bin/grep -qx 'tar_macmeta_gate "$'"$v"'" || exit 1' "$s"; then pass "${f%%:*} packs with all four metadata flags and calls the gate"
+  else fail "${f%%:*} must pack with COPYFILE_DISABLE=1 --no-mac-metadata --no-xattrs --no-fflags and call tar_macmeta_gate"; fi
 done
 
 [ "$fails" -eq 0 ] && { echo "tar macmeta gate: all arms passed"; exit 0; }
