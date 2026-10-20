@@ -14,13 +14,27 @@ over anything the environment says. Both callers already pass the copy they are 
 - `engine/update.js` passes installedRoot();
 - `install/kosmos` passes its own `$KOSMOS_HOME`.
 
-Neither the Mac app nor the .pkg postinstall uses run-setup (checked: no caller in native-app or install/pkg-scripts),
-so neither relies on the old behaviour. For a copy in the default home nothing changes: the value is the same.
+The .pkg postinstall is a THIRD caller (install/pkg-scripts/postinstall, run-setup with `$HOME/.local/share/kosmos`):
+it passes the default string, so nothing changes for it. The Mac app does not call run-setup.
+
+Review 1 (BLOCKER): installedRoot() is __dirname-based and Node resolves links in it, while setup.sh tells the default
+copy from a sandboxed one, and names its launch label, data folders and ~/.local/bin, by the path STRING. So:
+- install/kosmos exports KOSMOS_INSTALLED_HOME (the path it ran under) on both board launches. It is not KOSMOS_HOME,
+  which stays unexported, so the agents a board starts do not inherit a home;
+- update.js passes that path to run-setup when it resolves to this very copy, and installedRoot() otherwise;
+- runSetup hands a home that resolves to the default copy over as the default string itself (an older board, or one
+  started without the variable).
+For a copy in the default home reached by its plain path nothing changes.
 
 ## Test
 install.setup-sig-6468.test.js, the run-setup harness with real signed fixtures: the installer records
-`${KOSMOS_HOME:-unset}`. It must be the home handed in, with no KOSMOS_HOME in the environment and with ANOTHER one
-there. It was red ("unset") before the fix.
+`${KOSMOS_HOME:-unset}`.
+- It must be the home handed in, with no KOSMOS_HOME in the environment and with ANOTHER one there (red, "unset",
+  before the fix).
+- With HOME a scratch folder whose default path is a LINK to the copy, handing the resolved path gives the default
+  string; another home reached through its own link is passed exactly as handed.
+- Source pins: both board launches export KOSMOS_INSTALLED_HOME, KOSMOS_HOME is never exported, and the update passes
+  installedHomeAsInstalled(). Two existing pins (cli.startedby-5450, engine/update.test.js) follow the changed lines.
 
 ## Not covered
 - Other variables the installer reads from the environment (a port, say) still pass through as they are. This change
