@@ -204,7 +204,9 @@ const BLOCK = [
   '',
   '**This is a separate act from thinking about the message.** Nothing carries',
   'your reply across for you: `kosmos post <project> "..."` for the room,',
-  '`kosmos msg <name> "..."` for one other agent.',
+  '`kosmos msg <name> "..."` for one other agent. If the text holds a `$` or a',
+  'backtick, send it on stdin instead (the shell trap under "Send readable',
+  'messages").',
   '',
   '**You can also react to a room post** with `kosmos react <project> <postId>',
   '<emoji>`, the way a thumbs up or a fire works in a chat. Each post in `kosmos',
@@ -1143,7 +1145,9 @@ function block() {
  *     sees it, so "$1,200" arrives as ",200". The shell-trap paragraph in "Send readable
  *     messages" now names dollar amounts, and gives `kosmos msg` its own stdin route:
  *     its old advice ("use the heredoc in the next section") pointed at a section that
- *     deliberately shows no msg form, since msg is stored as one line. Both CLIs' help
+ *     deliberately shows no msg form, since msg is stored as one line. The double-quoted
+ *     post/msg examples in "Answering where you were asked" (read first) now point at
+ *     that paragraph when the text holds a $ or a backtick. Both CLIs' help
  *     already said --stdin keeps $ intact. Rejected: single-quoted examples throughout
  *     (an apostrophe in ordinary prose then breaks every message), and a CLI warning on
  *     a mangled-looking argument (the card's own point 2: cannot be told from real text).
