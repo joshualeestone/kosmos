@@ -88,3 +88,8 @@ what is served, so it stops firing.
   rebuild passes.
 - [NIT] an empty committed table was deleted rather than restored --> FIXED (restore whenever one was committed).
 - 15/15.
+
+## Review round 6 (blind, sonnet): converged
+- No new issues found. Confirmed the row check can fire (-F -x, `|| true`, inside an && list), the missing-table path,
+  and both shells' guards. Noted limit, not a defect: a rewritten site history (rebase) changes committed rows' times,
+  so the check reports rows missing and the committed table ships with a warning (fails safe).
