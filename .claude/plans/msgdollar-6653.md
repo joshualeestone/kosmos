@@ -42,3 +42,21 @@ layer would look the same. The help lines already covered stdin, so if agents re
 `install/kosmos` and `tools/windows/kosmos-cli.js` help (already right). The `kosmos msg <name> "..."` examples in
 "Answering where you were asked" stay double-quoted: they show which verb goes where, and the trap paragraph is the
 rule for what goes inside.
+
+## Round 1 (opus): no blocker
+- NIT: other amounts expand differently per shell ("$50" is 0 in bash, empty in zsh). The sentence stays true; no change.
+- NIT: the double-quoted post/msg examples in "Answering where you were asked" teach the trap before the warning.
+  FIXED: they now point at it.
+
+## Round 2 (sonnet): no blocker
+- "loses its number" is exact only for $1,200 --> now "and so can a dollar amount".
+- "pipe" a heredoc --> "give the text on stdin in a quoted heredoc".
+- The pointer ignored PowerShell --> names the here-string.
+- The pointer and its heading were unpinned --> the #6653 test pins both (mutant: removing the pointer reds it).
+
+## Round 3 (opus): one warning, introduced by round 2
+- WARNING: the PowerShell half of the pointer sent readers to the shell trap, which advises single quotes and has no
+  here-string. FIXED: the pointer names "Formatted messages need line breaks" for PowerShell, and the test asserts
+  that section shows `kosmos msg <agent> @'`.
+- NIT: the new route said `<name>` where both CLIs say `<agent>`. FIXED.
+- NIT: `,200` assumes `$1` is unset, which it is in an agent's Bash tool. No change.
