@@ -3444,8 +3444,10 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   const drive = (agents, counts) => {
     const el = () => ({ textContent: '', hidden: undefined });
     const els = {
-      'st-agents': el(), 'st-working': el(), 'st-working-tile': el(), 'st-idle': el(),
-      'st-blocked': el(), 'st-blocked-tile': el(),   // #5540
+      'st-agents': el(), 'st-working': el(), 'st-working-tile': el(),
+      // #6649: the Idle and Waiting (#5540) tiles are gone; their old ids stay in the stub so a painter that writes them
+      // again is caught by the assertions below rather than as a null dereference (the #653 pattern).
+      'st-idle': el(), 'st-blocked': el(), 'st-blocked-tile': el(),
       'st-attn': el(), 'st-attn-tile': el(),
       'st-off': el(), 'st-off-tile': el(),
     };
@@ -3483,7 +3485,6 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
      and wear the mark. Measured on the live board: a Fable session mid-turn
      read unknown and the row said "0 Working" while somebody was working. */
   assert.equal(live['st-working'].textContent, '3+', 'an unknown agent in the fleet must floor the working tile');
-  assert.equal(live['st-idle'].textContent, '2+', 'an unknown agent in the fleet must floor the idle tile');
   /* Control: with every agent's state known, the numbers are bare. A mark
      that cannot come off is furniture, not a mark. */
   const knownFleet = [
@@ -3492,7 +3493,6 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   ];
   const known = drive(knownFleet, { total: 4, needsYou: 1, notRunning: 0 });
   assert.equal(known['st-working'].textContent, '2', 'a fully-known fleet must not wear the floor mark');
-  assert.equal(known['st-idle'].textContent, '1', 'a fully-known fleet must not wear the floor mark');
   /* #2157, #4736: the Working tile (chip + its .act animation) hides whenever it reads zero, "0+"
      included (Josh 2026-09-30). Nonzero keeps it shown. */
   assert.equal(live['st-working-tile'].hidden, false, 'a nonzero working count keeps the tile shown (the floored-ZERO path is the zeroFloor fixture below)');
@@ -3507,20 +3507,17 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
     { total: 2, needsYou: 0, notRunning: 0 });
   assert.equal(zeroFloor['st-working-tile'].hidden, true,
     '#4736: zero working WITH an unknown ("0+") hides the tile too (Josh: "if there are 0 working, lets not show the tile")');
-  /* #5540: Waiting (state blocked) has its own tile, counted and floored as Working is, hidden at zero. The fleets
-     above hold no blocked agent, so it is hidden there (CONTROL); one with two blocked shows "2", and one blocked beside
-     an unknown shows "1+". A guide agent is never counted, as for Working and Idle. */
-  assert.equal(known['st-blocked-tile'].hidden, true, 'the Waiting tile shows with nobody waiting');
+  /* #6649 (Josh, 2026-10-19: "lets not show the IDLE or the WAITING tiles on windows or mac"): the painter writes neither
+     tile, on any fleet, idle and blocked agents included. */
   const waiting = drive([{ state: 'working' }, { state: 'blocked' }, { state: 'blocked' }, { state: 'idle' }, { state: 'blocked', isGuide: true }], { total: 4, needsYou: 0, notRunning: 0 });
-  assert.equal(waiting['st-blocked'].textContent, '2', 'the Waiting tile does not count the blocked agents');
-  assert.equal(waiting['st-blocked-tile'].hidden, false, 'the Waiting tile is hidden while two agents wait');
-  assert.equal(waiting['st-idle'].textContent, '1', 'CONTROL: a blocked agent is not counted as idle');
+  for (const run of [live, known, waiting, zeroFloor]) {
+    for (const id of ['st-idle', 'st-blocked']) assert.equal(run[id].textContent, '', '#6649: the painter wrote the removed tile ' + id);
+    assert.equal(run['st-blocked-tile'].hidden, undefined, '#6649: the painter touched the removed Waiting tile');
+  }
   assert.equal(waiting['st-working'].textContent, '1', 'CONTROL: a blocked agent is not counted as working');
-  const waitingFloor = drive([{ state: 'blocked' }, { state: 'unknown' }], { total: 2, needsYou: 0, notRunning: 0 });
-  assert.equal(waitingFloor['st-blocked'].textContent, '1+', 'an unknown agent must floor the Waiting tile as it floors Working');
-  // Review 1: a FLOORED zero ("0+") hides the tile too, as Working's does (#4736).
-  assert.equal(zeroFloor['st-blocked'].textContent, '0+', 'fixture: zero blocked beside an unknown reads "0+"');
-  assert.equal(zeroFloor['st-blocked-tile'].hidden, true, '#5540: "0+" Waiting must hide as Working does (#4736)');
+  // #6649: and the markup holds neither tile (CONTROL: the Working tile beside them is still there).
+  assert.match(raw, /id="st-working-tile"/, 'CONTROL: the stats row markup was not found');
+  assert.doesNotMatch(raw, /id="st-idle"|id="st-blocked/, '#6649: an Idle or Waiting tile is back in the stats row');
   assert.equal(zeroFloor['st-working'].textContent, '0+',
     'the number underneath is still the floored 0+ (only the tile is hidden)');
   /* #4736: the OTHER way to "0+", unreadable pane lines with no unknown agent, hides the tile too. */
