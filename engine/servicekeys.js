@@ -89,6 +89,7 @@ function kidOf(raw) {
 /** The pinned coordinator key (base64url of the 32 raw bytes, as the tunnel writes coordinator_pubkey) as its SPKI
  * base64 spelling, the one a set lists; null for anything else. */
 function pinnedSpki(pinned) {
+  if (pinned != null && typeof pinned !== 'string' && !Buffer.isBuffer(pinned)) return null;   // not text: no key, never a throw
   const s = rustTrim(String(pinned == null ? '' : pinned));   // as the tunnel trims it (str::trim)
   if (!/^[A-Za-z0-9_-]{43}$/.test(s)) return null;
   const raw = Buffer.from(s, 'base64url');
@@ -179,6 +180,9 @@ function verifyServiceKeySet(opts) {
   if (!recoveryKeys.length) return { ok: false, off: true, why: 'no Kosmos recovery key is set, so service key sets are not checked yet' };
   if (bytes != null && !Buffer.isBuffer(bytes) && !(bytes instanceof Uint8Array) && typeof bytes !== 'string') {
     return { ok: false, why: 'the service key set is not readable' };
+  }
+  if (sig != null && !Buffer.isBuffer(sig) && !(sig instanceof Uint8Array) && typeof sig !== 'string') {
+    return { ok: false, why: 'the signature is not readable' };
   }
   const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes == null ? '' : bytes);
   // Trimmed as Rust's str::trim does (Unicode White_Space: U+0085 yes, U+FEFF no), not as String.prototype.trim.

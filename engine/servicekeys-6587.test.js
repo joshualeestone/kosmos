@@ -132,6 +132,8 @@ test('refused: JSON the relay refuses (bad UTF-8, a lone surrogate, a number out
   refused(check(...signedBuf(withExtra(Buffer.from('{"a":'.repeat(127) + '1' + '}'.repeat(127))))), /nested too deeply/, '128 nested objects');
   assert.equal(check(...signedBuf(withExtra(Buffer.from('{"a":'.repeat(126) + '1' + '}'.repeat(126))))).ok, true, '127 nested objects');
   refused(check(...signedBuf(withExtra(Buffer.from('"a\\udc00"')))), /lone surrogate/, 'a lone low surrogate after a character');
+  refused(check(...signedBuf(withExtra(Buffer.from('"\\ud83d\\ude00\\udc00"')))), /lone surrogate/, 'a lone low surrogate after a pair');
+  refused(check(...signedBuf(withExtra(Buffer.from('"\\ud83d\\ud83d\\ude00"')))), /lone surrogate/, 'a lone high surrogate before a pair');
   // JSON whitespace the scanner must skip: tabs, CRLF line ends, and a tab after a number.
   assert.equal(check(...signed(doc({}).replace(/  /g, '\t'))).ok, true, 'tab-indented');
   assert.equal(check(...signed(doc({}).replace(/\n/g, '\r\n'))).ok, true, 'CRLF line ends');
@@ -271,6 +273,11 @@ test('refused: the keys break a rule (none, four, a wrong kid, zero or two curre
   const sameLast = (() => { for (let b = 1; b < 256; b += 1) { const r = rawOf(keyFromSeed(b)); if ([0x00, 0x05, 0x7a, 0x7f].includes(r[31] & 0x7f)) return r; } return null; })();
   assert.ok(sameLast, 'CONTROL: a seed in 1..255 gives a key whose last byte matches a weak point');
   assert.ok(sk.rawKey(Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), sameLast]).toString('base64')), 'a real key whose last byte matches a weak point is not weak');
+  // A weak point's first 31 bytes with a different last byte is not weak: it is judged by the curve check, and some
+  // such byte gives a point on the curve (review 16: only the whole point is weak, the last byte included).
+  const w26 = Buffer.from('26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05', 'hex');
+  const lastOn = (() => { for (let x = 0; x < 0x80; x += 1) { if (x === 0x05) continue; const r = Buffer.from(w26); r[31] = x; if (sk.rawKey(Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), r]).toString('base64'))) return x; } return null; })();
+  assert.notEqual(lastOn, null, 'a weak point with its last byte changed is taken when it is on the curve');
   // Not a point on the curve (y = 2): the relay's key decoding refuses it, and so must this.
   const y2 = Buffer.from('02' + '00'.repeat(31), 'hex');
   const offCurve = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), y2]).toString('base64');
@@ -305,6 +312,11 @@ test('the pinned key (base64url of the raw bytes) is matched against the listed 
   assert.equal(sk.pinnedIsListed('\ufeff' + pin7, keys), false, 'a BOM before the pin');
   assert.equal(sk.pinnedIsListed('\ufeff', keys), false, 'a pin that is only a BOM: there, not a key (Rust does not trim it)');
   for (const junk of [{}, 5, ['x']]) assert.equal(sk.pinnedIsListed(junk, keys), null, 'a pin that is not text: ' + JSON.stringify(junk));
+  // Values that throw when made into text (review 16) are answered, never thrown on: as the pin, and as the .sig.
+  for (const junk of [Object.create(null), { toString() { throw new Error('no'); } }]) {
+    assert.equal(sk.pinnedSpki(junk), null, 'pinnedSpki of a value with no text');
+    refused(check(VECTOR, junk), /signature is not readable/, 'a .sig with no text');
+  }
   assert.equal(sk.pinnedIsListed(Buffer.from(pin7), keys), true, 'CONTROL: a Buffer read from the file');
   assert.equal(sk.pinnedIsListed('\u0085' + pin7 + '\n', keys), true, 'U+0085 is whitespace to Rust');
   for (const bad of ['not a key', rawOf(K7).toString('base64'), pin7 + '=']) {
