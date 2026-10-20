@@ -458,9 +458,13 @@ test('#4588 B clause: without an addressed id the #4624 line is byte-unchanged',
   assert.deepEqual(roomhold.heldIn('zed', 'p1'), ['@m7']);
 });
 
-test('#6593 item 3 (N7): the addressed held-post line ends by saying an agent that already answered needs do nothing more', () => {
+test('#6593 item 3 (N7): the addressed held-post line ends by saying any post already answered needs nothing more', () => {
   const asked = roomhold.clauseFor('p1', 'P one', [roomhold.addressedId('m7'), 'm8']);
-  assert.match(asked, /answer one with: kosmos post --in-reply-to <its id> p1\. If you already answered them, nothing more is needed\.\]$/, asked);
+  assert.match(asked, /answer one with: kosmos post --in-reply-to <its id> p1\. Any you already answered need nothing more\.\]$/, asked);
+  // Two asked posts: the same per-post sentence, never a blanket "them" that would cover one still unanswered.
+  const two = roomhold.clauseFor('p1', 'P one', [roomhold.addressedId('m7'), roomhold.addressedId('m9')]);
+  assert.match(two, /2 of them name you[^\]]*\. Any you already answered need nothing more\.\]$/, two);
+  assert.doesNotMatch(two, /answered them/, 'a blanket sentence could cover a post still unanswered');
   // CONTROL: the neutral line (nothing asked) is unchanged and carries no such sentence.
   assert.doesNotMatch(roomhold.clauseFor('p1', 'P one', ['m1']), /already answered/);
 });

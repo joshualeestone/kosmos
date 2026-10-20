@@ -11,12 +11,12 @@ replied with --in-reply-to or read the room first (messages.staleHeld, roomhold.
 again from its own history (Muse resumes one session; Grok runs one long one). The run's board log decides between them
 (a "room-hold: ... told of ..." line before the repeat means A), and that log is not on this machine.
 
-**The call.** Ship the one change that helps under both causes now: the addressed held-post line ends "If you already
-answered them, nothing more is needed." Defer the board-side change for (A) (count an uncited post made after reading
+**The call.** Ship the one change that helps under both causes now: the addressed held-post line ends "Any you already
+answered need nothing more." (review 1: per post, never a blanket "them" that could cover a post still unanswered). Defer the board-side change for (A) (count an uncited post made after reading
 the room as answering the held one) until the next five-model run's board log shows A, because it changes what counts as
 answered for every agent and could drop a real reminder.
 
-**Done when.** The addressed line ends with that sentence; the neutral (nothing asked) line is unchanged.
+**Done when.** The addressed line ends with that sentence, for one asked post and for several; the neutral (nothing asked) line is unchanged.
 
 ## Change
 - engine/roomhold.js clauseFor, addressed branch only: the sentence appended before the closing bracket.
