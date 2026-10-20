@@ -46891,7 +46891,8 @@ async function cropRead(file) {
   if (big <= CROP_READ_MAX) return bmp;
   const k = CROP_READ_MAX / big;
   try {
-    return await createImageBitmap(bmp, { resizeWidth: Math.round(bmp.width * k), resizeHeight: Math.round(bmp.height * k), resizeQuality: 'high' });
+    // At least 1 px a side: a very long, thin picture would round its short side to 0, which the browser refuses.
+    return await createImageBitmap(bmp, { resizeWidth: Math.max(1, Math.round(bmp.width * k)), resizeHeight: Math.max(1, Math.round(bmp.height * k)), resizeQuality: 'high' });
   } finally { bmp.close(); }
 }
 /* The square the circle covers, in image pixels: its side at this zoom, centred on (cx, cy). */
@@ -47078,8 +47079,10 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
   // panel, about a file B has nothing to do with.
   const forAgent = CURRENT.sessionName;
   const cut = await cropPicture(f);   // #6722: null means they cancelled; nothing changes
-  if (!cut || !CURRENT || CURRENT.sessionName !== forAgent) return;
-  msg.textContent = 'Saving…';
+  if (!cut) return;
+  // They pressed Save for forAgent, so it uploads to forAgent even if the panel moved on while the editor was open;
+  // only the messages below are kept to forAgent's own panel.
+  if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = 'Saving…';
   try {
     const pic = await fitPicture(cut);   // #4885
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/avatar',
@@ -47097,7 +47100,7 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
     // Only the picture. openDetail would re-run the whole panel and throw away
     // anything typed into the instruction box but not yet saved.
     refreshAvatar();
-  } catch (err) { msg.textContent = err.message; }
+  } catch (err) { if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = err.message; }
 });
 
 document.getElementById('d-remove').addEventListener('click', async () => {

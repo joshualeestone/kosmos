@@ -178,6 +178,24 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     chk(turn.plain[0] === 300 && turn.plain[1] === 120, `${t} CONTROL: a photo with no rotation tag is read as it is`, JSON.stringify(turn));
     chk(turn.tagged[0] === 120 && turn.tagged[1] === 300, `${t} a phone photo tagged as turned is read upright (its sides swapped)`, JSON.stringify(turn));
 
+    // A big picture (a phone photo's size) is read at 2048 on its long side and still opens the editor and saves 512;
+    // a very long, thin one keeps a 1 px side rather than failing to read and skipping the editor.
+    const big = await page.evaluate(async () => {
+      const read = async (f) => { const b = await cropRead(f); const s = [b.width, b.height]; b.close(); return s; };
+      const large = await T.twoTone(4000, 1000);
+      const thin = await T.twoTone(1, 5000);
+      const r = { large: await read(large), thin: await read(thin).catch((e) => String(e)) };
+      window.CROP_P = cropPicture(large);
+      for (let i = 0; i < 150 && document.getElementById('cropmodal').hidden; i += 1) await new Promise((res) => setTimeout(res, 20));
+      r.opened = !document.getElementById('cropmodal').hidden;
+      document.getElementById('crop-go').click();
+      r.saved = await T.sides(await window.CROP_P);
+      return r;
+    });
+    chk(big.large[0] === 2048 && big.large[1] === 512 && big.opened && big.saved && big.saved.w === 512 && big.saved.left === 'red' && big.saved.right === 'blue',
+      `${t} a 4000 px picture is read at 2048, opens the editor, and saves a 512 centre square`, JSON.stringify(big));
+    chk(Array.isArray(big.thin) && big.thin[0] === 1 && big.thin[1] === 2048, `${t} a 1 x 5000 picture is read at 1 x 2048, not refused`, JSON.stringify(big));
+
     // A small picture is not blown up: its cut is saved at its own size, so it is not blurred.
     const small = await page.evaluate(async () => {
       const f = await T.twoTone(200, 100);
@@ -225,16 +243,35 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     await page.keyboard.press('Equal');
     const zPlain = await page.evaluate(() => Number(document.getElementById('crop-zoom').value));
     chk(zMod === zBefore && zPlain > zBefore, `${t} Ctrl+= is left to the browser; = alone zooms (CONTROL)`, JSON.stringify({ zBefore, zMod, zPlain }));
-    // A drag that starts on the picture and ends on the backdrop is a drag, not a dismissal.
-    const sb = await page.locator('#crop-stage').boundingBox();
-    await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(5, 5, { steps: 6 });
-    await page.mouse.up();
-    const stillOpen = await page.evaluate(() => !document.getElementById('cropmodal').hidden);
-    chk(stillOpen, `${t} a drag that ends on the backdrop does not cancel`, String(stillOpen));
-    await page.keyboard.press('Escape');
-    await page.evaluate(async () => { await window.CROP_P; });
+    // Pinch: two fingers moving apart zoom in (synthetic touch pointers, so both engines run it); one finger alone moves,
+    // never zooms (CONTROL).
+    const pinch = await page.evaluate(() => {
+      const st = document.getElementById('crop-stage'); const b = st.getBoundingClientRect();
+      const x = b.left + b.width / 2; const y = b.top + b.height / 2;
+      const ev = (type, id, dx) => st.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 11, clientX: x + dx, clientY: y, bubbles: true }));
+      const z = () => Number(document.getElementById('crop-zoom').value);
+      const z0 = z();
+      ev('pointerdown', 11, 0); ev('pointermove', 11, 30); ev('pointerup', 11, 30);
+      const zOne = z();
+      ev('pointerdown', 11, -40); ev('pointerdown', 12, 40); ev('pointermove', 12, 120); ev('pointerup', 12, 120); ev('pointerup', 11, -40);
+      return { z0, zOne, zTwo: z(), left: CROP ? CROP.ptrs.size : -1 };
+    });
+    chk(pinch.zOne === pinch.z0 && pinch.zTwo > pinch.z0 * 1.5 && pinch.left === 0, `${t} two fingers moving apart zoom in; one finger does not zoom (CONTROL); both lifts are let go`, JSON.stringify(pinch));
+    // The backdrop cancels only a press that began on it. A click is dispatched on the backdrop directly, so pointer
+    // capture cannot route it elsewhere: after a press on the picture it must not close; after a press on the backdrop it
+    // must (CONTROL).
+    const back = await page.evaluate(async () => {
+      const m = document.getElementById('cropmodal'); const st = document.getElementById('crop-stage');
+      st.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 21, pointerType: 'mouse', button: 0, bubbles: true }));
+      st.dispatchEvent(new PointerEvent('pointerup', { pointerId: 21, pointerType: 'mouse', button: 0, bubbles: true }));
+      m.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const afterPicture = !m.hidden;
+      m.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 22, pointerType: 'mouse', button: 0, bubbles: true }));
+      m.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const r = await window.CROP_P;
+      return { afterPicture, afterBackdrop: m.hidden, r };
+    });
+    chk(back.afterPicture && back.afterBackdrop && back.r === null, `${t} a press that began on the picture does not dismiss from the backdrop; one that began on the backdrop does (CONTROL)`, JSON.stringify(back));
 
     // Wired: an agent's own page. Cancel uploads nothing; Save uploads one picture to that agent.
     await page.evaluate(() => { window.PUTS.length = 0; CURRENT = { sessionName: 'ada', name: 'Ada' }; });
@@ -255,6 +292,16 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     const agentPut = await page.evaluate(() => window.PUTS.map((x) => x.url));
     chk(agentNone === 0 && agentVerb === 'Save' && JSON.stringify(agentPut) === JSON.stringify(['/api/agent/ada/avatar']),
       `${t} an agent's page: Cancel uploads nothing; Save uploads one picture to that agent`, JSON.stringify({ agentNone, agentVerb, agentPut }));
+
+    // The panel moves to another agent while the editor is open: Save still uploads to the agent it was chosen for.
+    await page.evaluate(() => { window.PUTS.length = 0; CURRENT = { sessionName: 'ada', name: 'Ada' }; });
+    await pickAgent();
+    await page.waitForFunction(() => !document.getElementById('cropmodal').hidden);
+    await page.evaluate(() => { CURRENT = { sessionName: 'bob', name: 'Bob' }; });
+    await page.click('#crop-go');
+    await page.waitForFunction(() => window.PUTS.length > 0, null, { timeout: 10000 }).catch(() => {});
+    const moved = await page.evaluate(() => window.PUTS.map((x) => x.url));
+    chk(JSON.stringify(moved) === JSON.stringify(['/api/agent/ada/avatar']), `${t} Save still uploads to the agent it was chosen for after the panel moved on`, JSON.stringify(moved));
 
     // Wired: a new agent. Nothing uploads yet; the button says Use picture; the held file is the cut, named as chosen.
     const created = await page.evaluate(async () => {
@@ -307,7 +354,7 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
   }
   // The count is part of the result: a run that skipped arms (or an empty ENGINES) must not read as green.
   if (engines.length === 0) chk(false, 'ENGINES named no engine, so nothing ran');
-  const EXPECTED_PER_ENGINE = 24;
+  const EXPECTED_PER_ENGINE = 28;
   if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
   console.log(`render-avatar-crop-6722: ${RAN - fail.length} PASS, ${fail.length} FAIL`);
   process.exit(fail.length ? 1 : 0);
