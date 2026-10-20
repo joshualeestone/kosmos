@@ -11846,10 +11846,12 @@ test('kosmos#6589: which key another computer vouches for is asked only on this 
   assert.ok(at > 0, 'the route moved');
   assert.match(src.slice(at, at + 800), /if \(!isLoopbackPeer\(req\) \|\| cameThroughForwarder\(req\.headers\) \|\| presentedAgentToken\(req, null\) \|\| \(boardAuthState\.on && !boardTokenOk\(req\)\)\)/);
   /* An address no computer of the account can have is refused before the tunnel. */
+  /* Review 6: an address no computer of the account can have is answered none, before the tunnel (a staging
+     coordinator's domain must not read as required and refuse every computer). */
   for (const address of ['evil.example', '', 'tmnt.kosmosplus.com/x', '../x']) {
     const r = await req('/api/remote/tls-pin?address=' + encodeURIComponent(address));
-    assert.equal(r.status, 400, address + ': ' + r.body);
-    assert.match(JSON.parse(r.body).error, /not the address of one of your computers/, address);
+    assert.equal(r.status, 200, address + ': ' + r.body);
+    assert.deepEqual(JSON.parse(r.body), { state: 'none', because: 'not an address of this account' }, address);
   }
   /* CONTROL: this computer's own request reaches tlsPin (this board is not enrolled: none, nothing to compare), so the
      refusals above are the guards and not the whole route. Not a GET: not this route. */

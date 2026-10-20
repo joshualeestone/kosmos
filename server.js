@@ -11301,7 +11301,10 @@ const server = http.createServer(async (req, res) => {
     const address = String(q.get('address') || '').trim().toLowerCase();
     const domain = accountComputers.computerDomain(remote.COORDINATOR());
     if (!address || !domain || !accountComputers.validAddress(address, domain)) {
-      sendJson(res, 400, { error: 'that is not the address of one of your computers' });
+      /* Review 6: the app names a computer by its own rule (one label under the Kosmos+ site); where this board's
+         coordinator has another domain (a staging or developer coordinator), that is no computer of this account, so
+         there is no pin to keep: none (ordinary checking), never an error the app would read as required. */
+      sendJson(res, 200, { state: 'none', because: 'not an address of this account' });
       return;
     }
     remote.tlsPin(address, { fresh: q.get('fresh') === '1' })

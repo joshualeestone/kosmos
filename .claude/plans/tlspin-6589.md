@@ -88,6 +88,12 @@ one a computer's request could be coalesced onto. Until that is measured, this i
 - On a board that enforces no token (a sandboxed test board), any loopback caller can make it ask about an account
   address and pin it. It only ever pins to the computer the person paired, so it is cheap, not a hole.
 
+- Downloads: WKDownloadDelegate has no challenge handler of its own, so a download from a computer's address is not
+  pinned. A download carries no ticket.
+- Cost: any one-label Kosmos+ name the page reaches (a community page, say) is asked about once per 5 minutes; a
+  dead host costs up to the tunnel's 10 s before the connection goes on. Accepted.
+- An address that is no computer of this account (a staging coordinator's other domain) answers `none`.
+
 ## Weakest premise
 NOT YET RUN IN THE REAL APP. Review 3 found that the first version of the handler would have crashed the app on the
 first switch (SecTrustEvaluateAsyncWithError called from main with another queue traps), and no source-text test could
