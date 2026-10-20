@@ -74,6 +74,12 @@ cleanup() {
   systemctl --user daemon-reload >/dev/null 2>&1 || true
   tmux kill-session -t testagent4918 >/dev/null 2>&1 || true
 
+  if [ -n "${MOCK_BOARD_HOME:-}" ]; then   # kosmos#6667: installBoard also enables this home's pause check
+    for _pc in $(node -e 'const n = require("./engine/linuxboard").pauseCheckNames(process.argv[1]); console.log(n.timer, n.service)' "$MOCK_BOARD_HOME" 2>/dev/null); do
+      systemctl --user disable --now "$_pc" >/dev/null 2>&1 || true
+      rm -f "$HOME/.config/systemd/user/$_pc" || true
+    done
+  fi
   if [ -n "${BOARD_UNIT:-}" ]; then
     systemctl --user stop "$BOARD_UNIT" >/dev/null 2>&1 || true
     systemctl --user disable "$BOARD_UNIT" >/dev/null 2>&1 || true
