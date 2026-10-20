@@ -41,11 +41,12 @@ refused every gated remote action until this board's tunnel next changed state.
   take this board's child's answer away.
 - A foreign pid in the status file (read at tunnel start, by status(), and by the capability read) is judged: it gets
   SIGTERM only when `/bin/ps` (never PATH) shows its parent is 1 (re-parented, its board gone; review 4: a second LIVE
-  board on the same account shares this file, and ending its child would start a kill loop), its program's basename is
-  the tunnel's and its first argument `run`, and its `--status-file` is this board's path, the whole argument (a prefix
+  board on the same account shares this file, and ending its child would start a kill loop), its program is BIN()
+  itself or one token with the tunnel's basename (review 9: no wrapper or editor line), its first argument `run`, and its `--status-file` is this board's path, the whole argument (a prefix
   match ended a tunnel for `<file>.elsewhere` in the tests). A pid outside 2..2^22 is never looked at (0 and -1 signal a
   group); our pid and child are excluded again right before the signal. A definite ps answer is kept per pid; a failed
-  one is asked again. Not closed: a pid that exits and is reused between ps and the signal.
+  one is asked again after 15 s (review 9: a host with no working ps forked one per read). Not closed: a pid that
+  exits and is reused between ps and the signal.
 - The program is read from the COMMAND LINE (argv), not the kernel's executable name (review 6 asked). Rejected: a
   portable fixture needs a real executable whose own file is named `kosmos-tunnel` (a copied /bin/sleep is killed by
   code signing, a symlink reports its target, a hard link to node cannot load its libraries). What argv alone lets

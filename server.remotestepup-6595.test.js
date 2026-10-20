@@ -456,7 +456,8 @@ test('R01c: once this board\'s tunnel has said what it lists, a foreign write to
 
 const { spawn: spawnProc, execFileSync } = require('node:child_process');
 const ended = (pid) => new Promise((resolve) => remote.endForeignTunnel(pid, resolve));
-const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+// Alive and not a zombie (review 9: a zombie answers signal 0 where nothing reaps it).
+const alive = (pid) => { try { return !/^Z/.test(execFileSync('/bin/ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim()); } catch { return false; } };
 const ppidOf = (pid) => { try { return Number(execFileSync('/bin/ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).trim()); } catch { return null; } };
 // A process ps shows as `<CONNECTOR> run --status-file <file> 30` (bash's exec -a names it; CONNECTOR's basename is
 // kosmos-tunnel). orphan: double-forked, so its parent is 1, as a tunnel whose board was killed hard.
@@ -484,7 +485,6 @@ test('R01c: an orphaned tunnel is ended, read from the real process table; a liv
     assert.ok(alive(liveBoards.pid) && alive(elsewhere.pid) && alive(notTunnel.pid), 'CONTROL: all three still running');
     assert.equal(await ended(orphan.pid), true, 'our orphan was not ended');
     assert.ok(await until(() => !alive(orphan.pid)), 'the orphan did not end');
-    assert.equal(await ended(orphan.pid), false, 'an ended pid was judged again at once');
   } finally {
     // Only a pid that is still this test's own fake (review 8: never signal a pid that may have been reused).
     for (const p of [orphan, elsewhere, liveBoards, notTunnel]) {
@@ -496,17 +496,23 @@ test('R01c: an orphaned tunnel is ended, read from the real process table; a liv
   }
 });
 
-test('R01c: a pid outside 2..2^22, our own pid, and a failed ps are never signalled; a failed ps is asked again', async () => {
+test('R01c: a pid outside 2..2^22, our own pid, and a failed ps are never signalled; a failed ps is asked again after 15 s', async () => {
   const asked = [];
   const killed = [];
+  const realNow = Date.now;
+  let skew = 0;
   try {
+    Date.now = () => realNow() + skew;
     reset({ commandOf: (pid) => { asked.push(pid); return undefined; }, kill: (pid) => killed.push(pid) });   // ps fails: no answer
     for (const pid of [0, -1, 1, 2 ** 23, 1.5, process.pid]) assert.equal(await ended(pid), false, String(pid));
     assert.deepEqual(asked, [], 'an out-of-range pid, or our own, was looked up');
     await ended(424299); await ended(424299);
-    assert.deepEqual(asked, [424299, 424299], 'a failed ps was not asked again');
+    assert.deepEqual(asked, [424299], 'a failed ps was asked again at once (a ps fork per status read)');
+    skew = 16 * 1000;
+    await ended(424299);
+    assert.deepEqual(asked, [424299, 424299], 'a failed ps was not asked again after 15 s');
     assert.deepEqual(killed, [], 'something was signalled');
-  } finally { reset(); await warm(); }
+  } finally { Date.now = realNow; reset(); await warm(); }
 });
 
 test('R01c: reading the status file is what notices it: a foreign pid there is judged, and a non-tunnel is left alone', async () => {
@@ -551,6 +557,9 @@ test('R01c: a live board\'s tunnel and a gone pid are asked again after a minute
     await ended(424301);
     assert.deepEqual(asked, [424301, 424301], 'an orphan judged earlier with a live parent was never asked again');
     assert.deepEqual(killed, [424301], 'CONTROL: the orphan was signalled (through the stand-in, never a real kill)');
+    await ended(424301);   // still writing, at once: not asked, not signalled again (review 9: no TERM loop)
+    assert.deepEqual(killed, [424301], 'an ended pid was signalled again inside the minute');
+    assert.deepEqual(asked.filter((p) => p === 424301), [424301, 424301], 'an ended pid was asked again inside the minute');
     skew += 61 * 1000;
     await ended(424301);   // it ignored TERM and still writes: judged again after the minute
     assert.deepEqual(killed, [424301, 424301], 'a tunnel that ignored TERM was never judged again');
@@ -576,7 +585,9 @@ test('R01c: isOrphanedTunnel matches only a re-parented `run` of the tunnel with
   const f = '/a b/remote-status.json';
   const bin = '/x/kosmos-tunnel';
   const is = (ppid, command) => remote.isOrphanedTunnel({ ppid, command }, f, bin);
-  assert.equal(is(1, '/Apps With Space/kosmos-tunnel run --status-file ' + f + ' --relay r'), true, 'CONTROL: an orphan');
+  assert.equal(remote.isOrphanedTunnel({ ppid: 1, command: '/Apps With Space/kosmos-tunnel run --status-file ' + f + ' --relay r' }, f, '/Apps With Space/kosmos-tunnel'), true, 'CONTROL: BIN() itself, spaces and all');
+  assert.equal(is(1, '/Apps With Space/kosmos-tunnel run --status-file ' + f), false, 'a spaced line that is not BIN()');
+  assert.equal(is(1, 'vim /y/kosmos-tunnel run --status-file ' + f), false, 'a wrapper or editor line');
   assert.equal(is(1, '/y/kosmos-tunnel run --status-file ' + f), true, 'CONTROL: at the end of the line');
   assert.equal(is(4242, '/y/kosmos-tunnel run --status-file ' + f), false, 'a live parent');
   assert.equal(is(1, '/y/kosmos-tunnel run --status-file ' + f + '.elsewhere'), false, 'a lookalike path');

@@ -232,8 +232,8 @@ function noteRunning(raw, pid) {
    was, and neither capability check describes it. It is ended (SIGTERM, to the pid the file names) ONLY when ps shows
    all of: its parent is 1 (it was re-parented: its board is gone; review 4, a second LIVE board on the same account
    shares this file, and killing its child would start a kill loop between the two), the text before its first
-   ` run ` has the tunnel's basename (BIN()'s; so a wrapper line such as `strace /x/kosmos-tunnel run ...` matches
-   too, review 8: argv, not the kernel's executable name, which a portable test
+   ` run ` is BIN() itself or one token with BIN()'s basename (review 9: no wrapper such as `strace /x/kosmos-tunnel
+   run ...`; argv, not the kernel's executable name, which a portable test
    fixture cannot fake; review 6) and its first argument is `run`, and it was started with this board's own `--status-file` path,
    the whole argument. A pid outside 2..2^22 is never looked at (0 and -1 would signal a group). Our own pid and our
    child are excluded both when asked and again right before the signal. Not closed (stated): a pid that exits and is
@@ -241,11 +241,12 @@ function noteRunning(raw, pid) {
    minute (reviews 5 and 6): a live parent (its board may die later), a pid that is gone (it may be reused by one), and
    one just ended (a tunnel that ignores TERM). Never judged while this board is itself pid 1 (a container entrypoint,
    whose own earlier children read as orphans).
-   A failed ps is asked again next time.
+   A failed ps is asked again after fifteen seconds.
    Not on Windows (no command line is read there; stated on kosmos#6669). */
 const foreignLooked = new Map();   // pid -> until when its answer stands (Infinity: Windows, never judged there)
 const FOREIGN_RECHECK_MS = 60 * 1000;
 const FOREIGN_NOT_OURS_MS = 60 * 60 * 1000;
+const FOREIGN_PS_FAILED_MS = 15 * 1000;
 const foreignAsking = new Set();
 // Tests only, and honoured only under the test runner: (pid, statusFile) => { ppid, command } or null, instead of ps.
 let endForeignForTests = null;
@@ -257,7 +258,11 @@ function isOurTunnel(proc, statusFile, bin = BIN()) {
   if (!proc || typeof proc.command !== 'string') return false;
   const command = proc.command.split('\n')[0];
   const at = command.indexOf(' run ');
-  if (at <= 0 || path.basename(command.slice(0, at)) !== path.basename(bin)) return false;
+  if (at <= 0) return false;
+  // The program, exactly: BIN() itself, or one token (no other word before it) with the tunnel's basename (review 9:
+  // `vim /x/kosmos-tunnel run ...` matched when any text ending in the basename counted).
+  const prog = command.slice(0, at);
+  if (prog !== bin && (/\s/.test(prog) || path.basename(prog) !== path.basename(bin))) return false;
   const esc = statusFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   // The whole path, ending where the argument ends: `<file>.elsewhere` is another file (a prefix match ended it).
   return new RegExp(' --status-file ' + esc + '( |$)').test(command.slice(at));
@@ -276,7 +281,9 @@ function endForeignTunnel(pid, done = () => {}) {
   const statusFile = STATUS_FILE();
   const judge = (proc) => {
     foreignAsking.delete(pid);
-    if (proc === undefined) { done(false); return; }   // ps failed: no answer, asked again next time
+    // ps failed (missing, or a ps that refuses the flags): no answer, asked again after FOREIGN_PS_FAILED_MS (review 9:
+    // with no wait, a host without a working ps forked one per status read).
+    if (proc === undefined) { foreignLooked.set(pid, Date.now() + FOREIGN_PS_FAILED_MS); done(false); return; }
     // "Not ours" stands an hour (review 7), not for good: macOS pids wrap at 99999, and a board runs for weeks.
     if (proc !== null && !isOurTunnel(proc, statusFile)) { foreignLooked.set(pid, Date.now() + FOREIGN_NOT_OURS_MS); done(false); return; }
     if (!isOrphanedTunnel(proc, statusFile) || notOurs(pid)) { foreignLooked.set(pid, Date.now() + FOREIGN_RECHECK_MS); done(false); return; }
@@ -284,7 +291,7 @@ function endForeignTunnel(pid, done = () => {}) {
     try { (stand ? killForTests : process.kill.bind(process))(pid, 'SIGTERM'); process.stderr.write('remote: ended a Kosmos+ tunnel an earlier board left running (pid ' + pid + ', kosmos#6669)\n'); done(true); } catch { done(false); }
   };
   foreignAsking.add(pid);
-  if (stand) { judge(stand(pid, statusFile)); return; }
+  if (stand) { let proc; try { proc = stand(pid, statusFile); } catch { proc = undefined; } judge(proc); return; }
   try {
     execFile(PS, ['-ww', '-o', 'ppid=,command=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 }, (err, out) => {
       // ps exits 1 for a pid that is gone: a definite "not a tunnel". Any other failure is no answer.
