@@ -3556,6 +3556,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        pin is on top of a certificate a browser would accept, never instead of one. Only computers' addresses;
        the Kosmos+ site itself is not a computer. ⚠️ WebKit asks for each NEW connection; whether a resumed TLS
        session or a coalesced one skips it is measured on the real app, not assumed (the card says how). */
+    @objc(webView:didReceiveAuthenticationChallenge:completionHandler:)   // review 1: a near-miss signature would never be called
     func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
                  completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let space = challenge.protectionSpace
@@ -3564,8 +3565,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
               space.port == 443 || space.port == 0,
               let target = URL(string: "https://" + host), isKosmosPlusURL(target), !isKosmosPlusSiteURL(target)
         else { completionHandler(.performDefaultHandling, nil); return }
-        var err: CFError?
-        guard SecTrustEvaluateWithError(trust, &err) else { completionHandler(.cancelAuthenticationChallenge, nil); return }
+        // Review 1: evaluated off the main thread (it can wait on the network for revocation), then on as before.
+        SecTrustEvaluateAsyncWithError(trust, DispatchQueue.global(qos: .userInitiated)) { [weak self] trust, trusted, _ in
+            guard trusted else { DispatchQueue.main.async { completionHandler(.cancelAuthenticationChallenge, nil) }; return }
+            DispatchQueue.main.async { self?.judgePin(host: host, trust: trust, completionHandler: completionHandler) }
+        }
+    }
+
+    /// kosmos#6589: the pin half of the challenge, on the main thread, after ordinary checking passed.
+    private func judgePin(host: String, trust: SecTrust,
+                          completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let leaf = tlsLeafKeyHash(trust)
         let finish: (TlsPinDecision) -> Void = { [weak self] d in
             DispatchQueue.main.async {
@@ -3595,9 +3604,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         return p256SpkiSha256Hex(point: point)
     }
 
-    /// kosmos#6589: ask this computer's own board which key `host` vouches for. No board, or no readable answer:
-    /// (nil, []), which tlsPinDecision treats as ordinary checking.
+    /// kosmos#6589: ask this computer's own board which key `host` vouches for. NO board at all (a connect-only Mac):
+    /// (nil, []), ordinary checking: no board, no ticket. A board that is there but does not answer properly (a 403, a
+    /// restart, a timeout, a body that does not read): "required" (review 1: the ticket may already be in flight).
     private func askTlsPin(host: String, fresh: Bool, done: @escaping (String?, [String]) -> Void) {
+        // Review 1: resolvedPort and the token are main-thread state; the retry arrives on URLSession's queue.
+        guard Thread.isMainThread else { DispatchQueue.main.async { self.askTlsPin(host: host, fresh: fresh, done: done) }; return }
         var parts = URLComponents()
         parts.scheme = "http"; parts.host = "127.0.0.1"; parts.port = resolvedPort; parts.path = "/api/remote/tls-pin"
         parts.queryItems = [URLQueryItem(name: "address", value: host)] + (fresh ? [URLQueryItem(name: "fresh", value: "1")] : [])
@@ -3607,10 +3619,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         req.timeoutInterval = 25   // the board's own call is bounded at 20 s
         req.cachePolicy = .reloadIgnoringLocalCacheData
         URLSession.shared.dataTask(with: req) { data, response, _ in
-            guard (response as? HTTPURLResponse)?.statusCode == 200, let data,
+            let code = (response as? HTTPURLResponse)?.statusCode
+            guard code == 200, let data,
                   let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                   let state = obj["state"] as? String
-            else { done(nil, []); return }
+            else {
+                logLine("tls-pin: the board did not answer for \(host) (status \(code.map(String.init) ?? "none")); treated as required")
+                done("required", []); return
+            }
             done(state, (obj["spki"] as? [String]) ?? [])
         }.resume()
     }

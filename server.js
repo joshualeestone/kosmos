@@ -11072,7 +11072,7 @@ const server = http.createServer(async (req, res) => {
      is marked signedIn: false (kosmos#4815); any other ok: false is a failure the page retries. */
   if (pathname === '/api/remote/computers' && (req.method === 'GET' || req.method === 'HEAD')) {
     accountComputers.fetchComputers()
-      .then((r) => sendJson(res, 200, r))
+      .then((r) => { if (r && r.ok) remote.warmTlsPins(r.computers); sendJson(res, 200, r); })   // kosmos#6589
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read your computers' }));
     return;
   }
