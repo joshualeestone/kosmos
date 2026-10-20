@@ -3727,6 +3727,13 @@ kosmos_start_token() { # $1 pid: when that process started, stable for its life;
   fi
 }
 kosmos_installer_gone() { # $1 pid, $2 token recorded at the pause: 0 only when that installer has provably ended
+  # "unknown": the update could not read its own start time (ps refused, a sandbox). Gone only if that pid is
+  # provably not running; a live (even reused) pid keeps the pause, the safe direction.
+  if [ "$2" = unknown ]; then
+    if [ -d /proc/self ]; then [ -e "/proc/$1" ] || return 0; return 1; fi
+    case "$(LC_ALL=C kill -0 "$1" 2>&1)" in *"o such process"*) return 0 ;; esac
+    return 1
+  fi
   _kig_live="$(kosmos_start_token "$1")"
   # Tokens of two kinds (written by ps, read through /proc, or the other way round) cannot be compared: unknowable.
   case "$2" in proc:*) _kig_want=proc ;; *) _kig_want=ps ;; esac
@@ -3972,12 +3979,20 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   _kosmos_pause_name=""
   if [ "$_kosmos_was_running" = yes ] || [ "${_kosmos_join_pause:-no}" = yes ]; then
     _kosmos_tok="$(kosmos_start_token $$)" || _kosmos_tok=""
-    if [ -n "$_kosmos_tok" ]; then
-      _kosmos_pause_name="$KOSMOS_HOME/board.stopped.by-install.$$.$_kosmos_tok"
-      # In a subshell: under dash a failed redirection on the special builtin ":" ends the whole script, and
-      # || cannot catch it there. A name that cannot be made is no name (the plain marker, as before).
-      if ( : > "$_kosmos_pause_name" ) 2>/dev/null; then :; else _kosmos_pause_name=""; fi
-    fi
+    # No start time (ps refused, a sandbox): still named, as "unknown", which counts as gone only once this pid has
+    # provably ended. A run with no name at all would let another update's name read as stranded while it runs.
+    [ -n "$_kosmos_tok" ] || _kosmos_tok=unknown
+    _kosmos_pause_name="$KOSMOS_HOME/board.stopped.by-install.$$.$_kosmos_tok"
+    # In a subshell: under dash a failed redirection on the special builtin ":" ends the whole script, and
+    # || cannot catch it there. A name that cannot be made is no name (the plain marker, as before).
+    if ( : > "$_kosmos_pause_name" ) 2>/dev/null; then :; else _kosmos_pause_name=""; fi
+  fi
+  # An adopted pause this run could not name (no inode, say) must not keep the old names: they would read as
+  # stranded while this run swaps files. Moved aside, they leave the bare marker of before this card, and this
+  # run's put-back covers a failure. (A JOIN with no name has nothing safe to remove: that residual is accepted.)
+  if [ -n "$_kosmos_adopted_names" ] && [ -z "$_kosmos_pause_name" ]; then
+    printf '%s\n' "$_kosmos_adopted_names" | while IFS= read -r _f; do [ -n "$_f" ] && mv -f "$_f" "$_f.unnamed-adopt" 2>/dev/null; done || true
+    _kosmos_adopted_names=""
   fi
   _kosmos_marker_ours="$_kosmos_was_running"   # #5033: armed before the stop, which writes the marker and then waits
   KOSMOS_STOP_BY_INSTALL=1 "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true

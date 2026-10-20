@@ -30,7 +30,7 @@
 - Not in this branch: what launched two installs 16 seconds apart (the card says no instrument recorded it).
 
 ## Proof
-- `bash tools/test-stopmark-6651.sh`: 72 PASS, including a real full disk (an 8 MB disk image, filled), dash, and setup.sh's own decision lines run under dash set -eu over a marker x names x mode matrix. Mutants, each red then restored: the start-time comparison removed
+- `bash tools/test-stopmark-6651.sh`: 77 PASS, including a real full disk (an 8 MB disk image, filled), dash, and setup.sh's own decision lines run under dash set -eu over a marker x names x mode matrix. Mutants, each red then restored: the start-time comparison removed
   (also caught by the byte-equal twin check), the watchdog's clear removed, the writer ignoring the attribution.
 - Neighbours, all green on this branch: test-board-watchdog-2955 (0 failures), test-update-putback-4818 (33/33;
   red at first because it pins the pause's stop line, updated), test-setup-pause-sandbox-4651 (0 failures),
@@ -112,3 +112,12 @@
   reading as stranded. It now joins only when some name's update is provably running (`kosmos_live_pause`, in the
   shared block). And a start no longer saves leftover names (older than the last start) for its refusal paths to
   put back with a fresh time, which would make them count again.
+- Iteration 9 (a WARNING; a NIT accepted): an update whose own ps was refused (a sandboxed shell) made no name, so
+  when it adopted or joined a pause the watchdog (with a working ps) could judge the other names gone and clear the
+  pause mid-swap. It now always names itself, as "<pid>.unknown" when it has no start time; an unknown name counts
+  as gone only once that pid has provably ended (a live or reused pid keeps it: the safe direction). An adopting run
+  that still could not make a name moves the adopted names aside (the bare marker of before this card; its put-back
+  covers a failure). Matrix rows with ps refused in the updater only; mutants red.
+  Accepted residuals, both needing the changeover window: a JOINING run that cannot make any name (no inode) cannot
+  protect the other update's pause; and an update killed between creating its name and its stop's marker write,
+  followed by a person's stop through an older kosmos, reads as stranded.
