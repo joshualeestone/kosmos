@@ -141,6 +141,25 @@ test('refused: JSON the relay refuses (bad UTF-8, a lone surrogate, a number out
   refused(check(...signedBuf(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(base)]))), /not readable/, 'a BOM');
 });
 
+// Rust's White_Space: every code point str::trim strips. U+FEFF and U+180E are not in it.
+const RUST_WHITESPACE = ['\t', '\n', '\v', '\f', '\r', ' ', '\u0085', '\u00a0', '\u1680', '\u2000', '\u2001', '\u2002', '\u2003',
+  '\u2004', '\u2005', '\u2006', '\u2007', '\u2008', '\u2009', '\u200a', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000'];
+
+test('every Rust whitespace code point is trimmed from the .sig and the pin, and nothing else is', () => {
+  const keys = check(VECTOR, VECTOR_SIG);
+  const pin7 = rawOf(K7).toString('base64url');
+  for (const ws of RUST_WHITESPACE) {
+    const at = 'U+' + ws.codePointAt(0).toString(16).padStart(4, '0');
+    assert.equal(check(VECTOR, ws + VECTOR_SIG + ws).ok, true, 'sig padded with ' + at);
+    assert.equal(sk.pinnedIsListed(ws + pin7 + ws, keys), true, 'pin padded with ' + at);
+  }
+  for (const not of ['\ufeff', '\u180e', '\u200b']) {
+    const at = 'U+' + not.codePointAt(0).toString(16);
+    assert.equal(check(VECTOR, not + VECTOR_SIG).ok, false, 'sig with ' + at + ' (not whitespace to Rust)');
+    assert.equal(sk.pinnedIsListed(not + pin7, keys), false, 'pin with ' + at + ' (not whitespace to Rust)');
+  }
+});
+
 test('the .sig is trimmed as Rust trims (U+0085 is whitespace, U+FEFF is not)', () => {
   assert.equal(check(VECTOR, '\u0085' + VECTOR_SIG + '\n').ok, true, 'U+0085 trimmed');
   refused(check(VECTOR, '\ufeff' + VECTOR_SIG), /not signed/, 'a BOM is not trimmed');
@@ -156,11 +175,16 @@ test('refused: a seq out of range or not a plain integer (1.0 and 1e0 read as 1 
 });
 
 test('refused: an issue date that is not a real YYYY-MM-DD', () => {
-  for (const d of ['2025-02-29', '2025-13-01', '0000-01-01', '2025-1-01', '2025-08-24T00:00', 20250824, '2025-08-00', '1900-02-29']) {
+  for (const d of ['2025-02-29', '2025-13-01', '0000-01-01', '2025-1-01', '2025-08-24T00:00', 20250824, '2025-08-00', '1900-02-29',
+    '2025-04-31', '2025-06-31', '2025-09-31', '2025-11-31', '2025-01-32']) {
     refused(check(...signed(doc({ issued: d }))), /issue date/, 'issued ' + d);
   }
   assert.equal(check(...signed(doc({ issued: '2024-02-29' }))).ok, true, 'CONTROL: a leap day');
   assert.equal(check(...signed(doc({ issued: '2000-02-29' }))).ok, true, 'CONTROL: a 400-year leap day');
+  // Every month's last day is taken, so a wrong length in the table would show.
+  for (const d of ['2025-01-31', '2025-02-28', '2025-03-31', '2025-04-30', '2025-05-31', '2025-06-30', '2025-07-31', '2025-08-31', '2025-09-30', '2025-10-31', '2025-11-30', '2025-12-31']) {
+    assert.equal(check(...signed(doc({ issued: d }))).ok, true, 'last day ' + d);
+  }
 });
 
 test('refused: the keys break a rule (none, four, a wrong kid, zero or two current, the root, twice, weak, non-canonical)', () => {
