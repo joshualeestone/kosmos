@@ -1258,7 +1258,7 @@ const closeAll = (page) => page.evaluate(() => {
       await openProjectIn(page, 'tabs');
       await page.evaluate(() => { fedInviteOpen(null, { label: 'Tap Size', kind: 'person' }); });   // eslint-disable-line no-undef
       await page.waitForSelector('#fedinv-ask', { state: 'visible', timeout: 8000 }).catch(waitNote());
-      heights[w] = await page.evaluate(() => ['fedinv-label', 'fedinv-email'].map((id) => Math.round(document.getElementById(id).getBoundingClientRect().height * 10) / 10));
+      heights[w] = await page.evaluate(() => ['fedinv-label', 'fedinv-email'].map((id) => { const e = document.getElementById(id); return e ? Math.round(e.getBoundingClientRect().height * 10) / 10 : -1; }));   // -1: renamed, a named red
       await ctx.close();
     }
     check('6707 on a phone (393 px) both invite fields are at least 44 px tall', heights[393].every((h) => h >= 44), JSON.stringify(heights));
