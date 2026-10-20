@@ -27,17 +27,13 @@ test('#6589: the challenge handler judges only computers\' addresses, after ordi
   // Review 1: the selector is pinned (a near-miss signature would compile and never be called), and ordinary checking
   // runs off the main thread, then the pin half on it.
   assert.match(SRC, /@objc\(webView:didReceiveAuthenticationChallenge:completionHandler:\)[^\n]*\n\s+func webView\(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,/);
-  // Review 9: the pin is judged whatever ordinary trust said (no early return on it).
-  assert.match(h, /evaluateTrustOffMain\(trust\) \{ \[weak self\] _ in\n\s+DispatchQueue\.main\.async \{/);
-  assert.doesNotMatch(h, /guard trusted else/, 'the pin is never skipped because ordinary trust said no');
+  // Reviews 9 and 10: no trust evaluation of its own; the pin is judged straight away, and every other decision is
+  // WebKit's own (an allow is .performDefaultHandling).
+  assert.match(h, /\n\s+judgePin\(host: host, trust: trust, completionHandler: completionHandler\)\n\s+\}$/);
+  assert.doesNotMatch(h, /SecTrustEvaluate/, 'no trust evaluation of its own to wait on');
   assert.match(h, /let host = named\.hasSuffix\("\."\) \? String\(named\.dropLast\(\)\) : named/, 'a trailing-dot spelling is judged too');
-  // Review 3: the async API is CALLED FROM the queue it is given (SecTrust.h); from main with a global queue it traps.
-  // The self-test drives this helper with a real certificate, so a misuse fails the bundle build.
-  const ev = SRC.slice(SRC.indexOf('func evaluateTrustOffMain('), SRC.indexOf('\n}\n', SRC.indexOf('func evaluateTrustOffMain(')));
-  assert.match(ev, /let q = DispatchQueue\.global\(qos: \.userInitiated\)\n\s+q\.async \{/);
-  assert.match(ev, /let started = SecTrustEvaluateAsyncWithError\(trust, q\) \{ _, trusted, _ in done\(trusted\) \}\n\s+if started != errSecSuccess \{ done\(false\) \}/, 'a call that does not start still answers (review 5)');
-  assert.match(SRC, /evaluateTrustOffMain\(trust\) \{ trusted in said = trusted; sem\.signal\(\) \}/, 'the self-test calls the real helper');
-  assert.match(h, /guard let self else \{ completionHandler\(\.cancelAuthenticationChallenge, nil\); return \}[^\n]*\n\s+self\.judgePin\(host: host, trust: trust, completionHandler: completionHandler\)/);
+  assert.match(h, /space\.port == 443 \|\| space\.port == 0,/, 'the port guard (review 10)');
+  assert.match(SRC, /pin\(tlsLeafKeyHash\(trust\), "d161c11e/, 'the self-test reads the leaf from a real certificate');
   assert.doesNotMatch(h, /SecTrustEvaluateWithError\(/, 'never the blocking form on the main thread');
   const hj = body('private func judgePin(host: String, trust: SecTrust,');
   assert.ok(hj.indexOf('askTlsPin(host: host, fresh: false)') > 0, 'the pin half asks the board');
