@@ -109,7 +109,8 @@
       "icon": "tasks",
       "rank": 12,
       "since": "0.7.33",
-      "status": "pending"
+      "status": "held",
+      "why": "#6649: Josh removed the Waiting tile (2026-10-19), so this line would describe a tile that is gone."
     },
     {
       "title": "Taken-back posts say if they may still be up",
@@ -748,6 +749,17 @@
       "rank": 2.55,
       "since": "0.7.59",
       "status": "pending"
+    },
+    {
+      "title": "Smoother computer switching",
+      "line": "Choosing another computer in the switcher shows the animated K until it opens, and switching back to this Mac skips the sign-in page.",
+      "icon": "phone",
+      "rank": 1,
+      "since": "0.7.60",
+      "status": "pending",
+      "platforms": [
+        "mac"
+      ]
     }
   ]
 }

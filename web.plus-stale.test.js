@@ -55,7 +55,10 @@ function world(remote) {
   // never been seen to fail is not evidence of anything.
   let start = SCRIPT.indexOf('/* #1011. The panel showed');
   if (start < 0) start = SCRIPT.indexOf('async function paintDevices(');
-  const end = SCRIPT.indexOf('/* The words of the code box');
+  // kosmos#6613: the certificate notice's block (with its own timers) sits before that comment; this test stops short of it.
+  const cwAt = SCRIPT.indexOf('/* kosmos#6613: the notice for a finding');
+  assert.ok(cwAt > 0, 'the certificate notice block moved; re-anchor this test');
+  const end = cwAt;
   assert.ok(start > 0 && end > start, 'the plus panel script moved; re-anchor this test');
   vm.runInNewContext(SCRIPT.slice(start, end), ctx);
   return { ctx, el };

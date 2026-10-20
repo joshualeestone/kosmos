@@ -172,12 +172,16 @@ test('opening the menu reads the computers fresh: the shipped worldswOpen CALLS 
    the other computer with it in the fragment; anything else keeps the plain address. */
 const OPEN = slice('computersInApp') + slice('computersGo') + slice('computersOpenClick');
 const DECL = (() => { const at = PAGE.indexOf('let computersOpening = '); assert.ok(at >= 0, 'computersOpening moved'); return PAGE.slice(at, PAGE.indexOf('\n', at) + 1); })();   // the page's own declaration, not a copy
-function clickWith({ win, answer, ev, href, twice, timers }) {
+function clickWith({ win, answer, ev, href, twice, timers, linkAttrs }) {
   const went = [];
   const posted = [];
-  const attrs = {};
+  const attrs = Object.assign({}, linkAttrs || {});
+  const screens = [];
+  const toasts = [];
+  const holds = [];
+  let pnavClosed = 0;
   const a = { href: href || 'https://tmnt.kosmosplus.com/?tab=detail&agent=x', closest: (sel) => (sel === 'a[data-computer-open]' ? a : null),
-    setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; } };
+    setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; }, getAttribute: (k) => (k in attrs ? attrs[k] : null) };
   const e = Object.assign({ defaultPrevented: false, button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, target: a,
     preventDefault() { this.defaultPrevented = true; } }, ev || {});
   const assigned = [];
@@ -187,12 +191,15 @@ function clickWith({ win, answer, ev, href, twice, timers }) {
     body: { appendChild() {} } };
   const fetchFn = (url, opts) => { posted.push({ url, body: JSON.parse(opts.body) }); return answer(); };
   const second = Object.assign({}, e, { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
+  // #6585: the switching screen and the toast are recorded, not drawn (the screen has its own test below).
   const run = new Function('window', 'document', 'fetch', 'e', 'second', 'twice', 'URL', 'AbortController', 'setTimeout', 'clearTimeout',
+    'computersSwitchingScreen', 'msgToast', 'pnavClose',
     `${DECL}\n${OPEN}\ncomputersOpenClick(e);\nif (twice) computersOpenClick(second);`);
-  run(w, doc, fetchFn, e, second, !!twice, URL, AbortController, timers ? timers.set : setTimeout, timers ? timers.clear : clearTimeout);
+  run(w, doc, fetchFn, e, second, !!twice, URL, AbortController, timers ? timers.set : setTimeout, timers ? timers.clear : clearTimeout,
+    (n) => screens.push(n), (m, h) => { toasts.push(m); holds.push(h); }, () => { pnavClosed += 1; });
   // went: navigations through the noreferrer link; assigned: script navigations (which would send a Referer), never.
   assert.deepEqual(assigned, [], 'no script navigation');
-  return { went, posted, e, attrs };
+  return { went, posted, e, attrs, screens, toasts, holds, pnavClosed };
 }
 const APP = { webkit: { messageHandlers: { kosmosBadge: {} } } };
 const settle = () => new Promise((r) => setTimeout(r, 20));
@@ -267,6 +274,55 @@ test('#6406 step 2: a ticket request that never answers opens the plain address 
   resolve({ ok: true, json: () => Promise.resolve({ ticket: 'abcdefghijklmnopqrstuvwxyz_-0123' }) });
   await settle();
   assert.equal(t.went.length, 1);
+});
+
+/* kosmos#6585 (Josh 2026-10-19 09:12: "it immediately switches ... our animated K with the dots, that's fine too"). */
+test('#6585: a switch shows the switching screen with the computer\'s name at the click, before the ticket answers', async () => {
+  let resolve;
+  const t = clickWith({ win: APP, linkAttrs: { 'data-computer-name': 'tmnt' }, answer: () => new Promise((r) => { resolve = r; }) });
+  assert.deepEqual(t.screens, ['tmnt'], 'the screen is up while the ticket is made, not after');
+  assert.equal(t.went.length, 0);
+  resolve({ ok: true, json: () => Promise.resolve({ ticket: 'abcdefghijklmnopqrstuvwxyz_-0123' }) });
+  await settle();
+  assert.equal(t.went.length, 1);
+  assert.deepEqual(t.screens, ['tmnt'], 'once');
+  // No name on the link (a copy from before this change): the address's first label stands in.
+  assert.deepEqual(clickWith({ win: APP, answer: () => new Promise(() => {}) }).screens, ['tmnt']);
+});
+
+test('#6585: a computer measured as unable to take the instant switch says so and stays: no ticket, no navigation, no screen', async () => {
+  const never = () => { throw new Error('asked for a ticket'); };
+  const t = clickWith({ win: APP, answer: never, linkAttrs: { 'data-computer-name': 'tmnt', 'data-computer-instant': '0' } });
+  await settle();
+  assert.ok(t.e.defaultPrevented, 'the sign-in page must not open');
+  assert.deepEqual(t.posted, []);
+  assert.deepEqual(t.went, []);
+  assert.deepEqual(t.screens, []);
+  assert.equal(t.toasts.length, 1);
+  assert.equal(t.pnavClosed, 1, 'the phone menu covers the toast, so it closes first');
+  assert.ok(t.holds[0] >= 8000, 'words carrying an address stay long enough to read: ' + t.holds[0]);
+  assert.match(t.toasts[0], /^tmnt is on an older Kosmos, so it cannot switch instantly yet\. Update Kosmos on tmnt, or open tmnt\.kosmosplus\.com in your browser and sign in\.$/);
+  // Not one at a time: a refusal never holds the next click.
+  assert.equal(t.attrs['aria-busy'], undefined);
+});
+
+test('#6585: an online row carries its name, and "0" only when the board measured instant: false; the phone menu copies both', () => {
+  const data = { ok: true, domain: 'kosmosplus.com', computers: [
+    { name: 'laptop', address: 'laptop.kosmosplus.com', this: true, online: true },
+    { name: 'tmnt', address: 'tmnt.kosmosplus.com', this: false, online: true, instant: false },
+    { name: 'agent1s', address: 'agent1s.kosmosplus.com', this: false, online: true, instant: true },
+    { name: 'mortals', address: 'mortals.kosmosplus.com', this: false, online: true },
+  ] };
+  const t = render(data, false, APP);
+  const rows = Array.from(t.list.children).filter((r) => r.tagName === 'A');
+  const by = Object.fromEntries(rows.map((r) => [r.getAttribute('data-computer-name'), r]));
+  assert.deepEqual(Object.keys(by).sort(), ['agent1s', 'mortals', 'tmnt']);
+  assert.equal(by.tmnt.getAttribute('data-computer-instant'), '0');
+  assert.equal(by.agent1s.getAttribute('data-computer-instant') == null, true, 'instant: true opens as before');
+  assert.equal(by.mortals.getAttribute('data-computer-instant') == null, true, 'not measured: try the ticket as before');
+  // The phone menu's copy (pnavFill) carries both attributes over.
+  const src = slice('pnavFill');
+  assert.match(src, /for \(const k of \['data-computer-name', 'data-computer-instant'\]\) \{ if \(row\.hasAttribute\(k\)\) it\.setAttribute\(k, row\.getAttribute\(k\)\); \}/);
 });
 
 test('#6406 step 2: on a page, the navigation goes through a throwaway hidden noreferrer link that is not marked', async () => {

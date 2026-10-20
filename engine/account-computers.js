@@ -76,37 +76,47 @@ function parseComputers(answer, domain) {
   return out;
 }
 
-/* Whether a computer's tunnel is up: any HTTP answer from https://<address>/ says
-   yes; a failure or a timeout says no. Resolves true or false, never throws. The
-   answer's body is never read, and the socket is closed at once. `opts.request`
-   and `opts.port` are test seams (http.request against a local server has the
-   same shape); production is https.request on 443. */
-function probeOnline(address, opts) {
+/* kosmos#6585: online AND whether it can be switched to with no sign-in, from ONE request. A tunnel that takes
+   #6406's ticket answers a read of TICKET_PROBE_PATH with 405 (it takes only POST there); an older one answers
+   every path with its sign-in page (200), so it cannot take the instant switch and the page says so instead of
+   opening it. Any HTTP answer means online (even a 404: the relay forwarded); a failure or a timeout means offline.
+   The body is never read and the socket is closed at once. `opts.request` and `opts.port` are test seams.
+   Resolves { online, instant } or, for any other answer, { online } alone; never throws. */
+const TICKET_PROBE_PATH = '/_kosmos/ticket';
+function probeReach(address, opts) {
   const timeoutMs = (opts && opts.timeoutMs) || PROBE_TIMEOUT_MS;
   const request = (opts && opts.request) || require('https').request;
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    const no = { online: false };
     let req;
     try {
       req = request(
         Object.assign(
-          { method: 'HEAD', host: address, path: '/', timeout: timeoutMs, headers: { 'user-agent': 'kosmos-switcher' } },
+          { method: 'HEAD', host: address, path: TICKET_PROBE_PATH, timeout: timeoutMs, headers: { 'user-agent': 'kosmos-switcher' } },
           opts && opts.port ? { port: opts.port } : {},
         ),
-        (res) => { finish(true); res.resume(); req.destroy(); },
+        (res) => {
+          // Only the two measured answers decide. Anything else (a relay 502 while the tunnel reconnects, a 404)
+          // leaves `instant` unknown, so the page tries the ticket as it did before this probe existed.
+          const code = res.statusCode;
+          finish(code === 405 ? { online: true, instant: true } : code === 200 ? { online: true, instant: false } : { online: true });
+          res.resume(); req.destroy();
+        },
       );
-    } catch { finish(false); return; }
-    req.on('timeout', () => { finish(false); req.destroy(); });
-    req.on('error', () => finish(false));
+    } catch { finish(no); return; }
+    req.on('timeout', () => { finish(no); req.destroy(); });
+    req.on('error', () => finish(no));
     req.end();
   });
 }
 
 /* fetchComputers({ probe }) -- best effort, never throws. `probe` is a test seam
-   (address -> Promise<boolean>); production uses probeOnline. */
+   (address -> Promise<boolean> or Promise<{ online, instant }>); production uses probeReach. A bare boolean
+   says nothing about the instant switch, so that row carries no `instant` and the page tries the ticket as before. */
 async function fetchComputers(opts) {
-  const probe = (opts && opts.probe) || probeOnline;
+  const probe = (opts && opts.probe) || probeReach;
   /* 🛑 SUITE GUARD, as in mac-standing.js: under node's test runner never run the
      real bundled tunnel against the production coordinator. A test that supplies
      its own fake tunnel (AGENT_WORKFORCE_TUNNEL_BIN) still runs the real path. */
@@ -125,8 +135,15 @@ async function fetchComputers(opts) {
     if (!domain) return { ok: false, because: 'the Kosmos+ address is not one computers can live under' };
     const rows = parseComputers(r.data, domain);
     if (!rows) return { ok: false, because: 'the Kosmos+ answer carried no computers' };
-    const online = await Promise.all(rows.map((c) => (c.this ? true : probe(c.address).catch(() => false))));
-    const computers = rows.map((c, i) => Object.assign({}, c, { online: online[i] === true }));
+    const reach = await Promise.all(rows.map((c) => (c.this ? true : probe(c.address).catch(() => false))));
+    const computers = rows.map((c, i) => {
+      const r = reach[i];
+      if (r && typeof r === 'object') {
+        const online = r.online === true;
+        return Object.assign({}, c, online && typeof r.instant === 'boolean' ? { online, instant: r.instant } : { online });
+      }
+      return Object.assign({}, c, { online: r === true });
+    });
     // This computer first, then the others by name, so the list reads the same every time.
     computers.sort((a, b) => (a.this === b.this ? a.name.localeCompare(b.name) : (a.this ? -1 : 1)));
     return { ok: true, domain, computers };
@@ -135,4 +152,4 @@ async function fetchComputers(opts) {
   }
 }
 
-module.exports = { ROUTE, PROBE_TIMEOUT_MS, computerDomain, validAddress, parseComputers, probeOnline, fetchComputers };
+module.exports = { ROUTE, PROBE_TIMEOUT_MS, computerDomain, validAddress, parseComputers, probeReach, fetchComputers };

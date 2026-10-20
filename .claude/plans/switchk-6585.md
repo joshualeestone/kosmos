@@ -1,0 +1,38 @@
+# switchk-6585: computer switcher, instant both ways
+
+Card: kosmos#6585. Josh 2026-10-19 09:12 ("it immediately switches ... our animated K with the dots, that's fine") and 09:25 ("when I tried to flip back to mine, I got the blue login screen again").
+
+## Finished looks like
+- Choosing another computer in the switcher shows the animated K and that computer's name from the click until its page replaces this one.
+- A computer measured as unable to take the instant switch (an older Kosmos there) is not opened: a toast says why and what to do.
+- In the Mac app, on another computer's page, choosing THIS computer goes back to this computer's own board (as View > Back to This Computer), never to a sign-in at its Kosmos+ address.
+
+## Causes (measured 2026-10-19)
+1. tmnt ran 0.7.55, whose gate predates #6406's ticket: sign-in page. Fixed operationally (tmnt updated to 0.7.59).
+2. tmnt's pairing record of the laptop had no account (paired 10-16, before #443 kept accounts): ticket refused. Fixed by hand for this pair; the class is #6592.
+3. Switching back: the remote page asks tmnt's board for a ticket, refused by design (ticketCallerHere: only this computer's own screen), so the laptop's public address opens and asks for a sign-in.
+
+## Changes
+- engine/account-computers.js: probeReach replaces probeOnline in fetchComputers. One HEAD of /_kosmos/ticket: any answer is online (as before), 405 also means it takes tickets; an older gate answers its sign-in page (200). Rows carry `instant` only when online and measured.
+- web/index.html: rows carry data-computer-name and data-computer-instant="0"; the phone menu copies both. computersOpenClick refuses "0" with a toast; otherwise computersSwitchingScreen (opaque, role=status, startKLoader canvas, "Opening <name>"); pageshow removes it (back from the bfcache). The older-Kosmos toast closes the phone menu first (it covers toasts) and holds 9 s (msgToast takes an optional hold); the screen comes down after 15 s if the page was not replaced.
+- native-app/main.swift: switchGoesHome (pure, 10 selftest rows, expected 181 -> 191), asked in the main-frame navigation policy before the link rules; any main-frame navigation to the own Kosmos+ address while on another computer cancels and calls backToThisComputer. Not keyed on a click: the switcher gets there through computersGo's script-made click, whose WebKit navigation type was not measured in the app.
+
+## Rejected
+- Passing the app's local board origin in the fragment to the other computer's page: page-supplied navigation targets, and both computers must update. The native intercept needs neither.
+- Letting a remote page mint tickets: the ticketCallerHere guard is the security boundary (a remote viewer must not hop onward).
+- A relay change to advertise ticket support in a header: the 405 on the existing path already says it, with no relay release.
+
+- Refusing an older computer outright vs opening its sign-in page as before: Josh's ask is no sign-in page on a switch, and a computer measured as older cannot take the instant switch at all. The toast names the way in meanwhile (its address in a browser) and the remedy (update it). Only the measured 200 refuses; any other answer tries the ticket as before.
+
+## Evidence for the probe (live, 2026-10-19)
+- Older gate: tmnt at 0.7.55 answered GET /_kosmos/ticket with 200 (its sign-in page, 77164 bytes, no ticket code).
+- Current gates: tmnt after its update to 0.7.59 answered HEAD /_kosmos/ticket 405 (HEAD / 200); the laptop's gate (0.7.57+) answered HEAD /_kosmos/ticket 405. Source: relay crates/tunnel/src/proxy.rs ticket_endpoint returns 405 to any method but POST.
+
+## Weakest premise
+That every gate older than #443 answers /_kosmos/ticket with 200. Measured on one (tmnt at 0.7.55) and in source (the gate serves its page for any path to a stranger); not measured on a still-older gate. A false 200 refuses a computer that could switch; a false anything-else only tries the ticket as before.
+
+## Verification
+- engine/account-computers.test.js 10/10 (perturbed: probe '/' turns 1 red).
+- web.computers-switcher-4648.test.js 17/17 (perturbed: refusal removed turns 1 red).
+- --kosmos-app-mode-selftest 191/191 (perturbed: switchGoesHome false turns 2 red); native-app wiring tests pass.
+- Full web.* suite; browser-check gates; design shots of the switching screen and the toast.

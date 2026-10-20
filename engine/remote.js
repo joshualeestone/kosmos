@@ -69,7 +69,7 @@ const fs = require('node:fs');
 const { envDelete, envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn, execFileSync } = require('node:child_process');
+const { spawn, execFile, execFileSync } = require('node:child_process');
 // Narrow test seam for setupRun's child lifecycle. The supervised tunnel uses
 // spawn directly and cannot be replaced through this seam.
 let setupSpawn = spawn;
@@ -127,6 +127,93 @@ const BIN = () => {
  * CreateProcess as one quoted argv (paths with spaces included), never through
  * cmd.exe, which would re-parse them. */
 const connectorSpawnOptions = (opts) => ({ ...opts, windowsHide: true });
+/* kosmos#6595 (R01): what this computer's connector says it does, one name per line from `kosmos-tunnel
+   capabilities`. The board trusts the session headers the gate writes only when the connector lists
+   "session-headers" (it strips client copies, kosmos-relay sessioniat-6595). A connector older than that verb, or one
+   that cannot be run, lists nothing, so its headers are never trusted: this is what makes an old connector fail
+   closed on every platform, whatever order things merge or ship in. Asked once and kept; a connector that lacked it
+   is asked again after ten minutes, one that did not answer at all after thirty seconds. A YES is kept: never
+   downgraded within a generation, and kept across a tunnel restart on the same binary (path, mtime, size). Asked only
+   once this board has started its own tunnel (a tunnel left by an earlier board vouches for nothing), and always in
+   the background, never while a request waits. */
+// A connector that answered without the capability changes only with an update: asked again after ten minutes.
+const CAPABILITIES_RECHECK_MS = 10 * 60 * 1000;
+// One that did not answer at all (timed out, or could not be started) says nothing about its age: thirty seconds.
+const CAPABILITIES_UNANSWERED_RECHECK_MS = 30 * 1000;
+// How long one ask may take before it counts as unanswered (a cold start on Windows can scan the exe first).
+const CAPABILITIES_ASK_TIMEOUT_MS = 5000;
+let capabilitiesSeen = null;
+let askingCapabilities = false;
+// Each ask carries the generation it started in; forgetting the answer starts a new one, so a late answer from an
+// earlier ask (an earlier connector) is dropped, never written over the new state.
+let capabilitiesGeneration = 0;
+// Kept, never downgraded within a generation: once the connector has said it strips the headers, a later slow or
+// failed ask does not undo it.
+function noteCapabilities(caps, answered, now, generation = capabilitiesGeneration, binary = connectorBinaryKey()) {
+  if (generation !== capabilitiesGeneration) return capabilitiesSeen ? capabilitiesSeen.caps : new Set();
+  if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) return capabilitiesSeen.caps;
+  // `binary` is the one that was ASKED (taken when the ask started), so a binary swapped mid-ask is not credited.
+  capabilitiesSeen = { caps, answered, at: now, binary };
+  return caps;
+}
+/* Which connector binary an answer came from: its path and when it last changed. */
+function connectorBinaryKey() {
+  const bin = BIN();
+  try { const st = fs.statSync(bin); return bin + ':' + st.mtimeMs + ':' + st.size; } catch { return bin + ':?'; }
+}
+/* Forget the answer: the connector process that forwards is about to change (a tunnel is started), so what the
+   binary says is asked again for the process it will be. Unless the binary is the one that already said yes: a tunnel
+   that restarts on the same binary keeps its answer (a flapping tunnel must not close gated actions each restart). */
+function forgetConnectorCapabilities({ always = false, ask = true } = {}) {
+  if (!always && capabilitiesSeen && capabilitiesSeen.caps.has('session-headers') && capabilitiesSeen.binary === connectorBinaryKey()) return;
+  capabilitiesSeen = null; askingCapabilities = false; capabilitiesGeneration += 1;
+  // Asked again at once, in the background (review iteration 17: a forget right after the start-up ask used to drop
+  // that answer and leave nothing asking until a request was refused).
+  if (ask) askConnectorCapabilities();
+}
+/* One background ask at a time; its answer lands through noteCapabilities. */
+function askConnectorCapabilities() {
+  if (askingCapabilities) return;
+  askingCapabilities = true;
+  const generation = capabilitiesGeneration;
+  warmConnectorCapabilities(() => { if (generation === capabilitiesGeneration) askingCapabilities = false; });
+}
+/* Whether this board has started the tunnel process that forwards. Until it has, nothing is vouched for: a tunnel
+   left running by an earlier board (an older binary, say) must not borrow what this board's binary says. */
+let tunnelStartedHere = false;
+function connectorCapabilities(now = Date.now()) {
+  if (!tunnelStartedHere) return new Set();
+  if (capabilitiesSeen) {
+    const wait = capabilitiesSeen.answered ? CAPABILITIES_RECHECK_MS : CAPABILITIES_UNANSWERED_RECHECK_MS;
+    if (capabilitiesSeen.caps.has('session-headers') || now - capabilitiesSeen.at < wait) return capabilitiesSeen.caps;
+  }
+  // Never asked synchronously: a request never waits on the connector. With no answer kept (or one due again), this
+  // answers "nothing" now, so the request is refused with "try again in a minute", and asks in the background.
+  askConnectorCapabilities();
+  return capabilitiesSeen ? capabilitiesSeen.caps : new Set();
+}
+const capabilityLines = (out) => new Set(String(out || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+/* One ask of the connector, without blocking. Run when this board starts its tunnel (forgetConnectorCapabilities) and
+   when a kept answer is due again (connectorCapabilities); never at board start, and never while a request waits. */
+function warmConnectorCapabilities(done = () => {}) {
+  // As the other connector spawns here: under the test runner, only a connector a test names is ever run.
+  if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) { done(new Set()); return; }
+  const generation = capabilitiesGeneration;
+  const binary = connectorBinaryKey();
+  try {
+    const child = execFile(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: CAPABILITIES_ASK_TIMEOUT_MS }), (err, stdout) => {
+      // Answered = it ran to an exit code (an old connector's unknown verb is an answer); killed or unstartable is not.
+      const answered = !err || (typeof err.code === 'number' && !err.killed);
+      done(noteCapabilities(err ? new Set() : capabilityLines(stdout), answered, Date.now(), generation, binary));
+    });
+    // Nothing to say on stdin: closed at once, so a connector that reads it cannot sit until the timeout.
+    if (child && child.stdin) child.stdin.end();
+  } catch { done(noteCapabilities(new Set(), false, Date.now(), generation, binary)); }
+}
+const resetConnectorCapabilitiesForTests = ({ startedHere = true } = {}) => {
+  tunnelStartedHere = startedHere;
+  forgetConnectorCapabilities({ always: true, ask: false });
+};
 /* The production addresses are the defaults (#648): a bundle needs nothing
  * baked for a Mac to reach the real relay and coordinator. Precedence: env
  * (tests, self-host), then the relay saved in remote.json, then production. */
@@ -630,6 +717,21 @@ function address() {
   catch { return null; }
 }
 
+/* kosmos#6602: what the tunnel's certificate check found for this computer, and its switch
+   (engine/cert-watch.js reads the tunnel's files). */
+const certWatchFiles = require('./cert-watch');
+function certWatch() { return certWatchFiles.certWatchFrom(STATE_DIR(), Date.now()); }
+/* Only on a set-up computer (the page shows the switch only then): a leftover state dir is not one. */
+function setCertWatch(on) {
+  if (!enrolled()) return { ok: false, because: 'this computer is not set up for Kosmos+ yet' };
+  return certWatchFiles.setCertWatchIn(STATE_DIR(), on);
+}
+/* kosmos#6613: a person saw the lost-report sentence for marker `at`. */
+function ackCertWatchLost(at) {
+  if (!enrolled()) return { ok: false, because: 'this computer is not set up for Kosmos+ yet' };
+  return certWatchFiles.ackLostIn(STATE_DIR(), at);
+}
+
 /** The switch. Turning on does not start anything by itself unless setup
     already happened; the Settings flow calls setupStart/setupComplete and
     then ensure() brings the tunnel up. Turning off stops it now. */
@@ -744,6 +846,9 @@ function spawnFedSeat(target) {
 }
 
 function startChild() {
+  // kosmos#6595 (R01): the process that forwards is about to be this binary's, so what it vouches for is asked anew.
+  tunnelStartedHere = true;
+  forgetConnectorCapabilities();
   if (restartPending) { restarts += 1; restartPending = false; }
   lastTunnelFailure = null;   // a new process has written nothing yet
   dialingSince = performance.now();
@@ -1811,7 +1916,7 @@ function allowSelfQuietly() {
    coordinator's first_seen, so a coordinator can also make the tab open inside the window; the tab carries S only in
    its fragment, and allowing still needs the vouch. A joining computer is never allowed this way: computers pair by
    code (#4794, Baron's tunnel review). */
-const VOUCH_WINDOW_MS = 10 * 60 * 1000;
+const VOUCH_WINDOW_MS = 3 * 60 * 1000;   // kosmos#6599: 3 minutes (was 10); the notice with its Undo (VOUCH_NOTICE_MS) still lasts 10
 const VOUCH_RECENT_S = 30 * 60;
 const VOUCH_POLL_MS = 3000;
 const VOUCH_NOTICE_MS = 10 * 60 * 1000;
@@ -1884,12 +1989,22 @@ function vouchMatches(secret, d) {
   return got.length === want.length && crypto.timingSafeEqual(got, want);
 }
 /* Allows in-engine, like #4610's own-sign-in grant, so it does not pass server.js's screen-only Allow gate (isViaScreen):
-   what stands in for the person's press is S (minted here after their own sign-in, one device, ten minutes) and the row
-   filters above. */
+   what stands in for the person's press is S (minted here after their own sign-in, one device, three minutes since
+   #6599) and the row filters above. */
 function vouchTick() {
   const v = vouchState;
   if (!v) return;
-  if (Date.now() > v.until || v.epoch !== selfEpoch || !enrolled() || !read().on || inState(HELD_FILE)) { stopVouch(); return; }
+  // Sign-out, the switch, enrolment and a hold end the secret first, with nothing said.
+  if (v.epoch !== selfEpoch || !enrolled() || !read().on || inState(HELD_FILE)) { stopVouch(); return; }
+  if (Date.now() > v.until) {
+    // kosmos#6599: the window ran out after this computer started opening the browser and before any phone or browser
+    // sign-in matched, so the person (if they are still signing in) gets the ordinary Allow card. One line per such
+    // window end (stopVouch ends the secret); a window that ends while a matched allow is still being retried says
+    // nothing. It is not a measure of how often 3 minutes is too short: a browser nobody signed in on writes it too,
+    // and a sign-in that arrives after the window never opens the browser, so writes nothing.
+    if (v.opened && !v.matched) process.stderr.write('kosmos+: the automatic allow window ended before a sign-in matched; the Allow card is the way in\n');
+    stopVouch(); return;
+  }
   const lists = vouchRows();
   if (!lists) return;
   const rows = lists.devices;
@@ -1899,7 +2014,7 @@ function vouchTick() {
     if (!rows.some(recent) && !lists.signins.some(recent)) return;
     v.opened = true;   // armed before the opener runs, so it is never re-run; one still running after 5 s is not an
     // error (runCompanyOpener), it just logs nothing. The window still bounds S.
-    // The window is NOT restarted here: Josh ruled on a secret that lives ~10 minutes from the app sign-in (10-10 19:04).
+    // The window is NOT restarted here: Josh accepted a secret that lives about 10 minutes from the app sign-in (10-10 19:04); it is 3 since #6599.
     const url = vouchUrl(v.secret);
     if (!url) {
       process.stderr.write('kosmos+: the sign-in page is not https here, so the browser is not opened to connect it; the Allow card stays\n');
@@ -1942,7 +2057,7 @@ function vouchTick() {
         // not counted either, but the next tick's !enrolled() ends S: it fails closed rather than waiting.)
         const why = String((r && r.because) || '');
         if (!busy() && !/being forgotten|still signing in|finish the Plus sign-up/.test(why)) v.tries += 1;
-        // Three tries, then the ordinary Allow card is the way in (no spawn every 3 s for ten minutes).
+        // Three tries, then the ordinary Allow card is the way in (no spawn every 3 s for the whole window).
         if (vouchState === v && v.tries >= 3) {
           process.stderr.write('kosmos+: could not allow the browser this computer opened (' + String((r && r.because) || 'no answer') + '); the Allow card stays\n');
           stopVouch();
@@ -3415,7 +3530,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,
@@ -3433,6 +3548,7 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   enrolled,
   spawnFedSeat,
   address,
+  certWatch, setCertWatch, ackCertWatchLost,
   ensure,
   status,
   setupStart,
@@ -3498,6 +3614,8 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
   vouchAllowingIdForTests: () => vouchAllowingId,   // kosmos#6407
   vouchUntilForTests: () => (vouchState ? vouchState.until : 0),
+  recentlyVouchedForTests: (settings) => recentlyVouched(settings),
+  vouchPatchForTests: (patch) => { if (vouchState && patch) Object.assign(vouchState, patch); },   // kosmos#6599
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },
   setCompanyOpenCommandForTests: (argv) => { companyOpenCommandForTests = argv || null; },

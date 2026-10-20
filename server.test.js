@@ -3444,8 +3444,10 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   const drive = (agents, counts) => {
     const el = () => ({ textContent: '', hidden: undefined });
     const els = {
-      'st-agents': el(), 'st-working': el(), 'st-working-tile': el(), 'st-idle': el(),
-      'st-blocked': el(), 'st-blocked-tile': el(),   // #5540
+      'st-agents': el(), 'st-working': el(), 'st-working-tile': el(),
+      // #6649: the Idle and Waiting (#5540) tiles are gone; their old ids stay in the stub so a painter that writes them
+      // again is caught by the assertions below rather than as a null dereference (the #653 pattern).
+      'st-idle': el(), 'st-blocked': el(), 'st-blocked-tile': el(),
       'st-attn': el(), 'st-attn-tile': el(),
       'st-off': el(), 'st-off-tile': el(),
     };
@@ -3483,7 +3485,6 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
      and wear the mark. Measured on the live board: a Fable session mid-turn
      read unknown and the row said "0 Working" while somebody was working. */
   assert.equal(live['st-working'].textContent, '3+', 'an unknown agent in the fleet must floor the working tile');
-  assert.equal(live['st-idle'].textContent, '2+', 'an unknown agent in the fleet must floor the idle tile');
   /* Control: with every agent's state known, the numbers are bare. A mark
      that cannot come off is furniture, not a mark. */
   const knownFleet = [
@@ -3492,7 +3493,6 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   ];
   const known = drive(knownFleet, { total: 4, needsYou: 1, notRunning: 0 });
   assert.equal(known['st-working'].textContent, '2', 'a fully-known fleet must not wear the floor mark');
-  assert.equal(known['st-idle'].textContent, '1', 'a fully-known fleet must not wear the floor mark');
   /* #2157, #4736: the Working tile (chip + its .act animation) hides whenever it reads zero, "0+"
      included (Josh 2026-09-30). Nonzero keeps it shown. */
   assert.equal(live['st-working-tile'].hidden, false, 'a nonzero working count keeps the tile shown (the floored-ZERO path is the zeroFloor fixture below)');
@@ -3507,20 +3507,17 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
     { total: 2, needsYou: 0, notRunning: 0 });
   assert.equal(zeroFloor['st-working-tile'].hidden, true,
     '#4736: zero working WITH an unknown ("0+") hides the tile too (Josh: "if there are 0 working, lets not show the tile")');
-  /* #5540: Waiting (state blocked) has its own tile, counted and floored as Working is, hidden at zero. The fleets
-     above hold no blocked agent, so it is hidden there (CONTROL); one with two blocked shows "2", and one blocked beside
-     an unknown shows "1+". A guide agent is never counted, as for Working and Idle. */
-  assert.equal(known['st-blocked-tile'].hidden, true, 'the Waiting tile shows with nobody waiting');
+  /* #6649 (Josh, 2026-10-19: "lets not show the IDLE or the WAITING tiles on windows or mac"): the painter writes neither
+     tile, on any fleet, idle and blocked agents included. */
   const waiting = drive([{ state: 'working' }, { state: 'blocked' }, { state: 'blocked' }, { state: 'idle' }, { state: 'blocked', isGuide: true }], { total: 4, needsYou: 0, notRunning: 0 });
-  assert.equal(waiting['st-blocked'].textContent, '2', 'the Waiting tile does not count the blocked agents');
-  assert.equal(waiting['st-blocked-tile'].hidden, false, 'the Waiting tile is hidden while two agents wait');
-  assert.equal(waiting['st-idle'].textContent, '1', 'CONTROL: a blocked agent is not counted as idle');
+  for (const run of [live, known, waiting, zeroFloor]) {
+    for (const id of ['st-idle', 'st-blocked']) assert.equal(run[id].textContent, '', '#6649: the painter wrote the removed tile ' + id);
+    assert.equal(run['st-blocked-tile'].hidden, undefined, '#6649: the painter touched the removed Waiting tile');
+  }
   assert.equal(waiting['st-working'].textContent, '1', 'CONTROL: a blocked agent is not counted as working');
-  const waitingFloor = drive([{ state: 'blocked' }, { state: 'unknown' }], { total: 2, needsYou: 0, notRunning: 0 });
-  assert.equal(waitingFloor['st-blocked'].textContent, '1+', 'an unknown agent must floor the Waiting tile as it floors Working');
-  // Review 1: a FLOORED zero ("0+") hides the tile too, as Working's does (#4736).
-  assert.equal(zeroFloor['st-blocked'].textContent, '0+', 'fixture: zero blocked beside an unknown reads "0+"');
-  assert.equal(zeroFloor['st-blocked-tile'].hidden, true, '#5540: "0+" Waiting must hide as Working does (#4736)');
+  // #6649: and the markup holds neither tile (CONTROL: the Working tile beside them is still there).
+  assert.match(raw, /id="st-working-tile"/, 'CONTROL: the stats row markup was not found');
+  assert.doesNotMatch(raw, /id="st-idle"|id="st-blocked/, '#6649: an Idle or Waiting tile is back in the stats row');
   assert.equal(zeroFloor['st-working'].textContent, '0+',
     'the number underneath is still the floored 0+ (only the tile is hidden)');
   /* #4736: the OTHER way to "0+", unreadable pane lines with no unknown agent, hides the tile too. */
@@ -3584,12 +3581,13 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
        actually owns, which is the one that always exists. */
     orgmap: el(''),
     orgnote: { textContent: '', hidden: false, innerHTML: '' },
-    'st-agents': el('14'), 'st-working': el('9'), 'st-idle': el('4'), 'st-attn': el('1'),
+    'st-agents': el('14'), 'st-working': el('9'), 'st-attn': el('1'),
+    // #6649: the Idle and Waiting tiles are gone; their old ids are seeded so a failed poll that writes them again shows.
+    'st-idle': el('4'),
     /* #2157: seeded HIDDEN (as a prior known-zero tick would have left it), so the
        failed poll must bring the Working tile BACK showing "?", not leave it hidden
        claiming none are working -- the same rule as the not-running tile below. */
     'st-working-tile': { textContent: '', hidden: true, innerHTML: '' },
-    // #5540: seeded with a last-success count and hidden, so "?" and showing are both measured transitions.
     'st-blocked': el('2'), 'st-blocked-tile': { textContent: '', hidden: true, innerHTML: '' },
     'st-attn-tile': { textContent: '', hidden: false, innerHTML: '' },
     /* ⚠️ Seeded with a last-success number for the same presence-before-absence
@@ -3644,7 +3642,7 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     'the failure card must reach both containers, whichever layout is up');
   assert.match(els.grid.innerHTML, /not the same as having none/,
     'the failure card stopped drawing the distinction it exists for');
-  for (const id of ['st-agents', 'st-working', 'st-idle', 'st-blocked', 'st-attn']) {
+  for (const id of ['st-agents', 'st-working', 'st-attn']) {
     assert.equal(els[id].textContent, '?',
       `${id} still asserts a count beside "we cannot see them" -- a headline number the failed poll cannot stand behind`);
   }
@@ -3652,7 +3650,9 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     'the alert tile must hide on a blind poll: red is reserved for a known alarm');
   assert.equal(els['st-working-tile'].hidden, false,
     '#2157: the Working tile (seeded hidden, as a prior known-zero tick left it) must come BACK on a blind poll showing "?", unlike the alert tile -- hiding it would claim none are working on the one poll that knows nothing');
-  assert.equal(els['st-blocked-tile'].hidden, false, '#5540: a failed poll left the Waiting tile hidden, which says nobody is waiting');
+  // #6649: the removed Idle and Waiting tiles are left exactly as seeded (a write coming back would change them).
+  assert.deepEqual([els['st-idle'].textContent, els['st-blocked'].textContent, els['st-blocked-tile'].hidden], ['4', '2', true],
+    '#6649: the failed poll wrote a removed Idle or Waiting tile');
   // (#734) There is no summary slot any more, so nothing here can assert last-tick counts beside the failure card.
   assert.equal(els.orgmap.innerHTML, '',
     'the org view still draws the last fleet it saw beside "we cannot see them"');
@@ -11605,6 +11605,54 @@ test('skills over the wire: global lists and adds; the agent write carries the e
 // ─────────────────────────────────────────────────────────────────────────────
 // The Plus routes (#464's engine behind the Settings tab)
 // ─────────────────────────────────────────────────────────────────────────────
+
+test('the Plus state route carries the certificate check, and its switch writes the tunnel\'s off file (kosmos#6602)', async () => {
+  const fsx = require('fs'), osx = require('os'), px = require('path');
+  const dir = fsx.mkdtempSync(px.join(osx.tmpdir(), 'cw-route-'));
+  /* Swept by this file's tmpscope. The default req() sends no sec-fetch-site, which is what the 403 arm relies on. */
+  const prev = process.env.AGENT_WORKFORCE_TUNNEL_STATE;
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = dir;
+  try {
+    let st = JSON.parse((await req('/api/remote')).body);
+    assert.equal(st.certWatch.state, 'none');
+    assert.equal(st.certWatch.on, true);
+    fsx.writeFileSync(px.join(dir, 'ct-watch.json'), JSON.stringify({ state: 'foreign', checked_at: Math.floor(Date.now() / 1000), foreign: [{ dns_names: ['<b>x</b>'] }] }));
+    st = JSON.parse((await req('/api/remote')).body);
+    assert.equal(st.certWatch.state, 'foreign');
+    assert.equal(st.certWatch.foreign, 1);
+    const screen = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' };
+    let r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: false }) });
+    assert.equal(r.status, 400, 'a computer that is not set up has no switch to change');
+    for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fsx.writeFileSync(px.join(dir, f), 'x');
+    r = await req('/api/remote/cert-watch', { method: 'PUT', body: JSON.stringify({ on: false }) });
+    assert.equal(r.status, 403, 'a switch change that did not come from the screen is refused');
+    assert.ok(!fsx.existsSync(px.join(dir, 'ct-watch-off')));
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: false }) });
+    assert.equal(r.status, 200, r.body);
+    assert.equal(JSON.parse(r.body).certWatch.on, false);
+    assert.ok(fsx.existsSync(px.join(dir, 'ct-watch-off')));
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: 'no' }) });
+    assert.equal(r.status, 400, 'a switch that is not on or off is refused');
+    r = await req('/api/remote/cert-watch', { method: 'PUT', headers: screen, body: JSON.stringify({ on: true }) });
+    assert.equal(r.status, 200, r.body);
+    assert.ok(!fsx.existsSync(px.join(dir, 'ct-watch-off')));
+    // kosmos#6613: Got it for a lost report, person-only, for the marker shown only.
+    const at = Math.floor(Date.now() / 1000) - 600;
+    fsx.writeFileSync(px.join(dir, 'ct-watch.json'), JSON.stringify({ state: 'unknown', checked_at: Math.floor(Date.now() / 1000), damaged_report_at: at }));
+    assert.equal(JSON.parse((await req('/api/remote')).body).certWatch.lost, true);
+    r = await req('/api/remote/cert-watch/ack-lost', { method: 'POST', body: JSON.stringify({ at }) });
+    assert.equal(r.status, 403, 'Got it that did not come from the screen is refused');
+    r = await req('/api/remote/cert-watch/ack-lost', { method: 'POST', headers: screen, body: JSON.stringify({ at: at + 1 }) });
+    assert.equal(r.status, 400, 'a marker that is not the report\'s is refused');
+    r = await req('/api/remote/cert-watch/ack-lost', { method: 'POST', headers: screen, body: JSON.stringify({ at }) });
+    assert.equal(r.status, 200, r.body);
+    assert.equal(JSON.parse(r.body).certWatch.lost, false);
+    assert.equal(JSON.parse(r.body).certWatch.state, 'clear', 'acknowledged, the tunnel\'s unknown-with-marker reads clear again');
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_STATE;
+    else process.env.AGENT_WORKFORCE_TUNNEL_STATE = prev;
+  }
+});
 
 test('the Plus state route says configured through the production default, and the env seam still wins (#790)', async () => {
   /* Until #722 this asserted false on a bare sandbox: the relay's domain was

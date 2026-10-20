@@ -34,6 +34,9 @@ fs.writeFileSync(FAKE_BIN, `#!/usr/bin/env node
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+// kosmos#6595: the board asks every connector it starts what it vouches for, in the background; answered here, never
+// recorded, so it cannot land in a test's record after the test cleared it.
+if (process.argv[2] === 'capabilities') process.exit(0);
 fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(process.argv.slice(2)) + '\\n');
 if (process.argv[2] === 'run') {
   fs.writeFileSync(${JSON.stringify(RECORD)} + '.run-env', process.env.KOSMOS_BOARD_TOKEN_FILE || '(unset)');
@@ -4555,7 +4558,7 @@ test('#5786 (b): the browser this computer opened is allowed by its vouch, once,
   await new Promise((r) => setTimeout(r, 20));
   remote.vouchTickForTests();
   assert.match(remote.vouchOpenedUrlForTests(), new RegExp('^https?://[^/#]+/#allow=' + secret + '$'));
-  assert.equal(remote.vouchUntilForTests(), untilBefore, 'the window moved: Josh ruled on ~10 minutes from sign-in');
+  assert.equal(remote.vouchUntilForTests(), untilBefore, 'the window moved: it is a fixed span from sign-in (#5786; 3 minutes since #6599)');
   // The page's vouch arrives on that row.
   plant([{ device_id: 'dev-safari', name: 'Mac · Safari', first_seen: nowS() - 360, code: 'VR-D6', vouch: vouchFor(secret, 'dev-safari') }]);
   const before = allowsOf().filter((x) => x === 'dev-safari').length;
@@ -4734,7 +4737,7 @@ test('#5786 (b): a device the person said Not me to is never allowed by a vouch,
   await new Promise((res) => setTimeout(res, 150));
   assert.ok(!allowsOf().slice(before).includes('dev-den'), 'a device turned away by Not me was allowed by a vouch');
   remote.setOn(false);
-  // A refused allow: three tries, then the secret ends (no spawn every 3 s for ten minutes).
+  // A refused allow: three tries, then the secret ends (no spawn every 3 s for the whole window).
   process.env.FAKE_TUNNEL_MODE = 'allow-fails';
   try {
     r = await vouchSignedIn('vouchcap');
@@ -5403,4 +5406,49 @@ test('#5995: a remote.json that cannot be read at all is not rewritten for the s
     try { fs.chmodSync(remote.FILE, 0o600); } catch { /* gone */ }
     if (had === null) fs.rmSync(remote.FILE, { force: true }); else fs.writeFileSync(remote.FILE, had);
   }
+});
+
+test('#6599: the automatic-allow window is 3 minutes from sign-in, not 10', async () => {
+  try {
+    const before = Date.now();
+    await vouchSignedIn('vouch3mac');
+    const after = Date.now();
+    const until = remote.vouchUntilForTests();
+    // until was set between before and after, so it lies in [before + W, after + W]: no slack for how long sign-in took.
+    assert.ok(until <= after + 3 * 60 * 1000, 'the window is longer than 3 minutes: ' + (until - after) + ' ms past after');
+    assert.ok(until >= before + 3 * 60 * 1000, 'the window is shorter than 3 minutes: ' + (until - before) + ' ms from before');
+  } finally { remote.setOn(false); }   // as the other vouch tests end
+});
+
+test('#6599: a window that ends after the browser opened, with no match, is reported once; a match or no browser is not', async () => {
+  const said = [];
+  const write = process.stderr.write;
+  process.stderr.write = (chunk, ...rest) => { if (String(chunk).includes('automatic allow window ended')) { said.push(String(chunk)); return true; } return write.call(process.stderr, chunk, ...rest); };
+  try {
+    for (const [opened, matched, expect] of [[true, '', 1], [true, 'dev-x', 0], [false, '', 0]]) {   // matched holds a device id, '' for none
+      said.length = 0;
+      await vouchSignedIn('vouchlog' + (opened ? 'o' : 'n') + (matched ? 'm' : 'n'));
+      remote.vouchPatchForTests({ opened, matched, until: Date.now() - 1 });
+      remote.vouchTickForTests();
+      assert.equal(said.length, expect, `opened=${opened} matched=${matched}: ${said.length} line(s)`);
+      assert.equal(remote.vouchUntilForTests(), 0, 'the secret did not end with the window');
+    }
+
+    // The order: an identity change (as Sign out makes) that this tick sees after the window ran out ends the secret silently.
+    said.length = 0;
+    await vouchSignedIn('vouchlogepoch');
+    remote.vouchPatchForTests({ opened: true, matched: '', until: Date.now() - 1, epoch: -1 });
+    remote.vouchTickForTests();
+    assert.equal(said.length, 0, 'an identity change after the window ran out was reported as the window ending');
+    assert.equal(remote.vouchUntilForTests(), 0, 'the secret did not end on the identity change');
+  } finally { process.stderr.write = write; remote.setOn(false); }
+});
+
+test('#6599: the notice with its Undo still lasts 10 minutes, past the 3-minute window', () => {
+  const now = Math.floor(Date.now() / 1000);
+  const at = (minsAgo) => ({ on: true, vouched: { 'dev-n': { at: now - minsAgo * 60, name: 'Mac · Safari' } } });
+  // 9 minutes after an automatic allow (well past the 3-minute window) the notice and its Undo still show.
+  assert.equal((remote.recentlyVouchedForTests(at(9)) || {}).device_id, 'dev-n', 'the notice ended with the window');
+  // CONTROL: 11 minutes after, it has ended, so the 10-minute bound is real.
+  assert.equal(remote.recentlyVouchedForTests(at(11)), null, 'the notice outlived 10 minutes');
 });

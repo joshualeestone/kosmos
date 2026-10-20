@@ -122,8 +122,9 @@ cp "$REPO/bin/agy-report-bridge.js" "$STAGE/app/bin/"
 # tools/build-tunnel-release-windows.ps1 -Sign, and it rides in app/bin, where
 # remote.js looks for it on Windows (bundledConnector: bin/kosmos-tunnel.exe).
 # 🛑 REFUSE, NEVER SHIP WITHOUT IT, like the Mac builder: missing or mismatched
-# sidecars (connector-provenance.sh), not a Windows x86-64 program, or unsigned
-# (connector-windows.sh) all stop the build.
+# sidecars (connector-provenance.sh), behind kosmos-relay main (connector-currency.sh), needing
+# a coordinator not yet deployed (coordinator-floor.sh), not a Windows x86-64 program, or
+# unsigned (connector-windows.sh) all stop the build.
 # 🔏 SIGNED BEFORE IT GETS HERE, NOT HERE, the launcher's rule (see Kosmos.exe
 # below): the .sha256 names the signed bytes, so provenance, signature and the
 # staged copy are one set of bytes. On Windows the build also asks Windows whether
@@ -136,6 +137,15 @@ TUNNEL_BIN="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel.exe}
 . "$REPO/tools/lib/connector-windows.sh"
 _connector_provenance_check "$TUNNEL_BIN" || exit 1
 _tunnel_src="$CONNECTOR_COMMIT"; _tunnel_in="$CONNECTOR_SHA"
+# #6628: the Mac cut refuses a connector behind kosmos-relay main (#3884, release.sh step 1d); so does this, for the
+# connector the Windows build script made. KOSMOS_ALLOW_STALE_TUNNEL=1 ships it on purpose.
+. "$REPO/tools/lib/connector-currency.sh"
+connector_currency_check "$TUNNEL_BIN" "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" \
+  tools/build-tunnel-release-windows.ps1 || exit 1
+# And, as the Mac cut does next (release.sh step 1d2, #5037), the coordinator serving traffic must carry what that
+# connector needs. KOSMOS_ALLOW_COORDINATOR_BEHIND=1 ships anyway.
+. "$REPO/tools/lib/coordinator-floor.sh"
+coordinator_floor_check "$TUNNEL_BIN" "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" "$REPO/tools/coordinator-floor" || exit 1
 connector_pe_signed "$TUNNEL_BIN" || exit 1
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) _on_windows=1 ;; *) _on_windows=0 ;; esac
 _tunnel_sig="present (not verified: this build did not run on Windows)"

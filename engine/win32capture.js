@@ -64,6 +64,10 @@ const win32streamstate = require('./win32streamstate');
 /* #5949: the two tokens a card can be drawn from (win32streamstate owns them; classify's win32
    arm reads the same two). Anything else is a reading we cannot use. */
 const GOOD = new Set([win32streamstate.BUSY, win32streamstate.IDLE]);
+/* #5805: a reading the card can be drawn from: the two tokens, or the out-of-usage one (`limit ...`, read by classify
+   as rate_limited). The carry file may record a limit token, but only the two plain tokens are READ BACK after a
+   restart (failed(), below): a limit carried across a restart is from before it, so it says nothing about now. */
+const isGood = (token) => GOOD.has(token) || win32streamstate.isLimitToken(token);
 /* #5949: a card shows "Can't tell" only after this many failed looks in a row AND this long
    since its last good one. Both, so neither a burst of quick looks nor one slow one is enough
    on its own: about 15 s at the board's 5 s poll. The time is the roster's own hold, one fact,
@@ -281,7 +285,7 @@ function make(opts) {
           byName.set(name, token);
           runners.set(name, typeof hit.runner === 'string' ? hit.runner : '');
           sids.set(name, typeof hit.sessionId === 'string' && hit.sessionId ? hit.sessionId : null);
-          if (!GOOD.has(token)) {
+          if (!isGood(token)) {
             why.set(name, listed
               ? 'Claude Code reported a status Kosmos does not know (' + JSON.stringify(listed.slice(0, 40)) + ')'
               : 'its state file did not match the running session');
@@ -330,7 +334,7 @@ function make(opts) {
     if (snap.ok) {
       const good = new Map();
       for (const [name, token] of snap.byName) {
-        if (GOOD.has(token)) {
+        if (isGood(token)) {
           const m = memory.get(name);
           if (m && m.said === 'held-quiet') {
             quietOf(name).skipped += 1;   // a flap inside the quiet window: counted, not written
@@ -392,12 +396,12 @@ function make(opts) {
     m.fails += 1;
     m.cause = cause;
     /* Nothing good to hold (never read well, nothing remembered): it can only be Can't tell. */
-    const giveUp = !GOOD.has(m.token) || (m.fails >= failsToUnknown && (t - m.at) >= holdMs);
+    const giveUp = !isGood(m.token) || (m.fails >= failsToUnknown && (t - m.at) >= holdMs);
     if (giveUp) {
       if (m.phase !== 'unknown') m.phase = 'unknown';
       /* Said once. An agent never read well is said only once it has kept failing: a streaming
          agent that has just started has no state file for a moment, and that is not a fault. */
-      if (m.said !== 'cant-tell' && (GOOD.has(m.token) || m.fails >= failsToUnknown)) {
+      if (m.said !== 'cant-tell' && (isGood(m.token) || m.fails >= failsToUnknown)) {
         m.said = 'cant-tell';
         say(name, 'cant-tell', 'Kosmos could not check on it ' + (m.fails === 1 ? 'once' : m.fails + ' times in a row')
           + ', so its card says it cannot tell: ' + cause);
@@ -413,7 +417,7 @@ function make(opts) {
       q.skipped = 0;
       m.said = 'held';
       say(name, 'status-read-failed', (flaps > 0 ? '(it also failed and came back ' + flaps + (flaps === 1 ? ' time' : ' times') + ' since the last line) ' : '') + 'Kosmos could not check on it just now' + (m.carried ? ' (Kosmos has just started; this is its state from before)' : '')
-        + ', so its card keeps its last known state (' + (m.token === win32streamstate.BUSY ? 'working' : 'idle') + '), marked as remembered: ' + cause);
+        + ', so its card keeps its last known state (' + (win32streamstate.isLimitToken(m.token) ? 'out of usage' : m.token === win32streamstate.BUSY ? 'working' : 'idle') + '), marked as remembered: ' + cause);
     }
   }
 
@@ -428,7 +432,7 @@ function make(opts) {
     if (m.phase === 'held') return { held: true, cause: m.cause };
     /* Never read well and not yet failing for long: a streaming agent that has just started has no state file for a
        moment, which is not a fault. The card says so only when the log does (see failed). */
-    if (m.phase === 'unknown' && !GOOD.has(m.token) && m.fails < failsToUnknown) return null;
+    if (m.phase === 'unknown' && !isGood(m.token) && m.fails < failsToUnknown) return null;
     if (m.phase === 'unknown') return { unreadable: true, cause: m.cause };
     return null;
   }

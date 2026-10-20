@@ -115,7 +115,20 @@ signed again (an old `.sig` no longer verifies, and the stage refuses it).
 
    That writes `dist\kosmos-tunnel.exe` with `.commit` and `.sha256` beside it. The Kosmos build
    reads it from `~/work/kosmos-relay/dist/kosmos-tunnel.exe`, or from `KOSMOS_TUNNEL_BIN`, and
-   refuses one that is missing, unsigned, or does not match its sidecars.
+   refuses one that is missing, unsigned, or does not match its sidecars. It also refuses one built
+   before a change to the connector reached kosmos-relay `main` (#6628, the same check the Mac cut
+   makes, #3884): it fetches `main` in the kosmos-relay checkout at `KOSMOS_RELAY_REPO`, else
+   `~/work/kosmos-relay`, so that checkout must exist and be able to fetch (with credentials already
+   stored: the fetch never prompts). A refusal names the
+   commits the connector is missing; rebuild it as above. `KOSMOS_ALLOW_STALE_TUNNEL=1` ships the
+   older connector on purpose. It does not get past a checkout that is missing, cannot fetch, or
+   lacks the connector's commit (a shallow clone usually does), nor a relay `main` with no
+   `tools/build-tunnel-release-windows.ps1`: then the build cannot tell, and refuses either way.
+   Next, as on the Mac (#5037), it asks the coordinator serving traffic whether it already carries
+   every relay change that connector needs deployed first (`tools/coordinator-floor`), and refuses
+   if not; deploy the coordinator, or `KOSMOS_ALLOW_COORDINATOR_BEHIND=1` ships anyway. When it asks,
+   it uses `curl` (7.71 or later) and `node`, and the override does not cover a coordinator it
+   could not read.
 
 1b. **The release manifest (#6466).** The build also writes
    `dist/kosmos-<v>-win-x64.manifest.json` (every file in the zip with its sha256, the zip's sha256,

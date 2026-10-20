@@ -839,6 +839,30 @@ verify_download() {
   return 0
 }
 
+# #6576: an install from the .pkg is held to the SIGNED release too. The .pkg's own notarized helper checked the
+# release manifest's signature before this script ran, and hands over the manifest's sha256 for each download in
+# KOSMOS_PINNED_TARBALL_SHA256 and KOSMOS_PINNED_TMUX_SHA256 (read once into _PIN_*_SHA256 and unset, below).
+# A download that differs is not installed. No pin (the
+# install line, an update run by an installed copy, which checks the manifest itself): returns 0. A pin that is not
+# 64 hex characters refuses, rather than reading as no pin.
+# The .pkg reads the next line in a checked installer before handing it the pins: an installer without it would ignore
+# them and leave the Kosmos and tmux downloads unchecked, so the .pkg refuses to run it (kosmos#6576). Keep it exact.
+# kosmos-pkg-pins: honored
+pinned_sha_ok() {
+  local file="$1" pin="$2" what="$3" got
+  [ -n "$pin" ] || return 0
+  case "$pin" in
+    *[!0-9a-f]*) info "the $what could not be checked against its signed release, so it was not installed"; return 1 ;;
+  esac
+  [ "${#pin}" -eq 64 ] || { info "the $what could not be checked against its signed release, so it was not installed"; return 1; }
+  got="$(shasum -a 256 "$file" | awk '{print $1}')"
+  if [ "$got" != "$pin" ]; then
+    info "the $what download does not match its signed release, so it was not installed"
+    return 1
+  fi
+  return 0
+}
+
 # #6468 ask 2: a downloaded update must match its SIGNED release manifest before anything in it runs. The check is made
 # by the INSTALLED copy (its own node running its own engine/manifest-verify.js, which pins the release's public
 # keys), never by the new build or by this script, so an install that has the check holds every later update to it.
@@ -1315,6 +1339,7 @@ fetch_tmux() {
     # is the failure this whole file is written against.
     curl -fL --progress-bar "$url" -o "$stage/tmux.tar.gz" || { rm -rf "$stage"; return 1; }
     verify_download "$stage/tmux.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
+    pinned_sha_ok "$stage/tmux.tar.gz" "${_PIN_TMUX_SHA256:-}" "terminal manager" || { rm -rf "$stage"; return 1; }   # #6576
     # #6473: held to the signed manifest (fetched by update_manifest_ok early) before tar or anything in it runs.
     if [ "$(uname -s)" = "Darwin" ] && ! update_tmux_ok "$stage/tmux.tar.gz" "$KOSMOS_HOME"; then rm -rf "$stage"; return 1; fi
     # #6562: never apply the archive's recorded owner, whoever runs this (a root install on Linux would).
@@ -1447,6 +1472,7 @@ install_kosmos() {
     rm -f "$_kp_sentinel" 2>/dev/null || true; kill "$_kp_watcher" 2>/dev/null || true; wait "$_kp_watcher" 2>/dev/null || true
     _kp_emit downloaded
     verify_download "$stage/kosmos.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
+    pinned_sha_ok "$stage/kosmos.tar.gz" "${_PIN_TARBALL_SHA256:-}" "Kosmos" || { rm -rf "$stage"; return 1; }   # #6576
     _kp_emit installing
     # #6468 ask 2: held to the installed copy's signed-manifest check, the archive itself before tar reads it and every
     # unpacked file before anything runs. Not on Linux (its updates are not built or signed here yet).
@@ -3332,6 +3358,20 @@ fi
 # (exit 141, measured). Every pointer shape must degrade to the
 # versionless run, never to silence.
 TARGET_VERSION="$(printf '%s' "$_ptr" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)" || TARGET_VERSION=""
+# #6576: the .pkg checked one signed release and pinned its downloads; install exactly that version, not what the
+# pointer says a moment later (a promote in between would fetch a tarball the pins refuse). Only an a.b.c is taken.
+case "${KOSMOS_PINNED_VERSION:-}" in
+  '') ;;
+  *[!0-9.]*|.*|*.|*..*|*.*.*.*) die "the version the installer checked is not a version, so nothing was installed" ;;
+  *.*.*) TARGET_VERSION="$KOSMOS_PINNED_VERSION" ;;
+  *) die "the version the installer checked is not a version, so nothing was installed" ;;
+esac
+# The pins are read here, once, into this run's own variables and taken out of the environment: the board this run
+# starts (and its agents, and the update it runs later) must not inherit an old release's pins, which would hold the
+# next update to them and refuse it. The same leak class as KOSMOS_UPDATE_BY_BOARD, unset further down.
+_PIN_TARBALL_SHA256="${KOSMOS_PINNED_TARBALL_SHA256:-}"
+_PIN_TMUX_SHA256="${KOSMOS_PINNED_TMUX_SHA256:-}"
+unset KOSMOS_PINNED_TARBALL_SHA256 KOSMOS_PINNED_TMUX_SHA256 KOSMOS_PINNED_VERSION
 if [ -n "$TARGET_VERSION" ]; then
   printf '  This run installs Kosmos %s.\n' "$TARGET_VERSION"
 else
@@ -3665,6 +3705,119 @@ _kosmos_mode_keeps_board_off() {
   esac
   return 0
 }
+# ---- kosmos#6651: a stranded update pause ------------------------------------------------------------------
+# BEGIN kosmos#6651 shared block (byte-identical in install/setup.sh, install/kosmos and bin/board-watchdog.sh;
+# tools/test-stopmark-6651.sh compares them). POSIX sh: setup.sh runs under /bin/sh.
+# An update pausing a running board leaves, beside the plain empty board.stopped, an EMPTY file whose NAME says
+# who paused it: board.stopped.by-install.<pid>.<start token>. A name needs no data block, so it is written even
+# on a full disk (where an attributed body could not be; that full disk is how this card's pause was stranded).
+# The update's EXIT trap removes it. A run killed without its trap leaves it, and then: the pause is STRANDED when
+# the marker is there, the mode lets the board run, and every such name belongs to an installer that is provably
+# gone (its pid has ended, or now belongs to a process that started at another time). Any live installer, any name
+# that cannot be read, or no name at all (a person's stop: `kosmos stop` removes them all) means the pause stands.
+kosmos_start_token() { # $1 pid: when that process started, stable for its life; no spaces; empty if unknown
+  # Linux: start ticks since boot (/proc/<pid>/stat field 22, after the last ") " since the name may hold spaces),
+  # which a wall-clock step cannot move. Elsewhere: ps's lstart in UTC (TZ=UTC0), so the asker's zone cannot change it.
+  if [ -r "/proc/$1/stat" ]; then
+    # The boot id too: ticks restart at every boot, so a pid and tick from an earlier boot are not this process.
+    sed -n 's/^.*) //p' "/proc/$1/stat" 2>/dev/null | awk -v b="$(tr -c 'A-Za-z0-9\n' '_' < /proc/sys/kernel/random/boot_id 2>/dev/null)" \
+      'NF >= 20 { print "proc:" $20 (b != "" ? "_" b : "") }'
+  else
+    LC_ALL=C TZ=UTC0 ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//; s/  */_/g'
+  fi
+}
+kosmos_installer_gone() { # $1 pid, $2 token recorded at the pause: 0 only when that installer has provably ended
+  # "unknown": the update could not read its own start time (ps refused, a sandbox). Gone only if that pid is
+  # provably not running; a live (even reused) pid keeps the pause, the safe direction.
+  if [ "$2" = unknown ]; then
+    if [ -d /proc/self ]; then [ -e "/proc/$1" ] || return 0; return 1; fi
+    case "$(LC_ALL=C kill -0 "$1" 2>&1)" in *"o such process"*) return 0 ;; esac
+    return 1
+  fi
+  _kig_live="$(kosmos_start_token "$1")"
+  # Tokens of two kinds (written by ps, read through /proc, or the other way round) cannot be compared: unknowable.
+  case "$2" in proc:*) _kig_want=proc ;; *) _kig_want=ps ;; esac
+  case "$_kig_live" in proc:*) _kig_got=proc ;; '') _kig_got="" ;; *) _kig_got=ps ;; esac
+  if [ -d /proc/self ] && [ "$_kig_want" = proc ]; then
+    [ -e "/proc/$1" ] || return 0                                  # no /proc entry: gone, in any language
+    [ "$_kig_got" = proc ] || return 1                             # unreadable here (hidepid, another user)
+  elif [ -n "$_kig_got" ] && [ "$_kig_got" != "$_kig_want" ]; then
+    return 1
+  elif [ -z "$_kig_live" ]; then
+    # Nothing came back: gone, or ps could not run (a sandbox). Only kill's own "No such process" proves gone.
+    case "$(LC_ALL=C kill -0 "$1" 2>&1)" in *"o such process"*) return 0 ;; esac
+    return 1
+  fi
+  [ -n "$_kig_live" ] && [ "$_kig_live" != "$2" ]                  # that pid is now another process
+}
+kosmos_stranded_pause() { # prints the stranded pause's name files, one per line, and returns 0; else returns 1
+  [ -e "$KOSMOS_HOME/board.stopped" ] || return 1
+  # The same rule as setup.sh's _kosmos_mode_keeps_board_off: no mode file runs the board; else only run or both.
+  if [ -e "$KOSMOS_HOME/mode" ]; then
+    case "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" in run|both) ;; *) return 1 ;; esac
+  fi
+  _ksp_list=""; _ksp_support=""
+  for _ksp_f in "$KOSMOS_HOME"/board.stopped.by-install.*; do
+    [ -e "$_ksp_f" ] || continue
+    _ksp_rest="${_ksp_f##*/board.stopped.by-install.}"; _ksp_pid="${_ksp_rest%%.*}"; _ksp_tok="${_ksp_rest#*.}"
+    case "$_ksp_pid" in ''|*[!0-9]*) return 1 ;; esac
+    case "$_ksp_tok" in ''|*[!A-Za-z0-9:_]*) return 1 ;; esac
+    [ "$_ksp_tok" != "$_ksp_rest" ] || return 1
+    kosmos_installer_gone "$_ksp_pid" "$_ksp_tok" || return 1        # a live installer: its pause stands
+    _ksp_list="$_ksp_list$_ksp_f
+"
+    # A gone update's name older than the board's last start is a leftover: that pause ended when the board started
+    # again (every start writes board.started-at, and an older kosmos's start removes only the marker, not names).
+    # A later stop beside such a leftover is therefore a person's. Kill an update at any point of its pause and its
+    # name is newer than the last start, so it still counts.
+    [ "$KOSMOS_HOME/board.started-at" -nt "$_ksp_f" ] || _ksp_support=yes
+  done
+  [ -n "$_ksp_list" ] && [ "${_ksp_support:-}" = yes ] || return 1   # no name, or only leftovers: a person's stop
+  printf '%s' "$_ksp_list"
+}
+kosmos_live_pause() { # 0 when the marker is there and at least one name is a running update's (its pause is live)
+  [ -e "$KOSMOS_HOME/board.stopped" ] || return 1
+  for _klp_f in "$KOSMOS_HOME"/board.stopped.by-install.*; do
+    [ -e "$_klp_f" ] || continue
+    _klp_rest="${_klp_f##*/board.stopped.by-install.}"; _klp_pid="${_klp_rest%%.*}"; _klp_tok="${_klp_rest#*.}"
+    case "$_klp_pid" in ''|*[!0-9]*) continue ;; esac
+    case "$_klp_tok" in ''|*[!A-Za-z0-9:_]*) continue ;; esac
+    [ "$_klp_tok" != "$_klp_rest" ] || continue
+    kosmos_installer_gone "$_klp_pid" "$_klp_tok" || return 0
+  done
+  return 1
+}
+kosmos_clear_stranded_pause() { # $1 who is clearing. Moves the marker aside (kept as evidence) and logs it.
+  _kcs_names="$(kosmos_stranded_pause)" || return 1
+  _kcs_aside="$KOSMOS_HOME/board.stopped.stranded.$(date +%s).$$"
+  mv -f "$KOSMOS_HOME/board.stopped" "$_kcs_aside" 2>/dev/null || return 1
+  # A person's stop between the check and the move removes the names first: then it was theirs, so put it back.
+  # (Not airtight: in the moments between this move and that put-back the marker is absent, so a supervisor
+  # could start the board under a stop landing in exactly that window. Narrow, and a later stop still holds.)
+  # (Read line by line from a here-document: no word splitting, so a KOSMOS_HOME with a space in it is safe.)
+  while IFS= read -r _kcs_f; do
+    [ -n "$_kcs_f" ] || continue
+    if [ ! -e "$_kcs_f" ]; then mv -f "$_kcs_aside" "$KOSMOS_HOME/board.stopped" 2>/dev/null; return 1; fi
+  done <<KOSMOS_6651_NAMES
+$_kcs_names
+KOSMOS_6651_NAMES
+  while IFS= read -r _kcs_f; do
+    [ -n "$_kcs_f" ] || continue
+    mv -f "$_kcs_f" "$_kcs_aside.${_kcs_f##*/board.stopped.}" 2>/dev/null || rm -f "$_kcs_f"
+  done <<KOSMOS_6651_NAMES
+$_kcs_names
+KOSMOS_6651_NAMES
+  mkdir -p "$KOSMOS_HOME/logs" 2>/dev/null
+  # On a full disk a failed append leaves printf's buffer, which bash then writes to stdout: measured. So the
+  # subshell's own stdout goes nowhere too (a subshell alone still shares the caller's stdout).
+  ( printf '[%s] %s: cleared a stranded update pause (%s); kept at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" \
+    "$(printf '%s' "$_kcs_names" | sed 's|.*/||' | tr '\n' ' ')" "$_kcs_aside" \
+    >> "$KOSMOS_HOME/logs/board-watchdog.log" ) >/dev/null 2>&1 || true
+  # Keep the newest ten clears as evidence; older ones go.
+  ls -1t "$KOSMOS_HOME"/board.stopped.stranded.* 2>/dev/null | awk -F. '{ k = $0; sub(/\.by-install\..*$/, "", k) } !seen[k]++ { n++ } n > 10' \
+    | while IFS= read -r _kcs_old; do rm -f "$_kcs_old"; done
+}
+# END kosmos#6651 shared block
 # ---- #4818: a failed update puts back the board it paused --------------------
 # The pause below stops the board and writes board.stopped, which launchd's KeepAlive keys on, so a run that
 # FAILS after it left Kosmos off for good (Josh's laptop, 54 agents, 2026-09-30, until a hand-typed
@@ -3675,6 +3828,7 @@ _kosmos_mode_keeps_board_off() {
 # started, so a failure after that does not restart anything.
 # BEGIN #4818 put-back
 _kosmos_was_running=no
+_kosmos_join_pause=no; _kosmos_adopted_names=""   # kosmos#6651
 _kosmos_paused_board=no
 # #2055, #4675: record a stop at the update's pause, durably, in the same logs/ dir the board reads install.status
 # from. On the automatic update path the die that follows goes to stderr and install.log, which nobody reads (one
@@ -3775,6 +3929,12 @@ _kosmos_on_exit() {
   _kosmos_exit_rc=$?
   # #6473: the signed manifest an early check fetched, on any exit before pre or post removed it.
   [ -z "${_UM_DIR:-}" ] || /bin/rm -rf "$_UM_DIR" 2>/dev/null || true
+  # kosmos#6651: this run's pause name goes with this run, whatever its outcome. Only a run that cannot run this
+  # trap (killed, or dead under a full disk) leaves it, and that is what makes its pause read as stranded.
+  [ -z "${_kosmos_pause_name:-}" ] || rm -f "$_kosmos_pause_name" 2>/dev/null || true
+  # The stranded names this run adopted go too: it covered them, and left behind they would make a marker this run
+  # writes on purpose (the board kept off at its end) read as stranded. A killed run leaves both, still stranded.
+  printf '%s\n' "${_kosmos_adopted_names:-}" | while IFS= read -r _f; do [ -n "$_f" ] && rm -f "$_f" 2>/dev/null; done || true
   if [ "$_kosmos_exit_rc" -ne 0 ]; then _kosmos_put_board_back || true; _kosmos_clear_own_marker || true; fi
 }
 trap '_kosmos_on_exit' EXIT
@@ -3801,10 +3961,41 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # another app on the port cannot use this: the put-back is armed only after those dies, below.
   if ! _kosmos_mode_keeps_board_off && [ ! -e "$KOSMOS_HOME/board.stopped" ]; then
     _kosmos_was_running=yes
+  elif ! _kosmos_mode_keeps_board_off && kosmos_stranded_pause >/dev/null; then
+    # kosmos#6651: an earlier update's pause, stranded (that update is gone), not a person's stop: the board was
+    # meant to be running, so this run adopts it (its own put-back covers it now). The old names stay until a clear
+    # moves them aside: removing them before this run's own name exists would leave a bare marker, a person's stop.
+    _kosmos_was_running=yes
+    _kosmos_adopted_names="$(kosmos_stranded_pause)" || _kosmos_adopted_names=""
+  elif ! _kosmos_mode_keeps_board_off && kosmos_live_pause; then
+    # kosmos#6651: another update's LIVE pause (its names, not a person's stop). This run adds its own name, so if
+    # that update is killed the pause still stands while this one runs; it does not take that update's put-back. (If
+    # that update FINISHES, its own start clears the marker and every name, this run's too, as before this card.)
+    _kosmos_join_pause=yes
+  fi
+  # kosmos#6651: name this run's pause (an empty file: written even on a full disk) before the stop writes the
+  # marker. Only when this run pauses a running board: a board already off (a person's stop, connect) gets none.
+  _kosmos_pause_name=""
+  if [ "$_kosmos_was_running" = yes ] || [ "${_kosmos_join_pause:-no}" = yes ]; then
+    _kosmos_tok="$(kosmos_start_token $$)" || _kosmos_tok=""
+    # No start time (ps refused, a sandbox): still named, as "unknown", which counts as gone only once this pid has
+    # provably ended. A run with no name at all would let another update's name read as stranded while it runs.
+    [ -n "$_kosmos_tok" ] || _kosmos_tok=unknown
+    _kosmos_pause_name="$KOSMOS_HOME/board.stopped.by-install.$$.$_kosmos_tok"
+    # In a subshell: under dash a failed redirection on the special builtin ":" ends the whole script, and
+    # || cannot catch it there. A name that cannot be made is no name (the plain marker, as before).
+    if ( : > "$_kosmos_pause_name" ) 2>/dev/null; then :; else _kosmos_pause_name=""; fi
+  fi
+  # An adopted pause this run could not name (no inode, say) must not keep the old names: they would read as
+  # stranded while this run swaps files. Moved aside, they leave the bare marker of before this card, and this
+  # run's put-back covers a failure. (A JOIN with no name has nothing safe to remove: that residual is accepted.)
+  if [ -n "$_kosmos_adopted_names" ] && [ -z "$_kosmos_pause_name" ]; then
+    printf '%s\n' "$_kosmos_adopted_names" | while IFS= read -r _f; do [ -n "$_f" ] && mv -f "$_f" "$KOSMOS_HOME/board.stopped.unnamed-adopt.${_f##*/board.stopped.by-install.}" 2>/dev/null; done || true
+    _kosmos_adopted_names=""
   fi
   _kosmos_linux_unit_killmode   # #4920: before the stop, so an old unit's cgroup kill cannot take this run with it
   _kosmos_marker_ours="$_kosmos_was_running"   # #5033: armed before the stop, which writes the marker and then waits
-  "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
+  KOSMOS_STOP_BY_INSTALL=1 "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
   # earlier, where it is a precondition instead.

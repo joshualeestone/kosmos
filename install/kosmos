@@ -144,6 +144,138 @@ PIDFILE="$KOSMOS_HOME/board.pid"
 # stop stays stopped; once any start clears it the watchdog resumes recovering a
 # board that has died. See bin/board-watchdog.sh.
 STOP_MARKER="$KOSMOS_HOME/board.stopped"
+# ---- kosmos#6651: a stranded update pause ------------------------------------------------------------------
+# BEGIN kosmos#6651 shared block (byte-identical in install/setup.sh, install/kosmos and bin/board-watchdog.sh;
+# tools/test-stopmark-6651.sh compares them). POSIX sh: setup.sh runs under /bin/sh.
+# An update pausing a running board leaves, beside the plain empty board.stopped, an EMPTY file whose NAME says
+# who paused it: board.stopped.by-install.<pid>.<start token>. A name needs no data block, so it is written even
+# on a full disk (where an attributed body could not be; that full disk is how this card's pause was stranded).
+# The update's EXIT trap removes it. A run killed without its trap leaves it, and then: the pause is STRANDED when
+# the marker is there, the mode lets the board run, and every such name belongs to an installer that is provably
+# gone (its pid has ended, or now belongs to a process that started at another time). Any live installer, any name
+# that cannot be read, or no name at all (a person's stop: `kosmos stop` removes them all) means the pause stands.
+kosmos_start_token() { # $1 pid: when that process started, stable for its life; no spaces; empty if unknown
+  # Linux: start ticks since boot (/proc/<pid>/stat field 22, after the last ") " since the name may hold spaces),
+  # which a wall-clock step cannot move. Elsewhere: ps's lstart in UTC (TZ=UTC0), so the asker's zone cannot change it.
+  if [ -r "/proc/$1/stat" ]; then
+    # The boot id too: ticks restart at every boot, so a pid and tick from an earlier boot are not this process.
+    sed -n 's/^.*) //p' "/proc/$1/stat" 2>/dev/null | awk -v b="$(tr -c 'A-Za-z0-9\n' '_' < /proc/sys/kernel/random/boot_id 2>/dev/null)" \
+      'NF >= 20 { print "proc:" $20 (b != "" ? "_" b : "") }'
+  else
+    LC_ALL=C TZ=UTC0 ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//; s/  */_/g'
+  fi
+}
+kosmos_installer_gone() { # $1 pid, $2 token recorded at the pause: 0 only when that installer has provably ended
+  # "unknown": the update could not read its own start time (ps refused, a sandbox). Gone only if that pid is
+  # provably not running; a live (even reused) pid keeps the pause, the safe direction.
+  if [ "$2" = unknown ]; then
+    if [ -d /proc/self ]; then [ -e "/proc/$1" ] || return 0; return 1; fi
+    case "$(LC_ALL=C kill -0 "$1" 2>&1)" in *"o such process"*) return 0 ;; esac
+    return 1
+  fi
+  _kig_live="$(kosmos_start_token "$1")"
+  # Tokens of two kinds (written by ps, read through /proc, or the other way round) cannot be compared: unknowable.
+  case "$2" in proc:*) _kig_want=proc ;; *) _kig_want=ps ;; esac
+  case "$_kig_live" in proc:*) _kig_got=proc ;; '') _kig_got="" ;; *) _kig_got=ps ;; esac
+  if [ -d /proc/self ] && [ "$_kig_want" = proc ]; then
+    [ -e "/proc/$1" ] || return 0                                  # no /proc entry: gone, in any language
+    [ "$_kig_got" = proc ] || return 1                             # unreadable here (hidepid, another user)
+  elif [ -n "$_kig_got" ] && [ "$_kig_got" != "$_kig_want" ]; then
+    return 1
+  elif [ -z "$_kig_live" ]; then
+    # Nothing came back: gone, or ps could not run (a sandbox). Only kill's own "No such process" proves gone.
+    case "$(LC_ALL=C kill -0 "$1" 2>&1)" in *"o such process"*) return 0 ;; esac
+    return 1
+  fi
+  [ -n "$_kig_live" ] && [ "$_kig_live" != "$2" ]                  # that pid is now another process
+}
+kosmos_stranded_pause() { # prints the stranded pause's name files, one per line, and returns 0; else returns 1
+  [ -e "$KOSMOS_HOME/board.stopped" ] || return 1
+  # The same rule as setup.sh's _kosmos_mode_keeps_board_off: no mode file runs the board; else only run or both.
+  if [ -e "$KOSMOS_HOME/mode" ]; then
+    case "$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" in run|both) ;; *) return 1 ;; esac
+  fi
+  _ksp_list=""; _ksp_support=""
+  for _ksp_f in "$KOSMOS_HOME"/board.stopped.by-install.*; do
+    [ -e "$_ksp_f" ] || continue
+    _ksp_rest="${_ksp_f##*/board.stopped.by-install.}"; _ksp_pid="${_ksp_rest%%.*}"; _ksp_tok="${_ksp_rest#*.}"
+    case "$_ksp_pid" in ''|*[!0-9]*) return 1 ;; esac
+    case "$_ksp_tok" in ''|*[!A-Za-z0-9:_]*) return 1 ;; esac
+    [ "$_ksp_tok" != "$_ksp_rest" ] || return 1
+    kosmos_installer_gone "$_ksp_pid" "$_ksp_tok" || return 1        # a live installer: its pause stands
+    _ksp_list="$_ksp_list$_ksp_f
+"
+    # A gone update's name older than the board's last start is a leftover: that pause ended when the board started
+    # again (every start writes board.started-at, and an older kosmos's start removes only the marker, not names).
+    # A later stop beside such a leftover is therefore a person's. Kill an update at any point of its pause and its
+    # name is newer than the last start, so it still counts.
+    [ "$KOSMOS_HOME/board.started-at" -nt "$_ksp_f" ] || _ksp_support=yes
+  done
+  [ -n "$_ksp_list" ] && [ "${_ksp_support:-}" = yes ] || return 1   # no name, or only leftovers: a person's stop
+  printf '%s' "$_ksp_list"
+}
+kosmos_live_pause() { # 0 when the marker is there and at least one name is a running update's (its pause is live)
+  [ -e "$KOSMOS_HOME/board.stopped" ] || return 1
+  for _klp_f in "$KOSMOS_HOME"/board.stopped.by-install.*; do
+    [ -e "$_klp_f" ] || continue
+    _klp_rest="${_klp_f##*/board.stopped.by-install.}"; _klp_pid="${_klp_rest%%.*}"; _klp_tok="${_klp_rest#*.}"
+    case "$_klp_pid" in ''|*[!0-9]*) continue ;; esac
+    case "$_klp_tok" in ''|*[!A-Za-z0-9:_]*) continue ;; esac
+    [ "$_klp_tok" != "$_klp_rest" ] || continue
+    kosmos_installer_gone "$_klp_pid" "$_klp_tok" || return 0
+  done
+  return 1
+}
+kosmos_clear_stranded_pause() { # $1 who is clearing. Moves the marker aside (kept as evidence) and logs it.
+  _kcs_names="$(kosmos_stranded_pause)" || return 1
+  _kcs_aside="$KOSMOS_HOME/board.stopped.stranded.$(date +%s).$$"
+  mv -f "$KOSMOS_HOME/board.stopped" "$_kcs_aside" 2>/dev/null || return 1
+  # A person's stop between the check and the move removes the names first: then it was theirs, so put it back.
+  # (Not airtight: in the moments between this move and that put-back the marker is absent, so a supervisor
+  # could start the board under a stop landing in exactly that window. Narrow, and a later stop still holds.)
+  # (Read line by line from a here-document: no word splitting, so a KOSMOS_HOME with a space in it is safe.)
+  while IFS= read -r _kcs_f; do
+    [ -n "$_kcs_f" ] || continue
+    if [ ! -e "$_kcs_f" ]; then mv -f "$_kcs_aside" "$KOSMOS_HOME/board.stopped" 2>/dev/null; return 1; fi
+  done <<KOSMOS_6651_NAMES
+$_kcs_names
+KOSMOS_6651_NAMES
+  while IFS= read -r _kcs_f; do
+    [ -n "$_kcs_f" ] || continue
+    mv -f "$_kcs_f" "$_kcs_aside.${_kcs_f##*/board.stopped.}" 2>/dev/null || rm -f "$_kcs_f"
+  done <<KOSMOS_6651_NAMES
+$_kcs_names
+KOSMOS_6651_NAMES
+  mkdir -p "$KOSMOS_HOME/logs" 2>/dev/null
+  # On a full disk a failed append leaves printf's buffer, which bash then writes to stdout: measured. So the
+  # subshell's own stdout goes nowhere too (a subshell alone still shares the caller's stdout).
+  ( printf '[%s] %s: cleared a stranded update pause (%s); kept at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" \
+    "$(printf '%s' "$_kcs_names" | sed 's|.*/||' | tr '\n' ' ')" "$_kcs_aside" \
+    >> "$KOSMOS_HOME/logs/board-watchdog.log" ) >/dev/null 2>&1 || true
+  # Keep the newest ten clears as evidence; older ones go.
+  ls -1t "$KOSMOS_HOME"/board.stopped.stranded.* 2>/dev/null | awk -F. '{ k = $0; sub(/\.by-install\..*$/, "", k) } !seen[k]++ { n++ } n > 10' \
+    | while IFS= read -r _kcs_old; do rm -f "$_kcs_old"; done
+}
+# END kosmos#6651 shared block
+# kosmos#6651 (CLI only): a start that refuses puts back the marker it removed, and an update's names with it
+# (cmd_start's _had_stop_names, visible here because bash locals are dynamically scoped).
+# An agent's start that found a stranded pause clears it now that its cooldown and claim passed. If the clear
+# backs off (a person's stop or a new update came in meanwhile) and a marker stands, it refuses like any stop.
+agent_clear_stranded_or_refuse() {
+  [ "${_agent_clears_stranded:-no}" = yes ] || return 0
+  kosmos_clear_stranded_pause agent-start && return 0
+  if [ -f "$STOP_MARKER" ]; then
+    say "Kosmos was stopped on purpose by the person who runs this computer, so an agent may not start it. Tell them if you need it running."
+    exit 1
+  fi
+  return 0
+}
+restore_stop_marker() {
+  : > "$STOP_MARKER" 2>/dev/null || true
+  [ -n "${_had_stop_names:-}" ] || return 0
+  printf '%s\n' "$_had_stop_names" | while IFS= read -r _n; do [ -n "$_n" ] && { : > "$_n"; } 2>/dev/null || true; done
+  return 0
+}
 # #5450: left by a person's `kosmos start` (first thing, before the stop marker goes), so board-run can tell a person's
 # start from the login item's or a crash relaunch's. The board removes it once it has used it (engine/restartnote.js
 # atStart) and `kosmos stop` removes it; board-run removes none. Older than PERSON_START_MAX_S it is stale.
@@ -1421,7 +1553,11 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
   # A person stopped it on purpose (the deliberate-stop marker): an agent's start would clear the marker and
   # switch the watchdog back on, overriding that person. Only a person, or an internal caller with --force,
   # starts it again.
-  if [ -f "$STOP_MARKER" ]; then
+  # kosmos#6651: an update's pause whose update is gone is not a person's stop. It is cleared only after the
+  # cooldown and the claim below pass, so a refused agent start never releases the board.
+  _agent_clears_stranded=no
+  if [ -f "$STOP_MARKER" ] && kosmos_stranded_pause >/dev/null; then _agent_clears_stranded=yes
+  elif [ -f "$STOP_MARKER" ]; then
     say "Kosmos was stopped on purpose by the person who runs this computer, so an agent may not start it. Tell them if you need it running."
     exit 1
   fi
@@ -1458,6 +1594,7 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
         if [ $(( _now - _c )) -ge "$_cool" ] && printf '%s\n' "$_now" > "$_claim.new.$$" 2>/dev/null \
            && mv -f "$_claim.new.$$" "$_claim" 2>/dev/null; then
           rmdir "$_claim.lock" 2>/dev/null || true
+          agent_clear_stranded_or_refuse
           return 0
         fi
         rm -f "$_claim.new.$$" 2>/dev/null || true
@@ -1469,9 +1606,31 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
     say "Another agent is starting Kosmos right now, so this one may not. If it still is not answering in a few minutes, tell the person who runs this computer."
     exit 1
   fi
+  agent_clear_stranded_or_refuse   # kosmos#6651: cooldown and claim passed
   return 0
 }
 
+# #6586: wait for a recorded board that is alive but not answering YET (most often one launchd is bringing back after
+# an update's pause), with the same bound a fresh start's wait has. Its own loop, not _await_board_up: this board was
+# not launched by this command, so nothing here may signal it or speak of launching it.
+#   0  it answers (or is busy, for a plain start)    1  still silent, or this shell cannot reach it: stuck
+#   2  it exited while we waited: the caller clears its pidfile and starts one
+_await_recorded_board() { # $1: its pid
+  local _i
+  say "A Kosmos board from this install is already running (process $1) but not answering yet; waiting for it."
+  for _i in $(seq 1 30); do
+    if healthy --once; then say "Kosmos is running at $URL"; return 0; fi
+    # Busy is up for a plain start. Never for a reclaim (KOSMOS_RECLAIM_BUSY=1): that caller already judged it stale.
+    if [ "$HEALTH_STATE" = busy ] && [ "${KOSMOS_RECLAIM_BUSY:-}" != 1 ]; then
+      say "Kosmos is running at $URL (busy right now, so it is slow to answer)"; _busy_person_hint; return 0
+    fi
+    [ "$HEALTH_STATE" = unreachable ] && return 1   # this shell cannot reach it: waiting cannot change that
+    kill -0 "$1" 2>/dev/null || return 2
+    sleep 0.5
+  done
+  healthy --once && { say "Kosmos is running at $URL"; return 0; }   # a board that answers at the very end is up
+  return 1
+}
 # After a start: wait for the board to come up (30 tries, half a second apart). [pid]: the process just
 # launched; the wait ends early if it has exited. #4466: a board that comes back BUSY is up, not failed:
 # it holds the port as ours and is working (a 25-agent board is busy the moment its agents reconnect), so
@@ -1551,7 +1710,7 @@ _await_board_up() {
         if [ "$(cat "$PIDFILE" 2>/dev/null)" = "$_pid" ]; then rm -f "$PIDFILE" 2>/dev/null || true; fi
         # Nothing was left started, so a deliberate stop a person made stands (cmd_start's _had_stop_marker,
         # visible here because bash locals are dynamically scoped; empty for any other caller).
-        if [ -n "${_had_stop_marker:-}" ]; then : > "$STOP_MARKER" 2>/dev/null || true; fi
+        if [ -n "${_had_stop_marker:-}" ]; then restore_stop_marker; fi
         die "Kosmos cannot be started from this shell: it started, but $(_unreachable_why). A board started from a sandboxed shell is blocked the same way, so it was stopped again. Start it from a normal Terminal (or ask the person who runs this computer)."
       fi
     fi
@@ -1596,11 +1755,27 @@ cmd_start() {
   # #4636, the one exception: a start from a shell that cannot connect to the board, which then refuses (or
   # stops the board it launched there), puts back a marker it cleared. It started nothing, so a person's
   # deliberate stop stands; a start that FAILS to bind still clears it, as above.
-  local _had_stop_marker=""
+  local _had_stop_marker="" _had_stop_names=""
   # Under restart, the marker as it was before restart's own stop (which writes one on a down board), not now.
   if [ "${_KOSMOS_RESTARTING:-}" = 1 ]; then _had_stop_marker="${_KOSMOS_RESTART_HAD_MARKER:-}"
   elif [ -f "$STOP_MARKER" ]; then _had_stop_marker=1; fi
-  rm -f "$STOP_MARKER" 2>/dev/null || true
+  # kosmos#6651: an update's pause names go with the marker (a start makes them moot), and are put back with it by
+  # the refusals below, so a refused start never turns an update's stranded pause into a person's stop.
+  # Not a leftover (a name older than the board's last start): put back fresh, it would count again.
+  _had_stop_names=""
+  for _n in "$STOP_MARKER".by-install.*; do
+    [ -e "$_n" ] || continue
+    [ "$BOARD_STARTED_AT" -nt "$_n" ] && continue
+    _had_stop_names="$_had_stop_names$_n
+"
+  done
+  rm -f "$STOP_MARKER" "$STOP_MARKER".by-install.* 2>/dev/null || true
+  # #6586: the guards from here to the recorded-board check run a second time after that check's wait, so a board
+  # that reached a state DURING the wait gets the verdict it would have had at the first look. Each recorded board gets
+  # the wait once (a board launchd relaunched in place of one that exited gets its own), and there are at most two.
+  # (The loop body keeps its old indentation, which other tests lift and pin.)
+  local _waited="" _waits=0
+  while :; do
   if healthy; then
     say "Kosmos is already running at $URL"
     return 0
@@ -1612,7 +1787,7 @@ cmd_start() {
   if [ "$HEALTH_STATE" = unreachable ]; then
     if [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ] || ! _unreachable_is_ours; then
       # Nothing was started, so a deliberate stop a person made stands (#2955's early clear is undone).
-      if [ -n "$_had_stop_marker" ]; then : > "$STOP_MARKER" 2>/dev/null || true; fi
+      if [ -n "$_had_stop_marker" ]; then restore_stop_marker; fi
       die "$(_unreachable_lead) $(_unreachable_why). Nothing was started or stopped; run this from a shell that can reach it."
     fi
     say "Kosmos is already running at $URL, but $(_unreachable_why). Nothing was started."
@@ -1708,8 +1883,35 @@ cmd_start() {
   # reboot), and the new one dies on the taken port anyway.
   local _oldpid
   if _oldpid="$(running_pid)"; then
+    # #6586: most often this board is not stuck but STARTING: launchd brought it back seconds ago after an
+    # update's pause, and it answers within about 20 s. It gets the same bounded wait a fresh start gets; only a
+    # board still silent after that is called stuck. Any other outcome goes back through the guards above.
+    if [ "$_waited" != "$_oldpid" ] && [ "$_waits" -lt 2 ]; then
+      _waited="$_oldpid"; _waits=$((_waits + 1))
+      local _arb=0
+      _await_recorded_board "$_oldpid" || _arb=$?
+      [ "$_arb" -eq 0 ] && return 0
+      if [ "$_arb" -eq 2 ]; then
+        # It ended while starting: the guards run again; with nothing recorded, this is a normal start.
+        if [ "$(cat "$PIDFILE" 2>/dev/null)" = "$_oldpid" ]; then rm -f "$PIDFILE" 2>/dev/null || true; fi
+        # A stop marker written since the top of this function (which removed it) means a person's stop or an
+        # update's pause ended that board while this start waited: the stop wins and nothing is launched. A reclaim
+        # caller asked for a running board, so for it this is a failure.
+        if [ -e "$STOP_MARKER" ]; then
+          if [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ]; then
+            die "That board (process $_oldpid) was stopped while this start waited for it. Nothing was started."
+          fi
+          say "That board (process $_oldpid) was stopped while this start waited for it. Nothing was started."
+          return 0
+        fi
+        say "That board (process $_oldpid) exited while starting."
+      fi
+      continue
+    fi
     die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. $(_stop_advice)"
   fi
+  break
+  done
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   { [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Linux ] && [ -f "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && [ -x "${AGENT_WORKFORCE_TMUX_BIN:-}" ]; } || { [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; } || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
@@ -1804,6 +2006,7 @@ cmd_board_run() {
   # relaunch us while it exists; this guard only covers the one-shot RunAtLoad at
   # load, which fires regardless of PathState. `kosmos start` clears the marker
   # (cmd_start, near the top, just after the #5450 person's mark) and kickstarts us.
+  kosmos_clear_stranded_pause board-run || true   # kosmos#6651: an update's pause whose update is gone
   if [ -f "$STOP_MARKER" ]; then
     say "Kosmos was deliberately stopped; not starting. Resume with: kosmos start"
     exit 0
@@ -1905,6 +2108,10 @@ cmd_stop() {
     # a crash and restarting what the user just asked to stop. `kosmos start`
     # clears it again. `:` truncates/creates the file with nothing in it -- its
     # presence is the whole signal.
+    # kosmos#6651: a person's stop is a person's, so it takes away any update's name files (only an update's own
+    # pause, KOSMOS_STOP_BY_INSTALL=1, keeps them). Removed BEFORE the marker is written, so a stranded-pause clear
+    # racing this stop sees no names and puts the marker back.
+    [ "${KOSMOS_STOP_BY_INSTALL:-}" = 1 ] || rm -f "$STOP_MARKER".by-install.* 2>/dev/null || true
     : > "$STOP_MARKER" 2>/dev/null || true
     # #2956: under launchd supervision the marker is what makes a stop STICK -- a
     # missing marker (unwritable home, full disk) means launchd relaunches the
@@ -2005,6 +2212,7 @@ cmd_stop() {
     # just told us they want off. The foreign-board branch above deliberately does
     # NOT write it: that board is not ours to mark, and our watchdog would refuse
     # to start over a stranger's port anyway.
+    [ "${KOSMOS_STOP_BY_INSTALL:-}" = 1 ] || rm -f "$STOP_MARKER".by-install.* 2>/dev/null || true   # kosmos#6651, as above
     : > "$STOP_MARKER" 2>/dev/null || true
     say "Kosmos is not running."
   fi

@@ -825,6 +825,8 @@ step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
 # fix), merged at 21:06: nothing compared the prebuilt with relay main. Refused here,
 # before the bump, so a stale connector costs a rebuild and not a cut. The same path
 # build-kosmos-bundle.sh reads at step 4. KOSMOS_ALLOW_STALE_TUNNEL=1 ships it on purpose.
+# Relay main must also hold tools/build-tunnel-release.sh: without it the answer is unknown, and that is refused even
+# with the override (#6628).
 connector_currency_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
   "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" || exit 1
 
@@ -1202,8 +1204,8 @@ step "== 3c. the installer .pkg, rebuilt and published only when its inputs chan
 # same afternoon a hand republish went live beside the previous build's
 # .sha256. This step is the remembering. It is NOT a rebuild every cut: the pkg is payload-free
 # (a postinstall that runs the served /setup), so it changes only when its
-# INPUTS change (pkg-scripts, pkg-resources, the build script (which carries the identifier), and
-# the signing identity; tools/lib/pkg-inputs.sh is the one definition). A rebuild
+# INPUTS change (pkg-scripts, pkg-resources, the build script (which carries the identifier), the
+# signing identity, and the release check in install/pkg-verify; tools/lib/pkg-inputs.sh is the one definition). A rebuild
 # costs a sign + notarise round trip, minutes, and only when one of those
 # moved. It sits BEFORE step 4 on purpose: step 4 copies the cache-immutable
 # versioned tarball into the site dist, and a notarisation flake after that

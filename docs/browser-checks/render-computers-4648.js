@@ -63,6 +63,8 @@ const FOUR = {
         /* kosmos#6406 step 2: the ticket this computer would make; window.__ticket is set by arm 4. */
         if (String(url).indexOf('/api/remote/open-ticket') !== -1) {
           window.__ticketAsked = (window.__ticketAsked || []).concat([JSON.parse((opts && opts.body) || '{}')]);
+          // kosmos#6585: a ticket still being made, so the switching screen can be looked at.
+          if (window.__ticketHang) return new Promise(() => {});
           return Promise.resolve(new Response(JSON.stringify(window.__ticket ? { ticket: window.__ticket } : { error: 'no' }), { status: window.__ticket ? 200 : 400, headers: { 'content-type': 'application/json' } }));
         }
         if (String(url).indexOf('/api/remote/computers') !== -1) {
@@ -221,6 +223,53 @@ const FOUR = {
        arm adds is that the navigation went through a link that says noreferrer.) */
     ok(`${t} #6406 step 2: no Referer reaches the other computer, and the navigation goes through an unmarked noreferrer link`,
       landedReferer === '' && goRel === 'noreferrer|false', JSON.stringify({ landedReferer, goRel }));
+
+    // ---- Arm 5, kosmos#6585 (Josh 2026-10-19 09:12): back on the page (arm 4 left it). In the app, a computer the
+    //      board measured as unable to switch instantly says so and stays; any other shows the animated K and its name
+    //      from the click, over the whole window, while the ticket is made. ----
+    await page.goto(PAGE);
+    const FIVE = { ok: true, domain: FOUR.domain, computers: FOUR.computers.map((c) => (c.name === 'desk-mini' ? Object.assign({}, c, { instant: true }) : c))
+      .concat([{ name: 'old-mini', address: 'old-mini.kosmosplus.example', this: false, online: true, instant: false }]) };
+    await page.evaluate(async (five) => {
+      const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+      try { Object.defineProperty(window, 'webkit', { value: { messageHandlers: { kosmosBadge: { postMessage() {} } } }, configurable: true, writable: true }); } catch {}
+      window.__ticketHang = true;
+      window.__ticketAsked = [];
+      window.__computers = five;
+      document.getElementById('worldsw').hidden = false;
+      const before = window.__computersServed || 0;
+      worldswClose(); worldswOpen();
+      for (let i = 0; i < 40 && (window.__computersServed || 0) <= before; i++) await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 100));
+    }, FIVE);
+    await page.click('#worldsw-computers-list a.worldsw-row[href="https://old-mini.kosmosplus.example/"]');
+    await page.waitForTimeout(200);
+    const refused = await page.evaluate(() => ({ url: location.href, screen: !!document.getElementById('cswitch-screen'), asked: (window.__ticketAsked || []).length,
+      toast: (document.getElementById('msg-toast') || {}).textContent || '' }));
+    ok(`${t} #6585: an older Kosmos is not opened: no screen, no ticket, the page stays`,
+      !refused.screen && refused.asked === 0 && refused.url.startsWith('file:'), JSON.stringify(refused));
+    ok(`${t} #6585: and says why and what to do`,
+      refused.toast === 'old-mini is on an older Kosmos, so it cannot switch instantly yet. Update Kosmos on old-mini, or open old-mini.kosmosplus.example in your browser and sign in.', refused.toast);
+    await page.evaluate(() => { worldswClose(); worldswOpen(); });
+    await page.waitForTimeout(150);
+    await page.click('#worldsw-computers-list a.worldsw-row[href="https://desk-mini.kosmosplus.example/"]');
+    await page.waitForTimeout(400);
+    const shown = await page.evaluate(() => {
+      const s = document.getElementById('cswitch-screen');
+      if (!s) return null;
+      const r = s.getBoundingClientRect();
+      const cv = s.querySelector('canvas.cswitch-k');
+      let inked = 0;
+      try { const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) inked += 1; } catch {}
+      const top = document.elementFromPoint(innerWidth / 2, 20);
+      return { text: s.textContent, role: s.getAttribute('role'), covers: r.left <= 0 && r.top <= 0 && r.right >= innerWidth && r.bottom >= innerHeight,
+        onTop: !!top && s.contains(top), inked, bg: getComputedStyle(s).backgroundColor, asked: (window.__ticketAsked || []).length };
+    });
+    ok(`${t} #6585: from the click, the switching screen covers the window, on top, and names the computer`,
+      !!shown && shown.covers && shown.onTop && shown.text === 'Opening desk-mini' && shown.role === 'status' && shown.asked === 1, JSON.stringify(shown));
+    ok(`${t} #6585: the animated K is drawn (not a blank canvas) on an opaque ground`,
+      !!shown && shown.inked > 50 && !/rgba\(0, 0, 0, 0\)|transparent/.test(shown.bg), JSON.stringify(shown && { inked: shown.inked, bg: shown.bg }));
+    if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, `switching-${engine}-${theme}-desktop.png`) });
 
     await page.close();
   }

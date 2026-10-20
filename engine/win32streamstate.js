@@ -18,6 +18,15 @@
  *     6ms apart, never batched
  *   - rate_limit_event arrives mid-turn and says nothing about working/idle
  *
+ * 🔑 BUT IT DOES SAY WHEN THE ACCOUNT IS OUT OF USAGE (#5805). Its `rate_limit_info.status` is `rejected` when a request
+ * was refused by the account's usage limit, with `resetsAt` (epoch seconds) and `rateLimitType` (shape read from the
+ * installed Claude Code's own schema: status allowed | allowed_warning | rejected; resetsAt an int; rateLimitType
+ * five_hour | seven_day | ...). Before this, Windows kept only the event's type, so a capped account left every card
+ * reading idle while messages were typed into sessions that could not answer (17 hours, 10-18/19). A rejected event is
+ * kept as the agent's `limit` until an allowed event or a turn that reached the model and succeeded clears it (an
+ * account on its extra usage, sent `rejected` with isUsingOverage, is room), and `stateFor` reports
+ * `limit <until> <since|-> <kind|->[ <line>]` while the reset is ahead, which status reads as the Mac's rate_limited.
+ *
  * So a message written, or any in-turn event, is BUSY; a `result` is IDLE; a
  * start is IDLE. Nothing is counted: a counter that missed one event would be
  * wrong forever, while this reading corrects itself on the next event.
@@ -43,6 +52,11 @@ const store = require('./store');
     status.classify's win32 arm reads either source without a second vocabulary. */
 const BUSY = 'busy';
 const IDLE = 'idle';
+/** #5805: the token's first word while the account is out of usage; `stateFor` adds the reset, the latest refusal's
+    time, the limit's kind and Claude's sentence. */
+const LIMIT = 'limit';
+/** A result's text kept with a limit is capped: it is the vendor's sentence on its way to a card, not a transcript. */
+const LIMIT_LINE_MAX = 300;
 
 /** Bumped if the file's shape ever changes, so a board never trusts a file it
     was not written to read. */
@@ -73,6 +87,49 @@ function stateAfterEvent(event) {
      subtype arriving between turns must not strand the card on WORKING. */
   if (event.type === 'system' && event.subtype === 'init') return BUSY;
   return null;
+}
+
+/** #5805: an epoch time from `resetsAt` as an ISO string, or null. The schema gives seconds; a value already in
+    milliseconds (past 1e12) is taken as it is, so a later change of unit cannot put the reset in 1970 or 57000 AD. */
+function resetIso(v) {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return null;
+  const ms = v > 1e12 ? v : v * 1000;
+  const d = new Date(ms);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+}
+
+/**
+ * #5805: what one rate_limit_event says about the account's usage limit. `undefined` for no claim, `null` when it
+ * shows the account has room (allowed, a warning, or a refusal the account's extra usage covers), or `{ until, kind }`
+ * for a refusal. Claude Code's own test (review 2, read from its binary): a refusal counts only with a reset time and
+ * neither isUsingOverage nor overageInUse; Kosmos also treats an overageStatus of allowed or allowed_warning as room. Clearing on a finished turn is the publisher's (see event()).
+ */
+function limitAfterEvent(event) {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) return undefined;
+  if (event.type === 'rate_limit_event') {
+    const info = event.rate_limit_info;
+    if (!info || typeof info !== 'object') return undefined;
+    /* Review 1: Claude Code also sends `rejected` for an account running on its extra usage, whose requests still
+       succeed (isUsingOverage true, overageStatus allowed). That is room, not a refusal. */
+    if (info.status === 'rejected' && (info.isUsingOverage === true || info.overageInUse === true || info.overageStatus === 'allowed' || info.overageStatus === 'allowed_warning')) return null;
+    if (info.status === 'rejected') {
+      /* No reset time: Claude Code does not count it as a limit either, so neither does this. */
+      if (resetIso(info.resetsAt) === null) return undefined;
+      const kind = typeof info.rateLimitType === 'string' && /^[a-z0-9_]{1,40}$/.test(info.rateLimitType) ? info.rateLimitType : null;
+      return { until: resetIso(info.resetsAt), kind };
+    }
+    if (info.status === 'allowed' || info.status === 'allowed_warning') return null;
+    return undefined;
+  }
+  /* A turn that ended without an error clears it only when the turn reached the model (the publisher tracks whether an
+     assistant message was seen): a local command's result made no API request, so it says nothing about the account,
+     and clearing on it would leave a capped session reading idle until its next refused request (review 1, 3). */
+  return undefined;
+}
+
+/** #5805: whether a state token is the out-of-usage one `stateFor` writes (win32capture counts it as a good reading). */
+function isLimitToken(token) {
+  return typeof token === 'string' && /^limit \S+ \S+ \S+/.test(token);
 }
 
 /** One stream line as an event, or null when it is not JSON. */
@@ -177,13 +234,29 @@ function clearState(name, ownerPid) {
  * @param {string} name the recorded agent name
  * @param {{sessionId: string, pid: number}} live the agent's row from `claude agents --json`
  */
-function stateFor(name, live) {
+function stateFor(name, live, nowMs) {
   if (!live || typeof live.sessionId !== 'string' || !live.sessionId || !Number.isInteger(live.pid)) return null;
   let rec;
   try { rec = JSON.parse(fs.readFileSync(statePath(name), 'utf8')); } catch { return null; }
   if (!rec || typeof rec !== 'object' || rec.v !== STATE_FILE_VERSION) return null;
   if (rec.sessionId !== live.sessionId || rec.pid !== live.pid) return null;
-  return rec.state === BUSY || rec.state === IDLE ? rec.state : null;
+  const base = rec.state === BUSY || rec.state === IDLE ? rec.state : null;
+  if (base === null) return null;
+  /* #5805: out of usage while the reset is ahead: `limit <until> <since|-> <kind|->[ <line>]`. Past the reset the plain state comes
+     back, so the card reads released and held messages are typed. A limit with no readable reset is not one (the
+     publisher never writes such a record; this is the reader refusing to trust one it did not write). */
+  const lim = rec.limit;
+  if (lim && typeof lim === 'object') {
+    const until = typeof lim.until === 'string' && Number.isFinite(Date.parse(lim.until)) ? lim.until : null;
+    const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+    if (until !== null && Date.parse(until) > now) {
+      const kind = typeof lim.kind === 'string' && /^[a-z0-9_]{1,40}$/.test(lim.kind) ? lim.kind : '-';
+      const since = typeof lim.since === 'string' && Number.isFinite(Date.parse(lim.since)) ? lim.since : '-';
+      const line = typeof lim.line === 'string' && lim.line ? ' ' + lim.line : '';
+      return LIMIT + ' ' + until + ' ' + since + ' ' + kind + line;
+    }
+  }
+  return base;
 }
 
 /**
@@ -222,8 +295,8 @@ function publisher(name, opts) {
   const timer = o.setTimer || ((fn, ms) => setTimeout(fn, ms));
   const onProblem = typeof o.onProblem === 'function' ? o.onProblem : () => {};
 
-  let current = null;      // { pid, sessionId, state } of the agent running now
-  let written = null;      // the state last put on disk for `current`
+  let current = null;      // { pid, sessionId, state, limit } of the agent running now
+  let written = null;      // the state and limit last put on disk for `current` (see keyOf)
   let retrying = false;
   /* Bumped on every start and stop, so a retry armed for one process can never
      act as the second attempt for the next. */
@@ -232,10 +305,14 @@ function publisher(name, opts) {
   /* `retrying` is true from a failed write until the next write that SUCCEEDS, so
      the retry below -- or any transition that comes first -- is the second
      attempt, and a second failure in a row is what clears. */
+  /* #5805: a refusal can arrive while the state token does not change, so a transition is the token AND the limit. */
+  function keyOf(c) { return c.state + '\u0000' + JSON.stringify(c.limit || null); }
   function flush() {
-    if (!current || written === current.state) { retrying = false; return; }
-    const r = write({ v: STATE_FILE_VERSION, state: current.state, sessionId: current.sessionId, pid: current.pid, at: new Date().toISOString() });
-    if (r && r.ok) { written = current.state; retrying = false; return; }
+    if (!current || written === keyOf(current)) { retrying = false; return; }
+    const rec = { v: STATE_FILE_VERSION, state: current.state, sessionId: current.sessionId, pid: current.pid, at: new Date().toISOString() };
+    if (current.limit) rec.limit = current.limit;
+    const r = write(rec);
+    if (r && r.ok) { written = keyOf(current); retrying = false; return; }
     onProblem('we could not record its state (' + ((r && r.because) || 'unknown') + ')');
     if (retrying) {
       /* 🛑 A SECOND FAILURE IN A ROW CLEARS THE FILE. What is on disk now is an
@@ -266,17 +343,44 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, state: IDLE };
+      current = { pid, sessionId, state: IDLE, limit: null, reachedModel: false };
       flush();
     },
     /** One parsed stream event. */
     event(e) {
+      if (!current) return;
       const next = stateAfterEvent(e);
-      if (next && current) { current.state = next; flush(); }
+      if (next) current.state = next;
+      /* #5805: a refusal is kept, room clears it, and the refused turn's own sentence rides with it. */
+      /* Review 9: a refused request's own error message (is_api_error_message, in Claude Code's stream-json schema) did
+         not reach the model, so it does not count; then even a result without is_error cannot clear the limit. */
+      const apiError = e && (e.is_api_error_message === true || e.isApiErrorMessage === true
+        || (e.message && typeof e.message === 'object' && (e.message.is_api_error_message === true || e.message.isApiErrorMessage === true)));
+      if (e && e.type === 'assistant' && !apiError) current.reachedModel = true;
+      let lim = limitAfterEvent(e);
+      /* A refused turn's error arrives as an assistant message flagged is_api_error_message (so it does not count as
+         reaching the model, above), and its result carries is_error true and api_error (Claude Code 2.1.303's schema).
+         Any one of the three keeps the refused turn's own result from clearing the limit it just set (reviews 3, 9). */
+      if (lim === undefined && e && e.type === 'result' && e.is_error !== true && !e.api_error && current.reachedModel === true) lim = null;
+      /* Every refusal is stamped now, the LATEST one (review 7: a refusal after the agent's report proves the account is
+         capped now; status lets only an agent report newer than this outrank the limit). The same refusal again
+         (Claude Code re-sends it, at most every 30 s per reset) keeps the sentence already read. */
+      if (lim) {
+        const same = current.limit && lim.until === current.limit.until && lim.kind === current.limit.kind;
+        lim = { ...lim, since: new Date().toISOString(), ...(same && current.limit.line ? { line: current.limit.line } : {}) };
+      }
+      if (lim !== undefined) current.limit = lim;
+      /* Only the first error sentence after the refusal (review 1): a later, different error must not become the
+         limit's evidence. */
+      if (current.limit && !current.limit.line && e && e.type === 'result' && e.is_error === true && typeof e.result === 'string') {
+        const line = e.result.replace(/\s+/g, ' ').trim().slice(0, LIMIT_LINE_MAX);
+        if (line) current.limit = { ...current.limit, line };
+      }
+      if (next || lim !== undefined || current.limit) flush();
     },
     /** A message reached the agent's stdin. */
     wrote() {
-      if (current) { current.state = BUSY; flush(); }
+      if (current) { current.state = BUSY; current.reachedModel = false; flush(); }
     },
     /** The agent process is gone. */
     stopped() {
@@ -305,4 +409,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, liveIdentity };
+module.exports = { BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, liveIdentity, isLimitToken };
