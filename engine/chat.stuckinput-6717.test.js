@@ -161,7 +161,8 @@ test('kosmos#6717: a draft that cannot be written leaves the box exactly as it i
   const p = pane(PERSON);
   chat.setDraftSaver(() => ({ ok: false, because: 'disk full' }));
   const r = await chat.recoverStuckInput(card, SINCE);
-  assert.equal(r.outcome, 'waiting');
+  assert.equal(r.outcome, 'left');
+  assert.match(r.because, /the draft could not be saved \(disk full\)/);
   assert.equal(p.clears(), 0, 'nothing cleared without a saved copy');
   assert.equal(p.enters(), 0);
   assert.equal(p.state.text, PERSON);
@@ -524,3 +525,30 @@ test('kosmos#6717: a piece of a text already kept (a clearing that stopped partw
   assert.notEqual(drafts.add('al', 'row of it and second').id, whole.id, 'from the middle of the kept text: not what a clear leaves');
   assert.equal(drafts.list('al').length, 4);
 });
+
+test('kosmos#6717: a store that keeps refusing the draft is said once in the log, and the box is never cleared', () => withAgent(async (roster) => {
+  const p = pane(PERSON);
+  chat.setDraftSaver(() => ({ ok: false, because: 'the drafts kept for this agent cannot be read right now' }));
+  const lines = [];
+  const tick = stuck.makeTick({ allowed: () => true, roster: () => roster, recover: (c, s) => chat.recoverStuckInput(c, s), stuckMs: chat.STUCK_INPUT_MS, log: (l) => lines.push(l) });
+  await tick(); await tick();
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /left the text in the box \(the draft could not be saved/);
+  assert.equal(p.clears(), 0);
+}));
+
+test('kosmos#6717: rounds that only empty blank rows (the text reads the same, the box draws fewer rows) are progress, not a stall', () => withAgent(async (roster, card) => {
+  const p = pane('first line of it');
+  let blanks = 2;
+  const drawn = () => [RULE, '\x1b[39m❯\u00a0' + (p.state.text || ''), ...Array.from({ length: blanks }, () => '  '), RULE, '  scratch · Haiku 5.5'].join('\n') + '\n';
+  chat.setRunner((args) => {
+    if (args[0] === 'capture-pane' && args.includes('-e')) return ok(p.state.text || blanks ? drawn() : draw(''));
+    if (args[0] === 'send-keys' && args.includes('C-u') && blanks > 0) { blanks -= 1; p.state.rounds += 1; return ok(); }
+    return p(args);
+  });
+  saveInto(p);
+  const r = await chat.recoverStuckInput(card, SINCE);
+  assert.equal(r.outcome, 'drafted', JSON.stringify(r));
+  assert.equal(blanks, 0);
+  assert.equal(p.state.text, '');
+}));
