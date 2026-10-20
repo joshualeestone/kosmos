@@ -44,6 +44,12 @@ const projects = require('../../engine/projects');
 const tasks = require('../../engine/tasks');
 const srv = require('../../server.js');
 
+/* kosmos#6725: WebKit reports each request a navigation cancels as "Fetch API cannot load <url> due to access control
+   checks." and Playwright passes that on as a page error, though no page code raised it (measured: no
+   unhandledrejection fires for these). Ignored only for THIS board's own address and only while a reload the check
+   started is in flight; a cross-origin failure, or one at any other moment, still counts. */
+const cutOffByReload = (msg, base) => /due to access control checks\.?$/.test(msg) && msg.includes(base.replace(/^https?:\/\//, '') + '/');
+
 const fail = [];
 let passed = 0;
 const chk = (ok, label, extra) => {
@@ -67,12 +73,16 @@ const chk = (ok, label, extra) => {
     for (const [w, h] of sizes) {
       const page = await browser.newPage({ viewport: { width: w, height: h }, colorScheme: 'light' });
       const errs = [];
-      page.on('pageerror', (e) => errs.push(e.message));
+      let reloading = false;
+      let ignored = 0;   // #6725: printed, so a CI log shows whether the filter is what kept the arm green
+      page.on('pageerror', (e) => { if (reloading && cutOffByReload(e.message, BASE)) ignored += 1; else errs.push(e.message); });
       await page.addInitScript(() => { try { localStorage.setItem('kosmos-look', 'new'); } catch { /* none */ } });
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(300); }
       await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) }).then((r) => r.text()));
+      reloading = true;   // #6725
       await page.reload({ waitUntil: 'networkidle' });
+      reloading = false;
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(300); }
       await page.waitForSelector('.pj-row', { state: 'visible', timeout: 10000 });
       await page.click('[data-project="' + proj.id + '"]');
@@ -136,7 +146,7 @@ const chk = (ok, label, extra) => {
           t + ' [' + unread + '] unfolded: the bubble keeps its place at the row\'s top-right corner (#3339)', JSON.stringify(o));
       }
       }
-      chk(errs.length === 0, t + ' no page errors', errs.join(' | '));
+      chk(errs.length === 0, t + ' no page errors', 'ignored=' + ignored + (errs.length ? ' ' + errs.join(' | ') : ''));
       await page.close();
     }
   } finally {

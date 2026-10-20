@@ -20124,6 +20124,20 @@ window.kosmosMeasureScrollbarWidth();
 <script>
 'use strict';
 
+/* #6725: a request a reload or navigation cuts off rejects (WebKit: "Load failed" / "due to access control checks"),
+   and any caller without its own catch turns that into an uncaught error on a page that is going away. Those are
+   ignored, and only those: a TypeError (what fetch rejects with) while the page is leaving. The flag is set at
+   beforeunload, because WebKit rejects the cut-off requests BEFORE pagehide (measured), and clears itself after a
+   second, so a navigation that never happens (a download link) cannot hide a real failure later. */
+let PAGE_LEAVING = false;
+window.addEventListener('beforeunload', () => {
+  PAGE_LEAVING = true;
+  setTimeout(() => { PAGE_LEAVING = false; }, 1000);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (PAGE_LEAVING && e.reason instanceof TypeError) e.preventDefault();
+});
+
 /* #6192: a refused reply's body is always read. Left unread, the request did not finish (measured in Chromium against
    the board's own 404s: 19 still open 8 s after a load whose every read was refused), so anything waiting for the
    page's network to go quiet waited for good.
