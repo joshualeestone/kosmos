@@ -96,6 +96,7 @@ function scheduler(names, { fail = false } = {}) {
 /** An agent's folder and profile, with no job of either kind. */
 function folderAgent(name) {
   store.writeProfile(name, { role: 'helper' });
+  require('./liveness').seen(name);   // #6714: an agent the restart survey counts has run here
   fs.mkdirSync(create.workerDir(name), { recursive: true });
 }
 /** The Mac's job: a file. */
