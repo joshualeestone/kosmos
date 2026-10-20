@@ -181,23 +181,28 @@ function askConnectorCapabilities() {
 /* Whether this board has started the tunnel process that forwards. Until it has, nothing is vouched for: a tunnel
    left running by an earlier board (an older binary, say) must not borrow what this board's binary says. */
 let tunnelStartedHere = false;
-/* kosmos#6616 (R01b part 6): the binary's answer AND the running tunnel's own. While a tunnel this board started is
-   running, a capability counts only if that process also lists it in its status file (`capabilities`, written by the
+/* kosmos#6616 (R01b part 6): the binary's answer AND the running tunnel's own. Once this board has started a tunnel,
+   a capability counts only if the child it runs now also lists it in its status file (`capabilities`, written by the
    process about itself, kosmos-relay runcaps-6616). The binary's answer alone described the file on disk, which an
-   update can replace while an older tunnel keeps forwarding, and the ten-minute recheck would then ask the NEW binary
-   about the OLD process. A status file from another process (its pid), not yet written, unreadable, or with no
-   `capabilities` (a connector older than that field) lists nothing, so this only ever narrows the binary's answer.
-   With no tunnel running here there is no process to describe, and the binary's answer stands as before. */
+   update can replace while this board's tunnel keeps forwarding, and the ten-minute recheck would then ask the NEW
+   binary about the OLD process. A status file from another process (its pid), not yet written, unreadable, or with no
+   `capabilities` (a connector older than that field) lists nothing, and so does a moment with no child running
+   (crash backoff, a stop): nothing legitimate arrives then, so it fails closed. This only ever narrows the binary's
+   answer. NOT closed (stated): a tunnel orphaned by an EARLIER board that still forwards is described by neither
+   check, since it shares this board's status file and its pid is not the child's; ending such orphans is the fix. */
 function connectorCapabilities(now = Date.now()) {
   const caps = binaryCapabilities(now);
   const running = runningCapabilities();
   return running === null ? caps : new Set([...caps].filter((c) => running.has(c)));
 }
-let runningPidForTests = null;   // kosmos#6616: tests only, the pid of a tunnel "running here" without spawning one
-/* What the tunnel process this board runs says it can do; null when none runs. Read on each ask: a small file. */
+// kosmos#6616: tests only, the pid of a tunnel "running here" when none was spawned (a real child always wins).
+let runningPidForTests = null;
+/* What the tunnel process this board runs says it can do; null only before this board has started any (the binary's
+   answer is then gated by tunnelStartedHere alone). Read on each ask: a small file. */
 function runningCapabilities() {
-  const pid = runningPidForTests !== null ? runningPidForTests : (child ? child.pid : null);
-  if (pid === null || pid === undefined) return null;
+  const pid = child ? child.pid : runningPidForTests;
+  if (!tunnelStartedHere) return null;
+  if (pid === null || pid === undefined) return new Set();
   let raw;
   try { raw = JSON.parse(fs.readFileSync(STATUS_FILE(), 'utf8')); } catch { return new Set(); }
   if (!raw || raw.pid !== pid || !Array.isArray(raw.capabilities)) return new Set();

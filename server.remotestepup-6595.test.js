@@ -34,11 +34,19 @@ const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusa
 const remote = require('./engine/remote');
 
 let base;
+/* kosmos#6616: since R01b part 6 a tunnel must be running here and list the capability in its own status file. These
+   tests stand in one (TEST_PID) whose file lists it, so the binary's answer is what they exercise. */
+const TEST_PID = 424240;
+const STATUS = path.join(require('./engine/store').ROOT, 'remote-status.json');
+const listRunning = (body = { state: 'up', pid: TEST_PID, capabilities: ['session-headers'] }) => {
+  fs.mkdirSync(path.dirname(STATUS), { recursive: true }); fs.writeFileSync(STATUS, JSON.stringify(body));
+};
+const reset = (opts = {}) => { listRunning(); remote.resetConnectorCapabilitiesForTests({ runningPid: TEST_PID, ...opts }); };
 const warm = () => new Promise((resolve) => remote.warmConnectorCapabilities(resolve));
 // Polls, not a fixed sleep: a background ask on a loaded machine can take far longer than it does here.
 const until = async (ok, ms = 5000) => { const end = Date.now() + ms; while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 20)); return ok(); };
 // This board "started" its tunnel (the tests start none), so what the connector says is listened to.
-test.before(async () => { await start(0); remote.resetConnectorCapabilitiesForTests(); await warm(); base = `http://127.0.0.1:${server.address().port}`; });
+test.before(async () => { await start(0); reset(); await warm(); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(() => {
   server.closeAllConnections(); server.close();
   fs.rmSync(SANDBOX, { recursive: true, force: true });
@@ -258,20 +266,20 @@ test('R01: a connector that does not list session-headers cannot vouch, so even 
 });
 
 test('R01: the warm-up fills the answer without blocking, and a request then finds it kept', async () => {
-  remote.resetConnectorCapabilitiesForTests();
+  reset();
   const caps = await new Promise((resolve) => remote.warmConnectorCapabilities(resolve));
   assert.ok(caps.has('session-headers'));
   const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = '/usr/bin/false';
   try {
     assert.ok(remote.connectorCapabilities().has('session-headers'), 'the request used the warmed answer, not a new spawn');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); }
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); }
 });
 
 test('R01: the connector is never asked while a request waits: with no answer kept, "nothing" now, and an ask in the background', async () => {
   const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
   try {
-    remote.resetConnectorCapabilitiesForTests();
+    reset();
     assert.equal(remote.connectorCapabilities().size, 0, 'no answer yet: nothing, at once');
     assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'the background ask filled it');
     // Kept, never downgraded: a later failing connector does not undo it.
@@ -279,7 +287,7 @@ test('R01: the connector is never asked while a request waits: with no answer ke
     assert.ok(remote.connectorCapabilities(Date.now() + 10 * 60 * 60 * 1000).has('session-headers'));
     await warm();
     assert.ok(remote.connectorCapabilities().has('session-headers'), 'a failed later ask does not downgrade it');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
 test('R01: an old connector is asked again after ten minutes, one that did not answer after thirty seconds', async () => {
@@ -288,7 +296,7 @@ test('R01: an old connector is asked again after ten minutes, one that did not a
   fs.writeFileSync(old, '#!/bin/sh\nexit 2\n', { mode: 0o755 });   // an older connector: the verb is unknown
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = old;
-    remote.resetConnectorCapabilitiesForTests();
+    reset();
     assert.equal((await warm()).size, 0, 'an old connector lists nothing');
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;   // updated
     const t0 = Date.now();
@@ -296,14 +304,14 @@ test('R01: an old connector is asked again after ten minutes, one that did not a
     remote.connectorCapabilities(t0 + 10 * 60 * 1000 + 1);   // due: asks in the background
     assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'asked again after ten');
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = path.join(SANDBOX, 'no-such-tunnel');   // cannot be started
-    remote.resetConnectorCapabilitiesForTests();
+    reset();
     assert.equal((await warm()).size, 0);
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;
     const t1 = Date.now();
     assert.equal(remote.connectorCapabilities(t1 + 20 * 1000).size, 0, 'unanswered: kept for thirty seconds');
     remote.connectorCapabilities(t1 + 31 * 1000);
     assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'unanswered: asked again after thirty seconds');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
 test('R01: over HTTP, a connector that cannot vouch refuses a fresh remote session (key route, unreadable body)', async () => {
@@ -312,12 +320,12 @@ test('R01: over HTTP, a connector that cannot vouch refuses a fresh remote sessi
   fs.writeFileSync(old, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = old;
-    remote.resetConnectorCapabilitiesForTests();
+    reset();
     await warm();
     const got = await post('/api/accounts/gemini/apikey', { ...VIA_PLUS, ...fresh() }, 'not json');
     assert.equal(got.status, 403, JSON.stringify(got.body));
     assert.equal(got.body.code, 'remote_step_up_unavailable');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
 test('R01: a late answer from an earlier ask is dropped (generations), and starting a tunnel asks anew', async () => {
@@ -329,14 +337,14 @@ test('R01: a late answer from an earlier ask is dropped (generations), and start
   fs.writeFileSync(no, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = slowYes;
-    remote.resetConnectorCapabilitiesForTests();
+    reset();
     const late = warm();                       // the earlier connector's ask, still running
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = no;
     remote.forgetConnectorCapabilities();      // a tunnel is started: a new generation
     assert.equal((await warm()).size, 0, 'the connector now in place does not vouch');
     await late;                                // the earlier ask lands now, saying yes
     assert.equal(remote.connectorCapabilities().has('session-headers'), false, 'a late yes from an earlier connector was trusted');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
 test('R01: a tunnel restart on the same binary keeps a yes; a changed binary is asked again', async () => {
@@ -345,7 +353,7 @@ test('R01: a tunnel restart on the same binary keeps a yes; a changed binary is 
   fs.writeFileSync(yes, '#!/bin/sh\nprintf "session-headers\\n"\n', { mode: 0o755 });
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = yes;
-    remote.resetConnectorCapabilitiesForTests();
+    reset();
     await warm();
     remote.forgetConnectorCapabilities();   // a tunnel restarts on the same binary
     assert.ok(remote.connectorCapabilities().has('session-headers'), 'a restart on the same binary lost the answer');
@@ -353,11 +361,11 @@ test('R01: a tunnel restart on the same binary keeps a yes; a changed binary is 
     const later = new Date(Date.now() + 5000); fs.utimesSync(yes, later, later);
     remote.forgetConnectorCapabilities();
     assert.equal((await warm()).size, 0, 'a changed binary kept the old yes');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
 test('R01: a forget right after the start-up ask still ends with an answer (the ask is restarted)', async () => {
-  remote.resetConnectorCapabilitiesForTests();
+  reset();
   remote.askConnectorCapabilities();          // the start-up ask
   remote.forgetConnectorCapabilities();       // a tunnel starts before it returns
   assert.ok(await until(() => remote.connectorCapabilities().has('session-headers')), 'nothing was asking after the forget');
@@ -365,10 +373,10 @@ test('R01: a forget right after the start-up ask still ends with an answer (the 
 
 test('R01: until this board has started its own tunnel, nothing is vouched for (a tunnel from an earlier board borrows nothing)', async () => {
   try {
-    remote.resetConnectorCapabilitiesForTests({ startedHere: false });
+    reset({ startedHere: false });
     await warm();                                   // the binary says yes ...
     assert.equal(remote.connectorCapabilities().size, 0, 'a tunnel this board did not start was vouched for');
-  } finally { remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { reset(); await warm(); }
 });
 
 /* kosmos#6616 (R01b part 6): the RUNNING tunnel must list the capability too. The binary's yes alone described the file
@@ -378,7 +386,7 @@ test('R01b: while a tunnel runs here, only what that process lists in its status
   const pid = 424242;
   const write = (body) => { fs.mkdirSync(path.dirname(statusFile), { recursive: true }); fs.writeFileSync(statusFile, JSON.stringify(body)); };
   try {
-    remote.resetConnectorCapabilitiesForTests({ runningPid: pid });
+    reset({ runningPid: pid });
     await warm();                                                    // the binary on disk says yes
     write({ state: 'up', pid, capabilities: ['session-headers'] });
     assert.ok(remote.connectorCapabilities().has('session-headers'), 'CONTROL: the running process lists it');
@@ -390,25 +398,32 @@ test('R01b: while a tunnel runs here, only what that process lists in its status
     assert.equal(remote.connectorCapabilities().size, 0, 'a list that is not an array vouched');
     fs.rmSync(statusFile, { force: true });
     assert.equal(remote.connectorCapabilities().size, 0, 'no status file yet vouched');
+    fs.writeFileSync(statusFile, '{"state":"up","pid":' + pid + ',"capabilities":["session-hea');
+    assert.equal(remote.connectorCapabilities().size, 0, 'a truncated status file vouched');
+    // Started here, but no tunnel running now (crash backoff, a stop): nothing legitimate arrives, so nothing counts.
+    write({ state: 'up', pid, capabilities: ['session-headers'] });
+    reset({ runningPid: null });
+    await warm();
+    assert.equal(remote.connectorCapabilities().size, 0, 'with no tunnel running, the binary alone vouched');
     // The running process cannot widen the binary's answer: it only narrows.
     const no = path.join(SANDBOX, 'no-tunnel-6616');
     fs.writeFileSync(no, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
     const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = no;
     try {
-      remote.resetConnectorCapabilitiesForTests({ runningPid: pid });
+      reset({ runningPid: pid });
       await warm();
       write({ state: 'up', pid, capabilities: ['session-headers'] });
       assert.equal(remote.connectorCapabilities().size, 0, 'the status file widened a binary that says no');
     } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; }
-  } finally { fs.rmSync(statusFile, { force: true }); remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { fs.rmSync(statusFile, { force: true }); reset(); await warm(); }
 });
 
 test('R01b: over HTTP, an older running tunnel refuses a fresh remote session though the binary says yes', async () => {
   const statusFile = path.join(require('./engine/store').ROOT, 'remote-status.json');
   const pid = 424243;
   try {
-    remote.resetConnectorCapabilitiesForTests({ runningPid: pid });
+    reset({ runningPid: pid });
     await warm();
     fs.mkdirSync(path.dirname(statusFile), { recursive: true });
     fs.writeFileSync(statusFile, JSON.stringify({ state: 'up', pid }));
@@ -418,5 +433,5 @@ test('R01b: over HTTP, an older running tunnel refuses a fresh remote session th
     fs.writeFileSync(statusFile, JSON.stringify({ state: 'up', pid, capabilities: ['session-headers'] }));
     const ok = await post('/api/accounts/gemini/apikey', { ...VIA_PLUS, ...fresh() }, 'not json');
     assert.equal(ok.status, 400, 'CONTROL: listed, the request passes the gate to the route: ' + JSON.stringify(ok.body));
-  } finally { fs.rmSync(statusFile, { force: true }); remote.resetConnectorCapabilitiesForTests(); await warm(); }
+  } finally { fs.rmSync(statusFile, { force: true }); reset(); await warm(); }
 });

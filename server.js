@@ -4285,8 +4285,9 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    session's email code was proven, and x-kosmos-session-second, 1 when the second factor was. Missing or malformed
    counts as NOT fresh. A tunnel older than sessioniat-6595 does not strip client copies, so its headers are trusted
    only when the bundled connector says it does (`kosmos-tunnel capabilities` lists session-headers; asked by
-   remote.connectorCapabilities, in the background): an older connector, on any platform, makes every gated remote
-   request refused with remote_step_up_unavailable. A local
+   remote.connectorCapabilities, in the background) AND the tunnel this board runs lists it in its own status file
+   (kosmos#6616): an older connector, on any platform, makes every gated remote request refused with
+   remote_step_up_unavailable. A local
    request is not asked: the person is at the computer. Taking things away (deleting a key, forgetting a token) is
    not asked either. */
 /* Twelve minutes, a little longer than the coordinator's own STEP_UP_SECS (ten): a handoff minted near the end of the
