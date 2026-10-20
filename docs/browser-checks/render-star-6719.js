@@ -67,7 +67,7 @@ async function open(browser, eng, w, h, theme, touchArg) {
       mk('Bea', { lastTalkedAt: '2026-10-20T11:00:00Z' }),
       mk('Cam', { lastTalkedAt: '2026-10-20T10:00:00Z' }),
       // A long name, so the "does not cover the name" arms can fail; and the most unread, for the badge arms.
-      { ...mk('Dee', { lastTalkedAt: '2026-10-20T09:00:00Z', dmUnread: 12 }), name: 'Delphine Montgomery-Ashworth' },
+      { ...mk('Dee', { lastTalkedAt: '2026-10-20T09:00:00Z', dmUnread: 120 }), name: 'Delphine Montgomery-Ashworth' },   // "99+", the widest badge
       // A running agent with a question to answer (its card carries data-answer), long-named for the tablet arm.
       { ...mk('Eve', { lastTalkedAt: '2026-10-20T08:00:00Z', running: true, state: 'needs_you', isNamedOurs: true, because: 'Which domain?' }),
         name: 'Evangeline Rutherford-Blackwood' },
@@ -168,9 +168,16 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       chk(JSON.stringify(await page.evaluate(() => window.ANSWERED)) === JSON.stringify(['eve']), `${t} CONTROL: a click elsewhere on that card answers`, JSON.stringify(await page.evaluate(() => window.ANSWERED)));
 
       // A list repaint, as the 5 s poll does, keeps a focused star focused.
+      // In the list layout, where the list is on screen (a hidden list's star cannot take focus at all).
+      await page.evaluate(() => { BOARD_LAYOUT = 'list'; boardApplyVisibility(true); repaintAgentOrder(); });
       await page.focus('#alist [data-star="cam"]');
-      const kept = await page.evaluate(() => { paintAgentList(); const a = document.activeElement; return { star: a && a.dataset ? a.dataset.star : null, inList: !!(a && a.closest && a.closest('#alist')) }; });
-      chk(kept.star === 'cam' && kept.inList, `${t} a list repaint (the poll's) keeps a focused star focused`, JSON.stringify(kept));
+      const kept = await page.evaluate(() => {
+        const before = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.star : null;
+        paintAgentList(); const a = document.activeElement;
+        return { before, star: a && a.dataset ? a.dataset.star : null, inList: !!(a && a.closest && a.closest('#alist')) };
+      });
+      await page.evaluate(() => { BOARD_LAYOUT = 'grid'; boardApplyVisibility(true); repaintAgentOrder(); });
+      chk(kept.before === 'cam' && kept.star === 'cam' && kept.inList, `${t} a list repaint (the poll's) keeps a focused star focused (CONTROL: it had focus before)`, JSON.stringify(kept));
 
       // A refused save puts the star back.
       await page.evaluate(() => { window.STAR_REFUSE = true; });
@@ -251,7 +258,9 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
         const r = (el) => (el ? el.getBoundingClientRect() : null);
         const hit = (a, b) => !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
         const s = r(row.querySelector('.lname .astar')); const b = r(row.querySelector(':scope > .dmbadge'));
-        const title = r(row.querySelector('.ltitle')); const nm = r(row.querySelector('.lname .namego'));
+        // The VISIBLE name is the name cell's own box (its text is clipped there); the button inside can run on under
+        // the star unseen, and a press there reaches the star, which is on top.
+        const title = r(row.querySelector('.ltitle')); const nm = r(row.querySelector('.lname > b'));
         return { row: true, cons: document.body.classList.contains('consolidated'), sized: !!(s && s.width > 0), badge: !!b,
           badgeClear: b ? !hit(s, b) : null, titleClear: title && title.width > 0 ? !hit(s, title) : null, nameClear: nm ? !hit(s, nm) : null };
       });

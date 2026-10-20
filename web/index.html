@@ -5522,8 +5522,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   /* #6719: in the rail the name and the title stack in one narrow column and the unread badge hangs off the row's
      corner, so the star is a compact box on the name line, pulled in from the corner (measured clear of both by
      render-star-6719). The row itself stays the large target that opens the agent. */
-  html[data-layout="consolidated"] body.consolidated .lrow .lname { padding-right: 34px; }
-  html[data-layout="consolidated"] body.consolidated .lrow .lname .astar { width: 26px; height: 20px; right: 8px; border-radius: 6px; }
+  /* Pulled 18 px in from the name column's edge: the row's badge hangs off the row's corner, and a three-character one
+     ("99+") reaches about 24 px in from the row's edge, 14 px into the name column. */
+  html[data-layout="consolidated"] body.consolidated .lrow .lname { padding-right: 46px; }
+  html[data-layout="consolidated"] body.consolidated .lrow .lname .astar { width: 26px; height: 20px; right: 18px; border-radius: 6px; }
   html[data-layout="consolidated"] body.consolidated .lrow .lname .astar svg { width: 15px; height: 15px; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav { grid-row: 1 / span 2; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lname { grid-column: 2; grid-row: 1; min-width: 0; }
