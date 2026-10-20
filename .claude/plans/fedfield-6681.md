@@ -24,6 +24,9 @@ Stacked on fedboard-6681 (slice 1, kosmos #6688: the engine sends `email` and ma
 - `maxlength` counts UTF-16 units, the board's bound counts bytes: an internationalised address can pass the field and
   be refused as "does not look right".
 - `autocomplete=off` is a hint some browsers ignore for email fields.
+- The done step and the copied invitation do not say the code is bound to an address (review 3), so the person
+  invited learns it only from a refusal if they redeem from another account. A later slice.
+- The design shots show the field's empty state only, not its refused state (review 3).
 
 ## Tests
 `docs/browser-checks/render-federation-invite-4649.js`: the field (empty, optional, type email, autocapitalize and

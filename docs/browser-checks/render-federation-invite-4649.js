@@ -467,7 +467,8 @@ const closeAll = (page) => page.evaluate(() => {
       bad.posts === 1 && bad.focus === 'fedinv-email' && bad.invalid === 'true' && bad.labelBad === false
       && bad.make === false && bad.cancel === false   // review 2: and the person can try again or leave
       && /email address does not look right/.test(bad.msg), JSON.stringify(bad));
-    await page.evaluate(() => { window.__posts.length = 0; });
+    // Review 3: the field's invalid state cleared first, so the arm's own "invalid" reading can fail.
+    await page.evaluate(() => { window.__posts.length = 0; pjFieldOk('fedinv-email', 'fedinv-msg'); });   // eslint-disable-line no-undef
     await page.fill('#fedinv-email', 'dana');
     await page.click('#fedinv-make');
     const typo = await page.evaluate(() => ({ posts: window.__posts.length, invalid: document.getElementById('fedinv-email').getAttribute('aria-invalid') }));
