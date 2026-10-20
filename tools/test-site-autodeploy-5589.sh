@@ -513,6 +513,25 @@ KOSMOS_AUTODEPLOY_SECRETS="$SEC" KOSMOS_AUTODEPLOY_DEPLOY='printf %s "$VERCEL_TO
 { [ "$RC" = 0 ] && [ "$(cat "$TOKSEEN")" = test-token-6771 ] && [ ! -s "$SECLOG" ]; } \
   && pass "6771: a token already in the environment wins, and the secrets map is not read" || bad "6771 inherited token (rc=$RC): saw '$(cat "$TOKSEEN")', secrets log '$(cat "$SECLOG")'"
 
+# A lookup that cannot run is said as that, not as a missing token; and the accessor's reason is kept.
+H6771c=$(advance six-seven-seven-one-c)
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_SECRETS="$T/no-such-secrets-map" tick; echo "$RC" > "$T/rc4"; printf '%s' "$OUT" > "$T/out4" )
+{ [ "$(cat "$T/rc4")" = 1 ] && grep -q "cannot read the Vercel token: $T/no-such-secrets-map is not there or not executable" "$T/out4" && ! grep -q "file a scoped token" "$T/out4"; } \
+  && pass "6771: no secrets-map: its own red, not 'file a token'" || bad "6771 no accessor (rc=$(cat "$T/rc4")): $(cat "$T/out4")"
+cat > "$T/secrets-why" <<'EOF'
+#!/bin/sh
+echo "secrets-map: no credential for target '$2' (the map lists none)" >&2; exit 1
+EOF
+chmod +x "$T/secrets-why"; rm -rf "$ST/reported.d"
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_SECRETS="$T/secrets-why" tick; printf '%s' "$OUT" > "$T/out5" )
+grep -q "the accessor said: secrets-map: no credential for target 'vercel-chaoskosmos-site'" "$T/out5" && pass "6771: the accessor's own reason is in the red line" || bad "6771 accessor reason: $(cat "$T/out5")"
+# In Actions the token is masked before anything else prints; outside Actions nothing prints it.
+( unset VERCEL_TOKEN; GITHUB_ACTIONS=true SEC_TOKEN=mask-me KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; printf '%s' "$OUT" > "$T/out6" )
+grep -qx '::add-mask::mask-me' "$T/out6" && pass "6771: in GitHub Actions the token is masked" || bad "6771 no mask in Actions: $(head -5 "$T/out6")"
+H6771d=$(advance six-seven-seven-one-d)
+( unset VERCEL_TOKEN GITHUB_ACTIONS; SEC_TOKEN=do-not-print KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; printf '%s' "$OUT" > "$T/out7" )
+! grep -q 'do-not-print' "$T/out7" && pass "6771: outside Actions the token is never printed" || bad "6771 token printed outside Actions"
+
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
 { [ "$RC" = 2 ] && [ "$(ndeploys)" = "$nfinal" ]; } && pass "no KOSMOS_AUTODEPLOY_SITE: exit 2, nothing deployed" || bad "unset site (rc=$RC)"

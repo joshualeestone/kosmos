@@ -190,6 +190,7 @@ _fetch_cleanup() {
   [ -z "$_FETCH_TMP_A" ] || rm -f "$_FETCH_TMP_A"
   [ -z "$_FETCH_TMP_S" ] || rm -f "$_FETCH_TMP_S"
   [ -z "$_FETCH_TMP_P" ] || rm -rf "$_FETCH_TMP_P"
+  [ -z "${VOUT:-}" ] || rm -f "$VOUT"; [ -z "${VRC:-}" ] || rm -f "$VRC"   # kosmos#6771's deploy output and code
   _FETCH_TMP_A=""; _FETCH_TMP_S=""; _FETCH_TMP_P=""
 }
 # Every exit path removes a temp in flight: the refusals below remove it explicitly, and these
@@ -841,7 +842,9 @@ case "$LIVE_PTRS_NOW" in *" 000 "*) echo "deploy-site: could not re-read the liv
 [ "$LIVE_PTRS_NOW" = "$LIVE_PTRS_BEFORE" ] || { echo "deploy-site: a live pointer changed while this run was building (a release cut published?) -- refusing; nothing has been deployed. Update the site checkout to origin/main and run again (#5589)."; echo "  before: $LIVE_PTRS_BEFORE"; echo "  now:    $LIVE_PTRS_NOW"; rm -rf "$EXPORT"; exit 75; }
 # kosmos#6771: the CLI says only "Not authorized" when its sign-in or token is refused, which on the Mortals autodeploy
 # read as a site problem. Its output is kept (and still shown as it runs), and that refusal is said in full: whether a
-# token was given (VERCEL_TOKEN, which the CLI reads from the environment, so it never appears in a process list).
+# token was given (VERCEL_TOKEN, which the CLI reads from the environment, so it is never on a command line). Through
+# tee the CLI has no terminal: a by-hand run shows plain output, and a signed-out CLI fails instead of offering a
+# login, which the message below then names.
 # POSIX sh, under set -e: the exit code is written from inside an && || list (which set -e leaves alone), because a
 # pipeline's status is tee's. The function's $? is the subshell's own (measured under sh and dash).
 VOUT=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel.XXXXXX") && VRC=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel-rc.XXXXXX") \
