@@ -37,7 +37,7 @@ sign-in isn't working".
 - All web.*.test.js and cardlabel tests: 3100 pass. Updated to the new rule: web.not-running (offline tile/row on the
   pill), web.trust-wait-card-3013 (trust note on the pill), web.rulesbehind-5957 and -render-5957 (pillSay), 
   web.muse-waiting-4569 (card ''), web.quoted-line-986 and web.stateread-5949 (markup shape).
-- engine/status.earlier-model-6716.test.js (7): splitModelReading keeps a borrowed model out of `model`; only an
+- engine/status.earlier-model-6716.test.js (9): splitModelReading keeps a borrowed model out of `model`; only an
   EARLIER session lends; earlier session lends its model, flagged; CONTROL a replied session reads
   itself; nothing invented with no earlier model; another folder's session never lends. Mutation: without the fallback
   the first arm reds.
@@ -54,6 +54,10 @@ no earlier session beside the new one, and the tile falls back as before (no wor
 (cli.limitmsg-5805, cli.msgqueue-5187, cli.task-webhook-1307, cli.unknown-flag-4889, server.subtasks-3861) fail the
 same way on a branch without this change ("we could not match that to one of your agents"), when run from inside an
 agent session; not this change.
+
+**Decided (review 8).** The pill reads stateReason's page path. Before this change the card path differed from the page
+path in exactly two arms: the rate-limit sentence (already the pill's since #6398) and the rules-behind note (now in
+pillSay). So the pill carries the same set of sentences the tile used to, plus none.
 
 **Review 7.** Only a session from within two days before the current one lends (an old account or runner never reads as
 today's), and an unreadable sibling never lends. Each pill's sentence is computed once per tile and row.
