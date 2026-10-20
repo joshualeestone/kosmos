@@ -223,15 +223,17 @@ test('iteration 2: the overflow line quotes the server\u2019s own limit', async 
 test('iteration 2: a text file in the preview: its words as text, a note when cut, the file card when it will not read, nothing after close', async () => {
   const fn = page.lift(SCRIPT, 'pvTextInto');
   const node = () => ({ className: '', textContent: '', kids: [], appendChild(c) { this.kids.push(c); } });
+  const asked = [];
   const run = async (res, closed = false) => {
     const stage = node();
     Object.defineProperty(stage, 'textContent', { get() { return this._t || ''; }, set(v) { this._t = v; if (v === '') this.kids = []; } });
     const doc = { createElement: () => node(), contains: () => !closed };
-    await new Function('document', 'fetch', fn + '\nreturn pvTextInto;')(doc, async () => res)(stage, '/api/agent/ana/files/preview?name=a.txt', () => ({ card: true }));
+    await new Function('document', 'fetch', fn + '\nreturn pvTextInto;')(doc, async (u) => { asked.push(u); return res; })(stage, { kind: 'agent', owner: 'ana', name: 'docs/a b.txt' }, () => ({ card: true }));
     return stage;
   };
   const ok = (body, cut) => ({ ok: true, text: async () => body, headers: { get: (k) => (k === 'x-kosmos-preview-cut' && cut ? '1' : null) } });
   const plain = await run(ok('<b>words</b>', false));
+  assert.equal(asked[0], '/api/agent/ana/files/preview?name=' + encodeURIComponent('docs/a b.txt'), 'the address it writes for an agent\u2019s file');
   assert.equal(plain.kids[0].className, 'pv-text');
   assert.equal(plain.kids[0].textContent, '<b>words</b>', 'the words are shown as they are, as text');
   assert.equal(plain.kids.length, 1, 'a whole file got a "start of the file" note');
@@ -254,12 +256,13 @@ test('iteration 6: the preview fetches a text file only through an explicit File
   // An attachment's preview is the file's first characters: untrusted, and never an address.
   assert.equal(kind({ kind: 'text', preview: '/api/accounts' }), 'card', 'a text attachment beginning "/api/" would make the viewer fetch that path');
   assert.equal(kind({ kind: 'text', preview: 'hello there' }), 'snippet', 'CONTROL: an attachment\u2019s words show as its snippet');
-  assert.equal(kind({ kind: 'text', textUrl: '/api/agent/ana/files/preview?name=a.txt' }), 'textUrl');
-  assert.equal(kind({ kind: 'text', textUrl: '/api/project/p-1/file-preview?name=a.txt' }), 'textUrl');
-  assert.equal(kind({ kind: 'text', textUrl: '/api/accounts' }), 'card', 'textUrl must name a Files preview route');
+  assert.equal(kind({ kind: 'text', textOf: { kind: 'agent', owner: 'ana', name: 'a.txt' } }), 'textOf');
+  assert.equal(kind({ kind: 'text', textOf: { kind: 'project', owner: 'p-1', name: 'a.txt' } }), 'textOf');
+  assert.equal(kind({ kind: 'text', textOf: { kind: 'accounts', owner: 'x', name: 'a.txt' } }), 'card', 'textOf names an agent or a project list, nothing else');
+  assert.equal(kind({ kind: 'text', textUrl: '/api/agent/ana/files/preview?name=a.txt' }), 'card', 'an address on the record is never fetched');
   assert.equal(kind({ kind: 'image', preview: '/api/attachment/1/preview' }), 'media', 'CONTROL: pictures as before');
   const open = page.lift(SCRIPT, 'pvOpen');
-  assert.match(open, /pvTextInto\(stage, a\.textUrl, fileCard\)/);
+  assert.match(open, /pvTextInto\(stage, a\.textOf, fileCard\)/);
   assert.doesNotMatch(open, /pvTextInto\(stage, a\.preview/, 'the preview text is used as an address again');
   assert.match(PAGE, /#d-filesall-path button \{ min-height: 44px;/, 'the path line\u2019s buttons are small on a phone');
 });

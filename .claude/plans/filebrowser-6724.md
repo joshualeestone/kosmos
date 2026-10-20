@@ -186,3 +186,10 @@ the attribute only when remote.
     without clicking them, or match a generic token). Each has a per-check `Browser-check-surface:` trailer with that
     reason, on the commit that fixed 4997. Measured: the surface gate and the coarse gate (#1720) both rc=0.
     (A first try left `.js` off the basenames, which the gate's match needs; amended before pushing.)
+- Iteration 10 (sonnet): BLOCKER, fixed: the suite was red. `web.api-routes-3957` caps the page's fetches whose URL
+  is not a literal (ceiling 21), and `pvTextInto(stage, url)` made 22; the route test also could not check what it
+  fetched. Rather than raise the ceiling, the record now names the file (`textOf`: which list, whose, the listed name)
+  and pvTextInto writes the two preview addresses out as literals, as kplusDownload does, so the route test reads and
+  checks them. Measured: web.api-routes-3957 29/29. NIT, fixed: the render-docs-seg-4937 trailer said 127.0.0.1; that
+  check loads file:// (no hostname, so not remote either); corrected in a newer trailer, which the gate reads first.
+  My miss: no run of the whole web.* set before the review; the Mortals run is the first full one.
