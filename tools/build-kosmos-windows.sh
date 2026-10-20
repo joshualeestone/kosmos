@@ -230,8 +230,6 @@ echo "==> baked version $_ver into the page"
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" = "1" ]; then
   echo "==> KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check is not enforced for $_ver; with no highlights for $_ver there is no \"Kosmos has been updated\" window"
 else
-  command -v node >/dev/null 2>&1 || {
-    echo "node is needed to check the What's new highlights for $_ver (#4928); install it, or set KOSMOS_CUT_NO_WHATS_NEW=1" >&2; exit 1; }
   _wn=0
   node "$REPO/tools/whats-new-check.js" "$_ver" "$STAGE/app/web/whats-new.json" --platform=windows || _wn=$?
   case "$_wn" in

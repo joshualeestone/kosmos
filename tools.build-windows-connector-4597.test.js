@@ -31,6 +31,7 @@ function pe({ machine = 0x8664, magic = 0x20b, certAddr = 0, certSize = 0 } = {}
   b.write('PE\0\0', 64, 'latin1');
   b.writeUInt16LE(machine, 68);
   b.writeUInt16LE(magic, 64 + 24);
+  b.writeUInt32LE(16, 64 + 24 + 108);   // NumberOfRvaAndSizes: the usual 16 data directories
   b.writeUInt32LE(certAddr, 64 + 24 + 144);
   b.writeUInt32LE(certSize, 64 + 24 + 148);
   return b;
@@ -75,6 +76,8 @@ test('a signed x86-64 Windows connector passes; unsigned, 32-bit and Mac connect
    whatever its signature. pe_signature_present reads the certificate table for either format. */
 function pe32({ certAddr = 0, certSize = 0 } = {}) {
   const b = pe({ machine: 0x14c, magic: 0x10b });
+  b.writeUInt32LE(0, 64 + 24 + 108);
+  b.writeUInt32LE(16, 64 + 24 + 92);    // PE32 keeps the directory count 16 bytes earlier
   b.writeUInt32LE(certAddr, 64 + 24 + 128);
   b.writeUInt32LE(certSize, 64 + 24 + 132);
   return b;
@@ -93,6 +96,10 @@ test('#6679: pe_signature_present sees a signature on a 32-bit or a 64-bit PE, a
   assert.match(wrongTable.err, /carries no signature/);
   for (const bytes of [pe32(), pe()]) assert.match(check('pe_signature_present', bytes).err, /carries no signature/);
   assert.match(check('pe_signature_present', pe({ magic: 0x107 })).err, /unknown optional header/);
+  /* Fewer than 5 data directories: there is no certificate table, whatever bytes sit where it would be. */
+  const fewDirs = pe({ certAddr: 400, certSize: 100 });
+  fewDirs.writeUInt32LE(4, 64 + 24 + 108);
+  assert.match(check('pe_signature_present', fewDirs).err, /no certificate table/);
   const macho = Buffer.alloc(64); macho.writeUInt32BE(0xcafebabe, 0);
   assert.match(check('pe_signature_present', macho).err, /not a Windows program/);
   /* And the committed launcher itself, which the zip's read-me says is signed. */

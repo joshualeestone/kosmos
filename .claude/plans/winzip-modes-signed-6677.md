@@ -69,3 +69,10 @@ Built from this branch on the Windows box through the bsdtar shim (KOSMOS_ALLOW_
 - [WARNING] fixed: the non-ASCII name concern was a comment only. check now refuses a non-ASCII name without the UTF-8 flag; a test covers both.
 - [NIT] deferred again (iteration 2): the cwd-relative Kosmos.exe read in tools.build-windows-connector-4597. That file reads every path from the cwd.
 - [NIT] noted: SmartScreen naming the publisher after More info is how a signed exe shows; the wording is pinned, the behaviour is Windows'.
+### Iteration 7 (opus)
+- [WARNING] fixed: set overwrote any entry's Unix type, so a symlink would have become a file holding its target, invisible to check. set now refuses any type that is not a regular file or a folder; a test covers a symlink and its regular-file control.
+- [CONVENTION] fixed: connector_pe_signed kept its own copy of the certificate-table arithmetic. It now calls pe_signature_present after its x86-64 check, keeping its own remedy message.
+- [NIT] fixed: pe_signature_present reads NumberOfRvaAndSizes and reports no certificate table below 5 directories (fixtures now carry 16; a test covers 4).
+- [NIT] fixed: the What's new block's node check (and its "or set KOSMOS_CUT_NO_WHATS_NEW=1" remedy) went; node is checked once at the top.
+- [NIT] fixed: the end-of-central-directory record must end the file (its comment length reaches the end), so a signature inside a comment, or appended bytes, are refused.
+- [NIT] fixed: the 570 test's message no longer claims a grep proves the refusal; it points at the 4597 test that runs the step.

@@ -31,9 +31,9 @@
  *                                                         it 0644 or 0755 for a file, 0755 for a
  *                                                         program by extension and for a folder)
  *
- * Every entry is written as a regular file or a folder: a symlink entry would become a file holding its
- * target. The build cannot make one (Info-ZIP -r follows links; the stage is copied files), and `check`
- * with the stage folder refuses an entry whose mode is not the regular one `set` gives.
+ * Every entry is written as a regular file or a folder, so `set` REFUSES any other Unix type (a symlink
+ * would otherwise become a file holding its target, which nothing after could see). The build cannot make
+ * one today (Info-ZIP -r follows links; the stage is copied files).
  *
  * A DOS-hosted entry is relabelled Unix. Info-ZIP then stops reading a non-ASCII name without the
  * UTF-8 flag as CP437, so `check` refuses such a name; every name this build stages is ASCII.
@@ -67,6 +67,9 @@ function centralDirectory(buf) {
     if (buf.readUInt32LE(i) === EOCD_SIG) { eocd = i; break; }
   }
   if (eocd < 0) throw new Error('no end-of-central-directory record: this is not a zip');
+  // The record's own comment length must reach exactly to the end of the file, or the match was the
+  // signature's bytes inside a comment (or something was appended).
+  if (eocd + 22 + buf.readUInt16LE(eocd + 20) !== buf.length) throw new Error('the end-of-central-directory record does not end the file');
   let entries = buf.readUInt16LE(eocd + 10);
   let size = buf.readUInt32LE(eocd + 12);
   let offset = buf.readUInt32LE(eocd + 16);
@@ -122,6 +125,10 @@ function modeFor(name, stageDir) {
 function setModes(buf, stageDir) {
   const counts = { file: 0, exec: 0, dir: 0 };
   for (const e of listEntries(buf)) {
+    // Only a regular file or a folder is rewritten: a symlink (or any other type) would otherwise become a
+    // regular file holding its target, which check could no longer see. 0 is "no Unix mode" (DOS-made).
+    const type = (e.madeBy >> 8) === 3 ? (e.attrs >>> 16) & 0o170000 : 0;
+    if (type !== 0 && type !== 0o100000 && type !== 0o040000) throw new Error(`${e.name} is not a regular file or a folder (Unix type ${type.toString(8)}), and a Kosmos zip has none`);
     const mode = modeFor(e.name, stageDir);
     const spec = Math.max(e.madeBy & 0xff, 20);
     buf.writeUInt16LE((3 << 8) | spec, e.at + 4);

@@ -171,7 +171,7 @@ test('the package tells the truth about itself', () => {
   assert.doesNotMatch(manifest, /"signed":/, 'the manifest still carries a blanket "signed" field');
   assert.match(manifest, /"signatures": \{ "Kosmos\.exe": "\$_launcher_sig", "app\/bin\/kosmos-tunnel\.exe": "\$_tunnel_sig" \}/,
     'the manifest does not record what is signed, per file');
-  assert.match(WIN, /pe_signature_present "\$LAUNCHER"/, 'the build does not refuse an unsigned Kosmos.exe, which the README says is signed');
+  assert.match(WIN, /pe_signature_present "\$LAUNCHER"/, 'the build does not check Kosmos.exe for a signature (the step itself is run in tools.build-windows-connector-4597)');
   /* #570 7c: agents work on Windows now (measured, R1-R8), so the package says so.
      The old warnings are pinned ABSENT, because a README that still says "agents
      do not work" over a build where they do sends people away from the thing
