@@ -171,7 +171,17 @@ test('refused: the keys break a rule (none, four, a wrong kid, zero or two curre
     'an unknown role': [[{ ...k7, role: 'primary' }], /entry that is not one/],
     'a raw 32-byte key': [[{ ...k7, pub: rawOf(K7).toString('base64') }], /key that is not one/],
     'missing padding': [[{ ...k7, pub: K7_PUB.slice(0, -1) }], /key that is not one/],
+    'non-zero trailing bits (the same 44 bytes spelled otherwise)': [[{ ...k7, pub: K7_PUB.replace(/0iw=$/, '0ix=') }], /key that is not one/],
+    'a wrong SPKI header (an X25519 one)': [[{ ...k7, pub: (() => { const d = Buffer.from(K7_PUB, 'base64'); d[8] = 0x6e; return d.toString('base64'); })() }], /key that is not one/],
+    'a leading space': [[{ ...k7, pub: ' ' + K7_PUB.slice(1) }], /key that is not one/],
+    'URL-safe base64': [[{ ...k7, pub: K7_PUB.replace(/\+/g, '-') }], /key that is not one/],
   };
+  // CONTROLS for the two above that a looser decoder would read: the trailing-bits spelling decodes to K7's own bytes,
+  // and the X25519 header differs from Ed25519's in one byte only.
+  assert.deepEqual(Buffer.from(K7_PUB.replace(/0iw=$/, '0ix='), 'base64'), Buffer.from(K7_PUB, 'base64'));
+  assert.notEqual(K7_PUB.replace(/0iw=$/, '0ix='), K7_PUB);
+  assert.equal(Buffer.from(K7_PUB, "base64")[8], 0x70, 'the Ed25519 OID byte, which the X25519 arm changes');
+  assert.ok(K7_PUB.includes('+'), 'the URL-safe arm changes a character');
   for (const [name, [keys, why]] of Object.entries(cases)) refused(check(...signed(doc({ service_keys: keys }))), why, name);
   // A weak (small-order) key, in its canonical SPKI spelling: the identity point.
   const weak = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from('01' + '00'.repeat(31), 'hex')]).toString('base64');

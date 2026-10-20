@@ -152,8 +152,9 @@ function realDate(s) {
 }
 
 /**
- * Checks a service key set's bytes and signature, in kosmos-relay's order: the recovery key's signature over the exact
- * bytes first, then JSON with no member named twice, the type, seq and issued, the keys, and seq against `held` (the
+ * Checks a service key set's bytes and signature, the recovery key's signature over the exact bytes first (as the
+ * relay), then JSON with no member named twice, the type, seq and issued, the keys, and seq against `held` (the
+ * relay checks field shapes before seq and issued, so a document refused on both sides may give another reason) (the
  * { seq, sha256 } this computer took last, or null). Returns { ok: true, seq, sha256, keys: [{ kid, pub, role }] },
  * { ok: false, why }, or, when no recovery key is pinned, { ok: false, off: true, why }. A caller checks `off` BEFORE
  * `ok`: off is the shipped default and is not a failure to tell anyone about.
