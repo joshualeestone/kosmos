@@ -43,7 +43,7 @@ man="$(site_deploy_export "$S" "$T/out" "$SHA" 2>"$T/err")"; rc=$?
 grep -q "'0.9.2'" "$T/out/api/_servedversions.js" && grep -q "'0.9.1'" "$T/out/api/_servedversions.js" \
   && ok "the exported table names the pointer the deployed commit moved (0.9.2) and the earlier one" \
   || bad "the exported table is stale: $(cat "$T/out/api/_servedversions.js")"
-printf '%s\n' "$man" | grep -q "rebuilt api/_servedversions.js from the history of $(printf '%.8s' "$SHA") (2 rows)" \
+printf '%s\n' "$man" | grep -q "rebuilt api/_servedversions.js from the history of $(printf '%.8s' "$SHA") (2 rows; the commit had 1)" \
   && ok "the export says it rebuilt the table, from which commit, and how many rows" || bad "no rebuild line: $man"
 [ "$(shasum "$S/api/_servedversions.js")" = "$before" ] && [ "$(git -C "$S" status --porcelain)" = "$status_before" ] \
   && ok "the shared site checkout is untouched (its table byte for byte, its status)" || bad "the export wrote the site checkout"
@@ -61,8 +61,24 @@ printf '#!/bin/bash\nexit 3\n' > "$S/tools/served-versions.sh"
 git -C "$S" add tools/served-versions.sh && git -C "$S" commit -q -m "a broken generator"
 BAD="$(git -C "$S" rev-parse HEAD)"
 site_deploy_export "$S" "$T/out3" "$BAD" >/dev/null 2>"$T/err3"; rc3=$?
-[ "$rc3" = 0 ] && grep -q "served-versions table NOT rebuilt (the generator failed); the committed one ships" "$T/err3" \
+[ "$rc3" = 0 ] && grep -q "served-versions table NOT rebuilt (the generator failed, exit 3: no message); the committed one ships" "$T/err3" \
   && cmp -s "$T/out3/api/_servedversions.js" <(git -C "$S" show "$BAD:api/_servedversions.js") \
   && ok "a failing generator warns, does not refuse the deploy, and the committed table ships" || bad "failing generator: rc=$rc3 $(cat "$T/err3")"
+
+# Review 1: a generator that writes a WORSE table in place and then fails, or writes a SHORT one (a shallow clone's
+# history) and succeeds: the committed table comes back either way, and the warning carries the generator's own words.
+printf '#!/bin/bash\nprintf "export const SERVED = Object.freeze([\\n]);\\n" > "$(dirname "$0")/../api/_servedversions.js"\necho "fatal: boom from the generator" >&2\nexit 4\n' > "$S/tools/served-versions.sh"
+git -C "$S" add tools/served-versions.sh && git -C "$S" commit -q -m "a generator that writes in place, then fails"
+INPL="$(git -C "$S" rev-parse HEAD)"
+site_deploy_export "$S" "$T/out4" "$INPL" >/dev/null 2>"$T/err4"; rc4=$?
+[ "$rc4" = 0 ] && cmp -s "$T/out4/api/_servedversions.js" <(git -C "$S" show "$INPL:api/_servedversions.js") && grep -q "boom from the generator" "$T/err4" \
+  && ok "a generator that overwrites in place then fails: the committed table comes back, its error is in the warning" || bad "in-place failure: rc=$rc4 $(cat "$T/err4")"
+printf '#!/bin/bash\nprintf "export const SERVED = Object.freeze([\\n]);\\n" > "$(dirname "$0")/../api/_servedversions.js"\n' > "$S/tools/served-versions.sh"
+git -C "$S" add tools/served-versions.sh && git -C "$S" commit -q -m "a generator that succeeds with a short table"
+SHORT="$(git -C "$S" rev-parse HEAD)"
+site_deploy_export "$S" "$T/out5" "$SHORT" >/dev/null 2>"$T/err5"; rc5=$?
+[ "$rc5" = 0 ] && cmp -s "$T/out5/api/_servedversions.js" <(git -C "$S" show "$SHORT:api/_servedversions.js") && grep -q "it gave 0 rows, fewer than the commit's 1" "$T/err5" \
+  && ok "a short table (fewer rows than the commit's) is not shipped; the committed one is, and the warning says why" || bad "short table: rc=$rc5 $(cat "$T/err5")"
+ls "$T"/out*.served* >/dev/null 2>&1 && bad "the keep/err temp files were left beside an export" || ok "no temp file is left beside the exports"
 
 echo "site-served-versions-6738: $FAILS failures"; [ "$FAILS" -eq 0 ]

@@ -53,17 +53,31 @@ _SITE_CARRIED=""
 # itself, which is why this is not done as a commit. It never writes the shared site checkout: the generator runs
 # from the export with the site's own .git named by GIT_DIR, and writes the export's copy. A commit from before the
 # generator existed has none, and keeps its table. A generator that fails WARNS and leaves the committed table in
-# place: a stale admin count is not a reason to refuse a deploy.
+# place: a stale admin count is not a reason to refuse a deploy. Known limit (the site generator's, not this): a row's
+# time is the pointer's COMMIT time, so a pointer committed hours before its deploy counts as served from the commit.
 _site_served_versions() {
-  local site="$1" out="$2" sha="$3" gd
+  local site="$1" out="$2" sha="$3" gd tab="$out/api/_servedversions.js" keep err rows want
   [ -f "$out/tools/served-versions.sh" ] || return 0
   gd="$(git -C "$site" rev-parse --absolute-git-dir 2>/dev/null)" || { echo "   ⚠️ served-versions table NOT rebuilt (cannot find $site's .git); the committed one ships" >&2; return 0; }
-  if GIT_DIR="$gd" bash "$out/tools/served-versions.sh" "$sha" >/dev/null 2>&1 && grep -q '^export const SERVED' "$out/api/_servedversions.js" 2>/dev/null; then
-    echo "   rebuilt api/_servedversions.js from the history of $(printf '%.8s' "$sha") ($(grep -c "^  \['" "$out/api/_servedversions.js") rows)"
+  # Review 1: the committed table is kept aside and comes back on ANY doubt (a failed run, or fewer rows than it had:
+  # a shallow clone's short history would otherwise turn older versions' real installs into "pre-release"), so this
+  # never ships a worse table than the commit's, whatever the generator writes in place before it fails.
+  keep="$(mktemp "$out.servedkeep.XXXXXX")" || return 0
+  err="$(mktemp "$out.servederr.XXXXXX")" || { rm -f "$keep"; return 0; }
+  [ -f "$tab" ] && cp -p "$tab" "$keep"
+  want="$(grep -c "^  \['" "$keep" 2>/dev/null)"; want="${want:-0}"   # grep -c prints 0 AND exits 1 on no match
+  local grc=0 why
+  GIT_DIR="$gd" bash "$out/tools/served-versions.sh" "$sha" >/dev/null 2>"$err" || grc=$?
+  rows="$(grep -c "^  \['" "$tab" 2>/dev/null)"; rows="${rows:-0}"
+  if [ "$grc" = 0 ] && grep -q '^export const SERVED' "$tab" 2>/dev/null && [ "$rows" -ge "$want" ]; then
+    echo "   rebuilt api/_servedversions.js from the history of $(printf '%.8s' "$sha") ($rows rows; the commit had $want)"
   else
-    # The generator writes through a temp file, so a failure leaves the archived (committed) table in the export as is.
-    echo "   ⚠️ served-versions table NOT rebuilt (the generator failed); the committed one ships" >&2
+    if [ -s "$keep" ]; then cp -p "$keep" "$tab"; else rm -f "$tab"; fi
+    if [ "$grc" != 0 ]; then why="the generator failed, exit $grc: $( [ -s "$err" ] && tail -1 "$err" || echo 'no message')"
+    else why="it gave $rows rows, fewer than the commit's $want"; fi
+    echo "   ⚠️ served-versions table NOT rebuilt ($why); the committed one ships" >&2
   fi
+  rm -f "$keep" "$err"
 }
 
 site_deploy_export() {

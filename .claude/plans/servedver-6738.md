@@ -33,3 +33,18 @@ what is served, so it stops firing.
 - The REAL site generator, copied out of the repo and run with GIT_DIR (as the export runs it): rc 0, 454 rows ending
   with today's 0.7.61 pointers; the site checkout untouched.
 - tools/test-site-deploy-export.sh still 0 failures.
+
+## Review round 1 (blind, opus): no blocker
+- Verified: GIT_DIR from inside the export reads the commit's history exactly (also through a linked worktree, whose
+  .git is a file); every deploy path goes through site_deploy_export (release.sh, deploy-site.sh; promote-channel,
+  publish-kosmos-windows, site-autodeploy and publish-staging-pointer deploy only through those); the export's pointers
+  come from the commit; nothing in the deploy path compares the export to the commit; .vercelignore excludes tools/.
+- [WARNING] a SHORT table (a shallow clone's history) passed the check and replaced the fuller committed one -->
+  FIXED: the committed table is kept aside and comes back unless the run succeeded with at least as many rows.
+- [WARNING] the generator's error was thrown away --> FIXED: the warning carries its exit status and last error line.
+- [NIT] a generator that writes in place then fails was untested --> FIXED: the keep-aside covers it; tested.
+- [NIT] no timeout --> NOT CHANGED: local, lock-free git log/show over the site's history (the real run takes about a
+  second).
+- [NIT] a row's time is the pointer's COMMIT time, not its deploy time --> said in the comment (the site generator's
+  property, not this diff's).
+- Tests: 10/10; MUTANT (no restore) turns the in-place and short-table cases red.
