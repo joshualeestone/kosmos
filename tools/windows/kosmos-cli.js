@@ -717,7 +717,9 @@ async function verbPost(ctx, args) {
        cut-reply retry the first try (also an ack) may already be in the room. */
     ctx.err(retried
       ? 'Not posted this time: this only agreed with what was already said, so Kosmos did not pass it on. Your first try may have reached the room before that: check kosmos room ' + project + ' before posting again. A post with something new goes through straight away.'
-      : 'Not posted: this only agreed with what was already said, so Kosmos did not pass it on. Nothing was sent. Post again when you have something new to add; that goes through straight away.');
+      : typeof d.owner === 'string' && d.owner   // #6608 parity with install/kosmos: an owner-named post says so
+        ? 'Not posted: that post named ' + d.owner + ' to take it, so Kosmos did not pass on an agreement-only reply from anyone else. Nothing was sent. If you see a problem with it or have something new to add, post that; it goes through straight away.'
+        : 'Not posted: this only agreed with what was already said, so Kosmos did not pass it on. Nothing was sent. Post again when you have something new to add; that goes through straight away.');
   } else { ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.'); tokenRefusedHint(ctx, r); }   // #5333
   /* #2710 parity with install/kosmos: HAND THE TEXT BACK on every refusal, not only a #3224
      which-room hold, or a post refused by the loop guard is lost with the agent's scrollback. A
