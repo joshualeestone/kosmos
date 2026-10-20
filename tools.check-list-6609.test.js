@@ -142,8 +142,11 @@ test('promote (verify-under-list): a manifest signed by a key the served list na
 });
 
 test('promote-channel.sh: when on (needs-list), it fetches the site and checks the list from origin/main, signed or not, and refuses on failure', () => {
-  const gate = PROMOTE_SH.indexOf('if node "$_sign_js" needs-list; then');
-  assert.ok(gate > 0, 'promote-channel.sh no longer asks needs-list');
+  const ask = PROMOTE_SH.indexOf('_nl=0; node "$_sign_js" needs-list || _nl=$?');
+  assert.ok(ask > 0, 'promote-channel.sh no longer asks needs-list');
+  assert.match(PROMOTE_SH.slice(ask, ask + 400), /case "\$_nl" in 0\|3\) : ;; \*\) echo [^\n]*exit 1 ;; esac/, 'anything but on (0) or off (3) refuses');
+  const gate = PROMOTE_SH.indexOf('if [ "$_nl" = 0 ]; then', ask);
+  assert.ok(gate > ask, 'the check runs only when on');
   const end = PROMOTE_SH.indexOf('\n  fi\n', gate);
   assert.ok(end > gate, 'the block was reshaped; re-anchor this test');
   const block = PROMOTE_SH.slice(gate, end);
@@ -160,5 +163,10 @@ test('promote-channel.sh: when on (needs-list), it fetches the site and checks t
 test('needs-list says yes only when a recovery key is pinned', () => {
   const ask = (t) => spawnSync(process.execPath, [path.join(t.root, 'tools', 'lib', 'manifest-sign.js'), 'needs-list']).status;
   assert.equal(ask(tree()), 0);
-  assert.equal(ask(tree({ on: false })), 1);
+  assert.equal(ask(tree({ on: false })), 3, 'off is its own code, not a failure');
+  // A verifier that fails to load is not off: it exits 1, which promote refuses (review 3).
+  const broken = tree();
+  fs.writeFileSync(path.join(broken.root, 'engine', 'manifest-verify.js'), 'throw new Error("broken");\n');
+  const code = ask(broken);
+  assert.notEqual(code, 0); assert.notEqual(code, 3, 'a crash must not read as off');
 });

@@ -30,3 +30,9 @@ That the checkout's RECOVERY_KEYS are the ones installs use. A cut is checked ag
 - [WARNING] fixed: the check sat inside the signed-manifest branch, so an unsigned manifest skipped it. It now runs after both branches; the text test asserts that placement.
 - [NIT] accepted: the promote text test's line-shape assumption (it is re-anchored with an index check now).
 - Promote, release and signer tests 140 pass (the new needs-list arm included in the file's 8); test-promote-channel-win ALL PASS.
+### Iteration 3 (opus)
+- [WARNING] fixed: needs-list read a crash as "off" (a verifier failing to load exits 1, which was the off code), so promote skipped the list check exactly when the tool was broken. Off is now exit 3; promote refuses on anything but 0 or 3. Arms: off answers 3, a verifier that throws on load answers neither 0 nor 3, and promote's case refuses the rest. Mutants measured red (off back to 1; the case removed). The same crash-as-no hole in needs-sig (exit 1 read as "prod does not check signatures") predates this branch and is noted for #6468's owner, not changed here.
+- [WARNING] recorded as an activation rule: promote decides on or off from the TOOL checkout it runs from, not from the release prod serves, so a checkout older than activation reads off and could promote a build signed by a dropped key. Rule: from activation on, promote runs only from a checkout at or after the activation commit. The lasting fix is the manifest field phase 2 needs anyway ("this release checks the list"), which promote should key on, as needs-sig keys on the served manifest.
+- [NIT] fixed: release.sh's refusal sentence named the signing key for all four causes; it now says the check failed and points at the line above.
+- [NIT] fixed: promote's list folder is checked when made and removed by the EXIT trap on any exit, a signal included.
+- Promote, release and signer tests pass; test-promote-channel-win ALL PASS; test-release-detached 0 failures.
