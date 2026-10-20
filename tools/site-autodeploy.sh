@@ -72,7 +72,10 @@
 # deploy's wall-clock limit in seconds: default 900, at most 1200; empty, non-numeric, 0 or a leading 0
 # means 900), KOSMOS_AUTODEPLOY_FETCH_MAX_S (the fetch's limit: default 120, at most 300, same fallbacks),
 # KOSMOS_SITE_URL (default
-# https://installkosmos.com, the same variable deploy-site.sh reads).
+# https://installkosmos.com, the same variable deploy-site.sh reads), VERCEL_TOKEN (the deploy's Vercel token; when
+# unset it is read from the secrets map, target KOSMOS_AUTODEPLOY_VERCEL_TARGET, default vercel-chaoskosmos-site:
+# kosmos#6771), KOSMOS_AUTODEPLOY_SECRETS (the secrets-map command, default secrets-map.sh on PATH or in
+# ~/.claude/scripts).
 # Test seams, TEST ONLY (each is run with sh -c, so never set them in the job's environment):
 # KOSMOS_AUTODEPLOY_DEPLOY (the deploy command, default this repo's deploy-site.sh --publish),
 # KOSMOS_AUTODEPLOY_PS (the process list command, default `ps -axo command=`).
@@ -422,6 +425,19 @@ if publisher_running; then
   exit 0
 fi
 now > "$STATE/heartbeat"   # fresh before the long part, so a slow deploy never reads as a wedged lock
+# kosmos#6771: the deploy authenticates with a scoped project token, never this machine's CLI sign-in (which lapsed on
+# 10-20 and failed as a bare "Not authorized"). An inherited VERCEL_TOKEN wins; otherwise it is read from the secrets
+# map. The CLI reads VERCEL_TOKEN from the environment, so the token never appears in a process list. Missing, nothing
+# is deployed and it is red once a day (no failure counted, no park): filing the token is the whole fix, and the next
+# tick then deploys.
+VERCEL_TOKEN_TARGET="${KOSMOS_AUTODEPLOY_VERCEL_TARGET:-vercel-chaoskosmos-site}"
+if [ -z "${VERCEL_TOKEN:-}" ]; then
+  SECRETS_CMD="${KOSMOS_AUTODEPLOY_SECRETS:-}"
+  [ -n "$SECRETS_CMD" ] || SECRETS_CMD=$(command -v secrets-map.sh 2>/dev/null || echo "$HOME/.claude/scripts/secrets-map.sh")
+  VERCEL_TOKEN=$("$SECRETS_CMD" value "$VERCEL_TOKEN_TARGET" 2>/dev/null) || VERCEL_TOKEN=""
+fi
+[ -n "$VERCEL_TOKEN" ] || red_once notoken "FAIL: no Vercel token for the deploy (secrets target $VERCEL_TOKEN_TARGET, read with secrets-map.sh value): file a scoped token for the chaoskosmos-site project with /add-secret on this machine (kosmos#6771); nothing deployed"
+export VERCEL_TOKEN
 say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9}); its output is printed when it ends, and kept in $STATE/deploy.out"
 # The deploy's output goes to this run's output and the log once it ends; rc is the deploy's own.
 # KOSMOS_REPO pins deploy-site.sh's libraries to THIS checkout; without it they load from

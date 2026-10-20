@@ -114,6 +114,8 @@ CURL
 chmod +x "$BIN/curl"
 cat > "$BIN/vercel" <<'VERCEL'
 #!/bin/bash
+# kosmos#6771: VERCEL_REFUSE=1 answers as the CLI does when its sign-in or token is refused.
+[ -n "${VERCEL_REFUSE:-}" ] && { echo "Deploying chaoskosmos"; echo "Error: Not authorized" >&2; exit 1; }
 # `vercel deploy --prod --yes` runs with the EXPORT as cwd. Publish it into LIVE (additive copy is
 # enough to run the served-verify honestly).
 mkdir -p "$LIVE_DIR/dist"
@@ -231,6 +233,24 @@ if [ "$RC" != 0 ] && has "$out" "postinstall REFUSES"; then
   pass "B4-CONTROL: an unreachable /setup.sha256 refuses (rc=$RC) -- the fetch-fail branch fires, not just the mismatch branch"
 else
   bad "B4-CONTROL: an unreachable /setup.sha256 did not refuse (rc=$RC); the fetch-fail branch is untested. out=$out"
+fi
+
+# B5) kosmos#6771: the CLI refused, no token given: rc 1, and the refusal is said in full (the secrets target), not
+# only "Not authorized", which is still shown.
+read -r S5 L5 <<<"$(make_publish_scenario ok)"
+VERCEL_REFUSE=1 run_deploy "$S5" "$L5" --publish
+if [ "$RC" = 1 ] && has "$out" "Error: Not authorized" && has "$out" "no VERCEL_TOKEN was given" && has "$out" "vercel-chaoskosmos-site" && has "$out" "vercel deploy --prod failed (rc 1)"; then
+  pass "B5: a refused deploy with no token: rc 1, the CLI's own line kept, and the missing token named"
+else
+  bad "B5: a refused deploy with no token (rc=$RC); out=$out"
+fi
+# B6) the same refusal with a token given says the TOKEN was refused (and never prints it).
+read -r S6 L6 <<<"$(make_publish_scenario ok)"
+VERCEL_TOKEN=tok-6771-not-printed VERCEL_REFUSE=1 run_deploy "$S6" "$L6" --publish
+if [ "$RC" = 1 ] && has "$out" "REFUSED the token in VERCEL_TOKEN" && ! has "$out" "tok-6771-not-printed"; then
+  pass "B6: a refused deploy with a token: rc 1, says the token was refused, and does not print it"
+else
+  bad "B6: a refused deploy with a token (rc=$RC); out=$out"
 fi
 
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
