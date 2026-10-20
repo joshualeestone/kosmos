@@ -188,8 +188,9 @@ let tunnelStartedHere = false;
    binary about the OLD process. A status file from another process (its pid), not yet written, unreadable, or with no
    `capabilities` (a connector older than that field) lists nothing, and so does a moment with no child running
    (crash backoff, a stop): nothing legitimate arrives then, so it fails closed. This only ever narrows the binary's
-   answer. NOT closed (stated): a tunnel orphaned by an EARLIER board that still forwards is described by neither
-   check, since it shares this board's status file and its pid is not the child's; ending such orphans is the fix (kosmos#6669). */
+   answer. A tunnel orphaned by an EARLIER board that still forwards is described by neither check (it shares this
+   board's status file under its own pid), so it is ended (endForeignTunnel, kosmos#6669); where it cannot be (Windows,
+   a Linux subreaper) it stays open, as does a pid reused between ps and the signal. */
 function connectorCapabilities(now = Date.now()) {
   const caps = binaryCapabilities(now);
   const running = runningCapabilities();
@@ -206,7 +207,7 @@ let runningSeen = null;   // { pid, caps }
    answer is then gated by tunnelStartedHere alone). Read until that process has said: a small file. */
 function runningCapabilities() {
   if (!tunnelStartedHere) return null;
-  const pid = child ? child.pid : runningPidForTests;
+  const pid = child ? child.pid : (process.env.NODE_TEST_CONTEXT ? runningPidForTests : null);
   if (pid === null || pid === undefined) return new Set();
   if (runningSeen && runningSeen.pid === pid) return runningSeen.caps;
   let raw;
@@ -230,11 +231,14 @@ function noteRunning(raw, pid) {
    was, and neither capability check describes it. It is ended (SIGTERM, to the pid the file names) ONLY when ps shows
    all of: its parent is 1 (it was re-parented: its board is gone; review 4, a second LIVE board on the same account
    shares this file, and killing its child would start a kill loop between the two), its program is the tunnel (the
-   basename of BIN()) and its first argument is `run`, and it was started with this board's own `--status-file` path,
+   basename of BIN(), as its command line names it: argv, not the kernel's executable name, which a portable test
+   fixture cannot fake; review 6) and its first argument is `run`, and it was started with this board's own `--status-file` path,
    the whole argument. A pid outside 2..2^22 is never looked at (0 and -1 would signal a group). Our own pid and our
    child are excluded both when asked and again right before the signal. Not closed (stated): a pid that exits and is
-   reused between ps and the signal. Kept for good per pid: "not our tunnel" (program or path) and "ended". Asked again
-   after a minute (review 5): a live parent (its board may die later) and a pid that is gone (it may be reused by one).
+   reused between ps and the signal. Kept for good per pid: "not our tunnel" (program or path). Asked again after a
+   minute (reviews 5 and 6): a live parent (its board may die later), a pid that is gone (it may be reused by one), and
+   one just ended (a tunnel that ignores TERM). Never judged while this board is itself pid 1 (a container entrypoint,
+   whose own earlier children read as orphans).
    A failed ps is asked again next time.
    Not on Windows (no command line is read there; stated on kosmos#6669). */
 const foreignLooked = new Map();   // pid -> until when its answer stands (Infinity: for good)
@@ -242,6 +246,7 @@ const FOREIGN_RECHECK_MS = 60 * 1000;
 const foreignAsking = new Set();
 // Tests only, and honoured only under the test runner: (pid, statusFile) => { ppid, command } or null, instead of ps.
 let endForeignForTests = null;
+let killForTests = () => {};   // with a stand-in, the signal goes here: a made-up pid can be a real process on Linux
 const PS = fs.existsSync('/bin/ps') ? '/bin/ps' : '/usr/bin/ps';   // never PATH: a writable PATH entry could answer
 function notOurs(pid) { return pid === process.pid || (child && pid === child.pid); }
 /* Whether ps's line names this board's tunnel, whatever its parent. */
@@ -260,7 +265,7 @@ function isOrphanedTunnel(proc, statusFile, bin = BIN()) {
 }
 function endForeignTunnel(pid, done = () => {}) {
   if (!Number.isInteger(pid) || pid < 2 || pid > 4194304 || notOurs(pid) || foreignAsking.has(pid)) { done(false); return; }
-  if ((foreignLooked.get(pid) || 0) > Date.now()) { done(false); return; }
+  if ((foreignLooked.get(pid) || 0) > Date.now() || process.pid === 1) { done(false); return; }
   const stand = process.env.NODE_TEST_CONTEXT ? endForeignForTests : null;
   if (process.platform === 'win32' && !stand) { foreignLooked.set(pid, Infinity); done(false); return; }
   const statusFile = STATUS_FILE();
@@ -269,8 +274,8 @@ function endForeignTunnel(pid, done = () => {}) {
     if (proc === undefined) { done(false); return; }   // ps failed: no answer, asked again next time
     if (proc !== null && !isOurTunnel(proc, statusFile)) { foreignLooked.set(pid, Infinity); done(false); return; }
     if (!isOrphanedTunnel(proc, statusFile) || notOurs(pid)) { foreignLooked.set(pid, Date.now() + FOREIGN_RECHECK_MS); done(false); return; }
-    foreignLooked.set(pid, Infinity);
-    try { process.kill(pid, 'SIGTERM'); console.error('[remote] ended a Kosmos+ tunnel an earlier board left running (pid ' + pid + ')'); done(true); } catch { done(false); }
+    foreignLooked.set(pid, Date.now() + FOREIGN_RECHECK_MS);
+    try { (stand ? killForTests : process.kill.bind(process))(pid, 'SIGTERM'); console.error('[remote] ended a Kosmos+ tunnel an earlier board left running (pid ' + pid + ')'); done(true); } catch { done(false); }
   };
   foreignAsking.add(pid);
   if (stand) { judge(stand(pid, statusFile)); return; }
@@ -313,12 +318,13 @@ function warmConnectorCapabilities(done = () => {}) {
     if (child && child.stdin) child.stdin.end();
   } catch { done(noteCapabilities(new Set(), false, Date.now(), generation, binary)); }
 }
-const resetConnectorCapabilitiesForTests = ({ startedHere = true, runningPid = null, commandOf = null } = {}) => {
+const resetConnectorCapabilitiesForTests = ({ startedHere = true, runningPid = null, commandOf = null, kill = null } = {}) => {
   tunnelStartedHere = startedHere;
   runningPidForTests = runningPid;
   runningSeen = null;
   foreignLooked.clear(); foreignAsking.clear();
   endForeignForTests = commandOf;
+  killForTests = kill || (() => {});
   forgetConnectorCapabilities({ always: true, ask: false });
 };
 /* The production addresses are the defaults (#648): a bundle needs nothing
@@ -1068,9 +1074,10 @@ function stopChild() {
 /* ⚠️ The child must never outlive the board (#156 is the recorded incident
    for orphans). launchd stopping the board sends SIGTERM; killing the child
    on our way out covers that and plain exit. SIGKILL leaves an orphan whose
-   own reconnect loop keeps running; accepted and documented: the next board
-   start spawns a replacement whose relay connection REPLACES the orphan's
-   (newest wins at the relay), so the orphan idles until reaped. */
+   own reconnect loop keeps running. The next board's tunnel replaces the
+   orphan's relay connection (newest wins), but the orphan just dials again
+   and takes it back, so the two alternate: it does NOT idle. Since kosmos#6669
+   the next board ends it (endForeignTunnel), where it can read its parent. */
 function reap() { try { if (child) child.kill(); } catch { /* going down anyway */ } }
 process.on('exit', reap);
 /* On a termination signal, reap the child then RE-RAISE rather than

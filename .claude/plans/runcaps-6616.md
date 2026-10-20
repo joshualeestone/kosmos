@@ -28,7 +28,9 @@ ignoring the running list (both red), dropping the pid check (one red). R01c: no
 match, and not judging a foreign pid on read, each one red; then (review 4) the parent-is-1 rule, the pid range, the
 program check and asking again after a failed ps, each one red. One test reads the real process table with real
 orphans (double-forked), a live board's tunnel, a lookalike path and another program. Review 5: the re-ask after a
-minute and the for-good record, each mutant red (Date.now moved). Not tested: status() noting the child's write.
+minute and the for-good record, each mutant red (Date.now moved). Not tested: status() noting the child's write, and the read at tunnel start. Review 6: the matching rules are unit-
+tested with no process table (every platform); the real-ps test skips where orphans are not re-parented to 1; a
+stand-in kill, so no made-up pid is ever signalled; asking again after TERM, mutant red.
 
 ## The orphan, closed here too (kosmos#6669, R01c; review 3)
 A tunnel orphaned by an EARLIER board (killed hard, so it could not reap it) still forwards: on the relay's "replaced by
@@ -44,7 +46,12 @@ refused every gated remote action until this board's tunnel next changed state.
   match ended a tunnel for `<file>.elsewhere` in the tests). A pid outside 2..2^22 is never looked at (0 and -1 signal a
   group); our pid and child are excluded again right before the signal. A definite ps answer is kept per pid; a failed
   one is asked again. Not closed: a pid that exits and is reused between ps and the signal.
-- Kept for good per pid: "not our tunnel" and "ended". Asked again after a minute (review 5): a live parent (its board
+- The program is read from the COMMAND LINE (argv), not the kernel's executable name (review 6 asked). Rejected: a
+  portable fixture needs a real executable whose own file is named `kosmos-tunnel` (a copied /bin/sleep is killed by
+  code signing, a symlink reports its target, a hard link to node cannot load its libraries). What argv alone lets
+  through: a same-user process with parent 1 whose argv names the tunnel, `run` and this board's exact status-file path.
+- Kept for good per pid: "not our tunnel". "Ended" is asked again after a minute (review 6: a tunnel that ignores
+  TERM). Never judged while the board itself is pid 1 (a container entrypoint). Asked again after a minute (review 5): a live parent (its board
   may die later) and a pid that is gone (it may be reused by one). A failed ps: next time.
 - Not on Windows (no command line is read there), nor on Linux where a subreaper makes an orphan's parent other than
   1: such an orphan is not ended. It still alternates on the relay as before, AND (new with part 6, review 5) its
@@ -52,6 +59,10 @@ refused every gated remote action until this board's tunnel next changed state.
   To shorten that, status() (read often, for the page) notes the child's write too. Stated on #6669.
 - Not tested: the read at tunnel start (startChild); the same function, reached by status() and the capability read,
   is.
+
+## Release pinning (review 6)
+The relay half is stacked on sessioniat-6595 (relay #489). A connector with #489 but not runcaps makes every gated
+remote action refused under this board. Merge runcaps right after #489 and before any Kosmos release cuts a connector.
 
 ## Weakest premise
 The pid check: a pid reused by an unrelated process that writes a status file in the board's 0600 data dir. Anything

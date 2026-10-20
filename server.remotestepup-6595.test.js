@@ -468,13 +468,15 @@ function fakeTunnel(file, { orphan, program = CONNECTOR }) {
   return { pid: Number(out.trim()) };
 }
 
-test('R01c: an orphaned tunnel is ended, read from the real process table; a live board\'s, a lookalike path\'s, are not', { skip: process.platform === 'win32' }, async () => {
+test('R01c: an orphaned tunnel is ended, read from the real process table; a live board\'s, a lookalike path\'s, are not', { skip: process.platform === 'win32' }, async (t) => {
   const orphan = fakeTunnel(STATUS, { orphan: true });
   const elsewhere = fakeTunnel(STATUS + '.elsewhere', { orphan: true });
   const liveBoards = fakeTunnel(STATUS, { orphan: false });   // a second LIVE board on this account: its parent lives
   const notTunnel = fakeTunnel(STATUS, { orphan: true, program: path.join(SANDBOX, 'other-program') });
   try {
-    assert.ok(await until(() => [orphan, elsewhere, notTunnel].every((p) => ppidOf(p.pid) === 1)), 'CONTROL: the orphans were re-parented');
+    // Where a subreaper (systemd --user, a container init) takes orphans, their parent is not 1: production does not
+    // end them there (stated), and this test cannot set its control up, so it is skipped, not failed (review 6).
+    if (!await until(() => [orphan, elsewhere, notTunnel].every((p) => ppidOf(p.pid) === 1))) { t.skip('orphans are not re-parented to 1 here (a subreaper)'); return; }
     assert.notEqual(ppidOf(liveBoards.pid), 1, 'CONTROL: the live one has its parent');
     remote.resetConnectorCapabilitiesForTests({ runningPid: TEST_PID });   // real ps, no stand-in
     assert.equal(await ended(liveBoards.pid), false, 'a live board\'s tunnel was ended (two boards would kill each other)');
@@ -518,7 +520,8 @@ test('R01c: a live board\'s tunnel is asked again after a minute (its board may 
   let skew = 0;
   try {
     Date.now = () => realNow() + skew;
-    reset({ commandOf: (pid) => { asked.push(pid); return answer; } });
+    const killed = [];
+    reset({ commandOf: (pid) => { asked.push(pid); return answer; }, kill: (pid) => killed.push(pid) });
     const ours = CONNECTOR + ' run --status-file ' + STATUS;
     answer = { ppid: 4242, command: ours };   // a live board's
     await ended(424301); await ended(424301);
@@ -527,10 +530,31 @@ test('R01c: a live board\'s tunnel is asked again after a minute (its board may 
     answer = { ppid: 1, command: ours };      // its board died
     await ended(424301);
     assert.deepEqual(asked, [424301, 424301], 'an orphan judged earlier with a live parent was never asked again');
+    assert.deepEqual(killed, [424301], 'CONTROL: the orphan was signalled (through the stand-in, never a real kill)');
+    skew += 61 * 1000;
+    await ended(424301);   // it ignored TERM and still writes: judged again after the minute
+    assert.deepEqual(killed, [424301, 424301], 'a tunnel that ignored TERM was never judged again');
     answer = { ppid: 1, command: '/usr/bin/other run --status-file ' + STATUS };   // not our tunnel
     await ended(424302);
     skew = 10 * 60 * 1000;
     await ended(424302);
     assert.deepEqual(asked.filter((p) => p === 424302), [424302], 'not-our-tunnel was asked again');
   } finally { Date.now = realNow; reset(); await warm(); }
+});
+
+/* The matching rules alone, with no process table: these run on every platform (review 6). */
+test('R01c: isOrphanedTunnel matches only a re-parented `run` of the tunnel with this board\'s whole status-file path', () => {
+  const f = '/a b/remote-status.json';
+  const bin = '/x/kosmos-tunnel';
+  const is = (ppid, command) => remote.isOrphanedTunnel({ ppid, command }, f, bin);
+  assert.equal(is(1, '/Apps With Space/kosmos-tunnel run --status-file ' + f + ' --relay r'), true, 'CONTROL: an orphan');
+  assert.equal(is(1, '/y/kosmos-tunnel run --status-file ' + f), true, 'CONTROL: at the end of the line');
+  assert.equal(is(4242, '/y/kosmos-tunnel run --status-file ' + f), false, 'a live parent');
+  assert.equal(is(1, '/y/kosmos-tunnel run --status-file ' + f + '.elsewhere'), false, 'a lookalike path');
+  assert.equal(is(1, '/y/other run --status-file ' + f), false, 'another program');
+  assert.equal(is(1, '/y/kosmos-tunnel devices --status-file ' + f), false, 'not run');
+  assert.equal(is(1, '/y/kosmos-tunnel run --status-file /a b/remote-statusXjson'), false, 'a regex-special path char matched loosely');
+  assert.equal(is(1, '/y/kosmos-tunnel run --status-file ' + f + '\nother run --status-file ' + f), true, 'CONTROL: first line only');
+  assert.equal(is(1, 'x\n/y/kosmos-tunnel run --status-file ' + f), false, 'a second line was read');
+  assert.equal(remote.isOrphanedTunnel(null, f, bin), false);
 });
