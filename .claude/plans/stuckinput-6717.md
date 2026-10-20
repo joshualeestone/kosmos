@@ -47,6 +47,9 @@ Calls posted on the card before building: issuecomment-6292327812.
 
 ## Residuals (named, not fixed here)
 
+- Before every round of keys the box is read again and must show exactly what the last read showed, and after it what
+  is left must be that text with a run taken out (`stuckShrunk`). What remains open is the moment between that read
+  and tmux delivering the keys (one send-keys call): a key typed in it is cleared with the row.
 - Someone typing while the box is cleared stops the clearing; the rest of the old text plus their new words is a new
   text, so ten minutes later it is saved again, repeating part of the first draft.
 - A box the keys do not empty (Claude Code's vim mode, or keys rebound by a later version) is saved once and then not
@@ -56,7 +59,6 @@ Calls posted on the card before building: issuecomment-6292327812.
   the masked words; the file on disk (mode 600) holds them as typed, as the person's own stored messages do.
 - Drafts are kept by session name. An agent renamed or moved keeps its drafts behind, and a new agent later given the
   same name would be shown them.
-
 - A folded paste stays stuck (decision 6). The tile sentence (#6249) still says it, until #6716 changes tiles.
 - Text with line breaks is saved with its rows joined by spaces (the box reader squashes whitespace); the words survive,
   the breaks do not. A word longer than a row gets a space where it wrapped.

@@ -1180,6 +1180,18 @@ const STUCK_ROWS_MAX = 150;
 const STUCK_CLEAR_KEYS = ['C-e', 'C-u', 'C-k'];
 let draftSaver = null;   // (sessionName, text, { since }) => { ok, id }; set by server.js, the test seam too
 function setDraftSaver(fn) { draftSaver = typeof fn === 'function' ? fn : null; }
+/* After a round of the clearing keys, is `now` what was there (`prev`, both squashed) with a run taken out of it? A round
+   empties the cursor's row, which can be the last, the first or one in the middle, so what is left keeps the start of
+   `prev` up to that row and its end after it: shorter, and covered by their common start plus their common end. Anything
+   else (a letter typed, a paste) is someone else's, and the clearing stops. */
+function stuckShrunk(prev, now) {
+  if (now.length >= prev.length) return false;
+  let p = 0;
+  while (p < now.length && prev[p] === now[p]) p += 1;
+  let q = 0;
+  while (q < now.length && prev[prev.length - 1 - q] === now[now.length - 1 - q]) q += 1;
+  return p + q >= now.length;
+}
 async function stuckPause(ms) {
   if (pauser) await pauser(ms);
   else if (!runner) await new Promise((resolve) => setTimeout(resolve, ms));
@@ -1201,7 +1213,10 @@ async function recoverStuckInput(card, since) {
     const kept = recallUnsent(target);
     if (kept && rememberedShows(box.text, kept, true)) {
       const answer = await pressRememberedNow(target, card);
-      return answer === 'sent' ? { outcome: 'pressed' } : { outcome: 'waiting', because: answer };
+      if (answer === 'sent') return { outcome: 'pressed' };
+      /* Enter went and the box still holds the line (Enter rebound, say): said once in the log, tried again next minute. */
+      if (answer === 'unsent') return { outcome: 'left', because: 'Enter on the line Kosmos had left there did not send it' };
+      return { outcome: 'waiting', because: answer };
     }
     if (STUCK_FOLDED.test(box.text)) return { outcome: 'left', because: 'it holds a pasted block or image whose words are not on screen' };
     if ((box.rows || 0) > STUCK_ROWS_MAX) return { outcome: 'left', because: 'it is too long to read whole' };
@@ -1234,26 +1249,39 @@ async function recoverStuckInput(card, since) {
       if (!saved || saved.ok !== true) return { outcome: 'waiting', because: 'the draft could not be saved, so the box was left as it is' };
       /* Saved: from here the words are safe. Clear a round at a time; stop as soon as the box shows anything that is
          not what is left of the saved text (someone typing now), so their new words are not cleared too. */
-      const whole = squash(again.text);
+      const done = (outcome, because) => ({ outcome, id: saved.id, ...(saved.already ? { already: true } : {}), ...(because ? { because } : {}) });
+      /* `expect` is the box as last read. Right before each round it must still read exactly that (so words typed since
+         are never cleared with it), and after the round what is left must be it with rows taken out (stuckShrunk). */
+      let expect = squash(again.text);
+      let stale = 0;
       const rounds = Math.min(2 * (again.rows || 1) + 6, 2 * STUCK_ROWS_MAX);
       for (let i = 0; i < rounds; i += 1) {
+        const before = readComposer(target);
+        if (!before.ok) return done('drafted-not-cleared', 'the box could not be read');
+        if (squash(before.text) !== expect) return done('drafted-not-cleared', 'the box changed while it was being cleared');
         const sent = tmux(['send-keys', '-t', target, ...STUCK_CLEAR_KEYS]);
-        if (!sent.ran || sent.status !== 0) return { outcome: 'drafted-not-cleared', id: saved.id, because: 'tmux refused the keys' };
+        if (!sent.ran || sent.status !== 0) return done('drafted-not-cleared', 'tmux refused the keys');
         await stuckPause(SUBMIT_LOOK_MS);
-        const left = readComposer(target);
-        if (!left.ok) return { outcome: 'drafted-not-cleared', id: saved.id, because: 'the box could not be read' };
+        let left = readComposer(target);
+        if (!left.ok) return done('drafted-not-cleared', 'the box could not be read');
         if (!left.text) {
           /* Empty only when two reads a look apart agree, as pressRememberedNow asks: one read can catch a redraw. */
           await stuckPause(SUBMIT_LOOK_MS);
-          const sure = readComposer(target);
-          if (sure.ok && !sure.text) return { outcome: 'drafted', id: saved.id };
-          if (!sure.ok) return { outcome: 'drafted-not-cleared', id: saved.id, because: 'the box could not be read' };
-          if (!whole.includes(squash(sure.text))) return { outcome: 'drafted-not-cleared', id: saved.id, because: 'the box changed while it was being cleared' };
+          left = readComposer(target);
+          if (!left.ok) return done('drafted-not-cleared', 'the box could not be read');
+          if (!left.text) return done('drafted');
+        }
+        const now = squash(left.text);
+        if (now === expect) {
+          stale += 1;   // the keys did nothing (vim mode, keys rebound): two such rounds and it is given up
+          if (stale >= 2) return done('drafted-not-cleared', 'the box did not empty');
           continue;
         }
-        if (!whole.includes(squash(left.text))) return { outcome: 'drafted-not-cleared', id: saved.id, because: 'the box changed while it was being cleared' };
+        if (!stuckShrunk(expect, now)) return done('drafted-not-cleared', 'the box changed while it was being cleared');
+        stale = 0;
+        expect = now;
       }
-      return { outcome: 'drafted-not-cleared', id: saved.id, because: 'the box did not empty' };
+      return done('drafted-not-cleared', 'the box did not empty');
     } finally {
       if (deliveryQueues.get(target) === mark) deliveryQueues.delete(target);
       release();
@@ -4944,7 +4972,7 @@ module.exports = {
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
   composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
   setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
-  recoverStuckInput, setDraftSaver, withDraftRows, STUCK_INPUT_MS,   // kosmos#6717
+  recoverStuckInput, setDraftSaver, withDraftRows, STUCK_INPUT_MS, stuckShrunk,   // kosmos#6717
   deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,

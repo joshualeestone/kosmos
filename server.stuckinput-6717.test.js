@@ -76,3 +76,14 @@ test('kosmos#6717: the conversation shows the draft as Kosmos\'s line; only the 
   assert.equal((await dismiss(added.id)).status, 404, 'a second dismiss finds nothing');
   assert.deepEqual(typed, [], 'nothing was ever typed into the agent');
 }));
+
+test('kosmos#6717: the sweep is wired behind live execution and the operator brake, with the draft saver set', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const at = src.indexOf("require('./engine/stuckinput').makeTick(");
+  assert.ok(at > 0, 'the sweep is not wired in server.js');
+  const wiring = src.slice(src.lastIndexOf('chat.setDraftSaver(', at), src.indexOf('stuckInputSweep.unref()', at));
+  assert.match(wiring, /chat\.setDraftSaver\(\(session, text, opts\) => require\('\.\/engine\/unsentdrafts'\)\.add\(session, text, opts\)\)/);
+  assert.match(wiring, /allowed: \(\) => liveExecution\.liveExecutionAllowed\(\) && process\.env\.AGENT_WORKFORCE_STUCK_INPUT_OFF !== '1'/);
+  assert.match(wiring, /recover: \(card, since\) => chat\.recoverStuckInput\(card, since\)/);
+  assert.match(wiring, /stuckMs: chat\.STUCK_INPUT_MS/);
+});
