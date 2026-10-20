@@ -130,6 +130,11 @@ real fix.
   lint pass.
 
 ## Not covered, by design
+- (Review 38.) The two real-Cargo arms skip where cargo cannot run, and the checksum arm also skips when itoa 1.0.18 is
+  not in CARGO_HOME (a cold cache). Read "skipped 0" before trusting a pass.
+- (Review 38.) GIT_NO_LAZY_FETCH needs git 2.44 or later; an older git ignores it (this Mac has 2.53). The arms would
+  show a lazy fetch, but the minimum is stated here.
+- (Review 38.) The connector binary and runtime/bin/node limits are also written into the SBOM as kosmos: properties.
 - (Review 37.) Native code is checked by name and extension, not by reading the tarball: a Mach-O named x.sh in
   app/bin/ or x.js under app/engine/ would pass. This is part of the first-party LIMIT.
 - (Review 36.) The two real-Cargo arms SKIP where cargo cannot run, so a machine without Rust can still run this

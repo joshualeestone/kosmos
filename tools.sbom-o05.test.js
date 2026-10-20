@@ -361,7 +361,8 @@ test('every file in the bundle must be one the SBOM accounts for; the real 0.7.5
   assert.deepEqual(parseTmuxVersion(realVersion, real).versions,
     { tmux: '3.5a', libevent: '2.1.12-stable', ncurses: '6.5', utf8proc: '2.9.0' });
   for (const extra of ['lib/libpng16.16.dylib', 'lib/libssl3.dylib', 'lib/libstdc++.6.dylib', 'lib/sub/libssl.3.dylib',
-    'libexec/libz.dylib', 'bin/helper', 'lib/libcrypto.so', 'lib/libfoo.a', 'share/terminfo/x/xterm']) {
+    'libexec/libz.dylib', 'bin/helper', 'lib/libcrypto.so', 'lib/libfoo.a', 'share/terminfo/x/xterm',
+    'licenses/tmux-3.5a.txt.dylib', 'libexec/lib/libutf8proc.dylib']) {   // review 38: both ends of each pattern are anchored
     assert.throws(() => parseTmuxVersion(VERSION, [...LIBS, extra]), /is not a file this SBOM accounts for/, extra);
   }
 });
@@ -372,6 +373,9 @@ test('the VERSION file: a key with no value, an unknown key or a repeated key re
   assert.throws(() => parseTmuxVersion(VERSION + 'openssl: 3.3.2\n', LIBS), /openssl is not a part this SBOM knows/);
   assert.throws(() => parseTmuxVersion(VERSION + 'utf8proc: 2.10.0\n', LIBS), /utf8proc appears twice/);
   assert.throws(() => parseTmuxVersion(VERSION + 'not a key line\n', LIBS), /a line this SBOM cannot read/);
+  // Review 38: a key must start its line, and a version must be the whole value.
+  assert.throws(() => parseTmuxVersion(VERSION + 'x ncurses: 6.5\n', LIBS), /a line this SBOM cannot read/);
+  assert.throws(() => parseTmuxVersion(VERSION.replace('utf8proc: 2.9.0', 'utf8proc: 2.9.0;x'), LIBS), /utf8proc has no version/);
 });
 
 test('the manifest is used only when its signature verifies under a pinned key', () => {
@@ -421,6 +425,7 @@ test('a fetch call in another shape or position, or a *_URL never fetched, refus
   assert.throws(() => tmuxPins(TMUX + 'fetch ncurses "${NCURSES_URL}" "${NCURSES_SHA}"\n'), /a fetch line this SBOM cannot read/);
   assert.throws(() => tmuxPins(TMUX + '[ -n "$X" ] && fetch ncurses "$NCURSES_URL" "$NCURSES_SHA"\n'), /a fetch line this SBOM cannot read/);
   assert.throws(() => tmuxPins(TMUX + 'if true; then fetch ncurses "$NCURSES_URL" "$NCURSES_SHA"; fi\n'), /a fetch line this SBOM cannot read/);
+  assert.throws(() => tmuxPins(TMUX + 'fetch ncurses "$NCURSES_URL" "$NCURSES_SHA" ; rm -rf x\n'), /a fetch line this SBOM cannot read/);
   assert.throws(() => tmuxPins(TMUX + 'NCURSES_URL="https://x/n.tgz"\n'), /NCURSES_URL is set but never fetched/);
   assert.throws(() => tmuxPins(TMUX + '  export ZLIB_URL=https://x/z.tgz\n'), /ZLIB_URL is set but never fetched/);
   assert.throws(() => tmuxPins(TMUX.replace(/^fetch [a-z].*$/gm, '')), /no fetch lines/);
@@ -433,18 +438,27 @@ test('a fetch call in another shape or position, or a *_URL never fetched, refus
   assert.throws(() => parseLock(LOCK.replace('name = "kosmos-tunnel-client"\nversion = "0.1.0"\ndependencies = [', 'name = "kosmos-tunnel-client"\nversion = "0.1.0"\ndependencies=[')),
     /a package line this SBOM cannot read: dependencies=\[/);
   assert.throws(() => sbom({ ...MANIFEST, built: { at: 'yesterday' } }), /built\.at is not a UTC time/);
+  for (const at of ['2026-10-19 12:00:00Z', 'x2026-10-19T12:00:00Z', '2026-10-19T12:00:00Zx']) {   // review 38: anchored, RFC 3339
+    assert.throws(() => sbom({ ...MANIFEST, built: { at } }), /built\.at is not a UTC time/, at);
+  }
 });
 
 test('the SBOM says in its own metadata that the crate list is a superset; a + in a tmux part version is encoded', () => {
   const b = sbom();
-  assert.deepEqual(b.metadata.properties.map((x) => x.name), ['kosmos:cargo-closure']);
-  assert.match(b.metadata.properties[0].value, /a superset of the macOS build/);
+  // Review 38: the two binary limits are stated in the JSON as well.
+  assert.deepEqual(b.metadata.properties.map((x) => x.name), ['kosmos:connector-binary', 'kosmos:node-binary', 'kosmos:cargo-closure']);
+  const prop = (n) => b.metadata.properties.find((x) => x.name === n).value;
+  assert.match(prop('kosmos:cargo-closure'), /a superset of the macOS build/);
+  assert.match(prop('kosmos:connector-binary'), /not rebuilt from the Cargo\.lock/);
+  assert.match(prop('kosmos:node-binary'), /not compared with that download/);
   const plus = sbom(MANIFEST, files(), { sha: SHA('0'), ...parseTmuxVersion(VERSION.replace('utf8proc: 2.9.0', 'utf8proc: 2.9.0+x'), LIBS.map((x) => x.replace('utf8proc-2.9.0.txt', 'utf8proc-2.9.0+x.txt'))) });
   assert.equal(comp(plus, 'tmux-part:utf8proc').purl, 'pkg:generic/utf8proc@2.9.0%2Bx');
 });
 
 test('a git crate with a full 40-character sha, roots listed out of order, and a VERSION key outside the known set', () => {
   const full = 'git+https://github.com/example/baz?rev=main#' + 'c'.repeat(40);
+  // Review 38: the commit must END the source; anything after it is a source this SBOM does not know.
+  assert.throws(() => sbom(MANIFEST, files(LOCK.replaceAll(GIT, GIT + 'zz'))), /comes from a source this SBOM does not know/);
   const b = sbom(MANIFEST, files(LOCK.replaceAll(GIT, full)));
   assert.equal(b.components.find((c) => c.name === 'baz').purl, `pkg:cargo/baz@1.0.0?vcs_url=${encodeURIComponent(`git+https://github.com/example/baz@${'c'.repeat(40)}`)}`);
   const shuffled = LOCK.replace(` "baz 1.0.0 (${GIT})",\n "kosmos-relay-proto",\n "rcgen 0.13.2",\n "rustls",`, ` "rustls",\n "rcgen 0.13.2",\n "kosmos-relay-proto",\n "baz 1.0.0 (${GIT})",`);
@@ -499,7 +513,9 @@ test('an older lockfile format, or a crates.io crate with no checksum, refuses',
 test('every shipped file must sit in a first-party place, and package.json may name no npm packages', () => {
   const ship = (...extra) => ({ ...MANIFEST, files: [...MANIFEST.files, ...extra.map((path) => ({ path, sha256: SHA('2') }))] });
   for (const p of ['app/node_modules/left-pad/index.js', 'app/engine/node_modules/x/y.js', 'app/vendor/lib.js', 'lib/libfoo.dylib',
-    'runtime/lib/node_modules/npm/index.js', 'app/engine/../../bin/x.js']) {
+    'runtime/lib/node_modules/npm/index.js', 'app/engine/../../bin/x.js',
+    // Review 38: the folder must START the path, and the extension must END it.
+    'runtime/lib/app/web/x.js', 'app/engine/a.json.node']) {
     assert.throws(() => sbom(ship(p)), /which is not a first-party place this SBOM accounts for/, p);
   }
   assert.throws(() => sbom({ ...MANIFEST, files: [] }), /manifest lists no files/);
@@ -508,8 +524,10 @@ test('every shipped file must sit in a first-party place, and package.json may n
     const pkg = JSON.stringify({ name: 'x', [k]: { leftpad: '1' } });
     assert.throws(() => sbom(withPackage(MANIFEST, pkg), files(LOCK, TMUX, WORKSPACE, pkg)), new RegExp(`has ${k}`));
   }
-  const bundled = JSON.stringify({ name: 'x', bundledDependencies: ['a'] });
-  assert.throws(() => sbom(withPackage(MANIFEST, bundled), files(LOCK, TMUX, WORKSPACE, bundled)), /has bundledDependencies/);
+  for (const k of ['bundledDependencies', 'bundleDependencies']) {   // npm reads both spellings (review 38)
+    const bundled = JSON.stringify({ name: 'x', [k]: ['a'] });
+    assert.throws(() => sbom(withPackage(MANIFEST, bundled), files(LOCK, TMUX, WORKSPACE, bundled)), new RegExp(`has ${k}`));
+  }
   const empty = JSON.stringify({ name: 'x', dependencies: {} });
   assert.ok(sbom(withPackage(MANIFEST, empty), files(LOCK, TMUX, WORKSPACE, empty)), 'an empty map is no dependency');
   assert.throws(() => sbom(MANIFEST, files(LOCK, TMUX, WORKSPACE, empty)), /is not the app\/package\.json the release shipped/);
@@ -748,6 +766,14 @@ test('real Cargo, offline: a lock that matches passes; every way a Cargo.toml ca
     const top = execFileSync('git', ['-C', root, 'mktree'], { input: git('ls-tree', good) + `\n040000 tree ${sub}\t.git\n`, encoding: 'utf8' }).trim();
     const withGit = git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', top, '-p', good, '-m', 'git');
     assert.throws(() => cargoWorkspace(root, withGit), /\.git\/config is inside a \.git folder/, 'a committed .git folder refuses');
+    // A '..' entry (review 38): the index refuses one, plumbing does not, and written out it lands OUTSIDE the tree.
+    const pwnName = `sbom-o05-pwned-${process.pid}`;
+    const pblob = execFileSync('git', ['-C', root, 'hash-object', '-w', '--stdin'], { input: 'x\n', encoding: 'utf8' }).trim();
+    const up = execFileSync('git', ['-C', root, 'mktree'], { input: `100644 blob ${pblob}\t${pwnName}\n`, encoding: 'utf8' }).trim();
+    const ptop = execFileSync('git', ['-C', root, 'mktree'], { input: git('ls-tree', good) + `\n040000 tree ${up}\t..\n`, encoding: 'utf8' }).trim();
+    const withDots = git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', ptop, '-p', good, '-m', 'dots');
+    assert.throws(() => cargoWorkspace(root, withDots), /\.\.\/sbom-o05-pwned-\d+ has an empty, \. or \.\. part/, 'a .. entry refuses');
+    assert.ok(!fs.existsSync(path.join(os.tmpdir(), pwnName)), 'nothing was written beside the temp tree');
     assert.ok(!fs.existsSync(marker), 'the committed build.rustc never ran: refused before Cargo was asked');
     assert.deepEqual(fs.readdirSync(outside).filter((n) => n !== 'ran-rustc.sh'), [], 'nothing was written outside the tree');
   } finally {

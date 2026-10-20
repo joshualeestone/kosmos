@@ -627,7 +627,11 @@ function build(manifest, { repo, relay, tmux, show = gitShow, workspace = cargoW
       timestamp: builtAt(manifest),
       tools: { components: [{ type: 'application', name: 'kosmos tools/lib/sbom.js', version: FORMAT }] },
       // Said in the SBOM itself, not only here, so a scanner reading the JSON is told.
-      properties: [{ name: 'kosmos:cargo-closure', value: 'the connector crates are its Cargo.lock closure, a superset of the macOS build: an advisory on a crate that `cargo tree --locked -p kosmos-tunnel-client --target aarch64-apple-darwin -e normal,build`, run at the relay commit, does not list is not shipped' }],
+      properties: [
+        // Review 38: the other two limits, said in the JSON too, so a scanner is not left believing both are vouched.
+        { name: 'kosmos:connector-binary', value: 'the connector binary is listed by its signed hash; it is not rebuilt from the Cargo.lock here, so the crate list is what that lock resolves, not a reproduction of the binary' },
+        { name: 'kosmos:node-binary', value: 'runtime/bin/node is listed by the version and nodejs.org download the build names; the shipped binary is not compared with that download here' },
+        { name: 'kosmos:cargo-closure', value: 'the connector crates are its Cargo.lock closure, a superset of the macOS build: an advisory on a crate that `cargo tree --locked -p kosmos-tunnel-client --target aarch64-apple-darwin -e normal,build`, run at the relay commit, does not list is not shipped' }],
       component: { type: 'application', 'bom-ref': 'kosmos', name: 'kosmos', version: manifest.version,
         hashes: hashOf(manifest.sha256), description: `Kosmos ${manifest.version} (${arch}), app ${appCommit}` },
     },
