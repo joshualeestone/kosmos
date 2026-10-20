@@ -223,6 +223,11 @@ if [ "$FAMILY" = mac ]; then
         *) echo "promote-channel: prod's current manifest ($_cur) cannot be read to tell which keys its installs accept - refusing (#6468)" >&2; exit 1 ;;
       esac
     fi
+    # #6609 phase 2c: with a recovery key pinned, installs take the served release key list before they check an update,
+    # so the build being promoted must be signed by a key that list names (a list published after the staging cut can
+    # drop it). Off (no recovery key): it says so and passes.
+    node "$_sign_js" verify-under-list "$SITE/dist/$MANIFEST" "$SITE/dist/$MANIFEST.sig" "$SITE/dist/release-keys.json" "$SITE/dist/release-keys.json.sig" >/dev/null \
+      || { echo "promote-channel: $MANIFEST is not signed by a key the served release key list names - refusing; installs with the recovery key check on would refuse this update (#6609)" >&2; exit 1; }
   else
     _prod_manifest="$(sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SITE/dist/$PROD_NAME" 2>/dev/null | head -1)" || _prod_manifest=""
     [ -z "$_prod_manifest" ] || reject_pathy manifest "$_prod_manifest"
