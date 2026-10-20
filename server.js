@@ -18961,6 +18961,8 @@ const server = http.createServer(async (req, res) => {
            comes back on Claude's own default rather than not coming back. */
         const out = register.repair({
           only,
+          /* #6716: a model from the agent's EARLIER session is accepted here on purpose. Repair restores what it LAST
+             RAN AS and acts only on agents with no login job, so no planned model competes; the borrowed one is that. */
           modelFor: (name) => {
             try { const m = status.readModel(name); return (m && m.model) || null; }
             catch { return null; }

@@ -50,3 +50,8 @@ no earlier session beside the new one, and the tile falls back as before (no wor
 (cli.limitmsg-5805, cli.msgqueue-5187, cli.task-webhook-1307, cli.unknown-flag-4889, server.subtasks-3861) fail the
 same way on a branch without this change ("we could not match that to one of your agents"), when run from inside an
 agent session; not this change.
+
+**Decided (review 4).** Start at login's repair (`/api/register` modelFor) takes a borrowed model on purpose: it restores
+what the agent last ran as and acts only on agents with no login job, so no planned model competes. The re-captured card
+fixture also changed `lastWorked` (null to a pinned date): the capture tool records a live card from this machine, and
+only keys and types are pinned (render-talk-goldencard-2519 35/35).

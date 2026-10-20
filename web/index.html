@@ -22370,10 +22370,6 @@ function answerAttrs(a) {
 function isAnswerable(a) {
   return !!(a && a.state === 'needs_you' && a.isNamedOurs && !(a.disruption && a.disruption.failed === true));
 }
-/* #6398: the pill reads Rate Limit (not, say, a crash loop's Keeps stopping, which outranks it). */
-function pillIsRateLimit(a) {
-  return !!(a && a.state === 'rate_limited' && stateCopyOf(a) === STATE_COPY.rate_limited);
-}
 /* #6400: the name button's accessible name. On an answerable card or row a press runs the answer route (answerAttrs),
    so it says so; the visible name is in it (SC 2.5.3). */
 function nameGoLabel(a) {
