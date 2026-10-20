@@ -212,7 +212,7 @@ function parseLock(text) {
     if (line === '[[package]]') { cur = { deps: [] }; pkgs.push(cur); inDeps = false; continue; }
     // Review 31: only the two table headers Cargo writes in a v3/v4 lock, exactly. A header with a trailing comment
     // hid a real package from this reader while Cargo read it, and a [metadata] string held a fake one.
-    if (line === '[[patch.unused]]' && !inDeps) { cur = { deps: [], unused: true }; inDeps = false; continue; }
+    if (line === '[[patch.unused]]' && !inDeps) { cur = { deps: [] }; inDeps = false; continue; }   // read, never listed
     if (line.startsWith('[') && !inDeps) throw new Error(`Cargo.lock: a table this SBOM does not read: ${line}`);
     if (!cur) {
       if (line && !line.startsWith('#') && !/^version = \d+$/.test(line)) throw new Error(`Cargo.lock: a top-level line this SBOM cannot read: ${line}`);
@@ -244,7 +244,7 @@ function parseLock(text) {
     cur[kv[1]] = str[1];
   }
   for (const p of pkgs) if (!p.name || !p.version) throw new Error(`Cargo.lock: a package with no ${p.name ? 'version' : 'name'}`);
-  return pkgs.filter((p) => !p.unused);
+  return pkgs;
 }
 
 function resolver(pkgs) {
