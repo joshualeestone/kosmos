@@ -270,7 +270,7 @@ _extra=""
 [ -d "$OUT/licenses" ] && _extra="licenses"
 # #6562: a neutral owner NAME, as the Kosmos bundle stores, and the same refusal of the build account.
 # #6678: and none of this Mac's extended attributes or file flags, as the Kosmos bundle packs.
-COPYFILE_DISABLE=1 tar -czf "$TARBALL" --uname kosmos --gname staff -C "$OUT" --no-mac-metadata --no-xattrs --no-fflags bin lib VERSION THIRD-PARTY-NOTICES.txt $_extra
+COPYFILE_DISABLE=1 /usr/bin/tar -czf "$TARBALL" --uname kosmos --gname staff -C "$OUT" --no-mac-metadata --no-xattrs --no-fflags bin lib VERSION THIRD-PARTY-NOTICES.txt $_extra
 . "$(dirname "${BASH_SOURCE[0]}")/lib/tar-owner-gate.sh"
 tar_owner_gate "$TARBALL" || exit 1
 . "$(dirname "${BASH_SOURCE[0]}")/lib/tar-macmeta-gate.sh"
