@@ -91,6 +91,15 @@ check stands "a LIVE update's name older than the board's last start still holds
 reset; name "$DEAD" "x1"; touch -t 202001010000 "$KOSMOS_HOME/board.stopped.by-install.$DEAD.x1"; date +%s > "$SA"; touch -t 202101010000 "$SA"; : > "$M"; name "$DEAD" "$LTOK"
 check stranded "an old leftover beside a newer gone update's name: stranded"
 rm -f "$SA"
+livep() { if kosmos_live_pause; then echo live; else echo not; fi; }
+reset; : > "$M"; name "$LIVE" "$LTOK"
+[ "$(livep)" = live ] && ok "kosmos_live_pause: a running update's name is a live pause" || bad "a running update's pause not seen as live"
+reset; : > "$M"; name "$DEAD" "$LTOK"
+[ "$(livep)" = not ] && ok "kosmos_live_pause: only a gone update's name is not live" || bad "a gone update's name read as live"
+reset; : > "$M"; : > "$KOSMOS_HOME/board.stopped.by-install.junk"
+[ "$(livep)" = not ] && ok "kosmos_live_pause: an unreadable name is not live" || bad "an unreadable name read as live"
+reset; name "$LIVE" "$LTOK"
+[ "$(livep)" = not ] && ok "kosmos_live_pause: no marker, no pause" || bad "a live name without a marker read as a live pause"
 
 # Tokens of two kinds cannot be compared: a proc: token read where there is no /proc (this Mac) stands.
 reset; : > "$M"; name "$LIVE" "proc:12345"
@@ -228,7 +237,11 @@ SH=/bin/sh; [ -x /bin/dash ] && SH=/bin/dash
 decide() { # $1 marker yes/no, $2 names none|live|gone, $3 mode none|run|connect -> "was join adopted named"
   reset
   [ "$1" = yes ] && : > "$M"
-  case "$2" in live) name "$LIVE" "$LTOK" ;; gone) touch -t 202001010000 "$M" 2>/dev/null; name "$DEAD" "$LTOK" ;; esac
+  case "$2" in
+    live) name "$LIVE" "$LTOK" ;;
+    gone) touch -t 202001010000 "$M" 2>/dev/null; name "$DEAD" "$LTOK" ;;
+    leftover) name "$DEAD" "$LTOK"; touch -t 202001010000 "$KOSMOS_HOME/board.stopped.by-install.$DEAD.$LTOK"; date +%s > "$KOSMOS_HOME/board.started-at" ;;
+  esac
   case "$3" in run) printf 'run\n' > "$KOSMOS_HOME/mode" ;; connect) printf 'connect\n' > "$KOSMOS_HOME/mode" ;; esac
   KOSMOS_HOME="$KOSMOS_HOME" "$SH" -c 'set -eu
     . "$1"
@@ -252,6 +265,7 @@ row yes none run     "no no no no"   "a person's stop: left alone, no name"
 row yes gone run     "yes no yes yes" "a stranded pause: adopted and named"
 row yes gone connect "no no no no"   "a stranded pause on a connect computer: left alone"
 row yes live run     "no yes no yes"  "another update's live pause: joined (named) but not adopted"
+row yes leftover run "no no no no"    "a person's stop beside only a leftover name: neither joined nor adopted, no name"
 
 # --- 4. the callers ---------------------------------------------------------------------------------------------
 fnbody() { awk -v n="$2" '$0 ~ "^"n"\\(\\) \\{" { on=1 } on { print } on && /^}$/ { exit }' "$1"; }
@@ -273,6 +287,8 @@ awk '/^_kosmos_on_exit\(\) \{/ { on = 1 } on && /rm -f "\$_kosmos_pause_name"/ {
   && ok "setup.sh's EXIT trap removes its own pause name and the names it adopted" || bad "setup.sh's EXIT trap does not remove its own and adopted names"
 awk '/_kosmos_join_pause=yes$/ { j = 1 } /if \[ "\$_kosmos_was_running" = yes \] \|\| \[ "\$\{_kosmos_join_pause:-no\}" = yes \]; then/ { if (j) w = 1 } END { exit !w }' install/setup.sh \
   && ok "an update that finds another update's live pause names itself too (it holds if that update is killed)" || bad "a second update does not name itself on a live pause"
+fnbody install/kosmos cmd_start | grep -q '\[ "\$BOARD_STARTED_AT" -nt "\$_n" \] && continue' \
+  && ok "a start does not save leftover names to put back (fresh, they would count again)" || bad "a start saves leftover names for its restore"
 fnbody install/kosmos cmd_start | grep -q 'rm -f "$STOP_MARKER" "$STOP_MARKER".by-install.\* 2>/dev/null || true' \
   && ok "a start removes an update's names with the marker" || bad "a start leaves an update's names behind"
 awk '/elif ! _kosmos_mode_keeps_board_off && kosmos_stranded_pause >\/dev\/null; then/ { on = 1; next } on && /^  fi$/ { exit } on && /rm -f/ { bad = 1 } END { exit bad }' install/setup.sh \
