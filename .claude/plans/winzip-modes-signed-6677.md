@@ -63,3 +63,9 @@ Built from this branch on the Windows box through the bsdtar shim (KOSMOS_ALLOW_
 - [NIT] fixed: the Run line no longer splits the publisher's name across lines.
 - [NIT] fixed: zip-modes reports usage for a bad verb before judging the stage path.
 - [NIT] noted: renameSync can hit EPERM if antivirus holds the zip; the build stops with the error, nothing is shipped torn.
+### Iteration 6 (sonnet)
+- [WARNING] fixed (comment): why zip-modes does not reuse engine/win32zip.js. That reader is the updater's, strict about what it unpacks (no zip64, fixed top-level names, limits); this one patches two fields. Checked the other way too: win32zip refuses symlinks, zip64 and non-ASCII names and never reads modes, so the rewritten zip stays within what it accepts.
+- [WARNING] fixed: the test file used zlib.crc32 (Node 22.2+); it now computes CRC-32 itself (checked equal to zlib's).
+- [WARNING] fixed: the non-ASCII name concern was a comment only. check now refuses a non-ASCII name without the UTF-8 flag; a test covers both.
+- [NIT] deferred again (iteration 2): the cwd-relative Kosmos.exe read in tools.build-windows-connector-4597. That file reads every path from the cwd.
+- [NIT] noted: SmartScreen naming the publisher after More info is how a signed exe shows; the wording is pinned, the behaviour is Windows'.

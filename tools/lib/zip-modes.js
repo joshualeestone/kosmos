@@ -36,7 +36,13 @@
  * with the stage folder refuses an entry whose mode is not the regular one `set` gives.
  *
  * A DOS-hosted entry is relabelled Unix. Info-ZIP then stops reading a non-ASCII name without the
- * UTF-8 flag as CP437; every name this build stages is ASCII, so nothing reads differently today.
+ * UTF-8 flag as CP437, so `check` refuses such a name; every name this build stages is ASCII.
+ *
+ * WHY NOT engine/win32zip.js. That reader is the updater's, deliberately strict about what it will
+ * UNPACK (no zip64, one set of top-level names, size limits) and read-only; this one only walks the
+ * central directory to patch two fixed-size fields, and must not inherit the updater's limits or be
+ * loosened to serve the build. The built zip must still pass the updater's reader, which the release
+ * checks do on the served bytes.
  */
 
 const fs = require('node:fs');
@@ -88,7 +94,8 @@ function listEntries(buf) {
     const extraLen = buf.readUInt16LE(p + 30);
     const commentLen = buf.readUInt16LE(p + 32);
     const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
-    out.push({ name, at: p, madeBy: buf.readUInt16LE(p + 4), attrs: buf.readUInt32LE(p + 38) });
+    const ascii = buf.subarray(p + 46, p + 46 + nameLen).every((b) => b < 0x80);
+    out.push({ name, at: p, madeBy: buf.readUInt16LE(p + 4), flags: buf.readUInt16LE(p + 8), ascii, attrs: buf.readUInt32LE(p + 38) });
     p += 46 + nameLen + extraLen + commentLen;
   }
   return out;
@@ -147,6 +154,9 @@ function checkModes(buf, stageDir) {
     const want = stageDir ? [modeFor(e.name, stageDir)]
       : e.name.endsWith('/') ? [MODE_DIR]
         : PROGRAM_EXT.has(path.extname(e.name).toLowerCase()) ? [MODE_EXEC] : [MODE_FILE, MODE_EXEC];
+    // Relabelled Unix, a non-ASCII name without the UTF-8 flag would read as CP437 on a Unix extract (and
+    // engine/win32zip.js refuses any non-ASCII name), so check refuses one rather than shipping it garbled.
+    if (!e.ascii && !(e.flags & 0x800)) problems.push(`${e.name}: a name that is not ASCII and not marked UTF-8`);
     if (host !== 3) problems.push(`${e.name}: made on host ${host}, not Unix, so it carries no mode`);
     else if (!want.includes(mode)) problems.push(`${e.name}: mode ${mode.toString(8)}`);
     else counts[mode === MODE_DIR ? 'dir' : mode === MODE_EXEC ? 'exec' : 'file']++;
