@@ -5413,8 +5413,9 @@ BOARDEOF
       # would clear board.stopped). Best-effort: the unit is enabled either way and starts at the next login or boot.
       # kosmos#6667: installBoard enables the pause check too, but does not fail the install when systemd refuses it
       # (the board runs without it). Asked of systemd here, not of the node step's output, which is matched exactly below.
+      # Not in a run whose units went to a folder of its own (AGENT_WORKFORCE_SYSTEMD_DIR): real systemd never read them.
       _kpc_timer="$(_kosmos_linux_pause_check_names | sed -n 1p)"
-      if [ "$(systemctl --user is-enabled "$_kpc_timer" 2>/dev/null)" != enabled ]; then
+      if [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ] && [ "$(systemctl --user is-enabled "$_kpc_timer" 2>/dev/null)" != enabled ]; then
         info "note: systemd did not enable $_kpc_timer, so if an update is ever stopped partway, Kosmos stays off until you run: kosmos start"
       fi
       _kosmos_board_decide

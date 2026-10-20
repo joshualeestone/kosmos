@@ -12,8 +12,9 @@ A small pause check beside the board's unit, written by `engine/linuxboard.js`:
 - `kosmos-pause-check[.<hash>].timer`: `OnCalendar=minutely`, enabled by `installBoard` after the board.
 - `kosmos board-revive` (install/kosmos): marker present, board unit enabled (the Mac watchdog's gate 2), and
   `kosmos_clear_stranded_pause pause-check` succeeds (the #6651 shared rule, untouched), then
-  `systemctl --user start --no-block` the board. Anything else exits 0 and changes nothing; a refused start exits 1
-  and is logged.
+  `systemctl --user start --no-block` the board. Anything else exits 0 and changes nothing. A start systemd will not
+  take (unit missing or masked, no user bus) exits 1 and is logged; a board that fails after it is started is the
+  board unit's own business (Restart=on-failure), not this check's.
 - Removed first by `removeBoard` and by every uninstall branch in setup.sh (`_kosmos_linux_remove_pause_check`, run
   once before the branches, skipped in a sandboxed run like the rest).
 
@@ -48,3 +49,22 @@ the timer running an unknown verb, which exits 2 every minute (a failed oneshot,
 - tools/test-linux-pause-check-live-6667.sh (linux-systemd.yml, ubuntu runner, real systemd): control (systemd alone
   refuses the start), the real timer clears a killed update's pause and the board comes back, a person's stop holds
   through a firing, removeBoard removes all three units.
+
+## Round 1 (opus): no blocker, 2 warnings, 5 nits, all addressed
+- WARNING: the live control could go red by chance if the timer fired in its ~2 s window. FIXED: the timer is
+  stopped while the control runs and started again before the wait, so a fresh firing does the clear.
+- WARNING: `_kosmos_linux_remove_pause_check` was run by no test. FIXED: test-board-revive-6667.sh lifts it and
+  checks it with systemctl (disable, stop, delete, reload), without systemctl (files and the timer's enable link
+  still go), and with nothing installed (systemd not asked). A mutant keeping the enable link goes red.
+- NIT: the new function sat under the #2956 comment that describes board-run. FIXED: moved above it (and a comment
+  line my own edit had merged into one long line is split again).
+- NIT: the --no-block comment overstated a deadlock, and "a refused start exits 1" was wider than true. FIXED: the
+  comment and this plan now say exit 1 covers a start systemd will not take, not a board that fails after it.
+- NIT: bare systemctl where the file uses $SYSTEMCTL. FIXED.
+- NIT: the install note asked real systemd for units written to a sandbox folder. FIXED: skipped when
+  AGENT_WORKFORCE_SYSTEMD_DIR is set.
+- NIT: the #4918 live test's cleanup left this home's timer behind if it failed early. FIXED: it removes the pause
+  check too.
+- Residual, accepted: an OLDER release's uninstall (or a downgrade) does not know the pause check, so its timer stays
+  and its oneshot fails every minute until the next install of this release or later. Rare (a downgrade), loud (a
+  failed unit in systemctl --failed), and harmless (it starts nothing).

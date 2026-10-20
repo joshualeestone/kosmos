@@ -110,5 +110,37 @@ for kh in "$HOME/.local/share/kosmos" "/srv/kosmos other home"; do
     || bad "the pause check's names differ for ${kh##*/}: setup.sh [$sh_names] linuxboard.js [$js_names]"
 done
 
+# 10. setup.sh's uninstall helper removes the pause check (lifted as in 9, into a folder of its own).
+rmfns="$(awk '/^_kosmos_linux_unit_name\(\) \{$/,/^\}$/; /^_kosmos_linux_pause_check_names\(\) \{$/,/^\}$/; /^_kosmos_linux_remove_pause_check\(\) \{$/,/^\}$/' "$REPO/install/setup.sh")"
+[ "$(printf '%s\n' "$rmfns" | grep -c '() {$')" = 3 ] || bad "premise: the three uninstall helpers were not found in setup.sh"
+KH="/srv/kosmos uninstall"
+PCN="$(node -e 'const n = require(process.argv[1]).pauseCheckNames(process.argv[2]); console.log(n.timer + " " + n.service)' "$REPO/engine/linuxboard.js" "$KH")"
+PT="${PCN% *}"; PS="${PCN#* }"
+# pc_remove <path>: plant the two units and the timer's enable link, run the helper with that PATH.
+pc_remove() {
+  SD="$ROOT/units$1"; mkdir -p "$SD/timers.target.wants"; : > "$SD/$PT"; : > "$SD/$PS"; ln -sf "$SD/$PT" "$SD/timers.target.wants/$PT"
+  STUB_LOG="$ROOT/rmcalls$1"; : > "$STUB_LOG"
+  PATH="$2" KOSMOS_HOME="$KH" _kosmos_home_default="$HOME/.local/share/kosmos" AGENT_WORKFORCE_SYSTEMD_DIR="$SD" STUB_LOG="$STUB_LOG" \
+    /bin/bash -c "$rmfns"'
+    _kosmos_linux_remove_pause_check'
+}
+units_gone() { [ ! -e "$SD/$PT" ] && [ ! -e "$SD/$PS" ] && [ ! -L "$SD/timers.target.wants/$PT" ]; }
+pc_remove a "$ROOT/bin:/usr/bin:/bin"
+units_gone && grep -qx -- "--user disable --now $PT" "$STUB_LOG" && grep -qx -- "--user stop $PS" "$STUB_LOG" && grep -qx -- '--user daemon-reload' "$STUB_LOG" \
+  && ok "the uninstall helper disables the timer, stops the check and deletes both, with systemctl" \
+  || bad "the uninstall helper with systemctl: calls=$(tr '\n' '|' < "$STUB_LOG") left=$(ls -A "$SD" | tr '\n' ' ')"
+# Without systemctl (no user manager): the files and the timer's enable link still go. PATH holds only what it needs.
+mkdir -p "$ROOT/nosys"
+for t in sed rm cut tr sha256sum shasum; do command -v "$t" >/dev/null 2>&1 && ln -sf "$(command -v "$t")" "$ROOT/nosys/$t"; done
+pc_remove b "$ROOT/nosys"
+units_gone && [ ! -s "$STUB_LOG" ] && ok "with no systemctl, the uninstall helper still deletes both and the enable link" \
+  || bad "the uninstall helper with no systemctl left: $(ls -A "$SD" "$SD/timers.target.wants" | tr '\n' ' ')"
+# Nothing installed: nothing asked.
+SD="$ROOT/unitsc"; mkdir -p "$SD"; STUB_LOG="$ROOT/rmcallsc"; : > "$STUB_LOG"
+PATH="$ROOT/bin:/usr/bin:/bin" KOSMOS_HOME="$KH" _kosmos_home_default="$HOME/.local/share/kosmos" AGENT_WORKFORCE_SYSTEMD_DIR="$SD" STUB_LOG="$STUB_LOG" \
+  /bin/bash -c "$rmfns"'
+  _kosmos_linux_remove_pause_check'
+[ ! -s "$STUB_LOG" ] && ok "with no pause check installed, the uninstall helper asks systemd nothing" || bad "it asked systemd with nothing installed"
+
 [ "$fails" = 0 ] && echo "board-revive: 0 failures" || echo "board-revive: FAILURES"
 exit "$fails"

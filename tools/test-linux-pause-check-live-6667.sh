@@ -77,7 +77,9 @@ active && ok "the board runs under systemd" || bad "the board is not running"
 
 # --- 1. A killed update's pause ---------------------------------------------------------------------------------
 # What an update leaves when it is killed mid-pause: the marker, its own name (a pid that has ended, a /proc token),
-# newer than the board's last start. The board was stopped by the update before it died.
+# newer than the board's last start. The board was stopped by the update before it died. The timer is held off while
+# the control runs, or a firing in that window would clear the pause and turn the control red for no defect.
+systemctl --user stop "$TIMER"
 : > "$H/board.started-at"; touch -d '1 hour ago' "$H/board.started-at"
 sh -c 'exit 0' & DEAD=$!; wait "$DEAD" 2>/dev/null
 : > "$H/board.stopped"; : > "$H/board.stopped.by-install.$DEAD.proc:1234:bootid"
@@ -88,7 +90,8 @@ sleep 1
 COND="$(systemctl --user show -p ConditionResult --value "$BOARD" 2>/dev/null)"
 ! active && [ "$COND" = no ] && ok "control: systemd alone refuses to start the board under a killed update's pause" \
   || bad "control: the board started without the pause check (active=$(active && echo yes || echo no), ConditionResult=$COND)"
-# Now nothing but the timer: up to 75 s for it to fire, then a few for the board.
+# Now nothing but the timer, started again: up to 75 s for it to fire, then a few for the board.
+systemctl --user start "$TIMER" || bad "the timer would not start again"
 came=no
 for i in $(seq 1 85); do active && { came=yes; break; }; sleep 1; done
 if [ "$came" = yes ] && [ ! -e "$H/board.stopped" ] && ls "$H"/board.stopped.stranded.* >/dev/null 2>&1; then
