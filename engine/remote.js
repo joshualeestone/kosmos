@@ -231,8 +231,9 @@ function noteRunning(raw, pid) {
    board's tunnel after each "replaced by a newer connection", so it forwards part of the time, as whatever binary it
    was, and neither capability check describes it. It is ended (SIGTERM, to the pid the file names) ONLY when ps shows
    all of: its parent is 1 (it was re-parented: its board is gone; review 4, a second LIVE board on the same account
-   shares this file, and killing its child would start a kill loop between the two), its program is the tunnel (the
-   basename of BIN(), as its command line names it: argv, not the kernel's executable name, which a portable test
+   shares this file, and killing its child would start a kill loop between the two), the text before its first
+   ` run ` has the tunnel's basename (BIN()'s; so a wrapper line such as `strace /x/kosmos-tunnel run ...` matches
+   too, review 8: argv, not the kernel's executable name, which a portable test
    fixture cannot fake; review 6) and its first argument is `run`, and it was started with this board's own `--status-file` path,
    the whole argument. A pid outside 2..2^22 is never looked at (0 and -1 would signal a group). Our own pid and our
    child are excluded both when asked and again right before the signal. Not closed (stated): a pid that exits and is
@@ -242,7 +243,7 @@ function noteRunning(raw, pid) {
    whose own earlier children read as orphans).
    A failed ps is asked again next time.
    Not on Windows (no command line is read there; stated on kosmos#6669). */
-const foreignLooked = new Map();   // pid -> until when its answer stands (Infinity: for good)
+const foreignLooked = new Map();   // pid -> until when its answer stands (Infinity: Windows, never judged there)
 const FOREIGN_RECHECK_MS = 60 * 1000;
 const FOREIGN_NOT_OURS_MS = 60 * 60 * 1000;
 const foreignAsking = new Set();
@@ -267,7 +268,9 @@ function isOrphanedTunnel(proc, statusFile, bin = BIN()) {
 }
 function endForeignTunnel(pid, done = () => {}) {
   if (!Number.isInteger(pid) || pid < 2 || pid > 4194304 || notOurs(pid) || foreignAsking.has(pid)) { done(false); return; }
-  if ((foreignLooked.get(pid) || 0) > Date.now() || process.pid === 1) { done(false); return; }
+  const until = foreignLooked.get(pid);
+  if (until !== undefined && until <= Date.now()) foreignLooked.delete(pid);   // expired: pruned as it is read
+  if ((until || 0) > Date.now() || process.pid === 1) { done(false); return; }
   const stand = process.env.NODE_TEST_CONTEXT ? endForeignForTests : null;
   if (process.platform === 'win32' && !stand) { foreignLooked.set(pid, Infinity); done(false); return; }
   const statusFile = STATUS_FILE();
@@ -278,7 +281,7 @@ function endForeignTunnel(pid, done = () => {}) {
     if (proc !== null && !isOurTunnel(proc, statusFile)) { foreignLooked.set(pid, Date.now() + FOREIGN_NOT_OURS_MS); done(false); return; }
     if (!isOrphanedTunnel(proc, statusFile) || notOurs(pid)) { foreignLooked.set(pid, Date.now() + FOREIGN_RECHECK_MS); done(false); return; }
     foreignLooked.set(pid, Date.now() + FOREIGN_RECHECK_MS);
-    try { (stand ? killForTests : process.kill.bind(process))(pid, 'SIGTERM'); console.error('[remote] ended a Kosmos+ tunnel an earlier board left running (pid ' + pid + ')'); done(true); } catch { done(false); }
+    try { (stand ? killForTests : process.kill.bind(process))(pid, 'SIGTERM'); process.stderr.write('remote: ended a Kosmos+ tunnel an earlier board left running (pid ' + pid + ', kosmos#6669)\n'); done(true); } catch { done(false); }
   };
   foreignAsking.add(pid);
   if (stand) { judge(stand(pid, statusFile)); return; }

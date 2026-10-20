@@ -407,8 +407,7 @@ test('R01b: while a tunnel runs here, only what that process lists in its status
     await as(pid + 15); fs.writeFileSync(statusFile, '{"state":"up","pid":' + (pid + 15) + ',"capabilities":["session-hea');
     assert.equal(remote.connectorCapabilities().size, 0, 'a truncated status file vouched');
     // Started here, but no tunnel running now (crash backoff, a stop): nothing legitimate arrives, so nothing counts.
-    write({ state: 'up', pid, capabilities: ['session-headers'] });
-    reset({ runningPid: null });
+    reset({ runningPid: null });   // (it writes a status file that lists the capability)
     await warm();
     assert.equal(remote.connectorCapabilities().size, 0, 'with no tunnel running, the binary alone vouched');
     // The running process cannot widen the binary's answer: it only narrows.
@@ -486,17 +485,27 @@ test('R01c: an orphaned tunnel is ended, read from the real process table; a liv
     assert.equal(await ended(orphan.pid), true, 'our orphan was not ended');
     assert.ok(await until(() => !alive(orphan.pid)), 'the orphan did not end');
     assert.equal(await ended(orphan.pid), false, 'an ended pid was judged again at once');
-  } finally { for (const p of [orphan, elsewhere, liveBoards, notTunnel]) { try { process.kill(p.pid, 'SIGKILL'); } catch {} } reset(); await warm(); }
+  } finally {
+    // Only a pid that is still this test's own fake (review 8: never signal a pid that may have been reused).
+    for (const p of [orphan, elsewhere, liveBoards, notTunnel]) {
+      let cmd = '';
+      try { cmd = execFileSync('/bin/ps', ['-ww', '-o', 'command=', '-p', String(p.pid)], { encoding: 'utf8' }); } catch { /* gone */ }
+      if (cmd.includes(' run --status-file ' + STATUS)) { try { process.kill(p.pid, 'SIGKILL'); } catch {} }
+    }
+    reset(); await warm();
+  }
 });
 
 test('R01c: a pid outside 2..2^22, our own pid, and a failed ps are never signalled; a failed ps is asked again', async () => {
   const asked = [];
+  const killed = [];
   try {
-    reset({ commandOf: (pid) => { asked.push(pid); return undefined; } });   // ps fails: no answer
+    reset({ commandOf: (pid) => { asked.push(pid); return undefined; }, kill: (pid) => killed.push(pid) });   // ps fails: no answer
     for (const pid of [0, -1, 1, 2 ** 23, 1.5, process.pid]) assert.equal(await ended(pid), false, String(pid));
     assert.deepEqual(asked, [], 'an out-of-range pid, or our own, was looked up');
     await ended(424299); await ended(424299);
     assert.deepEqual(asked, [424299, 424299], 'a failed ps was not asked again');
+    assert.deepEqual(killed, [], 'something was signalled');
   } finally { reset(); await warm(); }
 });
 
@@ -524,7 +533,7 @@ test('R01c: reading the status file is what notices it: a foreign pid there is j
   } finally { reset(); await warm(); }
 });
 
-test('R01c: a live board\'s tunnel is asked again after a minute (its board may die); not-our-tunnel is kept for good', async () => {
+test('R01c: a live board\'s tunnel and a gone pid are asked again after a minute; not-our-tunnel after an hour', async () => {
   const asked = [];
   let answer = null;
   const realNow = Date.now;
@@ -549,7 +558,16 @@ test('R01c: a live board\'s tunnel is asked again after a minute (its board may 
     await ended(424302);
     skew = 10 * 60 * 1000;
     await ended(424302);
-    assert.deepEqual(asked.filter((p) => p === 424302), [424302], 'not-our-tunnel was asked again');
+    assert.deepEqual(asked.filter((p) => p === 424302), [424302], 'not-our-tunnel was asked again inside the hour');
+    skew += 61 * 60 * 1000;   // past the hour since it was judged
+    await ended(424302);
+    assert.deepEqual(asked.filter((p) => p === 424302), [424302, 424302], 'not-our-tunnel was kept past the hour (macOS pids wrap)');
+    // A pid that is gone (ps: no such process) is asked again after a minute, not after the hour (review 8).
+    answer = null;
+    await ended(424303);
+    skew += 61 * 1000;
+    await ended(424303);
+    assert.deepEqual(asked.filter((p) => p === 424303), [424303, 424303], 'a gone pid was kept as not-ours for the hour');
   } finally { Date.now = realNow; reset(); await warm(); }
 });
 
