@@ -35,3 +35,9 @@ Linux (systemd user units) has the same shape, in a different folder, and is not
 - [WARNING] fixed: the default-port arm refused a person self-hosting with a kept custom KOSMOS_HOME. Dropped: the temp-home arm alone catches the incident shape, since every leaked home was a temp folder. A new arm checks that a kept home is not refused on any port.
 - [NIT] fixed: the TMPDIR arm was never exercised. A new arm uses TMPDIR=/Users/Shared, which is in none of the fixed spellings; a control without that arm turns it red. /var/tmp has been added.
 - [NIT] deferred: the Darwin gate is not testable off macOS from a lifted function. The ordering test stays textual.
+### Iteration 3 (opus)
+- [WARNING] fixed: the temp-folder match was literal, so a symlink into a temp folder, the /System/Volumes/Data spelling, or other capitals got through. The home is now checked as written and as resolved (its nearest existing folder through `pwd -P`, then the rest appended), slash-squeezed and lowercased. TMPDIR is checked both as given and as resolved.
+- [WARNING] fixed: AGENT_WORKFORCE_LAUNCH pointed at the account's own LaunchAgents (`-ef`) was accepted as a way through, though its plist loads at the next login. It no longer counts.
+- [NIT] fixed: a TMPDIR as broad as HOME, or above it (/, /Users), is ignored, so it cannot refuse every kept home.
+- [NIT] fixed: the unused port parameters are gone from the test.
+- Each of the four new defences has a control that turns its arm red when that defence alone is removed.
