@@ -30,7 +30,7 @@
 - Not in this branch: what launched two installs 16 seconds apart (the card says no instrument recorded it).
 
 ## Proof
-- `bash tools/test-stopmark-6651.sh`: 38 PASS, including a real full disk (an 8 MB disk image, filled). Mutants, each red then restored: the start-time comparison removed
+- `bash tools/test-stopmark-6651.sh`: 49 PASS, including a real full disk (an 8 MB disk image, filled) and dash. Mutants, each red then restored: the start-time comparison removed
   (also caught by the byte-equal twin check), the watchdog's clear removed, the writer ignoring the attribution.
 - Neighbours, all green on this branch: test-board-watchdog-2955 (0 failures), test-update-putback-4818 (33/33;
   red at first because it pins the pause's stop line, updated), test-setup-pause-sandbox-4651 (0 failures),
@@ -62,3 +62,15 @@
   their stop raced it; the watchdog clears only after its board-job gate; an agent's start clears only after its
   cooldown and claim; the shared block is one text in all three files. Mutants red: mode rule, always-gone, race
   put-back, a person's stop removing the names, the EXIT trap's name removal, the watchdog's gate order.
+- Iteration 4 (a BLOCKER, three WARNINGs, NITs; each fixed and mutant-checked, with a control for the dash one):
+  - BLOCKER: under dash (Debian's /bin/sh) a failed redirection on the special builtin ":" ends the whole script,
+    and `|| x=""` cannot catch it: on a full disk the name create killed the installer before its stop. Now
+    `if ( : > name ) 2>/dev/null`. Measured under /bin/dash, with a control showing the plain form does end it.
+  - Adoption no longer removes the old names before this run's own name exists (a kill in between left a bare
+    marker, a person's stop); a later clear moves them aside.
+  - `kosmos start` removes the names with the marker, and its refusal paths put them back (`restore_stop_marker`),
+    so leftovers cannot make a later plain marker read as stranded, nor a refused start make a person's stop.
+  - Tokens of two kinds (ps vs /proc) are never compared: the pause stands.
+  - Evidence keeps the newest ten clears (aside names carry the pid as well as the second); the clear's comment says
+    the window it cannot close. Known and accepted: `kosmos restart` on a stranded pause writes a person's marker
+    (restart is a deliberate act) and, if its start is then refused, that marker stays.

@@ -165,9 +165,14 @@ kosmos_start_token() { # $1 pid: when that process started, stable for its life;
 }
 kosmos_installer_gone() { # $1 pid, $2 token recorded at the pause: 0 only when that installer has provably ended
   _kig_live="$(kosmos_start_token "$1")"
-  if [ -d /proc/self ]; then
+  # Tokens of two kinds (written by ps, read through /proc, or the other way round) cannot be compared: unknowable.
+  case "$2" in proc:*) _kig_want=proc ;; *) _kig_want=ps ;; esac
+  case "$_kig_live" in proc:*) _kig_got=proc ;; '') _kig_got="" ;; *) _kig_got=ps ;; esac
+  if [ -d /proc/self ] && [ "$_kig_want" = proc ]; then
     [ -e "/proc/$1" ] || return 0                                  # no /proc entry: gone, in any language
-    case "$2" in proc:*) case "$_kig_live" in proc:*) ;; *) return 1 ;; esac ;; esac   # unreadable here: unknowable
+    [ "$_kig_got" = proc ] || return 1                             # unreadable here (hidepid, another user)
+  elif [ -n "$_kig_got" ] && [ "$_kig_got" != "$_kig_want" ]; then
+    return 1
   elif [ -z "$_kig_live" ]; then
     # Nothing came back: gone, or ps could not run (a sandbox). Only kill's own "No such process" proves gone.
     case "$(LC_ALL=C kill -0 "$1" 2>&1)" in *"o such process"*) return 0 ;; esac
@@ -197,9 +202,11 @@ kosmos_stranded_pause() { # prints the stranded pause's name files, one per line
 }
 kosmos_clear_stranded_pause() { # $1 who is clearing. Moves the marker aside (kept as evidence) and logs it.
   _kcs_names="$(kosmos_stranded_pause)" || return 1
-  _kcs_aside="$KOSMOS_HOME/board.stopped.stranded.$(date +%s)"
+  _kcs_aside="$KOSMOS_HOME/board.stopped.stranded.$(date +%s).$$"
   mv -f "$KOSMOS_HOME/board.stopped" "$_kcs_aside" 2>/dev/null || return 1
   # A person's stop between the check and the move removes the names first: then it was theirs, so put it back.
+  # (Not airtight: in the moments between this move and that put-back the marker is absent, so a supervisor
+  # could start the board under a stop landing in exactly that window. Narrow, and a later stop still holds.)
   # (Read line by line from a here-document: no word splitting, so a KOSMOS_HOME with a space in it is safe.)
   while IFS= read -r _kcs_f; do
     [ -n "$_kcs_f" ] || continue
@@ -217,8 +224,19 @@ KOSMOS_6651_NAMES
   printf '[%s] %s: cleared a stranded update pause (%s); kept at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" \
     "$(printf '%s' "$_kcs_names" | sed 's|.*/||' | tr '\n' ' ')" "$_kcs_aside" \
     >> "$KOSMOS_HOME/logs/board-watchdog.log" 2>/dev/null || true
+  # Keep the newest ten clears as evidence; older ones go.
+  ls -1t "$KOSMOS_HOME"/board.stopped.stranded.* 2>/dev/null | awk -F. '{ k = $0; sub(/\.by-install\..*$/, "", k) } !seen[k]++ { n++ } n > 10' \
+    | while IFS= read -r _kcs_old; do rm -f "$_kcs_old"; done
 }
 # END kosmos#6651 shared block
+# kosmos#6651 (CLI only): a start that refuses puts back the marker it removed, and an update's names with it
+# (cmd_start's _had_stop_names, visible here because bash locals are dynamically scoped).
+restore_stop_marker() {
+  : > "$STOP_MARKER" 2>/dev/null || true
+  [ -n "${_had_stop_names:-}" ] || return 0
+  printf '%s\n' "$_had_stop_names" | while IFS= read -r _n; do [ -n "$_n" ] && { : > "$_n"; } 2>/dev/null; done
+  return 0
+}
 # #5450: left by a person's `kosmos start` (first thing, before the stop marker goes), so board-run can tell a person's
 # start from the login item's or a crash relaunch's. The board removes it once it has used it (engine/restartnote.js
 # atStart) and `kosmos stop` removes it; board-run removes none. Older than PERSON_START_MAX_S it is stale.
@@ -1632,7 +1650,7 @@ _await_board_up() {
         if [ "$(cat "$PIDFILE" 2>/dev/null)" = "$_pid" ]; then rm -f "$PIDFILE" 2>/dev/null || true; fi
         # Nothing was left started, so a deliberate stop a person made stands (cmd_start's _had_stop_marker,
         # visible here because bash locals are dynamically scoped; empty for any other caller).
-        if [ -n "${_had_stop_marker:-}" ]; then : > "$STOP_MARKER" 2>/dev/null || true; fi
+        if [ -n "${_had_stop_marker:-}" ]; then restore_stop_marker; fi
         die "Kosmos cannot be started from this shell: it started, but $(_unreachable_why). A board started from a sandboxed shell is blocked the same way, so it was stopped again. Start it from a normal Terminal (or ask the person who runs this computer)."
       fi
     fi
@@ -1677,11 +1695,14 @@ cmd_start() {
   # #4636, the one exception: a start from a shell that cannot connect to the board, which then refuses (or
   # stops the board it launched there), puts back a marker it cleared. It started nothing, so a person's
   # deliberate stop stands; a start that FAILS to bind still clears it, as above.
-  local _had_stop_marker=""
+  local _had_stop_marker="" _had_stop_names=""
   # Under restart, the marker as it was before restart's own stop (which writes one on a down board), not now.
   if [ "${_KOSMOS_RESTARTING:-}" = 1 ]; then _had_stop_marker="${_KOSMOS_RESTART_HAD_MARKER:-}"
   elif [ -f "$STOP_MARKER" ]; then _had_stop_marker=1; fi
-  rm -f "$STOP_MARKER" 2>/dev/null || true
+  # kosmos#6651: an update's pause names go with the marker (a start makes them moot), and are put back with it by
+  # the refusals below, so a refused start never turns an update's stranded pause into a person's stop.
+  _had_stop_names="$(ls -1 "$STOP_MARKER".by-install.* 2>/dev/null)" || _had_stop_names=""
+  rm -f "$STOP_MARKER" "$STOP_MARKER".by-install.* 2>/dev/null || true
   if healthy; then
     say "Kosmos is already running at $URL"
     return 0
@@ -1693,7 +1714,7 @@ cmd_start() {
   if [ "$HEALTH_STATE" = unreachable ]; then
     if [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ] || ! _unreachable_is_ours; then
       # Nothing was started, so a deliberate stop a person made stands (#2955's early clear is undone).
-      if [ -n "$_had_stop_marker" ]; then : > "$STOP_MARKER" 2>/dev/null || true; fi
+      if [ -n "$_had_stop_marker" ]; then restore_stop_marker; fi
       die "$(_unreachable_lead) $(_unreachable_why). Nothing was started or stopped; run this from a shell that can reach it."
     fi
     say "Kosmos is already running at $URL, but $(_unreachable_why). Nothing was started."

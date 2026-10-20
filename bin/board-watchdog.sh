@@ -139,9 +139,14 @@ kosmos_start_token() { # $1 pid: when that process started, stable for its life;
 }
 kosmos_installer_gone() { # $1 pid, $2 token recorded at the pause: 0 only when that installer has provably ended
   _kig_live="$(kosmos_start_token "$1")"
-  if [ -d /proc/self ]; then
+  # Tokens of two kinds (written by ps, read through /proc, or the other way round) cannot be compared: unknowable.
+  case "$2" in proc:*) _kig_want=proc ;; *) _kig_want=ps ;; esac
+  case "$_kig_live" in proc:*) _kig_got=proc ;; '') _kig_got="" ;; *) _kig_got=ps ;; esac
+  if [ -d /proc/self ] && [ "$_kig_want" = proc ]; then
     [ -e "/proc/$1" ] || return 0                                  # no /proc entry: gone, in any language
-    case "$2" in proc:*) case "$_kig_live" in proc:*) ;; *) return 1 ;; esac ;; esac   # unreadable here: unknowable
+    [ "$_kig_got" = proc ] || return 1                             # unreadable here (hidepid, another user)
+  elif [ -n "$_kig_got" ] && [ "$_kig_got" != "$_kig_want" ]; then
+    return 1
   elif [ -z "$_kig_live" ]; then
     # Nothing came back: gone, or ps could not run (a sandbox). Only kill's own "No such process" proves gone.
     case "$(LC_ALL=C kill -0 "$1" 2>&1)" in *"o such process"*) return 0 ;; esac
@@ -171,9 +176,11 @@ kosmos_stranded_pause() { # prints the stranded pause's name files, one per line
 }
 kosmos_clear_stranded_pause() { # $1 who is clearing. Moves the marker aside (kept as evidence) and logs it.
   _kcs_names="$(kosmos_stranded_pause)" || return 1
-  _kcs_aside="$KOSMOS_HOME/board.stopped.stranded.$(date +%s)"
+  _kcs_aside="$KOSMOS_HOME/board.stopped.stranded.$(date +%s).$$"
   mv -f "$KOSMOS_HOME/board.stopped" "$_kcs_aside" 2>/dev/null || return 1
   # A person's stop between the check and the move removes the names first: then it was theirs, so put it back.
+  # (Not airtight: in the moments between this move and that put-back the marker is absent, so a supervisor
+  # could start the board under a stop landing in exactly that window. Narrow, and a later stop still holds.)
   # (Read line by line from a here-document: no word splitting, so a KOSMOS_HOME with a space in it is safe.)
   while IFS= read -r _kcs_f; do
     [ -n "$_kcs_f" ] || continue
@@ -191,6 +198,9 @@ KOSMOS_6651_NAMES
   printf '[%s] %s: cleared a stranded update pause (%s); kept at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" \
     "$(printf '%s' "$_kcs_names" | sed 's|.*/||' | tr '\n' ' ')" "$_kcs_aside" \
     >> "$KOSMOS_HOME/logs/board-watchdog.log" 2>/dev/null || true
+  # Keep the newest ten clears as evidence; older ones go.
+  ls -1t "$KOSMOS_HOME"/board.stopped.stranded.* 2>/dev/null | awk -F. '{ k = $0; sub(/\.by-install\..*$/, "", k) } !seen[k]++ { n++ } n > 10' \
+    | while IFS= read -r _kcs_old; do rm -f "$_kcs_old"; done
 }
 # END kosmos#6651 shared block
 
