@@ -29,7 +29,7 @@ test('#6589: the challenge handler judges only computers\' addresses, after ordi
   assert.match(SRC, /@objc\(webView:didReceiveAuthenticationChallenge:completionHandler:\)[^\n]*\n\s+func webView\(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,/);
   assert.match(h, /SecTrustEvaluateAsyncWithError\(trust, DispatchQueue\.global\(qos: \.userInitiated\)\)/);
   assert.match(h, /guard trusted else \{ DispatchQueue\.main\.async \{ completionHandler\(\.cancelAuthenticationChallenge, nil\) \}; return \}/);
-  assert.match(h, /DispatchQueue\.main\.async \{ self\?\.judgePin\(host: host, trust: trust, completionHandler: completionHandler\) \}/);
+  assert.match(h, /guard let self else \{ completionHandler\(\.cancelAuthenticationChallenge, nil\); return \}[^\n]*\n\s+self\.judgePin\(host: host, trust: trust, completionHandler: completionHandler\)/);
   assert.doesNotMatch(h, /SecTrustEvaluateWithError\(/, 'never the blocking form on the main thread');
   const hj = body('private func judgePin(host: String, trust: SecTrust,');
   assert.ok(hj.indexOf('askTlsPin(host: host, fresh: false)') > 0, 'the pin half asks the board');

@@ -3568,7 +3568,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Review 1: evaluated off the main thread (it can wait on the network for revocation), then on as before.
         SecTrustEvaluateAsyncWithError(trust, DispatchQueue.global(qos: .userInitiated)) { [weak self] trust, trusted, _ in
             guard trusted else { DispatchQueue.main.async { completionHandler(.cancelAuthenticationChallenge, nil) }; return }
-            DispatchQueue.main.async { self?.judgePin(host: host, trust: trust, completionHandler: completionHandler) }
+            DispatchQueue.main.async {
+                guard let self else { completionHandler(.cancelAuthenticationChallenge, nil); return }   // exactly once, always
+                self.judgePin(host: host, trust: trust, completionHandler: completionHandler)
+            }
         }
     }
 
