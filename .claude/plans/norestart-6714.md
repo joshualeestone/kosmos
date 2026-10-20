@@ -37,6 +37,10 @@ tests is about (repairing an agent that lost its job), not a way around the rule
 
 **Hidden names are forgotten once the agent starts at login** (review 2), so a later loss shows the notice again.
 
+**Kept, decided (review 8).** A hidden name is forgotten when its agent's job reads present. "Present" is the plist file
+existing, which reads true only once a job is really written, so this cannot drop a dismissal on a flicker; and a later
+loss showing the notice again is the intended behaviour (pinned in register.test.js).
+
 **Behaviour change, stated.** An imported agent a company policy held has never run here, so it is no longer on the
 notice (before, it was listed and Repair refused it with the policy's reason). It loses nothing on a restart.
 
@@ -47,12 +51,12 @@ nothing on the page is full width; phones get a readable notice with 44px target
 ## Tests
 - server.register-routes-6714.test.js: the routes over HTTP (no body, `{}`, `{name}`, a non-string name, bad JSON;
   refused 400 vs failure 500; hide/show name rule and a hide with no notice).
-- engine/register.test.js (54): never-ran is left off and never repaired (CONTROL: an agent that ran); a self-report
+- engine/register.test.js (56): never-ran is left off and never repaired (CONTROL: an agent that ran); a self-report
   alone counts; hide/show and Repair-all skipping hidden; only offered names can be hidden; an unreadable hidden list
   hides nothing; one-agent Start at login. Mutation: dropping the `ran` filter reds the never-ran arm.
 - Fixtures in five more engine tests record that their agents ran (linuxwiring, gemini-grok, world-guard, win32-570,
   qwen-review2), since the survey now requires it.
-- web.survival.test.js (16): notice per agent with its three actions, names spoken, cap and combined notice, escaping,
+- web.survival.test.js (19): notice per agent with its three actions, names spoken, cap and combined notice, escaping,
   failed look leaves the screen, Settings list, slot present and #restart-wrap gone.
 - Browser: render-survival.js on a sandboxed board, dark and light: 2 notices (the never-ran folder absent), each
   460px wide, Remove opens the dialog about that agent, x hides and Settings lists it, Show again restores it, Start

@@ -48113,8 +48113,13 @@ document.addEventListener('click', async (e) => {
   if (!body || body.ok !== true || !Array.isArray(body.results)) {
     btn.disabled = false;
     btn.textContent = label;
-    survivalSayIn(btn, (body && body.because) ? body.because : 'That did not go through, and nothing was changed. Try again.');
+    /* A refusal means the notice was out of date (started elsewhere, or closed on another device): say so plainly and
+       ask the board again, so the stale button goes (review 8). */
+    const stale = !!(body && body.refused);
+    survivalSayIn(btn, stale ? 'This changed on another screen. Showing what is true now.'
+      : ((body && body.because) ? body.because : 'That did not go through, and nothing was changed. Try again.'));
     SURVIVAL_BUSY = false;
+    if (stale) { const sl = document.getElementById('survival-slot'); if (sl) delete sl.dataset.v; setTimeout(paintSurvival, 1500); }
     return;
   }
   /* ⚠️ PER AGENT, never a total. "12 set up" over a run where three could not
