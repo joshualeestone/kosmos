@@ -15,14 +15,18 @@ Rejected: a longer first probe (it would slow the honest "not running" answer an
 The card's ask 1 (is that install genuinely slow?) cannot be measured from here; noted on the card.
 Windows: tools/windows/kosmos-cli.js has no such line, so no parity change.
 
-**Done when.** A single slow answer that the retry catches prints nothing; two misses still print the line.
+**Done when.** A single slow answer that the retry catches prints nothing; two misses still print the line. Stated
+consequences (review 1): on the default 20 s budget the longest silent wait is about 6 s (probes of 2 and 4 s), up from
+about 2 s; a budget too short for a second reading (the --auto report's 6 s, a KOSMOS_BUSY_WAIT of 2 to 6) never says
+the line, and its give-up message (say_not_up, "too busy to answer") says busy itself, so no one is left guessing.
 
 ## Change
 - install/kosmos healthy(): a `_busy` count; the line is said when it reaches 2.
 
-## Tests (cli.busy-health-4466.test.js, whole file 54/54)
-- The 2.5 s single-miss arm (an --auto report end to end) now asserts the line is NOT said; the 5 s slow-board status
-  arm (two misses) still asserts it IS (CONTROL).
+## Tests (cli.busy-health-4466.test.js, whole file 55/55)
+- New: `status` on the full 20 s budget against a board slow once (2.5 s, then answered at once) says RUNNING with no
+  busy line; the 5 s slow-board status arm (two misses) still says it (CONTROL).
+- The --auto end-to-end arm asserts its 6 s budget never says the line.
 - Mutation: the threshold back to 1 reds the single-miss arm.
 
 **Weakest premise.** That a second miss is the right line between a moment and a slow board. A board that answers in
