@@ -5216,11 +5216,13 @@ cmd_task() {
     # cmd_post and cmd_room use, so a malformed invocation is named even when the board is stopped
     # (rather than reporting "not running" and hiding the usage).
     list)
-      [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id> [--state open|built|held|done]"; exit 2; }
+      [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built]"; exit 2; }
       # #5705: --state keeps one group; the value is checked here, so only these four words reach the URL.
       if [ "${2:-}" = "--state" ]; then
         case "${3:-}" in open|built|held|done) ;; *) say "--state takes one of: open, built, held, done."; exit 2 ;; esac
-      fi ;;
+      fi
+      # #6761: the compact forms (one line per task, then a count) take nothing after them.
+      case "${2:-}" in --open|--blocked|--built) [ -z "${3:-}" ] || { say "${2} takes nothing after it: kosmos task list <project-id> ${2}"; exit 2; } ;; esac ;;
     add)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"] [--parent <task-number>] [--who <agent>|me] [--done \"<check>\"]"; exit 2; }
       # #3861: the sentence comes first, so `add <project> --parent 3 "x"` would file a task
@@ -5416,12 +5418,25 @@ cmd_task() {
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _ltok="$KOSMOS_AGENT_TOKEN" ;; esac
       # #5705: grouped (open, built, on hold, done); --state keeps one group (its word was checked above).
       local _lst=""; [ "${2:-}" = "--state" ] && _lst="&state=${3:-}"
+      # #6761: --open, --blocked (the board's on-hold group) and --built ask for one group each and print it compactly,
+      # through engine/tasklist.js (the Windows CLI runs the same module, so the two print it the same way).
+      local _compact=""
+      case "${2:-}" in --open) _compact=open; _lst="&state=open" ;; --blocked) _compact=blocked; _lst="&state=held" ;; --built) _compact=built; _lst="&state=built" ;; esac
       body=$(kosmos_curl "$_bt" "$_ltok" -sS -m 15 "$URL/api/tasks?project=$esc_project&order=state$_lst" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "list tasks" "$rc"; exit 1; }
       case "$body" in '{"error":'*)
         local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
         say "Kosmos refused that: ${because:-it did not say why}."; exit 1 ;;
       esac
+      if [ -n "$_compact" ]; then
+        # The module checks the group the board answered (an older board's whole list is never passed off as it).
+        local _tnode _tmod
+        _tnode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print that list; list it without ${2}."; exit 1; }
+        _tmod="$(kosmos_engine_module tasklist).js"
+        [ -f "$_tmod" ] || { say "This install of Kosmos has no compact task list yet; update Kosmos, or list without ${2}."; exit 1; }
+        printf '%s' "$body" | "$_tnode" "$_tmod" compact "$_compact" "${1:-}"
+        exit $?
+      fi
       # #5705 review 1: an older board ignores --state and lists every task; never pass that off as the group asked for.
       # (A JSON string value cannot hold this unescaped, so a task's words cannot forge it.)
       if [ -n "$_lst" ]; then
