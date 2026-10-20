@@ -95,7 +95,8 @@ function main(argv) {
     if (!v.keys.includes(pub)) { console.error('the served release key list ' + v.seq + ' does not name this signing key, so installs with the check on would refuse this release'); return 1; }
     console.log('the served release key list ' + v.seq + ' names this signing key'); return 0;
   }
-  if (verb === 'needs-list') return RECOVERY_KEYS.length ? 0 : 1;   // promote-channel asks before fetching the list
+  // promote-channel asks before fetching the list: 0 on, 3 off. A distinct off code, so a crash (exit 1) is not read as off.
+  if (verb === 'needs-list') return RECOVERY_KEYS.length ? 0 : 3;
   if (verb === 'verify-under-list') {
     // promote-channel: the manifest being promoted must be signed by a key the served list names (off: always 0).
     const [mf, sg, list, listSig] = [keyPath, manifest, out, argv[4]];
