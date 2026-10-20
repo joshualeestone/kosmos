@@ -18546,10 +18546,10 @@ const server = http.createServer(async (req, res) => {
       if (raw && String(raw).trim()) {
         let body = null;
         try { body = JSON.parse(raw); } catch { body = null; }
-        if (!body || typeof body !== 'object' || typeof body.name !== 'string') {
+        if (!body || typeof body !== 'object' || (body.name !== undefined && typeof body.name !== 'string')) {
           sendJson(res, 400, { error: 'we could not read that request' }); return;
         }
-        only = body.name;
+        only = body.name;   // undefined (an empty object) is all of them, as no body is
       }
       try {
         /* The model each one LAST RAN AS, which is the only surviving record of
@@ -18563,7 +18563,7 @@ const server = http.createServer(async (req, res) => {
             catch { return null; }
           },
         });
-        sendJson(res, out.ok ? 200 : (only !== undefined && out.results.length === 0 ? 400 : 500), out);
+        sendJson(res, out.ok ? 200 : (out.refused ? 400 : 500), out);   // refused: a name the notice does not offer
       } catch { sendJson(res, 500, { error: 'we could not set your agents to start on their own' }); }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;

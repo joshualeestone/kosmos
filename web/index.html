@@ -1135,8 +1135,9 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    restart, is the one home-screen button with nothing bigger around it: 34px tall at 375 (the
    agent names are 16px but a tap anywhere on the card or row opens the agent, and "Answer" has its
    own touch hit area below). Phone width only; .btn is shared, so this is scoped to its box. */
-/* #6714: the restart notice is a .utoast now; its buttons get the same phone tap height. */
-@media (max-width: 40rem) { .utoast.survival .uacts button, .utoast.survival .ux { min-height: 44px; } .utoast.survival .ux { min-width: 44px; } }
+/* #6714: the restart notice is a .utoast now; its buttons get the same phone tap height, at the width its phone layout
+   and its one-notice cap use. */
+@media (max-width: 720px) { .utoast.survival .uacts button, .utoast.survival .ux { min-height: 44px; } .utoast.survival .ux { min-width: 44px; } }
 /* 🛑 #2615: THE aria-disabled ARM NEEDS ITS OWN RULE, AND ITS ABSENCE SHIPPED A
    CARD TITLED "grey out the control" THAT GREYED NOTHING OUT. `disabled` was
    doing TWO jobs: the semantics AND the dimming, via `.btn:disabled` right
@@ -1325,7 +1326,7 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 .utoast.survival { --utone: var(--warn-ink); }
 .utoast.survival.done, .utoast.survival.unknown { --utone: var(--label-2); }
 .utoast.survival.done .utxt b, .utoast.survival.unknown .utxt b { color: var(--label); font-weight: 400; }
-.utoast.survival.done .utxt b b { display: inline; font-weight: 600; }   /* the name, inside its sentence */
+.utoast.survival.report .utxt b b { display: inline; font-weight: 600; }   /* the name, inside its sentence */
 .utoast.login-adv.urgent { --utone: #b3261e; }
 /* #5018: the notices float over the page, centred on the header (under the navigation), instead of growing it (Josh). The
    header is their anchor (position: relative below); the stack takes no room, and only the notices take clicks.
@@ -25899,12 +25900,12 @@ function showTab(tab) {
     /* Same reason: it describes the agents screen and must not stand under
        Projects or Settings. */
     const rw = document.getElementById('survival-slot');
-    if (rw) rw.innerHTML = '';
+    if (rw) { rw.innerHTML = ''; delete rw.dataset.v; }
     /* Leaving the screen is what finishes a repair report; see SURVIVAL_HELD. */
     SURVIVAL_HELD = false;
   } else { paintRemoved(); paintSurvival(); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
-  if (tab === 'settings') centreSettingsPill();
+  if (tab === 'settings') { centreSettingsPill(); refreshSurvivalHidden(); }
   /* #1615: un-blue + tear down the Plus canvases when leaving Settings (or when
      the Settings section is not Plus); re-blue + re-mount on return. The Settings
      section persists across tab switches, so this must run on every tab change,
@@ -47929,7 +47930,7 @@ async function paintSurvival() {
   } catch { return; }
   if (!body || body.ok !== true || !Array.isArray(body.missing)) return;
   paintSurvivalHidden(body);
-  if (!onAgentsTab()) { slot.innerHTML = ''; return; }
+  if (!onAgentsTab()) { slot.innerHTML = ''; delete slot.dataset.v; return; }
   /* #6320: an agent we could not check is said, not dropped: silence here reads as "they all come back". */
   const unknown = Array.isArray(body.unknown) ? body.unknown : [];
   /* ⚠️ THE NAME THE PERSON GAVE IT, resolved from the survey's own rows. The
@@ -47944,7 +47945,7 @@ async function paintSurvival() {
   const kept = 'Its folder and memory are untouched.';
   let html = '';
   /* On a phone one agent has a notice of its own; more share one, so the stack does not fill the screen. */
-  const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 720px)').matches;
+  const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 720px)').matches;   // the notice's phone CSS uses the same width
   const eachMax = phone ? 1 : SURVIVAL_EACH_MAX;
   if (body.missing.length && body.missing.length <= eachMax) {
     for (const n of body.missing) {
@@ -47972,7 +47973,22 @@ async function paintSurvival() {
       + (unknown.length > 1 ? ' <span data-survival-unknown>' + unknown.map((n) => esc(shownFor(n))).join(', ') + '</span>' : '<span data-survival-unknown hidden></span>'),
       '', unknown.join(' '), unknown.length === 1 ? 'Stop reminding me about ' + shownFor(unknown[0]) : 'Stop reminding me about these agents');
   }
+  /* Repainted only when the words change: a repaint every poll would take focus off a button the person is on and
+     wipe the line saying what went wrong beside it (the login notice skips the same way). */
+  if (slot.dataset.v === html) return;
+  slot.dataset.v = html;
   slot.innerHTML = html;
+}
+
+/* #6714: Settings > Computer is read on its own, so a board opened straight into Settings (or left there) shows the
+   hidden list too, not only after a visit to the agents screen. */
+async function refreshSurvivalHidden() {
+  try {
+    const res = await fetch('/api/register', { cache: 'no-store' });
+    if (!res.ok) return;
+    const body = await res.json().catch(() => null);
+    if (body && body.ok === true) paintSurvivalHidden(body);
+  } catch { /* the next look will get there */ }
 }
 
 /* #6714: Settings > Computer lists the notices the person hid, each with Show again. Only names that would still
@@ -48011,8 +48027,13 @@ document.addEventListener('click', async (e) => {
   const remove = e.target.closest('[data-survival-remove]');
   const btn = e.target.closest('[data-survival-fix]');
   if (hide) {
-    /* A report the person has read: the × just closes it. */
-    if (hide.closest('.utoast.done')) { hide.closest('.utoast').remove(); SURVIVAL_HELD = false; return; }
+    /* A report the person has read: the × just closes it. The notices are held until the last report is closed. */
+    if (hide.closest('.utoast.report')) {
+      hide.closest('.utoast').remove();
+      const slot = document.getElementById('survival-slot');
+      if (!slot || !slot.querySelector('.utoast.report')) { SURVIVAL_HELD = false; if (slot) delete slot.dataset.v; }
+      return;
+    }
     const names = hide.getAttribute('data-survival-hide').split(' ').filter(Boolean);
     hide.disabled = true;
     let ok = true;
@@ -48046,7 +48067,7 @@ document.addEventListener('click', async (e) => {
     let ask = null;
     try {
       const r = await fetch('/api/agent/' + encodeURIComponent(name) + '/removal', { cache: 'no-store' });
-      ask = r.ok ? await r.json().catch(() => null) : null;
+      ask = await r.json().catch(() => null);   // a refusal carries the engine's own reason, so read it either way
     } catch { ask = null; }
     remove.disabled = false;
     if (!ask || !ask.ok) { survivalSayIn(remove, (ask && ask.because) || 'We could not reach the board just now. Try again.'); return; }
@@ -48088,7 +48109,7 @@ document.addEventListener('click', async (e) => {
   const guessedLine = (r) => r.ok && r.guessed && r.guessed.model
     ? 'It had no record of which model it was set to run on, so it will start on the default. You can change it on its page.'
     : '';
-  const report = body.results.map((r) => survivalNotice(r.ok ? 'done' : 'done failed',
+  const report = body.results.map((r) => survivalNotice(r.ok ? 'done report' : 'failed report',
     '<b>' + esc(r.shownAs || r.name) + '</b> ' + esc(said(r)), esc(guessedLine(r)), '', r.name, 'Close')).join('');
   const note = btn.closest('.utoast');
   if (note) note.outerHTML = report; else if (slot) slot.insertAdjacentHTML('afterbegin', report);

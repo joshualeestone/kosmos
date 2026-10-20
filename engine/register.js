@@ -742,7 +742,7 @@ function repair(opts) {
      exactly what the survey reports, so a caller cannot name an agent the survey refused. */
   const only = opts && typeof opts.only === 'string' ? opts.only : null;
   if (only !== null && !seen.missing.includes(only)) {
-    return { ok: false, because: 'that agent does not need this', results: [] };
+    return { ok: false, refused: true, because: 'that agent does not need this', results: [] };
   }
   const modelFor = (opts && typeof opts.modelFor === 'function') ? opts.modelFor : () => null;
   const results = (only !== null ? [only] : seen.missing).map((name) => {

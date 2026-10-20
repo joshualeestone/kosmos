@@ -67,27 +67,27 @@ function chk(ok, label, extra) {
     }
     await pg.screenshot({ path: path.join(OUT, 'survival-before-' + theme + '.png'), fullPage: false });
     if (theme === 'light') {
-    // Remove opens the agent page's own dialog, about this agent; leaving it running changes nothing.
-    await pg.click('[data-survival-remove="marilyn"]');
-    await pg.waitForSelector('#rm-modal:not([hidden])', { timeout: 10000 });
-    chk(/marilyn/i.test(await pg.innerText('#rm-go')), theme + ': Remove asks about marilyn');
-    await pg.click('#rm-keep');
-    // The x hides marilyn, and Settings > Computer lists her with Show again.
-    await pg.click('[data-survival-hide="marilyn"]');
-    await pg.waitForFunction(() => !document.querySelector('[data-survival-fix="marilyn"]'), null, { timeout: 10000 });
-    chk(true, theme + ': the x took marilyn off the board');
-    const hiddenRow = await pg.evaluate(() => document.getElementById('survival-hidden-list').textContent   /* the Settings screen is not open, so innerText is '' */);
-    chk(/marilyn/.test(hiddenRow), theme + ': Settings lists marilyn as hidden', hiddenRow);
-    await pg.evaluate(() => document.querySelector('[data-survival-show="marilyn"]').click());
-    await pg.waitForSelector('[data-survival-fix="marilyn"]', { timeout: 10000 });
-    chk(true, theme + ': Show again brings marilyn back');
-    // Start at login for brigitte only.
-    await pg.click('[data-survival-fix="brigitte"]');
-    await pg.waitForSelector('#survival-slot .utoast.survival.done', { timeout: 15000 });
-    const after = await pg.innerText('#survival-slot');
-    chk(/brigitte/.test(after) && /login/.test(after), theme + ': the report names brigitte', after.slice(0, 80).replace(/\n/g, ' '));
-    chk(Boolean(await pg.$('[data-survival-fix="marilyn"]')), theme + ': starting brigitte left marilyn alone');
-    await pg.screenshot({ path: path.join(OUT, 'survival-' + theme + '.png'), fullPage: false });
+      // Remove opens the agent page's own dialog, about this agent; leaving it running changes nothing.
+      await pg.click('[data-survival-remove="marilyn"]');
+      await pg.waitForSelector('#rm-modal:not([hidden])', { timeout: 10000 });
+      chk(/marilyn/i.test(await pg.innerText('#rm-go')), theme + ': Remove asks about marilyn');
+      await pg.click('#rm-keep');
+      // The x hides marilyn, and Settings > Computer lists her with Show again.
+      await pg.click('[data-survival-hide="marilyn"]');
+      await pg.waitForFunction(() => !document.querySelector('[data-survival-fix="marilyn"]'), null, { timeout: 10000 });
+      chk(true, theme + ': the x took marilyn off the board');
+      const hiddenRow = await pg.evaluate(() => document.getElementById('survival-hidden-list').textContent   /* the Settings screen is not open, so innerText is '' */);
+      chk(/marilyn/.test(hiddenRow), theme + ': Settings lists marilyn as hidden', hiddenRow);
+      await pg.evaluate(() => document.querySelector('[data-survival-show="marilyn"]').click());
+      await pg.waitForSelector('[data-survival-fix="marilyn"]', { timeout: 10000 });
+      chk(true, theme + ': Show again brings marilyn back');
+      // Start at login for brigitte only.
+      await pg.click('[data-survival-fix="brigitte"]');
+      await pg.waitForSelector('#survival-slot .utoast.survival.done', { timeout: 15000 });
+      const after = await pg.innerText('#survival-slot');
+      chk(/brigitte/.test(after) && /login/.test(after), theme + ': the report names brigitte', after.slice(0, 80).replace(/\n/g, ' '));
+      chk(Boolean(await pg.$('[data-survival-fix="marilyn"]')), theme + ': starting brigitte left marilyn alone');
+      await pg.screenshot({ path: path.join(OUT, 'survival-' + theme + '.png'), fullPage: false });
     }
     chk(errs.length === 0, theme + ': no console errors', errs.join(' | '));
     await pg.close();

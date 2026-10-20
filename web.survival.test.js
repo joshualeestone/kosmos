@@ -23,8 +23,8 @@ const realEsc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').re
 const LIFTED = ['survivalSay', 'survivalNotice', 'paintSurvivalHidden', 'paintSurvival'].map((f) => page.lift(SCRIPT, f)).join('\n');
 const EACH_MAX = Number((SCRIPT.match(/const SURVIVAL_EACH_MAX = (\d+);/) || [])[1]);
 
-function run(reply, { onAgents = true, slotStart = '', esc = realEsc } = {}) {
-  const slot = { innerHTML: slotStart };
+function run(reply, { onAgents = true, slotStart = '', esc = realEsc, slot: given } = {}) {
+  const slot = given || { innerHTML: slotStart, dataset: {} };
   const box = { hidden: true };
   const list = { innerHTML: '' };
   const doc = { getElementById: (id) => ({ 'survival-slot': slot, 'survival-hidden-box': box, 'survival-hidden-list': list })[id] || null };
@@ -152,4 +152,33 @@ test('#6714: the page has the floating slot and the Settings box, and the old fu
   assert.match(PAGE, /<div id="survival-slot"><\/div>/);
   assert.match(PAGE, /id="survival-hidden-box" hidden/);
   assert.doesNotMatch(PAGE, /id="restart-wrap"/);
+});
+
+test('#6714 review 1: the notice is not repainted when nothing changed, so focus and an error line survive the poll', async () => {
+  const reply = { ok: true, missing: ['brigitte'] };
+  const { slot } = await run(reply);
+  slot.innerHTML += '<small data-survival-err>We could not record that just now.</small>';   // what a failed x adds
+  await run(reply, { slot });
+  assert.match(slot.innerHTML, /data-survival-err/, 'an unchanged poll repainted the notice and wiped the error line');
+  // CONTROL: a change does repaint.
+  await run({ ok: true, missing: ['brigitte', 'marilyn'] }, { slot });
+  assert.doesNotMatch(slot.innerHTML, /data-survival-err/);
+  assert.match(slot.innerHTML, /data-survival-fix="marilyn"/);
+});
+
+test('#6714 review 1: Settings reads the hidden list on its own, and opening Settings asks for it', async () => {
+  const box = { hidden: true };
+  const list = { innerHTML: '' };
+  const doc = { getElementById: (id) => ({ 'survival-hidden-box': box, 'survival-hidden-list': list })[id] || null };
+  await new Function('document', 'fetch', 'esc', page.lift(SCRIPT, 'paintSurvivalHidden') + '\n' + page.lift(SCRIPT, 'refreshSurvivalHidden') + '\nreturn refreshSurvivalHidden();')(
+    doc, async () => ({ ok: true, json: async () => ({ ok: true, missing: [], hidden: ['brigitte'] }) }), realEsc);
+  assert.equal(box.hidden, false);
+  assert.match(list.innerHTML, /data-survival-show="brigitte"/);
+  assert.match(SCRIPT, /if \(tab === 'settings'\) \{ centreSettingsPill\(\); refreshSurvivalHidden\(\); \}/, 'opening Settings does not read the hidden list');
+});
+
+test('#6714 review 1: a failed start keeps the warning look and is closable as a report', () => {
+  assert.match(SCRIPT, /survivalNotice\(r\.ok \? 'done report' : 'failed report'/);
+  assert.match(PAGE, /\.utoast\.survival\.done, \.utoast\.survival\.unknown \{ --utone: var\(--label-2\); \}/);
+  assert.doesNotMatch(PAGE, /\.utoast\.survival\.failed[^{]*\{[^}]*label-2/, 'a failed start is styled as a calm fact');
 });
