@@ -735,7 +735,7 @@ function ackCertWatchLost(at) {
    shipped (engine/servicekeys-check.js). A state only. Shown to the person; never put in status().because, which
    the coordinator also receives, since the coordinator is the party a mismatch suspects. */
 const serviceKeyFiles = require('./servicekeys-check');
-function serviceKeys() { return serviceKeyFiles.serviceKeyCheck(STATE_DIR()); }
+function serviceKeys() { return serviceKeyFiles.serviceKeyCheck(STATE_DIR(), { production: COORDINATOR() === DEFAULT_COORDINATOR }); }
 
 /** The switch. Turning on does not start anything by itself unless setup
     already happened; the Settings flow calls setupStart/setupComplete and
