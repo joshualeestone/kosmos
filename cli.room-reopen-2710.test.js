@@ -142,6 +142,13 @@ test('#6608: an owner-named refusal (ack_only with owner) names the owner; witho
     const out = await runCli(['post', 'henderson', 'agreed'], env);
     assert.match(out.stdout, /Not posted: this only agreed with what was already said/, 'CONTROL: the plain ack refusal lost its words');
   });
+  // A display name with a quote arrives escaped; the sed would halve it, so the general words are said instead.
+  await withBoard(at('Ma"ra'), async (port) => {
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+    const out = await runCli(['post', 'henderson', 'agreed'], env);
+    assert.doesNotMatch(out.stdout, /named Ma\\?( |$)/, 'a quoted name was cut in half');
+    assert.match(out.stdout, /Not posted: this only agreed with what was already said/, 'a quoted name did not fall back to the general words');
+  });
 });
 
 test('#2710: `kosmos room reopen <project>` clears a held room and says so', () => {
