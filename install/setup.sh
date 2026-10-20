@@ -5219,7 +5219,13 @@ const home = accounts.HOME_FOR_TEST;
 const targets = [path.join(home, '.claude', 'settings.json')]
   .concat(accounts.list().filter((a) => !a.isDefault).map((a) => path.join(a.dir, 'settings.json')));
 let refused = 0;
+/* #6713: the same rule the board uses (engine/installroot.js): a bundle under a non-default KOSMOS_HOME is a test
+   install here (write_install_config's stance), and it leaves the real home's account settings alone. Skipped, not
+   refused: nothing went wrong. The statusline below is gated the same way, inside allowance.ensureStatusLine. */
+let leaveAlone = () => null;
+try { leaveAlone = require(path.join(kosmosHome, 'app', 'engine', 'installroot.js')).leaveAlone; } catch { /* an older bundle: as before */ }
 for (const t of targets) {
+  if (leaveAlone(t)) continue;
   const got = reporthook.ensureWired(t, script, { claudeVersion: versionFor(t) });
   if (got.wired !== true) refused += 1;
 }

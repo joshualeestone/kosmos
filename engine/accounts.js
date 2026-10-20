@@ -458,8 +458,9 @@ function prepare(label) {
      while a refused prepare would be a worse failure for a smaller cause.
      The field in the return is what lets a screen say which happened.
      Reused spots get this free: the connect route re-runs prepare. */
-  /* kosmos#6713: a board started from a source checkout or a worktree leaves an account in the real home alone: the
-     hook script it would name is its own throwaway one (installroot.js). It says so in hooksBecause. */
+  /* kosmos#6713: a board that is not the installed Kosmos (a source checkout, a worktree, a test install elsewhere, or
+     on Windows a build in the updater's folder) leaves an account in the real home alone: the hook script it would
+     name is its own throwaway one (installroot.js has the rule). It says so in hooksBecause. */
   const leave = require('./installroot').leaveAlone(path.join(dir, 'settings.json'));
   const hooks = leave ? { wired: false, because: leave }
     : reporthook.ensureWired(path.join(dir, 'settings.json'), reporthook.hookScriptPath(), { claudeVersion: claudeVersionForFolder(dir) });

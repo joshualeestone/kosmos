@@ -14,12 +14,15 @@
  *          users): every installed board runs as <root>/runtime/bin/node <root>/app/server.js with that root and its
  *          engine in <root>/app/engine. A source checkout or worktree has neither file two up from its engine. A
  *          bundle under any other KOSMOS_HOME is a sandbox here, as install/setup.sh write_install_config treats it
- *          (a self-host install with a custom KOSMOS_HOME keeps relying on setup.sh's own wiring).
+ *          (so a self-host install with a custom KOSMOS_HOME gets no account hooks or statusline from Kosmos in the real
+ *          home, from the board or from setup.sh, which uses this same rule; the same stance setup.sh takes for its
+ *          install config).
  * NOT covered on Windows (as #6601 records): a second built bundle extracted elsewhere passes bundleRoot.
  *
  * leaveAlone(file) returns why a write of `file` must be skipped, or null to go ahead. Skipped when this board is not
- * the installed Kosmos and the file is in the real home, unless it is inside a sandbox (AGENT_WORKFORCE_HOME that is
- * not the home itself), where a test board writes only its own folders. Folders are compared by identity
+ * the installed Kosmos and the file is in the real home (as spelled, or where links lead), unless it is inside a
+ * sandbox (an AGENT_WORKFORCE_HOME that is neither the home nor above it), where a test board writes only its own
+ * folders. A real-home file is skipped even while a sandbox elsewhere is set. Folders are compared by identity
  * (device and inode, as setup.sh's `-ef`), never by spelling: /System/Volumes/Data/Users/<u> and a differently cased
  * path name the real home too. `platform`, `root`, `exists`, `home` and `env` are injectable for tests.
  */
@@ -28,25 +31,42 @@ const os = require('os');
 const path = require('path');
 
 /* The same folder? By device and inode when both exist; by resolved text otherwise. */
-function sameDir(a, b) {
+function sameDir(a, b, plat) {
   try {
-    const x = fs.statSync(a); const y = fs.statSync(b);
+    const x = fs.statSync(a, { bigint: true }); const y = fs.statSync(b, { bigint: true });   // bigint: exact inode numbers
     return x.dev === y.dev && x.ino === y.ino;
-  } catch { return textKey(a) === textKey(b); }
+  } catch { return textKey(a, plat) === textKey(b, plat); }
 }
 /* Resolved text, without letter case on Windows (its paths are case-insensitive), for folders that cannot be stat'd. */
-function textKey(p) { const r = path.resolve(p); return process.platform === 'win32' ? r.toLowerCase() : r; }
+function textKey(p, plat) { const r = path.resolve(p); return (plat || process.platform) === 'win32' ? r.toLowerCase() : r; }
 
-/* Is `file` inside `dir`: some folder above it (or it) is `dir`, by identity, else by text. */
-function inside(file, dir) {
+/* The real path of `file`: its deepest existing folder resolved through links, with the rest appended. */
+function realOf(file) {
+  let d = path.resolve(file); const rest = [];
+  for (;;) {
+    try { return path.join(fs.realpathSync(d), ...rest); } catch { /* not there yet */ }
+    const up = path.dirname(d);
+    if (up === d) return path.resolve(file);
+    rest.unshift(path.basename(d)); d = up;
+  }
+}
+
+/* Is `file` inside `dir`, as spelled or where its links lead. */
+function inside(file, dir, plat) {
+  if (insideSpelled(file, dir, plat)) return true;
+  const real = realOf(file);
+  return real !== path.resolve(file) && insideSpelled(real, dir, plat);
+}
+/* Some folder above `file` is `dir`, by identity, else by text. */
+function insideSpelled(file, dir, plat) {
   let d = path.resolve(file);
   for (;;) {
     const up = path.dirname(d);
     if (up === d) break;
     d = up;
-    if (sameDir(d, dir)) return true;
+    if (sameDir(d, dir, plat)) return true;
   }
-  const rel = path.relative(textKey(dir), textKey(file));
+  const rel = path.relative(textKey(dir, plat), textKey(file, plat));
   return rel !== '' && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
 }
 
@@ -69,10 +89,12 @@ function leaveAlone(file, opts) {
   if (typeof file !== 'string') return null;
   let home;
   try { home = o.home || os.homedir(); } catch { return 'this board could not tell where the home folder is, so it leaves this account\'s Claude settings alone'; }
-  if (!inside(file, home)) return null;
+  const plat = o.platform;
+  if (!inside(file, home, plat)) return null;
   const sandbox = (o.env || process.env).AGENT_WORKFORCE_HOME;
   // A sandboxed board's own folders; a "sandbox" that is the home or above it is not one.
-  if (sandbox && !sameDir(sandbox, home) && !inside(home, sandbox) && inside(file, sandbox)) return null;
+  // Judged where the file really is: a link inside the sandbox that leads into the real home does not count.
+  if (sandbox && !sameDir(sandbox, home, plat) && !inside(home, sandbox, plat) && insideSpelled(realOf(file), sandbox, plat)) return null;
   let root = null;
   try { root = o.installRoot !== undefined ? o.installRoot : installRoot({ ...o, home }); }
   catch { return 'this board could not tell whether it is an installed Kosmos, so it leaves this account\'s Claude settings alone'; }

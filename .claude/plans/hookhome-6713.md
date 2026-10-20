@@ -22,6 +22,8 @@ A source checkout or worktree has neither file two folders up from its engine.
     `runtime/bin/node` and `app/server.js` two folders up.
   - `leaveAlone(file)` returns why a write must be skipped, or null. It skips only when the board is not installed
     and the file is in the real home: no sandbox, or a sandbox that is the home itself, and the file inside the home.
+- `install/setup.sh` (the hooks loop): skips a target `leaveAlone` names, so the installer's hooks and statusline
+  follow one rule.
 - `engine/accounts.js` `prepare`: the report-hooks block is skipped under `leaveAlone`, and the result carries
   `hooksBecause`.
 - `engine/allowance.js` `ensureStatusLine`: the same gate. That covers both `prepare` and the Settings
@@ -42,7 +44,9 @@ A source checkout or worktree has neither file two folders up from its engine.
   file check (an update can move the engine before the pointer).
 - **The Mac install signal also requires the default root** `~/.local/share/kosmos`, compared by identity. A full bundle
   under any other KOSMOS_HOME is a test install, as `install/setup.sh` `write_install_config` treats it. A self-host
-  install with a custom KOSMOS_HOME keeps relying on setup.sh's own wiring.
+  install with a custom KOSMOS_HOME therefore gets no account hooks or statusline from Kosmos in the real home, from
+  the board or from setup.sh (whose hooks loop now asks the same `leaveAlone`), the stance setup.sh already takes
+  for its install config.
 - **Folders are compared by identity** (device and inode, like setup.sh's `-ef`), so `/System/Volumes/Data/Users/<u>`
   and a differently cased spelling still name the real home.
 - **Follow-up, not done here:** `allowance.stableNode` answers "is this the installed engine" by folder names. Moving it

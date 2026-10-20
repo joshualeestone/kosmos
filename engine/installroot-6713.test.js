@@ -52,6 +52,8 @@ test('#6713: measured on this computer: this worktree is not an installed Kosmos
   const real = path.join(os.homedir(), '.local', 'share', 'kosmos');
   if (process.platform !== 'darwin' || !fs.existsSync(path.join(real, 'app', 'server.js'))) { t.skip('no installed Kosmos on this computer'); return; }
   assert.equal(installroot.installRoot({ platform: 'darwin', root: real }), real, 'the installed layout (measured on two Macs) is recognised');
+  const firm = '/System/Volumes/Data' + real;
+  if (fs.existsSync(firm)) assert.equal(installroot.installRoot({ platform: 'darwin', root: firm }), firm, 'the default root under another spelling is still the default, by identity');
 });
 
 test('#6713: leaveAlone skips only a non-installed board writing into the real home', () => {
@@ -95,6 +97,17 @@ test('#6713: the real home under another spelling (a link to it) is still the re
   assert.equal(installroot.leaveAlone(file, { env: { AGENT_WORKFORCE_HOME: alias }, installRoot: null }), installroot.NOT_INSTALLED,
     'AGENT_WORKFORCE_HOME naming the home by another path is not a sandbox, and a file spelled through it is in the home');
   assert.equal(installroot.leaveAlone(file, { env: { AGENT_WORKFORCE_HOME: alias }, installRoot: '/x' }), null, 'CONTROL: installed writes');
+});
+
+test('#6713: an account folder that is a link into the real home is in the real home, even spelled under a sandbox', (t) => {
+  const home = realHome(t);
+  const real = path.join(home, '.claude-account-f6713');
+  fs.mkdirSync(real, { recursive: true });
+  const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-6713-sbl-'));
+  t.after(() => fs.rmSync(sb, { recursive: true, force: true }));
+  fs.symlinkSync(real, path.join(sb, '.claude-account-f6713'));
+  const file = path.join(sb, '.claude-account-f6713', 'settings.json');
+  assert.equal(installroot.leaveAlone(file, { env: { AGENT_WORKFORCE_HOME: sb }, installRoot: null }), installroot.NOT_INSTALLED, 'where the link leads decides');
 });
 
 test('#6713: CONTROL: the same prepare in a sandbox INSIDE the real home still wires the hooks (the sandbox rule, not only "outside the home")', (t) => {
