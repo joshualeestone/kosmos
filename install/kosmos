@@ -1622,7 +1622,7 @@ _await_recorded_board() { # $1: its pid
     if healthy --once; then say "Kosmos is running at $URL"; return 0; fi
     # Busy is up for a plain start. Never for a reclaim (KOSMOS_RECLAIM_BUSY=1): that caller already judged it stale.
     if [ "$HEALTH_STATE" = busy ] && [ "${KOSMOS_RECLAIM_BUSY:-}" != 1 ]; then
-      say "Kosmos is running at $URL (busy right now, so it is slow to answer)"; return 0
+      say "Kosmos is running at $URL (busy right now, so it is slow to answer)"; _busy_person_hint; return 0
     fi
     [ "$HEALTH_STATE" = unreachable ] && return 1   # this shell cannot reach it: waiting cannot change that
     kill -0 "$1" 2>/dev/null || return 2
@@ -1889,7 +1889,16 @@ cmd_start() {
       say "That board (process $_oldpid) exited while starting; starting Kosmos."
     else
       # (The guards above ran before the wait; a fall-through after rc 2 reuses them, as a fresh start would.)
-      if [ "$HEALTH_STATE" = unreachable ]; then die "$(_unreachable_lead) $(_unreachable_why)"; fi
+      # Unreachable during the wait: the same verdict as the top of this function gives one unreachable already
+      # (#4636), so the outcome cannot depend on whether the board opened its port before or during the wait.
+      if [ "$HEALTH_STATE" = unreachable ]; then
+        if [ "${KOSMOS_RECLAIM_BUSY:-}" = 1 ] || ! _unreachable_is_ours; then
+          if [ -n "$_had_stop_marker" ]; then restore_stop_marker; fi
+          die "$(_unreachable_lead) $(_unreachable_why). Nothing was started or stopped; run this from a shell that can reach it."
+        fi
+        say "Kosmos is already running at $URL, but $(_unreachable_why). Nothing was started."
+        return 0
+      fi
       die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. $(_stop_advice)"
     fi
   fi
