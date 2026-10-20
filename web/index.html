@@ -426,8 +426,9 @@ header > .tabs      { justify-self: center; }
 header > .headright { justify-self: end; }
 .headright { display: flex; align-items: baseline; gap: var(--space-5); }
 /* kosmos#6721: small and quiet; it says a moment's wait, not an outage. OUT of the flow (absolute, just left of the
-   right controls), so it takes no flex gap and moves nothing when it comes and goes; it stays in the page, empty, as
-   a live region must to be announced. (Review 3: an in-flow span, even empty, took the row's 14px .appright gap.) */
+   right controls), so it takes no flex gap and moves nothing when it comes and goes; where it is drawn it stays in
+   the page, empty, as a live region must to be announced (below 64rem and on a Kosmos+ phone it is not drawn, so
+   there it is not announced either; the full card after two misses still is). (Review 3: an in-flow span, even empty, took the row's 14px .appright gap.) */
 .headright { position: relative; }
 .hdr-reconnect { position: absolute; right: calc(100% + 14px); top: 50%; transform: translateY(-50%);
   font-size: .8125rem; color: var(--k-ink-2); white-space: nowrap; pointer-events: none; }

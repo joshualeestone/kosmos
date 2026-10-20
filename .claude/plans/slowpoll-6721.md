@@ -9,7 +9,7 @@ small "Reconnecting..." in the header after one; (2) the board logs any request 
 ## Call
 - server.js `watchSlowRequest`, attached right after pathOf in the request handler: on the response's finish or close,
   a request over SLOW_REQUEST_MS (5000; KOSMOS_SLOW_REQUEST_MS overrides) writes one line to stdout (board.log):
-  `[slow request] <METHOD> <path> took N.N s (answered <status> | the browser gave up before an answer)`. Path only,
+  `[slow request] <METHOD> <path> took N.N s (answered <status> | closed before an answer)`, the path through safeLogUrl. Path only,
   never the query (a query can carry a token, #1946/#2029); control characters in the path cannot add a line; a
   throwing writer never escapes. No route streams or long-polls (grep), so nothing is slow by design.
 - web/index.html tick's catch: `BOARD_MISSES` counts unanswered polls in a row. If the board has answered before
@@ -76,3 +76,9 @@ design). The slow log records what the board answered slowly; it cannot see a re
 - WARNING: with every tab shown and a long name, the text could sit over the tabs at 897-960px. FIXED: hidden below
   64rem. MEASURED (that stress case): hidden at 960 and 1023; clear of the tabs at 1025, 1100 and 1280.
 - NIT not changed: the 14px offset is a literal beside .appright's 14px gap.
+
+## Round 5 (opus): converged (no blocker, no warning)
+- NIT: the CSS comment claimed the live region is announced everywhere; below 64rem and on a Kosmos+ phone it is
+  display:none. FIXED in the comment (text only). Not changed: a visually-hidden clip instead of display:none would
+  keep the announcement there; it is a behaviour change after convergence, recorded as a possible follow-up.
+- NIT: this plan's Call section quoted the old log wording and placement. FIXED.
