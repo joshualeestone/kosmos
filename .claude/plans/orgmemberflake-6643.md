@@ -10,7 +10,7 @@ The arm cannot fail on a slow machine for a reason that is not the product's, an
 
 ## Decided
 - Fix the test, not the product. Recording the real ask time is right in production: the board's clock is the real one.
-- The follow-up times are read from the clock after the ask, in both the review-2 arm and the review-1 arm. The review-1 arm's later calls could read "not due" and pass without the latch they test.
+- The follow-up times are read from the clock after the ask, in both the review-2 arm and the review-1 arm. The review-1 arm's first follow-up could read "not due", which left only its later call to catch a missing latch.
 - Rejected: a wider margin (for example + 2 min). It hides the dependency instead of removing it.
 
 ## Checked
@@ -18,3 +18,8 @@ The other arms in this file and in server.orgenroll-5531.test.js either follow n
 
 ## Weakest premise
 That the CI failure was this race and not something else in the shared module state. It reproduces the exact assertion and message, and nothing else in the file fails under the same delay.
+
+## Review log
+### Iteration 1 (opus): converged
+No BLOCKER, WARNING or CONVENTION. The cause was confirmed by reading; the BUSY flag, the promise chain, shared state (the rig resets it both ways), and timers were each ruled out. No other arm in either file has a 1 ms boundary.
+- [NIT] fixed: the review-1 comment overstated the old weakness. The +20 min call would still have caught a missing latch, so the arm was weakened, not passing for a wrong reason.
