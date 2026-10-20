@@ -67,10 +67,17 @@ function URL_(u) { return new (require('node:url').URL)(u); }
      above passes $!. Without one this check will not guess, it says so. */
   if (!SERVER_PID) { say(false, 'the server that should go away was not named: pass its pid as the third argument'); }
   else { try { process.kill(SERVER_PID, 'SIGTERM'); } catch { /* already gone */ } }
-  await pg.waitForTimeout(7000);
+  /* kosmos#6721: the FIRST failed poll over a board that answered keeps the board and says Reconnecting in the header;
+     only the second in a row draws the note. Both read here, in order (polls are 5 s apart). */
+  await pg.waitForFunction(() => { const r = document.getElementById('hdr-reconnect'); return !!r && r.textContent !== ''; }, null, { timeout: 9000 }).catch(() => {});
+  const first = await read();
+  const recon = await pg.evaluate(() => { const r = document.getElementById('hdr-reconnect'); return r && r.textContent ? r.textContent : null; });
+  say(recon === 'Reconnecting\u2026' && first.text === '', 'kosmos#6721: one failed poll says Reconnecting in the header, and no note yet', JSON.stringify({ recon, note: first.text }));
+  await pg.waitForFunction(() => { const s = document.getElementById('uoffline-slot'); return !!s && s.innerText.trim() !== ''; }, null, { timeout: 12000 }).catch(() => {});
+  say(await pg.evaluate(() => { const r = document.getElementById('hdr-reconnect'); return !r || r.textContent === ''; }), 'kosmos#6721: with the note up, Reconnecting is gone');
 
   const down = await read();
-  say(/not answering on this computer/i.test(down.text), 'the note appears once a poll has come back failing',
+  say(/not answering on this computer/i.test(down.text), 'the note appears once a second poll in a row has come back failing (kosmos#6721)',
     JSON.stringify(down.text));
   say(down.w > 150 && down.h > 20, 'it has real size on screen', down.w + 'x' + down.h);
   /* ⚠️ ONLY WHERE THERE IS A VERSION TO CARRY. A source checkout has the build

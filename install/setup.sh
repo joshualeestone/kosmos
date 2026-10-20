@@ -195,6 +195,27 @@ _kosmos_linux_unit_name() {
     printf 'kosmos-board.%s.service' "$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8)"
   fi
 }
+# kosmos#6667: the board's pause check (linuxboard.pauseCheckNames): kosmos-board[.<hash>].service gives
+# kosmos-pause-check[.<hash>].service and .timer. Prints the shared base; callers add .timer or .service. Pure shell,
+# no sed: install.linux-board-4920.test.js runs these blocks with a PATH that has none.
+_kosmos_linux_pause_check_base() {
+  _kpc_base="$(_kosmos_linux_unit_name)"; _kpc_base="kosmos-pause-check${_kpc_base#kosmos-board}"
+  printf '%s' "${_kpc_base%.service}"
+}
+# kosmos#6667: remove the pause check before the board, in every uninstall branch, so its timer cannot start a board
+# that is being removed. With no systemctl there is no user manager to stop it: the files and the timer's enable link go.
+_kosmos_linux_remove_pause_check() {
+  _kpr_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+  _kpr_base="$(_kosmos_linux_pause_check_base)"; _kpr_timer="$_kpr_base.timer"; _kpr_service="$_kpr_base.service"
+  [ -f "$_kpr_dir/$_kpr_timer" ] || [ -f "$_kpr_dir/$_kpr_service" ] || return 0
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user disable --now "$_kpr_timer" 2>/dev/null || true
+    systemctl --user stop "$_kpr_service" 2>/dev/null || true
+  fi
+  rm -f "$_kpr_dir/$_kpr_timer" "$_kpr_dir/$_kpr_service" "$_kpr_dir/timers.target.wants/$_kpr_timer"
+  if command -v systemctl >/dev/null 2>&1; then systemctl --user daemon-reload 2>/dev/null || true; fi
+  return 0
+}
 # #4920 review 11: a unit an earlier release wrote (0.7.27) has no KillMode=, so systemd's default control-group kill
 # applies: stopping the board kills every process in its cgroup, and an in-app update runs this script there, beside
 # the agents' tmux server. Before the update pauses the board, give that unit KillMode=process, as linuxboard's unit
@@ -2092,6 +2113,13 @@ uninstall() {
     # installBoard. Run before the app folder is deleted, since it is the app's own code.
     # As the install step does: systemctl --user needs the user bus, which su and cron do not set up.
     [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"
+    # kosmos#6667: the pause check goes first, before any branch below touches the board. Only this home's (its name
+    # carries this home's hash, as the board's does): another install's units, its pause check included, are not
+    # touched. Skipped exactly when linuxboard's runner refuses systemd (LAUNCH set, no
+    # AGENT_WORKFORCE_SYSTEMD_DIR); with a units folder of its own a run still talks to real systemd, as linuxboard does.
+    if [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || [ -n "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then
+      _kosmos_linux_remove_pause_check
+    fi
     if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then
       # A sandboxed run never touches real systemd (linuxboard refuses it by design): said as what it is.
       info "sandboxed run: the systemd step was skipped on purpose"
@@ -2176,6 +2204,12 @@ BOARDEOF
         [ -f "$_lb_f" ] || continue
         [ "${_lb_f##*/}" = "$_lb_name" ] && continue
         info "a Kosmos board service is still at $_lb_f. This install's app code or runtime is missing, so it was not removed: it may be this install's or another Kosmos's on this computer. If it is this one's, run: systemctl --user disable --now ${_lb_f##*/} and delete the file."
+      done
+      # kosmos#6667: the same for a pause check with another hash (its timer is harmless once its folder is gone).
+      for _lb_f in "$_lb_dir"/kosmos-pause-check*.timer; do
+        [ -f "$_lb_f" ] || continue
+        [ "${_lb_f##*/}" = "$(_kosmos_linux_pause_check_base).timer" ] && continue
+        info "a Kosmos pause check is still at $_lb_f. It may be this install's or another Kosmos's on this computer. If it is this one's, run: systemctl --user disable --now ${_lb_f##*/} and delete it and the .service beside it."
       done
     fi
   fi
@@ -5476,6 +5510,13 @@ BOARDEOF
       # restarted it through systemd, and a second bounce would only risk a healthy board; and a unit left by an earlier
       # run whose own hand-off failed is still handed over now. Not on a computer set not to run a board (a restart
       # would clear board.stopped). Best-effort: the unit is enabled either way and starts at the next login or boot.
+      # kosmos#6667: installBoard enables the pause check too, but does not fail the install when systemd refuses it
+      # (the board runs without it). Asked of systemd here, not of the node step's output, which is matched exactly below.
+      # Not in a run whose units went to a folder of its own (AGENT_WORKFORCE_SYSTEMD_DIR): real systemd never read them.
+      _kpc_timer="$(_kosmos_linux_pause_check_base).timer"
+      if [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ] && [ "$(systemctl --user is-enabled "$_kpc_timer" 2>/dev/null)" != enabled ]; then
+        info "note: systemd did not enable $_kpc_timer, so if an update is ever stopped partway, Kosmos stays off until you run: kosmos start"
+      fi
       _kosmos_board_decide
       # The first hand-over (loose) only with linger on: without it the unit dies at logout, while the board setup.sh
       # started survives it (logind keeps user processes by default), so handing over would make a no-linger server less

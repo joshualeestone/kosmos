@@ -60,7 +60,9 @@ const read = (page) => page.evaluate(() => {
   return { note: t('uoffline-slot'), grid: t('grid') + ' ' + t('alist'), pj: t('pj-list'), online: navigator.onLine };
 });
 // A poll is every five seconds; wait for the next one to have landed, by what it paints.
-const waitFor = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 9000 }).then(() => true, () => false);
+const waitFor = (page, fn, arg, ms) => page.waitForFunction(fn, arg, { timeout: ms || 9000 }).then(() => true, () => false);
+/* kosmos#6721: "not answering" now needs TWO unanswered polls in a row (5 s apart), so its waits get a second poll. */
+const TWO_POLLS_MS = 16000;
 
 (async () => {
   fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
@@ -131,7 +133,7 @@ const waitFor = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 9000
       await page.goto('http://127.0.0.1:' + port + '/?tab=agents', { waitUntil: 'networkidle' });
       await settle(page);
       await ctx.setOffline(true);
-      const landed = await waitFor(page, () => ((document.getElementById('uoffline-slot') || {}).textContent || '').length > 0);
+      const landed = await waitFor(page, () => ((document.getElementById('uoffline-slot') || {}).textContent || '').length > 0, undefined, TWO_POLLS_MS);
       const r = await read(page);
       chk(landed, 'CONTROL A precondition: the offline Mac window drew a note', r.note.slice(0, 120));
       chk(!ANY_OFFLINE.test(r.note + r.grid), 'CONTROL A: on the Mac itself (127.0.0.1) the page does not say You are offline', (r.note + ' | ' + r.grid).slice(0, 160));
@@ -145,7 +147,7 @@ const waitFor = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 9000
       await settle(page);
       await page.route('**/api/status', (r) => r.abort());
       await page.route('**/api/projects', (r) => r.abort());
-      const landed = await waitFor(page, () => /not answering/i.test((document.getElementById('uoffline-slot') || {}).textContent || ''));
+      const landed = await waitFor(page, () => /not answering/i.test((document.getElementById('uoffline-slot') || {}).textContent || ''), undefined, TWO_POLLS_MS);
       const r = await read(page);
       chk(landed && r.online, 'CONTROL B: online, nothing answered, the note says the Mac is not answering', r.note.slice(0, 120));
       chk(!ANY_OFFLINE.test(r.note + r.grid + r.pj), 'CONTROL B: an online phone is not told it is offline', (r.note + ' | ' + r.grid).slice(0, 160));

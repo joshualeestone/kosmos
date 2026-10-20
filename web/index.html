@@ -425,6 +425,17 @@ header > .headleft  { justify-self: start; }
 header > .tabs      { justify-self: center; }
 header > .headright { justify-self: end; }
 .headright { display: flex; align-items: baseline; gap: var(--space-5); }
+/* kosmos#6721: small and quiet; it says a moment's wait, not an outage. OUT of the flow (absolute, just left of the
+   right controls), so it takes no flex gap and moves nothing when it comes and goes; where it is drawn it stays in
+   the page, empty, as a live region must to be announced (below 64rem and on a Kosmos+ phone it is not drawn, so
+   there it is not announced either; the full card after two misses still is). (Review 3: an in-flow span, even empty, took the row's 14px .appright gap.) */
+.headright { position: relative; }
+.hdr-reconnect { position: absolute; right: calc(100% + 14px); top: 50%; transform: translateY(-50%);
+  font-size: .8125rem; color: var(--k-ink-2); white-space: nowrap; pointer-events: none; }
+/* Below 64rem the header's left side or the centred tabs can reach under where it would sit (measured: the left group
+   at 320-430px; the tabs at 897-960px with every tab shown and a long name), so it is not drawn there. Narrower
+   windows still get the rule that matters: the full card only after two unanswered polls. */
+@media (max-width: 64rem) { .hdr-reconnect { display: none; } }
 h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* The pack's stamp: an uppercase chrome label over a promoted bold line.
    The stale/failed variants are the app's honest extras (the pack draws
@@ -1558,6 +1569,9 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote .kplus-bar-menu svg { display: block; }
   html.kremote .apphead header .kmark, html.kremote .apphead header .klink, html.kremote .apphead header .worldsw, html.kremote .apphead header .userpop,
   html.kremote .apphead header .burger, html.kremote .apphead .tabs { display: none; }
+  /* kosmos#6721: the phone header row is meant to be empty under the navy bar; Reconnecting would add a line there. The
+     phone still gets the rule that matters: the full card only after two unanswered polls. */
+  html.kremote .apphead .hdr-reconnect { display: none; }
   /* With those gone the header row holds only notices, which are empty on a quiet board: no gap, no padding, no rule,
      so the navy bar is the whole header (the mock). */
   html.kremote .apphead { border-bottom: 0; }
@@ -12574,6 +12588,8 @@ window.kosmosMeasureScrollbarWidth();
          #rail-me), reusing youFaceHtml(). Popover mechanics reuse the world-switcher pattern. -->
     <!-- #3755 (Josh 2026-09-25 11:07): no "?" beside the name. The tips show once each, by themselves;
          "Stop showing tips" and the Settings switch are the controls. -->
+    <!-- kosmos#6721: one unanswered status poll says this, small, instead of the full "not answering" card. -->
+    <span class="hdr-reconnect" id="hdr-reconnect" role="status" aria-live="polite"></span>
     <div class="userpop" id="userpop">
       <!-- #3051: NO aria-label. The accessible name derives from the visible name
            (#userpop-name; the avatar and chevron are aria-hidden), so it satisfies
@@ -17983,6 +17999,15 @@ window.kosmosMeasureScrollbarWidth();
         <label class="pj-mode-opt"><input type="radio" name="fedinv-kind" id="fedinv-kind-agent" value="agent"> Their agent</label>
       </div>
     </div>
+    <!-- kosmos#6681 (S-11-fed): optional. With it, only the Kosmos+ account with this address can use the code. 254 is
+         the board's INVITE_EMAIL_MAX (engine/federation.js, in bytes); the coordinator checks it is an address. -->
+    <div class="field">
+      <label class="flabel" for="fedinv-email">Their email address (optional)</label>
+      <p class="fhint" id="fedinv-email-hint">Then only the Kosmos+ account with this address can use the code.</p>
+      <!-- type=email gives the phone's @ keyboard; autocapitalize off. autocomplete stays off on purpose (design review,
+           Mona Lisa): "email" would fill in the person's OWN address, which is the one thing this field must not hold. -->
+      <input class="tk-inp" id="fedinv-email" type="email" maxlength="254" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="fedinv-email-hint fedinv-msg">
+    </div>
     <div class="fedinv-can" id="fedinv-can"><b>They can</b> read and post in this project's conversation, and add their own agents to it.<br><b>They cannot</b> see your files or tasks, or tell your computer or your agents to do anything. Your agents read what they write and decide for themselves.</div>
     <p class="fmsg" id="fedinv-msg" aria-live="polite"></p>
     <div class="rm-acts">
@@ -20123,6 +20148,22 @@ window.kosmosMeasureScrollbarWidth();
 
 <script>
 'use strict';
+
+/* #6725: a request a reload or navigation cuts off rejects (WebKit: "Load failed" / "due to access control checks"),
+   and any caller without its own catch turns that into an uncaught error on a page that is going away. Those are
+   ignored, and only those: a TypeError (what fetch rejects with) while the page is leaving. The flag is set at
+   beforeunload, because WebKit rejects the cut-off requests BEFORE pagehide (measured), and clears itself after a
+   second, so a navigation that never happens (a download link) cannot hide a real failure later. */
+let PAGE_LEAVING = false;
+let PAGE_LEAVING_TIMER = null;
+window.addEventListener('beforeunload', () => {
+  PAGE_LEAVING = true;
+  clearTimeout(PAGE_LEAVING_TIMER);   // review 3: a later beforeunload gets its whole second
+  PAGE_LEAVING_TIMER = setTimeout(() => { PAGE_LEAVING = false; }, 1000);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (PAGE_LEAVING && e.reason instanceof TypeError) e.preventDefault();
+});
 
 /* #6192: a refused reply's body is always read. Left unread, the request did not finish (measured in Chromium against
    the board's own 404s: 19 still open 8 s after a load whose every read was refused), so anything waiting for the
@@ -23925,7 +23966,7 @@ async function updCheckNowClick() {
      press just made -- a second Enter or Space -- reloads the document
      immediately. The offer arm has the same relabel shape but a confirm
      dialog absorbs a stray press; this one has nothing in front of it, and the
-     page has no beforeunload, so anything typed and unsent is gone.
+     page has no unsaved-changes prompt (#6725's beforeunload asks nothing), so anything typed and unsent is gone.
      ⚠️ The accessibility reason for the refocus still holds for every other
      outcome, which is why this is a narrow exception rather than a removal. */
   /* A press that landed the Windows manual offer hid this button, so the keyboard's place is the
@@ -24534,7 +24575,8 @@ const RESTART_SCREEN_AFTER_MS = 15000;
    answer inside this long counts as no answer. 10 s is the Windows launcher's own "stuck" limit (per
    #4543, Homer's launcher half, branch win-launcher-stuck-4543); any
    HTTP answer at all, even a refusal, still counts as the board answering. So a frozen board shows the
-   screen after about 10 s + RESTART_SCREEN_AFTER_MS; a board answering inside 10 s is never counted
+   screen after about 10 s + RESTART_SCREEN_AFTER_MS, plus one poll (kosmos#6721: the first miss only says Reconnecting,
+   so the clock starts at the second); a board answering inside 10 s is never counted
    down. (One whose every answer takes longer than 10 s would be: the premise is that a working board
    answers /api/status in well under that.) */
 const STATUS_POLL_TIMEOUT_MS = 10000;
@@ -25073,6 +25115,8 @@ async function tick() {
     // still not told us what is on this machine.
     BOARD_LOOKED = true;
     BOARD_LOOK_FAILED = null;
+    BOARD_MISSES = 0;   // kosmos#6721
+    paintReconnecting(false);
     BOARD_NEEDS_SIGNIN = false; // #2023: a successful read means this browser is authed.
     BOARD_SIGNED_OUT = false;
     BOARD_DEVICE_OFFLINE = false;
@@ -25600,6 +25644,16 @@ async function tick() {
     clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
     if (answered && !(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;   // a refusal is an answer too (#268)
     if (!answered && tick.answeredSeq > pollSeq) return;   // a newer poll already answered: this is old news
+    /* kosmos#6721: the first unanswered poll, over a board that has answered before, keeps everything on screen and
+       only says Reconnecting in the header; the second in a row falls through to the full failure below. A refusal is
+       an answer (it resets the count), and this device being offline is known at once, so neither waits. */
+    if (answered) BOARD_MISSES = 0;
+    else if (BOARD_LOOKED && !deviceOffline()) {
+      BOARD_MISSES++;
+      // During a restart the person asked for, the board's own screens say so; no Reconnecting over them.
+      if (BOARD_MISSES < 2) { if (!(typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)) paintReconnecting(true); return; }
+    }
+    paintReconnecting(false);
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
     // the projects poll is suppressed while it is open — so a failure that only
@@ -30840,7 +30894,7 @@ function computersInApp() {
 /* kosmos#6406 (Josh 12:04): every link to another of the person's computers. In the Kosmos app, no target: the app keeps
    a same-window https://<name>.kosmosplus.com address in its window (Mac in every mode; Windows once the computer's mode
    is chosen, an unchosen Windows computer still sends it to the browser). In a browser, a new tab as before. The same
-   page then replaces this one, so unsent text in a composer goes, as it does on a reload (the page has no beforeunload). */
+   page then replaces this one, so unsent text in a composer goes, as it does on a reload (the page has no unsaved-changes prompt). */
 function computersLinkTarget(a) {
   if (!computersInApp()) a.target = '_blank';
   // kosmos#6406 step 2: marked, so a plain click in the app opens it with a ticket (computersOpenClick). An attribute,
@@ -38922,6 +38976,16 @@ const DEVICE_SIGNIN_BUTTON = '<button class="btn" type="button" data-device-sign
    network", which is no proof the internet is reachable, so it proves nothing either way.
    Set and cleared at the same points as BOARD_SIGNED_OUT. */
 let BOARD_DEVICE_OFFLINE = false;
+/* kosmos#6721 (Josh 10-20, decided by Splinter 09:04): status polls in a row that got NO answer. One is a busy computer
+   (the board answered in 0.4 s a moment later each time Josh saw the full card, at load 43): the board keeps what it
+   showed and the header says Reconnecting. The second in a row is the full failure, as before. */
+let BOARD_MISSES = 0;
+function paintReconnecting(on) {
+  /* The live region is always there and its TEXT changes, which screen readers announce (a revealed node often is not). */
+  const el = document.getElementById('hdr-reconnect');
+  const want = on ? 'Reconnecting\u2026' : '';
+  if (el && el.textContent !== want) el.textContent = want;
+}
 function deviceOffline() {
   return kplusRemote() && typeof navigator !== 'undefined' && navigator.onLine === false;
 }
@@ -40310,6 +40374,18 @@ function dmRow(m, name, replyAdjacent) {
      `at`, the anchor matches the FIRST -- a drift of at most one adjacent row,
      no worse than the pixel offset it replaces. */
   const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
+  if (m && m.kind === 'kosmos' && m.draft === true && typeof m.draftId === 'string') {
+    /* kosmos#6717: text Kosmos moved out of the agent's input box, where it had sat unsent and kept messages from
+       reaching it. It was NOT sent, and nothing sends it: the person can put it in the message box below, or dismiss
+       it. Plain text, never linked: these are words from a terminal, not Kosmos's own. */
+    return '<div class="msg-valve dm-kosmos dm-draft" data-mid="' + midOf(m) + '">'
+      + 'This text sat unsent in its input box and kept messages from reaching it, so Kosmos took it out and saved it here. It was not sent.'
+      + '<blockquote class="dmunsent-text dm-draft-text" tabindex="0" aria-label="The text that was in its input box">' + esc(m.text || '') + '</blockquote>'
+      + '<div class="pj-refused-act">'   // the band's own button look (#4624's Reopen the room), 44px on touch
+      + '<button type="button" class="pj-refused-add dm-draft-use" data-draft-id="' + esc(m.draftId) + '">Put in the message box</button> '
+      + '<button type="button" class="pj-refused-add dm-draft-dismiss" data-draft-id="' + esc(m.draftId) + '">Dismiss</button>'
+      + '</div></div>';
+  }
   /* #3723: Kosmos's own line (an account problem), in the room's quiet Kosmos band: no avatar and no
      name, so nobody takes it for the agent speaking or for something they sent. */
   if (m && m.kind === 'kosmos') {
@@ -40462,6 +40538,50 @@ if (typeof document !== 'undefined' && document.addEventListener) {
   document.addEventListener('click', (ev) => {
     const btn = ev.target && ev.target.closest ? ev.target.closest('.dm-held-send') : null;
     if (btn) { ev.preventDefault(); dmHeldSend(btn); }
+  });
+}
+/* kosmos#6717: a draft Kosmos took out of the agent's input box. "Put in the message box" only fills the box below (added
+   after anything already typed there), so the person sends it, or not, themselves; Dismiss forgets the draft. */
+async function dmDraftDismiss(btn) {
+  if (!btn || btn.disabled || !CURRENT) return;
+  btn.disabled = true;
+  const session = CURRENT.sessionName;
+  let ok = false;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/unsent-draft/dismiss', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: btn.dataset.draftId }),
+    });
+    ok = res.ok || res.status === 404;   // 404: it was dismissed already; the repaint shows it gone
+  } catch { ok = false; }
+  if (!ok) {
+    btn.disabled = false;
+    const under = document.getElementById('d-say-msg');
+    if (under && CURRENT && CURRENT.sessionName === session) under.textContent = 'Kosmos could not dismiss that draft. Try again.';
+    return;
+  }
+  if (CURRENT && CURRENT.sessionName === session) await paintTalk(session, CURRENT.name);
+}
+function dmDraftUse(btn) {
+  const row = btn && btn.closest ? btn.closest('.dm-draft') : null;
+  const quote = row ? row.querySelector('.dm-draft-text') : null;
+  const input = document.getElementById('d-say');
+  if (!quote || !input) return;
+  const words = quote.textContent || '';
+  input.value = input.value.trim() ? input.value.replace(/\s+$/, '') + '\n' + words : words;
+  input.dispatchEvent(new Event('input', { bubbles: true }));   // the box sizes itself and the send button wakes
+  input.focus();
+  /* Setting the value skips the box's own maxlength, so a long draft is said now rather than refused at send. */
+  const under = document.getElementById('d-say-msg');
+  if (under && input.maxLength > 0 && input.value.length > input.maxLength) {
+    under.textContent = 'This is longer than one message can be. Send it in parts.';
+  }
+}
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('click', (ev) => {
+    const use = ev.target && ev.target.closest ? ev.target.closest('.dm-draft-use') : null;
+    if (use) { ev.preventDefault(); dmDraftUse(use); return; }
+    const dismiss = ev.target && ev.target.closest ? ev.target.closest('.dm-draft-dismiss') : null;
+    if (dismiss) { ev.preventDefault(); dmDraftDismiss(dismiss); }
   });
 }
 
@@ -41029,7 +41149,7 @@ function paintTalkThread(body, name) {
   DM_ROWS_NAME = name;
   DM_ROWS_OLDER = CURRENT && earlierOn(CURRENT.sessionName) ? EARLIER.before : (Number(body.olderCount) || 0);   // kosmos#5841
   DM_ROWS_OLDEST = null;
-  for (const r of allRows) if (r && r.kind !== 'question' && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;   // #5943: the dated question is not a stored row
+  for (const r of allRows) if (r && r.kind !== 'question' && r.draft !== true && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;   // #5943: the dated question is not a stored row; #6717: nor is a draft
   dmReplyPaint(DM_ROWS_OF);
   convPaint();   // #5624 review 1: the toggle follows the agent on screen, whatever this paint shows
   if (TALK_QUERY && String(TALK_QUERY).trim()) convPause();   // #5624 review 4: any search, a no-match one too
@@ -78137,6 +78257,8 @@ function fedInviteOpen(opener, prefill) {
   const label = document.getElementById('fedinv-label');
   label.value = '';
   pjFieldOk('fedinv-label', 'fedinv-msg');
+  document.getElementById('fedinv-email').value = '';   // kosmos#6681
+  pjFieldOk('fedinv-email', 'fedinv-msg');
   document.getElementById('fedinv-kind-person').checked = true;
   document.getElementById('fedinv-make').disabled = false;
   document.getElementById('fedinv-code').value = '';
@@ -78200,6 +78322,15 @@ async function fedInviteMake() {
   if (!label) { pjFieldBad('fedinv-label', 'fedinv-msg', 'Write who it is for, so you can tell your invitations apart.'); return; }
   pjFieldOk('fedinv-label', 'fedinv-msg');
   const kind = document.getElementById('fedinv-kind-agent').checked ? 'agent' : 'person';
+  const emailEl = document.getElementById('fedinv-email');
+  const email = emailEl.value.trim();   // kosmos#6681: optional; empty sends none
+  /* Review 1: an address the browser already sees is not one is answered here, without a round trip; the coordinator
+     stays the judge of everything else (its refusal lands on this field below). */
+  if (email && emailEl.validity && emailEl.validity.typeMismatch) {
+    pjFieldBad('fedinv-email', 'fedinv-msg', pjFedMessage({ reason: 'bad-email' }, 'That email address does not look right.'));
+    return;
+  }
+  pjFieldOk('fedinv-email', 'fedinv-msg');
   const seq = ++FEDINV_SEQ;
   const askedFor = FEDINV_PROJECT;
   make.disabled = true;
@@ -78217,7 +78348,7 @@ async function fedInviteMake() {
     try {
       res = await fetch('/api/federation/invite', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ project: FEDINV_PROJECT, invited_kind: kind, label }), signal: ctl ? ctl.signal : undefined,
+        body: JSON.stringify({ project: FEDINV_PROJECT, invited_kind: kind, label, ...(email ? { email } : {}) }), signal: ctl ? ctl.signal : undefined,
       });
       body = await res.json().catch(() => null);
     } finally { if (timer) clearTimeout(timer); }
@@ -78231,6 +78362,11 @@ async function fedInviteMake() {
     }
     if (!res.ok || !body || typeof body.code !== 'string' || !body.code) {
       // A 403 means the request did not read as from this screen: nothing the person can act on.
+      // kosmos#6681 review 1: a refused address marks the address field (and puts focus there), not "Who is it for?".
+      if (res.status !== 403 && body && body.reason === 'bad-email') {
+        pjFieldBad('fedinv-email', 'fedinv-msg', pjFedMessage(body, fallback));
+        return;
+      }
       msg.textContent = res.status === 403 ? fallback
         : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback);
       document.getElementById('fedinv-label').focus();   // back in the field (pjFieldBad's way), not on <body>
@@ -78246,12 +78382,20 @@ async function fedInviteMake() {
     // else "they" (a label like "my sister", or anyone who is not a person): the same test as the Remove dialog's
     // body (fedFirstName, for a person only).
     const first = kind === 'person' ? fedFirstName(label) : '';
-    document.getElementById('fedinv-until').textContent = (until ? 'It works once, until ' + until + '.' : 'It works once.')
-      + ' You can withdraw it from Members until ' + (first ? first + ' joins.' : 'they join.');
+    const boundTo = typeof body.email === 'string' ? body.email : '';   // kosmos#6708: the coordinator's echo
+    const withdraw = ' You can withdraw it from Members until ' + (first ? first + ' joins.' : 'they join.');
+    const once = until ? 'It works once, until ' + until + '.' : 'It works once.';
+    // kosmos#6708: only when the coordinator says it bound the code (review 1), never from the typed value alone. The
+    // address is bold (design review): it is the one thing the owner checks for a typo before sending. Built as nodes,
+    // never as HTML, so the address is text whatever it holds.
+    const bold = document.createElement('strong');
+    bold.textContent = boundTo;
+    document.getElementById('fedinv-until').replaceChildren(...(boundTo
+      ? [once + ' Only the Kosmos+ account with ', bold, ' can use it.' + withdraw] : [once + withdraw]));
     document.getElementById('fedinv-easier').textContent = 'Easier: copy the whole invitation. It has the code and the three steps '
       + (first ? first + ' needs' : 'they need') + ', ready to paste into an email or a text.';
     const proj = pjById(askedFor);
-    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '', projectId: askedFor };
+    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '', projectId: askedFor, email: boundTo };   // kosmos#6708: the address the coordinator bound it to
     document.getElementById('fedinv-copy-all').focus();
     // kosmos#4649 slice B: the new pending row appears in Members behind the sheet (and an expired row with
     // the same label goes, fedOutsideRows), so "Done" lands on the list as it now is.
@@ -78413,7 +78557,11 @@ function fedInviteText(made) {
     + '\n'
     + made.code + '\n'
     + '\n'
-    + (until ? 'The code works once, until ' + until + '.' : 'The code works once.');
+    + (until ? 'The code works once, until ' + until + '.' : 'The code works once.')
+    // kosmos#6708: a code bound to an address says so, so the person invited signs in with that one before pasting it.
+    + (made.email ? '\nIt works only for the Kosmos+ account with the email address ' + line(made.email) + '.'
+      // Design review: what to do when it is the wrong address, so the first they learn of it is not a refusal.
+      + '\nIf that is not your Kosmos+ email, ask for a new code.' : '');
 }
 // Copy the invitation: through fedCopyText (select-and-copy first, then the clipboard with its limit). A refusal of
 // both keeps its line on screen and says what to do instead; it never throws.
