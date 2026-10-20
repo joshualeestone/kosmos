@@ -107,10 +107,18 @@ test('the runner\'s reason pattern is readable, and can say both yes and no', ()
    test nor the runner sees that: `spawnSync` and a bash script both bypass a
    zsh function. Worth knowing before someone reads a ugrep quirk into a red
    here. */
+/* #6668: a 10 s limit (scaled like the suite's other liveness ceilings). spawnSync
+   blocks this file's whole event loop, so a grep that stalls (one did, for 66 min,
+   holding the machine's test queue) can be stopped by nothing in this file but this
+   timeout. A stall now costs seconds and a red that says so. */
+const GREP_TIMEOUT_MS = require('./test-support/eventually').scaleBudget(10000);
 function quotableByRealGrep(pattern, line) {
   const r = require('node:child_process').spawnSync(
-    'grep', ['-E', pattern], { input: line + '\n', encoding: 'utf8' },
+    'grep', ['-E', pattern], { input: line + '\n', encoding: 'utf8', timeout: GREP_TIMEOUT_MS },
   );
+  assert.ok(!(r.error && r.error.code === 'ETIMEDOUT'),
+    `grep did not answer within ${GREP_TIMEOUT_MS / 1000} s (cause unknown; when run through tools/run-tests.sh, the ` +
+    'runner prints the load it recorded at the start of the run beside a red) (#6668)');
   assert.ok(!r.error && typeof r.status === 'number',
     'could not run the real grep, so this arm cannot vouch for the translation used elsewhere');
   /* grep exits 2 when it REFUSES the pattern. Treating that as "not quotable"

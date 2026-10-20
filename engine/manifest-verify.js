@@ -326,6 +326,17 @@ function storedKeyList(home, minSeq = MIN_KEY_LIST_SEQ) {
   } catch { return damaged; }
 }
 
+/** Can the drive holding `file` make a hard link at all? Asked only after a link failed, with a fresh name nothing
+ * else can be using, so the drive is blamed only when that fails too. */
+function canHardLink(file) {
+  const probe = `${file}.${crypto.randomBytes(4).toString('hex')}.probe`;
+  // Only the answers a drive without links can give (EPERM, EXDEV, ENOTSUP or EISDIR, by driver and platform): a file
+  // held open by a scanner (EBUSY) is not the drive's fault. EPERM can also be a plain denial, hence "may" below.
+  try { fs.linkSync(file, probe); } catch (e) { return !['EPERM', 'EXDEV', 'ENOTSUP', 'ENOSYS', 'EISDIR'].includes(e && e.code); }
+  try { fs.rmSync(probe, { force: true }); } catch { /* best effort */ }
+  return true;
+}
+
 /** The release keys to check a manifest with. Off (no recovery key): the built-in KEYS. On: a key list that verifies
  * and is not older than this copy's record, recorded when not yet there. { ok, why, keys }. */
 function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, builtIn = KEYS, minSeq = MIN_KEY_LIST_SEQ }) {
@@ -352,6 +363,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
   const dir = path.join(home, KEY_LIST_STATE);
   const file = path.join(dir, `seq-${v.seq}.json`);
   const tmp = path.join(dir, `.seq-${v.seq}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`);
+  let noHardLinks = false;
   try {
     try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (e) { if (!e || e.code !== 'EEXIST') throw e; }
     // Synced before it is linked in, and the folder after, so a crash should leave the record whole or absent. fsync on
@@ -362,7 +374,7 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
     // A damaged record at this seq (a power loss) is replaced by this list, which verified and is not below it.
     if (stored.damaged && v.seq === stored.seq) fs.renameSync(tmp, file);
     else try { fs.linkSync(tmp, file); } catch (e) {
-      if (!e || e.code !== 'EEXIST') throw e;
+      if (!e || e.code !== 'EEXIST') { noHardLinks = !canHardLink(tmp); throw e; }
       // Another check recorded this seq first: it must name the same keys.
       const other = JSON.parse(fs.readFileSync(file, 'utf8'));
       if (!Array.isArray(other.release_keys) || !sameKeys(other.release_keys, v.keys)) {
@@ -371,6 +383,8 @@ function trustedKeys({ listBytes, listSig, home, recoveryKeys = RECOVERY_KEYS, b
     }
     try { const dfd = fs.openSync(dir, 'r'); try { fs.fsyncSync(dfd); } finally { fs.closeSync(dfd); } } catch { /* a folder fsync is best effort */ }
   } catch {
+    // #6692: a drive without hard links (FAT32, exFAT, some network drives) can never keep the record, so say so.
+    if (noHardLinks) return { ok: false, why: `this copy's record of the release key list could not be written: the drive holding ${home} may not be able to make hard links (FAT32 and exFAT drives cannot)` };
     return { ok: false, why: 'this copy\'s record of the release key list could not be written' };
   } finally {
     try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }

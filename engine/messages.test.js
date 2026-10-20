@@ -1333,6 +1333,174 @@ test('#4934/#5967: the fourth consecutive acknowledgement-only post is not passe
   });
 });
 
+/* #6608: when the room's latest post that says something @-names exactly one member, an agreement-only reply from
+   anyone else is not passed on, from the first one. Rows are seeded with the `mentioned` the real post path records. */
+function seedRows(now, rows) {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  rows.forEach((r, i) => {
+    fs.appendFileSync(messages.LOG, JSON.stringify({
+      kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease', from: r.from,
+      to: MEMBERS.filter((m) => m !== r.from), text: r.text, at: new Date(now - (r.ago || (rows.length - i) * 1000)).toISOString(), outcomes: {},
+      ...(r.mentioned ? { mentioned: r.mentioned } : {}), ...(r.operator ? { operator: true } : {}), ...(r.ambiguousMentions ? { ambiguousMentions: r.ambiguousMentions } : {}),
+    }) + '\n');
+  });
+}
+const sendAs = (board, session, text) => { armSender(session + '-discord'); const tmux = arm([]);
+  const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text }, board.agents, MEMBERS); return { out, tmux }; };
+const stored = (text) => messages.record().rows.filter((m) => m.kind === 'post' && m.text === text).length;
+
+test('#6608: a post naming one owner: another agent\'s FIRST agreement-only reply is not passed on; the owner\'s is', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // The person names mara. leo's "agreed" is the first ack in the room, far below the run limit, and is still refused.
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] }]);
+    const leo = sendAs(board, 'leo', 'agreed');
+    assert.equal(leo.out.state, chat.DELIVERY.COULD_NOT, 'another agent agreeing with a post that named one owner was passed on');
+    assert.equal(leo.out.code, 'ack_only', 'the refusal must be the not-a-hold ack_only code');
+    /* Review 5: mara's display name is whatever the roster says (an earlier test in this file can leave one behind, such
+       as "Mara Lisa"), so the owner is checked against the roster, not against a one-word pattern. */
+    const maraCard = board.agents.find((a) => a && a.sessionName === 'mara');
+    const maraShown = (maraCard && typeof maraCard.name === 'string' && maraCard.name) || 'mara';
+    assert.equal(leo.out.owner, maraShown, 'the refusal named the wrong owner');
+    assert.ok(leo.out.because.includes('That post named ' + maraShown + ' to take it'), 'the refusal does not say who the post named');
+    assert.doesNotMatch(leo.out.because, /["`]/, 'the CLI reads because with a sed that stops at a quote');
+    assert.doesNotMatch(leo.out.because, /paused|for the person|bring you in/i, 'the refusal speaks of a hold; it is not one');
+    assert.equal(leo.tmux.sends().length, 0, 'the refused reply was typed anyway');
+    assert.equal(stored('agreed'), 0, 'the refused reply was stored');
+    assert.equal(messages.record().rows.filter((m) => (m.kind === 'valve' || m.kind === 'refused') && m.project === 'henderson-lease').length, 0, 'the refusal wrote a valve or refused row; it is not a hold');
+    // The owner's own acknowledgement goes through.
+    assert.equal(sendAs(board, 'mara', 'on it').out.state, chat.DELIVERY.PLACED, 'the named owner could not acknowledge');
+    // CONTROL: the same agent with something new is delivered at once.
+    assert.equal(sendAs(board, 'leo', 'I can check the dates in it after').out.state, chat.DELIVERY.PLACED, 'a content reply was refused');
+  });
+});
+
+test('#6608: no single owner, no early refusal: two named, none named, or the author answering the owner', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara and @april, the letter and the dates please', mentioned: ['mara', 'april'] }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'a post naming TWO members refused a third agent\'s ack');
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [{ from: 'you', operator: true, text: 'the renewal letter is due on Friday' }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'a post naming nobody refused an ack');
+    // An agent names the owner; the owner acknowledges; the AUTHOR thanks the owner: a two-party exchange, delivered.
+    wipeLog(); chat.resetForTests();
+    // ('ok', not 'on it': the classifier reads 'on it' as saying something, which would itself end the rule.)
+    seedRows(now, [{ from: 'leo', text: '@mara can you take the renewal letter', mentioned: ['mara'] }, { from: 'mara', text: 'ok' }]);
+    assert.equal(sendAs(board, 'leo', 'thanks').out.state, chat.DELIVERY.PLACED, 'the post\'s own author could not answer the owner');
+    // CONTROL in the same room: a third agent's ack IS refused, so the author arm above was the exemption, not a miss.
+    assert.equal(sendAs(board, 'april', 'agreed').out.code, 'ack_only', 'CONTROL: a third agent\'s ack was passed on');
+  });
+});
+
+test('#6608: the LATEST post that says something decides: a later content post naming nobody lifts it', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    seedRows(now, [
+      { from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] },
+      { from: 'mara', text: 'the draft is in the shared folder now' },
+    ]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'an older owner-naming post still refused acks after newer content');
+    // CONTROL: the owner-naming post followed only by acks still decides.
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] }, { from: 'mara', text: 'ok' }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.code, 'ack_only', 'CONTROL: an ack after the owner\'s ack was passed on');
+  });
+});
+
+test('#6608 review 1: it does not apply to a post that asks something, a reply to another post, or an old post', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // A question to the room alongside the hand-off: the answers are wanted.
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara please draft the renewal letter. Everyone OK with Friday?', mentioned: ['mara'] }]);
+    assert.equal(sendAs(board, 'leo', 'yes').out.state, chat.DELIVERY.PLACED, 'an answer to a question the owner-naming post asked was dropped');
+    // A reply to a DIFFERENT, earlier post (mara asked leo something) answers that post, not the hand-off.
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [
+      { from: 'mara', text: '@leo is the lease date fixed', mentioned: ['leo'] },
+      { from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] },
+    ]);
+    armSender('leo-discord'); arm([]);
+    const answered = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'yes', replyTo: 'm1' }, board.agents, MEMBERS);
+    assert.equal(answered.state, chat.DELIVERY.PLACED, 'a reply answering an earlier post was refused by the later hand-off');
+    // CONTROL: the same "yes" replying to the hand-off itself is refused.
+    armSender('april-discord'); arm([]);
+    const toHandoff = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'agreed', replyTo: 'm2' }, board.agents, MEMBERS);
+    assert.equal(toHandoff.code, 'ack_only', 'CONTROL: an ack replying to the hand-off itself was passed on');
+    // An owner-naming post older than the room's counting window no longer decides.
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'], ago: 3 * 60 * 60 * 1000 }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'a hand-off from hours ago still refused an ack');
+  });
+});
+
+test('#6608 review 2: a room-wide ask with no question mark, a later post by the person, and an outside post all lift it', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara please take the renewal letter, everyone confirm you have seen it', mentioned: ['mara'] }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'a confirmation the hand-off asked the room for was dropped');
+    // The person's later post (even an agreement-only one) moves countFrom, so the earlier hand-off no longer decides.
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [
+      { from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] },
+      { from: 'you', operator: true, text: 'ok thanks' },
+    ]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'a hand-off before the person\'s later post still refused an ack');
+    // An outside (federated) post that says something is the latest content and names no one here.
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] }]);
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'external', id: 'x-1', project: 'henderson-lease', from: 'partner', fromKind: 'person', external: true, text: 'the printer moved the date to the 4th', at: new Date(now - 100).toISOString() }) + '\n');
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'an outside content post did not lift the hand-off');
+  });
+});
+
+test('#6608 review 3: another member asked by plain name, or an owner who left, lifts it; a display name is cleaned', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // leo is asked by plain name in the hand-off: his "will do" is an answer.
+    seedRows(now, [{ from: 'you', operator: true, text: '@mara draft the letter, leo send her the dates', mentioned: ['mara'] }]);
+    assert.equal(sendAs(board, 'leo', 'will do').out.state, chat.DELIVERY.PLACED, 'an agent asked by plain name had its answer dropped');
+    // CONTROL in the same room: april was not named, so her ack is still refused.
+    assert.equal(sendAs(board, 'april', 'agreed').out.code, 'ack_only', 'CONTROL: an agent the hand-off did not name was passed on');
+    // The named owner is no longer a member of the room.
+    wipeLog(); chat.resetForTests();
+    seedRows(now, [{ from: 'you', operator: true, text: '@nova please draft the renewal letter', mentioned: ['nova'] }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'an ack was refused in favour of an owner who is not in the room');
+  });
+  // Review 5: leo was asked something earlier and has not answered; a later hand-off to mara does not swallow his "yes".
+  withFleet(room3(), (board) => {
+    wipeLog(); chat.resetForTests();
+    seedRows(Date.now(), [
+      { from: 'you', operator: true, text: '@leo the dates are fixed now', mentioned: ['leo'] },
+      { from: 'april', text: '@mara please draft the renewal letter', mentioned: ['mara'] },
+    ]);
+    assert.equal(sendAs(board, 'leo', 'yes').out.state, chat.DELIVERY.PLACED, 'an answer leo still owed was dropped by a later hand-off');
+    // CONTROL: once leo has spoken after it, his next ack is left to the owner again.
+    assert.equal(sendAs(board, 'leo', 'agreed').out.code, 'ack_only', 'CONTROL: an ack after leo had already answered was passed on');
+  });
+  // Review 4: an ambiguous @-word beside the one clear name: not one owner.
+  withFleet(room3(), (board) => {
+    wipeLog(); chat.resetForTests();
+    seedRows(Date.now(), [{ from: 'you', operator: true, text: '@mara draft the letter with @sam', mentioned: ['mara'], ambiguousMentions: ['sam'] }]);
+    assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'a hand-off with an ambiguous second @-word was treated as one owner');
+  });
+  // Asked by DISPLAY name in plain text: leo shows as Leon here.
+  withFleet([fleet.agent('leo', { displayName: 'Leon' }), fleet.agent('mara'), fleet.agent('april')], (board) => {
+    wipeLog(); chat.resetForTests();
+    seedRows(Date.now(), [{ from: 'you', operator: true, text: '@mara draft the letter, Leon send her the dates', mentioned: ['mara'] }]);
+    assert.equal(sendAs(board, 'leo', 'will do').out.state, chat.DELIVERY.PLACED, 'an agent asked by its display name had its answer dropped');
+  });
+  // A display name with a quote and a bidi control reaches the agent cleaned.
+  withFleet([fleet.agent('leo'), fleet.agent('mara', { displayName: 'Ma\u202era"' }), fleet.agent('april')], (board) => {
+    wipeLog(); chat.resetForTests();
+    seedRows(Date.now(), [{ from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] }]);
+    const r = sendAs(board, 'leo', 'agreed').out;
+    assert.equal(r.code, 'ack_only', 'fixture: the refusal did not fire');
+    assert.equal(r.owner, 'Mara', 'the owner name reached the agent uncleaned: ' + JSON.stringify(r.owner));
+    assert.doesNotMatch(r.because, /["\u202e]/, 'the refusal carries a quote or a bidi control');
+  });
+});
+
 test('#4934/#5967: a content post resets the run, so ack, ack, content, ack, ack does not hold', () => {
   withFleet(room3(), (board) => {
     const now = Date.now();

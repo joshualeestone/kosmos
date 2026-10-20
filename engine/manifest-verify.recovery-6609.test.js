@@ -35,22 +35,27 @@ test('#6609: no recovery key set (as shipped today): the built-in KEYS decide, a
   assert.deepEqual(r.keys, mv.KEYS);
 });
 
-test('#6609: a list the recovery key signed is taken, its keys are the trusted ones, and its seq is stored', () => {
+test('#6609: a list the recovery key signed is taken, its keys are the trusted ones, and its seq is stored', async () => {
   const h = home();
   const l = list({ release_keys: [spki(rel1)], seq: 3 });
   const r = mv.trustedKeys({ listBytes: l.bytes, listSig: l.sig, home: h, recoveryKeys: RK });
   assert.equal(r.ok, true, r.why);
   assert.deepEqual(r.keys, [spki(rel1)]);
   assert.equal(mv.storedKeyList(h).seq, 3);
-  // POSIX modes only: Windows has no mode bits (Node reports 0666 and 0777 there). This file runs on Windows too
-  // (tools/windows-tests.js), for the record's file operations. The record has no Windows caller yet: win32update.js checks
-  // its manifest with the built-in KEYS (#6607). When #6609 wires it to the list, the record is written on Windows and
-  // its privacy there needs a real access-list check in place of this skip (.claude/plans/rkwin-6609.md).
-  if (process.platform !== 'win32') {
-    assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE, 'seq-3.json')).mode & 0o777), 0o600);
-    assert.equal((fs.statSync(path.join(h, mv.KEY_LIST_STATE)).mode & 0o777), 0o700);
+  const record = path.join(h, mv.KEY_LIST_STATE);
+  if (process.platform === 'win32') {
+    // #6692: Windows has no mode bits (Node reports 0666 and 0777 there), so the record's privacy is its access list,
+    // which the updater reads before taking a list (engine/win32recordacl.js): on a profile folder it is the person's
+    // own; granted Users read, it is refused.
+    const acl = require('./win32recordacl');
+    assert.equal(await acl.aclRefusal([h, record]), null, 'a record under the profile is the person\'s own');
+    spawnSync('icacls', [record, '/grant', '*S-1-5-32-545:(OI)(CI)(R)'], { stdio: 'ignore' });
+    assert.match(await acl.aclRefusal([h, record]), /can also be reached by Users/);
+  } else {
+    assert.equal((fs.statSync(path.join(record, 'seq-3.json')).mode & 0o777), 0o600);
+    assert.equal((fs.statSync(record).mode & 0o777), 0o700);
   }
-  assert.deepEqual(fs.readdirSync(path.join(h, mv.KEY_LIST_STATE)), ['seq-3.json'], 'no temp file left behind');
+  assert.deepEqual(fs.readdirSync(record), ['seq-3.json'], 'no temp file left behind');
 });
 
 test('#6609: refused: a list signed by another key, a tampered list, no list, no signature', () => {

@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.54",
+  "lastProd": "0.7.60",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -673,7 +673,8 @@
       ],
       "rank": 1,
       "since": "0.7.55",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.60"
     },
     {
       "title": "Close the join notice",
@@ -681,7 +682,8 @@
       "icon": "shield",
       "rank": 1.6,
       "since": "0.7.55",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.60"
     },
     {
       "title": "Quiet projects stop flagging you",
@@ -705,7 +707,8 @@
       "icon": "swarm",
       "rank": 2,
       "since": "0.7.56",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.60"
     },
     {
       "title": "A team map for each project",
@@ -740,7 +743,8 @@
       "icon": "phone",
       "rank": 1,
       "since": "0.7.58",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.60"
     },
     {
       "title": "Less repeated text",
@@ -756,10 +760,11 @@
       "icon": "phone",
       "rank": 1,
       "since": "0.7.60",
-      "status": "pending",
+      "status": "shown",
       "platforms": [
         "mac"
-      ]
+      ],
+      "shownIn": "0.7.60"
     }
   ]
 }
