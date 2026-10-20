@@ -430,7 +430,9 @@ _launcher_why="$(pe_signature_present "$LAUNCHER" 2>&1 >/dev/null)" || {
 }
 _launcher_sig="present (not verified: this build did not run on Windows)"
 if [ "$_on_windows" = 1 ]; then
-  _launcher_why="$(pe_authenticode "$LAUNCHER" Kosmos.exe 2>&1 >/dev/null)" || {
+  # The signer is the read-me's own words, NOT KOSMOS_WIN_SIGNER: the read-me names this
+  # publisher, so a launcher signed by anyone else is refused whatever that override says.
+  _launcher_why="$(KOSMOS_WIN_SIGNER="Kosmos Agent Manager, Inc." pe_authenticode "$LAUNCHER" Kosmos.exe 2>&1 >/dev/null)" || {
     echo "Windows does not accept tools/windows/Kosmos.exe's signature (#6679): ${_launcher_why#pe_authenticode: }" >&2
     exit 1
   }
@@ -492,8 +494,8 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'text above it, and then "Run anyway". After "More info", the box\r\n'
   printf 'names Kosmos Agent Manager, Inc. as the publisher.\r\n'
   printf '\r\n'
-  printf 'If a box asks whether to run Kosmos.exe from Kosmos Agent Manager,\r\n'
-  printf 'Inc., click Run.\r\n'
+  printf 'If a box asks whether to run Kosmos.exe\r\n'
+  printf 'from Kosmos Agent Manager, Inc., click Run.\r\n'
   printf '\r\n'
   printf 'Kosmos opens in its own window. Closing that window does not stop\r\n'
   printf 'Kosmos: it keeps running in the background and starts by itself when\r\n'

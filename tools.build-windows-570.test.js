@@ -254,7 +254,7 @@ test('🛑 the warning reaches her BEFORE the launcher does, which a README cann
   assert.doesNotMatch(WIN, /came from another computer/, 'the README describes a checkbox label as if it were a prompt');
   /* #6679: a signed Kosmos.exe names its publisher in the Open File box, so the "could not be verified" line went. */
   assert.doesNotMatch(WIN, /The publisher could not be verified/, 'the README still describes an unverified publisher');
-  assert.match(WIN, /printf 'If a box asks whether to run Kosmos\.exe from Kosmos Agent Manager,\\r\\n'\n\s*printf 'Inc\., click Run\./,'the README does not say what to click in the Open File box, which a signed Kosmos.exe still raises');
+  assert.match(WIN, /printf 'If a box asks whether to run Kosmos\.exe\\r\\n'\n\s*printf 'from Kosmos Agent Manager, Inc\., click Run\./, 'the README does not say what to click in the Open File box, which a signed Kosmos.exe still raises');
   assert.match(WIN, /Tip: before you extract, right-click the zip, choose Properties, tick/, 'the README does not say to unblock the zip before extracting');
 });
 
