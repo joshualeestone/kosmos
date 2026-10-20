@@ -78271,13 +78271,15 @@ async function fedInviteMake() {
     // else "they" (a label like "my sister", or anyone who is not a person): the same test as the Remove dialog's
     // body (fedFirstName, for a person only).
     const first = kind === 'person' ? fedFirstName(label) : '';
+    const boundTo = typeof body.email === 'string' ? body.email : '';   // kosmos#6708: the coordinator's echo
     document.getElementById('fedinv-until').textContent = (until ? 'It works once, until ' + until + '.' : 'It works once.')
-      + (email ? ' Only the Kosmos+ account with ' + email + ' can use it.' : '')   // kosmos#6708
+      // kosmos#6708: only when the coordinator says it bound the code (review 1), never from the typed value alone.
+      + (boundTo ? ' Only the Kosmos+ account with ' + boundTo + ' can use it.' : '')
       + ' You can withdraw it from Members until ' + (first ? first + ' joins.' : 'they join.');
     document.getElementById('fedinv-easier').textContent = 'Easier: copy the whole invitation. It has the code and the three steps '
       + (first ? first + ' needs' : 'they need') + ', ready to paste into an email or a text.';
     const proj = pjById(askedFor);
-    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '', projectId: askedFor, email };   // kosmos#6708: the address it is bound to, as typed
+    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '', projectId: askedFor, email: boundTo };   // kosmos#6708: the address the coordinator bound it to
     document.getElementById('fedinv-copy-all').focus();
     // kosmos#4649 slice B: the new pending row appears in Members behind the sheet (and an expired row with
     // the same label goes, fedOutsideRows), so "Done" lands on the list as it now is.

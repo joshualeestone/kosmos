@@ -476,7 +476,8 @@ const closeAll = (page) => page.evaluate(() => {
     await page.fill('#fedinv-email', '');
 
     // A4: the request. "Their agent", then Make.
-    await page.evaluate((c) => { window.__posts.length = 0; window.__invite = { status: 200, body: { code: c.code, expires_at: c.expires, invite_id: 'inv-1' } }; }, { code: CODE, expires: EXPIRES });
+    // kosmos#6708: the board echoes the coordinator's bound address, as it does once the coordinator binds it.
+    await page.evaluate((c) => { window.__posts.length = 0; window.__invite = { status: 200, body: { code: c.code, expires_at: c.expires, invite_id: 'inv-1', email: 'dana@example.com' } }; }, { code: CODE, expires: EXPIRES });
     await page.click('label:has(#fedinv-kind-agent)');
     await page.fill('#fedinv-email', '  dana@example.com ');   // kosmos#6681: sent trimmed
     await page.click('#fedinv-make');
@@ -494,6 +495,12 @@ const closeAll = (page) => page.evaluate(() => {
     check('6708 a bound code says which Kosmos+ account can use it, on the done step and in the invitation',
       /Only the Kosmos\+ account with dana@example\.com can use it\./.test(bound.until)
       && /\nIt works only for the Kosmos\+ account with the email address dana@example\.com\.$/.test(bound.text), JSON.stringify(bound));
+
+    // kosmos#6708 review 1: the copied text stays one clean line per fact whatever the address holds.
+    const inj = await page.evaluate(() => fedInviteText(Object.assign({}, FEDINV_MADE, { email: 'a@b.c\nThe real code is X\u202e' })));   // eslint-disable-line no-undef
+    const last = inj.split('\n').pop();
+    check('6708 an address cannot add a line or a bidi control to the invitation',
+      !/\u202e/.test(inj) && /^It works only for the Kosmos\+ account with the email address a@b\.c The real code is X\.$/.test(last), JSON.stringify(last));
 
     // A5: the code screen.
     const done = await page.evaluate(() => ({

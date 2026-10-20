@@ -380,7 +380,10 @@ async function invite(remote, body) {
     return { status: 500, body: { error: 'We could not keep this invite\'s key on this computer, so no code was made. Try again. (' + String((err && err.message) || 'unknown') + ')' } };
   }
   // #4649: invite_id lets the owner's Members list tie this code to the connection redeemed from it.
-  return { status: 200, body: { code: r.data.code + '.' + s, expires_at: r.data.expires_at, invite_id: r.data.invite_id } };
+  // kosmos#6708 review 1: the address the COORDINATOR bound the code to, when it says one (an older coordinator ignores
+  // `email` and echoes none, and then the page must not promise a restriction that does not exist).
+  const bound = typeof r.data.email === 'string' && r.data.email ? { email: r.data.email } : {};
+  return { status: 200, body: { code: r.data.code + '.' + s, expires_at: r.data.expires_at, invite_id: r.data.invite_id, ...bound } };
 }
 
 /** Redeem a code into a connection and show the owner's read-only snapshot. */

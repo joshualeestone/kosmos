@@ -223,3 +223,13 @@ test('kosmos#6681: the three new refusals map by their code, whatever the senten
   out = await federation.invite(refused('something_else', 'w'), inv);
   assert.deepStrictEqual(out, { status: 502, body: { error: 'w' } });
 });
+
+test('kosmos#6708: invite passes the coordinator\'s bound address through, and only a string one', async () => {
+  const base = { code: 'C6708', expires_at: 1, invite_id: 'inv-6708' };
+  let out = await federation.invite(stubRemote({ ok: true, data: { ...base, email: 'dana@example.com' } }), { project_ref: 'r6708a', project_name: 'n', invited_kind: 'person', email: 'dana@example.com' });
+  assert.strictEqual(out.body.email, 'dana@example.com');
+  out = await federation.invite(stubRemote({ ok: true, data: base }), { project_ref: 'r6708b', project_name: 'n', invited_kind: 'person', email: 'dana@example.com' });
+  assert.ok(!('email' in out.body), 'an address the coordinator did not bind was reported as bound');
+  out = await federation.invite(stubRemote({ ok: true, data: { ...base, email: 42 } }), { project_ref: 'r6708c', project_name: 'n', invited_kind: 'person' });
+  assert.ok(!('email' in out.body), 'a non-string echo was passed through');
+});
