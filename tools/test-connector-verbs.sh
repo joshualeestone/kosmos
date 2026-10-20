@@ -104,7 +104,7 @@ child_hang_arm() {  # child_hang_arm <stand-in> <label> <bound seconds> [a file 
   done
   [ "$took" -lt 30 ] && grep -q "did not answer within $b seconds" "$T/err" && ok "$label: a connector whose child hangs is also cut off (${took}s), naming the time limit" || bad "$label: a hanging child was not bounded (${took}s): $(cat "$T/err")"
   pid="$(cat "$T/kid.pid")"
-  # The group was SIGKILLed, but perl waits only for the stand-in's shell, so the killed sleep can still be
+  # The group was SIGKILLed, but perl waits only for the stand-in's shell, so the killed wait can still be
   # exiting for a moment on a busy box. Up to 5 s for it to go; a real leak is the 300 s wait, still there.
   n=0; while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
   if kill -0 "$pid" 2>/dev/null; then
