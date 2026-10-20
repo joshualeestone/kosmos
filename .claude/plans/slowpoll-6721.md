@@ -51,3 +51,11 @@ design). The slow log records what the board answered slowly; it cannot see a re
   says so; the bound adds one 5 s poll gap, not gap plus limit.
 - NITs FIXED: "closed before an answer" (the server can close too); the comment admits piped downloads can log as slow;
   no Reconnecting during a restart the person asked for.
+
+## Round 2 (sonnet): no blocker, 1 warning, 3 nits
+- WARNING: the always-present empty span still took the header's 12px flex gap, moving the right controls on every
+  page. FIXED: .hdr-reconnect:empty cancels its own gap (margin-inline-end: -gap), keeping the live region present.
+  CLAIMED, not measured against main: render-tophead-stable-2624 passes but compares the two layouts, not main.
+- NIT: the restart skip was untested. FIXED: a test with ENGINE_RESTARTING (no Reconnecting, no note on the first miss).
+- NITs not changed: the default-limit test reads source text; safeLogUrl covers /hooks only (as gateLog; no other route
+  carries a secret in its path today); the deviceOffline exemption is untested in the lifted harness (navigator).

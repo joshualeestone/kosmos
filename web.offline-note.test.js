@@ -377,18 +377,19 @@ test('#718 state 2: the Kosmos+ note hedges its one named cause and names no oth
    answers in 0.4 s a moment later. The FIRST unanswered poll over a board that has answered before keeps the board as
    it was and says Reconnecting in the header; the SECOND in a row is the full failure, as before. Driven through the
    real tick, several polls in one scope so the count carries between them. */
-const missHarness = (looked) => {
+const missHarness = (looked, restarting) => {
   const painted = [], recon = [];
   let fetchImpl;
   const stub = () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: true, closest: () => null, querySelector: () => null, querySelectorAll: () => [] });
-  const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT', 'BOARD_DEVICE_OFFLINE', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain', 'paintReconnecting', 'LOOKED',
-    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\nconst paintRestartScreen = () => {};\nvar BOARD_LOOKED = LOOKED, BOARD_MISSES = 0;\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
+  const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT', 'BOARD_DEVICE_OFFLINE', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain', 'paintReconnecting', 'LOOKED', 'RESTARTING',
+    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\nconst paintRestartScreen = () => {};\nvar BOARD_LOOKED = LOOKED, BOARD_MISSES = 0, ENGINE_RESTARTING = RESTARTING;\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
     (down) => painted.push(down),
     (...a) => fetchImpl(...a),
     { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] },
     0, () => '', () => {}, null, null, false, false, false, () => {}, () => {}, () => {}, () => {},
     (on) => recon.push(on),
     looked,
+    Boolean(restarting),
   );
   return { painted, recon, run: async (f) => { fetchImpl = f; await tick(); } };
 };
@@ -430,4 +431,11 @@ test('#6721 (review 1): a poll that answers resets the count and clears Reconnec
   const after = body.slice(at, at + 200);
   assert.match(after, /BOARD_MISSES = 0;/, 'a poll that answered no longer resets the miss count');
   assert.match(after, /paintReconnecting\(false\)/, 'a poll that answered no longer clears Reconnecting');
+});
+
+test('#6721 (review 2): during a restart the person asked for, the first miss says no Reconnecting and still draws no note', async () => {
+  const h = missHarness(true, true);
+  await h.run(noAnswer);
+  assert.deepEqual(h.recon, [], 'Reconnecting was shown over a restart the person asked for');
+  assert.deepEqual(h.painted, [], 'the first miss drew the note during a restart');
 });

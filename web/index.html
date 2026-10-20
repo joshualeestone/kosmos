@@ -427,6 +427,9 @@ header > .headright { justify-self: end; }
 .headright { display: flex; align-items: baseline; gap: var(--space-5); }
 /* kosmos#6721: small and quiet; it says a moment's wait, not an outage. */
 .hdr-reconnect { font-size: .8125rem; color: var(--k-ink-2); white-space: nowrap; }
+/* Empty, it stays in the page (a live region must exist to be announced) but cancels its own flex gap, so the header's
+   right controls sit exactly where they did before it existed. */
+.hdr-reconnect:empty { margin-inline-end: calc(-1 * var(--space-5)); }
 h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* The pack's stamp: an uppercase chrome label over a promoted bold line.
    The stale/failed variants are the app's honest extras (the pack draws
