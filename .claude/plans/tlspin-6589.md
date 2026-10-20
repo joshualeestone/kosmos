@@ -38,7 +38,7 @@ answers `none` (ordinary checking): nothing changes for anyone.
      selector is pinned with @objc;
    - `tlsPinDecision`: pinned with a match allows; pinned without one, or required, asks once more with `fresh`
      (a renewal past the cache) and then refuses; none is ordinary checking;
-   - NO board at all (no port: a connect-only Mac) is ordinary checking, because no board means no ticket. A board
+   - NO board at all (no port: a connect-only Mac) is ordinary checking. A board
      that is there but answers badly (a 403, a restart, a timeout) is `required` and logged: the ticket may already
      be in flight (review 1);
    - a refusal cancels the challenge and says so (an alert at most once a minute per computer; always logged).
@@ -50,13 +50,19 @@ answers `none` (ordinary checking): nothing changes for anyone.
      row-count pins in two native tests move from 191 to 203.
 
 ## Decisions
-- NO board means ordinary checking: a connect-only Mac could otherwise open no computer, and with no board there is
-  no ticket. A board that fails an exchange means refusal (after one fresh retry): a failure must never turn a pin off.
+- NO board means ordinary checking: a connect-only Mac could otherwise open no computer at all. A board that fails an
+  exchange means refusal (after one fresh retry): a failure must never turn a pin off.
+- A forget (sign-out, removed device) bumps a generation, so an ask already running when it lands keeps nothing.
+- Warming leaves a computer that answered required alone for a minute (the app's own ask is never held back).
 - A board route rather than the app running the connector itself: the board already runs the connector with the
   right state dir and caches; the app reads board.token already.
 - Retry once with `fresh` before refusing (Ice Cream Kitty's review): a renewal must not read as an attack.
 
 ## Not covered, by design
+- A CONNECT-ONLY Mac (no board of its own; review 2). Its window shows another computer's board, which can make a
+  ticket and open a third computer. That navigation is not pinned: this Mac has no board to ask, and the page's board
+  cannot be asked with this Mac's token. Closing it needs a pin source on the connect-only Mac itself (it would run
+  the connector's check directly), a follow-up. Stated, not claimed safe.
 - A plain browser (a phone, or a browser on a Mac) has no challenge handler. This protects the Mac app only.
   Moving the ticket out of the fragment behind a pinned preflight is the follow-up.
 - First contact: an address is pinned only once a statement from it verifies. Whoever re-routes a name can answer the

@@ -123,3 +123,19 @@ test('#6589 (review 1): parallel asks share one tunnel run; a sign-out or remova
   await new Promise((r) => setTimeout(r, 200));
   assert.deepEqual(recorded().map((r) => r[4]), ['https://g.kosmosplus.com'], 'only the other computers, never this one');
 });
+
+test('#6589 (review 2): a forget while an ask runs keeps nothing; warming leaves a required computer alone a minute', async () => {
+  enrol();
+  const pending = remote.tlsPin('h.kosmosplus.com');
+  remote.forgetTlsPins();                       // a sign-out lands while the ask is still running
+  assert.equal((await pending).data.state, 'pinned', 'the running ask still answers its caller');
+  mode('other');
+  assert.deepEqual((await remote.tlsPin('h.kosmosplus.com')).data.spki, ['b'.repeat(64)], 'nothing from before the forget was kept');
+  fs.rmSync(RECORD, { force: true }); mode('required');
+  const settle = async (n) => { for (let i = 0; i < 100 && recorded().length < n; i++) await new Promise((r) => setTimeout(r, 20)); await new Promise((r) => setTimeout(r, 100)); };
+  remote.warmTlsPins([{ address: 'i.kosmosplus.com' }]); await settle(1);
+  remote.warmTlsPins([{ address: 'i.kosmosplus.com' }]); await settle(2);
+  assert.equal(recorded().length, 1, 'a required computer is not asked again by warming within the minute');
+  await remote.tlsPin('i.kosmosplus.com');
+  assert.equal(recorded().length, 2, 'the app\'s own ask is never held back');
+});
