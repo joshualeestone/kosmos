@@ -144,6 +144,12 @@ test('#6713: CONTROL: the same prepare in a sandbox INSIDE the real home still w
   assert.equal(r.hooksWired, true, 'a sandboxed board wires its own sandbox account');
   assert.equal(r.hooksBecause, null);
   assert.notEqual(r.weeklyBecause, installroot.NOT_INSTALLED, 'nor is the statusline refused for the install rule');
+  // Through the real gate (no leaveAlone injected), the sandbox's own settings file takes the statusline.
+  const sf = path.join(sandbox, '.claude-account-j6713', 'settings.json');
+  fs.mkdirSync(path.dirname(sf), { recursive: true }); fs.writeFileSync(sf, '{}\n');
+  const node = path.join(home, 'node'); fs.writeFileSync(node, '');
+  const script = path.join(home, 'kosmos-statusline.js'); fs.writeFileSync(script, '');
+  assert.equal(allowance.ensureStatusLine(sf, { node, script }).wired, true, 'the real gate lets a sandbox write its own statusline');
 });
 
 test('#6713: the Settings route\'s writer (ensureStatusLine) is gated the same way, and an explicit go-ahead still writes', (t) => {
@@ -209,7 +215,7 @@ test('#6713: setup.sh from a bundle at the default place wires the real home (ex
 
 test('#6713: setup.sh says, for exit 20, that the home was left alone, and never promises another install sets it up', () => {
   const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
-  const a = sh.indexOf('case "$_hooks_rc" in');
+  const a = sh.indexOf('case "${_hooks_rc:-0}" in');
   assert.ok(a > 0, 'the message block moved in setup.sh');
   const block = sh.slice(a, sh.indexOf('\nesac', a) + 5);
   const say = (rc) => spawnSync('/bin/sh', ['-c', 'info() { echo "$*"; }; _hooks_rc=' + rc + '\n' + block], { encoding: 'utf8' }).stdout;
@@ -218,6 +224,7 @@ test('#6713: setup.sh says, for exit 20, that the home was left alone, and never
   assert.doesNotMatch(say(21), /unreadable/, 'a mixed run says nothing was unreadable');
   assert.match(say(21), /some agent settings carry the reporting hook/, 'exit 21 claims nothing about where the wired ones are');
   assert.match(say(22), /unreadable/); assert.match(say(22), /your real home were left alone/, 'exit 22 says both');
+  for (const rc of [20, 21, 22]) assert.doesNotMatch(say(rc), /another install|will set|later/, 'exit ' + rc + ' promises no later setup');
   assert.match(say(0), /report what they are doing themselves/, 'CONTROL: exit 0 keeps its line');
 });
 
@@ -305,4 +312,16 @@ test('#6713: ensureStatusLine takes a reason string or null for leaveAlone; anyt
   const r = allowance.ensureStatusLine(settings, { leaveAlone: () => null, node, script });
   assert.equal(r.wired, false); assert.equal(typeof r.because, 'string', 'the reason is a sentence, never the function');
   assert.equal(fs.readFileSync(settings, 'utf8'), '{}\n');
+});
+
+test('#6713: setup.sh fails closed when the bundle it just extracted cannot load the rule', (t) => {
+  const home = realHome(t);
+  const settings = path.join(home, '.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(settings), { recursive: true }); fs.writeFileSync(settings, '{}\n');
+  const kh = path.join(home, '.local', 'share', 'kosmos');
+  bundleAt(kh);
+  fs.writeFileSync(path.join(kh, 'app', 'engine', 'installroot.js'), 'throw new Error("broken module");\n');
+  const r = runSetupHooks(home, kh);
+  assert.equal(r.status, 20, 'nothing wired: exit 20. ' + r.stderr);
+  assert.doesNotMatch(fs.readFileSync(settings, 'utf8'), /kosmos-report-hook/, 'the hooks were not written');
 });

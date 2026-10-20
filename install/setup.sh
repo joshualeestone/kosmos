@@ -5224,7 +5224,9 @@ let refused = 0;
    install here (write_install_config's stance), and it leaves the real home's account settings alone. Skipped, not
    refused: nothing went wrong. The statusline below is gated the same way, inside allowance.ensureStatusLine. */
 let leaveAlone = () => null;
-try { leaveAlone = require(path.join(kosmosHome, 'app', 'engine', 'installroot.js')).leaveAlone; } catch { /* an older bundle: as before */ }
+// This is the bundle just extracted, so a rule that will not load is a fault, not an older bundle: fail closed, as
+// the board does (accounts.prepare, allowance.ensureStatusLine).
+try { leaveAlone = require(path.join(kosmosHome, 'app', 'engine', 'installroot.js')).leaveAlone; } catch { leaveAlone = () => 'could not tell'; }
 let skipped = 0;
 for (const t of targets) {
   let why; try { why = leaveAlone(t); } catch { why = 'could not tell'; }   // a rule that throws leaves it alone
@@ -5246,7 +5248,7 @@ try {
 // alone. 1: something was refused (nothing left alone).
 process.exit(targets.length > 0 && skipped === targets.length ? 20 : refused > 0 ? (skipped > 0 ? 22 : 1) : skipped > 0 ? 21 : 0);
 HOOKSEOF
-case "$_hooks_rc" in
+case "${_hooks_rc:-0}" in
   0)
     info "agents on this computer report what they are doing themselves; the board reads their"
     info "own words instead of their screens" ;;
