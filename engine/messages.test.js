@@ -1357,8 +1357,12 @@ test('#6608: a post naming one owner: another agent\'s FIRST agreement-only repl
     const leo = sendAs(board, 'leo', 'agreed');
     assert.equal(leo.out.state, chat.DELIVERY.COULD_NOT, 'another agent agreeing with a post that named one owner was passed on');
     assert.equal(leo.out.code, 'ack_only', 'the refusal must be the not-a-hold ack_only code');
-    assert.match(leo.out.because, /named \S+ to take it/, 'the refusal does not say who the post named');
-    assert.equal(typeof leo.out.owner, 'string', 'the refusal does not carry the owner the CLI names');
+    /* Review 5: mara's display name is whatever the roster says (an earlier test in this file can leave one behind, such
+       as "Mara Lisa"), so the owner is checked against the roster, not against a one-word pattern. */
+    const maraCard = board.agents.find((a) => a && a.sessionName === 'mara');
+    const maraShown = (maraCard && typeof maraCard.name === 'string' && maraCard.name) || 'mara';
+    assert.equal(leo.out.owner, maraShown, 'the refusal named the wrong owner');
+    assert.ok(leo.out.because.includes('That post named ' + maraShown + ' to take it'), 'the refusal does not say who the post named');
     assert.doesNotMatch(leo.out.because, /["`]/, 'the CLI reads because with a sed that stops at a quote');
     assert.doesNotMatch(leo.out.because, /paused|for the person|bring you in/i, 'the refusal speaks of a hold; it is not one');
     assert.equal(leo.tmux.sends().length, 0, 'the refused reply was typed anyway');
@@ -1463,18 +1467,32 @@ test('#6608 review 3: another member asked by plain name, or an owner who left, 
     seedRows(now, [{ from: 'you', operator: true, text: '@nova please draft the renewal letter', mentioned: ['nova'] }]);
     assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'an ack was refused in favour of an owner who is not in the room');
   });
+  // Review 5: leo was asked something earlier and has not answered; a later hand-off to mara does not swallow his "yes".
+  withFleet(room3(), (board) => {
+    wipeLog(); chat.resetForTests();
+    seedRows(Date.now(), [
+      { from: 'you', operator: true, text: '@leo the dates are fixed now', mentioned: ['leo'] },
+      { from: 'april', text: '@mara please draft the renewal letter', mentioned: ['mara'] },
+    ]);
+    assert.equal(sendAs(board, 'leo', 'yes').out.state, chat.DELIVERY.PLACED, 'an answer leo still owed was dropped by a later hand-off');
+    // CONTROL: once leo has spoken after it, his next ack is left to the owner again.
+    assert.equal(sendAs(board, 'leo', 'agreed').out.code, 'ack_only', 'CONTROL: an ack after leo had already answered was passed on');
+  });
   // Review 4: an ambiguous @-word beside the one clear name: not one owner.
   withFleet(room3(), (board) => {
+    wipeLog(); chat.resetForTests();
     seedRows(Date.now(), [{ from: 'you', operator: true, text: '@mara draft the letter with @sam', mentioned: ['mara'], ambiguousMentions: ['sam'] }]);
     assert.equal(sendAs(board, 'leo', 'agreed').out.state, chat.DELIVERY.PLACED, 'a hand-off with an ambiguous second @-word was treated as one owner');
   });
   // Asked by DISPLAY name in plain text: leo shows as Leon here.
   withFleet([fleet.agent('leo', { displayName: 'Leon' }), fleet.agent('mara'), fleet.agent('april')], (board) => {
+    wipeLog(); chat.resetForTests();
     seedRows(Date.now(), [{ from: 'you', operator: true, text: '@mara draft the letter, Leon send her the dates', mentioned: ['mara'] }]);
     assert.equal(sendAs(board, 'leo', 'will do').out.state, chat.DELIVERY.PLACED, 'an agent asked by its display name had its answer dropped');
   });
   // A display name with a quote and a bidi control reaches the agent cleaned.
   withFleet([fleet.agent('leo'), fleet.agent('mara', { displayName: 'Ma\u202era"' }), fleet.agent('april')], (board) => {
+    wipeLog(); chat.resetForTests();
     seedRows(Date.now(), [{ from: 'you', operator: true, text: '@mara please draft the renewal letter', mentioned: ['mara'] }]);
     const r = sendAs(board, 'leo', 'agreed').out;
     assert.equal(r.code, 'ack_only', 'fixture: the refusal did not fire');
