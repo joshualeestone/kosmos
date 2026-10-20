@@ -141,6 +141,8 @@ if (args[0] === 'signin') {
     // kosmos#5422: as the real tunnel does, a keyed start makes a missing key (slowly in devkey-slow-start).
     if (flag('--device-key')) {
       if (mode.includes('devkey-slow-start')) { const until = Date.now() + 800; while (Date.now() < until) { /* making the key */ } }
+      // kosmos#6770: a start that outlasts any Forget bound, asleep rather than spinning, so it adds no load of its own.
+      if (mode.split(/[ ,]+/).includes('devkey-hang-start')) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.env.FAKE_HANG_START_MS));
       fs.mkdirSync(path.dirname(flag('--device-key')), { recursive: true });
       if (!fs.existsSync(flag('--device-key'))) fs.writeFileSync(flag('--device-key'), newFakeKey());
     }
@@ -427,7 +429,7 @@ if (args[0] === 'run') {
 `, { mode: 0o755 });
 
 const remote = require('./remote');
-const { eventually } = require('../test-support/eventually');
+const { eventually, scaleBudget } = require('../test-support/eventually');
 
 /* The same for the Settings setup's `setup complete`. */
 async function setupSent() {
@@ -2059,16 +2061,21 @@ test('kosmos#5422: Forget waits for a keyed start too (the tunnel\'s start makes
 });
 
 test('kosmos#5422: a keyed start that never returns cannot hold a Forget', async () => {
-  process.env.FAKE_TUNNEL_MODE = 'devkey devkey-slow-start';
+  /* kosmos#6770: the bound is scaled by the suite's load factor (a loaded CI Mac took 968 and 2040 ms against a fixed
+     700), and the start always outlasts it by 1.5 s, so a Forget that waited out the start still fails at any scale. */
+  const bound = scaleBudget(700);
+  process.env.FAKE_TUNNEL_MODE = 'devkey devkey-hang-start';
+  process.env.FAKE_HANG_START_MS = String(bound + 1500);
   process.env.AGENT_WORKFORCE_KEY_CALL_WAIT_MS = '200';
   try {
     const starting = remote.signinStart('her@example.com');
     await until(() => recorded().some((c) => c[1] === 'start'), 'the keyed start to go out');
     const t0 = Date.now();
     await remote.forget();
-    assert.ok(Date.now() - t0 < 700, 'Forget waited out the whole start (' + (Date.now() - t0) + ' ms)');
+    const took = Date.now() - t0;
+    assert.ok(took < bound, 'Forget waited out the whole start (' + took + ' ms; bound ' + bound + ' ms, the start sleeps ' + (bound + 1500) + ' ms)');
     await starting;
-  } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.AGENT_WORKFORCE_KEY_CALL_WAIT_MS; }
+  } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_HANG_START_MS; delete process.env.AGENT_WORKFORCE_KEY_CALL_WAIT_MS; }
 });
 
 test('kosmos#5422: on a damaged file, an older tunnel\'s untaken start does not make its new id the one in use', async () => {
