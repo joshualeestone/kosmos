@@ -57,8 +57,9 @@ limits as the Files list (the agent's own folder, no paths outside it, no link e
 browse and zip each refuse `..`, `a/../..`, an absolute path, a backslash, an empty segment, a dot folder, a link to a
 folder outside, a link to a folder inside, a skipped folder (`node_modules`), its other case on macOS, a file named as
 a folder, past the depth cap, and a Files that is a link; a link inside a listed folder is not listed, previewed,
-downloaded or zipped; cross-site reads are refused; the board token is required. The zip is read back with the
-repo's own zip reader (`engine/win32zip.js`) and must hold exactly the listed files' bytes.
+downloaded or zipped; cross-site reads are refused; the board token is required. The zip is read back by Python's zipfile and
+`unzip -t` (the repo's own reader, `engine/win32zip.js`, refuses the UTF-8 name flag by design) and must hold exactly
+the listed files' bytes.
 `web.filebrowser-6724.test.js`: each Finder button carries `data-remote-hide`, the CSS rule exists, the page sets
 the attribute only when remote.
 
@@ -104,3 +105,24 @@ the attribute only when remote.
     the test has its own timeout, so the mutant shows as a timed-out (cancelled) test instead of a hang.
   - Also fixed in the test: its requests now use a fresh connection each (`agent: false`). Under load, a fixture that
     wrote 2001 files outlasted the board's 5 s keep-alive, and the next request on the pooled socket failed (status 0).
+- Iteration 2 (sonnet): no escape found; the zip was also checked with `zipinfo -v` and `ditto -x -k` (Archive
+  Utility's engine). Findings, all addressed:
+  - WARNING, fixed: the Files screen rewrote the same failure into its status line every 5 s (a screen reader says
+    it again), and could wipe a Download folder refusal just written there. The same failure is now left as it is.
+  - NIT, fixed: a focus pending from a failed move could land later on another screen; it is cleared on a failure and
+    when switching agents. The heading takes focus (`tabindex="-1"`) when nothing else is left to take it.
+  - NIT, fixed: the screen followed a folder only when the glance list's own read succeeded; it now reads first and on
+    its own. The cost, accepted: while the screen shows, a browse read every 5 s (one lstat per shown entry, at most
+    1,000, on the board's thread).
+  - NIT, fixed: the text preview's page side had no test; it is `pvTextInto` now, tested on a stub. The zip tests skip
+    `unzip` where it is missing (Windows) instead of failing. The plan's line about win32zip was wrong and is corrected.
+  - NIT, fixed: a name that is not UTF-8 on Linux reaches Node with U+FFFD and could be listed but not opened (the
+    backslash class again); such names are left out. Cost: a real name containing U+FFFD is left out too.
+  - NIT, fixed: the 1,000 cap counted hidden and skipped names, so they could crowd out the real ones. It counts shown
+    entries now (with a 20,000-entry read budget), and the page quotes the server's limit.
+  - NIT, decided: folder zips are capped at 2 streaming at once (a 429 with the reason past that), because each can read
+    up to 1 GB twice. NOT added: a step-up for the zip. The single-file download needs none, and both read the same
+    files with the same session; a step-up on reads is a separate decision for every download, not this card's.
+    Weakest premise: that a stolen remote session reading a folder at a time is no worse than one reading file by file.
+- Mutants for iteration 2's fixes, all red: the cap counting raw entries, U+FFFD names kept, no zip limit, no failure
+  de-duplication, focus kept after a failed move.

@@ -4981,6 +4981,12 @@ const ZIP_CHUNK = 1024 * 1024;
    timeout). Past this long with nothing taken, the download is ended. */
 let ZIP_STALL_MS = 120 * 1000;
 function _setZipStallForTest(ms) { ZIP_STALL_MS = ms == null ? 120 * 1000 : ms; }
+/* Iteration 2: at most this many folder zips stream at once. Each can read up to FOLDER_ZIP_MAX_BYTES twice (the CRC
+   pass, then the send), so many at once from one remote session would tie up the disk; past it the reason is said. */
+const ZIP_MAX_IN_FLIGHT_DEFAULT = 2;
+let ZIP_MAX_IN_FLIGHT = ZIP_MAX_IN_FLIGHT_DEFAULT;
+let ZIPS_IN_FLIGHT = 0;
+function _setZipLimitForTest(n) { ZIP_MAX_IN_FLIGHT = n == null ? ZIP_MAX_IN_FLIGHT_DEFAULT : n; }
 function sendFolderZip(req, res, folder, rel, where, opts) {
   const refusedRead = crossSiteRead(req);
   if (refusedRead) { refuseDownload(req, res, refusedRead, 403); return; }
@@ -4995,6 +5001,10 @@ function sendFolderZip(req, res, folder, rel, where, opts) {
     .concat(walk.files.map((f) => ({ name: inZip(f.name), isDir: false, rel: f.name, size: f.size, st: f.st, mtime: f.st.mtime })));
   let length;
   try { length = zipwrite.zipLength(entries); } catch { refuseDownload(req, res, 'that folder cannot be put into one zip', 413); return; }
+  if (ZIPS_IN_FLIGHT >= ZIP_MAX_IN_FLIGHT) {
+    refuseDownload(req, res, 'another folder download is already under way on this computer; try again when it has finished', 429);
+    return;
+  }
   if (isDownloadCheck(req)) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
   res.writeHead(200, {
     'content-type': 'application/zip', 'content-length': length, 'x-content-type-options': 'nosniff',
@@ -5002,6 +5012,8 @@ function sendFolderZip(req, res, folder, rel, where, opts) {
     'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
   });
   if (req.method === 'HEAD') { res.end(); return; }
+  ZIPS_IN_FLIGHT += 1;
+  res.once('close', () => { ZIPS_IN_FLIGHT -= 1; });   // finished, cut, or the client gone: 'close' comes once in each
   writeZipEntries(res, folder, where, maxDepth, entries).catch(() => { if (!res.destroyed) res.destroy(); });
 }
 /* One write of the zip at a time, waiting for the socket to take it; a closed connection, or one that takes nothing for
@@ -25691,7 +25703,7 @@ if (require.main === module) {
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
-  _setZipStallForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
+  _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up
