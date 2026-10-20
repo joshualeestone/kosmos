@@ -176,3 +176,14 @@ test('#6589 (review 5): an older answer never overwrites a newer one; a forgotte
   await Promise.all([second, third]);
   assert.equal(recorded().filter((r) => r[4] === 'https://k.kosmosplus.com').length, 2, 'the third ask joined the second run, not a new one');
 });
+
+test('#6589 (review 7): one run per address: a fresh ask waits for a running plain one, then runs on its own', async () => {
+  enrol(); mode('slow');
+  const plain = remote.tlsPin('m.kosmosplus.com');
+  await new Promise((r) => setTimeout(r, 100));
+  const fresh = remote.tlsPin('m.kosmosplus.com', { fresh: true });
+  const joined = remote.tlsPin('m.kosmosplus.com');   // a plain ask joins whatever is running
+  await Promise.all([plain, fresh, joined]);
+  const runs = recorded().filter((r) => r[4] === 'https://m.kosmosplus.com');
+  assert.equal(runs.length, 2, 'the plain run, then the fresh one after it; never two at once, never a third');
+});

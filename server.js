@@ -11292,7 +11292,7 @@ const server = http.createServer(async (req, res) => {
      tls-pins.json), which only ever binds it to the computer the person paired. `fresh=1` skips the 5-minute cache. */
   if (pathname === '/api/remote/tls-pin' && req.method === 'GET') {
     // A board that enforces no token (a sandboxed test board) has none to ask for, as boardCookieHere.
-    if (!isLoopbackPeer(req) || cameThroughForwarder(req.headers) || presentedAgentToken(req, null) || (boardAuthState.on && !boardTokenOk(req))) {
+    if (!isLoopbackPeer(req) || cameThroughForwarder(req.headers) || presentedAgentToken(req, null) || (boardAuthState.on && !boardTokenOkWithoutCookie(req))) {   // review 7: the header, not the page cookie
       sendJson(res, 403, { error: 'Only the Kosmos app on this computer can ask this.' });
       return;
     }

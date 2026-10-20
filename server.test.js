@@ -11844,8 +11844,8 @@ test('kosmos#6589: which key another computer vouches for is asked only on this 
   const src = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
   const at = src.indexOf("pathname === '/api/remote/tls-pin'");
   assert.ok(at > 0, 'the route moved');
-  assert.match(src.slice(at, at + 800), /if \(!isLoopbackPeer\(req\) \|\| cameThroughForwarder\(req\.headers\) \|\| presentedAgentToken\(req, null\) \|\| \(boardAuthState\.on && !boardTokenOk\(req\)\)\)/);
-  /* An address no computer of the account can have is refused before the tunnel. */
+  assert.match(src.slice(at, at + 800), /if \(!isLoopbackPeer\(req\) \|\| cameThroughForwarder\(req\.headers\) \|\| presentedAgentToken\(req, null\) \|\| \(boardAuthState\.on && !boardTokenOkWithoutCookie\(req\)\)\)/);
+  assert.match(src.slice(at, at + 2400), /remote\.tlsPin\(address, \{ fresh: q\.get\('fresh'\) === '1' \}\)/, 'fresh=1 reaches tlsPin as fresh');
   /* Review 6: an address no computer of the account can have is answered none, before the tunnel (a staging
      coordinator's domain must not read as required and refuse every computer). */
   for (const address of ['evil.example', '', 'tmnt.kosmosplus.com/x', '../x']) {
@@ -11857,7 +11857,7 @@ test('kosmos#6589: which key another computer vouches for is asked only on this 
      refusals above are the guards and not the whole route. Not a GET: not this route. */
   const ok = await req(q);
   assert.equal(ok.status, 200, ok.body);
-  assert.equal(JSON.parse(ok.body).state, 'none');
+  assert.deepEqual(JSON.parse(ok.body), { state: 'none', because: 'not signed up for Plus here' }, 'tlsPin itself answered (review 7)');
   const post = await req(q, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   assert.notEqual(post.status, 200, 'a POST was answered as this route');
 });
