@@ -48063,7 +48063,7 @@ document.addEventListener('click', async (e) => {
       || document.querySelector('#survival-slot [data-survival-hide="' + hide.getAttribute('data-survival-hide') + '"]');
     /* Taken down only once the board has recorded it: an x that did not stick leaves the notice there, never a dead button. */
     if (!ok) {
-      if (live) { live.disabled = false; survivalSayIn(live, stepUpSays || 'We could not record that just now. Try again.'); }
+      if (live) { live.disabled = false; survivalSayIn(live, stepUpSays || 'We could not record that just now. Try again.'); live.focus(); }
       else paintSurvival();
       return;
     }
@@ -48090,10 +48090,15 @@ document.addEventListener('click', async (e) => {
       say.setAttribute('data-survival-err', ''); say.setAttribute('role', 'alert');
       say.textContent = 'That did not go through. Try again.';
       if (row && row.firstElementChild) row.firstElementChild.appendChild(say);
+      show.focus();   // back where the person was (review 19)
       return;
     }
     paintSurvival();
-    refreshSurvivalHidden();   // the list itself, even while a report holds the notices (review 6)
+    await refreshSurvivalHidden();   // the list itself (review 6)
+    /* The row is gone once shown again: focus the next Show again, or the box's heading (review 19). */
+    const nextShow = document.querySelector('#survival-hidden-list [data-survival-show]');
+    const head = document.querySelector('#survival-hidden-box .dlab');
+    if (nextShow) nextShow.focus(); else if (head) { head.setAttribute('tabindex', '-1'); head.focus(); }
     return;
   }
   if (remove) {
@@ -48133,6 +48138,7 @@ document.addEventListener('click', async (e) => {
   if (!body || body.ok !== true || !Array.isArray(body.results)) {
     btn.disabled = false;
     btn.textContent = label;
+    if (btn.isConnected) btn.focus();   // back where the person was (review 19)
     /* A refusal means the notice was out of date (started elsewhere, or closed on another device): say so plainly and
        ask the board again, so the stale button goes (review 8). */
     const stale = !!(body && body.refused);

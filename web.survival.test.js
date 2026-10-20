@@ -33,9 +33,9 @@ function run(reply, { onAgents = true, slotStart = '', esc = realEsc, slot: give
     if (reply === 'down') return { ok: false, json: async () => ({ error: 'no' }) };
     return { ok: true, json: async () => reply };
   };
-  return new Function('document', 'fetch', 'esc', 'onAgentsTab', 'SURVIVAL_BUSY', 'SURVIVAL_HELD', 'SURVIVAL_EACH_MAX',
+  return new Function('document', 'fetch', 'esc', 'onAgentsTab', 'SURVIVAL_BUSY', 'SURVIVAL_EACH_MAX',
     LIFTED + '\nreturn paintSurvival();',
-  )(doc, fetchStub, esc, () => onAgents, false, false, EACH_MAX).then(() => ({ slot, box, list }));
+  )(doc, fetchStub, esc, () => onAgents, false, EACH_MAX).then(() => ({ slot, box, list }));
 }
 const notices = (html) => (html.match(/<div class="utoast survival/g) || []).length;
 
@@ -200,7 +200,7 @@ test('#6714 review 7: the combined report keeps each agent\'s guessed-model sent
   assert.match(SCRIPT.slice(at, at + 900), /guessedLine\(r\)/, 'the combined report dropped what we had to assume');
 });
 
-test('#6714 review 15: after a notice closes, focus goes to the next one\'s x, never to Start at login', () => {
+test('#6714 reviews 15, 17: after a notice closes, focus goes to the next one\'s words, never to a button', () => {
   const f = page.lift(SCRIPT, 'survivalFocusNext');
   assert.match(f, /querySelector\('#survival-report-slot \.utoast \.utxt, #survival-slot \.utoast \.utxt'\)/, 'focus no longer goes to the notice words (review 17)');
   assert.doesNotMatch(f, /\.utoast button'\)|\.utoast \.ux'\)/, 'focus can land on a button, so a repeated Enter acts');
