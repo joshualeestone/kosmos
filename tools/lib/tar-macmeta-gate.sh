@@ -3,7 +3,8 @@
 # tarball must not carry the build Mac's file metadata: AppleDouble `._name` entries, extended attributes in pax headers
 # (SCHILY.xattr.* / LIBARCHIVE.xattr.*), access control lists, or file flags (SCHILY.fflags, which bsdtar restores on extract: a `uchg` or
 # `hidden` on a staged file would reach every install). The bundles pack with COPYFILE_DISABLE=1, --no-mac-metadata,
-# --no-xattrs and --no-fflags; each leaves another kind in when used alone.
+# --no-xattrs and --no-fflags; each leaves another kind in when used alone. ACLs rely on bsdtar's macOS default of not
+# archiving them (no --acls); the gate refuses their keys in case that changes.
 #
 # 🛑 It reads the raw entries, NOT `tar -t`: macOS bsdtar folds a `._name` entry back into its file when it lists, so a
 # `tar -tzf` of a tarball holding one shows nothing, and -t refuses --no-mac-metadata (measured 2026-10-20). The reader
@@ -31,7 +32,7 @@ tar_macmeta_gate() {
       if ($sum != $want) { print "UNREADABLE a header with a bad checksum\n"; exit 2 }
       my $name = unpack("Z100", $h); my $prefix = unpack("Z155", substr($h, 345, 155));
       $name = "$prefix/$name" if length $prefix;
-      my $size = oct(unpack("Z12", substr($h, 124, 12)) =~ s/\s//gr || "0");
+      my $size = oct(unpack("Z12", substr($h, 124, 12)) =~ s/\s//gr || "0");   # base-256 (over 8 GiB) misparses and the next checksum refuses: closed
       my $type = substr($h, 156, 1);
       my $pad = int(($size + 511) / 512) * 512; my $data = "";
       my $keep = ($type eq "x" || $type eq "g" || $type eq "L" || $type eq "K");   # other payloads are skipped, not held
@@ -71,7 +72,7 @@ tar_macmeta_gate() {
   ' "$tarball" 2>&1)"; rc=$?
   case "$rc" in
     0) return 0 ;;
-    1) echo "FAIL: $(basename "$tarball") carries macOS metadata from the build Mac (#6678), first ones:" >&2
+    1) echo "FAIL: ${tarball##*/} carries macOS metadata from the build Mac (#6678), first ones:" >&2
        printf '%s\n' "$out" | /usr/bin/sed 's/^/  /' >&2; return 1 ;;
     *) echo "FAIL: the tarball metadata gate could not read every entry of $tarball (${out:-perl exit $rc})" >&2; return 1 ;;
   esac

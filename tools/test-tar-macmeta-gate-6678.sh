@@ -1,8 +1,10 @@
 #!/bin/bash
 # kosmos#6678: tools/lib/tar-macmeta-gate.sh refuses a release tarball that carries the build Mac's extended attributes
 # (an AppleDouble `._` entry, or an xattr pax header), passes one packed the way the bundles pack, and refuses rather
-# than skips when it cannot read the tarball. Each pack flag is shown leaving its own kind of metadata in when alone.
+# than skips when it cannot read the tarball. The arms show what each partial packing leaves in: --no-xattrs alone, the
+# Mac-metadata pair without --no-xattrs, and the first three without --no-fflags.
 set -u
+unset COPYFILE_DISABLE   # a caller's exported COPYFILE_DISABLE=1 would stop the plain pack writing the ._ entry the arms expect
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/lib/tar-macmeta-gate.sh"
 T="$(mktemp -d "${TMPDIR:-/tmp}/tar-macmeta-gate-6678.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
@@ -24,7 +26,7 @@ if [ "$(uname -s)" = Darwin ] && command -v xattr >/dev/null 2>&1 && xattr -w us
   out="$(tar_macmeta_gate "$T/p.tgz" 2>&1)"
   if printf '%s' "$out" | /usr/bin/grep -qF 'AppleDouble entry'; then pass "--no-xattrs alone still leaves the AppleDouble entry, and it is caught"
   else fail "--no-xattrs alone: the AppleDouble entry must be caught: $out"; fi
-  chflags hidden "$T/s/VERSION"
+  if ! chflags hidden "$T/s/VERSION" 2>/dev/null; then fail "FIXTURE: chflags hidden did not take (a TMPDIR without file flags?), so the fflags arms below mean nothing"; fi
   pack COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs
   out="$(tar_macmeta_gate "$T/p.tgz" 2>&1)"
   if printf '%s' "$out" | /usr/bin/grep -qF 'file flags SCHILY.fflags'; then pass "file flags (chflags hidden) without --no-fflags are caught; bsdtar would restore them on extract"
