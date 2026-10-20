@@ -281,6 +281,8 @@ run "KOSMOS_HOME=$FAKE; export AGENT_WORKFORCE_DATA=/tmp/sbx-1511; KOSMOS_DATA_R
 printf '%s\n' "module.exports = {};" > "$FAKE/app/engine/store.js"
 run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA; KOSMOS_DATA_ROOT_CONSULT_SECONDS=37" >/dev/null || true
 sleep 2
+# sleep-control-ok (kosmos#6730): `sleep 37` here is the PRODUCT's old watchdog shape this check hunts for, not a
+# control of this test; matching it by name is the point, so it is not converted.
 left=$(pgrep -fx 'sleep 37' | wc -l | tr -d ' '); leftsh=$(pgrep -f "KOSMOS_HOME=$FAKE" | wc -l | tr -d ' ')
 [ "$left" = "0" ] && [ "$leftsh" = "0" ] && ok "no watchdog, sleep or helper subshell outlives the consult on either outcome" \
   || { bad "the consult left processes behind" "sleep-37=$left helper-subshells=$leftsh"; pkill -fx 'sleep 37' 2>/dev/null; pkill -f "KOSMOS_HOME=$FAKE" 2>/dev/null; }
