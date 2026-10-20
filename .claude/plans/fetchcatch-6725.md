@@ -43,7 +43,9 @@ Third (review 4): that the new check is not itself a flake, which would block #6
 precondition held (rejections=1) in all 30 runs. One of those 30 runs, taken while two other suites loaded the
 machine, failed an arm the run did not record; the next 15 runs had no failure. The one timing-sensitive arm (4, the
 one-second reset) was then moved onto the page's own timers (100 ms, the reset at 1000 ms, 1600 ms), which may run late
-but never out of order, so it no longer depends on how fast the check talks to the browser.
+and review 5 replaced every fixed wait for a page error (arms 2 and 4) with a poll against a deadline. Residual, stated
+rather than claimed away: a main thread stalled for over ~0.9 s could run the page's reset before the first rejection's
+own notification task, and arm 4 would then fail; the gap is 900 ms of a single thread doing nothing else.
 Second: that every page error in the flaky arm is a cut-off request. If a failing attempt shows an error that is not, this
 fixes nothing for it. What would change my mind: such an error in a CI log after this merges.
 
@@ -51,7 +53,8 @@ fixes nothing for it. What would change my mind: such an error in a CI log after
 - MEASURED: the access-control page errors are not rejections (diagnostic); the page rule suppresses "Load failed"
   during unload and still reports a real rejection, also after a navigation that never happened (3 of 3 each); the
   filter's predicate (own origin with the slash, not another origin, not a lookalike port, not another message).
-- NOT measured: the filter firing inside a real reload. In 14 local passing runs it took nothing (`ignored=0`); the
+- MEASURED ONCE (09:41, a mutant run of the new check): the filter took 3 such messages in a reload (`ignored=3`), so it
+  does engage on real cancelled requests. Before that: In 14 local passing runs it took nothing (`ignored=0`); the
   WebKit message came once in about 17 local runs and could not be produced on demand (a request held open at the
   route, or on the network before or after its headers, caught or not, never produced it). Both checks print
   `ignored=N`, so the first CI runs show whether the filter is what keeps the arm green.

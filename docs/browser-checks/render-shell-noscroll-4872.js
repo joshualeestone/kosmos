@@ -47,7 +47,9 @@ const srv = require('../../server.js');
 /* kosmos#6725: WebKit reports each request a navigation cancels as "Fetch API cannot load <url> due to access control
    checks." and Playwright passes that on as a page error, though no page code raised it (measured: no
    unhandledrejection fires for these). Ignored only for THIS board's own address and only while a reload the check
-   started is in flight; a cross-origin failure, or one at any other moment, still counts. */
+   started is in flight; a cross-origin failure, or one at any other moment, still counts. The match is anchored at the
+   address (host:port and the slash); the "Fetch API cannot load" prefix and the scheme are optional, because
+   Playwright passes the message on with its start cut (seen: "/127.0.0.1:<port>/api/tips due to ..."). */
 const cutOffByReload = (msg, base) => /due to access control checks\.?$/.test(msg)
   && new RegExp('^(?:Fetch API cannot load )?(?:https?:)?/{0,2}' + base.replace(/^https?:\/\//, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/').test(msg);
 

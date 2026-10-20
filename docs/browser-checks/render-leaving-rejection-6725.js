@@ -36,7 +36,9 @@ const srv = require('../../server.js');
 /* kosmos#6725: WebKit reports each request a navigation cancels as "Fetch API cannot load <url> due to access control
    checks." and Playwright passes that on as a page error, though no page code raised it (measured: no
    unhandledrejection fires for these). Ignored only for THIS board's own address and only while a reload the check
-   started is in flight; a cross-origin failure, or one at any other moment, still counts. */
+   started is in flight; a cross-origin failure, or one at any other moment, still counts. The match is anchored at the
+   address (host:port and the slash); the "Fetch API cannot load" prefix and the scheme are optional, because
+   Playwright passes the message on with its start cut (seen: "/127.0.0.1:<port>/api/tips due to ..."). */
 const cutOffByReload = (msg, base) => /due to access control checks\.?$/.test(msg)
   && new RegExp('^(?:Fetch API cannot load )?(?:https?:)?/{0,2}' + base.replace(/^https?:\/\//, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/').test(msg);
 
@@ -58,6 +60,8 @@ const chk = (ok, label, extra) => {
       const ctx = await browser.newContext({ serviceWorkers: 'block' });
       const page = await ctx.newPage();
       const errs = [];
+      // Review 5: wait for a page error by polling with a deadline, never a fixed sleep: one may cross the protocol late.
+      const until = async (fn, ms) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await page.waitForTimeout(50); } return fn(); };
       let reloading = false;
       let ignored = 0;   // how many cancelled-request messages the filter took, printed so a pass shows whether it fired
       page.on('pageerror', (e) => { if (reloading && cutOffByReload(e.message, BASE)) ignored += 1; else errs.push(e.message); });
@@ -88,19 +92,21 @@ const chk = (ok, label, extra) => {
       errs.length = 0;
       await page.waitForTimeout(1200);
       await page.evaluate(() => { Promise.reject(new TypeError('a real failure 6725')); });
-      await page.waitForTimeout(500);
+      await until(() => errs.length >= 1, 10000);
       chk(errs.length === 1 && /a real failure 6725/.test(errs[0]), `[${engine}] 2 CONTROL: a real rejection while not leaving is still a page error`, JSON.stringify(errs));
       // 4. The reset, on one live document: a beforeunload that leads nowhere (a download link does this).
       errs.length = 0;
-      // All three on the page's own timers: they may run late under load but never out of order (100 ms, the page's
-      // reset at 1000 ms, then 1600 ms), so the arm does not depend on how fast the check talks to the browser.
+      // All three on the page's own timers (100 ms, the page's reset at 1000 ms, then 1600 ms), so the gaps do not
+      // depend on how fast the check talks to the browser. Residual: a main thread stalled for over ~0.9 s can run the
+      // reset before the first rejection's own notification task, and then this arm fails (review 5; stated in the plan).
       await page.evaluate(() => {
         dispatchEvent(new Event('beforeunload'));
         setTimeout(() => { Promise.reject(new TypeError('inside the leaving second 6725')); }, 100);
         setTimeout(() => { Promise.reject(new TypeError('after the leaving second 6725')); window.__after6725 = true; }, 1600);
       });
       await page.waitForFunction(() => window.__after6725 === true, null, { timeout: 15000 });
-      await page.waitForTimeout(300);
+      // Page errors arrive in order, so once the later one is here the earlier one has had its chance.
+      await until(() => errs.some((e) => /after the leaving second/.test(e)), 10000);
       const inside = errs.filter((e) => /inside the leaving second/.test(e)).length;
       const after = errs.filter((e) => /after the leaving second/.test(e)).length;
       chk(inside === 0, `[${engine}] 4 inside the second after a beforeunload, a TypeError rejection is not a page error`, JSON.stringify(errs));
