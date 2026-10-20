@@ -35,3 +35,40 @@ tree (3ad73fe0d5, one run). Earlier runs on pre-iteration-10 trees: 277 twice, a
 `#5786 (b): a Not me pressed after the secret stopped` red at 5.6 s, in engine/remote.test.js. That run overlapped a
 second suite on the same machine AND my own edits to engine/remote.js, so it is not attributable either way; that
 test's fake tunnel writes its own pid, so the foreign-tunnel path does not run in it.
+
+## Iteration 1 (Opus)
+[WARNING] the orphan case was claimed closed; it is outside both checks (narrowed, then kosmos#6669 built here)
+[WARNING] no child running after a start fell back to the binary's answer (now fails closed)
+
+## Iteration 3 (Opus)
+[WARNING] an orphan's write to the shared status file refused every gated action until the child next wrote (per-pid keep)
+
+## Iteration 4 (Opus)
+[WARNING] two live boards on one account would end each other's tunnels in a loop (parent 1 only)
+[WARNING] pid 0 or -1 could reach process.kill (range 2..2^22)
+[WARNING] check-then-act gap before the signal (exclusions re-checked)
+
+## Iteration 6 (Opus)
+[WARNING] a test sent SIGTERM to a made-up pid, a live process on Linux CI (stand-in kill)
+[WARNING] the real-ps test failed rather than skipped under a subreaper (skips)
+
+## Iteration 7 (Sonnet)
+[WARNING] the bystander arm could not fail (kill recorder)
+[WARNING] the gated read stopped noticing foreign writers once the child's list was kept (reads first)
+
+## Iteration 9 (Sonnet)
+[WARNING] no test pinned "no second TERM inside the minute" (pinned)
+[WARNING] a failed ps had no backoff (15 s)
+
+## Iteration 10 (Opus)
+[WARNING] a request forwarded while an orphan was being ended was trusted with the child's list (refused now)
+
+## Final ledger (iteration 11, Sonnet): no WARNING, converged
+[NIT] a verdict did not expire with its record (cleared on expiry)
+[NIT] early returns set no verdict (an out-of-range pid is left alone; a pid-1 board refuses, stated)
+[NIT] a kill that throws kept an "ended" verdict with no log line (left alone, logged)
+[NIT] a separately supervised tunnel with this board's exact status-file path reads as an orphan (stated)
+[NIT] the range arm's kill assertion could not fail (stand-in now returns an orphan line)
+[NIT] the non-array arm covered only a string (an array of non-strings added)
+[STRENGTH] the signal path is fenced by independent fail-closed conditions, each with a test that can fail
+[STRENGTH] connectorCapabilities only narrows; a status file cannot widen a binary that says no
