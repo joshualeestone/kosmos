@@ -45,8 +45,8 @@ checking): nothing changes for anyone.
      runs it on a real certificate;
    - a refusal says WHY in two wordings: a key that does not match ("pair it again if you set it up again"), or a
      check that could not run ("try again in a moment"), so a board hiccup never tells the person to re-pair;
-   - `tlsPinDecision`: pinned with a match allows; pinned without one, or required, asks once more with `fresh`
-     (a renewal past the cache) and then refuses; none is ordinary checking;
+   - `tlsPinDecision`: pinned with a match allows; pinned without one, required, or any answer it does not know,
+     asks once more with `fresh` (a renewal past the cache) and then refuses; only none (or no board) is ordinary;
    - NO board at all (no port: a connect-only Mac) is ordinary checking. A board
      that is there but answers badly (a 403, a restart, a timeout) is `required` and logged: the ticket may already
      be in flight (review 1);
@@ -96,6 +96,10 @@ one a computer's request could be coalesced onto. Until that is measured, this i
 - Cost: any one-label Kosmos+ name the page reaches (a community page, say) is asked about once per 5 minutes; a
   dead host costs up to the tunnel's 10 s before the connection goes on. Accepted.
 - An address that is no computer of this account (a staging coordinator's other domain) answers `none`.
+
+- The board route checks loopback, forwarding, agent tokens and the header token, not the Host and Origin pair the
+  ticket route checks (the app's own request carries no Origin). On a board that enforces no token, a page using DNS
+  rebinding could make it pin an address: it only ever pins to the computer the person paired (stated above).
 
 ## Weakest premise
 NOT YET RUN IN THE REAL APP. Review 3 found that the first version of the handler would have crashed the app on the

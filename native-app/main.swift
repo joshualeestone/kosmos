@@ -356,10 +356,11 @@ func tlsPinDecision(state: String?, keys: [String], leaf: String?, fresh: Bool) 
     case "pinned":
         if let leaf, keys.contains(leaf) { return .allow }
         return fresh ? .refuse : .askFresh
-    case "required":
-        return fresh ? .refuse : .askFresh
-    default:
+    case "none", nil:
         return .ordinary
+    default:
+        // Review 8: "required", or any answer this app does not know, is never ordinary checking.
+        return fresh ? .refuse : .askFresh
     }
 }
 
@@ -7651,7 +7652,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         ("required", [], K, false, .askFresh, "required: ask once more (a passing failure is not cached)"),
         ("required", [], K, true, .refuse, "required again: refuse"),
         ("none", [], K, false, .ordinary, "none (an older computer): ordinary checking"),
-        ("maybe", [K], K, false, .ordinary, "an unknown answer is not a pin"),
+        ("maybe", [K], K, false, .askFresh, "an unknown answer is never ordinary checking (review 8)"),
     ] as [(String, [String], String?, Bool, TlsPinDecision, String)] {
         pin(tlsPinDecision(state: state, keys: keys, leaf: leaf, fresh: fresh).rawValue, want.rawValue, why)
     }

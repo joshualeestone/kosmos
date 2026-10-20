@@ -163,7 +163,8 @@ test('#6589 (review 5): an older answer never overwrites a newer one; a forgotte
   await slow;
   mode('required');   // a cache miss would now answer required
   assert.deepEqual((await remote.tlsPin('j.kosmosplus.com')).data.spki, ['b'.repeat(64)], 'the older, slower answer did not overwrite the newer one');
-  // An ask out when a forget lands, then a second ask: when the first settles, a third ask joins the SECOND run.
+  // An ask out when a forget lands (review 8): a new ask JOINS the running one rather than running beside it, and
+  // what the running one answers is not kept.
   remote.forgetTlsPins();
   mode('slow');
   fs.rmSync(RECORD, { force: true });
@@ -171,10 +172,10 @@ test('#6589 (review 5): an older answer never overwrites a newer one; a forgotte
   await new Promise((r) => setTimeout(r, 150));
   remote.forgetTlsPins();
   const second = remote.tlsPin('k.kosmosplus.com');
-  await first;
-  const third = remote.tlsPin('k.kosmosplus.com');
-  await Promise.all([second, third]);
-  assert.equal(recorded().filter((r) => r[4] === 'https://k.kosmosplus.com').length, 2, 'the third ask joined the second run, not a new one');
+  await Promise.all([first, second]);
+  assert.equal(recorded().filter((r) => r[4] === 'https://k.kosmosplus.com').length, 1, 'one run, never two at once across a forget');
+  mode('other');
+  assert.deepEqual((await remote.tlsPin('k.kosmosplus.com')).data.spki, ['b'.repeat(64)], 'nothing from the run that straddled the forget was kept');
 });
 
 test('#6589 (review 7): one run per address: a fresh ask waits for a running plain one, then runs on its own', async () => {

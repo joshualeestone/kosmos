@@ -2540,7 +2540,9 @@ function warmTlsPins(computers) {
 }
 /* A sign-out or a removed device may end the trust a cached pin rests on: forget the cache (the tunnel's own
    check runs again on the next ask). */
-function forgetTlsPins() { tlsPinGeneration += 1; tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); }
+/* Review 8: running asks are not dropped from tlsPinInFlight (a new ask still waits its turn behind them, one run per
+   address); the generation keeps whatever they answer out of the cache. */
+function forgetTlsPins() { tlsPinGeneration += 1; tlsPinCache.clear(); tlsPinWarmQuiet.clear(); }
 
 /** kosmos#6404, "Check the code": this computer was allowed, but its code ran out before The codes match was pressed
     here, so it does not trust the other computer yet. Asks for ONE fresh code check with it (the next round starts it).
