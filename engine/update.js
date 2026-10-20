@@ -1348,6 +1348,7 @@ function prodPublishesRunning() {
 }
 
 module.exports = {
+  installedHomeAsInstalled /* #6659: the home as the installer knows it; exported so a test RUNS its fallbacks */,
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, windowsBuildName, windowsGenericName, // the per-platform check (win32-update-check)
   installOffer, // S4: the [Update] offer (installedRoot AND not a refused win32 location); one derivation

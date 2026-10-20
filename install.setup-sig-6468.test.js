@@ -160,6 +160,28 @@ test('#6659 (review 1): the board is told the home it was installed under, and t
   assert.ok(line && line.includes('installedHomeAsInstalled()') && !line.includes('installedRoot()'), 'the update passes the installed path');
 });
 
+test('#6659 (review 2): installedHomeAsInstalled uses the installed path only when it IS this copy, else the root', () => {
+  const update = require('./engine/update.js');
+  const real = home('1.2.0');
+  fs.mkdirSync(path.join(real, 'runtime', 'bin'), { recursive: true });
+  const link = path.join(tmp, 'as-installed-' + crypto.randomBytes(3).toString('hex'));
+  fs.symlinkSync(real, link);
+  const other = home('1.2.0');
+  const saved = process.env.KOSMOS_INSTALLED_HOME;
+  update.setInstalledRoot(() => fs.realpathSync(real));
+  try {
+    const at = (v) => { if (v === undefined) delete process.env.KOSMOS_INSTALLED_HOME; else process.env.KOSMOS_INSTALLED_HOME = v; return update.installedHomeAsInstalled(); };
+    assert.equal(at(link), link, 'the path as installed, when it resolves to this copy');
+    assert.equal(at(undefined), fs.realpathSync(real), 'none: the root');
+    assert.equal(at(path.join(tmp, 'gone-' + crypto.randomBytes(3).toString('hex'))), fs.realpathSync(real), 'a path that is gone: the root');
+    assert.equal(at(other), fs.realpathSync(real), 'another copy: the root');
+    assert.equal(at(path.relative(process.cwd(), real)), fs.realpathSync(real), 'a relative path, even one that resolves here: the root');
+  } finally {
+    update.setInstalledRoot(null);
+    if (saved === undefined) delete process.env.KOSMOS_INSTALLED_HOME; else process.env.KOSMOS_INSTALLED_HOME = saved;
+  }
+});
+
 test('the build records setup_sha256 from install/setup.sh in the manifest it signs', () => {
   const src = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
   assert.match(src, /KM_SETUP_SHA="\$\(shasum -a 256 "\$REPO\/install\/setup\.sh"/);
