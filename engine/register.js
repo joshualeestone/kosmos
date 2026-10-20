@@ -604,6 +604,14 @@ function writeHidden(names) {
   fs.renameSync(tmp, file);
 }
 
+/** Drop names from the hidden list, reading it afresh at the write (review 4): the survey that found them stale read the
+    list earlier, and writing that older copy back would lose a hide made in between. */
+function forgetHidden(names) {
+  const now = readHidden();
+  const kept = now.filter((n) => !names.includes(n));
+  if (kept.length !== now.length) writeHidden(kept);
+}
+
 /** Stop reminding about one agent. Only a name the notice is showing can be hidden, so the file holds nothing else. */
 function hide(name, opts) {
   const seen = survey(opts);
@@ -695,7 +703,7 @@ function survey(opts) {
      notice comes back rather than staying silently closed. Written only when something changes; best effort. */
   /* A removed agent's name goes too (review 3), so an agent re-made under it does not start out hidden. */
   const stale = hiddenList.filter((n) => agents.some((x) => x.name === n && (x.job === true || x.removed)));
-  if (stale.length) { try { writeHidden(hiddenList.filter((n) => !stale.includes(n))); } catch { /* next look */ } }
+  if (stale.length) { try { forgetHidden(stale); } catch { /* next look */ } }
   return {
     ok: true,
     because: null,

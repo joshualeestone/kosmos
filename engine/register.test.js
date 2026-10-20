@@ -1060,3 +1060,17 @@ test('#6714 review 2: a hidden name whose agent now starts at login is forgotten
   assert.deepEqual(s.missing, ['brigitte']);
   assert.deepEqual(s.hidden, []);
 });
+
+/* What this can show: forgetting reads the file afresh and drops only the stale name. The race itself (a hide landing
+   between the survey's read and its write) cannot be staged in one synchronous call; forgetHidden's re-read is the fix. */
+test('#6714 review 4: the survey forgets a name whose agent now starts at login and keeps the others', () => {
+  reset();
+  agent('anna', { job: true });
+  agent('brigitte');
+  fs.writeFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), JSON.stringify({ names: ['anna'] }));
+  assert.equal(register.hide('brigitte', { platform: 'darwin' }).ok, true);
+  const s = mac.survey();
+  assert.deepEqual(s.hidden, ['brigitte']);
+  const onDisk = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), 'utf8')).names;
+  assert.deepEqual(onDisk, ['brigitte'], 'anna (now starting at login) should be forgotten and brigitte kept');
+});

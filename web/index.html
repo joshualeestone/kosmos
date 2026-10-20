@@ -48044,6 +48044,9 @@ document.addEventListener('click', async (e) => {
       hide.closest('.utoast').remove();
       survivalFocusNext();
       const slot = document.getElementById('survival-slot');
+      /* The signature is cleared so the next look repaints: a failed start leaves its agent on the notice list, and
+         without this the unchanged list would match the old signature and the agent would have no notice (review 4). */
+      if (slot) delete slot.dataset.v;
       if (!slot || !slot.querySelector('.utoast.report')) SURVIVAL_HELD = false;
       return;
     }
@@ -48131,6 +48134,7 @@ document.addEventListener('click', async (e) => {
     'Close: ' + (r.shownAs || r.name) + ' ' + said(r))).join('');
   const note = btn.closest('.utoast');
   if (note) note.outerHTML = report; else if (slot) slot.insertAdjacentHTML('afterbegin', report);
+  if (slot) delete slot.dataset.v;   // the slot no longer holds what the signature describes
   const closeFirst = slot && slot.querySelector('.utoast.report .ux');
   if (closeFirst) closeFirst.focus();
   SURVIVAL_BUSY = false;

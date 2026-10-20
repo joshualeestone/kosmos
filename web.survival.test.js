@@ -182,3 +182,12 @@ test('#6714 review 1: a failed start keeps the warning look and is closable as a
   assert.match(PAGE, /\.utoast\.survival\.done, \.utoast\.survival\.unknown \{ --utone: var\(--label-2\); \}/);
   assert.doesNotMatch(PAGE, /\.utoast\.survival\.failed[^{]*\{[^}]*label-2/, 'a failed start is styled as a calm fact');
 });
+
+test('#6714 review 4: inserting or closing a report clears the repaint signature, so a failed start gets its notice back', () => {
+  const insert = SCRIPT.indexOf("if (note) note.outerHTML = report;");
+  assert.ok(insert > 0);
+  assert.match(SCRIPT.slice(insert, insert + 200), /delete slot\.dataset\.v/);
+  const close = SCRIPT.indexOf("if (hide.closest('.utoast.report')) {");
+  assert.ok(close > 0);
+  assert.match(SCRIPT.slice(close, close + 900), /if \(slot\) delete slot\.dataset\.v;/);
+});
