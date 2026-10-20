@@ -52,6 +52,9 @@ refused every gated remote action until this board's tunnel next changed state.
   port, so a request in that window may be the orphan's). After an orphan is ended this lasts until its pid is asked
   again (a minute) and found gone, unless this board's child writes the file first.
 - An install path containing ` run ` makes the program unreadable, so such an orphan is never ended (fails safe).
+- Review 11 (no WARNING; converged): a board that is itself pid 1 judges nothing, so a foreign writer there refuses gated
+  actions until its child writes (fails closed). A separately supervised tunnel (launchd KeepAlive) with this board's
+  exact status-file path reads as an orphan and would be ended each minute and respawned.
 - The program is read from the COMMAND LINE (argv), not the kernel's executable name (review 6 asked). Rejected: a
   portable fixture needs a real executable whose own file is named `kosmos-tunnel` (a copied /bin/sleep is killed by
   code signing, a symlink reports its target, a hard link to node cannot load its libraries). What argv alone lets

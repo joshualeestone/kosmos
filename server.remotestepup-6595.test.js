@@ -400,6 +400,8 @@ test('R01b: while a tunnel runs here, only what that process lists in its status
     assert.equal(remote.connectorCapabilities().size, 0, 'another process\'s status file vouched');
     await as(pid + 13); write({ state: 'up', pid: pid + 13, capabilities: 'session-headers' });
     assert.equal(remote.connectorCapabilities().size, 0, 'a list that is not an array vouched');
+    await as(pid + 16); write({ state: 'up', pid: pid + 16, capabilities: [1, { 'session-headers': true }, null] });
+    assert.equal(remote.connectorCapabilities().size, 0, 'an array of non-strings vouched');
     await as(pid + 14); fs.rmSync(statusFile, { force: true });
     assert.equal(remote.connectorCapabilities().size, 0, 'no status file yet vouched');
     write({ state: 'up', pid: pid + 14, capabilities: ['session-headers'] });
@@ -503,11 +505,15 @@ test('R01c: a pid outside 2..2^22, our own pid, and a failed ps are never signal
   let skew = 0;
   try {
     Date.now = () => realNow() + skew;
-    reset({ commandOf: (pid) => { asked.push(pid); return undefined; }, kill: (pid) => killed.push(pid) });   // ps fails: no answer
+    // An orphan by every other rule for the out-of-range and own pids, so only the guards stand between them and a kill.
+    const orphanLine = { ppid: 1, command: CONNECTOR + ' run --status-file ' + STATUS };
+    reset({ commandOf: (pid) => { asked.push(pid); return pid === 424299 ? undefined : orphanLine; }, kill: (pid) => killed.push(pid) });   // 424299: ps fails
     for (const pid of [0, -1, 1, 4194305, 2 ** 23, 1.5, process.pid]) assert.equal(await ended(pid), false, String(pid));
     assert.deepEqual(asked, [], 'an out-of-range pid, or our own, was looked up');
     await ended(4194304);
     assert.deepEqual(asked, [4194304], 'CONTROL: the top of the range is looked up');
+    assert.deepEqual(killed, [4194304], 'CONTROL: the stand-in would have ended an in-range orphan');
+    killed.length = 0;
     await ended(424299); await ended(424299);
     assert.deepEqual(asked.filter((x) => x === 424299), [424299], 'a failed ps was asked again at once (a ps fork per status read)');
     skew = 16 * 1000;

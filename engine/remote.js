@@ -278,9 +278,12 @@ function isOrphanedTunnel(proc, statusFile, bin = BIN()) {
   return Boolean(proc) && proc.ppid === 1 && isOurTunnel(proc, statusFile, bin);
 }
 function endForeignTunnel(pid, done = () => {}) {
-  if (!Number.isInteger(pid) || pid < 2 || pid > 4194304 || notOurs(pid) || foreignAsking.has(pid)) { done(false); return; }
+  // A pid no tunnel can have (out of range) is one to leave alone; our own child is not foreign (review 11).
+  if (!Number.isInteger(pid) || pid < 2 || pid > 4194304) { foreignVerdict.set(pid, 'leave'); done(false); return; }
+  if (notOurs(pid) || foreignAsking.has(pid)) { done(false); return; }
   const until = foreignLooked.get(pid);
-  if (until !== undefined && until <= Date.now()) foreignLooked.delete(pid);   // expired: pruned as it is read
+  // Expired: pruned as it is read, verdict and all (review 11: a stale "leave" trusted the request that re-asks).
+  if (until !== undefined && until <= Date.now()) { foreignLooked.delete(pid); foreignVerdict.delete(pid); }
   if ((until || 0) > Date.now() || process.pid === 1) { done(false); return; }
   const stand = process.env.NODE_TEST_CONTEXT ? endForeignForTests : null;
   if (process.platform === 'win32' && !stand) { foreignLooked.set(pid, Infinity); foreignVerdict.set(pid, 'leave'); done(false); return; }
@@ -295,7 +298,12 @@ function endForeignTunnel(pid, done = () => {}) {
     if (!isOrphanedTunnel(proc, statusFile) || notOurs(pid)) { foreignLooked.set(pid, Date.now() + FOREIGN_RECHECK_MS); foreignVerdict.set(pid, 'leave'); done(false); return; }
     foreignLooked.set(pid, Date.now() + FOREIGN_RECHECK_MS);
     foreignVerdict.set(pid, 'ended');
-    try { (stand ? killForTests : process.kill.bind(process))(pid, 'SIGTERM'); process.stderr.write('remote: ended a Kosmos+ tunnel an earlier board left running (pid ' + pid + ', kosmos#6669)\n'); done(true); } catch { done(false); }
+    try { (stand ? killForTests : process.kill.bind(process))(pid, 'SIGTERM'); process.stderr.write('remote: ended a Kosmos+ tunnel an earlier board left running (pid ' + pid + ', kosmos#6669)\n'); done(true); } catch (e) {
+      // Not ours to end (another user's, EPERM) or already gone: left alone, and said (review 11).
+      foreignVerdict.set(pid, 'leave');
+      process.stderr.write('remote: could not end a tunnel an earlier board left running (pid ' + pid + '): ' + (e && e.code) + '\n');
+      done(false);
+    }
   };
   foreignAsking.add(pid);
   if (stand) { let proc; try { proc = stand(pid, statusFile); } catch { proc = undefined; } judge(proc); return; }
