@@ -1,7 +1,7 @@
 #!/bin/bash
 # The release-tarball macOS metadata gate (#6678, from the #1760 shipped-artifact pass on the 0.7.60 bundles). A release
 # tarball must not carry the build Mac's file metadata: AppleDouble `._name` entries, extended attributes in pax headers
-# (SCHILY.xattr.* / LIBARCHIVE.xattr.*), or file flags (SCHILY.fflags, which bsdtar restores on extract: a `uchg` or
+# (SCHILY.xattr.* / LIBARCHIVE.xattr.*), access control lists, or file flags (SCHILY.fflags, which bsdtar restores on extract: a `uchg` or
 # `hidden` on a staged file would reach every install). The bundles pack with COPYFILE_DISABLE=1, --no-mac-metadata,
 # --no-xattrs and --no-fflags; each leaves another kind in when used alone.
 #
@@ -34,23 +34,35 @@ tar_macmeta_gate() {
       my $size = oct(unpack("Z12", substr($h, 124, 12)) =~ s/\s//gr || "0");
       my $type = substr($h, 156, 1);
       my $pad = int(($size + 511) / 512) * 512; my $data = "";
-      if ($pad) { my $r = read($fh, $data, $pad); if (!defined $r || $r != $pad) { print "UNREADABLE an entry cut short\n"; exit 2 } }
+      my $keep = ($type eq "x" || $type eq "g" || $type eq "L" || $type eq "K");   # other payloads are skipped, not held
+      while ($pad > 0) {
+        my $want = $keep ? $pad : ($pad > 65536 ? 65536 : $pad);
+        my $r = read($fh, my $chunk, $want);
+        if (!defined $r || $r <= 0) { print "UNREADABLE an entry cut short\n"; exit 2 }
+        $data .= $chunk if $keep; $pad -= $r;
+      }
       $data = substr($data, 0, $size);
       if ($type eq "x" || $type eq "g") {
-        while ($data =~ /\G(\d+) ([^=]*)=/gc) {
-          my ($len, $key) = ($1, $2); my $start = $-[0];
+        my $at = 0;
+        while ($at < length $data) {   # every record must parse, or the header is refused (it cannot be read whole)
+          substr($data, $at) =~ /\A(\d+) ([^=\n]*)=/ or do { print "UNREADABLE a malformed pax record\n"; exit 2 };
+          my ($len, $key) = ($1, $2);
+          if ($len < length("$len k=\n") || $at + $len > length $data || substr($data, $at + $len - 1, 1) ne "\n") { print "UNREADABLE a malformed pax record\n"; exit 2 }
           push @bad, "extended attribute $key" if $key =~ /\.xattr\./;
           push @bad, "file flags $key" if $key =~ /fflags/;
-          if ($key eq "path") { my $v = substr($data, $+[0], $len - ($+[0] - $start) - 1); $next = $v }
-          pos($data) = $start + $len;
+          push @bad, "access control list $key" if $key =~ /\.acl/;
+          if ($key eq "path") { my $vs = length($len) + 1 + length($key) + 1; $next = substr($data, $at + $vs, $len - $vs - 1) }
+          $at += $len;
         }
         next;
       }
       if ($type eq "L") { ($next = $data) =~ s/\0.*//s; next }
+      next if $type eq "K";   # a GNU long LINK target: not a name, and it must not consume the pending long name
       $name = $next if defined $next; $next = undef; $n++;
       (my $base = $name) =~ s{/+$}{}; $base =~ s{.*/}{};
       push @bad, "AppleDouble entry $name" if $base =~ /^\._/;
     }
+    1 while read($fh, my $rest, 65536);   # drain past the end marker (record padding), so gzip is not killed by SIGPIPE
     close($fh); if ($? != 0) { print "UNREADABLE gzip exit " . ($? >> 8) . "\n"; exit 2 }
     if (!$ended) { print "UNREADABLE no end-of-archive marker\n"; exit 2 }
     if (!$n) { print "EMPTY\n"; exit 2 }
