@@ -48057,8 +48057,10 @@ document.addEventListener('click', async (e) => {
     for (const name of names) {
       try {
         const r = await fetch('/api/register/hide', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
-        /* A 400 is a name that no longer needs a notice (it was started, or removed): already done, not a failure. */
-        await r.text(); ok = ok && (r.ok || r.status === 400);
+        /* A refusal that says the agent has no notice any more (it was started, or removed) is already done, not a
+           failure; any other refusal is one (review 6). */
+        const said = await r.json().catch(() => null);
+        ok = ok && (r.ok || (r.status === 400 && !!said && said.notOffered === true));
       } catch { ok = false; }
     }
     /* Taken down only once the board has recorded it: an × that did not stick leaves the notice there, never a dead button. */
@@ -48077,6 +48079,7 @@ document.addEventListener('click', async (e) => {
     } catch { ok = false; }
     if (!ok) { show.disabled = false; show.textContent = 'Show again (that did not go through)'; return; }
     paintSurvival();
+    refreshSurvivalHidden();   // the list itself, even while a report holds the notices (review 6)
     return;
   }
   if (remove) {
