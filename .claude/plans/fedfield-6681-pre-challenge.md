@@ -1,8 +1,8 @@
 ---
 method: challenge-loop
 branch: fedfield-6681
-diff_hash: bcc1d1d095891dded2d7acb3fc0c056a315f4de0ce811f1dc08f1a38d24416c1
-timestamp: 2026-10-20T11:32:08Z
+diff_hash: 207f7b793c6a02eb8a7897ab6be329cefd02262c33e294c5d08b336e5446e142
+timestamp: 2026-10-20T13:05:38Z
 subdir_audit: passed
 iterations: 3
 converged: true
@@ -11,7 +11,7 @@ converged: true
 # Challenge-loop proof: fedfield-6681 (kosmos#6681 slice 2: the invite sheet's optional email field)
 
 Three blind iterations (Opus, Sonnet, Opus) plus a design review (Mona Lisa, approved with one copy change). Iteration 3
-returned no BLOCKER or WARNING, so it converged. Stacked on fedboard-6681 (#6688); the hash covers origin/main...HEAD.
+returned no BLOCKER or WARNING, so it converged. Rebased onto main after #6688 merged (08eb270b4d); the hash covers origin/main...HEAD.
 
 ## Iteration 1 (Opus)
 [WARNING] the "empty on open" check could not fail on a removed reset (a reopen arm added)
