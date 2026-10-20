@@ -10,14 +10,14 @@ converged: true
 
 # Challenge-loop proof: boundtext-6708 (kosmos#6708: a bound code says which account can use it)
 
-Four blind iterations (Opus, Opus, Sonnet, Opus). Iteration 4 returned no BLOCKER or WARNING, so it converged.
+Four blind iterations (iterations 3 and 4 on Sonnet and Opus; the models of 1 and 2 were not recorded). Iteration 4 returned no BLOCKER or WARNING, so it converged.
 Stacked on fedfield-6681 (kosmos#6701, unmerged); the hash covers origin/main...HEAD, so it includes slice 2.
 
-## Iteration 1 (Opus)
+## Iteration 1
 [WARNING] the sentence rested on the TYPED address, so an older coordinator that ignores email would leave the sheet promising a restriction that does not exist (now rests on the coordinator's echo only)
 [WARNING] the address entered the copied text uncleaned (now through the same line cleaner; an injection arm added)
 
-## Iteration 2 (Opus)
+## Iteration 2
 [WARNING] no page arm pinned "echo, not typed": B7's control types no address (a page block added; mutant boundTo-from-typed is red on exactly its two arms)
 [NIT] a hostile echo could carry words after a space (the engine passes only an address shape)
 
