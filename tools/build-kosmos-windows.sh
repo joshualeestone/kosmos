@@ -420,9 +420,9 @@ LAUNCHER_PORT="$(sed -n 's/.*DefaultPort *= *\([0-9][0-9]*\).*/\1/p' "$REPO/tool
 # 🔏 #6679: THE READ-ME SAYS Kosmos.exe IS SIGNED, so the build holds the launcher to
 # what the read-me says, the way it holds the connector above: a signature must be
 # PRESENT on any host, and on Windows, Windows itself must call it Valid and by
-# Kosmos Agent Manager, Inc. Both checks are connector-windows.sh's, the presence one
-# being pe_signature_present because the launcher is a 32-bit (AnyCPU) PE, which the
-# connector's x86-64 check rightly refuses. What was checked lands in the manifest.
+# Kosmos Agent Manager, Inc. Both checks are connector-windows.sh's general PE ones
+# (pe_signature_present, pe_authenticode): the launcher is a 32-bit (AnyCPU) PE, which
+# the connector's x86-64 check rightly refuses. What was checked lands in the manifest.
 _launcher_why="$(pe_signature_present "$LAUNCHER" 2>&1 >/dev/null)" || {
   echo "tools/windows/Kosmos.exe is not signed, and the zip's read-me tells people it is (#6679): ${_launcher_why#pe_signature_present: }" >&2
   echo "Sign it on the Windows box (tools/windows/README.md) and commit it." >&2
@@ -430,8 +430,8 @@ _launcher_why="$(pe_signature_present "$LAUNCHER" 2>&1 >/dev/null)" || {
 }
 _launcher_sig="present (not verified: this build did not run on Windows)"
 if [ "$_on_windows" = 1 ]; then
-  _launcher_why="$(connector_authenticode "$LAUNCHER" 2>&1 >/dev/null)" || {
-    echo "Windows does not accept tools/windows/Kosmos.exe's signature (#6679): ${_launcher_why#connector_authenticode: }" >&2
+  _launcher_why="$(pe_authenticode "$LAUNCHER" Kosmos.exe 2>&1 >/dev/null)" || {
+    echo "Windows does not accept tools/windows/Kosmos.exe's signature (#6679): ${_launcher_why#pe_authenticode: }" >&2
     exit 1
   }
   _launcher_sig="Valid"
@@ -527,6 +527,8 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 # the update's own Kosmos.exe itself (win32update.js signatureRefusal). There is
 # deliberately no single "signed": true, which a reader could take as covering
 # every file in the zip.
+# connector.signature (older, #4597) repeats the connector's entry on purpose: it
+# stays where existing readers of the connector block look for it.
 cat > "$STAGE/manifest.json" <<JSON
 {
   "product": "kosmos",
@@ -566,7 +568,7 @@ rm -f "$ZIPOUT"
 # whatever the checkout had. tools/lib/zip-modes.js rewrites each entry to 0644,
 # 0755 for programs (.exe .dll .cmd .bat, or a #! script) and 0755 for folders, in
 # place, BEFORE the .sha256 is taken, and the checks below read the result back.
-node "$REPO/tools/lib/zip-modes.js" set "$ZIPOUT" "$STAGE" || { rm -f "$ZIPOUT"; echo "could not set the zip's file modes (#6677); node must be on PATH" >&2; exit 1; }
+node "$REPO/tools/lib/zip-modes.js" set "$ZIPOUT" "$STAGE" || { rm -f "$ZIPOUT"; echo "could not set the zip's file modes (#6677); the reason is printed above" >&2; exit 1; }
 shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
 
 # 🛑 ASSERT THE ZIP CONTAINS WHAT WE THINK, rather than trusting that the staging

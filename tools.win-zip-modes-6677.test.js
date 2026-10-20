@@ -23,7 +23,9 @@ const zm = require('./tools/lib/zip-modes');
 const SCRIPT = path.join(__dirname, 'tools', 'lib', 'zip-modes.js');
 const WIN = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-windows.sh'), 'utf8');
 
-/** A stored (uncompressed) zip from [{name, data, madeBy, attrs}], with an optional ZIP64 end record. */
+/** A stored (uncompressed) zip from [{name, data, madeBy, attrs, extra, comment}], with an optional ZIP64 end
+    record. extra and comment are written into the central directory (and extra into the local header) the way
+    Info-ZIP writes its UT/ux fields, so the walk over them is exercised off Windows too. */
 function makeZip(entries, { zip64 = false } = {}) {
   const locals = [];
   const cens = [];
@@ -31,17 +33,19 @@ function makeZip(entries, { zip64 = false } = {}) {
   for (const e of entries) {
     const name = Buffer.from(e.name, 'utf8');
     const data = Buffer.from(e.data || '');
+    const extra = Buffer.from(e.extra || '');
+    const comment = Buffer.from(e.comment || '');
     const crc = zlib.crc32(data) >>> 0;
     const lh = Buffer.alloc(30);
     lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt32LE(crc, 14);
-    lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(data.length, 22); lh.writeUInt16LE(name.length, 26);
+    lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(data.length, 22); lh.writeUInt16LE(name.length, 26); lh.writeUInt16LE(extra.length, 28);
     const ch = Buffer.alloc(46);
     ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(e.madeBy, 4); ch.writeUInt16LE(20, 6); ch.writeUInt32LE(crc, 16);
-    ch.writeUInt32LE(data.length, 20); ch.writeUInt32LE(data.length, 24); ch.writeUInt16LE(name.length, 28);
+    ch.writeUInt32LE(data.length, 20); ch.writeUInt32LE(data.length, 24); ch.writeUInt16LE(name.length, 28); ch.writeUInt16LE(extra.length, 30); ch.writeUInt16LE(comment.length, 32);
     ch.writeUInt32LE(e.attrs >>> 0, 38); ch.writeUInt32LE(offset, 42);
-    locals.push(lh, name, data);
-    cens.push(ch, name);
-    offset += 30 + name.length + data.length;
+    locals.push(lh, name, extra, data);
+    cens.push(ch, name, extra, comment);
+    offset += 30 + name.length + extra.length + data.length;
   }
   const cen = Buffer.concat(cens);
   const parts = [...locals, cen];
@@ -69,7 +73,8 @@ const DOS = 0 << 8 | 20;
 /* What bsdtar on Windows wrote into 0.7.60, plus a DOS-hosted entry and a shebang script. */
 const BAD = [
   { name: '! READ ME FIRST - Windows will warn you.txt', data: 'read me', madeBy: UNIX, attrs: (0o100666 << 16) | 0x20 },
-  { name: 'Kosmos.exe', data: 'MZ', madeBy: UNIX, attrs: (0o100777 << 16) | 0x20 },
+  { name: 'Kosmos.exe', data: 'MZ', madeBy: UNIX, attrs: (0o100777 << 16) | 0x20,
+    extra: Buffer.from([0x55, 0x54, 5, 0, 1, 0x10, 0x20, 0x30, 0x40]), comment: 'an entry comment' },
   { name: 'app/', madeBy: UNIX, attrs: (0o040777 << 16) | 0x10 },
   { name: 'app/server.js', data: 'console.log(1)', madeBy: UNIX, attrs: 0o100666 << 16 },
   { name: 'bin/', madeBy: DOS, attrs: 0x10 },
@@ -153,6 +158,29 @@ test('#6677: with the stage folder check is exact (a .js left 0755 is refused); 
     assert.deepEqual(zm.checkModes(buf, stage).problems, ['app/server.js: mode 100755']);
   } finally { fs.rmSync(stage, { recursive: true, force: true }); }
   assert.deepEqual(zm.checkModes(makeZip([])).problems, ['the zip has no entries']);
+});
+
+test('#6677: a stage folder that is not there is refused, and an entry missing from the stage is named', () => {
+  const stage = stageFor(BAD);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zipmodes-stage-missing-'));
+  try {
+    const z = path.join(dir, 'k.zip');
+    fs.writeFileSync(z, makeZip(BAD));
+    const run = (...a) => spawnSync(process.execPath, [SCRIPT, ...a], { encoding: 'utf8' });
+    /* A wrong stage path would hide every #! script from set and check alike, so both refuse it. */
+    for (const verb of ['set', 'check']) {
+      const r = run(verb, z, path.join(dir, 'no-such-stage'));
+      assert.equal(r.status, 2, verb + ': ' + r.stdout + r.stderr);
+      assert.match(r.stderr, /is not a folder/);
+    }
+    fs.rmSync(path.join(stage, 'bin', 'kosmos'));
+    const buf = makeZip(BAD);
+    zm.setModes(buf, stage);
+    assert.deepEqual(zm.checkModes(buf, stage).problems.filter((p) => /not in the stage folder/.test(p)).map((p) => p.split(':')[0]), ['bin/kosmos']);
+  } finally {
+    fs.rmSync(stage, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('#6677: without a stage folder a shebang cannot be seen, so such a file is 0644, never writable', () => {

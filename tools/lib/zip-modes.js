@@ -31,6 +31,10 @@
  *                                                         it 0644 or 0755 for a file, 0755 for a
  *                                                         program by extension and for a folder)
  *
+ * Every entry is written as a regular file or a folder: a symlink entry would become a file holding its
+ * target. The build cannot make one (Info-ZIP -r follows links; the stage is copied files), and `check`
+ * with the stage folder refuses an entry whose mode is not the regular one `set` gives.
+ *
  * A DOS-hosted entry is relabelled Unix. Info-ZIP then stops reading a non-ASCII name without the
  * UTF-8 flag as CP437; every name this build stages is ASCII, so nothing reads differently today.
  */
@@ -136,6 +140,10 @@ function checkModes(buf, stageDir) {
   for (const e of entries) {
     const host = e.madeBy >> 8;
     const mode = e.attrs >>> 16;
+    if (stageDir && !e.name.endsWith('/') && !fs.existsSync(path.join(stageDir, ...e.name.split('/')))) {
+      problems.push(`${e.name}: not in the stage folder ${stageDir}, so its mode cannot be checked`);
+      continue;
+    }
     const want = stageDir ? [modeFor(e.name, stageDir)]
       : e.name.endsWith('/') ? [MODE_DIR]
         : PROGRAM_EXT.has(path.extname(e.name).toLowerCase()) ? [MODE_EXEC] : [MODE_FILE, MODE_EXEC];
@@ -148,6 +156,12 @@ function checkModes(buf, stageDir) {
 
 function main(argv) {
   const [verb, zip, stage] = argv;
+  // A wrong stage path would hide every #! script from set AND check alike (both read it the same way),
+  // so a stage folder that is not there is refused, never read as "no scripts".
+  if (stage !== undefined && !(fs.existsSync(stage) && fs.statSync(stage).isDirectory())) {
+    console.error(`zip-modes: the stage folder ${stage} is not a folder`);
+    return 2;
+  }
   if (verb === 'set' && zip && stage) {
     const buf = fs.readFileSync(zip);
     const c = setModes(buf, stage);

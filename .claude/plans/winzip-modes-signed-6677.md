@@ -46,3 +46,10 @@ Built from this branch on the Windows box through the bsdtar shim (KOSMOS_ALLOW_
 - [WARNING] fixed: tools/windows/README.md said re-signing a rebuilt exe was a habit no check forced. The build and a CI test now force it; the README says so.
 - [NIT] noted: the 2>&1 >/dev/null capture order, the 65535-entry sentinel edge, zlib.crc32 needing Node 22.2+ (CI runs 24).
 - [NIT] fixed: the module header no longer carries 0.7.60's exact counts.
+### Iteration 3 (opus)
+- [WARNING] fixed: a wrong stage path made set and check both read every #! script as 0644, so check agreed with set. zip-modes now refuses a stage folder that is not there (exit 2), and check names any file entry missing from the stage.
+- [WARNING] fixed: the hand-made fixtures had no extra fields or comments, so the walk over them ran only in the win32 tar.exe arm. One entry now carries an Info-ZIP-style UT field and a comment.
+- [CONVENTION] fixed (iteration 1's NIT, raised again with a side effect): the launcher's Authenticode check printed "connector" and set CONNECTOR_SIGNER. New pe_authenticode <file> <what> is the shared check; connector_authenticode wraps it with the same wording and alone sets CONNECTOR_SIGNER. Checked on this box: signed Kosmos.exe Valid; an unsigned copy (cert table zeroed) NotSigned, refused; the connector Valid.
+- [NIT] fixed: the set failure no longer blames PATH (node is checked at the top).
+- [NIT] fixed (comment): connector.signature repeats signatures' connector entry on purpose; symlink entries noted.
+- [NIT] noted: a zip with exactly 65535 entries and no ZIP64 record would be refused; this zip has ~370.

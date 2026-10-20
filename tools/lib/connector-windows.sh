@@ -11,6 +11,11 @@
 #   connector_authenticode <file>   Windows ONLY: Windows itself reports the
 #                                   signature Valid, by the expected signer
 #
+# and, for any PE (the launcher, Kosmos.exe, is PE32; #6679):
+#
+#   pe_signature_present <file>     its certificate table is not empty, or why not
+#   pe_authenticode <file> [<what>] Windows ONLY: as connector_authenticode, naming <what>
+#
 # 🔑 WHY THE BUILD SIGNS NOTHING. The launcher (tools/windows/Kosmos.exe) is signed
 # on the Windows PC and then taken as a finished input, never re-signed during a
 # cut (tools/windows/README.md). The connector follows the same rule: kosmos-relay's
@@ -88,19 +93,30 @@ pe_signature_present() {
 }
 
 # Windows only (Git Bash): Get-AuthenticodeSignature must say Valid, and the signer
-# must be KOSMOS_WIN_SIGNER (default: Kosmos Agent Manager, Inc.).
-connector_authenticode() {
-  local f="${1:?connector_authenticode needs a file}" win out status subject want
+# must be KOSMOS_WIN_SIGNER (default: Kosmos Agent Manager, Inc.). <what> names the file
+# in the messages ("the connector", "Kosmos.exe"); on success PE_SIGNER is the subject.
+# #6679: shared by the connector and the launcher, so it names neither itself.
+pe_authenticode() {
+  local f="${1:?pe_authenticode needs a file}" what="${2:-the file}" win out status subject want
   want="${KOSMOS_WIN_SIGNER:-Kosmos Agent Manager, Inc.}"
-  command -v powershell >/dev/null 2>&1 || command -v powershell.exe >/dev/null 2>&1 || { echo "connector_authenticode: no powershell here to ask Windows about the signature" >&2; return 1; }
+  PE_SIGNER=''
+  command -v powershell >/dev/null 2>&1 || command -v powershell.exe >/dev/null 2>&1 || { echo "pe_authenticode: no powershell here to ask Windows about the signature of $what" >&2; return 1; }
   win="$(cygpath -w "$f" 2>/dev/null || printf '%s' "$f")"
-  out="$(KOSMOS_CW_FILE="$win" powershell.exe -NoProfile -NonInteractive -Command '$s = Get-AuthenticodeSignature -LiteralPath $env:KOSMOS_CW_FILE; "$($s.Status)|$($s.SignerCertificate.Subject)"' 2>/dev/null | tr -d '\r')"
+  out="$(KOSMOS_CW_FILE="$win" powershell.exe -NoProfile -NonInteractive -Command '$s = Get-AuthenticodeSignature -LiteralPath $env:KOSMOS_CW_FILE; "$($s.Status)|$($s.SignerCertificate.Subject)"' 2>/dev/null | tr -d '')"
   status="${out%%|*}"; subject="${out#*|}"
-  [ "$status" = Valid ] || { echo "connector_authenticode: Windows reports the connector's signature as '${status:-unknown}', not Valid ($f)" >&2; return 1; }
+  [ "$status" = Valid ] || { echo "pe_authenticode: Windows reports the signature of $what as '${status:-unknown}', not Valid ($f)" >&2; return 1; }
   case "$subject" in
     *"CN=\"$want\""*|*"CN=$want,"*|*"CN=$want") ;;
-    *) echo "connector_authenticode: the connector is signed by '$subject', not $want" >&2; return 1 ;;
+    *) echo "pe_authenticode: $what is signed by '$subject', not $want" >&2; return 1 ;;
   esac
-  CONNECTOR_SIGNER="$subject"
+  PE_SIGNER="$subject"
+  return 0
+}
+
+# The connector's check, as the build has always called it; CONNECTOR_SIGNER is set only here.
+connector_authenticode() {
+  local f="${1:?connector_authenticode needs a file}"
+  pe_authenticode "$f" "the connector" || return 1
+  CONNECTOR_SIGNER="$PE_SIGNER"
   return 0
 }
