@@ -28,7 +28,7 @@ engine/win32update.js (platform, version, arch, node only; Authenticode asked of
 That nothing outside the repos searched reads `manifest.signed`. Searched: this repo (the site is in it) and kosmos-relay (relay-3d83aacc checkout); neither reads it. The field was always false, so any reader would only ever have seen "unsigned".
 
 ## Measured (after)
-Built from this branch on the Windows box through the bsdtar shim (KOSMOS_ALLOW_STALE_TUNNEL=1, a proof build): 349 files 0644, 14 programs 0755, 7 folders 0755, 0 world-writable, unzip -t clean. Manifest signatures both "Valid". The control (0.7.60 zip) fails the new check on all 369 entries.
+Final build from 85f7fed43 on the Windows box through the bsdtar shim (KOSMOS_ALLOW_STALE_TUNNEL=1, a proof build, not a release): 349 files 0644, 14 programs 0755 (the .exe and .dll files, the #! scripts), 7 folders 0755; 0 group- or world-writable entries; unzip -t clean. The build's own read-back check passed. manifest.json: "signatures": { "Kosmos.exe": "Valid", "app/bin/kosmos-tunnel.exe": "Valid" }, no "signed". The read-me has no "unsigned", "not signed yet", "could not be verified" or em dash. win32update's real-build test (KOSMOS_WIN_ZIP_SAMPLE) staged it end to end and ran its node.exe. Control: the shipped 0.7.60 zip has 369 of 369 entries group- and world-writable, and the new check refuses every one.
 
 ## Review log
 ### Iteration 1 (opus)
@@ -85,3 +85,5 @@ Built from this branch on the Windows box through the bsdtar shim (KOSMOS_ALLOW_
 - [NIT] fixed: set clears the DOS read-only bit, so a Windows extract agrees with 0644.
 - [NIT] fixed: pe_signature_present reads the directory count into a variable and refuses a non-numeric read, as it does the PE offset.
 - [NIT] not taken: a rename retry on a transient EPERM. Nothing shows it failing; the build stops with the error and ships nothing torn.
+### Iteration 10 (sonnet)
+NITs only: converged. Final validation on 85f7fed43: 307 tests across 12 files, 0 fail; the zip rebuilt and checked as in Measured (after).
