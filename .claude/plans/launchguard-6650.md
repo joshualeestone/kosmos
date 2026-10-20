@@ -10,7 +10,7 @@ All three leaked jobs ran `<mktemp -d>/home/bin/kosmos board-run`, with HOME set
 
 ## Decided
 - Refuse in setup.sh, before preflight and after `--uninstall` has branched away, because the leak is a class: any caller in this shape leaks, whichever test it is. A per-caller fix would miss the next caller.
-- Two triggers. A temp-folder home (/tmp, /private/tmp, /var/folders, or TMPDIR), because the cleaner deletes it and leaves the job behind. Or the account's default port, because it fights the real board, which is what cost Mortals three hours.
+- One trigger: a temp-folder home (/tmp, /var/tmp, /var/folders, their /private spellings, or this run's TMPDIR). The cleaner deletes it and leaves the job behind. All three leaked homes were temp folders. A second trigger, the account's default port, was dropped in iteration 2, because it refused a person self-hosting with their own kept KOSMOS_HOME.
 - A fake HOME is NOT an exemption (iteration 1): it scopes the plist file, not launchd, which still bootstraps the job into this account's own domain. test-install.sh records the same fact.
 - Ways through: AGENT_WORKFORCE_LAUNCH (a folder of the caller's own), or KOSMOS_ALLOW_TEMP_LAUNCH=1. The opt-in is not persisted: a self-update runs with the default home (the board's env carries no KOSMOS_HOME), so a persisted key would never be read there, and it would leak into every process the board starts.
 - Rejected:
@@ -31,3 +31,7 @@ Linux (systemd user units) has the same shape, in a different folder, and is not
 - [WARNING] moot: the dscl branch was untested. It is gone.
 - [NIT] fixed: the comment now says Linux is not covered. The test runs the guard under `set -eu`, as setup.sh does.
 - Noted for a card: a sandboxed board's in-app update runs setup.sh with the default home (the board env has no KOSMOS_HOME). This is pre-existing and not changed here.
+### Iteration 2 (sonnet)
+- [WARNING] fixed: the default-port arm refused a person self-hosting with a kept custom KOSMOS_HOME. Dropped: the temp-home arm alone catches the incident shape, since every leaked home was a temp folder. A new arm checks that a kept home is not refused on any port.
+- [NIT] fixed: the TMPDIR arm was never exercised. A new arm uses TMPDIR=/Users/Shared, which is in none of the fixed spellings; a control without that arm turns it red. /var/tmp has been added.
+- [NIT] deferred: the Darwin gate is not testable off macOS from a lifted function. The ordering test stays textual.
