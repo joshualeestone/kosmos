@@ -37,6 +37,8 @@ const create = require('./create');
 const remove = require('./remove');
 const status = require('./status');
 const store = require('./store');
+const liveness = require('./liveness');     // #6714: whether an agent has ever run here
+const selfreport = require('./selfreport'); // #6714: the same, from before liveness records existed
 const launchidentity = require('./launchidentity'); // #1704: this board's Kosmos
 
 /**
@@ -561,6 +563,65 @@ function strays(profileNames, jobs) {
 }
 
 /**
+ * #6714: has this agent ever run on this board? A running agent reports in, and each report leaves a record: the
+ * liveness beat (since #2558) and the self-report history (older). Either one is proof it ran.
+ *
+ * 🛑 WHY THE SURVEY NEEDS IT. A profile and a folder are not an agent. A test that stopped half way left
+ * `leftover-unrelated` with exactly those two and a CLAUDE.md, and the board told Josh it "will not come back if you
+ * restart", offering only to start it at login (2026-10-20). Something that has never run loses nothing on a restart.
+ *
+ * ⚠️ IT FAILS TOWARD "NOT RUN", and that is the direction this check exists to take: an agent with no record is left
+ * off the restart notice, never started by the repair. A real agent always has one, because reporting in is how its
+ * card shows what it is doing.
+ */
+function hasRun(name) {
+  for (const fileFor of [liveness.fileFor, selfreport.fileFor]) {
+    try { if (fs.existsSync(fileFor(name))) return true; } catch { /* a name with no record path has no record */ }
+  }
+  return false;
+}
+
+/* #6714: the agents the person asked not to be reminded about. A notice, not a fix: hiding one changes nothing about
+   whether it comes back, so Settings lists them with a way to show them again. */
+function hiddenFile() { return path.join(store.ROOT, 'restart-notices-hidden.json'); }
+
+/** The hidden names. A file that is missing is none hidden; one we cannot read is none hidden too, so a broken file
+    shows every notice rather than hiding them. */
+function readHidden() {
+  try {
+    const names = JSON.parse(fs.readFileSync(hiddenFile(), 'utf8')).names;
+    return Array.isArray(names) ? names.filter((n) => typeof n === 'string' && create.NAME_RE.test(n)) : [];
+  } catch { return []; }
+}
+
+function writeHidden(names) {
+  const file = hiddenFile();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = file + '.' + process.pid + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify({ names: [...new Set(names)].sort() }) + '\n', { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+
+/** Stop reminding about one agent. Only a name the notice is showing can be hidden, so the file holds nothing else. */
+function hide(name, opts) {
+  const seen = survey(opts);
+  if (!seen.ok) return { ok: false, because: seen.because };
+  if (![...seen.missing, ...seen.unknown, ...seen.hidden].includes(name)) {
+    return { ok: false, because: 'there is no restart notice for that agent' };
+  }
+  try { writeHidden([...readHidden(), name]); } catch { return { ok: false, because: 'we could not record that' }; }
+  return { ok: true };
+}
+
+/** Show the notice for an agent again. */
+function show(name) {
+  const now = readHidden();
+  if (!now.includes(name)) return { ok: true };
+  try { writeHidden(now.filter((n) => n !== name)); } catch { return { ok: false, because: 'we could not record that' }; }
+  return { ok: true };
+}
+
+/**
  * 🛑 THIS SCREEN TOLD EVERY WINDOWS USER "NO" (#570, roadmap §3b). `job` was
  * `fs.existsSync(create.plistPath(name))`, and Windows never writes a plist --
  * it registers a Scheduled Task. So the one screen whose entire purpose is
@@ -608,6 +669,7 @@ function survey(opts) {
        below carry false, and everything that ACTS on a name (repair's
        `missing` here, and nothing else today) must require true. */
     profile: true,
+    ran: hasRun(name),   // #6714
   }));
   /* #500: what the disk holds that no profile accounts for. */
   const sweep = strays(k.names, jobs);
@@ -619,8 +681,13 @@ function survey(opts) {
       folder: on.folder,
       job: on.job,
       profile: false,
+      ran: hasRun(name),
     });
   }
+  const missingAll = agents.filter((x) => !x.removed && x.folder && x.job === false && x.profile && x.ran).map((x) => x.name);
+  const unknownAll = jobs.mac
+    ? agents.filter((x) => !x.removed && x.folder && x.job === null && x.profile && x.ran && jobs.whyNull(x.name) !== 'waiting').map((x) => x.name) : [];
+  const hiddenSet = new Set(readHidden());
   return {
     ok: true,
     because: null,
@@ -637,13 +704,16 @@ function survey(opts) {
        job" and hand to a button that starts processes. Only a PROVEN absence is
        acted on; an unknown row is left alone. On the Mac `job` is null when a
        login job Kosmos did not write might start the agent but could not be read (#6310). */
-    missing: agents.filter((x) => !x.removed && x.folder && x.job === false && x.profile).map((x) => x.name),
+    /* #6714: and only agents that have RUN here (hasRun), less the ones the person hid (`hidden`, below). */
+    missing: missingAll.filter((n) => !hiddenSet.has(n)),
     /* #6320: the ones we could not check (job === null), the same filter as `missing` for the other answer, so the two
        lists never overlap. Only on the Mac, where the null comes from something we could not read; never for an agent
        whose only reason is a plist waiting its turn (the plutil budget). jobs.whyNull reads what the `agents` pass
        above recorded, so this must stay after it. */
-    unknown: jobs.mac
-      ? agents.filter((x) => !x.removed && x.folder && x.job === null && x.profile && jobs.whyNull(x.name) !== 'waiting').map((x) => x.name) : [],
+    unknown: unknownAll.filter((n) => !hiddenSet.has(n)),
+    /* #6714: the agents that would be on the notice but the person asked not to be reminded about; Settings lists
+       them with Show again. A hidden name that no longer needs a notice is not listed. */
+    hidden: [...missingAll, ...unknownAll].filter((n) => hiddenSet.has(n)),
   };
 }
 
@@ -668,8 +738,14 @@ function repair(opts) {
   const platform = (opts && opts.platform) || process.platform;
   const seen = survey({ platform });
   if (!seen.ok) return { ok: false, because: seen.because, results: [] };
+  /* #6714: one agent, from its own Start at login. Only a name the notice offers: the set a repair acts on is still
+     exactly what the survey reports, so a caller cannot name an agent the survey refused. */
+  const only = opts && typeof opts.only === 'string' ? opts.only : null;
+  if (only !== null && !seen.missing.includes(only)) {
+    return { ok: false, because: 'that agent does not need this', results: [] };
+  }
   const modelFor = (opts && typeof opts.modelFor === 'function') ? opts.modelFor : () => null;
-  const results = seen.missing.map((name) => {
+  const results = (only !== null ? [only] : seen.missing).map((name) => {
     let model = null;
     /* A model we cannot read is not a reason to leave the agent unregistered.
        An agent that comes back on the default model is recoverable in one
@@ -738,4 +814,4 @@ function repair(opts) {
   };
 }
 
-module.exports = { known, survey, repair, shownName, jobReader };   // jobReader exported for its Linux test (#4918 review 11)
+module.exports = { known, survey, repair, shownName, jobReader, hasRun, hide, show };   // jobReader exported for its Linux test (#4918 review 11)
