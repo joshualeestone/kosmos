@@ -20478,6 +20478,8 @@ function kplusBarDrawMark(cv, hh) {
 function kplusBarFit() {
   const bar = document.getElementById('kplus-bar'), head = document.querySelector('.apphead');
   if (!bar || !head) return;
+  /* Undrawn (every width but a phone's, kosmos#6718): nothing to fit. A turn to phone width fires resize, which fits. */
+  if (!bar.getClientRects().length) return;
   const cs = getComputedStyle(head);
   const l = '-' + (parseFloat(cs.paddingLeft) || 0) + 'px', r = '-' + (parseFloat(cs.paddingRight) || 0) + 'px';
   if (bar.style.marginLeft !== l) bar.style.marginLeft = l;
@@ -20522,8 +20524,8 @@ function kplusBar() {
   }
   pnavBuild();
 }
-/* Log out of this browser's Kosmos+ session. One function for both doors, Settings > Kosmos+ (kosmos#6718; it was the bar's button) and the phone menu's
-   (#4823), so they cannot come to disagree about what logging out does or says. */
+/* Log out of this browser's Kosmos+ session. One function for both doors, so they cannot come to disagree about what
+   logging out does or says: Settings > Kosmos+ (kosmos#6718; the bar's button before) and the phone menu (#4823). */
 async function kplusLogout(out, msg) {
   out.disabled = true; msg.textContent = '';
   let status = 0;

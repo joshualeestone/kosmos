@@ -52,3 +52,15 @@ check after this change (it had one, P4, when the button was on the bar).
 - [NIT] Log out contrast, use an outline pill --> NOT CHANGED: it is the board's standard .btn, the same as Leave
   company and Cancel in the same section; a different style for one button is a design call outside this card.
 - [NIT] wording "Log out of Kosmos+" --> NOT CHANGED: it sits under the Kosmos+ heading, and Josh's word is "Log out".
+
+## Review round 2 (blind, sonnet)
+- [WARNING] kplusBarFit ran on every header resize at desktop widths, where the bar is undrawn --> FIXED: it returns
+  at once when the bar has no box; a turn to phone width fires resize, which fits (render-mobilenav-4823 173/173,
+  which turns between widths; render-plus-bar-3837 14/14).
+- [NIT] the base .kplus-bar declarations are mostly overridden by the phone rule --> NOT CHANGED: the phone bar
+  inherits its colours and the margin hook from them, and the comment above says so; collapsing two rules is churn
+  in a stylesheet other cards edit.
+- [NIT] the kplusLogout comment ran long --> REWRAPPED.
+- [NIT] .kplus-bar-end now wraps one button --> NOT CHANGED (harmless; the phone CSS keys on the structure).
+- [NIT] the phone H4 "no Log out in the header" is weak because the header never held one there --> TRUE and kept:
+  it is the guard that one is not put back; the W3 mutant shows it goes red when one is.
