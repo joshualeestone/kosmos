@@ -137,6 +137,13 @@ test('#6593: the self-report line says its age, and past a day that it may not d
   // The boundary: just under a day is not old; just over is.
   assert.doesNotMatch(handoff.stateFact(session, at + 23 * 60 * 60 * 1000), /may not describe/, '23 hours was called old');
   assert.match(handoff.stateFact(session, at + 25 * 60 * 60 * 1000), /a day ago, so it may not describe/, '25 hours was not called old');
+  assert.match(handoff.stateFact(session, at + 24 * 60 * 60 * 1000), /; a day ago, so it may not describe/, 'exactly a day was not called old');
+  // The singular words, and a time slightly in the future (clock skew inside saneIso's slack) says no age at all.
+  assert.match(handoff.stateFact(session, at + 10 * 1000), /; just now$/);
+  assert.match(handoff.stateFact(session, at + 90 * 1000), /; a minute ago$/);
+  assert.match(handoff.stateFact(session, at + 90 * 60 * 1000), /; an hour ago$/);
+  const skew = handoff.stateFact(session, at - 60 * 60 * 1000);
+  assert.match(skew, /; as of [^;]+$/, 'a report from slightly in the future was given an age: ' + skew);
 });
 
 test('#6506: stateFact says so when there is no session, rather than guessing', () => {
