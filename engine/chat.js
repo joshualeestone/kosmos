@@ -3013,7 +3013,17 @@ function permissionCard(text) {
   const deny = opts.find((o) => /^No\b/.test(o.label));
   if (!allow || !deny) return null;
   const isCommand = kind === 'command' || kind === 'delete';
-  return { kind, title, says: isCommand ? sub : '', target: isCommand ? '' : sub, detail, reason, allow: allow.n, deny: deny.n };
+  const isFile = kind === 'create' || kind === 'edit';
+  /* Review 2: only a MEASURED shape puts a line where the person reads it without opening the details: a command's
+     description, a file's name. Any other box (an MCP tool's, a layout not captured) keeps its lines under Show
+     details, so a request's arguments never reach the headline. */
+  const ruled = segs.length >= 3;
+  const extra = (!isCommand && !(isFile && ruled)) ? sub : '';
+  // A file's text is drawn with a line-number gutter ("  1 hello"); the details show the text (review 2).
+  const gutter = isFile && detail && detail.split('\n').every((l) => !l.trim() || /^\s*\d+\s/.test(l));
+  const fileText = gutter ? detail.split('\n').map((l) => l.replace(/^\s*\d+\s?/, '')).join('\n') : detail;
+  return { kind, title, says: isCommand && ruled ? sub : '', target: isFile && ruled ? sub : '',
+    detail: [extra, fileText].filter(Boolean).join('\n'), reason, allow: allow.n, deny: deny.n };
 }
 function questionIn(text, runner) {
   const whole = String(text == null ? '' : text);

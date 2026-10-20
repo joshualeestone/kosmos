@@ -21104,7 +21104,7 @@ const STATE_COPY = {
      `state==='needs_you' && stateReportedBy==='agent'` predicate (glyphOf follows cardStOf.st). */
   question:     { label: 'Question',      attn: false },
   /* #6091: a Claude agent stopped on its permission prompt (the card's awaitingApproval, status.awaitingApprovalOf)
-     reads "Waiting for you", not "Issue": it is waiting on the person's Yes/No (#6054 buttons on its page),
+     reads "Needs permission" (#6727; "Waiting for you" before), not "Issue": it is waiting on the person's Yes/No,
      not broken. Still an attention state with the needs-you look: it blocks the agent, and #2808 keeps a technical
      prompt red on purpose, as the fallback when nothing answers it. Only the word changes.
      #6727 (Josh, 10-20): the word says what it waits for, "Needs permission". */

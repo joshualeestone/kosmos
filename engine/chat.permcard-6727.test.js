@@ -43,7 +43,7 @@ test('#6727 a new file: the file\'s name and its text', () => {
   assert.equal(c.kind, 'create');
   assert.equal(c.target, 'edit-probe.txt');
   assert.equal(c.says, '');
-  assert.match(c.detail, /hello/);
+  assert.equal(c.detail, 'hello', 'the gutter number is not part of the file');
   assert.equal(c.allow, 1);
   assert.equal(c.deny, 3);
 });
@@ -73,3 +73,17 @@ test('#6727 not a permission card: the trust dialog, a question menu, an idle sc
   assert.equal(chat.permissionAnswerable(cut), false, 'premise: the cut box is not answerable');
   assert.equal(chat.permissionCard(cut), null);
 });
+
+test('#6727 review 2: a box with no dashed rules (an MCP tool, say) keeps its request under Show details, never in the headline', () => {
+  const MCP = BASH.replace(/^ Bash command$/m, ' Tool use')
+    .replace(/^╌+\n/mg, '')
+    .replace(' Generate a UUID with uuidgen\n', ' slack - post_message(channel: "#general", text: "token sk-abc123 here") (MCP)\n')
+    .replace(' /usr/bin/uuidgen\n', '').replace(' This command requires approval\n', '');
+  const c = chat.permissionCard(MCP);
+  assert.ok(c, 'premise: still read as a permission card');
+  assert.equal(c.kind, 'other');
+  assert.equal(c.target, '', 'the request reached the headline');
+  assert.equal(c.says, '');
+  assert.match(c.detail, /post_message/, 'the request is not under the details');
+});
+
