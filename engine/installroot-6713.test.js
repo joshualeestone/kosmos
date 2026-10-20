@@ -295,3 +295,14 @@ test('#6713: setup.sh with a target refused and another left alone exits 22, not
   const only = runSetupHooksWith(home, kh, '() => null');
   assert.equal(only.status, 1, 'CONTROL: refused with nothing left alone is still exit 1. ' + only.stderr);
 });
+
+test('#6713: ensureStatusLine takes a reason string or null for leaveAlone; anything else leaves the file alone', (t) => {
+  const home = realHome(t);
+  const settings = path.join(home, '.claude-account-i6713', 'settings.json');
+  fs.mkdirSync(path.dirname(settings), { recursive: true }); fs.writeFileSync(settings, '{}\n');
+  const node = path.join(home, 'node'); fs.writeFileSync(node, '');
+  const script = path.join(home, 'kosmos-statusline.js'); fs.writeFileSync(script, '');
+  const r = allowance.ensureStatusLine(settings, { leaveAlone: () => null, node, script });
+  assert.equal(r.wired, false); assert.equal(typeof r.because, 'string', 'the reason is a sentence, never the function');
+  assert.equal(fs.readFileSync(settings, 'utf8'), '{}\n');
+});
