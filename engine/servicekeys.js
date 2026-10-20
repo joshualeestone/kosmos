@@ -158,12 +158,17 @@ function realDate(s) {
  * { ok: false, why }, or, when no recovery key is pinned, { ok: false, off: true, why }. A caller checks `off` BEFORE
  * `ok`: off is the shipped default and is not a failure to tell anyone about.
  */
-function verifyServiceKeySet({ bytes, sig, recoveryKeys = RECOVERY_KEYS, held = null } = {}) {
+function verifyServiceKeySet(opts) {
+  // Anything for the options (null included) is read, never thrown on: a refusal is the answer to bad input.
+  const { bytes, sig, recoveryKeys = RECOVERY_KEYS, held = null } = opts && typeof opts === 'object' ? opts : {};
   // Off (no recovery key pinned, as shipped today) is its own answer, not a refusal: a caller must not tell the
   // person a set failed when there is simply nothing to check it with.
   // Only an empty LIST is off. Anything else (a null or junk from a bad read) is refused, never read as "nothing to do".
   if (!Array.isArray(recoveryKeys)) return { ok: false, why: 'the Kosmos recovery keys are not a list' };
   if (!recoveryKeys.length) return { ok: false, off: true, why: 'no Kosmos recovery key is set, so service key sets are not checked yet' };
+  if (bytes != null && !Buffer.isBuffer(bytes) && !(bytes instanceof Uint8Array) && typeof bytes !== 'string') {
+    return { ok: false, why: 'the service key set is not readable' };
+  }
   const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes == null ? '' : bytes);
   // Trimmed as Rust's str::trim does (Unicode White_Space: U+0085 yes, U+FEFF no), not as String.prototype.trim.
   const sigText = String(sig == null ? '' : sig).replace(RUST_WS_ENDS, '');
