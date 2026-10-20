@@ -35,7 +35,10 @@ answers `none` (ordinary checking): nothing changes for anyone.
    - ordinary trust evaluation first (a failure cancels);
    - then it hashes the leaf's key (P-256 SPKI SHA-256, as the computer hashes it) and asks the board;
    - ordinary trust is evaluated off the main thread (SecTrustEvaluateAsyncWithError), the pin half on it; the
-     selector is pinned with @objc;
+     selector is pinned with @objc; the async evaluation is called from its own queue (review 3), and the self-test
+     runs it on a real certificate;
+   - a refusal says WHY in two wordings: a key that does not match ("pair it again if you set it up again"), or a
+     check that could not run ("try again in a moment"), so a board hiccup never tells the person to re-pair;
    - `tlsPinDecision`: pinned with a match allows; pinned without one, or required, asks once more with `fresh`
      (a renewal past the cache) and then refuses; none is ordinary checking;
    - NO board at all (no port: a connect-only Mac) is ordinary checking. A board
@@ -46,8 +49,8 @@ answers `none` (ordinary checking): nothing changes for anyone.
    - engine/remote.tlspin-6589.test.js (4);
    - a server route test;
    - native-app.tlspin-6589.test.js (the wiring);
-   - 12 new --kosmos-app-mode-selftest rows (the hash against an openssl P-256 vector; the decision table). The
-     row-count pins in two native tests move from 191 to 203.
+   - 14 new --kosmos-app-mode-selftest rows (the hash against an openssl P-256 vector; the decision table; a real self-signed certificate through tlsLeafKeyHash and evaluateTrustOffMain). The
+     row-count pins in two native tests move from 191 to 205.
 
 ## Decisions
 - NO board means ordinary checking: a connect-only Mac could otherwise open no computer at all. A board that fails an
@@ -59,6 +62,8 @@ answers `none` (ordinary checking): nothing changes for anyone.
 - Retry once with `fresh` before refusing (Ice Cream Kitty's review): a renewal must not read as an attack.
 
 ## Not covered, by design
+- KOSMOS_URL set (the developer path) leaves no resolvedPort, so it also falls back to ordinary checking; that is a
+  developer setting, not a connect-only Mac.
 - A CONNECT-ONLY Mac (no board of its own; review 2). Its window shows another computer's board, which can make a
   ticket and open a third computer. That navigation is not pinned: this Mac has no board to ask, and the page's board
   cannot be asked with this Mac's token. Closing it needs a pin source on the connect-only Mac itself (it would run
@@ -78,5 +83,11 @@ one a computer's request could be coalesced onto. Until that is measured, this i
   (rcgen's default).
 
 ## Weakest premise
+NOT YET RUN IN THE REAL APP. Review 3 found that the first version of the handler would have crashed the app on the
+first switch (SecTrustEvaluateAsyncWithError called from main with another queue traps), and no source-text test could
+see it. That call is now driven by the self-test with a real certificate (a misuse fails the bundle build), but the
+handler as a whole has never run in a real window. Until the real-app check below is done, read this as built and
+unit-tested, not as working.
+
 That WebKit consults the challenge handler before any page script on that host runs. The handler decides the TLS
 connection itself, so a cancelled challenge loads nothing, but that has to be seen in the real app.

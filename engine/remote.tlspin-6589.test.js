@@ -40,6 +40,7 @@ if (args[0] === 'tls-pin') {
   if (mode === 'nokey') { console.log(JSON.stringify({ state: 'pinned', spki: [], from: 'mac-b' })); process.exit(0); }
   if (mode === 'odd') { console.log(JSON.stringify({ state: 'maybe' })); process.exit(0); }
   if (mode === 'crash') { process.stderr.write('boom at /Users/someone/secret/path\\n'); process.exit(1); }
+  if (mode === 'six') { console.log(JSON.stringify({ state: 'pinned', spki: ['1','2','3','4','5','6'].map((c) => c.repeat(64)), from: 'mac-b' })); process.exit(0); }
   if (mode === 'other') { console.log(JSON.stringify({ state: 'pinned', spki: ['${'b'.repeat(64)}'], from: 'mac-b' })); process.exit(0); }
   console.log(JSON.stringify({ state: 'pinned', spki: ['${KEY}'], from: 'mac-b' }));
   process.exit(0);
@@ -138,4 +139,14 @@ test('#6589 (review 2): a forget while an ask runs keeps nothing; warming leaves
   assert.equal(recorded().length, 1, 'a required computer is not asked again by warming within the minute');
   await remote.tlsPin('i.kosmosplus.com');
   assert.equal(recorded().length, 2, 'the app\'s own ask is never held back');
+});
+
+test('#6589 (review 3): warming asks at most ten computers; at most four key hashes are kept', async () => {
+  enrol();
+  remote.warmTlsPins(Array.from({ length: 12 }, (_, i) => ({ address: 'w' + i + '.kosmosplus.com' })));
+  for (let i = 0; i < 150 && recorded().length < 10; i++) await new Promise((r) => setTimeout(r, 20));
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(recorded().length, 10, 'ten, never twelve');
+  mode('six');
+  assert.equal((await remote.tlsPin('six.kosmosplus.com')).data.spki.length, 4);
 });

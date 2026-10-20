@@ -2481,7 +2481,8 @@ async function tlsPin(address, { fresh = false } = {}) {
   if (!fresh && hit && now - hit.at < TLS_PIN_TTL_MS) return hit.answer;
   const key = address + (fresh ? '#fresh' : '');
   if (tlsPinInFlight.has(key)) return tlsPinInFlight.get(key);
-  const p = tlsPinAsk(address, now).finally(() => tlsPinInFlight.delete(key));
+  // Only its OWN entry: a forget may have cleared it and a newer ask taken the key since (review 3).
+  const p = tlsPinAsk(address, now).finally(() => { if (tlsPinInFlight.get(key) === p) tlsPinInFlight.delete(key); });
   tlsPinInFlight.set(key, p);
   return p;
 }
@@ -2508,7 +2509,9 @@ async function tlsPinAsk(address, now) {
   }
   // Only a definite answer is cached: a required one is asked again next time (it may be a passing failure).
   // A forget while this ran (a sign-out, a removed device): the answer is still returned, never kept.
-  if (generation === tlsPinGeneration) {
+  // Nor over a NEWER answer (a fresh ask that finished first; review 3).
+  const newer = tlsPinCache.get(address);
+  if (generation === tlsPinGeneration && !(newer && newer.at > now)) {
     if (answer.data.state !== 'required') tlsPinCache.set(address, { at: now, answer });
     else tlsPinCache.delete(address);
   }
