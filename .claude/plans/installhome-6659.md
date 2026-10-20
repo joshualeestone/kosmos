@@ -53,6 +53,9 @@ install.setup-sig-6468.test.js, the run-setup harness with real signed fixtures:
   install tests (the stand-in kosmos expects it), so it is kept and stated. A board under launchd is restarted with
   kickstart and gets only the plist's environment.
 - A home reached through the default link is always treated as the default copy (asTheInstallerNamesIt).
+- A board launched by an OLDER install/kosmos has no KOSMOS_INSTALLED_HOME, so a NON-default home reached through a
+  link is handed over as its resolved path for that update (only the default-copy case is repaired); the next launch
+  by the new install/kosmos sets it.
 
 ## Weakest premise
 That nothing depends on a non-default board updating the default home. The only reading under which that was
