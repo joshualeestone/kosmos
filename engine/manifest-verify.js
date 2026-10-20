@@ -255,8 +255,10 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
  * stolen release key is a new list without it, seq + 1, signed with the recovery key (tools/lib/release-keys-sign.js),
  * and the next release raises MIN_KEY_LIST_SEQ to it. Empty RECOVERY_KEYS: off, and KEYS decide exactly as before. */
 const RECOVERY_KEYS = Object.freeze([]);   // frozen: nothing in the process can turn the feature on by adding one
-/* 🛑 #6609 phase 2a: not filled in before phase 2b. run-setup takes the list, but setup.sh still checks the tarball with this
-   file's plain form and the built-in KEYS, so on its own the list stops nothing (.claude/plans/recoverykey2-6609.md). */
+/* 🛑 #6609: NOT filled in until the whole chain takes the list. Done: run-setup (2a) and setup.sh's checks (2b). NOT done:
+   the .pkg installer's pinned path (kosmos-pkg-verify, #6576), which still chooses the installer with the built-in keys,
+   and serving the list from the site (2c). Filled in before both, a revoked key still opens a .pkg install, and every
+   update fails for want of a list (.claude/plans/recoverykey3-6609.md). */
 const KEY_LIST_STATE = 'release-keys.state';   // a folder: one seq-<n>.json per list taken
 // The lowest list seq this build accepts, even with no state stored (a fresh install): raised in the release after a
 // revocation, so a copy without a record still refuses the list from before it.
@@ -396,6 +398,9 @@ function cliKeys(home) {
   let listBytes, listSig;
   try { listBytes = fs.readFileSync(listFile); listSig = fs.readFileSync(sigFile, 'utf8'); }
   catch { return { code: 1, why: 'the release key list could not be read, so the update could not be checked' }; }
+  // A list that does not verify may be one caught mid-publish (its file from one list, its signature from another): said so.
+  const v = verifyKeyList({ bytes: listBytes, sig: listSig });
+  if (!v.ok) return { code: 1, why: v.why + ' (it may be mid-publish; try again in a minute)' };
   const t = trustedKeys({ listBytes, listSig, home });
   return t.ok ? { code: 0, keys: t.keys } : { code: 1, why: t.why };
 }

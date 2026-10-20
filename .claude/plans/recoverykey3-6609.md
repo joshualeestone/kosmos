@@ -13,13 +13,19 @@ Phase 2a's review found that 2a alone stops nothing: setup.sh downloads the mani
 - **The installer asks before fetching.** A new capability word, `keylist`, plus a `needs-key-list` form (exit 0 only when a recovery key is pinned). An installed copy that does not list it, or says no, gets no extra download, so shipping this cannot break any update while the list is not yet served (phase 2c serves it).
 - **On, with no list handed in, the verifier refuses** (not "falls back to KEYS"): an older installer that does not fetch the list must not install past a revocation. Rejected: falling back to the built-in keys, which is the hole.
 - **One fresh query per attempt over http(s), shared by both files** (as 2a), from /dev/urandom via od; none on file://.
-- **trustedKeys runs on every step** (early, tmux, pre, post): idempotent at a seq already recorded, and a newer list published between steps is taken, never an older one.
+- **The list is fetched once per attempt** (with the manifest, at early, or at pre when early was skipped) and the same files go to tmux, pre and post; trustedKeys runs on each step and is idempotent at a seq already recorded. A list published mid-run is not seen until the next attempt; a newer list recorded meanwhile by another check refuses this one (review 1 corrected the first wording, which claimed a mid-run list was taken).
 
-## Weakest premise
-That every update path is run-setup then setup.sh. The .pkg installer's own checks are not touched here (phase 2c with the site work, or found otherwise by review), and RECOVERY_KEYS stays empty until the whole chain is wired, as the rule beside it says.
+## Weakest premise, and the hard gate
+The .pkg installer's pinned path (install/pkg-scripts/postinstall, #6576) chooses the installer with kosmos-pkg-verify, a Swift helper with the release keys compiled in, then runs it. A revoked key can therefore still open a .pkg install: a genuine older .pkg accepts a manifest signed by that key naming the attacker's setup.sh, which leaves 2b's checks out (review 1). Rotation breaks there too. **Hard gate, written beside RECOVERY_KEYS: it stays empty until the .pkg helper takes the list and the site serves it (2c).** A first install (no installed copy) and `curl | sh` over an install have no anchor and are outside this scheme; Linux has no signed check; Windows uses Authenticode.
 
 ## Validation
-- install.recoverykey-setup-6609.test.js (6): the real setup.sh functions under /bin/sh against an installed copy with throwaway keys. Mutants measured red: no list handed to the verifier (2), the verifier ignoring the list (4), the installer always fetching (1), a missing list falling back to KEYS (1), the tmux form using KEYS (1).
+- install.recoverykey-setup-6609.test.js (6, early, tmux, pre and post): the real setup.sh functions under /bin/sh against an installed copy with throwaway keys. Mutants measured red: no list handed to the verifier (2), the verifier ignoring the list (4), the installer always fetching (1), a missing list falling back to KEYS (1), the tmux form using KEYS (1).
 - All 32 install.*.test.js plus engine/manifest-verify.recovery-6609 and engine.reachable: 356 pass, 0 fail, 0 skipped.
 
 ## Review log
+### Iteration 1 (opus)
+- [WARNING] fixed: the rule beside RECOVERY_KEYS said "not before 2b", which this slice meets, so it would stop guarding while the .pkg path and the site are not done. Rewritten as the hard gate (the .pkg helper and 2c); engine.reachable's trustedKeys excuse updated to match.
+- [WARNING] recorded as the hard gate: the .pkg pinned path still chooses the installer with the built-in keys (Swift helper). Not changed here (a compiled helper, with the site work in 2c); the plan's weakest premise names it and the path table.
+- [NIT] fixed: the plan claimed a list published mid-run is taken; it is not (one fetch per attempt).
+- [NIT] fixed: a list caught mid-publish read as an attack in setup.sh; the verifier now adds "it may be mid-publish; try again in a minute".
+- [NIT] fixed: the new test now runs post too (a VERSION file the manifest lists). Remaining, failing safe: the http(s) query branch (od/tr) is never run by a test (every case uses file://), and a tmux form that took the list but used KEYS would pass (tmux checks the same manifest early already checked with the list).
