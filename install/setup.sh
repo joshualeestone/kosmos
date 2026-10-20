@@ -3320,19 +3320,30 @@ _kosmos_temp_launch_refusal() {
   # With a launch folder set, setup.sh runs no launchctl at all: the only harm left is a plist written into THIS
   # ACCOUNT's real LaunchAgents, which loads at the next login. So that folder is no folder of the caller's own; a
   # fake HOME's own LaunchAgents is. The account's home comes from the directory service (KOSMOS_ACCOUNT_HOME is the
-  # test seam), HOME when that cannot be read. Matched by -ef and as spelled, case-blind like the disk: on a new
-  # account the folder may not exist yet, and -ef then matches nothing.
+  # test seam). Matched by -ef and as spelled, case-blind like the disk: on a new account the folder may not exist
+  # yet, and -ef then matches nothing.
   _tl_launch="${AGENT_WORKFORCE_LAUNCH:-}"
-  if [ -n "$_tl_launch" ]; then
-    # /Search reaches a network or directory account too; a value with a space comes on its own indented line,
-    # so the key is dropped, the lines joined, and the one leading space taken off.
-    _tl_acct="${KOSMOS_ACCOUNT_HOME:-$(/usr/bin/dscl /Search -read "/Users/$(/usr/bin/id -un)" NFSHomeDirectory 2>/dev/null \
-      | /usr/bin/sed 's/^NFSHomeDirectory://' | /usr/bin/tr -d '\n' | /usr/bin/sed 's/^ //')}"
-    _tl_acct="${_tl_acct:-$HOME}"
-    _tl_la="$(_tl_low "${_tl_acct%/}/Library/LaunchAgents")"; _tl_la="${_tl_la%/}"
-    _tl_ll="$(_tl_low "$_tl_launch")"; _tl_ll="${_tl_ll%/}"
-    { [ "$_tl_launch" -ef "$_tl_acct/Library/LaunchAgents" ] || [ "$_tl_ll" = "$_tl_la" ]; } && _tl_launch=""
-  fi
+  _tl_ll="$(_tl_low "$_tl_launch")"; _tl_ll="${_tl_ll%/}"
+  # Only a folder spelled .../Library/LaunchAgents can be one, so only then is the directory service asked (it can
+  # be slow on a Mac bound to a directory that does not answer). Its silence leaves HOME standing in, unless HOME is
+  # itself a temp folder: that is a harness's fake one, never an account's.
+  case "$_tl_ll" in
+    */library/launchagents)
+      # /Search reaches a network or directory account too; a value with a space comes on its own indented line,
+      # so the key is dropped, the lines joined, and the one leading space taken off.
+      _tl_acct="${KOSMOS_ACCOUNT_HOME:-$(/usr/bin/dscl /Search -read "/Users/$(/usr/bin/id -un)" NFSHomeDirectory 2>/dev/null \
+        | /usr/bin/sed 's/^NFSHomeDirectory://' | /usr/bin/tr -d '\n' | /usr/bin/sed 's/^ //')}"
+      if [ -z "$_tl_acct" ]; then
+        case "$(_tl_low "$HOME")/" in
+          /tmp/*|/private/tmp/*|/var/tmp/*|/private/var/tmp/*|/var/folders/*|/private/var/folders/*) ;;
+          *) _tl_acct="$HOME" ;;
+        esac
+      fi
+      if [ -n "$_tl_acct" ]; then
+        _tl_la="$(_tl_low "${_tl_acct%/}/Library/LaunchAgents")"
+        { [ "$_tl_launch" -ef "$_tl_acct/Library/LaunchAgents" ] || [ "$_tl_ll" = "$_tl_la" ]; } && _tl_launch=""
+      fi ;;
+  esac
   [ -z "$_tl_launch" ] || return 0
   # The home as written and as resolved (its nearest existing folder, so a symlink into a temp folder or the
   # /System/Volumes/Data spelling counts), slash-squeezed and lowercased: the default disk ignores case. A folder
