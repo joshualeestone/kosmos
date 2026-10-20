@@ -176,3 +176,13 @@ the attribute only when remote.
   routes, not what a click on a .txt row is expected to do.
 - None of the browser checks was RUN yet: the driver forbids it during a release cut (0.7.61 was cutting). They run
   after the lift, before the PR.
+- Iteration 9 (opus), a semantic sweep of the browser checks. Two BLOCKERs, both fixed:
+  - render-files-preview-4997 repainted the Files screen without clearing its new stamp (paintAgentFilesAll keeps one
+    now), so an unchanged folder was never redrawn, and its later arms ran on hand-drawn rows. It clears the stamp
+    before each repaint, as it already did for the glance list.
+  - The browser-check SURFACE gate (tools/lib/browser-check-surface-gate.sh, run by tools/run-tests.sh) went red on
+    eight checks whose surface tokens appear on changed lines. Each was read for what this change alters (the reviewer
+    and I): none of their assertions changes (they run at 127.0.0.1 or file://, where nothing is remote, measure rows
+    without clicking them, or match a generic token). Each has a per-check `Browser-check-surface:` trailer with that
+    reason, on the commit that fixed 4997. Measured: the surface gate and the coarse gate (#1720) both rc=0.
+    (A first try left `.js` off the basenames, which the gate's match needs; amended before pushing.)
