@@ -16,6 +16,11 @@ changed the same way. Rejected: retrying the check (it would hide a real guard b
 named sleep (still a `sleep N`, and `pkill sleep` matches any); `tail -f /dev/null` (the first version: it never ends,
 so an orphan that cleanup misses, as `victim()` makes on purpose, would run forever).
 
+**Scope, decided (review 2).** Other tests also hold long-lived bare `sleep` controls: four match the exact `sleep 6`
+pattern (tools/test-cut-guard.sh:651, :678; tools/test-queued-heavy-4977.sh:319, :352) and more match only a broader
+`pkill sleep`. They are left for kosmos#6710: the cut-guard waiters record their own command line to detect pid reuse
+and the queued-heavy ones stand in for a live git, so each needs checking rather than a swap, and none has failed yet.
+
 **Done when.** Neither control is a sleep, both whole files pass, the leak-guard control still fails when its process
 is killed (mutation), and no wait process is left running after either file.
 
