@@ -124,6 +124,16 @@ log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$1" >> "$LOG" 2>/dev/null || tr
 # A marker reading "install <pid> <start>" whose installer is gone (that pid dead, or now a different process) is
 # an update's pause stranded by a run that died without its EXIT trap, not a person's stop. Empty, or anything
 # else, is a person's stop, exactly as before.
+start_token() { # $1 pid: a token for when that process started, stable for its life; empty if unknown
+  # Linux: the start time in clock ticks since boot (/proc/<pid>/stat field 22, read after the last ") " since
+  # the name may hold spaces), which a wall-clock step cannot move. Elsewhere: ps's lstart in UTC (TZ=UTC0), so
+  # the zone of whoever asks cannot change it.
+  if [ -r "/proc/$1/stat" ]; then
+    sed -n 's/^.*) //p' "/proc/$1/stat" 2>/dev/null | awk 'NF >= 20 { print "proc:" $20 }'
+  else
+    LC_ALL=C TZ=UTC0 ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//'
+  fi
+}
 stop_marker_stranded() {
   local line pid start live
   [ -f "$STOP_MARKER" ] || return 1
@@ -132,9 +142,15 @@ stop_marker_stranded() {
   line="${line#install }"; pid="${line%% *}"; start="${line#* }"
   case "$pid" in ''|*[!0-9]*) return 1 ;; esac
   [ -n "$start" ] && [ "$start" != "$line" ] || return 1
-  live="$(LC_ALL=C ps -o lstart= -p "$pid" 2>/dev/null | sed 's/^ *//; s/ *$//')"
+  live="$(start_token "$pid")"
+  if [ -z "$live" ]; then
+    # Nothing came back: either the process is gone, or ps could not run (a sandbox). Only kill's own
+    # "No such process" proves the first; anything else (it is alive, or not ours, or unknowable) leaves the pause.
+    case "$(kill -0 "$pid" 2>&1)" in *"o such process"*) return 0 ;; esac
+    return 1
+  fi
   [ "$live" = "$start" ] && return 1   # that installer is still running: its pause stands
-  return 0
+  return 0                             # that pid is now another process: the installer is gone
 }
 if [ -f "$STOP_MARKER" ]; then
   # Moved aside (kept as evidence), never deleted; then the usual down-streak logic brings the board back.
