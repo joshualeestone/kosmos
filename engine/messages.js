@@ -2521,25 +2521,31 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     // acknowledgement-only; otherwise it is content and the run is broken (0).
     const incomingIsAck = chat.acknowledgementOnly(stored);
     ackRun = incomingIsAck ? ackRun + 1 : 0;
-    /* #6608 (agent feedback, 2026-10-19): when the room's latest post that SAYS something @-names exactly one member,
-       that member owns the next step, and an agreement-only reply from anyone else (not the owner, not that post's
-       author) only blurs who has it. So it is not passed on, from the FIRST such reply rather than after a run, with
-       the same not-a-hold ack_only answer and, as below, no valve or refused row. The person's own posts count here
-       (naming an owner is usually theirs), unlike the run above, which starts after them. A reply with anything new
-       is content and always goes through; the owner and the author may still acknowledge each other. Rejected: an
-       owner-status line on the post (seen, working, done), which would be new interface. */
+    /* #6608 (agent feedback, 2026-10-19): when the room's latest post that SAYS something @-names exactly one member and
+       asks nothing, that member owns the next step, and an agreement-only reply from anyone else (not the owner, not
+       that post's author) only blurs who has it. So it is not passed on, from the FIRST such reply rather than after a
+       run, with the same not-a-hold ack_only answer and, as below, no valve or refused row; `owner` lets the CLI say why.
+       The person's own posts count here (naming an owner is usually theirs), unlike the run above, which starts after
+       them. It does NOT apply (review 1): when that post asks a question (a "?": "everyone OK with Friday?" wants the
+       answers the run trigger also protects), when this reply answers a different post (replyTo), or when the post is
+       older than the room's counting window. A reply with anything new is content and always goes through; the owner
+       and the author may still acknowledge each other. Rejected: an owner-status line on the post (new interface). */
     if (incomingIsAck && typeof from === 'string' && from !== '') {
-      const said = log
-        .filter((m) => m && (m.kind === 'post' || m.kind === 'external') && m.project === projectId && typeof m.text === 'string')
-        .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
-        .reverse()
-        .find((m) => !chat.acknowledgementOnly(m.text));
+      let said = null;
+      for (let i = log.length - 1; i >= 0; i -= 1) {   // newest first; the log is appended in time order
+        const m = log[i];
+        if (!m || (m.kind !== 'post' && m.kind !== 'external') || m.project !== projectId || typeof m.text !== 'string') continue;
+        if (!chat.acknowledgementOnly(m.text)) { said = m; break; }
+      }
       const named = said && Array.isArray(said.mentioned) ? said.mentioned : [];
-      if (named.length === 1 && named[0] !== from && said.from !== from) {
+      const fresh = said && Date.parse(said.at) >= windowFrom;
+      const asks = said && said.text.includes('?');
+      const answersOther = answered && said && answered.id !== said.id;
+      if (named.length === 1 && fresh && !asks && !answersOther && named[0] !== from && said.from !== from) {
         const owner = shown.get(named[0]) || named[0];
         const because = 'That post named ' + owner + ' to take it, so Kosmos did not pass on an agreement-only reply '
           + 'from anyone else; posts with something new still go through.';
-        return { state: chat.DELIVERY.COULD_NOT, code: 'ack_only', because, id: null, at, outcomes: null };
+        return { state: chat.DELIVERY.COULD_NOT, code: 'ack_only', owner, because, id: null, at, outcomes: null };
       }
     }
     // Refuse this incoming ack ONLY when its OWN sender is CONTINUING the run: its sessionName

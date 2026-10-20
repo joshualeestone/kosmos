@@ -3187,8 +3187,12 @@ cmd_post() {
         # this one reply only agreed with what was already said, so Kosmos did not pass it on. A post with something new
         # goes through straight away, so the copy says exactly that and never speaks of a pause, an hour, or the person.
         *'"code":"ack_only"'*)
+          # #6608: an owner-named post (the board sends who it named): say so, not "already said", which is untrue there.
+          _owner=$(printf '%s' "$body" | sed -n 's/.*"owner":"\([^"]*\)".*/\1/p')
           if [ -n "${_retried:-}" ]; then
             say "Not posted this time: this only agreed with what was already said, so Kosmos did not pass it on. Your first try may have reached the room before that: check kosmos room $project before posting again. A post with something new goes through straight away."
+          elif [ -n "$_owner" ]; then
+            say "Not posted: that post named $_owner to take it, so Kosmos did not pass on an agreement-only reply from anyone else. Nothing was sent. If you see a problem with it or have something new to add, post that; it goes through straight away."
           else
             say "Not posted: this only agreed with what was already said, so Kosmos did not pass it on. Nothing was sent. Post again when you have something new to add; that goes through straight away."
           fi ;;
