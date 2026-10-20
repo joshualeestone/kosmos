@@ -29,16 +29,16 @@ checking): nothing changes for anyone.
    - from a loopback peer;
    - not forwarded (Kosmos+ remote access forwards);
    - without an agent token;
-   - with the board's token IN THE HEADER on a board that enforces one (the page's cookie does not count).
+   - with the board's token in the HEADER on a board that enforces one (no page cookie, no ?token=).
 
    The address must be one an account computer can have.
 3. native-app/main.swift:
    - `webView(_:didReceive:completionHandler:)` judges only computers' addresses (isKosmosPlusURL, not the Kosmos+
      site), on 443;
-   - ordinary trust evaluation first (a failure cancels);
+   - the pin is judged whatever the app's own trust evaluation says, and an allow hands back to WebKit's own
+     checking (review 9), so nothing rests on the two evaluations agreeing;
    - then it hashes the leaf's key (P-256 SPKI SHA-256, as the computer hashes it) and asks the board;
-   - a certificate that fails ordinary trust gets ordinary handling (WebKit's own -1202 error), never a cancel
-     that would read as a superseded load;
+   - while this computer signs out of Plus, the board answers required;
    - ordinary trust is evaluated on a background queue (SecTrustEvaluateAsyncWithError), then the pin half and every
      call to the completion handler run on the main thread; a trailing-dot spelling of a name is judged too; the
      selector is pinned with @objc; the async evaluation is called from its own queue (review 3), and the self-test

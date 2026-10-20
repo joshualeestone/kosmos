@@ -2475,6 +2475,8 @@ const tlsPinWarmQuiet = new Map();  // review 2: address -> until when warming l
 const TLS_PIN_WARM_QUIET_MS = 60 * 1000;
 const SPKI = /^[0-9a-f]{64}$/;
 async function tlsPin(address, { fresh = false } = {}) {
+  // Review 9: not while this computer is being signed out of Plus (its state folder is going away).
+  if (forgetting) return { ok: true, because: null, data: { state: 'required', because: 'this computer is signing out of Plus' } };
   if (!enrolled()) return { ok: true, because: null, data: { state: 'none', because: 'not signed up for Plus here' } };
   const now = Date.now();
   const hit = tlsPinCache.get(address);

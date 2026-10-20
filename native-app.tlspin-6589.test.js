@@ -27,7 +27,9 @@ test('#6589: the challenge handler judges only computers\' addresses, after ordi
   // Review 1: the selector is pinned (a near-miss signature would compile and never be called), and ordinary checking
   // runs off the main thread, then the pin half on it.
   assert.match(SRC, /@objc\(webView:didReceiveAuthenticationChallenge:completionHandler:\)[^\n]*\n\s+func webView\(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,/);
-  assert.match(h, /evaluateTrustOffMain\(trust\) \{ \[weak self\] trusted in\n(\s+\/\/[^\n]*\n)*\s+guard trusted else \{ DispatchQueue\.main\.async \{ completionHandler\(\.performDefaultHandling, nil\) \}; return \}/);
+  // Review 9: the pin is judged whatever ordinary trust said (no early return on it).
+  assert.match(h, /evaluateTrustOffMain\(trust\) \{ \[weak self\] _ in\n\s+DispatchQueue\.main\.async \{/);
+  assert.doesNotMatch(h, /guard trusted else/, 'the pin is never skipped because ordinary trust said no');
   assert.match(h, /let host = named\.hasSuffix\("\."\) \? String\(named\.dropLast\(\)\) : named/, 'a trailing-dot spelling is judged too');
   // Review 3: the async API is CALLED FROM the queue it is given (SecTrust.h); from main with a global queue it traps.
   // The self-test drives this helper with a real certificate, so a misuse fails the bundle build.
@@ -39,7 +41,8 @@ test('#6589: the challenge handler judges only computers\' addresses, after ordi
   assert.doesNotMatch(h, /SecTrustEvaluateWithError\(/, 'never the blocking form on the main thread');
   const hj = body('private func judgePin(host: String, trust: SecTrust,');
   assert.ok(hj.indexOf('askTlsPin(host: host, fresh: false)') > 0, 'the pin half asks the board');
-  assert.match(hj, /case \.allow: completionHandler\(\.useCredential, URLCredential\(trust: trust\)\)/);
+  assert.match(hj, /case \.allow: completionHandler\(\.performDefaultHandling, nil\)/, 'an allow hands back to WebKit, never useCredential (review 9)');
+  assert.doesNotMatch(hj, /useCredential/);
   assert.match(hj, /case \.refuse, \.askFresh:\n\s+self\?\.tlsPinRefused\(host, mismatch: state == "pinned"\)\n\s+completionHandler\(\.cancelAuthenticationChallenge, nil\)/);
   assert.match(hj, /guard first == \.askFresh, let self else \{ finish\(first, state\); return \}\n\s+self\.askTlsPin\(host: host, fresh: true\)/, 'one fresh retry, then the decision with fresh: true');
   assert.match(hj, /fresh: true\), state2\)\n/, 'the retry is judged as fresh, so a second mismatch refuses');

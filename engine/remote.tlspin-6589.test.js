@@ -33,7 +33,11 @@ const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(args) + '\\n');
 let mode = ''; try { mode = fs.readFileSync(${JSON.stringify(MODE)}, 'utf8').trim(); } catch {}
 if (args[0] === 'tls-pin') {
-  if (mode === 'slow') { setTimeout(() => { console.log(JSON.stringify({ state: 'pinned', spki: ['${KEY}'], from: 'mac-b' })); process.exit(0); }, 600); return; }
+  if (mode === 'slow') {
+    fs.appendFileSync(${JSON.stringify(RECORD)} + '.times', 'start ' + Date.now() + '\\n');
+    setTimeout(() => { fs.appendFileSync(${JSON.stringify(RECORD)} + '.times', 'end ' + Date.now() + '\\n'); console.log(JSON.stringify({ state: 'pinned', spki: ['${KEY}'], from: 'mac-b' })); process.exit(0); }, 600);
+    return;
+  }
   if (mode === 'old') { process.stderr.write("error: unrecognized subcommand 'tls-pin'\\n"); process.exit(2); }
   if (mode === 'none') { console.log(JSON.stringify({ state: 'none', because: 'the computer answered 404' })); process.exit(0); }
   if (mode === 'required') { console.log(JSON.stringify({ state: 'required', because: 'statement refused: other_peer' })); process.exit(0); }
@@ -152,7 +156,7 @@ test('#6589 (review 3): warming asks at most ten computers; at most four key has
   assert.equal((await remote.tlsPin('six.kosmosplus.com')).data.spki.length, 4);
 });
 
-test('#6589 (review 5): an older answer never overwrites a newer one; a forgotten ask never steals a newer run', async () => {
+test('#6589 (review 5): a fresh ask after a slow one sees the newer key (the cache-write guard is a backstop since review 7); a forgotten ask never steals a newer run', async () => {
   enrol();
   // A slow plain ask, then a fresh one that finishes first with another key: the cache keeps the fresh key.
   mode('slow');
@@ -178,13 +182,28 @@ test('#6589 (review 5): an older answer never overwrites a newer one; a forgotte
   assert.deepEqual((await remote.tlsPin('k.kosmosplus.com')).data.spki, ['b'.repeat(64)], 'nothing from the run that straddled the forget was kept');
 });
 
-test('#6589 (review 7): one run per address: a fresh ask waits for a running plain one, then runs on its own', async () => {
+test('#6589 (reviews 7 and 9): one run per address: a fresh ask runs only AFTER a running plain one ends', async () => {
   enrol(); mode('slow');
+  fs.rmSync(RECORD + '.times', { force: true });
   const plain = remote.tlsPin('m.kosmosplus.com');
   await new Promise((r) => setTimeout(r, 100));
   const fresh = remote.tlsPin('m.kosmosplus.com', { fresh: true });
-  const joined = remote.tlsPin('m.kosmosplus.com');   // a plain ask joins whatever is running
-  await Promise.all([plain, fresh, joined]);
-  const runs = recorded().filter((r) => r[4] === 'https://m.kosmosplus.com');
-  assert.equal(runs.length, 2, 'the plain run, then the fresh one after it; never two at once, never a third');
+  await plain;
+  // The plain run is over and the fresh one is running: a new plain ask must JOIN it, not start a third run.
+  const joined = remote.tlsPin('m.kosmosplus.com');
+  await Promise.all([fresh, joined]);
+  assert.equal(recorded().filter((r) => r[4] === 'https://m.kosmosplus.com').length, 2, 'never a third run');
+  const t = fs.readFileSync(RECORD + '.times', 'utf8').trim().split('\n').map((l) => l.split(' '));
+  assert.deepEqual(t.map((x) => x[0]), ['start', 'end', 'start', 'end'], 'the two runs never overlapped');
+  assert.ok(Number(t[2][1]) >= Number(t[1][1]), 'the fresh run started after the plain one ended');
+});
+
+test('#6589 (review 9): a sign-out and a device removal forget the cache, and the computer list warms it (the call sites)', () => {
+  const src = fs.readFileSync(nodePath.join(__dirname, 'remote.js'), 'utf8');
+  const fn = (name) => src.slice(src.indexOf(name), src.indexOf('\n}\n', src.indexOf(name)));
+  assert.match(fn('async function forget({ anyway = false } = {}) {'), /^async function forget\(\{ anyway = false \} = \{\}\) \{\n\s+forgetTlsPins\(\);/);
+  assert.match(fn('function forgetVouched(id, answer) {'), /^function forgetVouched\(id, answer\) \{\n\s+forgetTlsPins\(\);/);
+  const server = fs.readFileSync(nodePath.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /accountComputers\.fetchComputers\(\)\n\s+\.then\(\(r\) => \{ if \(r && r\.ok\) remote\.warmTlsPins\(r\.computers\); sendJson\(res, 200, r\); \}\)/);
+  assert.match(src, /function forgetTlsPins\(\) \{ tlsPinGeneration \+= 1; tlsPinCache\.clear\(\); tlsPinWarmQuiet\.clear\(\); \}/);
 });
