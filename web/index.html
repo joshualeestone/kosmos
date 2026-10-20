@@ -20130,9 +20130,11 @@ window.kosmosMeasureScrollbarWidth();
    beforeunload, because WebKit rejects the cut-off requests BEFORE pagehide (measured), and clears itself after a
    second, so a navigation that never happens (a download link) cannot hide a real failure later. */
 let PAGE_LEAVING = false;
+let PAGE_LEAVING_TIMER = null;
 window.addEventListener('beforeunload', () => {
   PAGE_LEAVING = true;
-  setTimeout(() => { PAGE_LEAVING = false; }, 1000);
+  clearTimeout(PAGE_LEAVING_TIMER);   // review 3: a later beforeunload gets its whole second
+  PAGE_LEAVING_TIMER = setTimeout(() => { PAGE_LEAVING = false; }, 1000);
 });
 window.addEventListener('unhandledrejection', (e) => {
   if (PAGE_LEAVING && e.reason instanceof TypeError) e.preventDefault();

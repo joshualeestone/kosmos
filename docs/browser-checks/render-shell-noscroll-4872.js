@@ -48,7 +48,8 @@ const srv = require('../../server.js');
    checks." and Playwright passes that on as a page error, though no page code raised it (measured: no
    unhandledrejection fires for these). Ignored only for THIS board's own address and only while a reload the check
    started is in flight; a cross-origin failure, or one at any other moment, still counts. */
-const cutOffByReload = (msg, base) => /due to access control checks\.?$/.test(msg) && msg.includes(base.replace(/^https?:\/\//, '') + '/');
+const cutOffByReload = (msg, base) => /due to access control checks\.?$/.test(msg)
+  && new RegExp('^(?:Fetch API cannot load )?(?:https?:)?/{0,2}' + base.replace(/^https?:\/\//, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/').test(msg);
 
 const fail = [];
 let passed = 0;

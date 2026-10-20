@@ -9,6 +9,8 @@
  *
  *  1  a request held open across a reload, with no catch: no page error (WebKit and Chromium).
  *  2  CONTROL: a real TypeError rejection while the page is NOT leaving is still a page error, so the check can see one.
+ *  4  the one-second reset on one document: a beforeunload that leads nowhere, then a rejection inside the second (not
+ *     reported) and one after it (reported), so a reset that never comes would fail.
  *  3  the board's own polls that the reload cancels: WebKit's network message for each is not counted (cutOffByReload),
  *     and only during the reload (the `reloading` flag around page.reload). Arm 3 pins the predicate itself: this
  *     board's address matches; another origin, a lookalike port and any other message do not.
@@ -35,7 +37,8 @@ const srv = require('../../server.js');
    checks." and Playwright passes that on as a page error, though no page code raised it (measured: no
    unhandledrejection fires for these). Ignored only for THIS board's own address and only while a reload the check
    started is in flight; a cross-origin failure, or one at any other moment, still counts. */
-const cutOffByReload = (msg, base) => /due to access control checks\.?$/.test(msg) && msg.includes(base.replace(/^https?:\/\//, '') + '/');
+const cutOffByReload = (msg, base) => /due to access control checks\.?$/.test(msg)
+  && new RegExp('^(?:Fetch API cannot load )?(?:https?:)?/{0,2}' + base.replace(/^https?:\/\//, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/').test(msg);
 
 const fail = [];
 let passed = 0;
@@ -87,12 +90,24 @@ const chk = (ok, label, extra) => {
       await page.evaluate(() => { Promise.reject(new TypeError('a real failure 6725')); });
       await page.waitForTimeout(500);
       chk(errs.length === 1 && /a real failure 6725/.test(errs[0]), `[${engine}] 2 CONTROL: a real rejection while not leaving is still a page error`, JSON.stringify(errs));
+      // 4. The reset, on one live document: a beforeunload that leads nowhere (a download link does this).
+      errs.length = 0;
+      await page.evaluate(() => { dispatchEvent(new Event('beforeunload')); });
+      await page.waitForTimeout(200);
+      await page.evaluate(() => { Promise.reject(new TypeError('inside the leaving second 6725')); });
+      await page.waitForTimeout(1500);
+      await page.evaluate(() => { Promise.reject(new TypeError('after the leaving second 6725')); });
+      await page.waitForTimeout(500);
+      const inside = errs.filter((e) => /inside the leaving second/.test(e)).length;
+      const after = errs.filter((e) => /after the leaving second/.test(e)).length;
+      chk(inside === 0, `[${engine}] 4 inside the second after a beforeunload, a TypeError rejection is not a page error`, JSON.stringify(errs));
+      chk(after === 1, `[${engine}] 4 CONTROL: after that second (no navigation came), one is reported again`, JSON.stringify(errs));
       await ctx.close();
     } finally {
       await browser.close();
     }
   }
-  const lineOf = (f) => (fs.readFileSync(path.join(__dirname, f), 'utf8').match(/^const cutOffByReload = .*$/m) || [''])[0];
+  const lineOf = (f) => (fs.readFileSync(path.join(__dirname, f), 'utf8').match(/^const cutOffByReload = [\s\S]*?;$/m) || [''])[0];
   chk(lineOf('render-leaving-rejection-6725.js') !== '' && lineOf('render-leaving-rejection-6725.js') === lineOf('render-shell-noscroll-4872.js'),
     '3 render-shell-noscroll-4872 uses the same predicate as this check (so arm 3 pins both)');
   // 3. The predicate, with its controls: only this board's own address, only WebKit's cancelled-request message.
@@ -100,7 +115,11 @@ const chk = (ok, label, extra) => {
   chk(cutOffByReload(own, BASE), '3 the board\'s own cancelled request is recognised', own);
   chk(!cutOffByReload('Fetch API cannot load https://other.example/api/x due to access control checks.', BASE)
     && !cutOffByReload(own.replace(BASE, BASE + '1'), BASE) && !cutOffByReload('TypeError: Load failed', BASE)
-    && !cutOffByReload('Fetch API cannot load ' + BASE + '/api/tips due to something else.', BASE),
+    && !cutOffByReload('Fetch API cannot load ' + BASE + '/api/tips due to something else.', BASE)
+    // Review 3: anchored at the start of the address, so a host that merely ends in it, or the address later in
+    // another origin's URL, is not this board.
+    && !cutOffByReload('Fetch API cannot load http://x' + BASE.replace(/^https?:\/\//, '') + '/a due to access control checks.', BASE)
+    && !cutOffByReload('Fetch API cannot load https://other.example/r?u=' + BASE + '/ due to access control checks.', BASE),
   '3 CONTROL: another origin, a lookalike port, and any other message are not');
   server.close();
   fleet.restore();
