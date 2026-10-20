@@ -377,7 +377,12 @@ func tlsLeafKeyHash(_ trust: SecTrust) -> String? {
 /// `done` runs on that queue. Driven by --kosmos-app-mode-selftest, so a misuse fails the bundle build, not the app.
 func evaluateTrustOffMain(_ trust: SecTrust, done: @escaping (Bool) -> Void) {
     let q = DispatchQueue.global(qos: .userInitiated)
-    q.async { SecTrustEvaluateAsyncWithError(trust, q) { _, trusted, _ in done(trusted) } }
+    q.async {
+        // Review 5: the header says the callback is called "exactly once when the result code is errSecSuccess, and
+        // not called otherwise", so any other result answers here (untrusted), or `done` would never run.
+        let started = SecTrustEvaluateAsyncWithError(trust, q) { _, trusted, _ in done(trusted) }
+        if started != errSecSuccess { done(false) }
+    }
 }
 
 /// #5169: PURE, for --kosmos-app-mode-selftest. The Kosmos+ SITE's OWN hosts only -- the sign-in

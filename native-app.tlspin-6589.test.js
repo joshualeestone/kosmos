@@ -32,7 +32,8 @@ test('#6589: the challenge handler judges only computers\' addresses, after ordi
   // Review 3: the async API is CALLED FROM the queue it is given (SecTrust.h); from main with a global queue it traps.
   // The self-test drives this helper with a real certificate, so a misuse fails the bundle build.
   const ev = SRC.slice(SRC.indexOf('func evaluateTrustOffMain('), SRC.indexOf('\n}\n', SRC.indexOf('func evaluateTrustOffMain(')));
-  assert.match(ev, /let q = DispatchQueue\.global\(qos: \.userInitiated\)\n\s+q\.async \{ SecTrustEvaluateAsyncWithError\(trust, q\)/);
+  assert.match(ev, /let q = DispatchQueue\.global\(qos: \.userInitiated\)\n\s+q\.async \{/);
+  assert.match(ev, /let started = SecTrustEvaluateAsyncWithError\(trust, q\) \{ _, trusted, _ in done\(trusted\) \}\n\s+if started != errSecSuccess \{ done\(false\) \}/, 'a call that does not start still answers (review 5)');
   assert.match(SRC, /evaluateTrustOffMain\(trust\) \{ trusted in said = trusted; sem\.signal\(\) \}/, 'the self-test calls the real helper');
   assert.match(h, /guard let self else \{ completionHandler\(\.cancelAuthenticationChallenge, nil\); return \}[^\n]*\n\s+self\.judgePin\(host: host, trust: trust, completionHandler: completionHandler\)/);
   assert.doesNotMatch(h, /SecTrustEvaluateWithError\(/, 'never the blocking form on the main thread');
