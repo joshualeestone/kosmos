@@ -91,6 +91,7 @@ HOSTURL="https://fake.test"
 BIN="$T/bin"; mkdir -p "$BIN"
 cat > "$BIN/curl" <<'CURL'
 #!/bin/bash
+[ -n "${VERCEL_TOKEN:-}" ] && touch "$LIVE_DIR/curl-saw-token"   # kosmos#6771: the token must not reach this step
 url=""; dest=""; wfmt=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -117,6 +118,8 @@ cat > "$BIN/vercel" <<'VERCEL'
 # kosmos#6771: VERCEL_REFUSE=auth answers as the CLI does when its sign-in or token is refused; =other fails otherwise.
 [ "${VERCEL_REFUSE:-}" = auth ] && { echo "Deploying chaoskosmos"; echo "Error: Not authorized" >&2; exit 7; }
 [ "${VERCEL_REFUSE:-}" = colour ] && { printf '\033[31mError:\033[39m Not authorized\n' >&2; exit 7; }
+[ "${VERCEL_REFUSE:-}" = badtoken ] && { echo "> Error: The token provided via VERCEL_TOKEN environment variable is not valid. Please provide a valid token." >&2; exit 1; }
+[ "${VERCEL_REFUSE:-}" = whosees ] && { printf '%s' "${VERCEL_TOKEN:-}" > "$LIVE_DIR/vercel-saw-token"; exit 0; }
 [ "${VERCEL_REFUSE:-}" = other ] && { echo "Deploying chaoskosmos"; echo "Error: The deployment exceeded the size limit" >&2; exit 5; }
 # `vercel deploy --prod --yes` runs with the EXPORT as cwd. Publish it into LIVE (additive copy is
 # enough to run the served-verify honestly).
@@ -237,7 +240,7 @@ else
   bad "B4-CONTROL: an unreachable /setup.sha256 did not refuse (rc=$RC); the fetch-fail branch is untested. out=$out"
 fi
 
-# B5) kosmos#6771: the CLI refused, no token given: rc 1, and the refusal is said in full (the secrets target), not
+# B5) kosmos#6771: the CLI refused, no token given: exit 77, and the refusal is said in full (the secrets target), not
 # only "Not authorized", which is still shown.
 read -r S5 L5 <<<"$(make_publish_scenario ok)"
 VERCEL_REFUSE=auth run_deploy "$S5" "$L5" --publish
@@ -263,6 +266,18 @@ if [ "$RC" = 77 ] && has "$out" "no VERCEL_TOKEN was given"; then
 else
   bad "B5c: a coloured refusal (rc=$RC); out=$out"
 fi
+# B5t) the CLI's own words for a refused token (from its code), behind a "> " prefix: still exit 77.
+read -r S9 L9 <<<"$(make_publish_scenario ok)"
+VERCEL_TOKEN=tok-bad VERCEL_REFUSE=badtoken run_deploy "$S9" "$L9" --publish
+if [ "$RC" = 77 ] && has "$out" "REFUSED the token"; then
+  pass "B5t: the CLI's real refused-token wording, prefixed, is still the refusal (exit 77)"
+else
+  bad "B5t: real wording (rc=$RC); out=$out"
+fi
+# B8) the token reaches the vercel command (it is given back to it alone).
+read -r S10 L10 <<<"$(make_publish_scenario ok)"
+VERCEL_TOKEN=tok-for-vercel VERCEL_REFUSE=whosees run_deploy "$S10" "$L10" --publish
+[ "$(cat "$L10/vercel-saw-token" 2>/dev/null)" = tok-for-vercel ] && [ ! -e "$L10/curl-saw-token" ] && pass "B8: the vercel command gets VERCEL_TOKEN, and the fetches (curl) never see it" || bad "B8: vercel saw '$(cat "$L10/vercel-saw-token" 2>/dev/null)' (rc=$RC)"
 # B7) a failure that is NOT an authorization refusal says only that the deploy failed, with its code: no token words.
 read -r S7 L7 <<<"$(make_publish_scenario ok)"
 VERCEL_REFUSE=other run_deploy "$S7" "$L7" --publish

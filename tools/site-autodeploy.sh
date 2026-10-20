@@ -446,8 +446,9 @@ if [ -z "${VERCEL_TOKEN:-}" ]; then
 fi
 [ -n "${VERCEL_TOKEN:-}" ] || TARGET="" red_once notoken "FAIL: no Vercel token for the deploy (secrets target $VERCEL_TOKEN_TARGET${_why:+; the accessor said: $_why}): file a scoped token for the chaoskosmos-site project with /add-secret on this machine (kosmos#6771); nothing deployed"
 # In GitHub Actions the token did not come from a repository secret, so the log does not know to hide it: tell it.
+# Straight to stdout, never through say: the mask line itself must not go into $LOG.
 [ "${GITHUB_ACTIONS:-}" = true ] && printf '::add-mask::%s\n' "$VERCEL_TOKEN"
-export VERCEL_TOKEN
+export VERCEL_TOKEN   # deploy-site.sh takes it out of the environment again and gives it to the vercel command only
 say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9}); its output is printed when it ends, and kept in $STATE/deploy.out"
 # The deploy's output goes to this run's output and the log once it ends; rc is the deploy's own.
 # KOSMOS_REPO pins deploy-site.sh's libraries to THIS checkout; without it they load from

@@ -18,11 +18,14 @@ filed with /add-secret on Mortals, used as VERCEL_TOKEN; refuse clearly when it 
    goes to a temp file; a refusal on the CLI's own `Error:` line (colour codes removed) is said in full, no token given
    (file one / sign the CLI in) or the token refused (make a new one; an inherited VERCEL_TOKEN wins over the map), and
    exits 77. Any other failure is exit 1 with its own code. At a terminal the CLI runs exactly as before.
-3. Tests: `test-site-autodeploy-5589.sh` (13 arms for #6771: no token red then STILL FAILING, a new merge still green,
+3. Tests: `test-site-autodeploy-5589.sh` (12 arms for #6771: no token red then STILL FAILING, a new merge still green,
    the secrets target asked for, a filed token used, an inherited token wins, no accessor, the accessor's reason, the
    Actions mask, nothing printed outside Actions, exit 77 never parks and the next good tick deploys) and
-   `test-deploy-site-exit0-2791.sh` (B5, B5c, B6, B7: both refusal messages and exit 77, a coloured error line, a
-   non-authorization failure with no token sentence, the token not in deploy-site's own lines).
+   `test-deploy-site-exit0-2791.sh` (B5, B5c, B5t, B6, B7, B8: both refusal messages and exit 77, a coloured error line,
+   the CLI's real refused-token wording, a non-authorization failure with no token sentence, the token not in
+   deploy-site's own lines, and the vercel command receiving the token).
+4. The token's reach: the autodeploy exports it, and deploy-site.sh takes it out of its environment at the start and
+   gives it to the `vercel` command alone, so the site build and the fetches never see it.
 
 ## Already parked on Mortals?
 The 10-20 "Not authorized" runs failed with exit 1 under the old code, so the current site sha may be parked there.
