@@ -38484,12 +38484,11 @@ function sortAgents(list, mode, projects) {
   };
   const cmp = mode === 'name' ? byName
     : mode === 'model' ? (a, b) => {
-      const aa = a.agent || {}, bb = b.agent || {};
-      const ak = (aa.runner === 'codex' || aa.runner === 'gemini' || aa.runner === 'grok' || aa.runner === 'antigravity' || aa.runner === 'muse'
-        || aa.modelName || aa.plannedModelName) ? text(modelLine(aa)) : null;
-      const bk = (bb.runner === 'codex' || bb.runner === 'gemini' || bb.runner === 'grok' || bb.runner === 'antigravity' || bb.runner === 'muse'
-        || bb.modelName || bb.plannedModelName) ? text(modelLine(bb)) : null;
-      return cmpText(ak, bk) || byName(a, b);
+      // #6716 review 9: the key is the model the tile and the row SHOW (tileModelLine), so a borrowed earlier-session
+      // model sorts with that model, not with the unnamed.
+      const key = (x) => ((x.runner === 'codex' || x.runner === 'gemini' || x.runner === 'grok' || x.runner === 'antigravity' || x.runner === 'muse'
+        || x.modelName || x.plannedModelName || x.earlierModelName) ? text(tileModelLine(x)) : null);
+      return cmpText(key(a.agent || {}), key(b.agent || {})) || byName(a, b);
     }
     : mode === 'needs' ? (a, b) => needsRank(a.agent) - needsRank(b.agent) || byName(a, b)
     : mode === 'project' ? (a, b) => cmpText(agentFirstProject(a.agent, projects), agentFirstProject(b.agent, projects)) || byName(a, b)
