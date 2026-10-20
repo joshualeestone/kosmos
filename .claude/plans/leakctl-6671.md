@@ -9,15 +9,20 @@ fixture root; the control is this shell's child and names no root, so the guard 
 test can: this machine is shared, and on 2026-10-20 at 05:50 CDT a helper ran `pkill -f "sleep 6"`, which matches
 `sleep 60` (that incident is after this failure, so it is an example of the class, not proof of this one).
 
-**The call.** Make the control a process that no sleep-aimed pattern matches: `tail -f /dev/null`, also long-lived and
-also killed by the test's cleanup. Rejected: retrying the check (it would hide a real guard bug that kills the control),
-and a uniquely named sleep (still a `sleep N`, and `pkill sleep` matches any).
+**The call.** Make the control a 60 s wait with no "sleep" in its command line: `perl -e 'select(undef, undef, undef,
+60)'`, which still ends by itself if the test is killed before its cleanup runs. The same exposure is in
+tools/test-start-waits-for-starting-board-6586.sh's `victim()` (an orphaned `sleep 60` stand-in board, found in review 1),
+changed the same way. Rejected: retrying the check (it would hide a real guard bug that kills the control); a uniquely
+named sleep (still a `sleep N`, and `pkill sleep` matches any); `tail -f /dev/null` (the first version: it never ends,
+so an orphan that cleanup misses, as `victim()` makes on purpose, would run forever).
 
-**Done when.** The control process is not a sleep, the whole file passes, and the control still fails when its process
-is killed (mutation).
+**Done when.** Neither control is a sleep, both whole files pass, the leak-guard control still fails when its process
+is killed (mutation), and no wait process is left running after either file.
 
 ## Tests run
-- Whole file: 77 ok, rc 0; no `tail -f /dev/null` left running afterwards.
+- tools/test-test-leak-guard-4273.sh whole file: 77 ok, 0 FAIL, rc 0.
+- tools/test-start-waits-for-starting-board-6586.sh whole file: 25 PASS, 0 FAIL, "all passed".
+- No wait process left running after either (pgrep for the perl wait: 0).
 - Mutation (a copy outside the tree): killing the outside process before the check gives
   "FAIL the guard killed a process outside the root".
 

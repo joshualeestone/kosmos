@@ -165,7 +165,8 @@ printf '#!/bin/sh\nwhile :; do sleep 1; done\n' > "$proot/fixture/serve.sh"; chm
 /bin/sh "$proot/fixture/serve.sh" > /dev/null 2>&1 & owned=$!; pids+=("$owned")
 # The outside control is not a `sleep`: on a shared machine a `pkill -f "sleep 6"` aimed at
 # something else matches `sleep 60` and fails this control with no fault in the guard (#6671).
-tail -f /dev/null > /dev/null 2>&1 & outside=$!; pids+=("$outside")
+# A 60 s wait with no "sleep" in its command line, which still ends by itself if cleanup never runs.
+perl -e 'select(undef, undef, undef, 60)' > /dev/null 2>&1 & outside=$!; pids+=("$outside")
 sleep 0.5
 out=$(leak_process_check "$proot"); rc=$?
 [ "$rc" -eq 1 ] && ok "an orphaned process naming the root fails the check" || bad "leaked process: rc=$rc out=$out"
