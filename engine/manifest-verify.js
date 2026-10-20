@@ -384,8 +384,26 @@ module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCH
 /* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before
  * using a call form: it greps the next line, which lists every form this copy understands beyond the original
  * <manifest> <sig> <tarball> <stage> <version> <home>. Keep it one line, and add to it when adding a form.
- * manifest-verify capabilities: run-setup early tmux */
-if (require.main === module && process.argv[2] === 'run-setup') {
+ * manifest-verify capabilities: run-setup early tmux keylist */
+/* #6609 phase 2b: the keys the plain and tmux forms check with. Off: the built-in KEYS. On: the release key list setup.sh
+   fetched beside the manifest, named by KOSMOS_KEY_LIST and KOSMOS_KEY_LIST_SIG, taken through trustedKeys (this copy's
+   record, so an older list cannot come back). On with no list given is a refusal: an installer that does not fetch it
+   must not install past a revocation. { code, why, keys }. */
+function cliKeys(home) {
+  if (!RECOVERY_KEYS.length) return { code: 0, keys: KEYS };
+  const listFile = process.env.KOSMOS_KEY_LIST, sigFile = process.env.KOSMOS_KEY_LIST_SIG;
+  if (!listFile || !sigFile) return { code: 1, why: 'the release key list was not given, so the update could not be checked' };
+  let listBytes, listSig;
+  try { listBytes = fs.readFileSync(listFile); listSig = fs.readFileSync(sigFile, 'utf8'); }
+  catch { return { code: 1, why: 'the release key list could not be read, so the update could not be checked' }; }
+  const t = trustedKeys({ listBytes, listSig, home });
+  return t.ok ? { code: 0, keys: t.keys } : { code: 1, why: t.why };
+}
+// needs-key-list: exit 0 when this copy checks updates with the release key list (a recovery key is pinned), 1 when not.
+// setup.sh asks before fetching the list, so nothing more is downloaded while the feature is off.
+if (require.main === module && process.argv[2] === 'needs-key-list') {
+  process.exit(RECOVERY_KEYS.length ? 0 : 1);
+} else if (require.main === module && process.argv[2] === 'run-setup') {
   // <installed node> manifest-verify.js run-setup <setup-url> <release-base> <version> <installed-home>
   const [setupUrl, base, version, home] = process.argv.slice(3);
   let code;
@@ -398,7 +416,8 @@ if (require.main === module && process.argv[2] === 'run-setup') {
   try {
     let installedVersion = '';
     try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
-    r = verifyTmux({ manifest, sig, tmux, version, installedVersion });
+    const k = cliKeys(home);
+    r = k.code === 0 ? verifyTmux({ manifest, sig, tmux, version, installedVersion, keys: k.keys }) : k;
   } catch (e) { r = { code: 1, why: 'the terminal manager could not be checked (' + (e && e.code || 'error') + ')' }; }
   process.stdout.write(r.why + '\n');
   process.exit(r.code);
@@ -408,7 +427,8 @@ if (require.main === module && process.argv[2] === 'run-setup') {
   try {
     let installedVersion = '';
     try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
-    r = verify({ manifest, sig, tarball, stage, version, installedVersion, skipTarball: tarball === '-' });
+    const k = cliKeys(home);
+    r = k.code === 0 ? verify({ manifest, sig, tarball, stage, version, installedVersion, skipTarball: tarball === '-', keys: k.keys }) : k;
   } catch (e) {
     r = { code: 1, why: 'the update could not be checked (' + (e && e.code || 'error') + ')' };
   }
