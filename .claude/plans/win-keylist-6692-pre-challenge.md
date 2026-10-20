@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: win-keylist-6692
-diff_hash: 43306946b954db9718fcc168db3a06e1697dd9a5baa4ebcd76811b68f69dfae5
+diff_hash: 1d8f4ee318af694b665f8336ae34ae457a8bef8e16c57325d88ed2f21daf4a08
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-20T10:58:26Z
+timestamp: 2026-10-20T13:13:29Z
 iterations: 5
 converged: true
 ---
@@ -14,6 +14,8 @@ converged: true
 
 **Iterations:** 5 blind reviewers, each fresh.
 **Converged:** Yes, at iteration 5 (NO FINDINGS).
+
+Rebased onto origin/main after #6691 and #6687 merged (main's retry: true kept; the ACL check replaces the win32 skip); re-run: 34 + 184 tests, 0 fail.
 
 Validation: win32update, win32update.keylist-6692, win32recordacl, manifest-verify.recovery-6609, win32connectupdate,
 windows-tests-1777 and engine.reachable run on the Windows box through the no-schtasks preload: 218 tests, 217 pass,
