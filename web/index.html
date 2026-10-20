@@ -47904,7 +47904,7 @@ const SURVIVAL_EACH_MAX = 3;
 function survivalNotice(cls, head, line, acts, hideFor, hideLabel) {
   return '<div class="utoast survival' + (cls ? ' ' + cls : '') + '">'
     + '<span class="udot" aria-hidden="true"></span>'
-    + '<div class="utxt" role="status"><b>' + head + '</b>' + (line ? '<small>' + line + '</small>' : '') + '</div>'
+    + '<div class="utxt" role="status" tabindex="-1"><b>' + head + '</b>' + (line ? '<small>' + line + '</small>' : '') + '</div>'
     + (acts ? '<div class="uacts">' + acts + '</div>' : '')
     + '<button type="button" class="ux" data-survival-hide="' + esc(hideFor) + '" aria-label="' + esc(hideLabel)
     + '" title="' + esc(hideLabel) + '">&times;</button>'
@@ -47928,6 +47928,9 @@ async function paintSurvival() {
   } catch { return; }
   if (!body || body.ok !== true || !Array.isArray(body.missing)) return;
   paintSurvivalHidden(body);
+  /* Checked again after the wait (review 17): a start pressed while this look was in flight owns the slot now, and its
+     report must not be painted over. */
+  if (SURVIVAL_BUSY || SURVIVAL_HELD) return;
   if (!onAgentsTab()) { slot.innerHTML = ''; delete slot.dataset.v; return; }
   /* #6320: an agent we could not check is said, not dropped: silence here reads as "they all come back". */
   const unknown = Array.isArray(body.unknown) ? body.unknown : [];
@@ -47981,9 +47984,9 @@ async function paintSurvival() {
   const key = had ? ['data-survival-fix', 'data-survival-remove', 'data-survival-hide']
     .filter((k) => had.hasAttribute(k)).map((k) => '[' + k + '="' + had.getAttribute(k) + '"]')[0] : null;
   slot.innerHTML = html;
-  /* If that button is gone, an x, never the first button: that is Start at login, and a held key would start an agent
-     (review 16; the same rule as survivalFocusNext). */
-  if (key) { const back = slot.querySelector(key) || slot.querySelector('.utoast .ux'); if (back) back.focus(); }
+  /* If that button is gone, the notice's words, never a button: Start at login would start an agent and the x would
+     silence a warning, both on a held key (reviews 16, 17; the same rule as survivalFocusNext). */
+  if (key) { const back = slot.querySelector(key) || slot.querySelector('.utoast .utxt'); if (back) back.focus(); }
 }
 
 /* #6714: Settings > Computer is read on its own, so a board opened straight into Settings (or left there) shows the
@@ -48014,10 +48017,11 @@ function paintSurvivalHidden(body) {
     + '<button class="btn-quiet" type="button" data-survival-show="' + esc(n) + '">Show again</button></div>').join('');
 }
 
-/* After a notice closes, focus goes to the next one's x rather than dropping to the page (#6714 review 2). The x, not the
-   first button: that is Start at login, and closing several notices with Enter would start an agent (review 15). */
+/* After a notice closes, focus goes to the next one's words rather than dropping to the page (#6714 review 2). Not a
+   button: Start at login would start an agent and the x would close a warning the person never chose, on a second
+   Enter (reviews 15, 17). The words are focusable (tabindex -1) and do nothing when pressed. */
 function survivalFocusNext() {
-  const next = document.querySelector('#survival-slot .utoast .ux');
+  const next = document.querySelector('#survival-slot .utoast .utxt');
   if (next && typeof next.focus === 'function') next.focus();
   else if (typeof focusBoardHome === 'function') focusBoardHome();   // the last one closed: back to the board, not the page
 }
@@ -48174,12 +48178,13 @@ document.addEventListener('click', async (e) => {
   if (onPage && note) note.insertAdjacentHTML('beforebegin', '<div data-survival-new hidden></div>');
   if (onPage && note) note.outerHTML = report;
   if (slot) delete slot.dataset.v;   // the slot no longer holds what the signature describes
-  /* Focus goes to the report just put in (review 7), not to an older one still open above it. */
+  /* Focus goes to the report just put in (review 7), its words, so a screen reader reads the result and a second press
+     does nothing (review 17). */
   const mark = slot && slot.querySelector('[data-survival-new]');
   const fresh = mark && mark.nextElementSibling;
   if (mark) mark.remove();
-  const closeFirst = (fresh && fresh.querySelector('.ux')) || (slot && slot.querySelector('.utoast.report .ux'));
-  if (closeFirst) closeFirst.focus();
+  const readIt = (fresh && fresh.querySelector('.utxt')) || (slot && slot.querySelector('.utoast.report .utxt'));
+  if (readIt) readIt.focus();
   SURVIVAL_BUSY = false;
   SURVIVAL_HELD = onPage;
   /* The board can now see them, so ask it again rather than waiting out the

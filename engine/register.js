@@ -589,47 +589,56 @@ function hasRun(name) {
    whether it comes back, so Settings lists them with a way to show them again. */
 function hiddenFile() { return path.join(store.ROOT, 'restart-notices-hidden.json'); }
 
-/** The hidden names. A file that is missing is none hidden; one we cannot read is none hidden too, so a broken file
-    shows every notice rather than hiding them. */
+/** The hidden notices, each the agent's name and which notice was closed (`missing`: "will not come back"; `unknown`:
+    "could not check"). Kept per notice (review 17): closing the uncertain one must not silence the certain one that can
+    follow it. A file that is missing is none hidden; one we cannot read is none hidden too, so a broken file shows every
+    notice rather than hiding them. */
+const HIDDEN_GROUPS = ['missing', 'unknown'];
 function readHidden() {
   try {
-    const names = JSON.parse(fs.readFileSync(hiddenFile(), 'utf8')).names;
-    return Array.isArray(names) ? names.filter((n) => typeof n === 'string' && create.NAME_RE.test(n)) : [];
+    const e = JSON.parse(fs.readFileSync(hiddenFile(), 'utf8')).entries;
+    return Array.isArray(e)
+      ? e.filter((x) => x && typeof x.name === 'string' && create.NAME_RE.test(x.name) && HIDDEN_GROUPS.includes(x.group))
+        .map((x) => ({ name: x.name, group: x.group }))
+      : [];
   } catch { return []; }
 }
 
-function writeHidden(names) {
+function writeHidden(entries) {
   const file = hiddenFile();
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  const byKey = new Map(entries.map((e) => [e.group + ':' + e.name, { name: e.name, group: e.group }]));
+  const out = [...byKey.keys()].sort().map((k) => byKey.get(k));
   const tmp = file + '.' + process.pid + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify({ names: [...new Set(names)].sort() }) + '\n', { mode: 0o600 });
+  fs.writeFileSync(tmp, JSON.stringify({ entries: out }) + '\n', { mode: 0o600 });
   fs.renameSync(tmp, file);
 }
 
-/** Drop names from the hidden list, reading it afresh at the write (review 4): the survey that found them stale read the
-    list earlier, and writing that older copy back would lose a hide made in between. */
+/** Drop every hidden notice for these names, reading the list afresh at the write (review 4): the survey that found them
+    stale read the list earlier, and writing that older copy back would lose a hide made in between. */
 function forgetHidden(names) {
   const now = readHidden();
-  const kept = now.filter((n) => !names.includes(n));
+  const kept = now.filter((e) => !names.includes(e.name));
   if (kept.length !== now.length) writeHidden(kept);
 }
 
-/** Stop reminding about one agent. Only a name the notice is showing can be hidden, so the file holds nothing else. */
+/** Stop reminding about one agent's notice, the one it is showing now. Only a name the notice is showing can be
+    hidden, so the file holds nothing else. */
 function hide(name, opts) {
   const seen = survey(opts);
   if (!seen.ok) return { ok: false, because: seen.because };
-  if (![...seen.missing, ...seen.unknown, ...seen.hidden].includes(name)) {
-    return { ok: false, notOffered: true, because: 'there is no restart notice for that agent' };
-  }
-  try { writeHidden([...readHidden(), name]); } catch { return { ok: false, because: 'we could not record that' }; }
+  if (seen.hidden.includes(name)) return { ok: true };
+  const group = seen.missing.includes(name) ? 'missing' : seen.unknown.includes(name) ? 'unknown' : null;
+  if (!group) return { ok: false, notOffered: true, because: 'there is no restart notice for that agent' };
+  try { writeHidden([...readHidden(), { name, group }]); } catch { return { ok: false, because: 'we could not record that' }; }
   return { ok: true };
 }
 
-/** Show the notice for an agent again. */
+/** Show the notices for an agent again. */
 function show(name) {
   const now = readHidden();
-  if (!now.includes(name)) return { ok: true };
-  try { writeHidden(now.filter((n) => n !== name)); } catch { return { ok: false, because: 'we could not record that' }; }
+  if (!now.some((e) => e.name === name)) return { ok: true };
+  try { writeHidden(now.filter((e) => e.name !== name)); } catch { return { ok: false, because: 'we could not record that' }; }
   return { ok: true };
 }
 
@@ -700,7 +709,8 @@ function survey(opts) {
   const unknownAll = jobs.mac
     ? agents.filter((x) => !x.removed && x.folder && x.job === null && x.profile && x.ran && jobs.whyNull(x.name) !== 'waiting').map((x) => x.name) : [];
   const hiddenList = readHidden();
-  const hiddenSet = new Set(hiddenList);
+  const hiddenMissing = new Set(hiddenList.filter((e) => e.group === 'missing').map((e) => e.name));
+  const hiddenUnknown = new Set(hiddenList.filter((e) => e.group === 'unknown').map((e) => e.name));
   /* #6714: a hidden name is forgotten when its agent now starts at login, was removed, or is no longer on the board, so
      a later loss shows the notice again and nothing sits hidden where Settings would never list it. "Starts at login"
      is `job === true`, which every reader gives only for a job really found: the Mac's plist or a login job covering
@@ -708,7 +718,8 @@ function survey(opts) {
      never true). Read afresh at the write (forgetHidden); written only when something changes. Residuals: an agent
      with a profile but no folder, or a folder but no profile (a stray), keeps its name and Settings cannot list it
      until the agent is whole again; a job waiting its plutil turn drops out of `hidden` for one look. */
-  const stale = hiddenList.filter((n) => !agents.some((x) => x.name === n && x.job !== true && !x.removed));
+  const stale = [...new Set(hiddenList.map((e) => e.name))]
+    .filter((n) => !agents.some((x) => x.name === n && x.job !== true && !x.removed));
   if (stale.length) { try { forgetHidden(stale); } catch { /* next look */ } }
   return {
     ok: true,
@@ -727,15 +738,16 @@ function survey(opts) {
        acted on; an unknown row is left alone. On the Mac `job` is null when a
        login job Kosmos did not write might start the agent but could not be read (#6310). */
     /* #6714: and only agents that have RUN here (hasRun), less the ones the person hid (`hidden`, below). */
-    missing: missingAll.filter((n) => !hiddenSet.has(n)),
+    missing: missingAll.filter((n) => !hiddenMissing.has(n)),
     /* #6320: the ones we could not check (job === null), the same filter as `missing` for the other answer, so the two
        lists never overlap. Only on the Mac, where the null comes from something we could not read; never for an agent
        whose only reason is a plist waiting its turn (the plutil budget). jobs.whyNull reads what the `agents` pass
        above recorded, so this must stay after it. */
-    unknown: unknownAll.filter((n) => !hiddenSet.has(n)),
+    unknown: unknownAll.filter((n) => !hiddenUnknown.has(n)),
     /* #6714: the agents that would be on the notice but the person asked not to be reminded about; Settings lists
        them with Show again. A hidden name that no longer needs a notice is not listed. */
-    hidden: [...missingAll, ...unknownAll].filter((n) => hiddenSet.has(n)),
+    /* Each kept per notice: a closed "could not check" does not hide the "will not come back" that can follow it. */
+    hidden: [...missingAll.filter((n) => hiddenMissing.has(n)), ...unknownAll.filter((n) => hiddenUnknown.has(n))],
   };
 }
 

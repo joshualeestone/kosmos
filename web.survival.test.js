@@ -206,12 +206,20 @@ test('#6714 review 7: the combined report keeps each agent\'s guessed-model sent
 
 test('#6714 review 15: after a notice closes, focus goes to the next one\'s x, never to Start at login', () => {
   const f = page.lift(SCRIPT, 'survivalFocusNext');
-  assert.match(f, /querySelector\('#survival-slot \.utoast \.ux'\)/, 'focus no longer goes to the x');
-  assert.doesNotMatch(f, /\.utoast button'\)/, 'focus can land on Start at login, so a repeated Enter starts an agent');
+  assert.match(f, /querySelector\('#survival-slot \.utoast \.utxt'\)/, 'focus no longer goes to the notice words (review 17)');
+  assert.doesNotMatch(f, /\.utoast button'\)|\.utoast \.ux'\)/, 'focus can land on a button, so a repeated Enter acts');
 });
 
 test('#6714 review 16: no focus path in the notice can land on a start button by default', () => {
   const paint = page.lift(SCRIPT, 'paintSurvival');
-  assert.match(paint, /slot\.querySelector\(key\) \|\| slot\.querySelector\('\.utoast \.ux'\)/, 'a repaint fallback no longer goes to an x');
+  assert.match(paint, /slot\.querySelector\(key\) \|\| slot\.querySelector\('\.utoast \.utxt'\)/, 'a repaint fallback no longer goes to the notice words');
   assert.doesNotMatch(paint, /\|\| slot\.querySelector\('button'\)/, 'a repaint can drop focus on Start at login');
+});
+
+test('#6714 review 17: the notice words are focusable and inert, and a poll re-checks the hold after its wait', () => {
+  assert.match(page.lift(SCRIPT, 'survivalNotice'), /class="utxt" role="status" tabindex="-1"/);
+  const paint = page.lift(SCRIPT, 'paintSurvival');
+  const afterFetch = paint.indexOf('paintSurvivalHidden(body);');
+  assert.ok(afterFetch > 0);
+  assert.match(paint.slice(afterFetch, afterFetch + 300), /if \(SURVIVAL_BUSY \|\| SURVIVAL_HELD\) return;/, 'a poll can paint over a running start');
 });

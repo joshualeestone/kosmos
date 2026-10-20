@@ -1067,19 +1067,32 @@ test('#6714 review 4: the survey forgets a name whose agent now starts at login 
   reset();
   agent('anna', { job: true });
   agent('brigitte');
-  fs.writeFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), JSON.stringify({ names: ['anna'] }));
+  fs.writeFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), JSON.stringify({ entries: [{ name: 'anna', group: 'missing' }] }));
   assert.equal(register.hide('brigitte', { platform: 'darwin' }).ok, true);
   const s = mac.survey();
   assert.deepEqual(s.hidden, ['brigitte']);
-  const onDisk = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), 'utf8')).names;
+  const onDisk = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), 'utf8')).entries.map((e) => e.name);
   assert.deepEqual(onDisk, ['brigitte'], 'anna (now starting at login) should be forgotten and brigitte kept');
 });
 
 test('#6714 review 5: a hidden name no longer on the board at all is forgotten', () => {
   reset();
   agent('brigitte');
-  fs.writeFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), JSON.stringify({ names: ['brigitte', 'gone'] }));
+  fs.writeFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), JSON.stringify({ entries: [{ name: 'brigitte', group: 'missing' }, { name: 'gone', group: 'missing' }] }));
   mac.survey();
-  const onDisk = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), 'utf8')).names;
+  const onDisk = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), 'utf8')).entries.map((e) => e.name);
   assert.deepEqual(onDisk, ['brigitte'], 'a name with no agent stayed hidden where Settings never shows it');
+});
+
+test('#6714 review 17: a closed "could not check" notice does not hide the "will not come back" one that follows', () => {
+  reset();
+  agent('brigitte');
+  // Closed while it was the uncertain notice.
+  fs.writeFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), JSON.stringify({ entries: [{ name: 'brigitte', group: 'unknown' }] }));
+  const s = mac.survey();   // the survey now proves it has no job
+  assert.deepEqual(s.missing, ['brigitte'], 'the certain warning was silenced by closing the uncertain one');
+  assert.deepEqual(s.hidden, []);
+  // CONTROL: closing the certain one does hide it.
+  assert.equal(register.hide('brigitte', { platform: 'darwin' }).ok, true);
+  assert.deepEqual(mac.survey().missing, []);
 });
