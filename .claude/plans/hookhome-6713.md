@@ -64,3 +64,7 @@ A source checkout or worktree has neither file two folders up from its engine.
   (#6601's gap); on a Mac the default-root check closes it. A stronger check (the root equals the KOSMOS_HOME setup wrote) can tighten both later.
 - **What would change my mind:** an installed Mac board whose engine is not at `<root>/app/engine`, for example a
   future layout change.
+- **A "sandbox" equal to the home is the real home** (round 16 raised it): `AGENT_WORKFORCE_HOME=$HOME` names the
+  person's own folders, so a source board launched that way leaves them alone. A board that wants to wire its own
+  folders runs with a sandbox that is not the home (every test board does).
+- **The installer fails closed** when the rule it just extracted will not load (round 15), as the board does.
