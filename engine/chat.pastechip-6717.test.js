@@ -266,3 +266,14 @@ test('kosmos#6717: async delivery: a chip appearing only after our Enter is neve
   await chat.deliverAsync('al', LONG, roster);
   assert.equal(p.state.enters, 1, 'the async retry never presses a chip that appeared after our Enter');
 }));
+
+test('kosmos#6717: a kept chip whose pane pid could not be read is never pressed', () => withAgent((roster) => {
+  pane({ enterTakes: false, pid: 'not-a-pid' });   // the pid read fails when the line is left
+  assert.equal(chat.deliver('al', LONG, roster).unsubmitted, true, 'PRECONDITION');
+  const kept = JSON.parse(fs.readFileSync(path.join(require('./store').ROOT, 'unsent-lines.json'), 'utf8'));
+  assert.equal(Object.values(kept)[0].chipPid, '', 'PRECONDITION: no pid kept');
+  const p = pane({ shown: '[Pasted text #1]', chipNo: 1, pid: 'not-a-pid' });
+  const v = chat.deliver('al', 'next', roster);
+  assert.equal(v.inputHeld, true, 'refused: nothing ties the chip to a process');
+  assert.equal(p.state.enters, 0);
+}));

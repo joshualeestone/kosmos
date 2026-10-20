@@ -16,7 +16,14 @@ design rules (m6341). Reviewer: Raiden.
 - A bracketed paste of one 1,540-character line shows as `[Pasted text #1]`; a 12-line paste as `[Pasted text #2 +12
   lines]`; the next one-line paste `[Pasted text #3]`: N rises through the session and is not reused after clearing.
 - Fold threshold: a bracketed paste of 800 characters stays as text, 1,000 folds (#2), 1,200 folds (#3).
-- Chip numbers start again at #1 after Claude Code restarts in the pane (respawn).
+- Chip numbers start again at #1 after Claude Code restarts in the pane (respawn). They do NOT start again after
+  `/clear` in the same process (#3, then `/clear`, then #4). `/compact` and `/resume` were not measured (`/compact` sends
+  the conversation to the model); the counter behaved as process-wide under `/clear`.
+- Typing, or a short paste, right after a paste that folded shows NEXT TO the chip (`[Pasted text #1]typed right
+  after`), never inside it, so a box like that is not a lone chip and is never read as ours.
+- The 800 / 1,000 fold threshold was measured with a bracketed paste; Kosmos's own unbracketed chunks did not fold here
+  at all. Where they fold, the point may differ: a line under 800 characters that folds there is not tied to us and
+  still jams, safely (nothing pressed), as before.
 - Kosmos's own way (256-byte unbracketed chunks), sent slowly or chained back to back, landed as full text here; the
   install that reported the jam got chips. Each chunk is far under the fold threshold, so a single chunk cannot fold on
   its own: a fold covers the whole paste, which is the one-chip shape this handles. Not reproduced here, stated, not
@@ -43,9 +50,14 @@ design rules (m6341). Reviewer: Raiden.
 3. **Item 2 of the card (board signal, re-queue) goes to a follow-up.** Today a refused direct message shows its
    could-not-deliver notice, a room post is held and retried when the box empties (#6256), `kosmos msg` prints "Not
    delivered" to its sender, and the tile says the box is stuck (#6249): nothing is dropped silently. Automatic re-send
-   is the new part, and the cause the card confirmed (our own chip) no longer jams.
+   is the new part, filed as #6774. The cause the card confirmed (our own long message folded into one chip) is pressed
+   now whenever it is seen before our Enter on a line of 800 characters or more (see Residuals for the rest).
 
 ## Residuals
+
+- Our own chip is tied only if it is seen at the check right before our Enter. If that read fails, or the fold is drawn
+  only after the Enter, the chip reads as someone else's: nothing is pressed and the agent stays jammed as before this
+  change, in a smaller window.
 
 - The process tie uses the pane's pid. A Kosmos agent's pane runs Claude Code as its own process (bin/agent-supervisor.sh
   starts the pane with an entry that ends in `exec "$@"`, which keeps the pid), so a restart means a new pane and a new
