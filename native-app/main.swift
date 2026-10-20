@@ -3581,14 +3581,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
                  completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         let space = challenge.protectionSpace
-        let host = space.host.lowercased()
+        // Review 4: one trailing dot is the same name (a.kosmosplus.com. is a.kosmosplus.com), so it is judged too.
+        let named = space.host.lowercased()
+        let host = named.hasSuffix(".") ? String(named.dropLast()) : named
         guard space.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = space.serverTrust,
               space.port == 443 || space.port == 0,
               let target = URL(string: "https://" + host), isKosmosPlusURL(target), !isKosmosPlusSiteURL(target)
         else { completionHandler(.performDefaultHandling, nil); return }
         // Review 1: evaluated off the main thread (it can wait on the network for revocation), then on as before.
         evaluateTrustOffMain(trust) { [weak self] trusted in
-            guard trusted else { completionHandler(.cancelAuthenticationChallenge, nil); return }
+            guard trusted else { DispatchQueue.main.async { completionHandler(.cancelAuthenticationChallenge, nil) }; return }   // review 4: on main, as every other path
             DispatchQueue.main.async {
                 guard let self else { completionHandler(.cancelAuthenticationChallenge, nil); return }   // exactly once, always
                 self.judgePin(host: host, trust: trust, completionHandler: completionHandler)
