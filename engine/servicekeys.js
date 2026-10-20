@@ -28,8 +28,16 @@ const MAX_SEQ = 2147483647;
 const MAX_SERVICE_KEYS = 3;
 const ROLES = new Set(['current', 'next', 'retiring']);
 const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-const RUST_WS = '[\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]';
-const RUST_WS_ENDS = new RegExp('^' + RUST_WS + '+|' + RUST_WS + '+$', 'g');
+const RUST_WS = new Set([...'\t\n\v\f\r \u0085\u00a0\u1680\u2028\u2029\u202f\u205f\u3000']);
+for (let c = 0x2000; c <= 0x200a; c += 1) RUST_WS.add(String.fromCharCode(c));
+// str::trim, in linear time: a regex for the trailing run backtracks quadratically over a long run inside the text.
+const rustTrim = (s) => {
+  let a = 0;
+  let b = s.length;
+  while (a < b && RUST_WS.has(s[a])) a += 1;
+  while (b > a && RUST_WS.has(s[b - 1])) b -= 1;
+  return s.slice(a, b);
+};
 
 /* The small-order (weak) Ed25519 points, as libsodium lists them. A point is weak when it equals one of these in its
    first 31 bytes and in the low 7 bits of the last (the sign bit is ignored, so both spellings of each are caught).
@@ -81,7 +89,7 @@ function kidOf(raw) {
 /** The pinned coordinator key (base64url of the 32 raw bytes, as the tunnel writes coordinator_pubkey) as its SPKI
  * base64 spelling, the one a set lists; null for anything else. */
 function pinnedSpki(pinned) {
-  const s = String(pinned == null ? '' : pinned).replace(RUST_WS_ENDS, '');   // as the tunnel trims it (str::trim)
+  const s = rustTrim(String(pinned == null ? '' : pinned));   // as the tunnel trims it (str::trim)
   if (!/^[A-Za-z0-9_-]{43}$/.test(s)) return null;
   const raw = Buffer.from(s, 'base64url');
   if (raw.length !== 32 || raw.toString('base64url') !== s) return null;
@@ -174,7 +182,7 @@ function verifyServiceKeySet(opts) {
   }
   const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes == null ? '' : bytes);
   // Trimmed as Rust's str::trim does (Unicode White_Space: U+0085 yes, U+FEFF no), not as String.prototype.trim.
-  const sigText = String(sig == null ? '' : sig).replace(RUST_WS_ENDS, '');
+  const sigText = rustTrim(String(sig == null ? '' : sig));
   // Strict base64, as the relay's decoder: padded, and canonical (re-encoding gives the same text, so no trailing bits).
   let signature = /^[A-Za-z0-9+/]{86}==$/.test(sigText) ? Buffer.from(sigText, 'base64') : Buffer.alloc(0);
   if (signature.toString('base64') !== sigText) signature = Buffer.alloc(0);
@@ -238,7 +246,7 @@ function pinnedIsListed(pinned, verified) {
   // A pin that is not text (junk from a failed read) is no answer, as junk recovery keys are refused (iteration 13).
   if (pinned != null && typeof pinned !== 'string' && !Buffer.isBuffer(pinned)) return null;
   // No pin yet (before setup, or an empty file) is not a mismatch either: nothing was pinned to compare.
-  if (String(pinned == null ? '' : pinned).replace(RUST_WS_ENDS, '') === '') return null;
+  if (rustTrim(String(pinned == null ? '' : pinned)) === '') return null;
   const spki = pinnedSpki(pinned);
   return !!spki && verified.keys.some((k) => k && k.pub === spki);
 }

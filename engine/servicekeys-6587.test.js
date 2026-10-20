@@ -171,6 +171,18 @@ test('every Rust whitespace code point is trimmed from the .sig and the pin, and
   }
 });
 
+test('the trim takes linear time: a long run of whitespace inside a pin or .sig is answered at once (review 15)', () => {
+  const keys = check(VECTOR, VECTOR_SIG);
+  const pin7 = rawOf(K7).toString('base64url');
+  assert.equal(sk.pinnedIsListed(pin7.slice(0, 20) + ' ' + pin7.slice(20), keys), false, 'CONTROL: whitespace inside is not trimmed');
+  // The coordinator sends the pin, so it chooses these bytes. A backtracking trim takes hours on a million spaces.
+  const long = 'a' + ' '.repeat(1000000) + 'a';
+  const t0 = Date.now();
+  assert.equal(sk.pinnedIsListed(long, keys), false, 'a pin with a million spaces inside');
+  assert.equal(check(VECTOR, long).ok, false, 'a .sig with a million spaces inside');
+  assert.ok(Date.now() - t0 < 2000, 'answered in ' + (Date.now() - t0) + ' ms');
+});
+
 test('the .sig is trimmed as Rust trims (U+0085 is whitespace, U+FEFF is not)', () => {
   assert.equal(check(VECTOR, '\u0085' + VECTOR_SIG + '\n').ok, true, 'U+0085 trimmed');
   refused(check(VECTOR, '\ufeff' + VECTOR_SIG), /not signed/, 'a BOM is not trimmed');
