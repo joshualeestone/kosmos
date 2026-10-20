@@ -89,3 +89,10 @@ reference to sleep listed and read); not checked across the rest of tools/.
   reads as the stand-in rather than the timeout wrapper) --> FIXED (comments only). [NIT] data-root's
   `pgrep -fx 'sleep 37'` can count another agent's sleep 37 (a false red, never a kill) --> NOT CHANGED: pre-existing,
   the latent guard's purpose, and the box-wide pkill beside it is already gone.
+
+## Validation (on 3d41e354, tree untouched throughout)
+- 22524 tests, 3 failed, none this branch's (it changes only tools/test-*.sh; the node suite never runs them):
+  engine/musefront.test.js "a long turn keeps saying working" and engine/remove.test.js "a burst of failing restarts
+  waits once" each passed run alone (load timing); engine/communityfollow.test.js #4774 W1 fails on CLEAN origin/main
+  too (3/3 alone at load 42-50): a 20 ms slack against a 100 ms timeout, filed as kosmos#6754. AUDIT_RC 0. The shell
+  suite this card changes was run test by test above (every touched test green alone; data-root's 4 identical to main).
