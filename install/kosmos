@@ -1615,12 +1615,25 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
 # it holds the port as ours and is working (a 25-agent board is busy the moment its agents reconnect), so
 # the start reports it running and slow, instead of "did not come up" (and the installer's "would not
 # start") on a board that is serving.
-# #6586: wait for a recorded board that is alive but not answering yet (one launchd is bringing back). No pid is
-# passed to _await_board_up on purpose: with a pid it treats the board as one this shell launched, and in a
-# sandbox it would stop it again. This board is launchd's, as an unpidded wait assumes.
-_await_recorded_board() { # $1: its pid (for the words only)
-  say "A Kosmos board from this install is already starting (process $1). Waiting for it to answer."
-  _await_board_up
+# #6586: wait for a recorded board that is alive but not answering YET (most often one launchd is bringing back after
+# an update's pause), with the same bound a fresh start's wait has. Its own loop, not _await_board_up: this board was
+# not launched by this command, so nothing here may signal it or speak of launching it.
+#   0  it answers (or is busy, for a plain start)    1  still silent, or this shell cannot reach it: stuck
+#   2  it exited while we waited: the caller clears its pidfile and starts one
+_await_recorded_board() { # $1: its pid
+  local _i
+  say "A Kosmos board from this install is already running (process $1) but not answering yet; waiting for it."
+  for _i in $(seq 1 30); do
+    if healthy --once; then say "Kosmos is running at $URL"; return 0; fi
+    # Busy is up for a plain start. Never for a reclaim (KOSMOS_RECLAIM_BUSY=1): that caller already judged it stale.
+    if [ "$HEALTH_STATE" = busy ] && [ "${KOSMOS_RECLAIM_BUSY:-}" != 1 ]; then
+      say "Kosmos is running at $URL (busy right now, so it is slow to answer)"; return 0
+    fi
+    [ "$HEALTH_STATE" = unreachable ] && return 1   # this shell cannot reach it: waiting cannot change that
+    kill -0 "$1" 2>/dev/null || return 2
+    sleep 0.5
+  done
+  return 1
 }
 _await_board_up() {
   local _i _pid="${1:-}" _unreach_seen=0
@@ -1866,8 +1879,16 @@ cmd_start() {
     # #6586: most often this board is not stuck but STARTING: launchd brought it back seconds ago after an
     # update's pause, and it answers within about 20 s. It gets the same bounded wait a fresh start gets; only a
     # board still silent after that is called stuck.
-    if _await_recorded_board "$_oldpid"; then return 0; fi
-    die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. $(_stop_advice)"
+    local _arb=0
+    _await_recorded_board "$_oldpid" || _arb=$?
+    [ "$_arb" -eq 0 ] && return 0
+    if [ "$_arb" -eq 2 ]; then
+      # It ended while starting: nothing is running now, so this start goes ahead as a normal one.
+      if [ "$(cat "$PIDFILE" 2>/dev/null)" = "$_oldpid" ]; then rm -f "$PIDFILE" 2>/dev/null || true; fi
+      say "That board (process $_oldpid) exited while starting; starting Kosmos."
+    else
+      die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. $(_stop_advice)"
+    fi
   fi
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
