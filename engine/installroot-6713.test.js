@@ -57,6 +57,27 @@ test('#6713: measured on this computer: this worktree is not an installed Kosmos
   if (fs.existsSync(firm)) assert.equal(installroot.installRoot({ platform: 'darwin', root: firm }), firm, 'the default root under another spelling is still the default, by identity');
 });
 
+test('#6713: the refusal promises nothing (a custom-KOSMOS_HOME install is never wired by Kosmos)', () => {
+  assert.doesNotMatch(installroot.NOT_INSTALLED, /sets them up|will set|installer/);
+});
+
+test('#6713: installRoot on a real folder layout uses identity: the default root, spelled through a link, is the default', (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-6713-ir-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const root = path.join(home, '.local', 'share', 'kosmos');
+  fs.mkdirSync(path.join(root, 'runtime', 'bin'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'app'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'runtime', 'bin', 'node'), '');
+  fs.writeFileSync(path.join(root, 'app', 'server.js'), '');
+  const link = path.join(home, 'kosmos-link');
+  fs.symlinkSync(root, link);
+  assert.equal(installroot.installRoot({ platform: 'darwin', home, root: link }), link, 'a link to the default root is the default root');
+  const other = path.join(home, 'other');
+  fs.mkdirSync(path.join(other, 'runtime', 'bin'), { recursive: true }); fs.mkdirSync(path.join(other, 'app'), { recursive: true });
+  fs.writeFileSync(path.join(other, 'runtime', 'bin', 'node'), ''); fs.writeFileSync(path.join(other, 'app', 'server.js'), '');
+  assert.equal(installroot.installRoot({ platform: 'darwin', home, root: other }), null, 'CONTROL: the same layout elsewhere is not');
+});
+
 test('#6713: leaveAlone skips only a non-installed board writing into the real home', () => {
   const home = '/Users/x';
   const file = '/Users/x/.claude-account-b/settings.json';
@@ -156,8 +177,7 @@ function bundleAt(kh) {
   for (const f of fs.readdirSync(__dirname)) if (f.endsWith('.js') && !f.endsWith('.test.js')) fs.copyFileSync(path.join(__dirname, f), path.join(eng, f));
   fs.writeFileSync(path.join(kh, 'app', 'server.js'), '// stand-in\n');
   fs.mkdirSync(path.join(kh, 'runtime', 'bin'), { recursive: true });
-  fs.copyFileSync(process.execPath, path.join(kh, 'runtime', 'bin', 'node'));
-  fs.chmodSync(path.join(kh, 'runtime', 'bin', 'node'), 0o755);
+  fs.writeFileSync(path.join(kh, 'runtime', 'bin', 'node'), '');   // only its presence is checked (installRoot)
   fs.mkdirSync(path.join(kh, 'app', 'bin'), { recursive: true });
   fs.copyFileSync(path.join(__dirname, '..', 'install', 'kosmos-report-hook.sh'), path.join(kh, 'app', 'bin', 'kosmos-report-hook.sh'));
 }
@@ -191,7 +211,7 @@ test('#6713: setup.sh says, for exit 3, that the home was left alone, and never 
   assert.ok(a > 0, 'the message block moved in setup.sh');
   const block = sh.slice(a, sh.indexOf('\nesac', a) + 5);
   const say = (rc) => spawnSync('/bin/sh', ['-c', 'info() { echo "$*"; }; _hooks_rc=' + rc + '\n' + block], { encoding: 'utf8' }).stdout;
-  assert.match(say(3), /leaves the Claude settings in your\s+home alone/);
+  assert.match(say(3), /leaves the Claude settings in your home alone/);
   assert.doesNotMatch(say(3), /installed Kosmos sets/);
   assert.match(say(0), /report what they are doing themselves/, 'CONTROL: exit 0 keeps its line');
 });
