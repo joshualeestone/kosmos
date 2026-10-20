@@ -56,6 +56,13 @@ the instruction tells agents to leave such a post to its owner.
 - A hand-off that also has an ambiguous @-word (ambiguousMentions) is not one owner. An outside row's display name never
   makes a local agent its author. A word-like name can match the plain-text check by accident; noted, safe direction.
 
+## Review 5 changes
+- A post since countFrom that @-names the replier, which the replier has not spoken after, is still owed an answer: a
+  later hand-off to someone else does not swallow that answer (agents rarely set replyTo).
+- The newest-first scan stops at countFrom (nothing older can be fresh).
+- The owner test checks the roster's display name (an earlier test in the file can leave "Mara Lisa"), and each block
+  clears the log; the WHOLE messages.test.js file is run, not only the #6608 tests (181/181).
+
 ## Tests (engine/messages.test.js, engine/defaults.test.js, cli.room-reopen-2710.test.js, tools.windows-kosmos-cli-570.test.js)
 - One owner named by the person: leo's first "agreed" refused (ack_only, names the owner, no quote characters, no
   hold words, not typed, not stored, no valve or refused row); mara's (the owner's) "on it" placed; leo's content
