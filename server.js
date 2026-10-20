@@ -18577,7 +18577,10 @@ const server = http.createServer(async (req, res) => {
   /* #6714: stop reminding about one agent's restart notice, or show it again (Settings > Computer). A notice, not a
      fix: neither changes whether the agent comes back. Hiding silences a warning, so it is behind the remote step-up
      (REMOTE_STEP_UP_EXACT); showing only brings one back, so it is not. */
-  if ((pathname === '/api/register/hide' || pathname === '/api/register/show') && req.method === 'POST') {
+  /* Two literal conditions, not one combined: server.remotestepup-6595.test.js finds every write route by this shape. */
+  const registerNoticeRoute = (pathname === '/api/register/hide' && req.method === 'POST') ? 'hide'
+    : (pathname === '/api/register/show' && req.method === 'POST') ? 'show' : null;
+  if (registerNoticeRoute) {
     readBody(req).then((raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
@@ -18585,7 +18588,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { error: 'we could not read that request' }); return;
       }
       let out;
-      try { out = pathname === '/api/register/hide' ? register.hide(body.name) : register.show(body.name); }
+      try { out = registerNoticeRoute === 'hide' ? register.hide(body.name) : register.show(body.name); }
       catch { out = { ok: false, because: 'we could not record that' }; }
       /* 400 only for a name with no notice (the page reads that as already done); anything else did not happen. */
       sendJson(res, out.ok ? 200 : (out.notOffered ? 400 : 500), out);

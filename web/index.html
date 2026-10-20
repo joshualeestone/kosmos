@@ -48052,17 +48052,19 @@ document.addEventListener('click', async (e) => {
     const names = hide.getAttribute('data-survival-hide').split(' ').filter(Boolean);
     hide.disabled = true;
     let ok = true;
+    let stepUpSays = '';   // a remote session asked to sign in again gets the board's own words (review 13)
     for (const name of names) {
       try {
         const r = await fetch('/api/register/hide', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
         /* A refusal that says the agent has no notice any more (it was started, or removed) is already done, not a
            failure; any other refusal is one (review 6). */
         const said = await r.json().catch(() => null);
+        if (!r.ok && said && /^remote_step_up/.test(String(said.code || '')) && typeof said.error === 'string') stepUpSays = said.error;
         ok = ok && (r.ok || (r.status === 400 && !!said && said.notOffered === true));
       } catch { ok = false; }
     }
     /* Taken down only once the board has recorded it: an × that did not stick leaves the notice there, never a dead button. */
-    if (!ok) { hide.disabled = false; survivalSayIn(hide, 'We could not record that just now. Try again.'); return; }
+    if (!ok) { hide.disabled = false; survivalSayIn(hide, stepUpSays || 'We could not record that just now. Try again.'); return; }
     hide.closest('.utoast').remove();
     await paintSurvival();
     refreshSurvivalHidden();   // the Settings list too, even while a report holds the notices (review 9)
@@ -48119,6 +48121,8 @@ document.addEventListener('click', async (e) => {
       : { method: 'POST' });
     body = await res.json().catch(() => null);
   } catch { body = null; }
+  /* A remote session asked for a fresh sign-in: the board's own sentence says what to do (review 13). */
+  const stepUp = body && /^remote_step_up/.test(String(body.code || '')) && typeof body.error === 'string' ? body.error : '';
   if (!body || body.ok !== true || !Array.isArray(body.results)) {
     btn.disabled = false;
     btn.textContent = label;
@@ -48126,7 +48130,7 @@ document.addEventListener('click', async (e) => {
        ask the board again, so the stale button goes (review 8). */
     const stale = !!(body && body.refused);
     survivalSayIn(btn, stale ? 'This changed on another screen. Showing what is true now.'
-      : ((body && body.because) ? body.because : 'That did not go through, and nothing was changed. Try again.'));
+      : stepUp || ((body && body.because) ? body.because : 'That did not go through, and nothing was changed. Try again.'));
     SURVIVAL_BUSY = false;
     if (stale) { const sl = document.getElementById('survival-slot'); if (sl) delete sl.dataset.v; setTimeout(paintSurvival, 1500); }
     return;

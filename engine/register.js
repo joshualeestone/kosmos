@@ -705,7 +705,8 @@ function survey(opts) {
      notice comes back rather than staying silently closed. Written only when something changes; best effort. */
   /* A removed agent's name goes too (review 3), so an agent re-made under it does not start out hidden. */
   /* And a name no longer on the board at all (forgotten, or its files deleted), so it cannot sit hidden where Settings
-     would never show it (review 5). */
+     would never show it (review 5). (An agent with a profile but no folder keeps its hidden name, and Settings cannot
+     list it until the folder is back: a small residual, review 13.) */
   /* (A hidden agent whose job is not readable yet, waiting its turn for plutil, is kept but drops out of `hidden` for
      that look, so Settings can miss it for one poll. It comes back on the next.) */
   const stale = hiddenList.filter((n) => !agents.some((x) => x.name === n && x.job !== true && !x.removed));

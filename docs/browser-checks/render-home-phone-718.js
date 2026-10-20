@@ -3,11 +3,11 @@
  * #718 row 6: the home grid and the agents list on a phone.
  *
  * The harness flagged three small targets there at 375px: the agent names (16px tall),
- * "Answer" (63x24) and "Set them to start at login" (34px). Only the last is a real
+ * "Answer" (63x24) and the restart notice's start button (then "Set them to start at login", 34px). Only the last is a real
  * thumb problem: a tap anywhere on an agent's card or row opens that agent (the board's
  * one click handler), and "Answer" has its own touch hit area (render-waiting-phone-718).
  * This drives the REAL page from the REAL server and reads, at the four harness sizes:
- *   - "Set them to start at login" is at least 44px tall;
+ *   - the restart notice's "Start at login" (and its x, #6714) is at least 44px tall;
  *   - a tap on an empty part of a card (grid) and of a row (list), away from its name
  *     and any button, opens that agent, so the 16px name is not the target;
  *   - the page is no wider than the screen, in both layouts;

@@ -60,6 +60,7 @@ const STEP_UP_ROUTES = [
   '/api/accounts/openai/subscription/start', '/api/accounts/grok/subscription/start', '/api/antigravity/signin',
   '/api/antigravity/win32signin', '/api/muse/signin', '/api/muse/signin/retry', '/api/github/start',
   '/api/github-device/start', '/api/vercel/start',
+  '/api/register/hide',   // #6714: closing a restart notice silences a warning
   '/api/agents', '/api/team', '/api/connect-agent', '/api/worlds', '/api/worlds/import', '/api/agent/scout/restore',
   '/api/register', '/api/remote/second-reset', '/api/project/p1/webhooks', '/api/org/enroll',
   '/api/federation/join', '/api/federation/invite', '/api/federation/own-code',
@@ -171,6 +172,7 @@ test('R01: the gate passes update and agent creation for a fresh remote session 
    reason. A new such route that forgets the gate turns this red. And every gated route is a real route, so a rename
    cannot leave the gate guarding a path nothing serves. */
 const EXEMPT = {
+  'POST /api/register/show': 'brings a closed restart notice back; nothing is started or silenced (#6714)',
   'POST /api/agent-import': 'parses a file into instructions; the create it feeds is gated',
   'POST /api/agent-import-file': 'parses a file; the create it feeds is gated',
   'POST /api/agent-import-folder': 'parses a folder; the create it feeds is gated',
