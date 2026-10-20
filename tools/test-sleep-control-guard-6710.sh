@@ -101,10 +101,14 @@ for f in "$HERE"/test-*.sh; do
   if allowlisted "$base"; then continue; fi
   scanned=$((scanned + 1))
   file_hits=""
+  # Pre-filter to lines that even contain an integer sleep, so the common no-sleep line costs
+  # ONE grep per file rather than the matcher's handful per line (the whole suite scans ~140
+  # files; the per-line form crawled on a loaded box). The pre-filter is deliberately BROADER
+  # than the matcher's own precondition, so it can never drop a line the matcher would flag.
   while IFS= read -r ln || [ -n "$ln" ]; do
     _is_sleep_control "$ln" && file_hits="$file_hits
     $ln"
-  done < "$f"
+  done < <(grep -E 'sleep[[:space:]]+[0-9]' "$f" 2>/dev/null)
   if [ -n "$file_hits" ]; then
     bad "$base has a bare-sleep control (convert to perl -e 'select(...)', or add # sleep-control-ok with a reason):$file_hits"
   else
