@@ -18,7 +18,11 @@
 # Usage: source this file, then `tar_metadata_gate <tarball> || exit 1`.
 # Prints what it found and returns 1 when the tarball carries this Mac's file metadata, or when it cannot look.
 
-tar_metadata_gate() {
+# The gate: the header layer, then (when it passes) what bsdtar extracts. Review 8: the header layer is its own
+# function so its guards are tested apart from the extraction layer, which otherwise refuses their fixtures first.
+tar_metadata_gate() { tar_metadata_headers "$1" || return 1; tar_metadata_extracted "$1"; }
+
+tar_metadata_headers() {
   local tarball="$1" out rc
   [ -f "$tarball" ] || { echo "FAIL: the tarball metadata gate has no tarball at $tarball" >&2; return 1; }
   /usr/bin/gzip -t "$tarball" 2>/dev/null || { echo "FAIL: the tarball metadata gate could not read all of $tarball" >&2; return 1; }
@@ -101,7 +105,7 @@ tar_metadata_gate() {
   local n dbl xat
   n="$(printf '%s\n' "$out" | /usr/bin/sed -n 's/^N //p')"; dbl="$(printf '%s\n' "$out" | /usr/bin/sed -n 's/^DBL //p')"; xat="$(printf '%s\n' "$out" | /usr/bin/sed -n 's/^XAT //p')"
   [ "${n:-0}" -gt 0 ] || { echo "FAIL: the tarball metadata gate found no entries in $tarball" >&2; return 1; }
-  [ "${dbl:-1}" = 0 ] && [ "${xat:-1}" = 0 ] && { tar_metadata_extracted "$tarball"; return $?; }
+  [ "${dbl:-1}" = 0 ] && [ "${xat:-1}" = 0 ] && return 0
   [ "${dbl:-0}" = 0 ] || {
     echo "FAIL: $dbl AppleDouble entries in $(basename "$tarball") (#6678), first ones:" >&2
     printf '%s\n' "$out" | /usr/bin/sed -n 's/^FIRST /  /p' >&2

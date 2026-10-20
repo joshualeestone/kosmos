@@ -5,7 +5,7 @@
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/lib/tar-metadata-gate.sh"
-T="$(mktemp -d "${TMPDIR:-/tmp}/tar-metadata-gate-6678.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/tar-metadata-gate-6678.XXXXXXXXXX")" || { echo "FAIL  could not make a scratch folder"; exit 1; }; trap 'rm -rf "$T"' EXIT
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
@@ -75,7 +75,7 @@ else fail "an AppleDouble entry with a long path must be refused"; fi
 # Review 1: a GNU long name (an L entry) is the next entry's name. Packed with --format gnutar and a deep path, the
 # ._K entry's own header holds only the first 100 bytes of its path.
 COPYFILE_DISABLE=1 /usr/bin/tar --format gnutar -czf "$T/gnu.tgz" -C "$T/l" app
-if ! tar_metadata_gate "$T/gnu.tgz" 2>/dev/null; then pass "an AppleDouble entry behind a GNU long name is refused"
+if ! tar_metadata_headers "$T/gnu.tgz" 2>/dev/null; then pass "an AppleDouble entry behind a GNU long name is refused (the header layer alone)"
 else fail "an AppleDouble entry with a GNU long name must be refused"; fi
 
 # Review 1: a pax path record (path=app/._K) ahead of an entry whose own header says app/K. bsdtar never writes this
@@ -91,7 +91,7 @@ mkhdr() { /usr/bin/perl -e '
   mkhdr "PaxHeader/K" x $(( ${#r} + 1 )); printf '%s\n' "$r"; /usr/bin/head -c $(( 512 - ${#r} - 1 )) /dev/zero
   mkhdr "app/K" 0 2; printf 'x\n'; /usr/bin/head -c 510 /dev/zero; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/pax.tgz"
 paxn="$(/usr/bin/gzip -dc "$T/pax.tgz" | /usr/bin/head -c 600 | LC_ALL=C /usr/bin/grep -a -c 'path=app/._K')"
-if [ "$paxn" = 1 ] && ! tar_metadata_gate "$T/pax.tgz" 2>/dev/null; then pass "an entry whose pax path is an AppleDouble name is refused (its header says app/K)"
+if [ "$paxn" = 1 ] && ! tar_metadata_headers "$T/pax.tgz" 2>/dev/null; then pass "an entry whose pax path is an AppleDouble name is refused (its header says app/K)"
 else fail "a pax path naming an AppleDouble entry must be refused (fixture holds it: $paxn)"; fi
 { mkhdr "app/K" 0 2; printf 'x\n'; /usr/bin/head -c 510 /dev/zero; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/plain-made.tgz"
 if tar_metadata_gate "$T/plain-made.tgz" 2>/dev/null; then pass "CONTROL: the same hand-made entry without the pax path passes (the fixture maker is sound)"
@@ -136,7 +136,7 @@ else fail "CONTROL: a well-formed attribute record was not read as one: $out"; f
 # A pax path followed by a GNU long name: both are names the entry could be extracted under, so both are checked.
 paxtar "17 path=app/._P2
 " L:app/ok2 app/ok2 > "$T/paxL.tgz"
-if tar_metadata_gate "$T/paxL.tgz" 2>&1 | /usr/bin/grep -q 'AppleDouble entries'; then pass "a pax path naming an AppleDouble entry is still seen when a GNU long name follows it"
+if tar_metadata_headers "$T/paxL.tgz" 2>&1 | /usr/bin/grep -q 'AppleDouble entries'; then pass "a pax path naming an AppleDouble entry is still seen when a GNU long name follows it"
 else fail "a pax path followed by a long name must still be checked"; fi
 
 # Review 3: more of this Mac metadata, and records that would desynchronise the reader from bsdtar.
@@ -268,7 +268,7 @@ else fail "trailing data must be refused whatever pipefail says"; fi
 
 # Review 1: a header whose checksum does not match is refused, never read as something else.
 { mkhdr "app/K" 0 2 | /usr/bin/perl -pe 'BEGIN { binmode STDIN; binmode STDOUT } substr($_, 0, 1) = "b" if $. == 1'; printf 'x\n'; /usr/bin/head -c 510 /dev/zero; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/badsum.tgz"
-if ! tar_metadata_gate "$T/badsum.tgz" 2>/dev/null; then pass "a header whose checksum does not match is refused"
+if ! tar_metadata_headers "$T/badsum.tgz" 2>/dev/null; then pass "a header whose checksum does not match is refused (the header layer alone)"
 else fail "a damaged header must be refused"; fi
 
 for B in "$HERE/build-kosmos-bundle.sh" "$HERE/build-tmux-bundle.sh"; do

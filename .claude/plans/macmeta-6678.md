@@ -95,6 +95,14 @@ an extended attribute. So both can go.
   passes, nothing left; red with the pre-scan permission restore removed). UNTESTED BACKSTOPS, stated: the `xattr -s`
   probe failing, a scan's own failure (`|| scan=1`), and the leftover-folder check cannot be reached by any tarball on
   this Mac (with permissions and ACLs stripped, removal always succeeds), so their mutants are equivalent here.
+- **Review 8 (sonnet):** no hole found, but the extraction layer had come to refuse several header-layer fixtures
+  first, so the GNU long-name, checksum and pax-path guards could be removed with the test still green. The header
+  layer is now its own function (`tar_metadata_headers`, called by `tar_metadata_gate` before the extraction layer)
+  and those arms call it directly; each of the three mutants is red again. Also: the test's own scratch folder is
+  checked, `test:shell` runs `bash -n` on the new lib as it does on its sibling, and the extraction layer's `._` name
+  scan joins the untested backstops (every forged `._` entry tried is refused earlier, by the header layer or by
+  bsdtar failing to unpack it). Not measured here: the CI runner's macOS and bsdtar; the first PR run of `test:shell`
+  is that check.
 - **Refuse, not strip after the fact.** A gate that edits the tarball would change the bytes after signing-adjacent
   checks; refusing keeps the pack line the only place the bytes are made.
 - **Both tarballs.** The tmux bundle is built the same way, so it gets the same line and gate.
@@ -103,7 +111,6 @@ an extended attribute. So both can go.
 
 That bsdtar on the person's Mac extracts exactly as /usr/bin/tar on the build Mac does (the extraction layer
 stands in for the install). Both are the system bsdtar; a different macOS version could fold metadata differently.
-
 
 That nothing the Mac needs at install time is held in an extended attribute. Checked for the 0.7.60 tarball (only
 `com.apple.macl`, a per-machine record), not for every future file. If a later file needs one, the build will refuse
