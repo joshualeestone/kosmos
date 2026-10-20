@@ -208,3 +208,22 @@ test('#6589 (review 9): a sign-out and a device removal forget the cache, and th
   assert.match(server, /accountComputers\.fetchComputers\(\)\n\s+\.then\(\(r\) => \{ if \(r && r\.ok\) remote\.warmTlsPins\(r\.computers\); sendJson\(res, 200, r\); \}\)/);
   assert.match(src, /function forgetTlsPins\(\) \{ tlsPinGeneration \+= 1; tlsPinCache\.clear\(\); tlsPinWarmQuiet\.clear\(\); \}/);
 });
+
+test('#6589 (review 11): a cached answer expires after five minutes and is asked again; signing out answers required', async () => {
+  enrol();
+  const realNow = Date.now;
+  try {
+    await remote.tlsPin('n.kosmosplus.com');
+    await remote.tlsPin('n.kosmosplus.com');
+    assert.equal(recorded().filter((r) => r[4] === 'https://n.kosmosplus.com').length, 1, 'cached within the five minutes');
+    const later = realNow() + remote.TLS_PIN_TTL_MS + 1;
+    Date.now = () => later;
+    await remote.tlsPin('n.kosmosplus.com');
+    assert.equal(recorded().filter((r) => r[4] === 'https://n.kosmosplus.com').length, 2, 'asked again once it expired');
+  } finally {
+    Date.now = realNow;
+  }
+  // The signing-out rule is a guard at the top of tlsPin (a full sign-out is not driven here): pinned to its place.
+  const src = fs.readFileSync(nodePath.join(__dirname, 'remote.js'), 'utf8');
+  assert.match(src, /async function tlsPin\(address, \{ fresh = false \} = \{\}\) \{\n[^\n]*\n\s+if \(forgetting\) return \{ ok: true, because: null, data: \{ state: 'required'/);
+});
