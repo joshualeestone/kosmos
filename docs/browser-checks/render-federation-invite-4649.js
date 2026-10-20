@@ -1123,11 +1123,8 @@ const closeAll = (page) => page.evaluate(() => {
     const { ctx, page } = await newPage(1280, SHOW);
     await page.evaluate((a) => { window.__members = a; }, answer(ALL));
     await openProjectIn(page, 'tabs');
-    // kosmos#6681 review 1: an address left from an earlier invite on this page must not ride along into this one.
-    await page.evaluate(() => { document.getElementById('fedinv-email').value = 'stale@example.com'; });
     await act(page, 'i:inv-old');
     const sheet = await page.evaluate(() => ({
-      email: document.getElementById('fedinv-email').value,
       open: !document.getElementById('fedinv-modal').hidden,
       label: document.getElementById('fedinv-label').value,
       agent: document.getElementById('fedinv-kind-agent').checked,
@@ -1136,6 +1133,12 @@ const closeAll = (page) => page.evaluate(() => {
     }));
     check('B7 "Make a new code" opens the invite sheet with the label and kind filled in, focus on Make',
       sheet.open && sheet.asking && sheet.label === 'Old Friend' && sheet.agent && sheet.focus === 'fedinv-make', JSON.stringify(sheet));
+    // kosmos#6681 review 1: an address typed and then left (Cancel) must not ride along into the next invite. The way a
+    // person does it: type, Cancel, open again.
+    await page.fill('#fedinv-email', 'stale@example.com');
+    await page.click('#fedinv-cancel');
+    await act(page, 'i:inv-old');
+    sheet.email = await page.evaluate(() => document.getElementById('fedinv-email').value);
     const before = await gets(page);
     await page.evaluate(() => { window.__posts.length = 0; });
     await setMembers(page, answer([row({ invite_id: 'inv-new', label: 'Old Friend', kind: 'agent', made_at: D(OCT, 4), expires_at: D(OCT, 11) })].concat(ALL)));
