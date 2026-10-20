@@ -98,6 +98,10 @@ test('refused: the release key list type (domain separation), and a document tha
   assert.equal(r.ok, false);
   assert.match(r.why, /not a service key set/);
   refused(check(...signed('[1]\n')), /not a service key set/, 'not an object');
+  refused(check(...signed('null\n')), /not a service key set/, 'null');
+  refused(check(...signed(doc({ service_keys: null }))), /names no key/, 'service_keys null');
+  refused(check(...signed(doc({ service_keys: { length: 1 } }))), /names no key/, 'service_keys an object with a length');
+  refused(check(...signed(doc({ service_keys: [null] }))), /entry that is not one/, 'a null entry');
   // CONTROL: the same document with its own type is taken, so the arm above refused on the type alone.
   assert.equal(check(...signed(doc({}))).ok, true);
 });
@@ -128,6 +132,10 @@ test('refused: JSON the relay refuses (bad UTF-8, a lone surrogate, a number out
   // CONTROLS: a real surrogate pair, a large finite number, and 127 nested (the deepest the relay takes) are fine.
   assert.equal(check(...signedBuf(withExtra(Buffer.from('"\\ud83d\\ude00"')))).ok, true, 'a surrogate pair');
   assert.equal(check(...signedBuf(withExtra(Buffer.from('1e300')))).ok, true, 'a finite large number');
+  for (const lit of ['true', 'false', 'null']) assert.equal(check(...signedBuf(withExtra(Buffer.from(lit)))).ok, true, 'an unknown member that is ' + lit);
+  // A member named seq INSIDE an entry, after the top-level seq, does not stand in for it.
+  const reordered = '{"type": "kosmos-service-keys", "seq": 1, "issued": "2025-08-24", "service_keys": [{"kid": "_oEsEvOrTOY", "pub": "' + K7_PUB + '", "role": "current", "seq": "zz"}]}\n';
+  assert.equal(check(...signed(reordered)).ok, true, 'a nested seq AFTER the top-level one');
   assert.equal(check(...signedBuf(withExtra(Buffer.from('['.repeat(126) + ']'.repeat(126))))).ok, true, '127 nested');
   // A leading BOM on the document is refused, as by the relay.
   refused(check(...signedBuf(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(base)]))), /not readable/, 'a BOM');
@@ -148,10 +156,11 @@ test('refused: a seq out of range or not a plain integer (1.0 and 1e0 read as 1 
 });
 
 test('refused: an issue date that is not a real YYYY-MM-DD', () => {
-  for (const d of ['2025-02-29', '2025-13-01', '0000-01-01', '2025-1-01', '2025-08-24T00:00', 20250824]) {
+  for (const d of ['2025-02-29', '2025-13-01', '0000-01-01', '2025-1-01', '2025-08-24T00:00', 20250824, '2025-08-00', '1900-02-29']) {
     refused(check(...signed(doc({ issued: d }))), /issue date/, 'issued ' + d);
   }
   assert.equal(check(...signed(doc({ issued: '2024-02-29' }))).ok, true, 'CONTROL: a leap day');
+  assert.equal(check(...signed(doc({ issued: '2000-02-29' }))).ok, true, 'CONTROL: a 400-year leap day');
 });
 
 test('refused: the keys break a rule (none, four, a wrong kid, zero or two current, the root, twice, weak, non-canonical)', () => {
@@ -202,6 +211,19 @@ test('refused: the keys break a rule (none, four, a wrong kid, zero or two curre
       assert.equal(sk.rawKey(spki), null, 'weak ' + raw.toString('hex'));
     }
   }
+  // Genuine keys are not refused: sixty real keys (about half with the sign bit set) all pass, and a weak point
+  // with one of its first 31 bytes changed is not weak (only the whole point is).
+  let signSet = 0;
+  for (let b = 1; b <= 60; b += 1) {
+    const kp = keyFromSeed(b);
+    if (rawOf(kp)[31] & 0x80) signSet += 1;
+    assert.ok(sk.rawKey(spkiOf(kp)), 'seed ' + b + ' is a key');
+  }
+  assert.ok(signSet >= 10, 'CONTROL: many of those keys have the sign bit set (' + signSet + ')');
+  // A real key whose last byte matches a weak point's (low 7 bits) is not weak: only the whole point is.
+  const sameLast = (() => { for (let b = 1; b < 256; b += 1) { const r = rawOf(keyFromSeed(b)); if ([0x00, 0x05, 0x7a, 0x7f].includes(r[31] & 0x7f)) return r; } return null; })();
+  assert.ok(sameLast, 'CONTROL: a seed in 1..255 gives a key whose last byte matches a weak point');
+  assert.ok(sk.rawKey(Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), sameLast]).toString('base64')), 'a real key whose last byte matches a weak point is not weak');
   // Not a point on the curve (y = 2): the relay's key decoding refuses it, and so must this.
   const y2 = Buffer.from('02' + '00'.repeat(31), 'hex');
   const offCurve = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), y2]).toString('base64');
@@ -252,6 +274,7 @@ test('the pinned key (base64url of the raw bytes) is matched against the listed 
   refused(sk.verifyServiceKeySet({ recoveryKeys: [ROOT_PUB] }), /not signed/, 'no bytes, a key set');
   for (const junk of [5, {}, [1, 2]]) refused(sk.verifyServiceKeySet({ bytes: junk, sig: VECTOR_SIG, recoveryKeys: [ROOT_PUB] }), /not readable/, 'bytes ' + JSON.stringify(junk));
   assert.equal(sk.verifyServiceKeySet({ bytes: VECTOR, sig: VECTOR_SIG, recoveryKeys: [ROOT_PUB] }).ok, true, 'CONTROL: a string is read');
+  assert.equal(sk.verifyServiceKeySet({ bytes: new Uint8Array(Buffer.from(VECTOR)), sig: VECTOR_SIG, recoveryKeys: [ROOT_PUB] }).ok, true, 'a plain Uint8Array is read');
 });
 
 test('the default recovery keys ARE manifest-verify\'s: pinning one there turns the check on', () => {
