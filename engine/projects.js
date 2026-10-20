@@ -2107,7 +2107,9 @@ function listDir(folder, rel, where, opts) {
   const dirs = [];
   const files = [];
   let truncated = false;
+  let scanCut = false;
   let read = 0;
+  const maxScan = (opts && opts.maxScan) || BROWSE_MAX_SCAN;
   /* Iteration 1: opendir follows a link, so a folder swapped for one after the gate would list an outside folder's names.
      The folder's identity is read before and after the read, and an answer from a folder that changed is dropped. */
   let before;
@@ -2117,7 +2119,8 @@ function listDir(folder, rel, where, opts) {
   try { dir = fs.opendirSync(got.real); } catch { return { ok: false, because: 'we could not read what is in that folder' }; }
   try {
     for (let ent = dir.readSync(); ent !== null; ent = dir.readSync()) {
-      if (read >= BROWSE_MAX_SCAN) { truncated = true; break; }
+      // Iteration 3: the read budget and the shown cap are told apart, so the page can say which one stopped it.
+      if (read >= maxScan) { truncated = true; scanCut = true; break; }
       read += 1;
       const e = browsedEntry(ent, got.real, got.rel, got.segs.length, maxDepth);
       if (!e) continue;
@@ -2142,7 +2145,7 @@ function listDir(folder, rel, where, opts) {
     .update([...dirs.map((d) => JSON.stringify(['d', d.name, d.modified])), ...files.map((f) => JSON.stringify(['f', f.name, f.size, f.modified]))].join('\n') + (truncated ? '\ntruncated' : ''))
     .digest('hex').slice(0, 16);
   const out = { ok: true, dir: got.rel, dirs, files, stamp };
-  if (truncated) { out.truncated = true; out.limit = BROWSE_MAX_ENTRIES; }
+  if (truncated) { out.truncated = true; if (scanCut) out.scanCut = true; else out.limit = BROWSE_MAX_ENTRIES; }
   return out;
 }
 
@@ -2157,11 +2160,13 @@ function walkListedDir(folder, rel, where, opts) {
   const maxDepth = opts && Number.isInteger(opts.maxDepth) && opts.maxDepth >= 0 ? opts.maxDepth : LIST_MAX_DEPTH;
   const maxFiles = (opts && opts.maxFiles) || 2000;
   const maxBytes = (opts && opts.maxBytes) || 1024 * 1024 * 1024;
+  const maxScan = (opts && opts.maxScan) || BROWSE_MAX_SCAN * 5;   // iteration 3: every name read counts, hidden ones too
   const got = resolveListedDir(folder, rel, where, { maxDepth });
   if (!got.ok) return got;
   const dirs = [];
   const files = [];
   let bytes = 0;
+  let read = 0;
   const queue = [{ abs: got.real, rel: got.rel, depth: got.segs.length }];
   while (queue.length) {
     const { abs, rel: here, depth } = queue.shift();
@@ -2169,6 +2174,8 @@ function walkListedDir(folder, rel, where, opts) {
     try { dir = fs.opendirSync(abs); } catch { return { ok: false, because: 'we could not read every folder in it, so there is nothing to download' }; }
     try {
       for (let ent = dir.readSync(); ent !== null; ent = dir.readSync()) {
+        read += 1;
+        if (read > maxScan) return { ok: false, tooBig: true, because: 'that folder holds too many names in all to download as one zip' };
         const e = browsedEntry(ent, abs, here, depth, maxDepth);
         if (!e) continue;
         if (e.kind === 'dir') {
