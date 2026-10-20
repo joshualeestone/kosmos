@@ -186,7 +186,7 @@ function verifyServiceKeySet(opts) {
   }
   const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes == null ? '' : bytes);
   // Trimmed as Rust's str::trim does (Unicode White_Space: U+0085 yes, U+FEFF no), not as String.prototype.trim.
-  const sigText = rustTrim(String(sig == null ? '' : sig));
+  const sigText = rustTrim(sig == null ? '' : Buffer.isBuffer(sig) || sig instanceof Uint8Array ? Buffer.from(sig).toString() : String(sig));
   // Strict base64, as the relay's decoder: padded, and canonical (re-encoding gives the same text, so no trailing bits).
   let signature = /^[A-Za-z0-9+/]{86}==$/.test(sigText) ? Buffer.from(sigText, 'base64') : Buffer.alloc(0);
   if (signature.toString('base64') !== sigText) signature = Buffer.alloc(0);
@@ -222,7 +222,8 @@ function verifyServiceKeySet(opts) {
     const raw = rawKey(e.pub);
     if (!raw) return { ok: false, why: 'the signed service key set holds a key that is not one' };
     if (e.kid !== kidOf(raw)) return { ok: false, why: 'the signed service key set names a key under another kid' };
-    if (signer.equals(raw)) return { ok: false, why: 'the signed service key set lists the recovery key as a service key' };
+    // Any pinned recovery key, not only the signer: whoever held a listed key would hold a root (manifest-verify agrees).
+    if (roots.some((r) => r.equals(raw))) return { ok: false, why: 'the signed service key set lists the recovery key as a service key' };
     if (keys.some((k) => k.pub === e.pub)) return { ok: false, why: 'the signed service key set lists a key twice' };
     keys.push({ kid: e.kid, pub: e.pub, role: e.role });
   }

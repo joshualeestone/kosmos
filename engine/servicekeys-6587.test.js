@@ -138,6 +138,12 @@ test('refused: JSON the relay refuses (bad UTF-8, a lone surrogate, a number out
   assert.equal(check(...signed(doc({}).replace(/  /g, '\t'))).ok, true, 'tab-indented');
   assert.equal(check(...signed(doc({}).replace(/\n/g, '\r\n'))).ok, true, 'CRLF line ends');
   assert.equal(check(...signed(doc({}).replace('"seq": 1,', '"seq": 1\t,'))).ok, true, 'a tab after seq');
+  // Every JSON whitespace ends a number: a space, and seq last before a space or a CRLF (review 17).
+  assert.equal(check(...signed(doc({}).replace('"seq": 1,', '"seq": 1 ,'))).ok, true, 'a space after seq');
+  const seqLast = (end) => doc({}).replace('  "seq": 1,\n', '').replace('\n}\n', ',\n  "seq": 1' + end + '}\n');
+  assert.equal(check(...signed(seqLast(' '))).ok, true, 'seq last, then a space');
+  assert.equal(check(...signed(seqLast('\r\n'))).ok, true, 'seq last, then CRLF');
+  assert.match(seqLast('\r\n'), /"seq": 1\r\n\}/, 'CONTROL: the fixture ends on seq');
   // CONTROLS: a real surrogate pair, a large finite number, and 127 nested (the deepest the relay takes) are fine.
   assert.equal(check(...signedBuf(withExtra(Buffer.from('"\\ud83d\\ude00"')))).ok, true, 'a surrogate pair');
   assert.equal(check(...signedBuf(withExtra(Buffer.from('1e300')))).ok, true, 'a finite large number');
@@ -245,11 +251,14 @@ test('refused: the keys break a rule (none, four, a wrong kid, zero or two curre
   const weak = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from('01' + '00'.repeat(31), 'hex')]).toString('base64');
   const weakKid = sk.kidOf(Buffer.from('01' + '00'.repeat(31), 'hex'));
   refused(check(...signed(doc({ service_keys: [k7, { kid: weakKid, pub: weak, role: 'next' }] }))), /key that is not one/, 'a weak key');
-  // With two recovery keys, only the one that SIGNED is refused as a listed key, as the relay does.
+  // With two recovery keys, EITHER one listed is refused, not only the signer (review 17): a listed key's holder would
+  // hold a root. The relay has one root, so its key == *root check gives the same answer.
   const other = keyFromSeed(0x0c);
   const lists = [k7, { kid: sk.kidOf(rawOf(other)), pub: spkiOf(other), role: 'next' }];
   const both = sk.verifyServiceKeySet({ bytes: Buffer.from(doc({ service_keys: lists })), sig: sign(ROOT, doc({ service_keys: lists })), recoveryKeys: [ROOT_PUB, spkiOf(other)] });
-  assert.equal(both.ok, true, 'another recovery key listed is not the signing root: ' + both.why);
+  refused(both, /lists the recovery key/, 'another pinned recovery key listed');
+  const notPinned = sk.verifyServiceKeySet({ bytes: Buffer.from(doc({ service_keys: lists })), sig: sign(ROOT, doc({ service_keys: lists })), recoveryKeys: [ROOT_PUB] });
+  assert.equal(notPinned.ok, true, 'CONTROL: the same key, not pinned as a recovery key, is taken: ' + notPinned.why);
   // Every small-order point, with the sign bit clear and set, and the two non-canonical spellings of y = 0 and 1.
   const WEAK_HEX = ['00'.repeat(32), '01' + '00'.repeat(31), '26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05',
     'c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a', 'ec' + 'ff'.repeat(30) + '7f', 'ed' + 'ff'.repeat(30) + '7f', 'ee' + 'ff'.repeat(30) + '7f'];
@@ -317,6 +326,7 @@ test('the pinned key (base64url of the raw bytes) is matched against the listed 
     assert.equal(sk.pinnedSpki(junk), null, 'pinnedSpki of a value with no text');
     refused(check(VECTOR, junk), /signature is not readable/, 'a .sig with no text');
   }
+  assert.equal(check(VECTOR, new Uint8Array(Buffer.from(VECTOR_SIG))).ok, true, 'a .sig read into a plain Uint8Array');
   assert.equal(sk.pinnedIsListed(Buffer.from(pin7), keys), true, 'CONTROL: a Buffer read from the file');
   assert.equal(sk.pinnedIsListed('\u0085' + pin7 + '\n', keys), true, 'U+0085 is whitespace to Rust');
   for (const bad of ['not a key', rawOf(K7).toString('base64'), pin7 + '=']) {
