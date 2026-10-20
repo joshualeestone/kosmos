@@ -41,7 +41,8 @@ const STATUS = path.join(require('./engine/store').ROOT, 'remote-status.json');
 const listRunning = (body = { state: 'up', pid: TEST_PID, capabilities: ['session-headers'] }) => {
   fs.mkdirSync(path.dirname(STATUS), { recursive: true }); fs.writeFileSync(STATUS, JSON.stringify(body));
 };
-const reset = (opts = {}) => { listRunning(); remote.resetConnectorCapabilitiesForTests({ runningPid: TEST_PID, ...opts }); };
+// commandOf: no test reads real process tables unless it says so (kosmos#6669's tests do).
+const reset = (opts = {}) => { listRunning(); remote.resetConnectorCapabilitiesForTests({ runningPid: TEST_PID, commandOf: () => null, ...opts }); };
 const warm = () => new Promise((resolve) => remote.warmConnectorCapabilities(resolve));
 // Polls, not a fixed sleep: a background ask on a loaded machine can take far longer than it does here.
 const until = async (ok, ms = 5000) => { const end = Date.now() + ms; while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 20)); return ok(); };
@@ -390,15 +391,20 @@ test('R01b: while a tunnel runs here, only what that process lists in its status
     await warm();                                                    // the binary on disk says yes
     write({ state: 'up', pid, capabilities: ['session-headers'] });
     assert.ok(remote.connectorCapabilities().has('session-headers'), 'CONTROL: the running process lists it');
-    write({ state: 'up', pid });                                      // an older tunnel, still running
+    // Each arm is its own running process (a fresh pid): a pid's list is kept once read (kosmos#6669).
+    // And the binary is asked again each time (a reset forgets it), so a refusal is the running list's, not an empty binary's.
+    const as = async (p) => { remote.resetConnectorCapabilitiesForTests({ runningPid: p, commandOf: () => null }); await warm(); };
+    await as(pid + 10); write({ state: 'up', pid: pid + 10 });              // an older tunnel, still running
     assert.equal(remote.connectorCapabilities().size, 0, 'the binary vouched for an older running tunnel');
-    write({ state: 'up', pid: pid + 1, capabilities: ['session-headers'] });
+    await as(pid + 11); write({ state: 'up', pid: pid + 12, capabilities: ['session-headers'] });
     assert.equal(remote.connectorCapabilities().size, 0, 'another process\'s status file vouched');
-    write({ state: 'up', pid, capabilities: 'session-headers' });
+    await as(pid + 13); write({ state: 'up', pid: pid + 13, capabilities: 'session-headers' });
     assert.equal(remote.connectorCapabilities().size, 0, 'a list that is not an array vouched');
-    fs.rmSync(statusFile, { force: true });
+    await as(pid + 14); fs.rmSync(statusFile, { force: true });
     assert.equal(remote.connectorCapabilities().size, 0, 'no status file yet vouched');
-    fs.writeFileSync(statusFile, '{"state":"up","pid":' + pid + ',"capabilities":["session-hea');
+    write({ state: 'up', pid: pid + 14, capabilities: ['session-headers'] });
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'CONTROL: not kept as nothing before the process wrote');
+    await as(pid + 15); fs.writeFileSync(statusFile, '{"state":"up","pid":' + (pid + 15) + ',"capabilities":["session-hea');
     assert.equal(remote.connectorCapabilities().size, 0, 'a truncated status file vouched');
     // Started here, but no tunnel running now (crash backoff, a stop): nothing legitimate arrives, so nothing counts.
     write({ state: 'up', pid, capabilities: ['session-headers'] });
@@ -430,8 +436,55 @@ test('R01b: over HTTP, an older running tunnel refuses a fresh remote session th
     const got = await post('/api/accounts/gemini/apikey', { ...VIA_PLUS, ...fresh() }, 'not json');
     assert.equal(got.status, 403, JSON.stringify(got.body));
     assert.equal(got.body.code, 'remote_step_up_unavailable');
-    fs.writeFileSync(statusFile, JSON.stringify({ state: 'up', pid, capabilities: ['session-headers'] }));
+    remote.resetConnectorCapabilitiesForTests({ runningPid: pid + 1, commandOf: () => null });   // a current tunnel
+    await warm();
+    fs.writeFileSync(statusFile, JSON.stringify({ state: 'up', pid: pid + 1, capabilities: ['session-headers'] }));
     const ok = await post('/api/accounts/gemini/apikey', { ...VIA_PLUS, ...fresh() }, 'not json');
     assert.equal(ok.status, 400, 'CONTROL: listed, the request passes the gate to the route: ' + JSON.stringify(ok.body));
   } finally { fs.rmSync(statusFile, { force: true }); reset(); await warm(); }
+});
+
+/* kosmos#6669 (R01c): a tunnel an earlier board left running writes this board's status file under its own pid. */
+test('R01c: once this board\'s tunnel has said what it lists, a foreign write to the status file does not take it away', async () => {
+  try {
+    reset();
+    await warm();
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'CONTROL: the child listed it');
+    listRunning({ state: 'restarting', pid: TEST_PID + 7, because: 'replaced by a newer connection' });   // the orphan writes
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'one foreign write refused every gated action');
+  } finally { reset(); await warm(); }
+});
+
+const { spawn: spawnProc } = require('node:child_process');
+const exited = (p) => new Promise((resolve) => { if (p.exitCode !== null || p.signalCode !== null) resolve(p.signalCode); else p.once('exit', (code, sig) => resolve(sig)); });
+const ended = (pid) => new Promise((resolve) => remote.endForeignTunnel(pid, resolve));
+
+test('R01c: a tunnel another board left running is ended, read from the real process table, and only when it is ours', { skip: process.platform === 'win32' }, async () => {
+  // A process whose command line is a tunnel `run` with this board's status file (`; true` keeps sh from exec'ing
+  // sleep, which would drop the arguments the check reads).
+  const orphan = spawnProc('/bin/sh', ['-c', 'sleep 30; true', 'kosmos-tunnel', 'run', '--status-file', STATUS], { stdio: 'ignore' });
+  // The same, with ANOTHER status file: a reused pid, or another account's tunnel. Never touched.
+  const other = spawnProc('/bin/sh', ['-c', 'sleep 30; true', 'kosmos-tunnel', 'run', '--status-file', STATUS + '.elsewhere'], { stdio: 'ignore' });
+  try {
+    remote.resetConnectorCapabilitiesForTests({ runningPid: TEST_PID });   // real ps, no stand-in
+    assert.equal(await ended(other.pid), false, 'a tunnel for another status file was ended');
+    assert.equal(other.exitCode, null, 'CONTROL: still running');
+    assert.equal(await ended(orphan.pid), true, 'our orphan was not ended');
+    assert.equal(await exited(orphan), 'SIGTERM');
+    assert.equal(await ended(orphan.pid), false, 'a pid is looked at once');
+  } finally { try { orphan.kill('SIGKILL'); } catch {} try { other.kill('SIGKILL'); } catch {} reset(); await warm(); }
+});
+
+test('R01c: reading the status file is what notices it: a foreign pid there is judged, and a non-tunnel is left alone', async () => {
+  const asked = [];
+  const bystander = spawnProc('/bin/sh', ['-c', 'sleep 30'], { stdio: 'ignore' });
+  try {
+    reset({ commandOf: (pid, file) => { asked.push(pid); return '/bin/sh -c sleep 30'; } });
+    listRunning({ state: 'up', pid: bystander.pid });
+    remote.connectorCapabilities();
+    assert.deepEqual(asked, [bystander.pid], 'the foreign pid in the status file was not judged');
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(bystander.exitCode, null, 'a process that is not a tunnel run with our status file was ended');
+    assert.equal(bystander.signalCode, null);
+  } finally { try { bystander.kill('SIGKILL'); } catch {} reset(); await warm(); }
 });

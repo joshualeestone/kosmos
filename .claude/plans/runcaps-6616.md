@@ -24,12 +24,22 @@ tunnel orphaned by an EARLIER board stays open (below). Relay half: kosmos-relay
 `server.remotestepup-6595.test.js`, two `R01b:` tests: listed by the running pid passes (control); no field, another
 pid, a non-array, and no file are refused; a status file cannot widen a binary that says no; over HTTP an older running
 tunnel gets `remote_step_up_unavailable` and the listed one reaches the route (400 on an unreadable body). Mutants:
-ignoring the running list (both red), dropping the pid check (one red).
+ignoring the running list (both red), dropping the pid check (one red). R01c: no per-pid keep, no kill, the prefix
+match, and not judging a foreign pid on read, each one red; one test reads the real process table.
 
-## Not closed (review 1, stated)
-- A tunnel orphaned by an EARLIER board that still forwards: it writes the same status file, and its pid is not this
-  board's child, so its file is ignored, but it is the one forwarding. Neither check describes it. The fix is to end
-  such orphans when a board starts its own tunnel: kosmos#6669 (R01c), mine.
+## The orphan, closed here too (kosmos#6669, R01c; review 3)
+A tunnel orphaned by an EARLIER board (killed hard, so it could not reap it) still forwards: on the relay's "replaced by
+a newer connection" its reconnect loop simply dials again and takes the connection back, so the two alternate. It
+writes this board's status file under its own pid, so neither check described it, and (review 3) one such write
+refused every gated remote action until this board's tunnel next changed state.
+- A pid's list is kept once read (`runningSeen`): a process's capabilities are compiled in, so a foreign write cannot
+  take this board's child's answer away.
+- A foreign pid in the status file (read at tunnel start, by status(), and by the capability read) is judged once: if
+  `ps` shows a `run` with THIS board's `--status-file` path (the whole argument; a prefix match ended a tunnel for
+  `<file>.elsewhere` in the tests), it gets SIGTERM. Anything else is left alone, so a reused pid is never touched.
+- Not on Windows (no command line is read there): an orphan there is still the old behaviour. Stated on #6669.
+- Not tested: the read at tunnel start (startChild); the same function, reached by status() and the capability read,
+  is.
 
 ## Weakest premise
 The pid check: a pid reused by an unrelated process that writes a status file in the board's 0600 data dir. Anything
