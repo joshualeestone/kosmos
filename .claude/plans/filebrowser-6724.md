@@ -61,3 +61,24 @@ downloaded or zipped; cross-site reads are refused; the board token is required.
 repo's own zip reader (`engine/win32zip.js`) and must hold exactly the listed files' bytes.
 `web.filebrowser-6724.test.js`: each Finder button carries `data-remote-hide`, the CSS rule exists, the page sets
 the attribute only when remote.
+
+## Built, and how it was checked (2026-10-20)
+- server.filebrowser-6724.test.js: 66 cases, every escape refused by browse and by the zip; the zip read back by
+  Python's zipfile and `unzip -t`, byte for byte.
+- Mutants (each applied, asserted to apply, then restored):
+  - the folder gate's lstat link check removed: red (the "lstat walk ALONE" case, which stubs realpath to the walked
+    path, the race it exists for); its resolved-path check removed: red (the case that stubs lstat to a real folder,
+    plus the other-case folders on APFS);
+  - the zip's open-handle identity check removed: red (a HARD link to a secret swapped in after the gate: a regular
+    file inside Files, which O_NOFOLLOW and the path checks both pass);
+  - the text preview's NUL check removed: red; the page's stamp kept on a failure: red.
+- Not independently observable, decided: the zip's read-time gate (resolveListedFile) and the stale-folder guard in the
+  page. Every leak the read-time gate stops, the handle identity check also stops (a different inode), and every
+  stale answer the folder guard stops, the page's epoch also stops (each move starts a new paint). Both stay as second
+  guards; a mutant of either alone stays green, and that is why.
+- First mutant pass counted `^not ok`, which node's spec reporter never prints when piped: every "0 fails" from it was
+  vacuous and was redone counting the `ℹ fail` line.
+- Pins moved on purpose: the agent's preview and download depth (server.files-preview-4997, server.preview-sweep-5254),
+  the Finder buttons' exact markup (web.win32-board-copy, web.win32-update-offer), the flat Files screen's "And N more
+  ... Open in Finder" line, now the browser's own overflow line (web.agent-files-3614, web.win32-board-copy), and a
+  text file opening the preview (web.files-preview-4997).

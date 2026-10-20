@@ -8,10 +8,20 @@
  *   node --test web.filebrowser-6724.test.js
  */
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+// CURRENT is a REAL board card (fixture-discipline): sandbox the roots before requiring the fleet.
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-filebrowser-page-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const page = require('./test-support/page');
+const fleet = require('./test-support/fleet');
+const BOARD = fleet.install([fleet.agent('ana')]);
+test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
@@ -65,7 +75,7 @@ function harness(respond) {
     querySelector: () => null,
   };
   const calls = [];
-  const env = { CURRENT: { sessionName: 'ana' } };
+  const env = { CURRENT: BOARD.agents.find((c) => c.sessionName === 'ana') };
   const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'folderIcon', 'agentDirRow', 'agentFilesPath', 'agentFilesGo', 'paintAgentFilesAll']);
   let gate = null;
   const api = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'asSentence', 'env',
