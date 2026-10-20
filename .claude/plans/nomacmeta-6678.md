@@ -26,6 +26,10 @@ folds it back into its file when listing, so a listing-based check cannot see it
   shown leaving its kind in and caught, a built tarball with both kinds (runs on any OS), junk/truncated/empty/missing
   refused, and both build scripts pinned. Shown red against main's tmux script.
 
+## Known limit
+An entry over 8 GiB (a base-256 or pax `size` override) is misread, and the next header's checksum then refuses the
+tarball: the gate fails closed, so a build with such a file would stop at the gate. The bundles are tens of MB.
+
 ## Rejected
 - Only COPYFILE_DISABLE=1, which the card names first: it leaves the xattr pax headers in (measured above).
 - A `tar -t`-based gate like the owner gate: it cannot see the `._` entry, and `-t` refuses --no-mac-metadata.

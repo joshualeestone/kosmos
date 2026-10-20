@@ -88,6 +88,11 @@ for bad in '0 k=v\n' 'garbage\n' '99 k=v\n'; do
   else fail "a malformed pax record ($bad) must be refused (rc=$rc, 142 = hung): $out"; fi
 done
 
+mk "$T/glob.tgz" "g:pax_global_header:$(rec path clean)" "0:._x:x"
+out="$(tar_macmeta_gate "$T/glob.tgz" 2>&1)"
+if printf '%s' "$out" | /usr/bin/grep -qF 'AppleDouble entry ._x'; then pass "a global (g) header's path does not rename the next entry, so its ._x is still caught"
+else fail "a g header's path must not rename the next entry: $out"; fi
+
 long="$(printf 'd%.0s' $(seq 1 120))/plain"
 mk "$T/gnu.tgz" "L:././@LongLink:$long" "K:././@LongLink:somewhere" "0:._x:x"
 if tar_macmeta_gate "$T/gnu.tgz" 2>/dev/null; then pass "a GNU long name survives a long-link (K) entry: the file is judged by its long name, not its ._x placeholder"
