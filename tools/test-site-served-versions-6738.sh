@@ -79,6 +79,13 @@ SHORT="$(git -C "$S" rev-parse HEAD)"
 site_deploy_export "$S" "$T/out5" "$SHORT" >/dev/null 2>"$T/err5"; rc5=$?
 [ "$rc5" = 0 ] && cmp -s "$T/out5/api/_servedversions.js" <(git -C "$S" show "$SHORT:api/_servedversions.js") && grep -q "it gave 0 rows, fewer than the commit's 1" "$T/err5" \
   && ok "a short table (fewer rows than the commit's) is not shipped; the committed one is, and the warning says why" || bad "short table: rc=$rc5 $(cat "$T/err5")"
+# Review 2: called BARE under `set -e` (no `||` to suspend errexit), in the case that used to abort: a commit with no
+# table at all and a generator giving zero rows (grep -c counts 0 and exits 1).
+git -C "$S" rm -q api/_servedversions.js && git -C "$S" commit -q -m "no table, short generator"
+NOTAB="$(git -C "$S" rev-parse HEAD)"
+mkdir -p "$T/out6" && git -C "$S" archive "$NOTAB" | tar -x -C "$T/out6"
+( set -euo pipefail; _site_served_versions "$S" "$T/out6" "$NOTAB" 2>/dev/null; echo survived ) > "$T/bare6"
+grep -qx survived "$T/bare6" && ok "called bare under set -e with no committed table and zero rows, it warns and returns" || bad "the function aborted under set -e"
 ls "$T"/out*.served* >/dev/null 2>&1 && bad "the keep/err temp files were left beside an export" || ok "no temp file is left beside the exports"
 
 echo "site-served-versions-6738: $FAILS failures"; [ "$FAILS" -eq 0 ]

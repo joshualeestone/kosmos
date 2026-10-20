@@ -48,3 +48,19 @@ what is served, so it stops firing.
 - [NIT] a row's time is the pointer's COMMIT time, not its deploy time --> said in the comment (the site generator's
   property, not this diff's).
 - Tests: 10/10; MUTANT (no restore) turns the in-place and short-table cases red.
+
+## Review round 2 (blind, sonnet)
+- [WARNING] `want=$(grep -c ...)` / `rows=$(grep -c ...)` abort under a caller's `set -e` when they count 0 (grep -c
+  prints 0 and exits 1); today masked because both callers run site_deploy_export inside `||` --> FIXED: every command
+  that can exit non-zero for an expected reason is guarded (`|| true`, cp checked, mktemp warns), one temp DIR beside
+  the export removed on every path, and an explicit `return 0`.
+- The new bare-under-`set -euo pipefail` test then found a SECOND defect the reviewer did not name: `local ... out="$2"
+  ... tab="$out/..."` on one line. bash 3.2 (/bin/bash, what release.sh's shebang runs) expands every word of a
+  `local` before assigning any, so under `set -u` that reads `out` unbound (measured: `local a="$1" b="$a"` -> "a:
+  unbound variable"). MEASURED, NOT ASSUMED: it never hit a real deploy, because called from site_deploy_export `$out`
+  resolves to the caller's own local of the same name and value (bash's dynamic scope). I first wrote that it "would
+  have aborted every deploy"; that was wrong, corrected here. FIXED: tab is assigned on its own line.
+- [NIT] mktemp failures were silent --> FIXED (a warning). [NIT] temp files leaked on a signal --> one dir now, still
+  no trap (the caller owns traps; a signal mid-deploy leaves one small dir beside the build root).
+- [NIT] the plan credited the generator's temp file with protecting the table --> the keep-aside is the guarantee.
+- Tests 11/11 under /bin/bash (the new case: called bare under set -euo pipefail, no committed table, zero rows).
