@@ -367,7 +367,10 @@ func tlsPinDecision(state: String?, keys: [String], leaf: String?, fresh: Bool) 
 /// kosmos#6589: the hash of the key a certificate chain's leaf carries, as p256SpkiSha256Hex gives it. Driven by
 /// --kosmos-app-mode-selftest with a real certificate.
 func tlsLeafKeyHash(_ trust: SecTrust) -> String? {
-    guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let cert = chain.first,
+    // Review 11: the leaf at index 0, read WITHOUT evaluating the trust. SecTrustCopyCertificateChain evaluates it on
+    // the calling thread (measured: 3 to 9 s on the main thread for a leaf naming unreachable issuer URLs, which the
+    // party this check is against can serve). Deprecated since macOS 12, available at the 13.5 floor.
+    guard SecTrustGetCertificateCount(trust) > 0, let cert = SecTrustGetCertificateAtIndex(trust, 0),
           let key = SecCertificateCopyKey(cert),
           let point = SecKeyCopyExternalRepresentation(key, nil) as Data? else { return nil }
     return p256SpkiSha256Hex(point: point)

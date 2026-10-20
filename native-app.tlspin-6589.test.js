@@ -59,7 +59,10 @@ test('#6589: it asks this computer\'s own board, with the board token, for that 
 
 test('#6589: the leaf\'s key is hashed as the computer hashes it, and a refusal is said once a minute per computer', () => {
   const k = SRC.slice(SRC.indexOf('func tlsLeafKeyHash(_ trust: SecTrust) -> String? {'), SRC.indexOf('\n}\n', SRC.indexOf('func tlsLeafKeyHash(')));
-  assert.match(k, /SecTrustCopyCertificateChain\(trust\) as\? \[SecCertificate\], let cert = chain\.first/);
+  // Review 11: never the chain call, which evaluates the trust (and can wait on the network) on the main thread.
+  assert.match(k, /SecTrustGetCertificateAtIndex\(trust, 0\)/);
+  const code = k.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');   // the comment names the call it avoids
+  assert.doesNotMatch(code, /SecTrustCopyCertificateChain|SecTrustEvaluate/);
   assert.match(k, /return p256SpkiSha256Hex\(point: point\)/);
   const r = body('private func tlsPinRefused(_ host: String, mismatch: Bool) {');
   // Review 3: a check that could not run is not "the computer is wrong": two wordings.
