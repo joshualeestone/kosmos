@@ -48,7 +48,9 @@ const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 
 const fail = [];
+let RAN = 0;
 function chk(ok, label, extra) {
+  RAN += 1;
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
   if (!ok) fail.push(label);
 }
@@ -280,6 +282,10 @@ async function read(page) {
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
+  /* The count is part of the result: arms that silently did not run must not read as "all checks passed". 36 per
+     engine, two engines (#6716 added the folded-on-appear and working-with-raw-text arms). */
+  const EXPECTED = 72;
+  if (RAN !== EXPECTED) { console.log(`FAIL  ran ${RAN} checks, expected ${EXPECTED}`); fail.push('check count'); }
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

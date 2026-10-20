@@ -22,6 +22,10 @@ stuck prompt.
 - **The fold's summary is a Tab stop** (a keyboard must be able to open it). render-signin-visible-3892 steps over it
   when Tab lands there; WebKit's Option-Tab skips it.
 - `.detail-said` leaves web.no-left-bars-3692's allowlist, since it has no left bar now.
+- **The conversation's busy line for a failed sign-in no longer quotes the screen** ("last seen: ..."): it was the
+  same raw text, unfolded, on the same page as the fold. It still says the sign-in is not working.
+- **The fold closes when it appears again**, including after a one-poll gap in a waiting state's text. Accepted: a
+  flicker there is rare and a closed fold is the safe default.
 
 ## Files
 - web/index.html: `SAID_STATES`; `paintDetailState` gates the line and the fold; markup `<details id="d-said-box">`

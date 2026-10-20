@@ -39642,7 +39642,8 @@ function busyRow(fresh, name) {
     return face
       + '<span class="haz" aria-hidden="true">!</span>'
       + '<span>' + esc(who) + '&rsquo;s Claude sign-in isn&rsquo;t working'
-      + (fresh.stateEvidence ? ', last seen: &ldquo;' + esc(fresh.stateEvidence) + '&rdquo;' : '')
+      /* #6716: no quote of its screen here. The page's folded "What <name>'s screen said" carries it; a quote in this
+         line put the CLI's own words on the page unfolded. */
       + '</span>';
   }
   return face
@@ -39791,12 +39792,9 @@ function paintBusy(fresh, name) {
      an unchanged working agent keeps ONE continuous animation. */
   const busyKey = [
     fresh.sessionName, fresh.state, (name || fresh.name || ''), fresh.hasAvatar ? '1' : '0',
-    /* auth_failed renders "last seen: <stateEvidence>" (busyRow); include it ONLY
-       there so that line refreshes as the evidence changes poll-to-poll. NOT for
-       working: a working agent's evidence also changes every poll, and keying on
-       it there would rebuild the .act dots each poll -- the exact reset this fix
-       removes. The auth_failed line has no dots, so rebuilding it is free. */
-    fresh.state === 'auth_failed' ? (fresh.stateEvidence || '') : '',
+    /* #6716: the line no longer quotes the screen, so nothing in it changes with the evidence and it is not keyed on.
+       (Never for working either: a working agent's evidence changes every poll, and keying on it would rebuild the
+       .act dots each poll, the exact reset this key exists to stop.) */
     /* \u0001 (SOH) as the join separator: a control character that cannot appear
        in a session name, agent name or screen evidence, so fields cannot collide
        across the boundary (e.g. "a\u0001b" vs "a" + "b"). */
