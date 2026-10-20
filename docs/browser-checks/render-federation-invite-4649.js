@@ -1248,6 +1248,23 @@ const closeAll = (page) => page.evaluate(() => {
     await ctx.close();
   }
 
+  /* kosmos#6707: on a phone both of the sheet's text fields are a 44 px tap target; CONTROL: at desktop width they are
+     not (the rule is the phone's, so the arm can see it missing). */
+  {
+    const heights = {};
+    for (const w of [393, 1280]) {
+      const { ctx, page } = await newPage(w, SHOW);
+      await page.evaluate((a) => { window.__members = a; }, answer(ALL));
+      await openProjectIn(page, 'tabs');
+      await page.evaluate(() => { fedInviteOpen(null, { label: 'Tap Size', kind: 'person' }); });   // eslint-disable-line no-undef
+      await page.waitForSelector('#fedinv-ask', { state: 'visible', timeout: 8000 }).catch(waitNote());
+      heights[w] = await page.evaluate(() => ['fedinv-label', 'fedinv-email'].map((id) => { const e = document.getElementById(id); return e ? Math.round(e.getBoundingClientRect().height * 10) / 10 : -1; }));   // -1: renamed, a named red
+      await ctx.close();
+    }
+    check('6707 on a phone (393 px) both invite fields are at least 44 px tall', heights[393].every((h) => h >= 44), JSON.stringify(heights));
+    check('6707 CONTROL: at desktop width (1280 px) they keep their own height, under 44 px', heights[1280].every((h) => h > 0 && h < 44), JSON.stringify(heights));
+  }
+
   /* B8: gate not "show". */
   {
     const { ctx, page } = await newPage(1280, OFF);
