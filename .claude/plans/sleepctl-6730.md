@@ -83,3 +83,9 @@ reference to sleep listed and read); not checked across the rest of tools/.
   after; of three sample lines (a Homebrew perl, the grep's own line, git's remote-ext line) only the perl matches.
   Test ALL PASS.
 - The whole-diff re-check found nothing else.
+
+## Review round 4 (blind, sonnet): converged
+- No new issues in substance. [NIT] two connector-verbs comments ("300 s sleep"; "perl waits only for", which now
+  reads as the stand-in rather than the timeout wrapper) --> FIXED (comments only). [NIT] data-root's
+  `pgrep -fx 'sleep 37'` can count another agent's sleep 37 (a false red, never a kill) --> NOT CHANGED: pre-existing,
+  the latent guard's purpose, and the box-wide pkill beside it is already gone.

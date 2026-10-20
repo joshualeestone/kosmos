@@ -67,7 +67,7 @@ EXIT2="$T/other-exit2"; printf '#!/bin/sh\necho "error: the argument --coordinat
 verbs_try "$EXIT2" "$OPEN"; [ "$VRC" = 0 ] && bad "an exit 2 without unrecognized subcommand was accepted" || { grep -q "could not check" "$T/err" && grep -q "running it exited 2 " "$T/err" && ! grep -Eq "$TIMEOUT_RE" "$T/err" && ok "exit 2 for another reason is not read as old" || bad "exit 2 misread: $(cat "$T/err")"; }
 HANG="$T/hang-tunnel"; printf '#!/bin/sh\nexec perl -e "select(undef, undef, undef, 300)"\n' > "$HANG"; chmod +x "$HANG"
 start=$(date +%s); CONNECTOR_PROBE_SECONDS=2 connector_verbs_check "$HANG" "$OPEN" 2>"$T/err"; took=$(( $(date +%s) - start ))
-# #4678: bounded means it returned well before the stand-in's own 300 s sleep, with the 2 s timeout named.
+# #4678: bounded means it returned well before the stand-in's own 300 s wait, with the 2 s timeout named.
 # The limit is 30 s, not the old 10: 10 was a guess at the box's speed that a busy box broke without the
 # bound failing, while 30 still catches a 2 s bound armed about fifteen times too long.
 [ "$took" -lt 30 ] && grep -q "could not check" "$T/err" && grep -q "did not answer within 2 seconds" "$T/err" && ok "a hanging connector is cut off by the bound (${took}s) and refused as unrunnable" || bad "a hang was not bounded (${took}s): $(cat "$T/err")"
@@ -104,7 +104,7 @@ child_hang_arm() {  # child_hang_arm <stand-in> <label> <bound seconds> [a file 
   done
   [ "$took" -lt 30 ] && grep -q "did not answer within $b seconds" "$T/err" && ok "$label: a connector whose child hangs is also cut off (${took}s), naming the time limit" || bad "$label: a hanging child was not bounded (${took}s): $(cat "$T/err")"
   pid="$(cat "$T/kid.pid")"
-  # The group was SIGKILLed, but perl waits only for the stand-in's shell, so the killed wait can still be
+  # The group was SIGKILLed, but the timeout wrapper waits only for the stand-in's shell, so the killed wait can still be
   # exiting for a moment on a busy box. Up to 5 s for it to go; a real leak is the 300 s wait, still there.
   n=0; while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
   if kill -0 "$pid" 2>/dev/null; then
