@@ -42635,9 +42635,12 @@ async function paintAgentFilesAll(sessionName) {
   for (const d of dirs) list.append(agentDirRow(d));
   for (const f of files) list.append(agentFileRow(f, false, String(f.name).split('/').pop()));
   if (more && body.truncated) {
-    more.textContent = Number(body.limit) > 0   // the server's own cap
-      ? 'This folder holds more than ' + Number(body.limit).toLocaleString() + ' items, so not all of them are listed here.'
-      : 'This folder holds more items than can be listed here, so not all of them are shown.';
+    // Iteration 3: stopped by the read budget (many hidden names) is said as the project list says it, not as a count.
+    more.textContent = body.scanCut
+      ? 'This folder holds a lot, so Kosmos stopped looking partway through it. Some files may not be listed here.'
+      : Number(body.limit) > 0   // the server's own cap
+        ? 'This folder holds more than ' + Number(body.limit).toLocaleString() + ' items, so not all of them are listed here.'
+        : 'This folder holds more items than can be listed here, so not all of them are shown.';
     more.hidden = false;
   }
   if (AGENT_FILES_FOCUS) {

@@ -126,3 +126,17 @@ the attribute only when remote.
     Weakest premise: that a stolen remote session reading a folder at a time is no worse than one reading file by file.
 - Mutants for iteration 2's fixes, all red: the cap counting raw entries, U+FFFD names kept, no zip limit, no failure
   de-duplication, focus kept after a failed move.
+- Iteration 3 (opus): no escape found. Findings, all addressed:
+  - WARNING, fixed (measured by the reviewer): the page's ?check=1 look was counted against the very download it sits
+    beside, so it could say "try again" while that zip downloaded. The look no longer reads the live count: it says
+    busy only when that folder's own download was REFUSED as busy in the last 10 s (an accepted one clears the record),
+    and waits 500 ms for the download to be decided when every place is taken and nothing is recorded yet. Weakest
+    premise: that the page's download request reaches the board within 500 ms of its look.
+  - NIT, fixed: the limit test passed even with no counting; it now holds a zip open (80 MB, past what a paused client's
+    socket buffers take), sees a second refused, the running download's own look answer 204, and the place freed.
+  - NIT, fixed: the zip walk had no read budget (hidden names count now, 100,000 names), and a real download past the
+    limit is refused before any walk.
+  - NIT, fixed: a list stopped by its read budget said "more than 1,000 items"; it says Kosmos stopped looking
+    partway (`scanCut`), as the project list does.
+- Mutants for iteration 3's fixes, all red: the counter never counting, the look reading the live count, no walk
+  budget, scanCut not sent, the page ignoring it.

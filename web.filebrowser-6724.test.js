@@ -229,3 +229,9 @@ test('iteration 2: a text file in the preview: its words as text, a note when cu
   const late = await run(ok('late', false), true);
   assert.equal(late.kids[0].textContent, 'Reading…', 'an answer after the preview closed was written');
 });
+
+test('iteration 3: a list stopped by the read budget says Kosmos stopped looking, not a count', async () => {
+  const h = harness(() => ({ ok: true, dir: '', stamp: 'y', truncated: true, scanCut: true, dirs: [], files: [{ name: 'a.txt', size: 1 }] }));
+  await h.api.paintAgentFilesAll('ana');
+  assert.equal(h.el['d-filesall-more'].textContent, 'This folder holds a lot, so Kosmos stopped looking partway through it. Some files may not be listed here.');
+});

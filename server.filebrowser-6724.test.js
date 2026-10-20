@@ -468,17 +468,65 @@ test('iteration 2: a name holding U+FFFD (what Node makes of a name that is not 
   assert.deepEqual(projects.listDir(dir, '', 'here', { maxDepth: 8 }).files.map((f) => f.name), ['ok.txt']);
 });
 
-test('iteration 2: past the number of folder zips allowed at once, a zip is refused with the reason; a finished one frees its place', async () => {
+test('iteration 2 + 3: the zip limit COUNTS: one held open fills a place of one; the page\u2019s look never says busy about its own download; a freed place is used', { timeout: 120000 }, async () => {
   const { _setZipLimitForTest } = require('./server');
-  _setZipLimitForTest(0);
+  const files = path.join(SANDBOX, 'workers', 'held', 'Files');
+  fs.mkdirSync(path.join(files, 'big'), { recursive: true });
+  fs.mkdirSync(path.join(files, 'small'), { recursive: true });
+  // Big enough that a paused client cannot take it all into socket buffers (measured: 32 MB could be, 80 MB is not).
+  fs.writeFileSync(path.join(files, 'big', 'huge.bin'), Buffer.alloc(80 * 1024 * 1024, 7));
+  fs.writeFileSync(path.join(files, 'small', 'a.txt'), 'a');
+  const held = [];
+  const hold = (dir) => new Promise((resolve) => {
+    const u = new URL(base + '/api/agent/held/files/download-folder?dir=' + encodeURIComponent(dir));
+    const req = require('node:http').request({ host: u.hostname, port: u.port, path: u.pathname + u.search, method: 'GET', agent: false }, (res) => {
+      res.pause();   // a download under way that takes nothing more for now
+      held.push(req);
+      resolve(res.statusCode);
+    });
+    req.on('error', () => {});
+    req.end();
+  });
+  const get = (dir, h) => rawGet('/api/agent/held/files/download-folder?' + (h ? 'check=1&' : '') + 'dir=' + encodeURIComponent(dir), h ? {} : { 'sec-fetch-mode': 'navigate' });
   try {
-    const r = await rawGet('/api/agent/brow/files/download-folder?check=1');
-    assert.equal(r.status, 429);
-    assert.match(json(r).because, /another folder download is already under way/);
-    assert.equal((await zipOf('', { 'sec-fetch-mode': 'navigate' })).status, 204, 'a refused navigation gives the browser nothing to save');
     _setZipLimitForTest(1);
-    for (let i = 0; i < 3; i++) assert.equal((await zipOf('reports')).status, 200, 'a finished zip did not free its place (' + i + ')');
-  } finally { _setZipLimitForTest(null); }
+    assert.equal(await hold('big'), 200, 'premise: the first zip streams');
+    // The page's order: the download itself (a navigation), then its look.
+    assert.equal((await get('small', false)).status, 204, 'with the one place taken, the download is refused (silently, to a navigation)');
+    const look = await get('small', true);
+    assert.equal(look.status, 429, 'the look must say why that download did not start');
+    assert.match(json(look).because, /already under way/);
+    // The defect iteration 3 measured: the download ACCEPTED, and its look then counted against it.
+    _setZipLimitForTest(2);
+    assert.equal(await hold('big'), 200, 'the second place is used');
+    const ownLook = await get('big', true);
+    assert.equal(ownLook.status, 204, 'the look said busy about the very download that is running: ' + ownLook.body);
+    for (const r of held.splice(0)) r.destroy();
+    _setZipLimitForTest(1);
+    let freed = 0;
+    for (let i = 0; i < 50 && freed !== 200; i++) { freed = (await get('small', false)).status; if (freed !== 200) await new Promise((r) => setTimeout(r, 100)); }
+    assert.equal(freed, 200, 'a place was never given back after its download ended');
+  } finally {
+    for (const r of held) r.destroy();
+    _setZipLimitForTest(null);
+    fs.rmSync(path.join(files, 'big'), { recursive: true, force: true });
+  }
+});
+
+test('iteration 3: the zip walk has a read budget that hidden names count against; the browse list says which limit stopped it', () => {
+  const dir = path.join(SANDBOX, 'scan-budget');
+  fs.mkdirSync(dir, { recursive: true });
+  for (let i = 0; i < 12; i++) fs.writeFileSync(path.join(dir, '.h' + i), '');
+  fs.writeFileSync(path.join(dir, 'real.txt'), 'r');
+  const walk = projects.walkListedDir(dir, '', 'here', { maxDepth: 8, maxScan: 5 });
+  assert.equal(walk.ok, false);
+  assert.equal(walk.tooBig, true);
+  assert.match(walk.because, /too many names/);
+  assert.equal(projects.walkListedDir(dir, '', 'here', { maxDepth: 8, maxScan: 50 }).ok, true, 'CONTROL');
+  const cut = projects.listDir(dir, '', 'here', { maxDepth: 8, maxScan: 5 });
+  assert.equal(cut.truncated, true);
+  assert.equal(cut.scanCut, true, 'a list stopped by its read budget must say so, not quote the shown limit');
+  assert.equal(cut.limit, undefined);
 });
 
 /* The folder gate has two layers, and each must hold ALONE (a race can defeat either one): the lstat walk (no segment a

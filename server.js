@@ -4987,9 +4987,30 @@ const ZIP_MAX_IN_FLIGHT_DEFAULT = 2;
 let ZIP_MAX_IN_FLIGHT = ZIP_MAX_IN_FLIGHT_DEFAULT;
 let ZIPS_IN_FLIGHT = 0;
 function _setZipLimitForTest(n) { ZIP_MAX_IN_FLIGHT = n == null ? ZIP_MAX_IN_FLIGHT_DEFAULT : n; }
+/* Iteration 3 (measured: the page's look was counted against the very download it looks at, and said "try again" while
+   that zip downloaded): the look never reads the live count. It says busy only when the person's own download of the
+   same folder was REFUSED as busy in the last ZIP_BUSY_SAID_MS; one accepted clears that. When every place is taken and
+   no refusal is recorded yet, the look waits ZIP_LOOK_WAIT_MS for the download it sits beside to be decided. */
+const ZIP_BUSY = 'another folder download is already under way on this computer; try again when it has finished';
+const ZIP_BUSY_SAID_MS = 10 * 1000;
+const ZIP_LOOK_WAIT_MS = 500;
+const zipBusyRefusedAt = new Map();   // folder + dir -> when its download was last refused as busy
+function zipBusyRecent(key) {
+  const t = zipBusyRefusedAt.get(key);
+  return Boolean(t) && Date.now() - t < ZIP_BUSY_SAID_MS;
+}
 function sendFolderZip(req, res, folder, rel, where, opts) {
   const refusedRead = crossSiteRead(req);
   if (refusedRead) { refuseDownload(req, res, refusedRead, 403); return; }
+  const checkOnly = isDownloadCheck(req);
+  const key = folder + '\0' + String(rel || '');
+  // A real download past the limit is refused before the folder is walked (iteration 3: a refusal costs no walk).
+  if (!checkOnly && req.method !== 'HEAD' && ZIPS_IN_FLIGHT >= ZIP_MAX_IN_FLIGHT) {
+    for (const [k, t] of zipBusyRefusedAt) if (Date.now() - t >= ZIP_BUSY_SAID_MS) zipBusyRefusedAt.delete(k);
+    zipBusyRefusedAt.set(key, Date.now());
+    refuseDownload(req, res, ZIP_BUSY, 429);
+    return;
+  }
   const maxDepth = opts.maxDepth;
   const walk = projects.walkListedDir(folder, rel, where, { maxDepth, maxFiles: FOLDER_ZIP_MAX_FILES, maxBytes: FOLDER_ZIP_MAX_BYTES });
   if (!walk.ok) { refuseDownload(req, res, walk.because, walk.tooBig ? 413 : 404); return; }
@@ -5001,17 +5022,22 @@ function sendFolderZip(req, res, folder, rel, where, opts) {
     .concat(walk.files.map((f) => ({ name: inZip(f.name), isDir: false, rel: f.name, size: f.size, st: f.st, mtime: f.st.mtime })));
   let length;
   try { length = zipwrite.zipLength(entries); } catch { refuseDownload(req, res, 'that folder cannot be put into one zip', 413); return; }
-  if (ZIPS_IN_FLIGHT >= ZIP_MAX_IN_FLIGHT) {
-    refuseDownload(req, res, 'another folder download is already under way on this computer; try again when it has finished', 429);
+  if (checkOnly) {
+    const answer = () => {
+      if (zipBusyRecent(key)) { refuseDownload(req, res, ZIP_BUSY, 429); return; }
+      res.writeHead(204, { 'cache-control': 'no-store' });
+      res.end();
+    };
+    if (zipBusyRecent(key) || ZIPS_IN_FLIGHT < ZIP_MAX_IN_FLIGHT) answer(); else setTimeout(answer, ZIP_LOOK_WAIT_MS);
     return;
   }
-  if (isDownloadCheck(req)) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
   res.writeHead(200, {
     'content-type': 'application/zip', 'content-length': length, 'x-content-type-options': 'nosniff',
     'content-disposition': attachmentDisposition(top + '.zip'),
     'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
   });
   if (req.method === 'HEAD') { res.end(); return; }
+  zipBusyRefusedAt.delete(key);   // this folder's download is under way: an older refusal no longer speaks for it
   ZIPS_IN_FLIGHT += 1;
   res.once('close', () => { ZIPS_IN_FLIGHT -= 1; });   // finished, cut, or the client gone: 'close' comes once in each
   writeZipEntries(res, folder, where, maxDepth, entries).catch(() => { if (!res.destroyed) res.destroy(); });
