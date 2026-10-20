@@ -1495,6 +1495,12 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   .utoast.reboot .utxt small { display: block; }
   /* #6714: the restart notice's line says nothing is lost, the reassurance that makes it calm; a phone keeps it. */
   .utoast.survival .utxt small { display: block; }
+  /* #6714: on a phone the words take the first row with the x, and the buttons get a row of their own beneath them
+     (lined up with the words, past the dot), so neither is squeezed into a column. */
+  .utoast.survival { flex-wrap: wrap; row-gap: 8px; }
+  .utoast.survival .utxt { flex: 1 1 0; min-width: 0; }
+  .utoast.survival .ux { order: 2; }
+  .utoast.survival .uacts { order: 3; flex: 1 0 100%; margin-left: 19px; }
   /* kosmos#6613: the certificate notice's small line says whether the check is still on; a phone keeps it. */
   .utoast.cwnote .utxt small { display: block; }
 }
@@ -18550,7 +18556,7 @@ window.kosmosMeasureScrollbarWidth();
          comes back, so this is where they are, with Show again. Painted by paintSurvivalHidden; hidden when none. -->
     <section class="dbox" id="survival-hidden-box" hidden>
       <h3 class="dlab">Restart notices you closed</h3>
-      <p class="dhint" style="margin:0 0 12px;">These agents will not come back if you restart this computer. You asked not to be reminded.</p>
+      <p class="dhint" style="margin:0 0 12px;">These agents will not come back after a restart. You asked not to be reminded.</p>
       <div id="survival-hidden-list"></div>
     </section>
 
@@ -47886,8 +47892,8 @@ function survivalSay(n) {
   /* Singular and plural written out rather than assembled, because "1 agents"
      is exactly the seam this screen keeps being caught on. */
   return n === 1
-    ? 'One of your agents will not come back if you restart this computer.'
-    : n + ' of your agents will not come back if you restart this computer.';
+    ? 'One of your agents will not come back after a restart.'
+    : n + ' of your agents will not come back after a restart.';
 }
 /* #6714: at most this many agents get a notice of their own; past it, one notice names them all, so the floating
    stack never covers the board. */
@@ -47935,12 +47941,15 @@ async function paintSurvival() {
     const row = (body.agents || []).find((a) => a && a.name === n);
     return (row && row.shownAs) || n;
   };
-  const kept = 'Its folder and everything it remembers are untouched.';
+  const kept = 'Its folder and memory are untouched.';
   let html = '';
-  if (body.missing.length && body.missing.length <= SURVIVAL_EACH_MAX) {
+  /* On a phone one agent has a notice of its own; more share one, so the stack does not fill the screen. */
+  const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 720px)').matches;
+  const eachMax = phone ? 1 : SURVIVAL_EACH_MAX;
+  if (body.missing.length && body.missing.length <= eachMax) {
     for (const n of body.missing) {
       const shown = esc(shownFor(n));
-      html += survivalNotice('', shown + ' will not come back if you restart this computer', kept,
+      html += survivalNotice('', shown + ' will not come back after a restart', kept,
         '<button type="button" class="uprime" data-survival-fix="' + esc(n) + '">Start at login</button>'
         + '<button type="button" data-survival-remove="' + esc(n) + '">Remove…</button>',
         n, 'Stop reminding me about ' + shownFor(n));
@@ -47948,15 +47957,15 @@ async function paintSurvival() {
   } else if (body.missing.length) {
     html += survivalNotice('', esc(survivalSay(body.missing.length)),
       '<span data-survival-names>' + body.missing.map((n) => esc(shownFor(n))).join(', ') + '</span>. '
-      + 'Their folders and everything they remember are untouched.',
+      + 'Their folders and memory are untouched.',
       '<button type="button" class="uprime" data-survival-fix="">Start them at login</button>',
       body.missing.join(' '), 'Stop reminding me about these agents');
   }
   if (unknown.length) {
     /* #6518: under a "will not come back" notice the unknown group says only that it could not be checked. */
     const head = unknown.length === 1
-      ? 'We could not check whether ' + esc(shownFor(unknown[0])) + ' comes back if you restart this computer'
-      : 'We could not check whether ' + unknown.length + ' of your agents come back if you restart this computer';
+      ? 'We could not check whether ' + esc(shownFor(unknown[0])) + ' comes back after a restart'
+      : 'We could not check whether ' + unknown.length + ' of your agents come back after a restart';
     html += survivalNotice('unknown', head,
       'Something we need for this check could not be read. '
       + (unknown.length === 1 ? 'We will leave it as it is.' : 'We will leave them as they are.')

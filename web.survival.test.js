@@ -46,7 +46,7 @@ test('the cap is a small number, so the floating stack never covers the board', 
 test('#6714: one compact notice per agent, each naming it, with Start at login, Remove and a x', async () => {
   const { slot } = await run({ ok: true, missing: ['brigitte', 'marilyn'], agents: [{ name: 'brigitte', shownAs: 'Brigitte' }] });
   assert.equal(notices(slot.innerHTML), 2);
-  assert.match(slot.innerHTML, /Brigitte will not come back if you restart this computer/);
+  assert.match(slot.innerHTML, /Brigitte will not come back after a restart/);
   assert.match(slot.innerHTML, /marilyn will not come back/);
   for (const n of ['brigitte', 'marilyn']) {
     assert.match(slot.innerHTML, new RegExp('data-survival-fix="' + n + '">Start at login<'));
@@ -106,9 +106,9 @@ test('it does not stand under another tab', async () => {
 test('the sentence never claims the folders are at risk', async () => {
   /* Nothing was deleted; these agents are stopped and unregistered. */
   const one = await run({ ok: true, missing: ['brigitte'] });
-  assert.match(one.slot.innerHTML, /Its folder and everything it remembers are untouched\./);
+  assert.match(one.slot.innerHTML, /Its folder and memory are untouched\./);
   const many = await run({ ok: true, missing: Array.from({ length: EACH_MAX + 1 }, (_, i) => 'a' + i) });
-  assert.match(many.slot.innerHTML, /Their folders and everything they remember are untouched\./);
+  assert.match(many.slot.innerHTML, /Their folders and memory are untouched\./);
 });
 
 test('#6320: agents that could not be checked are said, with no button to set them up', async () => {
