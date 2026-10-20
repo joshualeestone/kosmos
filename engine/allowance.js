@@ -158,7 +158,7 @@ function ensureStatusLine(settingsPath, opts) {
      (installroot.js has the rule). `leaveAlone` is injectable for tests. */
   let leave = o.leaveAlone;
   if (leave === undefined) {
-    try { leave = require('./installroot').leaveAlone(settingsPath); }
+    try { leave = require('./installroot').leaveAlone(settingsPath, { platform: o.platform }); }
     catch { leave = 'this board could not tell whether it is an installed Kosmos, so it leaves this account\'s Claude settings alone'; }
   }
   if (leave) return { wired: false, because: leave };

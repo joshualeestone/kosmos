@@ -5249,7 +5249,7 @@ case "$_hooks_rc" in
     info "agents on this computer report what they are doing themselves; the board reads their"
     info "own words instead of their screens" ;;
   3)
-    info "this install is not recognised as the installed Kosmos (for example, KOSMOS_HOME is not the default),"
+    info "this install is not recognised as the installed Kosmos (its layout, or KOSMOS_HOME, is not the default one),"
     info "so it leaves the Claude settings in your home alone; agents on it are read from their screens instead" ;;
   *)
     info "some agent settings could not carry the reporting hook (an unreadable settings"
