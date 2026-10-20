@@ -258,6 +258,13 @@ test('the pinned key (base64url of the raw bytes) is matched against the listed 
   for (const bad of ['not a key', rawOf(K7).toString('base64'), pin7 + '=']) {
     assert.equal(sk.pinnedIsListed(bad, keys), false, 'a pin that is not a key ' + JSON.stringify(bad));
   }
+  // The same 32 bytes spelled with non-zero trailing bits: the tunnel's strict decoder refuses that pin file, so it is
+  // a mismatch here (false), never read as the listed key.
+  const alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const bumped = pin7.slice(0, -1) + alpha[alpha.indexOf(pin7.at(-1)) + 1];
+  assert.deepEqual(Buffer.from(bumped, 'base64url'), Buffer.from(pin7, 'base64url'), 'CONTROL: the bumped pin decodes to the same bytes');
+  assert.notEqual(bumped, pin7);
+  assert.equal(sk.pinnedIsListed(bumped, keys), false, 'a pin with non-zero trailing bits');
   // No pin at all is no answer, not a mismatch.
   for (const none of ['', null, undefined, ' \n']) assert.equal(sk.pinnedIsListed(none, keys), null, 'no pin ' + JSON.stringify(none));
   // No verified set, no answer: off (as shipped), a refused set, or a bare key array are null, never "not listed".
