@@ -45,12 +45,21 @@ fi
 #   OK                 top-level env has the exact dead address, no bad override
 #   PARSE_ERROR        not loadable as YAML
 #   NOT_MAPPING        loads but the document is not a mapping
-#   TOP_MISSING        top-level env: lacks the var, or holds a different value
+#   TOP_MISSING        top-level env: lacks the var entirely
+#   TOP_WRONG:<value>  top-level env: has the var but holds a value other than the dead address
 #   OVERRIDE:<where>   a job/step env: sets the var to a value other than the dead address
+# load_file is passed aliases:true so a workflow that legitimately uses a YAML anchor/alias
+# (GitHub Actions supports them) is NOT rejected: under Psych 4 (Ruby 3.1+, the macos-latest
+# runner) a bare load_file safe-loads with aliases:false and would raise on an anchor. The
+# inner rescue falls back for an older Psych whose load_file lacks the keyword.
 RUBY_VERDICT='
 require "yaml"
 begin
-  d = YAML.load_file(ARGV[0])
+  begin
+    d = YAML.load_file(ARGV[0], aliases: true)
+  rescue ArgumentError
+    d = YAML.load_file(ARGV[0])
+  end
 rescue Exception
   puts "PARSE_ERROR"; exit 0
 end
@@ -70,7 +79,8 @@ bad = []
     end
   end
 end
-if top != url; puts "TOP_MISSING"; exit 0; end
+if top.nil?; puts "TOP_MISSING"; exit 0; end
+if top != url; puts "TOP_WRONG:" + top.to_s; exit 0; end
 unless bad.empty?; puts "OVERRIDE:" + bad.join(","); exit 0; end
 puts "OK"
 '
@@ -86,7 +96,7 @@ disk=$(find "$WFDIR" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) |
 [ "${#files[@]}" -eq "$disk" ] || fail "glob saw ${#files[@]} workflow files but $disk exist under $WFDIR (glob is not seeing every file)"
 pass "found ${#files[@]} workflow file(s) under .github/workflows to check"
 
-missing=(); overrides=()
+missing=(); wrong=(); overrides=()
 for f in "${files[@]}"; do
   v="$(verdict "$f")"; b="$(basename "$f")"
   case "$v" in
@@ -94,12 +104,15 @@ for f in "${files[@]}"; do
     PARSE_ERROR) fail "$b is not parseable YAML (fix it; a malformed workflow would also fail at GitHub)" ;;
     NOT_MAPPING) fail "$b did not load as a YAML mapping" ;;
     TOP_MISSING) missing+=( "$b" ) ;;
+    TOP_WRONG:*) wrong+=( "$b (${v#TOP_WRONG:})" ) ;;
     OVERRIDE:*) overrides+=( "$b (${v#OVERRIDE:})" ) ;;
     *) fail "$b produced an unrecognized verdict: $v" ;;
   esac
 done
 [ "${#missing[@]}" -eq 0 ] \
-  || fail "these workflows lack AGENT_WORKFORCE_CREATED_URL=$URL in their TOP-LEVEL env: block: ${missing[*]}. Add it (a bare top-level env:) so a board started by the workflow cannot send a real install ping; for a systemd service board, engine/linuxboard.js injects this top-level value into the unit."
+  || fail "these workflows lack AGENT_WORKFORCE_CREATED_URL in their TOP-LEVEL env: block: ${missing[*]}. Add it (a bare top-level env: holding $URL) so a board started by the workflow cannot send a real install ping; for a systemd service board, engine/linuxboard.js injects this top-level value into the unit."
+[ "${#wrong[@]}" -eq 0 ] \
+  || fail "these workflows have AGENT_WORKFORCE_CREATED_URL in their TOP-LEVEL env: but set to a value OTHER than $URL (present but wrong, likely a typo): ${wrong[*]}"
 [ "${#overrides[@]}" -eq 0 ] \
   || fail "these workflows override AGENT_WORKFORCE_CREATED_URL at a job/step env: with a value other than $URL (that would let the ping out again for that job/step): ${overrides[*]}"
 pass "all ${#files[@]} workflows carry AGENT_WORKFORCE_CREATED_URL=$URL at the top-level env, with no job/step override to a different value"
@@ -108,10 +121,10 @@ pass "all ${#files[@]} workflows carry AGENT_WORKFORCE_CREATED_URL=$URL at the t
 # greens on the right one, so Part A's clean run is a real result, not a vacuous one.
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/test-ci-created-url-6742.XXXXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
-expect() { # $1 fixture, $2 expected verdict (exact, or OVERRIDE prefix), $3 label
+expect() { # $1 fixture, $2 expected verdict (exact, or OVERRIDE/TOP_WRONG prefix), $3 label
   local got; got="$(verdict "$1")"
   case "$2" in
-    OVERRIDE) case "$got" in OVERRIDE:*) : ;; *) fail "Part B ($3): expected an OVERRIDE verdict, got '$got'";; esac ;;
+    OVERRIDE|TOP_WRONG) case "$got" in "$2":*) : ;; *) fail "Part B ($3): expected a $2 verdict, got '$got'";; esac ;;
     *) [ "$got" = "$2" ] || fail "Part B ($3): expected '$2', got '$got'" ;;
   esac
   pass "Part B: $3 -> $got"
@@ -176,7 +189,7 @@ jobs:
     steps:
       - run: echo hi
 YML
-expect "$tmp/wrong.yml" TOP_MISSING "a wrong top-level value reds (the check pins the dead address)"
+expect "$tmp/wrong.yml" TOP_WRONG "a wrong top-level value reds distinctly as TOP_WRONG (the check pins the dead address)"
 
 cat > "$tmp/override.yml" <<'YML'
 name: override
@@ -192,6 +205,20 @@ jobs:
       - run: echo hi
 YML
 expect "$tmp/override.yml" OVERRIDE "a job-level override to a different value reds even with a correct top-level env"
+
+cat > "$tmp/anchored.yml" <<'YML'
+name: anchored
+on: [push]
+_addr: &addr http://127.0.0.1:9/api/created
+env:
+  AGENT_WORKFORCE_CREATED_URL: *addr
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+YML
+expect "$tmp/anchored.yml" OK "a YAML anchor/alias in a correct top-level env is accepted, not rejected as PARSE_ERROR (GitHub Actions supports anchors)"
 
 cat > "$tmp/badyaml.yml" <<'YML'
 name: broken
