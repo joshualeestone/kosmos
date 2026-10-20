@@ -18529,8 +18529,9 @@ const server = http.createServer(async (req, res) => {
      without draw exactly the same card, so the only way to find out which of
      yours come back was to restart the computer. Josh did, on 2026-08-22, and
      one of his sixteen came back. */
-  /* #6714: its one write is forgetting closed restart notices that no longer apply (engine/register.js forgetHidden),
-     read afresh and written only when something changed. */
+  /* #6714: register.survey forgets closed restart notices that no longer apply (engine/register.js forgetHidden), read
+     afresh and written only when something changed, wherever the survey runs: here, the status poll's offline
+     roster, and a hide. */
   if (pathname === '/api/register' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, register.survey()); }
     catch { sendJson(res, 500, { error: 'we could not check which of your agents start on their own' }); }

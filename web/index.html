@@ -1131,10 +1131,8 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .btn:hover { background: var(--attn-bg); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn:disabled:hover { background: var(--bg); }
-/* 📱 #718 row 6: "Set them to start at login", under the board when agents would not survive a
-   restart, is the one home-screen button with nothing bigger around it: 34px tall at 375 (the
-   agent names are 16px but a tap anywhere on the card or row opens the agent, and "Answer" has its
-   own touch hit area below). Phone width only; .btn is shared, so this is scoped to its box. */
+/* 📱 #718 row 6: the restart notice's buttons are the home screen's ones with nothing bigger around them (the agent
+   names are 16px but a tap anywhere on the card or row opens the agent, and "Answer" has its own touch hit area). */
 /* #6714: the restart notice is a .utoast now; its buttons get the same phone tap height, at the width its phone layout
    and its one-notice cap use. */
 @media (max-width: 720px) { .utoast.survival .uacts button, .utoast.survival .ux { min-height: 44px; } .utoast.survival .ux { min-width: 44px; } }
@@ -48078,7 +48076,17 @@ document.addEventListener('click', async (e) => {
       const r = await fetch('/api/register/show', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: show.getAttribute('data-survival-show') }) });
       await r.text(); ok = r.ok;
     } catch { ok = false; }
-    if (!ok) { show.disabled = false; show.textContent = 'Show again (that did not go through)'; return; }
+    if (!ok) {
+      show.disabled = false;
+      /* The button keeps its name; what went wrong is a line beside it (review 11), as every other failure here. */
+      const row = show.closest('.setrow');
+      const old = row && row.querySelector('[data-survival-err]'); if (old) old.remove();
+      const say = document.createElement('small');
+      say.setAttribute('data-survival-err', ''); say.setAttribute('role', 'alert');
+      say.textContent = 'That did not go through. Try again.';
+      if (row && row.firstElementChild) row.firstElementChild.appendChild(say);
+      return;
+    }
     paintSurvival();
     refreshSurvivalHidden();   // the list itself, even while a report holds the notices (review 6)
     return;

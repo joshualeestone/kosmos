@@ -77,3 +77,15 @@ test('#6714: POST /api/register: {} and no body mean all, a name means that one,
   assert.equal(bare.status, 200, 'no body was not read as all');
   assert.ok(bare.body.results.some((r) => r.name === 'rt-c'), 'no body did not start the remaining agent');
 });
+
+test('#6714 review 11: a hide the board cannot record is a 500, never the "already done" 400', async () => {
+  ranAgent('rt-writefail');
+  const file = require('node:path').join(store.ROOT, 'restart-notices-hidden.json');
+  fs.rmSync(file, { force: true });
+  fs.mkdirSync(file, { recursive: true });   // a folder where the list goes: the write fails
+  try {
+    const r = await post('/api/register/hide', JSON.stringify({ name: 'rt-writefail' }));
+    assert.equal(r.status, 500, JSON.stringify(r.body));
+    assert.notEqual(r.body.notOffered, true, 'a failed write read as already done');
+  } finally { fs.rmSync(file, { recursive: true, force: true }); }
+});

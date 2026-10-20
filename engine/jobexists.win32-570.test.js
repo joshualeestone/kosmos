@@ -164,7 +164,7 @@ test('#570 the restart-survival screen SEES a Scheduled Task, and stops offering
   assert.equal(row.job, true,
     'the screen that exists to answer "will it be here after a restart" said no about an agent that will');
   /* 🛑 AND THE ACT, WHICH IS THE HALF THAT COULD HAVE HURT. `missing` feeds the
-     "Set them to start at login" button, and on win32 that path LAUNCHES the
+     restart notice's "Start at login" button, and on win32 that path LAUNCHES the
      agent -- so a wrong `job: false` meant a second live agent in the same
      folder for every agent on the board. */
   assert.deepEqual(s.missing, [],
