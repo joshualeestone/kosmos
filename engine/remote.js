@@ -209,11 +209,12 @@ function runningCapabilities() {
   if (!tunnelStartedHere) return null;
   const pid = child ? child.pid : (process.env.NODE_TEST_CONTEXT ? runningPidForTests : null);
   if (pid === null || pid === undefined) return new Set();
-  if (runningSeen && runningSeen.pid === pid) return runningSeen.caps;
-  let raw;
+  let raw = null;
   // Unreadable includes a moment where Windows holds the file for the tunnel's atomic replace: refused, asked again.
-  try { raw = JSON.parse(fs.readFileSync(STATUS_FILE(), 'utf8')); } catch { return new Set(); }
+  try { raw = JSON.parse(fs.readFileSync(STATUS_FILE(), 'utf8')); } catch { /* below */ }
+  // Read even when the child's list is kept (review 7), so a foreign writer is noticed on the gated path too.
   if (raw && Number.isInteger(raw.pid) && raw.pid !== pid) endForeignTunnel(raw.pid);
+  if (runningSeen && runningSeen.pid === pid) return runningSeen.caps;
   if (!raw || raw.pid !== pid) return new Set();
   return noteRunning(raw, pid);
 }
@@ -235,7 +236,7 @@ function noteRunning(raw, pid) {
    fixture cannot fake; review 6) and its first argument is `run`, and it was started with this board's own `--status-file` path,
    the whole argument. A pid outside 2..2^22 is never looked at (0 and -1 would signal a group). Our own pid and our
    child are excluded both when asked and again right before the signal. Not closed (stated): a pid that exits and is
-   reused between ps and the signal. Kept for good per pid: "not our tunnel" (program or path). Asked again after a
+   reused between ps and the signal. Kept an hour per pid: "not our tunnel" (program or path). Asked again after a
    minute (reviews 5 and 6): a live parent (its board may die later), a pid that is gone (it may be reused by one), and
    one just ended (a tunnel that ignores TERM). Never judged while this board is itself pid 1 (a container entrypoint,
    whose own earlier children read as orphans).
@@ -243,6 +244,7 @@ function noteRunning(raw, pid) {
    Not on Windows (no command line is read there; stated on kosmos#6669). */
 const foreignLooked = new Map();   // pid -> until when its answer stands (Infinity: for good)
 const FOREIGN_RECHECK_MS = 60 * 1000;
+const FOREIGN_NOT_OURS_MS = 60 * 60 * 1000;
 const foreignAsking = new Set();
 // Tests only, and honoured only under the test runner: (pid, statusFile) => { ppid, command } or null, instead of ps.
 let endForeignForTests = null;
@@ -272,7 +274,8 @@ function endForeignTunnel(pid, done = () => {}) {
   const judge = (proc) => {
     foreignAsking.delete(pid);
     if (proc === undefined) { done(false); return; }   // ps failed: no answer, asked again next time
-    if (proc !== null && !isOurTunnel(proc, statusFile)) { foreignLooked.set(pid, Infinity); done(false); return; }
+    // "Not ours" stands an hour (review 7), not for good: macOS pids wrap at 99999, and a board runs for weeks.
+    if (proc !== null && !isOurTunnel(proc, statusFile)) { foreignLooked.set(pid, Date.now() + FOREIGN_NOT_OURS_MS); done(false); return; }
     if (!isOrphanedTunnel(proc, statusFile) || notOurs(pid)) { foreignLooked.set(pid, Date.now() + FOREIGN_RECHECK_MS); done(false); return; }
     foreignLooked.set(pid, Date.now() + FOREIGN_RECHECK_MS);
     try { (stand ? killForTests : process.kill.bind(process))(pid, 'SIGTERM'); console.error('[remote] ended a Kosmos+ tunnel an earlier board left running (pid ' + pid + ')'); done(true); } catch { done(false); }

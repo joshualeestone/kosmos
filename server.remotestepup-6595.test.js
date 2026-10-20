@@ -485,7 +485,7 @@ test('R01c: an orphaned tunnel is ended, read from the real process table; a liv
     assert.ok(alive(liveBoards.pid) && alive(elsewhere.pid) && alive(notTunnel.pid), 'CONTROL: all three still running');
     assert.equal(await ended(orphan.pid), true, 'our orphan was not ended');
     assert.ok(await until(() => !alive(orphan.pid)), 'the orphan did not end');
-    assert.equal(await ended(orphan.pid), false, 'a pid is judged once');
+    assert.equal(await ended(orphan.pid), false, 'an ended pid was judged again at once');
   } finally { for (const p of [orphan, elsewhere, liveBoards, notTunnel]) { try { process.kill(p.pid, 'SIGKILL'); } catch {} } reset(); await warm(); }
 });
 
@@ -502,15 +502,26 @@ test('R01c: a pid outside 2..2^22, our own pid, and a failed ps are never signal
 
 test('R01c: reading the status file is what notices it: a foreign pid there is judged, and a non-tunnel is left alone', async () => {
   const asked = [];
-  const bystander = spawnProc('/bin/sh', ['-c', 'sleep 30; true'], { stdio: 'ignore' });
+  const killed = [];
+  const notTunnel = 424310;
+  const orphan = 424311;
   try {
-    reset({ commandOf: (pid) => { asked.push(pid); return { ppid: 1, command: '/bin/sh -c sleep 30; true' }; } });
-    listRunning({ state: 'up', pid: bystander.pid });
+    reset({
+      commandOf: (pid) => { asked.push(pid); return pid === orphan ? { ppid: 1, command: CONNECTOR + ' run --status-file ' + STATUS } : { ppid: 1, command: '/bin/sh -c sleep 30; true' }; },
+      kill: (pid) => killed.push(pid),
+    });
+    await warm();
+    listRunning({ state: 'up', pid: notTunnel });
     remote.connectorCapabilities();
-    assert.deepEqual(asked, [bystander.pid], 'the foreign pid in the status file was not judged');
-    await new Promise((r) => setTimeout(r, 50));
-    assert.ok(alive(bystander.pid), 'a process that is not our tunnel was ended');
-  } finally { try { bystander.kill('SIGKILL'); } catch {} reset(); await warm(); }
+    assert.deepEqual(asked, [notTunnel], 'the foreign pid in the status file was not judged');
+    assert.deepEqual(killed, [], 'a process that is not our tunnel was signalled');
+    // Review 7: after this board's child's list is kept, the gated read still notices a foreign writer.
+    listRunning();                                   // the child writes: its list is now kept
+    assert.ok(remote.connectorCapabilities().has('session-headers'));
+    listRunning({ state: 'restarting', pid: orphan }); // then an orphan writes
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'CONTROL: the kept list holds');
+    assert.deepEqual(killed, [orphan], 'an orphan writing after the child\'s list was kept was not judged');
+  } finally { reset(); await warm(); }
 });
 
 test('R01c: a live board\'s tunnel is asked again after a minute (its board may die); not-our-tunnel is kept for good', async () => {

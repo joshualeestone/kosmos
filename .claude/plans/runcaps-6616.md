@@ -50,7 +50,9 @@ refused every gated remote action until this board's tunnel next changed state.
   portable fixture needs a real executable whose own file is named `kosmos-tunnel` (a copied /bin/sleep is killed by
   code signing, a symlink reports its target, a hard link to node cannot load its libraries). What argv alone lets
   through: a same-user process with parent 1 whose argv names the tunnel, `run` and this board's exact status-file path.
-- Kept for good per pid: "not our tunnel". "Ended" is asked again after a minute (review 6: a tunnel that ignores
+  Argv is read flattened, so with a space in the path (`Application Support`) a tunnel whose status file is
+  `<path> more` matches too (review 7); the same conditions still hold for it.
+- Kept an hour per pid (review 7; for good before): "not our tunnel". "Ended" is asked again after a minute (review 6: a tunnel that ignores
   TERM). Never judged while the board itself is pid 1 (a container entrypoint). Asked again after a minute (review 5): a live parent (its board
   may die later) and a pid that is gone (it may be reused by one). A failed ps: next time.
 - Not on Windows (no command line is read there), nor on Linux where a subreaper makes an orphan's parent other than
