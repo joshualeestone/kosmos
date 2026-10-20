@@ -1234,8 +1234,9 @@ const closeAll = (page) => page.evaluate(() => {
     };
     // An older coordinator ignores the address and mints an unbound code: the page must not promise a restriction.
     const noEcho = await make('typed@example.com', null);
-    check('6708 an address typed but not echoed (an older coordinator) is named nowhere',
-      !/typed@example\.com|Kosmos\+ account with/.test(noEcho.until + noEcho.text), JSON.stringify(noEcho));
+    check('6708 an address typed but not echoed (an older coordinator) is named nowhere (on a done step that was drawn)',
+      noEcho.until.startsWith('It works once') && /KOS-6708-ECHO/.test(noEcho.text)
+      && !/typed@example\.com|Kosmos\+ account with/.test(noEcho.until + noEcho.text), JSON.stringify(noEcho));
     // The coordinator's normalised form is what it checks, so that is what the page shows.
     const differs = await make('Mixed@Example.COM', 'mixed@example.com');
     check('6708 the echoed form is shown, not the typed one',

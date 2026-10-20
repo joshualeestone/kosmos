@@ -19,6 +19,9 @@ person invited learned it only from a refusal ("made for someone else") if they 
   <address>." for a bound code, the address passed through the same line cleaner as the rest of the text.
 - An unbound code's text is unchanged.
 
+Live only once kosmos-relay #502 (the coordinator's binding and echo) is merged and deployed; until then no coordinator
+echoes an address and the sentence never shows, which is the safe direction.
+
 ## Decided
 - The address shown is the coordinator's echo (its normalised form, lowercased), since that is what it will check;
   review 1 replaced "as typed".
@@ -30,6 +33,9 @@ the invitation; CONTROL: B7's unbound code mentions no address; A5's pinned sent
 not echoed is named nowhere; an echo differing in case from the typed value is the one shown (and is the arm's own
 positive control, since it must name an address). Mutants: the done-step line removed, red; `boundTo` built from the
 typed value, red on exactly the two review-2 arms (A4 stays green under it, which is the gap review 2 found).
+
+Left on purpose (review 4 NIT): the page does not clean the echo itself; the engine route is the only one that hands
+the done step an echo, and it refuses spaces, control and format characters, and overlong values.
 
 ## Weakest premise
 That showing the address in the copied text is wanted. It is the recipient's own address, sent by the owner to them;
