@@ -233,6 +233,8 @@ function verifyServiceKeySet(opts) {
  * but is not a key is false: a mismatch. */
 function pinnedIsListed(pinned, verified) {
   if (!verified || verified.ok !== true || !Array.isArray(verified.keys)) return null;
+  // A pin that is not text (junk from a failed read) is no answer, as junk recovery keys are refused (iteration 13).
+  if (pinned != null && typeof pinned !== 'string' && !Buffer.isBuffer(pinned)) return null;
   // No pin yet (before setup, or an empty file) is not a mismatch either: nothing was pinned to compare.
   if (String(pinned == null ? '' : pinned).replace(RUST_WS_ENDS, '') === '') return null;
   const spki = pinnedSpki(pinned);
