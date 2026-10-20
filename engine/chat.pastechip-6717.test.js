@@ -38,14 +38,18 @@ function ok(out) { return { ran: true, spawnFailed: false, status: 0, out: out |
    "[Pasted text #N]" once it passes `fold` characters, N rising per chip. `enterTakes`: whether an Enter submits.
    `onBeforeEnter(state)`: runs just before an Enter is pressed (a person pasting in the gap). */
 function pane(opts = {}) {
-  const state = { shown: opts.shown || '', pasted: '', chipNo: opts.chipNo || 0, sent: [], enters: 0, buffer: '' };
+  const state = { shown: opts.shown || '', pasted: '', chipNo: opts.chipNo || 0, sent: [], enters: 0, buffer: '', pid: opts.pid || '4242', unreadOnce: !!opts.unreadOnce };
   const fold = opts.fold || 300;
   const calls = [];
   const fn = (args) => {
     calls.push(args);
     if (args[0] === 'display-message' && args.includes('#{session_attached}')) return ok('0\n');
+    if (args[0] === 'display-message' && args.includes('#{pane_pid}')) return ok(state.pid + '\n');
     if (args[0] === 'display-message') return ok('2.1.305\t\t0\n');
-    if (args[0] === 'capture-pane' && args.includes('-e')) return ok(draw(state.shown));
+    if (args[0] === 'capture-pane' && args.includes('-e')) {
+      if (state.unreadOnce) { state.unreadOnce = false; return ok('a screen with no input box on it\n'); }   // a menu, say
+      return ok(draw(state.shown));
+    }
     if (args[0] === 'capture-pane') return ok('');
     if (args[0] === 'set-buffer') { state.buffer = args[args.length - 1]; return ok(); }
     if (args[0] === 'paste-buffer') {
@@ -143,7 +147,7 @@ test('kosmos#6717 CONTROL: a PERSON\'S paste chip already in the box is never pr
 }));
 
 test('kosmos#6717 CONTROL: a person pasting several lines in the gap before our Enter is never sent with ours', () => withAgent((roster) => {
-  const p = pane({ onBeforeEnter: () => {} });
+  const p = pane();
   // The person's paste lands between our paste and our Enter: the box now shows a multi-line chip.
   const real = p;
   let pasted = false;
@@ -181,3 +185,74 @@ test('kosmos#6717: which chips count as ours', () => {
   assert.equal(h('[Pasted text #3]', 'x'.repeat(2000)), 'other', 'with nothing tying it to our paste: not ours');
   assert.equal(h('see [Pasted text #3]', 'x'.repeat(2000), true), 'other', 'a chip with words around it is not ours alone');
 });
+
+test('kosmos#6717: a chip whose number changes during the watch after our Enter is not ours (pinned), and is not kept as ours', () => withAgent((roster) => {
+  const p = pane({ enterTakes: false });
+  let looks = 0;
+  chat.setRunner((args) => {
+    // After our Enter, the box first shows our chip, then a person's (a new number) in its place.
+    if (args[0] === 'capture-pane' && args.includes('-e') && p.state.enters > 0 && ++looks === 2) { p.state.chipNo += 1; p.state.shown = `[Pasted text #${p.state.chipNo}]`; }
+    return p(args);
+  });
+  const v = chat.deliver('al', LONG, roster);
+  assert.equal(p.state.enters, 1, 'only our own Enter, never one on the person\'s chip');
+  assert.notEqual(v.state, chat.DELIVERY.PLACED, 'not said as sent');
+  let kept = {};
+  try { kept = JSON.parse(fs.readFileSync(path.join(require('./store').ROOT, 'unsent-lines.json'), 'utf8')); } catch { kept = {}; }
+  assert.equal(Object.values(kept).some((e) => e && e.chip === '[Pastedtext#2]'), false, 'the person\'s chip is never kept as our line');
+}));
+
+test('kosmos#6717: a box that could not be read before our paste ties no chip to us', () => withAgent((roster) => {
+  const p = pane({ unreadOnce: true });
+  const v = chat.deliver('al', LONG, roster);
+  assert.equal(p.state.shown.startsWith('[Pasted text'), true, 'PRECONDITION: the paste folded');
+  assert.equal(p.state.enters, 0, 'no Enter on a chip nothing ties to our paste');
+  assert.equal(v.unsubmitted, true);
+}));
+
+test('kosmos#6717: a short line can never come back as a chip, so a chip after one is never ours', () => {
+  assert.equal(chat.composerHolds('[Pasted text #3]', 'short line', true), 'ours', 'composerHolds alone takes the tie it is given');
+  // The delivery gives the tie only to a line long enough to fold (measured: 800 characters stays text, 1,000 folds).
+  return withAgent((roster) => {
+    const p = pane({ fold: 5 });   // this pane folds even a short paste
+    const v = chat.deliver('al', 'a short message', roster);
+    assert.equal(p.state.shown.startsWith('[Pasted text'), true, 'PRECONDITION: it folded');
+    assert.equal(p.state.enters, 0, 'not pressed: a short line of ours cannot be a chip');
+    assert.equal(v.unsubmitted, true);
+  });
+});
+
+test('kosmos#6717: Claude Code restarted in the pane (chip numbers start again): our kept chip is not pressed', () => withAgent(async (roster) => {
+  chat.setRosterSource(() => roster);
+  pane({ enterTakes: false, pid: '4242' });
+  assert.equal(chat.deliver('al', LONG, roster).unsubmitted, true, 'PRECONDITION: ours kept as #1 in process 4242');
+  chat.restartUnsentForTests();
+  // A new Claude Code in the pane, and a person's first long paste: also #1.
+  const p = pane({ shown: '[Pasted text #1]', chipNo: 1, pid: '5151' });
+  const v = chat.deliver('al', 'the next message', roster);
+  assert.equal(v.inputHeld, true, 'refused: same number, another process');
+  assert.equal(p.state.enters, 0);
+  const r = await chat.recoverStuckInput(roster[0], new Date(Date.now() - 11 * 60000).toISOString());
+  assert.equal(r.outcome, 'left');
+  assert.equal(p.state.enters, 0);
+}));
+
+test('kosmos#6717: a chip that first appears during the watch after our Enter is pinned at its first sight', () => withAgent((roster) => {
+  const p = pane({ enterTakes: false, fold: 1e9 });   // before the Enter the box shows our words, not a chip
+  let looks = 0;
+  chat.setRunner((args) => {
+    // After our Enter it folds to #1 (ours), then a person's #2 takes its place.
+    if (args[0] === 'capture-pane' && args.includes('-e') && p.state.enters > 0) {
+      looks += 1;
+      if (looks === 1) { p.state.chipNo = 1; p.state.shown = '[Pasted text #1]'; }
+      if (looks === 2) { p.state.chipNo = 2; p.state.shown = '[Pasted text #2]'; }
+    }
+    return p(args);
+  });
+  chat.deliver('al', LONG, roster);
+  assert.equal(looks >= 2, true, 'PRECONDITION: the watch looked at least twice');
+  assert.equal(p.state.enters, 1, 'only our own Enter');
+  let kept = {};
+  try { kept = JSON.parse(fs.readFileSync(path.join(require('./store').ROOT, 'unsent-lines.json'), 'utf8')); } catch { kept = {}; }
+  assert.equal(Object.values(kept).some((e) => e && e.chip === '[Pastedtext#2]'), false, 'the person\'s #2 is never kept as our line');
+}));
