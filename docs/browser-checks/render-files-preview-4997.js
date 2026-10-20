@@ -58,6 +58,7 @@ function fill(dir) {
   fs.writeFileSync(path.join(dir, 'photo.png'), PNG);
   fs.writeFileSync(path.join(dir, 'report.pdf'), Buffer.from('%PDF-1.4 a check fixture'));
   fs.writeFileSync(path.join(dir, 'notes.txt'), 'hello');
+  fs.writeFileSync(path.join(dir, 'plan.docx'), 'PK not really');   // #6724: a kind with no preview (text previews now)
   fs.symlinkSync(path.join(OUTSIDE, 'secret.png'), path.join(dir, 'away.png'));
 }
 
@@ -130,7 +131,8 @@ function fill(dir) {
           const img = back && back.querySelector('img.pv-media');
           return { up: !!back, img: !!img, loaded: !!(img && img.complete && img.naturalWidth > 0), src: img ? img.getAttribute('src') : null,
             card: !!(back && back.querySelector('.pv-file')), note: back && back.querySelector('.pv-note') ? back.querySelector('.pv-note').textContent : null,
-            name: back ? (back.querySelector('#pv-name') || {}).textContent : null, act: back ? (back.querySelector('#pv-do') || {}).textContent : null };
+            name: back ? (back.querySelector('#pv-name') || {}).textContent : null, act: back ? (back.querySelector('#pv-do') || {}).textContent : null,
+            text: back && back.querySelector('pre.pv-text') ? back.querySelector('pre.pv-text').textContent : null };   // #6724
         });
         const settle = async (fn, ms = 4000) => { const t = Date.now(); let v = await fn(); while (!v.done && Date.now() - t < ms) { await page.waitForTimeout(100); v = await fn(); } return v; };
 
@@ -175,11 +177,17 @@ function fill(dir) {
           chk(s2.up && s2.loaded && s2.note === 'The first page', `${L} F2 a PDF row shows its first page`, JSON.stringify(s2));
           await page.keyboard.press('Escape');
 
-          opens.length = 0;
+          // #6724: a text row opens the preview, with the file's own words read from this list's route.
           await ownRow('notes.txt');
+          const st = await settle(async () => { const s = await shown(); return { ...s, done: s.text !== null && s.text !== 'Reading\u2026' }; });
+          chk(st.up && st.text === 'hello', `${L} F5b (#6724) a text row shows its words in the preview`, JSON.stringify(st));
+          await page.keyboard.press('Escape');
+
+          opens.length = 0;
+          await ownRow('plan.docx');
           for (let i = 0; i < 30 && opens.length === 0; i++) await page.waitForTimeout(100);
           const s3 = await shown();
-          chk(!s3.up && opens.length === 1, `${L} F5 a text row keeps opening on the computer, no preview`, JSON.stringify({ s3, opens }));
+          chk(!s3.up && opens.length === 1, `${L} F5 a row with no preview (a .docx) keeps opening on the computer`, JSON.stringify({ s3, opens }));
 
           // Review 9: THIS list's own route, looked up exactly, after forgetting any earlier list's answer.
           const awayKey = (scope === 'agent' ? '/api/agent/ava/files/preview' : '/api/project/' + encodeURIComponent(project.id) + '/file-preview') + '?name=away.png';
