@@ -4935,6 +4935,8 @@ function attachmentDisposition(base) {
   return 'attachment; filename="' + base.replace(/[^\x20-\x7e]|["\\]/g, '_') + '"; filename*=UTF-8\'\''
     + encodeURIComponent(base).replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 }
+/* The flags every read of a listed file opens with (#4997, #6724's folder zip): one copy, undefined-safe on win32. */
+const LISTED_READ_FLAGS = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
 function sendFileDownload(req, res, found, recheck) {
   const checkOnly = isDownloadCheck(req);
   const base = path.basename(found.given);
@@ -4945,7 +4947,7 @@ function sendFileDownload(req, res, found, recheck) {
   });
   // #4997: O_NOFOLLOW (a file swapped for a link after the gates is refused, not followed; undefined on win32, where
   // sameOpenedFile below is the guard) and O_NONBLOCK (a FIFO swapped in must not hang the board; fstat refuses it).
-  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
+  const flags = LISTED_READ_FLAGS;
   fs.open(found.target, flags, (openErr, fd) => {
     if (openErr) { refuseDownload(req, res, openErr.code === 'ENOENT' || openErr.code === 'ELOOP' ? DOWNLOAD_GONE : DOWNLOAD_UNREADABLE); return; }
     fs.fstat(fd, (statErr, st) => {
@@ -5065,7 +5067,7 @@ async function writeZipEntries(res, folder, where, maxDepth, entries) {
   const zlib = require('node:zlib');
   const changed = () => new Error('that folder changed while it was being downloaded');
   const put = (buf) => zipPut(res, buf);
-  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
+  const flags = LISTED_READ_FLAGS;   // #4997's, one copy (#1732's inventory counts it once)
   const central = [];
   let offset = 0;
   for (const e of entries) {
