@@ -8,8 +8,10 @@ server completed TLS gets the page, so a script there would read the ticket. A b
 ## Depends on
 kosmos-relay#486 (the relay half). Each computer serves, at GET /_kosmos/tls-pin, a statement signed with the key its
 pairing carries, naming the TLS key it serves. `kosmos-tunnel tls-pin --to <origin>` checks it against peers.json,
-pins the origin to that peer, and answers pinned / none / required. Until a connector with that verb ships, this half
-answers `none` (ordinary checking): nothing changes for anyone.
+pins the origin to that peer, and answers pinned / none / required. An origin never pinned answers `none` both with
+no statement and with one that does not verify (so a computer on an older version, which answers that path with its
+sign-in page, is opened as today). Until a connector with that verb ships, this half answers `none` (ordinary
+checking): nothing changes for anyone.
 
 ## Change
 1. engine/remote.js `tlsPin(address, {fresh})`:
@@ -47,7 +49,7 @@ answers `none` (ordinary checking): nothing changes for anyone.
      be in flight (review 1);
    - a refusal cancels the challenge and says so (an alert at most once a minute per computer; always logged).
 4. Tests:
-   - engine/remote.tlspin-6589.test.js (4);
+   - engine/remote.tlspin-6589.test.js (8);
    - a server route test;
    - native-app.tlspin-6589.test.js (the wiring);
    - 14 new --kosmos-app-mode-selftest rows (the hash against an openssl P-256 vector; the decision table; a real self-signed certificate through tlsLeafKeyHash and evaluateTrustOffMain). The

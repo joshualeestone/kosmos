@@ -33,6 +33,7 @@ const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(args) + '\\n');
 let mode = ''; try { mode = fs.readFileSync(${JSON.stringify(MODE)}, 'utf8').trim(); } catch {}
 if (args[0] === 'tls-pin') {
+  if (mode === 'slow') { setTimeout(() => { console.log(JSON.stringify({ state: 'pinned', spki: ['${KEY}'], from: 'mac-b' })); process.exit(0); }, 600); return; }
   if (mode === 'old') { process.stderr.write("error: unrecognized subcommand 'tls-pin'\\n"); process.exit(2); }
   if (mode === 'none') { console.log(JSON.stringify({ state: 'none', because: 'the computer answered 404' })); process.exit(0); }
   if (mode === 'required') { console.log(JSON.stringify({ state: 'required', because: 'statement refused: other_peer' })); process.exit(0); }
@@ -149,4 +150,29 @@ test('#6589 (review 3): warming asks at most ten computers; at most four key has
   assert.equal(recorded().length, 10, 'ten, never twelve');
   mode('six');
   assert.equal((await remote.tlsPin('six.kosmosplus.com')).data.spki.length, 4);
+});
+
+test('#6589 (review 5): an older answer never overwrites a newer one; a forgotten ask never steals a newer run', async () => {
+  enrol();
+  // A slow plain ask, then a fresh one that finishes first with another key: the cache keeps the fresh key.
+  mode('slow');
+  const slow = remote.tlsPin('j.kosmosplus.com');
+  await new Promise((r) => setTimeout(r, 150));
+  mode('other');
+  assert.deepEqual((await remote.tlsPin('j.kosmosplus.com', { fresh: true })).data.spki, ['b'.repeat(64)]);
+  await slow;
+  mode('required');   // a cache miss would now answer required
+  assert.deepEqual((await remote.tlsPin('j.kosmosplus.com')).data.spki, ['b'.repeat(64)], 'the older, slower answer did not overwrite the newer one');
+  // An ask out when a forget lands, then a second ask: when the first settles, a third ask joins the SECOND run.
+  remote.forgetTlsPins();
+  mode('slow');
+  fs.rmSync(RECORD, { force: true });
+  const first = remote.tlsPin('k.kosmosplus.com');
+  await new Promise((r) => setTimeout(r, 150));
+  remote.forgetTlsPins();
+  const second = remote.tlsPin('k.kosmosplus.com');
+  await first;
+  const third = remote.tlsPin('k.kosmosplus.com');
+  await Promise.all([second, third]);
+  assert.equal(recorded().filter((r) => r[4] === 'https://k.kosmosplus.com').length, 2, 'the third ask joined the second run, not a new one');
 });
