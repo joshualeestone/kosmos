@@ -52,13 +52,11 @@ connector_pe_x64() {
 }
 
 connector_pe_signed() {
-  local f="${1:?connector_pe_signed needs a file}" addr size
+  local f="${1:?connector_pe_signed needs a file}"
   connector_pe_x64 "$f" || return 1
-  # PE32+: the data directories start 112 bytes into the optional header (itself 24
-  # bytes after the PE signature); the certificate table is directory 4.
-  addr="$(_cw_u32 "$f" $((_CW_PE + 24 + 112 + 32)))"
-  size="$(_cw_u32 "$f" $((_CW_PE + 24 + 112 + 32 + 4)))"
-  if [ "${addr:-0}" = 0 ] || [ "${size:-0}" = 0 ]; then
+  # The certificate table is read in one place, pe_signature_present (below); this adds
+  # the x86-64 requirement and the connector's own remedy.
+  if ! pe_signature_present "$f" 2>/dev/null; then
     echo "connector_pe_signed: $f carries no signature. Build it with kosmos-relay tools/build-tunnel-release-windows.ps1 -Sign <the signing script> on the Windows release PC, which signs it before writing its sidecars; a Kosmos build never ships an unsigned connector." >&2
     return 1
   fi
@@ -83,6 +81,12 @@ pe_signature_present() {
     523) dirs=$((pe + 24 + 112)) ;;
     *) echo "pe_signature_present: $f has an unknown optional header (magic $magic)" >&2; return 1 ;;
   esac
+  # NumberOfRvaAndSizes sits just before the directories; with fewer than 5 there is no
+  # certificate table (directory 4), and the bytes there belong to something else.
+  if [ "$(_cw_u32 "$f" $((dirs - 4)))" -lt 5 ] 2>/dev/null; then
+    echo "pe_signature_present: $f carries no signature (it has no certificate table)" >&2
+    return 1
+  fi
   addr="$(_cw_u32 "$f" $((dirs + 32)))"
   size="$(_cw_u32 "$f" $((dirs + 36)))"
   if [ "${addr:-0}" = 0 ] || [ "${size:-0}" = 0 ]; then

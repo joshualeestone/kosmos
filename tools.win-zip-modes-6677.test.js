@@ -201,6 +201,15 @@ test('#6677: check refuses a non-ASCII name not marked UTF-8, and passes one tha
   assert.deepEqual(zm.checkModes(marked).problems, []);
 });
 
+test('#6677: set refuses a symlink entry rather than turning it into a file, and a zip with bytes after its end record', () => {
+  const link = makeZip([{ name: 'app/link', data: '../outside', madeBy: UNIX, attrs: 0o120777 << 16 }]);
+  assert.throws(() => zm.setModes(link), /app\/link is not a regular file or a folder \(Unix type 120000\)/);
+  /* The control: the same entry as a regular file is rewritten. */
+  assert.deepEqual(zm.setModes(makeZip([{ name: 'app/link', data: '../outside', madeBy: UNIX, attrs: 0o100666 << 16 }])), { file: 1, exec: 0, dir: 0 });
+  const appended = Buffer.concat([makeZip(BAD), Buffer.from('trailing')]);
+  assert.throws(() => zm.listEntries(appended), /does not end the file/);
+});
+
 test('#6677: without a stage folder a shebang cannot be seen, so such a file is 0644, never writable', () => {
   assert.equal(zm.modeFor('bin/kosmos'), zm.MODE_FILE);
   assert.equal(zm.modeFor('x/Kosmos.EXE'), zm.MODE_EXEC);
