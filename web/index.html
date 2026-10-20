@@ -48012,9 +48012,10 @@ function paintSurvivalHidden(body) {
     + '<button class="btn-quiet" type="button" data-survival-show="' + esc(n) + '">Show again</button></div>').join('');
 }
 
-/* After a notice closes, focus goes to the next one's first button rather than dropping to the page (#6714 review 2). */
+/* After a notice closes, focus goes to the next one's x rather than dropping to the page (#6714 review 2). The x, not the
+   first button: that is Start at login, and closing several notices with Enter would start an agent (review 15). */
 function survivalFocusNext() {
-  const next = document.querySelector('#survival-slot .utoast button');
+  const next = document.querySelector('#survival-slot .utoast .ux');
   if (next && typeof next.focus === 'function') next.focus();
   else if (typeof focusBoardHome === 'function') focusBoardHome();   // the last one closed: back to the board, not the page
 }

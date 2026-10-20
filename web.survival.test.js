@@ -203,3 +203,9 @@ test('#6714 review 7: the combined report keeps each agent\'s guessed-model sent
   assert.ok(at > 0, 'the combined report is not where this test looks: re-derive it');
   assert.match(SCRIPT.slice(at, at + 900), /guessedLine\(r\)/, 'the combined report dropped what we had to assume');
 });
+
+test('#6714 review 15: after a notice closes, focus goes to the next one\'s x, never to Start at login', () => {
+  const f = page.lift(SCRIPT, 'survivalFocusNext');
+  assert.match(f, /querySelector\('#survival-slot \.utoast \.ux'\)/, 'focus no longer goes to the x');
+  assert.doesNotMatch(f, /\.utoast button'\)/, 'focus can land on Start at login, so a repeated Enter starts an agent');
+});

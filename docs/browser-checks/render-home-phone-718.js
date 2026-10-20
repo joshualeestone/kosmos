@@ -7,7 +7,8 @@
  * thumb problem: a tap anywhere on an agent's card or row opens that agent (the board's
  * one click handler), and "Answer" has its own touch hit area (render-waiting-phone-718).
  * This drives the REAL page from the REAL server and reads, at the four harness sizes:
- *   - the restart notice's "Start at login" (and its x, #6714) is at least 44px tall;
+ *   - the restart notice's start button (three agents at phone width share one notice: "Start them at login") and its
+ *     x (#6714) are at least 44px;
  *   - a tap on an empty part of a card (grid) and of a row (list), away from its name
  *     and any button, opens that agent, so the 16px name is not the target;
  *   - the page is no wider than the screen, in both layouts;

@@ -706,8 +706,8 @@ function survey(opts) {
      is `job === true`, which every reader gives only for a job really found: the Mac's plist or a login job covering
      the agent, Linux's unit file, Windows's name in a Task Scheduler list that answered (a failed list is unknown,
      never true). Read afresh at the write (forgetHidden); written only when something changes. Residuals: an agent
-     with a profile but no folder keeps its name and Settings cannot list it until the folder is back; a job waiting
-     its plutil turn drops out of `hidden` for one look. */
+     with a profile but no folder, or a folder but no profile (a stray), keeps its name and Settings cannot list it
+     until the agent is whole again; a job waiting its plutil turn drops out of `hidden` for one look. */
   const stale = hiddenList.filter((n) => !agents.some((x) => x.name === n && x.job !== true && !x.removed));
   if (stale.length) { try { forgetHidden(stale); } catch { /* next look */ } }
   return {
