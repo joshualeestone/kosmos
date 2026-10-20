@@ -69,3 +69,10 @@ design). The slow log records what the board answered slowly; it cannot see a re
 - WARNING: on a phone through Kosmos+ it added a 16px line to a header row meant to be empty. FIXED: hidden there.
 - NIT -> FIXED: at phone widths it overlapped the header's left side (measured 320-430px). Hidden at max-width 40rem
   (the board's phone width); measured no overlap at 641-1024px. A phone keeps the two-miss rule, just not the word.
+
+## Round 4 (sonnet, measured): no blocker, 1 warning, 1 nit
+- Verified: .headright as a containing block moves nothing (the user menu, burger nav and pickers are positioned against
+  their own ancestors), no stacking or clipping; Reconnecting is vertically centred; contrast passes light and dark.
+- WARNING: with every tab shown and a long name, the text could sit over the tabs at 897-960px. FIXED: hidden below
+  64rem. MEASURED (that stress case): hidden at 960 and 1023; clear of the tabs at 1025, 1100 and 1280.
+- NIT not changed: the 14px offset is a literal beside .appright's 14px gap.

@@ -431,9 +431,10 @@ header > .headright { justify-self: end; }
 .headright { position: relative; }
 .hdr-reconnect { position: absolute; right: calc(100% + 14px); top: 50%; transform: translateY(-50%);
   font-size: .8125rem; color: var(--k-ink-2); white-space: nowrap; pointer-events: none; }
-/* At phone widths the header's left side reaches under where it would sit (measured: it overlaps at 320-430px), so it
-   is not drawn there; a phone still gets the rule that matters, the full card only after two unanswered polls. */
-@media (max-width: 40rem) { .hdr-reconnect { display: none; } }
+/* Below 64rem the header's left side or the centred tabs can reach under where it would sit (measured: the left group
+   at 320-430px; the tabs at 897-960px with every tab shown and a long name), so it is not drawn there. Narrower
+   windows still get the rule that matters: the full card only after two unanswered polls. */
+@media (max-width: 64rem) { .hdr-reconnect { display: none; } }
 h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* The pack's stamp: an uppercase chrome label over a promoted bold line.
    The stale/failed variants are the app's honest extras (the pack draws
