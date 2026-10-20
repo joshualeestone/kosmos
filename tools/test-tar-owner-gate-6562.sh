@@ -52,9 +52,9 @@ if ! ( id() { :; }; tar_owner_gate "$T/neutral.tgz" ) 2>/dev/null; then pass "an
 else fail "an empty account must be refused"; fi
 
 B="$HERE/build-kosmos-bundle.sh"
-if /usr/bin/grep -qF 'tar --no-mac-metadata --no-xattrs -czf "$TARBALL_OUT" --uname kosmos --gname staff -C "$STAGE"' "$B" && /usr/bin/grep -qx 'tar_owner_gate "$TARBALL_OUT" || exit 1' "$B"; then pass "the bundle build packs with the neutral names and calls the gate"
+if /usr/bin/grep -qF 'tar --no-mac-metadata --no-xattrs --no-fflags -czf "$TARBALL_OUT" --uname kosmos --gname staff -C "$STAGE"' "$B" && /usr/bin/grep -qx 'tar_owner_gate "$TARBALL_OUT" || exit 1' "$B"; then pass "the bundle build packs with the neutral names and calls the gate"
 else fail "tools/build-kosmos-bundle.sh must pack with --uname kosmos --gname staff and call tar_owner_gate"; fi
-if /usr/bin/grep -qF 'tar --no-mac-metadata --no-xattrs -czf "$TARBALL" --uname kosmos --gname staff' "$HERE/build-tmux-bundle.sh" && /usr/bin/grep -qx 'tar_owner_gate "$TARBALL" || exit 1' "$HERE/build-tmux-bundle.sh"; then pass "the tmux bundle packs with the neutral names and calls the gate"
+if /usr/bin/grep -qF 'tar --no-mac-metadata --no-xattrs --no-fflags -czf "$TARBALL" --uname kosmos --gname staff' "$HERE/build-tmux-bundle.sh" && /usr/bin/grep -qx 'tar_owner_gate "$TARBALL" || exit 1' "$HERE/build-tmux-bundle.sh"; then pass "the tmux bundle packs with the neutral names and calls the gate"
 else fail "tools/build-tmux-bundle.sh must pack with --uname kosmos --gname staff and call tar_owner_gate"; fi
 S="$HERE/../install/setup.sh"
 if [ "$(/usr/bin/grep -c 'tar -xzf "$stage/[a-z]*\.tar\.gz" --no-same-owner -C "$stage"' "$S")" = 2 ] && [ "$(/usr/bin/grep -vE '^[[:space:]]*#' "$S" | /usr/bin/grep -cE 'tar -x')" = 2 ]; then pass "install/setup.sh extracts both tarballs with --no-same-owner (no install applies a recorded owner)"

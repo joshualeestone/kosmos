@@ -43,6 +43,18 @@ an extended attribute. So both can go.
   only" rule unable to change a verdict, which is why no check tests it. Arms: length 0 (under a 20-second alarm, so
   a regression fails rather than hangs), a record that does not parse, one that is not KEY=VALUE, one longer than its
   body, and a pax path then a long name; each guard removed fails its own arm.
+- **Review 3 (opus):** a pax `size` record moved where bsdtar reads the next entry while this reader kept the header
+  size, so an attribute hid between them (my comment said the stream stayed in step either way; it did not). A pax
+  size is now refused (the bundles never need one). File flags (`SCHILY.fflags`, from chflags) shipped too: both pack
+  lines add `--no-fflags`, and the gate refuses file-flag and ACL records with the attributes. The reader reads to the
+  end of the stream and refuses non-zero data after the end, so the verdict no longer depends on the caller's
+  pipefail. The builders' order (pack, owner gate, metadata gate, .sha256) is checked. New arms: file flags, pax
+  size, an attribute in the LIBARCHIVE form alone, an attribute in a global header, a tar cut mid-body and one with
+  no end blocks (compressed whole, so gzip -t passes and the reader itself refuses), a base-256 size, zero padding
+  after the end (passes) and trailing data (refused). Mutants: the size, file-flag, trailing-data, end-block,
+  LIBARCHIVE, global-header and order guards each fail their own arm. Three are EQUIVALENT and stated, not tested:
+  removing the short-header check, the short-body check or the base-256 refusal leaves each case refused by another
+  guard (the checksum on a short or zero-sized next header, or the end rule), so no tarball tells them apart.
 - **Refuse, not strip after the fact.** A gate that edits the tarball would change the bytes after signing-adjacent
   checks; refusing keeps the pack line the only place the bytes are made.
 - **Both tarballs.** The tmux bundle is built the same way, so it gets the same line and gate.
@@ -55,7 +67,7 @@ loudly, which is the safe direction.
 
 ## Tests
 
-- `bash tools/test-tar-metadata-gate-6678.sh`: 22 checks. The control packs a folder that HAS an extended attribute
+- `bash tools/test-tar-metadata-gate-6678.sh`: 34 checks. The control packs a folder that HAS an extended attribute
   the way the bundles pack, and passes. Then: plain packing refused; an AppleDouble entry refused and named (in a
   folder, at the top level, behind a long ustar-prefix path, behind a GNU long name, and behind a hand-made pax path
   record whose entry header says app/K, with a control that the same hand-made entry passes without it); a header
@@ -68,6 +80,7 @@ loudly, which is the safe direction.
 
 ## Not covered
 
+- ACLs: bsdtar 3.5.3 stores none by default (measured by review 3); the gate refuses them anyway.
 - A real bundle build here: the cut builds it. The first cut after merge (0.7.61) is the end-to-end check, and its
   served tarball should be run through the gate.
 - Windows: its zip is built elsewhere and carries no macOS metadata.

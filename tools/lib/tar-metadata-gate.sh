@@ -10,9 +10,10 @@
 # How it looks: it reads the tar headers itself (perl, from the decompressed stream). macOS tar cannot be asked:
 # bsdtar folds an AppleDouble entry into the next entry when it reads, so `tar -t` never lists one (measured on the
 # 0.7.60 tarball: its listing shows no ._ entry, its headers hold one), and it refuses --no-mac-metadata in list
-# mode. An entry's name is its pax `path` when it has one (else prefix/name); it is refused when its last part starts
-# with `._`. A pax record whose key is `SCHILY.xattr.*` or `LIBARCHIVE.xattr.*` (the two forms bsdtar writes) is an
-# extended attribute and is refused. No python: /usr/bin/python3 on a build Mac without the Xcode license exits 69.
+# mode. An entry is refused when ANY name it could be extracted under (its pax path, its GNU long name, its header
+# name) has a last part starting with `._`. A pax record for an extended attribute (`SCHILY.xattr.*` or
+# `LIBARCHIVE.xattr.*`, the two forms bsdtar writes), a file flag (`SCHILY.fflags`) or an ACL is refused, as is a pax
+# `size` (it would move where the next entry ends) and anything after the end of the archive that is not zero padding. No python: /usr/bin/python3 on a build Mac without the Xcode license exits 69.
 #
 # Usage: source this file, then `tar_metadata_gate <tarball> || exit 1`.
 # Prints what it found and returns 1 when the tarball carries either kind, or when it cannot read all of it.
@@ -42,8 +43,6 @@ tar_metadata_gate() {
       my $pad = ($size + 511) & ~511;
       if ($pad) { my $g = read(STDIN, $body, $pad); if (!defined $g || $g != $pad) { print "SHORT\n"; exit 3 } }
       $body = substr($body, 0, $size);
-      # A pax size overrides the header size of the entry it belongs to, but the bytes on disk are the header size:
-      # it is the header size that was read above, so the stream stays in step either way.
       if ($type eq "x" || $type eq "g") {
         # Review 2: every record must be whole and the body read to its end. A record of length 0 looped for ever
         # (pos went back to its own start), and one that did not parse ended the loop quietly, hiding every record
@@ -56,6 +55,12 @@ tar_metadata_gate() {
           my ($k, $v) = $rec =~ /^\d+ ([^=]*)=(.*)\n\z/s;
           if (!defined $k) { print "SHORT\n"; exit 3 }
           $xat++ if $k =~ /^(SCHILY|LIBARCHIVE)\.xattr\./;
+          # Review 3: file flags (chflags) and ACLs are this Mac metadata too, counted with the attributes.
+          $xat++ if $k eq "SCHILY.fflags" || $k =~ /^(SCHILY\.acl\.|LIBARCHIVE\.acl)/;
+          # Review 3: a pax size moves where the next entry ends, and bsdtar follows it while this reader skips by
+          # the header size, so the two would read different entries (an attribute hid that way). The bundles never
+          # need one (under 8 GiB, bsdtar writes none), so it is refused rather than followed.
+          if ($k eq "size") { print "SHORT\n"; exit 3 }
           $path = $v if $k eq "path" && $type eq "x";
         }
         next;
@@ -76,6 +81,9 @@ tar_metadata_gate() {
       if ($hit) { $dbl++; push @first, $full if @first < 3 }
     }
     if (!$end) { print "SHORT\n"; exit 3 }
+    # Review 3: read to the end of the stream, so the verdict never depends on whether the caller sets pipefail (gzip
+    # took SIGPIPE when this stopped early), and refuse anything after the end that is not zero padding.
+    while (read(STDIN, my $rest, 65536)) { if ($rest =~ /[^\0]/) { print "SHORT\n"; exit 3 } }
     print "N $n\nDBL $dbl\nXAT $xat\n"; print "FIRST $_\n" for @first;
   ')"; rc=$?
   [ "$rc" = 0 ] || { echo "FAIL: the tarball metadata gate could not read all of $tarball" >&2; return 1; }
@@ -87,6 +95,6 @@ tar_metadata_gate() {
     echo "FAIL: $dbl AppleDouble entries in $(basename "$tarball") (#6678), first ones:" >&2
     printf '%s\n' "$out" | /usr/bin/sed -n 's/^FIRST /  /p' >&2
   }
-  [ "${xat:-0}" = 0 ] || echo "FAIL: $(basename "$tarball") carries $xat extended-attribute records (#6678): pack with --no-xattrs" >&2
+  [ "${xat:-0}" = 0 ] || echo "FAIL: $(basename "$tarball") carries $xat metadata records (extended attributes, file flags or ACLs; #6678): pack with --no-xattrs --no-fflags" >&2
   return 1
 }

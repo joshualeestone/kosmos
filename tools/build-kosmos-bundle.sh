@@ -1024,7 +1024,7 @@ rm -f "$TARBALL_OUT"
 # #6562: store a neutral owner NAME (the numeric ids still come from disk; install/setup.sh extracts with
 # --no-same-owner, so no install applies a recorded owner), and refuse a tarball that still records this Mac's account.
 # #6678: and none of this Mac's own file metadata (an AppleDouble entry, extended attributes such as com.apple.macl).
-COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs -czf "$TARBALL_OUT" --uname kosmos --gname staff -C "$STAGE" bin app runtime VERSION
+COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf "$TARBALL_OUT" --uname kosmos --gname staff -C "$STAGE" bin app runtime VERSION
 . "$(dirname "${BASH_SOURCE[0]}")/lib/tar-owner-gate.sh"
 tar_owner_gate "$TARBALL_OUT" || exit 1
 . "$(dirname "${BASH_SOURCE[0]}")/lib/tar-metadata-gate.sh"

@@ -13,18 +13,19 @@ mkdir -p "$T/s/app/K.app"; printf 'x\n' > "$T/s/app/K.app/f"; printf 'y\n' > "$T
 
 # The control: packed as the bundles pack, from a folder that HAS an extended attribute (so the flags are what keep
 # it out, not a tree that never had one).
+chflags hidden "$T/s/app/K.app/f" 2>/dev/null || true   # review 3: and a file flag, which --no-fflags keeps out
 if command -v xattr >/dev/null 2>&1 && xattr -w com.apple.macl kosmos-6678-test "$T/s/app/K.app" 2>/dev/null; then
-  COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs -czf "$T/clean.tgz" --uname kosmos --gname staff -C "$T/s" app VERSION
+  COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf "$T/clean.tgz" --uname kosmos --gname staff -C "$T/s" app VERSION
   if tar_metadata_gate "$T/clean.tgz" 2>/dev/null; then pass "CONTROL: a folder with an extended attribute, packed as the bundles pack, passes"
   else fail "CONTROL: the bundles' own packing was refused, so every refusal below is vacuous"; fi
 
   /usr/bin/tar -czf "$T/xattr.tgz" -C "$T/s" app VERSION
   out="$(tar_metadata_gate "$T/xattr.tgz" 2>&1)"; rc=$?
-  if [ "$rc" -ne 0 ] && printf '%s' "$out" | /usr/bin/grep -q 'extended-attribute records'; then pass "the same folder packed plainly (its extended attribute kept) is refused, and says why"
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | /usr/bin/grep -q 'metadata records'; then pass "the same folder packed plainly (its extended attribute kept) is refused, and says why"
   else fail "a tarball carrying an extended attribute must be refused (rc=$rc): $out"; fi
 else
   echo "SKIP  the extended-attribute arms: this machine cannot set one (no xattr command)"
-  COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs -czf "$T/clean.tgz" --uname kosmos --gname staff -C "$T/s" app VERSION 2>/dev/null \
+  COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf "$T/clean.tgz" --uname kosmos --gname staff -C "$T/s" app VERSION 2>/dev/null \
     || /usr/bin/tar -czf "$T/clean.tgz" -C "$T/s" app VERSION
   if tar_metadata_gate "$T/clean.tgz" 2>/dev/null; then pass "CONTROL: a plain tarball passes"
   else fail "CONTROL: a plain tarball was refused, so every refusal below is vacuous"; fi
@@ -49,7 +50,7 @@ if tar_metadata_gate "$T/near.tgz" 2>/dev/null; then pass "a name with ._ inside
 else fail "a name that only contains ._ must not be refused"; fi
 
 for i in $(seq 1 300); do printf '%s\n' "$i" > "$T/s/app/f$i"; done
-COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs -czf "$T/big.tgz" -C "$T/s" app VERSION 2>/dev/null || /usr/bin/tar -czf "$T/big.tgz" -C "$T/s" app VERSION
+COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf "$T/big.tgz" -C "$T/s" app VERSION 2>/dev/null || /usr/bin/tar -czf "$T/big.tgz" -C "$T/s" app VERSION
 n=$(/usr/bin/wc -c < "$T/big.tgz"); /usr/bin/head -c $((n / 2)) "$T/big.tgz" > "$T/half.tgz"
 if ! tar_metadata_gate "$T/half.tgz" 2>/dev/null; then pass "a tarball cut in half is refused"
 else fail "a truncated tarball must be refused, not judged on its first part"; fi
@@ -130,13 +131,55 @@ else fail "a pax record that is not KEY=VALUE must be refused"; fi
 paxtar "20 SCHILY.xattr.a=b
 " app/K > "$T/goodx.tgz"
 out="$(tar_metadata_gate "$T/goodx.tgz" 2>&1)"
-if printf '%s' "$out" | /usr/bin/grep -q '1 extended-attribute records'; then pass "CONTROL: the same attribute as a well-formed record is read and refused for what it is"
+if printf '%s' "$out" | /usr/bin/grep -q '1 metadata records'; then pass "CONTROL: the same attribute as a well-formed record is read and refused for what it is"
 else fail "CONTROL: a well-formed attribute record was not read as one: $out"; fi
 # A pax path followed by a GNU long name: both are names the entry could be extracted under, so both are checked.
 paxtar "17 path=app/._P2
 " L:app/ok2 app/ok2 > "$T/paxL.tgz"
 if tar_metadata_gate "$T/paxL.tgz" 2>&1 | /usr/bin/grep -q 'AppleDouble entries'; then pass "a pax path naming an AppleDouble entry is still seen when a GNU long name follows it"
 else fail "a pax path followed by a long name must still be checked"; fi
+
+# Review 3: more of this Mac metadata, and records that would desynchronise the reader from bsdtar.
+mkdir -p "$T/fl/app"; printf 'x\n' > "$T/fl/app/f"; chflags hidden "$T/fl/app/f" 2>/dev/null
+COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs -czf "$T/fflags.tgz" -C "$T/fl" app
+if [ "$(/usr/bin/gzip -dc "$T/fflags.tgz" | LC_ALL=C /usr/bin/grep -a -c 'SCHILY.fflags')" -ge 1 ] && ! tar_metadata_gate "$T/fflags.tgz" 2>/dev/null; then pass "a file flag (chflags hidden), packed without --no-fflags, is refused"
+else fail "a tarball carrying a file flag must be refused"; fi
+chflags nohidden "$T/fl/app/f" 2>/dev/null
+paxtar "10 size=0
+" app/K > "$T/psize.tgz"
+if tar_metadata_gate "$T/psize.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "a pax size record is refused (bsdtar would follow it and read different entries)"
+else fail "a pax size record must be refused"; fi
+paxtar "25 LIBARCHIVE.xattr.x=eA
+" app/K > "$T/libx.tgz"
+if tar_metadata_gate "$T/libx.tgz" 2>&1 | /usr/bin/grep -q '1 metadata records'; then pass "an attribute in the LIBARCHIVE form alone is refused"
+else fail "a LIBARCHIVE.xattr record alone must be refused"; fi
+{ mkhdr "GlobalHead" g 20; blk "20 SCHILY.xattr.a=b
+"; mkhdr app/K 0 2; blk "x"; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/glob.tgz"
+if tar_metadata_gate "$T/glob.tgz" 2>&1 | /usr/bin/grep -q '1 metadata records'; then pass "an attribute in a global (g) pax header is refused"
+else fail "an attribute in a g header must be refused"; fi
+# Review 3: the reader's own truncation guards, reached past gzip -t by compressing a cut stream whole.
+mkdir -p "$T/tr/app"; /usr/bin/head -c 3000 /dev/urandom > "$T/tr/app/big"; COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -cf "$T/tr.tar" -C "$T/tr" app
+/usr/bin/head -c 2048 "$T/tr.tar" | /usr/bin/gzip -c > "$T/midbody.tgz"
+/usr/bin/head -c 1024 "$T/tr.tar" | /usr/bin/gzip -c > "$T/noend.tgz"
+for c in midbody noend; do
+  if /usr/bin/gzip -t "$T/$c.tgz" && tar_metadata_gate "$T/$c.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "a whole gzip of a tar cut short ($c) is refused by the header reader itself"
+  else fail "a tar cut short ($c), compressed whole, must be refused"; fi
+done
+mkhdr app/K 0 2 | /usr/bin/perl -e 'binmode STDIN; binmode STDOUT; local $/; my $h = <STDIN>; substr($h, 124, 12) = "\x80" . ("\0" x 11); substr($h, 148, 8) = " " x 8; my $sum = unpack("%32C*", $h); substr($h, 148, 8) = sprintf("%06o\0 ", $sum); print $h' > "$T/b256.hdr"
+{ cat "$T/b256.hdr"; blk "x"; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/b256.tgz"
+if tar_metadata_gate "$T/b256.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "a base-256 size (8 GiB or more) is refused"
+else fail "a base-256 size must be refused"; fi
+# Complete entries but no end-of-archive blocks: only the end rule can refuse it (the body read and gzip are whole).
+{ mkhdr app/K 0 2; blk "x"; } | /usr/bin/gzip -c > "$T/noendblk.tgz"
+if tar_metadata_gate "$T/noendblk.tgz" 2>&1 | /usr/bin/grep -q 'could not read all'; then pass "whole entries with no end-of-archive blocks are refused"
+else fail "a tar with no end-of-archive blocks must be refused"; fi
+# Review 3: after the end of the archive, zero padding passes and anything else is refused, whatever pipefail says.
+{ mkhdr app/K 0 2; blk "x"; /usr/bin/head -c 1024 /dev/zero; /usr/bin/head -c 9216 /dev/zero; } | /usr/bin/gzip -c > "$T/pad.tgz"
+{ mkhdr app/K 0 2; blk "x"; /usr/bin/head -c 1024 /dev/zero; printf 'trailing'; } | /usr/bin/gzip -c > "$T/trail.tgz"
+if tar_metadata_gate "$T/pad.tgz" 2>/dev/null; then pass "CONTROL: zero padding after the end of the archive passes"
+else fail "CONTROL: zero padding after the end must pass"; fi
+if ( set +o pipefail; tar_metadata_gate "$T/trail.tgz" 2>&1 ) | /usr/bin/grep -q 'could not read all'; then pass "data after the end of the archive is refused, with pipefail off"
+else fail "trailing data must be refused whatever pipefail says"; fi
 
 # Review 1: a header whose checksum does not match is refused, never read as something else.
 { mkhdr "app/K" 0 2 | /usr/bin/perl -pe 'BEGIN { binmode STDIN; binmode STDOUT } substr($_, 0, 1) = "b" if $. == 1'; printf 'x\n'; /usr/bin/head -c 510 /dev/zero; /usr/bin/head -c 1024 /dev/zero; } | /usr/bin/gzip -c > "$T/badsum.tgz"
@@ -145,11 +188,18 @@ else fail "a damaged header must be refused"; fi
 
 for B in "$HERE/build-kosmos-bundle.sh" "$HERE/build-tmux-bundle.sh"; do
   b=$(basename "$B")
-  if [ "$(/usr/bin/grep -c '^COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs -czf ' "$B")" = 1 ] \
+  if [ "$(/usr/bin/grep -c '^COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-fflags -czf ' "$B")" = 1 ] \
     && [ "$(/usr/bin/grep -vE '^[[:space:]]*#' "$B" | /usr/bin/grep -c -E '(^|[^a-z])tar -c')" = 0 ] \
     && /usr/bin/grep -qx 'tar_metadata_gate "$TARBALL\(_OUT\)\{0,1\}" || exit 1' "$B"; then
     pass "$b packs once, without this Mac's metadata, and calls the gate"
   else fail "$b must pack once with COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs and call tar_metadata_gate"; fi
+done
+
+# Review 3: in each builder the order is pack, owner gate, metadata gate, then the .sha256 (which publishes it).
+for B in "$HERE/build-kosmos-bundle.sh" "$HERE/build-tmux-bundle.sh"; do
+  b=$(basename "$B")
+  o=$(/usr/bin/awk '/^COPYFILE_DISABLE=1 \/usr\/bin\/tar /{p=NR} /^tar_owner_gate /{q=NR} /^tar_metadata_gate /{r=NR} /shasum -a 256 .*TARBALL/{if (r && !s) s=NR} END{print (p && q && r && s && p < q && q < r && r < s) ? "ok" : p" "q" "r" "s}' "$B")
+  [ "$o" = ok ] && pass "$b: pack, owner gate, metadata gate, then the .sha256" || fail "$b: the order is not pack, owner gate, metadata gate, .sha256 (lines $o)"
 done
 
 if [ "$fails" -ne 0 ]; then echo "$fails check(s) failed"; exit 1; fi
