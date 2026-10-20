@@ -262,7 +262,10 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
         // the star unseen, and a press there reaches the star, which is on top.
         const title = r(row.querySelector('.ltitle')); const nm = r(row.querySelector('.lname > b'));
         return { row: true, cons: document.body.classList.contains('consolidated'), sized: !!(s && s.width > 0), badge: !!b,
-          badgeClear: b ? !hit(s, b) : null, titleClear: title && title.width > 0 ? !hit(s, title) : null, nameClear: nm ? !hit(s, nm) : null };
+          badgeClear: b ? !hit(s, b) : null, titleClear: title && title.width > 0 ? !hit(s, title) : null, nameClear: nm ? !hit(s, nm) : null,
+          // The boxes themselves, so a failure says by how much and on which axis, not only that they touch.
+          starBox: s && [s.left, s.top, s.right, s.bottom].map(Math.round), badgeBox: b && [b.left, b.top, b.right, b.bottom].map(Math.round),
+          rowBox: [r(row).left, r(row).top, r(row).right, r(row).bottom].map(Math.round) };
       });
       chk(rail.row && rail.cons && rail.sized, `${t} CONTROL: the rail is drawn, consolidated, with a star`, JSON.stringify(rail));
       chk(rail.badge && rail.badgeClear === true, `${t} the star clears the row's unread badge`, JSON.stringify(rail));
