@@ -2072,8 +2072,8 @@ function vouchTick() {
         // Only the tunnel's refusals count: a busy register or Forget is waited out. (A setup-not-finished refusal is
         // not counted either, but the next tick's !enrolled() ends S: it fails closed rather than waiting.)
         const why = String((r && r.because) || '');
-        // kosmos#6666: nor is a refusal because Kosmos+ is paused. Only a race reaches this (the tunnel lists no rows
-        // while paused, so no tick matches): a row listed just before the pause began. It waits within the secret's own
+        // kosmos#6666: nor is a refusal because Kosmos+ is paused. Only a race reaches this (while paused the tunnel lists
+        // no row a vouch could match; code-check rows carry none): a row listed just before the pause began. It waits within the secret's own
         // window, so a pause that ends inside it still lets this browser in without the Allow card.
         if (!busy() && !(r && r.paused) && !/being forgotten|still signing in|finish the Plus sign-up/.test(why)) v.tries += 1;
         // Three tries, then the ordinary Allow card is the way in (no spawn every 3 s for the whole window).
@@ -2186,7 +2186,7 @@ function pendingDevices() {
   // A request that is NEWER than the note (the browser removed elsewhere, asking again) still shows. A minute of slack:
   // first_seen is the coordinator's clock, the note's is this computer's.
   /* kosmos#6666: while Kosmos+ is paused for maintenance the tunnel withholds new requests and says so (kosmos-relay
-     #509, kosmos#6656; code checks in progress here still show), so the page can say why no request shows. Exactly true, or not paused.
+     #509, kosmos#6656; code checks in progress here still show), so the page can say why no new request shows. Exactly true, or not paused.
      Only from a snapshot under PAUSED_FRESH_MS old: a stopped tunnel or a slept Mac leaves its last file behind. */
   const paused = !!raw && raw.paused === true && snapAge > -1000 && snapAge < PAUSED_FRESH_MS;   // a future mtime (the clock stepped back) is not fresh; a file written this instant can read a fraction of a ms ahead of Date.now()
   return { devices: here ? devices.filter((d) => d.device_id !== here.device_id || d.first_seen > here.at + 60) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here, paused };
@@ -2266,7 +2266,7 @@ function vouchedFor(vouched, d) {
 /** kosmos#6286: the tunnel's `account_ack` when the coordinator holds no sign-in with the id an Allow named. */
 const UNKNOWN_DEVICE = 'unknown_device';
 /** kosmos#6666: what the person reads when an Allow is refused because Kosmos+ is paused for maintenance. */
-const PAUSED_ALLOW_WORDS = 'Kosmos+ is paused for maintenance, so nothing can be allowed right now. This request may need to ask again once Kosmos+ is back.';
+const PAUSED_ALLOW_WORDS = 'Kosmos+ is paused for maintenance, so no new device can be allowed right now. This request may need to ask again once Kosmos+ is back.';
 /** kosmos#6286: what the person reads when Kosmos+ holds no sign-in with the id they allowed. */
 const UNKNOWN_WORDS = 'Kosmos+ holds no sign-in waiting with that id (it was refused, or never asked). It is on this computer\'s list of devices you let in: remove it there if you did not mean to allow it.';
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the

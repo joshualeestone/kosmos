@@ -1,7 +1,8 @@
 // Browser-check-surface: plus-asks plus-paused plus-asks-title askcard
 // (#2518) the tokens this check asserts: what the Plus screen shows while Kosmos+ is paused for maintenance.
-/* kosmos#6666: while Kosmos+ is paused the tunnel withholds every request and says so (pending answers paused: true
- * with no rows, kosmos#6656). The page must say why nothing waits, in the Plus section only, rather than show nothing.
+/* kosmos#6666: while Kosmos+ is paused the tunnel withholds new requests and says so (pending answers paused: true,
+ * kosmos#6656; code checks in progress still show). The page must say why no new request shows, in the Plus section
+ * only, rather than show nothing.
  *
  * 🔑 WHAT ONLY A BROWSER CAN SAY: that the section really opens on the paused line alone (no "Waiting for you" over an
  * empty list), and that on another view the compact top card stays away, since there is nothing to act on.
@@ -76,7 +77,7 @@ const PHONE = { device_id: 'd-phone', name: 'iPhone · Safari', code: 'W6-M4', f
 
       await serve({ devices: [PHONE], paused: true });
       const both = await read();
-      chk(both.asks && both.paused && both.rows === 1, '[' + W + '] CONTROL: paused with a request still listed shows both', JSON.stringify(both));
+      chk(both.asks && both.paused && both.rows === 1 && both.title, '[' + W + '] CONTROL: paused with a request still listed shows both, and "Waiting for you" over it', JSON.stringify(both));
 
       // On another view the top card stays away while only the pause is showing: nothing there to act on.
       await serve({ devices: [], paused: true });
@@ -84,10 +85,11 @@ const PHONE = { device_id: 'd-phone', name: 'iPhone · Safari', code: 'W6-M4', f
       await page.waitForTimeout(150);
       const away = await read();
       chk(!away.top, '[' + W + '] elsewhere, a pause alone brings no top card', JSON.stringify(away));
-      await serve({ devices: [PHONE], paused: false });
+      // Still paused: the pause must not hide a real request's notice.
+      await serve({ devices: [PHONE], paused: true });
       await page.evaluate(() => paintAsk());
       const awayCtl = await read();
-      chk(awayCtl.top, '[' + W + '] CONTROL: elsewhere, a real request still brings the top card', JSON.stringify(awayCtl));
+      chk(awayCtl.top, '[' + W + '] CONTROL: elsewhere, a real request still brings the top card, paused or not', JSON.stringify(awayCtl));
 
       chk(errs.length === 0, '[' + W + '] no page errors', errs.join(' | '));
       await page.close();

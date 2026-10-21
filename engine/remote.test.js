@@ -1269,7 +1269,7 @@ test('kosmos#6666: an Allow refused while Kosmos+ is paused says so, and is neit
     const r = await remote.deviceAllow('dev-9', 'iPhone');
     assert.equal(r.ok, false, 'an Allow refused while paused read as allowed');
     assert.equal(r.paused, true);
-    assert.match(r.because, /^Kosmos\+ is paused for maintenance, so nothing can be allowed right now\./);
+    assert.match(r.because, /^Kosmos\+ is paused for maintenance, so no new device can be allowed right now\./);
     assert.notEqual(r.listed, true, 'a paused Allow writes nothing to this computer\'s list');
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
   // CONTROL: the same call with the tunnel's ordinary answer is allowed.

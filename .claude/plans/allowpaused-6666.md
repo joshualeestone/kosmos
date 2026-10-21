@@ -4,10 +4,10 @@ Follow-up to kosmos#6656, whose tunnel half (kosmos-relay #509) withholds the pe
 maintenance and says so: `pending.json` carries `"paused": true`, and a refused `devices allow` answers
 `{allowed: false, paused: true}` with exit 0.
 
-**Current wording** (after review round 7; the rounds below show how it got here):
+**Current wording** (after review round 9; the rounds below show how it got here):
 - The page line, `#plus-paused`: "Kosmos+ is paused for maintenance. No new phone, browser or computer can be let in
   until it is back, and one that was asking may need to ask again then."
-- An Allow refused while paused (PAUSED_ALLOW_WORDS): "Kosmos+ is paused for maintenance, so nothing can be allowed
+- An Allow refused while paused (PAUSED_ALLOW_WORDS): "Kosmos+ is paused for maintenance, so no new device can be allowed
   right now. This request may need to ask again once Kosmos+ is back."
 
 ## What changes
@@ -102,3 +102,10 @@ test: the line, its place, the poll and the paint. docs/browser-checks/render-pl
 - Stated limit, not changed: a failed poll keeps the last paint (the rule every card on this page follows), so if
   the board itself cannot be reached while paused, the paused line stays until the next good poll. Clearing it on a
   failed poll would make the section go blank for a blip, which is the confusion this card removes.
+
+## Review round 9
+- The Allow refusal still said "nothing can be allowed right now", the claim round 7 removed from the page line,
+  and the browser check's header still said the tunnel withholds every request. Both corrected, and this time the
+  whole diff was swept for every copy of the claim (refusal words, its test, the check header, the vouch comment).
+- The browser check's "both" control now also asserts "Waiting for you" returns over a listed row, and the off-Plus
+  control keeps the pause on while a real request is listed, so it shows the pause does not hide that notice.
