@@ -2266,7 +2266,7 @@ function vouchedFor(vouched, d) {
 /** kosmos#6286: the tunnel's `account_ack` when the coordinator holds no sign-in with the id an Allow named. */
 const UNKNOWN_DEVICE = 'unknown_device';
 /** kosmos#6666: what the person reads when an Allow is refused because Kosmos+ is paused for maintenance. */
-const PAUSED_ALLOW_WORDS = 'Kosmos+ is paused for maintenance, so nothing can be allowed right now. This request waits: allow it once Kosmos+ is back, if it is still asking.';
+const PAUSED_ALLOW_WORDS = 'Kosmos+ is paused for maintenance, so nothing can be allowed right now. This request may need to ask again once Kosmos+ is back.';
 /** kosmos#6286: what the person reads when Kosmos+ holds no sign-in with the id they allowed. */
 const UNKNOWN_WORDS = 'Kosmos+ holds no sign-in waiting with that id (it was refused, or never asked). It is on this computer\'s list of devices you let in: remove it there if you did not mean to allow it.';
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the

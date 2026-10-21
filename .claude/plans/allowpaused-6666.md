@@ -75,3 +75,10 @@ with an ordinary-answer control); web.allow-card.test.js (+1: the line, its plac
   the coordinator turns away sign-ins (503) and drops a pairing computer's row, which the tunnel then forgets after
   its grace window. The line now says only what holds: "Nothing new can connect or be allowed until it is back. A
   phone, browser or computer that was asking may need to ask again then."
+
+## Review round 6
+- The Allow refusal's second sentence ("This request waits: allow it once Kosmos+ is back, if it is still asking",
+  from round 1, line 41 above) made the promise round 5 removed from the page. It now reads "This request may need to
+  ask again once Kosmos+ is back."
+- The page line says "Nothing can be allowed until it is back" (it said "Nothing new can connect or be allowed"): the
+  tunnel refuses every Allow while paused, code checks included, so this is true of any row still shown.
