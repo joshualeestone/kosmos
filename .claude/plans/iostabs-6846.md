@@ -23,9 +23,10 @@ board inside the app shows no tab strip of its own, because the app marks every 
    and sign-in carries. A press on a web tab runs the door through evaluateJavaScript; "not opened" leaves the page as
    it is and logs (no reload: the page may be the sign-in page or an older board).
 4. Tasks in the bar: applied only at launch and on return to the front (Mona Lisa, #6846). "Launch" is the remembered
-   value (UserDefaults) plus the first page read of the launch that answers (the sign-in page does not), so a first
-   launch on an earned Mac can grow the bar once in its first seconds; after that only a return from the background
-   changes it. If Tasks is selected and leaves the bar (another Mac), the app goes to Today.
+   value (UserDefaults) plus the first page read of the launch that answers (the sign-in page does not). The board
+   writes its flag only when its first status poll answers, after the page has loaded, so the app reads again every
+   2 s for 20 s after a load until a read answers (review 3). A relaunch's first read is the board's stored value
+   from last time. After that only a return from the background changes it. If Tasks is selected and leaves the bar (another Mac), the app goes to Today.
    A press before the page can take it (web view not made, or loading) waits and runs when the page finishes.
 5. Agent taps (Agents list, notifications) go to Today, as Board did. Not signed in opens on Today (sign-in is there).
    The store-shots build opens on Today.
@@ -36,6 +37,10 @@ board inside the app shows no tab strip of its own, because the app marks every 
 - On lock (biometric gate, off by default) the holder drops its web view, as the old view's teardown did, so an unlock
   starts clean.
 - No Today badge in this part (the card calls it optional; needsYou is already in the client).
+- A refusal never puts the bar on Agents (review 3 BLOCKER): from Agents every web tab would be refused in turn while
+  the box refusing them sits out of sight. It goes to the page's own tab instead (AppTabs.afterAnswer, tested).
+  Every press and every drop take a serial, so a late answer to an older press cannot end or move a newer one; a
+  door that throws counts as refused.
 - The press answers three ways (review 2): opened; absent (no door: the sign-in page, an older board, or an error
   mid-navigation), which waits for the next load; refused (the door said no because a box or a full-screen step is
   up, the backdrops .rm-back/.fr-back/.frc-back, NOT a chat: review 2 read rm-back as a chat's back button, it is the

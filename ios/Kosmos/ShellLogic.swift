@@ -228,11 +228,12 @@ enum AppTabs {
     }
 
     // The call the app makes for a press. It tells apart a page without the door (the sign-in page, an error page,
-    // an older board: the typeof test, so it never throws) from a board that refused (a box or full-screen step is up,
-    // where a person could not press either). Only a real true from the door is "opened".
+    // an older board: the typeof test) from a board that refused (a box or full-screen step is up, where a person
+    // could not press either). Only a real true from the door is "opened"; a door that throws counts as refused, so a
+    // broken press ends instead of waiting to fire on some later load.
     static func pressScript(_ tab: Tab) -> String? {
         guard let name = tab.boardName else { return nil }
-        return "typeof window.kosmosAppTab !== 'function' ? 'absent' : (window.kosmosAppTab('\(name)') === true ? 'opened' : 'refused')"
+        return "(function () { if (typeof window.kosmosAppTab !== 'function') return 'absent'; try { return window.kosmosAppTab('\(name)') === true ? 'opened' : 'refused'; } catch (e) { return 'refused'; } })()"
     }
 
     enum DoorAnswer: Equatable {
@@ -242,6 +243,20 @@ enum AppTabs {
         case refused
         // No door, or no answer (an error mid-navigation): the press waits for the next page to load.
         case absent
+    }
+
+    // What a press's answer does: whether the press is over, and where the bar goes (nil: it stays). On a refusal
+    // the bar goes back to the web tab it came from; never to a native tab (Agents), since from there every web tab
+    // would be refused in turn while the box refusing them sits out of sight. Then, and for a press that waited for a
+    // load, it goes to the tab of the section in the page's address, where the person can see what is in the way.
+    static func afterAnswer(_ answer: DoorAnswer, from: Tab?, pageURL: URL?) -> (over: Bool, barTo: Tab?) {
+        switch answer {
+        case .opened: return (true, nil)
+        case .absent: return (false, nil)
+        case .refused:
+            if let from = from, from.boardName != nil { return (true, from) }
+            return (true, tab(forBoardURL: pageURL))
+        }
     }
 
     static func answer(_ result: Any?, error: Error?) -> DoorAnswer {

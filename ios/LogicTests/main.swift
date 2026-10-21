@@ -1167,6 +1167,17 @@ check(pressIn("false", .projects) == (.refused, "projects"), "a board that says 
 check(pressIn("1", .projects) == (.refused, "projects"), "only a real true is opened (a number 1 is refused)")
 check(pressIn("undefined", .settings) == (.refused, "settings"), "a door that answers nothing is refused, not opened")
 check(pressIn(nil, .today) == (.absent, "null"), "a page without the door answers absent, and asking does not throw")
+check(pressIn("(function () { throw new Error('broken'); })()", .projects) == (.refused, "projects"), "a door that throws is refused, so the press ends")
+
+section("app tabs: what an answer does")
+let roomURL = URL(string: "https://studio.kosmosplus.com/?tab=projects&project=x")
+check(AppTabs.afterAnswer(.opened, from: .today, pageURL: roomURL) == (true, nil), "opened: the press is over, the bar stays")
+check(AppTabs.afterAnswer(.absent, from: .today, pageURL: roomURL) == (false, nil), "absent: the press waits, the bar stays")
+check(AppTabs.afterAnswer(.refused, from: .settings, pageURL: roomURL) == (true, .settings), "refused: back to the web tab it came from")
+check(AppTabs.afterAnswer(.refused, from: .agents, pageURL: roomURL) == (true, .projects), "refused from Agents: to the page's own tab, where the box is, never back to Agents")
+check(AppTabs.afterAnswer(.refused, from: .agents, pageURL: nil) == (true, .today), "and with no address, Today, still never Agents")
+check(AppTabs.afterAnswer(.refused, from: nil, pageURL: roomURL) == (true, .projects), "a press that waited for a load: the page's own tab")
+check(AppTabs.Tab.allCases.allSatisfy { from in AppTabs.afterAnswer(.refused, from: from, pageURL: roomURL).barTo != .agents }, "no refusal ever puts the bar on Agents")
 func marked(rootLater: Bool) -> Bool {
     let js = JSContext()!
     js.evaluateScript("""
@@ -1185,7 +1196,7 @@ func marked(rootLater: Bool) -> Bool {
 }
 check(marked(rootLater: false), "the page's root gets kapptabs at once when it exists")
 check(marked(rootLater: true), "and once, when it arrives, when the script runs before <html> exists")
-func pageFlag(_ stored: String?, storage: Bool = true) -> Bool? {
+func pageFlag(_ stored: String?, storage: Bool = true) -> FlagRead {
     let js = JSContext()!
     if storage {
         js.evaluateScript("var localStorage = { getItem: function (k) { return k === 'kosmos.tasksTab' ? \(stored.map { "'\($0)'" } ?? "null") : 'wrong key'; } };")
@@ -1193,12 +1204,13 @@ func pageFlag(_ stored: String?, storage: Bool = true) -> Bool? {
         js.evaluateScript("var localStorage = { getItem: function () { throw new Error('blocked'); } };")
     }
     let answer = js.evaluateScript(AppTabs.tasksReadScript)?.toObject()
-    return js.exception == nil ? AppTabs.tasksTab(fromPage: answer) : true   // a throw reads as a wrong answer
+    return js.exception == nil ? .read(AppTabs.tasksTab(fromPage: answer)) : .threw
 }
-check(pageFlag("1") == true, "the board's flag 1 shows Tasks")
-check(pageFlag("0") == false, "0 hides it")
-check(pageFlag(nil) == nil, "no flag (the sign-in page, an older board) says nothing")
-check(pageFlag(nil, storage: false) == nil, "blocked storage says nothing, and does not throw")
+enum FlagRead: Equatable { case read(Bool?), threw }
+check(pageFlag("1") == .read(true), "the board's flag 1 shows Tasks")
+check(pageFlag("0") == .read(false), "0 hides it")
+check(pageFlag(nil) == .read(nil), "no flag (the sign-in page, an older board) says nothing")
+check(pageFlag(nil, storage: false) == .read(nil), "blocked storage says nothing, and does not throw")
 check(AppTabs.tasksTab(fromPage: NSNull()) == nil && AppTabs.tasksTab(fromPage: 1) == nil, "only the strings 1 and 0 count")
 
 section("app tabs: the tab an address belongs to")

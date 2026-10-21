@@ -66,8 +66,8 @@ struct ContentView: View {
                         .tabItem { Label("Projects", systemImage: "folder") }
                         .tag(Tab.projects)
                     // Earned, as on the computer (#3559). The bar takes it from the board page once per launch (the
-                    // first page that answers, which can be a while after launch when the first web tab is opened
-                    // late) and otherwise only on a return to the front, never on each poll.
+                    // first read that answers, retried for 20 s after a load, which is later than launch when the
+                    // first web tab is opened late) and otherwise only on a return to the front, never on each poll.
                     if web.tasksTab {
                         webBoard(.tasks)
                             .tabItem { Label("Tasks", systemImage: "checklist") }
@@ -268,9 +268,15 @@ final class BoardWeb: ObservableObject {
     // Set when the board refuses a press: the tab to put the bar back on.
     @Published var refused: AppTabs.Tab?
     // The press the page has not yet taken (the web view not made, still loading, or a page without the door, such
-    // as the sign-in page before the hand-off to the Mac). Tried again at every load until the door says true; a new
-    // press, the native tab, or a page the app loads itself (an agent tap) replaces it.
+    // as the sign-in page before the hand-off to the Mac). Tried again at every load until the door answers; it ends
+    // when the door opens the section or refuses, and a new press, the native tab, or a page the app loads itself (an
+    // agent tap) replaces it.
     private var pending: AppTabs.Tab?
+    // Every press, and every drop of the page, takes a new number; an answer counts only for the latest one, so a
+    // late answer to an earlier press (or to the page a lock dropped) can neither end nor move a newer one.
+    private var serial = 0
+    // Moves on only when a lock drops the page, so a Tasks read of the dropped page is ignored.
+    private var generation = 0
     // The first board read of a launch may change the bar (it is still launching); later ones wait for a return.
     private var readThisLaunch = false
 
@@ -278,38 +284,46 @@ final class BoardWeb: ObservableObject {
 
     func adopt(_ webView: WKWebView) { self.webView = webView }
 
-    // `from` is the tab the bar showed before, where it goes back if the board refuses. A press that waited for a load
-    // has none (the bar may have moved since), so the bar goes to the tab of the section the page is on, which the
-    // board keeps in its address (?tab=, replaceState).
+    // `from` is the tab the bar showed before. A press that waited for a load has none (the bar may have moved
+    // since); AppTabs.afterAnswer decides where the bar goes on a refusal.
     func press(_ tab: AppTabs.Tab, from: AppTabs.Tab? = nil) {
+        serial += 1
         guard let script = AppTabs.pressScript(tab) else { pending = nil; return }
         pending = tab
         guard let webView = webView, !webView.isLoading else { return }
+        let mine = serial
         webView.evaluateJavaScript(script) { [weak self] result, error in
-            guard let self = self, self.pending == tab else { return }
-            switch AppTabs.answer(result, error: error) {
-            case .opened: self.pending = nil
-            case .absent: break
-            case .refused:
-                self.pending = nil
-                NSLog("[Tabs] the board refused \(tab)")
-                self.refused = from ?? AppTabs.tab(forBoardURL: webView.url)
-            }
+            guard let self = self, self.serial == mine else { return }
+            let answer = AppTabs.answer(result, error: error)
+            let next = AppTabs.afterAnswer(answer, from: from, pageURL: webView.url)
+            if next.over { self.pending = nil }
+            if answer == .refused { NSLog("[Tabs] the board refused \(tab)") }
+            if let back = next.barTo { self.refused = back }
         }
     }
 
     // The app is loading a page of its own choosing (an agent tap, a notification): no earlier press may cover it.
     func loadingOwnPage() { pending = nil }
 
-    // A page finished loading: run a press that waited for it, and read the board's Tasks flag.
+    // A page finished loading: run a press that waited for it, and read the board's Tasks flag. Until a read of this
+    // launch has answered, it reads again every 2 s for 20 s: on a fresh install the board writes the flag only when
+    // its first status poll answers, after the page has finished loading.
     func loaded() {
         if let tab = pending { press(tab) }
-        readTasks(apply: !readThisLaunch)
+        guard !readThisLaunch else { return }
+        let page = generation
+        for wait in stride(from: 0.0, through: 20.0, by: 2.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                guard let self = self, !self.readThisLaunch, self.generation == page else { return }
+                self.readTasks(apply: true)
+            }
+        }
     }
 
     func readTasks(apply: Bool) {
+        let page = generation
         webView?.evaluateJavaScript(AppTabs.tasksReadScript) { [weak self] result, _ in
-            guard let self = self, let shown = AppTabs.tasksTab(fromPage: result) else { return }
+            guard let self = self, self.generation == page, let shown = AppTabs.tasksTab(fromPage: result) else { return }
             UserDefaults.standard.set(shown, forKey: AppTabs.rememberedTasksKey)
             self.readThisLaunch = true
             if apply && shown != self.tasksTab { self.tasksTab = shown }
@@ -318,7 +332,8 @@ final class BoardWeb: ObservableObject {
 
     // On lock: the page goes, with its session handler, and the next tab to show makes a fresh one.
     func drop(selected: AppTabs.Tab) {
-        // The old page is stopped and cut off, so a late load of it cannot report into the new page's state.
+        // The old page is stopped and cut off, so a late load of it cannot report into the new page's state, and the
+        // serial moves on, so a late answer to a press made on it is ignored.
         webView?.stopLoading()
         webView?.navigationDelegate = nil
         webView?.uiDelegate = nil
@@ -326,6 +341,8 @@ final class BoardWeb: ObservableObject {
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: PushNotificationManager.sessionHandlerName)
         webView?.removeFromSuperview()
         webView = nil
+        serial += 1
+        generation += 1
         pending = AppTabs.pressScript(selected) == nil ? nil : selected
         // The fresh page's first read may set the bar, as at launch: it comes right after an unlock, a return.
         readThisLaunch = false
