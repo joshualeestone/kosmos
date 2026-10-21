@@ -22,6 +22,12 @@ two apart.
    list from such a coordinator would be kept. None exists: the field and #542 deploy together (relay #516 and #542 are
    both undeployed).
 
+4. **Review 1, taken:** a review's Accept (re-accepting changed words) keeps the list and its time for the same
+   company, so a failed read after it still has one to keep; a list is kept only with a confirmed time (one without
+   came from before "absent" meant "unread"); the test back-dates the time so "kept" cannot pass by sharing a
+   millisecond with "refreshed"; the line reads "...this list on Oct 19." Not changed: the world half of the keep rule
+   has no arm of its own (a record for another world is cleared earlier in refresh).
+
 ## Tests (each proven red by a mutation)
 `engine/reviewernotice-6752.test.js` (absent keeps list and time, [] clears, another company starts empty) and
 `web.reviewernotice-6752.test.js` (the age line only past a day; the route passes the time). Arms, all red: absent

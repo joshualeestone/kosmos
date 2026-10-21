@@ -31,6 +31,13 @@ function fakeRemote(state) {
     },
   };
 }
+/** Rewrites the record's reviewerGrantsAt (undefined removes it), as an older read would have left it. */
+function backdate(root, at) {
+  const file = path.join(root, 'org-enrollment.json');
+  const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (at === undefined) delete rec.reviewerGrantsAt; else rec.reviewerGrantsAt = at;
+  fs.writeFileSync(file, JSON.stringify(rec) + '\n');
+}
 async function enrolled(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'reviewernotice-6752-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -55,8 +62,10 @@ test('#6752: the hourly refresh keeps the answer\'s reviewer grants on the recor
     { who: 'pat', grantedAt: T, effectiveAt: T + 86400 },
     { who: 'lee', grantedAt: T - 100, effectiveAt: T - 100 + 86400, removedAt: T },
   ]);
-  const confirmedAt = org.readEnrollment({ root }).reviewerGrantsAt;
-  assert.ok(Number.isFinite(confirmedAt), 'a read with the field records when the list was confirmed');
+  assert.ok(Number.isFinite(org.readEnrollment({ root }).reviewerGrantsAt), 'a read with the field records when the list was confirmed');
+  // Review 1: back-date the confirmation, so "kept" and "refreshed" cannot share a millisecond.
+  const confirmedAt = Date.now() - 5 * 86400000;
+  backdate(root, confirmedAt);
   // kosmos#6817: an answer WITHOUT the field is a coordinator that could not read them: the list and its time stay.
   delete state.grants;
   await org.refresh({ root, remote });
@@ -67,7 +76,34 @@ test('#6752: the hourly refresh keeps the answer\'s reviewer grants on the recor
   state.grants = [];
   await org.refresh({ root, remote });
   assert.equal(org.readEnrollment({ root }).reviewerGrants, undefined, 'grants the coordinator no longer names stayed on the record');
-  assert.ok(org.readEnrollment({ root }).reviewerGrantsAt >= confirmedAt);
+  assert.ok(org.readEnrollment({ root }).reviewerGrantsAt > confirmedAt, 'an empty list is a fresh confirmation');
+});
+
+test('#6817 review 1: a list with no confirmed time (from before absent meant unread) is not kept', async (t) => {
+  const { root, state, remote } = await enrolled(t);
+  state.grants = [{ who: 'pat', grantedAt: T, effectiveAt: T + 86400 }];
+  await org.refresh({ root, remote });
+  backdate(root, undefined);
+  delete state.grants;
+  await org.refresh({ root, remote });
+  assert.equal(org.readEnrollment({ root }).reviewerGrants, undefined, 'a list with no time was kept');
+});
+
+test("#6817 review 1: a review's Accept keeps the list and its time, so a failed read after it still has one", async (t) => {
+  const { root, state, remote } = await enrolled(t);
+  state.grants = [{ who: 'pat', grantedAt: T, effectiveAt: T + 86400 }];
+  await org.refresh({ root, remote });
+  const at = Date.now() - 2 * 86400000;
+  backdate(root, at);
+  const r = await org.enroll(null, true, { root, remote, review: true });   // a review's Accept carries no code
+  assert.equal(r.ok, true, JSON.stringify(r));
+  let rec = org.readEnrollment({ root });
+  assert.equal(rec.reviewerGrants.length, 1, "a review's Accept dropped the list");
+  assert.equal(rec.reviewerGrantsAt, at);
+  delete state.grants;
+  await org.refresh({ root, remote });
+  rec = org.readEnrollment({ root });
+  assert.equal(rec.reviewerGrants.length, 1, 'the failed read after the Accept had no list to keep');
 });
 
 test('#6817: a list is kept only for the same company; another company on the answer starts with none', async (t) => {

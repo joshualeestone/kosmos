@@ -118,7 +118,7 @@ test('#6817: a list last confirmed over a day ago says when; a fresh one, or one
   const grants = [{ who: 'pat', grantedAt: Math.floor(now - 3 * DAY), effectiveAt: Math.floor(now - 2 * DAY) }];
   const old = paint({ enrolled: true, org: { kind: 'company' }, reviewerGrants: grants, reviewerGrantsAt: Date.now() - 2 * DAY * 1000 });
   assert.equal(old['plus-org-reviewers-age'].hidden, false);
-  assert.match(old['plus-org-reviewers-age'].textContent, /^Kosmos last confirmed this list \S+ \d+\.$|^Kosmos last confirmed this list \d+ \S+\.$/);
+  assert.match(old['plus-org-reviewers-age'].textContent, /^Kosmos last confirmed this list on (\S+ \d+|\d+ \S+)\.$/);
   const fresh = paint({ enrolled: true, org: { kind: 'company' }, reviewerGrants: grants, reviewerGrantsAt: Date.now() - 3600 * 1000 });
   assert.equal(fresh['plus-org-reviewers-age'].hidden, true, 'a list confirmed an hour ago claimed to be old');
   const none = paint({ enrolled: true, org: { kind: 'company' }, reviewerGrants: grants });

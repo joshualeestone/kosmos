@@ -19764,7 +19764,8 @@ window.kosmosMeasureScrollbarWidth();
           <div id="plus-org-reviewers" hidden>
             <p class="fhint" id="plus-org-reviewers-head"></p>
             <p class="fhint" id="plus-org-reviewers-what"></p>
-            <!-- kosmos#6817: shown only when the list was last confirmed over a day ago (the company could not be read since). -->
+            <!-- kosmos#6817: shown only when the list was not confirmed for over a day (the company could not be read, or this
+                 Kosmos did not ask, asleep or with live execution off). A clock that ran ahead delays it. -->
             <p class="fhint" id="plus-org-reviewers-age" hidden></p>
             <div id="plus-org-reviewers-list"></div>
           </div>
@@ -52459,7 +52460,7 @@ function plusOrgReviewers(st) {
     const at = Number(st.reviewerGrantsAt);
     const stale = Number.isFinite(at) && at > 0 && Date.now() - at > 24 * 3600 * 1000;
     age.hidden = !stale;
-    age.textContent = stale ? 'Kosmos last confirmed this list ' + new Date(at).toLocaleDateString([], { month: 'short', day: 'numeric' }) + '.' : '';
+    age.textContent = stale ? 'Kosmos last confirmed this list on ' + new Date(at).toLocaleDateString([], { month: 'short', day: 'numeric' }) + '.' : '';
   }
   const fmt = {
     day: (t) => new Date(t * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' }),
