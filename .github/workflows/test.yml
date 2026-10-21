@@ -228,7 +228,7 @@ jobs:
     # #6791: test:shell is different, and MEASURED: originally each of its 264 commands run alone on ubuntu-latest
     # (probe run 39535595626), 238 passed, 8 of them only by skipping their macOS work (probe run 39538876370). The
     # rest run on ubuntu-latest in shells 1/2 and 2/2; those that need macOS are listed, each with its reason, in
-    # tools/shell-macos-only.txt (its header has the current count) and run in `shell macOS` on macos-latest, never the
+    # tools/shell-macos-only.txt (its header has how many it lists) and run in `shell macOS` on macos-latest, never the
     # self-hosted Mac (#4601: some shell tests touch launchd and sweep processes by pattern). `shell macOS` also runs
     # every syntax-only check (`sh -n` / `bash -n`, about no time), because macOS /bin/sh is bash 3.2 and Linux sh is
     # dash, which accepts shapes bash 3.2 refuses (review 3). A run now holds one hosted macOS runner for test:shell

@@ -250,3 +250,14 @@ skip (slice 5). The other listed reasons were re-measured on Linux in probe run 
 - NIT, left as the weakest open premise: "one simple command in `$( )` gets no extra shell" is measured on Linux only
   from a trap-free caller. A Linux caller holding an EXIT or ERR trap (run-tests.sh) is evidenced, not pinned: the
   Linux shards run every guard through run-tests.sh green (probe runs 39559795454, 39563371896, 39564000974).
+
+## After the PR: the Linux total left the header (2026-10-21, #6814's fresh run)
+- #6814's run against current main went red on this branch's own count arm: main had gained test:shell commands (264
+  to 267), so "239 commands on Linux" was stale. The arm worked, but pinning a number that every PR adding a shell
+  test changes would red unrelated PRs in parallel. The header now states only how many it lists ("That is 26
+  here."), which only an edit to the list can change, and says how to get the Linux share; the arm asserts that
+  count, with its off-by-one control. test.yml's pointer says "how many it lists".
+- The same run's other red, "#4466 a busy reading that comes back FAST", is outside this diff and passes alone (1 of
+  1): a timing flake on the self-hosted runner, not this change.
+- Rebased onto main (a73efbd), which adds 3 test:shell commands; the Linux share is now 242, and the same run's
+  Linux shards were green on them.

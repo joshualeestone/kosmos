@@ -367,18 +367,19 @@ test('run-tests.sh: the default part is all, so `yarn test` still runs the node 
   assert.match(src, /\[ "\$KOSMOS_TEST_PART" != shell \] \|\|/, 'a shard outside a shell-only run is refused');
 });
 
-test('#6799: the list header states the counts the list has (test.yml points readers to it for them)', () => {
+test('#6799: the list header states how many commands it lists (test.yml points readers to it)', () => {
+  // Only the listed count is asserted: an edit to this list is the only thing that changes it. The Linux share moves
+  // with every test:shell command added anywhere, so pinning it here would red unrelated PRs (it did, on #6814).
   const text = fs.readFileSync(sh.MAC_ONLY_FILE, 'utf8');
   const all = sh.commands();
-  const counts = (t) => {
-    const m = t.match(/That is (\d+) here, and (\d+) commands on Linux\./);
-    assert.ok(m, 'the header no longer says "That is N here, and M commands on Linux."');
-    return [Number(m[1]), Number(m[2])];
+  const listed = (t) => {
+    const m = t.match(/That is (\d+) here\./);
+    assert.ok(m, 'the header no longer says "That is N here."');
+    return Number(m[1]);
   };
-  const actual = [sh.macOnly(text, all).size, sh.forPlatform(all, 'linux').length];
-  assert.deepEqual(counts(text), actual, 'the header\'s counts differ from the list (listed, Linux)');
+  assert.equal(listed(text), sh.macOnly(text, all).size, 'the header\'s count differs from the list');
   const off = text.replace(/That is (\d+) here/, (_, n) => `That is ${Number(n) + 1} here`);
-  assert.notDeepEqual(counts(off), actual, 'CONTROL: a header one count off must not match');
+  assert.notEqual(listed(off), sh.macOnly(text, all).size, 'CONTROL: a header one count off must not match');
 });
 
 test('#6791 review 2: run-tests.sh hands its platform to shell-shard.js (a lost forward would turn the macOS job into all of test:shell, green)', () => {
