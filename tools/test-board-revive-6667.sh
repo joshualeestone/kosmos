@@ -31,7 +31,7 @@ chmod +x "$ROOT/bin/systemctl"
 # A pid that has provably ended: a child that exits at once, reaped.
 sh -c 'exit 0' & DEAD_PID=$!; wait "$DEAD_PID" 2>/dev/null
 # A pid that is running, with the token kosmos itself would record for it (install/kosmos is sourceable, #3079).
-sleep 300 & LIVE_PID=$!
+perl -e 'select(undef, undef, undef, 300)' & LIVE_PID=$!   # a perl bounded wait, not `sleep 300`: a stray `pkill -f sleep` would make this pid dead (kosmos#6730)
 LIVE_TOK="$(KOSMOS_HOME="$ROOT/none" bash -c '. "$1" >/dev/null 2>&1; kosmos_start_token "$2"' _ "$KOSMOS" "$LIVE_PID")"
 [ -n "$LIVE_TOK" ] || bad "premise: no start token for a live pid"
 
