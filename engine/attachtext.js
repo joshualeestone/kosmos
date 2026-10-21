@@ -1161,13 +1161,14 @@ if (!isMainThread && workerData && workerData.attachtext) {
 async function render(rec) {
   const kind = rec && kindFor(rec.name);
   if (!kind) return null;
-  let size = 0;
-  try { size = fs.statSync(rec.file).size; } catch { size = Infinity; }   // review 2: a failed stat converts nothing
-  let got = size > MAX_RENDER_BYTES
-    ? { failed: 'Kosmos converts files up to ' + (MAX_RENDER_BYTES / 1024 / 1024) + ' MB to text; this one is larger, so it is attached as it is.' }
-    : await convertIsolated(rec.file, kind);
+  let size = null;
+  try { size = fs.statSync(rec.file).size; } catch { size = null; }   // review 2: a failed stat converts nothing
+  let got = size === null ? { failed: 'Kosmos could not read this file to convert it.' }
+    : size > MAX_RENDER_BYTES
+      ? { failed: 'Kosmos converts files up to ' + (MAX_RENDER_BYTES / 1024 / 1024) + ' MB to text; this one is larger, so it is attached as it is.' }
+      : await convertIsolated(rec.file, kind);
   if (got && got.js) got = await pdfAfter(rec.file, got.js);
-  else if (kind === 'pdf' && got && got.failed && size <= MAX_RENDER_BYTES) {
+  else if (kind === 'pdf' && got && got.failed && size !== null && size <= MAX_RENDER_BYTES) {
     /* Iteration 15: the JS reader gave up (time or memory); PDFKit runs in its own process with its own limit, so a Mac
        still asks it. Its text is kept only when there is some. */
     const kit = await pdfAfter(rec.file, { encrypted: false, pages: [], cut: null, undecodable: 0, ownEncoding: false, noMap: false, mapless: [], rtl: false });

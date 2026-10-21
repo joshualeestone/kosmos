@@ -3761,7 +3761,8 @@ function sendFileStream(req, res, file, unread, headers) {
   let fd = null;
   let size = 0;
   try {
-    fd = fs.openSync(file, 'r');
+    // Review 3: without blocking, so a FIFO put in a file's place cannot stall the board; isFile() then refuses it.
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
     const st = fs.fstatSync(fd);
     if (!st.isFile()) throw new Error('not a file');
     size = st.size;

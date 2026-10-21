@@ -74753,7 +74753,10 @@ async function attachUpload(file, where) {
     });
     const body = await res.json().catch(() => null);
     if (!res.ok || !body || !body.attachment) {
-      msg.textContent = (body && body.error) ? body.error : 'We could not add that file (status ' + res.status + ').';
+      /* #6734 review 3: Kosmos answers 408 when a whole upload has not arrived in five minutes. */
+      msg.textContent = res.status === 408
+        ? 'We could not finish adding ' + file.name + ': it took longer than the five minutes Kosmos waits for a file. Try again on a faster connection.'
+        : (body && body.error) ? body.error : 'We could not add that file (status ' + res.status + ').';
       return;
     }
     /* ATTACHED, NOT SENT (Josh, 2026-08-23 1:59 PM). The file waits on a chip
@@ -74766,10 +74769,10 @@ async function attachUpload(file, where) {
     if (input) input.focus();
     if (where.after) where.after();
   } catch {
-    /* #6734: Kosmos waits five minutes for a whole upload (the server's request timeout), so a large file over a slow
-       connection can be cut off; say so for a large one rather than only that Kosmos was not reached. */
+    /* #6734: the connection failed, which for a large file may also be the five-minute wait running out; the sentence
+       names that as a possibility, since the page cannot tell it from Kosmos not being reached. */
     msg.textContent = file.size > ATTACH_SLOW_BYTES
-      ? 'We could not finish adding ' + file.name + '. Kosmos waits up to five minutes for a file, and a large one on a slow connection can take longer: try a faster connection.'
+      ? 'We could not finish adding ' + file.name + '. If your connection is slow, a file this large can take longer than the five minutes Kosmos waits for one.'
       : 'We could not reach Kosmos to add that file.';
   } finally {
     ATTACH_UPLOADING = Math.max(0, ATTACH_UPLOADING - 1);

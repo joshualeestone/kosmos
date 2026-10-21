@@ -101,6 +101,22 @@ the file in memory: an upload is written to disk as it arrives, and a download i
 12. **Smaller:** a failed stat before conversion converts nothing (it used to read as size 0); a HEAD answer or an empty
    file ends the response before closing the descriptor, inside a try.
 
+13. **A timed-out upload is named as one** (review 3). Node answers its request timeout with 408 rather than dropping
+   the connection (measured on Node 26.8.1, a slow PUT against a short `requestTimeout`), so the fetch resolves and the
+   catch from decision 6 never runs for that case. A 408 now reads "We could not finish adding <name>: it took longer
+   than the five minutes Kosmos waits for a file. Try again on a faster connection." A large file whose connection
+   fails outright now reads "If your connection is slow, a file this large can take longer than the five minutes
+   Kosmos waits for one.", a condition, since the page cannot tell that from Kosmos not being reached. Tests: 408 at two
+   sizes, a 502 control, both catch sizes; red with the 408 branch removed.
+14. **A download opens without blocking** (review 3), so a FIFO put in a stored file's place is refused (404) at once
+   instead of stalling the board until a writer appears. Test on macOS and Linux; with a blocking open the test
+   process hangs (measured: killed by a 20 s alarm). A failed stat before conversion now says "Kosmos could not read
+   this file to convert it." rather than calling it too large.
+
+### Considered and not changed (review 3)
+- `attachments.preview(rec)` still reads a file whole. Only tests call it (engine/attachments.test.js); every route uses
+  `previewFile` and streams. Kept for those tests; a new route caller would be a review finding.
+
 ### Considered and not changed (review 2)
 - **The reply-file copy is synchronous** (decision 5 stands). Yielding between chunks would reopen the window the
   descriptor identity checks closed. Bounded by the 200 MB daily total per agent. Weakest premise: "well under a
@@ -128,7 +144,7 @@ The test used to accept a reset in place of the 400. It now requires the 400 wit
 a load average of about 10. If a client ever sees a reset instead, the page's own size check has already refused the
 file before sending it.
 
-## Tests (server.attachment-stream-6734.test.js, 18 tests, and web.attach-slow-6734.test.js, 1 test, all green)
+## Tests (server.attachment-stream-6734.test.js, 19 tests, and web.attach-slow-6734.test.js, 2 tests, all green)
 
 - the cap is 100 MB and is said as "100 MB";
 - a 6 MB download is byte-identical (sha256) with its Content-Length; HEAD has the length and no body; no

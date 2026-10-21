@@ -443,3 +443,17 @@ test('#6734: a download sends exactly the size it measured, even if the file is 
   assert.equal(got.body.length, MB);
   assert.ok(got.body.equals(whole.subarray(0, MB)), 'the bytes sent are not the first MB of the file');
 });
+
+test('#6734: a download of a stored file swapped for a FIFO is refused at once, not left waiting for a writer', { skip: process.platform === 'win32' }, async () => {
+  const rec = storedOf(MB, 'swapped.bin');
+  fs.rmSync(rec.file);
+  require('node:child_process').execFileSync('mkfifo', [rec.file]);
+  const got = await Promise.race([
+    new Promise((resolve) => {
+      const req = http.get({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id }, (res) => { res.resume(); resolve({ status: res.statusCode }); });
+      req.on('error', (e) => resolve({ error: e.message }));
+    }),
+    wait(3000).then(() => ({ timeout: true })),
+  ]);
+  assert.deepEqual(got, { status: 404 });
+});

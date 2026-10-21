@@ -28,11 +28,11 @@ const consts = ['ATTACH_MAX_BYTES', 'ATTACH_SLOW_BYTES'].map((n) => {
   return m[0];
 });
 
-async function failedUpload(size) {
+async function failedUpload(size, fetchImpl = () => Promise.reject(new TypeError('Failed to fetch'))) {
   const el = { textContent: '', disabled: false, focus() {} };
   const run = new Function('document', 'fetch', 'attachTarget', 'attachList', 'attachAdd',
     consts.join('\n') + '\nconst ATTACH_MAX = 10;\nlet ATTACH_UPLOADING = 0;\n' + asyncFnSource('attachUpload') + '\nreturn attachUpload;');
-  const attachUpload = run({ getElementById: () => el }, () => Promise.reject(new TypeError('Failed to fetch')),
+  const attachUpload = run({ getElementById: () => el }, fetchImpl,
     () => true, () => [], () => {});
   await attachUpload({ name: 'clip.mov', size, type: 'video/quicktime' }, { msgId: 'm', textId: 't', btnId: 'b', url: () => '/x' });
   return el.textContent;
@@ -41,9 +41,21 @@ async function failedUpload(size) {
 test('#6734: a large upload that fails at the network says a slow connection can outlast the five-minute wait', async () => {
   const MB = 1024 * 1024;
   const big = await failedUpload(60 * MB);
-  assert.match(big, /^We could not finish adding clip\.mov\. Kosmos waits up to five minutes for a file/);
-  assert.match(big, /try a faster connection/);
+  assert.equal(big, 'We could not finish adding clip.mov. If your connection is slow, a file this large can take longer than the five minutes Kosmos waits for one.');
   assert.ok(!big.includes(String.fromCharCode(0x2014)), 'no em dash');
   // CONTROL: a small one keeps the plain sentence, so the size decides it.
   assert.equal(await failedUpload(MB), 'We could not reach Kosmos to add that file.');
+});
+
+test('#6734: an upload Kosmos timed out (408) says it took longer than the five minutes, whatever the size', async () => {
+  // Node answers its request timeout with 408 rather than dropping the connection (measured on Node 26), so fetch
+  // resolves and the catch never runs: this is the path a slow upload takes.
+  const timedOut = () => Promise.resolve({ ok: false, status: 408, json: () => Promise.reject(new SyntaxError('not json')) });
+  for (const size of [60 * 1024 * 1024, 1024]) {
+    assert.equal(await failedUpload(size, timedOut),
+      'We could not finish adding clip.mov: it took longer than the five minutes Kosmos waits for a file. Try again on a faster connection.');
+  }
+  // CONTROL: another failed status keeps the generic sentence.
+  const other = () => Promise.resolve({ ok: false, status: 502, json: () => Promise.reject(new SyntaxError('not json')) });
+  assert.equal(await failedUpload(1024, other), 'We could not add that file (status 502).');
 });
