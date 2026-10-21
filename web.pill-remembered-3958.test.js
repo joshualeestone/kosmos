@@ -225,6 +225,7 @@ test('#6716: opening a page closes the fold, even for the agent whose quote was 
   const src = pageFnSource('openDetail');
   const reset = src.match(/const saidFold = document\.getElementById\('d-said-box'\);\n\s*if \(saidFold\) \{[^\n]*\}/);
   assert.ok(reset, 'openDetail no longer resets the screen-line fold (#6716 review 6)');
+  assert.match(reset[0], /delete saidFold\.dataset\.for;[^\n]*delete saidFold\.dataset\.waiting;/, 'openDetail clears only one of the fold\'s two keys (review 13)');
   const board = fleet.install([fleet.agent('beatrix', { state: 'working', screen: 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n' })]);
   try {
     const waiting = { ...board.agents.find((x) => x.name === 'beatrix'), state: 'needs_you' };

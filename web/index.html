@@ -42993,7 +42993,7 @@ function openDetail(sessionName, section, fromProject) {
   document.getElementById('d-instr').placeholder = '';
   // #6716: opening a page is an appearance too, so the screen-line fold starts closed even for the agent seen last.
   const saidFold = document.getElementById('d-said-box');
-  if (saidFold) { saidFold.open = false; delete saidFold.dataset.for; }
+  if (saidFold) { saidFold.open = false; delete saidFold.dataset.for; delete saidFold.dataset.waiting; }   // review 13: both keys, so an open does not lean on one
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
   /* #5624 review 6: opening an agent (again) is first sight for conversation mode: the thread's poll stopped while it
