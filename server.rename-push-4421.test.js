@@ -48,6 +48,7 @@ const { start, server, boardAuthState } = require('./server');
 const { assertSandboxedDataRoot } = require('./test-support/data-root-sandbox');
 assertSandboxedDataRoot(SANDBOX, [store.ROOT]);
 
+// The names echo the card's screenshot; the provider does not matter to the push path, so the profile is the default.
 const WHO = 'gemini-sub';
 const BORN = 'Gemini-Sub Born';
 const RENAMED = 'Demis Hassabis - Gemini';
@@ -113,6 +114,9 @@ test('#4421: a push sent after a rename carries the new name (reply and needs-yo
 
   const res = await call('PUT', `/api/agent/${WHO}/profile`, { body: { displayName: RENAMED } });
   assert.equal(res.code, 200, 'the rename route refused: ' + JSON.stringify(res.json));
+  // So a red after arm can be told apart: the rename reached the card, and only the push could be stale.
+  const card = ((await call('GET', '/api/status')).json.agents || []).find((c) => c.sessionName === WHO) || {};
+  assert.equal(card.name, RENAMED, 'fixture: the rename did not reach the card');
 
   const after = await pushes();
   assert.deepEqual(after, [['needs_you', RENAMED], ['replied', RENAMED]], 'the pushes after the rename were not exactly these, with the new name');

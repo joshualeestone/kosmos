@@ -32,7 +32,7 @@ names the agent from a `shown` map built each tick from the live roster. Reading
 rename the same way, but no test here sends them, and the file header says so.
 `posted` builds its sender with `senderFromAgentToken(req, body, roster)`, from the same live roster the measured
 reply path reads, and server.phonenotify-718.test.js pins that source line. A real room post needs a project,
-membership and delivery, which no end-to-end test here sets up yet; that is the follow-up if one is wanted. This test drives the two the card's screenshot is about: a DM reply, and the needs-you change.
+membership and delivery, which no end-to-end test here sets up yet; that is the follow-up if one is wanted. This test drives the two pushes an agent causes itself: a DM reply, and the needs-you change.
 
 ## Review round 1
 - The pushes are now compared as an ordered [kind, agent] list, so a second push (say a stale-named one beside the
@@ -52,3 +52,8 @@ membership and delivery, which no end-to-end test here sets up yet; that is the 
 ## Review round 4
 - The after arm is now shown red on its own, by a stale-name mutant that passes the control (above).
 - The guard command is named so the 45/45 can be re-run.
+
+## Review round 5
+- The plan no longer says the card's screenshot shows a push (it shows the DM title, labels and working line).
+- After the rename, the test reads the card's name from /api/status first, so a red after arm points at the push.
+- A comment says the provider does not matter to the push path.
