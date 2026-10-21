@@ -448,10 +448,9 @@ if [ -n "$FROZEN_SRC" ]; then
   # Nothing that releases may have moved since the freeze commit: every release pointer (the Windows ones too, which
   # publish-kosmos-windows.sh will not change while frozen) and the installer pair the freeze pinned. A hand commit on
   # top of the pin would otherwise ship under it.
-  FROZEN_COMMIT=$(git -C "$SITE" log -1 --format=%H "$FROZEN_SRC" -- dist/POINTER_FROZEN 2>/dev/null)
-  [ -n "$FROZEN_COMMIT" ] || { echo "deploy-site: could not find the commit that froze the pointers in $FROZEN_SRC -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
-  if ! git -C "$SITE" diff --quiet "$FROZEN_COMMIT" "$H" -- 'dist/latest*.json' setup setup.sha256 setup-staging setup-staging.sha256 2>/dev/null; then
-    echo "deploy-site: the pointers are FROZEN at $FROZEN_AT, and since the freeze commit (${FROZEN_COMMIT%"${FROZEN_COMMIT#????????????}"}) $H changes $(git -C "$SITE" diff --name-only "$FROZEN_COMMIT" "$H" -- 'dist/latest*.json' setup setup.sha256 setup-staging setup-staging.sha256 2>/dev/null | tr '\n' ' ')-- refusing (kosmos#6620); nothing was deployed. $( [ "$FROZEN_SRC" = origin/main ] && echo "If this checkout is behind origin/main, pull it (git -C $SITE pull --ff-only); otherwise" ) restore those files from the freeze commit, or lift the freeze first."
+  FROZEN_MOVED="$(pointer_freeze_moved "$SITE" "$FROZEN_SRC" "$H")" || { echo "deploy-site: could not compare $H with the commit that froze the pointers in $FROZEN_SRC -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
+  if [ -n "$FROZEN_MOVED" ]; then
+    echo "deploy-site: the pointers are FROZEN at $FROZEN_AT, and since the freeze commit $H changes $(printf '%s' "$FROZEN_MOVED" | tr '\n' ' ')-- refusing (kosmos#6620); nothing was deployed. $( [ "$FROZEN_SRC" = origin/main ] && echo "If this checkout is behind origin/main, pull it (git -C $SITE pull --ff-only). " )Otherwise restore those files from the freeze commit, or lift the freeze first."
     exit 1
   fi
   echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (dist/POINTER_FROZEN); the committed Mac pointers name it, and no release pointer or installer moved since the freeze"
@@ -894,6 +893,14 @@ elif git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; t
   if [ "$(ptr_version "$CJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CJ")" != "$_late_sha" ]; } \
     || { [ -n "$CSJ" ] && { [ "$(ptr_version "$CSJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CSJ")" != "$_late_sha" ]; }; }; }; then
     echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy carries $(ptr_version "$CJ")$( [ "$(ptr_version "$CJ")" = "$_late_v" ] && echo " with other bytes than the pinned build (sha256 $(ptr_sha "$CJ"), the freeze names ${_late_sha})") -- refusing (kosmos#6620); nothing was deployed"
+    rm -rf "$EXPORT"; exit 1
+  fi
+  # And the rest of what the freeze holds still (the early check's list, against the freeze that landed meanwhile).
+  if ! _late_moved="$(pointer_freeze_moved "$SITE" origin/main "$H")"; then
+    echo "deploy-site: the pointers were FROZEN on origin/main while this ran, and $H could not be compared with the freeze commit -- refusing (kosmos#6620); nothing was deployed"
+    rm -rf "$EXPORT"; exit 1
+  elif [ -n "$_late_moved" ]; then
+    echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy changes $(printf '%s' "$_late_moved" | tr '\n' ' ')since the freeze commit -- refusing (kosmos#6620); nothing was deployed"
     rm -rf "$EXPORT"; exit 1
   fi
 fi

@@ -64,6 +64,16 @@ pointer_freeze_on() {
     || git -C "$1" cat-file -e "origin/main:$POINTER_FREEZE_FILE" >/dev/null 2>&1
 }
 
+# pointer_freeze_moved <site> <freeze source> <tree>: prints the release files (every release pointer, the Windows ones
+# too, and the installer pair the freeze pins) that <tree> changes since the commit in <freeze source> that froze the
+# pointers. Fails (status 1, nothing printed) when that commit or the diff cannot be read: the caller refuses.
+pointer_freeze_moved() {
+  local fc out
+  fc="$(git -C "$1" log -1 --format=%H "$2" -- "$POINTER_FREEZE_FILE" 2>/dev/null)" && [ -n "$fc" ] || return 1
+  out="$(git -C "$1" diff --name-only "$fc" "$3" -- 'dist/latest*.json' setup setup.sha256 setup-staging setup-staging.sha256 2>/dev/null)" || return 1
+  [ -z "$out" ] || printf '%s\n' "$out"
+}
+
 pointer_freeze_refuse() {
   local site="$1" tool="$2" mac because
   # Ask origin first, so a freeze pushed from another machine stops this run before it does anything. FAILS CLOSED: a

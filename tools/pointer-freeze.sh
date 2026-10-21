@@ -100,7 +100,9 @@ entry_of() {  # <commit> <path> <as-path>
 FOLLOWED=0
 follow_local() {  # <sha> ; sets FOLLOWED=1 when this checkout now is the pushed commit
   [ "$(git -C "$SITE" symbolic-ref --quiet --short HEAD 2>/dev/null)" = main ] || { say "(the site checkout is not on main, so it was not moved; origin/main has the change)"; return 0; }
-  git -C "$SITE" merge -q --ff-only "$1" 2>/dev/null && FOLLOWED=1 || say "(the site checkout could not fast-forward to ${1:0:12}, origin/main has the change. If a pull --ff-only fails too, it holds uncommitted files (a cut's, say) or local commits: see git -C $SITE status before moving it)"
+  local ffout
+  if ffout="$(git -C "$SITE" merge -q --ff-only "$1" 2>&1)"; then FOLLOWED=1
+  else say "(the site checkout could not fast-forward to ${1:0:12}; origin/main has the change. git said: $(printf '%s' "$ffout" | tr '\n' ' ')see git -C $SITE status before moving it)"; fi
 }
 
 git -C "$SITE" rev-parse --verify HEAD >/dev/null 2>&1 || die "$SITE is not a git checkout with a HEAD (set KOSMOS_SITE)"

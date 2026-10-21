@@ -741,5 +741,21 @@ run_deploy "$S53" "$L53" --promote
 { [ "$RC" = 1 ] && has "$out" "since the freeze commit" && has "$out" "setup-staging" && [ "$(cat "$L53/dist/latest.json")" = "$LIVE53" ]; } \
   && pass "#6620: an installer moved on top of the freeze is refused, live untouched" || bad "#6620 moved on top (rc=$RC) out=$out"
 
+# A freeze landing WHILE this deploy runs, at the very version this deploy carries, whose commit restores an installer
+# this tree had edited by hand: the late re-check compares the rest of what a freeze holds too, so it refuses.
+# CONTROL: arm 51's shape with nothing moved is arm 45 (deploys).
+read -r S54 L54 <<<"$(make_rollback_scenario)"
+{ cat "$S54/setup"; printf '# a hand edit\n'; } > "$S54/setup-staging"; ( cd "$S54" && shasum -a 256 setup-staging > setup-staging.sha256 )
+git -C "$S54" add -- setup-staging setup-staging.sha256 && git -C "$S54" commit -q -m "an installer by hand" -- setup-staging setup-staging.sha256
+git init -q --bare "$S54.origin.git" && git -C "$S54" remote add origin "$S54.origin.git" && git -C "$S54" push -q origin main
+git clone -q "$S54.origin.git" "$S54.other" && git -C "$S54.other" config user.email t@t && git -C "$S54.other" config user.name t
+cp "$S54/setup" "$S54.other/setup-staging"; ( cd "$S54.other" && shasum -a 256 setup-staging > setup-staging.sha256 )
+printf 'mac=%s\nbecause=frozen mid-run at this version\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S54.other/dist/POINTER_FROZEN"
+git -C "$S54.other" add dist/POINTER_FROZEN setup-staging setup-staging.sha256 && git -C "$S54.other" commit -q -m "frozen elsewhere, installer restored"
+LIVE54="$(cat "$L54/dist/latest.json")"
+FREEZE_MID_RUN_ON="dist/$OLDART" FREEZE_MID_RUN_CLONE="$S54.other" run_deploy "$S54" "$L54" --promote
+{ [ "$RC" = 1 ] && [ -e "$S54.other.pushed" ] && has "$out" "on origin/main while this ran, and this deploy changes setup-staging" && [ "$(cat "$L54/dist/latest.json")" = "$LIVE54" ]; } \
+  && pass "#6620: a freeze landing mid-run at this version, which restores an installer this tree changed, is refused before vercel" || bad "#6620 mid-run moved installer (rc=$RC, pushed=$([ -e "$S54.other.pushed" ] && echo y || echo n)) out=$out"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

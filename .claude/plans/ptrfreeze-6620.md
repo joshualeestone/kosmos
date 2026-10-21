@@ -169,3 +169,10 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
   were refused by unrelated guards (a malformed Windows pointer by #2571, a bare installer by #4449) and were replaced
   with ones only the freeze can object to. A push the time limit stopped is reported as unconfirmed, not "nothing was
   pushed"; the late re-check names a same-version byte mismatch; a GIT_SSH wrapper is kept (git's own order).
+- Review 15 (two warnings, nits): the late re-check before vercel compared only the Mac pointers, so a freeze landing
+  mid-run at this deploy's own version passed it while its commit restored an installer this tree had changed. The
+  early check's list (every release pointer and the pinned installer pair, against the freeze commit) is now one lib
+  function, pointer_freeze_moved, used by both checks; the new mid-run arm DEPLOYED against the pre-fix code. A
+  checkout that cannot follow the pushed commit prints git's own words. Left as they are: the late re-check goes on
+  when its fetch fails (decided in round 3: a flaky network should not abort a built deploy; the early check failed
+  closed minutes before); a Ctrl-C can leave the temporary index directory in $TMPDIR (small, harmless).
