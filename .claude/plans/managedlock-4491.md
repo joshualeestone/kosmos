@@ -36,6 +36,11 @@ merges every file there), so the base managed-settings.json is never edited and 
   it created; the temp file is made with mktemp inside the drop-in folder.
 - engine: managedSettingsPresent and the #5668 deny-size count see the drop-in too.
 
+## Review round 2
+- One SHOULD: boardkeychain-4491.test.js read the real /Library paths, so installing the drop-in on a dev Mac (this
+  card's own next step) would turn it red. managedSettingsPresent takes the paths (refreshTokenOnlyGuards passes
+  deps.managedPaths); the test passes a missing one, and a new arm shows a given present file counts.
+
 ## Rejected
 - `allowManagedReadPathsOnly` (see review round 1).
 - A managed `permissions.deny` on `Edit(~/.claude/settings.json)`: it would block every agent's Write tool on that

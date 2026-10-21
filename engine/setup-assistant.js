@@ -2794,9 +2794,10 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
    missing warning means "a managed file is there", not "the guard is durable". */
 const MANAGED_SETTINGS_PATH = '/Library/Application Support/ClaudeCode/managed-settings.json';
 const MANAGED_DROPIN_PATH = '/Library/Application Support/ClaudeCode/managed-settings.d/kosmos-token-guard.json';
-function managedSettingsPresent(platform = process.platform) {
+// paths: a test's stand-ins (review 2: with the real ones, installing the drop-in on a dev Mac turned a test red).
+function managedSettingsPresent(platform = process.platform, paths = [MANAGED_SETTINGS_PATH, MANAGED_DROPIN_PATH]) {
   if (platform !== 'darwin') return false;   // managed-settings is a macOS/Seatbelt concept here
-  try { return fs.existsSync(MANAGED_SETTINGS_PATH) || fs.existsSync(MANAGED_DROPIN_PATH); } catch { return false; }
+  try { return paths.some((p) => fs.existsSync(p)); } catch { return false; }
 }
 
 const STARTS_A_PROCESS = ['hooks', 'statusLine', 'apiKeyHelper', 'mcpServers', 'enableAllProjectMcpServers', 'enabledMcpjsonServers'];
@@ -2844,7 +2845,7 @@ function cleanLocalSettings(file) {
    parked admin step). workerDir is overridable for tests. { guarded: [names], unguarded: [{ name, because }], managed: boolean }. Never throws. */
 function refreshTokenOnlyGuards(deps = {}) {
   const platform = deps.platform || process.platform;
-  const out = { guarded: [], unguarded: [], managed: managedSettingsPresent(platform) };
+  const out = { guarded: [], unguarded: [], managed: managedSettingsPresent(platform, deps.managedPaths) };
   let names;
   try { names = require('./sendertoken').tokenOnlyList(); } catch { return out; }   // the roster's own reader (#4491)
   // Review 22: the supervisor guards ONE listed agent at its launch (a name listed after board start), not them all.
