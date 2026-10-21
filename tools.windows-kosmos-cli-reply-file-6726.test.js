@@ -41,7 +41,11 @@ async function run(argv, answer, readStdin, extra) {
 }
 const kept = () => ({ body: { kept: true } });
 const replies = (r) => r.calls.filter((c) => c.route === '/api/reply');
-const ABS = path.resolve('/x/Files/cut.mp4');   // absolute on whichever platform runs this
+/* Literal absolute paths for the platform running this (never path.resolve: on a runner whose folder is a network
+   path it would give \\host\share\..., which the CLI refuses on purpose). */
+const ON_WINDOWS = process.platform === 'win32';
+const abs = (...parts) => (ON_WINDOWS ? 'C:\\' + parts.join('\\') : '/' + parts.join('/'));
+const ABS = abs('x', 'Files', 'cut.mp4');
 
 test('#6726: --file sends an absolute path with the words, and says what was attached', async () => {
   const r = await run(['reply', '--file', ABS, 'Here', 'it', 'is'], kept);
@@ -62,10 +66,10 @@ test('#6726 review 1: a .. in the path reaches the board as given (the board ref
   const rel = await run(['reply', '--file', 'Files/sub/../x.txt', 'x'], kept);
   assert.equal(rel.code, 0, rel.err);
   assert.equal(replies(rel)[0].body.file, process.cwd().replace(/[\\/]+$/, '') + path.sep + 'Files/sub/../x.txt', 'the .. was rewritten before it was sent');
-  const abs = process.platform === 'win32' ? 'C:\\a\\Files\\sub\\..\\x.txt' : '/a/Files/sub/../x.txt';
-  const given = await run(['reply', '--file', abs, 'x'], kept);
+  const dotted = abs('a', 'Files', 'sub', '..', 'x.txt');
+  const given = await run(['reply', '--file', dotted, 'x'], kept);
   assert.equal(given.code, 0, given.err);
-  assert.equal(replies(given)[0].body.file, abs, 'an absolute path was rewritten before it was sent');
+  assert.equal(replies(given)[0].body.file, dotted, 'an absolute path was rewritten before it was sent');
 });
 
 test('#6726 review 1: the Windows path forms, with the Windows path rules on any machine', () => {
@@ -94,6 +98,10 @@ test('#6726 review 3: under the Windows path rules, reply refuses a path with no
     assert.match(r.err, /Give the file's full path on this computer, starting with its drive/, bad);
     assert.equal(replies(r).length, 0, bad + ' reached the board');
   }
+  /* Review 4: a relative path is joined onto the folder through verbReply too, by the Windows rules. */
+  const rel = await run(['reply', '--file', 'Files\\notes.md', 'x'], kept, undefined, { ...win, cwd: () => 'C:\\Users\\a\\' });
+  assert.equal(rel.code, 0, rel.err);
+  assert.equal(replies(rel)[0].body.file, 'C:\\Users\\a\\Files\\notes.md');
   /* CONTROL: a path on a drive is sent as given, and the file is named by the Windows rules (posix would name it whole). */
   const ok = await run(['reply', '--file', 'C:\\a\\Files\\cut.mp4', 'x'], kept, undefined, win);
   assert.equal(ok.code, 0, ok.err);
@@ -181,29 +189,29 @@ test('#6726: on a wrong-world board a reply with a file is not kept for later', 
 });
 
 test('#6726 r1-7: a path with a line break, a tab or another control character is refused, and nothing is sent', async () => {
-  /* path.resolve gives each an absolute form on the platform running this, so the control character is what is refused (review 3). */
-  for (const bad of [path.resolve('/x/Files/two\nlines.txt'), path.resolve('/x/Files/tab\there.txt'), path.resolve('/x/Files/bell\u0007.txt'), 'rel\u001fative.txt']) {
+  /* Each is absolute on the platform running this, so the control character is what is refused (review 3). */
+  for (const bad of [abs('x', 'Files', 'two\nlines.txt'), abs('x', 'Files', 'tab\there.txt'), abs('x', 'Files', 'bell\u0007.txt'), 'rel\u001fative.txt']) {
     const r = await run(['reply', '--file', bad, 'x'], kept);
     assert.equal(r.code, 2, JSON.stringify(bad) + ': ' + r.err);
     assert.match(r.err, /control character in it, so it cannot be attached/, JSON.stringify(bad));
     assert.equal(replies(r).length, 0, 'a path with a control character reached the board');
   }
   /* CONTROL: quotes, a backslash and non-ASCII letters arrive exactly as written. */
-  const name = path.resolve('/x/Files/say "hi" \\ café.txt');
+  const name = abs('x', 'Files', 'say "hi" \\ café.txt');
   const ok = await run(['reply', '--file', name, 'x'], kept);
   assert.equal(ok.code, 0, ok.err);
   assert.equal(replies(ok)[0].body.file, name);
 });
 
 test('#6726 r3-6: the command names the file as the board saved it (a link names the file it points at)', async () => {
-  const r = await run(['reply', '--file', path.resolve('/x/Files/report-link.pdf'), 'here'], () => ({ body: { kept: true, because: null, attached: 'notes-real.txt' } }));
+  const r = await run(['reply', '--file', abs('x', 'Files', 'report-link.pdf'), 'here'], () => ({ body: { kept: true, because: null, attached: 'notes-real.txt' } }));
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /Sent, with notes-real\.txt attached\./);
   assert.doesNotMatch(r.out, /report-link\.pdf attached/);
 });
 
 test('#6726 r4-5: a saved name with a double quote arrives whole (the JSON is parsed, never cut)', async () => {
-  const r = await run(['reply', '--file', path.resolve('/x/Files/say "hi".txt'), 'here'], () => ({ body: '{"kept":true,"because":null,"attached":"say \\"hi\\".txt"}' }));
+  const r = await run(['reply', '--file', abs('x', 'Files', 'say "hi".txt'), 'here'], () => ({ body: '{"kept":true,"because":null,"attached":"say \\"hi\\".txt"}' }));
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /Sent, with say "hi"\.txt attached\./);
 });
@@ -213,7 +221,7 @@ test('#6726 r4-5: a saved name with a double quote arrives whole (the JSON is pa
    otherwise reach Windows node unconverted and be refused. Run on any machine with a stand-in cygpath (marks what it
    converted) and a stand-in node (prints the arguments it got); the real cygpath runs in the Windows-only arms of
    tools.windows-kosmos-cli-body-file-5946.test.js. */
-test('#6726 review 3: the Git Bash shim converts reply --file\'s value, and nothing else', () => {
+test('#6726 review 3: the Git Bash shim converts reply --file\'s value, and nothing else', { skip: ON_WINDOWS && 'needs /bin/sh and a shebang node stand-in; Windows has the real-cygpath arms in tools.windows-kosmos-cli-body-file-5946.test.js' }, () => {
   const cp = require('node:child_process');
   const os = require('node:os');
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-shim-6726-')));

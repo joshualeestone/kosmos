@@ -609,7 +609,7 @@ async function verbReply(ctx, args) {
       if (a === '--file') { file = i + 1 < args.length ? args[++i] : ''; } else file = a.slice('--file='.length);
       if (file === '' || file === '--' || /^--[A-Za-z]/.test(file)) { ctx.err(USAGE_REPLY_FILE_NEEDS_PATH); return 2; }
       const given = file;
-      file = replyFileAbsolute(given, process.cwd(), ctx.pathRules);
+      file = replyFileAbsolute(given, ctx.cwd(), ctx.pathRules);
       if (file === null) { ctx.err('Give the file\'s full path on this computer, starting with its drive (C:\\...), so nothing was sent: ' + given + ' is not one.'); return 2; }
       /* Review r1 finding 7 on install/kosmos, checked after the folder is added as there. */
       if (/[\u0000-\u001f\u007f]/.test(file)) { ctx.err('That file\'s path has a line break or another control character in it, so it cannot be attached. Rename the file, then send it again.'); return 2; }
@@ -2954,6 +2954,7 @@ async function main(argv, io) {
     url,
     agentToken: () => hook.agentToken(env),
     pathRules: o.pathRules || path,   // #6726: path.win32 in a test, so the Windows path rules run on any machine
+    cwd: o.cwd || (() => process.cwd()),
     refusedBy: (r) => (r.json && typeof r.json.error === 'string') ? clause(r.json.error) : null,
     /* The board is serving another Kosmos than this agent's. */
     wrongWorld: (r) => r.reached && r.status === WRONG_WORLD_STATUS && Boolean(r.json) && r.json.wrongWorld === true,
