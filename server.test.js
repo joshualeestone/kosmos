@@ -302,7 +302,9 @@ function req(path, options = {}) {
       // A socket that closes mid-body may emit no error; fetch rejects then, so this does too.
       res.on('close', () => { if (!res.complete) reject(new Error(`req ${options.method || 'GET'} ${path}: the response closed before its end`)); });
     });
-    r.on('socket', () => { if (r.reusedSocket) REUSED += 1; });
+    // shouldKeepAlive is false for every agent: false request and true for every pooled keep-alive one, so this is
+    // deterministic; reusedSocket alone would move only if a socket happened to be reused during the run.
+    r.on('socket', () => { if (r.reusedSocket || r.shouldKeepAlive) REUSED += 1; });
     r.setTimeout(300000, () => r.destroy(new Error(`req ${options.method || 'GET'} ${path}: socket idle for 300 s`)));
     r.on('error', reject);
     if (options.body !== undefined) r.write(options.body);
@@ -16951,6 +16953,6 @@ test('kosmos#5628: a managed computer sets up through the company sign-in routes
 /* Keep this the LAST test in the file: it reads the counts every earlier test left. REQUESTS catches req() going back
    to fetch (the counter would stay 0); REUSED is a tripwire for req() going back to a pooled agent. */
 test('#6059 harness: every req() went out on a new connection, none on a reused socket', () => {
+  assert.equal(REUSED, 0, 'a req() went out on a keep-alive (poolable) connection, the shape that came back ECONNRESET on a loaded runner');
   assert.ok(REQUESTS > 100, `only ${REQUESTS} requests went through req(), so this arm proves little`);
-  assert.equal(REUSED, 0, 'tripwire: a req() went out on a reused pooled socket, the shape that came back ECONNRESET on a loaded runner');
 });
