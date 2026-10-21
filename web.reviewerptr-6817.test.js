@@ -15,7 +15,7 @@ const DAY = 86400;
 const NOW = 1_790_000_000;
 
 /* The notice's functions with a stub document, storage and clock; nothing else of the page. */
-function board({ onAgents = true, seen = null, storageThrows = false, listShown = false, plusShown = false } = {}) {
+function board({ onAgents = true, seen = null, storageThrows = false, listShown = false, plusShown = false, now = NOW } = {}) {
   const store = new Map(seen === null ? [] : [['kosmos.reviewerGrantSeen', String(seen)]]);
   const localStorage = {
     getItem: (k) => { if (storageThrows) throw new Error('blocked'); return store.has(k) ? store.get(k) : null; },
@@ -29,7 +29,7 @@ function board({ onAgents = true, seen = null, storageThrows = false, listShown 
     + PAGE.slice(PAGE.indexOf("const REVIEWER_NOTE_KEY = "), PAGE.indexOf('document.addEventListener(\'click\', (e) => {\n  const see = '));
   const api = new Function('document', 'localStorage', 'Date', 'esc', 'onAgentsTab', 'plusOnScreen', 'fetch',
     src + '\nreturn { REVIEWER_NOTE, reviewerNoteNewest, reviewerNoteSeen, reviewerNoteSeenAt, reviewerNoteSeenList, paintReviewerNote };')(
-    document, localStorage, { now: () => NOW * 1000 }, (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'),
+    document, localStorage, { now: () => now * 1000 }, (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'),
     () => onAgents, () => plusShown, null);
   return { api, slot, store, box };
 }
@@ -81,7 +81,11 @@ test('#6817: seen moves forward only, clears the notice, and a computer that ref
   blocked.slot.innerHTML = 'x';
   assert.doesNotThrow(() => blocked.api.reviewerNoteSeen(NOW));
   assert.equal(blocked.slot.innerHTML, '', 'refused storage left the notice up');
-  assert.equal(blocked.api.reviewerNoteSeenAt(), 0);
+  blocked.api.REVIEWER_NOTE.grants = [grant(DAY)];
+  blocked.api.paintReviewerNote();
+  assert.equal(blocked.slot.innerHTML, '', 'with storage refused, the closed notice came back on the next repaint');
+  const control = board({ storageThrows: true }); control.api.REVIEWER_NOTE.grants = [grant(DAY)]; control.api.paintReviewerNote();
+  assert.notEqual(control.slot.innerHTML, '', 'the control: the same grant, never closed, shows');
 });
 
 test('#6817: the Settings list counts as seen only while it is on screen (CONTROL: on screen, it does)', () => {
@@ -147,4 +151,16 @@ test('#6817: See who takes the person to a freshly read list and leaves seen to 
   assert.match(seeArm, /if \(!plusOnScreen\(\)\) return;/, 'the scroll keeps trying after the person moved on');
   const hideArm = h.slice(h.indexOf('if (hide) {'), h.indexOf('if (!see) return;'));
   assert.match(hideArm, /\.focus\(\)[\s\S]*focusBoardHome\(\)/, 'the x drops focus on the page');
+});
+
+test('#6817: a grant stamped ahead of this clock counts as now, so seeing it cannot hide a later grant', () => {
+  const b = board();
+  assert.equal(b.api.reviewerNoteNewest([{ who: 'x', grantedAt: NOW + 30 * DAY, effectiveAt: NOW + 31 * DAY }], NOW), NOW);
+  b.api.reviewerNoteSeen(b.api.reviewerNoteNewest([{ who: 'x', grantedAt: NOW + 30 * DAY }], NOW));
+  assert.equal(b.store.get('kosmos.reviewerGrantSeen'), String(NOW), 'seen was set ahead of this clock');
+  // A day later, a real grant from an hour ago: it must show, though the future-stamped one was seen.
+  const later = board({ seen: NOW, now: NOW + DAY });
+  later.api.REVIEWER_NOTE.grants = [{ who: 'x', grantedAt: NOW + 30 * DAY }, { who: 'y', grantedAt: NOW + DAY - 3600, effectiveAt: NOW + 2 * DAY }];
+  later.api.paintReviewerNote();
+  assert.notEqual(later.slot.innerHTML, '', 'a later real grant was hidden by an earlier future-stamped one');
 });

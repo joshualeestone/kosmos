@@ -52493,17 +52493,24 @@ function plusOrgReviewers(st) {
    Seen is kept per browser on this computer (the design call on the card). A removed grant is not news: it raises
    nothing. Read from /api/org/grants, which spends none of the one-time notes /api/org does. */
 const REVIEWER_NOTE_KEY = 'kosmos.reviewerGrantSeen';
-const REVIEWER_NOTE = { at: 0, grants: null, kind: null };
+const REVIEWER_NOTE = { at: 0, grants: null, kind: null, seen: 0 };   // seen: this visit's, for when storage refuses
 function reviewerNoteNewest(grants, now) {
   let n = 0;
   for (const g of Array.isArray(grants) ? grants : []) {
-    if (g && !g.removedAt && typeof g.grantedAt === 'number' && g.grantedAt >= now - PLUS_ORG_REVIEWER_DAYS * 86400 && g.grantedAt > n) n = g.grantedAt;
+    if (!g || g.removedAt || typeof g.grantedAt !== 'number' || g.grantedAt < now - PLUS_ORG_REVIEWER_DAYS * 86400) continue;
+    // A grant stamped ahead of this clock counts as now, so seeing it can never hide a later one.
+    n = Math.max(n, Math.min(g.grantedAt, now));
   }
   return n;
 }
-function reviewerNoteSeenAt() { try { return Number(localStorage.getItem(REVIEWER_NOTE_KEY)) || 0; } catch { return 0; } }
+function reviewerNoteSeenAt() {
+  let kept = 0;
+  try { kept = Number(localStorage.getItem(REVIEWER_NOTE_KEY)) || 0; } catch { /* refused: this visit's alone */ }
+  return Math.max(kept, REVIEWER_NOTE.seen);
+}
 function reviewerNoteSeen(at) {
   if (!(at > reviewerNoteSeenAt())) return;
+  REVIEWER_NOTE.seen = at;
   try { localStorage.setItem(REVIEWER_NOTE_KEY, String(at)); } catch { /* storage refused: it shows again on the next visit */ }
   const slot = document.getElementById('reviewer-slot');
   if (slot) { slot.innerHTML = ''; delete slot.dataset.v; }

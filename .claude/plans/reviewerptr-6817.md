@@ -31,6 +31,13 @@ chromium and webkit, phone fit) pass, each able to fail.
 - **See who does not mark seen.** The Settings list on screen does (reviewerNoteSeenList), so a list that has not caught
   up leaves the notice for next time. See who resets the once-a-minute read so Settings reads /api/org fresh.
 - **The x hands focus on**, to the next notice that takes focus, else the board (as the restart notices do).
+- **A grant stamped ahead of this computer's clock counts as now**, so seeing it can never hide a later grant (relay and
+  computer clocks can differ).
+- **Storage refused:** seen is also kept for this visit in memory, so a closed notice stays closed until the page
+  reloads (before, the next minute's repaint brought it back).
+- **Known gap, decided:** the notice says "Someone", so a member who was themselves made the reviewer reads it about
+  themselves without being told so. The grants carry a display name, not an identity this board can match to its
+  person; matching it would be guessing. The Settings list names who.
 
 ## Weakest premise
 
