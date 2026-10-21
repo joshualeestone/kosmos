@@ -64,14 +64,15 @@ test.before(async () => {
   board = fleet.install([fleet.agent(WHO, { state: 'idle' })]);
   messages.setRunner(() => ({ ok: true, session: WHO }));
   phonenotify.setAvailableForTests(true);   // the ship gate is covered in server.phonenotify-gate-718.test.js
-  // Kosmos+ live here (signed in AND switched on), as server.phonenotify-718.test.js's enrol() does.
+  await start(0);
+  base = `http://127.0.0.1:${server.address().port}`;
+  boardAuthState.on = false;
+  // Kosmos+ live (signed in AND switched on), AFTER start as server.phonenotify-718.test.js's enrol() is: written
+  // before, the board's boot would start the fake tunnel as its connector.
   for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(path.join(STATE, f), 'x');
   const remoteFile = require('./engine/remote').FILE;
   fs.mkdirSync(path.dirname(remoteFile), { recursive: true });
   fs.writeFileSync(remoteFile, JSON.stringify({ on: true }));
-  await start(0);
-  base = `http://127.0.0.1:${server.address().port}`;
-  boardAuthState.on = false;
   phonenotify.setSender((url, headers, body) => sent.push(JSON.parse(body)));
 });
 test.after(() => {
@@ -93,29 +94,26 @@ async function call(method, p, { headers = {}, body } = {}) {
 }
 
 test('#4421: a push sent after a rename carries the new name (reply and needs-you), and before it the born name', async () => {
-  let now = 1e12;
-  phonenotify.setClock(() => now);
   assert.equal((await call('PUT', '/api/phone-notify', { body: { on: true } })).json.on, true, 'fixture: notifications did not turn on');
   const h = { 'x-kosmos-agent-token': sendertoken.mint(WHO).token };
   const pushes = async () => {
     sent.length = 0;
-    phonenotify.resetCooldownForTests();
-    now += 60 * 60 * 1000;
+    phonenotify.resetCooldownForTests();   // so round two's needs_you is not held by round one's cooldown
+    // A needs_you pushes only on the change INTO it, so 'working' first: round two would otherwise send nothing.
     assert.equal((await call('POST', '/api/report', { headers: h, body: { state: 'working', text: 'w' } })).json.recorded, true, 'fixture: a report was not recorded');
     assert.equal((await call('POST', '/api/report', { headers: h, body: { state: 'needs_you', text: 'n' } })).json.recorded, true, 'fixture: a needs-you report was not recorded');
     assert.equal((await call('POST', '/api/reply', { headers: h, body: { text: 'r' } })).json.kept, true, 'fixture: a reply was not kept');
-    const byKind = Object.fromEntries(sent.map((b) => [b.kind, b.agent]));
-    assert.deepEqual(Object.keys(byKind).sort(), ['needs_you', 'replied'], 'fixture: the pushes sent were ' + JSON.stringify(sent.map((b) => b.kind)));
-    return byKind;
+    // Every push, in order: a second push of either kind (say a stale-named one beside the right one) fails here.
+    return sent.map((b) => [b.kind, b.agent]);
   };
 
   // CONTROL: before the rename both pushes carry the born name, so the arm below cannot pass on a constant.
   const before = await pushes();
-  assert.deepEqual(before, { needs_you: BORN, replied: BORN }, 'before the rename the pushes did not carry the born name');
+  assert.deepEqual(before, [['needs_you', BORN], ['replied', BORN]], 'before the rename the pushes were not exactly these');
 
   const res = await call('PUT', `/api/agent/${WHO}/profile`, { body: { displayName: RENAMED } });
   assert.equal(res.code, 200, 'the rename route refused: ' + JSON.stringify(res.json));
 
   const after = await pushes();
-  assert.deepEqual(after, { needs_you: RENAMED, replied: RENAMED }, 'a push after the rename did not carry the new name');
+  assert.deepEqual(after, [['needs_you', RENAMED], ['replied', RENAMED]], 'the pushes after the rename were not exactly these, with the new name');
 });
