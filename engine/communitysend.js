@@ -2010,7 +2010,8 @@ function chainWaitMs(opts) {
 function agentCall(agentKey, method, pathname, opts = {}) {
   if (agentsInCall.has(agentKey)) return Promise.resolve(busy());
   agentsInCall.add(agentKey);
-  const deadline = Date.now() + agentBudgetMs;         // review 2 (W1): measured from queue time
+  // review 2 (W1): measured from queue time, or (#6705) from `budgetFrom`, when the caller spent part of it already
+  const deadline = (Number.isFinite(opts.budgetFrom) ? Math.min(opts.budgetFrom, Date.now()) : Date.now()) + agentBudgetMs;
   return new Promise((resolve) => {
     let started = false;
     let gaveUp = false;
@@ -2068,13 +2069,65 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
     if (retiring(agentKey)) return local('this agent\'s name came under a community account retirement while it was joining the community, so nothing was sent; try again in a few minutes');
   }
   if (beforeCall) {
-    const a = await beforeCall(publicGet, String(keys[agentKey].name || ''), budget());
+    const a = await beforeCall(publicGet, String(keys[agentKey].currentName || keys[agentKey].name || ''), budget());   // #6705: the current name
     if (a != null) return { ok: true, answered: a };
   }
   const r = await asAgent(agentKey, keys, method, pathname, body, ctx);
   if (r.status === 0) return { ok: false, sent: true, because: 'the community could not be reached' };   // #4884: sent = the call was attempted and no answer came; status 0 cannot tell "never connected" from "answer lost", so a caller may only say it MAY have happened (a vote is idempotent, so it says "may have been counted")
   if (keys[agentKey] && keys[agentKey].refused) return local('the community switched off this agent\'s account');
   return { ok: true, status: r.status, json: r.json };
+}
+
+/* kosmos#6705: the agent's current name and id, from GET /agents/me (a service from #6705 on), written into its keys.
+   A rename changes the name and keeps the id; the current name is what by-name lookups and the old-service own check
+   use. Changed only for this account: a stored remoteId that differs from agent_id changes nothing, and a missing one
+   is filled from it.
+   🛑 It is written to `currentName`, NEVER to `name`. `name` is the name asAgent signs in with, and the service does
+   not keep every name an agent has had for sign-in: on #6685 it takes the current name or the FIRST registered one,
+   and forgets the first once the agent carries it again. So a board that stored a later name could, after a hide and
+   restore or a second rename, sign in with a dead name, take the 401 as the key refused and switch the agent off for
+   good. The registered name keeps signing in as it did before #6705. currentName is dropped when it equals `name`.
+   OUTSIDE agentCall on purpose: it takes neither the agent's one call slot nor a place in the queue (#5211 review 2:
+   a read must never make the agent's next vote answer busy), so it sends the stored token as it is and never logs in
+   again; a 401, a 404 (an older service), no answer or any other failure changes nothing. Only the write goes through
+   the exclusive section, against the keys as they are then, so it cannot undo a change saved in between.
+   Returns { status, self, keyRef, saved } (self: { id, name } when the answer is this account's; keyRef: the row's
+   apiKey it was asked with; saved: the write's promise, for tests, or null when nothing is written), or null when
+   nothing was asked. `deadline` (ms since the epoch): nothing is sent with less than one request's timeout left. */
+const ME_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function applySelf(json, k) {
+  if (!k || !json || typeof json !== 'object') return null;
+  const id = typeof json.agent_id === 'string' && ME_UUID_RE.test(json.agent_id) ? json.agent_id.toLowerCase() : '';
+  // A name the board could not use in a by-name path (communityfollow.nameOf: length, slashes, control characters)
+  // changes nothing: the stored name stands.
+  let name = '';
+  try { name = typeof json.name === 'string' ? require('./communityfollow').nameOf(json.name) || '' : ''; } catch { name = ''; }
+  if (!id || !name) return null;
+  const had = typeof k.remoteId === 'string' && k.remoteId ? k.remoteId.toLowerCase() : '';
+  if (had && had !== id) return null;
+  return { id, name, changed: !had || (name === k.name ? k.currentName !== undefined : k.currentName !== name) };
+}
+async function refreshSelf(agentKey, { deadline = null } = {}) {
+  if (switchState() !== 'on' || !endpointAllowed() || (!sender && underTest())) return null;
+  const keys = loadJson(keysFile());
+  const k = keys && keys[agentKey];
+  if (!k || typeof k.token !== 'string' || !k.token || k.refused) return null;
+  const r = await request('GET', '/agents/me', { token: k.token, cap: RESPONSE_CAP, deadline });
+  const got = r.status === 200 ? applySelf(r.json, k) : null;
+  let saved = null;
+  if (got && got.changed) {
+    saved = exclusive(() => {
+      const now = loadJson(keysFile());
+      const cur = now && now[agentKey];
+      if (!cur || cur.apiKey !== k.apiKey) return;   // re-registered or retired meanwhile: another account's row
+      const again = applySelf(r.json, cur);
+      if (!again || !again.changed) return;
+      if (!cur.remoteId) cur.remoteId = again.id;   // filled, never rewritten: sent records compare it exactly
+      if (again.name === cur.name) delete cur.currentName; else cur.currentName = again.name;
+      saveJson(keysFile(), now);
+    }).catch(() => { /* the next refresh writes it */ });
+  }
+  return { status: r.status, self: got ? { id: got.id, name: got.name } : null, keyRef: k.apiKey, saved };
 }
 
 /**
@@ -2713,12 +2766,13 @@ function setSwitch(f) { switchRead = f; }
 function setContact(f) { contactRead = f; }   // kosmos#6239: tests replace the policy's outside-contact read (null puts it back)
 function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
+const agentBudget = () => agentBudgetMs;   // #6705: the live budget (a test may have set it), for a caller that spends part of it
 
 module.exports = {
   switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
-  statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
+  statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest, refreshSelf,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
-  setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, reportPolicyRefusal, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
+  setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, reportPolicyRefusal, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, agentBudget, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
   CHANNELS, channelChoice, leadingChannelWord, // kosmos#5171
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },

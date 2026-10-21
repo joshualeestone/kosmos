@@ -65,6 +65,58 @@ function boardUnitPath(kosmosHome) {
   return path.join(systemdDir(), boardUnitName(kosmosHome));
 }
 
+/* kosmos#6667: the pause check's two units, named from the board's (kosmos-board[.<hash>].service ->
+   kosmos-pause-check[.<hash>].service and .timer). Not kosmos-board*: setup.sh's uninstall names every other
+   kosmos-board*.service as another install's board. setup.sh's _kosmos_linux_pause_check_names derives the same. */
+function pauseCheckNames(kosmosHome) {
+  const base = boardUnitName(kosmosHome).replace(/^kosmos-board/, 'kosmos-pause-check').replace(/\.service$/, '');
+  return { service: base + '.service', timer: base + '.timer' };
+}
+
+/* kosmos#6667: systemd's ConditionPathExists=!board.stopped cannot read an update's name files, so an update killed
+   while it had the board paused (#6651) left the board down until a person ran kosmos start: the Mac's watchdog
+   clears that pause, and Linux had nothing. This oneshot, run every minute by its timer, runs `kosmos board-revive`.
+   That command names this board's unit itself (_kosmos_board_systemd_unit, kept equal to boardUnitName), clears ONLY
+   a stranded update pause (kosmos_stranded_pause), only while the board's unit is enabled, and then starts the
+   board. A person's stop, a live update, or a board down for any other reason is left alone: it is not a keep-alive
+   (the board unit's own Restart=on-failure is). */
+function pauseCheckUnitsFor(kosmosHome) {
+  const home = path.resolve(kosmosHome || process.env.KOSMOS_HOME || defaultKosmosHome());
+  const kosmosBin = path.join(home, 'bin', 'kosmos');
+  const userHome = os.homedir();
+  const { unitSafe } = require('./linuxjob');
+  for (const [v, what] of [[home, 'the Kosmos folder'], [userHome, 'the home folder']]) unitSafe(v, what);
+  const names = pauseCheckNames(home);
+  const service = `[Unit]
+Description=Kosmos: start the board again after an update that was killed mid-pause (kosmos#6667)
+# A skip, not a failure: with no marker there is nothing to clear (no bash start each minute), and with the Kosmos folder
+# gone (deleted by hand, or left by an older release's uninstall) a timer left behind stays quiet instead of failing.
+ConditionPathExists=${home}/board.stopped
+ConditionPathExists=${kosmosBin}
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash "${kosmosBin}" board-revive
+WorkingDirectory=${home}
+Environment="HOME=${userHome}"
+Environment="KOSMOS_HOME=${home}"
+Environment="PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+Environment="LANG=C.UTF-8"
+`;
+  const timer = `[Unit]
+Description=Kosmos: check every minute for an update pause whose update is gone (kosmos#6667)
+
+[Timer]
+OnCalendar=minutely
+AccuracySec=10s
+Unit=${names.service}
+
+[Install]
+WantedBy=timers.target
+`;
+  return { names, service, timer };
+}
+
 function boardUnitFor(kosmosHome, port) {
   const home = path.resolve(kosmosHome || process.env.KOSMOS_HOME || defaultKosmosHome());
   const kosmosBin = path.join(home, 'bin', 'kosmos');
@@ -127,6 +179,7 @@ WantedBy=default.target
 /* Writes and enables the board's unit. { ok: false, because } when systemd refused either step. */
 function installBoard(kosmosHome, port) {
   const content = boardUnitFor(kosmosHome, port);
+  const check = pauseCheckUnitsFor(kosmosHome);
   // systemd's append: needs the folder to exist (review 16).
   try { fs.mkdirSync(path.join(path.resolve(kosmosHome || process.env.KOSMOS_HOME || defaultKosmosHome()), 'logs'), { recursive: true }); } catch { /* the start will say */ }
   const target = boardUnitPath(kosmosHome);
@@ -136,17 +189,26 @@ function installBoard(kosmosHome, port) {
   }
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, content, 'utf8');
+  fs.writeFileSync(path.join(path.dirname(target), check.names.service), check.service, 'utf8');
+  fs.writeFileSync(path.join(path.dirname(target), check.names.timer), check.timer, 'utf8');
   const reload = runner('systemctl', ['--user', 'daemon-reload']);
   if (!reload || !reload.ok) return { ok: false, because: 'systemd did not reload its user units: ' + ((reload && (reload.stderr || reload.because)) || '').trim() };
   const unit = boardUnitName(kosmosHome);
   const en = runner('systemctl', ['--user', 'enable', unit]);
   if (!en || !en.ok) return { ok: false, because: 'systemd did not enable the board: ' + ((en && (en.stderr || en.because)) || '').trim() };
+  /* kosmos#6667: the pause check's timer. The board runs without it, so a refusal does not fail the install (the board
+     is then as it was before this check existed). It is returned as pauseCheck; setup.sh asks systemd itself instead
+     (is-enabled), because its node step's output is matched exactly. */
+  const ten = runner('systemctl', ['--user', 'enable', '--now', check.names.timer]);
+  const pauseCheck = ten && ten.ok
+    ? { ok: true }
+    : { ok: false, because: 'systemd did not enable the board\'s pause check (' + check.names.timer + '): ' + ((ten && (ten.stderr || ten.because)) || '').trim() };
   /* #4918 review 12: without linger the board stops at logout and does not start at boot, the property this unit
      exists for. Read back, as for agents; the caller (piece D's installer) says so when it is off. */
   let lingering = false;
   const lj = require('./linuxjob');
   try { lingering = lj.runWith((c, a) => runner(c, a), () => lj.enableLinger()).lingering; } catch { lingering = false; }
-  return { ok: true, lingering };
+  return { ok: true, lingering, pauseCheck };
 }
 
 /* Stops, disables and deletes the board's unit. { ok } is true only when every step held (#4918 review 3), so the
@@ -156,6 +218,20 @@ function removeBoard(kosmosHome) {
   // The one "not loaded" rule, linuxjob's (review 16: it was written twice).
   const failed = (r) => Boolean(r) && !require('./linuxjob').stoppedOrNotLoaded(r);
   const hadFile = fs.existsSync(boardUnitPath(kosmosHome));   // review 29: as linuxjob.remove (review 28)
+  /* kosmos#6667: the pause check goes first, so its timer cannot start the board while it is being removed. Its
+     refusals are not read: deleting its files is what keeps it from running again, and a delete that fails is said. */
+  const check = pauseCheckNames(kosmosHome);
+  runner('systemctl', ['--user', 'disable', '--now', check.timer]);
+  runner('systemctl', ['--user', 'stop', check.service]);
+  try {
+    // The timer's enable link too, which a refused disable (no user bus) leaves behind, as setup.sh's helper does.
+    for (const f of [check.timer, check.service, path.join('timers.target.wants', check.timer)]) {
+      const p = path.join(systemdDir(), f);
+      if (fs.lstatSync(p, { throwIfNoEntry: false })) fs.unlinkSync(p);   // lstat: a dangling link counts
+    }
+  } catch (err) {
+    return { ok: false, because: 'the board\'s pause check could not be deleted: ' + ((err && err.message) || String(err)) };
+  }
   const st = runner('systemctl', ['--user', 'stop', unit]);
   if (failed(st)) return { ok: false, because: 'systemd could not stop the board: ' + String(st.stderr || st.because || '').trim() };
   const dis = runner('systemctl', ['--user', 'disable', unit]);
@@ -215,6 +291,8 @@ module.exports = {
   boardUnitName,
   boardUnitPath,
   boardUnitFor,
+  pauseCheckNames,
+  pauseCheckUnitsFor,
   installBoard,
   removeBoard,
   loadedBoardJob,

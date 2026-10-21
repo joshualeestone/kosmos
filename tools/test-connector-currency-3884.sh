@@ -15,7 +15,8 @@ g(){ git -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false "$@"
 # coordinator file that is NOT one of them.
 g init -q --bare -b main "$T/origin.git"
 g init -q -b main "$T/relay"
-mkdir -p "$T/relay/crates/tunnel" "$T/relay/crates/proto" "$T/relay/coordinator"
+mkdir -p "$T/relay/crates/tunnel" "$T/relay/crates/proto" "$T/relay/coordinator" "$T/relay/tools"
+echo 1 > "$T/relay/tools/build-tunnel-release.sh"   # #6628: the build script must exist on main
 echo 1 > "$T/relay/crates/tunnel/lib.rs"; echo 1 > "$T/relay/crates/proto/lib.rs"
 echo 1 > "$T/relay/coordinator/lib.rs"; echo 1 > "$T/relay/Cargo.lock"; echo 1 > "$T/relay/Cargo.toml"
 g -C "$T/relay" add -A; g -C "$T/relay" commit -q -m "base"
@@ -45,7 +46,7 @@ if check_rc; then ok "a coordinator-only change on main does not refuse"; else b
 # 3. a tunnel change refuses, names the missing commit and the rebuild
 land crates/tunnel/lib.rs "tunnel-hsts: every answer carries HSTS"
 if check_rc; then bad "a connector missing a tunnel commit was NOT refused (the 0.6.95 shape)"
-else grep -q "STALE" "$T/err" && grep -q "tunnel-hsts: every answer carries HSTS" "$T/err" && grep -q "build-tunnel-release.sh" "$T/err" \
+else grep -q "STALE" "$T/err" && grep -q "tunnel-hsts: every answer carries HSTS" "$T/err" && grep -q "run tools/build-tunnel-release.sh on a box with both rustup targets, and copy dist/kosmos-tunnel with" "$T/err" \
   && ! grep -q "coordinator-only change" "$T/err" \
   && ok "a tunnel commit on main refuses, names that commit (not the coordinator one) and the rebuild" \
   || bad "wrong refusal for a stale connector: $(cat "$T/err")"; fi
@@ -81,6 +82,13 @@ g -C "$T/relay" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
 NEW="$(g -C "$T/relay" rev-parse origin/main)"; printf '%s\n' "$NEW" > "$B.commit"
 if check_rc; then ok "CONTROL: a connector rebuilt from the new main is current again"; else bad "a rebuilt connector was refused: $(cat "$T/err")"; fi
 printf '%s\n' "$BUILT" > "$B.commit"
+
+# 6b. the build script is required on main (#6628): one that is gone refuses as UNKNOWN, even with the override
+reset_origin; rm -rf "$T/other"; g clone -q "$T/origin.git" "$T/other"
+g -C "$T/other" rm -q tools/build-tunnel-release.sh; g -C "$T/other" commit -q -m "drop the build script"; g -C "$T/other" push -q origin main
+if KOSMOS_ALLOW_STALE_TUNNEL=1 connector_currency_check "$B" "$T/relay" 2>"$T/err"; then bad "a relay main with no tools/build-tunnel-release.sh was accepted"
+else grep -q "has no tools/build-tunnel-release.sh" "$T/err" && ok "a relay main with no tools/build-tunnel-release.sh refuses as UNKNOWN, override or not" || bad "wrong refusal with no build script: $(cat "$T/err")"; fi
+reset_origin; g -C "$T/relay" fetch -q origin
 
 # 7. fails closed: origin cannot be fetched
 g -C "$T/relay" remote set-url origin "$T/no-such-origin.git"

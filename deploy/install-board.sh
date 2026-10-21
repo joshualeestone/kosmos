@@ -227,6 +227,7 @@ fi
 say "app files that would be installed:"
 say "  server.js, package.json"
 say "  engine/*.js excluding *.test.js"
+say "  engine/service-keys.json and its .sig when present (checked first, #6587)"
 say "  web/ (whole)"
 say "  bin/agent-supervisor.sh, bin/codex-report-bridge.js, bin/gemini-report-bridge.js, bin/grok-report-bridge.js, bin/agy-report-bridge.js, bin/board-watchdog.sh"
 say "  assets/Kosmos.icns when present"
@@ -239,6 +240,9 @@ stage_app() {
   for f in "$REPO"/engine/*.js; do
     case "$f" in *.test.js) ;; *) cp "$f" "$_d/engine/" || return 1 ;; esac
   done
+  # kosmos#6587: the signed service key set ships beside the engine that checks it, checked (tools/lib/stage-service-keys.sh).
+  . "$REPO/tools/lib/stage-service-keys.sh" || return 1
+  kosmos_stage_service_keys "$REPO" "$_d/engine" "$NODE" || return 1
   cp -R "$REPO/web" "$_d/web" || return 1
   cp "$REPO/bin/agent-supervisor.sh" "$_d/bin/" || return 1
   chmod +x "$_d/bin/agent-supervisor.sh"

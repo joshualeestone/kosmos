@@ -19,8 +19,10 @@
 #     half-updated CDN; they add nothing against a compromised origin. That is the same limit
 #     install/setup.sh states for the Mac.
 #   - THE SIGNATURE IS DEFENCE IN DEPTH, NOT A CHECK OF THE APP. Kosmos.exe must carry a Valid
-#     Authenticode signature whose subject is "Kosmos Agent Manager, Inc." and whose chain runs
-#     through Microsoft's ID Verified code-signing CA to Microsoft's Identity Verification root.
+#     Authenticode signature whose subject is "Kosmos Agent Manager, Inc." (the whole validated
+#     subject, organisation, city, state and country, #6466), with the Code Signing EKU, and whose
+#     chain builds through Microsoft's ID Verified code-signing CA to Microsoft's Identity
+#     Verification root.
 #     That proves the launcher came from Kosmos's signing account. It does NOT cover the app\
 #     folder, runtime\node.exe's neighbours or anything else in the zip: those are covered only by
 #     the checksums, i.e. by trust in the origin.
@@ -75,6 +77,10 @@
   # Required: the root, by thumbprint, and an intermediate issued to Microsoft's "ID Verified" CAs.
   $EXPECTED_ROOT_THUMBPRINT = 'F40042E2E5F7E8EF8189FED15519AECE42C3BFA2'
   $EXPECTED_INTERMEDIATE_PATTERN = '^CN=Microsoft ID Verified Code Signing PCA [0-9]{4}, O=Microsoft Corporation, C=US\z'
+  # #6466: more than the common name. The leaf's whole subject (the organisation Microsoft validated before
+  # issuing it) and the Code Signing EKU, and the chain must build. engine/win32update.js pins the same.
+  $EXPECTED_SUBJECT = 'CN="Kosmos Agent Manager, Inc.", O="Kosmos Agent Manager, Inc.", L=Mckinney, S=Texas, C=US'
+  $EXPECTED_EKU = '1.3.6.1.5.5.7.3.3'
   # The pointer and the sidecar are a few hundred bytes; a host that has not answered in this
   # long is not going to.
   $SMALL_FILE_TIMEOUT_SECONDS = 30
@@ -245,7 +251,7 @@
       $carried.Import($Exe)
       [void] $chain.ChainPolicy.ExtraStore.AddRange($carried)
     } catch { }
-    [void] $chain.Build($leaf)
+    $built = [bool] $chain.Build($leaf)
     $elements = @($chain.ChainElements | ForEach-Object { $_.Certificate })
     $root = if ($elements.Count) { $elements[$elements.Count - 1] } else { $null }
     $intermediate = @($elements | Where-Object { $_.Subject -match $EXPECTED_INTERMEDIATE_PATTERN })
@@ -253,6 +259,10 @@
       $top = if ($root) { $root.Subject } else { 'nothing' }
       Refuse "Kosmos.exe's signature does not come from Microsoft's code-signing service for $EXPECTED_SIGNER (its chain ends at $top)."
     }
+    if (-not $built) { Refuse "Kosmos.exe's signature does not come from Microsoft's code-signing service for $EXPECTED_SIGNER (Windows could not build its certificate chain)." }
+    if ($leaf.Subject -ne $EXPECTED_SUBJECT) { Refuse "Kosmos.exe is signed for '$($leaf.Subject)', not for the validated $EXPECTED_SIGNER." }
+    $ekus = @($leaf.Extensions | Where-Object { $_.Oid -and $_.Oid.Value -eq '2.5.29.37' } | ForEach-Object { ([System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension] $_).EnhancedKeyUsages } | ForEach-Object { [string] $_.Value })
+    if ($ekus -notcontains $EXPECTED_EKU) { Refuse "Kosmos.exe is signed with a certificate that is not for code signing." }
   }
 
   # What the steps below share with the cleanup at the end. A hashtable, because a function

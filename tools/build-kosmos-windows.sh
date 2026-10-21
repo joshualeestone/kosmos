@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the unsigned Windows package: a zip somebody downloads, unpacks and runs.
+# Build the Windows package: a zip somebody downloads, unpacks and runs.
 #
 # 🛑 JOSH'S v1, HIS WORDS (2026-08-29): "visit installkosmos.com and click
 # Download for Windows. It downloads an application that they can run locally,
@@ -8,9 +8,16 @@
 # function and then let's walk through the process of what we have to do to buy
 # a certificate."
 #
-# ⇒ SO THIS IS DELIBERATELY UNSIGNED. Windows will show "Windows protected your
-# PC" with More info -> Run anyway. That is expected, it is his call, and the
-# certificate is a separate purchase with its own lead time.
+# 🔏 THAT CERTIFICATE NOW EXISTS, SO THIS IS NO LONGER UNSIGNED (#6679). The two
+# programs Kosmos makes are Authenticode-signed by Kosmos Agent Manager, Inc.
+# BEFORE they reach this script, which signs nothing itself: Kosmos.exe (the
+# committed launcher, see "the entry point" below) and the Plus connector,
+# app/bin/kosmos-tunnel.exe. The build refuses either one unsigned, and the
+# manifest's "signatures" records each one as this build saw it. node.exe and
+# WebView2Loader.dll are other publishers' signed files, shipped as downloaded.
+# ⚠️ SIGNED IS NOT "NO WARNING". A new certificate has no SmartScreen reputation
+# yet, so Windows can still show "Windows protected your PC" with More info ->
+# Run anyway the first time, and the read-me still walks a person through it.
 #
 # 🛑 WHAT THIS PACKAGE DOES AND DOES NOT DO, so nobody ships it believing more.
 # It carries the BOARD, a Node runtime, and everything Windows AGENTS need (#570,
@@ -53,6 +60,9 @@ OUT="${1:-dist}"
 # does not.
 NODE_VERSION="${KOSMOS_NODE_VERSION:-24.19.0}"
 ARCH="${KOSMOS_WIN_ARCH:-x64}"
+# #6677: node sets the zip's file modes (tools/lib/zip-modes.js) on EVERY build, so it
+# is checked here, before the downloads, not found missing after them.
+command -v node >/dev/null 2>&1 || { echo "node is needed to build the Windows zip (it sets the zip's file modes, #6677); put it on PATH" >&2; exit 1; }
 
 # ---- source provenance (#1749) --------------------------------------------
 # The artifact must be able to say WHICH commit built it and whether that tree
@@ -99,6 +109,9 @@ mkdir -p "$STAGE/app/engine" "$STAGE/app/bin"
 for f in "$REPO"/engine/*.js; do
   case "$f" in *.test.js) ;; *) cp "$f" "$STAGE/app/engine/" ;; esac
 done
+# kosmos#6587: the signed service key set ships beside the engine that checks it, checked (tools/lib/stage-service-keys.sh).
+. "$REPO/tools/lib/stage-service-keys.sh"
+kosmos_stage_service_keys "$REPO" "$STAGE/app/engine" || exit 1
 cp -R "$REPO/web" "$STAGE/app/web"
 cp "$REPO/bin/agent-supervisor.sh" "$STAGE/app/bin/"
 cp "$REPO/bin/codex-report-bridge.js" "$STAGE/app/bin/"
@@ -122,8 +135,9 @@ cp "$REPO/bin/agy-report-bridge.js" "$STAGE/app/bin/"
 # tools/build-tunnel-release-windows.ps1 -Sign, and it rides in app/bin, where
 # remote.js looks for it on Windows (bundledConnector: bin/kosmos-tunnel.exe).
 # 🛑 REFUSE, NEVER SHIP WITHOUT IT, like the Mac builder: missing or mismatched
-# sidecars (connector-provenance.sh), not a Windows x86-64 program, or unsigned
-# (connector-windows.sh) all stop the build.
+# sidecars (connector-provenance.sh), behind kosmos-relay main (connector-currency.sh), needing
+# a coordinator not yet deployed (coordinator-floor.sh), not a Windows x86-64 program, or
+# unsigned (connector-windows.sh) all stop the build.
 # 🔏 SIGNED BEFORE IT GETS HERE, NOT HERE, the launcher's rule (see Kosmos.exe
 # below): the .sha256 names the signed bytes, so provenance, signature and the
 # staged copy are one set of bytes. On Windows the build also asks Windows whether
@@ -136,6 +150,15 @@ TUNNEL_BIN="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel.exe}
 . "$REPO/tools/lib/connector-windows.sh"
 _connector_provenance_check "$TUNNEL_BIN" || exit 1
 _tunnel_src="$CONNECTOR_COMMIT"; _tunnel_in="$CONNECTOR_SHA"
+# #6628: the Mac cut refuses a connector behind kosmos-relay main (#3884, release.sh step 1d); so does this, for the
+# connector the Windows build script made. KOSMOS_ALLOW_STALE_TUNNEL=1 ships it on purpose.
+. "$REPO/tools/lib/connector-currency.sh"
+connector_currency_check "$TUNNEL_BIN" "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" \
+  tools/build-tunnel-release-windows.ps1 || exit 1
+# And, as the Mac cut does next (release.sh step 1d2, #5037), the coordinator serving traffic must carry what that
+# connector needs. KOSMOS_ALLOW_COORDINATOR_BEHIND=1 ships anyway.
+. "$REPO/tools/lib/coordinator-floor.sh"
+coordinator_floor_check "$TUNNEL_BIN" "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" "$REPO/tools/coordinator-floor" || exit 1
 connector_pe_signed "$TUNNEL_BIN" || exit 1
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) _on_windows=1 ;; *) _on_windows=0 ;; esac
 _tunnel_sig="present (not verified: this build did not run on Windows)"
@@ -210,8 +233,6 @@ echo "==> baked version $_ver into the page"
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" = "1" ]; then
   echo "==> KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check is not enforced for $_ver; with no highlights for $_ver there is no \"Kosmos has been updated\" window"
 else
-  command -v node >/dev/null 2>&1 || {
-    echo "node is needed to check the What's new highlights for $_ver (#4928); install it, or set KOSMOS_CUT_NO_WHATS_NEW=1" >&2; exit 1; }
   _wn=0
   node "$REPO/tools/whats-new-check.js" "$_ver" "$STAGE/app/web/whats-new.json" --platform=windows || _wn=$?
   case "$_wn" in
@@ -223,8 +244,8 @@ fi
 
 # ---- the runtime -----------------------------------------------------------
 # ⚠️ CHECKSUM-VERIFIED AGAINST nodejs.org's OWN SHASUMS, and the build DIES on a
-# mismatch. An unsigned installer is already asking somebody to click through a
-# warning; shipping an unverified runtime inside it would be asking them to
+# mismatch. A package from a new publisher is already asking somebody to click
+# through a warning; shipping an unverified runtime inside it would be asking them to
 # trust something we did not check ourselves.
 echo "==> downloading node v$NODE_VERSION (win-$ARCH)"
 ZIP="node-v$NODE_VERSION-win-$ARCH.zip"
@@ -397,6 +418,27 @@ LAUNCHER_PORT="$(sed -n 's/.*DefaultPort *= *\([0-9][0-9]*\).*/\1/p' "$REPO/tool
   echo "(see tools/windows/README.md), and commit both together." >&2
   exit 1
 }
+# 🔏 #6679: THE READ-ME SAYS Kosmos.exe IS SIGNED, so the build holds the launcher to
+# what the read-me says, the way it holds the connector above: a signature must be
+# PRESENT on any host, and on Windows, Windows itself must call it Valid and by
+# Kosmos Agent Manager, Inc. Both checks are connector-windows.sh's general PE ones
+# (pe_signature_present, pe_authenticode): the launcher is a 32-bit (AnyCPU) PE, which
+# the connector's x86-64 check rightly refuses. What was checked lands in the manifest.
+_launcher_why="$(pe_signature_present "$LAUNCHER" 2>&1 >/dev/null)" || {
+  echo "tools/windows/Kosmos.exe is not signed, and the zip's read-me tells people it is (#6679): ${_launcher_why#pe_signature_present: }" >&2
+  echo "Sign it on the Windows box (tools/windows/README.md) and commit it." >&2
+  exit 1
+}
+_launcher_sig="present (not verified: this build did not run on Windows)"
+if [ "$_on_windows" = 1 ]; then
+  # The signer is the read-me's own words, NOT KOSMOS_WIN_SIGNER: the read-me names this
+  # publisher, so a launcher signed by anyone else is refused whatever that override says.
+  _launcher_why="$(KOSMOS_WIN_SIGNER="Kosmos Agent Manager, Inc." pe_authenticode "$LAUNCHER" Kosmos.exe 2>&1 >/dev/null)" || {
+    echo "Windows does not accept tools/windows/Kosmos.exe's signature (#6679): ${_launcher_why#pe_authenticode: }" >&2
+    exit 1
+  }
+  _launcher_sig="Valid"
+fi
 cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 
 # 🛑 THE FILENAME IS THE WARNING, BECAUSE THE README CANNOT REACH HER IN TIME.
@@ -428,7 +470,7 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 # %LOCALAPPDATA%\Programs\Kosmos, the per-user program folder, and NOT
 # C:\Users\<name>\Kosmos, which is where Kosmos keeps the person's Projects.
 {
-  printf 'Kosmos for Windows (unsigned preview)\r\n'
+  printf 'Kosmos for Windows\r\n'
   printf '\r\n'
   printf 'To install: right-click the zip in your Downloads folder, choose\r\n'
   printf 'Extract All..., and click Extract. Then open the extracted folder\r\n'
@@ -444,15 +486,16 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'Unblock at the bottom, then click OK. Windows then warns you less\r\n'
   printf 'about the files inside it.\r\n'
   printf '\r\n'
-  printf 'The first time, Windows will try to stop you, and that is expected.\r\n'
+  printf 'Kosmos.exe is signed by Kosmos Agent Manager, Inc. Kosmos is still\r\n'
+  printf 'new, so the first time you open it Windows may try to stop you\r\n'
+  printf 'anyway. That is expected.\r\n'
   printf '\r\n'
   printf 'A blue box says "Windows protected your PC". The only button you can\r\n'
   printf 'see says "Don\047t run". DO NOT PRESS IT. Click the small "More info"\r\n'
   printf 'text above it, and then "Run anyway".\r\n'
   printf '\r\n'
-  printf 'If a box says "The publisher could not be verified", click Run.\r\n'
-  printf '\r\n'
-  printf 'This preview is not signed yet; signed builds are coming.\r\n'
+  printf 'If a box asks whether to run Kosmos.exe\r\n'
+  printf 'from Kosmos Agent Manager, Inc., click Run.\r\n'
   printf '\r\n'
   printf 'Kosmos opens in its own window. Closing that window does not stop\r\n'
   printf 'Kosmos: it keeps running in the background and starts by itself when\r\n'
@@ -477,6 +520,17 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 } > "$STAGE/! READ ME FIRST - Windows will warn you.txt"
 
 # ---- the manifest ----------------------------------------------------------
+# 🔏 #6679: "signatures" replaces the old `"signed": false`, which stopped being
+# true the day Kosmos.exe was signed. It is PER FILE, for the two programs Kosmos
+# signs, and says what THIS BUILD checked: "Valid" (Windows said so, by Kosmos
+# Agent Manager, Inc.) or "present (not verified: ...)" (a non-Windows build can
+# only see that a signature is there). It is a record for people, never a trust
+# input: nothing reads it to decide anything, and the updater asks Windows about
+# the update's own Kosmos.exe itself (win32update.js signatureRefusal). There is
+# deliberately no single "signed": true, which a reader could take as covering
+# every file in the zip.
+# connector.signature (older, #4597) repeats the connector's entry on purpose: it
+# stays where existing readers of the connector block look for it.
 cat > "$STAGE/manifest.json" <<JSON
 {
   "product": "kosmos",
@@ -485,7 +539,7 @@ cat > "$STAGE/manifest.json" <<JSON
   "version": "$_ver",
   "source_sha": "$SOURCE_SHA",
   "source_dirty": $SOURCE_DIRTY,
-  "signed": false,
+  "signatures": { "Kosmos.exe": "$_launcher_sig", "app/bin/kosmos-tunnel.exe": "$_tunnel_sig" },
   "node": { "version": "v$NODE_VERSION", "download_sha256": "$NODE_SHA" },
   "webview2_loader": { "sdk_version": "$WEBVIEW2_SDK_VERSION", "download_sha256": "$WEBVIEW2_SDK_SHA256" },
   "agents_supported": true,
@@ -510,6 +564,13 @@ mkdir -p "$OUTDIR"
 ZIPOUT="$OUTDIR/kosmos-win-$ARCH.zip"
 rm -f "$ZIPOUT"
 ( cd "$STAGE" && zip -qr "$ZIPOUT" . )
+# 🛑 #6677: SANE MODES, WHICHEVER TOOL MADE THE ZIP. On the Windows release box `zip`
+# is a shim over Windows' bsdtar, which stores every file 0666 and every folder and
+# .exe 0777 (0.7.60: all 369 entries world-writable); Info-ZIP on a Mac copies
+# whatever the checkout had. tools/lib/zip-modes.js rewrites each entry to 0644,
+# 0755 for programs (.exe .dll .cmd .bat, or a #! script) and 0755 for folders, in
+# place, BEFORE the .sha256 is taken, and the checks below read the result back.
+node "$REPO/tools/lib/zip-modes.js" set "$ZIPOUT" "$STAGE" || { rm -f "$ZIPOUT"; echo "could not set the zip's file modes (#6677); the reason is printed above" >&2; exit 1; }
 shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
 
 # 🛑 ASSERT THE ZIP CONTAINS WHAT WE THINK, rather than trusting that the staging
@@ -577,6 +638,8 @@ _zipmods="$(printf '%s\n' "$LISTING" | grep -c ' app/engine/[^ ]*\.js$' || true)
 _repomods="$(ls "$REPO"/engine/*.js | grep -vc '\.test\.js')"
 [ "$_zipmods" = "$_repomods" ] || refuse "the zip carries $_zipmods engine modules and the repo has $_repomods"
 echo "==> $_repomods engine modules, 0 test files"
+# #6677: read the modes back from the finished zip, not from what `set` said it did.
+node "$REPO/tools/lib/zip-modes.js" check "$ZIPOUT" "$STAGE" || refuse "the zip carries entries with the wrong file mode (#6677)"
 
 echo "==> $ZIPOUT"
 # The zip's own size first: unzip -l's total line is the UNPACKED size, which
@@ -584,3 +647,30 @@ echo "==> $ZIPOUT"
 _zipbytes="$(wc -c < "$ZIPOUT" | tr -d ' ')"
 read -r _unpacked _nfiles _ <<<"$(printf '%s\n' "$LISTING" | tail -1)"
 echo "==> zip $_zipbytes bytes; unpacked $_unpacked bytes in $_nfiles files"
+
+# ---- the signed release manifest (#6466) -----------------------------------
+# The Windows twin of the Mac's signed manifest (#6468): every file in the zip with its sha256, the zip's sha256 and
+# version, in the Mac's format plus "platform": "win32". Installs of THIS build refuse an update whose manifest is
+# missing or not signed by the release key engine/manifest-verify.js pins (engine/win32update.js B1b/B3b), and
+# tools/windows/publish-r2.ps1 refuses to stage this build without it. Written from the STAGE the zip was made from,
+# then checked against the zip itself once signed (publish-r2.ps1 does that check again before uploading).
+# Signed with the SAME key and the SAME step as the Mac release (tools/lib/manifest-sign.js sign), on whichever
+# computer holds kosmos-manifest-signing: here when KOSMOS_MANIFEST_KEY names it (a computer that holds the key; not
+# the Windows PC, where the key never comes), otherwise by the key holder after publish-r2.ps1 -ForSigning puts the
+# zip and this manifest up (tools/windows/RELEASING.md, the per-release order).
+MANIFEST_OUT="$OUTDIR/kosmos-$_ver-win-$ARCH.manifest.json"
+rm -f "$MANIFEST_OUT" "$MANIFEST_OUT.sig"
+command -v node >/dev/null 2>&1 || refuse "node is needed to write the signed release manifest (#6466)"
+node "$REPO/tools/lib/win-release-manifest.js" write "$STAGE" "$ZIPOUT" "$_ver" "$ARCH" "$MANIFEST_OUT" \
+  || { rm -f "$MANIFEST_OUT"; refuse "the release manifest could not be written (#6466)"; }
+if [ -n "${KOSMOS_MANIFEST_KEY:-}" ]; then
+  node "$REPO/tools/lib/manifest-sign.js" sign "$KOSMOS_MANIFEST_KEY" "$MANIFEST_OUT" "$MANIFEST_OUT.sig" \
+    || { rm -f "$MANIFEST_OUT" "$MANIFEST_OUT.sig"; refuse "the release manifest could not be signed (#6466)"; }
+  node "$REPO/tools/lib/win-release-manifest.js" check "$MANIFEST_OUT" "$MANIFEST_OUT.sig" "$ZIPOUT" "$_ver" "$ARCH" \
+    || { rm -f "$MANIFEST_OUT" "$MANIFEST_OUT.sig"; refuse "the signed release manifest does not check out against the zip (#6466)"; }
+  echo "==> signed: $(basename "$MANIFEST_OUT").sig"
+else
+  echo "==> NOT SIGNED YET: $(basename "$MANIFEST_OUT"). Next: put it up for signing (no pointer moves):"
+  echo "      pwsh tools/windows/publish-r2.ps1 -Zip $ZIPOUT -ForSigning"
+  echo "    then send the key holder the version and manifest sha256 it prints. publish-r2.ps1 refuses to stage this build without the .sig."
+fi

@@ -122,7 +122,8 @@ STAGING="$SITE/dist/$STAGING_NAME"
 SNAP="$(mktemp "${TMPDIR:-/tmp}/promote-channel-staging.XXXXXX")" || { echo "promote-channel: could not make a temp file for the staging snapshot" >&2; exit 1; }
 PTMP=""
 STMP=""
-trap 'rm -f "$SNAP" ${PTMP:+"$PTMP"} ${STMP:+"$STMP"}' EXIT   # a signal mid-promote must not leak either temp
+_kl_dir=""   # #6609: the served release key list, read from the site's origin/main
+trap 'rm -f "$SNAP" ${PTMP:+"$PTMP"} ${STMP:+"$STMP"}; [ -z "$_kl_dir" ] || rm -rf "$_kl_dir"' EXIT   # a signal mid-promote must not leak a temp
 cp "$STAGING" "$SNAP" || { echo "promote-channel: could not snapshot $STAGING" >&2; exit 1; }
 
 # Read a pointer's fields via node (exact JSON, never a sed heuristic). read_field reads the
@@ -236,6 +237,22 @@ if [ "$FAMILY" = mac ]; then
         *) echo "promote-channel: $MANIFEST has no .sig, and prod's current manifest ($_prod_manifest) cannot be read to tell whether its installs check signatures - refusing (#6468)" >&2; exit 1 ;;
       esac
     fi
+  fi
+  # #6609 phase 2c: with a recovery key pinned, installs take the served release key list before they check an update, so
+  # the build being promoted must be signed by a key that list names (a list published after the staging cut can drop
+  # it), signed or not. Read from the site's origin/main after a fetch, as release.sh step 1c reads it: this checkout
+  # may be behind what is served. Off (no recovery key): nothing is fetched or checked.
+  # needs-list: 0 on, 3 off; anything else (the tool or its verifier failing to load) refuses rather than reading as off.
+  _nl=0; node "$_sign_js" needs-list || _nl=$?
+  case "$_nl" in 0|3) : ;; *) echo "promote-channel: could not tell whether this checkout checks the release key list (manifest-sign.js needs-list exited $_nl) - refusing (#6609)" >&2; exit 1 ;; esac
+  if [ "$_nl" = 0 ]; then
+    git -C "$SITE" fetch -q origin main 2>/dev/null || { echo "promote-channel: could not fetch the site to read the served release key list - refusing (#6609)" >&2; exit 1; }
+    _kl_dir="$(mktemp -d)" || { _kl_dir=""; echo "promote-channel: could not make a temp folder for the release key list - refusing (#6609)" >&2; exit 1; }
+    git -C "$SITE" show "origin/main:dist/release-keys.json" > "$_kl_dir/release-keys.json" 2>/dev/null || rm -f "$_kl_dir/release-keys.json"
+    git -C "$SITE" show "origin/main:dist/release-keys.json.sig" > "$_kl_dir/release-keys.json.sig" 2>/dev/null || rm -f "$_kl_dir/release-keys.json.sig"
+    _kl=0; node "$_sign_js" verify-under-list "$SITE/dist/$MANIFEST" "$SITE/dist/$MANIFEST.sig" "$_kl_dir/release-keys.json" "$_kl_dir/release-keys.json.sig" >/dev/null || _kl=$?
+    rm -rf "$_kl_dir"; _kl_dir=""
+    [ "$_kl" = 0 ] || { echo "promote-channel: $MANIFEST is not signed by a key the served release key list names - refusing; installs with the recovery key check on would refuse this update (#6609)" >&2; exit 1; }
   fi
 
   # THE EXPERIENCE GATE (#2063). 0 = a fresh session can use the board -> promote; 1 = the

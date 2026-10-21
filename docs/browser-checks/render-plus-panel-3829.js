@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
+// Browser-check-surface: cwnote-slot plus-cw-ack plus-cw-line plus-sk-line plus-cw-row plus-cw-switch plus-cw-label plus-flow plus-pill plus-chip plus-qr plus-store-ios plus-store-android plus-account plus-switch askcard ask-rows plus-devlist plus-copy plusCopyViaExec copyTextViaExec
 'use strict';
 /**
  * #3829 (Josh, 2026-09-25 16:54: the connected Kosmos+ panel and the device approval are "terribly
@@ -456,6 +456,138 @@ const STATES = {
          board and never sent to the page, so no row is ever called "This computer (Kosmos app)" here. */
       chk(!v.listNames.includes('This computer (Kosmos app)'), `${t} #4610: no row is relabelled as this computer (the board grants it and never sends it)`, JSON.stringify(v.listNames));
       if (SHOTS) { await page.setViewportSize({ width: 1400, height: 1300 }); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200); await page.screenshot({ path: path.join(SHOTS, `3829-${key}.png`) }); }
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await page.close();
+    }
+    /* kosmos#6602: the certificate check's line and switch on a connected pane. A finding is said in the warning
+       colour (and still said with the check off), a clear check says nothing (the control), and the switch sends
+       the opposite of what it showed to its own route. */
+    for (const mode of ['foreign', 'clear', 'off-foreign']) {
+      const t = `[cert check ${mode}]`;
+      const puts = [];
+      const cw = mode === 'clear' ? { on: true, state: 'clear', foreign: 0, earlier: 0, beforeRecord: 0, lost: false, lostAt: null, key: null, checkedAt: now(), failing: false }
+        : { on: mode !== 'off-foreign', state: 'foreign', foreign: 1, earlier: 0, beforeRecord: 0, lost: false, lostAt: null, key: '0123456789abcdef', checkedAt: now(), failing: false };
+      const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+      const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+      const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
+      await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? { ...STATES.connected.remote, certWatch: cw } : { ok: true })));
+      await page.route('**/api/remote/cert-watch', (route, req) => { puts.push(req.postData() || ''); return route.fulfill(json({ certWatch: cw })); });
+      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', self_device_id: 'd-self' })));
+      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [], pending: [], self_device_id: 'd-self' })));
+      await page.goto(BASE, { waitUntil: 'networkidle' });
+      if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+      /* kosmos#6613: away from Kosmos+, a finding is raised in the floating stack (first slot), as a fixed warning;
+         a clear check raises nothing (the control). Review opens Kosmos+ and puts that finding away. */
+      await page.evaluate(() => typeof pollCwNote === 'function' && pollCwNote());
+      await page.waitForTimeout(400);
+      const note = await page.evaluate(() => { const c = document.querySelector('#cwnote-slot .utoast'); const r = c && c.getBoundingClientRect();
+        return { shown: !!(c && r.height > 0), text: c ? c.innerText.replace(/\s+/g, ' ') : '', first: document.getElementById('topnotes').firstElementChild.id }; });
+      /* (the else branch below also checks Review's focus lands on the pane's line) */
+      chk(note.first === 'cwnote-slot', `${t} #6613: the notice's slot is first in the floating stack`, note.first);
+      if (mode === 'clear') {
+        chk(!note.shown, `${t} #6613 CONTROL: a clear check raises no notice`, JSON.stringify(note));
+        const slotDisplay = await page.evaluate(() => getComputedStyle(document.getElementById('cwnote-slot')).display);
+        chk(slotDisplay === 'none', `${t} #6613: the empty slot takes no room (no extra gap in the stack)`, slotDisplay);
+      }
+      else {
+        chk(note.shown && /^Warning: a certificate was issued for this computer's address that this computer did not ask for\./.test(note.text),
+          `${t} #6613: away from Kosmos+, the finding is raised as a fixed warning`, JSON.stringify(note));
+        await page.click('#cwnote-slot [data-cw="open"]');
+        await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+        const after = await page.evaluate(() => ({ gone: !document.querySelector('#cwnote-slot .utoast'),
+          stored: (localStorage.getItem('kosmos.cwnote.dismissed') || '') }));
+        chk(after.gone && /^[0-9a-f]{16}$/.test(after.stored), `${t} #6613: Review opens Kosmos+ and puts that finding away`, JSON.stringify(after));
+        await page.waitForTimeout(300);
+        const focusOn = await page.evaluate(() => (document.activeElement || {}).id || '');
+        chk(focusOn === 'plus-cw-line', `${t} #6613: after Review, keyboard focus is on the pane's line, not lost`, focusOn);
+      }
+      if (mode === 'clear') {
+        await page.evaluate(() => showTab('settings'));
+        await page.click('#s-nav button[data-go="plus"]');
+      }
+      await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+      await page.waitForTimeout(500);
+      const c = await page.evaluate(() => {
+        const line = document.getElementById('plus-cw-line'), row = document.getElementById('plus-cw-row'), sw = document.getElementById('plus-cw-switch');
+        return { text: line.textContent, inTree: !line.hidden && !line.closest('[hidden]') && getComputedStyle(line).display !== 'none', state: line.getAttribute('data-state'),
+          colour: getComputedStyle(line).color, plain: getComputedStyle(document.getElementById('plus-cw-label')).color,
+          rowShown: !!(row && !row.hidden && row.getBoundingClientRect().height > 0), swOn: sw.getAttribute('aria-checked'), swShown: !sw.hidden,
+          label: (document.getElementById('plus-cw-label') || {}).textContent || '' };
+      });
+      chk(c.inTree, `${t} the line stays in the page (a live region, so its first text is announced)`, JSON.stringify(c));
+      chk(c.rowShown && c.swShown && /this sends the address to Cert Spotter/.test(c.label), `${t} the switch row shows, and its label says what is sent where`, JSON.stringify(c));
+      if (mode === 'clear') {
+        chk(c.text === '', `${t} CONTROL: a clear check says nothing`, c.text);
+        chk(c.swOn === 'true', `${t} the switch shows on`, c.swOn);
+      } else {
+        chk(/did not ask for/.test(c.text) && c.state === 'foreign' && c.colour !== c.plain, `${t} a finding is said, in the warning colour`, JSON.stringify(c));
+        chk(mode === 'off-foreign' ? (/The check is off\.$/.test(c.text) && c.swOn === 'false') : (!/The check is off/.test(c.text) && c.swOn === 'true'),
+          `${t} the switch and the line agree about on or off`, JSON.stringify(c));
+        await page.click('#plus-cw-switch');
+        await page.waitForTimeout(400);
+        chk(puts.length === 1 && JSON.parse(puts[0]).on === (mode === 'off-foreign'), `${t} the switch asks its own route for the opposite of what it showed`, JSON.stringify(puts));
+      }
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await page.close();
+    }
+    /* kosmos#6587 (S-7a slice 2a): the service key line on a connected pane. A mismatch is said in the warning colour,
+       a listed key says nothing (the control), and the line stays in the page either way (a live region). */
+    for (const mode of ['mismatch', 'listed']) {
+      const t = `[service keys ${mode}]`;
+      const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+      const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+      const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
+      await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? { ...STATES.connected.remote, serviceKeys: { state: mode } } : { ok: true })));
+      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', self_device_id: 'd-self' })));
+      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [], pending: [], self_device_id: 'd-self' })));
+      await page.goto(BASE, { waitUntil: 'networkidle' });
+      if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+      await page.evaluate(() => showTab('settings'));
+      await page.click('#s-nav button[data-go="plus"]');
+      await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+      await page.waitForTimeout(500);
+      const s = await page.evaluate(() => {
+        const line = document.getElementById('plus-sk-line');
+        return { text: line.textContent, state: line.getAttribute('data-state'), colour: getComputedStyle(line).color,
+          plain: getComputedStyle(document.getElementById('plus-cw-label')).color, height: line.getBoundingClientRect().height,
+          inTree: !line.hidden && !line.closest('[hidden]') && getComputedStyle(line).display !== 'none' };
+      });
+      chk(s.inTree, `${t} the line stays in the page (a live region)`, JSON.stringify(s));
+      if (mode === 'listed') chk(s.text === '' && s.height === 0, `${t} CONTROL: a listed key says nothing and takes no room`, JSON.stringify(s));
+      else chk(/^Warning: the key this computer trusts for the Kosmos\+ service is not on the signed list/.test(s.text) && s.state === 'mismatch'
+        && s.colour !== s.plain && s.height > 0, `${t} a mismatch is said, in the warning colour`, JSON.stringify(s));
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await page.close();
+    }
+    /* kosmos#6613: Got it for a lost report. Shown with the lost sentence, it posts the marker it was shown; the answer
+       (nothing lost now) hides it, the pane says Noted. and focus is on the check's switch. Control: the clear pane above
+       shows no Got it. */
+    {
+      const t = '[cert check lost]';
+      let lost = true; const acks = [];
+      const at = now() - 600;
+      const cwNow = () => ({ on: true, state: lost ? 'unknown' : 'clear', foreign: 0, earlier: 0, beforeRecord: 0, lost, lostAt: lost ? at : null, key: null, checkedAt: now(), failing: false });
+      const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+      const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+      const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
+      await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? { ...STATES.connected.remote, certWatch: cwNow() } : { ok: true })));
+      await page.route('**/api/remote/cert-watch/ack-lost', (route, req) => { acks.push(req.postData() || ''); lost = false; return route.fulfill(json({ certWatch: cwNow() })); });
+      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', self_device_id: 'd-self' })));
+      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [], pending: [], self_device_id: 'd-self' })));
+      await page.goto(BASE, { waitUntil: 'networkidle' });
+      if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+      await page.evaluate(() => showTab('settings'));
+      await page.click('#s-nav button[data-go="plus"]');
+      await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+      await page.waitForTimeout(500);
+      const before = await page.evaluate(() => ({ line: document.getElementById('plus-cw-line').textContent, ack: !document.getElementById('plus-cw-ack').hidden }));
+      chk(before.ack && /could not be read/.test(before.line), `${t} the lost sentence shows with Got it`, JSON.stringify(before));
+      await page.click('#plus-cw-ack');
+      await page.waitForTimeout(600);
+      const after = await page.evaluate(() => ({ ack: !document.getElementById('plus-cw-ack').hidden, line: document.getElementById('plus-cw-line').textContent,
+        focus: (document.activeElement || {}).id || '', msg: (document.getElementById('plus-msg') || {}).textContent || '' }));
+      chk(acks.length === 1 && JSON.parse(acks[0]).at === at, `${t} Got it posts the marker it was shown`, JSON.stringify(acks));
+      chk(!after.ack && after.line === '' && after.focus === 'plus-cw-switch' && /Noted/.test(after.msg), `${t} then it goes, the pane says Noted., and focus is on the switch`, JSON.stringify(after));
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
     }

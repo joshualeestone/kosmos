@@ -66,6 +66,10 @@ const BOARD_PERSON_MARK = process.env.KOSMOS_BOARD_PERSON_MARK;
 delete process.env.KOSMOS_BOARD_STARTED_BY;
 delete process.env.KOSMOS_BOARD_PERSON_MARK;
 delete process.env.KOSMOS_START_BY;   // the watchdog's word to `kosmos start`; the launchers strip it, this is the backstop
+/* #6659 (review 3): the path this board's copy was installed under, from install/kosmos, kept for the update and taken
+   out of the environment, so no agent or pane this board starts inherits a home. */
+require('./engine/update').setInstalledHomeAsInstalled(process.env.KOSMOS_INSTALLED_HOME);
+delete process.env.KOSMOS_INSTALLED_HOME;
 /* #5112: before any tmux is asked anything, forget an inherited $TMUX (engine/sandbox.js says why). The real start only:
    the routing tests require this file, and the test runner's own $TMUX is not this board's to change. */
 if (require.main === module) require('./engine/sandbox').dropInheritedTmux(process.env);
@@ -1702,6 +1706,7 @@ const messages = require('./engine/messages');
 const unfurl = require('./engine/unfurl');
 const attachments = require('./engine/attachments');
 const filepreview = require('./engine/filepreview');   // #4997: the preview for a file in a Files list
+const zipwrite = require('./engine/zipwrite');   // #6724: a folder of an agent's Files, downloaded as one zip
 // #3485: the community feed's board->feed choke (feedguard scrub -> trust -> store).
 // The ONE primitive both the agent/board routes below and the community-site routes
 // call, so no content of any origin reaches communitystore un-scrubbed.
@@ -3442,6 +3447,12 @@ function withCreatorLock(creator, fn) {
  * folder of thousands costs that on each 5-second poll. Reversible. */
 const AGENT_FILES_DEFAULT_CAP = 20;
 const AGENT_FILES_MAX_CAP = 500;
+/* #6724: how deep the in-app browser of an agent's Files goes (folders below Files), and so how deep its preview,
+   download and folder zip reach: any file the browser shows, and nothing it does not. The glance list stays flat. */
+const AGENT_BROWSE_DEPTH = 8;
+/* #6724: a folder downloaded as one zip: refused, with the reason, past these (stored entries, no ZIP64). */
+const FOLDER_ZIP_MAX_FILES = 2000;
+const FOLDER_ZIP_MAX_BYTES = 1024 * 1024 * 1024;
 
 /* #3739: mark the setup guide's row, stated on every row (`isGuide`), and give it its title. Before its first
    session its model is unread and its job may name none (it starts on Claude's own default), so it says so
@@ -4278,6 +4289,107 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
   joinConfirm: Object.freeze({ code: 'remote_not_allowed', error: "Finishing this computer's join is done at the computer itself, not from a remote session." }),
   agentToken: Object.freeze({ code: 'remote_not_allowed', error: 'Agent tokens are made at the computer itself, not from a remote session.' }),
 });
+/* kosmos#6595 (R01, the step-up half; Splinter's ruling 09:44 2026-10-19): from a remote session, entering a key or
+   token, updating Kosmos, and making an agent (every agent here runs with an unsandboxed shell) need a FRESH sign-in
+   with the second factor. The Kosmos+ gate states the session it admitted in two headers it writes over any client
+   value and strips on every other path (kosmos-relay sessioniat-6595): x-kosmos-session-iat, the decimal second the
+   session's email code was proven, and x-kosmos-session-second, 1 when the second factor was. Missing or malformed
+   counts as NOT fresh. A tunnel older than sessioniat-6595 does not strip client copies, so its headers are trusted
+   only when the bundled connector says it does (`kosmos-tunnel capabilities` lists session-headers; asked by
+   remote.connectorCapabilities, in the background): an older connector, on any platform, makes every gated remote
+   request refused with remote_step_up_unavailable. A local
+   request is not asked: the person is at the computer. Taking things away (deleting a key, forgetting a token) is
+   not asked either. */
+/* Twelve minutes, a little longer than the coordinator's own STEP_UP_SECS (ten): a handoff minted near the end of the
+   coordinator's window must still be fresh when the page reaches this board (Renet, 13:54). The refusal still says
+   ten, the coordinator's figure, so the person is never told more time than they have. */
+const REMOTE_STEP_UP_SECS = 12 * 60;
+/* The gate's two headers, read one way: { second, iat }, iat null unless it is a plain decimal (a value Node joined
+   from repeated headers, "a, b", is not). */
+function remoteSessionHeaders(headers) {
+  const h = headers || {};
+  const raw = h['x-kosmos-session-iat'];
+  return { second: h['x-kosmos-session-second'] === '1', iat: typeof raw === 'string' && /^[0-9]{1,12}$/.test(raw) ? Number(raw) : null };
+}
+function remoteSessionFresh(headers, nowSecs) {
+  const { second, iat } = remoteSessionHeaders(headers);
+  if (!second || iat === null) return false;
+  const age = nowSecs - iat;
+  // Bounded both sides: an issue time ahead of this clock is fresh only within a minute of drift.
+  return age >= -60 && age <= REMOTE_STEP_UP_SECS;
+}
+const REMOTE_STEP_UP_EXACT = new Set([
+  // Updating, and anything that downloads and runs software here. PUT /api/autoupdate is gated whole, off as well as
+  // on: telling them apart needs the body, which the gate does not read, and asking once more to switch it off costs
+  // little.
+  // POST /api/update/check too: with automatic updates on (the default) a check can start an install (#5084).
+  'POST /api/update', 'POST /api/update/rollback', 'POST /api/update/check', 'PUT /api/autoupdate', 'POST /api/connect/start',
+  'POST /api/antigravity/install', 'POST /api/muse/install',
+  // A key, a token, or a sign-in that leaves a provider's or a service's credential on this computer.
+  'POST /api/accounts/openai', 'POST /api/accounts/claude/apikey', 'POST /api/accounts/gemini/apikey',
+  'POST /api/accounts/grok/apikey', 'POST /api/accounts/qwen', 'POST /api/cloudflare/token',
+  'POST /api/accounts/openai/subscription/start', 'POST /api/accounts/grok/subscription/start',
+  'POST /api/antigravity/signin', 'POST /api/antigravity/win32signin', 'POST /api/muse/signin',
+  'POST /api/muse/signin/retry', 'POST /api/github/start', 'POST /api/github-device/start', 'POST /api/vercel/start',
+  // Making an agent, including by copying one in with another Kosmos (which starts it at once).
+  'POST /api/agents', 'POST /api/team', 'POST /api/connect-agent', 'POST /api/worlds', 'POST /api/worlds/import',
+  // Writing an agent's launchd job (it starts processes), the same class as bringing an agent back.
+  'POST /api/register',
+  // Federation: joining another Kosmos's project opens a room here that outsiders post into and agents act on;
+  // inviting one, or sharing this project's own code, lets another Kosmos in. Removing and withdrawing take away.
+  'POST /api/federation/join', 'POST /api/federation/invite', 'POST /api/federation/own-code',
+  // Signing this computer in to Kosmos+ anew, enrolling it, or forgetting its enrolment (review iteration 17): from a
+  // stale remote session, someone could sign this computer in to THEIR account, then make a fresh sign-in of their
+  // own and pass every gate here. The steps after a start (verify, second, enrol, confirm, cancel) follow it.
+  'POST /api/remote/signin-start', 'POST /api/remote/signin-register', 'POST /api/remote/setup-start',
+  'POST /api/remote/setup-complete', 'POST /api/remote/company/start', 'POST /api/remote/forget',
+  // Joining a company or family: it applies that org's policy here and starts reporting this computer's activity to
+  // it. Previewing a code and leaving are not gated (one reads, the other takes away).
+  'POST /api/org/enroll',
+  // Resetting the account's second factor: from a stolen session it would let the thief enrol their own, and then
+  // pass this very step-up. At the computer it needs nothing more.
+  'POST /api/remote/second-reset',
+]);
+/* The gated routes whose path carries a name: a service's token, a provider runner's install, an agent brought back,
+   and a project webhook (making one mints a secret address an outside party can post tasks to, for as long as it lives). */
+const REMOTE_STEP_UP_PATTERNS = [
+  /^\/api\/svc\/[a-z0-9-]+\/token$/, /^\/api\/runners\/[a-z]+\/install$/, /^\/api\/agent\/[^/]+\/restore$/,
+  /^\/api\/project\/[^/]+\/webhooks$/,
+];
+function needsRemoteStepUp(pathname, method) {
+  if (REMOTE_STEP_UP_EXACT.has(method + ' ' + pathname)) return true;
+  // A gated path is gated for every writing method but DELETE, so a later PUT or PATCH handler on it is covered too.
+  if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH') return false;
+  for (const m of ['POST', 'PUT', 'PATCH']) if (REMOTE_STEP_UP_EXACT.has(m + ' ' + pathname)) return true;
+  return REMOTE_STEP_UP_PATTERNS.some((re) => re.test(pathname));
+}
+const REMOTE_STEP_UP = Object.freeze({
+  code: 'remote_step_up',
+  error: 'From a remote session this needs a fresh sign-in. Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, sign in again with your email code and authenticator code, then try again within 10 minutes. Not using Kosmos+? Do this at the computer itself.',
+});
+/* A sign-in that the gate says happened more than a minute AHEAD of this clock: signing in again cannot help, the
+   clocks disagree, so it is told apart (review iteration 8). */
+const REMOTE_STEP_UP_CLOCK = Object.freeze({
+  code: 'remote_step_up_clock',
+  error: "This computer's clock is behind Kosmos+, so a fresh sign-in reads as from the future. Set this computer's clock to the right time, then try again.",
+});
+/* A connector that does not say it strips client copies of the session headers (an older one, on any platform)
+   cannot vouch for them, so nothing it forwards is fresh (review iteration 11: the cut's stale-connector check runs
+   for the Mac build only, so merge order alone could not keep an old connector away). */
+const REMOTE_STEP_UP_CONNECTOR = Object.freeze({
+  code: 'remote_step_up_unavailable',
+  error: "This computer's Kosmos+ connector cannot vouch for a fresh sign-in right now, so this cannot be done from a remote session. Do it at the computer, or try again in a minute; if this keeps happening, update Kosmos.",
+});
+/* The refusal for this request, or null. One place, before any route reads a body. */
+function remoteStepUpRefusal(req, pathname, nowSecs, caps) {
+  if (!needsRemoteStepUp(pathname, req.method) || !isRemoteRequest(req)) return null;
+  // Asked only for a remote request to a gated route, so no other request ever waits on the connector.
+  if (!(caps || remote.connectorCapabilities()).has('session-headers')) return REMOTE_STEP_UP_CONNECTOR;
+  if (remoteSessionFresh(req.headers, nowSecs)) return null;
+  const { second, iat } = remoteSessionHeaders(req.headers);
+  if (second && iat !== null && iat - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
+  return REMOTE_STEP_UP;
+}
 /* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
    Kosmos+ reaches the board over loopback, which is why the header rule stays). */
 function ticketCallerHere(req) {
@@ -4821,20 +4933,25 @@ function refuseDownload(req, res, because, status = 404) {
   }
   sendJson(res, status, { ok: false, because });
 }
+/* An ASCII filename= for clients that do not read filename*, then the exact name as RFC 5987 (encodeURIComponent
+   leaves ' ( ) * ! as they are, and its attr-char set does not allow them). */
+function attachmentDisposition(base) {
+  return 'attachment; filename="' + base.replace(/[^\x20-\x7e]|["\\]/g, '_') + '"; filename*=UTF-8\'\''
+    + encodeURIComponent(base).replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+}
+/* The flags every read of a listed file opens with (#4997, #6724's folder zip): one copy, undefined-safe on win32. */
+const LISTED_READ_FLAGS = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
 function sendFileDownload(req, res, found, recheck) {
   const checkOnly = isDownloadCheck(req);
   const base = path.basename(found.given);
   const headersFor = (size) => ({
     'content-type': 'application/octet-stream', 'content-length': size, 'x-content-type-options': 'nosniff',
-    /* An ASCII filename= for clients that do not read filename*, then the exact name as RFC 5987 (encodeURIComponent
-       leaves ' ( ) * ! as they are, and its attr-char set does not allow them). */
-    'content-disposition': 'attachment; filename="' + base.replace(/[^\x20-\x7e]|["\\]/g, '_') + '"; filename*=UTF-8\'\''
-      + encodeURIComponent(base).replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()),
+    'content-disposition': attachmentDisposition(base),
     'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
   });
   // #4997: O_NOFOLLOW (a file swapped for a link after the gates is refused, not followed; undefined on win32, where
   // sameOpenedFile below is the guard) and O_NONBLOCK (a FIFO swapped in must not hang the board; fstat refuses it).
-  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
+  const flags = LISTED_READ_FLAGS;
   fs.open(found.target, flags, (openErr, fd) => {
     if (openErr) { refuseDownload(req, res, openErr.code === 'ENOENT' || openErr.code === 'ELOOP' ? DOWNLOAD_GONE : DOWNLOAD_UNREADABLE); return; }
     fs.fstat(fd, (statErr, st) => {
@@ -4854,6 +4971,156 @@ function sendFileDownload(req, res, found, recheck) {
       require('node:stream').pipeline(stream, res, () => {});
     });
   });
+}
+
+/* #6724: a folder of an agent's Files, downloaded as one zip (over Kosmos+ the person is on another device, and Finder
+   would open on the board's computer). The folder is named by its browsed path in ?dir= ('' is all of Files) and walked
+   by the browser's own rules (projects.walkListedDir: no link, no hidden or skipped name, the depth cap, bounded in
+   files and bytes before any byte is sent). The zip holds the folder itself as its one top-level folder. Every folder
+   and file is gated AGAIN as it is written (resolveListedDir, resolveListedFile in listed mode) and every file read from
+   ONE O_NOFOLLOW handle checked with sameOpenedFile. Entries are stored, so the zip's length is known and sent: a file
+   that changed size, or whose bytes changed between the CRC pass and the send, ends the connection (never a zip that
+   says one thing and holds another). Refusals are refuseDownload's, so a browser never saves one as the zip; ?check=1
+   is the page's look. Cross-site reads are refused (crossSiteRead), as the file download's are. */
+const ZIP_CHUNK = 1024 * 1024;
+/* Iteration 1: a client that stops reading would hold its response and an open file forever (Node sets no response
+   timeout). Past this long with nothing taken, the download is ended. */
+let ZIP_STALL_MS = 120 * 1000;
+function _setZipStallForTest(ms) { ZIP_STALL_MS = ms == null ? 120 * 1000 : ms; }
+/* Iteration 2: at most this many folder zips stream at once. Each can read up to FOLDER_ZIP_MAX_BYTES twice (the CRC
+   pass, then the send), so many at once from one remote session would tie up the disk; past it the reason is said. */
+const ZIP_MAX_IN_FLIGHT_DEFAULT = 2;
+let ZIP_MAX_IN_FLIGHT = ZIP_MAX_IN_FLIGHT_DEFAULT;
+let ZIPS_IN_FLIGHT = 0;
+function _setZipLimitForTest(n) { ZIP_MAX_IN_FLIGHT = n == null ? ZIP_MAX_IN_FLIGHT_DEFAULT : n; }
+/* Iteration 3 (measured: the page's look was counted against the very download it looks at, and said "try again" while
+   that zip downloaded): the look never reads the live count. It says busy only when the person's own download of the
+   same folder was REFUSED as busy in the last ZIP_BUSY_SAID_MS; one accepted clears that. When every place is taken and
+   no refusal is recorded yet, the look waits ZIP_LOOK_WAIT_MS for the download it sits beside to be decided. */
+const ZIP_BUSY = 'another folder download is already under way on this computer; try again when it has finished';
+const ZIP_BUSY_SAID_MS = 10 * 1000;
+const ZIP_LOOK_WAIT_MS = 500;
+const zipBusyRefusedAt = new Map();   // folder + dir -> when its download was last refused as busy
+function zipBusyRecent(key) {
+  const t = zipBusyRefusedAt.get(key);
+  return Boolean(t) && Date.now() - t < ZIP_BUSY_SAID_MS;
+}
+/* Iteration 4: a record only speaks while the places are still full; once one frees, the look says nothing is wrong
+   (the download it sits beside will take that place). */
+function zipBusyNow(key) { return ZIPS_IN_FLIGHT >= ZIP_MAX_IN_FLIGHT && zipBusyRecent(key); }
+function sendFolderZip(req, res, folder, rel, where, opts) {
+  const refusedRead = crossSiteRead(req);
+  if (refusedRead) { refuseDownload(req, res, refusedRead, 403); return; }
+  const checkOnly = isDownloadCheck(req);
+  const key = folder + '\0' + String(rel || '');
+  // A real download past the limit is refused before the folder is walked (iteration 3: a refusal costs no walk).
+  if (!checkOnly && req.method !== 'HEAD' && ZIPS_IN_FLIGHT >= ZIP_MAX_IN_FLIGHT) {
+    for (const [k, t] of zipBusyRefusedAt) if (Date.now() - t >= ZIP_BUSY_SAID_MS) zipBusyRefusedAt.delete(k);
+    // Iteration 4: keys come from the request, so the map has a hard size too (the oldest go first).
+    while (zipBusyRefusedAt.size >= 100) zipBusyRefusedAt.delete(zipBusyRefusedAt.keys().next().value);
+    zipBusyRefusedAt.set(key, Date.now());
+    refuseDownload(req, res, ZIP_BUSY, 429);
+    return;
+  }
+  const maxDepth = opts.maxDepth;
+  const walk = projects.walkListedDir(folder, rel, where, { maxDepth, maxFiles: FOLDER_ZIP_MAX_FILES, maxBytes: FOLDER_ZIP_MAX_BYTES });
+  if (!walk.ok) { refuseDownload(req, res, walk.because, walk.tooBig ? 413 : 404); return; }
+  const top = walk.dir ? walk.dir.split('/').pop() : 'Files';
+  const inZip = (n) => top + '/' + (walk.dir ? n.slice(walk.dir.length + 1) : n);
+  const now = new Date();
+  const entries = [{ name: top, isDir: true, mtime: now }]
+    .concat(walk.dirs.map((d) => ({ name: inZip(d), isDir: true, rel: d, mtime: now })))
+    .concat(walk.files.map((f) => ({ name: inZip(f.name), isDir: false, rel: f.name, size: f.size, st: f.st, mtime: f.st.mtime })));
+  let length;
+  try { length = zipwrite.zipLength(entries); } catch { refuseDownload(req, res, 'that folder cannot be put into one zip', 413); return; }
+  if (checkOnly) {
+    const answer = () => {
+      if (zipBusyNow(key)) { refuseDownload(req, res, ZIP_BUSY, 429); return; }
+      res.writeHead(204, { 'cache-control': 'no-store' });
+      res.end();
+    };
+    if (ZIPS_IN_FLIGHT < ZIP_MAX_IN_FLIGHT || zipBusyNow(key)) answer(); else setTimeout(answer, ZIP_LOOK_WAIT_MS);
+    return;
+  }
+  res.writeHead(200, {
+    'content-type': 'application/zip', 'content-length': length, 'x-content-type-options': 'nosniff',
+    'content-disposition': attachmentDisposition(top + '.zip'),
+    'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
+  });
+  if (req.method === 'HEAD') { res.end(); return; }
+  zipBusyRefusedAt.delete(key);   // this folder's download is under way: an older refusal no longer speaks for it
+  ZIPS_IN_FLIGHT += 1;
+  res.once('close', () => { ZIPS_IN_FLIGHT -= 1; });   // finished, cut, or the client gone: 'close' comes once in each
+  writeZipEntries(res, folder, where, maxDepth, entries).catch(() => { if (!res.destroyed) res.destroy(); });
+}
+/* One write of the zip at a time, waiting for the socket to take it; a closed connection, or one that takes nothing for
+   ZIP_STALL_MS, ends the download (rejects, and the walk stops with its open file closed). */
+function zipPut(res, buf) {
+  return new Promise((resolve, reject) => {
+    if (res.destroyed || res.writableEnded) { reject(new Error('the connection closed')); return; }
+    let stall = null;
+    const gone = () => { if (stall) clearTimeout(stall); reject(new Error('the connection closed')); };
+    res.once('close', gone);
+    const done = () => { if (stall) clearTimeout(stall); res.removeListener('close', gone); resolve(); };
+    if (res.write(buf)) { done(); return; }
+    res.once('drain', done);
+    stall = setTimeout(() => { res.removeListener('drain', done); res.destroy(); }, ZIP_STALL_MS);   // 'close' then rejects
+  });
+}
+async function writeZipEntries(res, folder, where, maxDepth, entries) {
+  const zlib = require('node:zlib');
+  const changed = () => new Error('that folder changed while it was being downloaded');
+  const put = (buf) => zipPut(res, buf);
+  const flags = LISTED_READ_FLAGS;   // #4997's, one copy (#1732's inventory counts it once)
+  const central = [];
+  let offset = 0;
+  for (const e of entries) {
+    if (e.isDir) {
+      if (e.rel !== undefined && !projects.resolveListedDir(folder, e.rel, where, { maxDepth }).ok) throw changed();
+      const h = zipwrite.localHeader(e);
+      await put(h);
+      central.push(zipwrite.centralRecord(e, offset));
+      offset += h.length;
+      continue;
+    }
+    const gate = filepreview.resolve(folder, e.rel, where, { maxDepth, act: 'download' });
+    if (!gate.ok || !projects.sameOpenedFile(e.st, gate.st) || gate.st.size !== e.size) throw changed();
+    const fh = await fs.promises.open(gate.target, flags);
+    try {
+      const st = await fh.stat();
+      if (!projects.sameOpenedFile(gate.st, st) || st.size !== e.size) throw changed();
+      // The CRC first (the local header carries it), then the bytes, CRC'd again: a file rewritten in between is caught.
+      const scratch = Buffer.alloc(Math.min(ZIP_CHUNK, Math.max(1, e.size)));
+      let crc = 0;
+      for (let pos = 0; pos < e.size;) {
+        const { bytesRead } = await fh.read(scratch, 0, Math.min(scratch.length, e.size - pos), pos);
+        if (bytesRead <= 0) throw changed();
+        crc = zlib.crc32(scratch.subarray(0, bytesRead), crc);
+        pos += bytesRead;
+      }
+      const entry = { ...e, crc };
+      const h = zipwrite.localHeader(entry);
+      await put(h);
+      let again = 0;
+      for (let pos = 0; pos < e.size;) {
+        const chunk = Buffer.alloc(Math.min(ZIP_CHUNK, e.size - pos));   // its own buffer: the socket may hold it
+        const { bytesRead } = await fh.read(chunk, 0, chunk.length, pos);
+        if (bytesRead !== chunk.length) throw changed();
+        again = zlib.crc32(chunk, again);
+        await put(chunk);
+        pos += bytesRead;
+      }
+      if (again !== crc) throw changed();
+      central.push(zipwrite.centralRecord(entry, offset));
+      offset += h.length + e.size;
+    } finally {
+      await fh.close().catch(() => {});
+    }
+  }
+  const cd = Buffer.concat(central);
+  await put(cd);
+  await put(zipwrite.endRecord(entries.length, cd.length, offset));
+  res.end();
 }
 
 /* #4997: the full-page preview for a file in a Files list (an agent's Files folder, a project's folder). The file is
@@ -4896,7 +5163,8 @@ function listedFileVerb(req, res, verb, folder, where, opts) {
   const sandbox = "default-src 'none'; sandbox";
   filepreview.preview(folder, named, where, opts).then((pv) => {
     if (!pv.ok) { sendJson(res, 404, { ok: false, because: pv.because }); return; }
-    res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, no-cache', 'x-content-type-options': 'nosniff', 'content-security-policy': sandbox });
+    // #6724: a text preview is the START of the file; the page says so when it was cut.
+    res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, no-cache', 'x-content-type-options': 'nosniff', 'content-security-policy': sandbox, ...(pv.cut ? { 'x-kosmos-preview-cut': '1' } : {}) });
     res.end(req.method === 'HEAD' ? undefined : pv.bytes);
   }).catch(() => sendJson(res, 404, { ok: false, because: 'this computer could not draw that file' }));
   return true;
@@ -5502,6 +5770,30 @@ const { bindHost } = require('./engine/bindhost');
 const GATE_LOG = process.env.KOSMOS_INSTALL_GATE === '1' || process.env.KOSMOS_INSTALL_GATE_LOG
   ? (process.env.KOSMOS_INSTALL_GATE_LOG || path.join(os.homedir(), '.claude', 'logs', 'install-gate-requests.log'))
   : null;
+/* #1946/#2029/#1307: a request target as a log may carry it: the token and boot query values redacted, and a webhook
+   call's secret path (/hooks/<id>/<secret>) cut after "hooks". gateLog and the kosmos#6721 slow-request line share it,
+   so a second log cannot leak what the first one learned to hide. */
+function safeLogUrl(url) {
+  const queryless = String(url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED');
+  /* Everything after "hooks", in any spelling: an absolute-form target, a backslash, or dot
+     segments (/hooks/./<id>/<secret>) all reach the route, so no pattern for the secret's exact
+     position is safe. A webhook call logs as .../hooks/REDACTED. But when the path only names hooks
+     once DECODED (/%68ooks/...), or the text before the first literal "hooks" holds any escape, or
+     it cannot be decoded at all, the first literal "hooks" may sit INSIDE the secret, so the whole
+     path is redacted instead. Over-redacting is the safe direction here. */
+  // "hooks" as a whole path SEGMENT (after / or a backslash): the settings routes' .../webhooks/...
+  // carry no secret and are logged as they are.
+  const seg = /(^|[/\\])hooks(?=[/\\?#]|$)/i;
+  let decoded = null;
+  try { decoded = decodeURIComponent(queryless); } catch { /* undecodable: redacted whole below */ }
+  const hit = seg.exec(queryless);
+  const at = hit ? hit.index + hit[1].length : -1;
+  return decoded === null ? '/REDACTED'
+    : !seg.test(decoded) ? queryless
+      : at >= 0 && !queryless.slice(0, at).includes('%') ? queryless.slice(0, at + 5) + '/REDACTED'
+        : '/REDACTED';
+}
+
 function gateLog(req) {
   if (!GATE_LOG) return;
   try {
@@ -5518,24 +5810,7 @@ function gateLog(req) {
     // and not the one beside it stops being harmless the moment the nonce's
     // lifetime or reusability changes, and nothing else recorded the omission.
     // #1307: a webhook call carries its secret in the PATH (/hooks/<id>/<secret>), redacted too.
-    const queryless = String(req.url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED');
-    /* Everything after "hooks", in any spelling: an absolute-form target, a backslash, or dot
-       segments (/hooks/./<id>/<secret>) all reach the route, so no pattern for the secret's exact
-       position is safe. A webhook call logs as .../hooks/REDACTED. But when the path only names hooks
-       once DECODED (/%68ooks/...), or the text before the first literal "hooks" holds any escape, or
-       it cannot be decoded at all, the first literal "hooks" may sit INSIDE the secret, so the whole
-       path is redacted instead. Over-redacting is the safe direction here. */
-    // "hooks" as a whole path SEGMENT (after / or a backslash): the settings routes' .../webhooks/...
-    // carry no secret and are logged as they are.
-    const seg = /(^|[/\\])hooks(?=[/\\?#]|$)/i;
-    let decoded = null;
-    try { decoded = decodeURIComponent(queryless); } catch { /* undecodable: redacted whole below */ }
-    const hit = seg.exec(queryless);
-    const at = hit ? hit.index + hit[1].length : -1;
-    const safeUrl = decoded === null ? '/REDACTED'
-      : !seg.test(decoded) ? queryless
-        : at >= 0 && !queryless.slice(0, at).includes('%') ? queryless.slice(0, at + 5) + '/REDACTED'
-          : '/REDACTED';
+    const safeUrl = safeLogUrl(req.url);
     fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${safeUrl} ${ua}\n`);
   } catch { /* the instrument never becomes the defect */ }
 }
@@ -5588,9 +5863,37 @@ function setupGuideFailing() {
   return null;
 }
 
+/* kosmos#6721: a request this board answers slowly, or never, is logged with its method, path and duration, so the
+   next "Your Mac is not answering" can be measured rather than inferred (on 10-20 the relay, the tunnel and the
+   coordinator were all up and nothing on this computer said why one poll went unanswered for 10 s). The target goes
+   through safeLogUrl (gateLog's redaction: tokens, and a webhook's secret path) and the query is dropped. No route
+   long-polls; downloads and pictures are piped, so a large one over a slow link logs as slow too, which is honest.
+   `now` and `write` are seams for the tests. */
+const SLOW_REQUEST_MS = (() => { const v = Number(process.env.KOSMOS_SLOW_REQUEST_MS); return Number.isFinite(v) && v > 0 ? v : 5000; })();
+function watchSlowRequest(req, res, pathname, opts) {
+  const o = opts || {};
+  const now = typeof o.now === 'function' ? o.now : Date.now;
+  const write = typeof o.write === 'function' ? o.write : (line) => process.stdout.write(line);
+  const limit = Number.isFinite(o.limitMs) ? o.limitMs : SLOW_REQUEST_MS;
+  const t0 = now();
+  let said = false;
+  const say = () => {
+    if (said) return;
+    said = true;
+    const ms = now() - t0;
+    if (ms < limit) return;
+    const how = res.writableFinished ? 'answered ' + res.statusCode : 'closed before an answer';
+    try { write('[slow request] ' + String(req.method || '-') + ' ' + safeLogUrl(req.url || pathname).split(/[?#]/)[0].replace(/[\r\n\t]+/g, ' ') + ' took ' + (ms / 1000).toFixed(1) + ' s (' + how + ')\n'); }
+    catch { /* a log line never stops a response */ }
+  };
+  res.on('finish', say);
+  res.on('close', say);
+}
+
 const server = http.createServer(async (req, res) => {
   gateLog(req);
   const pathname = pathOf(req);
+  if (pathname !== null) watchSlowRequest(req, res, pathname);
   if (pathname === null) {
     // Not addressed to us. Saying so is better than handing back the index,
     // which would look like a successful page load.
@@ -5614,6 +5917,14 @@ const server = http.createServer(async (req, res) => {
   const remoteRefusal = remoteWriteGuard(req, pathname);
   if (remoteRefusal) {
     sendJson(res, 403, { error: remoteRefusal });
+    return;
+  }
+  // kosmos#6595 (R01): a key, an update or a new agent from a remote session needs a fresh second-factor sign-in.
+  // Before board auth on purpose: a forwarded request to a gated route is refused the same way signed in or not, and
+  // reveals only which routes are gated, which the docs already say.
+  const stepUp = remoteStepUpRefusal(req, pathname, Math.floor(Date.now() / 1000));
+  if (stepUp) {
+    sendJson(res, 403, stepUp);
     return;
   }
 
@@ -7535,11 +7846,14 @@ const server = http.createServer(async (req, res) => {
      #2245, a relative path; the target must resolve inside the folder), revealFolder (Finder, or File Explorer on Windows), and (#4997) preview,
      download and reveal-file for the full-page preview (listedFileVerb: only a file the flat list would show). A Files folder that does not
      exist yet is the EMPTY state, not an error: nothing has been saved there. */
-  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal|preview|download|reveal-file))?$/);
+  /* #6724: browse (one level of Files or a folder in it, ?dir=) and download-folder (that folder as one zip) are the
+     in-app browser, for a person viewing the board from another computer, where Finder opens on the far Mac. Both
+     resolve the folder by projects.resolveListedDir (the list's rules, for a folder) and take no path from the request. */
+  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal|preview|download|reveal-file|browse|download-folder))?$/);
   if (agentFiles) {
     const name = decodeSegment(agentFiles[1]);
     // #5165: a refusal of a download goes through refuseDownload, so a browser's download never saves it as the file.
-    const refuse = (status, because) => (agentFiles[2] === 'download' && (req.method === 'GET' || req.method === 'HEAD')
+    const refuse = (status, because) => ((agentFiles[2] === 'download' || agentFiles[2] === 'download-folder') && (req.method === 'GET' || req.method === 'HEAD')
       ? refuseDownload(req, res, because, status) : sendJson(res, status, { ok: false, because }));
     if (name === null) { refuse(400, 'that is not a name we can read'); return; }
     // The folder is dmfiles.filesDir (beside the agent's own instructions file), and the agent's
@@ -7579,7 +7893,29 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { ...listed, folder });
       return;
     }
-    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: 0, owner: { kind: 'agent', id: name } })) return;   // flat, as the list
+    const browsing = verb === 'browse' || verb === 'download-folder';
+    if (browsing && (req.method === 'GET' || req.method === 'HEAD')) {
+      let dir = '';
+      try { dir = new URL(req.url, ROUTING_BASE).searchParams.get('dir') || ''; } catch { dir = ''; }
+      if (verb === 'download-folder') {
+        sendFolderZip(req, res, folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH });
+        return;
+      }
+      const refusedRead = crossSiteRead(req);
+      if (refusedRead) { sendJson(res, 403, { ok: false, because: refusedRead }); return; }
+      // Not made yet is the empty state at the top, as the list's; below the top a missing folder is gone.
+      if (!dir && projects.folderState(folder).state === projects.FOLDER.MISSING) {
+        sendJson(res, 200, { ok: true, missing: true, dir: '', dirs: [], files: [], stamp: 'missing' });
+        return;
+      }
+      const listed = projects.listDir(folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH });
+      /* Iteration 1: 404 is kept for "no such agent" (the page says it has no folder of its own); a Files that is a file
+         or cannot be read answers 409 with its reason, and a folder inside Files that is not there is 404 as a file is. */
+      sendJson(res, listed.ok ? 200 : (dir ? 404 : 409), listed);
+      return;
+    }
+    // #6724: as deep as the browser goes, so any file it shows can be previewed and downloaded (it was flat, the list).
+    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH, owner: { kind: 'agent', id: name } })) return;
     if (verb === 'open' && req.method === 'POST') {
       readBody(req)
         .then((buf) => {
@@ -7616,7 +7952,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'the folder did not open' });
       return;
     }
-    sendJson(res, 405, { ok: false, because: verb ? ((verb === 'preview' || verb === 'download') ? 'use GET for that' : 'use POST for that') : 'the Files list is read-only; use open, reveal, preview, download or reveal-file' });
+    sendJson(res, 405, { ok: false, because: verb ? ((verb === 'preview' || verb === 'download' || browsing) ? 'use GET for that' : 'use POST for that') : 'the Files list is read-only; use open, reveal, preview, download, reveal-file, browse or download-folder' });
     return;
   }
   /* #5153 slice 3: an agent's change receipts, newest close first (engine/receipt.js forAgent): the closed tasks it held,
@@ -10539,6 +10875,10 @@ const server = http.createServer(async (req, res) => {
         email: r.email || '',
         enrolled: remote.enrolled() === true,
         forgetKept: r.forget_kept || '',   // kosmos#6389
+        /* kosmos#6602: the tunnel's certificate check, as counts and a state (no text from it). */
+        certWatch: remote.certWatch(),
+        /* kosmos#6587: is the pinned coordinator key on the signed service key set (a state only). */
+        serviceKeys: remote.serviceKeys(),
       });
     } catch { sendJson(res, 500, { error: 'we could not read the Plus state' }); }
     return;
@@ -10556,6 +10896,37 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { status: remote.status(), on: remote.read().on === true });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* kosmos#6602: the certificate check's switch for this computer. */
+  if (pathname === '/api/remote/cert-watch' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* A security check's off switch is a person's setting: not an agent's (the isViaScreen class). */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        const saved = remote.setCertWatch(body.on);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        sendJson(res, 200, { certWatch: remote.certWatch() });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* kosmos#6613: a person has seen the lost-report sentence (person-only, like the switch). */
+  if (pathname === '/api/remote/cert-watch/ack-lost' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can do this, from Settings' }); return; }
+        const done = remote.ackCertWatchLost(body.at);
+        if (!done.ok) { sendJson(res, 400, { error: done.because }); return; }
+        sendJson(res, 200, { certWatch: remote.certWatch() });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that' }));
     return;
   }
   /* The one email-shape rule every Plus enrolment route checks (setup-start and
@@ -10931,7 +11302,7 @@ const server = http.createServer(async (req, res) => {
      is marked signedIn: false (kosmos#4815); any other ok: false is a failure the page retries. */
   if (pathname === '/api/remote/computers' && (req.method === 'GET' || req.method === 'HEAD')) {
     accountComputers.fetchComputers()
-      .then((r) => sendJson(res, 200, r))
+      .then((r) => { if (r && r.ok) remote.warmTlsPins(r.computers); sendJson(res, 200, r); })   // kosmos#6589
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read your computers' }));
     return;
   }
@@ -11141,6 +11512,34 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ticket: got.data.ticket });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not open that computer directly' }));
+    return;
+  }
+  /* kosmos#6589 (S-7c): which TLS key another of the person's computers vouches for, for the Mac app to compare with
+     the certificate it is handed before a window opens there. The app's own code asks it, with the board token it
+     reads from board.token (it has no page cookie), so: on this computer only (a loopback peer, nothing forwarded:
+     Kosmos+ remote access forwards), never with an agent token, and with the board's own token. The answer names
+     only key hashes the other computer publishes; asking also pins that computer's address here (the tunnel's
+     tls-pins.json), which only ever binds it to the computer the person paired. `fresh=1` skips the 5-minute cache. */
+  if (pathname === '/api/remote/tls-pin' && req.method === 'GET') {
+    // A board that enforces no token (a sandboxed test board) has none to ask for, as boardCookieHere.
+    if (!isLoopbackPeer(req) || cameThroughForwarder(req.headers) || presentedAgentToken(req, null) || (boardAuthState.on && !(req.headers['x-kosmos-board-token'] && boardTokenOk({ url: String(req.url || '/').split('?')[0], method: req.method, headers: { 'x-kosmos-board-token': req.headers['x-kosmos-board-token'] } })))) {   // review 9: the header token alone (no page cookie, no ?token=)
+      sendJson(res, 403, { error: 'Only the Kosmos app on this computer can ask this.' });
+      return;
+    }
+    let q;
+    try { q = new URL(req.url, ROUTING_BASE).searchParams; } catch { q = new URLSearchParams(); }
+    const address = String(q.get('address') || '').trim().toLowerCase();
+    const domain = accountComputers.computerDomain(remote.COORDINATOR());
+    if (!address || !domain || !accountComputers.validAddress(address, domain)) {
+      /* Review 6: the app names a computer by its own rule (one label under the Kosmos+ site); where this board's
+         coordinator has another domain (a staging or developer coordinator), that is no computer of this account, so
+         there is no pin to keep: none (ordinary checking), never an error the app would read as required. */
+      sendJson(res, 200, { state: 'none', because: 'not an address of this account' });
+      return;
+    }
+    remote.tlsPin(address, { fresh: q.get('fresh') === '1' })
+      .then((got) => sendJson(res, 200, got.data))
+      .catch(() => sendJson(res, 200, { state: 'required', because: "this computer's certificate could not be checked" }));
     return;
   }
   /* kosmos#6404: the joining computer's "Check the code" once allowed: one fresh code check is a try, so the same
@@ -16323,7 +16722,8 @@ const server = http.createServer(async (req, res) => {
       const atMs = rep && rep.found === true ? Date.parse(rep.askedAt || rep.at || '') : NaN;
       const ageMs = Number.isFinite(atMs) ? Date.now() - atMs : null;
       const stale = !!(rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state)
-        && ageMs !== null && ageMs > selfreport.STALE_WAIT_MS);
+        && ageMs !== null && ageMs > selfreport.STALE_WAIT_MS
+        && !selfreport.untilDefers(rep, Date.now()));   // kosmos#6683: the same until rule as the reminder
       /* A no-report agent is a SUCCESSFUL read of "you have no state yet" -- 200,
          found:false -- never a refusal, so the CLI exits 0 on it. Only auth /
          server-fault paths above are non-2xx. */
@@ -17328,6 +17728,30 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#6717: the person dismisses a draft Kosmos took out of the agent's input box (engine/unsentdrafts.js). The
+     person's alone, like Send now anyway below: an agent's token is refused. Nothing is sent either way. */
+  const dmDraftDismiss = pathname.match(/^\/api\/agent\/([^/]+)\/unsent-draft\/dismiss$/);
+  if (dmDraftDismiss && req.method === 'POST') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this is the person\'s to dismiss, not an agent\'s' }); return; }
+    const name = decodeSegment(dmDraftDismiss[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'this is the person\'s to dismiss, not an agent\'s' }); return; }   // in the body too
+        if (typeof body.id !== 'string' || !/^[0-9a-f]{12}$/.test(body.id)) { sendJson(res, 400, { error: 'say which draft (its id)' }); return; }
+        const drafts = require('./engine/unsentdrafts');
+        /* The card's own name, as the conversation route draws them (a URL in other capitals finds the same drafts). */
+        let key = name;
+        try { const card = chat.resolveCard(safeRoster(), name); if (card && card.sessionName) key = card.sessionName; } catch { key = name; }
+        if (!drafts.list(key).some((d) => d.id === body.id)) { sendJson(res, 404, { error: 'that draft is not kept any more' }); return; }
+        if (!drafts.dismiss(key, body.id)) { sendJson(res, 500, { error: 'we could not dismiss that draft just now' }); return; }
+        sendJson(res, 200, { dismissed: true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
   /* #5805 slice 2b: Send now anyway. The person types a message Kosmos is holding for an agent out of usage, now, and
      its row takes the delivery. The person's action only. A message no longer kept (typed or dropped), or one the
      minute sweep is typing this moment, answers 409. */
@@ -17718,8 +18142,13 @@ const server = http.createServer(async (req, res) => {
       } catch { askedAt = null; }
       if (!permissionWait) questionRow = { ...question, clearable: true, ...(askedAt ? { at: askedAt } : {}) };
     }
+    /* kosmos#6717: text Kosmos moved out of the agent's input box, as Kosmos lines at their time (never sent). */
+    let stuckDrafts = [];
+    try { stuckDrafts = require('./engine/unsentdrafts').list((card && card.sessionName) || name); } catch { stuckDrafts = []; }
     const servedMessages = Array.isArray(messages)
-      ? chat.withAccountRow(chat.withQuestionRow(messages, (card && card.sessionName) || name, questionRow),
+      /* Drafts after the question row: an undated question is deduped against the trailing stored row, which a draft must
+         not stand in front of; drafts are placed among dated rows only, so they still sit before it. */
+      ? chat.withAccountRow(chat.withDraftRows(chat.withQuestionRow(messages, (card && card.sessionName) || name, questionRow), stuckDrafts),
         (card && card.sessionName) || name, accountProblemOf(card))
       : messages;
     /* #3650: the person's reactions on the agent's messages, in the room's pill shape
@@ -17743,8 +18172,16 @@ const server = http.createServer(async (req, res) => {
       // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
       && cqNow.options.length === options.length
       && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
+    /* kosmos#6727: a permission prompt read off the screen is served as a short card (what the agent wants to do,
+       Allow, Deny, the raw request under Show details), not as its screen. Only where its buttons are offered
+       (`pressable`, which also keeps it out of the setup guide's masked thread, review 1): a card with no Allow or Deny
+       would promise an action it cannot take, so there the old text stays. Only the live pane question. */
+    const permCard = (pressable && question === paneQuestion && view && typeof view.text === 'string')
+      ? chat.permissionCard(view.text) : null;
     sendJson(res, 200, {
-      messages: servedRows,
+      messages: permCard
+        ? servedRows.map((m) => (m && m.kind === 'question' && !m.reported ? { ...m, permission: permCard } : m))
+        : servedRows,
       olderCount,
       historyBecause,
       historyUnfilable,
@@ -24022,6 +24459,21 @@ function start(port = PORT) {
       });
       const firstreplySweep = setInterval(firstreplyTick, Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FIRSTREPLY_NUDGE_MS) : 60 * 1000); // the env is the test seam only
       if (firstreplySweep && typeof firstreplySweep.unref === 'function') firstreplySweep.unref();
+      /* kosmos#6717: text stuck unsent in an idle Claude Code agent's input box for ten minutes is cleared by Kosmos:
+         the board's own line is pressed, anything else is saved as a draft (engine/unsentdrafts.js, shown in the
+         agent's conversation, never sent) and only then cleared (chat.recoverStuckInput, engine/stuckinput.js).
+         Same gating as the sweeps above, operator brake AGENT_WORKFORCE_STUCK_INPUT_OFF=1 (it types keys into idle
+         panes on its own); own ~1-min timer, unref'd, best-effort. */
+      chat.setDraftSaver((session, text, opts) => require('./engine/unsentdrafts').add(session, text, opts));
+      const stuckInputTick = require('./engine/stuckinput').makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_STUCK_INPUT_OFF !== '1',
+        roster: () => safeRoster(),
+        recover: (card, since) => chat.recoverStuckInput(card, since),
+        stuckMs: chat.STUCK_INPUT_MS,
+        log: (line) => process.stdout.write(line),
+      });
+      const stuckInputSweep = setInterval(() => { stuckInputTick().catch(() => {}); }, Number(process.env.AGENT_WORKFORCE_STUCK_INPUT_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_STUCK_INPUT_SWEEP_MS) : 60 * 1000); // the env is the test seam only
+      if (stuckInputSweep && typeof stuckInputSweep.unref === 'function') stuckInputSweep.unref();
       /* #5959 slice 3: an agent whose `blocked` report has stood on its card over a day is told ONCE per report (kept
          on disk), typed into its session (engine/stalereport-nudge.js), in the words `kosmos report show` uses.
          Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
@@ -24798,6 +25250,9 @@ if (require.main === module) {
         process.stderr.write(`Kosmos could not set up the reporting hooks for this computer's Claude agents: ${hooks.because || 'no reason given'}\n`);
       } else if (hooks.changed === true) {
         process.stdout.write('reporting hooks: wired into the default Claude account\n');
+      } else if (hooks.skipped === true && process.platform === 'win32') {
+        // kosmos#6601: a board that is not the installed Kosmos says why it left the shared settings alone.
+        process.stdout.write('reporting hooks: ' + (hooks.because || 'skipped') + '\n');
       }
     } catch { /* never stops the board */ }
   };
@@ -25285,8 +25740,11 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
+  _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
+  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test

@@ -123,6 +123,29 @@ test('#6506 axis 2: a recorded self-report renders its state', () => {
   assert.match(fact, /running the suite/, fact);
 });
 
+test('#6593: the self-report line says its age, and past a day that it may not describe now', () => {
+  const session = 'handoffstale';
+  const r = selfreport.record(session, { state: 'working', because: 'running the suite' });
+  assert.ok(r.recorded, 'precondition: the self-report was recorded: ' + (r.because || ''));
+  const at = Date.parse(selfreport.read(session).at);
+  const fresh = handoff.stateFact(session, at + 5 * 60 * 1000);
+  assert.match(fresh, /; 5 minutes ago$/, 'a fresh report does not say its age: ' + fresh);
+  assert.doesNotMatch(fresh, /may not describe/, 'a fresh report was called old');
+  const old = handoff.stateFact(session, at + 14 * 24 * 60 * 60 * 1000);
+  assert.match(old, /; 14 days ago, so it may not describe what the agent is doing now$/, 'a two-week-old report reads as current: ' + old);
+  assert.match(old, /^working; running the suite; as of /, 'CONTROL: the report itself is still shown');
+  // The boundary: just under a day is not old; just over is.
+  assert.doesNotMatch(handoff.stateFact(session, at + 23 * 60 * 60 * 1000), /may not describe/, '23 hours was called old');
+  assert.match(handoff.stateFact(session, at + 25 * 60 * 60 * 1000), /a day ago, so it may not describe/, '25 hours was not called old');
+  assert.match(handoff.stateFact(session, at + 24 * 60 * 60 * 1000), /; a day ago, so it may not describe/, 'exactly a day was not called old');
+  // The singular words, and a time slightly in the future (clock skew inside saneIso's slack) says no age at all.
+  assert.match(handoff.stateFact(session, at + 10 * 1000), /; just now$/);
+  assert.match(handoff.stateFact(session, at + 90 * 1000), /; a minute ago$/);
+  assert.match(handoff.stateFact(session, at + 90 * 60 * 1000), /; an hour ago$/);
+  const skew = handoff.stateFact(session, at - 60 * 60 * 1000);
+  assert.match(skew, /; as of [^;]+$/, 'a report from slightly in the future was given an age: ' + skew);
+});
+
 test('#6506: stateFact says so when there is no session, rather than guessing', () => {
   assert.match(handoff.stateFact(''), /no session/);
 });

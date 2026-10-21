@@ -25,6 +25,13 @@ concurrency:
   group: linux-setup-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# kosmos#6742: dead-address the install "created" ping so CI never records a real
+# install. A board started here reads this at ping time (engine/createdbeacon.js), and
+# engine/linuxboard.js injects it into a systemd board unit, so the POST goes to
+# loopback:9 instead of installkosmos.com. Guarded by tools/test-ci-created-url-6742.sh.
+env:
+  AGENT_WORKFORCE_CREATED_URL: http://127.0.0.1:9/api/created
+
 jobs:
   test-linux-setup:
     runs-on: ubuntu-latest
@@ -140,6 +147,9 @@ jobs:
           grep -qxF "KillMode=process" "$UNIT_FILE"
           if grep -qxF "Restart=always" "$UNIT_FILE"; then echo "FAIL: Restart=always restarts a stopped board" >&2; exit 1; fi
           systemctl --user is-enabled kosmos-board.service
+          # kosmos#6667: a real setup.sh run enables the board's pause check (what it does is test-linux-pause-check-live-6667.sh).
+          test "$(systemctl --user is-enabled kosmos-pause-check.timer)" = enabled
+          test "$(systemctl --user is-active kosmos-pause-check.timer)" = active
           # setup.sh hands the running board to systemd (kosmos restart after installBoard), as the Mac does to launchd.
           test "$(systemctl --user is-active kosmos-board.service)" = active
           # #5519: this test install must not count. The unit carries the dead beacon address, and so does the board
@@ -233,6 +243,10 @@ jobs:
           test ! -f "$UNIT_FILE"
           # The enable link is what a failed disable leaves behind (the file is deleted either way).
           test ! -e "$HOME/.config/systemd/user/default.target.wants/kosmos-board.service"
+          # kosmos#6667: and its pause check, with the timer's enable link.
+          test ! -e "$HOME/.config/systemd/user/kosmos-pause-check.timer"
+          test ! -e "$HOME/.config/systemd/user/kosmos-pause-check.service"
+          test ! -e "$HOME/.config/systemd/user/timers.target.wants/kosmos-pause-check.timer"
           # #6149: the uninstall removes the whole Kosmos folder, the read-only app included.
           test ! -e "$HOME/.local/share/kosmos"
 

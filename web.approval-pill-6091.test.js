@@ -2,7 +2,7 @@
 
 /**
  * #6091 (follow-up to #6054): while a Claude agent waits on its permission prompt, its status pill read "Issue", which
- * reads as broken. It now reads "Waiting for you".
+ * reads as broken. It now reads "Needs permission" (#6727; it read "Waiting for you" before).
  *
  * The signal is the card's `awaitingApproval` (engine/status.js awaitingApprovalOf), read from the SCREEN before the
  * agent's own report is reconciled in. Review 1 found why `because` could not carry it: the PermissionRequest hook
@@ -101,9 +101,9 @@ test('#6091 engine: both card builders carry the field (the pane card from the s
   assert.ok(PROJ.includes('awaitingApproval: Boolean(card && card.isNamedOurs && card.awaitingApproval === true)'), 'project members no longer carry it');
 });
 
-test('#6091 page: an agent on its permission prompt reads "Waiting for you", not "Issue"', () => {
+test('#6091 page: an agent on its permission prompt reads "Needs permission" (#6727), not "Issue"', () => {
   const copy = derive.stateCopyOf(card());
-  assert.equal(copy.label, 'Waiting for you');
+  assert.equal(copy.label, 'Needs permission');
   assert.notEqual(copy.label, 'Issue');
 });
 
@@ -129,6 +129,6 @@ test('#6091 page: an agent\'s own deliberate question still reads "Question" (#2
 
 test('#6091: engine/cardlabel.js (an agent\'s own `kosmos report show`) says the same', () => {
   const { labelOf } = require('./engine/cardlabel');
-  assert.equal(labelOf(card()), 'Waiting for you');
+  assert.equal(labelOf(card()), 'Needs permission');
   assert.equal(labelOf(card({ awaitingApproval: false })), 'Issue');
 });

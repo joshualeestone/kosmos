@@ -66,7 +66,7 @@ test('it is absent while the first poll is merely in flight', () => {
   const painted = [];
   let asked = 0;
   new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'setNavBadge',
-    `const paintRestartScreen = () => {};\n${page.lift(SCRIPT, 'tick')}\ntick();`)(
+    `const paintRestartScreen = () => {};\nvar BOARD_LOOKED = false, BOARD_MISSES = 0; const paintReconnecting = () => {};\n${page.lift(SCRIPT, 'tick')}\ntick();`)(
     (down) => painted.push(down),
     () => { asked += 1; return new Promise(() => {}); },
     { getElementById: () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: false, closest: () => null }) },
@@ -100,7 +100,7 @@ test('a server that ANSWERED with a refusal is not "not answering": the note pai
     // touches beyond the note is a stub, so the only thing measured here is
     // the one call this test is about.
     await new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT', 'BOARD_DEVICE_OFFLINE', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain',
-      `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\nconst paintRestartScreen = () => {};\n${page.lift(SCRIPT, 'tick')}\nreturn tick();`)(
+      `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\nconst paintRestartScreen = () => {};\nvar BOARD_LOOKED = false, BOARD_MISSES = 0; const paintReconnecting = () => {};\n${page.lift(SCRIPT, 'tick')}\nreturn tick();`)(
       (down) => painted.push(down),
       fetchImpl,
       { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] },
@@ -130,7 +130,7 @@ test('#2023: BOARD_NEEDS_SIGNIN does not latch -- a non-403 outcome after a 403 
   const stub = () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: true, closest: () => null, querySelector: () => null, querySelectorAll: () => [] });
   let fetchImpl;
   const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'SIGNIN_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE', 'DEVICE_SIGNIN_BUTTON', 'esc', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain',
-    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\nconst paintRestartScreen = () => {};\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
+    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\nconst paintRestartScreen = () => {};\nvar BOARD_LOOKED = false, BOARD_MISSES = 0; const paintReconnecting = () => {};\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
     () => {}, (...a) => fetchImpl(...a), { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] }, 0, () => '', () => {}, null, null, page.liftConst(SCRIPT, 'SIGNIN_SENTENCE'), page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE'), new Function(page.liftConst(SCRIPT, 'DEVICE_SIGNIN_BUTTON') + '\nreturn DEVICE_SIGNIN_BUTTON;')(), (x) => String(x), () => {}, () => {}, () => {}, () => {}, // #3301: ringNewAgentMessages / #3387: setAgentsGrouped / #718: orgBoxPlain no-ops (tick calls them; not under test here)
   );
   delete globalThis.BOARD_NEEDS_SIGNIN;
@@ -227,7 +227,7 @@ test('#718 state 1: tick sets the offline flag only when nothing answered, and i
   const painted = [];
   const nav = { onLine: false };
   const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'SIGNIN_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE', 'OFFLINE_SENTENCE', 'esc', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain', 'location', 'navigator',
-    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\nconst paintRestartScreen = () => {};\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
+    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\nconst paintRestartScreen = () => {};\nvar BOARD_LOOKED = false, BOARD_MISSES = 0; const paintReconnecting = () => {};\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
     (down, off) => painted.push([down, off]), (...a) => fetchImpl(...a), { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] }, 0, () => '', () => {}, null, null,
     page.liftConst(SCRIPT, 'SIGNIN_SENTENCE'), page.liftConst(SCRIPT, 'ORG_SIGNED_OUT_SENTENCE'), page.liftConst(SCRIPT, 'OFFLINE_SENTENCE'), (x) => String(x), () => {}, () => {}, () => {}, () => {},
     { hostname: 'mac.kosmosplus.com', search: '' }, nav,
@@ -371,4 +371,71 @@ test('#718 state 2: the Kosmos+ note hedges its one named cause and names no oth
   for (const word of ['server', 'crashed', 'stopped', 'offline', 'restart', 'down', 'firewall', 'quit', 'not running']) {
     assert.ok(!said.includes(word), `the Kosmos+ note names a cause it cannot know: ${word}`);
   }
+});
+
+/* kosmos#6721 (Josh 10-20; Splinter's call 09:04): on a busy computer one status poll can go unanswered while the board
+   answers in 0.4 s a moment later. The FIRST unanswered poll over a board that has answered before keeps the board as
+   it was and says Reconnecting in the header; the SECOND in a row is the full failure, as before. Driven through the
+   real tick, several polls in one scope so the count carries between them. */
+const missHarness = (looked, restarting) => {
+  const painted = [], recon = [];
+  let fetchImpl;
+  const stub = () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: true, closest: () => null, querySelector: () => null, querySelectorAll: () => [] });
+  const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'BOARD_SIGNED_OUT', 'BOARD_DEVICE_OFFLINE', 'setNavBadge', 'ringNewAgentMessages', 'setAgentsGrouped', 'orgBoxPlain', 'paintReconnecting', 'LOOKED', 'RESTARTING',
+    `${page.lift(SCRIPT, 'relaySignedOut')}\n${page.lift(SCRIPT, 'kplusRemote')}\n${page.lift(SCRIPT, 'deviceOffline')}\nconst paintRestartScreen = () => {};\nvar BOARD_LOOKED = LOOKED, BOARD_MISSES = 0, ENGINE_RESTARTING = RESTARTING;\n${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
+    (down) => painted.push(down),
+    (...a) => fetchImpl(...a),
+    { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] },
+    0, () => '', () => {}, null, null, false, false, false, () => {}, () => {}, () => {}, () => {},
+    (on) => recon.push(on),
+    looked,
+    Boolean(restarting),
+  );
+  return { painted, recon, run: async (f) => { fetchImpl = f; await tick(); } };
+};
+const noAnswer = () => Promise.reject(new TypeError('Failed to fetch'));
+const refusal = () => Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: 'we could not read tmux' }) });
+
+test('#6721: one unanswered poll over a board that answered before says Reconnecting and draws no failure; the second in a row is the full note', async () => {
+  const h = missHarness(true);
+  await h.run(noAnswer);
+  assert.deepEqual(h.painted, [], 'the first miss drew the full note');
+  assert.deepEqual(h.recon, [true], 'the first miss did not say Reconnecting');
+  await h.run(noAnswer);
+  assert.deepEqual(h.painted, [true], 'the second miss in a row did not draw the full note');
+  assert.equal(h.recon[h.recon.length - 1], false, 'Reconnecting stayed up under the full note');
+});
+
+test('#6721: an answer between misses starts the count again (a refusal is an answer)', async () => {
+  const h = missHarness(true);
+  await h.run(noAnswer);
+  await h.run(refusal);
+  assert.deepEqual(h.painted, [false], 'the refusal did not paint as an answer');
+  await h.run(noAnswer);
+  assert.deepEqual(h.painted, [false], 'a miss after an answer drew the full note at once, so the count did not restart');
+  assert.equal(h.recon[h.recon.length - 1], true);
+});
+
+test('#6721 CONTROL: before the board has ever answered, the first miss is the full note, as before', async () => {
+  const h = missHarness(false);
+  await h.run(noAnswer);
+  assert.deepEqual(h.painted, [true], 'with nothing on screen yet, a miss waited instead of saying so');
+});
+
+test('#6721 (review 1): a poll that answers resets the count and clears Reconnecting (pinned in the success path)', () => {
+  /* The success path needs a whole status body to run through the lifted tick, so this pins its two lines where they
+     must sit: right after BOARD_LOOKED is set. Deleting either leaves a recovered board one miss from the full card. */
+  const body = page.lift(SCRIPT, 'tick');
+  const at = body.indexOf('BOARD_LOOKED = true;');
+  assert.ok(at > 0, 'the success path no longer sets BOARD_LOOKED');
+  const after = body.slice(at, at + 200);
+  assert.match(after, /BOARD_MISSES = 0;/, 'a poll that answered no longer resets the miss count');
+  assert.match(after, /paintReconnecting\(false\)/, 'a poll that answered no longer clears Reconnecting');
+});
+
+test('#6721 (review 2): during a restart the person asked for, the first miss says no Reconnecting and still draws no note', async () => {
+  const h = missHarness(true, true);
+  await h.run(noAnswer);
+  assert.deepEqual(h.recon, [], 'Reconnecting was shown over a restart the person asked for');
+  assert.deepEqual(h.painted, [], 'the first miss drew the note during a restart');
 });

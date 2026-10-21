@@ -17,6 +17,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const { withoutAgentIdentity } = require('./test-support/agent-env');   // kosmos#6740: never run the CLI as the agent running the test
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -26,7 +27,7 @@ test.after(() => fs.rmSync(DATA, { recursive: true, force: true }));
 
 function run(args, env) {
   return new Promise((resolve, reject) => {
-    execFile('bash', [CLI, ...args], { env: { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: '9', ...(env || {}) }, timeout: 20000 }, (err, stdout, stderr) => {
+    execFile('bash', [CLI, ...args], { env: { ...withoutAgentIdentity(process.env), AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: '9', ...(env || {}) }, timeout: 20000 }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout, over the output buffer, or never started. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, out: `${stdout}${stderr}` });
     });

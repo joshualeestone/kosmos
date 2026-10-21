@@ -11,6 +11,11 @@
 #   connector_authenticode <file>   Windows ONLY: Windows itself reports the
 #                                   signature Valid, by the expected signer
 #
+# and, for any PE (the launcher, Kosmos.exe, is PE32; #6679):
+#
+#   pe_signature_present <file>     its certificate table is not empty, or why not
+#   pe_authenticode <file> [<what>] Windows ONLY: as connector_authenticode, naming <what>
+#
 # 🔑 WHY THE BUILD SIGNS NOTHING. The launcher (tools/windows/Kosmos.exe) is signed
 # on the Windows PC and then taken as a finished input, never re-signed during a
 # cut (tools/windows/README.md). The connector follows the same rule: kosmos-relay's
@@ -47,33 +52,77 @@ connector_pe_x64() {
 }
 
 connector_pe_signed() {
-  local f="${1:?connector_pe_signed needs a file}" addr size
+  local f="${1:?connector_pe_signed needs a file}"
   connector_pe_x64 "$f" || return 1
-  # PE32+: the data directories start 112 bytes into the optional header (itself 24
-  # bytes after the PE signature); the certificate table is directory 4.
-  addr="$(_cw_u32 "$f" $((_CW_PE + 24 + 112 + 32)))"
-  size="$(_cw_u32 "$f" $((_CW_PE + 24 + 112 + 32 + 4)))"
-  if [ "${addr:-0}" = 0 ] || [ "${size:-0}" = 0 ]; then
+  # The certificate table is read in one place, pe_signature_present (below); this adds
+  # the x86-64 requirement and the connector's own remedy.
+  if ! pe_signature_present "$f" 2>/dev/null; then
     echo "connector_pe_signed: $f carries no signature. Build it with kosmos-relay tools/build-tunnel-release-windows.ps1 -Sign <the signing script> on the Windows release PC, which signs it before writing its sidecars; a Kosmos build never ships an unsigned connector." >&2
     return 1
   fi
   return 0
 }
 
+# #6679: the same PRESENCE check for any PE, 32- or 64-bit. The launcher
+# (tools/windows/Kosmos.exe) is a C# AnyCPU build, which is PE32 with machine
+# i386 (332), so connector_pe_x64 rightly refuses it as a connector; this reads the
+# certificate table wherever the optional header's magic puts it (PE32: data
+# directories 96 bytes in; PE32+: 112).
+pe_signature_present() {
+  local f="${1:?pe_signature_present needs a file}" pe magic dirs ndirs addr size
+  [ -f "$f" ] || { echo "pe_signature_present: no file at $f" >&2; return 1; }
+  [ "$(_cw_u16 "$f" 0)" = 23117 ] || { echo "pe_signature_present: $f is not a Windows program (no MZ header)" >&2; return 1; }
+  pe="$(_cw_u32 "$f" 60)"
+  case "$pe" in ''|*[!0-9]*) echo "pe_signature_present: $f has no readable PE offset" >&2; return 1 ;; esac
+  [ "$(_cw_u32 "$f" "$pe")" = 17744 ] || { echo "pe_signature_present: $f has no PE signature at $pe" >&2; return 1; }
+  magic="$(_cw_u16 "$f" $((pe + 24)))"
+  case "$magic" in
+    267) dirs=$((pe + 24 + 96)) ;;
+    523) dirs=$((pe + 24 + 112)) ;;
+    *) echo "pe_signature_present: $f has an unknown optional header (magic $magic)" >&2; return 1 ;;
+  esac
+  # NumberOfRvaAndSizes sits just before the directories; with fewer than 5 there is no
+  # certificate table (directory 4), and the bytes there belong to something else.
+  ndirs="$(_cw_u32 "$f" $((dirs - 4)))"
+  case "$ndirs" in ''|*[!0-9]*) echo "pe_signature_present: $f has no readable data directory count" >&2; return 1 ;; esac
+  if [ "$ndirs" -lt 5 ]; then
+    echo "pe_signature_present: $f carries no signature (it has no certificate table)" >&2
+    return 1
+  fi
+  addr="$(_cw_u32 "$f" $((dirs + 32)))"
+  size="$(_cw_u32 "$f" $((dirs + 36)))"
+  if [ "${addr:-0}" = 0 ] || [ "${size:-0}" = 0 ]; then
+    echo "pe_signature_present: $f carries no signature" >&2
+    return 1
+  fi
+  return 0
+}
+
 # Windows only (Git Bash): Get-AuthenticodeSignature must say Valid, and the signer
-# must be KOSMOS_WIN_SIGNER (default: Kosmos Agent Manager, Inc.).
-connector_authenticode() {
-  local f="${1:?connector_authenticode needs a file}" win out status subject want
+# must be KOSMOS_WIN_SIGNER (default: Kosmos Agent Manager, Inc.). <what> names the file
+# in the messages ("the connector", "Kosmos.exe"); on success PE_SIGNER is the subject.
+# #6679: shared by the connector and the launcher, so it names neither itself.
+pe_authenticode() {
+  local f="${1:?pe_authenticode needs a file}" what="${2:-the file}" win out status subject want
   want="${KOSMOS_WIN_SIGNER:-Kosmos Agent Manager, Inc.}"
-  command -v powershell >/dev/null 2>&1 || command -v powershell.exe >/dev/null 2>&1 || { echo "connector_authenticode: no powershell here to ask Windows about the signature" >&2; return 1; }
+  PE_SIGNER=''
+  command -v powershell >/dev/null 2>&1 || command -v powershell.exe >/dev/null 2>&1 || { echo "pe_authenticode: no powershell here to ask Windows about the signature of $what" >&2; return 1; }
   win="$(cygpath -w "$f" 2>/dev/null || printf '%s' "$f")"
   out="$(KOSMOS_CW_FILE="$win" powershell.exe -NoProfile -NonInteractive -Command '$s = Get-AuthenticodeSignature -LiteralPath $env:KOSMOS_CW_FILE; "$($s.Status)|$($s.SignerCertificate.Subject)"' 2>/dev/null | tr -d '\r')"
   status="${out%%|*}"; subject="${out#*|}"
-  [ "$status" = Valid ] || { echo "connector_authenticode: Windows reports the connector's signature as '${status:-unknown}', not Valid ($f)" >&2; return 1; }
+  [ "$status" = Valid ] || { echo "pe_authenticode: Windows reports the signature of $what as '${status:-unknown}', not Valid ($f)" >&2; return 1; }
   case "$subject" in
     *"CN=\"$want\""*|*"CN=$want,"*|*"CN=$want") ;;
-    *) echo "connector_authenticode: the connector is signed by '$subject', not $want" >&2; return 1 ;;
+    *) echo "pe_authenticode: $what is signed by '$subject', not $want" >&2; return 1 ;;
   esac
-  CONNECTOR_SIGNER="$subject"
+  PE_SIGNER="$subject"
+  return 0
+}
+
+# The connector's check, as the build has always called it; CONNECTOR_SIGNER is set only here.
+connector_authenticode() {
+  local f="${1:?connector_authenticode needs a file}"
+  pe_authenticode "$f" "the connector" || return 1
+  CONNECTOR_SIGNER="$PE_SIGNER"
   return 0
 }

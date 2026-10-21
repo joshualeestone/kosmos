@@ -9386,7 +9386,7 @@ function snapshot() {
          "app broken"), 'operator'/null = unknown provenance, left alarmed. Null for a scraped
          (not self-reported) state, so a scrape stays red. */
       stateReportedBy: status.by || null,
-      awaitingApproval: awaitingApprovalOf(scrapedStatus, status),   // #6091: the page's "Waiting for you"
+      awaitingApproval: awaitingApprovalOf(scrapedStatus, status),   // #6091: the page's "Needs permission" (#6727)
       /* #1889. `working` because the screen says the agent is waiting on a
          BACKGROUND agent, which is a different fact from `working` mid-turn: the
          parent's own turn has ENDED and its REPL is at its prompt. Published

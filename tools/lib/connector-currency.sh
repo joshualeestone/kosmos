@@ -16,39 +16,48 @@
 #   Cargo.lock      resolved versions. A coordinator-only dependency bump also changes
 #                   it and so also asks for a rebuild; that is the conservative side,
 #                   and the override below covers a deliberate exception.
-#   tools/build-tunnel-release.sh   the build itself (targets, lipo, cargo flags).
+#   tools/build-tunnel-release.sh   the build itself (targets, lipo, cargo flags). That is the
+#                   Mac build; a connector made by another build script names it in the
+#                   third argument (the Windows cut passes tools/build-tunnel-release-windows.ps1,
+#                   #6628), and only that script counts for it.
 # Tests under crates/tunnel/tests and crates/proto/tests are EXCLUDED: they do not reach
 # the binary, and a tests-only change must not force a rebuild.
 # By CONTENT (`git diff`), not ancestry: a connector built from a branch, or a relay
 # main that was rebased or squash-merged, would read wrong by ancestry.
 #
-# FAILS CLOSED. If origin/main cannot be fetched or the connector's commit is not in
-# the relay checkout, the answer is unknown, and an unknown is refused, not waved on.
+# FAILS CLOSED. If origin/main cannot be fetched, the connector's commit is not in the
+# relay checkout, or relay main has no copy of the build script, the answer is unknown, and
+# an unknown is refused, not waved on.
 #
 # OVERRIDE. KOSMOS_ALLOW_STALE_TUNNEL=1 ships the older connector on purpose. It says
-# what it is skipping and returns 0.
+# what it is skipping and returns 0. It covers only a connector KNOWN to be behind: an
+# unknown answer (above) is refused even with it set.
 #
-# Usage: source, then `connector_currency_check <connector-bin> <relay-checkout>`.
+# Usage: source, then `connector_currency_check <connector-bin> <relay-checkout> [<relay build script>]`.
 # Returns 0 when current (or overridden); otherwise says why on stderr, returns 1.
 # Needs connector-provenance.sh sourced first (it reads the sidecar through it).
 
 # An ARRAY, not a word-split string (review 2): zsh does not split an unquoted $var, so a
 # string list became ONE pathspec there, matched nothing, and read a stale connector as
 # current. Expanded as "${CONNECTOR_TUNNEL_INPUTS[@]}" it is the same list in bash and zsh.
-CONNECTOR_TUNNEL_INPUTS=(crates/tunnel crates/proto Cargo.toml Cargo.lock tools/build-tunnel-release.sh ':(exclude)crates/tunnel/tests' ':(exclude)crates/proto/tests')
+# The build script is not in it: each call adds the one that built its connector (#6628).
+CONNECTOR_TUNNEL_INPUTS=(crates/tunnel crates/proto Cargo.toml Cargo.lock ':(exclude)crates/tunnel/tests' ':(exclude)crates/proto/tests')
 
 connector_currency_check() {
   local bin="${1:?connector_currency_check needs the connector path}"
   local relay="${2:?connector_currency_check needs the kosmos-relay checkout}"
+  local script="${3:-tools/build-tunnel-release.sh}"
   local built out rc missing
+  local -a inputs; inputs=("${CONNECTOR_TUNNEL_INPUTS[@]}" "$script")
   _connector_provenance_check "$bin" || return 1
   built="$CONNECTOR_COMMIT"
   git -C "$relay" rev-parse --git-dir >/dev/null 2>&1 || {
     echo "connector_currency: $relay is not a git checkout, so there is nothing to compare the connector with. Set KOSMOS_RELAY_REPO to the kosmos-relay checkout." >&2; return 1; }
   # An EXPLICIT refspec: a clone whose fetch refspec does not cover main (single-branch, or
   # narrowed by hand) would otherwise update only FETCH_HEAD and leave a stale origin/main,
-  # a false green (review 1). No terminal prompt: a box without credentials must fail, not hang.
-  rc=0; out=$(GIT_TERMINAL_PROMPT=0 git -C "$relay" fetch --quiet origin +refs/heads/main:refs/remotes/origin/main 2>&1) || rc=$?
+  # a false green (review 1). No prompt: over HTTPS a box without credentials must fail, not hang (GCM_INTERACTIVE is
+  # Git Credential Manager's own no-prompt switch, for the Windows build, #6628).
+  rc=0; out=$(GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never git -C "$relay" fetch --quiet origin +refs/heads/main:refs/remotes/origin/main 2>&1) || rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "connector_currency: could not fetch kosmos-relay origin/main in $relay, so whether the connector is current is UNKNOWN (refused, not assumed):" >&2
     printf '%s\n' "$out" >&2
@@ -61,12 +70,17 @@ connector_currency_check() {
       echo "connector_currency: the connector says it was built from $built, which is not in $relay (built from an unpushed commit, or another clone). Rebuild it from kosmos-relay main." >&2
     fi
     return 1; }
-  rc=0; git -C "$relay" diff --quiet "$built" origin/main -- "${CONNECTOR_TUNNEL_INPUTS[@]}" || rc=$?
+  # A build script missing from relay main (renamed, or misnamed by the caller) would match nothing as a pathspec and
+  # read as unchanged, so it is refused rather than dropped from the inputs.
+  git -C "$relay" cat-file -e "origin/main:$script" 2>/dev/null || {
+    echo "connector_currency: kosmos-relay main has no $script, the script that builds this connector, so whether the connector is current is UNKNOWN (refused, not assumed). If it was renamed, update the caller." >&2
+    return 1; }
+  rc=0; git -C "$relay" diff --quiet "$built" origin/main -- "${inputs[@]}" || rc=$?
   [ "$rc" -eq 0 ] && return 0
   [ "$rc" -eq 1 ] || { echo "connector_currency: git diff failed in $relay (rc=$rc); refused." >&2; return 1; }
-  missing=$(git -C "$relay" log --no-merges --format='  %h %s' "${built}..origin/main" -- "${CONNECTOR_TUNNEL_INPUTS[@]}" 2>/dev/null)
+  missing=$(git -C "$relay" log --no-merges --format='  %h %s' "${built}..origin/main" -- "${inputs[@]}" 2>/dev/null)
   # Pasteable: each pathspec single-quoted (the :(exclude) ones hold parentheses).
-  local _q; _q=$(printf "'%s' " "${CONNECTOR_TUNNEL_INPUTS[@]}")
+  local _q; _q=$(printf "'%s' " "${inputs[@]}")
   [ -n "$missing" ] || missing="  (the difference is not on a line of history from $built; compare with: git -C '$relay' diff --stat $built origin/main -- ${_q% })"
   # A connector built from a commit AHEAD of main (an unmerged branch) differs too; it is
   # refused all the same, but "stale" would be the wrong word for it.
@@ -77,10 +91,16 @@ connector_currency_check() {
     printf '%s\n' "$missing" >&2
     return 0
   fi
+  # How to run the build that made this connector.
+  local _run="run $script on a box with both rustup targets" _dist=dist/kosmos-tunnel
+  case "$script" in
+    *.ps1) _run="run powershell -NoProfile -ExecutionPolicy Bypass -File $script -Sign <the signing script> on the Windows release PC"
+           _dist=dist/kosmos-tunnel.exe ;;
+  esac
   {
-    echo "connector_currency: the Plus connector is $_what. It was built from ${built:0:12}, and its build inputs (crates/tunnel, crates/proto, Cargo.toml, Cargo.lock, tools/build-tunnel-release.sh; tests excluded) differ on kosmos-relay main:"
+    echo "connector_currency: the Plus connector is $_what. It was built from ${built:0:12}, and its build inputs (crates/tunnel, crates/proto, Cargo.toml, Cargo.lock, $script; tests excluded) differ on kosmos-relay main:"
     printf '%s\n' "$missing"
-    echo "Rebuild it before cutting: in kosmos-relay on an UP-TO-DATE main (git -C $relay pull --ff-only; this check moved only origin/main), run tools/build-tunnel-release.sh on a box with both rustup targets, and copy dist/kosmos-tunnel with its .commit and .sha256 to this box's $bin."
+    echo "Rebuild it before cutting: in kosmos-relay on an UP-TO-DATE main (git -C $relay pull --ff-only; this check moved only origin/main), ${_run}, and copy $_dist with its .commit and .sha256 to this box's $bin (or point KOSMOS_TUNNEL_BIN at it)."
     echo "To ship the older connector deliberately, rerun with KOSMOS_ALLOW_STALE_TUNNEL=1."
   } >&2
   return 1

@@ -352,5 +352,41 @@ out="$(KOSMOS_PLUS_VERIFY_DIR="$LOGD_P" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_
   && grep -q "host=" "$LOGD_P/promote-plus-unverified.log" && grep -q "force=0" "$LOGD_P/promote-plus-unverified.log" \
   && pass "promote: a promote that fails after the pointer moved is still logged (prod changed)" || bad "promote partial-not-logged (rc=$rc, log=$(cat "$LOGD_P/promote-plus-unverified.log" 2>/dev/null), out=$out)"
 
+
+# ---- #6609 phase 2c: with a recovery key pinned, promote checks the served release key list ----
+# A scratch copy of tools/ and engine/manifest-verify.js with throwaway keys rewritten in (RECOVERY_KEYS set,
+# the signing key pinned), a site that is a git repo with a bare origin (promote reads the list from
+# origin/main after a fetch), and a manifest signed by the cut key. A list naming that key lets the promote
+# through; a list that dropped it refuses, with prod untouched.
+RK="$T/rk-tree"; mkdir -p "$RK/engine"; cp -R "$HERE" "$RK/tools"
+node -e '
+  const fs = require("fs"), path = require("path"), crypto = require("crypto");
+  const [repo, rk] = process.argv.slice(1);
+  const pair = () => { const k = crypto.generateKeyPairSync("ed25519"); return { priv: k.privateKey.export({ type: "pkcs8", format: "pem" }), pub: k.publicKey.export({ type: "spki", format: "der" }).toString("base64") }; };
+  const cut = pair(), other = pair(), rec = pair();
+  let v = fs.readFileSync(path.join(repo, "engine", "manifest-verify.js"), "utf8");
+  const a = v.replace(/const KEYS = \[[\s\S]*?\];/, "const KEYS = " + JSON.stringify([cut.pub, other.pub]) + ";")
+    .replace("const RECOVERY_KEYS = Object.freeze([]);", "const RECOVERY_KEYS = Object.freeze([" + JSON.stringify(rec.pub) + "]);");
+  if (a === v || !a.includes(rec.pub)) { console.error("the KEYS or RECOVERY_KEYS line moved"); process.exit(1); }
+  fs.writeFileSync(path.join(rk, "engine", "manifest-verify.js"), a);
+  for (const [n, k] of Object.entries({ cut, other, rec })) { fs.writeFileSync(path.join(rk, n + ".pem"), k.priv); fs.writeFileSync(path.join(rk, n + ".pub"), k.pub); }
+' "$HERE/.." "$RK" || bad "rk: could not build the scratch tree"
+rk_sign() { node -e 'const fs=require("fs"),c=require("crypto");fs.writeFileSync(process.argv[2],c.sign(null,fs.readFileSync(process.argv[1]),c.createPrivateKey(fs.readFileSync(process.argv[3]))).toString("base64")+"\n")' "$1" "$2" "$3"; }
+rk_site() {   # $1: the key the served list names (cut or other)
+  local s; s="$(make_site)"; bash "$PUBLISH" "$s" >/dev/null 2>&1
+  rk_sign "$s/dist/$MAN" "$s/dist/$MAN.sig" "$RK/cut.pem"
+  printf '{"type":"kosmos-release-keys","seq":1,"release_keys":["%s"]}\n' "$(cat "$RK/$1.pub")" > "$s/dist/release-keys.json"
+  rk_sign "$s/dist/release-keys.json" "$s/dist/release-keys.json.sig" "$RK/rec.pem"
+  git init -q -b main "$s" && git -C "$s" add -A && git -C "$s" -c user.email=t@t -c user.name=t commit -qm site
+  git init -q --bare "$s.origin" && git -C "$s" remote add origin "$s.origin" && git -C "$s" push -q origin main 2>/dev/null
+  printf '%s' "$s"
+}
+Sk="$(rk_site cut)"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$RK/tools/promote-channel.sh" "$Sk" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$Sk/dist/latest.json" ] && pass "#6609: on, a manifest signed by a key the served list names is promoted" || bad "#6609 on/named (rc=$rc, out=$out)"
+Sd="$(rk_site other)"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$RK/tools/promote-channel.sh" "$Sd" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "not signed by a key the served release key list names" && [ ! -f "$Sd/dist/latest.json" ] \
+  && pass "#6609: on, a manifest signed by a key the served list dropped is refused, prod untouched" || bad "#6609 on/dropped (rc=$rc, out=$out)"
 echo ""
 if [ "$fail" = 0 ]; then echo "test-staging-channel-2036: ALL PASS"; else echo "test-staging-channel-2036: FAILURES above"; exit 1; fi

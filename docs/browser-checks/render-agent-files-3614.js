@@ -296,10 +296,23 @@ function chk(ok, label, extra) {
       }
       if (theme === 'light' && width === 1400) {
         await shot(page3, '3757-4-files-screen');
-        const before = opened.length;
+        // #6724: a plain click on a text row opens the preview with its words; the opener is a modifier-click away, as
+        // for a PDF above.
+        let before = opened.length;
         await page3.click('#d-filesall-list .pj-doc[data-doc="rex-13.txt"]');
+        let pv = null;
+        for (let i = 0; i < 40; i++) {
+          pv = await page3.evaluate(() => { const b = document.getElementById('pv-preview'); const t = b && b.querySelector('pre.pv-text'); return { open: !!b, text: t ? t.textContent : null }; });
+          if (pv.text && pv.text !== 'Reading\u2026') break;
+          await page3.waitForTimeout(100);
+        }
+        chk(pv.open && pv.text === 'r' && opened.length === before, `${tag} #6724: a plain click on a text row on the Files screen shows its words, and opens nothing`, JSON.stringify({ pv, opened: opened.slice(before) }));
+        await page3.keyboard.press('Escape');
+        await page3.waitForTimeout(300);
+        before = opened.length;
+        await page3.click('#d-filesall-list .pj-doc[data-doc="rex-13.txt"]', { modifiers: ['Meta'] });
         await page3.waitForTimeout(400);
-        chk(opened.length === before + 1 && /rex-13\.txt$/.test(opened[opened.length - 1] || ''), `${tag} #3757: a row on the Files screen opens that file`, JSON.stringify(opened.slice(before)));
+        chk(opened.length === before + 1 && /rex-13\.txt$/.test(opened[opened.length - 1] || ''), `${tag} #3757: a row on the Files screen opens that file (a Cmd-click, since #6724 a plain one previews it)`, JSON.stringify(opened.slice(before)));
       }
       // Back to the conversation from the Files screen (it has its own back, as the project's does).
       await page3.click('#d-files-back');

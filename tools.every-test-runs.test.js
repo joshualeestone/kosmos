@@ -52,6 +52,8 @@ const MANUAL = {
     'needs the staged dist/ trees and takes minutes across three gate runs; its own header says "run by hand before changing the gate".',
   'tools/test-linux-systemd-live-4918.sh':
     'requires a running Linux systemd user session (loginctl linger and systemd user bus); run in linux-systemd CI workflow (.github/workflows/linux-systemd.yml).',
+  'tools/test-linux-pause-check-live-6667.sh':
+    'kosmos#6667: changes the real user systemd and waits on its minutely timer, so it refuses to run outside GitHub Actions; run in linux-systemd CI workflow (.github/workflows/linux-systemd.yml).',
 };
 
 function toolsTests() {

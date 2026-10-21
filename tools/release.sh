@@ -817,6 +817,14 @@ if [ -z "${KOSMOS_MANIFEST_KEY_PROBE_BIN:-}" ]; then
   if [ "${#_srv[@]}" -gt 0 ] && ! node "$REPO/tools/lib/manifest-sign.js" check-served "$KOSMOS_MANIFEST_KEY" "${_srv[@]}"; then
     echo "the manifest-signing key is not one the releases now served accept (#6468): installs would refuse this cut. Ship a release that pins it first."; rm -rf "$_srv_dir"; exit 1
   fi
+  # #6609 phase 2c: with a recovery key pinned in the checkout, installs take the release key list the site serves before
+  # they check an update, so this cut's signing key must be on that list. Read from the site's origin/main, as above. A
+  # list the site does not hold is left absent here and refused by check-list. Off (no recovery key): it says so and passes.
+  git -C "$SITE" show "origin/main:dist/release-keys.json" > "$_srv_dir/release-keys.json" 2>/dev/null || rm -f "$_srv_dir/release-keys.json"
+  git -C "$SITE" show "origin/main:dist/release-keys.json.sig" > "$_srv_dir/release-keys.json.sig" 2>/dev/null || rm -f "$_srv_dir/release-keys.json.sig"
+  if ! node "$REPO/tools/lib/manifest-sign.js" check-list "$KOSMOS_MANIFEST_KEY" "$_srv_dir/release-keys.json" "$_srv_dir/release-keys.json.sig"; then
+    echo "the release key list check failed (the line above says why) (#6609): installs with the recovery key check on would refuse this cut. Fix the served list first."; rm -rf "$_srv_dir"; exit 1
+  fi
   rm -rf "$_srv_dir"
 fi
 
@@ -825,6 +833,8 @@ step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
 # fix), merged at 21:06: nothing compared the prebuilt with relay main. Refused here,
 # before the bump, so a stale connector costs a rebuild and not a cut. The same path
 # build-kosmos-bundle.sh reads at step 4. KOSMOS_ALLOW_STALE_TUNNEL=1 ships it on purpose.
+# Relay main must also hold tools/build-tunnel-release.sh: without it the answer is unknown, and that is refused even
+# with the override (#6628).
 connector_currency_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
   "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" || exit 1
 
@@ -1202,8 +1212,8 @@ step "== 3c. the installer .pkg, rebuilt and published only when its inputs chan
 # same afternoon a hand republish went live beside the previous build's
 # .sha256. This step is the remembering. It is NOT a rebuild every cut: the pkg is payload-free
 # (a postinstall that runs the served /setup), so it changes only when its
-# INPUTS change (pkg-scripts, pkg-resources, the build script (which carries the identifier), and
-# the signing identity; tools/lib/pkg-inputs.sh is the one definition). A rebuild
+# INPUTS change (pkg-scripts, pkg-resources, the build script (which carries the identifier), the
+# signing identity, and the release check in install/pkg-verify; tools/lib/pkg-inputs.sh is the one definition). A rebuild
 # costs a sign + notarise round trip, minutes, and only when one of those
 # moved. It sits BEFORE step 4 on purpose: step 4 copies the cache-immutable
 # versioned tarball into the site dist, and a notarisation flake after that

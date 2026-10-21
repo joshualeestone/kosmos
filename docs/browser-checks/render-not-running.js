@@ -39,7 +39,7 @@ const URL = process.env.KOSMOS_URL || 'http://127.0.0.1:17421';
       const nr = document.querySelector('.acard.notrunning');
       const box = nr ? nr.getBoundingClientRect() : null;
       return {
-        agents: c('st-agents'), off: c('st-off'), idle: c('st-idle'),
+        agents: c('st-agents'), off: c('st-off'), labels: [...document.querySelectorAll('.stat .slab')].map((e) => e.textContent.trim()),
         cardText: nr ? nr.innerText.replace(/\n/g, ' | ') : 'NO CARD',
         w: box ? Math.round(box.width) : 0, h: box ? Math.round(box.height) : 0,
         rings: nr ? nr.querySelectorAll('circle.gu, circle.gt, circle.gf').length : -1,
@@ -65,6 +65,8 @@ const URL = process.env.KOSMOS_URL || 'http://127.0.0.1:17421';
        a question about the sandbox rather than about the board. */
     say(seen.off === null, 'the Not-running TILE is gone (#653), not merely empty',
       seen.off === null ? 'absent' : 'st-off is back on the page');
+    say(seen.labels.includes('Agents') && !seen.labels.includes('Idle') && !seen.labels.includes('Waiting'),
+      'no Idle or Waiting tile (#6649; CONTROL: Agents is there)', JSON.stringify(seen.labels));
     say(Number(seen.agents.t) === seen.running + seen.offCards, 'the row adds up',
       seen.agents.t + ' = ' + seen.running + ' running + ' + seen.offCards + ' not running');
     await pg.screenshot({ path: '/tmp/nrshots/nr-' + theme + '.png', clip: { x: 0, y: 60, width: 1400, height: 420 } });

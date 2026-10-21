@@ -13,7 +13,7 @@
 # pkg's inputs against what the CURRENT source would build.
 #
 # The input identity is the sha256 of everything the build consumes that
-# decides the pkg's BEHAVIOUR (and, since #3643, who signs it): four paths.
+# decides the pkg's BEHAVIOUR (and, since #3643, who signs it): five paths.
 #   install/pkg-scripts/**        the postinstall (what runs)
 #   install/pkg-resources/**      the Welcome and Conclusion screens (what the
 #                                 person is told; #662/#663 live here)
@@ -24,6 +24,8 @@
 #                                 lived in the build script until it moved
 #                                 here, so a team switch must still make the
 #                                 next cut rebuild and re-sign the pkg
+#   install/pkg-verify/**         the release check the postinstall runs (#6576):
+#                                 its source and its floor
 # (The bundle identifier is baked in by the build script, which is hashed, so
 # it is not listed a second time here; a copy could drift from the real one.)
 # NOT the version (metadata, and the pkg is version-independent) and NOT the
@@ -47,11 +49,13 @@ pkg_input_sha() {
   local resources="$repo/install/pkg-resources"
   local build="$repo/tools/build-installer-pkg.sh"
   local ident="$repo/tools/lib/signing-identity.sh"
+  local verify="$repo/install/pkg-verify"   # #6576: the release check and its floor, built into the package
   # ALL inputs or nothing: a missing one is a refusal, never a sha over less.
   [ -d "$scripts" ]   || { echo "pkg_input_sha: no pkg-scripts at $scripts" >&2; return 1; }
   [ -d "$resources" ] || { echo "pkg_input_sha: no pkg-resources at $resources" >&2; return 1; }
   [ -f "$build" ]     || { echo "pkg_input_sha: no build script at $build" >&2; return 1; }
   [ -f "$ident" ]     || { echo "pkg_input_sha: no signing identity at $ident" >&2; return 1; }
+  [ -d "$verify" ]    || { echo "pkg_input_sha: no release check at $verify" >&2; return 1; }
   # Deterministic: each input's path and bytes, in sorted order, under a
   # section label so a file moving between sections changes the sha too.
   # ⚠️ DOTFILES AND DOT-DIRECTORIES EXCLUDED. verify-served.sh runs this on the
@@ -65,7 +69,7 @@ pkg_input_sha() {
   # delimited, so a name with a space is checked, not split into two names
   # that do not exist.
   local unreadable
-  unreadable="$( _pkg_first_unreadable "$scripts" "$resources" "$build" "$ident" )"
+  unreadable="$( _pkg_first_unreadable "$scripts" "$resources" "$build" "$ident" "$verify" )"
   [ -z "$unreadable" ] || { echo "pkg_input_sha: cannot hash input as it is: $unreadable" >&2; return 1; }
   # Each entry is framed: path, executable bit, byte count, then the bytes, so
   # a file with no trailing newline cannot run into the next path line.
@@ -87,6 +91,8 @@ pkg_input_sha() {
     ( cd "$repo" && _pkg_stream_file ./tools/build-installer-pkg.sh )
     printf 'section:signing-identity\n'
     ( cd "$repo" && _pkg_stream_assignments ./tools/lib/signing-identity.sh )
+    printf 'section:pkg-verify\n'
+    ( cd "$verify" && _pkg_stream_dir )
   } | _pkg_hash | awk '{print $1}'
 }
 # The framed stream of one file: path, x or -, byte count, bytes.
@@ -112,8 +118,8 @@ _pkg_stream_assignments() {
 _pkg_stream_dir() {
   find . -name '.?*' -prune -o -type f -print | LC_ALL=C sort | while IFS= read -r f; do _pkg_stream_file "$f"; done
 }
-# The first input that cannot be hashed as it is, among the two dirs, the build
-# script and the signing identity, or nothing. NUL-delimited so a name with a space is one name.
+# The first input that cannot be hashed as it is, among the three dirs (scripts, resources, and the release check
+# when given), the build script and the signing identity, or nothing. NUL-delimited so a name with a space is one name.
 # Three shapes, because "all inputs or nothing" has to hold for each:
 #   a file that is not readable        cat would hash it as absent
 #   a directory that is not searchable find cannot enter it, its contents
@@ -137,7 +143,7 @@ _PKG_NL="$(printf '\nx')"; _PKG_NL="${_PKG_NL%x}"
 _pkg_has_newline() { case "$1" in *"$_PKG_NL"*) return 0;; esac; return 1; }
 _pkg_first_unreadable() {
   local d f
-  for d in "$1" "$2"; do
+  for d in "$1" "$2" ${5:+"$5"}; do   # #6576: the fifth argument is the release-check dir, checked like the other two
     # The ROOT itself first: cd into a mode-000 dir fails inside the
     # substitution below, which would report nothing and stream an empty
     # section (measured), the sha-over-less this function exists to refuse.
