@@ -78,7 +78,7 @@ test('installer: with no address named, only a release from the production site 
   assert.ok(lifted().includes('${AGENT_WORKFORCE_TUNNEL_COORDINATOR:-' + mv.PAUSE_DEFAULT_COORDINATOR + '}'));
 });
 
-test('installer: the ask runs before anything is downloaded or changed, and a hold exits 96 saying why', () => {
+test('installer: the ask runs before the update is downloaded or anything installed is changed, and a hold exits 96 saying why', () => {
   const call = SETUP.indexOf('\nif update_paused; then\n');
   assert.ok(call > 0, 'setup.sh no longer calls update_paused');
   assert.ok(SETUP.indexOf('[ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ] && FRESH_INSTALL=no') < call,
@@ -87,6 +87,9 @@ test('installer: the ask runs before anything is downloaded or changed, and a ho
   const block = SETUP.slice(call, SETUP.indexOf('\nfi\n', call));
   assert.match(block, /exit 96/);
   assert.match(block, /Updates are paused while Kosmos checks a problem with a release/);
+  // run-setup's word that it asked is not passed on to the board or anything else the installer starts.
+  const after = SETUP.slice(SETUP.indexOf('\nfi\n', call));
+  assert.ok(/^\nfi\n(#.*\n)*unset KOSMOS_UPDATE_PAUSE_ASKED\n/.test(after), 'KOSMOS_UPDATE_PAUSE_ASKED must be unset right after the ask');
 });
 
 test('run-setup tells the installer it has already asked', () => {

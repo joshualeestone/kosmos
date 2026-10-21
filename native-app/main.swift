@@ -3441,8 +3441,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case .failed(let v):
             showUpdateOffer(v, note: "Kosmos could not update to \(v). Press Update to try again.")
         case .paused(let v):
-            // #6781: held on purpose, not failed. The offer stays, and Kosmos looks again later on its own.
-            showUpdateOffer(v, note: "Updates are paused while Kosmos checks a problem with a release. Kosmos will update to \(v) once the pause is lifted.")
+            // #6781: held on purpose, not failed. An update already installed and waiting for Restart is not held by the
+            // pause (it is on disk), so that offer stays; otherwise the newer one is offered with why it waits.
+            if let installed = installedUpdate { showInstalledOffer(installed) }
+            else { showUpdateOffer(v, note: "Updates are paused while Kosmos checks a problem with a release. Try again later.") }
         case .updated(let v) where asked && !ownDialogOpen:
             // The person pressed Update, and the bar said it restarts when done. The offer is kept
             // underneath, so a relaunch that fails leaves Restart on offer, not nothing.

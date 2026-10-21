@@ -329,6 +329,8 @@ test('#6781: paused, a newer version answers paused and runs nothing; CONTROL: n
   assert.equal(held.last, 'paused 1.2.0');
   assert.equal(ran(), '', 'the installer ran during a pause');
   assert.equal(fs.existsSync(path.join(HOME, 'logs', 'install.status')), false, 'a held look records no install');
+  assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.log'), 'utf8'), /1\.2\.0 is newer, and updates are paused, so nothing was installed\n$/,
+    'install.log says why this computer did not update');
   reset({ prod: '1.2.0' });
   const control = await run(['--if-newer'], { KOSMOS_UPDATE_PAUSE_URL: pauseAnswer('{"updates_paused": false}') });
   assert.equal(control.last, 'updated 1.2.0', control.stdout + control.stderr);

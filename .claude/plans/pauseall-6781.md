@@ -8,7 +8,8 @@ and win32update.begin (Windows). Its plan named three installs the pause did not
 2. **A .pkg on its pinned path** (once install/pkg-verify/floor stops reading "off") runs the checked installer
    directly too.
    Both now meet the same ask inside the installer: `update_paused` in install/setup.sh, called right after the
-   installer knows it is updating in place (FRESH_INSTALL=no) and before anything is downloaded or changed. Paused:
+   installer knows it is updating in place (FRESH_INSTALL=no), after its log is opened and the release pointer read,
+   and before the update is downloaded or anything installed is changed. Paused:
    it says so in a plain sentence and exits 96 (the .pkg's "a retry can succeed").
 3. **A connect computer** (no board) runs `kosmos update --if-newer`, which run-setup already held, but its one-line
    answer to the native app was `failed <version>`, so the app said "could not update". The CLI now asks first
@@ -56,3 +57,14 @@ install.installer-pause-6781.test.js (6 tests); cli.update-ifnewer-4382.test.js 
 fail open, nothing newer); native-app.update-ifnewer-4382.test.js (the paused arm pinned); the native app's
 --kosmos-app-update-selftest (+3 rows, 26). Mutants, each red: a first install held, any release site asking, a
 `truex` lookalike, ASKED ignored, run-setup not setting ASKED, the CLI not asking.
+
+## Review decisions
+- Review 1 (opus): run-setup's KOSMOS_UPDATE_PAUSE_ASKED was inherited by the board the installer starts, and by
+  everything the board starts, so a later pasted line from that environment skipped the pause: now unset right
+  after the ask (pinned). A `paused` answer threw away a waiting Restart (an installed update is on disk, not held):
+  the Restart offer now stays. The app's sentence promised an automatic update, false with updates off: it now says
+  "Try again later." The CLI's documented answers name `paused`; a held look writes one line to install.log; the 96
+  and "before anything is changed" comments say what is true.
+  Left: a connect computer that is not paused asks twice (the CLI, then run-setup), up to 10 s against a coordinator
+  that does not answer; making run-setup trust the CLI's ask would add a second way past it. An app older than this
+  shows "could not reach its update server" when the person pressed Update during a pause; unchanged for them.

@@ -74,7 +74,8 @@ test('#4382: what each answer does: offer, retry, relaunch, or nothing', () => {
   assert.match(done, /case \.newer\(let v\):\n(\s+\/\/.*\n)*\s+showUpdateOffer\(v\)\n/);
   assert.match(done, /case \.failed\(let v\):\n\s+showUpdateOffer\(v, note:/);
   // #6781: a paused fleet keeps the offer, says why, and is looked at again later (the retry above), never "failed".
-  assert.match(done, /case \.paused\(let v\):\n(\s+\/\/.*\n)*\s+showUpdateOffer\(v, note: "Updates are paused while Kosmos checks a problem with a release\./);
+  assert.match(done, /case \.paused\(let v\):\n(\s+\/\/.*\n)*\s+if let installed = installedUpdate \{ showInstalledOffer\(installed\) \}\n\s+else \{ showUpdateOffer\(v, note: "Updates are paused while Kosmos checks a problem with a release\. Try again later\."\) \}/,
+    'a pause must keep a waiting Restart, and must not promise an update that consent may not allow');
   assert.match(SRC, /case \("paused", 2\) where version\(words\[1\]\): return \.paused\(words\[1\]\)/);
   // Review 1: only the person's own Update restarts at once, and never under a dialog of ours. An install
   // made because updates are on waits for Restart, so words typed on the page are never lost to it.
