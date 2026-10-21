@@ -36724,17 +36724,20 @@ function burgerClose() {
 
 /* #6846: the iPhone app's native tab bar opens a board section through here, the way the phone menu does: the same
    press on the real tab (which resets to the top of the section, as a person's press does; showTab alone would
-   restore the last open project), or for Settings, which has no tab, showTab and its first section. Answers false,
-   changing nothing, for a name the board has no such section for, and while a full-screen step (first run, an update,
-   a restart) has made #tabs or anything around it inert, or while a confirmation or other box has its backdrop up
-   (those are not inert; the board's own keystroke guard tests the backdrop the same way), as a person's press cannot
-   reach the tabs then either; the app can tell instead of changing the page under a box. A hidden Tasks tab is still opened: it is hidden on a fresh page until the
-   first status poll, and the app offers Tasks only from that same poll's tasksTab (#3559), so refusing would turn an
-   earned tab into a silent no-op. */
+   restore the last open project), or for Settings, which has no tab, the way the user menu opens it.
+   It answers false, changing nothing, for a name the board has no such section for, and whenever a person's press
+   could not reach the tabs either: a full-screen step (first run, an update, a restart) has made #tabs or anything
+   around it inert; a confirmation or other box has its backdrop up (those are not inert; the keystroke guard tests the
+   backdrop the same way); or a header menu (the user menu, the Kosmos switcher) is open over the page. The app can
+   then tell, instead of changing the page under a box or a menu. The phone menu and the burger are not refusals:
+   the phone menu is closed here, and the press closes the burger.
+   A hidden Tasks tab is still opened: it is hidden on a fresh page until the first status poll, and the app offers
+   Tasks only from that same poll's tasksTab (#3559), so refusing would turn an earned tab into a silent no-op. */
 if (typeof window !== 'undefined') window.kosmosAppTab = (name) => {
   const tabs = document.getElementById('tabs');
   if (!tabs || tabs.closest('[inert]')) return false;
   if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return false;
+  if (document.querySelector('[aria-haspopup][aria-expanded="true"]:not(#kplus-menu):not(#burger), #worldsw-btn[aria-expanded="true"]')) return false;
   const real = ['agents', 'projects', 'tasks'].includes(name) && tabs.querySelector('.tab[data-tab="' + name + '"]');
   if (!real && name !== 'settings') return false;
   /* The phone menu closes first, and focus goes back to its button (before the section takes it, for Settings). */

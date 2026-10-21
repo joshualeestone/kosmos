@@ -16,7 +16,9 @@ menu (#pnav) already opens tabs by clicking the real tab and Settings by showTab
 1. web/index.html: `window.kosmosAppTab` beside burgerClose. Refuses (false, nothing changed) a name it has no section
    for, a page without #tabs, a board made inert by a full-screen step (first run, an update, a restart; the same
    `closest('[inert]')` test the phone menu uses), and an open box with its backdrop up (confirmations, What's New;
-   the board's keystroke guard's own backdrop test, since those boxes are not inert). Otherwise closes an open phone
+   the board's keystroke guard's own backdrop test, since those boxes are not inert), and an open header menu (the
+   user menu, the Kosmos switcher: the tips' tipMenuOpen test less the phone menu, which the door closes, and the
+   burger, which the press closes; hidden at phone width in the app today, so this keeps the door honest elsewhere). Otherwise closes an open phone
    menu (focus back to its button); agents/projects/tasks press the real tab; settings opens as the user menu opens it
    (userpopSettingsGo): in place in the consolidated layout, else burgerClose + showTab('settings') +
    settingsOpen('you').
@@ -47,5 +49,11 @@ and per Mona Lisa changes the bar only at launch or return to the front). What w
 turning tasksTab back off (#3559 says once shown it stays).
 
 ## Validation
-No visual change, so no browser check. Focused run: every web.*.test.js plus fixture-discipline, no-brand-refs and
+No visual change, so no browser check. The test drives the door's real code against fakes and pins, by text, the
+board code it relies on (the press resets before showTab; the backdrop and open-menu tests; how the user menu opens
+Settings). Where the board lands after the press is the press's own behaviour, already covered by the board's tests;
+the consolidated layout's press (consNavClick) is never reached from a phone-width web view. A real-DOM check of the
+door is a follow-up for part (c), whose browser check boots the board in the app mode anyway.
+Boot: a call between load and the first-run answer can succeed and then be covered by first run's opaque overlay;
+harmless (the section is simply behind it). The app calls after the page has finished loading. Focused run: every web.*.test.js plus fixture-discipline, no-brand-refs and
 no-name-refs.
