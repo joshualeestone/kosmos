@@ -38,6 +38,7 @@ let onHashed = null;         // test seam: called after each file is hashed or g
 const FP_NOFOLLOW = fs.constants.O_NOFOLLOW;
 const FP_NONBLOCK = fs.constants.O_NONBLOCK;
 const OPEN_FLAGS = fs.constants.O_RDONLY | (FP_NOFOLLOW || 0) | (FP_NONBLOCK || 0);
+const READ_BUF = Buffer.allocUnsafe(1024 * 1024);   // only the bytes each read fills are hashed
 const keyOf = (st) => [st.dev, st.ino, st.size, st.mtimeMs, st.ctimeMs].join('|');   // '|', not ':' (#1732 reserves ':' for path lists)
 
 /** The fingerprint already known for this file as it is now (its stat), or null. Never reads the file. */
@@ -52,8 +53,9 @@ function known(path, st) {
 function want(path, st) {
   if (!st || typeof st.isFile !== 'function' || !st.isFile() || st.size > MAX_BYTES) return;
   /* Iteration 3: a cloud-only placeholder (iCloud Drive, a file provider) reports its full size but holds no blocks here;
-     reading it would make the system download the whole file because a list was shown. It gets no fingerprint. Where the
-     platform reports no blocks (Windows), this cannot be told, which the plan records. */
+     reading it would make the system download the whole file because a list was shown. It gets no fingerprint. Whether
+     Windows reports a OneDrive placeholder's blocks as 0 (libuv derives them from the allocation size) is NOT measured
+     here: if it does, this catches it there too; if not, the plan records the gap. */
   // Iteration 4: only from 1 MiB, so a small file stored inline or compressed (no blocks of its own) is still fingerprinted.
   if (Number.isFinite(st.blocks) && st.blocks === 0 && st.size >= PLACEHOLDER_MIN) return;
   const now = Date.now();
@@ -82,7 +84,7 @@ async function hashOne(job) {
     const before = await fh.stat();
     if (!before.isFile() || keyOf(before) !== job.key) return;   // changed since it was listed: the next poll asks again
     const h = crypto.createHash('sha256');
-    const buf = Buffer.alloc(1024 * 1024);
+    const buf = READ_BUF;   // iteration 9: one buffer, reused (drain hashes one file at a time)
     for (let pos = 0; pos < before.size;) {
       const { bytesRead } = await fh.read(buf, 0, Math.min(buf.length, before.size - pos), pos);
       if (bytesRead <= 0) return;
