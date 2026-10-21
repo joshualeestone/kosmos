@@ -7,8 +7,12 @@ FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-SB="$(mktemp -d "${TMPDIR:-/tmp}/test-supervisor-codex-isolation-4592.XXXXXXXXXX")"
+# #6810: a stock Mac's TMPDIR ends in "/", which left "T//" in SB and in every path built from it, while the
+# supervisor hands the pane a clean path, so the exact-match arms below failed with no fault in the product.
+TMPROOT="${TMPDIR:-/tmp}"; TMPROOT="${TMPROOT%/}"
+SB="$(mktemp -d "$TMPROOT/test-supervisor-codex-isolation-4592.XXXXXXXXXX")"
 trap 'rm -rf "${SB:-}"' EXIT
+case "$SB" in *//*) bad "the scratch root has a doubled slash, so the exact path arms would fail on spelling: $SB" ;; esac
 PERSON_HOME="$SB/person-codex"
 DATA_PARENT="$SB/data"
 RUNTIME_HOME="$DATA_PARENT/Kosmos/codex-homes/pluginprobe"
