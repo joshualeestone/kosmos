@@ -580,7 +580,7 @@ function replyFileAbsolute(file, cwd, p) {
   }
   return file.startsWith('/') ? file : cwd + '/' + file;
 }
-/* #6726: the second usage line install/kosmos prints for reply, word for word (cli.reply-file-6726 pins both). */
+/* #6726: the second usage line install/kosmos prints for reply (tools.windows-kosmos-cli-reply-file-6726.test.js pins it to install/kosmos's). */
 const USAGE_REPLY_FILE = '       kosmos reply --file <path> ["what it is"]   (attach one file from your Files folder, or from inside a project you are on, up to 100 MB: they download it from your conversation)';
 /* What --help prints for a verb: its usage, and for reply (#6726) the --file line too, as install/kosmos's help does. */
 function helpFor(verb) { return verb === 'reply' ? USAGE.reply + '\n' + USAGE_REPLY_FILE : USAGE[verb]; }

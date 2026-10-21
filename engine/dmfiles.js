@@ -48,7 +48,7 @@ const FOLDER = 'Files';
    conversation. Taught only where it has been seen to work: the Windows `kosmos` (tools/windows/kosmos-cli.js)
    takes --file too (#6726's Windows half), but the board's checks of which files may go (engine/replyfile.js)
    have never run on a Windows board, so a Windows board does not teach it until one real run there has attached
-   a file (asked of the Windows box on #6726). The route attaches
+   a file. The route attaches
    only for a sender its AGENT token names (server.js /api/reply), and only agents Kosmos starts get one
    (bin/agent-supervisor.sh mints it); an adopted agent (a tmux session Kosmos found, launched by its own script)
    receives this block too and has none, so the sentence says who can (review r7 finding 3). */
