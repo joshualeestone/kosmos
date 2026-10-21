@@ -134,6 +134,14 @@ function finish(s, scope, owner, { type, size, by }) {
   return { ...record, dir: s.dir, file: s.file };
 }
 function abandon(s) { try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+/** #6734 review 19: take back an attachment just stored whose upload could not be answered: no message carries it, and
+    nothing would list it, so it would only take up space. Only a folder inside the store is removed. */
+function discardStored(rec) {
+  if (!rec || typeof rec.dir !== 'string') return;
+  const rel = path.relative(ROOT, rec.dir);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return;
+  abandon(rec);
+}
 
 /* #6734 review 2: a board that stops mid-upload (a crash, a kill, a power cut) leaves an attachment folder with no
    record.json: a part file of up to the cap, or a renamed file whose record was never written. read() never serves
@@ -574,4 +582,4 @@ function rowFields(recs) {
   return { attachment: list[0], attachments: list };
 }
 
-module.exports = { MAX_BYTES, MAX_WORDS, TOO_LARGE, PART, ORPHAN_AGE_MS, MAX_THUMBNAIL_BYTES, sweepOrphans, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, saveFilled, saveStream, read, rowField, rowFields, resolveForMessage, preview, previewFile, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js
+module.exports = { MAX_BYTES, MAX_WORDS, TOO_LARGE, PART, ORPHAN_AGE_MS, MAX_THUMBNAIL_BYTES, sweepOrphans, discardStored, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, saveFilled, saveStream, read, rowField, rowFields, resolveForMessage, preview, previewFile, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js

@@ -101,7 +101,7 @@ the file in memory: an upload is written to disk as it arrives, and a download i
    size + 1 bytes, and two downloads over one keep-alive connection both arrive whole. Without the bound the second
    response on that connection fails to parse (measured), so the bound protects the next request, not just this one.
 12. **Smaller:** a failed stat before conversion converts nothing (it used to read as size 0); a HEAD answer or an empty
-   file ends the response before closing the descriptor, inside a try.
+   file ends the response, then closes the descriptor inside a try.
 
 13. **A timed-out upload is named as one** (review 3). Node answers its request timeout with 408 rather than dropping
    the connection (measured on Node 26.8.1, a slow PUT against a short `requestTimeout`), so the fetch resolves and the
@@ -198,10 +198,12 @@ phone yet: the remaining manual step covers it.
    tunnel's 502, which the page showed as "(status 502)". A large file's 502 or 504 now gets the conditional
    slow-connection sentence; a small file's, and any answer carrying the board's own sentence, are unchanged.
 
-28. **Review 18:** the upload route told the person "we could not keep that file" for a failure that came after the
-   file was kept (building the answer). Store failures and answer failures are now handled apart: the second is a 500
-   saying the file was kept (test: the answer made to fail; the file is there; red with one handler for both, which
-   answered 400 with the raw message).
+28. **Review 18, corrected in review 19:** a failure after the file was stored (building the answer) went to the store
+   failure handler, which answered 400 with the raw message. The two are now handled apart. Round 18 answered "that
+   file was kept ... reload to see it", which was false: an uploaded file is known only to the page until it is sent,
+   so a reload shows nothing, and with its record it is never swept. Now the stored folder is taken back
+   (`attachments.discardStored`, inside the store only) and the answer is a 500 "we could not add that file; try again"
+   (test: the answer made to fail; nothing left; red with one handler for both, and with the folder not taken back).
 
 ### Considered and not changed (review 17)
 - A record naming exactly the part file, or a reserved name with trailing dots on macOS, stays unreachable: rare, and

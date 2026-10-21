@@ -634,7 +634,7 @@ test('#6734: a name Windows would read as record.json or preview.png ("record.js
   assert.equal(attachments.safeName(longS), 'file-' + longS);
 });
 
-test('#6734: a failure after the file is kept does not tell the person it was not kept', async () => {
+test('#6734: a failure answering for a stored upload takes the file back and says it was not added', async () => {
   const before = stored().length;
   const real = attachments.rowField;
   let thrown = 0;
@@ -646,6 +646,7 @@ test('#6734: a failure after the file is kept does not tell the person it was no
   } finally { attachments.rowField = real; }
   assert.ok(thrown > 0, 'the answer was never built, so this tested nothing');
   assert.equal(got.status, 500, JSON.stringify(got));
-  assert.equal(JSON.parse(got.body).error, 'that file was kept, but Kosmos could not answer for it; reload to see it');
-  assert.equal(stored().length, before + 1, 'the file the sentence says was kept is not there');
+  assert.equal(JSON.parse(got.body).error, 'we could not add that file; try again');
+  // Review 19: nothing refers to it and nothing would list it, so it must not be left taking up space.
+  assert.ok(await until(() => stored().length === before), 'a file nobody can reach was left behind');
 });

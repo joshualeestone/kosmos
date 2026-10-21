@@ -19070,8 +19070,12 @@ const server = http.createServer(async (req, res) => {
            file cannot stall or crash the board; it never fails the upload. */
         return require('./engine/attachtext').render(rec).catch(() => null)
           .then(() => sendJson(res, 200, { attachment: attachments.rowField(rec) }))
-          /* Review 18: the file IS kept by now, so a failure answering for it must not say it was not. */
-          .catch(() => { if (!res.headersSent) sendJson(res, 500, { error: 'that file was kept, but Kosmos could not answer for it; reload to see it' }); });
+          /* Review 18/19: the file was stored, but nothing refers to it until the page hears its id, and nothing would
+             list it later, so it is taken back and the person told plainly that it was not added. */
+          .catch(() => {
+            attachments.discardStored(rec);
+            if (!res.headersSent) sendJson(res, 500, { error: 'we could not add that file; try again' });
+          });
       }, (err) => refuseUpload(req, res, (err && !err.code && err.message) ? String(err.message) : 'we could not keep that file'));
       /* Review 9: a system error (it has a code, like ENOSPC) carries a path with the user's name; the person and their
          phone get the sentence instead. The store's own refusals are sentences and have no code. */
