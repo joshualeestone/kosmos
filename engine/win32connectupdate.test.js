@@ -329,8 +329,13 @@ test('kosmos#6620: a new install waits out the fleet update pause, before anythi
   assert.equal(held.ok, false);
   assert.equal(held.because, PAUSED_SENTENCE);
   assert.deepEqual(c.spawned, [], 'nothing was started during a pause');
-  const control = await win32update.begin({ ...seams.helperOptions, root: c.root, env, port: PORT, liveExecutionAllowed: () => true, fetchImpl: answer(false) });
-  assert.notEqual(control.because, PAUSED_SENTENCE, 'CONTROL: not paused, the install goes past the pause');
+  /* CONTROL: not paused, begin goes past the pause and on to the next check, the board-task rule, which this stub
+     refuses (as the #4382 control above does), so nothing real is queried and the refusal proves the pause let it by. */
+  const control = await win32update.begin({ ...seams.helperOptions, root: c.root, env, port: PORT, liveExecutionAllowed: () => true, fetchImpl: answer(false),
+    boardTask: { startedByTask: () => false, status: () => ({ known: true, registered: true, enabled: false }) } });
+  assert.equal(control.ok, false);
+  assert.match(control.because, /was not started by its Windows logon job/, 'CONTROL: not paused, begin did not reach the next check');
+  assert.deepEqual(c.spawned, []);
 });
 
 test('#4382: nothing is done on a computer that does not connect, while a board answers, or for an agent', T, async () => {
