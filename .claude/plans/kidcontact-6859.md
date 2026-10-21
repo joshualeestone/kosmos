@@ -6,12 +6,17 @@ kept agents out only under `outside_contact: { enabled: false }`, which a family
 Family preset or sets it by hand. A child's computer in a family whose parent never saved a policy could post, reply
 and follow in the public community.
 
-## Change (engine/orgpolicy.js only)
-`contactAllows(policy, kind)` takes the org kind this board is joined to (orgenroll.kindHere(), read at the call). On a
-family's computer outside contact is stopped unless the policy says `outside_contact: { enabled: true }`: no policy,
-a policy without the key, or `{ enabled: false }` all keep agents out. A company, or a computer joined to nobody, is
-unchanged (only `{ enabled: false }` stops it). Every reader goes through this one function (community send,
-community switch, the agent's community block, shared rooms), so all of them follow.
+## Change (engine/orgpolicy.js, engine/orgenroll.js)
+`contactAllows(policy, kind)` takes the org kind this board is joined to, read by `orgenroll.kindStrict()` when the
+caller gives none (also when it gives an explicit policy). On a family's computer outside contact is stopped unless
+the policy says `outside_contact: { enabled: true }`: no policy, a policy without the key, or `{ enabled: false }`
+all keep agents out. A company, or a computer joined to nobody, is unchanged (only `{ enabled: false }` stops it).
+Every reader goes through this one function (community send, community switch, the agent's community block, shared
+rooms), so all of them follow.
+
+`kindStrict`: the record's kind; a record file that is there but cannot be read throws, whatever markers sit beside
+it; with no record, a pending join's or leave's kind ('company' when the marker names none, as markers from before
+kinds do); null only with no enrollment at all.
 
 ## Decided, not missed
 - Board side, not coordinator: it needs no coordinator deploy and covers a family that already exists with no
@@ -36,6 +41,16 @@ community switch, the agent's community block, shared rooms), so all of them fol
 - Review 1, deferred: the sentence "the policy set for this Kosmos keeps agents out" when a family saved none.
   #6239 lists "no outside contact" among the Kids default policies, so the default is a policy set for that
   Kosmos; one sentence keeps the agent's block, the send layer and the console words identical.
+- Review 2: a damaged record throws even with a join or leave marker beside it (review 1 let the marker stand in,
+  so a damaged family record plus a company join opened contact); a marker that names no kind (older builds) reads
+  as a company's instead of throwing, so no company board is closed by legacy state.
+- Review 2: a family leave the coordinator has not confirmed keeps agents out until it is (the safe direction).
+- Review 2, deferred: a throw is worded by every caller as "cannot read the policy set for this Kosmos ... (tell
+  your person)". On a damaged enrollment that names the policy, not the enrollment; it is still a fault the
+  person should hear about, and rewording every caller's fault sentence is outside this card.
+- Review 2, deferred: on a fault the agent's community block keeps the rules (communityblock.policyStopped reads a
+  throw as not stopped, so a fault never rewrites every agent's instructions) while every send is refused. That is
+  the existing posture for a damaged policy record; nothing leaks.
 - Review 1, deferred: one more small file read per contactAllows call (currentStrict already reads one per call);
   the require is lazy, so there is no load-order cycle.
 
@@ -49,3 +64,6 @@ community switch, the agent's community block, shared rooms), so all of them fol
 - Review 1: a damaged enrollment throws (community 'policy_unreadable', rooms stopped); a family join not yet
   settled keeps agents out, a company's does not (control); the agent's community block is stopped for a family
   and not for a company. Mutation: kindStrict back to kindHere (the fail-open read): 1 red.
+- Review 2: a marker beside a damaged record does not hide it; a kindless marker reads as a company's; a family
+  leave not yet confirmed keeps agents out; throws are matched by their words. Mutations: review 1's kindStrict body
+  (red: a marker hid a damaged record); a kindless marker throwing (red).

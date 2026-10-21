@@ -50,6 +50,7 @@ function joined(kind) {
   fs.rmSync(orgpolicy.APPLIED(), { force: true });
   const file = path.join(store.ROOT, orgenroll.ENROLLMENT_FILE);
   fs.rmSync(path.join(store.ROOT, JOIN_UNKNOWN), { force: true });
+  fs.rmSync(path.join(store.ROOT, orgenroll.LEAVE_PENDING_FILE), { force: true });
   if (kind === null) { fs.rmSync(file, { force: true }); return; }
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ org: { id: 'org-1', name: 'The Smiths', slug: 'smiths', kind }, world: 'a'.repeat(32) }) + '\n');
@@ -111,14 +112,26 @@ test('#6859: an enrollment that cannot be read, or a family join not yet settled
   try {
     joined('family');
     fs.writeFileSync(file, '{ not json');
-    assert.throws(() => orgpolicy.contactAllows(), 'a damaged enrollment read as joined to nobody');
+    assert.throws(() => orgpolicy.contactAllows(), /enrollment record that cannot be read/, 'a damaged enrollment read as joined to nobody');
     assert.equal(communitysend.switchState(), 'policy_unreadable');
     assert.equal(fedseats.contactStopped(), true);
+    // A marker beside a damaged record does not stand in for it (a damaged family record plus a company join).
+    fs.writeFileSync(path.join(store.ROOT, JOIN_UNKNOWN), JSON.stringify({ at: new Date().toISOString(), orgKind: 'company' }) + '\n');
+    assert.throws(() => orgpolicy.contactAllows(), /enrollment record that cannot be read/, 'a marker hid a damaged record');
     joined(null);
     fs.writeFileSync(path.join(store.ROOT, JOIN_UNKNOWN), JSON.stringify({ at: new Date().toISOString(), orgKind: 'family' }) + '\n');
     assert.equal(orgenroll.kindStrict(), 'family', 'CONTROL: the pending join is read');
     assert.deepEqual(readers(), OUT, 'a family join not yet settled let agents out');
     fs.writeFileSync(path.join(store.ROOT, JOIN_UNKNOWN), JSON.stringify({ at: new Date().toISOString(), orgKind: 'company' }) + '\n');
     assert.deepEqual(readers(), IN, 'CONTROL: a company join not yet settled lets agents out');
+    // A marker from before kinds names none: read as a company's, as setJoinUnknown records an unknown kind.
+    fs.writeFileSync(path.join(store.ROOT, JOIN_UNKNOWN), JSON.stringify({ at: new Date().toISOString() }) + '\n');
+    assert.equal(orgenroll.kindStrict(), 'company');
+    assert.deepEqual(readers(), IN, 'a kindless marker from an older build closed a company board');
+    joined(null);
+    // A family leave the coordinator has not confirmed yet keeps agents out until it is.
+    fs.writeFileSync(path.join(store.ROOT, orgenroll.LEAVE_PENDING_FILE), JSON.stringify({ at: new Date().toISOString(), rec: { org: { id: 'org-1', kind: 'family' } } }) + '\n');
+    assert.equal(orgenroll.kindStrict(), 'family', 'CONTROL: the pending leave is read');
+    assert.deepEqual(readers(), OUT, 'a family leave not yet confirmed let agents out');
   } finally { communitysend.setSwitch(null); joined(null); }
 });

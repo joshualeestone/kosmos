@@ -535,16 +535,18 @@ function pendingKind(opts) {
 /* kosmos#6263: the kind of the org this Kosmos is enrolled to, for sentences elsewhere (a policy's): 'family',
    'company', or null when it is enrolled to none or its record names no kind (both read as a company's). */
 function kindHere(opts) { return recKind(opts) || null; }
-/* kosmos#6859: the kind for a rule that must not fail open: the record's kind, else a pending join's or leave's, else
-   null only when this Kosmos holds no enrollment at all. A record that is there but cannot be read throws. */
+/* kosmos#6859: the kind for a rule that must not fail open. The record's kind; a record file that is there but cannot
+   be read throws, whatever else is beside it. With no record, a pending join's or leave's kind ('company' when the
+   marker names none, as markers from before kinds do); null only when this Kosmos holds no enrollment at all. */
 function kindStrict(opts) {
   const r = readEnrollment(opts);
   if (r) return kindOf(r.org.kind);
+  let recordThere = true;
+  try { fs.statSync(path.join(storeRoot(opts), ENROLLMENT_FILE)); } catch (e) { recordThere = !e || e.code !== 'ENOENT'; }
+  if (recordThere) throw new Error('this Kosmos holds an enrollment record that cannot be read');
   if (!holdsEnrollment(opts)) return null;
   const j = joinUnknown(opts);
-  const k = pendingKind(opts) || (j && j.orgKind);
-  if (k) return kindOf(k);
-  throw new Error('this Kosmos holds an enrollment record that cannot be read');
+  return kindOf(pendingKind(opts) || (j && j.orgKind));
 }
 /* The same, as the two words a reader or a key wants: 'family', else 'company' (one copy of that mapping). */
 function kindNow(opts) { return kindOf(kindHere(opts)); }
