@@ -551,10 +551,12 @@ function kindStrict(opts) {
     if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('this Kosmos holds an enrollment file that cannot be read');
     return pick(j) || null;
   };
+  // Read in the order their writers replace them: a settling join writes the record before removing its marker, and
+  // a leave writes its marker before clearing the record, so each read finds what the one before it gave way to.
   const kinds = [
+    from(JOIN_UNKNOWN_FILE, (j) => j.orgKind),
     from(ENROLLMENT_FILE, (j) => j.org && j.org.kind),
     from(LEAVE_PENDING_FILE, (j) => (j.rec && j.rec.org && j.rec.org.kind) || j.orgKind),
-    from(JOIN_UNKNOWN_FILE, (j) => j.orgKind),
   ];
   if (kinds.every((k) => k === undefined)) return null;
   return kinds.includes('family') ? 'family' : 'company';
@@ -847,15 +849,17 @@ async function settleUnknownJoin(unsure, opts) {
   const verdict = statusVerdict(d, world);
   if (verdict === 'unclear') return { ok: false, enrolled: false, because: inKind(KIND, "Your company's answer was not complete.") };
   if (verdict !== 'here' && !old) return { ok: false, enrolled: false, because: 'Too soon to say the join was not made.' };   // kept
-  setJoinUnknown(null, opts);
+  /* kosmos#6859: the marker is removed only after what replaces it is written (the record, or the undo's pending
+     leave), so orgenroll.kindStrict never finds neither and reads a family's computer as joined to nobody. */
   if (verdict === 'here') {
     const org = cleanOrg(d.org), role = cleanRole(d.role);
-    if (!org || !role) return { ok: false, enrolled: false, because: inKind(KIND, "Your company's answer was not complete.") };
+    if (!org || !role) { setJoinUnknown(null, opts); return { ok: false, enrolled: false, because: inKind(KIND, "Your company's answer was not complete.") }; }
     const rec = { org, role, world, enrolledAt: new Date().toISOString() };
     if (unsure.consentHash) rec.consentHash = unsure.consentHash;
     if (unsure.computerSalt) rec.computerSalt = unsure.computerSalt;   // #5532: the salt the join's print was made with
     if (unsure.printPinned === true) rec.printPinned = true;
     try { writeEnrollment(rec, opts); } catch { setJoinUnknown(unsure, opts); return { ok: false, enrolled: false, because: "This Kosmos's data folder could not be written." }; }
+    setJoinUnknown(null, opts);
     setStopped(null, opts);
     setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now (review 35)
     // kosmos#5686 (b1-mac): the join a person made (its marker exists only after their Accept) starts its own pin, but
@@ -868,8 +872,10 @@ async function settleUnknownJoin(unsure, opts) {
     // The join's own salt, company and whether it sent a print, from the marker (review 17), so the undo carries the print.
     const joinPrint = { computerSalt: unsure.computerSalt || undefined, orgId: unsure.orgId || undefined, printSent: unsure.printPinned === true, orgKind: KIND || undefined };   // kosmos#6251 board review 5: the undo is said in the join's kind
     setLeavePending(true, Object.assign({}, opts, joinPrint), null, true, unsure.consentHash);   // bound elsewhere: the undo is sent by the pending-leave path
+    setJoinUnknown(null, opts);
     return leaveNow(opts, true);
   }
+  setJoinUnknown(null, opts);
   return { ok: true, enrolled: false };
 }
 /* The company names THIS world's id (on this computer or another): what a join of this world left. NOT "no world at all":

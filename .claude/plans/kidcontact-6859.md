@@ -84,6 +84,13 @@ but cannot be read, or is not a JSON object, throws; null only when none of the 
 - Review 6, deferred: agents already running when a board joins a family keep the community rules in their
   instructions until the board restarts (refreshEveryone runs at start); every send is refused meanwhile. The same
   gap exists for a policy applied while running (#6239).
+- Review 7: the order of writes and reads. settleUnknownJoin removed the join marker BEFORE writing the record
+  (and before writing the undo's pending leave), so for a moment neither file was there and kindStrict read a
+  family's computer as joined to nobody. The marker is now removed after what replaces it is written, as enroll
+  already did; kindStrict reads the join marker, then the record, then the leave marker (a leave writes its marker
+  before clearing the record), so each read finds what the one before it gave way to. Not guarded by a test: the
+  window cannot be interleaved from a unit test; the join tests (familysay-6251, orgenroll-5531) still pass with the
+  new order, including an incomplete answer, which still removes the marker.
 - Review 1, deferred: one more small file read per contactAllows call (currentStrict already reads one per call);
   the require is lazy, so there is no load-order cycle.
 
