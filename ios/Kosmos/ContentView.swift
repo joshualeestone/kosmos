@@ -25,7 +25,8 @@ struct ContentView: View {
     #if KOSMOS_STORE_SHOTS
     @State private var tab = Tab.board
     #else
-    @State private var tab = Tab.agents
+    // Not signed in yet (a first launch): open on Board, where the sign-in is (the spec's "today's sign-in flow").
+    @State private var tab = SessionKeychain.live.load() == nil ? Tab.board : Tab.agents
     #endif
     enum Tab { case agents, board }
 

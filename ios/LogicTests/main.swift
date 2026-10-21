@@ -837,7 +837,7 @@ do {
     check(Board.tone(a("r", "R", state: "rate_limited")) == .needsYou && Board.tone(a("s", "S", state: "stopped")) == .needsYou, "Rate Limit and Not running are needs you")
     check(Board.tone(a("w", "W", state: "working")) == .working && Board.tone(a("i", "I", state: "idle")) == .quiet, "Working is working, Idle is quiet")
     check(Board.tone(a("c", "C", state: "idle", needs: true)) == .needsYou, "a word the table does not list is needs you when the board counts the agent as needing the person")
-    check(Board.tone(a("n", "N", state: "something_new")) == .needsYou, "Can't tell (a state the phone does not know) is in the table as needs you")
+    check(Board.tone(a("n", "N", state: "something_new")) == .quiet && Board.tone(a("u", "U", state: "unknown")) == .needsYou, "a state the phone does not know yet is quiet; the board's own unknown (Can't tell) is needs you")
     let mixed = [a("i", "Ivy", state: "idle"), a("w", "Wes", state: "working"), a("q", "Quinn", state: "needs_you", needs: true, agent: true), a("p", "Pat", state: "rate_limited")]
     check(Board.sorted(mixed).map(\.session) == ["p", "q", "w", "i"], "needs you and asked first (by name), then working, then quiet")
     let shown = [a("w", "Wes", state: "working"), a("i", "Ivy", state: "idle")]
@@ -1059,6 +1059,38 @@ section("native board loop: connecting")
         w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
         let ok53 = await settle { isLive(c) }
         check(ok53 && w.count("/v1/account/handoff") == 1, "the next good read clears not answering, with no Try again and no new sign-in")
+        c.stop()
+    }
+
+    section("native board loop: an old list is never shown as current")
+    do {
+        let (c, w, _, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) && c.fresh }
+        c.stop()
+        w.statusDefault = nil
+        c.start()
+        check(!c.fresh && !c.agents.isEmpty, "back on the tab, the earlier list is shown as not current until a new read")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
+        let ok60 = await settle { c.fresh }
+        check(ok60, "and current again after one")
+        c.stop()
+    }
+    do {
+        // Review iteration 20: after a refusal or not answering, admitted is unset, so the account check must look at
+        // whose list is on screen.
+        let (c, w, sessions, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        w.statusDefault = nil
+        _ = await settle { c.phase == .unreachable(mac: "Studio") }
+        c.retry()
+        _ = await settle { c.phase == .unreachable(mac: "Studio") }
+        c.retry()
+        c.stop()
+        sessions.value = "kst2"
+        c.start()
+        check(c.agents.isEmpty, "another account's sign-in clears the old list even when no Mac session is held")
         c.stop()
     }
 

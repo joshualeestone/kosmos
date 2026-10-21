@@ -291,6 +291,9 @@ enum Board {
     // (needsPerson: a crash loop and the like, whose words the table does not list), are needs you; Working is
     // working; anything else, including a word the phone does not know, is quiet.
     static func tone(_ agent: Agent) -> Tone {
+        // A state the phone does not know yet (one the Mac adds later) is quiet, never red at the top, unless the
+        // board itself counts the agent as needing the person. A real "unknown" state is in the table.
+        if agent.running && !agent.crashLooping && !agent.needsYou && stateCopy[agent.state] == nil { return .quiet }
         let word = statusWord(agent)
         if word == "Question" { return .asked }
         if needsYouWords.contains(word) || agent.needsYou { return .needsYou }

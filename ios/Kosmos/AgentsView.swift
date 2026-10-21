@@ -40,6 +40,9 @@ struct AgentsView: View {
             list(stale: true)
         case .starting:
             reaching
+        case .live where !client.fresh && !client.agents.isEmpty:
+            // Back on the tab with a list from an earlier read: shown as not current until the first new read.
+            list(stale: true)
         case .live:
             if client.agents.isEmpty {
                 // The list arrives with the first read; until then this is still reaching.
@@ -58,7 +61,11 @@ struct AgentsView: View {
             LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)
                 .navigationBarHidden(true)
         case .signedOut:
-            message("Sign in to Kosmos+ on the Board tab.", detail: "Your agents show here once you are signed in. If you already are, sign out there and in again.", retry: true)
+            VStack(spacing: 12) {
+                message("Sign in to Kosmos+", detail: "Your agents show here once you are signed in.")
+                Button { openBoard() } label: { Text("Sign in").foregroundColor(Palette.card) }
+                    .buttonStyle(.borderedProminent)
+            }
         case .noMac:
             message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then try again.", retry: true)
         case .waitingForAllow(let mac, let code):
@@ -140,13 +147,19 @@ struct AgentsView: View {
 
     // Lost while open (spec frames 5 and 6): the time of the last good read, in the system's time format.
     private var notUpdating: some View {
-        Text("Not updating. Your Mac isn't answering." + (client.updatedAt.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""))
+        // "Isn't answering" only when that is what happened; while reconnecting or checking it says it is checking.
+        Text(notUpdatingWords + (client.updatedAt.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""))
             .font(.footnote)
             .foregroundColor(Palette.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 10)
             .padding(.horizontal, 14)
             .background(RoundedRectangle(cornerRadius: 10).fill(Palette.banner))
+    }
+
+    private var notUpdatingWords: String {
+        if case .unreachable = client.phase { return "Not updating. Your Mac isn't answering." }
+        return "Checking for updates."
     }
 
     private var footer: some View {

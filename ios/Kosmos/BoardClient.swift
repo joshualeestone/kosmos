@@ -39,6 +39,11 @@ final class BoardClient: ObservableObject {
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var agents: [Board.Agent] = []
     @Published private(set) var updatedAt: Date?
+    // True once the shown list was read in this run (after the tab appears or the app returns); until then the list
+    // is from an earlier read and is drawn as not current.
+    @Published private(set) var fresh = false
+    // Who the shown list belongs to (a fingerprint of the Kosmos+ session it was read under).
+    private var shownOwner: String?
     // Agent pictures by session name, fetched through this client's own session (the board's route needs it).
     @Published private(set) var pictures: [String: Data] = [:]
     private var pictureVersions: [String: String] = [:]
@@ -108,6 +113,9 @@ final class BoardClient: ObservableObject {
         // Another account (or a new sign-in) drops everything learned under the old one. No session at all is handled
         // just below, without touching the kept Mac session.
         if let held = admitted, let session, held.session != session { forget() }
+        // The shown list is checked too, since admitted is often unset by then (after a refusal or not answering).
+        if let owner = shownOwner, let session, owner != Board.owner(of: session) { forget() }
+        fresh = false
         // No Kosmos+ session (signed out, or the Keychain could not be read yet): nothing from the last one is shown.
         // The kept Mac session is deleted by the sign-out itself (PushNotificationManager), not here, so a Keychain
         // that is briefly unreadable does not cost it.
@@ -198,6 +206,7 @@ final class BoardClient: ObservableObject {
     private func forget() {
         admitted = nil
         shownMac = nil
+        shownOwner = nil
         pictureTask?.cancel()
         pictures = [:]
         pictureVersions = [:]
@@ -364,6 +373,8 @@ final class BoardClient: ObservableObject {
             if !listedThisRun, let held = admitted { keepMacSession(mac, url: url, session: held.session) }
             listedThisRun = true
             shownMac = mac
+            fresh = true
+            if let held = admitted { shownOwner = Board.owner(of: held.session) }
             retriedUnreachable = false
             set(.live(mac: mac), gen)
             // Pictures load on their own, never holding up the next status read; one batch at a time, never cancelled
