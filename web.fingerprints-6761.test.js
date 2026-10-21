@@ -69,7 +69,7 @@ test('iteration 1: the Documents view fills fingerprints in after it opens, by t
     const box = { contains: (el) => st.rows.includes(el), querySelectorAll: () => st.rows };
     const document = { getElementById: (id) => (id === 'docs-list' ? box : null), get activeElement() { return st.rows[1]; } };
     const api = new Function('st', 'setTimeout', 'fetch', 'document',
-      'let PJ_DOCS_FILES = st.PJ_DOCS_FILES; const pjDocsPaintPage = () => { st.painted += 1; st.rows = st.PJ_DOCS_FILES.map((f) => ({ dataset: { doc: f.name }, focus() { st.refocused = f.name; } })); };\n'
+      'let PJ_DOCS_FILES = st.PJ_DOCS_FILES; const pjDocsPaintPage = () => { st.painted += 1; st.rows = st.PJ_DOCS_FILES.map((f) => ({ dataset: { doc: f.name }, focus(o) { st.refocused = f.name; st.refocusOpts = o; } })); };\n'
       + fn.replace(/\bPJ_CURRENT\b/g, 'st.PJ_CURRENT').replace(/\bPJ_VIEW\b/g, 'st.PJ_VIEW').replace(/\bDOCS_OPEN_GEN\b/g, 'st.DOCS_OPEN_GEN')
       + '\nreturn docsFingerprintFill;')(st, (f) => { timers.push(f); }, async () => { st.fetched += 1; const a = answers[Math.min(st.fetched - 1, answers.length - 1)]; return { json: async () => a }; }, document);
     return { st, timers, fill: api };
@@ -83,6 +83,7 @@ test('iteration 1: the Documents view fills fingerprints in after it opens, by t
   assert.equal(ok.st.painted, 2);
   assert.equal(ok.st.fetched, 2, 'it kept reading after every row had its fingerprint');
   assert.equal(ok.st.refocused, 'b.txt', 'iteration 2: the row the keyboard was on lost focus to the repaint');
+  assert.equal(ok.st.refocusOpts && ok.st.refocusOpts.preventScroll, true, 'iteration 6: the Documents fill scrolled the page');
   // A newer version of a file (another date) is never given to the row the person is looking at.
   const newer = run([{ files: [{ name: 'a.txt', size: 1, modified: 'LATER', sha256: FP }] }]);
   newer.fill('p1', 7, 0);
@@ -97,7 +98,7 @@ test('iteration 1: the Documents view fills fingerprints in after it opens, by t
 });
 
 test('iteration 5: the polled Files lists give the keyboard back to the same row when a fingerprint repaints them', () => {
-  const rows = (names) => names.map(([k, v]) => ({ dataset: { [k]: v }, focus() { st.focused = k + ':' + v; } }));
+  const rows = (names) => names.map(([k, v]) => ({ dataset: { [k]: v }, focus(o) { st.focused = k + ':' + v; st.opts = o; } }));
   const st = { focused: null };
   let kids = rows([['dir', 'reports'], ['doc', 'a.txt'], ['doc', 'b.txt']]);
   const box = { contains: (el) => kids.includes(el), querySelectorAll: () => kids };
@@ -108,6 +109,7 @@ test('iteration 5: the polled Files lists give the keyboard back to the same row
   kids = rows([['dir', 'reports'], ['doc', 'a.txt'], ['doc', 'b.txt']]);   // the repaint makes new rows
   fns.refocusRow(box, key);
   assert.equal(st.focused, 'doc:b.txt', 'focus was not put back on the same file');
+  assert.equal(st.opts && st.opts.preventScroll, true, 'iteration 6: putting focus back scrolled the page to the row');
   doc.activeElement = { dataset: { doc: 'elsewhere' } };   // CONTROL: the keyboard is outside the list
   assert.equal(fns.focusedRowKey(box), null, 'focus outside the list was pulled into it');
   st.focused = null;

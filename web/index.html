@@ -42476,7 +42476,7 @@ function focusedRowKey(box) {
 function refocusRow(box, key) {
   if (!key || !box) return;
   const again = [...box.querySelectorAll('button')].find((r) => rowKey(r) === key);
-  if (again) again.focus();
+  if (again) again.focus({ preventScroll: true });   // iteration 6: a background repaint never scrolls the page
 }
 /* #6497 (Mona's 0.7.56 noise pass): `compact` is the agent page's narrow Files panel. A full date on every row cut the
    names to a few letters there, so it shows the size only, as the project page's Files panel does; the date is the
@@ -69924,7 +69924,7 @@ function docsFingerprintFill(forProject, openGen, tries) {
       const box = document.getElementById('docs-list');
       const had = box && document.activeElement && box.contains(document.activeElement) ? document.activeElement.dataset.doc : null;
       pjDocsPaintPage();
-      if (had != null && box) { const again = [...box.querySelectorAll('.pj-doc')].find((r) => r.dataset.doc === had); if (again) again.focus(); }
+      if (had != null && box) { const again = [...box.querySelectorAll('.pj-doc')].find((r) => r.dataset.doc === had); if (again) again.focus({ preventScroll: true }); }
     }
     docsFingerprintFill(forProject, openGen, tries + 1);
   }, 2000);
