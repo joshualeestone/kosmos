@@ -82,7 +82,8 @@ the file in memory: an upload is written to disk as it arrives, and a download i
    read: a larger file gets a rendering that says "Kosmos converts files up to 25 MB to text; this one is larger, so
    it is attached as it is.", and the macOS PDF fallback is skipped for it too. Test: a sparse 25 MB + 1 file gets that
    note with no fallback, and a small file (control) goes to the converter; red with the gate removed.
-8. **Stored files are 0600 on every path**, `save()` included (review 1 NIT; it was the umask default).
+8. **Stored files are 0600 on every path**, `save()` included (review 1 NIT; it was the umask default), and so is each
+   attachment's record.json (review 12; test checks both).
 
 9. **The Files preview keeps its own 25 MB limit** (review 2). `filepreview.tooBig` used `attachments.MAX_BYTES`, so
    raising the cap would have let the full-page preview of an agent's or a project's file read 100 MB whole (a PDF
@@ -216,7 +217,7 @@ The test used to accept a reset in place of the 400. It now requires the 400 wit
 a load average of about 10. If a client ever sees a reset instead, the page's own size check has already refused the
 file before sending it.
 
-## Tests (server.attachment-stream-6734.test.js, 25 tests, and web.attach-slow-6734.test.js, 2 tests; green at each review commit, and the full suite at the final head is in the proof file)
+## Tests (server.attachment-stream-6734.test.js, 26 tests, and web.attach-slow-6734.test.js, 2 tests; green at each review commit, and the full suite at the final head is in the proof file)
 
 - the cap is 100 MB and is said as "100 MB";
 - a 6 MB download is byte-identical (sha256) with its Content-Length; HEAD has the length and no body; no

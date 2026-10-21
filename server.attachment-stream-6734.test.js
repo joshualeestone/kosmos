@@ -579,3 +579,9 @@ test('#6734: a system error while storing an upload reaches the person as a sent
   assert.ok(!got.body.includes(SANDBOX) && !got.body.includes('ENOSPC'), got.body);
   assert.ok(await until(() => stored().length === before && parts().length === 0), 'a failed rename left ' + JSON.stringify(parts()));
 });
+
+test('#6734: a stored attachment and its record are both readable by this user only (0600)', { skip: process.platform === 'win32' }, () => {
+  const rec = storedOf(1024, 'modes.bin');
+  assert.equal(fs.statSync(rec.file).mode & 0o777, 0o600, 'the file');
+  assert.equal(fs.statSync(path.join(rec.dir, 'record.json')).mode & 0o777, 0o600, 'the record');
+});

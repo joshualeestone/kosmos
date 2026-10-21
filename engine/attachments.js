@@ -115,7 +115,7 @@ function finish(s, scope, owner, { type, size, by }) {
     size, kind: kindOf(type, s.name), at: new Date().toISOString(), scope, owner: String(owner),
     ...(by === 'agent' ? { by: 'agent' } : {}),   // #6726: a file the agent attached to its reply, counted against its daily total
   };
-  fs.writeFileSync(path.join(s.dir, 'record.json'), JSON.stringify(record, null, 2) + '\n');
+  fs.writeFileSync(path.join(s.dir, 'record.json'), JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });   // review 12: as the file
   return { ...record, dir: s.dir, file: s.file };
 }
 function abandon(s) { try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
@@ -352,6 +352,7 @@ function imageTypeOf(name) {
  * for a PDF, the first page through qlmanage, cached beside the file. Returns
  * { ok: true, type, bytes } or { ok: false, because }.
  */
+// #6734: reads the whole file, so it is for tests only; every route uses previewFile, which streams.
 async function preview(rec) {
   const pv = await previewFile(rec);
   if (!pv.ok) return pv;
