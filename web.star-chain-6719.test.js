@@ -128,8 +128,8 @@ test('#6719 review 8: a repaint that throws after a good answer is not taken for
   assert.equal(msg.hidden, true, 'a saved star said it could not be saved');
 });
 
-test('#6719 review 8: a refusal no retry can fix says what is wrong, not "try again"', async () => {
-  for (const [status, error, line] of [[400, 'too many starred agents', 'f'], [500, 'we could not save that star', 'k'], [400, 'not an agent name', 'x']]) {
+test('#6719 review 8: a refusal no retry can fix says what is wrong, not "try again"; review 10: another 5xx still says try again', async () => {
+  for (const [status, error, line] of [[400, 'too many starred agents', 'f'], [500, 'we could not save that star', 'k'], [400, 'not an agent name', 'x'], [500, 'Bad Gateway', 's'], [502, 'Bad Gateway', 's']]) {
     const { api, sent, msg } = page();
     const p1 = api.toggleStar('renet');
     await tick();

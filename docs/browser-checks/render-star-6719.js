@@ -48,7 +48,7 @@ async function open(browser, eng, w, h, theme, touchArg) {
         if (opts && opts.method === 'PUT') {
           const body = JSON.parse(opts.body);
           window.STAR_PUTS.push(body);
-          if (window.STAR_REFUSE) return enc({ error: 'we could not save that star' }, 500);
+          if (window.STAR_REFUSE) return enc({ error: 'unavailable' }, 503);   // a passing fault: the try-again line (review 10)
           window.STAR_STORE = window.STAR_STORE.filter((n) => n !== body.name);
           if (body.on) window.STAR_STORE.push(body.name);
           return enc({ names: window.STAR_STORE, ok: true });

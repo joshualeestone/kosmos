@@ -38655,12 +38655,12 @@ async function loadStars() {
    either order, leaving the file with the first press's answer while the page showed the second's. */
 const STAR_CHAIN = new Map();
 const STAR_LAST = new Map();   // review 4: the newest press per agent, so an answer is applied only to its own star
-function toggleStar(name) {
+function toggleStar(name, follow) {
   const on = !AGENT_STARS.has(name);
   const seq = ++STARS_SEQ;
   STAR_LAST.set(name, seq);
   if (on) AGENT_STARS.add(name); else AGENT_STARS.delete(name);
-  repaintAgentOrder(true);
+  repaintAgentOrder(follow);
   STARS_WRITING += 1;
   /* Review 4: a save that threw (a repaint failing, say) must not stop the presses queued after it, so the chain goes
      on past a rejection; and the in-flight count is settled here, whatever the save did, or reloads stop for good. */
@@ -38682,7 +38682,8 @@ async function saveStar(name, on, seq) {
     const got = await r.json().catch(() => null);
     if (r.ok && got && Array.isArray(got.names)) v = got;
     else if (r.status === 400) why = got && got.error === 'too many starred agents' ? 'full' : 'refused';
-    else if (r.status === 500) why = 'stuck';
+    // Review 10: only this route's own 500 means the list itself is stuck; any other 5xx (a relay, say) may pass.
+    else if (r.status === 500 && got && got.error === 'we could not save that star') why = 'stuck';
   } catch { /* not answered: the retry line */ }
   if (!v) {
     /* Only the newest press on this star settles it (a later one waiting decides for itself). It goes back to what the
@@ -45874,7 +45875,9 @@ for (const boardEl of [document.getElementById('grid'), document.getElementById(
   boardEl.addEventListener('click', (e) => {
     // #6719: the star stars; it never also opens the agent or answers it.
     const star = e.target.closest('[data-star]');
-    if (star) { e.preventDefault(); toggleStar(star.dataset.star); return; }
+    // Review 10: only a keyboard press (a click with no pointer, detail 0) follows the star to its new place; a mouse
+    // click leaves the page where it is, so clicking down a row of stars does not jump the board each time.
+    if (star) { e.preventDefault(); toggleStar(star.dataset.star, e.detail === 0); return; }
     // #6400: an agent with a question carries its answer target on the card or row itself (answerAttrs), so it is
     // checked FIRST: the plain open below would take the same click and skip focusing the reply box.
     const answer = e.target.closest('[data-answer]');
