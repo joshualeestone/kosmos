@@ -631,6 +631,7 @@ do {
     let sb = (try? JSONSerialization.jsonObject(with: s.httpBody ?? Data())) as? [String: String]
     check(sb == ["token": "hand1"], "carrying the handoff token as the gate page does")
     check(Board.statusRequest(mac: mac).url?.absoluteString == "https://studio.kosmosplus.com/api/status", "the board snapshot")
+    check(Board.statusRequest(mac: mac).value(forHTTPHeaderField: "Accept") == "application/json", "asking for JSON, so an ended session is a 401, not the sign-in page at 200")
 }
 
 section("native board: which Mac")
@@ -648,6 +649,13 @@ do {
     check(Board.pickMac(macs, remembered: nil)?.address == "studio.kosmosplus.com", "the first usable Mac")
     check(Board.pickMac(macs, remembered: "laptop.kosmosplus.com")?.address == "laptop.kosmosplus.com", "the remembered Mac while it is usable")
     check(Board.pickMac(macs, remembered: "old.kosmosplus.com")?.address == "studio.kosmosplus.com", "not a remembered Mac that was retired")
+    let ranked = #"{"macs":[{"name":"Old laptop","address":"old.kosmosplus.com","last_seen":100,"not_connected":true},{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Mini","address":"mini.kosmosplus.com","last_seen":200}]}"#
+    let r = Board.parseMacs(Data(ranked.utf8)) ?? []
+    check(Board.pickMac(r, remembered: nil)?.address == "studio.kosmosplus.com", "a connected Mac, most recently seen first, not simply the oldest")
+    check(Board.pickMac(r, remembered: "mini.kosmosplus.com")?.address == "mini.kosmosplus.com", "the remembered Mac while it is connected")
+    check(Board.pickMac(r, remembered: "old.kosmosplus.com")?.address == "studio.kosmosplus.com", "not a remembered Mac that is not connected, while another is")
+    let allDown = #"{"macs":[{"address":"a.kosmosplus.com","last_seen":5,"not_connected":true},{"address":"b.kosmosplus.com","last_seen":9,"not_connected":true}]}"#
+    check(Board.pickMac(Board.parseMacs(Data(allDown.utf8)) ?? [], remembered: nil)?.address == "b.kosmosplus.com", "with none connected, the most recently seen, so the screen can say it is not answering")
     check(Board.parseMacs(Data("[]".utf8)) == nil, "a body that is not the list reads as nothing")
     check(Board.parseHandoffToken(Data(#"{"token":"t"}"#.utf8)) == "t" && Board.parseHandoffToken(Data(#"{"token":""}"#.utf8)) == nil, "the handoff token, never an empty one")
 }
@@ -669,17 +677,23 @@ do {
 
 section("native board: agents")
 do {
-    let json = #"{"agents":[{"sessionName":"eli","name":"Eli","role":"Researcher","state":"idle"},{"sessionName":"cleo","name":"Cleo","role":"","state":"needs_you"},{"sessionName":"dana","name":"Dana","state":"working","task":"Pages 9 to 12"},{"name":"No key","state":"working"},{"sessionName":"farah","name":"Farah","state":"idle","awaitingApproval":true}]}"#
+    let json = #"{"agents":[{"sessionName":"eli","name":"Eli","role":"Researcher","state":"idle"},{"sessionName":"cleo","name":"Cleo","role":"","state":"needs_you","stateReportedBy":"agent"},{"sessionName":"dana","name":"Dana","state":"working","task":"Pages 9 to 12"},{"name":"No key","state":"working"},{"sessionName":"farah","name":"Farah","state":"needs_you","awaitingApproval":true},{"sessionName":"gus","name":"Gus","state":"working","running":false},{"sessionName":"hal","name":"Hal","state":"connection_lost","reconnect":{"phase":"waiting"}},{"sessionName":"ida","name":"Ida","state":"idle","crashLoop":{"looping":true}}]}"#
     let agents = Board.parseAgents(Data(json.utf8)) ?? []
-    check(agents.count == 4, "a row with no sessionName is dropped")
+    let word = { (s: String) in Board.statusWord(agents.first { $0.session == s }!) }
+    check(agents.count == 7, "a row with no sessionName is dropped")
     check(agents.first { $0.session == "cleo" }?.role == nil, "an empty role is no role")
-    check(agents.first { $0.session == "farah" }?.askedYou == true, "awaitingApproval means it asked you")
-    check(Board.sorted(agents).map(\.session) == ["cleo", "farah", "dana", "eli"], "asked you first, then working, then the rest, by name")
+    check(word("cleo") == "Question" && word("farah") == "Needs permission", "a question and a permission prompt, in the board's words")
+    check(agents.first { $0.session == "farah" }?.askedYou == true && agents.first { $0.session == "dana" }?.askedYou == false, "needs you is marked, working is not")
+    check(word("gus") == "Not running", "an agent that is not running says so, whatever its last state")
+    check(word("hal") == "Reconnecting\u{2026}", "a lost connection that is retrying says Reconnecting")
+    check(word("ida") == "Keeps stopping", "a crash loop says Keeps stopping")
+    check(Board.sorted(agents).prefix(2).map(\.session) == ["cleo", "farah"], "what needs you first, by name")
     let w = { (s: String) in Board.statusWord(Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, askedYou: false)) }
-    check(w("working") == "Working" && w("idle") == "Idle" && w("connection_lost") == "Offline" && w("auth_failed") == "Signed out", "one word per state")
-    check(w("something_new") == "Unknown", "a state the phone does not know yet says Unknown, never blank")
-    check(Board.statusWord(agents.first { $0.session == "cleo" }!) == "Asked you", "the one that asked says so")
+    check(w("working") == "Working" && w("idle") == "Idle" && w("stopped") == "Not running" && w("blocked") == "Waiting", "the board's words for each state (engine/cardlabel.js)")
+    check(w("connection_lost") == "Connection lost" && w("rate_limited") == "Rate Limit" && w("needs_you") == "Issue", "including the plain ones")
+    check(w("something_new") == "Can't tell", "a state the phone does not know says what the board says for it, never blank")
     check(Board.parseAgents(Data(#"{"counts":{}}"#.utf8)) == nil, "a snapshot with no agents list reads as nothing")
+    check(Board.parseAgents(Data("<html>sign in</html>".utf8)) == nil, "the gate's sign-in page reads as nothing, not an empty list")
 }
 
 print("")

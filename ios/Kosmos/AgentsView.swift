@@ -2,7 +2,7 @@ import SwiftUI
 
 // kosmos#6838 slice 1: the native Agents tab (Mona Lisa's design, 2026-10-19): one
 // line per agent with name, role and one word of status; the one that asked you
-// says so. Tapping an agent opens its chat on the Board tab until Chat is native.
+// is marked. Tapping an agent opens its chat on the Board tab until Chat is native.
 struct AgentsView: View {
     @ObservedObject var client: BoardClient
     let openChat: (URL) -> Void
@@ -56,7 +56,9 @@ struct AgentsView: View {
         }
         .listStyle(.insetGrouped)
         .overlay {
-            if client.agents.isEmpty && client.updatedAt != nil {
+            if client.updatedAt == nil {
+                ProgressView()
+            } else if client.agents.isEmpty {
                 message("No agents yet.", detail: "Agents you create on your computer show here.")
             }
         }
@@ -73,6 +75,7 @@ struct AgentsView: View {
 
 struct AgentRow: View {
     let agent: Board.Agent
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     // Amber that keeps AA contrast as body text: #8A5A00 on white is about 6:1, #F5B942 on the dark
     // grouped background about 9:1. System orange on white is under 3:1.
@@ -83,26 +86,42 @@ struct AgentRow: View {
     })
 
     var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(Color(.systemGray5)).frame(width: 36, height: 36)
-                Text(String(agent.name.prefix(1)).uppercased()).font(.subheadline.weight(.semibold))
-            }
-            .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(agent.name).font(.body.weight(.semibold))
-                if let role = agent.role {
-                    Text(role).font(.subheadline).foregroundColor(.secondary)
+        Group {
+            if typeSize.isAccessibilitySize {
+                // The largest text sizes: the status goes under the name rather than being cut off beside it.
+                VStack(alignment: .leading, spacing: 2) { names; status }
+            } else {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle().fill(Color(.systemGray5)).frame(width: 36, height: 36)
+                        Text(String(agent.name.prefix(1)).uppercased()).font(.subheadline.weight(.semibold))
+                    }
+                    .accessibilityHidden(true)
+                    names
+                    Spacer()
+                    status
                 }
             }
-            Spacer()
-            Text(Board.statusWord(agent))
-                .font(.subheadline.weight(agent.askedYou ? .semibold : .regular))
-                .foregroundColor(agent.askedYou ? AgentRow.askedColor : .secondary)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityHint("Opens the chat")
+    }
+
+    private var names: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(agent.name).font(.body.weight(.semibold))
+            if let role = agent.role {
+                Text(role).font(.subheadline).foregroundColor(.secondary)
+            }
+        }
+    }
+
+    // Anything that needs you is in amber, in the board's own words.
+    private var status: some View {
+        Text(Board.statusWord(agent))
+            .font(.subheadline.weight(agent.askedYou ? .semibold : .regular))
+            .foregroundColor(agent.askedYou ? AgentRow.askedColor : .secondary)
     }
 }

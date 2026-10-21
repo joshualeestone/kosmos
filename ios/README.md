@@ -10,6 +10,15 @@ notification handling, biometric unlock). The shell (#2869) plus that native
 surface as buildable stubs (#718) are both here now. Full context on the cards
 (#2869, #718).
 
+**Going native (kosmos#6838, Josh 2026-10-21).** Screens move from the web view to
+SwiftUI one at a time; the plan and its order are on the card. Slice 1 is the
+native **Agents** tab beside the web **Board** tab: the app connects to the Mac by
+itself (the Kosmos+ session in the Keychain lists the account's Macs, mints a
+handoff for one, and the Mac's tunnel gate turns it into a session cookie in the
+app's own private `URLSession`), then reads `/api/status` every 5 s. The decisions
+are in `Kosmos/BoardLogic.swift`; `BoardClient.swift` moves the bytes;
+`AgentsView.swift` draws the list. Tapping an agent opens its chat on the Board tab.
+
 ## What this is
 
 - `Kosmos.xcodeproj` plus `Kosmos/*.swift`: a SwiftUI app (`KosmosApp`) whose
@@ -211,7 +220,8 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 ### Tests that run without a simulator
 
 `LogicTests/run.sh` compiles the UIKit-free files (`PushBridgeLogic.swift`,
-`PushRegistrar.swift`, `ShellLogic.swift`, `NotificationCategories.swift`) for
+`PushRegistrar.swift`, `ShellLogic.swift`, `NotificationCategories.swift`,
+`BoardLogic.swift`) for
 macOS with the tests and runs them. It ends with one
 `VERDICT:` line; no verdict line means the run did not finish. Pass a directory
 to run the suite against a modified copy of those files (how the suite was

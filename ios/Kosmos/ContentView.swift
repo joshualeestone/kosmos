@@ -85,8 +85,8 @@ struct ContentView: View {
 
     private var webBoard: some View {
         ZStack {
-            // Edge to edge, as before; how each page keeps clear of the notch
-            // and home bar is set in makeUIView (safe areas). The tab bar keeps its own space.
+            // Under the status bar as before; the tab bar keeps its own space below. How each page keeps clear
+            // of the notch is set in makeUIView (safe areas). The keyboard is left to the web view, as before.
             WebView(
                 url: KosmosConfig.boardURL,
                 pushManager: pushManager,
@@ -96,6 +96,7 @@ struct ContentView: View {
                 backCount: shell.backCount
             )
                 .ignoresSafeArea(edges: .top)
+                .ignoresSafeArea(.keyboard)
             if let failure = shell.failure {
                 LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back)
             }

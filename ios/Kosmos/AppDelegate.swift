@@ -36,6 +36,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // App Store screenshots (ios/store/shoot-app.sh): no permission prompt over the picture, and a simulator
         // has no way to answer it from the command line.
         #else
+        #if DEBUG
+        // The same for the Agents tab's sample screenshots (kosmos#6838; a Debug build only).
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return true }
+        #endif
         pushManager.requestAuthorizationAndRegister()
         #endif
         return true

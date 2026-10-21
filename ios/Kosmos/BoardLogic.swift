@@ -39,8 +39,12 @@ enum Board {
         return r
     }
 
+    // Accept JSON, or the gate answers an ended session with its sign-in page at 200 instead of a 401
+    // (kosmos-relay gate.rs is_a_script_fetch).
     static func statusRequest(mac: URL) -> URLRequest {
-        URLRequest(url: URL(string: "/api/status", relativeTo: mac)!.absoluteURL)
+        var r = URLRequest(url: URL(string: "/api/status", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        return r
     }
 
     // A Mac's address as the board's origin, only for a single label under the
@@ -63,9 +67,11 @@ enum Board {
         let name: String
         let address: String
         let usable: Bool
+        var connected: Bool = true
+        var lastSeen: Double = 0
     }
 
-    // `{macs:[{name,address,retired_at,remote_off,not_connected,held,refused}]}`.
+    // `{macs:[{name,address,last_seen,retired_at,remote_off,not_connected,held,refused}]}`.
     // A retired, held, refused or switched-off Mac is listed but not usable.
     static func parseMacs(_ data: Data) -> [Mac]? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -78,14 +84,20 @@ enum Board {
                 || (row["remote_off"] as? Bool ?? false)
                 || (row["held"] as? Bool ?? false)
                 || (row["refused"] as? Bool ?? false)
-            return Mac(name: name, address: address, usable: !off)
+            return Mac(name: name, address: address, usable: !off,
+                       connected: !(row["not_connected"] as? Bool ?? false),
+                       lastSeen: (row["last_seen"] as? NSNumber)?.doubleValue ?? 0)
         }
     }
 
-    // The Mac remembered from last time while it is still usable, else the first usable one.
+    // The Mac remembered from last time while it is usable and connected; else a connected usable one, most
+    // recently seen first; else the remembered or most recently seen usable one.
     static func pickMac(_ macs: [Mac], remembered: String?) -> Mac? {
-        if let r = remembered, let m = macs.first(where: { $0.address == r && $0.usable }) { return m }
-        return macs.first(where: { $0.usable })
+        let usable = macs.filter(\.usable).sorted { $0.lastSeen > $1.lastSeen }
+        if let r = remembered, let m = usable.first(where: { $0.address == r && $0.connected }) { return m }
+        if let m = usable.first(where: { $0.connected }) { return m }
+        if let r = remembered, let m = usable.first(where: { $0.address == r }) { return m }
+        return usable.first
     }
 
     static func parseHandoffToken(_ data: Data) -> String? {
@@ -129,6 +141,11 @@ enum Board {
         let state: String
         let task: String?
         let askedYou: Bool
+        var awaitingApproval = false
+        var reportedByAgent = false
+        var running = true
+        var crashLooping = false
+        var reconnecting = false
         var id: String { session }
     }
 
@@ -141,30 +158,37 @@ enum Board {
             guard let session = row["sessionName"] as? String, !session.isEmpty else { return nil }
             let name = (row["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? session
             let state = row["state"] as? String ?? "unknown"
-            let asked = (row["awaitingApproval"] as? Bool ?? false) || state == "needs_you"
+            let approval = row["awaitingApproval"] as? Bool ?? false
+            let phase = (row["reconnect"] as? [String: Any])?["phase"] as? String
             return Agent(session: session,
                          name: name,
                          role: (row["role"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                          state: state,
                          task: (row["task"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                         askedYou: asked)
+                         askedYou: state == "needs_you",
+                         awaitingApproval: approval,
+                         reportedByAgent: (row["stateReportedBy"] as? String) == "agent",
+                         running: (row["running"] as? Bool) != false,
+                         crashLooping: ((row["crashLoop"] as? [String: Any])?["looping"] as? Bool) == true,
+                         reconnecting: state == "connection_lost" && (phase == "waiting" || phase == "retried"))
         }
     }
 
-    // One word per state for the list (Mona's design: name, role, one word). Until
-    // the Mac sends these ready-made (the plan's item 2), this table is the phone's.
+    // The card's words, the same as the computer's (engine/cardlabel.js labelOf and STATE_COPY, the board page's
+    // own copy); restarting causes and trust prompts are left for the Mac-side words of the plan's item 2.
+    static let stateCopy: [String: String] = [
+        "working": "Working", "needs_you": "Issue", "rate_limited": "Rate Limit",
+        "auth_failed": "Sign-in isn't working", "connection_lost": "Connection lost", "blocked": "Waiting",
+        "idle": "Idle", "restarting": "Restarting agent", "stopped": "Not running", "unknown": "Can't tell",
+    ]
+
     static func statusWord(_ agent: Agent) -> String {
-        if agent.askedYou { return "Asked you" }
-        switch agent.state {
-        case "working": return "Working"
-        case "idle": return "Idle"
-        case "stopped": return "Stopped"
-        case "restarting": return "Restarting"
-        case "rate_limited": return "Paused"
-        case "auth_failed": return "Signed out"
-        case "connection_lost": return "Offline"
-        default: return "Unknown"
-        }
+        if !agent.running { return "Not running" }
+        if agent.crashLooping { return "Keeps stopping" }
+        if agent.state == "needs_you" && agent.reportedByAgent { return "Question" }
+        if agent.state == "needs_you" && agent.awaitingApproval { return "Needs permission" }
+        if agent.reconnecting { return "Reconnecting\u{2026}" }
+        return stateCopy[agent.state] ?? "Can't tell"
     }
 
     // Those that asked you first, then working, then the rest; by name within each.
