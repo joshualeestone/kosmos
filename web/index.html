@@ -1546,23 +1546,21 @@ html:has(> body > #cswitch-screen) { overflow: hidden; scrollbar-gutter: auto; }
    | right group) on the warm ground, gold underline on the selected tab.
    The pull-out tracks the app's own stage padding (--space-8), per the
    pack's rule that the bar must track the stage exactly. */
-/* #3837 F (Josh 2026-09-25 17:21-17:22): viewed remotely through a Kosmos+ address, a thin Kosmos+ bar sits above the
+/* kosmos#6718 (Josh 2026-10-20 08:42): the wide bar is gone. On an agent's page it was cut to half its height, and its
+   one job, Log out, now sits at the bottom of Settings > Kosmos+. So .kplus-bar is display:none, and only the phone
+   rule below shows it, where it is still the whole header (the Kosmos+ mark and the menu, #4823). The history below
+   is kept for the phone bar, which inherits these rules.
+   #3837 F (Josh 2026-09-25 17:21-17:22): viewed remotely through a Kosmos+ address, a thin Kosmos+ bar sits above the
    board, visually its own: "a tiny KOSMOS+ logo on the left, and a Log Out on the far right with a blue background".
    The first row of the sticky header (so it stays with it), pulled to the page edges as the header is (its side
-   margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter; #5379 pads it
-   by the width where none is reserved). The bar's fills
+   margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter; #5379 padded it
+   by the width where none is reserved, until #6718). The bar's fills
    are Kosmos+ navy and blue (the gate's own values), never gold (the 09-16 ruling); the mark keeps its own colours. */
-.kplus-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px;
+.kplus-bar { display: none; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px;
   margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6); padding: 4px var(--space-8);
   background: #17233d; border-bottom: 1px solid #2a3f6b; color: #e6ebf7; }
 .kplus-bar-mark { display: block; height: 14px; width: auto; }
 .kplus-bar-end { display: flex; align-items: center; gap: 12px; }
-.kplus-bar-msg { font-size: .8125rem; color: #e8a79c; }
-.kplus-bar-out { background: linear-gradient(150deg,#3a68d8,#2f57c4); color: #fff; border: 0; border-radius: 7px; padding: 5px 14px;
-  font: inherit; font-size: .8125rem; font-weight: 650; cursor: pointer; }
-.kplus-bar-out:hover { filter: brightness(1.06); }
-.kplus-bar-out:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-.kplus-bar-out:disabled { opacity: .6; cursor: default; }
 html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { margin: 0; }
 /* #4823 (Josh 2026-09-30 20:54, mockups navigation-mock.png and agents-listview-mock.png): on a phone viewing the board
    through Kosmos+ (html.kremote, set by kplusBar, AND the 40rem phone width) the navy bar IS the header: apple.com's
@@ -1575,8 +1573,7 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
    sideways (over 56rem) are past that definition, here as everywhere else on the board. */
 .kplus-bar-menu { display: none; }
 @media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
-  html.kremote .kplus-bar { height: 48px; min-height: 48px; padding: 0 16px; border-bottom: 0; margin-bottom: 0; }
-  html.kremote .kplus-bar-out, html.kremote .kplus-bar-msg { display: none; }
+  html.kremote .kplus-bar { display: flex; height: 48px; min-height: 48px; padding: 0 16px; border-bottom: 0; margin-bottom: 0; }
   html.kremote .kplus-bar-menu { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px;
     margin-right: -16px; padding: 0; border: 0; background: none; color: #fff; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   html.kremote .kplus-bar-menu:focus-visible { outline: 2px solid #fff; outline-offset: -7px; }
@@ -3536,14 +3533,15 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      an engine reserves the gutter on a page that does not scroll: Playwright's WebKit does not (A1n).
      The cost there: a page that really scrolls sits its header 15px right of the content edge. */
   /* #5379: the tab view reserves the scrollbar gutter and consolidated does not, so where scrollbars take width the
-     header jumped on every flip. Consolidated pads its inner header (it carries the background and bottom rule), and
-     the Kosmos+ bar, by the same width less what the page gives up. */
-  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header,
-  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar {
+     header jumped on every flip. Consolidated pads its inner header (it carries the background and bottom rule) by the
+     same width less what the page gives up. (It padded the Kosmos+ bar too, until kosmos#6718 took the bar off wide
+     screens.) */
+  /* `> header` (the one header, a direct child): the same element as a descendant match, written so this rule does not
+     repeat the anchor text web.rhythm-1303a pins to the rule near the 'grey band' fix (kosmos#6718 validation). */
+  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead > header {
     padding-right: max(var(--space-8), calc(var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   /* #5379: with consolidated chosen, the whole-page tabs (Settings and the rest: body is not .consolidated there) reserve
-     no gutter either, so they take this rule too and their header ends where Agents and Projects' does. kplusBarFit
-     tests the same state in script (consolidated chosen, body not .consolidated, wide); the 2624 bar arm pins both. */
+     no gutter either, so they take this rule too and their header ends where Agents and Projects' does. */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead,
   html[data-scrollbar-measured][data-layout="consolidated"] > body:not(.consolidated) > .apphead {
     padding-right: max(0px, calc(3 * var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
@@ -19831,6 +19829,12 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="fmsg" id="plus-msg" role="alert" aria-live="assertive"></p>
     </div>
+    <!-- kosmos#6718 (Josh 2026-10-20 08:42): Log out, at the bottom of Kosmos+. It ends THIS browser's Kosmos+ session
+         (kplusLogout), so kplusBar reveals it only through a Kosmos+ address; at the computer there is nothing to end. -->
+    <div class="frow" id="plus-logout-row" hidden>
+      <button class="btn" type="button" id="plus-logout">Log out</button>
+      <p class="fmsg" id="plus-logout-msg" role="status" aria-live="polite"></p>
+    </div>
 <!-- #4080: "Lost your phone?" opens this, in place of the essay that sat on the Kosmos Plus pane (Josh, 22:06:
        "all of this probably doesnt belong on that page"). The reset keeps its ids and its two-step arm (#733).
        The words are shortened; "always" is kept, per Josh's 2026-08-29 ruling that the second step ALWAYS happens.
@@ -20595,24 +20599,17 @@ function kplusBarDrawMark(cv, hh) {
   ctx.setTransform(PLUS_DPR, 0, 0, PLUS_DPR, 0, 0);
   for (const d of md.DOTS) { ctx.beginPath(); ctx.arc(d[0] * s, d[1] * s, Math.max(0.35, d[2] * s), 0, 7); ctx.fillStyle = d[3]; ctx.fill(); }
 }
-/* The bar runs edge to edge: its side margins cancel the header's own padding, read from the header, since the tab
-   layout computes the right one from the scrollbar gutter. */
+/* The phone bar (the only one drawn since kosmos#6718) runs edge to edge: its side margins cancel the header's own
+   padding, read from the header, since the tab layout computes the right one from the scrollbar gutter. */
 function kplusBarFit() {
   const bar = document.getElementById('kplus-bar'), head = document.querySelector('.apphead');
   if (!bar || !head) return;
+  /* Undrawn (every width but a phone's, kosmos#6718): nothing to fit. A turn to phone width fires resize, which fits. */
+  if (!bar.getClientRects().length) return;
   const cs = getComputedStyle(head);
   const l = '-' + (parseFloat(cs.paddingLeft) || 0) + 'px', r = '-' + (parseFloat(cs.paddingRight) || 0) + 'px';
   if (bar.style.marginLeft !== l) bar.style.marginLeft = l;
   if (bar.style.marginRight !== r) bar.style.marginRight = r;
-  /* #5379: with consolidated chosen, a whole-page tab (body not .consolidated) reserves no gutter, so the header's right
-     padding there also holds the scrollbar width, and the bar ends Log out on the same x by padding as much. Wide only:
-     the phone bar keeps its own padding. Elsewhere the stylesheet's padding stands (consolidated pads by CSS). */
-  const doc = document.documentElement;
-  const whole = doc.getAttribute('data-layout') === 'consolidated' && !document.body.classList.contains('consolidated')
-    && window.matchMedia('(min-width: 56.01rem)').matches;
-  /* At least the bar's own side padding (its left one), so a header padded by less never pulls Log out to the edge. */
-  const pr = whole ? Math.max(parseFloat(getComputedStyle(bar).paddingLeft) || 0, parseFloat(cs.paddingRight) || 0) + 'px' : '';
-  if (bar.style.paddingRight !== pr) bar.style.paddingRight = pr;
 }
 function kplusBar() {
   if (!kplusRemote() || document.getElementById('kplus-bar')) return;
@@ -20622,8 +20619,8 @@ function kplusBar() {
   bar.id = 'kplus-bar'; bar.className = 'kplus-bar';
   bar.setAttribute('role', 'region'); bar.setAttribute('aria-label', 'Kosmos+ remote session');
   bar.innerHTML = '<canvas class="kplus-bar-mark" role="img" aria-label="Kosmos+"></canvas>'
-    + '<span class="kplus-bar-end"><span class="kplus-bar-msg" id="kplus-bar-msg" role="status"></span>'
-    + '<button type="button" class="kplus-bar-out" id="kplus-logout">Log out</button>'
+    + '<span class="kplus-bar-end">'
+    /* kosmos#6718: no Log out here any more; it is at the bottom of Settings > Kosmos+ (plus-logout below). */
     /* #4823: the two lines that open the phone menu (#pnav). Shown only at phone width, by CSS. */
     + '<button type="button" class="kplus-bar-menu" id="kplus-menu" aria-label="Menu" aria-haspopup="dialog" aria-expanded="false" aria-controls="pnav">'
     + '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M.5 4.5h17M.5 13.5h17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></span>';
@@ -20635,19 +20632,26 @@ function kplusBar() {
   /* #4506: BOTH of the header's boxes, one observer each (one observer holds one box per element). The bar's margins
      cancel the header's padding, and that padding changes in two ways that no window resize reports. When the
      scrollbar gutter comes or goes, the padding moves with it by design (#3497):
-     the border box changes and the content box does not (CI, render-plus-bar-3837 P2, 15px past the page). When
+     the border box changes and the content box does not (CI, 15px past the page). When
      kosmosMeasureScrollbarWidth updates --scrollbar-width (on a press, a focus, a return to the tab), the padding
-     changes and the border box does not. render-plus-bar-3837 P8 drives both. */
+     changes and the border box does not. render-plus-bar-3837 drove both while the bar showed at desktop widths; since
+     kosmos#6718 only the phone bar is drawn, where scrollbars seldom take width, and no check drives them now. */
   if (typeof ResizeObserver === 'function') {
     new ResizeObserver(kplusBarFit).observe(head, { box: 'border-box' });
     new ResizeObserver(kplusBarFit).observe(head);
   }
-  const out = bar.querySelector('#kplus-logout'), msg = bar.querySelector('#kplus-bar-msg');
-  out.addEventListener('click', () => kplusLogout(out, msg));
+  /* kosmos#6718 (Josh 2026-10-20): Log out lives at the bottom of Settings > Kosmos+, shown only here, through a
+     Kosmos+ address: at the computer itself there is no Kosmos+ browser session to end. */
+  const logoutRow = document.getElementById('plus-logout-row');
+  const out = document.getElementById('plus-logout'), msg = document.getElementById('plus-logout-msg');
+  if (logoutRow && out && msg) {
+    logoutRow.hidden = false;
+    out.addEventListener('click', () => kplusLogout(out, msg));
+  }
   pnavBuild();
 }
-/* Log out of this browser's Kosmos+ session. One function for both doors, the bar's button and the phone menu's
-   (#4823), so they cannot come to disagree about what logging out does or says. */
+/* Log out of this browser's Kosmos+ session. One function for both doors, so they cannot come to disagree about what
+   logging out does or says: Settings > Kosmos+ (kosmos#6718; the bar's button before) and the phone menu (#4823). */
 async function kplusLogout(out, msg) {
   out.disabled = true; msg.textContent = '';
   let status = 0;

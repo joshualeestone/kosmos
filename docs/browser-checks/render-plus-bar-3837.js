@@ -1,14 +1,16 @@
-// Browser-check-surface: kplus-bar kplus-logout kplus-bar-msg apphead
+// Browser-check-surface: kplus-bar plus-logout plus-logout-row plus-logout-msg apphead s-sec-plus
 'use strict';
 
 /**
- * The Kosmos+ remote bar (#3837 F, Josh 2026-09-25 17:21-17:22): viewed through a Kosmos+ address, a thin Kosmos+ bar
- * sits above the board, "a tiny KOSMOS+ logo on the left, and a Log Out on the far right with a blue background".
+ * Viewed through a Kosmos+ address. History: #3837 F (Josh 2026-09-25) put a thin Kosmos+ bar above the board with a
+ * blue Log out. kosmos#6718 (Josh 2026-10-20 08:42): on an agent's page that bar was cut to half its height, so it
+ * is gone at desktop widths and Log out sits at the bottom of Settings > Kosmos+. On a phone the bar stays: there it
+ * is the whole header (the Kosmos+ mark and the menu, #4823, render-mobilenav-4823.js).
  *
- * Harness: the real board, reached two ways. Through 127.0.0.1 it is the Mac's own window (no bar: the CONTROL), and
- * through remote.test, which Chromium maps to the same loopback address and the board is told to accept
- * (AGENT_WORKFORCE_ALLOWED_HOSTS, its deliberate opt-in), it is what a Kosmos+ address shows. The tunnel's own
- * /_kosmos/logout is answered here (the tunnel is kosmos-relay's; its route has its own test there, door.rs 6b).
+ * Harness: the real board, reached two ways. Through 127.0.0.1 it is the Mac's own window (the CONTROL: no Kosmos+
+ * session, so no Log out anywhere), and through remote.test, which Chromium maps to the same loopback address and the
+ * board is told to accept (AGENT_WORKFORCE_ALLOWED_HOSTS, its deliberate opt-in), it is what a Kosmos+ address shows.
+ * The tunnel's own /_kosmos/logout is answered here (the tunnel is kosmos-relay's; its route has its own test there).
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-plus-bar-3837.js [shots-dir]
  */
@@ -40,34 +42,28 @@ function chk(ok, label, extra) {
   if (ok) { pass++; console.log('PASS  ' + label + (extra ? '  ' + extra : '')); }
   else { fail.push(label); console.log('FAIL  ' + label + (extra ? '  --  ' + extra : '')); }
 }
-// kosmos#3973: "right" is measured to the ROOT's box, not documentElement.clientWidth, which includes
-// the #1309 stable gutter on a classic-scrollbar machine when the page does not scroll. rootOk keeps
-// that yardstick honest: the root may give up a gutter only as wide as its own stable scrollbar gutter
-// (within 1px), so a root that shrank or moved cannot pass a short bar. #4213: that width is read off
-// the root (overflow hidden, without then with a stable gutter, restored in a finally, after the other
-// reads), since the PR runner hides element scrollbars and a scratch scroller read 0 against 15px.
-// An engine without scrollbar-gutter reads 0 and fails loudly; both Playwright engines support it.
-const bar = (page) => page.evaluate(() => {
-  const b = document.getElementById('kplus-bar');
-  if (!b) return { present: false };
-  const r = b.getBoundingClientRect(), head = document.querySelector('.apphead'), cv = b.querySelector('canvas'), out = document.getElementById('kplus-logout');
-  let inked = 0;
-  try { const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; for (let i = 3; i < px.length; i += 4) if (px[i] > 0) inked++; } catch { inked = -1; }
-  const ob = out.getBoundingClientRect(), cb = cv.getBoundingClientRect();
-  const root = document.documentElement.getBoundingClientRect();
-  const de = document.documentElement, rs = de.style, was = de.getAttribute('style'), sx = scrollX, sy = scrollY;
-  let sbw = NaN;
-  try {
-    rs.overflow = 'hidden'; rs.scrollbarGutter = 'auto';
-    const bare = document.documentElement.getBoundingClientRect().width;
-    rs.scrollbarGutter = 'stable';
-    sbw = Math.round(bare - document.documentElement.getBoundingClientRect().width);
-  } finally { if (was === null) de.removeAttribute('style'); else de.setAttribute('style', was); scrollTo(sx, sy); }
-  const gutter = innerWidth - root.right;
-  return { rootOk: Math.abs(root.left) <= 1 && (Math.abs(gutter) <= 1 || Math.abs(gutter - sbw) <= 1), gutter: Math.round(gutter), sbw, present: true, first: head && head.firstElementChild === b, top: Math.round(r.top), left: Math.round(r.left), right: Math.round(root.right - r.right),
-    h: Math.round(r.height), inked, markLeft: Math.round(cb.left - r.left), markH: Math.round(cb.height), outRightGap: Math.round(r.right - ob.right), outText: out.textContent,
-    outBg: getComputedStyle(out).backgroundImage, bg: getComputedStyle(b).backgroundColor, label: b.getAttribute('aria-label') };
+
+/* Is the bar drawn at all (an element can exist and take no box), and where does the header start. */
+const head = (page) => page.evaluate(() => {
+  const b = document.getElementById('kplus-bar'), h = document.querySelector('.apphead');
+  const shown = !!b && b.getClientRects().length > 0 && b.getBoundingClientRect().height > 0;
+  const hr = h ? h.getBoundingClientRect() : null;
+  return { exists: !!b, shown, headTop: hr ? Math.round(hr.top) : null, headH: hr ? Math.round(hr.height) : null };
 });
+/* The Log out row in Settings > Kosmos+: shown, and the last thing drawn in the section (its bottom). */
+const logoutRow = (page) => page.evaluate(() => {
+  const row = document.getElementById('plus-logout-row'), sec = document.getElementById('s-sec-plus');
+  if (!row || !sec) return { present: false };
+  const drawn = [...sec.children].filter((c) => c.getClientRects().length > 0 && getComputedStyle(c).position !== 'fixed' && c.tagName !== 'CANVAS');
+  const btn = document.getElementById('plus-logout');
+  return { present: true, shown: !row.hidden && row.getClientRects().length > 0, last: drawn[drawn.length - 1] === row,
+    text: btn ? btn.textContent : null, secShown: sec.getClientRects().length > 0 };
+});
+const openPlus = async (page) => {
+  await page.evaluate(() => { showTab('settings'); settingsGo('plus'); });
+  await page.waitForFunction(() => { const s = document.getElementById('s-sec-plus'); return !!s && !s.hidden; }, null, { timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(200);
+};
 
 (async () => {
   fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
@@ -80,145 +76,100 @@ const bar = (page) => page.evaluate(() => {
     page.on('pageerror', (e) => errs.push(e.message));
     const settle = async () => { if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(200); } };
 
-    // P1 CONTROL: the Mac's own window (loopback) has no bar.
+    // P1 CONTROL: the Mac's own window (loopback): no bar, and no Log out in Settings > Kosmos+ (no session to end).
     await page.goto('http://127.0.0.1:' + port + '/', { waitUntil: 'networkidle' });
     await settle();
-    chk(!(await bar(page)).present, 'P1 CONTROL: on the Mac itself (127.0.0.1) there is no Kosmos+ bar');
+    const h1 = await head(page);
+    chk(!h1.exists && !h1.shown, 'P1 CONTROL: on the Mac itself (127.0.0.1) there is no Kosmos+ bar', JSON.stringify(h1));
+    await openPlus(page);
+    const l1 = await logoutRow(page);
+    chk(l1.present && l1.secShown && !l1.shown, 'P1 CONTROL: on the Mac itself Settings > Kosmos+ shows no Log out', JSON.stringify(l1));
 
-    // P2: through a Kosmos+ address, the bar is the header's first row, edge to edge at the very top, the mark drawn
-    // on its left and a blue Log out on its right.
+    // P2: through a Kosmos+ address at a desktop width, no bar is drawn: the board's own header is the top of the page.
     await page.goto('http://remote.test:' + port + '/', { waitUntil: 'networkidle' });
     await settle();
-    chk(await page.evaluate(() => location.hostname === 'remote.test' && !!document.querySelector('#grid, .apphead')), 'P2 precondition: the real board answered through remote.test');
-    const b2 = await bar(page);
-    chk(b2.present && b2.rootOk && b2.first && b2.top === 0 && b2.left === 0 && b2.right === 0, 'P2 through a Kosmos+ address the bar is the header\'s first row, edge to edge of the page layout (a reserved scrollbar gutter excluded) at the top', JSON.stringify(b2));
-    chk(b2.inked > 200 && b2.markLeft > 0 && b2.markLeft < 48 && b2.markH === 14, 'P2 the tiny KOSMOS+ mark is drawn on its left (the real dots)', JSON.stringify({ inked: b2.inked, markLeft: b2.markLeft, markH: b2.markH }));
-    chk(b2.outText === 'Log out' && /gradient/.test(b2.outBg) && b2.outRightGap > 0 && b2.outRightGap < 48 && b2.h <= 44, 'P2 a blue Log out on the far right, and the bar is thin', JSON.stringify({ outText: b2.outText, outBg: b2.outBg.slice(0, 40), outRightGap: b2.outRightGap, h: b2.h }));
-    chk(b2.bg === 'rgb(23, 35, 61)' && b2.label === 'Kosmos+ remote session', 'P2 on the Kosmos+ navy, named for a screen reader as the Kosmos+ remote session', JSON.stringify({ bg: b2.bg, label: b2.label }));
-    if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'plus-bar-tabs.png'), clip: { x: 0, y: 0, width: 1280, height: 200 } }); }
-    // The sticky header keeps it: scrolled, the bar is still at the top.
-    await page.evaluate(() => window.scrollTo(0, 400));
-    await page.waitForTimeout(200);
-    const scrolled = await bar(page);
-    chk(scrolled.present && scrolled.top === 0, 'P2 scrolled, the bar stays at the top with the header', JSON.stringify({ top: scrolled.top }));
-    await page.evaluate(() => window.scrollTo(0, 0));
+    chk(await page.evaluate(() => location.hostname === 'remote.test' && document.documentElement.classList.contains('kremote')), 'P2 precondition: the real board answered through remote.test and knows it is remote');
+    const h2 = await head(page);
+    chk(h2.exists && !h2.shown && h2.headTop === 0, 'P2 through a Kosmos+ address at desktop width no Kosmos+ bar is drawn (kosmos#6718); the header starts at the top', JSON.stringify(h2));
+    if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'plus-nobar-board.png'), clip: { x: 0, y: 0, width: 1280, height: 200 } }); }
 
-    // P3: Log out that the tunnel refuses (here, a 403): it says so, the button works again, and the page stays.
-    let asked = 0, answer = 403;
-    await page.route('**/_kosmos/logout', (route) => { asked++; route.fulfill({ status: answer, contentType: 'application/json', body: answer === 200 ? '{"ok":true}' : '{"because":"no"}' }); });
-    await page.click('#kplus-logout');
-    await page.waitForFunction(() => document.getElementById('kplus-bar-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
-    const p3 = await page.evaluate(() => ({ msg: document.getElementById('kplus-bar-msg').textContent, dis: document.getElementById('kplus-logout').disabled, bar: !!document.getElementById('kplus-bar') }));
-    chk(asked === 1 && p3.msg === 'Could not log out just now. Try again.' && !p3.dis && p3.bar, 'P3 a refused log out says so and leaves the page as it was', JSON.stringify({ asked, p3 }));
-
-    // P4: Log out that works: one POST to the tunnel's route, then the page goes to the address's root (the tunnel's
-    // sign-in page, once the session is gone).
-    answer = 200;
-    // Review 2: P4 is the bare-'/' branch (only the fragment would change, so the board must reload); say so.
-    chk(await page.evaluate(() => location.pathname === '/' && location.search === ''), 'P4 precondition: the board\'s address is a bare /', await page.evaluate(() => location.href));
-    await page.evaluate(() => { window.__before = true; });
-    const [req] = await Promise.all([
-      page.waitForRequest((r) => r.url().endsWith('/_kosmos/logout') && r.method() === 'POST'),
-      page.click('#kplus-logout'),
-    ]);
-    await page.waitForFunction(() => !window.__before, null, { timeout: 8000 }).catch(() => {});
-    const p4 = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, host: location.hostname, hash: location.hash }));
-    // kosmos#4879: to '/#signed-out' (path and fragment compared together: a bare '#name' reads as an element id to
-    // browser-checks-selectors.test.js), which the tunnel's page reads as "You're signed out" (Josh's phone showed raw JSON).
-    chk(!!req && asked === 2 && p4.reloaded && p4.path + p4.hash === '/#signed-out' && p4.host === 'remote.test', 'P4 a log out that works posts once and goes to the address\'s start, signed out', JSON.stringify({ asked, p4 }));
-    // P4b (kosmos#4879 review 1): the same from a tab that writes a query, the other branch of the Log out navigation
-    // (P4 starts from a bare '/', where only a fragment would change and nothing would reload without the reload).
-    await page.goto('http://remote.test:' + port + '/?tab=projects', { waitUntil: 'networkidle' });
-    await page.waitForSelector('#kplus-logout', { timeout: 8000 }).catch(() => {});
-    chk(await page.evaluate(() => location.search === '?tab=projects'), 'P4b precondition: the board kept a query in the address', await page.evaluate(() => location.href));
-    await page.evaluate(() => { window.__before = true; });
-    await page.click('#kplus-logout');
-    await page.waitForFunction(() => !window.__before, null, { timeout: 8000 }).catch(() => {});
-    const p4b = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, search: location.search, hash: location.hash }));
-    chk(asked === 3 && p4b.reloaded && p4b.search === '' && p4b.path + p4b.hash === '/#signed-out', 'P4b a log out from a tab with a query also lands on the address\'s start, signed out', JSON.stringify({ asked, p4b }));
-    await page.unroute('**/_kosmos/logout');
-
-    // P5: the consolidated layout (its header is not sticky and has no padding): still the first row, edge to edge.
-    await settle();
-    await page.evaluate(() => applyLayout('consolidated', true));
-    await page.waitForTimeout(400);
-    const b5 = await bar(page);
-    chk(b5.present && b5.rootOk && b5.first && b5.top === 0 && b5.left === 0 && b5.right === 0, 'P5 under the consolidated layout the bar is still the first row, edge to edge of the page layout', JSON.stringify(b5));
-    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'plus-bar-consolidated.png'), clip: { x: 0, y: 0, width: 1280, height: 200 } });
-    await page.evaluate(() => applyLayout('tabs', true));
-
-    // P7 (review): edge to edge of the header wherever the tab layout sets its right padding from the scrollbar gutter:
-    // the board (it scrolls) and an agent's talk view (its own gutter rule). Read against the header's own box, not
-    // clientWidth, which on a classic-scrollbar machine can include an empty reserved gutter (#3973).
-    const edges = () => page.evaluate(() => { const b = document.getElementById('kplus-bar').getBoundingClientRect(), h = document.querySelector('.apphead').getBoundingClientRect();
-      return { dl: Math.round(b.left - h.left), dr: Math.round(h.right - b.right), vw: Math.round(innerWidth - b.right) }; });
+    // P3: no jump between the board and an agent's page (Josh's screenshot: the bar was half hidden on the agent's page).
     await page.evaluate(() => showTab('agents'));
     await page.waitForTimeout(300);
-    const e7a = await edges();
+    const board = await head(page);
     await page.evaluate(() => { const a = document.querySelector('#grid [data-agent="beatrix"]'); if (a) a.click(); });
     await page.waitForFunction(() => { const s = document.getElementById('d-sec-talk'); return !!s && !s.hidden; }, null, { timeout: 8000 }).catch(() => {});
     await page.waitForTimeout(400);
-    chk(await page.evaluate(() => { const s = document.getElementById('d-sec-talk'); return !!s && !s.hidden && s.getClientRects().length > 0; }), 'P7 precondition: an agent\'s talk view is open');
-    const e7b = await edges();
-    chk(e7a.dl === 0 && e7a.dr === 0 && e7b.dl === 0 && e7b.dr === 0, 'P7 the bar spans the header edge to edge on the board and in an agent\'s talk view', JSON.stringify({ board: e7a, talk: e7b }));
-    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'plus-bar-talk.png'), clip: { x: 0, y: 0, width: 1280, height: 160 } });
+    chk(await page.evaluate(() => { const s = document.getElementById('d-sec-talk'); return !!s && !s.hidden && s.getClientRects().length > 0; }), 'P3 precondition: an agent\'s talk view is open');
+    const talk = await head(page);
+    chk(!board.shown && !talk.shown && board.headTop === 0 && talk.headTop === 0 && board.headH === talk.headH, 'P3 on the board and on an agent\'s page alike, no bar, the header at the top and the same height (no jump, nothing cut)', JSON.stringify({ board, talk }));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'plus-nobar-talk.png'), clip: { x: 0, y: 0, width: 1280, height: 160 } });
 
-    chk(errs.length === 0, 'P6 no page errors', errs.join(' | '));
+    // P4: Log out is at the bottom of Settings > Kosmos+ through a Kosmos+ address.
+    await openPlus(page);
+    const l4 = await logoutRow(page);
+    chk(l4.present && l4.shown && l4.last && l4.text === 'Log out', 'P4 through a Kosmos+ address Settings > Kosmos+ ends with Log out', JSON.stringify(l4));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'plus-logout-settings.png'), fullPage: true });
 
-    // P8 (#4506): the bar re-fits when the scrollbar gutter comes back. The boot cover drops the tab layout's gutter
-    // while it is up; the header's padding moves with the gutter by design (#3497), so its CONTENT box never changes
-    // size, and a content-box observer left the bar with the margins it was fitted with under the cover: 15px past the
-    // page once the gutter returned (CI P2 on a real scrollbar). Its own browser, so the arms above run exactly as CI
-    // runs them: a real, space-taking 15px scrollbar here (--hide-scrollbars dropped, a ::-webkit-scrollbar width, a
-    // page tall enough to scroll), the way render-dialog-gutter-4506 gets one. kosmosMeasureScrollbarWidth reads 0 here
-    // (it measures with overflow hidden, where a custom scrollbar takes no width), so the header's padding runs the
-    // #3497 formula with --scrollbar-width 0: 9 -> 24 -> 9px, where a real Mac goes 24 -> 39 -> 24. The 15px swing is
-    // the same, and against the old content-box observer the last arm reads right -15, CI's number.
-    const b8 = await chromium.launch({ headless: process.env.HEADED === '0', args: ['--host-resolver-rules=MAP remote.test 127.0.0.1'], ignoreDefaultArgs: ['--hide-scrollbars'] });
+    // P4b: and while connected, the state anyone reaching the board through Kosmos+ is in (review 1: P4 saw only the
+    // not-connected pane, since this sandbox has no Kosmos+ account). The connected pane's own parts are answered here
+    // the way render-plus-panel-3829.js answers them; Log out still ends the section, under Remove this computer.
+    {
+      const cp = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+      try {
+        const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
+        const remote = { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: 'remote.test' } };
+        await cp.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? remote : { ok: true })));
+        await cp.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', self_device_id: 'd-self' })));
+        await cp.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [{ device_id: 'd-self', allowed_at: Math.floor(Date.now() / 1000) - 60 }], pending: [], self_device_id: 'd-self' })));
+        await cp.goto('http://remote.test:' + port + '/', { waitUntil: 'networkidle' });
+        if (await cp.$('#firstrun:not([hidden])')) { await cp.keyboard.press('Escape'); await cp.waitForTimeout(200); }
+        await openPlus(cp);
+        await cp.waitForFunction(() => { const f = document.getElementById('plus-forget'); return !!f && !f.hidden; }, null, { timeout: 8000 }).catch(() => {});
+        chk(await cp.evaluate(() => { const f = document.getElementById('plus-forget'); return !!f && !f.hidden && f.getClientRects().length > 0; }),
+          'P4b precondition: the connected pane is drawn (Remove this computer is shown)');
+        const l4b = await logoutRow(cp);
+        chk(l4b.present && l4b.shown && l4b.last && l4b.text === 'Log out', 'P4b while connected, Settings > Kosmos+ still ends with Log out', JSON.stringify(l4b));
+        if (SHOTS) await cp.screenshot({ path: path.join(SHOTS, 'plus-logout-connected.png'), fullPage: true });
+      } finally { await cp.close(); }
+    }
+
+    // P5: a log out the tunnel refuses (here, a 403): it says so, the button works again, and the page stays.
+    let asked = 0, answer = 403;
+    await page.route('**/_kosmos/logout', (route) => { asked++; route.fulfill({ status: answer, contentType: 'application/json', body: answer === 200 ? '{"ok":true}' : '{"because":"no"}' }); });
+    await page.click('#plus-logout');
+    await page.waitForFunction(() => document.getElementById('plus-logout-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
+    const p5 = await page.evaluate(() => ({ msg: document.getElementById('plus-logout-msg').textContent, dis: document.getElementById('plus-logout').disabled, host: location.hostname }));
+    chk(asked === 1 && p5.msg === 'Could not log out just now. Try again.' && !p5.dis && p5.host === 'remote.test', 'P5 a refused log out says so and leaves the page as it was', JSON.stringify({ asked, p5 }));
+
+    // P6: a log out that works posts once and lands on the address's start, signed out (kosmos#4879). Settings writes
+    // its tab into the address (?tab=settings&sec=plus), so this is kplusLogout's query branch. The bare-'/' branch is
+    // reachable only from the phone menu now; render-mobilenav-4823.js drives that menu's Log out with a refusal, not a
+    // success, so that branch's success path has no browser check after this change (it had P4 before).
+    answer = 200;
+    chk(await page.evaluate(() => location.search.includes('tab=settings')), 'P6 precondition: Settings put its tab in the address', await page.evaluate(() => location.href));
+    await page.evaluate(() => { window.__before = true; });
+    const [req] = await Promise.all([
+      page.waitForRequest((r) => r.url().endsWith('/_kosmos/logout') && r.method() === 'POST'),
+      page.click('#plus-logout'),
+    ]);
+    await page.waitForFunction(() => !window.__before, null, { timeout: 8000 }).catch(() => {});
+    const p6 = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, search: location.search, host: location.hostname, hash: location.hash }));
+    chk(!!req && asked === 2 && p6.reloaded && p6.search === '' && p6.path + p6.hash === '/#signed-out' && p6.host === 'remote.test', 'P6 a log out that works posts once and goes to the address\'s start, signed out', JSON.stringify({ asked, p6 }));
+    await page.unroute('**/_kosmos/logout');
+
+    chk(errs.length === 0, 'P7 no page errors', errs.join(' | '));
+
+    // P8 CONTROL for the CSS change: at a phone width through Kosmos+ the bar is still drawn, 48px, as the header
+    // (#4823). Without this, hiding the bar everywhere would pass every arm above.
+    const phone = await browser.newPage({ viewport: { width: 390, height: 844 } });
     try {
-      const p8 = await b8.newPage({ viewport: { width: 1280, height: 800 } });
-      const errs8 = [];
-      p8.on('pageerror', (e) => errs8.push(e.message));
-      await p8.goto('http://remote.test:' + port + '/', { waitUntil: 'networkidle' });
-      if (await p8.$('#firstrun:not([hidden])')) { await p8.keyboard.press('Escape'); await p8.waitForTimeout(200); }
-      await p8.evaluate(() => {
-        showTab('agents');
-        const st = document.createElement('style');
-        st.textContent = '::-webkit-scrollbar { width: 15px; } ::-webkit-scrollbar-thumb { background: #999; }';
-        document.head.appendChild(st);
-        const tall = document.createElement('div'); tall.id = 'p8-tall'; tall.style.height = '3000px'; document.body.appendChild(tall);
-        window.kosmosMeasureScrollbarWidth();
-        kplusBarFit();
-      });
-      await p8.waitForTimeout(300);
-      const fit = () => p8.evaluate(() => { const root = document.documentElement.getBoundingClientRect(), b = document.getElementById('kplus-bar').getBoundingClientRect();
-        return { gutter: Math.round(innerWidth - root.right), right: Math.round(root.right - b.right), left: Math.round(b.left - root.left) }; });
-      const before = await fit();
-      chk(before.gutter === 15 && before.right === 0, 'P8 precondition: a real 15px gutter, and the bar fits the page', JSON.stringify(before));
-      // The bar is made and fitted while the cover is up, as on a page load (kplusBar runs at boot, under the cover).
-      await p8.evaluate(() => { document.getElementById('boot-cover').hidden = false; });
-      await p8.waitForTimeout(100);
-      await p8.evaluate(() => kplusBarFit());
-      await p8.waitForTimeout(200);
-      const under = await fit();
-      chk(under.gutter === 0 && under.right === 0, 'P8 CONTROL: under the boot cover the gutter is gone and the bar is fitted to that (so the arm below exercises its return)', JSON.stringify(under));
-      await p8.evaluate(() => { document.getElementById('boot-cover').hidden = true; });
-      await p8.waitForTimeout(300);
-      const after = await fit();
-      chk(after.gutter === 15 && after.right === 0 && after.left === 0, 'P8 once the cover lifts and the gutter is back, the bar re-fits: edge to edge of the page, not 15px past it', JSON.stringify(after));
-      // The other way the header's padding moves: kosmosMeasureScrollbarWidth sets --scrollbar-width (on a press, a
-      // focus, a return to the tab) and the padding follows while the header's border box stays put, which is
-      // asserted, since the arm only tells the two observers apart when that holds.
-      const headBefore = await p8.evaluate(() => Math.round(document.querySelector('.apphead').getBoundingClientRect().width));
-      await p8.evaluate(() => document.documentElement.style.setProperty('--scrollbar-width', '30px'));
-      await p8.waitForTimeout(300);
-      const padOnly = await p8.evaluate(() => { const h = document.querySelector('.apphead'), root = document.documentElement.getBoundingClientRect(), b = document.getElementById('kplus-bar').getBoundingClientRect();
-        return { pad: parseFloat(getComputedStyle(h).paddingRight), headW: Math.round(h.getBoundingClientRect().width), right: Math.round(root.right - b.right) }; });
-      chk(padOnly.headW === headBefore, 'P8 precondition: a new --scrollbar-width moves only the header\'s padding, not its border box', JSON.stringify({ headBefore, headW: padOnly.headW }));
-      chk(padOnly.pad >= 30 && padOnly.right === 0, 'P8 when only the header\'s padding changes (a new scrollbar measurement, same width), the bar re-fits too', JSON.stringify(padOnly));
-      await p8.evaluate(() => document.documentElement.style.removeProperty('--scrollbar-width'));
-      chk(errs8.length === 0, 'P8 no page errors', errs8.join(' | '));
-    } finally { await b8.close(); }
+      await phone.goto('http://remote.test:' + port + '/', { waitUntil: 'networkidle' });
+      if (await phone.$('#firstrun:not([hidden])')) { await phone.keyboard.press('Escape'); await phone.waitForTimeout(200); }
+      const p8 = await phone.evaluate(() => { const b = document.getElementById('kplus-bar'); const r = b ? b.getBoundingClientRect() : null;
+        return { shown: !!b && b.getClientRects().length > 0, h: r ? Math.round(r.height) : null, menu: !!document.getElementById('kplus-menu') && document.getElementById('kplus-menu').getClientRects().length > 0 }; });
+      chk(p8.shown && p8.h === 48 && p8.menu, 'P8 CONTROL: on a phone through Kosmos+ the bar is still the 48px header with its menu', JSON.stringify(p8));
+    } finally { await phone.close(); }
   } finally {
     await browser.close();
     server.close();
