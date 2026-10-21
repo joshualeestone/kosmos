@@ -14,7 +14,7 @@
  *     tag does not (the CONTROL that the tag, not the photo, did it);
  *   - a GIF is handed back exactly as chosen (an animated one would stop moving);
  *   - a small picture is saved at its own size, not blown up to 512;
- *   - a key with a modifier (Ctrl+=) is left to the browser; a drag that ends on the backdrop does not cancel;
+ *   - a key with a modifier (Ctrl+=, Ctrl+Tab) is left to the browser; a drag that ends on the backdrop does not cancel;
  *   - wired, all three pickers: the person's own picture and an agent's page (Cancel uploads nothing; Save uploads
  *     one picture to the right place), and a new agent ("Use picture"; the held picture is the 512 cut named as
  *     chosen, the hint names it, nothing uploads yet);
@@ -248,6 +248,13 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     await page.keyboard.press('Equal');
     const zPlain = await page.evaluate(() => Number(document.getElementById('crop-zoom').value));
     chk(zMod === zBefore && zPlain > zBefore, `${t} Ctrl+= is left to the browser; = alone zooms (CONTROL)`, JSON.stringify({ zBefore, zMod, zPlain }));
+    // Review 6: Ctrl+Tab is the browser's tab switch, so the editor's Tab ring leaves it alone; plain Tab is kept (CONTROL).
+    const tabs = await page.evaluate(() => {
+      const send = (ctrlKey) => { const ev = new KeyboardEvent('keydown', { key: 'Tab', ctrlKey, bubbles: true, cancelable: true });
+        document.getElementById('crop-stage').dispatchEvent(ev); return ev.defaultPrevented; };
+      return { ctrl: send(true), plain: send(false) };
+    });
+    chk(tabs.ctrl === false && tabs.plain === true, `${t} Ctrl+Tab is left to the browser; plain Tab is kept in the editor (CONTROL)`, JSON.stringify(tabs));
     // Pinch: two fingers moving apart zoom in (synthetic touch pointers, so both engines run it); one finger alone moves,
     // never zooms (CONTROL).
     const pinch = await page.evaluate(() => {
@@ -359,7 +366,7 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
   }
   // The count is part of the result: a run that skipped arms (or an empty ENGINES) must not read as green.
   if (engines.length === 0) chk(false, 'ENGINES named no engine, so nothing ran');
-  const EXPECTED_PER_ENGINE = 29;
+  const EXPECTED_PER_ENGINE = 30;
   if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
   console.log(`render-avatar-crop-6722: ${RAN - fail.length} PASS, ${fail.length} FAIL`);
   process.exit(fail.length ? 1 : 0);

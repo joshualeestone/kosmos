@@ -47,3 +47,9 @@ image I get some basic cropping tools before i save?"
   this machine and a phone survive one full decode; would change it: a report of a crash on a big photo.
 - **Not fixed:** if the agent a picture was chosen for is deleted while the editor is open, the upload fails without a
   word (the error shows only while the panel is on that agent). Rare, and nothing is lost but the picture.
+
+## Review 6
+- **Fixed:** Ctrl+Tab and Cmd+Tab pass to the browser; Option+Tab stays in the editor's ring (Safari's way between
+  buttons) and stops there. The check asserts Ctrl+Tab is not prevented and plain Tab is (control).
+- **Not fixed, as decided:** a cut that fails hands back the picture as chosen (only a browser that cannot allocate a
+  512 px canvas reaches it); a second pick during a slow read is dropped (CROP_READING); animated pictures save still.

@@ -47049,7 +47049,11 @@ function cropPicture(file, verb) {
     const onStage = e.target === stage;
     const step = e.shiftKey ? 40 : 10;
     if (e.key === 'Escape') { e.preventDefault(); cropFinish(false); return; }
+    // Review 6: Ctrl+Tab and Cmd+Tab are the browser's and the system's (switching tabs and apps), never the editor's.
+    // Option+Tab stays: it is how Safari moves between buttons when Tab alone skips them.
+    if (e.key === 'Tab' && (e.ctrlKey || e.metaKey)) return;
     if (e.key === 'Tab') {
+      e.stopImmediatePropagation();
       // Kept inside the editor: the stage, the slider, Cancel, Save.
       const ring = [stage, zoom, document.getElementById('crop-no'), document.getElementById('crop-go')];
       const i = ring.indexOf(document.activeElement);
