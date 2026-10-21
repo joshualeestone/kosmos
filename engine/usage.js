@@ -1025,8 +1025,35 @@ async function usageSinceInstall(deps = {}) {
   return { ...result, installDay: since, days };
 }
 
+/* #6829: save every completed day while its transcripts still exist. Claude Code deletes transcripts older than its
+   cleanupPeriodDays (30 by default), and a day was frozen only when some request's window covered it, so a day nobody
+   viewed Token Usage near was lost for good. A few minutes after the board starts, then every SAVE_EVERY_MS, the
+   all-time read runs once (its completed days come from disk after the first time, so a repeat is cheap). One at a
+   time; never under the test runner (an armed timer would land in another test). Best effort: a failed save is
+   retried on the next tick. */
+const SAVE_FIRST_MS = 3 * 60 * 1000;
+const SAVE_EVERY_MS = 6 * 60 * 60 * 1000;
+let saving = null;
+function saveSinceInstall(read = usageSinceInstall) {
+  if (!saving) {
+    saving = Promise.resolve().then(() => read()).then(() => true, (err) => {
+      console.error('usage: could not save past days:', (err && err.message) || err);
+      return false;
+    }).finally(() => { saving = null; });
+  }
+  return saving;
+}
+function startSaving() {
+  if (process.env.NODE_TEST_CONTEXT) return false;
+  setTimeout(() => { saveSinceInstall(); }, SAVE_FIRST_MS).unref();
+  setInterval(() => { saveSinceInstall(); }, SAVE_EVERY_MS).unref();
+  return true;
+}
+
 module.exports = {
   configRoots, // re-exported so a caller can report roots without a second require
+  saveSinceInstall,    // kosmos#6829
+  startSaving,         // kosmos#6829
   installDay,          // kosmos#6829
   usageSinceInstall,   // kosmos#6829
   walkTranscriptsUnder,
