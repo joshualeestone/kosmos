@@ -569,14 +569,16 @@ async function verbMsg(ctx, args) {
 
 /* #6726: the path sent for --file, made absolute by joining text as install/kosmos's "$PWD/$path" does. Never
    path.resolve: it removes `..` and `.` by text, so the board would not see a `..` it refuses, and through a link or
-   junction the shortened path names another file. On Windows a path that names a drive but no folder (C:foo) or
-   a folder but no drive (\foo) has no single meaning here, so it is refused (null). p is path.win32 or
-   path.posix, so both are tested on any machine. */
+   junction the shortened path names another file. On Windows only a path on a drive (C:\x or C:/x) is taken. A
+   drive with no folder (C:foo), a folder with no drive (\foo, /foo), a network or device path (\\host\share, \\?\,
+   \\.\), and a relative path from a folder that is not on a drive, are refused (null). p is path.win32 or path.posix,
+   so both are tested on any machine. */
 function replyFileAbsolute(file, cwd, p) {
   if (p.sep === '\\') {
-    if (/^[A-Za-z]:[\\/]/.test(file) || /^[\\/]{2}/.test(file)) return file;
+    if (/^[A-Za-z]:[\\/]/.test(file)) return file;
     if (/^[A-Za-z]:/.test(file) || /^[\\/]/.test(file)) return null;
-    return cwd.replace(/[\\/]+$/, '') + '\\' + file;
+    const joined = cwd.replace(/[\\/]+$/, '') + '\\' + file;
+    return /^[A-Za-z]:[\\/]/.test(joined) ? joined : null;
   }
   return file.startsWith('/') ? file : cwd + '/' + file;
 }
@@ -607,8 +609,8 @@ async function verbReply(ctx, args) {
       if (a === '--file') { file = i + 1 < args.length ? args[++i] : ''; } else file = a.slice('--file='.length);
       if (file === '' || file === '--' || /^--[A-Za-z]/.test(file)) { ctx.err(USAGE_REPLY_FILE_NEEDS_PATH); return 2; }
       const given = file;
-      file = replyFileAbsolute(given, process.cwd(), path);
-      if (file === null) { ctx.err('Give the file\'s full path, starting with its drive (C:\\...), so nothing was sent: ' + given + ' is relative to a drive or to the top of one.'); return 2; }
+      file = replyFileAbsolute(given, process.cwd(), ctx.pathRules);
+      if (file === null) { ctx.err('Give the file\'s full path on this computer, starting with its drive (C:\\...), so nothing was sent: ' + given + ' is not one.'); return 2; }
       /* Review r1 finding 7 on install/kosmos, checked after the folder is added as there. */
       if (/[\u0000-\u001f\u007f]/.test(file)) { ctx.err('That file\'s path has a line break or another control character in it, so it cannot be attached. Rename the file, then send it again.'); return 2; }
     }
@@ -648,7 +650,7 @@ async function verbReply(ctx, args) {
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); keepPiped(); return 1; }   // #5333
   if (r.json && r.json.kept === true) {
     /* #6726: the name the board saved it under (a link's target's name), else the given one. */
-    if (file) { const named = typeof r.json.attached === 'string' && r.json.attached ? r.json.attached : path.basename(file); ctx.out('Sent, with ' + named + ' attached. It is in their conversation with you.'); return 0; }
+    if (file) { const named = typeof r.json.attached === 'string' && r.json.attached ? r.json.attached : ctx.pathRules.basename(file); ctx.out('Sent, with ' + named + ' attached. It is in their conversation with you.'); return 0; }
     ctx.out('Sent. It is in their conversation with you.');
     return 0;
   }
@@ -2957,6 +2959,7 @@ async function main(argv, io) {
     },
     url,
     agentToken: () => hook.agentToken(env),
+    pathRules: o.pathRules || path,   // #6726: path.win32 in a test, so the Windows path rules run on any machine
     refusedBy: (r) => (r.json && typeof r.json.error === 'string') ? clause(r.json.error) : null,
     /* The board is serving another Kosmos than this agent's. */
     wrongWorld: (r) => r.reached && r.status === WRONG_WORLD_STATUS && Boolean(r.json) && r.json.wrongWorld === true,
