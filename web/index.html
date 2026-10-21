@@ -74815,7 +74815,7 @@ const ATTACH_MAX = 10;
 /* #6734: the route's own cap (engine/attachments.js MAX_BYTES), checked here before the upload starts.
    server.attachment-stream-6734.test.js holds the two equal. */
 const ATTACH_MAX_BYTES = 100 * 1024 * 1024;
-const ATTACH_SLOW_BYTES = 25 * 1024 * 1024;   // #6734: a file this large may outlast a slow connection's five minutes
+const ATTACH_SLOW_BYTES = 25 * 1024 * 1024;   // #6734: a file this large may outlast the board's request timeout on a slow connection
 function attachTarget(where) {
   return where.key === 'room' ? (PJ_CURRENT || null) : (CURRENT ? CURRENT.sessionName : null);
 }

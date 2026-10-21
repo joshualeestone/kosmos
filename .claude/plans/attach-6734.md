@@ -158,6 +158,11 @@ such uploads still fail, and the page words the 502 for a large file (decision 2
    time and each waits for its own count to settle, so a neighbour cannot move it mid-test; the sweep still removes a
    folder holding the finished file without a record (a record write that failed after the rename), which is exactly
    the leak it exists for, so requiring "only a part file" would keep that leak.
+35. **Review 27 (NITs only, converged):** the stall timer is unref'd, so a client that left before the download began
+   leaves no live timer; two comments corrected. Not changed: a second request pipelined on one connection behind a
+   download over two minutes long is ended by its stall timer while it waits. Browsers do not pipeline, nothing in
+   flight is lost (its socket ends only after the first response), and arming on the socket would add a path to test
+   for a client nobody uses.
 
 ### Considered and not changed (review 22)
 - The synchronous reply-file copy (decision 5), the reserved-name old files (review 17) and the 408 wording (reviews 6

@@ -3784,7 +3784,7 @@ function sendFileStream(req, res, file, unread, headers) {
   /* Review 26: a client that stays connected but stops reading would hold the descriptor for ever; as the folder zip
      does (ZIP_STALL_MS), a download that moves no bytes for DOWNLOAD_STALL_MS is ended, which closes it. */
   let stall = null;
-  const arm = () => { clearTimeout(stall); stall = setTimeout(() => res.destroy(), DOWNLOAD_STALL_MS); };
+  const arm = () => { clearTimeout(stall); stall = setTimeout(() => res.destroy(), DOWNLOAD_STALL_MS); stall.unref(); };
   rs.on('data', arm);
   res.once('close', () => clearTimeout(stall));
   arm();
@@ -25863,7 +25863,8 @@ if (require.main === module) {
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
-  _setZipStallForTest, _setZipLimitForTest, zipPut, _setDownloadStallForTest, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
+  _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
+  _setDownloadStallForTest, // kosmos#6734: the download's stall timeout, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up
