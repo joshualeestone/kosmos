@@ -30,7 +30,14 @@ agent is not held for a limit. They go through the automatic gate like any kept 
 ## Decided
 
 - One queue, not a second one: order across "out of usage" and "box stuck" is then one order, and every guard the
-  queue has (per-run cap, claims, caps per sender, the day's drop with the sender told) applies unchanged.
+  queue has (per-run cap, claims, caps per sender, the day's drop with the sender told) applies unchanged. One order
+  across a person's messages and `kosmos msg` holds where both name the agent the same way: the route files under the
+  URL's name, `kosmos msg` under the card's session name (both since #5805, unchanged here).
+- Review 2, left as it is: two messages sent within the same moment to a stuck box both see an empty queue; if the
+  box clears between the first being refused (and kept) and the second being typed, the second arrives first. Closing
+  it needs the queue check inside the pane's delivery lock; the window is the length of one refused delivery.
+- Review 2: a kept message whose row cannot be written is taken back out (the refusal stands), as the limit path does;
+  a re-send is folded only into a plain kept copy (no attachment, not a reply) that has not been typed already.
 - A mixed queue waits for both: not limited AND the box empty.
 - Task messages (`kosmos task message`) are not changed here: the card names direct messages and `kosmos msg`.
 - The drop after a day keeps its existing notice ("kept it for a day and could not type it"), true for both reasons.

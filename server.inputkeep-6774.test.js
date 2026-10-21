@@ -175,3 +175,22 @@ test('#6774: the sweep types a kept message as the route would and marks its row
   hooks.onDelivered(e, PLACED());
   assert.equal(rowAt(r.out.delivery.at).delivery.state, chat.DELIVERY.PLACED);
 });
+
+test('#6774 review 2: kept for the box but its row cannot be written, it is taken back out and the refusal stands', async () => {
+  const real = chat.appendMessage;
+  chat.appendMessage = () => ({ recorded: false, because: 'the thread is busy' });
+  let r;
+  try { r = await call({ text: 'unrecorded' }); } finally { chat.appendMessage = real; }
+  assert.equal(r.out.delivery.state, chat.DELIVERY.COULD_NOT, JSON.stringify(r.out));
+  assert.equal(r.out.delivery.inputHeld, true);
+  assert.equal(r.out.recorded, false);
+  assert.deepEqual(kept(), [], 'kept where the person cannot see it');
+});
+
+test('#6774 review 2: a re-send is folded only into a plain kept copy (no attachment, not a reply)', async () => {
+  const at = new Date().toISOString();
+  limitqueue.add(NAME, { id: 'dm-x', from: '', kind: 'dm', text: 'see attached', envelope: 'e', trailer: ' [file]', at, reset: at, input: true });
+  const r = await call({ text: 'see attached' });
+  assert.notEqual(r.out.delivery.duplicateOf, at, 'folded into a copy that carried an attachment');
+  assert.equal(kept().length, 2);
+});

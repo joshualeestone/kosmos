@@ -174,3 +174,27 @@ test('#6774: a mixed queue (one kept for a usage limit, one for the box) waits f
     }
   } finally { chat.inputBoxEmpty = real.e; chat.limitQueueReleased = real.r; }
 });
+
+test('#6774 review 2: a kosmos msg re-sent while kept BEHIND the box backlog is told the box is the reason', async () => {
+  await withFleet(async (board) => {
+    await send(board, 'one');
+    const two = await send(board, 'two');
+    const again = await send(board, 'two');
+    assert.deepEqual([again.duplicate, again.id, again.behindFor], [true, two.id, 'input'], JSON.stringify(again));
+  });
+});
+
+test('#6774 review 2: past the fold window, a kosmos msg re-sent behind the backlog is answered by its kept copy with the box reason', async () => {
+  await withFleet(async (board) => {
+    await send(board, 'one');
+    const two = await send(board, 'two');
+    // The first copy's log rows an hour old: the recent-send fold no longer sees it, so the kept-copy key answers.
+    const old = new Date(Date.now() - 3600e3).toISOString();
+    const rows = fs.readFileSync(messages.LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    fs.writeFileSync(messages.LOG, rows.map((r) => JSON.stringify({ ...r, at: old })).join('\n') + '\n');
+    messages.resetForTests();
+    messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));   // reset drops the sender stub
+    const again = await send(board, 'two');
+    assert.deepEqual([again.duplicate, again.id, again.behindFor], [true, two.id, 'input'], JSON.stringify(again));
+  });
+});

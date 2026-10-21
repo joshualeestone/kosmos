@@ -62841,10 +62841,6 @@ function wakeHeldLine(manualText, delivery) {
   if (delivery && delivery.heldBy === 'input') {
     return manualText + ' Its input box holds text that has not been sent, so Kosmos sent nothing; send or clear that in its window first.';
   }
-  // #6774: kept because its input box holds text not yet sent (heldBy stays 'limit'; heldFor says why).
-  if (delivery && delivery.heldFor === 'input') {
-    return manualText + ' Its input box holds text that has not been sent, so Kosmos is keeping it to send once the box is clear.';
-  }
   // #5948: held because its sign-in stopped working (heldBy stays 'limit'; heldFor says why). No reset to name.
   if (delivery && delivery.heldFor === 'signin') {
     return manualText + ' It is signed out, so Kosmos sent nothing. Sign it in again first.';

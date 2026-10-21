@@ -70,6 +70,7 @@ function addOrWhy(name, entry) {
       ...(entry.behind === true ? { behind: true } : {}),
       ...(entry.signin === true ? { signin: true } : {}),   // #5948: kept while its sign-in had stopped working
       ...(entry.input === true ? { input: true } : {}),   // #6774: kept while its input box held text not yet sent
+      ...(entry.plain === true ? { plain: true } : {}),   // #6774: a person's message with no attachment, not a reply
       // #5805 slice 2b: a person's own message: its text and trailer are typed with the envelope, as the route types them.
       ...(entry.kind === 'dm' ? { kind: 'dm', text: String(entry.text || ''), trailer: String(entry.trailer || '') } : {}),
       // A task message's line: typed as it is, and on a drop its sender is told which task it was in. #5842: the task

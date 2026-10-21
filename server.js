@@ -17581,7 +17581,7 @@ const server = http.createServer(async (req, res) => {
           /* #6774: refused because its input box still holds text (nothing typed): it stays kept for the sweep, and its
              row stays held, so pressing this cannot lose the automatic send. */
           if (delivery && delivery.state === chat.DELIVERY.COULD_NOT && delivery.inputHeld === true) {
-            sendJson(res, 409, { error: 'its input box still holds text that has not been sent, so nothing was typed; Kosmos sends this once the box is clear' });
+            sendJson(res, 409, { error: 'its input box still holds text that has not been sent, so nothing was typed; it stays kept and Kosmos sends it later on its own' });
             return;
           }
           // Removed only after the try, so a board that stops mid-typing still has it kept.
@@ -18462,7 +18462,11 @@ const server = http.createServer(async (req, res) => {
           /* #6774: the same words sent again by hand while a copy is kept for a stuck input box (or behind messages kept
              for it): that copy stays where it is in the queue and goes once; this one is recorded as not sent, and why.
              Nothing is taken out, so a re-send that then fails cannot lose the words, and the order is kept. */
-          const keptCopy = limitqueue.list(name).find((e) => e.kind === 'dm' && e.input === true && e.text === body.text);
+          // Plain on both sides (review 2): a message with an attachment or answering another is never folded into one
+          // that looks the same, and a copy already typed (its removal pending) is not one that waits.
+          const plainNow = !(files.recs && files.recs.length) && !answered;
+          const keptCopy = plainNow ? limitqueue.list(name).find((e) => e.kind === 'dm' && e.input === true && e.plain === true
+            && e.text === body.text && !limitqueue.isDone(e.id)) : null;
           if (keptCopy) {
             const dupDelivery = { state: chat.DELIVERY.COULD_NOT, at: new Date().toISOString(), duplicateOf: keptCopy.at,
               because: 'the same message is already kept above, and Kosmos sends that one once its input box is clear, so this copy was not sent' };
@@ -18497,7 +18501,8 @@ const server = http.createServer(async (req, res) => {
             const behindInput = behind && limitqueue.list(name).every((e) => e.input === true);   // #6774
             // #6774: kept behind messages kept for the box, it is released by the box rule too (and matched as a re-send).
             const behindAnyInput = behind && limitqueue.list(name).some((e) => e.input === true);
-            if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at, signin: signin && !behind, input: behindAnyInput })) {
+            const plain = !(files.recs && files.recs.length) && !answered;
+            if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at, signin: signin && !behind, input: behindAnyInput, plain })) {
               const heldDelivery = {
                 state: 'held', held: true, heldBy: 'limit', heldUntil: until, at, ...(behind ? { behind: true } : {}), ...(signin ? { heldFor: 'signin' } : {}),
                 ...(behindInput ? { behindFor: 'input' } : {}),
@@ -18528,15 +18533,18 @@ const server = http.createServer(async (req, res) => {
           : await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
             envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
         /* #6774: a person's own message refused because the agent's input box holds text not yet sent (#6249, nothing
-           was typed) is kept, like a held message, and typed by the minute sweep once the box reads empty (a copy of the
-           same words kept earlier was taken out above). Could not keep it: the refusal stands, as before. */
+           was typed) is kept, like a held message, and typed by the minute sweep once the box reads empty. Could not
+           keep it: the refusal stands, as before. `plain` (no attachment, not a reply) is what a re-send is matched on. */
+        let inputKept = null;   // { id, refused }: taken back out below if its row cannot be written
         if (!automatic && !qmenuAnswer && !qmenuClosed && body.anyway !== true && delivery
             && delivery.state === chat.DELIVERY.COULD_NOT && delivery.inputHeld === true) {
           const limitqueue = require('./engine/limitqueue');
           const at = delivery.at || new Date().toISOString();
           const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // as the held path above: no question note
           const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');
-          if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: at, input: true })) {
+          const plain = !(files.recs && files.recs.length) && !answered;
+          if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: at, input: true, plain })) {
+            inputKept = { id: heldId, refused: delivery };
             delivery = { state: 'held', held: true, heldBy: 'limit', heldFor: 'input', heldUntil: null, at,
               because: 'held: its input box holds text not yet sent; Kosmos sends it once the box is clear' };
           }
@@ -18609,6 +18617,12 @@ const server = http.createServer(async (req, res) => {
         // (No `agentsUnreadable`: nothing reads it here, and the GET on this
         // same route deleted the identical field for the identical reason.
         // One rule, both halves.)
+        /* #6774 review 2: kept for the box but its row could not be written: taken back out, as the limit path above
+           does, so it is never typed later behind a "not sent" the person may send again. The refusal stands. */
+        if (inputKept && kept.recorded !== true) {
+          require('./engine/limitqueue').remove(name, inputKept.id);
+          delivery = inputKept.refused;
+        }
         sendJson(res, 200, {
           delivery,
           recorded: kept.recorded === true,

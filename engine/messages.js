@@ -1541,7 +1541,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const keptCopy = typed ? null : require('./limitqueue').list(qName).find((e) => e.id === sameMsg.id);
     if (keptCopy) {
       return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true, keptCopy.behind === true, keptCopy.signin === true,
-        { input: keptCopy.input === true });
+        { input: keptCopy.input === true, behindInput: keptCopy.behind === true && keptCopy.input === true });
     }
     // Typed after the reset: the same send again is that delivery. Dropped: nothing reached them, so it goes as new.
     // As the fold below: only while the two have not spoken since (#4580); after that the same words are a new message.
@@ -1564,7 +1564,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     if (typedRow) return { state: typedRow.state, because: null, id: keptEarly.id, at: keptEarly.at, duplicate: true };
   } else if (keptEarly) {
     return heldReceipt(toName, keptEarly.id, keptEarly.at, !keptEarly.behind && Date.parse(keptEarly.reset) > Date.parse(at) ? keptEarly.reset : null, true, keptEarly.behind === true, keptEarly.signin === true,
-      { input: keptEarly.input === true });
+      { input: keptEarly.input === true, behindInput: keptEarly.behind === true && keptEarly.input === true });
   }
 
   /* THE VALVE, split per the person's control (limits.js): crossing the
