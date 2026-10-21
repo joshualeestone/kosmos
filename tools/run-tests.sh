@@ -28,7 +28,8 @@ cd "$REPO"
 # #4317: CI runs the two halves as separate parallel jobs. KOSMOS_TEST_PART picks one:
 #   all   (the default, and what `yarn test` runs): the node suite, then test:shell, as before;
 #   node  the node suite only;
-#   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js).
+#   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js), and with
+#         KOSMOS_SHELL_PLATFORM=linux|mac as well (only with a shard, #6791) just that platform's share of it.
 # Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates). --only (#4929,
 # below) keeps the temp root, the --require guards and the leak guards, and skips the queue wait, the coverage count,
 # the shell part and the browser-check gates.

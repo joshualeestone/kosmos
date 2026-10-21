@@ -194,3 +194,18 @@ skip (slice 5). The other listed reasons were re-measured on Linux in probe run 
   already covers the job.
 - NITs, left: one `ps` per hop (recorded in iteration 2); the apt step relies on the ubuntu-latest image's git, curl
   and python3, as every other ubuntu-latest step here does.
+
+## Challenge loop iteration 7 (opus): 1 WARNING, 4 NITs
+- WARNING, fixed (this loop's own iteration-3 header line): the unguarded direction is wider than GNU-only flags.
+  Linux runs tests under bash 5 and a Mac runs product scripts under bash 3.2, so bash 4+ syntax passes here and fails
+  there at run time, past `bash -n`. The header names both classes in one line and points at #6808; the detail (the
+  constructs) went to #6808 as a comment. Measured: no such syntax outside comments in install/ or bin/ today
+  (git grep, 0 hits; control lines match).
+- NIT, taken (it fails OPEN on a release guard): bash keeps an inherited OSTYPE (measured: an exported
+  OSTYPE=linux-gnu reaches a child bash unchanged). A Mac sent to `pgrep -fa` gets no command lines and every guard
+  matches nothing. `_kosmos_pgrep_cmdlines` now also asks `uname -s` when OSTYPE is not darwin. New arm: OSTYPE
+  linux-gnu with uname Darwin uses -fl (the previous lib answers -fa under the same stubs). The host-bash arms stub
+  uname too, so they still reach the Linux branch on a Mac.
+- NITs, taken: run-tests.sh's usage comment names KOSMOS_SHELL_PLATFORM; settle() silences the helper's stderr.
+- NIT, left: kosmos_test_time_scale's load fallback without cut-load-guard sourced is still sysctl only (fails safe to
+  1.00; run-tests.sh sources the guard first).
