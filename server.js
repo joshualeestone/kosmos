@@ -18457,6 +18457,16 @@ const server = http.createServer(async (req, res) => {
            messages kept from then (slice 2a's order rule), is kept and typed after the reset by the minute sweep, unless
            the person sent it anyway. The row is recorded held; the page offers Send now anyway. Could not keep it: it is
            typed as before (a person's message is never refused for this). */
+        /* #6774: a plain copy of these words (no attachment, not a reply) already kept for the agent's input box, or
+           behind messages kept for it, and not typed yet: matched as typed (spacing does not count). */
+        const keptForTheBox = () => {
+          if ((files.recs && files.recs.length) || answered) return null;
+          const lq = require('./engine/limitqueue');
+          return lq.list(name).find((e) => e.kind === 'dm' && e.input === true && e.plain === true
+            && chat.cleanMessage(e.text) === chat.cleanMessage(body.text) && !lq.isDone(e.id)) || null;
+        };
+        const dupAnswer = (keptCopy) => ({ state: chat.DELIVERY.COULD_NOT, at: new Date().toISOString(), duplicateOf: keptCopy.at,
+          because: 'the same message was already kept above, to be sent once its input box was clear, so this copy was not sent' });
         if (!automatic && !qmenuAnswer && !qmenuClosed && body.anyway !== true) {
           const limitqueue = require('./engine/limitqueue');
           /* #6774: the same words sent again by hand while a copy is kept for a stuck input box (or behind messages kept
@@ -18464,12 +18474,9 @@ const server = http.createServer(async (req, res) => {
              Nothing is taken out, so a re-send that then fails cannot lose the words, and the order is kept. */
           // Plain on both sides: a message with an attachment or answering another is never folded into one
           // that looks the same, and a copy already typed (its removal pending) is not one that waits.
-          const plainNow = !(files.recs && files.recs.length) && !answered;
-          const keptCopy = plainNow ? limitqueue.list(name).find((e) => e.kind === 'dm' && e.input === true && e.plain === true
-            && chat.cleanMessage(e.text) === chat.cleanMessage(body.text) && !limitqueue.isDone(e.id)) : null;   // as typed: spacing does not count
+          const keptCopy = keptForTheBox();
           if (keptCopy) {
-            const dupDelivery = { state: chat.DELIVERY.COULD_NOT, at: new Date().toISOString(), duplicateOf: keptCopy.at,
-              because: 'the same message was already kept above, to be sent once its input box was clear, so this copy was not sent' };
+            const dupDelivery = dupAnswer(keptCopy);
             const dupRow = chat.appendMessage(chat.DIRECT, name, { ...attachments.rowFields(files.recs), text: body.text, wire: null, at: dupDelivery.at, delivery: dupDelivery,
               ...(answered ? { replyTo: answered.at } : {}) });
             sendJson(res, 200, { delivery: dupDelivery, recorded: dupRow.recorded === true, recordedBecause: dupRow.because || null });
@@ -18543,7 +18550,11 @@ const server = http.createServer(async (req, res) => {
           const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // as the held path above: no question note
           const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');
           const plain = !(files.recs && files.recs.length) && !answered;
-          if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: at, input: true, plain })) {
+          // Looked for again now: the same words sent twice at once both reach here after their refusals, the second
+          // after the first was kept, so it is that copy and is not kept twice.
+          const keptMeanwhile = keptForTheBox();
+          if (keptMeanwhile) delivery = dupAnswer(keptMeanwhile);
+          else if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: at, input: true, plain })) {
             inputKept = { id: heldId, refused: delivery };
             delivery = { state: 'held', held: true, heldBy: 'limit', heldFor: 'input', heldUntil: null, at,
               because: 'held: its input box holds text not yet sent; Kosmos sends it once the box is clear' };

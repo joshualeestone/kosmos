@@ -4309,6 +4309,8 @@ function appendLocked(projectId, agent, entry, bornAt) {
           ...(entry.delivery.heldFor === 'signin' || entry.delivery.heldFor === 'input' ? { heldFor: entry.delivery.heldFor } : {}),
           ...(entry.delivery.behindFor === 'input' ? { behindFor: 'input' } : {}),
         } : {}),
+        // #6774: a re-send not sent because the same words were already kept above (the page words it so).
+        ...(entry && entry.delivery && typeof entry.delivery.duplicateOf === 'string' ? { duplicateOf: entry.delivery.duplicateOf } : {}),
       },
     }],
   };

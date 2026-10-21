@@ -36,6 +36,12 @@ agent is not held for a limit. They go through the automatic gate like any kept 
 - Review 2, left as it is: two messages sent within the same moment to a stuck box both see an empty queue; if the
   box clears between the first being refused (and kept) and the second being typed, the second arrives first. Closing
   it needs the queue check inside the pane's delivery lock; the window is the length of one refused delivery.
+- Review 6: a re-send answered as the kept copy is worded "Not sent again: ..." on the page and empties the box (it was
+  worded "could not get that to", which invited pressing again); its row keeps `duplicateOf`. The same words sent twice
+  at once are matched again when the second is kept, so they are kept once. Left as it is, and said here: a box that
+  nothing clears (a pasted-text chip or a tall draft, which #6728's sweep leaves alone on purpose) keeps its messages
+  for the day and then drops them with the sender told; before this branch the sender learned at once. The receipt
+  says the message waits for the box, so a sender who needs it sooner can go to the person.
 - Review 4: a task line (`kosmos task message`) kept behind messages kept for the box gets the same flag and the true
   reason (before this branch that queue never held such messages, so its "out of usage" words were true). A re-send
   matches on the text as typed (spacing does not count). The not-sent row's sentence is time-neutral, so it stays true
@@ -51,7 +57,10 @@ agent is not held for a limit. They go through the automatic gate like any kept 
 - Review 2: a kept message whose row cannot be written is taken back out (the refusal stands), as the limit path does;
   a re-send is folded only into a plain kept copy (no attachment, not a reply) that has not been typed already.
 - A mixed queue waits for both: not limited AND the box empty.
-- Task messages (`kosmos task message`) are not changed here: the card names direct messages and `kosmos msg`.
+- A task message (`kosmos task message`) refused by a stuck box with nothing kept is still refused, as before: the
+  card names direct messages and `kosmos msg`. Only a task line arriving behind messages already kept is kept (it
+  always was) and now carries the box flag and words (review 4). A person's message in a project thread is not kept
+  either (it is not a direct message).
 - The drop after a day keeps its existing notice ("kept it for a day and could not type it"), true for both reasons.
 
 ## Weakest premise

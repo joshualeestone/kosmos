@@ -201,3 +201,18 @@ test('#6774: a re-send is folded only into a plain kept copy (no attachment, not
   assert.notEqual(r.out.delivery.duplicateOf, at, 'folded into a copy that carried an attachment');
   assert.equal(kept().length, 2);
 });
+
+test('#6774: the same words sent twice at once (both in flight) are kept once; the second is that copy, saved so on its row', async () => {
+  const real = { a: chat.deliverAutomaticAsync, p: chat.deliverAsync, v: chat.limitHeldVerdict };
+  const board = fleet.install([fleet.agent(NAME, { state: 'idle' })]);
+  try {
+    chat.deliverAsync = async () => { await new Promise((r) => setTimeout(r, 50)); return BOX_REFUSED(); };
+    chat.limitHeldVerdict = () => null;
+    const post = () => fetch(`${base}/api/agent/${NAME}/thread`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'twice at once' }) }).then((r) => r.json());
+    const [a, b] = await Promise.all([post(), post()]);
+    assert.deepEqual(kept().map((k) => k[1]), ['twice at once'], 'kept twice: ' + JSON.stringify([a, b]));
+    const dup = [a, b].find((x) => x.delivery.duplicateOf);
+    assert.ok(dup, 'neither answer was the kept copy: ' + JSON.stringify([a, b]));
+    assert.equal(rowAt(dup.delivery.at).delivery.duplicateOf, dup.delivery.duplicateOf, 'the row lost what it duplicates');
+  } finally { chat.deliverAutomaticAsync = real.a; chat.deliverAsync = real.p; chat.limitHeldVerdict = real.v; board.restore(); }
+});

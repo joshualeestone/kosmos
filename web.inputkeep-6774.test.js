@@ -44,3 +44,14 @@ test('#6774: Send now anyway is not offered on a row kept for the box, and the l
   assert.match(line[1], /d\.heldFor === 'input'/);
   assert.match(line[1], /d\.behindFor === 'input'/);
 });
+
+test('#6774: a re-send answered as the kept copy empties the box and is not worded as "could not get that to"', () => {
+  const at = PAGE.indexOf('} else if (d.duplicateOf && inThread) {');
+  assert.ok(at > 0, 'the page has no arm for a re-send answered as the kept copy');
+  const arm = PAGE.slice(at, PAGE.indexOf('} else {', at));
+  assert.match(arm, /clearSent\(\);/);
+  assert.match(arm, /line = 'Not sent again: ' \+ pjSentence\(d\.because\);/);
+  assert.doesNotMatch(arm, /We could not get that to/);
+  // It sits before the could-not arm, which would otherwise take it (and put the words back in the box).
+  assert.ok(at < PAGE.indexOf("line = 'We could not get that to ' + name + ': '"), 'the could-not arm answers first');
+});
