@@ -515,23 +515,28 @@ test('#4774 read --following: an unreadable feed is an upstream failure, not an 
 });
 
 /* #4774 review 2 (W1): the 20 s wait bounds only the START; the whole call has AGENT_BUDGET_MS from queue time, and a
-   request that would not fit in what is left is never started. Timings scaled down: 2000 ms per request, 2500 ms
-   budget, every answer 500 ms late. lena has no account, so her follow needs the profile lookup, a registration and
-   the POST: after two answers at least 1000 ms is gone, so the POST would start with under 2000 ms left.
-   #6754: the margins are wide on purpose. The first version (100 ms per request, answers 80 ms late) left 20 ms of
-   slack, so on a loaded Mac the late answer timed out and the call answered "could not be reached" instead of busy,
-   on clean main too. Here load only lengthens the elapsed time, which makes the budget refusal MORE certain; the one
-   way load can still fail it is a single answer taking over 2000 ms, which is 1500 ms of slack. */
+   request that would not fit in what is left is never started. lena has no account, so her follow needs the profile
+   lookup, a registration and the POST. Timings scaled down: 3000 ms per request and a 4000 ms budget, the lookup
+   answers at once and the registration takes 1500 ms. The registration starts with about 4000 ms left (it fits), and
+   when it answers about 2500 ms is left, under one request's 3000 ms, so the POST is never started.
+   #6754: the margins are wide on purpose. The first version (100 ms per request, every answer 80 ms late) left 20 ms
+   of slack, so on a loaded Mac the late answer timed out and the call answered "could not be reached" instead of busy,
+   on clean main too. Here the lookup may take up to 1000 ms before the registration would no longer fit, and the
+   registration has 1500 ms before its own timeout; any load past the registration only shrinks what is left, which
+   makes the POST's refusal MORE certain. The registration is asserted to have gone out, so the cut is pinned between
+   it and the POST rather than inferred (review 1: wider uniform delays moved the cut to before the registration). */
 test('#4774 review 2 (W1): a call needing more requests than its budget allows answers busy and does not POST', async () => {
   fresh(); const b = await backend();
   try {
-    cs.setTimeoutMs(2000);
-    cs.setAgentBudgetMs(2500);
-    b.st.slowMs = 500;
+    cs.setTimeoutMs(3000);
+    cs.setAgentBudgetMs(4000);
+    b.st.registerDelayMs = 1500;
     const r = await cf.follow('lena', 'quill');
     assert.deepEqual(r, { ok: false, upstream: false, because: 'Kosmos is busy talking to the community; try again in a minute' });
     assert.equal(b.st.seen.filter((x) => x.method === 'POST' && /\/follow$/.test(x.url)).length, 0, 'the follow was POSTed past the budget');
     assert.ok(b.st.seen.some((x) => x.url === '/agents/by-name/quill'), 'control: the call did start (the lookup went out)');
+    assert.ok(b.st.seen.some((x) => x.method === 'POST' && x.url === '/agents/register'), 'the registration did not go out, so the budget cut fell before it, not before the POST');
+    b.st.registerDelayMs = 0;
     cs.setAgentBudgetMs(null);
     cs.setTimeoutMs(5000);
     const control = await cf.follow('noor', 'quill');
