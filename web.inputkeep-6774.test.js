@@ -3,6 +3,18 @@
  * Send now anyway on such a row (the same box would refuse it). dmHeldWords is lifted out of the page and run; the
  * button and the line under the box are read from their own functions, since dmRow needs most of the page to run.
  *   node --test web.inputkeep-6774.test.js */
+require('./test-support/tmpscope');   // #4273: this file's temp dirs are removed when it exits
+{
+  // The Send now anyway test installs a fleet card, so the agent roots are sandboxed (never this machine's agents).
+  const os = require('node:os');
+  const SANDBOX = require('node:fs').realpathSync(require('node:fs').mkdtempSync(require('node:path').join(os.tmpdir(), 'aw-webinputkeep-6774-')));
+  for (const [k, n] of [['AGENT_WORKFORCE_HOME', 'home'], ['AGENT_WORKFORCE_DATA', 'data'], ['AGENT_WORKFORCE_WORKERS', 'workers'], ['AGENT_WORKFORCE_PROJECTS', 'projects'], ['AGENT_WORKFORCE_LAUNCH', 'launch']]) {
+    process.env[k] = require('node:path').join(SANDBOX, n); require('node:fs').mkdirSync(process.env[k], { recursive: true });
+  }
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = require('node:path').join(SANDBOX, 'claude.json');
+  process.env.AGENT_WORKFORCE_TMUX_BIN = require('node:path').join(__dirname, 'test-support', 'fake-tmux.sh');
+  process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+}
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -56,12 +68,17 @@ test('#6774: a re-send answered as the kept copy empties the box and is not word
   assert.ok(at < PAGE.indexOf("line = 'We could not get that to ' + name + ': '"), 'the could-not arm answers first');
 });
 
-test('#6774: Send now anyway refused because the box still holds text says so under the box; CONTROL: any other 409 repaints', async () => {
+test('#6774: Send now anyway refused because the box still holds text says so under the box; CONTROL: any other 409 repaints', async (t) => {
+  const fleet = require('./test-support/fleet');
+  const board = fleet.install([fleet.agent('casey', { state: 'idle' })]);   // a real card (fixture discipline)
+  t.after(() => board.restore());
+  const card = board.agents.find((c) => c.sessionName === 'casey');
+  assert.ok(card, 'CONTROL: the fleet card');
   const run = async (status, body) => {
     const under = { textContent: '' };
     let painted = 0;
     const send = lift('dmHeldSend', {
-      CURRENT: { sessionName: 'casey', name: 'casey' },
+      CURRENT: card,
       fetch: async () => ({ ok: false, status, json: async () => body }),
       document: { getElementById: (id) => (id === 'd-say-msg' ? under : null) },
       paintTalk: async () => { painted += 1; },
