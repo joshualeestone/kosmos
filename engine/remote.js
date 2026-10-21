@@ -2175,7 +2175,10 @@ function pendingDevices() {
   const here = recentlyVouched(settings);
   // A request that is NEWER than the note (the browser removed elsewhere, asking again) still shows. A minute of slack:
   // first_seen is the coordinator's clock, the note's is this computer's.
-  return { devices: here ? devices.filter((d) => d.device_id !== here.device_id || d.first_seen > here.at + 60) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here };
+  /* kosmos#6666: while Kosmos+ is paused for maintenance the tunnel withholds the list and says so (kosmos-relay #509,
+     kosmos#6656), so the page can say why no request shows rather than show nothing. Exactly true, or not paused. */
+  const paused = !!raw && raw.paused === true;
+  return { devices: here ? devices.filter((d) => d.device_id !== here.device_id || d.first_seen > here.at + 60) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here, paused };
 }
 /* The tunnel's answer is its last line of stdout that starts with "{", one line
    of JSON. Other lines
@@ -2251,6 +2254,8 @@ function vouchedFor(vouched, d) {
 }
 /** kosmos#6286: the tunnel's `account_ack` when the coordinator holds no sign-in with the id an Allow named. */
 const UNKNOWN_DEVICE = 'unknown_device';
+/** kosmos#6666: what the person reads when an Allow is refused because Kosmos+ is paused for maintenance. */
+const PAUSED_ALLOW_WORDS = 'Kosmos+ is paused for maintenance, so nothing can be allowed right now. This request waits: allow it once Kosmos+ is back.';
 /** kosmos#6286: what the person reads when Kosmos+ holds no sign-in with the id they allowed. */
 const UNKNOWN_WORDS = 'Kosmos+ holds no sign-in waiting with that id (it was refused, or never asked). It is on this computer\'s list of devices you let in: remove it there if you did not mean to allow it.';
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
@@ -2283,6 +2288,9 @@ async function deviceAllow(id, name, code) {
     if (/\bsas_pending:/.test(said)) return { ok: false, because: 'code_pending' };
   }
   const got = parseSaid(r);
+  /* kosmos#6666: refused because Kosmos+ is paused for maintenance (the tunnel answers paused true with exit 0, and
+     writes nothing to this computer's list: kosmos#6656). Said as that, never as allowed and never as a failure. */
+  if (got.ok && got.data && got.data.paused === true) return { ok: false, because: PAUSED_ALLOW_WORDS, paused: true };
   /* kosmos#6286: the coordinator holds no sign-in with that id (its ack answered 404: refused, or never asked), so
      Kosmos+ did not take this Allow. The tunnel keeps the entry on this computer's list (its own), so the person is
      told both, as a refusal, never as allowed. Not "nobody was let in": a device the account refused that still holds
