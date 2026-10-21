@@ -2,9 +2,9 @@
 pre_challenge: true
 method: challenge-loop
 branch: ptrfreeze-6620
-diff_hash: 41d298beef77aad151ff9f30891c7036c8e1a977345cbf33f22b3ac250cce706
+diff_hash: 5e21c2d74b82060fd7ed4e688880407fbcf57003cbd7bd10ccf7608242093c6a
 validation: passed (tools/test-pointer-freeze.sh, test-deploy-site-promote.sh, test-deploy-landed-5471.sh, test-site-push-race-2276.sh all green; 49 more tools/test-*.sh that use the changed scripts green; node --test tools.*.test.js 1220 pass 0 fail; dash -n on the lib and deploy-site.sh; every new refusal arm also run against the pre-fix code; em-dash sweeps by every reviewer with a control)
-timestamp: 2026-10-21T06:15:30Z
+timestamp: 2026-10-21T07:14:35Z
 iterations: 19
 converged: true
 ---
@@ -40,3 +40,10 @@ said.
 - A Ctrl-C can leave the temporary index directory in TMPDIR (round 15): small, harmless.
 - Not covered by this tool, and said in its output and the docs: Windows prod on R2, Kosmos.pkg, a Vercel Instant
   Rollback, and a freeze landing while vercel uploads.
+
+## After convergence (2026-10-21T07:14:35Z): one test-only change
+Hosted CI (GitHub macOS, switched to at 01:45 CDT) failed seven #6620 arms in tools/test-deploy-site-promote.sh: that
+runner's git defaults to the branch name master, so each test's bare origin had a HEAD naming a branch never pushed,
+and every clone of it checked out nothing. The fix creates each bare origin with --initial-branch=main (9 sites, the
+whole file). Reproduced locally with init.defaultBranch=master: 7 red before, 81/81 after; 81/81 under main too. No
+product code changed, so no review round was run for it; the diff_hash above covers it.
