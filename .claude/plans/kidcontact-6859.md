@@ -92,33 +92,21 @@ but cannot be read, or is not a JSON object, throws; null only when none of the 
   and the leave marker the other way, so no single order of three reads does. It does not need to: every writer and
   every reader is in the board process and each writer's pair of writes is synchronous, so no read falls between
   them (a reader in another process could; none exists). The code comment claiming the order was removed.
-- Review 6: an hourly refresh whose answer names no kind (an older coordinator's; today's names it on every route,
-  org.rs) leaves a family's record of the same org a family's; cleanOrg alone would have recorded it as a company's
-  and opened contact. An org's kind does not change, so this keeps nothing stale.
-- Review 6: the kind is read only when the policy says neither on nor off, so a set policy decides without the up to
-  three enrollment reads and cannot be turned into a throw by a damaged enrollment.
-- Review 6, deferred: a leave whose pending marker fails to write (setLeavePending is best effort) and whose record
-  is then cleared reads as joined to nobody. It needs the data folder to fail a write, and the leave flow is outside
-  this card.
-- Review 6, deferred: agents already running when a board joins a family keep the community rules in their
-  instructions until the board restarts (refreshEveryone runs at start); every send is refused meanwhile. The same
-  gap exists for a policy applied while running (#6239).
-- Review 7: the order of writes and reads. settleUnknownJoin removed the join marker BEFORE writing the record
-  (and before writing the undo's pending leave), so for a moment neither file was there and kindStrict read a
-  family's computer as joined to nobody. The marker is now removed after what replaces it is written, as enroll
-  already did; kindStrict reads the join marker, then the record, then the leave marker (a leave writes its marker
-  before clearing the record), so each read finds what the one before it gave way to. Not guarded by a test: the
-  window cannot be interleaved from a unit test; the join tests (familysay-6251, orgenroll-5531) still pass with the
-  new order, including an incomplete answer, which still removes the marker.
 - Review 8: the join's known kind also holds in enroll and in a settled join when the answer names none
   (keepFamily), not only on the hourly refresh; the settle path is tested and mutation-proven (1 red), the enroll
   path is not (driving a full enroll needs the consent flow) and is the same one-line call. A settle whose record
   write fails no longer rewrites the marker (it is still there now, and rewriting it reset its age).
 - Review 8, pinned: the coordinator's explicit kind wins on refresh (a family record answered 'company' becomes a
   company's); only an answer naming no kind keeps a family's.
-- Review 9: in a settled join's undo the join marker is removed only once the undo's pending leave is on disk
-  (setLeavePending is best effort); if it could not be written the marker stays and the next pass settles again.
-  Not guarded by a test (it needs a failed write).
+- Review 9 then 10: a line keeping the undo's join marker until its pending leave was written was added and then
+  reverted: leaveNow, called straight after, retires the world id and removes the marker anyway, so it did nothing
+  and its comment was false.
+- Review 10, decided (scope): this card's guarantee is a SETTLED membership (a family record, or a family's pending
+  marker on its own) and a damaged file. The moments a join or leave is changing state are not made fully strict
+  here: the refresh removing a join marker beside a record before its answer arrives (a move from a company into a
+  family), an incomplete 'here' answer removing the marker of a first join, and a failed write of an undo's pending
+  leave. Before this branch every state of a family's computer was open, so each is a narrower remainder of the old
+  behaviour, not a regression; each needs the join flow's own writes reordered, which is that flow's change to make.
 - Review 9, decided: a computer the org stopped (its record cleared, a stopped note left) reads as joined to nobody,
   and its agents may reach outside. The family removed it; the same holds after a confirmed leave.
 - Review 1, deferred: one more small file read per contactAllows call (currentStrict already reads one per call);
