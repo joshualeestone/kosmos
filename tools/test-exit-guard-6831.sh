@@ -142,6 +142,14 @@ for s in build-installer-pkg build-tmux-from-source build-kosmos-bundle build-ko
   [ -z "$extra" ] && pass "P: $s.sh has no exit after its guard that could end a success unmarked" || bad "P: $s.sh exits without the mark: $extra"
 done
 
+# The Windows builder's cleanup removes $TMP only once the script made it: the flag must be set on the line right
+# after that mktemp, never before (an inherited TMP would then be removed).
+wb="$HERE/build-kosmos-windows.sh"
+awk 'p ~ /^TMP="\$\(mktemp -d\)"$/ && $0 ~ /^_win_tmp_made=1/ { ok = 1 } { p = $0 } END { exit !ok }' "$wb" \
+  && [ "$(grep -c '^_win_tmp_made=1' "$wb")" = 1 ] \
+  && pass "P: build-kosmos-windows.sh sets _win_tmp_made=1 only on the line after TMP=\$(mktemp -d)" \
+  || bad "P: build-kosmos-windows.sh's _win_tmp_made=1 is not exactly once, directly after TMP=\$(mktemp -d)"
+
 echo
 [ "$fails" = 0 ] && { echo "test-exit-guard-6831: all passed"; exit 0; }
 echo "test-exit-guard-6831: $fails failed"; exit 1
