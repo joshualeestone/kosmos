@@ -18,7 +18,20 @@ converged: true
 
 ### Per-Iteration Breakdown
 
+**Reviewer models:** sonnet.
+
+### What the reviewer checked
+- the new value equals relay main's api.rs pin of `consent_hash()`
+- relay asserts `consent_hash_for("company")` equals `consent_hash()`, so it is the company hash, not the family one
+- no other code or test in this repo pins the old company hash; the only use is the step 9 comparison
+- the comment's 300 matches `LINE_MAX` in engine/orgenroll.js
+- nothing private about the relay in this public repo beyond its PR numbers
+
+### Per-Iteration Breakdown (detail)
+
 #### Iteration 1
+**Reviewer model:** sonnet
+**Self-generated:** 0
 - [NIT] an older plan (reviewernotice-6752) names the superseded hash --> recorded (historical)
 - [NIT] the two new line lengths rest on the relay PR --> recorded (the relay guard test checks them)
 - [NIT] the plan named the private relay's build and deploy time --> fixed (removed)
