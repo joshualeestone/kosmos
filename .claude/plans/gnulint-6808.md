@@ -40,6 +40,10 @@ and on a Mac.
   Now the line is split at `;` and `&&`, and each piece holding a GNU form needs its counterpart and a `||` in that
   piece. Two must-flag cases added. Header: a form inside any quoted string is flagged (B counts a quote).
 
+- **Round 3 (one SHOULD, a regression of round 2):** splitting at every `;` broke a quoted sed script
+  (`sed -i '' 's/a/b/;s/c/d/' f || sed -i ...` was flagged). Now an awk walker splits at `;` and `&&` outside quotes
+  only. Two allow cases added (a quoted `;` in sed and in a date format).
+
 ## Weakest premise
 - That these seven forms are "the common ones". The list is from the card plus the coreutils options macOS lacks. A
   form not on it (GNU `cp --reflink`, `ls --time-style`, long options generally) still slips through; the lint is a

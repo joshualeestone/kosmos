@@ -55,7 +55,19 @@ forms() {
 # its counterpart ($cpat) and a || in that same piece. A function, not inline in $(...): bash 3.2 cannot parse a case
 # inside a command substitution.
 unchained_pieces() {
-    printf '%s\n' "$1" | awk '{ gsub(/&&|;/, "\n"); print }' | while IFS= read -r piece; do
+    # Split at ; and && OUTSIDE quotes only: `sed -i 's/a/b/;s/c/d/'` is one command (escapes are not followed).
+    printf '%s\n' "$1" | awk '{
+        out = ""; q = ""; n = length($0)
+        for (i = 1; i <= n; i++) {
+            c = substr($0, i, 1)
+            if (q != "") { if (c == q) q = ""; out = out c; continue }
+            if (c == "\047" || c == "\"") { q = c; out = out c; continue }
+            if (c == ";") { out = out "\n"; continue }
+            if (c == "&" && substr($0, i + 1, 1) == "&") { out = out "\n"; i++; continue }
+            out = out c
+        }
+        print out
+    }' | while IFS= read -r piece; do
         g=$piece
         [ "$name" = sed-i ] && g=$(printf '%s\n' "$piece" | sed -E "s/-([a-zA-Z]*)i[[:space:]]+(''|\"\")/-\\1/g")
         printf '%s\n' "$g" | grep -qE "$pat" || continue
@@ -129,6 +141,8 @@ for line in \
     "sed -i '' 's/a/b/' f" \
     "sed -i.bak 's/a/b/' f" \
     "sed -Ei '' 's/a/b/' f" \
+    "sed -i '' 's/a/b/;s/c/d/' f 2>/dev/null || sed -i 's/a/b/;s/c/d/' f" \
+    "date -d \"\$x\" '+%H;%M' 2>/dev/null || date -j -f '%s' \"\$x\" '+%H;%M'" \
     "pgrep -P 1" \
     "sed 's/a/b/' f | grep -i x" \
     "stat -c%s f 2>/dev/null || stat -f%z f" \
