@@ -56,7 +56,9 @@ for sh in /bin/sh /bin/bash; do
   done
 done
 
-# R: release.sh's own two trap lines.
+# R: release.sh's own two trap lines, run by the `bash` on PATH (what `bash tools/release.sh` uses), so the
+# "does this shell lose the status" probe uses that same interpreter, not /bin/bash.
+bash -c 'set -eu; c(){ :; }; trap c EXIT; : "$NO_SUCH_VAR_6831"' >/dev/null 2>&1 && LOSES_rel=1 || LOSES_rel=0
 grep -E "^trap '_rc=\\\$\\?; \\[ \"\\\$_rc\" != 0 \\]" "$REL" > "$TMP/traps"
 [ "$(grep -c . "$TMP/traps")" = 2 ] || { bad "R: expected 2 guarded EXIT traps in release.sh, found $(grep -c . "$TMP/traps")"; }
 n=0
@@ -77,7 +79,7 @@ EOF
     rm -f "$TMP/recorded"; bash "$TMP/rel.sh" > "$TMP/out" 2>&1; echo "$? $(cat "$TMP/recorded" 2>/dev/null || echo none)"
   }
   r=$(rel ': "$NO_SUCH_VAR_6831"')
-  if [ "$LOSES_bash" = 1 ]; then
+  if [ "$LOSES_rel" = 1 ]; then
     [ "$r" = "1 1" ] && grep -q 'release: the cut stopped before finishing' "$TMP/out" \
       && pass "R$n: a cut dying on an unset variable records 1 and exits 1" || bad "R$n: a dying cut gave '$r': $(cat "$TMP/out")"
   else
@@ -102,10 +104,18 @@ for s in build-installer-pkg build-tmux-from-source build-kosmos-bundle build-ko
     "kosmos_finished|exit 0|") pass "P: $s.sh installs the guard and marks it finished before its final exit 0" ;;
     *) bad "P: $s.sh does not end finished (last lines: $tail2)" ;;
   esac
-  # no other exit 0 in the script's own flow (outside quotes) once the guard is set
+  # After the guard, every exit in the script's own flow (outside quotes) is a literal non-zero code, or `exit 0`
+  # directly after the mark. A bare `exit` or `exit "$var"` could carry 0 on a success path, so it is reported.
   g=$(grep -n "kosmos_exit_guard " "$f" | head -1 | cut -d: -f1)
-  extra=$(awk -v g="$g" 'NR > g { t = $0; sub(/^[ \t]+/, "", t); if (t ~ /^#/) next; r = " " $0; gsub(/'"'"'[^'"'"']*'"'"'/, "", r); gsub(/"([^"\\]|\\.)*"/, "", r); if (r ~ /(^|[;&|{(])[ \t]*exit[ \t]+0([ \t;}&|)]|$)/ && prev != "kosmos_finished") print NR ": " $0 } { prev = t }' "$f")
-  [ -z "$extra" ] && pass "P: $s.sh has no unmarked exit 0 after its guard" || bad "P: $s.sh exits 0 without the mark: $extra"
+  extra=$(awk -v g="$g" 'NR > g { t = $0; sub(/^[ \t]+/, "", t); if (t ~ /^#/) { prev = t; next }
+      r = " " $0; gsub(/'"'"'[^'"'"']*'"'"'/, "", r); gsub(/"([^"\\]|\\.)*"/, "", r)
+      while (match(r, /(^|[;&|{(])[ \t]*exit([ \t]+[^ \t;}&|)]+)?/)) {
+        m = substr(r, RSTART, RLENGTH); r = substr(r, RSTART + RLENGTH); sub(/^[;&|{( \t]*exit[ \t]*/, "", m)
+        if (m ~ /^[1-9][0-9]*$/) continue
+        if (m == "0" && t == "exit 0" && prev == "kosmos_finished") continue
+        print NR ": " $0 } }
+    { prev = t }' "$f")
+  [ -z "$extra" ] && pass "P: $s.sh has no exit after its guard that could end a success unmarked" || bad "P: $s.sh exits without the mark: $extra"
 done
 
 echo
