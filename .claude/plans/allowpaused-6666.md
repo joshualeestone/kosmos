@@ -58,7 +58,9 @@ with an ordinary-answer control); web.allow-card.test.js (+1: the line, its plac
   joining computer's row while paused as well.
 - Expected, not a defect: an Allow pressed just before the snapshot says paused shows the refusal words on its card;
   on the next poll (about 5 s) the row is withheld, the card goes, and the paused line shows instead.
-- A future mtime (the clock stepped back) is not fresh, matching the tunnel's `elapsed()` refusal. `ASK.paused` is
+- A future mtime (the clock stepped back) more than 1 s ahead is not fresh. The tunnel's `elapsed()` refuses any
+  future date; the board allows 1 s, because a file written this instant can read a fraction of a ms ahead of
+  Date.now(). For that second the two can disagree. `ASK.paused` is
   declared with the other state. The Plus-off test asserts `paused === false`, so a missing field fails.
 
 ## Review round 4
@@ -67,3 +69,9 @@ with an ordinary-answer control); web.allow-card.test.js (+1: the line, its plac
 - Stated limit, not changed: `paused` holds only while the tunnel keeps rewriting pending.json. If it stops (the
   coordinator unreachable, the tunnel stopped), the line goes after 2 minutes and the section can go blank again.
   That is the staleness rule working: an old "paused" must not outlive what it describes.
+
+## Review round 5
+- The paused line promised that a request "waits until it is back, and shows here then". It may not: while paused
+  the coordinator turns away sign-ins (503) and drops a pairing computer's row, which the tunnel then forgets after
+  its grace window. The line now says only what holds: "Nothing new can connect or be allowed until it is back. A
+  phone, browser or computer that was asking may need to ask again then."
