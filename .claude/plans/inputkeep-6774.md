@@ -36,6 +36,9 @@ agent is not held for a limit. They go through the automatic gate like any kept 
 - Review 2, left as it is: two messages sent within the same moment to a stuck box both see an empty queue; if the
   box clears between the first being refused (and kept) and the second being typed, the second arrives first. Closing
   it needs the queue check inside the pane's delivery lock; the window is the length of one refused delivery.
+- Review 11: the box 409 on Send now anyway names what a usage-limit entry waits for (the reset as well). Rejected,
+  with the reason: a sweep typing a just-kept message before its row is written. Between limitqueue.add and the row
+  write the route runs no await, and the sweep is a timer callback, which cannot run inside synchronous code.
 - Review 10: the fold is narrowed to its root rule: only while nothing at all was said in the thread since the kept
   copy, by either side, apart from earlier re-sends of it (so "yes", "no", "yes" keeps all three). The re-send's row
   is worded as not sent (pjVerdict), not "Could not deliver", on every reload. Left as it is: the same words sent twice

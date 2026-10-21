@@ -17581,7 +17581,8 @@ const server = http.createServer(async (req, res) => {
           /* #6774: refused because its input box still holds text (nothing typed): it stays kept for the sweep, and its
              row stays held, so pressing this cannot lose the automatic send. */
           if (delivery && delivery.state === chat.DELIVERY.COULD_NOT && delivery.inputHeld === true) {
-            sendJson(res, 409, { inputHeld: true, error: 'its input box still holds text that has not been sent, so nothing was typed; it stays kept and Kosmos sends it later on its own' });
+            sendJson(res, 409, { inputHeld: true, error: 'its input box still holds text that has not been sent, so nothing was typed; it stays kept and Kosmos sends it '
+              + (entry.input === true ? 'later on its own' : 'on its own after the reset, once the box is clear') });   // kept for a usage limit: it waits for both
             return;
           }
           // Removed only after the try, so a board that stops mid-typing still has it kept.

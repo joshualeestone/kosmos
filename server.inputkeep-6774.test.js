@@ -240,3 +240,18 @@ test('#6774: "yes", "no", "yes" keeps all three: the person\'s own other words s
   assert.equal(third.out.delivery.duplicateOf, undefined, 'the final "yes" was folded into the first: ' + JSON.stringify(third.out));
   assert.deepEqual(kept().map((k) => k[1]), ['yes', 'no', 'yes']);
 });
+
+test('#6774: Send now anyway on a row kept for a usage limit, refused by the box, says it waits for the reset too', async () => {
+  const at = new Date().toISOString();
+  limitqueue.add(NAME, { id: 'dm-limit-1', from: '', kind: 'dm', text: 'after the reset', envelope: 'e', trailer: '', at, reset: at });
+  const real = chat.deliverAsync;
+  const board = fleet.install([fleet.agent(NAME, { state: 'idle' })]);
+  chat.deliverAsync = async () => BOX_REFUSED();
+  try {
+    const res = await fetch(`${base}/api/agent/${NAME}/thread/held`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at }) });
+    const out = await res.json();
+    assert.equal(res.status, 409);
+    assert.match(out.error, /on its own after the reset, once the box is clear$/, JSON.stringify(out));
+  } finally { chat.deliverAsync = real; board.restore(); }
+  assert.deepEqual(kept(), [['dm', 'after the reset', false]], 'the press lost the kept message');
+});
