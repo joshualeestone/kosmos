@@ -20699,11 +20699,18 @@ function kappHeadPaint() {
     const name = typeof THIS_COMPUTER_NAME === 'string' && THIS_COMPUTER_NAME ? THIS_COMPUTER_NAME : 'This computer';
     document.getElementById('kapp-comp-name').textContent = name;
     comp.setAttribute('aria-label', 'Your computers. This computer: ' + name);
-    comp.hidden = !(typeof COMPUTERS_OPENABLE !== 'undefined' && COMPUTERS_OPENABLE);
+    const hide = !(typeof COMPUTERS_OPENABLE !== 'undefined' && COMPUTERS_OPENABLE);
+    // Back to one computer while the switcher has focus: focus moves to the face rather than falling to the page.
+    const hadFocus = hide && !comp.hidden && document.activeElement === comp;
+    comp.hidden = hide;
+    if (hadFocus && me) me.focus({ preventScroll: true });
   }
   if (me) {
-    if (typeof youFaceHtml === 'function') me.innerHTML = youFaceHtml();
-    me.setAttribute('aria-label', 'Menu, ' + ((typeof YOU_NAME === 'string' && YOU_NAME) || 'You'));
+    // Only when it changed: rewriting the picture on every computers answer would reload and re-announce it.
+    const face = typeof youFaceHtml === 'function' ? youFaceHtml() : '';
+    if (me.innerHTML !== face) me.innerHTML = face;
+    // It opens Settings (and Appearance, Log out), so it is named for that and for whose it is.
+    me.setAttribute('aria-label', 'Settings, ' + ((typeof YOU_NAME === 'string' && YOU_NAME) || 'You'));
   }
 }
 /* #6846: open the phone menu straight at a level: Settings for the person's menu, Switch Computers for the switcher.
@@ -20713,13 +20720,16 @@ function kappOpenAt(levels, opener) {
   const nav = document.getElementById('pnav');
   if (!nav || !nav.hidden) return;
   pnavOpen(true);
+  pnavOpened();   // in place at once: no drop-in animation on a level whose items are not numbered for it
   PNAV_OPENER = opener;
   opener.setAttribute('aria-expanded', 'true');
   for (const lv of levels) {
     /* As pnavTo does: the computers are read as their level opens, before the copy (so a stale row is never offered). */
     if (lv === 'computers' && typeof computersFetch === 'function') computersFetch().catch(() => {});
     pnavFill(lv);
-    PNAV_FROM.push(opener);
+    /* The item that leads to this level, as if walked: Back lands on it (Settings on the first level, Switch Computers
+       on Settings), never on the first item. */
+    PNAV_FROM.push(lv === 'computers' ? document.getElementById('pnav-computers') : nav.querySelector('[data-pnav-go="' + lv + '"]'));
     PNAV_TRAIL.push(lv);
   }
   const last = PNAV_TRAIL[PNAV_TRAIL.length - 1];

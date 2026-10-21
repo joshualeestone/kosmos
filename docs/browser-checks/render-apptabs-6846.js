@@ -53,6 +53,12 @@ const TWO = { ok: true, domain: 'kosmosplus.example', computers: [
   { name: 'desk-mini', address: 'desk-mini.kosmosplus.example', this: false, online: true },
 ] };
 
+const LONG = 'the-big-render-machine-in-the-back-office-under-the-stairs-01';   // 61 characters, named by a person
+const TWO_LONG = { ok: true, domain: 'kosmosplus.example', computers: [
+  { name: LONG, address: 'long.kosmosplus.example', this: true, online: true },
+  { name: 'desk-mini', address: 'desk-mini.kosmosplus.example', this: false, online: true },
+] };
+
 const look = (page) => page.evaluate(() => {
   const vis = (el) => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
   const rect = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { l: Math.round(r.left), t: Math.round(r.top), r: Math.round(r.right), b: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) }; };
@@ -151,7 +157,8 @@ const teardownFails = [];
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(200); }
       /* The computers answer has been taken in (worldswComputersSeen names this computer), not merely asked for: an arm
          about one computer must not pass on a board that has not heard yet (review 1). Off Kosmos+ there is no read. */
-      const landed = host !== 'remote.test' ? true : await page.waitForFunction(() => typeof THIS_COMPUTER_NAME !== 'undefined' && THIS_COMPUTER_NAME === 'studio-laptop', null, { timeout: 10000 }).then(() => true, () => false);
+      const mine = computers.computers.find((c) => c.this).name;
+      const landed = host !== 'remote.test' ? true : await page.waitForFunction((n) => typeof THIS_COMPUTER_NAME !== 'undefined' && THIS_COMPUTER_NAME === n, mine, { timeout: 10000 }).then(() => true, () => false);
       chk(landed, '[' + engine + '] ' + theme + ' the computers answer was taken in before the arms read the header');
       return { ctx, page };
     };
@@ -185,8 +192,8 @@ const teardownFails = [];
             T + 'H2 no Kosmos+ mark, no two lines, no tab strip, no menu button, no K mark', JSON.stringify({ mark: l.mark, two: l.twoLines, tabs: l.tabs, burger: l.burger, klink: l.klink }));
           chk(!l.comp && l.compName === 'studio-laptop', T + 'H3 one computer: nothing on the left (Josh #6396), though the header knows its name', JSON.stringify({ comp: l.comp, name: l.compName }));
           chk(l.me && l.me.w === 44 && l.me.h === 44 && l.face && l.face.w === 32 && l.face.h === 32 && Math.abs(l.face.r - (l.pageW - 16)) <= 1
-            && Math.abs((l.face.t + l.face.h / 2) - 22) <= 1 && /^Menu, /.test(l.meLabel || ''),
-            T + 'H4 the face is 32px in a 44px target, 16px from the right, centred on the bar, named Menu', JSON.stringify({ me: l.me, face: l.face, label: l.meLabel, pageW: l.pageW }));
+            && Math.abs((l.face.t + l.face.h / 2) - 22) <= 1 && l.meLabel === 'Settings, You',
+            T + 'H4 the face is 32px in a 44px target, 16px from the right, centred on the bar, named for what it opens (no name yet: You)', JSON.stringify({ me: l.me, face: l.face, label: l.meLabel, pageW: l.pageW }));
           chk(l.apphead && l.apphead.b === 44, T + 'H5 on a quiet board the app header is the whole header', JSON.stringify(l.apphead));
           // The face opens the menu at Settings; closing gives focus back to the face.
           await page.click('#kapp-me');
@@ -210,6 +217,18 @@ const teardownFails = [];
           chk(m.nav && !m.nav.shown && usage && m.focus === 'kapp-me',
             T + 'M3 a Settings section chosen from the face opens it, and focus goes back to the face', JSON.stringify({ nav: m.nav, usage, focus: m.focus }));
           chk(!passedMain, T + 'M4 the face opens straight at Settings, never showing the first level on the way', String(passedMain));
+          // The face as the person's name and picture change it (paintRailMe repaints the user menu and this together).
+          const faces = await page.evaluate(() => {
+            const f = () => { const b = document.getElementById('kapp-me'); const x = b.querySelector('img, .youtint'); const r = x && x.getBoundingClientRect();
+              return { label: b.getAttribute('aria-label'), kind: x ? x.tagName + (x.textContent ? ':' + x.textContent : '') : null, w: r && Math.round(r.width), h: r && Math.round(r.height) }; };
+            const empty = f();
+            YOU_NAME = 'Josh Example'; paintRailMe(); const named = f();
+            YOU_PIC = true; paintRailMe(); const pic = f();
+            return { empty, named, pic };
+          });
+          chk(faces.empty.kind === 'SPAN' && faces.empty.w === 32 && faces.named.kind === 'SPAN:J' && faces.named.label === 'Settings, Josh Example' && faces.named.w === 32
+            && faces.pic.kind === 'IMG' && faces.pic.w === 32 && faces.pic.h === 32,
+            T + 'M5 the face: an empty disc with no name, initials once named, the picture once set, always 32px, named for the person', JSON.stringify(faces));
           await shut(ctx, page);
         }
         // Two computers: the name on the left opens Switch Computers.
@@ -229,11 +248,26 @@ const teardownFails = [];
           await page.click('#pnav-back');
           await settled(page);
           m = await look(page);
-          chk(m.nav && JSON.stringify(m.nav.level) === '["settings"]', T + 'S3 Back from Switch Computers is Settings', JSON.stringify(m.nav));
+          chk(m.nav && JSON.stringify(m.nav.level) === '["settings"]' && m.focus === 'pnav-computers', T + 'S3 Back from Switch Computers is Settings, focus on Switch Computers', JSON.stringify({ nav: m.nav, focus: m.focus }));
+          await page.click('#pnav-back');
+          await settled(page);
+          m = await look(page);
+          const onSettings = await page.evaluate(() => document.activeElement && document.activeElement.dataset && document.activeElement.dataset.pnavGo === 'settings');
+          chk(m.nav && JSON.stringify(m.nav.level) === '["main"]' && onSettings, T + 'S3b Back again is the first level, focus on Settings', JSON.stringify({ nav: m.nav, focus: m.focus, onSettings }));
           await page.click('#pnav-x');
           await settled(page);
           m = await look(page);
           chk(m.nav && !m.nav.shown && m.focus === 'kapp-comp' && m.compExp === 'false', T + 'S4 closing gives focus back to the name', JSON.stringify({ nav: m.nav, focus: m.focus }));
+          await shut(ctx, page);
+        }
+        // A long name a person gave their computer: cut with an ellipsis, the face still in place, no sideways scroll.
+        {
+          const { ctx, page } = await open('remote.test', theme, { computers: TWO_LONG });
+          await page.waitForFunction(() => { const c = document.getElementById('kapp-comp'); return c && !c.hidden; }, null, { timeout: 10000 }).catch(() => {});
+          const l = await look(page);
+          const cut = await page.evaluate(() => { const n = document.getElementById('kapp-comp-name'); return { sw: n.scrollWidth, cw: n.clientWidth, docW: document.documentElement.scrollWidth, vw: window.innerWidth }; });
+          chk(l.comp && l.me && l.compName === LONG && l.comp.r <= l.me.l && cut.sw > cut.cw && cut.docW <= cut.vw && l.face && Math.abs(l.face.r - (l.pageW - 16)) <= 1,
+            T + 'S5 a long computer name is cut short before the face, which stays 16px from the right, and the page does not scroll sideways', JSON.stringify({ comp: l.comp, me: l.me, face: l.face, cut }));
           await shut(ctx, page);
         }
       }

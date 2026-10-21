@@ -24,9 +24,10 @@ function el(extra) {
     getClientRects() { return this.laidOut ? [{}] : []; }, focus() { this.focused += 1; } }, extra || {});
 }
 
-function paint({ name, openable, you, face = '<span class="youtint">J</span>', bar = true }) {
+function paint({ name, openable, you, face = '<span class="youtint">J</span>', bar = true, before }) {
   const els = { 'kapp-comp': el(), 'kapp-comp-name': el(), 'kapp-me': el() };
-  const doc = { getElementById: (id) => (bar ? els[id] || null : null) };
+  if (before) before(els);
+  const doc = { getElementById: (id) => (bar ? els[id] || null : null), get activeElement() { return els.active || null; } };
   new Function('document', 'THIS_COMPUTER_NAME', 'COMPUTERS_OPENABLE', 'YOU_NAME', 'youFaceHtml',
     page.liftAll(SCRIPT, ['kappHeadPaint']) + '\nkappHeadPaint();')(doc, name, openable, you, () => face);
   return els;
@@ -45,13 +46,30 @@ test('#6846: the switcher shows only when there is another computer to go to (Jo
   assert.equal(none['kapp-comp-name'].textContent, 'This computer');
 });
 
-test('#6846: the person\'s menu shows their face and is named for them', () => {
+test('#6846: the person\'s menu shows their face and is named for what it opens and whose it is', () => {
   const p = paint({ name: 'Studio Mac', openable: true, you: 'Josh', face: '<img src="/me.png" alt="">' });
   assert.equal(p['kapp-me'].innerHTML, '<img src="/me.png" alt="">');
-  assert.equal(p['kapp-me'].getAttribute('aria-label'), 'Menu, Josh');
-  assert.equal(paint({ name: '', openable: false, you: '' })['kapp-me'].getAttribute('aria-label'), 'Menu, You');
+  assert.equal(p['kapp-me'].getAttribute('aria-label'), 'Settings, Josh');
+  assert.equal(paint({ name: '', openable: false, you: '' })['kapp-me'].getAttribute('aria-label'), 'Settings, You');
   // Before the bar exists (a page off Kosmos+), painting is a no-op, not a crash.
   assert.doesNotThrow(() => paint({ name: 'x', openable: true, you: 'y', bar: false }));
+});
+
+test('#6846: back to one computer while the switcher has focus, focus moves to the face; the face is not rewritten unchanged', () => {
+  const p = paint({ name: 'Studio Mac', openable: false, you: 'Josh', before: (els) => { els.active = els['kapp-comp']; } });
+  assert.equal(p['kapp-comp'].hidden, true);
+  assert.equal(p['kapp-me'].focused, 1, 'focus fell to the page when the switcher went');
+  // CONTROL: the switcher hidden already (focus elsewhere), nothing moves.
+  const q = paint({ name: 'Studio Mac', openable: false, you: 'Josh', before: (els) => { els['kapp-comp'].hidden = true; els.active = els['kapp-comp']; } });
+  assert.equal(q['kapp-me'].focused, 0);
+  // The same face is left alone (a picture is not reloaded on every computers answer).
+  let writes = 0;
+  const r = paint({ name: 'x', openable: true, you: 'Josh', face: '<img src="/me.png" alt="">', before: (els) => {
+    let html = '<img src="/me.png" alt="">';
+    Object.defineProperty(els['kapp-me'], 'innerHTML', { get: () => html, set: (v) => { writes += 1; html = v; } });
+  } });
+  assert.equal(writes, 0, 'an unchanged face was written again');
+  assert.equal(r['kapp-me'].innerHTML, '<img src="/me.png" alt="">');
 });
 
 test('#6846: the painter runs whenever its facts change: after each computers answer, and with the user menu\'s face', () => {
@@ -67,11 +85,14 @@ function level(name) {
 function opener() {
   const calls = [];
   const levels = { main: level('main'), settings: level('settings'), computers: level('computers') };
-  const nav = el({ hidden: true, querySelectorAll: () => Object.values(levels), classList: { toggle: (c, on) => calls.push('deep ' + on) } });
+  const goSettings = el({ id: 'go-settings' });
+  const switchComputers = el({ id: 'pnav-computers' });
+  const nav = el({ hidden: true, querySelectorAll: () => Object.values(levels), classList: { toggle: (c, on) => calls.push('deep ' + on) },
+    querySelector: (sel) => { assert.equal(sel, '[data-pnav-go="settings"]'); return goSettings; } });
   const twoLines = el();
   const face = el({ id: 'kapp-me' });
   const back = el({ tabIndex: -1 });
-  const ids = { pnav: nav, 'kplus-menu': twoLines, 'kapp-me': face, 'pnav-back': back };
+  const ids = { pnav: nav, 'kplus-menu': twoLines, 'kapp-me': face, 'pnav-back': back, 'pnav-computers': switchComputers };
   const doc = { getElementById: (id) => ids[id] || null, documentElement: { classList: { remove() {} } } };
   const scope = { PNAV_OPENER: null, PNAV_TRAIL: ['main'], PNAV_FROM: [] };
   const fns = {
@@ -79,18 +100,19 @@ function opener() {
     pnavFill: (lv) => calls.push('fill ' + lv),
     pnavLevel: (lv) => levels[lv],
     computersFetch: () => { calls.push('read computers'); return Promise.resolve(); },
-    pnavSettle: () => {}, pnavOpened: () => {},
+    pnavSettle: () => {}, pnavOpened: () => calls.push('opened'),
   };
   const src = page.liftAll(SCRIPT, ['kappOpenAt', 'pnavClose', 'pnavReturnFocus']);
   const api = new Function('document', 'scope', 'pnavOpen', 'pnavFill', 'pnavLevel', 'computersFetch', 'pnavSettle', 'pnavOpened',
     'with (scope) {\n' + src + '\nreturn { kappOpenAt, pnavClose, pnavReturnFocus };\n}')(doc, scope, fns.pnavOpen, fns.pnavFill, fns.pnavLevel, fns.computersFetch, fns.pnavSettle, fns.pnavOpened);
-  return { api, calls, nav, levels, twoLines, face, back, scope, ids };
+  return { api, calls, nav, levels, twoLines, face, back, scope, ids, goSettings, switchComputers };
 }
 
 test('#6846: the face opens the menu straight at Settings, never passing through the first level', () => {
   const a = opener();
   a.api.kappOpenAt(['settings'], a.face);
-  assert.deepEqual(a.calls, ['open quiet', 'fill settings', 'deep true'], 'opened by way of an animated walk, or focused the first level on the way');
+  assert.deepEqual(a.calls, ['open quiet', 'opened', 'fill settings', 'deep true'], 'opened by way of an animated walk, or focused the first level on the way');
+  assert.deepEqual(a.scope.PNAV_FROM, [a.goSettings], 'Back would not land on Settings');
   assert.equal(a.levels.main.hidden, true);
   assert.equal(a.levels.settings.hidden, false);
   assert.deepEqual(a.scope.PNAV_TRAIL, ['main', 'settings']);
@@ -105,12 +127,12 @@ test('#6846: the switcher opens straight at Switch Computers, reading the comput
   const b = opener();
   const comp = el({ id: 'kapp-comp' });
   b.api.kappOpenAt(['settings', 'computers'], comp);
-  assert.deepEqual(b.calls, ['open quiet', 'fill settings', 'read computers', 'fill computers', 'deep true']);
+  assert.deepEqual(b.calls, ['open quiet', 'opened', 'fill settings', 'read computers', 'fill computers', 'deep true']);
   assert.deepEqual(b.scope.PNAV_TRAIL, ['main', 'settings', 'computers']);
   assert.equal(b.levels.computers.hidden, false);
   assert.equal(b.levels.settings.hidden, true);
   assert.equal(b.back.getAttribute('aria-label'), 'Back to Settings');
-  assert.deepEqual(b.scope.PNAV_FROM, [comp, comp]);
+  assert.deepEqual(b.scope.PNAV_FROM, [b.goSettings, b.switchComputers], 'Back would not land on Settings, then Switch Computers');
   // Already open: nothing happens (a second tap cannot stack levels).
   b.calls.length = 0;
   b.api.kappOpenAt(['settings'], b.face);
