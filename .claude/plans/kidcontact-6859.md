@@ -109,6 +109,12 @@ but cannot be read, or is not a JSON object, throws; null only when none of the 
   behaviour, not a regression; each needs the join flow's own writes reordered, which is that flow's change to make.
 - Review 9, decided: a computer the org stopped (its record cleared, a stopped note left) reads as joined to nobody,
   and its agents may reach outside. The family removed it; the same holds after a confirmed leave.
+- Review 12: enroll keeps a family's kind also when this board's current record is a family's (the screen always
+  passes an explicit kind, taken from a preview that reads a missing kind as a company's, so the join's own kind
+  alone never said family in the case keepFamily is for). Still untested on the enroll path.
+- Review 12: the refresh clears a join marker beside a record by its presence on disk, not by whether it parses:
+  a torn marker no refresh could read would otherwise have closed a company board for good (tested and
+  mutation-proven, 1 red).
 - Review 1, deferred: one more small file read per contactAllows call (currentStrict already reads one per call);
   the require is lazy, so there is no load-order cycle.
 

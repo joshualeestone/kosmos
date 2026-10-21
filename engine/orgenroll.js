@@ -542,7 +542,7 @@ function pendingKind(opts) {
    'company', or null when it is enrolled to none or its record names no kind (both read as a company's). */
 function kindHere(opts) { return recKind(opts) || null; }
 /* kosmos#6859: the kind for a rule that must not fail open, from the files themselves (not through readers that
-   answer null on a fault): the enrollment record, a pending leave and a pending join, all three read, and a family's
+   answer null on a fault): a pending join, the enrollment record and a pending leave, all three read, and a family's
    if any of them says so (a move into a family keeps the old record until the join settles). A file that parses but
    names no kind (from before kinds, or with an identity readEnrollment rejects) is a company's; a file that is there
    but cannot be read, or is not a JSON object, throws. null only when none of the three is there. */
@@ -681,7 +681,7 @@ async function enrollNow(code, accepted, opts) {
     }
     r = { ok: true, data: st.data };
   }
-  const org = keepFamily(cleanOrg(r.data && r.data.org), r.data && r.data.org, KIND);
+  const org = keepFamily(cleanOrg(r.data && r.data.org), r.data && r.data.org, recKind(opts) === 'family' ? 'family' : KIND);
   const role = cleanRole(r.data && r.data.role);
   const en = r.data && r.data.enrolled;
   /* #5530 review 2: thisComputer says the CALLING signer is the enrolled one. It catches a world id copied WITHOUT the
@@ -1054,7 +1054,7 @@ async function refreshNow(opts) {
   const before = readEnrollment(opts);
   // kosmos#6251 (board review 4): the kind of the record read here, after the paths above that settle or leave first.
   const KIND = before && before.org ? before.org.kind : null;
-  if (before && joinUnknown(opts)) setJoinUnknown(null, opts);   // a record settles it: no follow-up beside one (review 27)
+  if (before && fs.existsSync(path.join(storeRoot(opts), JOIN_UNKNOWN_FILE))) setJoinUnknown(null, opts);   // a record settles it: no follow-up beside one (review 27)
   const unsure = before ? null : joinUnknown(opts);
   if (unsure) return settleUnknownJoin(unsure, opts);
   /* No local world id: nothing can match, so nothing is asked (review 14). A missing id file means the record is stale

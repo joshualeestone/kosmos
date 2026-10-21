@@ -220,3 +220,18 @@ test('#6859: a family join settled from an answer that names no kind is recorded
     assert.equal(fs.existsSync(path.join(root, JOIN_UNKNOWN)), false, 'CONTROL: the marker is gone once the record is written');
   }
 });
+
+test('#6859: a torn join marker beside a record is cleared by the next refresh, so it cannot close a board for good', async () => {
+  const world = 'd'.repeat(32);
+  const root = fs.mkdtempSync(path.join(SANDBOX, 'torn-'));
+  fs.writeFileSync(path.join(root, orgenroll.WORLD_ID_FILE), world + '\n');
+  fs.writeFileSync(path.join(root, orgenroll.ENROLLMENT_FILE), JSON.stringify({ org: { id: 'org-1', name: 'Acme', slug: 'acme', kind: 'company' }, role: 'member', world, enrolledAt: new Date().toISOString() }) + '\n');
+  fs.writeFileSync(path.join(root, JOIN_UNKNOWN), '{ torn');
+  assert.throws(() => orgenroll.kindStrict({ root }), /enrollment file that cannot be read/, 'CONTROL: the torn marker is read as damage');
+  const remote = { macRequest: async (method, route) => (route === orgenroll.ROUTES.status
+    ? { ok: true, data: { member: true, enrolled: { world, thisComputer: true }, org: { id: 'org-1', name: 'Acme', slug: 'acme', kind: 'company' }, role: 'member' } }
+    : { ok: false, because: 'not scripted' }) };
+  await orgenroll.refresh({ root, remote });
+  assert.equal(fs.existsSync(path.join(root, JOIN_UNKNOWN)), false, 'the torn marker beside a record was kept');
+  assert.equal(orgenroll.kindStrict({ root }), 'company');
+});
