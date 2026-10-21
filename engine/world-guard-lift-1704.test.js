@@ -524,6 +524,8 @@ test('Renet (2): a board BOOTED into "test" whose registry was switched to Kosmo
     // Register repair on both arms: fin loses its job file, and every agent is jobless to a fresh Task Scheduler.
     // repair passes installJob no binaries, so the runner and terminal come from the env overrides.
     fs.rmSync(create.plistPath('fin'), { force: true });
+    // #6714: every agent here has run, so the restart survey counts them
+    for (const n of register.known().names) require('./liveness').seen(n);
     const savedBins = { claude: process.env.AGENT_WORKFORCE_CLAUDE_BIN, tmux: process.env.AGENT_WORKFORCE_TMUX_BIN };
     process.env.AGENT_WORKFORCE_CLAUDE_BIN = HOST_BIN;
     process.env.AGENT_WORKFORCE_TMUX_BIN = HOST_BIN;

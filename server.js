@@ -4337,6 +4337,9 @@ const REMOTE_STEP_UP_EXACT = new Set([
   'POST /api/agents', 'POST /api/team', 'POST /api/connect-agent', 'POST /api/worlds', 'POST /api/worlds/import',
   // Writing an agent's launchd job (it starts processes), the same class as bringing an agent back.
   'POST /api/register',
+  // #6714 review 12: closing an agent's restart notice silences a warning that it will not come back, so a stale remote
+  // session may not do it. Show again only brings a warning back, so it is not here.
+  'POST /api/register/hide',
   // Federation: joining another Kosmos's project opens a room here that outsiders post into and agents act on;
   // inviting one, or sharing this project's own code, lets another Kosmos in. Removing and withdrawing take away.
   'POST /api/federation/join', 'POST /api/federation/invite', 'POST /api/federation/own-code',
@@ -18924,6 +18927,9 @@ const server = http.createServer(async (req, res) => {
      without draw exactly the same card, so the only way to find out which of
      yours come back was to restart the computer. Josh did, on 2026-08-22, and
      one of his sixteen came back. */
+  /* #6714: register.survey forgets closed restart notices that no longer apply (engine/register.js forgetHidden), read
+     afresh and written only when something changed, wherever the survey runs (this route, the status poll, the agent
+     events, a hide: every caller of register.survey). */
   if (pathname === '/api/register' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, register.survey()); }
     catch { sendJson(res, 500, { error: 'we could not check which of your agents start on their own' }); }
@@ -18934,19 +18940,54 @@ const server = http.createServer(async (req, res) => {
      the set the GET above reports, so the two can never describe different
      work. A body would let a caller name an agent the survey refused. */
   if (pathname === '/api/register' && req.method === 'POST') {
-    try {
-      /* The model each one LAST RAN AS, which is the only surviving record of
-         it: the model an agent was SET to run on lived in the job that does not
-         exist. A reading we cannot make travels as nothing, and that agent
-         comes back on Claude's own default rather than not coming back. */
-      const out = register.repair({
-        modelFor: (name) => {
-          try { const m = status.readModel(name); return (m && m.model) || null; }
-          catch { return null; }
-        },
-      });
-      sendJson(res, out.ok ? 200 : 500, out);
-    } catch { sendJson(res, 500, { error: 'we could not set your agents to start on their own' }); }
+    /* #6714: an optional { name } starts one agent from its own notice. The repair accepts only a name the survey
+       offers, so the set it acts on is still exactly what the GET reports. No body (or an empty one) is all of them. */
+    readBody(req).then((raw) => {
+      let only;
+      if (raw && String(raw).trim()) {
+        let body = null;
+        try { body = JSON.parse(raw); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body) || (body.name !== undefined && typeof body.name !== 'string')) {
+          sendJson(res, 400, { error: 'we could not read that request' }); return;
+        }
+        only = body.name;   // undefined (an empty object) is all of them, as no body is
+      }
+      try {
+        /* The model each one LAST RAN AS, which is the only surviving record of
+           it: the model an agent was SET to run on lived in the job that does not
+           exist. A reading we cannot make travels as nothing, and that agent
+           comes back on Claude's own default rather than not coming back. */
+        const out = register.repair({
+          only,
+          modelFor: (name) => {
+            try { const m = status.readModel(name); return (m && m.model) || null; }
+            catch { return null; }
+          },
+        });
+        sendJson(res, out.ok ? 200 : (out.refused ? 400 : 500), out);   // refused: a name the notice does not offer
+      } catch { sendJson(res, 500, { error: 'we could not set your agents to start on their own' }); }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+  /* #6714: stop reminding about one agent's restart notice, or show it again (Settings > Computer). A notice, not a
+     fix: neither changes whether the agent comes back. Hiding silences a warning, so it is behind the remote step-up
+     (REMOTE_STEP_UP_EXACT); showing only brings one back, so it is not. */
+  /* Two literal conditions, not one combined: server.remotestepup-6595.test.js finds every write route by this shape. */
+  const registerNoticeRoute = (pathname === '/api/register/hide' && req.method === 'POST') ? 'hide'
+    : (pathname === '/api/register/show' && req.method === 'POST') ? 'show' : null;
+  if (registerNoticeRoute) {
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || typeof body.name !== 'string' || !create.NAME_RE.test(body.name)) {
+        sendJson(res, 400, { error: 'we could not read that request' }); return;
+      }
+      let out;
+      try { out = registerNoticeRoute === 'hide' ? register.hide(body.name) : register.show(body.name); }
+      catch { out = { ok: false, because: 'we could not record that' }; }
+      /* 400 only for a name with no notice (the page reads that as already done); anything else did not happen. */
+      sendJson(res, out.ok ? 200 : (out.notOffered ? 400 : 500), out);
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
   /* #5359: the note that this computer restarted while Kosmos was running and Kosmos came back by itself
