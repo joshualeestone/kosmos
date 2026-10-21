@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: updpause-6620
-diff_hash: b3a7585a062c9e338b2b00b1b450b124bfc8fa4b7efafdf4da06b13ac0e2b35c
+diff_hash: c2e1b1b4766d2a6d0eedc0c1f2cffe2f48b08c2ac46c3aeb72b67d9e1dc80a1d
 validation: passed (on the tree merged with origin/main: update/manifest-verify/pause/server node tests 799 pass 0 fail with KOSMOS_UPDATE_PAUSE_URL at a dead port; the 58 source scans 1264/0; tools/test-pkg-checksum-1670.sh all checks passed; each new test mutation-checked red; tools/test-install.sh NOT run, it needs a cut's staged dist trees, its change is two env exports, bash -n clean; engine/win32connectupdate.test.js's Windows arm runs only on Windows CI)
 subdir_audit: passed (no CLAUDE.md in the diff)
 timestamp: 2026-10-21T00:54:38Z
@@ -70,6 +70,12 @@ sections (.claude/plans/updpause-6620.md) and the commits.
 
 ### Outstanding questions
 None.
+
+### After convergence (test-only, re-hashed)
+- Windows CI showed the not-paused control in engine/win32connectupdate.test.js going on into a real `schtasks /Query`,
+  which the harness refuses. It now passes the same board-task stub as the #4382 control beside it and asserts that
+  refusal, so it stops at the first check after the pause and proves the pause let it by (it was the iteration-4 NIT
+  about a weak control). It runs only on Windows CI; not run on this Mac.
 
 ### NITs left as they are
 - a pause that starts between a look and the install backs automatic updates off an hour (late, never wrong; plan)
