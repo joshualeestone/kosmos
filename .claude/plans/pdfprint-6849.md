@@ -16,7 +16,7 @@ crypto) and `kosmos handoff` (engine/handoff.js). All three were the plain sha25
 render the PDFs, so it cannot fix their metadata at the source; agents use whatever tool they have.
 - One function, engine/fileprint.js, used by all three and by a new `kosmos fingerprint <file>` (Mac and Windows).
 - For any file but a PDF it is the plain sha256 (what `shasum -a 256` prints), so nothing changes for those.
-- For a PDF (header in the first 1024 bytes) it is the sha256 with /CreationDate, /ModDate (literal or hex strings),
+- For a PDF (a file that starts with %PDF-) it is the sha256 with /CreationDate, /ModDate (literal or hex strings),
   the /ID pair, and the XMP CreateDate, ModifyDate, MetadataDate, DocumentID and InstanceID emptied.
 - Same `sha256:<hex>` shape, so the board, its check and its displays need no change.
 - The agent instruction (engine/defaults.js) says to check a copy with `kosmos fingerprint`.
@@ -29,8 +29,12 @@ plain sha256s differ (the control); a render with one word changed gives another
 
 **Weakest premise.** That the volatile fields sit in uncompressed objects. A PDF that keeps its document info in a
 compressed object stream is hashed as it is (its dates are not read without inflating every stream). Also a PDF over
-512 MiB is hashed as plain bytes rather than held in memory.
+64 MiB is hashed as plain bytes rather than held in memory. The fields are matched over the raw bytes, so page text in an
+uncompressed content stream shaped exactly like `/ModDate (...)` would be emptied too (far-fetched; noted, not handled).
+`task built --file` on a Mac now needs the bundled runtime and engine, as `kosmos handoff` and the Windows CLI already do.
 
 ## Tests run
-- engine/fileprint-6849.test.js 7/7 (real fixtures in test-support/fileprint-6849/).
+- engine/fileprint-6849.test.js 8/8 (real fixtures in test-support/fileprint-6849/); server.builtsha-6330.test.js
+  8/8 (Mac CLI); tools.windows-kosmos-cli-570.test.js 51/51 (Windows CLI); each PDF test red when PDF detection is
+  broken on purpose.
 - engine/handoff.test.js 23/23 after the move.

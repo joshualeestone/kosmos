@@ -7,11 +7,12 @@
  * of the bytes with the PDF's own clock and identity left out: the /CreationDate and /ModDate in its document info,
  * the /ID pair in its trailer, and the matching XMP fields. Those change on every render, so the same source rendered
  * twice gave two fingerprints (measured on #6849: Chrome's print to PDF differs only in its two dates; macOS cupsfilter
- * in its two dates and its /ID). Nothing else is left out, so a change to what the PDF shows still changes the print.
+ * in its two dates and its /ID). The fields are matched over the raw bytes, so a change to what the PDF shows still
+ * changes the print, unless it is page text in an uncompressed stream shaped exactly like one of these fields.
  *
  * Not covered, and why: a PDF that keeps its document info inside a compressed object stream is hashed as it is (its
  * dates are not readable without inflating every stream), and so is a compressed XMP stream; Adobe's xmpMM:History events,
- * single-quoted XMP attributes and an /ID literal holding unescaped brackets are not emptied; a date whose LENGTH changes
+ * single-quoted XMP attributes and a date or /ID literal holding nested brackets are not emptied; a date whose LENGTH changes
  * between renders still moves the xref offsets. Each of these gives two fingerprints, never one for two different
  * documents. A PDF over PDF_MAX (64 MiB) is hashed as plain bytes rather than held whole in memory.
  *

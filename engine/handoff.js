@@ -49,9 +49,6 @@ function iso(ms) {
   return d.toISOString();
 }
 
-/* A one-line, control-stripped excerpt of a tool's error, so a multi-line git
- * message never becomes extra Markdown lines. */
-
 /* An ISO timestamp only when the time is believable: at or after MIN_SANE_YEAR and not in
  * the future beyond a day's slack for clock skew. A zero or epoch time, a parse failure, or
  * a clock-skewed future time returns null, so the caller prints "cannot tell" rather than a
