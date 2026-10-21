@@ -217,3 +217,17 @@ skip (slice 5). The other listed reasons were re-measured on Linux in probe run 
   way, which is the parity the helper exists for, and the helper's comment says so.
 - Duplicates: the renamed macOS job (iteration 6, ruleset measured), one `ps` per hop and a Linux sysctl printing to
   stdout (iteration 2).
+
+## Challenge loop iteration 9 (opus): 1 WARNING, 3 NITs
+- WARNING, fixed: slice 4 took all three pgrep tests off macOS, so PR CI no longer ran macOS's real `pgrep -fl` and
+  its own ancestor exclusion, the branch the release guards use (cuts are macOS only). Slice 1's rule (keep a test on
+  macOS when it is the only CI run of a BSD branch) applies. test-running-anchor-5470 holds both platforms' real-pgrep
+  arms (macOS ancestor exclusion; the Linux filter and lineage count), so moving it either way loses one. The list now
+  takes `both: <command>` (macOS job AND Linux shards, as the syntax checks already run by pattern), and that test is
+  marked so. Mac job 136 (26 listed + 110 syntax), Linux 239 (unchanged: the test was already there). tools.shell-
+  shard-4317: the split test allows both: lines and checks they stay on Linux; a new arm pins the marker on a fixture
+  list with a control (no both set: the line leaves Linux) and a stale both: line refusing. My first header said 240;
+  the count arm failed on it, which is the arm working.
+- NITs, taken: test.yml's env comment names KOSMOS_SHELL_PLATFORM; the twin-reader comment says "same sources" and
+  how their fallbacks differ, not "the same way". Left: test-browser-run-guard's chmod after a failed sed (the arm then
+  fails on the probe's output, as it should).
