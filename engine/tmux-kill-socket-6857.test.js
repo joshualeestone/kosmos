@@ -43,7 +43,7 @@ function lex(src) {
     if (!p) return true;
     if (p.t === 'str' || p.t === 'num') return false;
     if (p.t === 'id') return REGEX_AFTER_ID.has(p.v);
-    return !(p.v === ')' || p.v === ']' || p.v === '}');
+    return !(p.v === ')' || p.v === ']' || p.v === '}' || p.v === '++' || p.v === '--');   // n++ / 2 divides
   };
   /* Reads template text from `k` (just after a backtick or a closing ${...}) to its end or its next ${. */
   const template = (k, tpl) => {
@@ -74,7 +74,7 @@ function lex(src) {
         if (src[k] === '\\') k += 1; else if (src[k] === '[') cls = true; else if (src[k] === ']') cls = false;
         k += 1;
       }
-      k += 1;
+      if (k < n && src[k] === '/') k += 1;   // a regex cut short by a new line leaves that line to be counted
       while (k < n && /[a-z]/i.test(src[k])) k += 1;
       i = k; continue;
     }
@@ -86,7 +86,8 @@ function lex(src) {
     }
     if (/[A-Za-z_$]/.test(c)) { let k = i + 1; while (k < n && /[\w$]/.test(src[k])) k += 1; toks.push({ t: 'id', v: src.slice(i, k), line }); i = k; continue; }
     if (/[0-9]/.test(c)) { let k = i + 1; while (k < n && /[\w.]/.test(src[k])) k += 1; toks.push({ t: 'num', v: src.slice(i, k), line }); i = k; continue; }
-    if (src.startsWith('=>', i)) { toks.push({ t: 'p', v: '=>', line }); i += 2; continue; }
+    const two = src.slice(i, i + 2);
+    if (['=>', '||', '&&', '++', '--', '??'].includes(two)) { toks.push({ t: 'p', v: two, line }); i += 2; continue; }
     toks.push({ t: 'p', v: c, line }); i += 1;
   }
   return toks;
@@ -96,43 +97,53 @@ const OPEN = new Set(['(', '[', '{']);
 const CLOSE = new Set([')', ']', '}']);
 const named = (tok) => tok.t === 'str' && (tok.v === '-S' || tok.v === '-L');
 
-/* The '(' of the call that `i` is an argument of (passing through arrays and objects), or -1. */
-function enclosingCall(toks, i) {
+/* The bracket that directly holds token `i` (its '(' or '['), or -1. Review 3: the walk stops at a '{' and at a ';',
+   so a kill-server inside a callback is never vouched for by an -S earlier in that callback. */
+function holder(toks, i) {
   let d = 0;
   for (let j = i - 1; j >= 0; j -= 1) {
     const v = toks[j].t === 'p' ? toks[j].v : '';
     if (CLOSE.has(v)) d += 1;
-    else if (OPEN.has(v)) { if (d === 0) { if (v === '(') return j; } else d -= 1; }
+    else if (OPEN.has(v)) { if (d > 0) { d -= 1; continue; } return v === '{' ? -1 : j; }
+    else if (v === ';' && d === 0) return -1;
   }
   return -1;
 }
 
-/* Tokens [a, b) of the definition of `name` nearest before token `at` (else the first after it: a hoisted function):
-   `const name = ...` to the end of that statement, or `function name(...) {...}`. Null when there is none. */
-function definition(toks, name, at) {
-  let start = -1, after = -1;
-  for (let j = 0; j < toks.length - 2; j += 1) {
-    const a = toks[j], b = toks[j + 1], c = toks[j + 2];
-    const hit = (a.t === 'id' && ['const', 'let', 'var'].includes(a.v) && b.t === 'id' && b.v === name && c.v === '=')
-      || (a.t === 'id' && a.v === 'function' && b.t === 'id' && b.v === name && c.v === '(');
-    if (!hit) continue;
-    if (j < at) start = j; else if (after < 0) after = j;
-  }
-  if (start < 0) start = after;
-  if (start < 0) return null;
-  const fn = toks[start].v === 'function';
-  let d = 0, k = fn ? start + 2 : start + 3;   // from the parameters' '(', or from the token after '='
-  for (; k < toks.length; k += 1) {
+/* The index of the '[' that matches the ']' at `j`, or -1. */
+function openerOf(toks, j) {
+  let d = 0;
+  for (let k = j; k >= 0; k -= 1) {
     const v = toks[k].t === 'p' ? toks[k].v : '';
-    if (OPEN.has(v)) d += 1;
-    else if (CLOSE.has(v)) { d -= 1; if (fn && d === 0 && v === '}') { k += 1; break; } if (d < 0) break; }
-    else if (!fn && d === 0 && (v === ';' || v === ',')) break;
-    /* An arrow with no braces and no semicolon ends at a new line at depth 0, unless that line continues the
-       expression (review 2: it ran into the next statement and took that one's -L). */
-    if (!fn && d === 0 && k > start + 3 && toks[k].line > toks[k - 1].line
-      && !['=', '=>', '(', ',', '+', '?', ':', '.', '||', '&&'].includes(toks[k - 1].v) && !['.', '?', ':', '+'].includes(toks[k].v)) break;
+    if (CLOSE.has(v)) d += 1; else if (OPEN.has(v)) { d -= 1; if (d === 0) return k; }
   }
-  return [start, k];
+  return -1;
+}
+
+/* Tokens [a, b) of every definition of `name` (`const name = ...` to the end of that statement, or
+   `function name(...) {...}`). Review 3: with several (a helper per test), every one must name the socket, since
+   which one a call reaches depends on scope this does not model. */
+function definitions(toks, name) {
+  const out = [];
+  for (let start = 0; start < toks.length - 2; start += 1) {
+    const a = toks[start], b = toks[start + 1], c = toks[start + 2];
+    const fn = a.t === 'id' && a.v === 'function' && b.t === 'id' && b.v === name && c.v === '(';
+    if (!fn && !(a.t === 'id' && ['const', 'let', 'var'].includes(a.v) && b.t === 'id' && b.v === name && c.v === '=')) continue;
+    let d = 0, k = fn ? start + 2 : start + 3;   // from the parameters' '(', or from the token after '='
+    for (; k < toks.length; k += 1) {
+      const v = toks[k].t === 'p' ? toks[k].v : '';
+      if (OPEN.has(v)) d += 1;
+      else if (CLOSE.has(v)) { d -= 1; if (fn && d === 0 && v === '}') { k += 1; break; } if (d < 0) break; }
+      else if (!fn && d === 0 && (v === ';' || v === ',')) break;
+      /* An arrow with no braces and no semicolon ends at a new line at depth 0, unless that line continues the
+         expression (review 2: it ran into the next statement and took that one's -L). */
+      if (!fn && d === 0 && k > start + 3 && toks[k].line > toks[k - 1].line
+        && !['=', '=>', '(', ',', '+', '?', ':', '.', '||', '&&', '??'].includes(toks[k - 1].v)
+        && !['.', '?', ':', '+', '||', '&&', '??'].includes(toks[k].v)) break;
+    }
+    out.push(toks.slice(start, k));
+  }
+  return out;
 }
 
 /* For `mod.fn(...)`, the tokens of the file `mod` is required from (relative to `dir`), or null. */
@@ -146,36 +157,60 @@ function requiredFile(toks, mod, dir) {
   return null;
 }
 
+/* A run of argument tokens names the socket: an '-S' or '-L' after the last ';' element (review 3: a capture-pane's
+   -S before a ';' is not the kill's), and not under a '?' (a socket that is only sometimes there names nothing). */
+function namesSocket(args) {
+  let k = args.length;
+  for (let j = args.length - 1; j >= 0; j -= 1) if (args[j].t === 'str' && args[j].v === ';') { k = j; break; }
+  const own = k === args.length ? args : args.slice(k + 1);
+  return own.some(named) && !own.some((t) => t.t === 'p' && t.v === '?');
+}
+
 /* Every kill-server whose server is not named. Two shapes:
-   - an argument ('kill-server'): the call it is handed to must carry '-S' or '-L' among its arguments before it (a
-     `[..].concat([...])` counts the array it extends), or the wrapper it is handed to (`tm(['kill-server'])`) must
-     add one in its own definition.
-   - inside a command string ('tmux kill-server', a template): the one tmux command it is part of (split at ; && ||
-     | and new lines) must say -S or -L itself (review 2: another command's -L in the same string vouched for it). */
+   - an argument ('kill-server'): it must sit directly in an array or a call (one held in a variable is flagged:
+     nothing can see which call gets it). That array, or the call's arguments before it, must name the socket; or,
+     for an array handed straight to a call, the call's earlier arguments, the array a `.concat(...)` extends, or
+     every definition of the wrapper it is handed to (`tm(['kill-server'])`, `mod.fn(...)` through its require).
+   - inside a command string ('tmux kill-server', a template): each tmux command holding it (split at ; && || | and
+     new lines) must say -S or -L itself. */
 function bareKills(src, dir) {
   const toks = lex(src);
   const found = [];
+  const CMD = /(^|[^\w-])kill-server\b/;
   toks.forEach((tok, i) => {
     if (tok.t !== 'str') return;
     if (tok.v !== 'kill-server') {
-      if (!/(^|[^\w-])kill-server\b/.test(tok.v)) return;
-      const cmd = tok.v.split(/;|&&|\|\||\||\n/).find((s) => /(^|[^\w-])kill-server\b/.test(s));
-      if (!/(^|\s)-(S|L)(\s|$)/.test(cmd)) found.push({ line: tok.line, text: tok.v });
+      if (!CMD.test(tok.v)) return;
+      const cmds = tok.v.split(/;|&&|\|\||\||\n/).filter((s) => CMD.test(s));
+      if (!cmds.every((s) => /(^|\s)-(S|L)(\s|$)/.test(s))) found.push({ line: tok.line, text: tok.v });
       return;
     }
-    let cp = enclosingCall(toks, i);
-    while (cp > 0 && toks[cp - 1].v === 'concat' && toks.slice(cp + 1, i).every((t) => !named(t))) cp = enclosingCall(toks, cp);
-    if (cp > 0 && toks.slice(cp + 1, i).some(named)) return;
-    const callee = cp > 0 ? toks[cp - 1] : null;
-    if (callee && callee.t === 'id') {
-      let span = null, from = toks;
-      if (cp > 2 && toks[cp - 2].v === '.' && toks[cp - 3].t === 'id' && dir) {
-        from = requiredFile(toks, toks[cp - 3].v, dir) || toks;
-        span = from === toks ? null : definition(from, callee.v, Infinity);
-      } else span = definition(toks, callee.v, cp);
-      if (span && from.slice(span[0], span[1]).some(named)) return;
+    const flag = (why) => found.push({ line: tok.line, text: "'kill-server' " + why });
+    let h = holder(toks, i);
+    if (h < 0) return flag('outside any array or call');
+    if (namesSocket(toks.slice(h + 1, i))) return;
+    let call = h;
+    if (toks[h].v === '[') {
+      const prev = toks[h - 1];
+      if (!prev || !(prev.v === '(' || prev.v === ',')) return flag('in an array no call is handed');
+      call = holder(toks, h);
+      if (call < 0 || toks[call].v !== '(') return flag('in an array no call is handed');
+      if (namesSocket(toks.slice(call + 1, h))) return;
     }
-    found.push({ line: tok.line, text: "'kill-server'" + (callee ? ' handed to ' + callee.v + '()' : '') });
+    const callee = toks[call - 1];
+    if (!callee || callee.t !== 'id') return flag('handed to a call with no name');
+    if (callee.v === 'concat' && toks[call - 2] && toks[call - 2].v === '.' && toks[call - 3] && toks[call - 3].v === ']') {
+      const o = openerOf(toks, call - 3);
+      if (o >= 0 && namesSocket(toks.slice(o + 1, call - 3))) return;
+      return flag('concatenated onto an array with no socket');
+    }
+    let defs;
+    if (toks[call - 2] && toks[call - 2].v === '.' && toks[call - 3] && toks[call - 3].t === 'id') {
+      const from = dir ? requiredFile(toks, toks[call - 3].v, dir) : null;
+      defs = from ? definitions(from, callee.v) : [];
+    } else defs = definitions(toks, callee.v);
+    if (defs.length && defs.every((d) => d.some(named))) return;
+    flag('handed to ' + callee.v + '()' + (defs.length ? ', which does not name a socket' : ''));
   });
   return found;
 }
@@ -207,6 +242,15 @@ test('#6857: the checker flags a kill-server with no named socket, and passes on
   assert.equal(flags("const tm = (a) => execFileSync(T, a)\nconst o = ['-L', 'x']\ntm(['kill-server'])"), 1, 'an arrow with no semicolon ends at its line');
   assert.equal(flags("const tm = (a) => execFileSync(T, a, `[`)\nconst o = ['-L', 'x']\ntm(['kill-server'])"), 1, 'a bracket in a string does not move the depth');
   assert.equal(flags('execSync(`tmux -L k new -d; tmux kill-server`)'), 1, "another command's -L in the same string vouches for nothing");
+  // Review 3.
+  assert.equal(flags("test('t', () => { execFileSync(T, ['-L', s, 'new']); const args = ['kill-server']; execFileSync(T, args); })"), 1, 'an array in a variable is flagged');
+  assert.equal(flags("test('t', () => { tm(['capture-pane', '-S', '-200']); x(); run(['kill-server']); })"), 1, "a callback's earlier -S vouches for nothing");
+  assert.equal(flags("execSync('tmux -L a kill-server; tmux kill-server')"), 1, 'every kill-server in a command string');
+  assert.equal(flags("execFileSync(T, ['capture-pane', '-p', '-S', '-50', ';', 'kill-server'])"), 1, "a -S before a ';' is another command's");
+  assert.equal(flags("test('a', () => { const tm = (a) => execFileSync(T, ['-L', s, ...a]); });\nconst tm = (a) => execFileSync(T, a);\ntm(['kill-server']);"), 1, 'every definition of a wrapper must name the socket');
+  assert.equal(flags("execFileSync(T, [...(sock ? ['-S', sock] : []), 'kill-server'])"), 1, 'a socket that is only sometimes there names nothing');
+  assert.equal(flags("let n = 1; n++ / 2; execFileSync(T, ['kill-server']);"), 1, 'n++ / 2 is a division, not a regex');
+  assert.deepEqual(bareKills("#!/usr/bin/env node\nconst a = /x/;\n\nexecFileSync(T, ['kill-server']);").map((k) => k.line), [4], 'line numbers hold after a hashbang');
   // Passing twins.
   assert.equal(flags('execSync(`${T} -S ${sock} kill-server`)'), 0);
   assert.equal(flags("execSync('tmux -L k1 kill-server')"), 0);
@@ -243,6 +287,7 @@ test('#6857: no kill-server in the repo\'s JavaScript runs without -S or -L', ()
     for (const k of bareKills(src, path.dirname(f))) bad.push(rel + ':' + k.line + '  ' + k.text);
   }
   for (const [rel, n] of Object.entries(EXPECTED)) {
+    assert.ok(fs.existsSync(path.join(ROOT, rel)), rel + ' is gone: if its kill-server moved, update EXPECTED here');
     assert.ok((reached[rel] || 0) >= n, rel + ': the scan saw ' + (reached[rel] || 0) + ' kill-server calls, expected ' + n + '; it is not reading that file');
   }
   assert.deepEqual(bad, [], 'kill-server with no -S or -L (name the socket, kosmos#6857):\n' + bad.join('\n'));

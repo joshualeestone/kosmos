@@ -49,3 +49,17 @@ seen. None exists today.
 - Limits stated in the header: a name split across strings, a flag built at run time, a -L that is only a default
   parameter's value.
 - Controls: 26 (each round-1 and round-2 shape red, its twin green). Against origin/main's three files: red on all four.
+
+## Review 3 (Opus): five fail-open shapes, a lexer gap, three fail-safe misreports; all fixed
+- The rule is now stricter rather than patched: a 'kill-server' must sit directly in an array or a call. The walk
+  back stops at any '{' and ';' (a callback's earlier -S vouched for a kill in a variable). An array held in a
+  variable is flagged: nothing can see which call gets it. Only the arguments after the last ';' element count
+  (capture-pane -S -50 before ';'). A '?' among them means the socket is only sometimes there: flagged.
+- Every definition of a wrapper must name the socket (a helper per test: which one a call reaches is scope this does
+  not model); for mod.fn, every definition in the required file.
+- Every kill-server in a command string is checked, not only the first.
+- Lexer: n++ / 2 divides; '||' '&&' '??' '++' '--' are single tokens (the arrow-end rule now sees them); a regex cut
+  short by a new line leaves that line counted (line numbers drifted after a hashbang).
+- A file listed in EXPECTED that is gone says so.
+- Not fixed, stated: `if (x) /re/` (a regex after an if's ')') is read as division. Not in the repo.
+- Controls: 34. Against origin/main's three files: red on all four.
