@@ -75,7 +75,8 @@ That GNU-first is harmless on macOS everywhere it runs: BSD `stat -c` exits non-
   region with TMPDIR="$WORK", so on Linux its trap removes them. On macOS they still land in the per-user dir, as they
   did before (pre-existing, left alone: release.sh's kept-on-abort logs are deliberate).
 - Re-measured, probe-6799d (never merged), run 39558291451: all three jobs success; both ALONE rc 0; shard 1/2 "all 124
-  passed", shard 2/2 "all 112 passed", no #4273 leak; the load line now reads "on 4 cores".
+  passed", shard 2/2 "all 112 passed", no #4273 leak. (run-tests.sh prints its load line only on a red run, so the
+  "on ? cores" fix is not visible in a green one; kosmos_cpu_count itself read 4 on Linux in the alone job.)
 - run-tests.sh's load diagnostic read cores from hw.ncpu only; with the load now readable on Linux it would print
   "on ? cores", so it uses kosmos_cpu_count (same `command -v` guard as its load read).
 - Precedent: cut-guard.sh's `_kosmos_load_and_cores` already falls back to /proc/loadavg and getconf the same way.
