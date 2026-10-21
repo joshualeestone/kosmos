@@ -314,6 +314,12 @@ fetch_verified() {  # <url> <dest>  -- an artifact AND its <url>.sha256 sidecar 
   _FETCH_TMP_S=""
 }
 # <<< site-fetch helpers (#4745)
+# kosmos#6826: the EXIT trap above, replaced for the whole run (it stays as it is inside the block, which
+# tools/test-deploy-site-fetch-4745.sh runs on its own). On this Mac's /bin/sh (bash 3.2), a run that dies on a
+# missing library (a failed `.`) or an unset variable (set -u) reaches the EXIT trap with $? already 0, so it would
+# exit 0 having done nothing. Every success exit sets _DS_FINISHED=1 first; any other 0 is that death, made a failure.
+_DS_FINISHED=0
+trap '_ds_rc=$?; _fetch_cleanup; [ "$_ds_rc" != 0 ] || [ "$_DS_FINISHED" = 1 ] || { echo "deploy-site: the run ended without finishing (a missing library or an unset variable; see the line above). Nothing was verified: treat it as FAILED (kosmos#6826)" >&2; exit 1; }' EXIT
 verify_sha() {  # <file> <sha256-url>
   want=$(curl -fsSL -H 'Cache-Control: no-cache' "$2" 2>/dev/null | awk '{print $1}')
   got=$(shasum -a 256 "$1" | awk '{print $1}')
@@ -410,7 +416,7 @@ ptr_versioned() { printf '%s' "$1" | sed -n 's/.*"versioned":[[:space:]]*"\([^"]
 win_zip_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p'; }
 # kosmos#6149 point 1: the rollback floor. The COMMITTED Mac pointers are what this deploy serves, so neither may name
 # a build older than the setup floor (tools/lib/setup-floor.sh); the installers are checked with them on the export.
-. "$REPO/tools/lib/setup-floor.sh"   # as this script's other libs (a failed . fails closed: set -eu ends the run)
+. "$REPO/tools/lib/setup-floor.sh"   # as this script's other libs (a failed . ends the run; the EXIT trap makes it a failure, kosmos#6826)
 # Absent is not unreadable: a pointer the commit HAS but that could not be read is refused, not skipped.
 CSJ=""
 if git -C "$SITE" cat-file -e "$H:dist/latest-staging.json" 2>/dev/null; then
@@ -839,6 +845,7 @@ DROP=$(pkg_upload_filter_excludes "$EXPORT/.vercelignore") || { echo "deploy-sit
 if [ "$PUBLISH" != 1 ]; then
   echo "DRY RUN complete. The export carried Kosmos.pkg, the current tarball ($ART)${STAGED_ART:+, the staged Mac build ($STAGED_ART)}, tmux-arm64, the unversioned alias, the Windows zip, and an honest marker, and the .vercelignore guard passed. Re-run with --publish to deploy (or --promote to publish a moved pointer)."
   rm -rf "$EXPORT"   # a dry run leaves no temp dir behind; the summary above is the artifact
+  _DS_FINISHED=1
   exit 0
 fi
 
@@ -1327,4 +1334,5 @@ fi
 # exit non-zero. Baron saw DEPLOY_EXIT=128 (a git-fatal code) trail a verified 0.6.55 publish; a
 # deploy script that exits non-zero on success is a latent false-alarm trap for any runner or CI
 # gate reading DEPLOY_EXIT. Make success unambiguous and immune to a trailing command.
+_DS_FINISHED=1
 exit 0
