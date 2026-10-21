@@ -20111,7 +20111,9 @@ window.kosmosMeasureScrollbarWidth();
 <!-- The residual honesty line: the tiles carry total/working/idle/attn;
      what stays here is what has no tile home -- unknowns, unknown memory
      limits, and the part-of-the-fleet-is-missing clause. Empty hides. -->
-<!-- #734: not a general slot. One sentence lives here, the "could not open" receipt below; nothing else writes to it. -->
+<!-- #734: not a general slot. Two receipts live here: the "could not open" one, and since #6719 a star that could not be
+     saved (it clears only its own two sentences). Nothing else writes to it. A separate line for the star would be one more
+     body child, and the consolidated grid reserves exactly 40 pre-rail rows (web.consolidated-980). -->
 <p class="fmsg board-msg" id="board-msg" role="status" aria-live="polite" hidden></p>
 <!-- ⚠️ WHICH OF YOUR AGENTS SURVIVE A RESTART, which had no answer anywhere on
      this screen. An agent with a login job and one without draw the same card,
@@ -38638,18 +38640,26 @@ async function loadStars() {
   } catch { /* keep the last answer; the next read tries again */ }
 }
 /* Drawn at once (the tile moves as the person presses), then confirmed by the board; a refusal puts it back. */
-async function toggleStar(name) {
+/* Review 3: one save at a time per agent. Two quick presses sent as two concurrent PUTs could reach the board in
+   either order, leaving the file with the first press's answer while the page showed the second's. */
+const STAR_CHAIN = new Map();
+function toggleStar(name) {
   const on = !AGENT_STARS.has(name);
   const seq = ++STARS_SEQ;
   if (on) AGENT_STARS.add(name); else AGENT_STARS.delete(name);
   repaintAgentOrder();
   STARS_WRITING += 1;
+  const run = (STAR_CHAIN.get(name) || Promise.resolve()).then(() => saveStar(name, on, seq));
+  STAR_CHAIN.set(name, run);
+  return run.finally(() => { if (STAR_CHAIN.get(name) === run) STAR_CHAIN.delete(name); });
+}
+async function saveStar(name, on, seq) {
   try {
     const r = await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, on }) });
     const v = await r.json().catch(() => null);
     if (!r.ok || !v || !Array.isArray(v.names)) throw new Error('not saved');
     if (seq === STARS_SEQ) { AGENT_STARS = new Set(v.names); repaintAgentOrder(); }
-    // A star that saved clears the line a failed one left, and only that line (another message there is not ours).
+    // A star that saved clears the line a failed one left, and only that line (the could-not-open receipt is not ours).
     const msg = document.getElementById('board-msg');
     if (msg && (msg.textContent === STAR_MSG.saved || msg.textContent === STAR_MSG.removed)) { msg.textContent = ''; msg.hidden = true; }
   } catch {

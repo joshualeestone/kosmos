@@ -49,6 +49,7 @@ test('#6719: none at first; a star and an unstar are kept on the board; GET read
 test('#6719: an agent cannot star; a bad request is a 400 and changes nothing', async () => {
   const before = (await get()).body;
   assert.equal((await put({ name: 'renet', on: true }, { 'x-kosmos-agent-token': 'any' })).status, 403, 'an agent token starred');
+  assert.equal((await put({ name: 'renet', on: true, token: 'any' })).status, 403, 'an agent token in the body starred');
   for (const bad of [{ name: 'a/b', on: true }, { name: 'renet', on: 'yes' }, {}, [], 'not json', 'null']) {
     const r = await put(bad);
     assert.equal(r.status, 400, `accepted ${JSON.stringify(bad)}: ${JSON.stringify(r.body)}`);

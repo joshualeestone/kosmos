@@ -10211,6 +10211,8 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}'); }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        // Review 3: an agent token in the body is refused too, as the language route does.
+        if (presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'stars are the person\'s, not an agent\'s' }); return; }
         const r = require('./engine/stars').set(body.name, body.on);
         if (r.refused) { sendJson(res, 400, { error: r.refused }); return; }
         if (!r.ok) { sendJson(res, 500, { error: 'we could not save that star' }); return; }
