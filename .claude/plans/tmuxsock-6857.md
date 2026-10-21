@@ -120,3 +120,13 @@ Fixed (in scope):
 - Controls for the five arms round 7 showed untested: a function wrapper's end, a non-require reassignment, a
   wrapper defined nowhere, an array that is not a direct argument, \u and \u{} escapes.
 Fail-safe, left: a destructured require of a listed wrapper is refused (none in the repo).
+
+## Review 8 (Sonnet, scoped): one realistic accident, control gaps; fixed (85 controls)
+- In scope and real: an author copying status.js's `path.join(process.env.TMUX_TMPDIR || '/tmp', 'tmux-' + uid,
+  'default')` into a kill passed, and with TMUX_TMPDIR unset that is the machine's server. The whole value after -S
+  is now read: a '/tmp' folder, a '/tmp/tmux-' path (by +, template or join) or process.env.TMUX_TMPDIR is refused.
+  A socket of its own is built from a folder of its own (the three fixed sites pass a mkdtemp variable).
+- The escaped-quote control could not fail; now it carries a bare kill that only an early-ending string would expose.
+- Controls added: a multi-line block comment, a regex cut by a new line (line count), the machine path in any case,
+  spaces around a one-command string.
+- Fail-safe, left: `|| true`, `2>/dev/null`, `-f /dev/null` before -L, and prose kill-server strings are flagged.

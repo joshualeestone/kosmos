@@ -144,12 +144,30 @@ function defaultSocket(value, flagName) {
 }
 
 /* Whether any '-S'/'-L' in the array at `h` is followed by a value naming the machine's server (review 7: an array
-   handed to a listed wrapper was never read, so tm(['-L', 'default', 'kill-server']) passed). */
+   handed to a listed wrapper was never read, so tm(['-L', 'default', 'kill-server']) passed). The whole value is read,
+   to the next ',' at its depth. Review 8: an -S built from '/tmp' or from process.env.TMUX_TMPDIR (status.js's
+   `path.join(process.env.TMUX_TMPDIR || '/tmp', 'tmux-' + uid, 'default')`) is the machine's server whenever that
+   variable is unset, so it is refused; a socket of its own is built from a folder of its own. */
 function arrayNamesDefault(toks, h) {
-  const c = closeOf(toks, h);
-  for (let k = h + 1; k < (c < 0 ? toks.length : c) - 1; k += 1) {
-    const next = toks[k + 1] && toks[k + 1].v === ',' ? toks[k + 2] : null;
-    if (named(toks[k]) && next && next.t === 'str' && defaultSocket(next.v, toks[k].v)) return true;
+  const c = closeOf(toks, h), end = c < 0 ? toks.length : c;
+  let d = 0;
+  for (let k = h + 1; k < end - 1; k += 1) {
+    const v = toks[k].t === 'p' ? toks[k].v : '';
+    if (v === '(' || v === '[' || v === '{') { d += 1; continue; }
+    if (v === ')' || v === ']' || v === '}') { d -= 1; continue; }
+    if (d !== 0 || !named(toks[k]) || !toks[k + 1] || toks[k + 1].v !== ',') continue;
+    const value = [];
+    for (let m = k + 2, e = 0; m < end; m += 1) {
+      const w = toks[m].t === 'p' ? toks[m].v : '';
+      if (e === 0 && w === ',') break;
+      if (w === '(' || w === '[' || w === '{') e += 1; else if (w === ')' || w === ']' || w === '}') e -= 1;
+      value.push(toks[m]);
+    }
+    if (value.length === 1 && value[0].t === 'str' && defaultSocket(value[0].v, toks[k].v)) return true;
+    if (toks[k].v === '-S') {
+      if (value.some((t) => t.t === 'str' && (/^\/(private\/)?tmp\/?$/.test(t.v) || /(^|\/)tmp\/tmux-/.test(t.v)))) return true;
+      if (value.some((t, n) => t.v === 'env' && value[n + 1] && value[n + 1].v === '.' && value[n + 2] && value[n + 2].v === 'TMUX_TMPDIR')) return true;
+    }
   }
   return false;
 }
@@ -312,7 +330,7 @@ test('#6857: the checker passes the three shapes and flags everything else (cont
   assert.equal(flags("const c = 'kill-server'; execFileSync(T, [c]);"), 1, 'kill-server not in an array');
   assert.equal(flags("execFileSync(T, ['-S', f(a, [b]), 'kill-server'])"), 0, 'brackets inside an element do not move its holder');
   assert.equal(flags("execFileSync(T, ['x', ['-S', s, 'kill-server']])"), 1, 'a named array that is an element of another is not used as it is');
-  assert.equal(flags("execFileSync(T, ['-S', s, '\\'', 'kill-server'])"), 0, 'an escaped quote inside a string does not end it');
+  assert.equal(flags("execFileSync(T, ['-S', s, '\\', ['kill-server']'])"), 0, 'an escaped quote inside a string does not end it');
   assert.equal(flags("const r = /[/']/; execFileSync(T, ['kill-server']);"), 1, 'a quote in a regex class opens no string');
   assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\ntm(['kill-server']);", 'engine/tmuxsignin.test.js'), 1, 'WRAPPERS is keyed by the calling file');
   // Review 6.
@@ -336,6 +354,16 @@ test('#6857: the checker passes the three shapes and flags everything else (cont
   assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', sock, ...a]);\ntm(x || ['kill-server']);", sess), 1, 'an array that is not a direct argument');
   assert.equal(flags("execFileSync(T, ['kill\\u002dserver'])"), 1, 'a \\u escape');
   assert.equal(flags("execFileSync(T, ['kill\\u{2d}server'])"), 1, 'a \\u{} escape');
+  // Review 8.
+  assert.equal(flags("execFileSync(T, ['-S', path.join(process.env.TMUX_TMPDIR || '/tmp', 'tmux-' + uid, 'default'), 'kill-server'])"), 1, "status.js's idiom: the machine's server when TMUX_TMPDIR is unset");
+  assert.equal(flags("execFileSync(T, ['-S', '/tmp/tmux-' + uid + '/default', 'kill-server'])"), 1, "the machine's path built by +");
+  assert.equal(flags("execFileSync(T, ['-S', `/tmp/tmux-${uid}/default`, 'kill-server'])"), 1, "the machine's path in a template");
+  assert.equal(flags("execFileSync(T, ['-S', path.join('/tmp', 'tmux-' + uid, 'default'), 'kill-server'])"), 1, "the machine's folder by path.join");
+  assert.equal(flags("execFileSync(T, ['-S', path.join(dir, 'tmux-' + uid, 'default'), 'kill-server'])"), 0, 'a folder of its own, built the same way');
+  assert.equal(flags("/* a comment\n   over ['kill-server'] lines */\nexecFileSync(T, ['kill-server']);"), 1, 'a block comment over several lines ends where it ends');
+  assert.deepEqual(bareKills("const r = /abc\nexecFileSync(T, ['kill-server']);", 'x.js', () => null).map((k) => k.line), [2], 'a regex cut short by a new line keeps the line count');
+  assert.equal(flags("execFileSync(T, ['-S', '/TMP/TMUX-501/DEFAULT', 'kill-server'])"), 1, 'the machine path in any case');
+  assert.equal(flags("execSync('  tmux -L k1 kill-server  ')"), 0, 'spaces around one command');
   // Shape 3: one whole command in a string.
   assert.equal(flags("execSync('tmux -L k1 kill-server')"), 0);
   assert.equal(flags('execSync(`${T} -S ${sock} kill-server`)'), 0);
