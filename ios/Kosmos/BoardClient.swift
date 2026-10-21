@@ -386,6 +386,8 @@ final class BoardClient: ObservableObject {
     private func refresh(url: URL, mac: Board.Mac, _ gen: Int) async -> Bool {
         let result = await env.send(Board.statusRequest(mac: url))
         guard gen == generation else { return false }
+        // A read that was cancelled (a pull to refresh SwiftUI dropped) says nothing about the Mac.
+        if Task.isCancelled { return true }
         let answer = result?.1
         let status = answer?.statusCode ?? 0
         if (200...299).contains(status), let data = result?.0, let rows = Board.parseAgents(data) {

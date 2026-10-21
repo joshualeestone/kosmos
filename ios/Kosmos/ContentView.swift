@@ -26,8 +26,10 @@ struct ContentView: View {
     @State private var tab = Tab.board
     #else
     // Not signed in yet (a first launch): open on Board, where the sign-in is (the spec's "today's sign-in flow").
-    // SwiftUI keeps only the first value. A launch before first unlock reads no session and opens on Board, the safe side.
-    @State private var tab = SessionKeychain.live.load() == nil ? Tab.board : Tab.agents
+    // Read once per launch (a static), not on every redraw. A launch before first unlock reads no session and opens
+    // on Board, the safe side.
+    private static let startTab: Tab = SessionKeychain.live.load() == nil ? .board : .agents
+    @State private var tab = ContentView.startTab
     #endif
     enum Tab { case agents, board }
 
