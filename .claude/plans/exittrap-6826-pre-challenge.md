@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: exittrap-6826
-diff_hash: 6cc410d98fad3393e3a250885094a6ae74a95532c1485ec8f69a6a2c499e722a
+diff_hash: 2d0fb6d2a0babf249f07aab4f27ca07286893677d38ea22e130300ee50c46731
 validation: passed (Mortals, full suite, clean entry 2026-10-21T13:26:24Z, 22856 node tests, 0 failed)
 subdir_audit: passed
 timestamp: 2026-10-21T13:26:36Z
@@ -11,6 +11,13 @@ converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
+
+**Re-hashed 2026-10-21 16:20 CDT after a second rebase onto main** (the first was 13:2x). The only conflict was
+package.json `test:shell`, resolved as main's line plus this branch's two entries for
+tools/test-deploy-site-exit-trap-6826.sh (computed against the merge base: nothing removed, nothing already on main).
+No code changed. On the rebased head: test-deploy-site-exit-trap-6826.sh rc 0, test-deploy-site-exit0-2791.sh rc 0,
+tools.every-test-runs + engine.reachable 11/0. The full Mortals suite ran at the pre-rebase hash (22856 tests, 0
+failed); the PR's CI validates the rebased tree.
 
 **Iterations:** 8
 **Converged:** Yes
