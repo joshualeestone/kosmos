@@ -9,7 +9,7 @@
  *     sends one PUT { name, on: true }, and does not open the agent (CONTROL: a click on the name does open it);
  *   - a second star keeps the chosen order within the starred group; Unstar puts the order back;
  *   - Enter on a focused star toggles it, and focus stays on that agent's star after the repaint;
- *   - a refused save (the stub answers 500) puts the star back as it was;
+ *   - a refused save (the stub answers a passing 503) puts the star back as it was;
  *   - all three tile paths (running, not running, waiting at a trust prompt) carry the star; on a card with a question
  *     to answer, the star stars and neither answers nor opens (CONTROL: a click elsewhere on that card answers);
  *   - a list repaint (as the 5 s poll does) keeps a focused star focused; a refused save says so;
