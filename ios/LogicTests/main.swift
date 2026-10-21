@@ -646,9 +646,9 @@ do {
     check(macs.count == 4, "a row with no address is dropped")
     check(macs.map(\.usable) == [false, false, true, true], "retired and switched-off Macs are not usable; a null retired_at is")
     check(macs[3].name == "laptop.kosmosplus.com", "an empty name falls back to the address")
-    check(Board.pickMac(macs, remembered: nil)?.address == "studio.kosmosplus.com", "the first usable Mac")
-    check(Board.pickMac(macs, remembered: "laptop.kosmosplus.com")?.address == "laptop.kosmosplus.com", "the remembered Mac while it is usable")
-    check(Board.pickMac(macs, remembered: "old.kosmosplus.com")?.address == "studio.kosmosplus.com", "not a remembered Mac that was retired")
+    check(Board.pickMac(macs, remembered: nil)?.address == "laptop.kosmosplus.com", "a usable Mac (none has a last-seen time here, so by address)")
+    check(Board.pickMac(macs, remembered: "studio.kosmosplus.com")?.address == "studio.kosmosplus.com", "the remembered Mac while it is usable")
+    check(Board.pickMac(macs, remembered: "old.kosmosplus.com")?.address == "laptop.kosmosplus.com", "not a remembered Mac that was retired")
     let ranked = #"{"macs":[{"name":"Old laptop","address":"old.kosmosplus.com","last_seen":100,"not_connected":true},{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Mini","address":"mini.kosmosplus.com","last_seen":200}]}"#
     let r = Board.parseMacs(Data(ranked.utf8)) ?? []
     check(Board.pickMac(r, remembered: nil)?.address == "studio.kosmosplus.com", "a connected Mac, most recently seen first, not simply the oldest")
@@ -656,6 +656,8 @@ do {
     check(Board.pickMac(r, remembered: "old.kosmosplus.com")?.address == "studio.kosmosplus.com", "not a remembered Mac that is not connected, while another is")
     let allDown = #"{"macs":[{"address":"a.kosmosplus.com","last_seen":5,"not_connected":true},{"address":"b.kosmosplus.com","last_seen":9,"not_connected":true}]}"#
     check(Board.pickMac(Board.parseMacs(Data(allDown.utf8)) ?? [], remembered: nil)?.address == "b.kosmosplus.com", "with none connected, the most recently seen, so the screen can say it is not answering")
+    let tie = [Board.Mac(name: "z", address: "z.kosmosplus.com", usable: true), Board.Mac(name: "a", address: "a.kosmosplus.com", usable: true)]
+    check(Board.pickMac(tie, remembered: nil)?.address == "a.kosmosplus.com", "equal last-seen: by address, the same answer every time")
     check(Board.parseMacs(Data("[]".utf8)) == nil, "a body that is not the list reads as nothing")
     check(Board.parseHandoffToken(Data(#"{"token":"t"}"#.utf8)) == "t" && Board.parseHandoffToken(Data(#"{"token":""}"#.utf8)) == nil, "the handoff token, never an empty one")
 }
@@ -689,11 +691,20 @@ do {
     check(word("ida") == "Keeps stopping", "a crash loop says Keeps stopping")
     check(Board.sorted(agents).prefix(2).map(\.session) == ["cleo", "farah"], "what needs you first, by name")
     let w = { (s: String) in Board.statusWord(Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, askedYou: false)) }
-    check(w("working") == "Working" && w("idle") == "Idle" && w("stopped") == "Not running" && w("blocked") == "Waiting", "the board's words for each state (engine/cardlabel.js)")
+    check(w("working") == "Working" && w("idle") == "Idle" && w("stopped") == "Not running" && w("blocked") == "Waiting", "the same words as engine/cardlabel.js for the plain states")
+    check(w("needs_trust") == "Waiting on a trust prompt", "including a trust prompt")
+    let off = { (s: String, trust: Bool, unseen: Bool) in Board.statusWord(Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, askedYou: false, running: false, needsTrust: trust, jobRunningUnseen: unseen)) }
+    check(off("working", true, false) == "Waiting on a trust prompt", "not running at a trust prompt says so")
+    check(off("working", false, true) == "Can't tell", "not running with a job Kosmos cannot see is Can't tell")
+    check(off("restarting", false, false) == "Restarting agent", "a restarting agent is not called Not running")
     check(w("connection_lost") == "Connection lost" && w("rate_limited") == "Rate Limit" && w("needs_you") == "Issue", "including the plain ones")
     check(w("something_new") == "Can't tell", "a state the phone does not know says what the board says for it, never blank")
     check(Board.parseAgents(Data(#"{"counts":{}}"#.utf8)) == nil, "a snapshot with no agents list reads as nothing")
     check(Board.parseAgents(Data("<html>sign in</html>".utf8)) == nil, "the gate's sign-in page reads as nothing, not an empty list")
+    check(Board.sessionEnded(status: 401, contentType: "application/json"), "a 401 is an ended session")
+    check(Board.sessionEnded(status: 200, contentType: "text/html; charset=utf-8"), "the sign-in page at 200 is an ended session")
+    check(!Board.sessionEnded(status: 200, contentType: "application/json"), "a JSON answer that is not the list (a board starting) is only a missed refresh")
+    check(!Board.sessionEnded(status: 502, contentType: "text/html") && !Board.sessionEnded(status: 302, contentType: nil), "a 5xx or a redirect is a missed refresh, not a sign-out")
 }
 
 print("")

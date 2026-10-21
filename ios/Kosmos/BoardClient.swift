@@ -14,7 +14,7 @@ final class BoardClient: ObservableObject {
         case noMac
         case waitingForAllow(mac: String, code: String?)
         case denied(mac: String)
-        case unreachable(mac: String, because: String?)
+        case unreachable(mac: String)
         case live(mac: Board.Mac)
     }
 
@@ -28,8 +28,11 @@ final class BoardClient: ObservableObject {
     private var loop: Task<Void, Never>?
     // Bumped by every start and stop, so a run that was cancelled cannot write the screen afterwards.
     private var generation = 0
-    // The Mac this client holds a session for, kept across tab switches within one launch.
-    private var admitted: (mac: Board.Mac, url: URL)?
+    // The Mac this client holds a session for, kept across tab switches within one launch, and the Kosmos+
+    // session it was opened under: a sign-out or another account on the Board tab drops it (start()).
+    private var admitted: (mac: Board.Mac, url: URL, session: String)?
+    private var failedRefreshes = 0
+    private static let failuresBeforeNotAnswering = 3
     private var lastReconnect: Date?
     private static let rememberedKey = "nativeBoardMac"
     private static let reconnectGap: TimeInterval = 30
@@ -64,6 +67,8 @@ final class BoardClient: ObservableObject {
             return
         }
         #endif
+        let session = sessionStore.load()
+        if let held = admitted, held.session != session { forget() }
         if admitted == nil { set(.starting, gen) }
         loop = Task { await self.run(gen) }
     }
@@ -80,6 +85,15 @@ final class BoardClient: ObservableObject {
         return PushBridge.boardURL(fromNotification: ["address": mac.address, "session": agent.session], coordinator: coordinator)
     }
 
+    // Everything learned under the previous Kosmos+ session goes, cookies included.
+    private func forget() {
+        admitted = nil
+        agents = []
+        updatedAt = nil
+        UserDefaults.standard.removeObject(forKey: Self.rememberedKey)
+        http.configuration.httpCookieStorage?.removeCookies(since: .distantPast)
+    }
+
     private func set(_ p: Phase, _ gen: Int) {
         if gen == generation { phase = p }
     }
@@ -89,11 +103,12 @@ final class BoardClient: ObservableObject {
             guard let session = sessionStore.load() else { set(.signedOut, gen); return }
             guard let mac = await chooseMac(session: session, gen) else { return }
             guard let url = Board.macURL(address: mac.address, coordinator: coordinator) else { set(.noMac, gen); return }
-            guard await openSession(session: session, mac: mac, url: url, gen) else { return }
-            admitted = (mac, url)
+            guard await openSession(session: session, mac: mac, url: url, gen), gen == generation else { return }
+            admitted = (mac, url, session)
             UserDefaults.standard.set(mac.address, forKey: Self.rememberedKey)
         }
-        guard let (mac, url) = admitted else { return }
+        guard let (mac, url, _) = admitted else { return }
+        failedRefreshes = 0
         set(.live(mac: mac), gen)
         while !Task.isCancelled && gen == generation {
             guard await refresh(url: url, mac: mac, gen) else { return }
@@ -104,10 +119,10 @@ final class BoardClient: ObservableObject {
     private func chooseMac(session: String, _ gen: Int) async -> Board.Mac? {
         guard let (data, resp) = try? await http.data(for: Board.macsRequest(coordinator: coordinator, session: session)),
               let status = (resp as? HTTPURLResponse)?.statusCode
-        else { set(.unreachable(mac: "Kosmos+", because: nil), gen); return nil }
+        else { set(.unreachable(mac: "Kosmos+"), gen); return nil }
         if status == 401 { set(.signedOut, gen); return nil }
         guard (200...299).contains(status), let macs = Board.parseMacs(data) else {
-            set(.unreachable(mac: "Kosmos+", because: nil), gen); return nil
+            set(.unreachable(mac: "Kosmos+"), gen); return nil
         }
         guard let mac = Board.pickMac(macs, remembered: UserDefaults.standard.string(forKey: Self.rememberedKey)) else {
             set(.noMac, gen); return nil
@@ -118,10 +133,10 @@ final class BoardClient: ObservableObject {
     private func handoff(session: String, mac: Board.Mac, _ gen: Int) async -> String? {
         guard let (data, resp) = try? await http.data(for: Board.handoffRequest(coordinator: coordinator, session: session, address: mac.address)),
               let status = (resp as? HTTPURLResponse)?.statusCode
-        else { set(.unreachable(mac: mac.name, because: nil), gen); return nil }
+        else { set(.unreachable(mac: mac.name), gen); return nil }
         if status == 401 { set(.signedOut, gen); return nil }
         guard (200...299).contains(status), let token = Board.parseHandoffToken(data) else {
-            set(.unreachable(mac: mac.name, because: nil), gen); return nil
+            set(.unreachable(mac: mac.name), gen); return nil
         }
         return token
     }
@@ -136,7 +151,7 @@ final class BoardClient: ObservableObject {
             let status = (result?.1 as? HTTPURLResponse)?.statusCode ?? 0
             if status == 0 {
                 if waiting { try? await Task.sleep(nanoseconds: 3_000_000_000); continue }
-                set(.unreachable(mac: mac.name, because: nil), gen); return false
+                set(.unreachable(mac: mac.name), gen); return false
             }
             switch Board.classifySession(status: status, body: result?.0, waiting: waiting) {
             case .admitted:
@@ -151,36 +166,42 @@ final class BoardClient: ObservableObject {
                 set(.denied(mac: mac.name), gen); return false
             case .refused:
                 if waiting, let fresh = await handoff(session: session, mac: mac, gen) { token = fresh; continue }
-                set(.unreachable(mac: mac.name, because: nil), gen); return false
+                set(.unreachable(mac: mac.name), gen); return false
             }
         }
         return false
     }
 
-    // false ends the loop. A 401, or an answer that is not the board's (the gate's sign-in page), means the
-    // Mac's session ended: sign in to it again, at most once every 30 s, else say it is not answering.
+    // false ends the loop. A 401, or the gate's sign-in page in place of the board's answer, means the Mac's session
+    // ended: sign in to it again, at most once every 30 s. Three refreshes in a row with no list (no answer, a 5xx,
+    // a redirect, an answer that is not the list) say the Mac is not answering rather than leave an old list up.
     private func refresh(url: URL, mac: Board.Mac, _ gen: Int) async -> Bool {
-        guard let (data, resp) = try? await http.data(for: Board.statusRequest(mac: url)),
-              let status = (resp as? HTTPURLResponse)?.statusCode
-        else { return true }   // a missed refresh keeps the last list; the next one tries again
-        let rows = (200...299).contains(status) ? Board.parseAgents(data) : nil
+        let result = try? await http.data(for: Board.statusRequest(mac: url))
         guard gen == generation else { return false }
-        if let rows {
+        let http = result?.1 as? HTTPURLResponse
+        let status = http?.statusCode ?? 0
+        if (200...299).contains(status), let data = result?.0, let rows = Board.parseAgents(data) {
             agents = Board.sorted(rows)
             updatedAt = Date()
+            failedRefreshes = 0
             return true
         }
-        if status == 401 || (200...299).contains(status) {
+        if Board.sessionEnded(status: status, contentType: http?.value(forHTTPHeaderField: "Content-Type")) {
             admitted = nil
             if let last = lastReconnect, Date().timeIntervalSince(last) < Self.reconnectGap {
-                set(.unreachable(mac: mac.name, because: nil), gen)
+                set(.unreachable(mac: mac.name), gen)
                 return false
             }
             lastReconnect = Date()
             start()
             return false
         }
-        return true   // a 5xx or similar: keep the last list and try again
+        failedRefreshes += 1
+        if failedRefreshes >= Self.failuresBeforeNotAnswering {
+            set(.unreachable(mac: mac.name), gen)
+            return false
+        }
+        return true
     }
 }
 

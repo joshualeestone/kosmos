@@ -30,9 +30,9 @@ struct AgentsView: View {
                     detail: code.map { "Your Mac is showing a code. Check it matches: \($0)" } ?? "Your Mac is asking whether to let this iPhone in.")
         case .denied(let mac):
             message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access.")
-        case .unreachable(let mac, let because):
+        case .unreachable(let mac):
             VStack(spacing: 12) {
-                message("\(mac) is not answering.", detail: because ?? "It may be asleep or offline.")
+                message("\(mac) is not answering.", detail: "It may be asleep or offline.")
                 Button("Try again") { client.start() }
                     .buttonStyle(.borderedProminent)
             }
@@ -57,7 +57,7 @@ struct AgentsView: View {
         .listStyle(.insetGrouped)
         .overlay {
             if client.updatedAt == nil {
-                ProgressView()
+                ProgressView().accessibilityLabel("Loading your agents")
             } else if client.agents.isEmpty {
                 message("No agents yet.", detail: "Agents you create on your computer show here.")
             }
@@ -66,7 +66,7 @@ struct AgentsView: View {
 
     private func message(_ title: String, detail: String) -> some View {
         VStack(spacing: 6) {
-            Text(title).font(.headline)
+            Text(title).font(.headline).accessibilityAddTraits(.isHeader)
             Text(detail).font(.subheadline).foregroundColor(.secondary).multilineTextAlignment(.center)
         }
         .padding()

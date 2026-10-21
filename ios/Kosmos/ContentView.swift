@@ -85,6 +85,8 @@ struct ContentView: View {
 
     private var webBoard: some View {
         ZStack {
+            // Navy behind the tab bar too, so the space below the page is the page's own colour, not a white band.
+            Color(UIColor.kosmosNavy).ignoresSafeArea()
             // Under the status bar as before; the tab bar keeps its own space below. How each page keeps clear
             // of the notch is set in makeUIView (safe areas). The keyboard is left to the web view, as before.
             WebView(

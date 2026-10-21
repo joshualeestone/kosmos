@@ -93,7 +93,7 @@ enum Board {
     // The Mac remembered from last time while it is usable and connected; else a connected usable one, most
     // recently seen first; else the remembered or most recently seen usable one.
     static func pickMac(_ macs: [Mac], remembered: String?) -> Mac? {
-        let usable = macs.filter(\.usable).sorted { $0.lastSeen > $1.lastSeen }
+        let usable = macs.filter(\.usable).sorted { ($0.lastSeen, $1.address) > ($1.lastSeen, $0.address) }
         if let r = remembered, let m = usable.first(where: { $0.address == r && $0.connected }) { return m }
         if let m = usable.first(where: { $0.connected }) { return m }
         if let r = remembered, let m = usable.first(where: { $0.address == r }) { return m }
@@ -132,6 +132,13 @@ enum Board {
         return .refused(because: obj?["because"] as? String)
     }
 
+    // The Mac's session ended: a 401, or the gate's sign-in page (HTML) where the board's JSON should be. A 2xx JSON
+    // body that is not the list (a board still starting) is not an ended session, only a missed refresh.
+    static func sessionEnded(status: Int, contentType: String?) -> Bool {
+        if status == 401 { return true }
+        return (200...299).contains(status) && (contentType?.lowercased().contains("text/html") ?? false)
+    }
+
     // MARK: - The agents
 
     struct Agent: Equatable, Identifiable {
@@ -146,6 +153,8 @@ enum Board {
         var running = true
         var crashLooping = false
         var reconnecting = false
+        var needsTrust = false
+        var jobRunningUnseen = false
         var id: String { session }
     }
 
@@ -170,20 +179,27 @@ enum Board {
                          reportedByAgent: (row["stateReportedBy"] as? String) == "agent",
                          running: (row["running"] as? Bool) != false,
                          crashLooping: ((row["crashLoop"] as? [String: Any])?["looping"] as? Bool) == true,
-                         reconnecting: state == "connection_lost" && (phase == "waiting" || phase == "retried"))
+                         reconnecting: state == "connection_lost" && (phase == "waiting" || phase == "retried"),
+                         needsTrust: (row["needsTrust"] as? Bool) == true,
+                         jobRunningUnseen: (row["jobRunningUnseen"] as? Bool) == true)
         }
     }
 
-    // The card's words, the same as the computer's (engine/cardlabel.js labelOf and STATE_COPY, the board page's
-    // own copy); restarting causes and trust prompts are left for the Mac-side words of the plan's item 2.
+    // The card's words, in the order of engine/cardlabel.js labelOf and its STATE_COPY (the board page's own copy).
+    // Not copied: restartingLabel's causes ("Switching model" and the like), which read "Restarting agent" here
+    // until the Mac sends its words ready-made (the plan's item 2).
     static let stateCopy: [String: String] = [
         "working": "Working", "needs_you": "Issue", "rate_limited": "Rate Limit",
         "auth_failed": "Sign-in isn't working", "connection_lost": "Connection lost", "blocked": "Waiting",
         "idle": "Idle", "restarting": "Restarting agent", "stopped": "Not running", "unknown": "Can't tell",
+        "needs_trust": "Waiting on a trust prompt",
     ]
 
     static func statusWord(_ agent: Agent) -> String {
-        if !agent.running { return "Not running" }
+        if !agent.running && agent.state != "restarting" {
+            if agent.needsTrust { return "Waiting on a trust prompt" }
+            return agent.jobRunningUnseen ? "Can't tell" : "Not running"
+        }
         if agent.crashLooping { return "Keeps stopping" }
         if agent.state == "needs_you" && agent.reportedByAgent { return "Question" }
         if agent.state == "needs_you" && agent.awaitingApproval { return "Needs permission" }
