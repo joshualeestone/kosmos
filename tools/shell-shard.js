@@ -59,11 +59,18 @@ function macOnly(text, list) {
   return new Set(listed);
 }
 
+// #6791 review 3: a syntax-only check (`sh -n` / `bash -n`) runs on BOTH platforms. On a Mac /bin/sh is bash 3.2 in POSIX
+// mode and on ubuntu-latest it is dash, which accepts shapes bash 3.2 refuses (measured: `x=$(case a in a) echo y;; esac)`
+// is rc 2 under macOS /bin/sh, rc 0 under dash), so a check that only ran on Linux could pass an installer users' Macs
+// cannot parse. They take about no time, so the macOS job runs every one of them as well.
+const SYNTAX_ONLY = /^(ba)?sh -n /;
+
 function forPlatform(list, platform, mac) {
   if (!platform) return list;
   if (!PLATFORMS.includes(platform)) throw new Error(`shell-shard: platform must be linux or mac (got ${platform})`);
   const set = mac || macOnly(fs.readFileSync(MAC_ONLY_FILE, 'utf8'), list);
-  return list.filter((c) => (platform === 'mac') === set.has(c));
+  if (platform === 'linux') return list.filter((c) => !set.has(c));
+  return list.filter((c) => set.has(c) || SYNTAX_ONLY.test(c));
 }
 
 function shardOf(command, n) {
@@ -159,7 +166,7 @@ function main(argv) {
   return runShard(list, ii, nn);
 }
 
-module.exports = { commands, shardOf, select, parseShard, runShard, writeAll, macOnly, forPlatform, SHELL_SHARDS, SLOWEST, MAC_ONLY_FILE };
+module.exports = { commands, shardOf, select, parseShard, runShard, writeAll, macOnly, forPlatform, SHELL_SHARDS, SLOWEST, MAC_ONLY_FILE, SYNTAX_ONLY };
 
 if (require.main === module) {
   try { process.exitCode = main(process.argv.slice(2)); } catch (e) { console.error(e.message); process.exitCode = 2; }

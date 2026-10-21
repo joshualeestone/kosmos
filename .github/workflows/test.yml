@@ -228,8 +228,10 @@ jobs:
     # #6791: test:shell is different, and MEASURED: each of its 264 commands run alone on ubuntu-latest (probe run
     # 39535595626), 238 passed, 8 of them only by skipping their macOS work (probe run 39538876370). The other 230 run on ubuntu-latest in shells 1/2 and 2/2; the 34 that need macOS are listed,
     # each with its reason, in tools/shell-macos-only.txt and run in `shell macOS` on macos-latest, never the
-    # self-hosted Mac (#4601: some shell tests touch launchd and sweep processes by pattern). A run now holds one
-    # hosted macOS runner for test:shell instead of two.
+    # self-hosted Mac (#4601: some shell tests touch launchd and sweep processes by pattern). `shell macOS` also runs
+    # every syntax-only check (`sh -n` / `bash -n`, about no time), because macOS /bin/sh is bash 3.2 and Linux sh is
+    # dash, which accepts shapes bash 3.2 refuses (review 3). A run now holds one hosted macOS runner for test:shell
+    # instead of two.
     # #5488 part b: scope's choice (see there); for the node part, macos-latest whenever scope gave none (it failed or
     # timed out). #5488 part c: the node part takes scope's choice. #4601: a linux shell shard takes it too, only when
     # named in KOSMOS_CI_SHELL_SHARDS (see scope); otherwise, and whenever scope gave none, ubuntu-latest (#6791). The
