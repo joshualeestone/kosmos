@@ -1,4 +1,5 @@
 import Foundation
+import JavaScriptCore
 import UserNotifications
 
 // Tests for the iOS app's UIKit-free logic (#718), compiled for macOS together
@@ -1129,6 +1130,72 @@ section("native board loop: connecting")
         c.stop()
     }
 }
+
+// MARK: - The app's tab bar (#6846 part b)
+
+section("app tabs: the bar")
+check(AppTabs.visible(tasksTab: true) == [.today, .agents, .projects, .tasks, .settings], "five tabs in Mona Lisa's order once Tasks is earned")
+check(AppTabs.visible(tasksTab: false) == [.today, .agents, .projects, .settings], "four before it, Tasks left out (#3559)")
+check(AppTabs.keep(.tasks, tasksTab: false) == .today, "Tasks leaving the bar while showing goes to Today")
+check(AppTabs.keep(.projects, tasksTab: false) == .projects, "any other tab stays where it is")
+check(AppTabs.keep(.tasks, tasksTab: true) == .tasks, "Tasks stays while it is in the bar")
+check(AppTabs.Tab.today.boardName == "agents", "Today opens the board's home, its agents tab")
+check(AppTabs.Tab.agents.boardName == nil && AppTabs.pressScript(.agents) == nil, "Agents is native: no press on the board")
+check(AppTabs.pressScript(.settings) == "typeof window.kosmosAppTab === 'function' && window.kosmosAppTab('settings')", "a press calls the door only where it exists")
+
+section("app tabs: the door's answer")
+struct DoorError: Error {}
+check(AppTabs.opened(true, error: nil), "true is opened")
+check(!AppTabs.opened(false, error: nil), "false is not opened")
+check(!AppTabs.opened(nil, error: nil), "nothing is not opened")
+check(!AppTabs.opened("true", error: nil), "a string is not opened")
+check(!AppTabs.opened(true, error: DoorError()), "an error is not opened, whatever came with it")
+
+section("app tabs: the scripts, run")
+func pressIn(_ door: String?, _ tab: AppTabs.Tab) -> Bool {
+    let js = JSContext()!
+    js.evaluateScript("var window = {}; var pressed = null;")
+    if let door = door { js.evaluateScript("window.kosmosAppTab = function (n) { pressed = n; return \(door); };") }
+    let answer = js.evaluateScript(AppTabs.pressScript(tab)!)
+    let opened = AppTabs.opened(answer?.toObject(), error: js.exception == nil ? nil : DoorError())
+    return opened && js.evaluateScript("pressed").toString() == tab.boardName
+}
+check(pressIn("true", .projects), "a board with the door opens the section it was asked for")
+check(!pressIn("false", .projects), "a door that refuses is not opened")
+check(!pressIn(nil, .today), "a page without the door (sign-in, an older board) is not opened and does not throw")
+func marked(rootLater: Bool) -> Bool {
+    let js = JSContext()!
+    js.evaluateScript("""
+    var observers = [];
+    function MutationObserver(cb) { this.cb = cb; this.on = false; observers.push(this); }
+    MutationObserver.prototype.observe = function () { this.on = true; };
+    MutationObserver.prototype.disconnect = function () { this.on = false; };
+    var root = { classes: [], classList: { add: function (c) { root.classes.push(c); } } };
+    var document = { documentElement: \(rootLater ? "null" : "root") };
+    """)
+    js.evaluateScript(AppTabs.markScript)
+    if rootLater {
+        js.evaluateScript("observers.forEach(function (o) { if (o.on) o.cb([], o); }); document.documentElement = root; observers.forEach(function (o) { if (o.on) o.cb([], o); }); observers.forEach(function (o) { if (o.on) o.cb([], o); });")
+    }
+    return js.exception == nil && js.evaluateScript("root.classes.join(',')").toString() == "kapptabs"
+}
+check(marked(rootLater: false), "the page's root gets kapptabs at once when it exists")
+check(marked(rootLater: true), "and once, when it arrives, when the script runs before <html> exists")
+func pageFlag(_ stored: String?, storage: Bool = true) -> Bool? {
+    let js = JSContext()!
+    if storage {
+        js.evaluateScript("var localStorage = { getItem: function (k) { return k === 'kosmos.tasksTab' ? \(stored.map { "'\($0)'" } ?? "null") : 'wrong key'; } };")
+    } else {
+        js.evaluateScript("var localStorage = { getItem: function () { throw new Error('blocked'); } };")
+    }
+    return AppTabs.tasksTab(fromPage: js.evaluateScript(AppTabs.tasksReadScript)?.toObject())
+}
+check(pageFlag("1") == true, "the board's flag 1 shows Tasks")
+check(pageFlag("0") == false, "0 hides it")
+check(pageFlag(nil) == nil, "no flag (the sign-in page, an older board) says nothing")
+check(pageFlag(nil, storage: false) == nil, "blocked storage says nothing, and does not throw")
+check(AppTabs.tasksTab(fromPage: NSNull()) == nil && AppTabs.tasksTab(fromPage: 1) == nil, "only the strings 1 and 0 count")
+
 await boardLoopTests()
 
 print("")

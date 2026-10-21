@@ -198,3 +198,72 @@ enum Shell {
         }
     }
 }
+
+// The app's own tab bar (kosmos#6846, part b): Agents is native, the other four open their part of the board in the
+// one web view through the board's door, window.kosmosAppTab (part a, .claude/plans/apptab-6846.md).
+enum AppTabs {
+    enum Tab: CaseIterable, Equatable {
+        case today, agents, projects, tasks, settings
+
+        // The name the board's door takes; nil for the native tab. Today is the board's home, its agents tab.
+        var boardName: String? {
+            switch self {
+            case .today: return "agents"
+            case .agents: return nil
+            case .projects: return "projects"
+            case .tasks: return "tasks"
+            case .settings: return "settings"
+            }
+        }
+    }
+
+    // In Mona Lisa's order. Tasks is earned, as on the computer (#3559): the bar shows it only once the board says so.
+    static func visible(tasksTab: Bool) -> [Tab] {
+        Tab.allCases.filter { $0 != .tasks || tasksTab }
+    }
+
+    // What to show when the bar changes under a selection it no longer has (Tasks on a Mac that has not earned it).
+    static func keep(_ selected: Tab, tasksTab: Bool) -> Tab {
+        visible(tasksTab: tasksTab).contains(selected) ? selected : .today
+    }
+
+    // The call the app makes for a press. The door is absent on the sign-in page, an error page or an older board, so
+    // the typeof test answers false there rather than throwing.
+    static func pressScript(_ tab: Tab) -> String? {
+        guard let name = tab.boardName else { return nil }
+        return "typeof window.kosmosAppTab === 'function' && window.kosmosAppTab('\(name)')"
+    }
+
+    // Opened only on a real true. false, nothing, any other value and an error all mean the section did not open.
+    static func opened(_ result: Any?, error: Error?) -> Bool {
+        guard error == nil, let value = result as? Bool else { return false }
+        return value
+    }
+
+    // Marks every page the app loads, at document start, so the board hides its own navigation (part c). A script at
+    // document start can run before <html> exists, so it waits for the root when there is none yet.
+    static let markScript = """
+    (function () {
+      function mark() { document.documentElement.classList.add('kapptabs'); }
+      if (document.documentElement) { mark(); return; }
+      new MutationObserver(function (m, o) {
+        if (document.documentElement) { o.disconnect(); mark(); }
+      }).observe(document, { childList: true });
+    })();
+    """
+
+    // The board keeps the Tasks flag from its status poll in localStorage (web/index.html tskTabGate), per Mac.
+    static let tasksReadScript = "(function () { try { return localStorage.getItem('kosmos.tasksTab'); } catch (e) { return null; } })()"
+
+    // "1" and "0" are the board's answer; anything else (the sign-in page, an older board, no storage) says nothing.
+    static func tasksTab(fromPage result: Any?) -> Bool? {
+        switch result as? String {
+        case "1": return true
+        case "0": return false
+        default: return nil
+        }
+    }
+
+    // The app's own memory of the flag, so a launch shows the bar it last had.
+    static let rememberedTasksKey = "kosmos.app.tasksTab"
+}

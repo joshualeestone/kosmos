@@ -1,7 +1,8 @@
 import SwiftUI
 import WebKit
 
-// Two tabs (kosmos#6838): the native Agents list, and the board in a WKWebView.
+// The app's tab bar (kosmos#6846): Today, Agents, Projects, Tasks, Settings. Agents is the native list (#6838); the
+// other four show the board in ONE shared WKWebView, each opening its own section through the board's door.
 // Optionally gated behind a biometric unlock (KosmosConfig.requireBiometricUnlock).
 struct ContentView: View {
     // Receives the session the coordinator sign-in page hands over (#718).
@@ -20,31 +21,57 @@ struct ContentView: View {
     @StateObject private var shell = ShellState()
     // kosmos#6838: the native Agents tab beside the web board, until every screen is native.
     @StateObject private var board = BoardClient()
+    // The one web view the four web tabs share (#6846).
+    @StateObject private var web = BoardWeb()
+    // Whether the app has really been in the background, for the bar's Tasks check on return (tracked apart from the
+    // biometric gate's didBackground, which only runs when that gate is on).
+    @State private var tabsBackgrounded = false
     // Mona Lisa's slice 1 spec: open on Agents until Today exists. The App Store screenshot build
     // (ios/store/shoot-app.sh) photographs board screens in the web view, so it opens on Board.
     #if KOSMOS_STORE_SHOTS
-    @State private var tab = Tab.board
+    @State private var tab = Tab.today
     #else
-    // Not signed in yet (a first launch): open on Board, where the sign-in is (the spec's "today's sign-in flow").
-    // Read once per launch (a static), not on every redraw. A launch before first unlock reads no session and opens
-    // on Board, the safe side.
-    private static let startTab: Tab = SessionKeychain.live.load() == nil ? .board : .agents
+    // Not signed in yet (a first launch): open on Today, the board, where the sign-in is (the spec's "today's sign-in
+    // flow"). Read once per launch (a static), not on every redraw. A launch before first unlock reads no session and
+    // opens on Today, the safe side.
+    private static let startTab: Tab = SessionKeychain.live.load() == nil ? .today : .agents
     @State private var tab = ContentView.startTab
     #endif
-    enum Tab { case agents, board }
+    typealias Tab = AppTabs.Tab
+
+    // A person's press on the bar: it also asks the board to open that tab's section. A tab the app selects itself (an
+    // agent tap, a notification) does not press, so the page it was sent to stays.
+    private var pressing: Binding<Tab> {
+        Binding(get: { tab }, set: { new in
+            tab = new
+            web.press(new)
+        })
+    }
 
     var body: some View {
         Group {
             if isUnlocked {
-                TabView(selection: $tab) {
+                TabView(selection: pressing) {
+                    webBoard(.today)
+                        .tabItem { Label("Today", systemImage: "sun.max") }
+                        .tag(Tab.today)
                     AgentsView(client: board, openChat: { url in
                         pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-                    }, openBoard: { tab = .board })
+                    }, openBoard: { tab = .today })
                     .tabItem { Label("Agents", systemImage: "person.2") }
                     .tag(Tab.agents)
-                    webBoard
-                        .tabItem { Label("Board", systemImage: "rectangle.grid.2x2") }
-                        .tag(Tab.board)
+                    webBoard(.projects)
+                        .tabItem { Label("Projects", systemImage: "folder") }
+                        .tag(Tab.projects)
+                    // Earned, as on the computer (#3559); the bar changes only at launch or on return to the front.
+                    if web.tasksTab {
+                        webBoard(.tasks)
+                            .tabItem { Label("Tasks", systemImage: "checklist") }
+                            .tag(Tab.tasks)
+                    }
+                    webBoard(.settings)
+                        .tabItem { Label("Settings", systemImage: "gearshape") }
+                        .tag(Tab.settings)
                 }
                 // Mona Lisa's spec: the app's tint is the board's ink, so the selected tab is not system blue.
                 .tint(Palette.primary)
@@ -52,18 +79,29 @@ struct ContentView: View {
                 LockView(onUnlock: unlock)
             }
         }
-        // A tapped notification, or an agent tapped on the Agents tab, opens on the Board tab.
+        // A tapped notification, or an agent tapped on the Agents tab, opens on Today (the chat shows there until it is
+        // native).
         .onChange(of: pushManager.boardToOpen) { request in
-            if request != nil { tab = .board }
+            if request != nil { tab = .today }
+        }
+        // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing.
+        .onChange(of: web.tasksTab) { shown in
+            tab = AppTabs.keep(tab, tasksTab: shown)
         }
         .onAppear {
             // A notification tapped on a cold launch can set boardToOpen before the first draw, which onChange misses.
-            if pushManager.boardToOpen != nil { tab = .board }
+            if pushManager.boardToOpen != nil { tab = .today }
             // Cold launch: onChange does not fire for scenePhase's initial value,
             // so prompt here when we start locked.
             if !isUnlocked { unlock() }
         }
         .onChange(of: scenePhase) { newPhase in
+            // Back at the front after a real background: the bar may take Tasks now (Mona Lisa: never while on screen).
+            if newPhase == .background { tabsBackgrounded = true }
+            if newPhase == .active && tabsBackgrounded {
+                tabsBackgrounded = false
+                web.readTasks(apply: true)
+            }
             // iOS 16 single-parameter onChange. No-op when the gate is off.
             guard KosmosConfig.requireBiometricUnlock else { return }
             switch newPhase {
@@ -76,6 +114,8 @@ struct ContentView: View {
                 isUnlocked = false
                 didBackground = true
                 unlockGeneration += 1
+                // The locked app keeps no page: an unlock starts a fresh web view, as before the tabs shared one.
+                web.drop()
             case .active:
                 // Re-prompt on the return from a real background, driven here
                 // rather than from LockView.onAppear (which does not re-fire when
@@ -90,13 +130,15 @@ struct ContentView: View {
         }
     }
 
-    private var webBoard: some View {
+    private func webBoard(_ which: Tab) -> some View {
         ZStack {
             // Navy behind the tab bar too, so the space below the page is the page's own colour, not a white band.
             Color(UIColor.kosmosNavy).ignoresSafeArea()
             // Under the status bar as before; the tab bar keeps its own space below. How each page keeps clear
             // of the notch is set in makeUIView (safe areas). The keyboard is left to the web view, as before.
             WebView(
+                web: web,
+                active: tab == which,
                 url: KosmosConfig.boardURL,
                 pushManager: pushManager,
                 boardToOpen: pushManager.boardToOpen,
@@ -193,10 +235,67 @@ enum KosmosConfig {
     static let requireBiometricUnlock = false
 }
 
-// A minimal WKWebView wrapper that renders the board. It also exposes the
+// The one WKWebView the four web tabs share (kosmos#6846), made by the first tab that shows and moved into whichever
+// tab is showing, so switching tabs never reloads and the sign-in carries across. It also runs the presses on the
+// board's door and keeps the bar's Tasks flag.
+final class BoardWeb: ObservableObject {
+    private(set) var webView: WKWebView?
+    private(set) var coordinator = WebView.Coordinator()
+    // Whether the bar shows Tasks: the board's own flag, remembered so a launch shows the bar it last had.
+    @Published private(set) var tasksTab = UserDefaults.standard.bool(forKey: AppTabs.rememberedTasksKey)
+    // A press made before the page could take it (the web view not made yet, or still loading); run once it loads.
+    private var pending: AppTabs.Tab?
+    // The first board read of a launch may change the bar (it is still launching); later ones wait for a return.
+    private var readThisLaunch = false
+
+    init() { coordinator.web = self }
+
+    func adopt(_ webView: WKWebView) { self.webView = webView }
+
+    func press(_ tab: AppTabs.Tab) {
+        guard let script = AppTabs.pressScript(tab) else { return }
+        guard let webView = webView, !webView.isLoading else { pending = tab; return }
+        pending = nil
+        webView.evaluateJavaScript(script) { result, error in
+            if !AppTabs.opened(result, error: error) { NSLog("[Tabs] the page did not open \(tab)") }
+        }
+    }
+
+    // A page finished loading: run a press that waited for it, and read the board's Tasks flag.
+    func loaded() {
+        if let tab = pending { press(tab) }
+        readTasks(apply: !readThisLaunch)
+    }
+
+    func readTasks(apply: Bool) {
+        webView?.evaluateJavaScript(AppTabs.tasksReadScript) { [weak self] result, _ in
+            guard let self = self, let shown = AppTabs.tasksTab(fromPage: result) else { return }
+            UserDefaults.standard.set(shown, forKey: AppTabs.rememberedTasksKey)
+            self.readThisLaunch = true
+            if apply && shown != self.tasksTab { self.tasksTab = shown }
+        }
+    }
+
+    // On lock: the page goes, with its session handler, and the next tab to show makes a fresh one.
+    func drop() {
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: PushNotificationManager.sessionHandlerName)
+        webView?.removeFromSuperview()
+        webView = nil
+        pending = nil
+        coordinator = WebView.Coordinator()
+        coordinator.web = self
+    }
+}
+
+// The board's WKWebView, shown in one tab. It also exposes the
 // kosmosSession message handler the coordinator sign-in page posts the session to
 // (#718); the origin gate lives in PushNotificationManager.handleSessionMessage.
+// Every web tab has one of these; they share BoardWeb's web view and coordinator, so
+// each request below is carried out once however many tabs see it.
 struct WebView: UIViewRepresentable {
+    let web: BoardWeb
+    // Whether this tab is the one showing, so it holds the web view.
+    let active: Bool
     let url: URL
     let pushManager: PushNotificationManager
     // A board a tapped notification asked for (PushNotificationManager.boardToOpen).
@@ -208,7 +307,24 @@ struct WebView: UIViewRepresentable {
     // Same idea, for "Back to Kosmos" on the failure page.
     let backCount: Int
 
-    func makeUIView(context: Context) -> WKWebView {
+    func makeUIView(context: Context) -> UIView {
+        let host = UIView()
+        host.backgroundColor = .kosmosNavy
+        if web.webView == nil { web.adopt(makeWebView()) }
+        if active, let webView = web.webView { show(webView, in: host) }
+        return host
+    }
+
+    // The web view moves into the tab showing; the tab it left keeps an empty navy host.
+    private func show(_ webView: WKWebView, in host: UIView) {
+        guard webView.superview !== host else { return }
+        webView.removeFromSuperview()
+        webView.frame = host.bounds
+        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        host.addSubview(webView)
+    }
+
+    private func makeWebView() -> WKWebView {
         let config = WKWebViewConfiguration()
         // WKUserContentController retains its handlers strongly; the proxy holds
         // the manager weakly so the handler never keeps anything alive.
@@ -216,10 +332,14 @@ struct WebView: UIViewRepresentable {
             SessionMessageProxy(target: pushManager),
             name: PushNotificationManager.sessionHandlerName
         )
+        // Every page knows it is inside the app's tab bar, so the board hides its own (#6846 part c).
+        config.userContentController.addUserScript(
+            WKUserScript(source: AppTabs.markScript, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        )
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
+        webView.navigationDelegate = web.coordinator
+        webView.uiDelegate = web.coordinator
         // Navy until the first page paints, instead of a white flash.
         webView.isOpaque = false
         webView.backgroundColor = .kosmosNavy
@@ -232,42 +352,46 @@ struct WebView: UIViewRepresentable {
         webView.scrollView.keyboardDismissMode = .interactive
         // Pull to refresh.
         let refresh = UIRefreshControl()
-        refresh.addTarget(context.coordinator, action: #selector(Coordinator.pulledToRefresh(_:)), for: .valueChanged)
+        refresh.addTarget(web.coordinator, action: #selector(Coordinator.pulledToRefresh(_:)), for: .valueChanged)
         webView.scrollView.refreshControl = refresh
-        context.coordinator.webView = webView
-        context.coordinator.shell = shell
-        context.coordinator.home = url
-        context.coordinator.lastRetry = retryCount
-        context.coordinator.lastBack = backCount
+        web.coordinator.webView = webView
+        web.coordinator.shell = shell
+        web.coordinator.home = url
+        web.coordinator.lastRetry = retryCount
+        web.coordinator.lastBack = backCount
         // A cold launch from a tapped notification opens that board straight away.
         webView.load(URLRequest(url: boardToOpen?.url ?? url))
         if let request = boardToOpen {
-            context.coordinator.issued = request.id
+            web.coordinator.issued = request.id
             consume(request)
         }
         return webView
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {
+    func updateUIView(_ host: UIView, context: Context) {
+        // After a lock dropped the web view, the first tab to update makes a fresh one.
+        if web.webView == nil { web.adopt(makeWebView()) }
+        guard let webView = web.webView else { return }
+        if active { show(webView, in: host) }
         // "Back to Kosmos" from the failure page.
-        if backCount != context.coordinator.lastBack {
-            context.coordinator.lastBack = backCount
-            context.coordinator.failedURL = nil
-            switch Shell.backAction(provisional: context.coordinator.failedProvisionally, current: webView.url, canGoBack: webView.canGoBack) {
+        if backCount != web.coordinator.lastBack {
+            web.coordinator.lastBack = backCount
+            web.coordinator.failedURL = nil
+            switch Shell.backAction(provisional: web.coordinator.failedProvisionally, current: webView.url, canGoBack: webView.canGoBack) {
             case .stay: break
             case .goBack: webView.goBack()
-            case .home: webView.load(URLRequest(url: context.coordinator.home))
+            case .home: webView.load(URLRequest(url: web.coordinator.home))
             }
         }
         // Try again from the failure page (or the automatic retry once back online).
-        if retryCount != context.coordinator.lastRetry {
-            context.coordinator.lastRetry = retryCount
-            context.coordinator.reloadOrHome()
+        if retryCount != web.coordinator.lastRetry {
+            web.coordinator.lastRetry = retryCount
+            web.coordinator.reloadOrHome()
         }
         // Each tap is loaded once, however many times SwiftUI updates before the
         // clear lands.
-        guard let request = boardToOpen, context.coordinator.issued != request.id else { return }
-        context.coordinator.issued = request.id
+        guard let request = boardToOpen, web.coordinator.issued != request.id else { return }
+        web.coordinator.issued = request.id
         webView.load(URLRequest(url: request.url))
         consume(request)
     }
@@ -281,11 +405,14 @@ struct WebView: UIViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    // Shared by every tab (and replaced on lock), so its counters below make each request run once.
+    func makeCoordinator() -> Coordinator { web.coordinator }
 
     // The WebView's navigation and window delegate. The decisions live in
     // ShellLogic.swift (tested); this only carries them out.
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+        // The holder, told when a page finishes (a press that waited, the Tasks flag).
+        weak var web: BoardWeb?
         // The id of the last tap handed to the WebView.
         var issued: UUID?
         weak var webView: WKWebView?
@@ -372,6 +499,7 @@ struct WebView: UIViewRepresentable {
             endRefreshing()
             failedURL = nil
             shell?.loaded()
+            web?.loaded()
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -400,10 +528,8 @@ struct WebView: UIViewRepresentable {
         }
     }
 
-    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
-        webView.configuration.userContentController
-            .removeScriptMessageHandler(forName: PushNotificationManager.sessionHandlerName)
-    }
+    // A tab's host going says nothing about the shared web view: BoardWeb.drop() ends it on lock.
+    static func dismantleUIView(_ host: UIView, coordinator: Coordinator) {}
 }
 
 // Forwards kosmosSession posts with the sender's frame facts. The body is never
