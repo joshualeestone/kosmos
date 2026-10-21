@@ -405,7 +405,8 @@ test('#6734: a folder a stopped upload left with no record is swept once it is a
   fs.lutimesSync(path.join(dangling, 'record.json'), old, old);
   fs.utimesSync(dangling, old, old);
   try {
-    assert.equal(attachments.sweepOrphans(), 2);
+    // Review 22: at least this test's two, by path below; a count over the whole store would depend on other tests.
+    assert.ok(attachments.sweepOrphans() >= 2);
     assert.deepEqual([oldPart, oldNoRecord, fresh, kept, notAnId, dangling].map((d) => fs.existsSync(d)), [false, false, true, true, true, true]);
   } finally {
     fs.rmSync(owner, { recursive: true, force: true });   // the kept controls, so later tests counting part files see none

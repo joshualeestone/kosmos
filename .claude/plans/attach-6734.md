@@ -217,6 +217,11 @@ phone yet: the remaining manual step covers it.
    tick, but one `await` added before it would make every aborted upload a leak). Test with a destroyed stream and a
    live one as the control; red without the check (it waits for ever).
 
+### Considered and not changed (review 22)
+- The synchronous reply-file copy (decision 5), the reserved-name old files (review 17) and the 408 wording (reviews 6
+  and 21) were raised again; the decisions and their weakest premises stand as recorded. The sweep test now asserts
+  by path rather than by a count over the whole store.
+
 ### Considered and not changed (review 17)
 - A record naming exactly the part file, or a reserved name with trailing dots on macOS, stays unreachable: rare, and
   the fallback keeps one rule for all platforms rather than per-platform exceptions.
