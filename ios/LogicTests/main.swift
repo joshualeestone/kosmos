@@ -758,6 +758,12 @@ final class FakeBoardWorld {
     var statusQueue: [(Int, String)?] = []
     var statusDefault: (Int, String)? = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
     var admitted = 0
+    // The Mac cookie each status request carried, as the real session would send it from the jar.
+    var presented: [String] = []
+    var macsStatus = 200
+    // The gate's own cookie keyed apart from the one the app restored (a leading-dot domain), as a real host-only
+    // Set-Cookie might be: both then sit in the jar side by side.
+    var admitKeyedApart = false
     let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage!
 
     func count(_ path: String) -> Int { requests.filter { $0.hasSuffix(path) }.count }
@@ -769,16 +775,17 @@ final class FakeBoardWorld {
             (Data(body.utf8), HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!)
         }
         switch url.path {
-        case "/v1/account/macs": return answer(200, macsBody)
+        case "/v1/account/macs": return answer(macsStatus, macsStatus == 200 ? macsBody : "{}")
         case "/v1/account/handoff": return answer(200, #"{"token":"hand"}"#)
         case "/_kosmos/session":
             if sessionNoAnswer { return nil }
             if sessionAnswer.0 == 200 {
                 admitted += 1
-                cookies.setCookie(HTTPCookie(properties: [.name: Board.macCookieName, .value: "fresh-\(admitted)", .domain: url.host!, .path: "/", .secure: "TRUE"])!)
+                cookies.setCookie(HTTPCookie(properties: [.name: Board.macCookieName, .value: "fresh-\(admitted)", .domain: (admitKeyedApart ? "." : "") + url.host!, .path: "/", .secure: "TRUE"])!)
             }
             return answer(sessionAnswer.0, sessionAnswer.1)
         case "/api/status":
+            presented.append((cookies.cookies(for: url) ?? []).filter { $0.name == Board.macCookieName }.map(\.value).joined(separator: ","))
             let next: (Int, String)? = statusQueue.isEmpty ? statusDefault : statusQueue.removeFirst()
             return next.map { answer($0.0, $0.1) }
         default: return nil
@@ -913,6 +920,56 @@ func boardLoopTests() async {
         c.retry()
         let ok21 = await settle { isLive(c) }
         check(ok21 && w.count("/v1/account/handoff") >= 2, "Try again then signs in fresh rather than restoring the ended cookie")
+        c.stop()
+    }
+
+    section("native board loop: the cookie sent, and the failure screens")
+    do {
+        let (c, w, _, _) = make("kst1", kept: keptRecord("kst1", cookie: "kept"))
+        c.start()
+        let ok30 = await settle { isLive(c) }
+        check(ok30 && w.presented.first == "kept", "a kept session's cookie is the one presented to the Mac")
+        c.stop()
+    }
+    do {
+        let (c, w, _, _) = make("kst1", kept: keptRecord("kst1", cookie: "kept"))
+        w.statusQueue = [(401, "{}")]
+        w.admitKeyedApart = true
+        c.start()
+        let ok31 = await settle { isLive(c) }
+        check(ok31 && w.presented.last == "fresh-1", "after the Mac ends it, only the new cookie is presented, never the ended one beside it")
+        c.stop()
+    }
+    do {
+        let (c, w, _, _) = make("kst1")
+        w.macsStatus = 401
+        c.start()
+        let ok32 = await settle { c.phase == .signedOut }
+        check(ok32, "Kosmos+ answering 401 means signed out")
+        c.stop()
+    }
+    do {
+        let (c, w, _, _) = make("kst1")
+        w.macsStatus = 403
+        c.start()
+        let ok33 = await settle { c.phase == .kosmosPlusRefused }
+        check(ok33, "Kosmos+ answering 403: its own refusal, not the Mac's")
+        c.stop()
+    }
+    do {
+        let (c, w, _, _) = make("kst1")
+        w.sessionAnswer = (403, #"{"pending":false,"denied":true}"#)
+        c.start()
+        let ok34 = await settle { c.phase == .denied(mac: "Studio") }
+        check(ok34, "the Mac denying this iPhone says so")
+        c.stop()
+    }
+    do {
+        let (c, w, _, _) = make("kst1")
+        w.sessionAnswer = (403, #"{"because":"that sign-in is not valid any more"}"#)
+        c.start()
+        let ok35 = await settle { c.phase == .macRefused(mac: "Studio") }
+        check(ok35 && w.count("/v1/account/handoff") == 7, "a gate that keeps refusing gets six fresh handoffs, then says it did not accept the sign-in")
         c.stop()
     }
 

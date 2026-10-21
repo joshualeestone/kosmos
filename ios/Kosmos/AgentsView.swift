@@ -17,7 +17,7 @@ struct AgentsView: View {
         }
         .navigationViewStyle(.stack)
         .onAppear { visible = true; client.start() }
-        .onDisappear { visible = false; client.stop() }
+        .onDisappear { visible = false; wasBackground = false; client.stop() }
         // No polling in the background: stop when the app leaves the screen, resume when it comes back.
         .onChange(of: scenePhase) { phase in
             guard visible else { return }

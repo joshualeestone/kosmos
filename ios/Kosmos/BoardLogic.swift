@@ -16,6 +16,7 @@ enum Board {
     static func macsRequest(coordinator: URL, session: String) -> URLRequest {
         var r = URLRequest(url: URL(string: "/v1/account/macs", relativeTo: coordinator)!.absoluteURL)
         r.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
         r.httpShouldHandleCookies = false
         return r
     }

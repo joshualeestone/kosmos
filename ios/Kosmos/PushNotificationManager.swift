@@ -135,10 +135,14 @@ final class PushNotificationManager: NSObject, ObservableObject {
             NSLog("[Push] ignored a malformed kosmosSession post")
             return
         }
+        // kosmos#6838: a sign-out, or a sign-in as someone else, also makes the Agents tab forget its kept Mac session,
+        // at once rather than at the next visit. (Forgotten on this iPhone; the Mac ends the session on its own
+        // schedule, as for the web view.) Read before the registrar stores the new session.
+        let before = SessionKeychain.live.load()
         registrar.didReceive(message)
-        // kosmos#6838: a sign-out also makes the Agents tab forget its kept Mac session, at once rather than at the
-        // next visit. (Forgotten on this iPhone; the Mac ends the session on its own schedule, as for the web view.)
-        if message == .signedOut {
+        var changed = message == .signedOut
+        if case .signedIn(let session) = message, session != before { changed = true }
+        if changed {
             SessionKeychain.macSession.delete()
             UserDefaults.standard.removeObject(forKey: Board.rememberedMacKey)
         }
