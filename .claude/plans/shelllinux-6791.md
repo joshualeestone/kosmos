@@ -88,3 +88,19 @@ Mac in either that CI did not catch.
   run all of test:shell, green). Now tested with a stub node that records its argv (mac, linux, and a no-platform
   control); a mutant that drops the forward goes red.
 - NIT, the plan still said 26 in two places; now 34.
+
+## Review iteration 3 (opus): 1 WARNING, fixed
+- WARNING, the syntax-only checks would have run only under Linux's sh (dash), not macOS's /bin/sh (bash 3.2 in POSIX
+  mode). The reviewer measured on this Mac: `x=$(case a in a) echo y;; esac)` is rc 2 under /bin/sh and /bin/bash,
+  rc 0 under dash. Twelve `sh -n` checks cover `#!/bin/sh` files that run on users' Macs (install/setup.sh, the pkg
+  postinstall, resolve-install-user.sh, deploy/install-board.sh), so a shape every user's Mac refuses could have
+  passed CI. Fixed: shell-shard.js's `mac` platform now also runs every syntax-only command (`^(ba)?sh -n `, 110 of
+  them, about no time), so they run on BOTH platforms; the mac job is 144 commands (34 listed + 110 syntax). The
+  exact-partition test now asserts the deliberate overlap: only syntax checks on both, all of them on mac, the
+  installer's `sh -n` on mac (control); a mutant that drops the overlap goes red (2 arms).
+- WEAKEST PREMISE, now stated in full (reasoned, not measured): beyond `sh -n`, a script a test runs through its
+  `#!/bin/bash` shebang gets bash 3.2 on any Mac and bash 5 on Linux. A bash-4-only shape (an associative array,
+  `${v,,}`, mapfile, an empty array under `set -u`) in such a script would now pass the Linux shards where the macOS
+  shards used to catch it. What still catches it before users: the full suite on macOS at every release cut (and the
+  Mortals run each builder makes before merging). Accepted for the queue win; what would change my mind is one such
+  regression reaching a cut. A narrower follow-up, not done here: run the 230 under a bash 3.2 build on Linux.
