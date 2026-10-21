@@ -18462,8 +18462,17 @@ const server = http.createServer(async (req, res) => {
         const keptForTheBox = () => {
           if ((files.recs && files.recs.length) || answered) return null;
           const lq = require('./engine/limitqueue');
-          return lq.list(name).find((e) => e.kind === 'dm' && e.input === true && e.plain === true
+          const copy = lq.list(name).find((e) => e.kind === 'dm' && e.input === true && e.plain === true
             && chat.cleanMessage(e.text) === chat.cleanMessage(body.text) && !lq.isDone(e.id)) || null;
+          if (!copy) return null;
+          /* Only while the agent has not spoken since (as `kosmos msg`'s fold, #4580): after a reply, the same words may
+             answer something new, so they are a new message, kept behind the first. A thread that cannot be read
+             folds nothing (both are kept and go, rather than one answer lost). */
+          let rows = null;
+          try { rows = chat.readThread(chat.DIRECT, name).messages || null; } catch { rows = null; }
+          if (!Array.isArray(rows)) return null;
+          const since = Date.parse(copy.at);
+          return rows.some((m) => m && m.from && Date.parse(m.at) > since) ? null : copy;
         };
         const dupAnswer = (keptCopy) => ({ state: chat.DELIVERY.COULD_NOT, at: new Date().toISOString(), duplicateOf: keptCopy.at,
           because: 'the same message was already kept above, to be sent once ' + name + "'s input box was clear, so this copy was not sent" });

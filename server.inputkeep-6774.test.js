@@ -218,3 +218,15 @@ test('#6774: the same words sent twice at once (both in flight) are kept once; t
     assert.equal(rowAt(dup.delivery.at).delivery.duplicateOf, dup.delivery.duplicateOf, 'the row lost what it duplicates');
   } finally { chat.deliverAutomaticAsync = real.a; chat.deliverAsync = real.p; chat.limitHeldVerdict = real.v; board.restore(); }
 });
+
+test('#6774: the same words after the agent has spoken since are a new message (kept behind), not folded; CONTROL: before, they fold', async () => {
+  const one = await call({ text: 'yes' });
+  const again = await call({ text: 'yes' });
+  assert.equal(again.out.delivery.duplicateOf, one.out.delivery.at, 'CONTROL: with no reply between, the re-send folds');
+  chat.appendMessage(chat.DIRECT, NAME, { from: NAME, text: 'one more question: ship it too?', at: new Date(Date.now() + 5).toISOString() });
+  await new Promise((r) => setTimeout(r, 10));
+  const after = await call({ text: 'yes' });
+  assert.equal(after.out.delivery.duplicateOf, undefined, 'folded an answer given after the agent spoke: ' + JSON.stringify(after.out));
+  assert.equal(after.out.delivery.state, 'held');
+  assert.deepEqual(kept().map((k) => k[1]), ['yes', 'yes']);
+});

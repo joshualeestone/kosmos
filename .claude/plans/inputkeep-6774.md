@@ -36,6 +36,10 @@ agent is not held for a limit. They go through the automatic gate like any kept 
 - Review 2, left as it is: two messages sent within the same moment to a stuck box both see an empty queue; if the
   box clears between the first being refused (and kept) and the second being typed, the second arrives first. Closing
   it needs the queue check inside the pane's delivery lock; the window is the length of one refused delivery.
+- Review 9: a person's re-send folds only while the agent has not spoken since the kept copy (as `kosmos msg`'s fold,
+  #4580); after a reply the same words are a new message, kept behind the first, so a repeated answer is not lost.
+  Left as they are: a CLI installed before this branch words a box hold as a usage hold (still "do not re-send");
+  a person's message kept behind an entry already typed but not yet removed waits one more minute.
 - Review 8: Send now anyway refused because the box still holds text answers 409 with `inputHeld`, and the page says
   that sentence under the box instead of repainting as if it had gone (a row kept for a usage limit still offers the
   button). The stored row's `behindFor` is now asserted, so a reload cannot regress to the usage-limit words unseen.
