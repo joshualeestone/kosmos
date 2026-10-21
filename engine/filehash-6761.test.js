@@ -149,7 +149,7 @@ test('iteration 2: a file whose modification time is in the future is still fing
 test('iteration 3: a cloud-only placeholder (full size, no blocks here) is never read, so showing a list downloads nothing', async () => {
   const p = write('cloud.txt', 'x');
   const st = fs.statSync(p);
-  const placeholder = Object.assign(Object.create(Object.getPrototypeOf(st)), st, { size: 4096, blocks: 0 });
+  const placeholder = Object.assign(Object.create(Object.getPrototypeOf(st)), st, { size: 8 * 1024 * 1024, blocks: 0 });
   let opens = 0;
   const real = fs.promises.open;
   fs.promises.open = (...x) => { opens += 1; return real(...x); };
@@ -158,4 +158,13 @@ test('iteration 3: a cloud-only placeholder (full size, no blocks here) is never
   filehash.forRow(p, fs.statSync(p));   // CONTROL: the same file, really here, is hashed
   await settle();
   assert.equal(filehash.known(p, fs.statSync(p)), sha('x'));
+});
+
+test('iteration 4: a SMALL file with no blocks of its own (stored inline or compressed) is still fingerprinted', async () => {
+  const p = write('tiny.txt', 'tiny');
+  const st = fs.statSync(p);
+  const inline = Object.assign(Object.create(Object.getPrototypeOf(st)), st, { blocks: 0 });   // its real small size, no blocks
+  filehash.want(p, inline);
+  await settle();
+  assert.equal(filehash.known(p, inline), sha('tiny'), 'a small block-less file was taken for a cloud placeholder');
 });

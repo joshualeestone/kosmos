@@ -23,6 +23,7 @@ const QUEUE_MAX = 2000;      // files waiting to be hashed; past it, new ones wa
    a file is hashed only once it has SETTLED (not written in the last SETTLE_MS), and a file that changed while it was
    read is not tried again for BACKOFF_MS. A growing log or a recording being written gets its fingerprint when it stops. */
 let SETTLE_MS = 5000;
+const PLACEHOLDER_MIN = 1024 * 1024;   // a file this big with no blocks here is taken for a cloud placeholder
 const BACKOFF_MS = 60 * 1000;
 const backoff = new Map();   // path -> time before which it is not tried again
 
@@ -48,7 +49,8 @@ function want(path, st) {
   /* Iteration 3: a cloud-only placeholder (iCloud Drive, a file provider) reports its full size but holds no blocks here;
      reading it would make the system download the whole file because a list was shown. It gets no fingerprint. Where the
      platform reports no blocks (Windows), this cannot be told, which the plan records. */
-  if (Number.isFinite(st.blocks) && st.blocks === 0 && st.size > 0) return;
+  // Iteration 4: only from 1 MiB, so a small file stored inline or compressed (no blocks of its own) is still fingerprinted.
+  if (Number.isFinite(st.blocks) && st.blocks === 0 && st.size >= PLACEHOLDER_MIN) return;
   const now = Date.now();
   /* Iteration 2: settled by the CHANGE time only, which the kernel sets on every write and no one can set: a modification
      time in the future (cp -p or an archive from a fast clock, touch -d) would otherwise keep a file unhashed until then. */
