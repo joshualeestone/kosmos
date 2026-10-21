@@ -101,11 +101,18 @@ test('#6774: the same words sent again by hand are not sent twice: the kept copy
   assert.deepEqual(two.calls, [], 'the re-send was tried');
   assert.equal(two.out.delivery.state, chat.DELIVERY.COULD_NOT, JSON.stringify(two.out));
   assert.equal(two.out.delivery.duplicateOf, one.out.delivery.at);
-  assert.match(two.out.delivery.because, /already kept above, and Kosmos sends that one once its input box is clear/);
+  assert.match(two.out.delivery.because, /was already kept above, to be sent once its input box was clear, so this copy was not sent/);
   assert.equal(two.out.recorded, true);
   assert.deepEqual(kept(), [['dm', 'the go-ahead', true]], 'kept twice');
   assert.equal(limitqueue.list(NAME)[0].at, one.out.delivery.at, 'the kept copy moved');
   assert.equal(rowAt(one.out.delivery.at).delivery.state, 'held', 'the kept copy\'s row changed');
+});
+
+test('#6774: the same words with different spacing are the same message (matched as typed)', async () => {
+  const one = await call({ text: 'ship  it ' });
+  const two = await call({ text: 'ship it' });
+  assert.equal(two.out.delivery.duplicateOf, one.out.delivery.at, JSON.stringify(two.out));
+  assert.equal(kept().length, 1);
 });
 
 test('#6774: a message kept BEHIND the box backlog carries the flag, so its re-send is caught too and the wording holds', async () => {

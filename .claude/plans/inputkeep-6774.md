@@ -36,6 +36,14 @@ agent is not held for a limit. They go through the automatic gate like any kept 
 - Review 2, left as it is: two messages sent within the same moment to a stuck box both see an empty queue; if the
   box clears between the first being refused (and kept) and the second being typed, the second arrives first. Closing
   it needs the queue check inside the pane's delivery lock; the window is the length of one refused delivery.
+- Review 4: a task line (`kosmos task message`) kept behind messages kept for the box gets the same flag and the true
+  reason (before this branch that queue never held such messages, so its "out of usage" words were true). A re-send
+  matches on the text as typed (spacing does not count). The not-sent row's sentence is time-neutral, so it stays true
+  after the kept copy goes. The page's words and the hidden button are covered by web.inputkeep-6774.test.js, and the
+  branch carries a Browser-check trailer (wording plus one button condition, covered there). Left as they are: the
+  person's words go back into the box on a re-send answer (the page's rule for any copy not sent); a person's messages
+  share one sender cap, so past it a message after the box clears is typed ahead of the backlog (the existing
+  fall-through); a box holding only the board's own unsent line holds the queue until its retries clear it (minutes).
 - Review 3: a message kept behind a backlog any of which was kept for the box is flagged, released by the box rule,
   matched as a re-send and told that reason: one rule ("any"), so the flag and the words never disagree. Left as it
   is: the same plain words sent on purpose while the first copy still waits are folded into it (they cannot be told

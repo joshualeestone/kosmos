@@ -211,3 +211,15 @@ test('#6774: behind a mixed backlog (one kept for a limit, one for the box), the
     assert.equal(limitqueue.list('casey').find((e) => e.id === c.id).input, true, 'the flag and the words disagree');
   });
 });
+
+test('#6774: a task line kept behind messages kept for the box is flagged and told that reason, not a usage limit', async () => {
+  await withFleet(async (board, tmux, screen) => {
+    await send(board, 'kept for the box');
+    screen.now = EMPTY;
+    const v = messages.keepTaskLine('casey', 'task line', board.agents, 'leo', 'task 1');
+    assert.ok(v, 'the line was typed ahead of the kept message');
+    assert.equal(v.behindFor, 'input', JSON.stringify(v));
+    assert.match(v.because, /kept while its input box held text not yet sent/);
+    assert.equal(limitqueue.list('casey').find((e) => e.id === v.id).input, true);
+  });
+});

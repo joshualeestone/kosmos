@@ -18466,10 +18466,10 @@ const server = http.createServer(async (req, res) => {
           // that looks the same, and a copy already typed (its removal pending) is not one that waits.
           const plainNow = !(files.recs && files.recs.length) && !answered;
           const keptCopy = plainNow ? limitqueue.list(name).find((e) => e.kind === 'dm' && e.input === true && e.plain === true
-            && e.text === body.text && !limitqueue.isDone(e.id)) : null;
+            && chat.cleanMessage(e.text) === chat.cleanMessage(body.text) && !limitqueue.isDone(e.id)) : null;   // as typed: spacing does not count
           if (keptCopy) {
             const dupDelivery = { state: chat.DELIVERY.COULD_NOT, at: new Date().toISOString(), duplicateOf: keptCopy.at,
-              because: 'the same message is already kept above, and Kosmos sends that one once its input box is clear, so this copy was not sent' };
+              because: 'the same message was already kept above, to be sent once its input box was clear, so this copy was not sent' };
             const dupRow = chat.appendMessage(chat.DIRECT, name, { ...attachments.rowFields(files.recs), text: body.text, wire: null, at: dupDelivery.at, delivery: dupDelivery,
               ...(answered ? { replyTo: answered.at } : {}) });
             sendJson(res, 200, { delivery: dupDelivery, recorded: dupRow.recorded === true, recordedBecause: dupRow.because || null });

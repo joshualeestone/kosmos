@@ -1779,6 +1779,7 @@ function keepTaskLine(toName, line, roster, from, about, where) {
   let decided = false;   // a hold was found: from here a failure must not fall through to typing
   let behindNow = false;
   let signinNow = false;   // #5948: decided on a sign-in hold, for the catch below
+  let behindInputNow = false;   // #6774: decided behind a backlog kept for the box, for the catch below
   try {
     const limitqueue = require('./limitqueue');
     /* The delivery's free refusals first: a line it refuses whenever it is typed (not sendable, the agent not
@@ -1801,6 +1802,9 @@ function keepTaskLine(toName, line, roster, from, about, where) {
     decided = true;
     const behind = hold.behind === true;
     behindNow = behind;
+    // #6774: behind messages any of which were kept for a stuck input box: flagged and told so, as `kosmos msg` is.
+    const behindInput = behind && limitqueue.readEntries(qName).entries.some((e) => e.input === true && !limitqueue.isDone(e.id));
+    behindInputNow = behindInput;
     signinNow = !behind && hold.heldFor === 'signin';
     // The drop clock: the printed reset, or now when that is already past (as for `kosmos msg`).
     const dropFrom = Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : at;
@@ -1817,20 +1821,20 @@ function keepTaskLine(toName, line, roster, from, about, where) {
       }
     }
     const id = 'k' + crypto.randomBytes(6).toString('hex');
-    const why = limitqueue.addOrWhy(qName, { id, kind: limitqueue.TASK_KIND, from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind, signin: !behind && hold.heldFor === 'signin',
+    const why = limitqueue.addOrWhy(qName, { id, kind: limitqueue.TASK_KIND, from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind, signin: !behind && hold.heldFor === 'signin', input: behindInput,
       projectId: where && where.projectId, task: where && where.task, person: !!(where && where.person === true),
       built: !!(where && where.kind === 'built') });
     if (why) {
       const cause = why === 'sender-cap' ? limitqueue.MAX_PER_SENDER + ' messages from this sender are kept for it already'
         : why === 'agent-cap' ? limitqueue.MAX_KEPT + ' messages are kept for it already' : 'its queue could not be read or written';
-      return { state: chat.DELIVERY.COULD_NOT, because: toName + (behind ? ' still has messages kept from while it was out of usage' : hold.heldFor === 'signin' ? ' is signed out' : ' is out of usage')
+      return { state: chat.DELIVERY.COULD_NOT, because: toName + (behind ? (behindInput ? ' still has messages kept while its input box held text not yet sent' : ' still has messages kept from while it was out of usage') : hold.heldFor === 'signin' ? ' is signed out' : ' is out of usage')
         + ', and Kosmos could not keep this one for it (' + cause + '), so it was not told' };
     }
     const until = !behind && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
     // heldReceipt is `kosmos msg`'s answer (could_not, held: true); the task route reports the row state instead.
-    return { ...heldReceipt(toName, id, at, until, false, behind, hold.heldFor === 'signin'), state: HELD_STATE };
+    return { ...heldReceipt(toName, id, at, until, false, behind, hold.heldFor === 'signin', { behindInput }), state: HELD_STATE };
   } catch {
-    return decided ? { state: chat.DELIVERY.COULD_NOT, because: toName + (behindNow ? ' still has messages kept from while it was out of usage' : signinNow ? ' is signed out' : ' is out of usage')
+    return decided ? { state: chat.DELIVERY.COULD_NOT, because: toName + (behindNow ? (behindInputNow ? ' still has messages kept while its input box held text not yet sent' : ' still has messages kept from while it was out of usage') : signinNow ? ' is signed out' : ' is out of usage')
       + ', and Kosmos could not keep this one for it, so it was not told' } : null;
   }
 }
