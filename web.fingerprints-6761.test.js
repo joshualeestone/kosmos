@@ -45,11 +45,14 @@ test('the Files screen row shows the short fingerprint and the whole value on ho
   const full = rowOf(f, false);
   assert.match(full.parts[1].textContent, new RegExp(' · fingerprint ' + FP.slice(0, 12) + '$'));
   assert.equal(full.title, 'report.pdf, fingerprint sha256 ' + FP);
+  assert.equal(full.ariaDescription, 'fingerprint ' + FP.slice(0, 12), 'iteration 7: the spoken description is not the short form');
   const narrow = rowOf(f, true);
   assert.doesNotMatch(narrow.parts[1].textContent, /fingerprint|sha256/, 'the narrow panel row grew a fingerprint (#6497 keeps it to the size)');
+  assert.match(narrow.ariaDescription, new RegExp('^changed .*, fingerprint ' + FP.slice(0, 12) + '$'), 'iteration 7: the narrow row\u2019s spoken description lost its date or is not short');
   assert.match(narrow.title, new RegExp('^report\\.pdf, changed .*, fingerprint sha256 ' + FP + '$'), 'the whole value is not on the narrow row’s hover');
   const none = rowOf({ name: 'x.txt', size: 1 }, false);
   assert.doesNotMatch(none.parts[1].textContent + none.title, /fingerprint|sha256/, 'CONTROL: a row without one says nothing about it');
+  assert.equal(none.ariaDescription, undefined, 'CONTROL: a row without a fingerprint gets no spoken one');
 });
 
 test('the project rail carries the whole value on hover', () => {
@@ -118,4 +121,16 @@ test('iteration 5: the polled Files lists give the keyboard back to the same row
   // All three repaint paths use them: the narrow panel, the Files screen, the project rail.
   assert.equal((SCRIPT.match(/const hadFocus = focusedRowKey\((list|box)\);/g) || []).length, 3);
   assert.equal((SCRIPT.match(/refocusRow\((list|box), hadFocus\);/g) || []).length, 3);
+});
+
+test('iteration 7: the project room is rebuilt only when the folder\u2019s NAMES change, not when a fingerprint arrives', () => {
+  const { sameDocNames } = new Function(page.liftAll(SCRIPT, ['sameDocNames']) + '\nreturn { sameDocNames };')();
+  assert.equal(sameDocNames(new Set(['a', 'b']), new Set(['b', 'a'])), true);
+  assert.equal(sameDocNames(new Set(['a', 'b']), new Set(['a', 'c'])), false, 'CONTROL: a renamed file is a change');
+  assert.equal(sameDocNames(new Set(['a']), new Set(['a', 'b'])), false, 'CONTROL: a new file is a change');
+  assert.equal(sameDocNames(null, new Set(['a'])), false, 'CONTROL: the first names to land are a change');
+  assert.equal(sameDocNames(null, null), true);
+  const load = page.lift(SCRIPT, 'pjLoadDocs');
+  assert.match(load, /const namesBefore = PJ_DOC_NAMES;\n\s+PJ_DOC_NAMES = /);
+  assert.match(load, /if \(roomBox && !sameDocNames\(namesBefore, PJ_DOC_NAMES\)\) \{ roomBox\.__lastRoom = undefined;/, 'the room is rebuilt on every rail repaint again');
 });

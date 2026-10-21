@@ -107,3 +107,15 @@ Card: kosmos#6761, from a user feedback report (a project-manager agent, 2026-10
   fill) used a plain focus(), which scrolls the row into view, so a person who had scrolled away was pulled back on every
   fingerprint. Both now use focus({ preventScroll: true }); the deliberate move-to-folder focus keeps its scroll. Tested
   (both arms assert the option; two mutants red).
+- Iteration 7 (opus): one WARNING and one NIT, both fixed.
+  - WARNING: the project rail's repaint also rebuilt the whole project conversation (so citations become chips), and a
+    fingerprint arriving moves the rail's stamp, so the room was rebuilt with no name changed (an open reaction picker
+    closed, a selection was lost). pjLoadDocs now rebuilds the room only when the folder's names changed
+    (sameDocNames); the rail itself still repaints. Tested (unit arms with controls, plus the call site; mutants red).
+  - NIT: the title holding the whole fingerprint is also each button's spoken description, so 64 hex were read aloud
+    per row. Each row with a fingerprint now has `ariaDescription` with the short form (the narrow Files row keeps its
+    date in it too); the whole value stays in the hover. Weakest premise: an engine without ARIA reflection ignores the
+    property and falls back to the title, i.e. today's behaviour. The Documents view says the short form twice (row text
+    and description), accepted as far milder than the 64.
+  - Also found by running every web.* file (3123 tests): web.project-page lifted pjLoadDocs without the iteration-5
+    focus helper, so 2 of its tests had been red since iteration 5. It now lifts the helpers pjLoadDocs calls.
