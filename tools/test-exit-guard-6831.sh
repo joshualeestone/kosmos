@@ -63,6 +63,12 @@ for sh in /bin/sh /bin/bash; do
     && pass "L: $sh, a failing cleanup still lets an unfinished run exit 1 with its line" || bad "L: $sh, failing cleanup + unfinished gave $rc: $(cat "$TMP/out")"
   "$sh" -c "set -eu; . '$LIB'; c(){ false; }; kosmos_exit_guard c t6831; kosmos_finished" > "$TMP/out" 2>&1; rc=$?
   [ "$rc" = 0 ] && pass "L: $sh, a failing cleanup does not fail a finished run" || bad "L: $sh, failing cleanup + finished gave $rc: $(cat "$TMP/out")"
+  # A cleanup that dies on an unset variable (a fatal shell error, not a return code) is contained too.
+  "$sh" -c "set -eu; . '$LIB'; c(){ echo \"\$NO_SUCH_VAR_6831\"; }; kosmos_exit_guard c t6831; kosmos_finished" > "$TMP/out" 2>&1; rc=$?
+  [ "$rc" = 0 ] && pass "L: $sh, a cleanup dying on an unset variable does not fail a finished run" || bad "L: $sh, dying cleanup + finished gave $rc: $(cat "$TMP/out")"
+  "$sh" -c "set -eu; . '$LIB'; c(){ echo \"\$NO_SUCH_VAR_6831\"; }; kosmos_exit_guard c t6831; true" > "$TMP/out" 2>&1; rc=$?
+  [ "$rc" = 1 ] && grep -q 't6831: the run stopped before finishing' "$TMP/out" \
+    && pass "L: $sh, a cleanup dying on an unset variable still lets an unfinished run say so" || bad "L: $sh, dying cleanup + unfinished gave $rc: $(cat "$TMP/out")"
 done
 
 # R: release.sh's own two trap lines, run by the `bash` on PATH (what `bash tools/release.sh` uses), so the
@@ -105,7 +111,7 @@ done < "$TMP/traps"
 g=$(grep -nE "^trap '_rc=\\\$\\?; \\[ \"\\\$_rc\" != 0 \\]" "$REL" | head -1 | cut -d: -f1)
 relx=$(awk -v g="${g:-0}" 'NR > g { t = $0; sub(/^[ \t]+/, "", t); if (t ~ /^#/) next
     r = " " $0; gsub(/'"'"'[^'"'"']*'"'"'/, "Q", r); gsub(/"([^"\\]|\\.)*"/, "Q", r)
-    if (r ~ /(^|[;&|{(])[ \t]*exit([ \t]+0)?([ \t]*[;}&|)]|[ \t]*$)/) print NR ": " $0 }' "$REL")
+    if (r ~ /(^|[;&|{(]|[ \t](then|else|do))[ \t]*exit([ \t]+0)?([ \t]*[;}&|)]|[ \t]*$)/) print NR ": " $0 }' "$REL")
 [ -n "$g" ] && [ -z "$relx" ] && pass "R: release.sh has no exit 0 or bare exit after its guarded trap (line $g)" \
   || bad "R: release.sh exits that would end a good cut unmarked (guard at line ${g:-none}): $relx"
 last=$(grep -vE '^[[:space:]]*(#|$)' "$REL" | tail -1)
@@ -127,8 +133,8 @@ for s in build-installer-pkg build-tmux-from-source build-kosmos-bundle build-ko
   g=$(grep -n "kosmos_exit_guard " "$f" | head -1 | cut -d: -f1)
   extra=$(awk -v g="$g" 'NR > g { t = $0; sub(/^[ \t]+/, "", t); if (t ~ /^#/) { prev = t; next }
       r = " " $0; gsub(/'"'"'[^'"'"']*'"'"'/, "Q", r); gsub(/"([^"\\]|\\.)*"/, "Q", r)
-      while (match(r, /(^|[;&|{(])[ \t]*exit([ \t]+[^ \t;}&|)]+)?/)) {
-        m = substr(r, RSTART, RLENGTH); r = substr(r, RSTART + RLENGTH); sub(/^[;&|{( \t]*exit[ \t]*/, "", m)
+      while (match(r, /(^|[;&|{(]|[ \t](then|else|do))[ \t]*exit([ \t]+[^ \t;}&|)]+)?/)) {
+        m = substr(r, RSTART, RLENGTH); r = substr(r, RSTART + RLENGTH); sub(/^[;&|{( \t]*((then|else|do)[ \t]+)?exit[ \t]*/, "", m)
         if (m ~ /^[1-9][0-9]*$/) continue
         if (m == "0" && t == "exit 0" && prev == "kosmos_finished") continue
         print NR ": " $0 } }

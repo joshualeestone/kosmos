@@ -11,8 +11,9 @@ Measured table on #6826 (comment of 08:05 CDT): without `set -e`, or without an 
 ## Shape
 
 - `tools/lib/exit-guard.sh`: `kosmos_exit_guard <cleanup-function> <name>` replaces a script's EXIT trap. The trap
-  runs the cleanup (`|| :`, so a cleanup that fails neither stops the check nor fails a finished run), keeps any
-  non-zero status, and turns a 0 into exit 1 with one line unless `kosmos_finished` ran.
+  runs the cleanup in a subshell with `set +u` and `|| :` (so a cleanup that returns non-zero, or dies on an unset
+  variable, neither stops the check nor fails a finished run), turns a 0 into 1 with one line unless
+  `kosmos_finished` ran, and exits with the result.
   An unset flag counts as NOT finished (nothing extracts these scripts' blocks, so failing safe costs nothing).
 - Guarded with it: build-installer-pkg.sh, build-tmux-from-source.sh, build-kosmos-bundle.sh and
   build-kosmos-windows.sh (each succeeds by falling off the end, so `kosmos_finished` is its last line), and
@@ -21,6 +22,11 @@ Measured table on #6826 (comment of 08:05 CDT): without `set -e`, or without an 
   as well as exiting 0. Both now turn a 0 into 1 unless the last line set `_REL_FINISHED=1`, record that, and exit
   with it. They keep their own bodies rather than move onto the library: each does several things in order (record,
   free the machine claim, restore the site, thaw), and moving them is a larger change than the bug.
+
+**Consequence for the next cut:** build-installer-pkg.sh is one of the hashed inputs of `pkg_input_sha`
+(tools/lib/pkg-inputs.sh), so this edit changes the pkg input sha: the next cut rebuilds, notarises and publishes
+Kosmos.pkg although the package itself is unchanged. That is the hash doing its job. exit-guard.sh is deliberately
+NOT added to the hashed inputs: it does not change what the pkg does.
 
 ## Decided, with what was rejected
 

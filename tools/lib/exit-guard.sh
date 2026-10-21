@@ -20,7 +20,7 @@ kosmos_exit_guard() {   # <cleanup function> <name for the message>
   _KX_FINISHED=0
   _KX_CLEANUP=${1:-:}
   _KX_NAME=${2:-script}
-  trap '_kx_rc=$?; "$_KX_CLEANUP" || :; [ "$_kx_rc" != 0 ] || [ "${_KX_FINISHED:-0}" = 1 ] || { echo "$_KX_NAME: the run stopped before finishing; the cause is above. Treat the run as FAILED (kosmos#6831)" >&2; exit 1; }' EXIT
+  trap '_kx_rc=$?; ( set +u; "$_KX_CLEANUP" ) || :; [ "$_kx_rc" != 0 ] || [ "${_KX_FINISHED:-0}" = 1 ] || { echo "$_KX_NAME: the run stopped before finishing; the cause is above. Treat the run as FAILED (kosmos#6831)" >&2; _kx_rc=1; }; exit "$_kx_rc"' EXIT
 }
 
 kosmos_finished() { _KX_FINISHED=1; }
