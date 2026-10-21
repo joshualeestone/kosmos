@@ -345,3 +345,24 @@ test('run-tests.sh: the default part is all, so `yarn test` still runs the node 
   assert.match(src, /grep -Eq '\^\[0-9\]\+\/\[0-9\]\+\$'/, 'a shard that is not i/n is refused');
   assert.match(src, /\[ "\$KOSMOS_TEST_PART" != shell \] \|\|/, 'a shard outside a shell-only run is refused');
 });
+
+test('#6791 review 2: run-tests.sh hands its platform to shell-shard.js (a lost forward would turn the macOS job into all of test:shell, green)', () => {
+  const stub = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-6791-stub-'));
+  const log = path.join(stub, 'argv.log');
+  fs.writeFileSync(path.join(stub, 'node'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexit 0\n`, { mode: 0o755 });
+  const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(KOSMOS|AGENT_WORKFORCE)_/.test(k)));
+  const seen = (env) => {
+    fs.writeFileSync(log, '');
+    const r = cp.spawnSync('bash', [path.join(ROOT, 'tools', 'run-tests.sh')], {
+      cwd: ROOT, env: { ...base, PATH: stub + path.delimiter + base.PATH, GITHUB_ACTIONS: 'true', KOSMOS_TEST_PART: 'shell', ...env }, encoding: 'utf8', timeout: 120000,
+    });
+    assert.equal(r.status, 0, `${JSON.stringify(env)}: exit ${r.status}: ${r.stderr.slice(-400)}`);
+    return fs.readFileSync(log, 'utf8').split('\n').filter((l) => /shell-shard\.js/.test(l));
+  };
+  try {
+    const shardJs = path.join(ROOT, 'tools', 'shell-shard.js');
+    assert.deepEqual(seen({ KOSMOS_SHELL_SHARD: '1/1', KOSMOS_SHELL_PLATFORM: 'mac' }), [`${shardJs} run 1 1 mac`]);
+    assert.deepEqual(seen({ KOSMOS_SHELL_SHARD: '2/2', KOSMOS_SHELL_PLATFORM: 'linux' }), [`${shardJs} run 2 2 linux`]);
+    assert.deepEqual(seen({ KOSMOS_SHELL_SHARD: '1/2' }), [`${shardJs} run 1 2`], 'CONTROL: no platform, no fourth word');
+  } finally { fs.rmSync(stub, { recursive: true, force: true }); }
+});
