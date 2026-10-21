@@ -74,8 +74,8 @@
 # KOSMOS_SITE_URL (default
 # https://installkosmos.com, the same variable deploy-site.sh reads), VERCEL_TOKEN (the deploy's Vercel token; when
 # unset it is read from the secrets map, target KOSMOS_AUTODEPLOY_VERCEL_TARGET, default vercel-chaoskosmos-site:
-# kosmos#6771), KOSMOS_AUTODEPLOY_SECRETS (the secrets-map command, default secrets-map.sh on PATH or in
-# ~/.claude/scripts).
+# kosmos#6771), KOSMOS_AUTODEPLOY_SECRETS (the PATH of the secrets-map accessor, an executable, default secrets-map.sh
+# on PATH or in ~/.claude/scripts).
 # Test seams, TEST ONLY (each is run with sh -c, so never set them in the job's environment):
 # KOSMOS_AUTODEPLOY_DEPLOY (the deploy command, default this repo's deploy-site.sh --publish),
 # KOSMOS_AUTODEPLOY_PS (the process list command, default `ps -axo command=`).

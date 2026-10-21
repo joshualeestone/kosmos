@@ -120,6 +120,7 @@ cat > "$BIN/vercel" <<'VERCEL'
 [ "${VERCEL_REFUSE:-}" = colour ] && { printf '\033[31mError:\033[39m Not authorized\n' >&2; exit 7; }
 [ "${VERCEL_REFUSE:-}" = badtoken ] && { echo "> Error: The token provided via VERCEL_TOKEN environment variable is not valid. Please provide a valid token." >&2; exit 1; }
 [ "${VERCEL_REFUSE:-}" = whosees ] && { printf '%s' "${VERCEL_TOKEN:-}" > "$LIVE_DIR/vercel-saw-token"; exit 0; }
+[ "${VERCEL_REFUSE:-}" = afterdeploy ] && { echo "Inspect: https://vercel.com/joshua-stones-projects/chaoskosmos/x"; echo "Production: https://chaoskosmos-x.vercel.app"; echo "Error: Not authorized" >&2; exit 1; }
 [ "${VERCEL_REFUSE:-}" = other ] && { echo "Deploying chaoskosmos"; echo "Error: The deployment exceeded the size limit" >&2; exit 5; }
 # `vercel deploy --prod --yes` runs with the EXPORT as cwd. Publish it into LIVE (additive copy is
 # enough to run the served-verify honestly).
@@ -278,6 +279,18 @@ fi
 read -r S10 L10 <<<"$(make_publish_scenario ok)"
 VERCEL_TOKEN=tok-for-vercel VERCEL_REFUSE=whosees run_deploy "$S10" "$L10" --publish
 [ "$(cat "$L10/vercel-saw-token" 2>/dev/null)" = tok-for-vercel ] && [ ! -e "$L10/curl-saw-token" ] && pass "B8: the vercel command gets VERCEL_TOKEN, and the fetches (curl) never see it" || bad "B8: vercel saw '$(cat "$L10/vercel-saw-token" 2>/dev/null)' (rc=$RC)"
+# B5d) the same refusal AFTER the CLI made a deployment (an Inspect URL before it) is an ordinary failure, exit 1, so
+# the autodeploy counts it rather than letting its "already live" shortcut bless an unverified deploy.
+read -r S11 L11 <<<"$(make_publish_scenario ok)"
+VERCEL_REFUSE=afterdeploy run_deploy "$S11" "$L11" --publish
+if [ "$RC" = 1 ] && has "$out" "vercel deploy --prod failed (rc 1)" && ! has "$out" "exiting 77"; then
+  pass "B5d: a refusal after a deployment was made: exit 1 (counted), not 77"
+else
+  bad "B5d: a refusal after a deployment (rc=$RC); out=$out"
+fi
+# B8-CONTROL: the curl stand-in does record a VERCEL_TOKEN it is given, so B8's "never sees it" can fail.
+( VERCEL_TOKEN=x LIVE_DIR="$T/b8ctl" HOST_URL="$HOSTURL"; export VERCEL_TOKEN LIVE_DIR HOST_URL; mkdir -p "$LIVE_DIR"; "$BIN/curl" -s "$HOSTURL/x" >/dev/null 2>&1 )
+[ -e "$T/b8ctl/curl-saw-token" ] && pass "B8-CONTROL: the curl stand-in records a token it is given" || bad "B8-CONTROL: the curl stand-in cannot see a token, so B8 proves nothing"
 # B7) a failure that is NOT an authorization refusal says only that the deploy failed, with its code: no token words.
 read -r S7 L7 <<<"$(make_publish_scenario ok)"
 VERCEL_REFUSE=other run_deploy "$S7" "$L7" --publish
