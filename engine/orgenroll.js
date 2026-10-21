@@ -853,8 +853,8 @@ async function settleUnknownJoin(unsure, opts) {
   const verdict = statusVerdict(d, world);
   if (verdict === 'unclear') return { ok: false, enrolled: false, because: inKind(KIND, "Your company's answer was not complete.") };
   if (verdict !== 'here' && !old) return { ok: false, enrolled: false, because: 'Too soon to say the join was not made.' };   // kept
-  /* kosmos#6859: the marker is removed only after what replaces it is written (the record, or the undo's pending
-     leave), so orgenroll.kindStrict never finds neither and reads a family's computer as joined to nobody. */
+  /* kosmos#6859: the marker is removed after what replaces it is written (the record, or the undo's pending leave),
+     since orgenroll.kindStrict reads a computer with none of the three files as joined to nobody. */
   if (verdict === 'here') {
     const org = keepFamily(cleanOrg(d.org), d.org, KIND), role = cleanRole(d.role);
     if (!org || !role) { setJoinUnknown(null, opts); return { ok: false, enrolled: false, because: inKind(KIND, "Your company's answer was not complete.") }; }
