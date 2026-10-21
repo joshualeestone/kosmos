@@ -23,8 +23,9 @@ code would be Homer's; this touches none.
 2. tools/windows/kosmos.sh (the Git Bash shim): MSYS conversion is off for every argument, so it converts reply's
    --file value with cygpath, as it already did --body-file's for feedback and community (review 3: /c/Users/...
    typed in Git Bash was refused). Tested on a Mac with a stand-in cygpath and node.
-3. engine/dmfiles.js: comment only. Instructions still do not teach --file on a win32 board, and the comment now
-   gives the true reason: the board's file checks have never run on Windows.
+3. engine/dmfiles.js: comment only. The instructions paragraph is still left out on a win32 board, and the comment
+   now gives the true reason: the board's file checks have never run on Windows. The CLI's own usage and --help
+   do name --file on Windows (review 5), as on a Mac: decided, below.
 4. tools.windows-kosmos-cli-reply-file-6726.test.js: the Mac test's arms, plus --stdin with --file, a wrong-world
    CONTROL (a plain reply IS kept through the same injected outbox), and a pin of the usage line against
    install/kosmos (it caught 25 MB vs 100 MB on the first run).
@@ -34,6 +35,10 @@ code would be Homer's; this touches none.
   would be taught a flag whose board half has never run on Windows). Weakest premise: that replyfile.js's
   containment rules (realpath, dev/ino, the home-folder refusals written for macOS) behave on NTFS; nothing
   Mac-side can test that.
+- Review 5: `reply --help` on Windows names --file. Kept: parity, and an agent that finds the flag meets the
+  board's checks, which decide containment by file identity (dev/ino, the real path), not by spelling. Rejected:
+  hiding the line on Windows until the run (a second usage text to keep in step). Weakest premise: the same NTFS
+  one above; the spelling-based hidden-in-home check is the part most likely to differ.
 - The JSON-escape fallback install/kosmos needs for `attached` is not copied: the Windows CLI parses JSON.
 
 ## For the one real Windows run (asked of Homer on the card when the PR opens)
@@ -47,5 +52,6 @@ code would be Homer's; this touches none.
 
 ## Validation
 - New test 18/18. Mutation-checked, each red: path.resolve back; the help line dropped; the old shim; verbReply
-  ignoring the injected path rules. All tools.windows-kosmos-cli*.test.js and cli.reply-*.test.js: 408 tests, 401 pass, 7 skip
-  (Windows-only), 0 fail. comment-deferral (from the worktree), dmfiles, windows-coupling-audit-1732: green.
+  ignoring the injected path rules. All tools.windows-kosmos-cli*.test.js, tools.windows-kosmos-shims-570,
+  cli.reply-*.test.js and cli.help-flag-*.test.js (after iteration 4): 432 tests, 411 pass, 21 skip (Windows-only),
+  0 fail. comment-deferral (from the worktree), dmfiles, windows-coupling-audit-1732: green.
