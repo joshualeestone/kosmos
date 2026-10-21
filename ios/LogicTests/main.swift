@@ -693,6 +693,7 @@ do {
     check(word("cleo") == "Question" && word("farah") == "Needs permission", "a question and a permission prompt, in the board's words")
     check(agents.first { $0.session == "farah" }?.askedYou == true && agents.first { $0.session == "dana" }?.askedYou == false, "needs you is marked, working is not")
     check(Board.needsYou(state: "auth_failed", running: true, needsTrust: false) && Board.needsYou(state: "needs_trust", running: true, needsTrust: false), "a broken sign-in and a trust prompt need you too")
+    check(Board.needsYou(state: "question", running: true, needsTrust: false) && Board.needsYou(state: "approval", running: true, needsTrust: false), "and the question and permission states, if the Mac ever sends them as states")
     check(Board.needsYou(state: "working", running: false, needsTrust: true) && !Board.needsYou(state: "idle", running: false, needsTrust: false), "not running at a trust prompt needs you; plain not running does not")
     check(word("gus") == "Not running", "an agent that is not running says so, whatever its last state")
     check(word("hal") == "Reconnecting\u{2026}", "a lost connection that is retrying says Reconnecting")

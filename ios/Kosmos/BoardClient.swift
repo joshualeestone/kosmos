@@ -14,8 +14,8 @@ final class BoardClient: ObservableObject {
         case signedOut
         case noMac
         case waitingForAllow(mac: String, code: String?)
-        // The Mac refused while it starts up (it does until it knows its account again); asked again shortly.
-        case macStarting(mac: String)
+        // The Mac's gate refused a sign-in, which it also does for a while after it starts; asked again shortly.
+        case connecting(mac: String)
         case denied(mac: String)
         case kosmosPlusDown
         // Kosmos+ itself refused (a 403 on the Mac list or the handoff): not something the Mac's Allow fixes.
@@ -48,6 +48,7 @@ final class BoardClient: ObservableObject {
     private var unauthorizedSince: Date?
     // The grace is for a session that worked in this run; a kept one the Mac no longer honours is signed in again at once.
     private var listedThisRun = false
+    private var retriedUnreachable = false
     private static let unauthorizedGrace: TimeInterval = 15
     private var lastReconnect: Date?
     private static let reconnectGap: TimeInterval = 30
@@ -102,8 +103,9 @@ final class BoardClient: ObservableObject {
             cookies.removeCookies(since: .distantPast)
         }
         let stored = macStore.load()
-        // A kept Mac session from another sign-in is never used, so it is not kept either.
-        if stored != nil, Board.usableSaved(stored, session: session, coordinator: coordinator) == nil { macStore.delete() }
+        // A kept Mac session from another sign-in is never used, so it is not kept either. Not while no session can
+        // be read: the sign-out deletes it itself.
+        if session != nil, stored != nil, Board.usableSaved(stored, session: session, coordinator: coordinator) == nil { macStore.delete() }
         if admitted == nil, !skipSaved, let session, let saved = Board.usableSaved(stored, session: session, coordinator: coordinator),
            let url = Board.macURL(address: saved.address, coordinator: coordinator) {
             // The Mac's session from an earlier launch: tried first, and dropped by refresh() if the Mac has ended it.
@@ -113,14 +115,19 @@ final class BoardClient: ObservableObject {
         skipSaved = false
         unauthorizedSince = nil
         listedThisRun = false
-        if case .live = phase {} else { set(.starting, gen) }
+        // The list stays up on a return to the tab, but never with nothing in it (after a sign-out or another account).
+        if case .live = phase, !agents.isEmpty {} else { set(.starting, gen) }
         loop = Task { await self.run(gen) }
     }
 
     // Try again after a failure. After "not answering" the kept Mac session is tried again first (the Mac may only
     // have slept); after a refusal the Macs are asked for afresh, so a Mac that went away or came online counts.
+    // A second Try again in a row asks Kosmos+ afresh even then, so a Mac that was retired or replaced is never stuck.
     func retry() {
-        if case .unreachable = phase {} else {
+        if case .unreachable = phase, !retriedUnreachable {
+            retriedUnreachable = true
+        } else {
+            retriedUnreachable = false
             admitted = nil
             skipSaved = true
         }
@@ -250,7 +257,7 @@ final class BoardClient: ObservableObject {
                     set(.macRefused(mac: mac.name), gen); return false
                 }
                 fresh += 1
-                if !waiting { set(.macStarting(mac: mac.name), gen) }
+                if !waiting { set(.connecting(mac: mac.name), gen) }
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard let next = await handoff(session: session, mac: mac, gen) else { return false }
                 token = next
@@ -274,6 +281,7 @@ final class BoardClient: ObservableObject {
             failedRefreshes = 0
             unauthorizedSince = nil
             listedThisRun = true
+            retriedUnreachable = false
             set(.live(mac: mac), gen)
             return true
         }
@@ -297,6 +305,9 @@ final class BoardClient: ObservableObject {
         }
         failedRefreshes += 1
         if failedRefreshes >= Self.failuresBeforeNotAnswering {
+            // A kept session that never produced a list in this run is not kept: the next launch asks Kosmos+ which
+            // Mac to use, rather than restoring one that may be gone.
+            if !listedThisRun { macStore.delete() }
             set(.unreachable(mac: mac.name), gen)
             return false
         }

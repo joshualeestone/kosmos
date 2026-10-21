@@ -257,7 +257,7 @@ enum Board {
     // Whatever only the person can move: a question or permission, a trust prompt, a provider sign-in that broke.
     // Marked in amber and listed first.
     static func needsYou(state: String, running: Bool, needsTrust: Bool) -> Bool {
-        state == "needs_you" || state == "needs_trust" || state == "auth_failed" || (!running && needsTrust)
+        ["needs_you", "question", "approval", "needs_trust", "auth_failed"].contains(state) || (!running && needsTrust)
     }
 
     // Those that asked you first, then working, then the rest; by name within each.

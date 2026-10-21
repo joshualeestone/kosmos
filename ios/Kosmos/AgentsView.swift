@@ -47,9 +47,9 @@ struct AgentsView: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.updatesFrequently)
-        case .macStarting(let mac):
+        case .connecting(let mac):
             VStack(spacing: 12) {
-                message("\(mac) is starting up.", detail: "Connecting as soon as it is ready.")
+                message("Connecting to \(mac).", detail: "This can take a moment, for example just after your Mac starts.")
                 ProgressView().accessibilityLabel("Waiting for your Mac")
             }
         case .denied(let mac):
@@ -60,7 +60,7 @@ struct AgentsView: View {
             }
         case .kosmosPlusRefused:
             VStack(spacing: 12) {
-                message("Kosmos+ did not let this iPhone in.", detail: "Sign out on the Board tab and in again, then try once more.")
+                message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again on the Board tab. Otherwise try again in a moment.")
                 Button("Try again") { client.retry() }
                     .buttonStyle(.borderedProminent)
             }
