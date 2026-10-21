@@ -42,3 +42,7 @@ stuck prompt.
   render-agent-pill-3958 (the fold shows for auth_failed and is gone for working), render-busy-anim-3421. The three that
   read the fold (3958, 718, 3892) name d-said, d-said-box and d-said-lab in their surface header, so a change to the
   fold selects them.
+
+## Review 14
+- **Not changed:** when the fold hides under the keyboard, focus moves to the state pill, which may draw the browser's
+  focus ring there. Kept: it shows a keyboard user where focus went. Would change it: Josh finding the ring ugly.

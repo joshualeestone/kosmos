@@ -266,11 +266,14 @@ test('#6716: when the fold hides under the keyboard, focus moves to the state li
 });
 
 test('#3958: the poll does not rewrite an unchanged pill, task or said label (a selection survives)', () => {
-  const board = fleet.install([fleet.agent('beatrix', { state: 'working' })]);
+  /* #6716 review 14: a WAITING agent, since only a waiting state shows the quote now; a working one paints the label and
+     quote empty on both polls, so this test could not fail for them. */
+  const board = fleet.install([fleet.agent('beatrix', { state: 'auth_failed' })]);
   try {
     const card = board.agents.find((x) => x.name === 'beatrix');
     pillFor(card, null, 1000);
     const els = pillFor.els;
+    assert.ok(els['d-said-lab'].textContent && els['d-said'].textContent, 'control: the label and the quote are painted, so their rewrites are watched');
     /* Count writes from here on, on the same elements, across a second identical paint. */
     const counted = {};
     for (const id of ['d-state', 'd-task', 'd-said', 'd-said-lab']) {
