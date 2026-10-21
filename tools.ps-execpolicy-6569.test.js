@@ -15,16 +15,16 @@
  *   left without it (its `kosmos` runs through Git Bash, which never reads a policy; also pinned there): whether a
  *   claude agent ever runs `kosmos` from a PowerShell tool is unmeasured, and is recorded on #6569 rather than changed.
  *
- * How a launch is found (review 1 caught a line-by-line first version missing a multi-line argument array): comments
- * are stripped per file type, then every code line that starts PowerShell (powershell / pwsh / Start-Process, or the
- * -NoProfile / -NonInteractive / -Command / -EncodedCommand switches that only a PowerShell argv carries) opens a window
- * of that line and the next six. The window must also hold a real process start (STARTS_PROCESS), so a sentence telling
- * a person what to run is not a launch. It is a SCRIPT launch when it passes -File in any case or abbreviation
- * (-f, -fi, -fil, -file), names a .ps1, or calls or dot-sources a quoted path ("& '...'", ". '...'"). A script launch
- * must carry -ExecutionPolicy in the same window. Not seen, and stated so nobody reads this as full coverage: a script
- * path held only in a variable and passed to pwsh as a bare first argument (no -File, no .ps1 on the lines).
- * Release and test tooling are not scanned. tools/windows is, whole: its release scripts pass today because their
- * launches are in comments.
+ * How a launch is found: by CENSUS, not by guessing which lines start PowerShell. Two reviews showed a pattern for
+ * "a PowerShell start" always has holes (an args array built lines before the spawn, the executable in a variable, two
+ * launches a few lines apart sharing one verdict, `start /b`). So every code line (comments stripped per file type)
+ * that names a script, by a -File argument (-fi, -fil, -file, any case, quoted or bare) or a .ps1, must either carry
+ * -ExecutionPolicy ON THE SAME LINE or be listed in REVIEWED below with why it is not a launch. A new reference
+ * anywhere fails until someone has looked at it; an args array split over lines is flagged too, which is the safe
+ * direction (put the policy beside -File, or list it). Not counted, and stated so nobody reads this as full coverage:
+ * the one-letter abbreviation -f (it would take in tmux's -f / -F on nine lines today, and nothing here writes -f for
+ * -File), and a script path held only in a variable with no -File and no .ps1 on any line.
+ * Release and test tooling are not scanned, except tools/windows, which is, whole.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -67,27 +67,26 @@ function stripComments(text, file) {
   return text.replace(/\/\*[\s\S]*?\*\//g, blank).replace(/^\s*\/\/.*$/gm, blank);
 }
 
-const STARTS_PS = /powershell(\.exe)?\b|\bpwsh(\.exe)?\b|Start-Process|-NoProfile\b|-NonInteractive\b|-EncodedCommand\b|['"`\s]-Command\b/i;
-const SCRIPT = /(^|[\s'"`(@,])-f(i|il|ile)?(?=['"`\s,)]|$)|\.ps1\b|[&.]\s+['"`]/im;
 const POLICY = /-ExecutionPolicy\b/i;
-/* Something that actually starts a process, so a sentence that TELLS a person to run PowerShell (an error message, a
-   printed usage line) is not taken for a launch: a child_process call, .NET's Process.Start, PowerShell's
-   Start-Process / & / Invoke-Expression, or a line of a .cmd, .bat or .sh that IS the powershell command. */
-const STARTS_PROCESS = /\b(spawn|spawnSync|execFile|execFileSync|exec|execSync|fork)\s*\(|Process\.Start\b|Start-Process\b|Invoke-Expression\b|(^|[;|(]\s*)&\s|^\s*(@?\s*)?(call\s+)?(start\s+("[^"]*"\s+)?)?(powershell|pwsh)(\.exe)?\b/im;
-const WINDOW = 7;
+const NAMES_SCRIPT = /(['"`])-fi(l|le)?\1|(['"`])-file\3|(^|[\s(@,])-fil?e?\b(?=\s|$)|\.ps1\b/i;
 
-/** Every script launch in a file's text, as { line, text, policy }. */
+/* Lines that name a script and are NOT a launch, matched by file and the line's own trimmed text (not its number, so an
+   edit elsewhere in the file does not break the match). Each says why. */
+const REVIEWED = [
+  ['engine/reporthook.js', "const spellings = plat === 'win32' && !/\\.[A-Za-z0-9]+$/.test(bin) ? [bin, bin + '.exe', bin + '.cmd', bin + '.ps1'] : [bin];", 'looks at which spellings of a CLI exist; a .ps1 is never run (its version is left unknown)'],
+  ['engine/startimports.js', null, 'a list of file extensions an import may carry, not a launch'],
+  ['engine/win32signin.js', "const SCRIPT_EXTENSIONS = Object.freeze(['.cmd', '.bat', '.ps1']);", 'the scripts a direct start cannot be, so they are refused, not run'],
+  ['engine/win32update.js', "'bin/kosmos.ps1',", 'a file the update must contain; it is checked, not run'],
+  ['tools/windows/publish-r2.ps1', null, 'printed usage lines (Say "  pwsh ...") on the release PC, not a launch'],
+];
+const reviewed = (rel, text) => REVIEWED.some(([f, t]) => f === rel && (t === null || t === text));
+
+/** Every code line in a file's text that names a script, as { line, text, policy }. */
 function launchSites(text, file = 'x.js') {
-  const lines = stripComments(text, file).split(/\r?\n/);
   const out = [];
-  let coveredTo = -1;
-  for (let i = 0; i < lines.length; i += 1) {
-    if (i <= coveredTo || !STARTS_PS.test(lines[i])) continue;
-    const win = lines.slice(i, i + WINDOW).join('\n');
-    if (!SCRIPT.test(win) || !STARTS_PROCESS.test(win)) continue;
-    out.push({ line: i + 1, text: lines[i].trim(), policy: POLICY.test(win) });
-    coveredTo = i + WINDOW - 1;
-  }
+  stripComments(text, file).split(/\r?\n/).forEach((t, i) => {
+    if (NAMES_SCRIPT.test(t)) out.push({ line: i + 1, text: t.trim(), policy: POLICY.test(t) });
+  });
   return out;
 }
 
@@ -101,37 +100,43 @@ test('#6569: every PowerShell script Kosmos starts passes an explicit per-proces
     for (const s of launchSites(text, f)) {
       const at = path.relative(ROOT, f) + ':' + s.line;
       sites.push(at);
-      if (!s.policy) bare.push(at + '  ' + s.text.slice(0, 160));
+      if (!s.policy && !reviewed(path.relative(ROOT, f).split(path.sep).join('/'), s.text)) bare.push(at + '  ' + s.text.slice(0, 160));
     }
   }
   assert.ok(sites.some((s) => s.startsWith(path.join('tools', 'windows', 'setup.ps1') + ':')),
     'control: the scan found the known launch site in tools/windows/setup.ps1 (found: ' + sites.join(', ') + ')');
-  assert.deepEqual(bare, [], 'these start a PowerShell script with no -ExecutionPolicy; add -ExecutionPolicy Bypass (per process, nothing system-wide)');
+  assert.deepEqual(bare, [], 'these lines name a PowerShell script with no -ExecutionPolicy on the line. A launch: add -ExecutionPolicy Bypass beside -File (per process, nothing system-wide). Not a launch: list it in REVIEWED with why');
 });
 
-test('#6569 CONTROL: the scan flags each planted launch with no policy, and passes the same launch with one', () => {
+test('#6569 CONTROL: each planted launch with no policy is flagged, the same launch with one is not', () => {
   const planted = [
     ["  cp.spawn('powershell.exe', ['-NoProfile', '-File', helper]);", 'x.js'],
     ["  cp.spawn('powershell.exe', [\n    '-NoProfile',\n    '-File', helper,\n  ]);", 'x.js'],                 // review 1: multi-line
     ["  cp.spawn('powershell.exe', ['-NoProfile', '-file', helper]);", 'x.js'],                                // review 1: any case
-    ["  cp.spawn(ps, ['-NoProfile', '-f', helper]);", 'x.js'],                                                  // review 1: abbreviated
-    ["  execFile(ps, ['-NoProfile', '-Command', \"& 'C:\\\\k\\\\helper.ps1'\"]);", 'x.js'],                    // review 1: a script inside -Command
-    ["  execFile(ps, ['-NoProfile', path.join(dir, 'helper.ps1')]);", 'x.js'],
+    ["  cp.spawn(ps, ['-NoProfile', '-fil', helper]);", 'x.js'],                                                // review 1: abbreviated
+    ["  execFile(ps, ['-NoProfile', '-Command', \"& 'C:\\\\k\\\\helper.ps1'\"]);", 'x.js'],                    // review 1: inside -Command
+    ["  const args = ['-NoProfile', '-File', script];\n  // ...\n  cp.spawn('powershell.exe', args);", 'x.js'],   // review 2: args built earlier
+    ["  cp.spawn(PS, ['-File', script]);", 'x.js'],                                                             // review 2: executable in a variable
+    ['  start "" /b powershell -NoProfile -File x.ps1', 'x.cmd'],                                                  // review 2: start /b
     ["  Start-Process powershell -ArgumentList @(\n    '-NoProfile',\n    '-File', \"`\"$x`\"\")", 'x.ps1'],
-    ['  powershell.exe -NoProfile -File "%~dp0helper.ps1"', 'x.cmd'],
+    ['  cp.exec(`powershell -NoProfile -File ${helper}`);', 'x.js'],
   ];
   for (const [t, file] of planted) {
-    const s = launchSites(t, file);
-    assert.equal(s.length, 1, 'not seen as a launch: ' + t);
-    assert.equal(s[0].policy, false, 'read as having a policy: ' + t);
-    const fixed = launchSites(t.replace('-NoProfile', '-NoProfile -ExecutionPolicy Bypass'), file);
-    assert.equal(fixed.length, 1);
-    assert.equal(fixed[0].policy, true, 'a launch WITH a policy was flagged: ' + t);
+    const bare = launchSites(t, file).filter((x) => !x.policy);
+    assert.ok(bare.length >= 1, 'not flagged: ' + t);
+    const fixed = t.replace("'-File'", "'-ExecutionPolicy', 'Bypass', '-File'").replace("'-file'", "'-ExecutionPolicy', 'Bypass', '-file'")
+      .replace("'-fil'", "'-ExecutionPolicy', 'Bypass', '-fil'").replace(' -File', ' -ExecutionPolicy Bypass -File')
+      .replace("'-Command'", "'-ExecutionPolicy', 'Bypass', '-Command'");
+    assert.deepEqual(launchSites(fixed, file).filter((x) => !x.policy), [], 'a launch WITH a policy beside its script was flagged: ' + fixed);
   }
-  assert.deepEqual(launchSites("  execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', script]);"), [], 'inline -Command code with no script is not a launch');
+  // review 2: two launches a few lines apart each get their own verdict
+  const two = launchSites("if (a) spawn('powershell.exe', ['-ExecutionPolicy', 'Bypass', '-File', a]);\nelse spawn('powershell.exe', ['-File', b]);");
+  assert.deepEqual(two.map((x) => x.policy), [true, false], 'the bare launch beside a compliant one passed');
+  assert.deepEqual(launchSites("  execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', script]);"), [], 'inline -Command code that names no script is not a launch');
+  assert.deepEqual(launchSites("  tmux(['-f', '/dev/null', 'list-panes', '-a', '-F', fmt]);"), [], "tmux's -f / -F is not -File");
   assert.deepEqual(launchSites("  // powershell -File kosmos.ps1 hangs on an open stdin"), [], 'a comment is not a launch');
   assert.deepEqual(launchSites("  /* powershell -File kosmos.ps1\n     hangs */"), [], 'a block comment is not a launch');
   assert.deepEqual(launchSites("# powershell -File kosmos.ps1", 'x.ps1'), [], 'a PowerShell comment is not a launch');
-  assert.deepEqual(launchSites('  Say "  pwsh tools/windows/publish-r2.ps1 -Zip $Zip"', 'x.ps1'), [], 'a printed usage line is not a launch');
-  assert.deepEqual(launchSites("  ctx.err('run powershell -File setup.ps1 to repair it');"), [], 'an error message is not a launch');
+  assert.equal(reviewed('engine/win32update.js', "'bin/kosmos.ps1',"), true, 'control: a reviewed line is recognised');
+  assert.equal(reviewed('engine/win32update.js', "cp.spawn('powershell.exe', ['-File', 'bin/kosmos.ps1']);"), false, 'a new line in a reviewed file is not excused by the file');
 });
