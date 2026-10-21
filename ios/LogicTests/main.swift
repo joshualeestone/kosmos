@@ -764,6 +764,8 @@ final class FakeBoardWorld {
     // The gate's own cookie keyed apart from the one the app restored (a leading-dot domain), as a real host-only
     // Set-Cookie might be: both then sit in the jar side by side.
     var admitKeyedApart = false
+    // Pictures: an image, or (pictureAsPage) the gate's sign-in page at 200, as an ended session would answer.
+    var pictureAsPage = false
     let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage!
 
     func count(_ path: String) -> Int { requests.filter { $0.hasSuffix(path) }.count }
@@ -788,7 +790,14 @@ final class FakeBoardWorld {
             presented.append((cookies.cookies(for: url) ?? []).filter { $0.name == Board.macCookieName }.map(\.value).joined(separator: ","))
             let next: (Int, String)? = statusQueue.isEmpty ? statusDefault : statusQueue.removeFirst()
             return next.map { answer($0.0, $0.1) }
-        default: return nil
+        default:
+            if url.path.hasPrefix("/api/agent/") && url.path.hasSuffix("/avatar") {
+                if pictureAsPage {
+                    return (Data("<html>sign in</html>".utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/html"])!)
+                }
+                return (Data([0x89, 0x50, 0x4e, 0x47]), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"])!)
+            }
+            return nil
         }
     }
 }
@@ -1012,6 +1021,44 @@ section("native board loop: connecting")
         check(ok41 && c.agents.map(\.session) == ["zed", "amy"], "a live update changes the rows in place and does not move them")
         await c.refreshNow()
         check(c.agents.map(\.session) == ["amy", "zed"], "pull to refresh re-sorts (Amy's question first)")
+        c.stop()
+    }
+
+    section("native board loop: pictures")
+    do {
+        let (c, w, _, _) = make("kst1")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working","hasAvatar":true,"avatarVer":1}]}"#)
+        c.start()
+        let ok50 = await settle { c.pictures["dana"] != nil }
+        check(ok50 && w.count("/api/agent/dana/avatar") == 1, "an agent's picture is fetched once for its version")
+        let polls = w.count("/api/status")
+        _ = await settle { w.count("/api/status") >= polls + 3 }
+        check(w.count("/api/agent/dana/avatar") == 1, "and not again while the version is the same")
+        c.stop()
+    }
+    do {
+        let (c, w, _, _) = make("kst1")
+        w.pictureAsPage = true
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working","hasAvatar":true,"avatarVer":1}]}"#)
+        c.start()
+        let ok51 = await settle { w.count("/api/agent/dana/avatar") >= 2 }
+        check(ok51 && c.pictures["dana"] == nil, "the gate's sign-in page is never taken for a picture, and it is asked for again")
+        w.pictureAsPage = false
+        let ok52 = await settle { c.pictures["dana"] != nil }
+        check(ok52, "and the picture arrives once the Mac answers with one")
+        c.stop()
+    }
+
+    section("native board loop: not answering clears by itself")
+    do {
+        let (c, w, _, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        w.statusDefault = nil
+        _ = await settle { c.phase == .unreachable(mac: "Studio") }
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
+        let ok53 = await settle { isLive(c) }
+        check(ok53 && w.count("/v1/account/handoff") == 1, "the next good read clears not answering, with no Try again and no new sign-in")
         c.stop()
     }
 

@@ -24,7 +24,7 @@ launches; a sign-out, or Kosmos+ answering that the sign-in has ended, makes thi
 iPhone forget it (the Mac keeps its side until it expires, as for the web view).
 The app opens on Agents (the store-screenshot build opens on Board). One Debug-only
 launch switch exists for screenshots and never reaches Release: `KOSMOS_SAMPLE_AGENTS=1`
-shows invented agents without connecting (and skips the notification prompt). The App Store screenshots now include the tab bar.
+shows invented agents without connecting (and skips the notification prompt). App Store screenshots taken from now on include the tab bar (the stored ones predate it).
 
 ## What this is
 

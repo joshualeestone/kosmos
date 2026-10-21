@@ -154,7 +154,10 @@ final class BoardClient: ObservableObject {
     func refreshNow() async {
         guard case .live = phase, let held = admitted else { retry(); return }
         resortNext = true
+        let before = updatedAt
         _ = await refresh(url: held.url, mac: held.mac, generation)
+        // A refresh that read nothing must not leave the next live update to re-sort under the person's thumb.
+        if updatedAt == before { resortNext = false }
     }
 
     func stop() {
@@ -170,18 +173,24 @@ final class BoardClient: ObservableObject {
         return PushBridge.boardURL(fromNotification: ["address": mac.address, "session": agent.session], coordinator: coordinator)
     }
 
-    // Pictures for agents that have one and whose version changed, one at a time. A fetch that fails is not asked for
-    // again until the picture's version changes (the letter shows meanwhile).
+    // Pictures for agents that have one and whose version changed, one at a time. A Mac that has no picture (404) is
+    // not asked again until the version changes; the letter shows meanwhile.
     private var pictureTask: Task<Void, Never>?
     private func fetchPictures(url: URL, _ gen: Int) async {
         for agent in agents where agent.hasAvatar && pictureVersions[agent.session] != agent.avatarVer {
             guard let request = Board.avatarRequest(mac: url, session: agent.session) else { continue }
             let result = await env.send(request)
-            guard gen == generation else { return }
-            if let (data, answer) = result, (200...299).contains(answer.statusCode), !data.isEmpty {
+            guard gen == generation, !Task.isCancelled else { return }
+            guard let (data, answer) = result else { continue }   // no answer: tried again on the next read
+            let isImage = (answer.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("image/")
+            if (200...299).contains(answer.statusCode) && isImage && !data.isEmpty {
                 pictures[agent.session] = data
+                pictureVersions[agent.session] = agent.avatarVer
+            } else if answer.statusCode == 404 {
+                // The Mac has no picture for it: not asked again until the version changes.
+                pictureVersions[agent.session] = agent.avatarVer
             }
-            pictureVersions[agent.session] = agent.avatarVer
+            // Anything else (the gate's sign-in page, a 5xx) is tried again on the next read.
         }
     }
 
@@ -238,6 +247,8 @@ final class BoardClient: ObservableObject {
             env.defaults.set(mac.address, forKey: Board.rememberedMacKey)
         }
         guard let (mac, url, _) = admitted else { return }
+        // Another Mac: its agents' pictures are its own, even for an agent of the same name.
+        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:] }
         failedRefreshes = 0
         while !Task.isCancelled && gen == generation {
             guard await refresh(url: url, mac: mac, gen) else { return }
@@ -355,9 +366,11 @@ final class BoardClient: ObservableObject {
             shownMac = mac
             retriedUnreachable = false
             set(.live(mac: mac), gen)
-            // Pictures load on their own, never holding up the next status read.
-            pictureTask?.cancel()
-            pictureTask = Task { await self.fetchPictures(url: url, gen) }
+            // Pictures load on their own, never holding up the next status read; one batch at a time, never cancelled
+            // by the next read (a cancelled fetch must not count as a failed one).
+            if pictureTask == nil {
+                pictureTask = Task { await self.fetchPictures(url: url, gen); self.pictureTask = nil }
+            }
             return true
         }
         if Board.sessionEnded(status: status, contentType: answer?.value(forHTTPHeaderField: "Content-Type")) {
@@ -387,8 +400,9 @@ final class BoardClient: ObservableObject {
             // A kept session that never produced a list in this run is not kept: the next launch asks Kosmos+ which
             // Mac to use, rather than restoring one that may be gone.
             if !listedThisRun { macStore.delete() }
+            // Not answering, said once; the loop keeps reading, so the next good read clears it by itself (a Mac back
+            // from sleep needs no Try again).
             set(.unreachable(mac: mac.name), gen)
-            return false
         }
         return true
     }
