@@ -30,6 +30,17 @@ listed + 110 syntax checks). test-launchagent-leak-guard-3011 stays, with its re
 - macOS coverage: the three that leave run only on Linux; their `stat` call is test plumbing and what they test is the
   same on both platforms, and the full suite at each release cut still runs them on macOS.
 
+## Slice 2: `sed -i ''` (test-browser-run-guard)
+- `sed -i '' "s/.../" file` is BSD-only (GNU reads `''` as the script and the real script as a file name). Rewritten to
+  write the edited copy beside the file and `mv` it over, portable everywhere.
+- Measured on ubuntu-latest, probe branch probe-6799b (never merged), run 39553501883: rc 0. Its one SKIP ("the SHIPPED
+  pgrep expression vs a real process") is OPT-IN on every platform (`KOSMOS_BC_REALPATH=1`, because its look-alike page
+  layer would refuse a concurrent release cut), not a platform skip, so the move loses no macOS coverage. Passes on
+  this Mac. It leaves the list: Linux 234, macOS job 140 (30 listed + 110 syntax).
+- The same probe ran every other listed command alone on Linux and confirmed each recorded reason still holds (Cocoa/
+  swiftc, `date -r`/`-v`, `--uname`, `nc -G`, `pgrep -fl`, codesign, signal decoding, BSD sed's `N`, the Darwin-only
+  skips), so each further move needs a real code change and its own slice.
+
 ## Review iteration 1 (opus): 1 WARNING, 1 NIT, both fixed
 - WARNING: my first draft said `_la_mtime`'s BSD branch stays covered on macOS by run-tests.sh's own LaunchAgents guard.
   Reasoned, and wrong on a hosted runner: `launchagent_snapshot` calls `_la_mtime` only for `com.kosmos.agent.*.plist`
