@@ -90,6 +90,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'server.filebrowser-6724.test.js': 'its win32 branch only skips the backslash-name arm (a backslash cannot be in a Windows name, so the case does not exist there); the file walks real symlinks and hard links throughout, which a Windows runner cannot make without admin; the Windows paths of the gates it uses (resolveListedFile, sameListedPath, sameOpenedFile) are tested in engine/projects.download.win32-5165.test.js',
   'engine/remote-mode-6548.test.js': 'its win32 branch skips every arm: it checks POSIX file modes (0600 under three umasks), which Windows does not have; the write it tests keeps 0o600, which Windows reads only as not read-only (#6548).',
   'engine/agykeep-5812.test.js': 'its win32 host branch only skips the real-agy arm (a Mac CLI against a fake Gemini API; Kosmos runs no agy agents on Windows); the bridge\'s Windows paths are tested through its platform seam on every non-Windows host',
   'engine/codexhooks-5812.test.js': 'its win32 branch only skips the real-Codex arm; the hook it tests is installed by the Mac supervisor only (#5812 item 2), and the Windows codex launch is a separate slice',

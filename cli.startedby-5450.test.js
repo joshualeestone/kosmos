@@ -115,7 +115,7 @@ test('#5450: `kosmos start` marks a person\'s start, the watchdog\'s says superv
 
   // Review 2: the watchdog's word never reaches the board (nor, through it, any pane a person later starts Kosmos from).
   assert.match(src, /-u KOSMOS_START_BY PORT="\$PORT" KOSMOS_BOARD_STARTED_BY="\$_started_by"/, 'board-run passes KOSMOS_START_BY to the board');
-  assert.match(src, /-u KOSMOS_START_BY PORT="\$PORT" KOSMOS_BOARD_STARTED_BY="\$_start_by" KOSMOS_BOARD_PERSON_MARK="\$PERSON_START_FILE" nohup/, 'the direct start passes KOSMOS_START_BY, or not the mark path, to the board');
+  assert.match(src, /-u KOSMOS_START_BY PORT="\$PORT" KOSMOS_BOARD_STARTED_BY="\$_start_by" KOSMOS_BOARD_PERSON_MARK="\$PERSON_START_FILE" KOSMOS_INSTALLED_HOME="\$KOSMOS_HOME" nohup/, 'the direct start passes KOSMOS_START_BY, or not the mark path, to the board');
   // Review 5: a direct start is a person's unless the watchdog says otherwise (flipping this default left every test green).
   assert.match(src, /local _start_by=person; \[ "\$\{KOSMOS_START_BY:-\}" = supervisor \] && _start_by=supervisor/, 'the direct start does not default to a person');
   // Review 1: the watchdog brings back a board nobody stopped: both of its starts say supervisor.

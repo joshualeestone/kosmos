@@ -247,6 +247,13 @@ const PAUSED_SENTENCE = 'updates are paused while Kosmos checks a problem with a
  * through. Returns the installer's exit code, or 97 (a sentence on stderr) when it was not run. */
 const NOT_RUN = 97;      // refused: the installer or its manifest did not check out (a retry gives the same answer)
 const NOT_FETCHED = 96;  // a download failed (a retry can succeed: a half-published deploy, the network)
+/* #6659 (review 1): setup.sh tells the default copy from a sandboxed one by the path STRING, so a home that resolves to
+   the default copy is handed over as the default string itself (a ~/.local reached through a link resolves elsewhere). */
+function asTheInstallerNamesIt(home) {
+  const dflt = path.join(require('os').homedir(), '.local', 'share', 'kosmos');
+  try { if (fs.realpathSync(home) === fs.realpathSync(dflt)) return dflt; } catch { /* either gone: as handed */ }
+  return home;
+}
 function runSetup({ setupUrl, base, version, home, spawnSync = require('child_process').spawnSync }) {
   const say = (why) => { process.stderr.write('Kosmos: ' + why + ', so the installer was not run.\n'); return NOT_RUN; };
   const sayFetch = (why) => { process.stderr.write('Kosmos: ' + why + ', so the installer was not run.\n'); return NOT_FETCHED; };
@@ -302,6 +309,11 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     if (r.code !== 0) return say(r.why);
     const env = { ...process.env };
     delete env.NODE_OPTIONS;
+    /* #6659: the installer updates THIS copy, the home it was handed. The board runs with no KOSMOS_HOME exported
+       (install/kosmos sets it unexported), so without this the installer took its default, ~/.local/share/kosmos: a
+       board installed anywhere else (a test board, a home of the person's choosing) updated the default copy instead,
+       stopping and replacing the person's own Kosmos. */
+    env.KOSMOS_HOME = asTheInstallerNamesIt(home);
     // stdin is not handed on: under curl | sh the installer's stdin was its own bytes, so it never read one.
     const run = spawnSync('/bin/sh', [files.setup], { stdio: ['ignore', 'inherit', 'inherit'], env });
     // 96 and 97 are reserved for "not run": an installer that exits either itself is reported as a plain failure.

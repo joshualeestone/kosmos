@@ -550,6 +550,20 @@ function autoPref() {
   return require('./autoupdate').read();
 }
 
+/* #6659 (review 1): the home as the INSTALLER knows it. installedRoot() is __dirname-based, and Node resolves links in
+   __dirname (a ~/.local reached through a link, or a temp home under /var, which is /private/var on a Mac), while
+   setup.sh tells the default copy from a sandboxed one, and names its launch label, by the path STRING. install/kosmos
+   exports the path it ran under as KOSMOS_INSTALLED_HOME (it is not KOSMOS_HOME, so agents the board starts do not
+   inherit a home); used only when it resolves to this very copy. */
+let installedHomeSaid;   // #6659: set once by server.js at startup (then removed from the environment)
+function setInstalledHomeAsInstalled(v) { installedHomeSaid = typeof v === 'string' && v ? v : undefined; }
+function installedHomeAsInstalled() {
+  const root = installedRoot();
+  if (!root) return null;
+  const said = installedHomeSaid;
+  try { if (said && path.isAbsolute(said) && fs.realpathSync(said) === fs.realpathSync(root)) return said; } catch { /* gone: the root */ }
+  return root;
+}
 function installedRoot() {
   if (installedRootFn) return installedRootFn();
   /* 🪟 win32 (S4): the shipped bundle is a portable zip -- `runtime\node.exe` and `app\server.js`,
@@ -1263,7 +1277,7 @@ function beginInstall(opts) {
      installer and the target version's signed manifest, check the installer against it, and only then run it with sh
      (run-setup). Exit 97 is "not run" (refused), recorded like any other code; readStatusRecord words it. */
   const target = cache && cache.latest && cache.latest.version ? String(cache.latest.version) : '';
-  const child = spawn('/bin/sh', ['-c', '"$5" "$6" run-setup "$1" "$7" "$8" "$9"; code=$?; printf "%s %s\n" "$code" "$3" > "$2"; if [ "$4" != /dev/null ]; then rm -f "$4"; fi', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, startedMarker, process.execPath, path.join(__dirname, 'manifest-verify.js'), releaseBase(), target, installedRoot() || ''], {
+  const child = spawn('/bin/sh', ['-c', '"$5" "$6" run-setup "$1" "$7" "$8" "$9"; code=$?; printf "%s %s\n" "$code" "$3" > "$2"; if [ "$4" != /dev/null ]; then rm -f "$4"; fi', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, startedMarker, process.execPath, path.join(__dirname, 'manifest-verify.js'), releaseBase(), target, installedHomeAsInstalled() || ''], {
     detached: true,
     stdio: 'ignore',
     // #2036: pass the channel so the spawned setup.sh re-reads the SAME pointer this refresh
@@ -1374,6 +1388,7 @@ module.exports = {
   paused, pauseRefusalNow, // kosmos#6620
   PAUSED_SENTENCE: manifestVerify.PAUSED_SENTENCE, // kosmos#6620
 
+  installedHomeAsInstalled /* #6659: the home as the installer knows it; exported so a test RUNS its fallbacks */, setInstalledHomeAsInstalled,
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, windowsBuildName, windowsGenericName, // the per-platform check (win32-update-check)
   installOffer, // S4: the [Update] offer (installedRoot AND not a refused win32 location); one derivation

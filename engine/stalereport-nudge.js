@@ -9,6 +9,7 @@
  *  - its latest report (selfreport.read) is `blocked`, not written by Kosmos, and its waiting run began over
  *    STALE_WAIT_MS ago
  *    (selfreport.STALE_WAIT_MS, with the comparison `kosmos report show` uses);
+ *  - its `until` does not hold it back (selfreport.untilDefers, kosmos#6683: also report show's rule);
  *  - its card shows that report (stateReported, and the same state: the board's reconcile can set a report aside);
  *  - its card is ours, a Claude agent, not mid-turn (activeWhileWaiting: a later sweep tells it), and not a switched-off
  *    swarm.
@@ -102,6 +103,8 @@ function plan(card, rep, entry, now, remindedAt) {
   if (!Number.isFinite(at) || !Number.isFinite(now)) return { act: 'none', because: 'no readable time for its report' };
   // The comparison `kosmos report show` uses (the run's start, over STALE_WAIT_MS), so the two agree on which is stale.
   if (!(now - at > selfreport.STALE_WAIT_MS)) return { act: 'none', because: 'its report is not over a day old' };
+  // kosmos#6683: a report that says until when is held back by it (selfreport.untilDefers: one rule with report show).
+  if (selfreport.untilDefers(rep, now)) return { act: 'none', because: 'its report says until when, and that holds it back' };
   if (remindedAt === runOf(rep) || (entry && entry.forAt === runOf(rep) && entry.nudgedAt != null)) return { act: 'none', because: 'already reminded about this report' };
   if (entry && entry.forAt === runOf(rep) && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) {
     return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
@@ -224,4 +227,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, remindedFile, screenOpen, MAX_TRIES, REMINDED_STATE, PRUNE_MS };
+module.exports = { untilTimeOf: selfreport.untilTimeOf, plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, remindedFile, screenOpen, MAX_TRIES, REMINDED_STATE, PRUNE_MS };

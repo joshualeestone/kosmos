@@ -200,6 +200,12 @@ async function runRemote(engine, platform, say) {
         engine + ' R2: over Kosmos+ the button for ' + what + ' asks the board for nothing and says where it opens',
         r.missing ? 'no #' + id : JSON.stringify({ asked, said: r.said }));
     }
+    // #6724: over Kosmos+ the folder buttons are not shown at all (a window on the far Mac); the sentence above stays as
+    // the backstop for a click that reaches one anyway. The Terminal and Accessibility buttons keep their sentence.
+    // Each button's own `hidden` attribute is cleared first (two start hidden), so only the remote rule can hide it here.
+    const folderIds = BUTTONS.filter((b) => b[3] === FOLDER_SENTENCE).map((b) => b[1]);
+    const shown = await pg.evaluate((ids) => ids.filter((id) => { const b = document.getElementById(id); if (!b) return true; b.hidden = false; return getComputedStyle(b).display !== 'none'; }), folderIds);
+    say(shown.length === 0, engine + ' R9 (#6724): over Kosmos+ no button that opens a folder on the board\u2019s computer is shown', JSON.stringify(shown));
     say(errors.length === 0, engine + ' R: no page errors', errors.slice(0, 3).join(' | '));
   } finally {
     await browser.close();
@@ -243,6 +249,12 @@ async function runLocal(engine, platform, say) {
         engine + ' L1: CONTROL at the computer the button for ' + what + ' still asks the board to act',
         r.missing ? 'no #' + id : JSON.stringify({ asked, said: r.said }));
     }
+    // #6724 CONTROL: at the computer the remote rule hides nothing: the stamp is not set, and with their own `hidden`
+    // cleared the same folder buttons are displayed (the mirror of R9).
+    const folderIds = BUTTONS.filter((b) => b[3] === FOLDER_SENTENCE).map((b) => b[1]);
+    const local = await pg.evaluate((ids) => ({ stamped: document.documentElement.hasAttribute('data-kplus-remote'),
+      hidden: ids.filter((id) => { const b = document.getElementById(id); if (!b) return true; b.hidden = false; return getComputedStyle(b).display === 'none'; }) }), folderIds);
+    say(!local.stamped && local.hidden.length === 0, engine + ' L9 (#6724): CONTROL at the computer the folder buttons are not hidden by the remote rule', JSON.stringify(local));
     say(errors.length === 0, engine + ' L: no page errors', errors.slice(0, 3).join(' | '));
   } finally {
     await browser.close();
