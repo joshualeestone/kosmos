@@ -128,3 +128,10 @@ Card: kosmos#6761, from a user feedback report (a project-manager agent, 2026-10
   7); engine.reachable (filehash's four test seams are now in SEAMS_5548, by file); the two #1732 audits (the stat key
   joins with '|', not ':', and the open flags are captured once each as FP_NOFOLLOW / FP_NONBLOCK with classified
   INVENTORY rows, as filepreview.js does, rather than a bumped count).
+- Mortals full suite at fc716aaa5 (2026-10-20 20:48): 22769 tests, 22447 passed, 2 failed, 320 skipped. The 2 are
+  #6668's watchdog arms (known, load; #6768 fixes them); nothing of this branch's.
+- Iteration 9 (opus): two NITs, both fixed. (1) The iteration 3 ACCEPTED item's premise that Windows reports no blocks is
+  unmeasured both ways (libuv may derive blocks from the allocation size, which would make the same rule catch a OneDrive
+  placeholder there); the comment now says so and claims neither. A Windows measurement would settle it. (2) hashOne
+  allocated a fresh zero-filled 1 MiB buffer per file; it now reuses one module buffer, which is safe because drain hashes
+  one file at a time and only the bytes each read fills are hashed.
