@@ -56,10 +56,16 @@ test('#6791: linux and mac split test:shell exactly, as the macOS-only list says
   assert.ok(mac.size > 0, 'tools/shell-macos-only.txt lists nothing');
   const linux = sh.forPlatform(all, 'linux');
   const onMac = sh.forPlatform(all, 'mac');
-  assert.equal(linux.length + onMac.length, all.length, 'a command is in both platforms, or in neither');
-  assert.deepEqual([...linux, ...onMac].sort(), [...all].sort());
-  assert.deepEqual(onMac.slice().sort(), [...mac].sort(), 'mac runs exactly the listed commands');
+  assert.deepEqual([...new Set([...linux, ...onMac])].sort(), [...all].sort(), 'a command runs on neither platform');
   assert.ok(linux.every((c) => !mac.has(c)), 'a listed command runs on linux');
+  assert.ok([...mac].every((c) => onMac.includes(c)), 'a listed command does not run on mac');
+  // Review 3: the only commands on both are syntax-only checks; every one of them runs on mac (bash 3.2's /bin/sh).
+  const both = linux.filter((c) => onMac.includes(c));
+  assert.ok(both.length > 50, `only ${both.length} commands on both platforms: the syntax checks are not on mac`);
+  assert.ok(both.every((c) => sh.SYNTAX_ONLY.test(c)), 'a command that is not a syntax check runs on both: ' + both.filter((c) => !sh.SYNTAX_ONLY.test(c)).join('; '));
+  assert.deepEqual(all.filter((c) => sh.SYNTAX_ONLY.test(c)).filter((c) => !onMac.includes(c)), [], 'a syntax check is missing from the mac job');
+  assert.ok(onMac.includes('sh -n install/setup.sh'), 'CONTROL: the installer\u2019s sh -n runs on mac');
+  assert.deepEqual(onMac.filter((c) => !sh.SYNTAX_ONLY.test(c)).sort(), [...mac].sort(), 'mac runs the listed commands and syntax checks, nothing else');
   assert.deepEqual(sh.forPlatform(all, ''), all, 'no platform (a local full run) is the whole list, in order');
   // The linux shards still cover every linux command exactly once.
   const union = Array.from({ length: sh.SHELL_SHARDS }, (_, k) => sh.select(linux, k + 1, sh.SHELL_SHARDS)).flat();
@@ -72,7 +78,7 @@ test('#6791: a stale line in the macOS-only list refuses, and so does an unknown
   assert.throws(() => sh.macOnly('bash gone.sh\n', list), /names commands test:shell does not have: bash gone\.sh/);
   const mac = new Set(['bash b.sh']);
   assert.deepEqual(sh.forPlatform(list, 'linux', mac), ['bash a.sh', 'sh -n c.sh']);
-  assert.deepEqual(sh.forPlatform(list, 'mac', mac), ['bash b.sh']);
+  assert.deepEqual(sh.forPlatform(list, 'mac', mac), ['bash b.sh', 'sh -n c.sh'], 'mac also runs every syntax check');
   assert.throws(() => sh.forPlatform(list, 'bsd', mac), /platform must be linux or mac/);
   // The CLI takes it as a fourth word and refuses a bad one with exit 2.
   const r = cp.spawnSync(process.execPath, [path.join(__dirname, 'tools', 'shell-shard.js'), 'list', '1', '1', 'bsd'], { encoding: 'utf8' });

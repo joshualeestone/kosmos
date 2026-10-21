@@ -5,7 +5,8 @@
 # A second probe (run 39538876370) kept each passing command's skip lines: 8 of the 238 passed on Linux only by
 # skipping their macOS work (a whole file, or the arms that need macOS), so on Linux they would test nothing they test
 # on macOS. They are listed too, at the end. That is 34 here, and 230 commands on Linux.
-# tools/shell-shard.js reads this file: `linux` shards run everything NOT listed here, the `mac` shard runs only these.
+# tools/shell-shard.js reads this file: `linux` shards run everything NOT listed here, the `mac` shard runs these, plus
+# every syntax-only check (`sh -n` / `bash -n`), which runs on both: macOS /bin/sh is bash 3.2, Linux sh is dash.
 # Each line is a test:shell command exactly as package.json writes it; a line naming no such command fails every shard,
 # so this list cannot go stale silently. A new macOS-only test is NOT listed by default, so it goes red on the Linux
 # shards, loudly, and is added here (or fixed) on purpose. To move a test to Linux, make it pass there and remove it.
