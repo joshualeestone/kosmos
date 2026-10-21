@@ -272,6 +272,9 @@ function saveStream(scope, owner, { name, type, by }, source) {
     source.on('end', onEnd);
     source.on('error', onFail);
     source.on('close', onClose);
+    // Review 21: a source that already ended or went away will never emit again, so it is refused now rather than
+    // left waiting with the part file open (a route that awaited before calling this would otherwise leak).
+    if (source.destroyed || source.readableAborted || source.readableEnded) onFail();
   });
 }
 

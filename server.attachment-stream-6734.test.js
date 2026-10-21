@@ -684,3 +684,23 @@ test('#6734: discardStored removes only an attachment folder, never an owner fol
     assert.ok(!fs.existsSync(id), 'CONTROL: an attachment folder is removed');
   } finally { fs.rmSync(owner, { recursive: true, force: true }); }
 });
+
+test('#6734: saveStream refuses a request that already went away instead of waiting on it for ever', async () => {
+  const { PassThrough } = require('node:stream');
+  const gone = new PassThrough();
+  gone.destroy();
+  await new Promise((r) => gone.once('close', r));   // gone already: its close has fired before saveStream listens
+  assert.ok(gone.destroyed && gone.listenerCount('close') === 0);
+  const before = fs.existsSync(path.join(attachments.ROOT, 'agent', 'gone-source')) ? fs.readdirSync(path.join(attachments.ROOT, 'agent', 'gone-source')).length : 0;
+  const got = await Promise.race([
+    attachments.saveStream('agent', 'gone-source', { name: 'x.bin', type: 'application/octet-stream' }, gone).then(() => 'stored', (e) => e.message),
+    wait(2000).then(() => 'still waiting'),
+  ]);
+  assert.equal(got, 'the file stopped arriving before it was whole');
+  assert.ok(await until(() => fs.readdirSync(path.join(attachments.ROOT, 'agent', 'gone-source')).length === before), 'its folder was left');
+  // CONTROL: a live source is still read and stored.
+  const live = new PassThrough();
+  const kept = attachments.saveStream('agent', 'gone-source', { name: 'y.bin', type: 'application/octet-stream' }, live);
+  live.end(Buffer.from('ok'));
+  assert.equal((await kept).size, 2);
+});

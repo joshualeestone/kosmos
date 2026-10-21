@@ -212,6 +212,11 @@ phone yet: the remaining manual step covers it.
    <scope>/<owner>/<24-hex id> folder (test: an owner folder, a non-id folder and a path outside the store are left;
    red with the looser check).
 
+30. **Review 21:** `saveStream` refuses a source that has already ended or gone away, at once, instead of waiting for
+   events that will never come with the part file open (unreachable from today's route, which calls it in the first
+   tick, but one `await` added before it would make every aborted upload a leak). Test with a destroyed stream and a
+   live one as the control; red without the check (it waits for ever).
+
 ### Considered and not changed (review 17)
 - A record naming exactly the part file, or a reserved name with trailing dots on macOS, stays unreachable: rare, and
   the fallback keeps one rule for all platforms rather than per-platform exceptions.
@@ -263,7 +268,8 @@ gap, stated here; this branch changes no Windows-side code or test selection, so
 stream is closed before its rename or removal (Windows will not rename an open file). A download now holds the file
 open for its whole length; the only paths that delete an attachment's folder are `abandon` (a failed upload's own
 folder, before anyone can download it), `replyfile.discard` (a reply copy that was never kept, so never offered),
-and the preview's temp folder; and `sweepOrphans` (decision 10), which removes only folders with no record.json,
+and the preview's temp folder; `discardStored` (decisions 28 and 29), which removes an upload nobody holds the id of;
+and `sweepOrphans` (decision 10), which removes only folders with no record.json,
 which are never served and so never held open by a download. All are best effort (`try`/`catch`), so none can fail a
 request on EBUSY.
 
@@ -273,7 +279,7 @@ The test used to accept a reset in place of the 400. It now requires the 400 wit
 a load average of about 10. If a client ever sees a reset instead, the page's own size check has already refused the
 file before sending it.
 
-## Tests (server.attachment-stream-6734.test.js, 31 tests, and web.attach-slow-6734.test.js, 2 tests; green at each review commit, and the full suite at the final head is in the proof file)
+## Tests (server.attachment-stream-6734.test.js, 32 tests, and web.attach-slow-6734.test.js, 2 tests; green at each review commit, and the full suite at the final head is in the proof file)
 
 - the cap is 100 MB and is said as "100 MB";
 - a 6 MB download is byte-identical (sha256) with its Content-Length; HEAD has the length and no body; no
