@@ -43,10 +43,9 @@ const COMMAND_TOOLS = new Set(['Bash']);
    2: Codex and Gemini CLI agents are read (slice 2).
    3: the pull requests a Claude agent worked on while it held the task (`prs`, kosmos#6842). */
 const VERSION = 3;
-/* kosmos#6842: Claude Code writes a `pr-link` row (prRepository, prNumber, prUrl) when a session acts on a pull request:
-   measured on this Mac, a session's first row for a PR followed `gh pr create` 316 times, `gh pr comment` 43, `gh pr
-   merge` once, other commands 15. So a session's first row for a PR says the agent worked on it (not that it opened it);
-   its later rows are repeats. A PR is listed when some session's first row for it is inside a hold. */
+/* kosmos#6842: Claude Code writes a `pr-link` row (prRepository, prNumber, prUrl) when a session acts on a pull request
+   (opens, comments on or merges it), then repeats it on that session's later turns. A PR is listed when some session's
+   first row for it is inside a hold. The measurements behind this are in the branch's plan. */
 const PR_REPO = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 const PRS_SHOWN = 20;
 /* Slice 2: the providers read besides Claude, by the agent's recorded runner. */
