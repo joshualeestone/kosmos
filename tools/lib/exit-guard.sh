@@ -14,14 +14,13 @@
 #   kosmos_finished                         # directly before every success `exit 0`, and as the last line
 #
 # A non-zero exit keeps its own status. Source this BEFORE the guard is set: a failed `.` before any EXIT trap keeps
-# its status anyway. Under `set -e` a cleanup function that returns non-zero ends the trap there, with that status
-# and no line of its own (as the old `trap '...' EXIT` did): keep cleanups to commands that cannot fail.
+# its status anyway.
 
 kosmos_exit_guard() {   # <cleanup function> <name for the message>
   _KX_FINISHED=0
   _KX_CLEANUP=${1:-:}
   _KX_NAME=${2:-script}
-  trap '_kx_rc=$?; "$_KX_CLEANUP"; [ "$_kx_rc" != 0 ] || [ "${_KX_FINISHED:-0}" = 1 ] || { echo "$_KX_NAME: the run stopped before finishing; the cause is above. Treat the run as FAILED (kosmos#6831)" >&2; exit 1; }' EXIT
+  trap '_kx_rc=$?; "$_KX_CLEANUP" || :; [ "$_kx_rc" != 0 ] || [ "${_KX_FINISHED:-0}" = 1 ] || { echo "$_KX_NAME: the run stopped before finishing; the cause is above. Treat the run as FAILED (kosmos#6831)" >&2; exit 1; }' EXIT
 }
 
 kosmos_finished() { _KX_FINISHED=1; }

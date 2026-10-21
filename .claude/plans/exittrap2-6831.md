@@ -11,7 +11,8 @@ Measured table on #6826 (comment of 08:05 CDT): without `set -e`, or without an 
 ## Shape
 
 - `tools/lib/exit-guard.sh`: `kosmos_exit_guard <cleanup-function> <name>` replaces a script's EXIT trap. The trap
-  runs the cleanup, keeps any non-zero status, and turns a 0 into exit 1 with one line unless `kosmos_finished` ran.
+  runs the cleanup (`|| :`, so a cleanup that fails neither stops the check nor fails a finished run), keeps any
+  non-zero status, and turns a 0 into exit 1 with one line unless `kosmos_finished` ran.
   An unset flag counts as NOT finished (nothing extracts these scripts' blocks, so failing safe costs nothing).
 - Guarded with it: build-installer-pkg.sh, build-tmux-from-source.sh, build-kosmos-bundle.sh and
   build-kosmos-windows.sh (each succeeds by falling off the end, so `kosmos_finished` is its last line), and
@@ -41,6 +42,7 @@ the cut exercises bundle, pkg and release, and the first cut after this merges i
 
 `tools/test-exit-guard-6831.sh`: the library under /bin/sh and /bin/bash with controls showing the old trap exits 0
 here; release.sh's two trap lines lifted and run with a stub recorder (a death records 1 and exits 1, a finished cut
-records 0, `exit 3` records 3); a pin per guarded script. Mutants (one release.sh trap reverted, a finish mark
+records 0, `exit 3` records 3); a pin per guarded script (any exit after the guard that could carry 0), and one
+for release.sh (no `exit 0` or bare `exit` after its first guarded trap). Mutants (one release.sh trap reverted, a finish mark
 dropped, the library's conversion removed) go red. The 42 shell tests and 6 node files that name release.sh, and
 the tests that name each builder, pass.
