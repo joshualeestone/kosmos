@@ -53,7 +53,7 @@ make_site() {
     git -C "$s" add -A && git -C "$s" commit -q -m "release $v"
   done
   # Its origin: a bare repo, as the real site's GitHub remote. The freeze is pushed there.
-  git init -q --bare "$s.origin.git" && git -C "$s" remote add origin "$s.origin.git" && git -C "$s" push -q origin main
+  git init -q --bare --initial-branch=main "$s.origin.git" && git -C "$s" remote add origin "$s.origin.git" && git -C "$s" push -q origin main
   git -C "$s" fetch -q origin && git -C "$s" branch -q --set-upstream-to=origin/main main
   printf '%s' "$s"
 }

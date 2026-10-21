@@ -79,7 +79,7 @@ mkdir -p "$T/site/dist"; printf 'aaa111  kosmos-9.9.9-arm64.tar.gz\n' > "$T/site
 # The site is a checkout with a local origin, unfrozen: the healthy case, so the block's kosmos#6620 re-check (it asks
 # origin/main just before vercel) fetches for real in every arm below.
 sg() { git -C "$T/site" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
-git init -q --bare "$T/origin.git" && sg init -q -b main && sg add dist && sg commit -q -m site \
+git init -q --bare --initial-branch=main "$T/origin.git" && sg init -q -b main && sg add dist && sg commit -q -m site \
   && sg remote add origin "$T/origin.git" && sg push -q origin main || { bad "could not build the fake site checkout"; exit 1; }
 # run_step8 <vercel rc> <served sha, or none> [fetches before it is served] [tries override]
 #   prints the block's output then "DEPLOYED=<value>"; returns the block's exit code
