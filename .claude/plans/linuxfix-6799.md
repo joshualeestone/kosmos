@@ -13,8 +13,8 @@ without printing to stdout. Swapped at the four BSD-first sites:
 - `tools/test-supervisor-codex-isolation-4592.sh:80`
 - `tools/lib/launchagent-leak-guard.sh:27` (`_la_mtime`, used by test-launchagent-leak-guard-3011 and by run-tests.sh's
   own LaunchAgents guard)
-Their four test:shell commands leave `tools/shell-macos-only.txt` (Linux 234 commands, macOS job 140 = 30 listed + 110
-syntax checks).
+Three of their four test:shell commands leave `tools/shell-macos-only.txt` (Linux 233 commands, macOS job 141 = 31
+listed + 110 syntax checks). test-launchagent-leak-guard-3011 stays, with its reason corrected (review 1, below).
 
 ## Measured
 - ubuntu-latest, probe branch probe-6799 (never merged), run 39551438303:
@@ -27,8 +27,16 @@ syntax checks).
 ## Decided, not missed
 - One slice per card comment: the other groups named on the card (`sed -i ''`, `pgrep -fl`, the swiftc skip, sysctl
   hw.ncpu) each need their own Linux measurement and are left for the next slices.
-- macOS coverage: the four now run only on Linux. Their macOS path (`stat -f`) is still exercised on macOS by
-  run-tests.sh's own LaunchAgents guard (`_la_mtime`) in every macOS job, and by the full suite at each release cut.
+- macOS coverage: the three that leave run only on Linux; their `stat` call is test plumbing and what they test is the
+  same on both platforms, and the full suite at each release cut still runs them on macOS.
+
+## Review iteration 1 (opus): 1 WARNING, 1 NIT, both fixed
+- WARNING: my first draft said `_la_mtime`'s BSD branch stays covered on macOS by run-tests.sh's own LaunchAgents guard.
+  Reasoned, and wrong on a hosted runner: `launchagent_snapshot` calls `_la_mtime` only for `com.kosmos.agent.*.plist`
+  files, which a clean macos-latest runner does not have. So test-launchagent-leak-guard-3011 is the only CI run of the
+  BSD branch, and it stays on the macOS list with that reason. The swap itself stays (it makes the Linux run correct, and
+  it also fixes a Mac with GNU coreutils' stat first on PATH).
+- NIT: the helper's header comment now names the GNU form first, as the code tries it.
 
 ## Weakest premise
 That GNU-first is harmless on macOS everywhere it runs: BSD `stat -c` exits non-zero with its usage on stderr only

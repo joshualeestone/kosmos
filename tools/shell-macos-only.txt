@@ -20,6 +20,9 @@ bash tools/test-app-bundle-status.sh
 bash tools/test-board-watchdog-2955.sh
 # BSD sed -i ''.
 bash tools/test-browser-run-guard.sh
+# The LaunchAgents guard's subject is macOS: on Linux only _la_mtime's GNU branch runs, and on a clean hosted Mac the
+# guard sees no plists, so this test is the only CI run of its BSD branch (stat -f %m). #6799 review 1.
+bash tools/test-launchagent-leak-guard-3011.sh
 # BSD stat -f; launchd and pmset (tools/ci-runner-setup.sh).
 bash tools/test-ci-runner-setup-4601.sh
 # pgrep -fl prints the full command line on macOS, only the name on Linux (tools/lib/cut-guard.sh).
