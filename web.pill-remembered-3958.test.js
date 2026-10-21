@@ -186,8 +186,8 @@ test('#3991: the dot\'s trust exception reads needsTrust (the board poll\'s own 
 });
 
 test('#6716: the screen-line fold starts closed each time it appears, and a poll leaves an opened one open', () => {
-  const board = fleet.install([fleet.agent('beatrix', { state: 'working',
-    screen: 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n' })]);
+  const screen = 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n';
+  const board = fleet.install([fleet.agent('beatrix', { state: 'working', screen }), fleet.agent('cora', { state: 'working', screen })]);
   try {
     const card = board.agents.find((x) => x.name === 'beatrix');
     const waiting = { ...card, state: 'needs_you' };
@@ -203,7 +203,7 @@ test('#6716: the screen-line fold starts closed each time it appears, and a poll
     pillFor.repaint(waiting);   // waiting on something again
     assert.equal(box.open, false, 'the fold came back already open for a new wait');
     box.open = true;
-    pillFor.repaint({ ...waiting, sessionName: 'someone-else', name: 'Someone' });
+    pillFor.repaint({ ...board.agents.find((x) => x.name === 'cora'), state: 'needs_you' });   // another agent, from the fleet
     assert.equal(box.open, false, 'another agent\'s quote opened already expanded');
   } finally {
     fleet.restore();
