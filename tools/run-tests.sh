@@ -142,6 +142,13 @@ if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
     exit 2
   fi
 fi
+# #6791: which platform's share of test:shell a shard runs (tools/shell-macos-only.txt): linux or mac, only with a shard.
+if [ -n "${KOSMOS_SHELL_PLATFORM:-}" ]; then
+  if [ -z "${KOSMOS_SHELL_SHARD:-}" ] || { [ "$KOSMOS_SHELL_PLATFORM" != linux ] && [ "$KOSMOS_SHELL_PLATFORM" != mac ]; }; then
+    echo "run-tests: KOSMOS_SHELL_PLATFORM must be linux or mac and only with KOSMOS_SHELL_SHARD (got platform '$KOSMOS_SHELL_PLATFORM', shard '${KOSMOS_SHELL_SHARD:-}')" >&2
+    exit 2
+  fi
+fi
 
 # --- #6668: a wall-clock limit per test FILE, outside node ---------------------
 # A test blocked in a sync call (spawnSync, execSync, execFileSync with no timeout) blocks its own event loop, so
@@ -778,7 +785,7 @@ if [ "$KOSMOS_ONLY" = 1 ]; then
   :   # #4929: --only runs named node files; the shell part is the whole suite's
 elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
   if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
-    node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}"
+    node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}" ${KOSMOS_SHELL_PLATFORM:+"$KOSMOS_SHELL_PLATFORM"}
   else
     # #5907: the whole of test:shell as shard 1 of 1 (the same commands in the same order, stopping at the first
     # red, as the && chain did), so the log names each command's time and the slowest ones.

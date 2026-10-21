@@ -44,6 +44,27 @@ function commands(pkg) {
   return list;
 }
 
+// #6791: the test:shell commands that need macOS (tools/shell-macos-only.txt, with each one's reason and the probe that
+// measured them). A platform of `linux` keeps every command NOT listed, `mac` only the listed ones, and none (a local
+// full run) the whole list. A listed command that test:shell does not have refuses, so the list cannot go stale quietly.
+const MAC_ONLY_FILE = path.join(ROOT, 'tools', 'shell-macos-only.txt');
+const PLATFORMS = ['linux', 'mac'];
+
+function macOnly(text, list) {
+  const listed = String(text).split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  const known = new Set(list);
+  const stale = listed.filter((c) => !known.has(c));
+  if (stale.length) throw new Error(`shell-shard: tools/shell-macos-only.txt names commands test:shell does not have: ${stale.join('; ')}`);
+  return new Set(listed);
+}
+
+function forPlatform(list, platform, mac) {
+  if (!platform) return list;
+  if (!PLATFORMS.includes(platform)) throw new Error(`shell-shard: platform must be linux or mac (got ${platform})`);
+  const set = mac || macOnly(fs.readFileSync(MAC_ONLY_FILE, 'utf8'), list);
+  return list.filter((c) => (platform === 'mac') === set.has(c));
+}
+
 function shardOf(command, n) {
   return (crypto.createHash('sha256').update(command).digest().readUInt32BE(0) % n) + 1;
 }
@@ -128,14 +149,15 @@ function runShard(list, ii, nn, stdio = 'inherit', write = (s, fd = 1) => writeA
 }
 
 function main(argv) {
-  const [verb, i, n] = argv;
-  if (verb !== 'list' && verb !== 'run') { console.error('usage: node tools/shell-shard.js list|run <i> <n>'); return 2; }
+  const [verb, i, n, platform] = argv;
+  if (verb !== 'list' && verb !== 'run') { console.error('usage: node tools/shell-shard.js list|run <i> <n> [linux|mac]'); return 2; }
   const [ii, nn] = parseShard(i, n);
-  if (verb === 'list') { for (const c of select(commands(), ii, nn)) console.log(c); return 0; }
-  return runShard(commands(), ii, nn);
+  const list = forPlatform(commands(), platform || '');   // #6791
+  if (verb === 'list') { for (const c of select(list, ii, nn)) console.log(c); return 0; }
+  return runShard(list, ii, nn);
 }
 
-module.exports = { commands, shardOf, select, parseShard, runShard, writeAll, SHELL_SHARDS, SLOWEST };
+module.exports = { commands, shardOf, select, parseShard, runShard, writeAll, macOnly, forPlatform, SHELL_SHARDS, SLOWEST, MAC_ONLY_FILE };
 
 if (require.main === module) {
   try { process.exitCode = main(process.argv.slice(2)); } catch (e) { console.error(e.message); process.exitCode = 2; }

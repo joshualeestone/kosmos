@@ -1,0 +1,62 @@
+# #6791: the test:shell commands that need macOS. Every other test:shell command runs on Linux.
+#
+# Measured on ubuntu-latest (probe run 39535595626, main dc583148): each of the 264 commands run ALONE, 238 passed and
+# these 26 failed on a macOS dependency (the probe's 27th red was its own workflow's missing env, not a Linux failure).
+# tools/shell-shard.js reads this file: `linux` shards run everything NOT listed here, the `mac` shard runs only these.
+# Each line is a test:shell command exactly as package.json writes it; a line naming no such command fails every shard,
+# so this list cannot go stale silently. A new macOS-only test is NOT listed by default, so it goes red on the Linux
+# shards, loudly, and is added here (or fixed) on purpose. To move a test to Linux, make it pass there and remove it.
+# Lines starting with # and blank lines are ignored.
+
+# Compiles and runs Cocoa code with swiftc; skips only when swiftc is absent, not off macOS.
+bash tools/test-a11y-writer-mock-2125.sh
+# Asserts the Darwin branch of install/setup.sh's app-bundle status, unguarded.
+bash tools/test-app-bundle-status.sh
+# BSD stat -f and date -r; reads kern.boottime (bin/board-watchdog.sh).
+bash tools/test-board-watchdog-2955.sh
+# BSD sed -i ''.
+bash tools/test-browser-run-guard.sh
+# BSD stat -f; launchd and pmset (tools/ci-runner-setup.sh).
+bash tools/test-ci-runner-setup-4601.sh
+# pgrep -fl prints the full command line on macOS, only the name on Linux (tools/lib/cut-guard.sh).
+bash tools/test-cut-guard.sh
+# sysctl hw.ncpu (tools/lib/cut-load-guard.sh).
+bash tools/test-cut-load-guard.sh
+# sysctl hw.ncpu.
+bash tools/test-cut-parallel-region.sh
+# A status above 128 decodes as a signal on Linux (which has more signals), so its non-signal arm differs.
+bash tools/test-cut-step-record.sh
+# BSD stat -f in install/setup.sh, and a real /Library path.
+bash tools/test-data-root-1511.sh
+# A stat -f ... || stat -c fallback that breaks on GNU (GNU stat -f prints filesystem info before failing).
+bash tools/test-deploy-site-staged-mac-4819.sh
+# BSD date -v.
+bash tools/test-feedback-digest-daily.sh
+# BSD stat -f.
+bash tools/test-install-page-readable-3268.sh
+# Apple's nc -G (tools/test-install.sh).
+bash tools/test-install-portprobe-6457.sh
+# The stat -f ... || stat -c fallback that breaks on GNU (tools/lib/launchagent-leak-guard.sh).
+bash tools/test-launchagent-leak-guard-3011.sh
+# pgrep -fl (tools/lib/cut-guard.sh).
+bash tools/test-light-side-4911.sh
+# Its CONTROL relies on BSD sed's N on the last line (GNU sed prints the pattern space instead).
+bash tools/test-msg-newlines-1927.sh
+# The stat -f ... || stat -c fallback that breaks on GNU.
+bash tools/test-permission-acceptance.sh
+# Real codesign and PlistBuddy.
+bash tools/test-release-detached.sh
+# pgrep -fl.
+bash tools/test-running-anchor-5470.sh
+# Compiles Cocoa code with swiftc; skips only when swiftc is absent.
+bash tools/test-scan-hatch-symlink-2125b.sh
+# BSD date -v.
+bash tools/test-site-autodeploy-5589.sh
+# The process start token has another shape on Linux.
+bash tools/test-stopmark-6651.sh
+# The stat -f ... || stat -c fallback that breaks on GNU.
+bash tools/test-supervisor-codex-isolation-4592.sh
+# bsdtar's --uname/--gname.
+bash tools/test-tar-owner-gate-6562.sh
+# Apple's nc -G (tools/tunnel-handshake-gate.sh).
+bash tools/test-tunnel-handshake-gate.sh
