@@ -69910,6 +69910,29 @@ function pjDocMeta(f) {
     + (typeof f.changedBy === 'string' && f.changedBy ? ' · changed by ' + f.changedBy : '')
     + (fileFingerprint(f) ? ' · sha256 ' + fileFingerprint(f).slice(0, 12) : '');   // #6761
 }
+/* #6761 iteration 1: the Documents view reads its list once, when it opens, and the board hashes files in the background,
+   so a row is often sent before its fingerprint exists. While the same open is showing and a listed row has none, read
+   the list again (every 2 s, at most 15 times) and put the fingerprints that have arrived onto the rows by name, never
+   reordering or replacing the list the person is reading; the page they are on repaints in place. A file the board
+   will not hash (too big) simply runs out the tries. */
+const DOCS_FP_TRIES = 15;
+function docsFingerprintFill(forProject, openGen, tries) {
+  if (tries >= DOCS_FP_TRIES || !Array.isArray(PJ_DOCS_FILES) || PJ_DOCS_FILES.every((f) => fileFingerprint(f))) return;
+  setTimeout(async () => {
+    if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs' || DOCS_OPEN_GEN !== openGen) return;   // another view or open now
+    let body = null;
+    try { body = await (await fetch('/api/project/' + encodeURIComponent(forProject) + '/documents?limit=500', { cache: 'no-store' })).json(); } catch { body = null; }
+    if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs' || DOCS_OPEN_GEN !== openGen) return;
+    const got = new Map((body && Array.isArray(body.files) ? body.files : []).filter((f) => fileFingerprint(f)).map((f) => [f.name + '\u0000' + f.size + '\u0000' + f.modified, f.sha256]));
+    let added = false;
+    for (const f of PJ_DOCS_FILES) {
+      const sha = !fileFingerprint(f) && got.get(f.name + '\u0000' + f.size + '\u0000' + f.modified);   // the same file as listed, never a newer one
+      if (sha) { f.sha256 = sha; added = true; }
+    }
+    if (added) pjDocsPaintPage();
+    docsFingerprintFill(forProject, openGen, tries + 1);
+  }, 2000);
+}
 /* #6761 (a feedback report: a revised file handed over can be mistaken for an earlier version): a Files row's sha256,
    as the board sent it (hashed in the background, so a row may have none yet), or ''. Only a whole hex digest is shown;
    the row shows its first 12 digits and the whole value is the row's hover text. */
@@ -70043,6 +70066,7 @@ async function openDocsView() {
     PJ_DOCS_TOTAL = Number(body.total) || files.length;
     PJ_DOCS_PAGE = 0;
     pjDocsPaintPage();
+    docsFingerprintFill(forProject, docsOpen, 0);   // #6761 iteration 1: this view reads once; its fingerprints come later
     /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
     if (body.truncated === true) msg.textContent = pjDocsPartialHere();
   } catch {

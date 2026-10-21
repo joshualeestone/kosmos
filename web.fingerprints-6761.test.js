@@ -55,3 +55,36 @@ test('the Files screen row shows the short fingerprint and the whole value on ho
 test('the project rail carries the whole value on hover', () => {
   assert.match(SCRIPT, /w\.textContent = pjSize\(f\.size\);\n\s+if \(fileFingerprint\(f\)\) b\.title = f\.name \+ ', sha256 ' \+ fileFingerprint\(f\);/);
 });
+
+test('iteration 1: the Documents view fills fingerprints in after it opens, by the same file only, and stops', async () => {
+  const fn = page.liftAll(SCRIPT, ['fileFingerprint', 'docsFingerprintFill']) + '\n' + page.liftConst(SCRIPT, 'DOCS_FP_TRIES');
+  const run = (answers, view = 'docs') => {
+    const st = { PJ_CURRENT: 'p1', PJ_VIEW: view, DOCS_OPEN_GEN: 7, painted: 0, fetched: 0,
+      PJ_DOCS_FILES: [{ name: 'a.txt', size: 1, modified: 'm1' }, { name: 'b.txt', size: 2, modified: 'm2' }] };
+    const timers = [];
+    const api = new Function('st', 'setTimeout', 'fetch',
+      'let PJ_DOCS_FILES = st.PJ_DOCS_FILES; const pjDocsPaintPage = () => { st.painted += 1; };\n'
+      + fn.replace(/\bPJ_CURRENT\b/g, 'st.PJ_CURRENT').replace(/\bPJ_VIEW\b/g, 'st.PJ_VIEW').replace(/\bDOCS_OPEN_GEN\b/g, 'st.DOCS_OPEN_GEN')
+      + '\nreturn docsFingerprintFill;')(st, (f) => { timers.push(f); }, async () => { st.fetched += 1; const a = answers[Math.min(st.fetched - 1, answers.length - 1)]; return { json: async () => a }; });
+    return { st, timers, fill: api };
+  };
+  const drain = async (t, max = 50) => { for (let i = 0; i < max && t.timers.length; i++) await t.timers.shift()(); };
+  // The first read has a, then b: both fill in, the page repaints, and it stops once every row has one.
+  const ok = run([{ files: [{ name: 'a.txt', size: 1, modified: 'm1', sha256: FP }] }, { files: [{ name: 'a.txt', size: 1, modified: 'm1', sha256: FP }, { name: 'b.txt', size: 2, modified: 'm2', sha256: 'cd'.repeat(32) }] }]);
+  ok.fill('p1', 7, 0);
+  await drain(ok);
+  assert.deepEqual(ok.st.PJ_DOCS_FILES.map((f) => f.sha256), [FP, 'cd'.repeat(32)]);
+  assert.equal(ok.st.painted, 2);
+  assert.equal(ok.st.fetched, 2, 'it kept reading after every row had its fingerprint');
+  // A newer version of a file (another date) is never given to the row the person is looking at.
+  const newer = run([{ files: [{ name: 'a.txt', size: 1, modified: 'LATER', sha256: FP }] }]);
+  newer.fill('p1', 7, 0);
+  await drain(newer);
+  assert.equal(newer.st.PJ_DOCS_FILES[0].sha256, undefined, 'a newer file\u2019s fingerprint was put on the listed one');
+  assert.ok(newer.st.fetched <= 15, 'unbounded: ' + newer.st.fetched);
+  // The person left the view: nothing is read.
+  const left = run([{ files: [] }], 'project');
+  left.fill('p1', 7, 0);
+  await drain(left);
+  assert.equal(left.st.fetched, 0);
+});
