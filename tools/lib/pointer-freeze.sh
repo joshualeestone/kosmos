@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/bin/sh
+# POSIX sh, on purpose: deploy-site.sh (#!/bin/sh) sources this, so no bashisms (test:shell runs sh -n on it).
 # kosmos#6620 (security hardening O04-5, incident playbook e step 1): the release pointer freeze, as every tool that
 # moves a release pointer reads it.
 #

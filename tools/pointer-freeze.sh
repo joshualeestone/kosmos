@@ -95,9 +95,10 @@ entry_of() {  # <commit> <path> <as-path>
 
 # After a push: fast-forward the checkout to it, so it shows what origin/main has. A checkout not on main, or one that
 # cannot move forward (a colleague's change in the way), is left as it is and said so; origin/main has the change.
-follow_local() {  # <sha>
+FOLLOWED=0
+follow_local() {  # <sha> ; sets FOLLOWED=1 when this checkout now is the pushed commit
   [ "$(git -C "$SITE" symbolic-ref --quiet --short HEAD 2>/dev/null)" = main ] || { say "(the site checkout is not on main, so it was not moved; origin/main has the change)"; return 0; }
-  git -C "$SITE" merge -q --ff-only "$1" 2>/dev/null || say "(the site checkout could not fast-forward to ${1:0:12}, origin/main has the change. If a pull --ff-only fails too, it holds local commits: see git -C $SITE status before moving it)"
+  git -C "$SITE" merge -q --ff-only "$1" 2>/dev/null && FOLLOWED=1 || say "(the site checkout could not fast-forward to ${1:0:12}, origin/main has the change. If a pull --ff-only fails too, it holds local commits: see git -C $SITE status before moving it)"
 }
 
 git -C "$SITE" rev-parse --verify HEAD >/dev/null 2>&1 || die "$SITE is not a git checkout with a HEAD (set KOSMOS_SITE)"
@@ -205,11 +206,17 @@ cmd_on() {
     || die "NOT pushed, so nothing is frozen and this checkout is unchanged. Fix the cause above and run on again"
   follow_local "$pushed"
   say "frozen at $v (from site commit ${found:0:12}): both Mac pointers, the installer pair and $POINTER_FREEZE_FILE pushed to origin/main (${pushed:0:12})."
-  # deploy-site.sh --promote refuses a prod pointer equal to live ("nothing to promote"): when prod already serves the
-  # pinned version (only staging was bad), the deploy that publishes the pinned staging pointer is --publish.
-  live_v="$(field "$("$CURL_CMD" --connect-timeout 15 --max-time 30 -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json" 2>/dev/null)" version)"
-  if [ "$live_v" = "$v" ]; then
-    say "NOT deployed yet. Prod already serves $v, so deploy the pinned staging pointer with:"
+  # Which deploy works is decided by BYTES, as deploy-site.sh decides it: --promote refuses a committed prod pointer
+  # equal to live ("nothing to promote"), and --publish refuses one that differs. So: live byte-identical to the pin
+  # (only staging was bad) is --publish; anything else (an older or newer build, or a re-cut under this version) is
+  # --promote. A live pointer that cannot be read is said, not guessed.
+  local live_json
+  [ "$FOLLOWED" = 1 ] || say "This checkout is not yet at the pushed commit (see above): bring it there first, or the deploy below runs on the old tree and is refused."
+  if ! live_json="$("$CURL_CMD" --connect-timeout 15 --max-time 30 -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json" 2>/dev/null)" || [ -z "$live_json" ]; then
+    say "NOT deployed yet. The live pointer could not be read: use --promote, unless prod already serves exactly this pointer (then --publish):"
+    say "  KOSMOS_SITE=$SITE KOSMOS_STAGING_ROLLBACK=$v tools/deploy-site.sh --promote"
+  elif [ "$live_json" = "$json" ]; then
+    say "NOT deployed yet. Prod already serves exactly this pointer, so deploy the pinned staging pointer with:"
     say "  KOSMOS_SITE=$SITE KOSMOS_STAGING_ROLLBACK=$v tools/deploy-site.sh --publish"
   else
     say "NOT deployed yet. Deploy it:"

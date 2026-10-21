@@ -124,3 +124,8 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
   only a real cut reaches it. DECIDED, not missed: the freeze is all-or-nothing, so publish-kosmos-windows.sh refuses
   during a Mac-only pin too. A release-infrastructure compromise is not scoped to a platform, and a partial freeze is
   one more state to reason about mid-incident; to publish Windows during a pin, lift it (`off`) deliberately.
+- Review 7 (two warnings, both operator guidance): the printed deploy is chosen by bytes, as deploy-site decides
+  (live byte-identical to the pin is --publish; a re-cut under the same version, or any other build, is --promote; a
+  live pointer that cannot be read is said); when this checkout could not reach the pushed commit, `on` says the
+  deploy only works after it does; deploy-site says "pull" (not "off") when the freeze it sees is only on
+  origin/main. The lib is #!/bin/sh and says it must stay POSIX.

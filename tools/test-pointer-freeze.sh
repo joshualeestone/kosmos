@@ -194,7 +194,11 @@ S="$(make_site)"; ptr "$GOOD" "$(sha_of "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz
 out="$(pf "$S" on --mac $GOOD --because "staging only")"; rc=$?
 [ "$(git -C "$S" show origin/main:dist/POINTER_FROZEN | sed -n 's/^sha256=//p')" = "$(sha_of "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz")" ] \
   && pass "the marker records the pinned pointer's sha256" || bad "marker sha: $(git -C "$S" show origin/main:dist/POINTER_FROZEN)"
-{ has "$out" "Prod already serves $GOOD" && has "$out" "deploy-site.sh --publish"; } && pass "prod already on the pinned version: the printed deploy is --publish" || bad "publish hint: $out"
+{ has "$out" "Prod already serves exactly this pointer" && has "$out" "deploy-site.sh --publish"; } && pass "prod already serving exactly the pinned pointer: the printed deploy is --publish" || bad "publish hint: $out"
+# A re-cut under the same version (live names $GOOD with other bytes): --promote, because --publish would refuse.
+ptr "$GOOD" "1111111111111111111111111111111111111111111111111111111111111111" > "$HOSTDIR/dist/latest.json"
+out="$(pf "$(make_site)" on --mac $GOOD --because "re-cut live")"
+{ has "$out" "deploy-site.sh --promote" && ! has "$out" "already serves exactly"; } && pass "live is a re-cut under the pinned version: the printed deploy is --promote" || bad "re-cut hint: $out"
 ptr "$BAD" x > "$HOSTDIR/dist/latest.json"
 out="$(pf "$(make_site)" on --mac $GOOD --because "prod bad")"
 has "$out" "deploy-site.sh --promote" && pass "CONTROL: prod on another version: the printed deploy is --promote" || bad "promote hint: $out"
