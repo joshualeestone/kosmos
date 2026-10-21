@@ -17581,7 +17581,7 @@ const server = http.createServer(async (req, res) => {
           /* #6774: refused because its input box still holds text (nothing typed): it stays kept for the sweep, and its
              row stays held, so pressing this cannot lose the automatic send. */
           if (delivery && delivery.state === chat.DELIVERY.COULD_NOT && delivery.inputHeld === true) {
-            sendJson(res, 409, { error: 'its input box still holds text that has not been sent, so nothing was typed; it stays kept and Kosmos sends it later on its own' });
+            sendJson(res, 409, { inputHeld: true, error: 'its input box still holds text that has not been sent, so nothing was typed; it stays kept and Kosmos sends it later on its own' });
             return;
           }
           // Removed only after the try, so a board that stops mid-typing still has it kept.
@@ -18466,7 +18466,7 @@ const server = http.createServer(async (req, res) => {
             && chat.cleanMessage(e.text) === chat.cleanMessage(body.text) && !lq.isDone(e.id)) || null;
         };
         const dupAnswer = (keptCopy) => ({ state: chat.DELIVERY.COULD_NOT, at: new Date().toISOString(), duplicateOf: keptCopy.at,
-          because: 'the same message was already kept above, to be sent once its input box was clear, so this copy was not sent' });
+          because: 'the same message was already kept above, to be sent once ' + name + "'s input box was clear, so this copy was not sent" });
         if (!automatic && !qmenuAnswer && !qmenuClosed && body.anyway !== true) {
           const limitqueue = require('./engine/limitqueue');
           /* #6774: the same words sent again by hand while a copy is kept for a stuck input box (or behind messages kept

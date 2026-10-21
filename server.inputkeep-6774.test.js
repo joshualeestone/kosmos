@@ -92,6 +92,7 @@ test('#6774: a second message goes behind the first, without being tried, and sa
   assert.equal(r.out.delivery.behind, true);
   assert.equal(r.out.delivery.behindFor, 'input');
   assert.match(r.out.delivery.because, /kept while its input box held text not yet sent/);
+  assert.equal(rowAt(r.out.delivery.at).delivery.behindFor, 'input', 'the row lost behindFor: a reload words it as a usage limit');
   assert.deepEqual(kept().map((k) => k[1]), ['first', 'second']);
 });
 
@@ -101,7 +102,7 @@ test('#6774: the same words sent again by hand are not sent twice: the kept copy
   assert.deepEqual(two.calls, [], 'the re-send was tried');
   assert.equal(two.out.delivery.state, chat.DELIVERY.COULD_NOT, JSON.stringify(two.out));
   assert.equal(two.out.delivery.duplicateOf, one.out.delivery.at);
-  assert.match(two.out.delivery.because, /was already kept above, to be sent once its input box was clear, so this copy was not sent/);
+  assert.match(two.out.delivery.because, /was already kept above, to be sent once box6774's input box was clear, so this copy was not sent/);
   assert.equal(two.out.recorded, true);
   assert.deepEqual(kept(), [['dm', 'the go-ahead', true]], 'kept twice');
   assert.equal(limitqueue.list(NAME)[0].at, one.out.delivery.at, 'the kept copy moved');
@@ -134,6 +135,7 @@ test('#6774: Send now anyway while the box still holds text keeps the message an
   try {
     const res = await fetch(`${base}/api/agent/${NAME}/thread/held`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at: r.out.delivery.at }) });
     assert.equal(res.status, 409);
+    assert.equal((await res.json()).inputHeld, true, 'the page cannot tell this 409 from "sent meanwhile"');
   } finally { chat.deliverAsync = real; }
   assert.deepEqual(kept(), [['dm', 'still kept', true]], 'the press lost the kept message');
   assert.equal(rowAt(r.out.delivery.at).delivery.state, 'held');

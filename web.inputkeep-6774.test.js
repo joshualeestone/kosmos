@@ -50,8 +50,30 @@ test('#6774: a re-send answered as the kept copy empties the box and is not word
   assert.ok(at > 0, 'the page has no arm for a re-send answered as the kept copy');
   const arm = PAGE.slice(at, PAGE.indexOf('} else {', at));
   assert.match(arm, /clearSent\(\);/);
-  assert.match(arm, /line = 'Not sent again: ' \+ pjSentence\(d\.because\);/);
+  assert.match(arm, /line = pjSentence\(d\.because\);/);
   assert.doesNotMatch(arm, /We could not get that to/);
   // It sits before the could-not arm, which would otherwise take it (and put the words back in the box).
   assert.ok(at < PAGE.indexOf("line = 'We could not get that to ' + name + ': '"), 'the could-not arm answers first');
+});
+
+test('#6774: Send now anyway refused because the box still holds text says so under the box; CONTROL: any other 409 repaints', async () => {
+  const run = async (status, body) => {
+    const under = { textContent: '' };
+    let painted = 0;
+    const send = lift('dmHeldSend', {
+      CURRENT: { sessionName: 'casey', name: 'casey' },
+      fetch: async () => ({ ok: false, status, json: async () => body }),
+      document: { getElementById: (id) => (id === 'd-say-msg' ? under : null) },
+      paintTalk: async () => { painted += 1; },
+    });
+    const btn = { disabled: false, textContent: 'Send now anyway', dataset: { heldAt: 'x' } };
+    await send(btn);
+    return { under: under.textContent, painted, btn };
+  };
+  const held = await run(409, { inputHeld: true, error: 'its input box still holds text that has not been sent, so nothing was typed; it stays kept and Kosmos sends it later on its own' });
+  assert.equal(held.painted, 0, 'repainted as if it had gone');
+  assert.match(held.under, /^Not sent: its input box still holds text that has not been sent, so nothing was typed; it stays kept and Kosmos sends it later on its own\.$/);
+  assert.equal(held.btn.disabled, false);
+  const gone = await run(409, { error: 'that message is no longer held: it was sent or dropped, or is being sent now' });
+  assert.equal(gone.painted, 1, 'CONTROL: a message sent or dropped meanwhile repaints');
 });
