@@ -36673,35 +36673,32 @@ function burgerClose() {
   b.setAttribute('aria-expanded', 'false');
 }
 
-/* #6846: the iPhone app's native tab bar opens a board section through here, the way the phone menu does: the same
-   press on the real tab (which resets to the top of the section, as a person's press does; showTab alone would
-   restore the last open project), or for Settings, which has no tab, the way the user menu opens it.
-   It answers false, changing nothing, for a name the board has no such section for, and whenever a person's press
-   could not reach the tabs either: a full-screen step (first run, an update, a restart) has made #tabs or anything
-   around it inert; a confirmation or other box has its backdrop up (those are not inert; the keystroke guard tests the
-   backdrop the same way); or a header menu (the user menu, the Kosmos switcher) is open over the page. The app can
-   then tell, instead of changing the page under a box or a menu. The phone menu and the burger are not refusals:
-   the phone menu is closed here, and the press closes the burger.
-   A hidden Tasks tab is still opened: it is hidden on a fresh page until the first status poll, and the app offers
+/* #6846: the iPhone app's native tab bar opens a board section through here with a real press, so it lands where a
+   person's press lands and every click tidier on the page runs as for a person (header menus and pickers close on a
+   click elsewhere): Agents, Projects and Tasks press their tab (which resets to the top of the section; showTab alone
+   would restore the last open project), and Settings, which has no tab, presses the user menu's Your Profile, its
+   first section, which also opens in place in the consolidated layout (userpopSettingsGo). The phone menu, which a
+   press does not close, is closed first, focus going back to its button as the menu's own choices do.
+   It answers false, changing nothing, for a name the board has no such section for, and whenever a person could not
+   press at all: a full-screen step (first run, an update, a restart) has made #tabs or anything around it inert, or a
+   confirmation or other box has its backdrop up (those are not inert; the keystroke guard tests the backdrop the same
+   way). The app can then tell, instead of changing the page under a box.
+   A hidden Tasks tab is still pressed: it is hidden on a fresh page until the first status poll, and the app offers
    Tasks only from that same poll's tasksTab (#3559), so refusing would turn an earned tab into a silent no-op. */
 if (typeof window !== 'undefined') window.kosmosAppTab = (name) => {
   const tabs = document.getElementById('tabs');
   if (!tabs || tabs.closest('[inert]')) return false;
   if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return false;
-  if (document.querySelector('[aria-haspopup][aria-expanded="true"]:not(#kplus-menu):not(#burger), #worldsw-btn[aria-expanded="true"]')) return false;
-  const real = ['agents', 'projects', 'tasks'].includes(name) && tabs.querySelector('.tab[data-tab="' + name + '"]');
-  if (!real && name !== 'settings') return false;
-  /* The phone menu closes first, and focus goes back to its button (before the section takes it, for Settings). */
+  const press = name === 'settings' ? document.getElementById('userpop-go-you')
+    : ['agents', 'projects', 'tasks'].includes(name) && tabs.querySelector('.tab[data-tab="' + name + '"]');
+  if (!press) return false;
   const menu = document.getElementById('pnav');
   if (menu && !menu.hidden) {
     pnavClose(false);
     const btn = document.getElementById('kplus-menu');
     if (btn) btn.focus({ preventScroll: true });
   }
-  if (real) real.click();
-  /* Settings as the user menu opens it (userpopSettingsGo): in place in the consolidated layout, else its tab. */
-  else if (document.body.classList.contains('consolidated')) { SETTINGS_SEC = 'you'; openConsolidatedSettings(); }
-  else { burgerClose(); showTab('settings'); settingsOpen('you'); }
+  press.click();
   return true;
 };
 
