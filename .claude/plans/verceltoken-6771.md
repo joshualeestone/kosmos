@@ -27,6 +27,14 @@ filed with /add-secret on Mortals, used as VERCEL_TOKEN; refuse clearly when it 
 4. The token's reach: the autodeploy exports it, and deploy-site.sh takes it out of its environment at the start and
    gives it to the `vercel` command alone, so the site build and the fetches never see it.
 
+## Not covered: release cuts
+
+A release cut's step 8 runs `vercel deploy --prod --yes` itself (tools/release.sh), not through deploy-site.sh, so a
+cut on Mortals still uses that machine's CLI sign-in. Measured 19:05 on 10-20: the CLI there is signed in and lists the
+chaoskosmos project's deployments from the cut's site checkout, so cuts are not affected tonight. The autodeploy's
+failure is then most likely its runner's environment (no CLI sign-in where the job runs), not the account: not
+measured. Giving cuts the same token is a follow-up if wanted.
+
 ## Already parked on Mortals?
 The 10-20 "Not authorized" runs failed with exit 1 under the old code, so the current site sha may be parked there.
 After the token is filed: remove `~/.kosmos-site-autodeploy/parked` on Mortals once (or merge any site change).

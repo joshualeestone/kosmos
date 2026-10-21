@@ -857,8 +857,9 @@ vercel_deploy_rc() {
   ( cd "$EXPORT" && if [ -n "$_vercel_token" ]; then VERCEL_TOKEN="$_vercel_token" vercel deploy --prod --yes; else vercel deploy --prod --yes; fi ) \
     && echo 0 > "$VRC" || echo $? > "$VRC"
 }
-# A person at a terminal gets the CLI exactly as before (its own progress display and prompts); only a run whose
-# output is not a terminal (the autodeploy, a cut's step 8 over ssh) goes through tee, so its refusal can be read.
+# A person at a terminal gets the CLI exactly as before (its own progress display and prompts, and its own plain
+# failure: the explanation below needs the output, so it appears only when output is not a terminal, as in the
+# autodeploy). (A release cut's step 8 calls vercel itself, not this script: release.sh.)
 if [ -t 1 ]; then vercel_deploy_rc; : > "$VOUT"; else vercel_deploy_rc 2>&1 | tee "$VOUT"; fi
 vrc=$(cat "$VRC"); rm -f "$VRC"
 case "$vrc" in ''|*[!0-9]*) vrc=1 ;; esac   # no code written is a failure, never a pass
@@ -868,7 +869,10 @@ if [ "$vrc" != 0 ]; then
   # not park the site on it: a new token is then the whole fix.
   _esc=$(printf '\033')
   # Any line where the CLI says error and one of its three refusals (wording from its own code), whatever it puts in front.
-  if sed "s/${_esc}\[[0-9;]*m//g" "$VOUT" | grep -qiE '(^|[^a-z])error[^a-z].*(not authorized|token .*is not valid|no existing credentials found)'; then
+  # And only when the CLI never made a deployment (no Inspect: or Production: URL before it gave up): a refusal after
+  # one was made is an ordinary failure, counted, so the autodeploy's "already live" shortcut cannot bless it later.
+  if sed "s/${_esc}\[[0-9;]*m//g" "$VOUT" | grep -qiE '(^|[^a-z])error[^a-z].*(not authorized|token .*is not valid|no existing credentials found)' \
+     && ! sed "s/${_esc}\[[0-9;]*m//g" "$VOUT" | grep -qiE '(inspect|production|preview):[[:space:]]*https://'; then
     if [ -n "$_vercel_token" ]; then
       echo "deploy-site: Vercel REFUSED the token in VERCEL_TOKEN (expired, revoked, or not for this project). Make a new scoped token for the chaoskosmos-site project and file it again for the secrets target vercel-chaoskosmos-site; a VERCEL_TOKEN set in this job's environment wins over the map, so check that first (kosmos#6771). The CLI refused before deploying."
     else
