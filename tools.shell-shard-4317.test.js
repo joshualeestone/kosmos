@@ -360,7 +360,10 @@ test('#6791 review 2: run-tests.sh hands its platform to shell-shard.js (a lost 
   const seen = (env) => {
     fs.writeFileSync(log, '');
     const r = cp.spawnSync('bash', [path.join(ROOT, 'tools', 'run-tests.sh')], {
-      cwd: ROOT, env: { ...base, PATH: stub + path.delimiter + base.PATH, GITHUB_ACTIONS: 'true', KOSMOS_TEST_PART: 'shell', ...env }, encoding: 'utf8', timeout: 120000,
+      cwd: ROOT, env: { ...base, PATH: stub + path.delimiter + base.PATH, GITHUB_ACTIONS: 'true', KOSMOS_TEST_PART: 'shell',
+        // the forward under test does not depend on the suite wait; another agent's suite on the same Mac must not
+        // hold this run past its timeout (as test-runner-scale-export-5727 runs it)
+        KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_SUITE: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1', ...env }, encoding: 'utf8', timeout: 120000,
     });
     assert.equal(r.status, 0, `${JSON.stringify(env)}: exit ${r.status}: ${r.stderr.slice(-400)}`);
     return fs.readFileSync(log, 'utf8').split('\n').filter((l) => /shell-shard\.js/.test(l));

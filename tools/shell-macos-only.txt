@@ -14,6 +14,8 @@
 # Each line is a test:shell command exactly as package.json writes it; a line naming no such command fails every shard,
 # so this list cannot go stale silently. A new macOS-only test is NOT listed by default, so it goes red on the Linux
 # shards, loudly, and is added here (or fixed) on purpose. To move a test to Linux, make it pass there and remove it.
+# The other direction is NOT guarded in PR CI: product shell code that gains a GNU-only form (`sed -i` with no '',
+# `date -d`, `grep -P`) passes its test on Linux, and only the release cut's full macOS suite runs it on a Mac (#6808).
 # Lines starting with # and blank lines are ignored.
 
 # Compiles and runs Cocoa code with swiftc; skips off macOS (#6799), so on Linux it would test nothing.

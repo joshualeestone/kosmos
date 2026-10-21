@@ -53,6 +53,9 @@ _KOSMOS_SH_OPTS='( +([-+][ABCDEFGHIJKLMNOPQRSTUVWXYZabdefghijklmopqrstuvwxyz]*[o
 _kosmos_pgrep_cmdlines() {   # <ERE>
   case "${OSTYPE:-}" in darwin*) pgrep -fl "$1"; return ;; esac
   local raw rc anc=" " p hops=0 kept
+  # One simple command in the $( ): bash runs pgrep in that child itself, so no extra shell carrying the caller's
+  # command line sits between them (a pipe here would add one, outside the ancestor chain below). Pinned by
+  # test-running-anchor-5470's "does not list its own ancestors" arm on Linux.
   raw="$(pgrep -fa "$1")"; rc=$?
   [ "$rc" -eq 0 ] || return "$rc"
   # This shell's own pid, which inside a `$( )` is not $$. BASHPID is bash 4+; without it, `exec sh` makes sh a
