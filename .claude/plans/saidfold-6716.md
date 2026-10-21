@@ -25,8 +25,9 @@ stuck prompt.
 - **The conversation's busy line for a failed sign-in no longer quotes the screen** ("last seen: ..."): it was the
   same raw text, unfolded, on the same page as the fold. It still says the sign-in is not working. The guide's side
   chat has no fold, so it keeps the quote (busyRow's `{ quote: true }`, review 8).
-- **The fold closes when it appears again**, including after a one-poll gap in a waiting state's text. Accepted: a
-  flicker there is rare and a closed fold is the safe default.
+- **The fold closes for a new wait, another agent, or a page open**, and not when a waiting agent's screen text is empty
+  for one poll (review 11 reversed the earlier acceptance: two blind reviews raised it, and keying on the wait was a
+  three-line change). Weakest premise: that the engine's state stays in SAID_STATES across that gap.
 
 ## Files
 - web/index.html: `SAID_STATES`; `paintDetailState` gates the line and the fold; markup `<details id="d-said-box">`

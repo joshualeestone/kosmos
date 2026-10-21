@@ -198,6 +198,10 @@ test('#6716: the screen-line fold starts closed each time it appears, and a poll
     box.open = true;   // the person opens it
     pillFor.repaint(waiting);
     assert.equal(box.open, true, 'a poll for the same agent closed the fold the person opened');
+    pillFor.repaint({ ...waiting, stateEvidence: '' });   // still waiting, its screen text empty for one poll
+    assert.equal(box.hidden, true, 'control: an empty line hides the fold');
+    pillFor.repaint(waiting);
+    assert.equal(box.open, true, 'one poll with no screen text closed the fold during the same wait (review 11)');
     pillFor.repaint(card);   // back to working: hidden
     assert.equal(box.hidden, true);
     pillFor.repaint(waiting);   // waiting on something again
