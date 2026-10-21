@@ -155,3 +155,23 @@ Fail-safe, left: a destructured require of a listed wrapper is refused (none in 
   never passes); a property named mkdtemp is read as the call.
 - Mutants: the rule off, depth 2, first-not-nearest declaration: each turns its controls red.
 - The plan's "101 controls" earlier was a miscount of a different grep; this count is the controls file's own.
+
+## Review 11 (Opus, scoped): the redesign. -S kills go through ONE runtime helper; the guard stops inferring paths
+Round 11 found two more realistic -S accidents (an env object whose mkdtemp field vouched for an inherited
+TMUX_TMPDIR; a command string whose ${sock} was never traced) and that the header's "refuses, never passes" was false.
+Eleven rounds of deciding from SOURCE whether an -S path could be the machine's own server kept finding new ways it
+could. That question has a run-time answer, so it moved there:
+- test-support/tmux-kill.js killServerAt(bin, sockPath, opts): throws for /tmp/tmux-<uid>/default (through any
+  symlink) and for $TMUX's socket (read at load and at the call); returns null and runs nothing when there is no socket
+  at the path (the card's own "guard the kill on the socket existing"); otherwise `tmux -S <path> kill-server`.
+  Tested with a fake tmux that records its arguments (engine/tmux-kill-helper-6857.test.js, 5 tests), so no real
+  server is started or ended.
+- The three sites (live-connect, last-look, sandbox x2) call killServerAt.
+- The guard: a 'kill-server' in an array holding '-S' is refused outside the helper and its test. Everything else
+  must be a named -L (shape 1, a listed -L wrapper, or one "[tmux] -L <name> kill-server" string), never -L default.
+  The mkdtemp rule, the variable tracing and the /tmp/env refusals are gone.
+- The repo test also asserts the three sites still call killServerAt (HELPER_USERS), and names a bad kill before that.
+Rejected: another round of path rules (eleven rounds show the edge never closes from source).
+Weakest premise: that the machine's server is /tmp/tmux-<uid>/default or $TMUX's socket. A server started with its own
+-S elsewhere is not "the machine's" in this sense; the fleet's is the default one (measured on #6851).
+Controls: counted in the file. Against origin/main's three files: red, naming all four calls.

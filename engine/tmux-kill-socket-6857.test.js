@@ -428,6 +428,6 @@ test('#6857: no kill-server in the repo\'s JavaScript can reach the machine\'s o
     assert.ok((reached[rel] || 0) >= n, rel + ': the scan saw ' + (reached[rel] || 0) + ' kill-server calls, expected ' + n + '; it is not reading that file');
   }
   for (const rel of Object.keys(WRAPPERS)) assert.ok(fs.existsSync(path.join(ROOT, rel)), rel + ' is gone: update WRAPPERS here');
-  for (const rel of HELPER_USERS) assert.match(read(rel) || '', /killServerAt\(/, rel + ' no longer ends its server through killServerAt');
   assert.deepEqual(bad, [], 'a kill-server that can reach the machine\'s own server (kosmos#6857):\n' + bad.join('\n'));
+  for (const rel of HELPER_USERS) assert.match(read(rel) || '', /killServerAt\(/, rel + ' no longer ends its server through killServerAt');
 });
