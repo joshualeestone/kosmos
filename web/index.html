@@ -5536,12 +5536,16 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      invisible hit area, so the drawn star (and its measured clearance of the unread badge) stays as it is.
      Review 13: centred on the star it reached into the row above and over the title's end, so a tap meant to open an
      agent starred one. Now it runs from the row's top edge down, the row is at least 44px tall (its lines kept at the
-     top), and the title and state lines stop short of the star's column as the name does. render-star-6719 scans it. */
+     top), and the title and state lines stop short of the star's column as the name does. render-star-6719 scans it.
+     Review 14: it grows to the LEFT (14px) and only 4px right, so it ends short of the "99+" badge (which takes no
+     taps, so a tap there would have starred); the name and title stop at the area's left edge (66px), only in rows
+     that have a star; and the folded rail (no star, rows 42px on purpose) is left alone. */
   @media (pointer: coarse) {
-    html[data-layout="consolidated"] body.consolidated .lrow { min-height: 44px; align-content: start; }
-    html[data-layout="consolidated"] body.consolidated .lrow .lname .astar::after { content: ''; position: absolute; inset: -4px -9px -20px; }
-    html[data-layout="consolidated"] body.consolidated .lrow > .ltitle,
-    html[data-layout="consolidated"] body.consolidated .lrow > .lstate { padding-right: 63px; }
+    html[data-layout="consolidated"] body.consolidated:not(.fold-a) .lrow:has(.astar) { min-height: 44px; align-content: start; }
+    html[data-layout="consolidated"] body.consolidated .lrow .lname .astar::after { content: ''; position: absolute; inset: -4px -4px -20px -14px; }
+    html[data-layout="consolidated"] body.consolidated .lrow:has(.astar) .lname { padding-right: 66px; }
+    html[data-layout="consolidated"] body.consolidated .lrow:has(.astar) > .ltitle,
+    html[data-layout="consolidated"] body.consolidated .lrow:has(.astar) > .lstate { padding-right: 66px; }
   }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav { grid-row: 1 / span 2; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lname { grid-column: 2; grid-row: 1; min-width: 0; }

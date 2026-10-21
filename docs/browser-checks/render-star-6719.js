@@ -17,7 +17,7 @@
  *     long name; at 375 x 667 on a touch screen it is at least 44 px; on an upright tablet (touch, 768 x 1024) a
  *     running tile's long name does not run under it; in the consolidated rail it clears the row's unread badge and
  *     the title line under the name; on a touch screen its tap area is 44 x 44, inside its own row, and clear of the
- *     title's last letter;
+ *     title's visible end and the unread badge;
  *   - a filled star is at least 3:1 on every tile and row ground in both themes (CONTROL: the brand gold is not).
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-star-6719.js [shots-dir]
@@ -341,20 +341,35 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
         for (let y = Math.floor(row.top) - 20; y <= Math.ceil(row.bottom) + 20; y++) if (at(cx, y)) { if (top === null) top = y; bottom = y; }
         const cy = top === null ? b.top + b.height / 2 : (top + bottom) / 2;
         for (let x = Math.floor(b.left) - 30; x <= Math.ceil(b.right) + 30; x++) if (at(x, cy)) { if (left === null) left = x; right = x; }
-        // The title's last glyph, measured on its text (not its box), must not be under the hit area: a tap there opens.
+        // The title's visible end (its content box: a long title is clipped there with an ellipsis, while its text range
+        // runs on past the row) must not be under the hit area, or a tap there stars instead of opening. CONTROL: with
+        // the title's padding taken off, the same probe does land on the star, so this can fail (review 14).
         const tt = s.closest('.lrow').querySelector('.ltitle');
-        let titleEnd = null;
-        if (tt && tt.firstChild) { const rg = document.createRange(); rg.selectNodeContents(tt); const rs = rg.getClientRects(); const last = rs[rs.length - 1]; if (last && last.width > 0) titleEnd = { x: last.right - 1, y: last.top + last.height / 2 }; }
+        const titleEndAt = () => { const r = tt.getBoundingClientRect(); const cs = getComputedStyle(tt);
+          return { x: r.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth) - 1, y: r.top + r.height / 2 }; };
+        let titleUnder = null, titleUnderUnpadded = null, titleClipped = null;
+        if (tt) {
+          titleClipped = tt.scrollWidth > tt.clientWidth;
+          const e1 = titleEndAt(); titleUnder = at(e1.x, e1.y);
+          tt.style.paddingRight = '0px'; const e0 = titleEndAt(); titleUnderUnpadded = at(e0.x, e0.y); tt.style.paddingRight = '';
+        }
+        // The "99+" badge takes no taps, so a hit area over it would star the agent when the badge is pressed.
+        const bd = s.closest('.lrow').querySelector(':scope > .dmbadge');
+        const bb = bd && bd.getBoundingClientRect();
+        const badgeUnder = bb && bb.width > 0 ? at(bb.left + 1, bb.top + bb.height / 2) || at(bb.left + 1, cy) : null;
         return { star: true, coarse: matchMedia('(pointer: coarse)').matches, drawn: [Math.round(b.width), Math.round(b.height)],
           span: top === null ? null : [bottom - top + 1, right - left + 1], area: top === null ? null : [left, top, right, bottom],
           rowBox: [row.left, row.top, row.right, row.bottom].map(Math.round),
-          titleUnder: titleEnd ? at(titleEnd.x, titleEnd.y) : null,
+          titleClipped, titleUnder, titleUnderUnpadded, badgeUnder, badgeBox: bb && [bb.left, bb.top, bb.right, bb.bottom].map(Math.round),
           far: at(cx, b.bottom + 30) };
       });
       if (hit.coarse) {
         chk(hit.star && hit.span && hit.span[0] >= 44 && hit.span[1] >= 44, `${t} the rail star's tap area is at least 44 x 44`, JSON.stringify(hit));
         chk(hit.star && hit.area && hit.area[1] >= hit.rowBox[1] && hit.area[3] < hit.rowBox[3], `${t} the tap area stays inside its own row (a tap on the row above opens that agent)`, JSON.stringify(hit));
-        chk(hit.star && hit.titleUnder === false, `${t} the title's last letter is not under the tap area (a tap there opens the agent)`, JSON.stringify(hit));
+        chk(hit.star && hit.titleClipped === true, `${t} CONTROL: the long title is clipped, so it runs to its visible edge`, JSON.stringify(hit));
+        chk(hit.star && hit.titleUnder === false, `${t} the title's visible end is not under the tap area (a tap there opens the agent)`, JSON.stringify(hit));
+        chk(hit.star && hit.titleUnderUnpadded === true, `${t} CONTROL: without its padding the title's end IS under the tap area, so the test above can fail`, JSON.stringify(hit));
+        chk(hit.star && hit.badgeUnder === false, `${t} the tap area ends short of the unread badge`, JSON.stringify(hit));
         chk(hit.star && !hit.far, `${t} CONTROL: a tap 30px below the star does not reach it`, JSON.stringify(hit));
       }
       else console.log(`NOTE  ${t} this engine reports no coarse pointer here, so the touch arm did not run`);
