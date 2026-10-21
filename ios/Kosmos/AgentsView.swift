@@ -40,9 +40,10 @@ struct AgentsView: View {
             list(stale: true)
         case .starting:
             reaching
-        case .live where !client.fresh && !client.agents.isEmpty:
-            // Back on the tab with a list from an earlier read: shown as not current until the first new read.
-            list(stale: true)
+        case .live where !client.fresh:
+            // Back on the tab with a list from an earlier read: shown as not current until the first new read (an
+            // empty one shows the reaching spinner, not "No agents yet", until then).
+            if client.agents.isEmpty { reaching } else { list(stale: true) }
         case .live:
             if client.agents.isEmpty {
                 // The list arrives with the first read; until then this is still reaching.
@@ -211,7 +212,8 @@ struct AgentRow: View {
         .frame(minHeight: 40)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel([agent.name, agent.role, word].compactMap { $0 }.joined(separator: ", "))
+        // A list shown as not current says so to VoiceOver too, not only by colour.
+        .accessibilityLabel(([agent.name, agent.role, word] + (stale ? ["not updating"] : [])).compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens the chat")
     }

@@ -123,6 +123,10 @@ final class BoardClient: ObservableObject {
             admitted = nil
             agents = []
             updatedAt = nil
+            shownMac = nil
+            shownOwner = nil
+            pictures = [:]
+            pictureVersions = [:]
             cookies.removeCookies(since: .distantPast)
         }
         let stored = macStore.load()
@@ -158,8 +162,14 @@ final class BoardClient: ObservableObject {
         start()
     }
 
-    // Pull to refresh: read now and re-sort. When nothing is connected (not answering, a refusal), it is a Try again.
+    // Pull to refresh: read now and re-sort. While a connect is in flight it does nothing (a restart would only begin
+    // the sign-in again, and could ask the Mac for another Allow). When nothing is connected (not answering, a
+    // refusal), it is a Try again.
     func refreshNow() async {
+        switch phase {
+        case .starting, .connecting, .waitingForAllow: return
+        default: break
+        }
         guard case .live = phase, let held = admitted else { retry(); return }
         resortNext = true
         let before = updatedAt
@@ -184,6 +194,7 @@ final class BoardClient: ObservableObject {
     // Pictures for agents that have one and whose version changed, one at a time. A Mac that has no picture (404) is
     // not asked again until the version changes; the letter shows meanwhile.
     private var pictureTask: Task<Void, Never>?
+    private var pictureFailures: [String: Int] = [:]
     private func fetchPictures(url: URL, _ gen: Int) async {
         for agent in agents where agent.hasAvatar && pictureVersions[agent.session] != agent.avatarVer {
             guard let request = Board.avatarRequest(mac: url, session: agent.session) else { continue }
@@ -197,8 +208,13 @@ final class BoardClient: ObservableObject {
             } else if answer.statusCode == 404 {
                 // The Mac has no picture for it: not asked again until the version changes.
                 pictureVersions[agent.session] = agent.avatarVer
+            } else {
+                // Anything else (the gate's sign-in page, a 5xx) is tried again on the next read, three times per
+                // version, then left until the version changes, so a failing route is not asked every 5 s.
+                let key = agent.session + "#" + agent.avatarVer
+                pictureFailures[key, default: 0] += 1
+                if pictureFailures[key, default: 0] >= 3 { pictureVersions[agent.session] = agent.avatarVer }
             }
-            // Anything else (the gate's sign-in page, a 5xx) is tried again on the next read.
         }
     }
 
@@ -248,7 +264,7 @@ final class BoardClient: ObservableObject {
     private func run(_ gen: Int) async {
         if admitted == nil {
             guard let session = sessionStore.load() else { set(.signedOut, gen); return }
-            guard let mac = await chooseMac(session: session, gen) else { return }
+            guard let mac = await chooseMac(session: session, gen), gen == generation else { return }
             guard let url = Board.macURL(address: mac.address, coordinator: coordinator) else { set(.noMac, gen); return }
             guard await openSession(session: session, mac: mac, url: url, gen), gen == generation else { return }
             admitted = (mac, url, session)
@@ -306,7 +322,7 @@ final class BoardClient: ObservableObject {
     // out a slow network, and fetches a new handoff when the old one is refused (it expires during a long wait, and
     // a Mac that has just started refuses for a while), up to six times (about 30 s) in a row.
     private func openSession(session: String, mac: Board.Mac, url: URL, _ gen: Int) async -> Bool {
-        guard var token = await handoff(session: session, mac: mac, gen) else { return false }
+        guard gen == generation, var token = await handoff(session: session, mac: mac, gen) else { return false }
         var waiting = false
         var fresh = 0
         var misses = 0

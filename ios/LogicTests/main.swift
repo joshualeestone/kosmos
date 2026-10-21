@@ -1049,6 +1049,28 @@ section("native board loop: connecting")
         c.stop()
     }
 
+    do {
+        let (c, w, _, _) = make("kst1")
+        w.pictureAsPage = true
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working","hasAvatar":true,"avatarVer":7}]}"#)
+        c.start()
+        _ = await settle { w.count("/api/agent/dana/avatar") >= 3 }
+        let polls = w.count("/api/status")
+        _ = await settle { w.count("/api/status") >= polls + 4 }
+        check(w.count("/api/agent/dana/avatar") == 3, "a picture that keeps failing is asked for three times per version, then left")
+        c.stop()
+    }
+    do {
+        let (c, w, _, _) = make("kst1")
+        w.sessionAnswer = (403, #"{"pending":true,"code":"77"}"#)
+        c.start()
+        _ = await settle { c.phase == .waitingForAllow(mac: "Studio", code: "77") }
+        let handoffs = w.count("/v1/account/handoff")
+        await c.refreshNow()
+        check(c.phase == .waitingForAllow(mac: "Studio", code: "77") && w.count("/v1/account/handoff") == handoffs, "pull to refresh while waiting for Allow changes nothing (no new sign-in, no second Allow)")
+        c.stop()
+    }
+
     section("native board loop: not answering clears by itself")
     do {
         let (c, w, _, _) = make("kst1")
