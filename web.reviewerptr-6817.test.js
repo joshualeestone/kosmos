@@ -27,7 +27,9 @@ function board({ onAgents = true, seen = null, storageThrows = false, listShown 
   const document = { getElementById: (id) => (id === 'reviewer-slot' ? slot : id === 'plus-org-reviewers' ? box : null), addEventListener: () => {} };
   const clock = { t: now };
   const src = 'const PLUS_ORG_REVIEWER_DAYS = 30;\n' + fn('function plusOrgIn(org, text)') + '\n'
-    + PAGE.slice(PAGE.indexOf("const REVIEWER_NOTE_KEY = "), PAGE.indexOf('document.addEventListener(\'click\', (e) => {\n  const see = '));
+    // From the key to the end of reviewerNoteMaybe, the block's last function (its click handler sits above the Kosmos+
+    // panel script; see the comment there).
+    + PAGE.slice(PAGE.indexOf("const REVIEWER_NOTE_KEY = "), PAGE.indexOf('\n}\n', PAGE.indexOf('function reviewerNoteMaybe()')) + 2);
   const api = new Function('document', 'localStorage', 'Date', 'esc', 'onAgentsTab', 'plusOnScreen', 'fetch', 'innerHeight',
     src + '\nreturn { REVIEWER_NOTE, reviewerNoteFresh, reviewerNoteUnseen, reviewerNoteSeen, reviewerNoteSeenList, paintReviewerNote };')(
     document, localStorage, { now: () => clock.t * 1000 }, (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;'),

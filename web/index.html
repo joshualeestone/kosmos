@@ -51736,6 +51736,37 @@ for (const cid of ['askcard', 'plus-asks']) {
     if (allow && !allow.disabled) allow.click();   // short of six digits the press says so on the card
   });
 }
+/* kosmos#6817: the reviewer notice's See who and x. Kept above the Kosmos+ panel script, which web.plus-stale.test.js
+   runs alone with a document that takes no listeners; REVIEWER_NOTE and its functions are declared below it and are
+   read only when a click comes. */
+document.addEventListener('click', (e) => {
+  const see = e.target.closest && e.target.closest('[data-reviewer-see]');
+  const hide = e.target.closest && e.target.closest('[data-reviewer-hide]');
+  if (hide) {
+    reviewerNoteSeen(REVIEWER_NOTE.grants, Date.now() / 1000);   // clears the notice whatever another tab already saw
+    // The x went with its notice: focus to the first notice left in the stack that takes it, else the board, never the page.
+    const next = document.querySelector('#topnotes .utoast .utxt[tabindex="-1"]');
+    if (next) next.focus(); else if (typeof focusBoardHome === 'function') focusBoardHome();
+    return;
+  }
+  if (!see) return;
+  /* Not marked seen here: the list on screen does that (reviewerNoteSeenList), so a list that has not caught up yet
+     leaves the notice for next time. A fresh read, not the once-a-minute one, so the list has the new grant. */
+  PLUS_ORG.at = 0;
+  showTab('settings'); settingsGo('plus');
+  let tries = 0;
+  (function land() {
+    if (!plusOnScreen()) return;   // the person moved on: do not pull the page around
+    const box = document.getElementById('plus-org-reviewers');
+    if (box && !box.hidden) {
+      box.scrollIntoView({ block: 'center' });
+      const head = document.getElementById('plus-org-reviewers-head');   // focus where they asked to go, not the section top
+      if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); }
+      return;
+    }
+    if ((tries += 1) < 40) setTimeout(land, 100);
+  })();
+});
 /* The Settings list: the devices already allowed. Painted on arrival at the Plus section and after
    any action, from the tunnel's list (one subprocess). Pending requests are shown once, as cards in
    #askcard (#3829), not here. */
@@ -52556,34 +52587,6 @@ function reviewerNoteMaybe() {
     paintReviewerNote();
   }).catch(() => { /* the next minute tries again */ });
 }
-document.addEventListener('click', (e) => {
-  const see = e.target.closest && e.target.closest('[data-reviewer-see]');
-  const hide = e.target.closest && e.target.closest('[data-reviewer-hide]');
-  if (hide) {
-    reviewerNoteSeen(REVIEWER_NOTE.grants, Date.now() / 1000);   // clears the notice whatever another tab already saw
-    // The x went with its notice: focus to the first notice left in the stack that takes it, else the board, never the page.
-    const next = document.querySelector('#topnotes .utoast .utxt[tabindex="-1"]');
-    if (next) next.focus(); else if (typeof focusBoardHome === 'function') focusBoardHome();
-    return;
-  }
-  if (!see) return;
-  /* Not marked seen here: the list on screen does that (reviewerNoteSeenList), so a list that has not caught up yet
-     leaves the notice for next time. A fresh read, not the once-a-minute one, so the list has the new grant. */
-  PLUS_ORG.at = 0;
-  showTab('settings'); settingsGo('plus');
-  let tries = 0;
-  (function land() {
-    if (!plusOnScreen()) return;   // the person moved on: do not pull the page around
-    const box = document.getElementById('plus-org-reviewers');
-    if (box && !box.hidden) {
-      box.scrollIntoView({ block: 'center' });
-      const head = document.getElementById('plus-org-reviewers-head');   // focus where they asked to go, not the section top
-      if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); }
-      return;
-    }
-    if ((tries += 1) < 40) setTimeout(land, 100);
-  })();
-});
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */
 async function plusOrgPost(kind, body) {
