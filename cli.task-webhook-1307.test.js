@@ -20,6 +20,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 const { execFile } = require('node:child_process');
+const { withoutAgentIdentity } = require('./test-support/agent-env');   // kosmos#6740: never run the CLI as the agent running the test
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const TASKS = {
@@ -66,7 +67,7 @@ test('install/kosmos: task list marks and quotes webhook tasks, one line per tas
   const server = stubBoard();
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   try {
-    const env = { ...process.env, KOSMOS_HOME: home, KOSMOS_PORT: String(server.address().port), HOME: sandbox,
+    const env = { ...withoutAgentIdentity(process.env), KOSMOS_HOME: home, KOSMOS_PORT: String(server.address().port), HOME: sandbox,
       AGENT_WORKFORCE_DATA: path.join(sandbox, 'data'), KOSMOS_NO_LEGACY_MIGRATION: '1', TMUX_PANE: '%42' };
     const out = await new Promise((resolve, reject) => execFile(CLI, ['task', 'list', 'proj'], { env, timeout: 20000 },
       (err, stdout, stderr) => {

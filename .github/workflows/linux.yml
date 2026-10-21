@@ -38,6 +38,13 @@ concurrency:
   group: linux-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# kosmos#6742: dead-address the install "created" ping so CI never records a real
+# install. A board started here reads this at ping time (engine/createdbeacon.js), and
+# engine/linuxboard.js injects it into a systemd board unit, so the POST goes to
+# loopback:9 instead of installkosmos.com. Guarded by tools/test-ci-created-url-6742.sh.
+env:
+  AGENT_WORKFORCE_CREATED_URL: http://127.0.0.1:9/api/created
+
 jobs:
   suite:
     name: suite (linux)
