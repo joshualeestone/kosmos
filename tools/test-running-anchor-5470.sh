@@ -23,7 +23,7 @@ start() { "$@" >/dev/null 2>&1 & PIDS="$PIDS $!"; disown "$!" 2>/dev/null || tru
 pids_of() { printf '%s\n' "$1" | awk 'NF {print $1}' | sort -n | tr '\n' ' '; }
 # Wait (up to ~5 s) until each pid shows its own command line to pgrep: a fresh fork can briefly show its
 # parent's, which would read as a missing run on a loaded Mac.
-settle() { local p i; for p in "$@"; do for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -fl "${NAME//./\\.}" | awk '{print $1}' | grep -qx "$p" && break; sleep 0.5; done; done; }
+settle() { local p i; for p in "$@"; do for i in 1 2 3 4 5 6 7 8 9 10; do _kosmos_pgrep_cmdlines "${NAME//./\\.}" | awk '{print $1}' | grep -qx "$p" && break; sleep 0.5; done; done; }
 
 # Nothing running yet.
 out="$(kosmos_running_lines "$SCRIPT")"; rc=$?
