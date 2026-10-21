@@ -9,8 +9,9 @@ two apart.
   confirmed (`reviewerGrantsAt`, epoch ms); the field absent keeps the list this record had, for the same world and
   company, with its old time. Another company on the answer starts with none.
 - `server.js` `/api/org`: passes `reviewerGrantsAt` with the list (screen only, as the list).
-- `web/index.html`: a line, "Kosmos last confirmed this list <date>.", shown only when the list was last confirmed over
-  a day ago. The page's 30-day filter on each grant is the expiry.
+- `web/index.html`: when the list was last confirmed over a day ago, the heading says so: "Reviewers added to your
+  company in the last 30 days (last confirmed Oct 18):" (Mona Lisa's design; the "what a reviewer is" sentence moves
+  above the heading so the heading sits directly over its list). The page's 30-day filter on each grant is the expiry.
 
 ## Decisions
 1. **A day before the line shows.** The board reads hourly; one or two failed reads are noise, a day of them is worth
@@ -38,6 +39,11 @@ two apart.
    line is in the shots for design review. Recorded, not changed: a review's Accept on its timeout branch keeps the old
    list even if that answer carries a fresh one (honest, with its old time, until the next hourly read); a clock that
    ran ahead delays the line; the route's time is checked by a source match, as the file's other route checks are.
+
+7. **Mona Lisa's design look, taken:** the date folds into the heading instead of its own line, and the sentence on
+   what a reviewer is goes first, so the heading's colon is straight above the list. Review 4 (on the earlier line):
+   NITs only. Recorded: the design shot's list cannot be real (a pending grant with a confirmation over a day old);
+   a real list shows one or the other.
 
 ## Tests (each proven red by a mutation)
 `engine/reviewernotice-6752.test.js` (absent keeps list and time, [] clears, another company starts empty) and

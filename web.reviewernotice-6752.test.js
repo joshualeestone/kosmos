@@ -35,7 +35,7 @@ function el(tag) {
 }
 function page() {
   const els = {};
-  for (const id of ['plus-org-reviewers', 'plus-org-reviewers-head', 'plus-org-reviewers-what', 'plus-org-reviewers-list', 'plus-org-reviewers-age']) els[id] = el('div');
+  for (const id of ['plus-org-reviewers', 'plus-org-reviewers-head', 'plus-org-reviewers-what', 'plus-org-reviewers-list']) els[id] = el('div');
   const list = els['plus-org-reviewers-list'];
   let text = '';
   Object.defineProperty(list, 'textContent', { get: () => text, set: (v) => { text = v; if (v === '') list.children = []; } });
@@ -113,16 +113,19 @@ test('#6752 review 2: "today" and "tomorrow" are calendar days, so the night the
   } finally { if (prev === undefined) delete process.env.TZ; else process.env.TZ = prev; }
 });
 
-test('#6817: a list last confirmed over a day ago says when; a fresh one, or one with no time, says nothing', () => {
+test('#6817: a list last confirmed over a day ago says when in its heading; a fresh one, or one with no time, does not', () => {
   const now = Date.now() / 1000;
   const grants = [{ who: 'pat', grantedAt: Math.floor(now - 3 * DAY), effectiveAt: Math.floor(now - 2 * DAY) }];
   const old = paint({ enrolled: true, org: { kind: 'company' }, reviewerGrants: grants, reviewerGrantsAt: Date.now() - 2 * DAY * 1000 });
-  assert.equal(old['plus-org-reviewers-age'].hidden, false);
-  assert.match(old['plus-org-reviewers-age'].textContent, /^Kosmos last confirmed this list on (\S+ \d+|\d+ \S+)\.$/);
+  assert.match(old['plus-org-reviewers-head'].textContent, /^Reviewers added to your company in the last 30 days \(last confirmed (\S+ \d+|\d+ \S+)\):$/);
   const fresh = paint({ enrolled: true, org: { kind: 'company' }, reviewerGrants: grants, reviewerGrantsAt: Date.now() - 3600 * 1000 });
-  assert.equal(fresh['plus-org-reviewers-age'].hidden, true, 'a list confirmed an hour ago claimed to be old');
+  assert.equal(fresh['plus-org-reviewers-head'].textContent, 'Reviewers added to your company in the last 30 days:', 'a list confirmed an hour ago claimed to be old');
   const none = paint({ enrolled: true, org: { kind: 'company' }, reviewerGrants: grants });
-  assert.equal(none['plus-org-reviewers-age'].hidden, true);
-  assert.match(fn('function plusOrgReviewers(st)'), /plus-org-reviewers-age/, 'CONTROL: the page reads the age element');
+  assert.equal(none['plus-org-reviewers-head'].textContent, 'Reviewers added to your company in the last 30 days:');
+  const fam = paint({ enrolled: true, org: { kind: 'family' }, reviewerGrants: grants, reviewerGrantsAt: Date.now() - 2 * DAY * 1000 });
+  assert.match(fam['plus-org-reviewers-head'].textContent, /^Reviewers added to your family in the last 30 days \(last confirmed /);
+  // Mona Lisa's design: what a reviewer is comes first, then the heading straight above its list.
+  const w = PAGE.indexOf('id="plus-org-reviewers-what"'), h = PAGE.indexOf('id="plus-org-reviewers-head"'), l = PAGE.indexOf('id="plus-org-reviewers-list"');
+  assert.ok(w > 0 && w < h && h < l, 'the heading is not directly above its list');
   assert.match(SERVER, /reviewerGrantsAt: rec\.reviewerGrantsAt/, '/api/org does not pass the time on');
 });
