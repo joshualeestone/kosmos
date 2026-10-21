@@ -867,7 +867,8 @@ const SCREENS = [
       { who: 'jordan', grantedAt: now - 3 * day, effectiveAt: now - 2 * day },
       { who: 'alex', grantedAt: now - 2 * day, effectiveAt: now - day, removedAt: now - day / 2 },
       { who: 'sam.ortiz', grantedAt: now - 3600, effectiveAt: now - 3600 + day },
-    ] });
+    // kosmos#6817: last confirmed three days ago, so the shot shows the "last confirmed" line too.
+    ], reviewerGrantsAt: (now - 3 * day) * 1000 });
     await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-org-reviewers', { state: 'visible', timeout: 10000 });
     await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));

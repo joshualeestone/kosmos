@@ -34,6 +34,11 @@ two apart.
    paths for that. A coordinator sending a non-empty list that cleans to nothing clears the list (garbage is treated
    as "none", not "unread"): clearing is the safe direction for a screen that warns.
 
+6. **Review 3:** the `plus-org-reviewers` design shot now carries a list last confirmed three days ago, so the age
+   line is in the shots for design review. Recorded, not changed: a review's Accept on its timeout branch keeps the old
+   list even if that answer carries a fresh one (honest, with its old time, until the next hourly read); a clock that
+   ran ahead delays the line; the route's time is checked by a source match, as the file's other route checks are.
+
 ## Tests (each proven red by a mutation)
 `engine/reviewernotice-6752.test.js` (absent keeps list and time, [] clears, another company starts empty) and
 `web.reviewernotice-6752.test.js` (the age line only past a day; the route passes the time). Arms, all red: absent
