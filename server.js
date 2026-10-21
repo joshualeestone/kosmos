@@ -19069,11 +19069,12 @@ const server = http.createServer(async (req, res) => {
            it. The conversion runs in a worker thread with a memory and a time limit (attachtext.js), so a hostile
            file cannot stall or crash the board; it never fails the upload. */
         return require('./engine/attachtext').render(rec).catch(() => null)
-          .then(() => sendJson(res, 200, { attachment: attachments.rowField(rec) }));
-      })
+          .then(() => sendJson(res, 200, { attachment: attachments.rowField(rec) }))
+          /* Review 18: the file IS kept by now, so a failure answering for it must not say it was not. */
+          .catch(() => { if (!res.headersSent) sendJson(res, 500, { error: 'that file was kept, but Kosmos could not answer for it; reload to see it' }); });
+      }, (err) => refuseUpload(req, res, (err && !err.code && err.message) ? String(err.message) : 'we could not keep that file'));
       /* Review 9: a system error (it has a code, like ENOSPC) carries a path with the user's name; the person and their
          phone get the sentence instead. The store's own refusals are sentences and have no code. */
-      .catch((err) => refuseUpload(req, res, (err && !err.code && err.message) ? String(err.message) : 'we could not keep that file'));
     return;
   }
   /* #4930: the full-page preview's "Open in Finder": the attachment's own file, selected in its folder (never opened).

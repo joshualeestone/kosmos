@@ -633,3 +633,19 @@ test('#6734: a name Windows would read as record.json or preview.png ("record.js
   const longS = 'record.j' + String.fromCharCode(0x17f) + 'on';
   assert.equal(attachments.safeName(longS), 'file-' + longS);
 });
+
+test('#6734: a failure after the file is kept does not tell the person it was not kept', async () => {
+  const before = stored().length;
+  const real = attachments.rowField;
+  let thrown = 0;
+  attachments.rowField = () => { thrown += 1; throw new Error('answering failed'); };
+  let got;
+  try {
+    got = await put({ 'content-type': 'application/octet-stream', 'content-length': '4', 'x-attachment-name': 'kept.bin' },
+      (req) => req.end('kept'));
+  } finally { attachments.rowField = real; }
+  assert.ok(thrown > 0, 'the answer was never built, so this tested nothing');
+  assert.equal(got.status, 500, JSON.stringify(got));
+  assert.equal(JSON.parse(got.body).error, 'that file was kept, but Kosmos could not answer for it; reload to see it');
+  assert.equal(stored().length, before + 1, 'the file the sentence says was kept is not there');
+});

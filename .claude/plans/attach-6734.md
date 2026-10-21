@@ -198,6 +198,11 @@ phone yet: the remaining manual step covers it.
    tunnel's 502, which the page showed as "(status 502)". A large file's 502 or 504 now gets the conditional
    slow-connection sentence; a small file's, and any answer carrying the board's own sentence, are unchanged.
 
+28. **Review 18:** the upload route told the person "we could not keep that file" for a failure that came after the
+   file was kept (building the answer). Store failures and answer failures are now handled apart: the second is a 500
+   saying the file was kept (test: the answer made to fail; the file is there; red with one handler for both, which
+   answered 400 with the raw message).
+
 ### Considered and not changed (review 17)
 - A record naming exactly the part file, or a reserved name with trailing dots on macOS, stays unreachable: rare, and
   the fallback keeps one rule for all platforms rather than per-platform exceptions.
@@ -259,7 +264,7 @@ The test used to accept a reset in place of the 400. It now requires the 400 wit
 a load average of about 10. If a client ever sees a reset instead, the page's own size check has already refused the
 file before sending it.
 
-## Tests (server.attachment-stream-6734.test.js, 28 tests, and web.attach-slow-6734.test.js, 2 tests; green at each review commit, and the full suite at the final head is in the proof file)
+## Tests (server.attachment-stream-6734.test.js, 29 tests, and web.attach-slow-6734.test.js, 2 tests; green at each review commit, and the full suite at the final head is in the proof file)
 
 - the cap is 100 MB and is said as "100 MB";
 - a 6 MB download is byte-identical (sha256) with its Content-Length; HEAD has the length and no body; no
