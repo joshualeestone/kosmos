@@ -36,6 +36,11 @@ agent is not held for a limit. They go through the automatic gate like any kept 
 - Review 2, left as it is: two messages sent within the same moment to a stuck box both see an empty queue; if the
   box clears between the first being refused (and kept) and the second being typed, the second arrives first. Closing
   it needs the queue check inside the pane's delivery lock; the window is the length of one refused delivery.
+- Review 7: a kept message whose row cannot be written is taken back with limitqueue.settle (removed, or remembered as
+  done when the file cannot be written), so it is never typed behind the person's "not sent". Reasoned, not tested: a
+  failed queue write cannot be staged from outside the module. Left as they are: the sweep's log line says "after its
+  usage reset" for every kept message (a log line, not shown to anyone); a re-send whose own row cannot be written
+  gets the plain could-not wording (the kept copy still goes once).
 - Review 6: a re-send answered as the kept copy is worded "Not sent again: ..." on the page and empties the box (it was
   worded "could not get that to", which invited pressing again); its row keeps `duplicateOf`. The same words sent twice
   at once are matched again when the second is kept, so they are kept once. Left as it is, and said here: a box that

@@ -18631,7 +18631,8 @@ const server = http.createServer(async (req, res) => {
         /* #6774: kept for the box but its row could not be written: taken back out, as the limit path above
            does, so it is never typed later behind a "not sent" the person may send again. The refusal stands. */
         if (inputKept && kept.recorded !== true) {
-          require('./engine/limitqueue').remove(name, inputKept.id);
+          // settle, not remove: if the file write fails too, the id is remembered as done so the sweep never types it.
+          require('./engine/limitqueue').settle(name, inputKept.id);
           delivery = inputKept.refused;
         }
         sendJson(res, 200, {
