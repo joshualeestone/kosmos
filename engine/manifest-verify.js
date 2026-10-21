@@ -182,7 +182,7 @@ function verifySetup({ manifest, sig, setup, version, installedVersion, keys = K
  * install line over an existing install, which run the installer without run-setup (a follow-up card).
  */
 const PAUSE_DEFAULT_COORDINATOR = 'https://login.kosmosplus.com';
-const PAUSE_TIMEOUT_SECS = 10;
+const PAUSE_TIMEOUT_SECS = 5;
 
 /** The /v1/meta address to ask, or null when nothing should be asked (an override, or a test that named none). */
 function pauseUrl(env = process.env) {

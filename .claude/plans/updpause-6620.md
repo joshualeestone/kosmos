@@ -23,7 +23,7 @@ board half. The release pointer freeze (step 1) is a separate PR.
 
 - **The two choke points**: every install of a newer version passes `runSetup` (Mac: the board's auto and manual
   installs, `kosmos update`, the .pkg postinstall) or `begin` (Windows). Rollback is not held: it installs no new code.
-- **Fails open**: no answer, a timeout (10 s), a non-200, not JSON, or no field all read as not paused. A fleet that
+- **Fails open**: no answer, a timeout (5 s), a non-200, not JSON, or no field all read as not paused. A fleet that
   holds every update whenever the coordinator blinks cannot take a security fix. So the pause covers computers that
   can reach the coordinator; for the rest the signed manifest is the only defence.
 - **Exactly `true`**: `"updates_paused": "true"` or `1` is not paused (a strict read cannot be steered by a lookalike).
@@ -55,23 +55,31 @@ want one line saying so: a follow-up there, not built here.
 
 ## Review 2 decisions
 
-- The board's answer is per look (the 15-minute TTL), so a pause turned on or off shows on the board by the next look;
-  in that window a manual install can still reach run-setup, which holds it itself (96). Set only on the look's own
+- The board's answer is per look (the 15-minute TTL), so a pause turned on or off shows on the board's status by the
+  next look. An Install press does not use it: /api/update asks the coordinator at the press (review 4), so a pause
+  lifted since the look does not refuse, and run-setup holds a live one itself (96) either way. Set only on the look's own
   cache, so a newer look's answer is never overwritten.
 - A test file run with plain `node` (no runner, no harness) can ask the real coordinator: accepted, since only
   `node --test` and tools/run-tests.sh run the suite, and both ask nothing real.
-- Board-level tests in engine/update-pause-6620.test.js against a local HTTP server; mutating out the ask, the skip,
-  or the "only when newer" condition each turns one red.
+- Board-level tests in engine/update-pause-6620.test.js against a local HTTP server; mutating out the ask, the
+  automatic-updates-off skip, the live ask at a press, or the carried-over answer during an ask each turns one red.
+  The only-when-newer gate is available()'s, not this diff's; a test pins that an up-to-date board asks nothing.
 - Only a Kosmos that already carries this code can be paused. Older installs keep updating during a pause, which
   bounds this step's reach until the fleet has taken this release.
 
+- Review 4: the ask's time limit is 5 s (it was 10), so a coordinator that does not answer delays a look or a
+  run-setup by at most that; it still never holds the install.
 - Review 3: exit 96 now means "could not be downloaded, or updates are paused", and the board and the .pkg
   postinstall say both (the .pkg path retries a pause on its bounded budget, then says so).
 
-## Not held today (decided, a follow-up card)
+## Not held today (decided, follow-up #6781)
 
 A .pkg install that takes the pinned path (once install/pkg-verify/floor stops reading "off") and a pasted install
 line run over an existing install run the installer without run-setup, so they are not held (review 1).
+
+A connect computer (no board) that installs with `kosmos update --if-newer --install` IS held (run-setup, 96), but
+its one-line answer to the native app reads `failed <version>` with the reason only in install.log, so the app cannot
+say the update is paused (review 4). Telling it needs a new answer word the native app parses, so it is a follow-up.
 
 ## Weakest premise
 

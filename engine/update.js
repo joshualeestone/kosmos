@@ -1353,8 +1353,19 @@ function prodPublishesRunning() {
 /** kosmos#6620: the last look found the fleet's updates paused. */
 function paused() { return cache.paused === true; }
 
+/** kosmos#6620: a person's Install press asks the coordinator NOW, not the last look's answer, so a pause lifted since
+ *  that look (up to a TTL ago) does not refuse an install run-setup would allow. Returns the refusal sentence or null;
+ *  fails open (no answer is not paused), and an install already under way is joined, never refused. */
+async function pauseRefusalNow({ fetchImpl } = {}) {
+  if (alreadyInstalling()) return null;
+  const mine = cache;
+  const p = await manifestVerify.pausedAsync(fetchImpl ? { fetchImpl } : {});
+  if (cache === mine) cache.paused = p;
+  return p ? manifestVerify.PAUSED_SENTENCE.charAt(0).toUpperCase() + manifestVerify.PAUSED_SENTENCE.slice(1) + '.' : null;
+}
+
 module.exports = {
-  paused, // kosmos#6620
+  paused, pauseRefusalNow, // kosmos#6620
   PAUSED_SENTENCE: manifestVerify.PAUSED_SENTENCE, // kosmos#6620
 
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,

@@ -12,6 +12,7 @@ const assert = require('node:assert');
 const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
 const update = require('./update');
 const mv = require('./manifest-verify');
 
@@ -19,6 +20,7 @@ let server; let base; let answer = { updates_paused: false }; let asked = 0;
 test.before(async () => {
   server = http.createServer((req, res) => {
     if (req.url === '/redirect/v1/meta') { res.writeHead(302, { location: '/v1/meta' }); res.end(); return; }
+    if (req.url === '/slow/v1/meta') { setTimeout(() => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(answer)); }, 300); return; }
     asked += 1;
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(answer));
@@ -112,5 +114,48 @@ test('over HTTP: both forms read a real answer, and neither follows a redirect',
 test('the request shape: curl is called with -q first and a time limit, on the named address', () => {
   const calls = [];
   mv.pausedSync({ env: { KOSMOS_UPDATE_PAUSE_URL: 'http://127.0.0.1:9/v1/meta' }, spawnSync: (cmd, args) => { calls.push([cmd, ...args]); return { status: 7, stdout: '' }; } });
-  assert.deepEqual(calls, [['curl', '-q', '-fsS', '--max-time', '10', 'http://127.0.0.1:9/v1/meta']]);
+  assert.deepEqual(calls, [['curl', '-q', '-fsS', '--max-time', '5', 'http://127.0.0.1:9/v1/meta']]);
+});
+
+test('an Install press asks NOW: a pause lifted since the last look does not refuse, a live pause does, no answer does not', async () => {
+  await withPauseUrl(base + '/v1/meta', async () => {
+    answer = { updates_paused: true };
+    board('99.0.0');
+    await update.refresh();
+    assert.equal(update.paused(), true, 'the last look saw the pause');
+    answer = { updates_paused: false };
+    assert.equal(await update.pauseRefusalNow(), null, 'the pause was lifted after the look; the press must not be refused');
+    assert.equal(update.paused(), false, 'and the status follows the live answer');
+    answer = { updates_paused: true };
+    assert.equal(await update.pauseRefusalNow(), update.PAUSED_SENTENCE.charAt(0).toUpperCase() + update.PAUSED_SENTENCE.slice(1) + '.');
+    answer = { updates_paused: false };
+    clear();
+  });
+  await withPauseUrl('http://127.0.0.1:9/v1/meta', async () => {
+    assert.equal(await update.pauseRefusalNow(), null, 'an unreachable coordinator is not a pause');
+  });
+});
+
+test('the /api/update route refuses from the live ask (a source pin: deleting the refusal turns this red)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const start = src.indexOf("pathname === '/api/update' && req.method === 'POST'");
+  assert.ok(start > 0, 'the /api/update route moved; re-pin this test');
+  const route = src.slice(start, src.indexOf('if (updates.alreadyInstalling()) {', start));
+  assert.match(route, /const pauseRefusal = await updates\.pauseRefusalNow\(\);\s*\n\s*if \(pauseRefusal\) \{ sendJson\(res, 409, \{ error: pauseRefusal \}\); return; \}/);
+  assert.ok(route.indexOf('pauseRefusalNow') > route.indexOf('windowsLocationRefusal'), 'the platform and location refusals still answer first');
+});
+
+test('during the ask, paused() keeps the previous look\'s answer rather than dropping to not paused', async () => {
+  await withPauseUrl(base + '/slow/v1/meta', async () => {
+    answer = { updates_paused: true };
+    board('99.0.0');
+    await update.refresh();
+    assert.equal(update.paused(), true);
+    const again = update.refresh();
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(update.paused(), true, 'mid-ask, the status read not paused');
+    await again;
+    answer = { updates_paused: false };
+    clear();
+  });
 });
