@@ -7,7 +7,8 @@
 # on macOS. They are listed too, at the end. #6799 then fixed a BSD-first `stat -f || stat -c` fallback, which moved
 # three of the 26 to Linux (measured there, probe run 39551438303), and a BSD-only `sed -i ''` one more (probe run
 # 39553501883), and a core count and load read only from macOS sysctl (`hw.ncpu`, `vm.loadavg`) two more (probe run
-# 39558291451). That is 28 here, and 236 commands on Linux.
+# 39558291451), and `pgrep -fl`, which prints only the process name on Linux, three more (probe run PROBE_RUN_ID).
+# That is 25 here, and 239 commands on Linux.
 # tools/shell-shard.js reads this file: `linux` shards run everything NOT listed here, the `mac` shard runs these, plus
 # every syntax-only check (`sh -n` / `bash -n`), which runs on both: macOS /bin/sh is bash 3.2, Linux sh is dash.
 # Each line is a test:shell command exactly as package.json writes it; a line naming no such command fails every shard,
@@ -23,8 +24,6 @@ bash tools/test-app-bundle-status.sh
 bash tools/test-board-watchdog-2955.sh
 # BSD stat -f; launchd and pmset (tools/ci-runner-setup.sh).
 bash tools/test-ci-runner-setup-4601.sh
-# pgrep -fl prints the full command line on macOS, only the name on Linux (tools/lib/cut-guard.sh).
-bash tools/test-cut-guard.sh
 # A status above 128 decodes as a signal on Linux (which has more signals), so its non-signal arm differs.
 bash tools/test-cut-step-record.sh
 # BSD stat -f in install/setup.sh, and a real /Library path.
@@ -38,14 +37,10 @@ bash tools/test-install-portprobe-6457.sh
 # The LaunchAgents guard's subject is macOS: on Linux only _la_mtime's GNU branch runs, and on a clean hosted Mac the
 # guard sees no plists, so this test is the only CI run of its BSD branch (stat -f %m). #6799 review 1.
 bash tools/test-launchagent-leak-guard-3011.sh
-# pgrep -fl (tools/lib/cut-guard.sh).
-bash tools/test-light-side-4911.sh
 # Its CONTROL relies on BSD sed's N on the last line (GNU sed prints the pattern space instead).
 bash tools/test-msg-newlines-1927.sh
 # Real codesign and PlistBuddy.
 bash tools/test-release-detached.sh
-# pgrep -fl.
-bash tools/test-running-anchor-5470.sh
 # Compiles Cocoa code with swiftc; skips only when swiftc is absent.
 bash tools/test-scan-hatch-symlink-2125b.sh
 # BSD date -v.

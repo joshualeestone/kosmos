@@ -85,3 +85,17 @@ That GNU-first is harmless on macOS everywhere it runs: BSD `stat -c` exits non-
 
 ## Weakest premise (slice 3)
 That Linux `sysctl -n hw.ncpu` fails rather than printing something with rc 0; the probe's cpu_count arm measures it.
+
+## Slice 4: `pgrep -fl` (test-cut-guard, test-light-side-4911, test-running-anchor-5470)
+- Linux failures (probe run 39553501883): "a live harness was not detected", "#4410 the suite guard's real name arm
+  missed a live run-tests.sh stand-in", "the real matcher missed a browser executable ()", "real runs not found".
+  Cause: procps `pgrep -fl` prints `pid name`, not `pid command line`, so every anchored match on the script path
+  read nothing. Linux needs `pgrep -fa`; macOS reads `-a` as "include ancestors", so the flag follows the platform.
+- Fix: `_kosmos_pgrep_cmdlines` in tools/lib/cut-guard.sh (Darwin -> -fl, else -fa), used by kosmos_running_lines,
+  _kosmos_playwright_browsers, and the two test-side probes (test-cut-guard's mention check, test-running-anchor's
+  settle). tools/ci-runner-setup.sh:257 keeps `pgrep -fl`: it is the macOS runner's own setup script.
+- macOS (this Mac): all three pass (test-cut-guard's one skip line is unchanged from the base).
+- Weakest premise: Linux pgrep also lists the CALLER's ancestors (macOS never does). Reasoned safe: each caller drops
+  its own run by the self-subtree walk or anchors on a script path an ancestor does not carry. Under run-tests.sh the
+  runner itself is an ancestor of these tests; the shard runs through run-tests.sh are what measure it.
+- Linux: probe-6799e (never merged): RESULT PENDING.

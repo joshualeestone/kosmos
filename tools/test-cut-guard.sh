@@ -316,10 +316,10 @@ else
   ( bash -c 'sleep 4; : tools/test-install.sh' ) & mention=$!
   sleep 1
   # Prove the mention is actually VISIBLE to pgrep (else this arm is vacuous):
-  # Anchor the pid at line start (pgrep -fl prints '<pid> <cmdline>'), so a pid
-  # that is a SUBSTRING of another process's pid cannot false-satisfy the very
+  # Anchor the pid at line start (_kosmos_pgrep_cmdlines prints '<pid> <cmdline>' on macOS and Linux, #6799), so a
+  # pid that is a SUBSTRING of another process's pid cannot false-satisfy the very
   # check that exists to prove this arm is not vacuous.
-  pgrep -fl 'test-install\.sh' 2>/dev/null | grep -qE "^$mention " \
+  _kosmos_pgrep_cmdlines 'test-install\.sh' 2>/dev/null | grep -qE "^$mention " \
     && pass "the mention is present in the process table (the filter arm is not vacuous)" \
     || fail "the mention did not survive in argv, so the filter arm below proves nothing"
   # #1967: RE-CHECK for a foreign live harness immediately before this assertion,
