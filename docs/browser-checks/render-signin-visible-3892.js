@@ -142,9 +142,13 @@ function notesAndMeasure(opts) {
         /* #6716: the screen line sits in a fold whose summary is a stop of its own (a keyboard must be able to open
            it), between Start and Sign in again in page order, in both engines. If Tab ever stops landing there, the
            per-engine count below reds. */
-        if (await page.evaluate(() => (document.activeElement || {}).id === 'd-said-lab')) {
+        const tabAt = await page.evaluate(() => (document.activeElement || {}).id);
+        if (tabAt === 'd-said-lab') {
           await toggleSaid('takes Tab');   // the reason it is a stop: a keyboard opens and closes it
           await page.keyboard.press(eng === 'webkit' ? 'Alt+Tab' : 'Tab');
+        } else {
+          // Review 15: say why, rather than leaving only the count to go red. (A pass adds nothing, so the count holds.)
+          chk(false, `${t} Tab from Start lands on the screen line's summary`, `it landed on ${tabAt || 'nothing'}`);
         }
         const ring = await page.evaluate(() => {
           const e = document.activeElement; const head = document.querySelector('.dhead').getBoundingClientRect();
