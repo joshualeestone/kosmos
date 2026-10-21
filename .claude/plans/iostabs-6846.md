@@ -42,6 +42,8 @@ board inside the app shows no tab strip of its own, because the app marks every 
   starts clean.
 - A Mac whose board predates the door answers absent to every press, so the press waits at every load and the bar
   can name a section the page is not on. Accepted for Macs not yet updated: the door ships with this release.
+- A store-shots build opened on a ?tab=tasks address lights Today until a read lands, since a fresh simulator has no
+  remembered flag (review 8). No current store shot uses Tasks; one that does needs the flag seeded first.
 - No Today badge in this part (the card calls it optional; needsYou is already in the client).
 - A refusal puts the bar on the tab of the section in the page's address (review 4: not the bar's previous tab, which
   can have moved without the page), so never on Agents (review 3 BLOCKER: from Agents every web tab would be refused
