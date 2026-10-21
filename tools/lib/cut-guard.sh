@@ -46,12 +46,14 @@ _KOSMOS_SH_OPTS='( +([-+][ABCDEFGHIJKLMNOPQRSTUVWXYZabdefghijklmopqrstuvwxyz]*[o
 # #6799: `pid <whole command line>` for every process whose command line matches the ERE $1, with pgrep's own
 # status (1 none, 2+ could not run). macOS `pgrep -fl` prints the whole command line; Linux (procps) `pgrep -fl`
 # prints only the process NAME and needs `-fa`, while macOS reads -a as "include ancestors", so the flag follows
-# the platform ($OSTYPE: a builtin, so it cannot fail and send a Mac to -a). macOS pgrep also never lists its own
+# the platform: $OSTYPE when it says darwin (no fork), else `uname -s`, because bash keeps an OSTYPE it inherits
+# (measured) and a Mac sent to -a would match nothing and fail the guards open. macOS pgrep also never lists its own
 # ancestors, and those include the caller and every `$( )` subshell around this call, which carry the caller's
 # command line; procps pgrep lists them. So on Linux the caller's ancestor chain is dropped here, and both
 # platforms answer the same (tools/test-running-anchor-5470.sh: "does not list its own ancestors").
 _kosmos_pgrep_cmdlines() {   # <ERE>
   case "${OSTYPE:-}" in darwin*) pgrep -fl "$1"; return ;; esac
+  if [ "$(uname -s 2>/dev/null)" = Darwin ]; then pgrep -fl "$1"; return; fi
   local raw rc anc=" " p hops=0 kept
   # One simple command in the $( ): bash runs pgrep in that child itself, so no extra shell carrying the caller's
   # command line sits between them (a pipe here would add one, outside the ancestor chain below). Pinned by

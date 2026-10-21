@@ -23,7 +23,7 @@ start() { "$@" >/dev/null 2>&1 & PIDS="$PIDS $!"; disown "$!" 2>/dev/null || tru
 pids_of() { printf '%s\n' "$1" | awk 'NF {print $1}' | sort -n | tr '\n' ' '; }
 # Wait (up to ~5 s) until each pid shows its own command line to pgrep: a fresh fork can briefly show its
 # parent's, which would read as a missing run on a loaded Mac.
-settle() { local p i; for p in "$@"; do for i in 1 2 3 4 5 6 7 8 9 10; do _kosmos_pgrep_cmdlines "${NAME//./\\.}" | awk '{print $1}' | grep -qx "$p" && break; sleep 0.5; done; done; }
+settle() { local p i; for p in "$@"; do for i in 1 2 3 4 5 6 7 8 9 10; do _kosmos_pgrep_cmdlines "${NAME//./\\.}" 2>/dev/null | awk '{print $1}' | grep -qx "$p" && break; sleep 0.5; done; done; }
 
 # Nothing running yet.
 out="$(kosmos_running_lines "$SCRIPT")"; rc=$?
@@ -126,11 +126,17 @@ esac
 # parse at run time, which `bash -n` cannot see): OSTYPE forced to linux-gnu and pgrep stubbed to list the calling
 # subshell itself (not $$: a walk that started at $$ would keep it), the caller, its parent and a stranger. Only the
 # stranger may remain; with nothing matching, the answer is 1.
-got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; ( me="$(exec sh -c '\''echo "$PPID"'\'')"; pgrep(){ printf "%s\n" "$me subshell" "$PPID parent" "$$ caller" "99999 stranger"; }; _kosmos_pgrep_cmdlines x ); echo "rc=$?"' 2>&1)"
+got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; uname(){ echo Linux; }; ( me="$(exec sh -c '\''echo "$PPID"'\'')"; pgrep(){ printf "%s\n" "$me subshell" "$PPID parent" "$$ caller" "99999 stranger"; }; _kosmos_pgrep_cmdlines x ); echo "rc=$?"' 2>&1)"
 [ "$got" = "$(printf '%s\n' '99999 stranger' 'rc=0')" ] && ok "the Linux branch drops the caller's lineage and keeps a stranger, on this bash" \
   || bad "the Linux branch on this bash: [$got]"
-got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; pgrep(){ return 1; }; ( _kosmos_pgrep_cmdlines x ); echo "rc=$?"' 2>&1)"
+got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; uname(){ echo Linux; }; pgrep(){ return 1; }; ( _kosmos_pgrep_cmdlines x ); echo "rc=$?"' 2>&1)"
 [ "$got" = "rc=1" ] && ok "the Linux branch passes pgrep's 1 (nothing) through" || bad "the Linux branch with no match: [$got]"
+
+# #6799: an inherited OSTYPE that is not darwin does not send a Mac to `pgrep -fa` (bash keeps an inherited OSTYPE;
+# on macOS -a means "include ancestors" and prints no command lines, so the guards would match nothing). uname is
+# stubbed to Darwin and pgrep to print the flags it was given.
+got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; uname(){ echo Darwin; }; pgrep(){ echo "flags $1"; }; _kosmos_pgrep_cmdlines x' 2>&1)"
+[ "$got" = "flags -fl" ] && ok "a Mac with a non-darwin OSTYPE still uses pgrep -fl" || bad "a Mac with OSTYPE=linux-gnu: [$got]"
 
 echo "test-running-anchor-5470: $FAILS failure(s)"
 [ "$FAILS" = 0 ]
