@@ -89,7 +89,8 @@ enum Board {
                 || (row["held"] as? Bool ?? false)
                 || (row["refused"] as? Bool ?? false)
             return Mac(name: name, address: address, usable: !off,
-                       connected: !(row["not_connected"] as? Bool ?? false),
+                       // A Mac in the middle of an update (updating_until) is ranked like one not connected.
+                       connected: !(row["not_connected"] as? Bool ?? false) && !(row["updating_until"] is NSNumber),
                        lastSeen: (row["last_seen"] as? NSNumber)?.doubleValue ?? 0,
                        refusedThisDevice: (row["this_device"] as? String) == "denied")
         }
@@ -161,7 +162,7 @@ enum Board {
     static let macCookieName = "__Host-kosmos_tunnel_session"
 
     // Kept in the Keychain so a launch reuses the Mac's session instead of opening a new one each time (the gate keeps
-    // at most 16 per device, oldest dropped first, and this app shares its device with the Board tab). `owner` is a
+    // at most 16 per device, dropping the least recently used, and this app shares its device with the Board tab). `owner` is a
     // fingerprint of the Kosmos+ session it was opened under, never the session itself.
     struct SavedMacSession: Codable, Equatable {
         let name: String

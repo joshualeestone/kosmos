@@ -48,7 +48,7 @@ If it is refused, Kosmos+ needs a small route (2 to 3 days, the plan's risk line
   send them ready-made; until then the table mirrors the board's states.
 - The native client never shares the web view's cookies. Its Mac session is kept in the Keychain (only the cookie,
   tied to a fingerprint of the Kosmos+ session) and reused across launches: the gate keeps at most 16 sessions per
-  device and drops the oldest, and this app shares its device with the Board tab, so a new session every launch would
+  device and drops the least recently used, and this app shares its device with the Board tab, so a new session every launch would
   in time sign the Board tab out.
 - Status words follow engine/cardlabel.js labelOf (the computer's words), not Mona's "Asked you": the card's done
   line is "the status the computer shows". Anything that needs you is marked in amber.
@@ -58,6 +58,9 @@ If it is refused, Kosmos+ needs a small route (2 to 3 days, the plan's risk line
   the Mac has ended (signs in fresh; this was a real bug review found), the 15 s 401 grace and the reconnect after
   it, an account switch and a sign-out, Try again after not answering, and waiting for Allow. Each was measured red
   with its rule removed. Not covered: the real URLSession, cookies set by a real Set-Cookie, and real timing.
+- Known cost: a kept record is deleted when its session ends or never answers; after a relaunch the app then holds
+  no copy of that cookie, so the gate cannot be told to drop the old session (it ages out, least recently used
+  first). Bounded by the 16-per-device cap; keeping a dead cookie only to name it as replaced is a later nicety.
 - Deferred: the App Store screenshots (ios/store/shoot-app.sh) now show the tab bar. That is the real app.
 - Deferred: a tap on an agent opens its chat in the web view, whose Mac session is its own. If the web view has never
   opened that Mac, the tap lands on the gate's sign-in (and possibly Allow) first, exactly as a notification tap does

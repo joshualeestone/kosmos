@@ -747,6 +747,7 @@ final class FakeBoardWorld {
     var requests: [String] = []
     var macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":100}]}"#
     var sessionAnswer: (Int, String) = (200, #"{"ok":true}"#)
+    var sessionNoAnswer = false
     // Each status request takes the first queued answer; nil is no answer at all. Empty queue: statusDefault.
     var statusQueue: [(Int, String)?] = []
     var statusDefault: (Int, String)? = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
@@ -765,6 +766,7 @@ final class FakeBoardWorld {
         case "/v1/account/macs": return answer(200, macsBody)
         case "/v1/account/handoff": return answer(200, #"{"token":"hand"}"#)
         case "/_kosmos/session":
+            if sessionNoAnswer { return nil }
             if sessionAnswer.0 == 200 {
                 admitted += 1
                 cookies.setCookie(HTTPCookie(properties: [.name: Board.macCookieName, .value: "fresh-\(admitted)", .domain: url.host!, .path: "/", .secure: "TRUE"])!)
@@ -784,7 +786,9 @@ func boardLoopTests() async {
         let world = FakeBoardWorld()
         let sessions = MemoryStore(session)
         let macs = MemoryStore(kept)
-        let defaults = UserDefaults(suiteName: "board-loop-\(UUID().uuidString)")!
+        // One fixed suite, emptied for every case, so the runs leave nothing behind in ~/Library/Preferences.
+        UserDefaults().removePersistentDomain(forName: "kosmos-board-loop-tests")
+        let defaults = UserDefaults(suiteName: "kosmos-board-loop-tests")!
         let client = BoardClient(coordinator: coordinator, sessionStore: sessions, macStore: macs, cookies: world.cookies,
                                  env: .init(send: { world.send($0) },
                                             sleep: { world.clock += $0; await Task.yield() },
@@ -886,6 +890,23 @@ func boardLoopTests() async {
         c.retry()
         let ok10 = await settle { w.count("/v1/account/macs") == lists + 1 }
         check(ok10, "a second Try again in a row asks Kosmos+ for the Macs afresh")
+        c.stop()
+    }
+
+    section("native board loop: an ended session is never restored")
+    do {
+        // Review iteration 13: after the Mac ended the kept session and the reconnect found no answer, the first Try
+        // again restored the same ended cookie.
+        let (c, w, _, macs) = make("kst1", kept: keptRecord("kst1", cookie: "kept"))
+        w.statusQueue = [(401, "{}")]
+        w.sessionNoAnswer = true
+        c.start()
+        let ok20 = await settle { c.phase == .unreachable(mac: "Studio") }
+        check(ok20 && macs.value == nil, "a kept session the Mac ended is deleted, not kept for later")
+        w.sessionNoAnswer = false
+        c.retry()
+        let ok21 = await settle { isLive(c) }
+        check(ok21 && w.count("/v1/account/handoff") >= 2, "Try again then signs in fresh rather than restoring the ended cookie")
         c.stop()
     }
 
