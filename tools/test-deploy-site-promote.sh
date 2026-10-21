@@ -662,6 +662,15 @@ KOSMOS_STAGING_ROLLBACK="$OLD" run_deploy "$S47" "$L47" --promote
 { [ "$frc" = 0 ] && [ "$RC" = 0 ] && has "$out" "FROZEN at $OLD" && has "$(cat "$L47/dist/latest.json")" "\"version\":\"$OLD\"" && [ ! -e "$L47/dist/POINTER_FROZEN" ]; } \
   && pass "#6620 end to end: on, then the printed --promote, serves the pinned $OLD (and not the marker)" || bad "#6620 end to end (rc=$RC) out=$out"
 
+# The marker records the pinned pointer's sha256: the frozen version with OTHER bytes (a re-cut, a hand edit) is refused.
+read -r S49 L49 <<<"$(make_rollback_scenario)"
+LIVE49="$(cat "$L49/dist/latest.json")"
+printf 'mac=%s\nsha256=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" "0000000000000000000000000000000000000000000000000000000000000000" > "$S49/dist/POINTER_FROZEN"
+git -C "$S49" add -- dist/POINTER_FROZEN && git -C "$S49" commit -q -m "frozen at $OLD, other bytes" -- dist/POINTER_FROZEN
+run_deploy "$S49" "$L49" --promote
+{ [ "$RC" = 1 ] && has "$out" "names other bytes" && [ "$(cat "$L49/dist/latest.json")" = "$LIVE49" ]; } \
+  && pass "#6620: frozen at the version but other bytes: refused, live untouched" || bad "#6620 sha mismatch (rc=$RC) out=$out"
+
 # A freeze pushed from another machine, not yet pulled here: deploy-site reads origin/main and refuses a pointer that is
 # not the frozen version. CONTROL: arm 45 above (frozen at the committed version) deploys.
 read -r S48 L48 <<<"$(make_rollback_scenario)"

@@ -93,3 +93,14 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
   - The docs say what is not covered (the site's Kosmos.pkg, Windows R2, a Vercel rollback) and that `--because` is
     committed to the site repo.
   - New arms: a freeze only on origin/main refuses deploy-site; a stale writer refuses; `on` off main.
+- Review 3 (nine warnings):
+  - `on` no longer refuses uncommitted pointer files: it never touches them, and a cut dying (or running) here leaves
+    exactly such files when a freeze is needed. It prints the deploy that will work: --publish when prod already
+    serves the pinned version (--promote refuses that), --promote otherwise.
+  - The marker records the pinned pointer's sha256, and deploy-site compares the bytes, not only the version.
+  - deploy-site asks origin/main again just before vercel. That, and release.sh's re-check, narrow the window to the
+    deploy itself and are worded so.
+  - Fails closed: a writer whose site origin cannot be fetched refuses (KOSMOS_POINTER_FREEZE_OFFLINE=1 decides on
+    the checkout). Every fetch has no credential prompt, a stall limit and one retry (ref-lock collisions).
+  - A trailing --mac or --because with no value is refused (bash 3.2's shift 2 looped forever).
+  - The docs and messages name the Windows site pointers as not pinned.

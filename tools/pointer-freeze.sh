@@ -15,18 +15,21 @@
 #   4. writes the tracked marker dist/POINTER_FROZEN (mac=, because=, at= UTC), which every pointer writer honours
 #      (tools/lib/pointer-freeze.sh): release.sh, promote-channel.sh, publish-staging-pointer.sh,
 #      publish-kosmos-windows.sh refuse, and deploy-site.sh publishes only the frozen version;
-#   5. commits those files (pathspec only, the checkout is shared). IT DOES NOT DEPLOY: it prints the command that
-#      does (deploy-site.sh --promote, the sanctioned pointer move, which allows an older version).
+#   5. builds that change in a TEMPORARY index on the freshly fetched origin/main and pushes it (this checkout's own
+#      index and working tree are never written; it fast-forwards afterwards). IT DOES NOT DEPLOY: it prints the
+#      command that does (deploy-site.sh --promote, or --publish when prod already serves the pinned version).
 #
 # WHAT A PIN DOES TO BOARDS (engine/update.js available(), engine/manifest-verify.js): a board BELOW the pinned
 # version updates to it; a board between it and the bad version, or ON the bad version, sees nothing newer and stays
-# (the verifier refuses a downgrade), so they need a newer clean release; a fresh install gets the pinned build.
+# (the verifier refuses a downgrade), so they need a newer clean release; a fresh install through /setup gets the
+# pinned build (Kosmos.pkg does not: see below).
 #
 # NOT COVERED: Windows prod is served from R2 (tools/windows/publish-r2.ps1 -Promote), which this tool does not touch;
 # pin it there by hand. Nor the site's Kosmos.pkg (a deploy carries the live one): replace it by hand. The --because
-# line is committed to the site repo, so keep it to what that repo's readers may see. Vercel Instant Rollback bypasses every check. And a freeze does not stop an attacker who
-# controls the release Mac itself (they control this checkout): it stops the operator's own tools and the fleet's
-# release automation from moving the pointer during an incident, which is how a hand pin is realistically lost.
+# line is committed to the site repo, so keep it to what that repo's readers may see. Vercel Instant Rollback bypasses
+# every check. And a freeze does not stop an attacker who controls the release Mac itself (they control this
+# checkout): it stops the operator's own tools and the fleet's release automation from moving the pointer during an
+# incident, which is how a hand pin is realistically lost.
 #
 # Seams for tools/test-pointer-freeze.sh: KOSMOS_SITE, KOSMOS_SITE_URL, POINTER_FREEZE_CURL_CMD (stands in for curl).
 set -u
@@ -53,7 +56,7 @@ sha_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 publish_on_origin() {  # <msg> <on|off> <mode,blob,path ...>
   local msg="$1" mode="$2" attempt=1 base d tree sha err entry; shift 2
   while :; do
-    git -C "$SITE" fetch -q origin main 2>/dev/null || { echo "pointer-freeze: could not fetch origin/main; nothing was pushed" >&2; return 1; }
+    pointer_freeze_fetch "$SITE" || { echo "pointer-freeze: could not fetch origin/main; nothing was pushed" >&2; return 1; }
     base="$(git -C "$SITE" rev-parse origin/main)" || return 1
     if [ "$mode" = on ] && git -C "$SITE" cat-file -e "$base:$POINTER_FREEZE_FILE" 2>/dev/null; then
       echo "pointer-freeze: origin/main was frozen by someone else meanwhile; nothing was pushed (run status)" >&2; return 1
@@ -103,22 +106,22 @@ cmd_status() {
   committed="$(field "$(cat "$SITE/dist/latest.json" 2>/dev/null)" version)"
   live="$(field "$("$CURL_CMD" -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json" 2>/dev/null)" version)"
   local m
-  git -C "$SITE" fetch -q origin main 2>/dev/null || say "(could not fetch origin/main: this says what this checkout last saw)"
+  pointer_freeze_fetch "$SITE" || say "(could not fetch origin/main: this says what this checkout last saw)"
   if m="$(git -C "$SITE" show "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null)"; then
     say "FROZEN at $(printf '%s\n' "$m" | sed -n 's/^mac=//p') since $(printf '%s\n' "$m" | sed -n 's/^at=//p'): $(printf '%s\n' "$m" | sed -n 's/^because=//p')"
   else
     say "not frozen on origin/main"
   fi
   pointer_freeze_on "$SITE" && ! git -C "$SITE" cat-file -e "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null && say "(but this checkout still has a marker: it is behind origin/main or holds an uncommitted one)" || true
-  say "committed dist/latest.json: ${committed:-unreadable}; live at $HOST: ${live:-could not read}"
+  say "this checkout's dist/latest.json: ${committed:-unreadable}; origin/main's: $(field "$(git -C "$SITE" show origin/main:dist/latest.json 2>/dev/null)" version); live at $HOST: ${live:-could not read}"
 }
 
 cmd_on() {
   local v="" because="" c json found="" art sha tmp got f
   while [ $# -gt 0 ]; do
     case "$1" in
-      --mac) v="${2:-}"; shift 2 ;;
-      --because) because="${2:-}"; shift 2 ;;
+      --mac|--because) [ $# -ge 2 ] || die "$1 needs a value"
+        if [ "$1" = --mac ]; then v="$2"; else because="$2"; fi; shift 2 ;;
       *) die "unknown option: $1 (usage: on --mac <version> --because \"<why>\")" ;;
     esac
   done
@@ -126,15 +129,14 @@ cmd_on() {
   [ -n "$because" ] || die "--because is required: the marker is the incident record of why the pointer is frozen"
   case "$because" in *"
 "*) die "--because must be one line" ;; esac
-  git -C "$SITE" fetch -q origin main 2>/dev/null || die "could not fetch origin/main (the freeze must reach every machine through it); nothing was changed"
+  pointer_freeze_fetch "$SITE" || die "could not fetch origin/main (the freeze must reach every machine through it); nothing was changed"
   if git -C "$SITE" cat-file -e "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null; then
     local at; at="$(git -C "$SITE" show "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null | sed -n 's/^mac=//p' | head -1)"
     [ "$at" = "$v" ] && { say "already frozen at $v on origin/main; nothing changed"; return 0; }
     die "origin/main is already frozen at ${at:-an unreadable marker}; run off first to move the freeze"
   fi
-  for f in $PTRS $SETUPS "$POINTER_FREEZE_FILE"; do
-    [ -z "$(git -C "$SITE" status --porcelain -- "$f")" ] || die "$f has uncommitted changes in $SITE; nothing was changed"
-  done
+  # No refusal for uncommitted pointer files in this checkout: the pin is built in a temporary index and never touches
+  # them, and a cut dying (or still running) here leaves exactly such files, at the moment a freeze is most needed.
   for c in $(git -C "$SITE" log --format=%H origin/main -- dist/latest.json); do
     json="$(git -C "$SITE" show "${c}:dist/latest.json" 2>/dev/null)" || continue
     [ "$(field "$json" version)" = "$v" ] && { found="$c"; break; }
@@ -168,25 +170,36 @@ cmd_on() {
 
   # The pin, as blob entries from the found commit itself (the pointer to prod and staging; the installer pair to both
   # names), and the marker: built in the temporary index, so nothing in this checkout changes until the fast-forward.
-  local e entries="" marker_blob sha
+  local e entries="" marker_blob pushed live_v
   for e in "dist/latest.json dist/latest.json" "dist/latest.json dist/latest-staging.json" "setup setup" "setup setup-staging" \
            "setup.sha256 setup.sha256" "setup.sha256 setup-staging.sha256"; do
     # shellcheck disable=SC2086 # two words: the path in the found commit, and the path it is written to
     entries="$entries $(entry_of "$found" $e)" || die "could not read ${e%% *} from site commit ${found:0:12}; nothing was changed"
   done
-  marker_blob="$(printf 'mac=%s\nbecause=%s\nat=%s\n' "$v" "$because" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | git -C "$SITE" hash-object -w --stdin)" \
+  marker_blob="$(printf 'mac=%s\nsha256=%s\nbecause=%s\nat=%s\n' "$v" "$sha" "$because" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | git -C "$SITE" hash-object -w --stdin)" \
     && [ -n "$marker_blob" ] || die "could not write the marker; nothing was changed"
   # shellcheck disable=SC2086 # each entry is one word (mode,blob,path)
-  sha="$(publish_on_origin "pointer-freeze: Mac pointers pinned and frozen at $v (kosmos#6620): $because" on $entries "100644,$marker_blob,$POINTER_FREEZE_FILE")" \
+  pushed="$(publish_on_origin "pointer-freeze: Mac pointers pinned and frozen at $v (kosmos#6620): $because" on $entries "100644,$marker_blob,$POINTER_FREEZE_FILE")" \
     || die "NOT pushed, so nothing is frozen and this checkout is unchanged. Fix the cause above and run on again"
-  follow_local "$sha"
-  say "frozen at $v (from site commit ${found:0:12}): both Mac pointers, the installer pair and $POINTER_FREEZE_FILE pushed to origin/main (${sha:0:12})."
-  say "NOT deployed yet. Deploy it:   KOSMOS_SITE=$SITE KOSMOS_STAGING_ROLLBACK=$v tools/deploy-site.sh --promote"
-  say "Not pinned by this: the Windows prod pointer (R2: tools/windows/publish-r2.ps1 -Promote of a known-good build) and the site's Kosmos.pkg (replace it by hand if the bad build's is served)."
+  follow_local "$pushed"
+  say "frozen at $v (from site commit ${found:0:12}): both Mac pointers, the installer pair and $POINTER_FREEZE_FILE pushed to origin/main (${pushed:0:12})."
+  # deploy-site.sh --promote refuses a prod pointer equal to live ("nothing to promote"): when prod already serves the
+  # pinned version (only staging was bad), the deploy that publishes the pinned staging pointer is --publish.
+  live_v="$(field "$("$CURL_CMD" -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json" 2>/dev/null)" version)"
+  if [ "$live_v" = "$v" ]; then
+    say "NOT deployed yet. Prod already serves $v, so deploy the pinned staging pointer with:"
+    say "  KOSMOS_SITE=$SITE KOSMOS_STAGING_ROLLBACK=$v tools/deploy-site.sh --publish"
+  else
+    say "NOT deployed yet. Deploy it:"
+    say "  KOSMOS_SITE=$SITE KOSMOS_STAGING_ROLLBACK=$v tools/deploy-site.sh --promote"
+  fi
+  say "Not pinned by this, each by hand: the Windows pointers (prod on R2, tools/windows/publish-r2.ps1 -Promote of a"
+  say "known-good build; the site's latest-win*.json, which publish-kosmos-windows.sh will not change while frozen) and"
+  say "the site's Kosmos.pkg (a deploy carries the live one)."
 }
 
 cmd_off() {
-  git -C "$SITE" fetch -q origin main 2>/dev/null || die "could not fetch origin/main; nothing was changed"
+  pointer_freeze_fetch "$SITE" || die "could not fetch origin/main; nothing was changed"
   git -C "$SITE" cat-file -e "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null || { say "origin/main is not frozen; nothing changed"; return 0; }
   local was sha; was="$(git -C "$SITE" show "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null | sed -n 's/^mac=//p' | head -1)"
   sha="$(publish_on_origin "pointer-freeze: freeze at ${was:-?} lifted (kosmos#6620)" off)" || die "the freeze was NOT lifted (see above)"

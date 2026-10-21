@@ -110,6 +110,20 @@ sbefore="$(cat "$O2/dist/latest-staging.json")"
 out="$(HOME="$T/home" bash "$HERE/publish-staging-pointer.sh" "$O2" 9.9.9 2>&1)"; rc=$?
 { [ $rc != 0 ] && has "$out" "FROZEN at $GOOD" && [ "$(cat "$O2/dist/latest-staging.json")" = "$sbefore" ]; } \
   && pass "a stale checkout's writer refuses a freeze it has not pulled, changing nothing" || bad "stale writer (rc=$rc) out=$out"
+# ---- a writer whose site origin cannot be fetched refuses (fails closed); KOSMOS_POINTER_FREEZE_OFFLINE=1 decides here
+S="$(make_site)"; git -C "$S" remote set-url origin "$T/gone.git"; sb2="$(cat "$S/dist/latest-staging.json")"
+out="$(HOME="$T/home" bash "$HERE/publish-staging-pointer.sh" "$S" 9.9.9 2>&1)"; rc=$?
+{ [ $rc != 0 ] && has "$out" "could not fetch the site origin to check the pointer freeze" && [ "$(cat "$S/dist/latest-staging.json")" = "$sb2" ]; } \
+  && pass "a writer that cannot reach the site origin refuses, changing nothing" || bad "fail closed (rc=$rc) out=$out"
+# The decision itself, from the lib every writer sources: the return code is the freeze answer and nothing else.
+( . "$HERE/lib/pointer-freeze.sh"; pointer_freeze_refuse "$S" a-writer 2>/dev/null ); lrc=$?
+[ "$lrc" = 1 ] && pass "the lib refuses (rc 1) when the site origin cannot be fetched" || bad "the lib passed a site whose origin it could not fetch (rc=$lrc)"
+( . "$HERE/lib/pointer-freeze.sh"; KOSMOS_POINTER_FREEZE_OFFLINE=1 pointer_freeze_refuse "$S" a-writer 2>/dev/null ); lrc=$?
+[ "$lrc" = 0 ] && pass "CONTROL: the lib with KOSMOS_POINTER_FREEZE_OFFLINE=1 decides on the (unfrozen) checkout: rc 0" || bad "offline lib (rc=$lrc)"
+out="$(HOME="$T/home" KOSMOS_POINTER_FREEZE_OFFLINE=1 bash "$HERE/publish-staging-pointer.sh" "$S" 9.9.9 2>&1)"
+{ has "$out" "KOSMOS_POINTER_FREEZE_OFFLINE=1, so deciding on this checkout" && ! has "$out" "FROZEN"; } \
+  && pass "CONTROL: with KOSMOS_POINTER_FREEZE_OFFLINE=1 it decides on the checkout (not frozen here)" || bad "offline (out=$out)"
+
 # ---- on from a checkout that is not on main: pushed, and this checkout left exactly as it was -------------------
 S="$(make_site)"; git -C "$S" checkout -q -b some-branch
 out="$(pf "$S" on --mac $GOOD --because "not on main")"; rc=$?
@@ -136,11 +150,26 @@ mv "$HOSTDIR/dist/kosmos-$GOOD-arm64.manifest.json.sig" "$T/sig-aside"
 out="$(pf "$S" on --mac $GOOD --because x)"; rc=$?
 mv "$T/sig-aside" "$HOSTDIR/dist/kosmos-$GOOD-arm64.manifest.json.sig"
 { [ $rc = 1 ] && has "$out" "manifest.json.sig" && unchanged "$S" "$H0"; } && pass "refused: the pinned version's manifest signature is not served" || bad "no sig (rc=$rc) out=$out"
-printf 'edited\n' >> "$S/dist/latest-staging.json"
-out="$(pf "$S" on --mac $GOOD --because x)"; rc=$?
-{ [ $rc = 1 ] && has "$out" "uncommitted changes" && [ "$(git -C "$S" rev-parse HEAD)" = "$H0" ] && [ ! -e "$S/dist/POINTER_FROZEN" ]; } \
-  && pass "refused: a pointer with uncommitted changes" || bad "dirty (rc=$rc) out=$out"
-git -C "$S" checkout -q -- dist/latest-staging.json
+# A cut that died (or still runs) here leaves its pointer files dirty: on still freezes, and leaves those files alone.
+printf 'a cut left this\n' >> "$S/dist/latest-staging.json"; DIRTY="$(cat "$S/dist/latest-staging.json")"
+out="$(pf "$S" on --mac $GOOD --because "while a cut is dirty here")"; rc=$?
+{ [ $rc = 0 ] && on_origin "$S" && [ "$(cat "$S/dist/latest-staging.json")" = "$DIRTY" ]; } \
+  && pass "on with a cut's dirty pointer file in the checkout: frozen on origin/main, the dirty file left as it was" || bad "dirty (rc=$rc) out=$out"
+has "$out" "could not fast-forward" && pass "  and it says the checkout could not follow, and how to" || bad "dirty: no fast-forward note: $out"
+# A trailing option with no value is refused, never a hang (bash 3.2's shift 2 on one argument shifts nothing).
+S="$(make_site)"
+out="$(KOSMOS_SITE="$S" KOSMOS_SITE_URL=http://fake.test POINTER_FREEZE_CURL_CMD="$T/curl" perl -e 'alarm 20; exec @ARGV' bash "$HERE/pointer-freeze.sh" on --because x --mac 2>&1)"; rc=$?
+{ [ $rc = 1 ] && has "$out" "--mac needs a value"; } && pass "a trailing --mac with no value is refused at once" || bad "trailing option (rc=$rc) out=$out"
+# The marker records the pinned pointer's sha256 (deploy-site compares it), and the deploy line fits what is live.
+S="$(make_site)"; ptr "$GOOD" "$(sha_of "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz")" > "$HOSTDIR/dist/latest.json"
+out="$(pf "$S" on --mac $GOOD --because "staging only")"; rc=$?
+[ "$(git -C "$S" show origin/main:dist/POINTER_FROZEN | sed -n 's/^sha256=//p')" = "$(sha_of "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz")" ] \
+  && pass "the marker records the pinned pointer's sha256" || bad "marker sha: $(git -C "$S" show origin/main:dist/POINTER_FROZEN)"
+{ has "$out" "Prod already serves $GOOD" && has "$out" "deploy-site.sh --publish"; } && pass "prod already on the pinned version: the printed deploy is --publish" || bad "publish hint: $out"
+ptr "$BAD" x > "$HOSTDIR/dist/latest.json"
+out="$(pf "$(make_site)" on --mac $GOOD --because "prod bad")"
+has "$out" "deploy-site.sh --promote" && pass "CONTROL: prod on another version: the printed deploy is --promote" || bad "promote hint: $out"
+rm -f "$HOSTDIR/dist/latest.json"
 
 # ---- every pointer writer refuses while frozen; CONTROL: without the marker it does not say FROZEN ---------------
 S="$(make_site)"

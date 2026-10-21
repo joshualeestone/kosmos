@@ -427,6 +427,13 @@ if [ -n "$FROZEN_SRC" ]; then
   [ -n "$FROZEN_AT" ] || { echo "deploy-site: $FROZEN_SRC carries dist/POINTER_FROZEN but it names no version -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
   [ "$(ptr_version "$CJ")" = "$FROZEN_AT" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (dist/POINTER_FROZEN) but the committed dist/latest.json names $(ptr_version "$CJ") -- refusing (kosmos#6620); nothing was deployed. Lift it with tools/pointer-freeze.sh off first."; exit 1; }
   [ -z "$CSJ" ] || [ "$(ptr_version "$CSJ")" = "$FROZEN_AT" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT but the committed dist/latest-staging.json names $(ptr_version "$CSJ") -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
+  # The marker records the pinned pointer's sha256 (tools/pointer-freeze.sh): the same version with other bytes (a
+  # re-cut, a hand edit) is not the frozen build.
+  FROZEN_SHA=$(git -C "$SITE" show "$FROZEN_SRC:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^sha256=//p' | head -1)
+  if [ -n "$FROZEN_SHA" ]; then
+    [ "$(ptr_sha "$CJ")" = "$FROZEN_SHA" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (sha256 $FROZEN_SHA) but the committed dist/latest.json names other bytes ($(ptr_sha "$CJ")) -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
+    [ -z "$CSJ" ] || [ "$(ptr_sha "$CSJ")" = "$FROZEN_SHA" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT but the committed dist/latest-staging.json names other bytes -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
+  fi
   echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (dist/POINTER_FROZEN); the committed Mac pointers name it"
 fi
 
@@ -856,6 +863,17 @@ fi
 LIVE_PTRS_NOW=$(live_pointer_snapshot)
 case "$LIVE_PTRS_NOW" in *" 000 "*) echo "deploy-site: could not re-read the live pointers right before deploying -- refusing; nothing has been deployed (#5589)"; rm -rf "$EXPORT"; exit 75 ;; esac
 [ "$LIVE_PTRS_NOW" = "$LIVE_PTRS_BEFORE" ] || { echo "deploy-site: a live pointer changed while this run was building (a release cut published?) -- refusing; nothing has been deployed. Update the site checkout to origin/main and run again (#5589)."; echo "  before: $LIVE_PTRS_BEFORE"; echo "  now:    $LIVE_PTRS_NOW"; rm -rf "$EXPORT"; exit 75; }
+# kosmos#6620: asked again just before vercel (the fetches above take minutes): a freeze pushed meanwhile from another
+# machine, at a version or bytes other than what this deploy carries, stops it. This narrows the window to the deploy
+# itself; it does not close it (a freeze landing while vercel uploads is not seen here).
+if git -C "$SITE" fetch -q origin main 2>/dev/null && git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then
+  _late_v=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^mac=//p' | head -1)
+  _late_sha=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^sha256=//p' | head -1)
+  if [ "$(ptr_version "$CJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CJ")" != "$_late_sha" ]; }; then
+    echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy carries $(ptr_version "$CJ") -- refusing (kosmos#6620); nothing was deployed"
+    rm -rf "$EXPORT"; exit 1
+  fi
+fi
 ( cd "$EXPORT" && vercel deploy --prod --yes ) || { echo "deploy-site: vercel deploy --prod failed"; rm -rf "$EXPORT"; exit 1; }
 rm -rf "$EXPORT"
 

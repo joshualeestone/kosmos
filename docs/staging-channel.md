@@ -198,6 +198,9 @@ tools/pointer-freeze.sh on --mac <known-good version> --because "<one line: why>
 KOSMOS_STAGING_ROLLBACK=<that version> tools/deploy-site.sh --promote
 ```
 
+(`on` prints the deploy line to run. When prod already serves the pinned version and only staging was bad, it is
+`--publish` instead, because `--promote` refuses a prod pointer equal to live.)
+
 `on` restores that version's `latest.json` (to prod and staging) and the installer pair committed with it, from the
 site's own history on origin/main. Before writing anything it refuses a version below the setup floor, one whose
 artifact is no longer served with the pointer's sha256, and one whose commit lacks its installer pair. It writes the
@@ -206,17 +209,21 @@ site push is), so every machine sees it. It does not deploy; the second line doe
 served. The `--because` line is committed to the site repo (keep it to what the repo's readers may see). While the
 marker is on origin/main (each tool fetches it first) or in a checkout:
 - `release.sh`, `promote-channel.sh`, `publish-staging-pointer.sh` and `publish-kosmos-windows.sh` refuse before
-  changing anything (if the fetch fails, they decide on the checkout and say so);
+  changing anything. A site origin they cannot fetch is a refusal too (`KOSMOS_POINTER_FREEZE_OFFLINE=1` decides on
+  the checkout);
 - a release's site push refuses a frozen tip, and a cut re-checks origin/main just before it deploys;
-- `deploy-site.sh` publishes only the frozen Mac version.
+- `deploy-site.sh` publishes only the frozen Mac pointers (the version and the sha256 the marker records), and asks
+  origin/main again just before it deploys.
 `tools/pointer-freeze.sh status` says whether it is frozen; `off` lifts it (the pointers stay until the next release).
 
 What a pin does: a board older than the pinned version updates to it; a board on the bad version, or between the two,
 sees nothing newer and stays (the verifier refuses a downgrade), so it needs a NEW clean release above the bad one; a
 fresh install through `/setup` gets the pinned build. Not covered, each by hand: the site's `Kosmos.pkg` (the deploy
-carries the one live, so a bad build's pkg stays until it is replaced), Windows prod (served from R2: pin it with
-`tools/windows/publish-r2.ps1 -Promote` of a known-good build), and a rollback done in Vercel itself, which goes around
-every script, as below.
+carries the one live, so a bad build's pkg stays until it is replaced); the Windows pointers (prod is served from R2:
+pin it with `tools/windows/publish-r2.ps1 -Promote` of a known-good build; the site's `latest-win*.json` are not
+pinned, and `publish-kosmos-windows.sh` will not change them while frozen); and a rollback done in Vercel itself,
+which goes around every script, as below. The re-checks just before a deploy narrow the window to the deploy itself;
+a freeze landing while vercel uploads is not seen.
 
 ## A floor under the installer: never serve one from before 0.7.45 (kosmos#4455)
 
