@@ -129,6 +129,22 @@ enum Shell {
         return canGoBack ? .goBack : .home
     }
 
+    // kosmos#6850 (Josh, 10-21: no easy way to flip to another computer when the one he picked
+    // is not answering). Only a Mac that did not answer offers another one: offline, Kosmos+
+    // down and other failures would fail the same way on any computer.
+    static func offersOtherComputer(_ failure: LoadFailure) -> Bool {
+        failure == .macUnreachable
+    }
+
+    // Where "Choose another computer" goes: the coordinator's /account page, which lists
+    // the person's computers, says which are answering and opens one from its row. Not
+    // "/": that page opens a lone computer by itself after an allow, which could put the
+    // person straight back on the Mac that just failed; /account never opens anything by
+    // itself (kosmos#5397).
+    static func otherComputerURL(coordinator: URL) -> URL {
+        URL(string: "/account", relativeTo: coordinator)!.absoluteURL
+    }
+
     // Whether an "offline" failure should retry by itself straight away. The
     // automatic reload otherwise waits for NWPathMonitor to report a CHANGE; if the
     // phone was already back online when the load failed, no change will come and
