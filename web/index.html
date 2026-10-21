@@ -4990,7 +4990,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
    a nothingness space" (the page-level body padding was most of it). The
    body becomes a viewport-height grid with explicit rows for the three
    that need one (the rail heads, the lists, the person -- the header is
-   auto-placed among the pre-rail tracks, which is what `repeat(40, auto)`
+   auto-placed among the pre-rail tracks, which is what `repeat(41, auto)`
    protects), the lists' row is the one that flexes, and every region
    scrolls inside itself.
    ⚠️ "EVER" IS THE GOAL, NOT THE MECHANISM, and the distinction is the
@@ -5045,7 +5045,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
        rail head plus about four rows: enough that the row is recognisably
        itself and can be scrolled inside, rather than a sliver. Below that the
        grid exceeds the viewport and the body scroll above carries it. */
-    grid-template-rows: repeat(40, auto) auto minmax(200px, 1fr) auto; }
+    grid-template-rows: repeat(41, auto) auto minmax(200px, 1fr) auto; }
   /* #4872 (Josh, 0.7.15): "the page lets me scroll down just ever so slightly ... Can we disable it". Nothing here
      overflows at normal window heights (render-shell-noscroll-4872 measures the root and body exactly the window tall,
      down to 1024x640); what moved was the Mac's elastic overscroll, which drags a page that cannot scroll and shows a
@@ -5062,7 +5062,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      from this rule and the two cards agree about where the edge is. */
   html[data-layout="consolidated"] body.consolidated > #conn,
   html[data-layout="consolidated"] body.consolidated > #askcard { margin-left: var(--space-8); margin-right: var(--space-8); }
-  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 41; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 42; }
   /* #867 (Josh, 2026-08-25 11:02): "hide that scrollbar inside of
      agents." Still scrolls -- scrollbar-width/-ms-overflow-style hide
      the track, not the ability to scroll it; content wheels and
@@ -5078,7 +5078,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      agents as well", and his own bound on it: "within reason... not crazy
      tight but a bit tighter". MEASURED at 6px between consecutive rows before
      this change, on a three-agent fixture. */
-  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 42; margin: 0; display: flex; flex-direction: column; gap: 4px;
+  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 43; margin: 0; display: flex; flex-direction: column; gap: 4px;
     min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated > #alist::-webkit-scrollbar { display: none; }
   /* The person, pinned under the list on a deeper ground so the row is not
@@ -5096,8 +5096,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      (--k-side-2, the .me treatment), full column width with no radius or
      float-gap, so the agents column reads as ONE column with the person
      pinned at its foot and the rule running unbroken down its edge. */
-  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 42
-     is the body grid's last track, sized by this element, so while the grid
+  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 44
+     (since #6722; 43 before) is the body grid's last track, sized by this element, so while the grid
      fits 100vh the strip sits at the viewport foot by construction.
      ⚠️ THAT IS NO LONGER "ALWAYS", and the qualifier is not decoration. The
      body is `overflow-y: auto` with a `minmax(200px, 1fr)` floor on the list
@@ -5109,7 +5109,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      passed over here, only a trade being stated: below the floor,
      reachability beats the visual pin, which is the same call the overflow
      change makes. In every window a person actually uses, it is pinned. */
-  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 43; display: flex; align-items: center; gap: 6px;
+  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 44; display: flex; align-items: center; gap: 6px;
     margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--k-side-2, #ebe8e2); }
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
@@ -5487,7 +5487,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      the discussion and the right column all run to the viewport's bottom
      edge (the person's strip lives only in column 1). min-height: 0 lets
      the panel shrink to its row instead of forcing the page taller. */
-  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 41 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 42 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
   /* #774: the empty-centre sentence sits where the open project would. */
   /* #3597 (Josh, 0.6.91 QA): centred in the empty display column, both ways, not pinned top-left. */
   html[data-layout="consolidated"] body.consolidated #pj-none { grid-column: 2; grid-row: 1; align-self: center; justify-self: center; text-align: center; margin: 0; max-width: 34rem; }
@@ -5827,7 +5827,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      against #rail-agents, traced to #pj-list-view's own top padding
      (shared with #alist at :1995, which needs it; the projects rail
      does not, since #panel-projects already zeroes its own top padding
-     to sit flush with row 40). */
+     to sit flush with row 42, the first rail row since #6722). */
   html[data-layout="consolidated"] body.consolidated #pj-list-view { grid-column: 1; padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > :not(#pj-list-view) { grid-column: 2; }
   /* #3126 (Josh, 6.68): tighter spacing between projects (was gap 8px). */
@@ -9738,6 +9738,18 @@ body.consolidated .tkcard:hover { border-color: transparent; }
 .rm-small { font: var(--text-callout) var(--font-ui); color: var(--label-2);
             line-height: 1.45; margin: 0 0 var(--space-8); }
 .rm-acts { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+/* #6722: the picture editor. The stage is square and shrinks with a phone; the circle drawn on it is what shows. */
+.crop-box { max-width: 24rem; max-height: calc(100vh - 2 * var(--space-5)); overflow-y: auto; }   /* a phone held sideways scrolls, never clips */
+.crop-stage { position: relative; width: min(100%, 18rem, 42vh); aspect-ratio: 1; margin: 0 auto var(--space-5);
+              border-radius: 12px; overflow: hidden; background: var(--bg); cursor: grab; touch-action: none; }
+.crop-stage:active { cursor: grabbing; }
+.crop-stage:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 3px; }
+.crop-stage canvas { display: block; width: 100%; height: 100%; }
+#cropmodal { z-index: 61; }   /* #6722: above the file preview (59) and first run (60), so a window that counts it as covering it really is under it */
+.crop-zoom { display: flex; align-items: center; gap: var(--space-4); margin: 0 0 var(--space-5);
+             font: var(--text-callout) var(--font-ui); color: var(--label-2); }
+.crop-zoom input[type="range"] { flex: 1; min-width: 0; min-height: 44px; accent-color: var(--gold-deep); }
+.crop-box .rm-acts .btn { min-height: 44px; }   /* a full tap on a phone, where this editor is used most */
 /* #766: a dialog that holds a form (New task) takes the create page's width
    and lets its fields fill it. */
 .rm-box.rm-box-form { max-width: 34rem; }
@@ -13975,6 +13987,22 @@ window.kosmosMeasureScrollbarWidth();
     <div class="rm-acts">
       <button class="btn" type="button" id="uc-no">Not now</button>
       <button class="btn uprime" type="button" id="uc-go">Update</button>
+    </div>
+  </div>
+</div>
+
+<!-- #6722 (Josh, 2026-10-20): "a little avatar editor so if I upload an image I get some basic cropping tools before
+     i save". Opened by cropPicture() for every picture chosen for an agent or for the person. -->
+<div class="rm-back" id="cropmodal" hidden>
+  <div class="rm-box crop-box" role="dialog" aria-modal="true" aria-labelledby="crop-t">
+    <h2 class="rm-title" id="crop-t">Fit the picture</h2>
+    <div class="crop-stage" id="crop-stage" tabindex="0" role="application" aria-roledescription="picture"
+         aria-label="The picture" aria-describedby="crop-help"><canvas id="crop-cv" width="576" height="576" aria-hidden="true"></canvas></div>
+    <label class="crop-zoom" for="crop-zoom">Zoom <input type="range" id="crop-zoom" min="1" max="4" step="0.1" value="1" aria-valuetext="100%"></label>
+    <p class="rm-small" id="crop-help">Drag to move it, and pinch or use the slider to zoom. On a keyboard, the arrow keys move it and plus and minus zoom. What is inside the circle is what shows.</p>
+    <div class="rm-acts">
+      <button class="btn" type="button" id="crop-no">Cancel</button>
+      <button class="btn uprime" type="button" id="crop-go">Save</button>
     </div>
   </div>
 </div>
@@ -45137,7 +45165,7 @@ function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
   // #4930: and the full-page file preview.
   // #4343: and the restart screen. #4823: and the phone menu.
-  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, #pnav:not([hidden]), #pv-preview');
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, #pnav:not([hidden]), #pv-preview, #cropmodal:not([hidden])');
 }
 /* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
    document-level Escape and Tab handlers, and one Escape must not close both. */
@@ -46940,6 +46968,215 @@ async function fitPicture(blob) {
   }
 }
 
+/* #6722: the picture editor. cropPicture(file, verb) shows the chosen picture under a circle, lets the person move and
+   zoom it, and resolves to a square PNG File of the part inside the circle (CROP_OUT_PX a side, the chosen file's name), or null when
+   they cancel. A GIF is returned as chosen (cropping would stop an animated one moving), and so is a picture this
+   browser cannot open: the upload paths already cope with both. A phone photo comes in upright (its rotation tag is
+   applied when it is read), and a very large one is scaled down first so the editor stays quick. */
+const CROP_OUT_PX = 512;
+const CROP_READ_MAX = 2048;   // longest side kept while editing; more than the output ever needs
+const CROP_ZOOM_MAX = 4;
+let CROP = null;   // { bmp, iw, ih, cx, cy, zoom, done, opener, ptrs } while the editor is open
+let CROP_READING = false;   // set before the picture is read, so a second choice during a slow read is dropped too
+async function cropRead(file) {
+  let bmp;
+  try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { bmp = await createImageBitmap(file); }
+  const big = Math.max(bmp.width, bmp.height);
+  if (big <= CROP_READ_MAX) return bmp;
+  const k = CROP_READ_MAX / big;
+  // At least 1 px a side: a very long, thin picture would round its short side to 0, which the browser refuses.
+  const w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
+  try {
+    return await createImageBitmap(bmp, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
+  } catch {
+    // A browser that refuses the resize options (an older WebKit) shrinks it through a canvas instead, so a phone photo
+    // still opens the editor rather than skipping it.
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(bmp, 0, 0, w, h);
+    return await createImageBitmap(cv);
+  } finally { bmp.close(); }
+}
+/* The square the circle covers, in image pixels: its side at this zoom, centred on (cx, cy). */
+function cropSide(c) { return Math.min(c.iw, c.ih) / c.zoom; }
+function cropClamp(c) {
+  c.zoom = Math.min(CROP_ZOOM_MAX, Math.max(1, c.zoom));
+  const half = cropSide(c) / 2;
+  c.cx = Math.min(c.iw - half, Math.max(half, c.cx));
+  c.cy = Math.min(c.ih - half, Math.max(half, c.cy));
+}
+/* The circle's diameter on the stage canvas: most of it, so the picture around it still shows what is cut away. */
+function cropDiameter(cv) { return cv.width * 0.86; }
+function cropPaint() {
+  const c = CROP;
+  if (!c) return;
+  const cv = document.getElementById('crop-cv');
+  const g = cv.getContext('2d');
+  const S = cv.width;
+  const D = cropDiameter(cv);
+  const scale = D / cropSide(c);
+  g.clearRect(0, 0, S, S);
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(c.bmp, S / 2 - c.cx * scale, S / 2 - c.cy * scale, c.iw * scale, c.ih * scale);
+  // Outside the circle is dimmed, not hidden, so the person sees what they are cutting away.
+  g.save();
+  g.beginPath();
+  g.rect(0, 0, S, S);
+  g.arc(S / 2, S / 2, D / 2, 0, Math.PI * 2);
+  g.fillStyle = 'rgba(17, 20, 24, 0.55)';
+  g.fill('evenodd');
+  g.beginPath();
+  g.arc(S / 2, S / 2, D / 2, 0, Math.PI * 2);
+  g.lineWidth = Math.max(2, S / 288);
+  g.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+  g.stroke();
+  g.restore();
+  const z = document.getElementById('crop-zoom');
+  if (z && Number(z.value) !== c.zoom) z.value = String(c.zoom);
+  if (z) z.setAttribute('aria-valuetext', Math.round(c.zoom * 100) + '%');   // read as a size, not 1.37
+}
+/* Moves the picture by (dx, dy) STAGE pixels as shown on screen (a drag or a key), so it follows the finger. */
+function cropMove(dx, dy) {
+  const c = CROP;
+  if (!c) return;
+  const cv = document.getElementById('crop-cv');
+  const perCss = cv.width / (cv.getBoundingClientRect().width || cv.width);
+  const scale = cropDiameter(cv) / cropSide(c);
+  c.cx -= (dx * perCss) / scale;
+  c.cy -= (dy * perCss) / scale;
+  cropClamp(c);
+  cropPaint();
+}
+function cropZoomTo(z) {
+  const c = CROP;
+  if (!c) return;
+  c.zoom = z;
+  cropClamp(c);
+  cropPaint();
+}
+async function cropFinish(save) {
+  const c = CROP;
+  if (!c || c.closing) return;
+  c.closing = true;
+  let out = null;
+  if (save) {
+    try {
+      const cv = document.createElement('canvas');
+      const side = cropSide(c);
+      // Never larger than the part cut out: a small picture is not blown up (it would only be blurred).
+      const outPx = Math.max(1, Math.min(CROP_OUT_PX, Math.round(side)));
+      cv.width = outPx; cv.height = outPx;
+      const g = cv.getContext('2d');
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(c.bmp, c.cx - side / 2, c.cy - side / 2, side, side, 0, 0, outPx, outPx);
+      const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+      // The chosen file's own name, so "<name> will be its picture." names what they picked; the type says PNG.
+      if (blob) out = new File([blob], String(c.name || 'picture'), { type: 'image/png' });
+    } catch { out = null; }
+    // A picture that could not be cut is kept as chosen rather than lost: Save never throws the choice away.
+    if (!out) out = c.file;
+  }
+  document.getElementById('cropmodal').hidden = true;
+  try { c.bmp.close(); } catch { /* already released */ }
+  CROP = null;
+  if (c.opener && document.contains(c.opener)) c.opener.focus();
+  c.done(out);
+}
+function cropPicture(file, verb) {
+  if (!file) return Promise.resolve(null);
+  if (file.type === 'image/gif') return Promise.resolve(file);
+  if (CROP || CROP_READING) return Promise.resolve(null);   // one editor at a time; a second choice made under it, or during its read, is dropped
+  const opener = document.activeElement;
+  CROP_READING = true;
+  return cropRead(file).then((bmp) => new Promise((done) => {
+    CROP_READING = false;
+    CROP = { bmp, iw: bmp.width, ih: bmp.height, cx: bmp.width / 2, cy: bmp.height / 2, zoom: 1,
+      file, name: file.name, done, opener, ptrs: new Map(), closing: false };
+    document.getElementById('crop-go').textContent = verb || 'Save';
+    document.getElementById('cropmodal').hidden = false;
+    try { cropPaint(); }
+    catch { cropFinish(true); return; }   // a picture the editor cannot draw is saved as it opened, or kept as chosen if it cannot be cut
+    document.getElementById('crop-stage').focus();
+  }), () => { CROP_READING = false; return file; });
+}
+(function wireCrop() {
+  const stage = document.getElementById('crop-stage');
+  const zoom = document.getElementById('crop-zoom');
+  stage.addEventListener('pointerdown', (e) => {
+    if (!CROP) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;   // a right or middle press is not a drag
+    if (CROP.ptrs.size >= 2) return;                           // a third finger is ignored, not a jump
+    try { stage.setPointerCapture(e.pointerId); } catch { /* the pointer already went; nothing to follow */ }
+    CROP.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  });
+  stage.addEventListener('pointermove', (e) => {
+    const c = CROP;
+    if (!c || !c.ptrs.has(e.pointerId)) return;
+    const prev = c.ptrs.get(e.pointerId);
+    if (c.ptrs.size === 2) {
+      // Pinch: the zoom follows the change in distance between the two fingers.
+      const other = [...c.ptrs.entries()].find(([id]) => id !== e.pointerId)[1];
+      const before = Math.hypot(prev.x - other.x, prev.y - other.y);
+      const after = Math.hypot(e.clientX - other.x, e.clientY - other.y);
+      c.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (before > 0) cropZoomTo(c.zoom * (after / before));
+      return;
+    }
+    c.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    cropMove(e.clientX - prev.x, e.clientY - prev.y);
+  });
+  const lift = (e) => { if (CROP) CROP.ptrs.delete(e.pointerId); };
+  stage.addEventListener('pointerup', lift);
+  stage.addEventListener('pointercancel', lift);
+  stage.addEventListener('lostpointercapture', lift);   // a finger that vanished without an up never reads as half a pinch
+  stage.addEventListener('wheel', (e) => {
+    if (!CROP) return;
+    e.preventDefault();
+    const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);   // lines and pages, as pixels
+    cropZoomTo(CROP.zoom * Math.exp(-dy * 0.002));
+  }, { passive: false });
+  zoom.addEventListener('input', () => cropZoomTo(Number(zoom.value)));
+  document.getElementById('crop-no').addEventListener('click', () => cropFinish(false));
+  document.getElementById('crop-go').addEventListener('click', () => cropFinish(true));
+  /* The backdrop cancels only a press that began on it: a drag that starts on the picture and ends outside it is a
+     drag, not a dismissal. */
+  let downOnBack = false;
+  document.getElementById('cropmodal').addEventListener('pointerdown', (e) => { downOnBack = e.target.id === 'cropmodal'; });
+  document.getElementById('cropmodal').addEventListener('click', (e) => { if (e.target.id === 'cropmodal' && downOnBack) cropFinish(false); downOnBack = false; });
+  /* Review 4: in the capture phase, and no key goes past the editor while it is open. It opens over other windows
+     (an agent's settings), whose own document-level handlers would otherwise act on the same key: one Escape closed
+     both. Stopping the event leaves every default action alone: the slider's and the buttons' own keys, and the
+     browser's chords (Ctrl+= zoom, Ctrl+Tab), which the editor also never prevents (review 8: one rule for every key). */
+  document.addEventListener('keydown', (e) => {
+    if (!CROP || document.getElementById('cropmodal').hidden) return;
+    e.stopImmediatePropagation();
+    const onStage = e.target === stage;
+    const step = e.shiftKey ? 40 : 10;
+    if (e.key === 'Escape') { e.preventDefault(); cropFinish(false); return; }   // with any modifier held (review 7)
+    // Review 6: Ctrl+Tab and Cmd+Tab are the browser's and the system's (switching tabs and apps), never the editor's.
+    // Option+Tab stays: it is how Safari moves between buttons when Tab alone skips them.
+    if (e.key === 'Tab' && (e.ctrlKey || e.metaKey)) return;
+    if (e.key === 'Tab') {
+      // Kept inside the editor: the stage, the slider, Cancel, Save.
+      const ring = [stage, zoom, document.getElementById('crop-no'), document.getElementById('crop-go')];
+      const i = ring.indexOf(document.activeElement);
+      e.preventDefault();
+      // From outside the ring, Tab starts at the picture and Shift+Tab at Save.
+      if (i < 0) { (e.shiftKey ? ring[ring.length - 1] : ring[0]).focus(); return; }
+      ring[(i + (e.shiftKey ? ring.length - 1 : 1)) % ring.length].focus();
+      return;
+    }
+    // A key with a modifier is the browser's or the system's (page zoom, back, forward), never the editor's.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'Enter' && (onStage || e.target === zoom)) { e.preventDefault(); cropFinish(true); return; }
+    if (!onStage) return;
+    const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+    // An arrow moves the picture the way it points: the circle stays, the picture slides under it.
+    if (moves[e.key]) { e.preventDefault(); cropMove(moves[e.key][0], moves[e.key][1]); return; }
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); cropZoomTo(CROP.zoom * 1.1); return; }
+    if (e.key === '-' || e.key === '_') { e.preventDefault(); cropZoomTo(CROP.zoom / 1.1); }
+  }, true);
+})();
+
 document.getElementById('d-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
   /* #4038: cleared at once, so choosing the SAME file again (after a failure, or to redo it) fires change again; left
@@ -46951,11 +47188,15 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
   // picture for A and switching to B before it lands reports "Saved." on B's
   // panel, about a file B has nothing to do with.
   const forAgent = CURRENT.sessionName;
-  msg.textContent = 'Saving…';
+  const cut = await cropPicture(f);   // #6722: null means they cancelled; nothing changes
+  if (!cut) return;
+  // They pressed Save for forAgent, so it uploads to forAgent even if the panel moved on while the editor was open;
+  // only the messages below are kept to forAgent's own panel.
+  if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = 'Saving…';
   try {
-    const pic = await fitPicture(f);   // #4885
+    const pic = await fitPicture(cut);   // #4885
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/avatar',
-      { method: 'PUT', headers: { 'content-type': pic.type || f.type }, body: pic });
+      { method: 'PUT', headers: { 'content-type': pic.type || cut.type }, body: pic });
     const out = await res.json();
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     // Say what to do, never surface an exception name.
@@ -46969,7 +47210,7 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
     // Only the picture. openDetail would re-run the whole panel and throw away
     // anything typed into the instruction box but not yet saved.
     refreshAvatar();
-  } catch (err) { msg.textContent = err.message; }
+  } catch (err) { if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = err.message; }
 });
 
 document.getElementById('d-remove').addEventListener('click', async () => {
@@ -47326,8 +47567,11 @@ async function refreshYou() {
   paintYou();
 }
 document.getElementById('you-file').addEventListener('change', async (e) => {
-  const file = e.target.files && e.target.files[0];
+  const chosen = e.target.files && e.target.files[0];
   const msg = document.getElementById('you-msg');
+  e.target.value = '';   // cleared before the editor opens, so choosing the same file again after Cancel still fires
+  if (!chosen) return;
+  const file = await cropPicture(chosen);   // #6722: null means they cancelled; nothing changes
   if (!file) return;
   try {
     const res = await fetch('/api/you/avatar', {
@@ -62629,11 +62873,21 @@ document.getElementById('d-file-btn').addEventListener('click', () => {
 document.getElementById('you-file-btn').addEventListener('click', () => {
   document.getElementById('you-file').click();
 });
-document.getElementById('create-avatar').addEventListener('change', (e) => {
+document.getElementById('create-avatar').addEventListener('change', async (e) => {
   // Held client-side: there is no agent yet to attach it to. Uploaded right
   // after CREATED, non-gating (an agent whose picture failed to land is a
   // working agent with a mark, not a failure).
-  AVATAR_FILE = (e.target.files && e.target.files[0]) || null;
+  const chosen = (e.target.files && e.target.files[0]) || null;
+  /* #6722: fitted first. Cancel keeps whatever was chosen before; the input is cleared so the same file can be chosen
+     again. Nothing is uploaded here, so the button says what it does. */
+  if (chosen) {
+    e.target.value = '';
+    const cut = await cropPicture(chosen, 'Use picture');
+    if (!cut) return;
+    AVATAR_FILE = cut;
+  } else {
+    AVATAR_FILE = null;
+  }
   document.getElementById('genav-hint').textContent = AVATAR_FILE
     ? AVATAR_FILE.name + ' will be its picture.'
     : '';
@@ -70928,7 +71182,7 @@ document.addEventListener('click', (e) => {
    page ever open one: none does today) owns the keys.
    The phone menu is not one: it sits under the preview. While the update overlay is up the preview and the update
    window both stand aside to it, the window on top. */
-function pvCovered() { return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open]'); }
+function pvCovered() { return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #cropmodal:not([hidden])'); }
 document.addEventListener('keydown', (e) => {
   const back = document.getElementById('pv-preview');
   if (!back || pvCovered()) return;
