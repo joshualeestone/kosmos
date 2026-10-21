@@ -683,7 +683,7 @@ async function enrollNow(code, accepted, opts) {
   }
   const was = readEnrollment(opts);   // kosmos#6859: this board's record of the same org keeps its kind too
   const sameOrg = was && r.data && r.data.org && was.org.id === r.data.org.id;
-  const org = keepFamily(cleanOrg(r.data && r.data.org), r.data && r.data.org, sameOrg && was.org.kind === 'family' ? 'family' : KIND);
+  const org = keepFamily(cleanOrg(r.data && r.data.org), r.data && r.data.org, sameOrg && was.org.kind === 'family' ? 'family' : opts && opts.orgKind);
   const role = cleanRole(r.data && r.data.role);
   const en = r.data && r.data.enrolled;
   /* #5530 review 2: thisComputer says the CALLING signer is the enrolled one. It catches a world id copied WITHOUT the
@@ -1057,6 +1057,9 @@ async function refreshNow(opts) {
   // kosmos#6251 (board review 4): the kind of the record read here, after the paths above that settle or leave first.
   const KIND = before && before.org ? before.org.kind : null;
   if (before && fs.existsSync(path.join(storeRoot(opts), JOIN_UNKNOWN_FILE))) setJoinUnknown(null, opts);   // a record settles it: no follow-up beside one (review 27)
+  // kosmos#6859: a join marker that cannot be read says nothing and is removed, as one beside a record is above;
+  // kept, orgenroll.kindStrict would read it as damage and keep outside contact closed for good.
+  if (!before && !joinUnknown(opts) && fs.existsSync(path.join(storeRoot(opts), JOIN_UNKNOWN_FILE))) setJoinUnknown(null, opts);
   const unsure = before ? null : joinUnknown(opts);
   if (unsure) return settleUnknownJoin(unsure, opts);
   /* No local world id: nothing can match, so nothing is asked (review 14). A missing id file means the record is stale
@@ -1086,7 +1089,7 @@ async function refreshNow(opts) {
   if (!org || !role) return { ok: false, because: inKind(KIND, 'Your company\'s answer was not complete.'), enrolled: !!before };
   // kosmos#6859: an org's kind does not change, so an answer that names none (an older coordinator's) leaves a
   // family's record a family's; read as a company's, it would let a child's agents out (orgpolicy.contactAllows).
-  if (!(d.org && d.org.kind) && before && before.org && before.org.id === org.id && before.org.kind === 'family') org.kind = 'family';
+  keepFamily(org, d.org, before && before.org && before.org.id === org.id ? before.org.kind : null);
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
   // kosmos#6752: this answer's reviewer grants, or none (an answer without them, an older coordinator's, drops the old list).
   const grants = cleanReviewerGrants(d.reviewerGrants);

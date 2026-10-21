@@ -94,7 +94,7 @@ but cannot be read, or is not a JSON object, throws; null only when none of the 
   them (a reader in another process could; none exists). The code comment claiming the order was removed.
 - Review 8: the join's known kind also holds in enroll and in a settled join when the answer names none
   (keepFamily), not only on the hourly refresh; the settle path is tested and mutation-proven (1 red), the enroll
-  path is not (driving a full enroll needs the consent flow) and is the same one-line call. A settle whose record
+  path is tested since review 14. A settle whose record
   write fails no longer rewrites the marker (it is still there now, and rewriting it reset its age).
 - Review 8, pinned: the coordinator's explicit kind wins on refresh (a family record answered 'company' becomes a
   company's); only an answer naming no kind keeps a family's.
@@ -112,10 +112,18 @@ but cannot be read, or is not a JSON object, throws; null only when none of the 
 - Review 12: enroll keeps a family's kind also when this board's current record is a family's (the screen always
   passes an explicit kind, taken from a preview that reads a missing kind as a company's, so the join's own kind
   alone never said family in the case keepFamily is for). Review 13: only the record of the SAME org, as refresh
-  requires, so a move from a family to a company is not recorded as a family's. Still untested on the enroll path.
+  requires, so a move from a family to a company is not recorded as a family's. Tested since review 14.
 - Review 12: the refresh clears a join marker beside a record by its presence on disk, not by whether it parses:
   a torn marker no refresh could read would otherwise have closed a company board for good (tested and
   mutation-proven, 1 red).
+- Review 14: enroll keeps a family's kind for the same org only, and otherwise uses the kind the caller passed
+  (not the old record's, through KIND's fallback), so the function guarantees it whatever its caller; tested with
+  three arms (same org, another org, another org with no kind passed) and mutation-proven (1 red each). Refresh
+  uses keepFamily too (one copy of the rule). A join marker that cannot be read is removed by the next refresh
+  with no record beside it as well (tested, 1 red).
+- Review 14, decided: an enrollment RECORD that cannot be read keeps outside contact closed until it is repaired.
+  It means this board cannot tell whether it is a family's, which for this rule is the case to close; the person
+  is told through the fault sentence (tell your person). It needs real damage (records are written whole).
 - Review 1, deferred: one more small file read per contactAllows call (currentStrict already reads one per call);
   the require is lazy, so there is no load-order cycle.
 
