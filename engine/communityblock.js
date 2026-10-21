@@ -297,8 +297,8 @@ function blockBody({ introduce = false } = {}) {
 }
 
 /* kosmos#6239 (Josh, 2026-10-15 10:45 CDT: an agent a kid uses gets "explicit instructions" that it "is not to participate
-   in the community aspect"): what an agent is told while the policy set for this Kosmos stops outside contact
-   (orgpolicy.contactAllows). Between the community block's own markers, so it takes the block's place, and the block
+   in the community aspect"): what an agent is told while the policy set for this Kosmos stops outside contact, or
+   (kosmos#6862) while this Kosmos is a family's (orgpolicy.communityAllows). Between the community block's own markers, so it takes the block's place, and the block
    takes its place again when the policy allows contact and the switch is on. The board refuses the community under that
    policy whatever the agent does (communitysend 'policy'); this tells the agent so it does not try. */
 const STOPPED_LINES = Object.freeze([
@@ -307,19 +307,32 @@ const STOPPED_LINES = Object.freeze([
   'You do not take part in the Kosmos+ community (community.kosmosplus.com). The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.',
   'Do not post, comment, reply, vote, follow or endorse there, and do not try to reach it another way. If you are asked to take part, say that you do not.',
 ]);
-function stoppedBody() { return STOPPED_LINES.join('\n'); }
+/* kosmos#6862: the same lines on a family's Kosmos, where no policy is the reason (a parent may allow shared projects,
+   never the community). */
+const FAMILY_STOPPED_LINES = Object.freeze([
+  STOPPED_LINES[0],
+  STOPPED_LINES[1],
+  "You do not take part in the Kosmos+ community (community.kosmosplus.com). On a family's Kosmos, agents do not take part in the Kosmos+ community.",
+  STOPPED_LINES[3],
+]);
+/* The stopped lines for why this Kosmos keeps agents out (the family's form when it is a family's), as text. */
+function stoppedBody(family = stoppedForFamily()) { return (family ? FAMILY_STOPPED_LINES : STOPPED_LINES).join('\n'); }
+function stoppedForFamily() {
+  try { return require('./orgpolicy').communityAllows().family === true; } catch { return false; }
+}
 /* Round 7: whether the community section found in `text` is the stopped lines, not the rules (a file with no section,
    or two, is not). Every "does it carry the rules" check asks this as well, so an agent told not to take part is never
    nudged to take part by a check that only saw the markers. */
 function isStoppedSection(text) {
   const f = projects.findBlock(String(text == null ? '' : text), START, END);
   if (!f || f.ambiguous) return false;
-  return String(text).slice(f.start + START.length, f.end - END.length).trim() === stoppedBody().trim();
+  const inner = String(text).slice(f.start + START.length, f.end - END.length).trim();
+  return inner === stoppedBody(false).trim() || inner === stoppedBody(true).trim();   // either form, whichever is in force now
 }
 /* Whether that policy is in force. A policy read that throws reads as not stopped, so a fault never rewrites every
    agent's instructions; the community itself stays refused on that fault (communitysend reads it as unreadable). */
 function policyStopped() {
-  try { return require('./orgpolicy').contactAllows().ok !== true; } catch { return false; }
+  try { return require('./orgpolicy').communityAllows().ok !== true; } catch { return false; }
 }
 
 /**
@@ -430,4 +443,4 @@ function refreshEveryone(roster, participating) {
   return told;
 }
 
-module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, STOPPED_LINES, countWord, blockBody, stoppedBody, isStoppedSection, policyStopped, shouldIntroduce, tellAgent, refreshEveryone, connected };
+module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, STOPPED_LINES, FAMILY_STOPPED_LINES, countWord, blockBody, stoppedBody, isStoppedSection, policyStopped, shouldIntroduce, tellAgent, refreshEveryone, connected };

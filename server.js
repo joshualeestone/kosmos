@@ -903,6 +903,8 @@ function fedKosmosPlusNow() {
 const FEDERATION_OFF = 'Sharing a project with people outside this computer is not turned on yet.';
 // kosmos#6239: Settings' community switch, under a policy that stops outside contact (orgpolicy.contactAllows).
 const COMMUNITY_STOPPED = 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so they do not take part in the Kosmos+ community whatever this switch says.';
+// kosmos#6862: the same on a family's Kosmos, where the reason is the family, not a policy (orgpolicy.communityAllows).
+const FAMILY_COMMUNITY_STOPPED = "On a family's Kosmos, agents do not take part in the Kosmos+ community, whatever this switch says.";
 /* kosmos#6239: the sentence refusing a new link to another computer (an invite, joining one, an own-computer code) while
    the policy set for this Kosmos stops outside contact, else null. Removing someone or withdrawing an invite is never
    refused: it only takes contact away. A policy read that throws refuses. */
@@ -10093,9 +10095,10 @@ const server = http.createServer(async (req, res) => {
   /* #4820: no `noticeSeen` any more (the one-time notice is gone). A page from an older build opened
      that notice only on noticeSeen === false, so an answer without the field opens nothing there either. */
   /* kosmos#6239: `stopped` is the sentence for a policy that keeps agents out of the community whatever the switch says
-     (orgpolicy.contactAllows), else null; the switch stays the person's to set. */
+     (orgpolicy.communityAllows; kosmos#6862: the family's sentence on a family's Kosmos), else null; the switch stays the
+     person's to set. */
   const communityStopped = () => {
-    try { const op = require('./engine/orgpolicy'); op.inForce(); return op.contactAllows().ok === true ? null : COMMUNITY_STOPPED; }
+    try { const op = require('./engine/orgpolicy'); op.inForce(); const c = op.communityAllows(); return c.ok === true ? null : c.family === true ? FAMILY_COMMUNITY_STOPPED : COMMUNITY_STOPPED; }
     catch { return 'Kosmos cannot read the policy set for this Kosmos just now, so agents do not take part in the Kosmos+ community until it can.'; }   // round 3: as the send layer reads it
   };
   const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null, stopped: communityStopped() }; };

@@ -261,17 +261,18 @@ function switchState() {
    agentCall): a switch file that cannot be read is not the person switching it off. */
 function notOnWords(sw = switchState()) {   // review 9: pass the state the caller gated on, so the words cannot disagree
   // Round 4: one clause each, ending where the callers add theirs (", so nothing was read").
-  if (sw === 'policy') return 'the Kosmos+ community is off on this board: ' + POLICY_STOPS;
+  if (sw === 'policy') { let why = POLICY_STOPS; try { why = contactWords() || POLICY_STOPS; } catch { /* the policy's words */ } return 'the Kosmos+ community is off on this board: ' + why; }   // kosmos#6862: a family's reason in its own words
   if (sw === 'policy_unreadable') return 'the Kosmos+ community is off on this board: Kosmos cannot read the policy set for this Kosmos just now (tell your person)';
   return sw === 'unreadable'
     ? 'Kosmos cannot read this board\'s community switch just now, so the Kosmos+ community is not on (tell your person)'
     : 'the Kosmos+ community is switched off on this board';
 }
-/* kosmos#6239: the policy's sentence when it stops outside contact, else null. Throws only if the policy module does. */
+/* kosmos#6239: the policy's sentence when it keeps agents out of the community (kosmos#6862: or the family's, on a
+   family's Kosmos: orgpolicy.communityAllows), else null. Throws only if the policy module does. */
 let contactRead = null;         // tests inject
 const POLICY_STOPS = 'the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers';
 function contactWords() {
-  const r = contactRead ? contactRead() : require('./orgpolicy').contactAllows();
+  const r = contactRead ? contactRead() : require('./orgpolicy').communityAllows();
   return r && r.ok === true ? null : String((r && r.because) || POLICY_STOPS);
 }
 /* kosmos#6239: an agent's community act refused under the policy is reported to whoever set it, through the agent-events

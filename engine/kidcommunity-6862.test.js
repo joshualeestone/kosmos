@@ -1,0 +1,111 @@
+'use strict';
+/**
+ * kosmos#6862: on a computer joined to a family, agents never take part in the Kosmos+ community, whatever the policy
+ * says: a parent's `outside_contact: { enabled: true }` opens projects shared with other computers, not the community.
+ * The family's reason is said in the family's own words; a company is as before.
+ *
+ *   node --test engine/kidcommunity-6862.test.js
+ */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-kidcommunity-6862-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_TUNNEL_STATE = path.join(SANDBOX, 'tunnel');
+fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
+fs.mkdirSync(process.env.AGENT_WORKFORCE_TUNNEL_STATE, { recursive: true });
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const store = require('./store');
+const orgenroll = require('./orgenroll');
+const orgpolicy = require('./orgpolicy');
+const communitysend = require('./communitysend');
+const fedseats = require('./fedseats');
+const cb = require('./communityblock');
+
+test.after(() => { fedseats.stopAll(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+
+const coordinator = crypto.generateKeyPairSync('ed25519');
+const PINNED = coordinator.publicKey.export({ format: 'jwk' }).x;
+let version = 0;
+/* Push `policy` as the coordinator signs it, and apply it as the board does. */
+function apply(policy) {
+  const now = Math.floor(Date.now() / 1000);
+  version += 1;
+  const body = 'KST1.' + Buffer.from(JSON.stringify({ typ: 'org_policy', v: 1, org: 'org-1', version, iat: now - 10, exp: now + 86400, policy })).toString('base64url');
+  fs.writeFileSync(orgpolicy.BUNDLE(), body + '.' + crypto.sign(null, Buffer.from(body, 'ascii'), coordinator.privateKey).toString('base64url'));
+  const r = orgpolicy.refresh({ now, pinned: PINNED });
+  assert.equal(r.refused, null, 'the test policy did not apply: ' + r.refused);
+}
+const JOIN_UNKNOWN = 'org-join-unknown.json';   // orgenroll's marker for a join whose outcome is not known yet
+/* This board joined to an org of `kind` ('family' or 'company'), or to nothing (null). No policy is in force. */
+function joined(kind) {
+  orgpolicy.clear();
+  fs.rmSync(orgpolicy.APPLIED(), { force: true });
+  const file = path.join(store.ROOT, orgenroll.ENROLLMENT_FILE);
+  fs.rmSync(path.join(store.ROOT, JOIN_UNKNOWN), { force: true });
+  fs.rmSync(path.join(store.ROOT, orgenroll.LEAVE_PENDING_FILE), { force: true });
+  if (kind === null) { fs.rmSync(file, { force: true }); return; }
+  fs.mkdirSync(store.ROOT, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ org: { id: 'org-1', name: 'The Smiths', slug: 'smiths', kind }, world: 'a'.repeat(32) }) + '\n');
+  assert.equal(orgenroll.kindHere(), kind, 'CONTROL: the board reads the kind this test wrote');
+}
+const FAMILY_WORDS = /on a family's Kosmos, agents do not take part in the Kosmos\+ community/;
+
+test('#6862: a family that allowed outside contact still keeps agents out of the community, and only the community', () => {
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  try {
+    joined('family');
+    apply({ outside_contact: { enabled: true } });
+    assert.equal(orgpolicy.contactAllows().ok, true, 'CONTROL: the parent allowed outside contact');
+    assert.equal(fedseats.contactStopped(), false, 'shared projects did not follow the parent\'s allow');
+    const c = orgpolicy.communityAllows();
+    assert.equal(c.ok, false, 'a family\'s agents were let into the community');
+    assert.match(c.because, FAMILY_WORDS);
+    assert.equal(communitysend.switchState(), 'policy');
+    assert.match(communitysend.notOnWords('policy'), FAMILY_WORDS, 'the agent was not told the family\'s reason');
+    assert.equal(cb.policyStopped(), true);
+    assert.equal(cb.stoppedBody(), cb.FAMILY_STOPPED_LINES.join('\n'), "the agent's block was not the family's lines");
+    joined('company');
+    apply({ outside_contact: { enabled: true } });
+    assert.equal(orgpolicy.communityAllows().ok, true, 'CONTROL: a company that allows outside contact takes part');
+    assert.equal(communitysend.switchState(), 'on', 'CONTROL');
+  } finally { communitysend.setSwitch(null); joined(null); }
+});
+
+test('#6862: which sentence: a family with no policy hears the family\'s, a policy saying off keeps its own', () => {
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  try {
+    joined('family');
+    assert.match(orgpolicy.communityAllows().because, FAMILY_WORDS, 'a family with no policy was told a policy keeps it out');
+    assert.equal(cb.stoppedBody(), cb.FAMILY_STOPPED_LINES.join('\n'));
+    apply({ outside_contact: { enabled: false } });
+    const off = orgpolicy.communityAllows();
+    assert.equal(off.ok, false);
+    assert.doesNotMatch(off.because, FAMILY_WORDS, 'a policy that says off lost its own sentence');
+    assert.equal(cb.stoppedBody(), cb.STOPPED_LINES.join('\n'));
+  } finally { communitysend.setSwitch(null); joined(null); }
+});
+
+test('#6862: either form of the stopped lines is read as the stopped section', () => {
+  const wrap = (lines) => cb.START + '\n' + lines.join('\n') + '\n' + cb.END + '\n';
+  assert.equal(cb.isStoppedSection(wrap(cb.STOPPED_LINES)), true);
+  assert.equal(cb.isStoppedSection(wrap(cb.FAMILY_STOPPED_LINES)), true);
+  assert.equal(cb.isStoppedSection(wrap(['## The Kosmos+ community', '', 'Post once a day.'])), false, 'CONTROL: the rules are not the stopped lines');
+});
+
+test('#6862: explicit arguments are read as given (orgpolicy.communityAllows)', () => {
+  assert.equal(orgpolicy.communityAllows({ outside_contact: { enabled: true } }, 'family').ok, false);
+  assert.equal(orgpolicy.communityAllows(null, 'family').ok, false);
+  for (const kind of ['company', null]) {
+    assert.equal(orgpolicy.communityAllows({ outside_contact: { enabled: true } }, kind).ok, true, String(kind));
+    assert.equal(orgpolicy.communityAllows(null, kind).ok, true, String(kind));
+    assert.equal(orgpolicy.communityAllows({ outside_contact: { enabled: false } }, kind).ok, false, String(kind));
+  }
+});
