@@ -793,6 +793,9 @@ function todayUtc() {
 // real "last N days" request.
 const MAX_DAYS = 3650;
 
+/* #6829: see the save guard in dailyUsageByModel. 20 days sits inside Claude Code's default 30-day transcript cleanup. */
+const FREEZE_ANYWAY_DAYS = 20;
+let lastUnreadableSaid = null;
 async function dailyUsageByModel(days = 7) {
   const clampedDays = Math.min(MAX_DAYS, Math.max(1, Math.trunc(Number(days)) || 1));
   const today = todayUtc();
@@ -834,8 +837,14 @@ async function dailyUsageByModel(days = 7) {
     /* #6829: a scan that could not read every transcript is shown but not saved, as the providers' half already does
        (mergeProviders): a past day is never rescanned once saved, so a passing read error would fix it short for good.
        That matters most now that the board saves on a clock, with nobody looking. */
-    const mayFreeze = !(scanResult.unreadable > 0);
-    if (!mayFreeze) console.error('usage: ' + scanResult.unreadable + ' transcript(s) could not be read; past days are shown but not saved, and read again next time');
+    const partial = scanResult.unreadable > 0;
+    if (partial && lastUnreadableSaid !== scanResult.unreadable) {
+      lastUnreadableSaid = scanResult.unreadable;
+      console.error('usage: ' + scanResult.unreadable + ' transcript(s) could not be read; recent past days are shown but not saved, and read again next time');
+    }
+    /* A day that old is close to Claude's own deletion, so waiting for a full read can only lose more of it: it is saved
+       with what could be read. */
+    const freezeAnywayBefore = new Date(Date.now() - FREEZE_ANYWAY_DAYS * 86400000).toISOString().slice(0, 10);
     for (const day of missing) {
       /* Whichever half of a past day is already frozen keeps it: re-deriving
          it from today's transcripts could only lose what has been pruned
@@ -845,7 +854,7 @@ async function dailyUsageByModel(days = 7) {
       const folderFrozen = has(byFolder);
       if (!modelFrozen) byDay[day] = scanResult.days[day] || {};
       if (!folderFrozen) byFolder[day] = scanResult.folders[day] || {};
-      if (day !== today && mayFreeze) {
+      if (day !== today && (!partial || day < freezeAnywayBefore)) {
         try {
           await ensureUsageDir();
         } catch { /* the writes below fail and say so */ }

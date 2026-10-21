@@ -60,7 +60,7 @@ test('ping records installedAt when it mints the id, keeps it through later writ
   assert.equal(ping.read().installId, 'old', 'recording it kept the id');
 });
 
-test('a scan that could not read every transcript shows past days but does not save them', async () => {
+test('a scan that could not read every transcript shows recent past days but does not save them', { skip: process.getuid && process.getuid() === 0 ? 'root reads a mode-000 folder' : false }, async () => {
   const day = (back) => new Date(Date.now() - back * 86400000).toISOString().slice(0, 10);
   const proj = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects');
   const ok = path.join(proj, 'ok');
@@ -68,19 +68,24 @@ test('a scan that could not read every transcript shows past days but does not s
   fs.mkdirSync(ok, { recursive: true });
   fs.mkdirSync(locked, { recursive: true });
   const row = JSON.stringify({ timestamp: `${day(3)}T09:00:00.000Z`, sessionId: 's', message: { id: 'm1', model: 'claude-u', usage: { input_tokens: 5, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
-  fs.writeFileSync(path.join(ok, 's.jsonl'), row + '\n');
+  const oldRow = JSON.stringify({ timestamp: `${day(25)}T09:00:00.000Z`, sessionId: 's', message: { id: 'm2', model: 'claude-u', usage: { input_tokens: 9, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+  fs.writeFileSync(path.join(ok, 's.jsonl'), row + '\n' + oldRow + '\n');
   const frozen = path.join(usage.USAGE_DIR, `${day(3)}.v2.json`);
+  const frozenOld = path.join(usage.USAGE_DIR, `${day(25)}.v2.json`);
   fs.rmSync(frozen, { force: true });
+  fs.rmSync(frozenOld, { force: true });
   fs.chmodSync(locked, 0o000);
   try {
-    const a = await usage.dailyUsageByModel(5);
+    const a = await usage.dailyUsageByModel(26);
     assert.equal(a.byDay[day(3)]['claude-u'].input_tokens, 5, 'shown');
-    assert.equal(fs.existsSync(frozen), false, 'not saved while a folder could not be read');
+    assert.equal(fs.existsSync(frozen), false, 'a recent day is not saved while a folder could not be read');
+    // A day near Claude's own deletion is saved with what could be read: waiting can only lose more of it.
+    assert.equal(JSON.parse(fs.readFileSync(frozenOld, 'utf8'))['claude-u'].input_tokens, 9);
   } finally {
     fs.chmodSync(locked, 0o755);
   }
   // Control: the same scan with every folder readable saves the day.
-  await usage.dailyUsageByModel(5);
+  await usage.dailyUsageByModel(26);
   assert.equal(fs.existsSync(frozen), true, 'saved once everything was read');
 });
 

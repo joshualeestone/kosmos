@@ -44316,7 +44316,7 @@ function usageCharts4Html(series, totals, grandTotal) {
     return '<div class="tv-mini"><div class="tv-mh"><span class="tv-nm">' + spec.name
       + '<span class="tv-tg">' + spec.tag + '</span></span><span class="tv-tot">' + esc(usageAbbr(spec.tot))
       + '<span class="tv-pc">' + ps + '</span></span></div>'
-      + '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(spec.name) + ' per day, ' + n + ' days">'
+      + '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(spec.name) + ' per day, last ' + n + ' days">'
       + '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + color(spec.key) + '" stop-opacity="0.28"/><stop offset="1" stop-color="' + color(spec.key) + '" stop-opacity="0.02"/></linearGradient></defs>'
       + '<path d="' + area + '" fill="url(#' + gid + ')"/>'
       + '<path d="' + line + '" fill="none" stroke="' + color(spec.key) + '" stroke-width="1.8" stroke-linejoin="round"/></svg></div>';
