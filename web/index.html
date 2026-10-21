@@ -47048,7 +47048,8 @@ function cropPicture(file, verb) {
     if (!(e.ctrlKey || e.metaKey || e.altKey)) e.stopImmediatePropagation();
     const onStage = e.target === stage;
     const step = e.shiftKey ? 40 : 10;
-    if (e.key === 'Escape') { e.preventDefault(); cropFinish(false); return; }
+    // Review 7: Escape is the editor's with any modifier held, so it stops here too (one Escape, one window).
+    if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); cropFinish(false); return; }
     // Review 6: Ctrl+Tab and Cmd+Tab are the browser's and the system's (switching tabs and apps), never the editor's.
     // Option+Tab stays: it is how Safari moves between buttons when Tab alone skips them.
     if (e.key === 'Tab' && (e.ctrlKey || e.metaKey)) return;

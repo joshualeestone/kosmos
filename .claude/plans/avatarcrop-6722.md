@@ -8,7 +8,7 @@ image I get some basic cropping tools before i save?"
   (`#you-file`) opens an editor first: the picture under a circle, dimmed outside it.
 - Drag moves it; a zoom slider, the wheel, a pinch and +/- zoom it (1x to 4x); arrow keys move it (Shift for larger
   steps); Enter saves, Escape cancels; Tab stays inside the editor; focus returns to what opened it.
-- Save gives a 512 x 512 PNG of the square the circle sits in (its corners fall outside the circle; avatars are drawn round); Cancel changes nothing and uploads nothing.
+- Save gives a 512 x 512 PNG (a smaller picture keeps its own size) of the square the circle sits in (its corners fall outside the circle; avatars are drawn round); Cancel changes nothing and uploads nothing.
 - A phone photo with a rotation tag comes in upright; a very large picture is scaled to 2048 px on its long side
   before editing, so the editor stays quick (the first decode is still full size: the browser gives no size before decoding).
 - It works in Chromium and WebKit (the Windows app's and the Mac app's engines), at desktop and phone sizes.
@@ -53,3 +53,7 @@ image I get some basic cropping tools before i save?"
   buttons) and stops there. The check asserts Ctrl+Tab is not prevented and plain Tab is (control).
 - **Not fixed, as decided:** a cut that fails hands back the picture as chosen (only a browser that cannot allocate a
   512 px canvas reaches it); a second pick during a slow read is dropped (CROP_READING); animated pictures save still.
+
+## Review 7
+- **Fixed:** Escape with a modifier held (Option+Escape) closed the editor and still reached windows under it; Escape
+  now stops at the editor whatever is held. The Escape arm also presses Option+Escape.

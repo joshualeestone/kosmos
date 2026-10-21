@@ -171,7 +171,12 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     chk(esc.r === null && esc.hidden, `${t} Escape cancels`, JSON.stringify(esc));
     await page.keyboard.press('Escape');
     const under = await page.evaluate(() => window.UNDER_ESC);
-    chk(esc.under === 0 && under === 1, `${t} the editor's Escape does not reach a handler under it (CONTROL: with the editor closed it does)`, JSON.stringify({ during: esc.under, after: under }));
+    // Review 7: and with a modifier held (Option+Escape) the editor still closes and nothing under it hears it.
+    await start(page);
+    await page.keyboard.press('Alt+Escape');
+    const alt = await page.evaluate(async () => ({ r: await window.CROP_P, hidden: document.getElementById('cropmodal').hidden, under: window.UNDER_ESC }));
+    chk(esc.under === 0 && under === 1 && alt.r === null && alt.hidden && alt.under === 1,
+      `${t} the editor's Escape, plain or with Option, does not reach a handler under it (CONTROL: with the editor closed it does)`, JSON.stringify({ during: esc.under, after: under, alt }));
 
     // A phone photo with a rotation tag comes in upright; the same photo without one does not.
     const turn = await page.evaluate(async () => {
