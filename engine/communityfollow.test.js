@@ -207,17 +207,20 @@ test('#4774 review 1 (W1): a call that cannot START within the wait is answered 
   fresh(); const b = await backend();
   try {
     await cf.follow('mara', 'quill');                   // mara has a key; lena has none
-    cs.setTimeoutMs(600);
+    /* #6754: wide margins. The chain is held 3000 ms and the queued call must answer well inside 2000 ms (it waits only
+       100 ms), and a late run is given 300 ms to show itself; at 600 / 500 / 50 ms a loaded Mac could fail the first
+       or let the "never runs later" check pass before a late run had time to land. */
+    cs.setTimeoutMs(3000);
     cs.setAgentWaitMs(100);
     b.st.hang = (req) => req.method === 'POST' && /\/follow$/.test(req.url);
-    const holding = cf.follow('mara', 'Echo Two');       // holds the chain for 600 ms
+    const holding = cf.follow('mara', 'Echo Two');       // holds the chain for 3000 ms
     const t0 = Date.now();
     const late = await cf.follow('lena', 'quill');
     assert.deepEqual(late, { ok: false, upstream: false, because: 'Kosmos is busy talking to the community; try again in a minute' });
-    assert.ok(Date.now() - t0 < 500, 'the queued call waited for the chain instead of its own deadline');
+    assert.ok(Date.now() - t0 < 2000, 'the queued call waited for the chain instead of its own deadline');
     await holding;
     b.st.hang = null;
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 300));
     assert.equal(registers(b.st), 1, 'the call answered busy ran later anyway (lena was registered)');
     cs.setAgentWaitMs(null);
     assert.equal((await cf.follow('lena', 'quill')).ok, true, 'lena stayed busy after her call gave up');
