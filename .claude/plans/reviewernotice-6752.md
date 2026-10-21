@@ -14,12 +14,16 @@ there are none.
    enrollment record; an answer without the field drops the old list. The coordinator's `state` is not kept.
 2. `server.js` `GET /api/org`: `reviewerGrants` to the screen only (the non-screen early return comes first), and only
    when there are some, so the not-joined shape is unchanged.
-3. `web/index.html`: a list under the joined view's sentence in the Settings company block, hidden when empty, headed
-   "Reviewers added to your company in the last 30 days:" (family words via plusOrgIn). Each line is text: "<who>,
-   made a reviewer <when>, takes effect <when>." / "in effect since" / "removed". Pending or in effect is worked out
-   from the times when the page paints, since the record can be an hour old.
+3. `web/index.html`: a block under the joined view's sentence in the Settings company block, hidden when empty: the
+   heading "Reviewers added to your company in the last 30 days:" (family words via plusOrgIn), one sentence on what a
+   reviewer can do in the coordinator's own consent words (a family's: a reviewer opens nothing), then one body-text
+   line per grant, newest first, the name in its own `bdi`: "jordan, a reviewer since Oct 19", "sam.ortiz, becomes a
+   reviewer Oct 22" (or "tomorrow at 3:46 AM" when it lands within a day), "alex, no longer a reviewer since Oct 20
+   (made a reviewer Oct 19)". Pending or in effect is worked out from the times when the page paints, since the record
+   can be an hour old, and anything older than 30 days is dropped there too.
 4. `tools/family-e2e-6239.js`: the company consent hash pin moved to relay #516's words (51e783bb...), as that
    script's own comment asks.
+5. `docs/browser-checks/mobile-shots.js`: a `plus-org-reviewers` screen for design shots.
 
 ## Decisions
 1. **Where it shows: the Settings company block, as a standing list for 30 days, not a one-shot alert.** It is the one
@@ -32,12 +36,29 @@ there are none.
 2. Grants are kept only from the hourly full refresh. Other paths that write the record (a join, a settled join, a
    refused leave) write it without grants until the next refresh, at most an hour.
 3. An older coordinator (no field) and a coordinator with none give the same thing: no list.
+4. **Review 1 (MAJOR on decision 1): kept, with the pointer filed as #6817.** Mona Lisa's design review agreed the
+   placement is right for the standing record; a main-board pointer is a new surface on the main board and needs its own
+   design call. #6817 also carries the relay-side fix review 1 found: the coordinator leaves the field out both for none
+   and for a failed read, so one failed read hides the list for up to an hour on every member's board. The board cannot
+   tell the two apart until the coordinator does.
+5. **Review 1 minors and Mona Lisa's review, all taken:** the page filters to 30 days itself (a failed refresh keeps an
+   old record); "no longer a reviewer", not "removed" (the coordinator's time is also set when a reviewer leaves on
+   their own); a sentence on what a reviewer is (Mona Lisa's question 5: the product has one, relay #516's consent
+   line); dates without year or time except a grant landing within a day; newest first; body-size lines, no bullets,
+   4px apart, and the block's paragraph gap before Leave company; more invisible characters stripped (U+2028/2029,
+   U+061C, U+FEFF, U+2060-2064, U+180E) and the name in a `bdi`. The route test asserts the property, not the source
+   line. Not changed: relay-side list gaps (a reviewer promoted to admin drops out), on #6817.
 
 ## Tests
 `engine/reviewernotice-6752.test.js` (refresh keeps and drops the list; the cleaner), `web.reviewernotice-6752.test.js`
 (line wording by times; the list paints as text, in family words, hidden when empty or not joined; the route sends to
 the screen only). Mutation arms, each red: drop the record write, defeat the character strip, keep the oldest 20, trust
-a stored state, list for a computer not joined, write markup, skip the paint call, send uncleaned grants.
+a stored state, list for a computer not joined, write markup, skip the paint call, send uncleaned grants. Round 2
+(after review 1 and the design review), 14 arms, all red: stored state, the within-a-day time, not joined, the 30-day
+filter, newest first, bdi, markup, body text, the paint call, family words, the record write, newest 20, the invisible
+characters, uncleaned grants.
 
 ## Not measured
-The page against a real coordinator (relay #516 is not deployed yet), and how it looks (design shots owed).
+The page against a real coordinator (relay #516 is not deployed yet). The e2e hash pin (change 4) cannot discriminate
+until it is: the live coordinator still serves the old words. The "light" design shots of this block render dark, on
+main's plus-org-joined screen too (not from this change; cause not found).

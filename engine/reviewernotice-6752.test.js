@@ -73,6 +73,9 @@ test('#6752: cleanReviewerGrants keeps only well-formed grants, strips control a
   }
   const RLO = String.fromCharCode(0x202e), ZW = String.fromCharCode(0x200b), NL = String.fromCharCode(10);
   assert.equal(c([{ who: 'pa' + RLO + 't' + ZW + NL, grantedAt: T }])[0].who, 'pat', 'a direction or control character was kept');
+  for (const cp of [0x2028, 0x2029, 0x061c, 0xfeff, 0x2060, 0x2064, 0x180e]) {   // review 1: the other invisible ones
+    assert.equal(c([{ who: 'pa' + String.fromCharCode(cp) + 't', grantedAt: T }])[0].who, 'pat', 'kept U+' + cp.toString(16));
+  }
   // CONTROL: ordinary punctuation in a name before the @ stays.
   assert.equal(c([{ who: 'pat.o-neil_2', grantedAt: T }])[0].who, 'pat.o-neil_2');
   assert.equal(c([{ who: 'x'.repeat(200), grantedAt: T }])[0].who.length, 64);
