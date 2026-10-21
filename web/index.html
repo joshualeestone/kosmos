@@ -74770,10 +74770,11 @@ async function attachUpload(file, where) {
     if (input) input.focus();
     if (where.after) where.after();
   } catch {
-    /* #6734: the connection failed, which for a large file may also be the five-minute wait running out; the sentence
-       names that as a possibility, since the page cannot tell it from Kosmos not being reached. */
+    /* #6734: the connection failed, which for a large file may also be the wait for it running out; the sentence names
+       that as a possibility, since the page cannot tell it from Kosmos not being reached (review 8: and no figure, which
+       would change with any timeout on the way). */
     msg.textContent = file.size > ATTACH_SLOW_BYTES
-      ? 'We could not finish adding ' + file.name + '. If your connection is slow, a file this large can take longer than the five minutes Kosmos waits for one.'
+      ? 'We could not finish adding ' + file.name + '. If your connection is slow, a file this large can take longer than Kosmos waits for one.'
       : 'We could not reach Kosmos to add that file.';
   } finally {
     ATTACH_UPLOADING = Math.max(0, ATTACH_UPLOADING - 1);

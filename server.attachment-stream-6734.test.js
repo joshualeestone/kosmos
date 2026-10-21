@@ -395,6 +395,7 @@ test('#6734: a folder a stopped upload left with no record is swept once it is a
   const notAnId = make('not-an-attachment-id', [attachments.PART], HOUR * 5); // CONTROL: not ours to judge
   assert.equal(attachments.sweepOrphans(), 2);
   assert.deepEqual([oldPart, oldNoRecord, fresh, kept, notAnId].map((d) => fs.existsSync(d)), [false, false, true, true, true]);
+  fs.rmSync(owner, { recursive: true, force: true });   // the kept controls, so later tests counting part files see none
 });
 
 test('#6734: a reply file that grew after it was measured is refused having copied at most one byte past the measure', () => {
@@ -510,4 +511,39 @@ test('#6734: an image over 25 MB has no thumbnail, so a card never pulls the who
   assert.equal((await attachments.previewFile(image(LIMIT))).ok, true);
   // A PDF's thumbnail is a small rendered page, whatever the PDF's size, so it keeps its preview.
   assert.match(attachments.rowField({ ...image(attachments.MAX_BYTES), kind: 'pdf', name: 'big.pdf' }).preview, /\/preview$/);
+});
+
+test('#6734: only attachments.js writes under the store, so the orphan sweep never meets a folder that keeps its record elsewhere', () => {
+  // sweepOrphans removes an id folder with no record.json. That is safe only while slot() is the one maker of those
+  // folders (it always writes record.json or removes the folder). A new writer under the store fails here first.
+  const tracked = require('node:child_process').execFileSync('git', ['-C', __dirname, 'ls-files', '*.js'], { encoding: 'utf8' })
+    .split('\n').filter((f) => f && !/\.test\.js$/.test(f) && !f.startsWith('test-support/') && f !== 'engine/attachments.js');
+  assert.ok(tracked.length > 50, 'the scan saw ' + tracked.length + ' files');
+  const readers = tracked.filter((f) => fs.readFileSync(path.join(__dirname, f), 'utf8').includes('attachments.ROOT'));
+  assert.deepEqual(readers, ['engine/replyfile.js'], 'a new file reaches into the attachment store');
+  const rf = fs.readFileSync(path.join(__dirname, 'engine', 'replyfile.js'), 'utf8');
+  assert.doesNotMatch(rf, /mkdirSync|createWriteStream|renameSync/, 'replyfile must only read the store; storing goes through attachments.js');
+  const joins = tracked.filter((f) => /path\.join\([^)]*ROOT[^)]*['"]attachments['"]/.test(fs.readFileSync(path.join(__dirname, f), 'utf8')));
+  assert.deepEqual(joins, [], 'a file builds the store path itself');
+});
+
+test('#6734: an upload whose part file cannot be written (a full disk) is refused with a sentence and leaves nothing', async () => {
+  const before = stored().length;
+  const real = fs.createWriteStream;
+  let failed = 0;
+  const full = (cb) => { failed += 1; cb(Object.assign(new Error('no space left on device'), { code: 'ENOSPC' })); };
+  fs.createWriteStream = function (file, opts) {
+    if (!String(file).endsWith(attachments.PART)) return real.apply(this, arguments);
+    // The stream's own fs hook: the part file opens and closes for real, and every write fails as on a full disk.
+    return real.call(this, file, { ...opts, fs: { open: fs.open, close: fs.close, write: (...a) => full(a[a.length - 1]), writev: (...a) => full(a[a.length - 1]) } });
+  };
+  let got;
+  try {
+    got = await put({ 'content-type': 'application/octet-stream', 'content-length': String(64 * 1024), 'x-attachment-name': 'full-disk.bin' },
+      (req) => { req.on('error', () => {}); req.end(Buffer.alloc(64 * 1024, 3)); });
+  } finally { fs.createWriteStream = real; }
+  assert.ok(failed > 0, 'the write was never attempted, so this tested nothing');
+  assert.equal(got.status, 400, JSON.stringify(got));
+  assert.equal(JSON.parse(got.body).error, 'that file could not be kept');
+  assert.ok(await until(() => stored().length === before && parts().length === 0), 'a failed write left ' + JSON.stringify(parts()));
 });

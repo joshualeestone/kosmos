@@ -106,8 +106,9 @@ the file in memory: an upload is written to disk as it arrives, and a download i
    catch from decision 6 never runs for that case. A 408 now reads "We could not finish adding <name>: it took too long
    to arrive. Try again on a faster connection." (review 6: no figure, since a 408 could come from a timeout on the
    way that the page cannot tell apart) A large file whose connection
-   fails outright now reads "If your connection is slow, a file this large can take longer than the five minutes
-   Kosmos waits for one.", a condition, since the page cannot tell that from Kosmos not being reached. Tests: 408 at two
+   fails outright now reads "If your connection is slow, a file this large can take longer than Kosmos waits for
+   one.", a condition, since the page cannot tell that from Kosmos not being reached (review 8: no figure either,
+   since any timeout on the way can change it). Tests: 408 at two
    sizes, a 502 control, both catch sizes; red with the 408 branch removed.
 14. **A download opens without blocking** (review 3), so a FIFO put in a stored file's place is refused (404) at once
    instead of stalling the board until a writer appears. Test on macOS and Linux; with a blocking open the test
@@ -143,6 +144,13 @@ the body itself may take up to 6 minutes (just past the board's five, which is N
 board sets none, measured with git grep at kosmos origin/main). It ships with the
 tunnel, so until a build carrying it is installed, phone uploads over two minutes still fail. Not measured on a
 phone yet: the remaining manual step covers it.
+
+20. **Review 8:** the orphan sweep's safety condition is stated at the function and guarded by a test that fails if any
+   file other than attachments.js reaches into the store (by `attachments.ROOT` or by building the path), or if
+   replyfile starts writing there (red with either spelling appended to another engine file). An upload whose part
+   file cannot be written (a full disk, injected through the write stream's own `fs` option) is refused with "that
+   file could not be kept" and leaves nothing (red with another sentence, and with the folder not removed). The
+   `Expect: 100-continue` case stays as recorded under decision 2.
 
 ### Considered and not changed (review 6)
 - **No Range support on downloads**: a 100 MB download cut at 90% restarts from zero, and the tunnel retires its

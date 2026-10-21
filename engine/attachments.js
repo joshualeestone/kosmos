@@ -122,7 +122,9 @@ function abandon(s) { try { fs.rmSync(s.dir, { recursive: true, force: true }); 
    record.json: a part file of up to the cap, or a renamed file whose record was never written. read() never serves
    one, so only the disk space is at stake; this takes it back. Only a folder named like an attachment id, two levels
    under ROOT, with no record.json, and nothing in it touched for ORPHAN_AGE_MS (an upload waits at most five minutes
-   for its body, so an hour is never one still arriving). Returns how many it removed. */
+   for its body, so an hour is never one still arriving). Returns how many it removed.
+   ⚠️ Safe only while slot() is the one maker of id folders under ROOT (it always writes record.json or removes the
+   folder). server.attachment-stream-6734.test.js fails if another file starts writing under the store. */
 const ORPHAN_AGE_MS = 60 * 60 * 1000;
 function sweepOrphans(now = Date.now()) {
   let removed = 0;
