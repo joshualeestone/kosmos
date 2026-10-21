@@ -55,13 +55,15 @@ test('#6726: --file sends an absolute path with the words, and says what was att
 test('#6726: a relative path is made absolute from where the command runs, joined as text', async () => {
   const r = await run(['reply', '--file=Files/notes.md', 'notes'], kept);
   assert.equal(r.code, 0, r.err);
-  assert.equal(replies(r)[0].body.file, process.cwd() + path.sep + 'Files/notes.md');
+  assert.equal(replies(r)[0].body.file, cli.replyFileAbsolute('Files/notes.md', process.cwd(), path));
+  assert.ok(replies(r)[0].body.file.startsWith(process.cwd()), 'the relative path was not put under the folder it ran in');
 });
 
 test('#6726 review 1: a .. in the path reaches the board as given (the board refuses it there, as on a Mac)', async () => {
   const rel = await run(['reply', '--file', 'Files/sub/../x.txt', 'x'], kept);
   assert.equal(rel.code, 0, rel.err);
-  assert.equal(replies(rel)[0].body.file, process.cwd() + path.sep + 'Files/sub/../x.txt');
+  assert.equal(replies(rel)[0].body.file, cli.replyFileAbsolute('Files/sub/../x.txt', process.cwd(), path));
+  assert.ok(replies(rel)[0].body.file.endsWith('Files/sub/../x.txt'), 'the .. was rewritten before it was sent');
   const abs = process.platform === 'win32' ? 'C:\\a\\Files\\sub\\..\\x.txt' : '/a/Files/sub/../x.txt';
   const given = await run(['reply', '--file', abs, 'x'], kept);
   assert.equal(given.code, 0, given.err);

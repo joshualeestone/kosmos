@@ -31,6 +31,12 @@ code would be Homer's; this touches none.
   Mac-side can test that.
 - The JSON-escape fallback install/kosmos needs for `attached` is not copied: the Windows CLI parses JSON.
 
+## For the one real Windows run (asked of Homer on the card when the PR opens)
+- `kosmos reply --file <absolute path in Files> "x"` attaches, and downloads from the conversation.
+- Review 2: a RELATIVE path from a subfolder. node's cwd comes from kosmos.ps1's PowerShell location, which is
+  not the folder the agent expects when that location is not on the FileSystem provider. A wrong root is refused
+  by the board, never attached elsewhere (reasoned, not measured).
+
 ## Validation
 - New test 16/16 (review 1 arms mutation-checked: path.resolve back, and the help line dropped, each red). All tools.windows-kosmos-cli*.test.js and cli.reply-*.test.js: 408 tests, 401 pass, 7 skip
   (Windows-only), 0 fail. comment-deferral (from the worktree), dmfiles, windows-coupling-audit-1732: green.
