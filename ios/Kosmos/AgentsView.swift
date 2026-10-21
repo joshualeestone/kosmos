@@ -48,10 +48,16 @@ struct AgentsView: View {
                 Button("Try again") { client.retry() }
                     .buttonStyle(.borderedProminent)
             }
+        case .kosmosPlusRefused:
+            VStack(spacing: 12) {
+                message("Kosmos+ did not let this iPhone in.", detail: "Sign out on the Board tab and in again, then try once more.")
+                Button("Try again") { client.retry() }
+                    .buttonStyle(.borderedProminent)
+            }
         case .kosmosPlusDown:
             VStack(spacing: 12) {
                 message("Kosmos+ could not be reached.", detail: "Check your connection, then try again.")
-                Button("Try again") { client.start() }
+                Button("Try again") { client.retry() }
                     .buttonStyle(.borderedProminent)
             }
         case .macRefused(let mac):

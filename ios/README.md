@@ -18,6 +18,12 @@ handoff for one, and the Mac's tunnel gate turns it into a session cookie in the
 app's own private `URLSession`), then reads `/api/status` every 5 s. The decisions
 are in `Kosmos/BoardLogic.swift`; `BoardClient.swift` moves the bytes;
 `AgentsView.swift` draws the list. Tapping an agent opens its chat on the Board tab.
+The Mac's session cookie (only that, with a fingerprint of the Kosmos+ session) is kept
+in the Keychain item `mac-session` (`SessionKeychain.macSession`) and reused across
+launches; a sign-out deletes it. Two Debug-only launch switches exist for screenshots
+and never reach Release: `KOSMOS_START_TAB=agents` opens on Agents, and
+`KOSMOS_SAMPLE_AGENTS=1` shows invented agents without connecting (and skips the
+notification prompt). The App Store screenshots now include the tab bar.
 
 ## What this is
 
@@ -221,8 +227,7 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 ### Tests that run without a simulator
 
 `LogicTests/run.sh` compiles the UIKit-free files (`PushBridgeLogic.swift`,
-`PushRegistrar.swift`, `ShellLogic.swift`, `NotificationCategories.swift`,
-`BoardLogic.swift`) for
+`PushRegistrar.swift`, `ShellLogic.swift`, `NotificationCategories.swift`, `BoardLogic.swift`) for
 macOS with the tests and runs them. It ends with one
 `VERDICT:` line; no verdict line means the run did not finish. Pass a directory
 to run the suite against a modified copy of those files (how the suite was

@@ -16,6 +16,8 @@ final class BoardClient: ObservableObject {
         case waitingForAllow(mac: String, code: String?)
         case denied(mac: String)
         case kosmosPlusDown
+        // Kosmos+ itself refused (a 403 on the Mac list or the handoff): not something the Mac's Allow fixes.
+        case kosmosPlusRefused
         case unreachable(mac: String)
         // The Mac's gate answered but would not take this iPhone's sign-in (neither waiting for Allow nor denied).
         case macRefused(mac: String)
@@ -83,8 +85,15 @@ final class BoardClient: ObservableObject {
         #endif
         let session = sessionStore.load()
         if let held = admitted, held.session != session { forget() }
-        // Signed out: nothing from the last sign-in may outlive it, the kept Mac session included.
-        if session == nil { forget() }
+        // No Kosmos+ session (signed out, or the Keychain could not be read yet): nothing from the last one is shown.
+        // The kept Mac session is deleted by the sign-out itself (PushNotificationManager), not here, so a Keychain
+        // that is briefly unreadable does not cost it.
+        if session == nil, admitted != nil || !agents.isEmpty {
+            admitted = nil
+            agents = []
+            updatedAt = nil
+            cookies.removeCookies(since: .distantPast)
+        }
         let stored = macStore.load()
         // A kept Mac session from another sign-in is never used, so it is not kept either.
         if stored != nil, Board.usableSaved(stored, session: session, coordinator: coordinator) == nil { macStore.delete() }
@@ -166,9 +175,9 @@ final class BoardClient: ObservableObject {
 
     // An answer from Kosmos+ that is not a success: a 401 is a sign-out, a 403 a refusal of this iPhone, anything
     // else (no answer, a 5xx, a 429) Kosmos+ being unreachable for now.
-    private func kosmosPlusFailed(status: Int, mac: String?, _ gen: Int) {
+    private func kosmosPlusFailed(status: Int, _ gen: Int) {
         if status == 401 { set(.signedOut, gen) }
-        else if status == 403 { set(.denied(mac: mac ?? "Kosmos+"), gen) }
+        else if status == 403 { set(.kosmosPlusRefused, gen) }
         else { set(.kosmosPlusDown, gen) }
     }
 
@@ -176,7 +185,7 @@ final class BoardClient: ObservableObject {
         let result = try? await http.data(for: Board.macsRequest(coordinator: coordinator, session: session))
         let status = (result?.1 as? HTTPURLResponse)?.statusCode ?? 0
         guard (200...299).contains(status), let data = result?.0, let macs = Board.parseMacs(data) else {
-            kosmosPlusFailed(status: status, mac: nil, gen); return nil
+            kosmosPlusFailed(status: status, gen); return nil
         }
         guard let mac = Board.pickMac(macs, remembered: UserDefaults.standard.string(forKey: Board.rememberedMacKey)) else {
             set(.noMac, gen); return nil
@@ -189,7 +198,7 @@ final class BoardClient: ObservableObject {
         let result = try? await http.data(for: Board.handoffRequest(coordinator: coordinator, session: session, address: mac.address))
         let status = (result?.1 as? HTTPURLResponse)?.statusCode ?? 0
         guard (200...299).contains(status), let data = result?.0, let token = Board.parseHandoffToken(data) else {
-            kosmosPlusFailed(status: status, mac: mac.name, gen); return nil
+            kosmosPlusFailed(status: status, gen); return nil
         }
         return token
     }

@@ -59,3 +59,6 @@ If it is refused, Kosmos+ needs a small route (2 to 3 days, the plan's risk line
   opened that Mac, the tap lands on the gate's sign-in (and possibly Allow) first, exactly as a notification tap does
   today. Native Chat (the plan's next screen) removes it; handing the web view a fresh handoff is the stopgap if the
   first phone runs show it is common.
+- Known reliance: an agent tap (like a notification tap) is opened by the Board tab's web view, which exists from
+  launch because Board is the default tab. Not covered by a simulator run with a tap (the simulator here cannot tap);
+  the first TestFlight run checks it with the sign-in path.
