@@ -37,8 +37,9 @@ the file in memory: an upload is written to disk as it arrives, and a download i
 - server.js
   - `sendFileStream(req, res, file, unread, headers)`: open once, `fstat` once (so Content-Length is the size of the
     very file sent), headers first, then `pipeline(createReadStream({fd}), res)`. A client abort and a read error
-    both end in pipeline's cleanup, which closes the descriptor; a read error after the headers ends the response
-    short (the client sees a cut download, never a whole one). Used by the download and by the preview.
+    both end in pipeline's cleanup, which closes the descriptor and destroys the response, so the client sees a cut
+    connection, never a whole file (decision 15 does the same for a file that shrank). Used by the download and by the
+    preview.
   - The upload route: every existing auth, path and owner check is unchanged and still runs first. A declared
     `content-length` over the cap is refused before any body is read; otherwise `saveStream`. A refusal is the
     existing shape, 400 `{ error }`; when the body has not all arrived, the answer carries `connection: close` and
@@ -124,6 +125,24 @@ the file in memory: an upload is written to disk as it arrives, and a download i
    the store. So the orphan sweep cannot meet a folder some other feature keeps without a record. The preview's temp
    folder (`preview-<pid>-<time>`) is not id-named and sits inside a record's folder.
 
+18. **An image over 25 MB has no thumbnail** (review 5). An image's preview is the image itself, so at a 100 MB cap a
+   message card scrolled into view could pull 100 MB (on a phone, over cellular, then decoded in memory).
+   `rowField` gives such an image no preview URL, so its card is the plain file card and Download still gives the
+   file; the preview route refuses it too. A PDF keeps its thumbnail (a small rendered page). Test: 25 MB + 1 has none,
+   exactly 25 MB keeps it, a 100 MB PDF keeps it; red with the limit removed.
+19. **The reply-file refusal says "larger than 100 MB"** (review 5): its rounded size read "100 MB" just past the cap.
+   `textHead` opens without blocking and reads only an ordinary file, like the download.
+
+### Through Kosmos+ the relay cut uploads at two minutes (found while checking the five-minute figure)
+The tunnel waits 120 s for the board's response head (`BOARD_RESPONSE_HEAD_TIMEOUT`, crates/tunnel/src/proxy.rs),
+and the clock started when the request did, with the upload body streaming inside that wait. The board answers only
+once the whole file has arrived, so a phone upload that took more than two minutes got a 502 from the tunnel
+("We could not add that file (status 502)."), whatever the board allows: 100 MB needed about 850 KB/s up.
+Fixed in kosmos-relay (branch headclock-6734): the 120 s now counts from the end of the request body, with a
+15-minute bound on the whole wait (the board refuses a body slower than five minutes itself). It ships with the
+tunnel, so until a build carrying it is installed, phone uploads over two minutes still fail. Not measured on a
+phone yet: the remaining manual step covers it.
+
 ### Considered and not changed (review 3)
 - `attachments.preview(rec)` still reads a file whole. Only tests call it (engine/attachments.test.js); every route uses
   `previewFile` and streams. Kept for those tests; a new route caller would be a review finding.
@@ -155,7 +174,7 @@ The test used to accept a reset in place of the 400. It now requires the 400 wit
 a load average of about 10. If a client ever sees a reset instead, the page's own size check has already refused the
 file before sending it.
 
-## Tests (server.attachment-stream-6734.test.js, 21 tests, and web.attach-slow-6734.test.js, 2 tests, all green)
+## Tests (server.attachment-stream-6734.test.js, 22 tests, and web.attach-slow-6734.test.js, 2 tests, all green)
 
 - the cap is 100 MB and is said as "100 MB";
 - a 6 MB download is byte-identical (sha256) with its Content-Length; HEAD has the length and no body; no
@@ -164,7 +183,7 @@ file before sending it.
   64 MB Buffer), and `readFileSync` is never called on the file;
 - a download abandoned after its first chunk releases its descriptor (control: the descriptor is seen open
   mid-download), and the board keeps serving;
-- a read that fails mid-file (an injected EIO) ends the response short, releases the descriptor, and the board keeps
+- a read that fails mid-file (an injected EIO) cuts the response, releases the descriptor, and the board keeps
   serving the whole file afterwards;
 - an image preview is streamed, byte-identical, never read whole;
 - an upload of exactly MAX_BYTES is kept byte-identical, the board's buffers peak under 48 MB while it arrives, and

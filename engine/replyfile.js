@@ -325,7 +325,8 @@ function attach(sessionName, given, { roster } = {}) {
   if (!where) return { ok: false, because: NOT_YOURS };
   if (where.refused) return { ok: false, because: where.refused };
   if (st.size > attachments.MAX_BYTES) {
-    return { ok: false, because: 'that file is ' + attachments.sizeWords(st.size) + ', and a conversation carries files up to ' + attachments.MAX_WORDS + '; tell them where it is saved instead' };
+    // Review 5: "larger than", not its rounded size, which reads "100 MB" just past a 100 MB cap.
+    return { ok: false, because: 'that file is larger than ' + attachments.MAX_WORDS + ', the most a conversation carries; tell them where it is saved instead' };
   }
   if (st.size === 0) return { ok: false, because: 'there is nothing in that file' };
   const used = sentToday(sessionName);

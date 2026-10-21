@@ -497,3 +497,17 @@ test('#6734: a reply copy that cannot be written says Kosmos could not store it,
   const ok = fs.openSync(ro, 'w');
   try { assert.deepEqual(replyfile.readOwn(real, fs.statSync(real), src, ok), { ok: true, size: 64 * 1024 }); } finally { fs.closeSync(ok); }
 });
+
+test('#6734: an image over 25 MB has no thumbnail, so a card never pulls the whole file to draw one', async () => {
+  const LIMIT = attachments.MAX_IMAGE_PREVIEW_BYTES;
+  assert.equal(LIMIT, 25 * 1024 * 1024);
+  const image = (size) => ({ id: 'e'.repeat(24), name: 'photo.png', type: 'image/png', kind: 'image', size, file: '/nonexistent/photo.png' });
+  assert.equal(attachments.rowField(image(LIMIT + 1)).preview, null);
+  const refused = await attachments.previewFile(image(LIMIT + 1));
+  assert.deepEqual([refused.ok, refused.because], [false, 'that image is too large to preview here; download it instead']);
+  // CONTROL: at the limit, the image is its own preview, as before.
+  assert.equal(attachments.rowField(image(LIMIT)).preview, '/api/attachment/' + 'e'.repeat(24) + '/preview');
+  assert.equal((await attachments.previewFile(image(LIMIT))).ok, true);
+  // A PDF's thumbnail is a small rendered page, whatever the PDF's size, so it keeps its preview.
+  assert.match(attachments.rowField({ ...image(attachments.MAX_BYTES), kind: 'pdf', name: 'big.pdf' }).preview, /\/preview$/);
+});

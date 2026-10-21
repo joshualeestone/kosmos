@@ -214,7 +214,7 @@ test('#6726: a file over the 100 MB a conversation carries is refused before it 
   const big = path.join(FILES, 'big.mov');
   fs.writeFileSync(big, '');
   fs.truncateSync(big, attachments.MAX_BYTES + 1);   // sparse: the size is real, the disk is not used
-  await refused({ text: 'hi', file: big }, /a conversation carries files up to 100 MB/);
+  await refused({ text: 'hi', file: big }, /that file is larger than 100 MB, the most a conversation carries/);
 }));
 
 test('#6726: a missing file and a relative path are refused', () => withLeo(async () => {

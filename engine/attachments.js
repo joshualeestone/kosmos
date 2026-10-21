@@ -268,10 +268,14 @@ function read(id) {
     absent, when there is none. ⚠️ For kind 'text' it is the file's own first
     characters, UNTRUSTED TEXT, never markup: a `.html` upload is kind text,
     and the page must draw the snippet with textContent. */
+/* #6734 review 5: an image's preview IS the image, so a card would pull the whole file to draw a thumbnail. Above this
+   an image has no preview (its card is the file card, and Download still gives the file). The cap it was built under. */
+const MAX_IMAGE_PREVIEW_BYTES = 25 * 1024 * 1024;
+function imageTooBigToPreview(rec) { return rec.kind === 'image' && !(Number(rec.size) <= MAX_IMAGE_PREVIEW_BYTES); }
 function rowField(rec) {
   if (!rec) return null;
   let preview = null;
-  if (rec.kind === 'image' || rec.kind === 'pdf') preview = '/api/attachment/' + rec.id + '/preview';
+  if ((rec.kind === 'image' && !imageTooBigToPreview(rec)) || rec.kind === 'pdf') preview = '/api/attachment/' + rec.id + '/preview';
   else if (rec.kind === 'text') preview = textHead(rec.file);
   return { id: rec.id, name: rec.name, type: rec.type, size: rec.size, kind: rec.kind, url: '/api/attachment/' + rec.id, preview };
 }
@@ -282,7 +286,9 @@ function rowField(rec) {
 function textHead(file) {
   let fd = null;
   try {
-    fd = fs.openSync(file, 'r');
+    // Review 5: without blocking, and only an ordinary file, so a FIFO in a stored file's place cannot stall the board.
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
+    if (!fs.fstatSync(fd).isFile()) return null;
     const buf = Buffer.allocUnsafe(TEXT_SNIPPET * 4);
     let n = 0;
     for (;;) {
@@ -349,6 +355,7 @@ async function preview(rec) {
 async function previewFile(rec) {
   if (!rec) return { ok: false, because: 'no such attachment' };
   if (rec.kind === 'image') {
+    if (imageTooBigToPreview(rec)) return { ok: false, because: 'that image is too large to preview here; download it instead' };
     const type = imageTypeOf(rec.name) || (IMAGE_TYPES.has(String(rec.type).toLowerCase()) ? String(rec.type).toLowerCase() : null);
     if (!type) return { ok: false, because: 'that is not an image this board will draw' };
     return { ok: true, type, file: rec.file, unread: 'that file could not be read' };
@@ -538,4 +545,4 @@ function rowFields(recs) {
   return { attachment: list[0], attachments: list };
 }
 
-module.exports = { MAX_BYTES, MAX_WORDS, TOO_LARGE, PART, ORPHAN_AGE_MS, sweepOrphans, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, saveFilled, saveStream, read, rowField, rowFields, resolveForMessage, preview, previewFile, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js
+module.exports = { MAX_BYTES, MAX_WORDS, TOO_LARGE, PART, ORPHAN_AGE_MS, MAX_IMAGE_PREVIEW_BYTES, sweepOrphans, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, saveFilled, saveStream, read, rowField, rowFields, resolveForMessage, preview, previewFile, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js
