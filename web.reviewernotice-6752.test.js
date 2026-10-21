@@ -22,7 +22,9 @@ test('#6752: a grant leads with what is true now, by its times; a time only when
   assert.equal(line({ ...g, effectiveAt: T + 3 * DAY }, T + 10, fmt), ', becomes a reviewer D' + (T + 3 * DAY), 'a grant days away carries a time');
   // An hour-old record painted after the 24 hours: in effect, whatever state the coordinator had then.
   assert.equal(line({ ...g, state: 'pending' }, T + DAY + 1, fmt), ', a reviewer since D' + (T + DAY));
-  assert.equal(line({ ...g, removedAt: T + 5 }, T + DAY + 1, fmt), ', no longer a reviewer since D' + (T + 5) + ' (made a reviewer D' + T + ')');
+  assert.equal(line({ ...g, removedAt: T + DAY + 5 }, T + DAY + 9, fmt), ', no longer a reviewer since D' + (T + DAY + 5) + ' (made a reviewer D' + T + ')');
+  // Review 2: removed (or left) while still pending: it never took effect, so the line does not say it was held.
+  assert.equal(line({ ...g, removedAt: T + 5 }, T + DAY + 1, fmt), ', removed before it took effect, D' + (T + 5) + ' (made a reviewer D' + T + ')');
 });
 
 /* A document with just the block's elements, enough for plusOrgReviewers. Nothing may be written as markup. */
@@ -71,7 +73,9 @@ test('#6752: the block lists each grant newest first, as text with the name in a
     assert.equal(l.children[0].tag, 'bdi', 'the name is not in its own bdi');
   }
   assert.match(lineText(lines[0]), /^lee, becomes a reviewer (today|tomorrow) at /);
-  assert.match(lineText(lines[1]), /^<b>pat<\/b>, a reviewer since \S+ \d+$/, 'the line carries a year or a time');
+  // Review 2: any locale's short date ("Oct 19" or "19 Oct"); what matters is no year and no time.
+  assert.match(lineText(lines[1]), /^<b>pat<\/b>, a reviewer since [^,:]+$/);
+  assert.doesNotMatch(lineText(lines[1]).slice('<b>pat</b>'.length), /\d{4}|:/, 'the line carries a year or a time');
   const fam = paint({ enrolled: true, org: { kind: 'family', name: 'Renet Family' }, reviewerGrants: grants });
   assert.equal(fam['plus-org-reviewers-head'].textContent, 'Reviewers added to your family in the last 30 days:');
   assert.match(fam['plus-org-reviewers-what'].textContent, /^In a family, a reviewer opens nothing/);
@@ -92,4 +96,19 @@ test('#6752: the joined view paints the list on every paint, and /api/org sends 
   const screenOnly = route.indexOf('if (!isViaScreen(req, {}))');
   assert.ok(screenOnly > 0 && route.indexOf('reviewerGrants') > screenOnly, 'the grants reach a caller that is not the screen');
   assert.match(route, /reviewerGrants: oe\.cleanReviewerGrants\(/, 'the route sends grants it has not cleaned');
+});
+
+test('#6752 review 2: "today" and "tomorrow" are calendar days, so the night the clocks go forward cannot say tomorrow of a day two days away', () => {
+  const src = fn('function plusOrgReviewers(st)');
+  const soonSrc = src.slice(src.indexOf('soon: (t) => {'), src.indexOf('\n    },', src.indexOf('soon: (t) => {')) + 6);
+  assert.ok(soonSrc.length > 40, 'fmt.soon is gone');
+  const make = (now) => new Function('now', 'fmt', 'return {' + soonSrc + '}.soon;')(now, { day: () => 'DAY' });
+  const prev = process.env.TZ;
+  process.env.TZ = 'America/Chicago';
+  try {
+    const before = Date.parse('2027-03-13T23:30:00-06:00') / 1000;   // CST, the night before the clocks go forward
+    assert.match(make(before)(before + 86400), /^DAY at /, '24 hours later is the 15th, two calendar days on');
+    assert.match(make(before)(before + 3600), /^tomorrow at /);
+    assert.match(make(before)(before + 600), /^today at /);
+  } finally { if (prev === undefined) delete process.env.TZ; else process.env.TZ = prev; }
 });

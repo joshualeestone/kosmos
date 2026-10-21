@@ -46,8 +46,13 @@ there are none.
    their own); a sentence on what a reviewer is (Mona Lisa's question 5: the product has one, relay #516's consent
    line); dates without year or time except a grant landing within a day; newest first; body-size lines, no bullets,
    4px apart, and the block's paragraph gap before Leave company; more invisible characters stripped (U+2028/2029,
-   U+061C, U+FEFF, U+2060-2064, U+180E) and the name in a `bdi`. The route test asserts the property, not the source
-   line. Not changed: relay-side list gaps (a reviewer promoted to admin drops out), on #6817.
+   U+061C, U+FEFF, U+2060-2064, U+180E) and the name in a `bdi`. Not changed: relay-side list gaps (a reviewer
+   promoted to admin drops out), on #6817.
+6. **Review 2, taken:** today and tomorrow by calendar day (24 hours ahead on the spring-forward night is two days on);
+   a grant removed while pending says "removed before it took effect"; the date check in the page test holds in any
+   locale. Not changed: the route test checks, from the source, that the grants come after the not-the-screen early
+   return. That catches the likely regression (the line moved above it); it does not drive the handler, and the
+   engine test does not either, so a non-screen branch sending grants under another key would not be seen.
 
 ## Tests
 `engine/reviewernotice-6752.test.js` (refresh keeps and drops the list; the cleaner), `web.reviewernotice-6752.test.js`

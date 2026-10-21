@@ -52209,6 +52209,7 @@ function plusOrgPaint() {
    from the coordinator: the record is up to an hour old. "No longer a reviewer", not "removed": the coordinator's time
    is set when an admin removes them and when they leave on their own (review 1). */
 function plusOrgReviewerLine(g, now, fmt) {
+  if (g.removedAt && g.removedAt < g.effectiveAt) return ', removed before it took effect, ' + fmt.day(g.removedAt) + ' (made a reviewer ' + fmt.day(g.grantedAt) + ')';   // review 2
   if (g.removedAt) return ', no longer a reviewer since ' + fmt.day(g.removedAt) + ' (made a reviewer ' + fmt.day(g.grantedAt) + ')';
   if (g.effectiveAt > now) return ', becomes a reviewer ' + (g.effectiveAt - now <= 86400 ? fmt.soon(g.effectiveAt) : fmt.day(g.effectiveAt));
   return ', a reviewer since ' + fmt.day(g.effectiveAt);
@@ -52233,9 +52234,13 @@ function plusOrgReviewers(st) {
     : 'Once reviewer access is available, a reviewer may later be given the key to members\u2019 backups, and with it see their conversations, projects and files.';
   const fmt = {
     day: (t) => new Date(t * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' }),
+    /* Review 2: today and tomorrow by calendar day, not by "within 24 hours": on the night the clocks go forward, 24
+       hours ahead can be two calendar days ahead. Anything else gets its date. */
     soon: (t) => {
-      const d = new Date(t * 1000);
-      return (d.toDateString() === new Date(now * 1000).toDateString() ? 'today' : 'tomorrow') + ' at ' + d.toLocaleTimeString([], { timeStyle: 'short' });
+      const d = new Date(t * 1000), today = new Date(now * 1000), tomorrow = new Date(now * 1000);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const at = ' at ' + d.toLocaleTimeString([], { timeStyle: 'short' });
+      return d.toDateString() === today.toDateString() ? 'today' + at : d.toDateString() === tomorrow.toDateString() ? 'tomorrow' + at : fmt.day(t) + at;
     },
   };
   for (const g of grants) {
