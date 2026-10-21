@@ -21,9 +21,10 @@ maintenance and says so: `pending.json` carries `"paused": true`, and a refused 
   ok false without `listed`, so it is not taken back. Review round 2: it is also not counted as a try (as "still
   signing in" is not), so a pause that ends inside the secret's own 3-minute window still lets the browser in
   without the Allow card. Rejected: counting it (three paused refusals ended the secret in about 9 s, turning a
-  one-step connect into a manual one for any pause). Cost: during a long pause the vouch path asks once per tick
-  for the whole window instead of stopping after three. Weakest premise: that one tunnel call per tick for at most
-  3 minutes is cheap; what would change it is a pause answer that is slow or rate limited.
+  one-step connect into a manual one for any pause). Review round 3 corrected the cost stated here: only a race
+  reaches it, because the tunnel lists no rows while paused and the vouch path matches only listed rows. A row
+  listed just before the pause began is retried each tick until the snapshot drops it (about 5 s), not for the
+  whole window.
 
 ## Validation
 engine/remote.test.js (+3, see review round 1; first two: paused only when exactly true, with controls; a paused Allow refused in words, not listed,
@@ -47,3 +48,15 @@ with an ordinary-answer control); web.allow-card.test.js (+1: the line, its plac
 - A paused vouch refusal is not counted (see Decided). The test now asserts three paused refusals leave the secret
   live and the next ordinary answer lets the browser in. Mutant (counted again): red.
 - `paused: false` on the Plus-off early return, so the field is always present.
+
+## Review round 3
+- A browser check, docs/browser-checks/render-plus-paused-6666.js (1400 and 390 wide): paused with nothing listed
+  opens the section on the paused line alone, with no "Waiting for you"; CONTROLS: not paused shows no section, and
+  paused with a request still listed shows both; on another view a pause alone brings no top card, and a real
+  request still does.
+- The paused line names a computer too ("A phone, browser or computer asking to connect"): the tunnel withholds a
+  joining computer's row while paused as well.
+- Expected, not a defect: an Allow pressed just before the snapshot says paused shows the refusal words on its card;
+  on the next poll (about 5 s) the row is withheld, the card goes, and the paused line shows instead.
+- A future mtime (the clock stepped back) is not fresh, matching the tunnel's `elapsed()` refusal. `ASK.paused` is
+  declared with the other state. The Plus-off test asserts `paused === false`, so a missing field fails.

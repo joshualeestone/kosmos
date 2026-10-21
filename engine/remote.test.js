@@ -1251,11 +1251,15 @@ test('kosmos#6666: pending says Kosmos+ is paused only when the tunnel wrote pau
   const recent = new Date(Date.now() - 60 * 1000);
   fs.utimesSync(nodePath.join(dir, 'pending.json'), recent, recent);
   assert.equal(remote.pendingDevices().paused, true, 'a minute-old paused snapshot did not read as paused');
+  // A snapshot dated a minute ahead (the clock stepped back) is not fresh.
+  const ahead = new Date(Date.now() + 60 * 1000);
+  fs.utimesSync(nodePath.join(dir, 'pending.json'), ahead, ahead);
+  assert.equal(remote.pendingDevices().paused, false, 'a paused snapshot dated in the future read as paused');
   fs.rmSync(nodePath.join(dir, 'pending.json'), { force: true });
   assert.equal(remote.pendingDevices().paused, false, 'no snapshot read as paused');
   write({ paused: true });
   remote.setOn(false);
-  assert.notEqual(remote.pendingDevices().paused, true, 'a board with Plus off said Kosmos+ is paused');
+  assert.equal(remote.pendingDevices().paused, false, 'a board with Plus off said Kosmos+ is paused, or left the field out');
 });
 
 test('kosmos#6666: an Allow refused while Kosmos+ is paused says so, and is neither allowed nor listed', async () => {

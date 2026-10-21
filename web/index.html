@@ -19284,7 +19284,7 @@ window.kosmosMeasureScrollbarWidth();
     <div class="plus-asks" id="plus-asks" role="status" aria-live="polite" hidden>
       <p class="setname" id="plus-asks-title">Waiting for you</p>
       <!-- kosmos#6666: while Kosmos+ is paused for maintenance it shows no requests; this says why. -->
-      <p class="plus-paused" id="plus-paused" hidden>Kosmos+ is paused for maintenance. A phone or browser asking to connect waits until it is back, and shows here then. There is nothing to do.</p>
+      <p class="plus-paused" id="plus-paused" hidden>Kosmos+ is paused for maintenance. A phone, browser or computer asking to connect waits until it is back, and shows here then. There is nothing to do.</p>
       <div id="plus-ask-rows"></div>
     </div>
 
@@ -51193,7 +51193,7 @@ paintStyles(true);
    it asked, never by anything that identifies it; the time keeps ticking
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
-const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null,
+const ASK = { devices: [], paused: false, email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null,
   /* #6315: the compact notice's dismissal (askNote*): the keys it names now, and this tab's own record. */
   noteKeys: [], noteDismissed: [],
   /* kosmos#5786 (b): the browser this computer opened and allowed without asking (the engine's connected_here), the id

@@ -2072,8 +2072,9 @@ function vouchTick() {
         // Only the tunnel's refusals count: a busy register or Forget is waited out. (A setup-not-finished refusal is
         // not counted either, but the next tick's !enrolled() ends S: it fails closed rather than waiting.)
         const why = String((r && r.because) || '');
-        // kosmos#6666: nor is a refusal because Kosmos+ is paused: it waits within the secret's own window, so a pause
-        // that ends inside it still lets this browser in without the Allow card.
+        // kosmos#6666: nor is a refusal because Kosmos+ is paused. Only a race reaches this (the tunnel lists no rows
+        // while paused, so no tick matches): a row listed just before the pause began. It waits within the secret's own
+        // window, so a pause that ends inside it still lets this browser in without the Allow card.
         if (!busy() && !(r && r.paused) && !/being forgotten|still signing in|finish the Plus sign-up/.test(why)) v.tries += 1;
         // Three tries, then the ordinary Allow card is the way in (no spawn every 3 s for the whole window).
         if (vouchState === v && v.tries >= 3) {
@@ -2187,7 +2188,7 @@ function pendingDevices() {
   /* kosmos#6666: while Kosmos+ is paused for maintenance the tunnel withholds the list and says so (kosmos-relay #509,
      kosmos#6656), so the page can say why no request shows rather than show nothing. Exactly true, or not paused.
      Only from a snapshot under PAUSED_FRESH_MS old: a stopped tunnel or a slept Mac leaves its last file behind. */
-  const paused = !!raw && raw.paused === true && snapAge < PAUSED_FRESH_MS;
+  const paused = !!raw && raw.paused === true && snapAge > -1000 && snapAge < PAUSED_FRESH_MS;   // a future mtime (the clock stepped back) is not fresh; a file written this instant can read a fraction of a ms ahead of Date.now()
   return { devices: here ? devices.filter((d) => d.device_id !== here.device_id || d.first_seen > here.at + 60) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here, paused };
 }
 /* The tunnel's answer is its last line of stdout that starts with "{", one line
@@ -2299,7 +2300,7 @@ async function deviceAllow(id, name, code) {
   }
   const got = parseSaid(r);
   /* kosmos#6666: refused because Kosmos+ is paused for maintenance (the tunnel answers paused true with exit 0, and
-     writes nothing to this computer's list: kosmos#6656). Said as that, never as allowed and never as a failure. */
+     writes nothing to this computer's list: kosmos#6656). Said in its own words, never as allowed. */
   if (got.ok && got.data && got.data.paused === true) return { ok: false, because: PAUSED_ALLOW_WORDS, paused: true };
   /* kosmos#6286: the coordinator holds no sign-in with that id (its ack answered 404: refused, or never asked), so
      Kosmos+ did not take this Allow. The tunnel keeps the entry on this computer's list (its own), so the person is
