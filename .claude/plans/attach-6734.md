@@ -67,10 +67,36 @@ the file in memory: an upload is written to disk as it arrives, and a download i
    would reopen the time-of-check window the #6726 review rounds narrowed (the descriptor identity checks); not worth
    it for an agent-side path that is limited to 200 MB a day.
 6. **Upload time.** Node's default request timeout (300 s) is unchanged. 100 MB at 1 MB/s takes 100 s; a slower
-   uplink than about 350 KB/s cannot finish a 100 MB upload, and the page reports the failure the fetch gives. Not
-   changed here: a longer timeout widens what a slow client can hold open on every route.
+   uplink than about 350 KB/s cannot finish a 100 MB upload. Not changed here: Node has no per-route request timeout,
+   so a longer one widens what a slow client can hold open on every route. Instead the page says so: a failed upload
+   of a file over 25 MB (`ATTACH_SLOW_BYTES`) reads "We could not finish adding <name>. Kosmos waits up to five minutes
+   for a file, and a large one on a slow connection can take longer: try a faster connection." A smaller one keeps
+   "We could not reach Kosmos to add that file." (web.attach-slow-6734.test.js runs the page's own attachUpload with a
+   failing fetch, both sizes; red with the size check removed.)
+7. **Office files are not converted above 25 MB** (review 1). The text rendering (#6098) reads the whole file into
+   its worker, and Buffer memory is outside the worker's heap limit, so at a 100 MB cap two PDFs at once could hold
+   about 200 MB. `attachtext.MAX_RENDER_BYTES` (25 MB, the cap the conversion was built under) gates it, before any
+   read: a larger file gets a rendering that says "Kosmos converts files up to 25 MB to text; this one is larger, so
+   it is attached as it is.", and the macOS PDF fallback is skipped for it too. Test: a sparse 25 MB + 1 file gets that
+   note with no fallback, and a small file (control) goes to the converter; red with the gate removed.
+8. **Stored files are 0600 on every path**, `save()` included (review 1 NIT; it was the umask default).
 
-## Tests (server.attachment-stream-6734.test.js, 13 tests, all green)
+## Windows (review 1)
+
+The new test cannot run on Windows (it reads `/dev/fd`), and it is not in `tools/windows-tests.js`; Windows-side test
+selection is Homer's lane, so this is noted rather than changed here. Measured from the code instead: every write
+stream is closed before its rename or removal (Windows will not rename an open file). A download now holds the file
+open for its whole length; the only paths that delete an attachment's folder are `abandon` (a failed upload's own
+folder, before anyone can download it), `replyfile.discard` (a reply copy that was never kept, so never offered),
+and the preview's temp folder. All three are best effort (`try`/`catch`), so none can fail a request on EBUSY.
+
+## The chunked over-cap answer (review 1)
+
+The test used to accept a reset in place of the 400. It now requires the 400 with `TOO_LARGE`: 6 of 6 runs got it at
+a load average of about 10. If a client ever sees a reset instead, the page's own size check has already refused the
+file before sending it.
+
+## Tests (server.attachment-stream-6734.test.js, 14 tests, and web.attach-slow-6734.test.js, 1 test, all green)
 
 - the cap is 100 MB and is said as "100 MB";
 - a 6 MB download is byte-identical (sha256) with its Content-Length; HEAD has the length and no body; no

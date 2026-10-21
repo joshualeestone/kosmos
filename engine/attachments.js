@@ -126,7 +126,7 @@ function save(scope, owner, { name, type, bytes, by }) {
   if (bytes.length > MAX_BYTES) throw new Error(TOO_LARGE);
   const s = slot(scope, owner, name);
   try {
-    fs.writeFileSync(s.part, bytes);
+    fs.writeFileSync(s.part, bytes, { mode: 0o600 });   // #6734: as saveFilled and saveStream
     return finish(s, scope, owner, { type, size: bytes.length, by });
   } catch (err) { abandon(s); throw err; }
 }

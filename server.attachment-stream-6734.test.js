@@ -297,10 +297,8 @@ test('#6734: an upload that does not declare its length is refused as it crosses
     req.on('error', () => {});
     pump();
   });
-  if (got.status !== undefined) {
-    assert.equal(got.status, 400, JSON.stringify(got));
-    assert.equal(JSON.parse(got.body).error, attachments.TOO_LARGE);
-  }
+  assert.equal(got.status, 400, JSON.stringify(got));
+  assert.equal(JSON.parse(got.body).error, attachments.TOO_LARGE);
   assert.ok(await until(() => stored().length === before && parts().length === 0), 'an over-cap upload left ' + JSON.stringify(parts()) + ' / ' + stored().length + ' folders');
 });
 
@@ -344,4 +342,21 @@ test('#6734: the page, the agent\'s instructions and the CLI name the route\'s o
   assert.ok(dm.includes('can be attached, up to ' + attachments.MAX_WORDS + '.'), 'the agent\'s instructions name another cap');
   const cli = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
   assert.ok(cli.includes('a project you are on, up to ' + attachments.MAX_WORDS + ':'), 'kosmos reply --file help names another cap');
+});
+
+test('#6734: an office file over the conversion limit is attached unconverted and never read whole', async () => {
+  const attachtext = require('./engine/attachtext');
+  const dir = fs.mkdtempSync(path.join(SCRATCH, 'render-'));
+  const big = path.join(dir, 'big.pdf');
+  fs.closeSync(fs.openSync(big, 'w'));
+  fs.truncateSync(big, attachtext.MAX_RENDER_BYTES + 1);   // sparse: no bytes are written
+  const out = await attachtext.render({ name: 'big.pdf', file: big, dir });
+  const text = fs.readFileSync(out, 'utf8');
+  assert.match(text, /converts files up to 25 MB to text; this one is larger, so it is attached as it is/, text);
+  assert.doesNotMatch(text, /macOS’s own PDF reader/, 'the oversized file must not go to the PDF fallback either');
+  // CONTROL: a small file still goes to the converter, so the note above is the gate and not every PDF's fate.
+  const small = path.join(dir, 'small.pdf');
+  fs.writeFileSync(small, 'not really a pdf');
+  const out2 = await attachtext.render({ name: 'small.pdf', file: small, dir: fs.mkdtempSync(path.join(SCRATCH, 'render-')) });
+  assert.doesNotMatch(fs.readFileSync(out2, 'utf8'), /converts files up to/);
 });

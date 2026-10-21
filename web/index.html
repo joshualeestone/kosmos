@@ -74766,7 +74766,11 @@ async function attachUpload(file, where) {
     if (input) input.focus();
     if (where.after) where.after();
   } catch {
-    msg.textContent = 'We could not reach Kosmos to add that file.';
+    /* #6734: Kosmos waits five minutes for a whole upload (the server's request timeout), so a large file over a slow
+       connection can be cut off; say so for a large one rather than only that Kosmos was not reached. */
+    msg.textContent = file.size > ATTACH_SLOW_BYTES
+      ? 'We could not finish adding ' + file.name + '. Kosmos waits up to five minutes for a file, and a large one on a slow connection can take longer: try a faster connection.'
+      : 'We could not reach Kosmos to add that file.';
   } finally {
     ATTACH_UPLOADING = Math.max(0, ATTACH_UPLOADING - 1);
     if (btn) btn.disabled = false;
@@ -74801,6 +74805,7 @@ const ATTACH_MAX = 10;
 /* #6734: the route's own cap (engine/attachments.js MAX_BYTES), checked here before the upload starts.
    server.attachment-stream-6734.test.js holds the two equal. */
 const ATTACH_MAX_BYTES = 100 * 1024 * 1024;
+const ATTACH_SLOW_BYTES = 25 * 1024 * 1024;   // #6734: a file this large may outlast a slow connection's five minutes
 function attachTarget(where) {
   return where.key === 'room' ? (PJ_CURRENT || null) : (CURRENT ? CURRENT.sessionName : null);
 }
