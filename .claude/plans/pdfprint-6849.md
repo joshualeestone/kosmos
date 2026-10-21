@@ -35,7 +35,7 @@ bytes hold the word endstream is ended there, so a file built to do it could mat
 `task built --file` on a Mac now needs the bundled runtime and engine, as `kosmos handoff` and the Windows CLI already do.
 
 ## Tests run
-- engine/fileprint-6849.test.js 15/15 (real fixtures in test-support/fileprint-6849/); server.builtsha-6330.test.js
+- engine/fileprint-6849.test.js 16/16 (real fixtures in test-support/fileprint-6849/); server.builtsha-6330.test.js
   8/8 (Mac CLI); tools.windows-kosmos-cli-570.test.js 51/51 (Windows CLI); each PDF test red when PDF detection is
   broken on purpose; review 4's stream and whitespace tests red against the round-3 module; review 5: the CR-alone stream test red against the round-4 module, the /Type /Metadata test red with that check broken on purpose.
 - engine/handoff.test.js 23/23 after the move.

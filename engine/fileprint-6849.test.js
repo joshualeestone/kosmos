@@ -173,3 +173,10 @@ test('#6849: the cap is the 64 MB the help and the instruction name', () => {
   const said = require('./defaults').block();
   assert.match(said, /a PDF over 64 MB is hashed as plain/);
 });
+
+/* Review 7: the bare Get-FileHash prints a table that cuts the hash short (builtsha-6330 review 7 fixed that once). */
+test('#6849: the instruction gives the Windows command that prints the whole hash', () => {
+  const said = require('./defaults').block();
+  assert.match(said, /`\(Get-FileHash <file>\)\.Hash`/);
+  assert.doesNotMatch(said, /`Get-FileHash <file>`/, 'the bare Get-FileHash prints a cut-off table');
+});
