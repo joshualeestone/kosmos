@@ -1,0 +1,145 @@
+// Browser-check-surface: reviewer-slot topnotes plus-org-reviewers panel-settings
+'use strict';
+/**
+ * #6817 item 1: the board tells a member that someone in their company (or family) was made a reviewer. Drives the
+ * real page, file://, fetch stubbed, on chromium and webkit:
+ *   - a grant newer than the last one seen shows ONE notice in the floating stack, in the company's words, with See who
+ *     and a close; two new grants still make one notice;
+ *   - its x closes it and a repaint keeps it closed; a newer grant later shows it again (CONTROL: the x is not a
+ *     permanent mute);
+ *   - See who opens Settings at Kosmos+, the reviewers list is on screen, and the notice is gone;
+ *   - a family's notice says "your family"; a computer in no company gets none; a failed read keeps the notice;
+ *   - at 375 x 667 (both themes) the notice is on screen with See who and its x at least 44 px tall.
+ *
+ *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-reviewerptr-6817.js [shots-dir]
+ */
+const path = require('node:path');
+const pw = require('playwright');
+
+const PAGE = 'file://' + (process.env.KOSMOS_PAGE || path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html'));
+const SHOTS = process.argv[2] || '';
+const fail = [];
+let RAN = 0;
+const chk = (ok, label, extra) => {
+  RAN += 1;
+  console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
+  if (!ok) fail.push(label);
+};
+const DAY = 86400;
+
+async function open(browser, w, h, theme, eng) {
+  const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: theme, hasTouch: w < 700, isMobile: w < 700 && eng === 'chromium' });
+  const page = await ctx.newPage();
+  const errs = [];
+  page.on('pageerror', (e) => errs.push(e.message));
+  await page.addInitScript(() => {
+    window.setInterval = () => 0;   // no poll of the page's own: the check calls the notice itself
+    const enc = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { 'content-type': 'application/json' } });
+    // What /api/org/grants answers; the check sets it. /api/org answers the same grants, joined, for the Settings list.
+    window.GRANTS = { enrolled: false, kind: null, reviewerGrants: [] };
+    window.GRANTS_STATUS = 200;
+    window.ORG_READS = 0;
+    window.fetch = async (url) => {
+      const u = String(url);
+      if (u.startsWith('/api/org/grants')) return enc(window.GRANTS, window.GRANTS_STATUS);
+      if (u === '/api/org') {
+        window.ORG_READS += 1;
+        return enc({ enrolled: true, org: { name: 'Acme', slug: 'acme', kind: window.GRANTS.kind || 'company' }, role: 'member',
+          enrolledAt: 1, reporting: true, reviewerGrants: window.GRANTS.reviewerGrants });
+      }
+      if (u.startsWith('/api/plus/status') || u.startsWith('/api/plus')) return enc({ enrolled: true, on: true, state: 'up' });
+      return enc({ ok: true });
+    };
+  });
+  await page.goto(PAGE);
+  await page.evaluate(() => {
+    const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+    document.querySelectorAll('body > *').forEach((el) => { el.inert = false; });
+    try { localStorage.removeItem('kosmos.reviewerGrantSeen'); } catch { /* none */ }
+    if (typeof showTab === 'function') showTab('agents');
+  });
+  return { ctx, page, errs };
+}
+
+/* Sets the grants answer, lets the notice read it now, and returns what the slot shows. */
+async function read(page, answer, status) {
+  return page.evaluate(async ([a, s]) => {
+    window.GRANTS = a; window.GRANTS_STATUS = s || 200;
+    REVIEWER_NOTE.at = 0;
+    reviewerNoteMaybe();
+    for (let i = 0; i < 20; i += 1) await new Promise((r) => setTimeout(r, 25));
+    const slot = document.getElementById('reviewer-slot');
+    const notes = slot.querySelectorAll('.utoast.reviewer-note');
+    const b = notes[0] && notes[0].querySelector('.utxt b');
+    return { count: notes.length, words: b ? b.textContent : null,
+      see: !!slot.querySelector('button[data-reviewer-see]'), x: !!slot.querySelector('button.ux[data-reviewer-hide]'),
+      inStack: !!slot.closest('#topnotes') };
+  }, [answer, status]);
+}
+
+(async () => {
+  const engines = (process.env.ENGINES || 'chromium,webkit').split(',').filter(Boolean);
+  for (const eng of engines) {
+    const browser = await pw[eng].launch();
+    const t = `[${eng}]`;
+    const now = Math.floor(Date.now() / 1000);
+    const company = (grants) => ({ enrolled: true, kind: 'company', reviewerGrants: grants });
+    const g = (ago) => ({ who: 'Pat Lee', grantedAt: now - ago, effectiveAt: now - ago + DAY });
+    const { ctx, page, errs } = await open(browser, 1280, 800, 'light', eng);
+
+    const first = await read(page, company([g(3 * DAY), g(DAY)]));
+    chk(first.count === 1 && first.see && first.x && first.inStack && first.words === 'Someone was made a reviewer for your company.',
+      `${t} two new grants show one notice in the floating stack, with See who and a close, in the company's words`, JSON.stringify(first));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `reviewerptr-${eng}-light.png`) });
+
+    await page.click('#reviewer-slot button.ux');
+    const closed = await read(page, company([g(3 * DAY), g(DAY)]));
+    chk(closed.count === 0, `${t} its x closes it, and the next read keeps it closed`, JSON.stringify(closed));
+    const again = await read(page, company([g(3 * DAY), g(DAY), g(60)]));
+    chk(again.count === 1, `${t} a newer grant shows it again (CONTROL: the x is not a permanent mute)`, JSON.stringify(again));
+
+    await page.click('#reviewer-slot button[data-reviewer-see]');
+    await page.waitForTimeout(800);
+    const went = await page.evaluate(() => {
+      const box = document.getElementById('plus-org-reviewers');
+      const r = box && box.getBoundingClientRect();
+      return { settings: !document.getElementById('panel-settings').hidden, sec: typeof SETTINGS_SEC !== 'undefined' ? SETTINGS_SEC : null,
+        listShown: !!box && !box.hidden, listOnScreen: !!r && r.height > 0 && r.top >= 0 && r.bottom <= innerHeight,
+        notice: document.querySelectorAll('#reviewer-slot .utoast').length };
+    });
+    chk(went.settings && went.sec === 'plus' && went.listShown && went.listOnScreen && went.notice === 0,
+      `${t} See who opens Settings at Kosmos+ with the reviewers list on screen, and the notice is gone`, JSON.stringify(went));
+
+    await page.evaluate(() => { showTab('agents'); localStorage.removeItem('kosmos.reviewerGrantSeen'); });
+    const fam = await read(page, { enrolled: true, kind: 'family', reviewerGrants: [g(DAY)] });
+    chk(fam.count === 1 && fam.words === 'Someone was made a reviewer for your family.', `${t} a family's notice says "your family"`, JSON.stringify(fam));
+    const failed = await read(page, null, 500);
+    chk(failed.count === 1, `${t} a failed read keeps the notice on screen`, JSON.stringify(failed));
+    const none = await read(page, { enrolled: false, kind: null, reviewerGrants: [] });
+    chk(none.count === 0, `${t} a computer in no company gets no notice`, JSON.stringify(none));
+    chk(errs.length === 0, `${t} 1280x800: no page errors`, errs.join(' | '));
+    await ctx.close();
+
+    for (const theme of ['light', 'dark']) {
+      const p = await open(browser, 375, 667, theme, eng);
+      await read(p.page, company([g(DAY)]));
+      const fit = await p.page.evaluate(() => {
+        const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+        const on = (b) => b.top >= 0 && b.left >= 0 && b.bottom <= innerHeight && b.right <= innerWidth;
+        const see = r('#reviewer-slot button[data-reviewer-see]'), x = r('#reviewer-slot button.ux');
+        return { note: on(r('#reviewer-slot .utoast')), see: on(see), x: on(x), seeH: Math.round(see.height), xH: Math.round(x.height), xW: Math.round(x.width) };
+      });
+      chk(fit.note && fit.see && fit.x && fit.seeH >= 44 && fit.xH >= 44 && fit.xW >= 44,
+        `${t} 375x667 ${theme}: the notice is on screen, See who and its x at least 44 px`, JSON.stringify(fit));
+      if (SHOTS) await p.page.screenshot({ path: path.join(SHOTS, `reviewerptr-${eng}-375-${theme}.png`) });
+      chk(p.errs.length === 0, `${t} 375x667 ${theme}: no page errors`, p.errs.join(' | '));
+      await p.ctx.close();
+    }
+    await browser.close();
+  }
+  if (engines.length === 0) chk(false, 'ENGINES named no engine, so nothing ran');
+  const EXPECTED_PER_ENGINE = 12;
+  if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
+  console.log(`render-reviewerptr-6817: ${RAN - fail.length} PASS, ${fail.length} FAIL`);
+  process.exit(fail.length ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(2); });
