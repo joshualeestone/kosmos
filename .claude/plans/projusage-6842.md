@@ -17,6 +17,17 @@ Coordinator half: kosmos-relay branch projusage-6842. Full plan on kosmos#6842 (
 - Close day, not hold days: a receipt is a finished task's total; splitting it by day would invent precision.
 - Inert until the coordinator's words and check ship (the coordinator ignores unknown fields today).
 
+- Only the enrolled Kosmos sends projectUsage (the read runs in its tick). Other Kosmoses on the same computer leave it
+  out, which reads as not reported, never as none (challenge iteration 1).
+- At most 200 tasks are read per tick, newest first; more marks the read incomplete (iteration 1).
+- A size trim that takes every project row leaves the field out, never [] (iteration 1).
+
+## Residuals, stated
+- An agent that holds parts of two tasks at the same time has those tokens on both receipts (each receipt counts the
+  agent's transcript inside its own hold spans), so a sum over tasks can count them twice. This holds for slice 2's
+  project total and for this rollup alike; the console labels spend as estimated. De-duplicating spans per agent across
+  tasks is a separate change (challenge iteration 1).
+
 ## Weakest premise
 That reading up to a week of receipts inside the daily tick is fast enough. Kept receipts are one file read each; an
 unkept one reads transcripts once and is then kept.

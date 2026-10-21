@@ -80,6 +80,8 @@ const USAGE_ROWS_PER_DAY = 40;
    PROJECT_USAGE_READ_MS, and a read that does not finish sends no projectUsage at all (not reported), never [] (none). */
 const PROJECT_USAGE_ROWS = 200;
 const PROJECT_USAGE_READ_MS = 60 * 1000;
+/* The most tasks read per tick, newest first; more marks the read incomplete (the body's truncated). */
+const PROJECT_USAGE_TASKS = 200;
 /**
  * kosmos#6842 slice 3: tokens per (project name, close day, model), summed over every agent on every task of `projects`
  * ([{ id, name }]) closed in the last `days` UTC days. Answers { byProject: { name: { day: { model: buckets } } }, complete }:
@@ -98,11 +100,13 @@ async function projectUsageByDay(projects, { days = USAGE_DAYS, now = Date.now()
     if (!proj || !byId.has(proj.id)) continue;
     for (const task of proj.tasks || []) {
       const at = Date.parse(receipt.closedAtOf(task) || '');
-      if (Number.isFinite(at) && at >= from && at <= now) jobs.push({ id: proj.id, name: byId.get(proj.id), task, day: new Date(at).toISOString().slice(0, 10) });
+      if (Number.isFinite(at) && at >= from && at <= now) jobs.push({ id: proj.id, name: byId.get(proj.id), task, at, day: new Date(at).toISOString().slice(0, 10) });
     }
   }
   const byProject = {};
   let complete = true;
+  jobs.sort((x, y) => y.at - x.at);
+  if (jobs.length > PROJECT_USAGE_TASKS) { complete = false; jobs.length = PROJECT_USAGE_TASKS; }
   const AT_ONCE = 3;
   for (let i = 0; i < jobs.length; i += AT_ONCE) {
     await Promise.all(jobs.slice(i, i + AT_ONCE).map(async (j) => {
@@ -300,9 +304,13 @@ function build(input) {
       for (const [d, models] of Object.entries(perDay)) {
         if (!realDay(d) || !plainMap(models)) { truncated = true; continue; }
         for (const [model, b] of Object.entries(models)) {
-          if (!MODEL_ID.test(String(model)) || !providerOfModel(model)) { truncated = true; continue; }
+          if (!MODEL_ID.test(String(model)) || !providerOfModel(model)) {
+            // As the per-day rows: an unnamed model with tokens is a real trim; one with none drops nothing.
+            if (count(b && b.input_tokens) || count(b && b.output_tokens) || count(b && b.cache_creation_input_tokens) || count(b && b.cache_read_input_tokens)) truncated = true;
+            continue;
+          }
           const k = project + '\0' + d + '\0' + model;
-          const row = keyed.get(k) || { project, day: d, provider: providerOfModel(model), model, input: 0, output: 0, cacheWrite: 0, cacheRead: 0, b: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } };
+          const row = keyed.get(k) || { project, day: d, provider: providerOfModel(model), model, input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
           row.input += count(b && b.input_tokens); row.output += count(b && b.output_tokens);
           row.cacheWrite += count(b && b.cache_creation_input_tokens); row.cacheRead += count(b && b.cache_read_input_tokens);
           keyed.set(k, row);
@@ -352,8 +360,11 @@ function fit(body) {
   const size = () => Buffer.byteLength(JSON.stringify(body), 'utf8');
   while (size() > BODY_MAX) {
     body.truncated = true;
-    if (body.projectUsage && body.projectUsage.length) body.projectUsage.pop();
-    else if (body.usage.length) {
+    if (body.projectUsage && body.projectUsage.length) {
+      body.projectUsage.pop();
+      // Trimmed to nothing is not reported, never [] (none): [] would replace the company's stored week with none.
+      if (!body.projectUsage.length) delete body.projectUsage;
+    } else if (body.usage.length) {
       const oldest = body.usage[body.usage.length - 1].day;
       body.usage = body.usage.filter((r) => r.day !== oldest);
     } else if (body.projects.length) body.projects.pop();
@@ -428,13 +439,6 @@ function defaultSources() {
    then change nothing), so a test starts from none; module state outlives a test. */
 function _resetUsageScanForTests() { lastScan = null; slowSaid = false; pendingScan = null; scanGeneration += 1; abandoned = new Set(); }
 function plainMap(x) { return !!x && typeof x === 'object' && !Array.isArray(x); }
-/* kosmos#5532: fills out.usageByDay from the sources' scoped reader, or says usageWithheld when there is none. The
-   board's reader answers { byDay, complete }; a plain day map is also taken (test sources). A short count sets
-   usageIncomplete (the body's truncated), never `partial`: partial holds the daily and blocks change sends, and a count
-   can stay incomplete for good (usage.js). A late count reused from an earlier scan (lastScan) can be up to a day
-   old; it too is only marked truncated, so the console reads it as short, not as stale. A read that throws, takes longer than its wait (USAGE_READ_MS, or the child's CHILD_USAGE_READ_MS), or answers an
-   empty count it says is not complete (which cannot be told from a read that found nothing) says usageWithheld ("not reported yet", contract v1.1), never 0. The bound is the wait only: the scan is not
-   cancelled, and the pane reads before it are not bounded by it. */
 /* kosmos#6842 slice 3: fills out.projectUsage (and projectUsageIncomplete) from the sources' reader, waited for at most
    PROJECT_USAGE_READ_MS. A reader that is missing, throws, answers the wrong shape or is too slow leaves projectUsage out
    of the body (not reported); it is never sent as [] (none). Never throws. */
@@ -451,6 +455,13 @@ async function readProjectUsage(s, out, waitMs) {
   } catch { /* not reported */ } finally { clearTimeout(timer); }
 }
 
+/* kosmos#5532: fills out.usageByDay from the sources' scoped reader, or says usageWithheld when there is none. The
+   board's reader answers { byDay, complete }; a plain day map is also taken (test sources). A short count sets
+   usageIncomplete (the body's truncated), never `partial`: partial holds the daily and blocks change sends, and a count
+   can stay incomplete for good (usage.js). A late count reused from an earlier scan (lastScan) can be up to a day
+   old; it too is only marked truncated, so the console reads it as short, not as stale. A read that throws, takes longer than its wait (USAGE_READ_MS, or the child's CHILD_USAGE_READ_MS), or answers an
+   empty count it says is not complete (which cannot be told from a read that found nothing) says usageWithheld ("not reported yet", contract v1.1), never 0. The bound is the wait only: the scan is not
+   cancelled, and the pane reads before it are not bounded by it. */
 async function readUsage(s, out, waitMs) {
   if (typeof s.usageByDay !== 'function') { out.usageWithheld = true; return; }
   const wait = Number.isFinite(waitMs) && waitMs > 0 ? waitMs : USAGE_READ_MS;   // the child's own, or a test's
@@ -1199,7 +1210,7 @@ function waitingForPrint(root) {
 
 module.exports = {
   _resetUsageScanForTests, CHILD_USAGE_READ_MS,
-  projectUsageByDay, readProjectUsage, PROJECT_USAGE_ROWS, PROJECT_USAGE_READ_MS,   // kosmos#6842
+  projectUsageByDay, readProjectUsage, PROJECT_USAGE_ROWS, PROJECT_USAGE_READ_MS, PROJECT_USAGE_TASKS,   // kosmos#6842
   waitingForPrint, KNOWN_RUNNERS, KNOWN_PROVIDERS,
   DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, RETAKE_EVERY_MS, RECHECK_NO_REPORTS_MS, STATE_FILE, RETAKE_FILE, signature, tick,
   ROUTE, VERSION, NAME_MAX, AGENTS_MAX, PROJECTS_MAX, NAMES_MAX, USAGE_DAYS, USAGE_ROWS_PER_DAY, BODY_MAX,

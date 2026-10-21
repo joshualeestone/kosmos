@@ -61,7 +61,7 @@ test('build: a project not in the body, a model that is not an id, and a bad day
 
 test('build: two names that clean to one are added together; an incomplete read marks the body truncated', () => {
   const body = r.build({ world: W, nowMs: NOW, projects: [{ name: 'Launch', agents: [] }],
-    projectUsage: { Launch: { [DAY(0)]: { 'claude-opus-5-5': b(5) } }, 'Launch‮': { [DAY(0)]: { 'claude-opus-5-5': b(7) } } } });
+    projectUsage: { Launch: { [DAY(0)]: { 'claude-opus-5-5': b(5) } }, 'Launch\u202e': { [DAY(0)]: { 'claude-opus-5-5': b(7) } } } });
   assert.deepEqual(body.projectUsage.map((x) => x.input), [12]);
   assert.equal(r.build({ world: W, nowMs: NOW, projects: [{ name: 'Launch', agents: [] }], projectUsage: {}, projectUsageIncomplete: true }).truncated, true);
   assert.equal(r.build({ world: W, nowMs: NOW, projects: [], projectUsageIncomplete: true }).truncated, false, 'not read, nothing claimed');
@@ -87,7 +87,39 @@ test('build: at most PROJECT_USAGE_ROWS rows, the cheapest dropped, and the size
   assert.equal(big.usage.length, 1, 'per-day usage was trimmed before project rows were');
 });
 
+test('build: a size trim that takes every project row leaves projectUsage out (not reported), never [] (none)', () => {
+  // [] would replace the company's stored week with none; a body too big for any row says nothing about projects.
+  const long = (x) => x + 'x'.repeat(115);
+  const projects = Array.from({ length: 200 }, (_, i) => ({ name: long('P' + i), agents: Array.from({ length: 20 }, (_, j) => long('A' + j)) }));
+  const body = r.build({ world: W, nowMs: NOW, projects, projectUsage: { [projects[0].name]: { [DAY(0)]: { 'claude-opus-5-5': b(5) } } } });
+  assert.ok(body.projects.length < 200, 'fixture: the size trim must reach the projects list, ' + body.projects.length);
+  assert.equal('projectUsage' in body, false);
+  assert.equal(body.truncated, true);
+});
+
+test('build: an unnamed model with no tokens drops nothing, so it does not mark the body truncated', () => {
+  const zero = r.build({ world: W, nowMs: NOW, projects: [{ name: 'Launch', agents: [] }],
+    projectUsage: { Launch: { [DAY(0)]: { unknown: b(0), 'claude-opus-5-5': b(5) } } } });
+  assert.deepEqual([zero.projectUsage.length, zero.truncated], [1, false]);
+  const some = r.build({ world: W, nowMs: NOW, projects: [{ name: 'Launch', agents: [] }],
+    projectUsage: { Launch: { [DAY(0)]: { unknown: b(3), 'claude-opus-5-5': b(5) } } } });
+  assert.equal(some.truncated, true, 'the control: an unnamed model WITH tokens is a real trim');
+});
+
 /* ---- projectUsageByDay ---- */
+test('projectUsageByDay: at most PROJECT_USAGE_TASKS tasks are read, newest first, and more marks it incomplete', async () => {
+  const n = r.PROJECT_USAGE_TASKS + 2;
+  const tasks = Array.from({ length: n }, (_, i) => ({ number: i + 1, closedAt: new Date(NOW - (i + 1) * 60e3).toISOString() }));
+  const asked = [];
+  const receiptOf = async (pid, task) => { asked.push(task.number); return { agents: [] }; };
+  const u = await r.projectUsageByDay([{ id: 'p1', name: 'Launch' }], { now: NOW, receiptOf, readAll: () => [{ id: 'p1', name: 'Launch', tasks }] });
+  assert.equal(asked.length, r.PROJECT_USAGE_TASKS);
+  assert.equal(asked.includes(n), false, 'the oldest task was read instead of a newer one');
+  assert.equal(u.complete, false);
+  const few = await r.projectUsageByDay([{ id: 'p1', name: 'Launch' }], { now: NOW, receiptOf, readAll: () => [{ id: 'p1', name: 'Launch', tasks: tasks.slice(0, 3) }] });
+  assert.equal(few.complete, true, 'the control: under the cap is complete');
+});
+
 test('projectUsageByDay: tasks closed in the last 7 days, summed per project, close day and model', async () => {
   const at = (n, h = 10) => new Date(Date.UTC(2026, 9, 7 - n, h)).toISOString();
   const all = [
