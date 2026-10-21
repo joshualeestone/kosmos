@@ -17578,6 +17578,12 @@ const server = http.createServer(async (req, res) => {
         try {
           try { delivery = await chat.deliverAsync(name, entry.text, safeRoster(), entry.envelope, entry.trailer); }
           catch (err) { delivery = { state: chat.DELIVERY.COULD_NOT, because: 'it could not be typed: ' + String((err && err.message) || err) }; }
+          /* #6774: refused because its input box still holds text (nothing typed): it stays kept for the sweep, and its
+             row stays held, so pressing this cannot lose the automatic send. */
+          if (delivery && delivery.state === chat.DELIVERY.COULD_NOT && delivery.inputHeld === true) {
+            sendJson(res, 409, { error: 'its input box still holds text that has not been sent, so nothing was typed; Kosmos sends this once the box is clear' });
+            return;
+          }
           // Removed only after the try, so a board that stops mid-typing still has it kept.
           limitqueue.settle(name, entry.id);
         } finally { limitqueue.release(entry.id); }
@@ -18453,14 +18459,17 @@ const server = http.createServer(async (req, res) => {
            typed as before (a person's message is never refused for this). */
         if (!automatic && !qmenuAnswer && !qmenuClosed && body.anyway !== true) {
           const limitqueue = require('./engine/limitqueue');
-          /* #6774: the same words sent again by hand while a copy is kept for a stuck input box: that copy is taken out
-             (its row says why) before anything else, so the words go once, as this new message. */
-          for (const e of limitqueue.list(name)) {
-            if (e.kind !== 'dm' || e.input !== true || e.text !== body.text || !limitqueue.claim(e.id)) continue;
-            try {
-              limitqueue.settle(name, e.id);
-              limitqueue.setRow(name, e.at, { state: chat.DELIVERY.COULD_NOT, because: 'you sent it again, so Kosmos sends the newer copy instead of this one' }, chat);
-            } finally { limitqueue.release(e.id); }
+          /* #6774: the same words sent again by hand while a copy is kept for a stuck input box (or behind messages kept
+             for it): that copy stays where it is in the queue and goes once; this one is recorded as not sent, and why.
+             Nothing is taken out, so a re-send that then fails cannot lose the words, and the order is kept. */
+          const keptCopy = limitqueue.list(name).find((e) => e.kind === 'dm' && e.input === true && e.text === body.text);
+          if (keptCopy) {
+            const dupDelivery = { state: chat.DELIVERY.COULD_NOT, at: new Date().toISOString(), duplicateOf: keptCopy.at,
+              because: 'the same message is already kept above, and Kosmos sends that one once its input box is clear, so this copy was not sent' };
+            const dupRow = chat.appendMessage(chat.DIRECT, name, { ...attachments.rowFields(files.recs), text: body.text, wire: null, at: dupDelivery.at, delivery: dupDelivery,
+              ...(answered ? { replyTo: answered.at } : {}) });
+            sendJson(res, 200, { delivery: dupDelivery, recorded: dupRow.recorded === true, recordedBecause: dupRow.because || null });
+            return;
           }
           let hold = null;
           try { hold = chat.accountHeldVerdict(name, roster); } catch { hold = null; }   // #5948: or signed out
@@ -18486,7 +18495,9 @@ const server = http.createServer(async (req, res) => {
             const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // #5943 review 1: no question note in a held message: by the reset it may be untrue
             const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');   // two sends in one millisecond stay two
             const behindInput = behind && limitqueue.list(name).every((e) => e.input === true);   // #6774
-            if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at, signin: signin && !behind })) {
+            // #6774: kept behind messages kept for the box, it is released by the box rule too (and matched as a re-send).
+            const behindAnyInput = behind && limitqueue.list(name).some((e) => e.input === true);
+            if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at, signin: signin && !behind, input: behindAnyInput })) {
               const heldDelivery = {
                 state: 'held', held: true, heldBy: 'limit', heldUntil: until, at, ...(behind ? { behind: true } : {}), ...(signin ? { heldFor: 'signin' } : {}),
                 ...(behindInput ? { behindFor: 'input' } : {}),

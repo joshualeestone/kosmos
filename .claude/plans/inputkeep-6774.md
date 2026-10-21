@@ -15,8 +15,14 @@ agent is not held for a limit. They go through the automatic gate like any kept 
   sender gets a held receipt that says why. A re-send of the same text is answered as the kept copy (the existing
   send key, `keptByKey`), so it is not typed twice.
 - A person's own message (server.js, the direct-message route): refused with `inputHeld`, it is kept as `kind: 'dm'`
-  and its row reads held with the reason. Re-sent by hand with the same text while the first is kept, the earlier
-  copy is taken out of the queue and its row says it was not sent because it was sent again; only the new one goes.
+  and its row reads held with the reason. Re-sent by hand with the same text while a copy is kept (for the box, or
+  behind messages kept for it), the new copy is recorded as not sent, saying the kept one goes once the box is clear;
+  the kept copy stays in its place (review 1: taking it out first could lose the words if the re-send then failed,
+  and moved it to the back). Its words going back into the box is the page's rule for any copy not sent.
+- A message kept behind messages kept for the box carries the same flag, so it waits for the box too, is matched
+  as a re-send, and later messages are told the true reason.
+- Send now anyway is not offered on a row kept for the box (it would be refused by the same box); if pressed
+  anyway (an old page), a refusal for the box keeps the message and its row held.
 - Once anything is kept, later messages go behind it (the existing order rule), and the sentence for that names the
   real reason when the backlog was kept for the box.
 - Released only when the box is read empty: an unreadable box keeps them waiting, as #6256 does for room posts.

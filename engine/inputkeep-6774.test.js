@@ -150,3 +150,27 @@ test('#6774: a queue holding a message kept for the box waits while the box cann
     assert.equal(hooks.isReleased(card, board.agents, [{ id: 'x', envelope: 'y' }]), true);
   });
 });
+
+test('#6774: a kosmos msg kept behind the box backlog carries the flag, so a third is still told the box is the reason', async () => {
+  await withFleet(async (board) => {
+    await send(board, 'one');
+    await send(board, 'two');
+    assert.deepEqual(limitqueue.list('casey').map((e) => e.input === true), [true, true]);
+    const c = await send(board, 'three');
+    assert.equal(c.behindFor, 'input', JSON.stringify(c));
+  });
+});
+
+test('#6774: a mixed queue (one kept for a usage limit, one for the box) waits for both rules', async () => {
+  const hooks = limitqueue.sweepHooks({ chat, messages });
+  const real = { e: chat.inputBoxEmpty, r: chat.limitQueueReleased };
+  const live = [{ id: 'a', envelope: 'x' }, { id: 'b', envelope: 'y', input: true }];
+  const card = { sessionName: 'casey' };
+  try {
+    for (const [limitOk, boxEmpty, want] of [[true, true, true], [false, true, false], [true, false, false]]) {
+      chat.limitQueueReleased = () => limitOk;
+      chat.inputBoxEmpty = () => boxEmpty;
+      assert.equal(hooks.isReleased(card, [], live), want, `limit ${limitOk}, box empty ${boxEmpty}`);
+    }
+  } finally { chat.inputBoxEmpty = real.e; chat.limitQueueReleased = real.r; }
+});

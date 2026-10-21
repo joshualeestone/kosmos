@@ -1653,6 +1653,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
        otherwise drop the message at the next sweep). */
     const dropFrom = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : at;
     const why = limitqueue.addOrWhy(qName, { id, from, envelope, at, reset: dropFrom, key: msgKey, spill: spillFile, behind: limitHold.behind === true,
+      input: limitHold.behind === true && waiting.some((e) => e.input === true),   // #6774: behind messages kept for the box
       signin: limitHold.heldFor === 'signin' && limitHold.behind !== true });
     if (why) {
       unspill(spillFile);

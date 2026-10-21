@@ -95,16 +95,65 @@ test('#6774: a second message goes behind the first, without being tried, and sa
   assert.deepEqual(kept().map((k) => k[1]), ['first', 'second']);
 });
 
-test('#6774: the same words sent again by hand replace the kept copy, whose row says so; they go once', async () => {
+test('#6774: the same words sent again by hand are not sent twice: the kept copy stays, the new row says why', async () => {
   const one = await call({ text: 'the go-ahead' });
   const two = await call({ text: 'the go-ahead' });
-  assert.equal(two.out.delivery.state, 'held', JSON.stringify(two.out));
-  assert.notEqual(two.out.delivery.at, one.out.delivery.at);
+  assert.deepEqual(two.calls, [], 'the re-send was tried');
+  assert.equal(two.out.delivery.state, chat.DELIVERY.COULD_NOT, JSON.stringify(two.out));
+  assert.equal(two.out.delivery.duplicateOf, one.out.delivery.at);
+  assert.match(two.out.delivery.because, /already kept above, and Kosmos sends that one once its input box is clear/);
+  assert.equal(two.out.recorded, true);
   assert.deepEqual(kept(), [['dm', 'the go-ahead', true]], 'kept twice');
-  assert.equal(limitqueue.list(NAME)[0].at, two.out.delivery.at, 'the newer copy is the one kept');
-  const old = rowAt(one.out.delivery.at).delivery;
-  assert.equal(old.state, chat.DELIVERY.COULD_NOT);
-  assert.match(old.because, /you sent it again, so Kosmos sends the newer copy instead of this one/);
+  assert.equal(limitqueue.list(NAME)[0].at, one.out.delivery.at, 'the kept copy moved');
+  assert.equal(rowAt(one.out.delivery.at).delivery.state, 'held', 'the kept copy\'s row changed');
+});
+
+test('#6774: a message kept BEHIND the box backlog carries the flag, so its re-send is caught too and the wording holds', async () => {
+  await call({ text: 'A' });
+  const b = await call({ text: 'B' });
+  assert.equal(b.out.delivery.behindFor, 'input');
+  assert.deepEqual(kept(), [['dm', 'A', true], ['dm', 'B', true]]);
+  const again = await call({ text: 'B' });
+  assert.equal(again.out.delivery.duplicateOf, b.out.delivery.at, JSON.stringify(again.out));
+  assert.equal(kept().length, 2, 'B kept twice');
+  const c = await call({ text: 'C' });
+  assert.equal(c.out.delivery.behindFor, 'input', 'C behind A and B was told it waits on a usage limit');
+});
+
+test('#6774: Send now anyway while the box still holds text keeps the message and its row held', async () => {
+  const r = await call({ text: 'still kept' });
+  const real = chat.deliverAsync;
+  chat.deliverAsync = async () => BOX_REFUSED();
+  try {
+    const res = await fetch(`${base}/api/agent/${NAME}/thread/held`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at: r.out.delivery.at }) });
+    assert.equal(res.status, 409);
+  } finally { chat.deliverAsync = real; }
+  assert.deepEqual(kept(), [['dm', 'still kept', true]], 'the press lost the kept message');
+  assert.equal(rowAt(r.out.delivery.at).delivery.state, 'held');
+});
+
+test('#6774: route to sweep: two refused messages are typed in order, once each, only once the box reads empty', async () => {
+  const a = await call({ text: 'one' });
+  const b = await call({ text: 'two' });
+  const typed = [];
+  const real = { a: chat.deliverAutomaticAsync, e: chat.inputBoxEmpty, r: chat.limitQueueReleased };
+  const board = fleet.install([fleet.agent(NAME, { state: 'idle' })]);
+  let empty = false;
+  try {
+    chat.deliverAutomaticAsync = async (n, text) => { typed.push(text); return PLACED(); };
+    chat.inputBoxEmpty = () => empty;
+    chat.limitQueueReleased = () => true;
+    const hooks = limitqueue.sweepHooks({ chat, messages: require('./engine/messages') });
+    await limitqueue.flush(board.agents, hooks);
+    assert.deepEqual(typed, [], 'typed while the box still held text');
+    empty = true;
+    await limitqueue.flush(board.agents, hooks);
+    await limitqueue.flush(board.agents, hooks);
+    assert.deepEqual(typed, ['one', 'two']);
+  } finally { chat.deliverAutomaticAsync = real.a; chat.inputBoxEmpty = real.e; chat.limitQueueReleased = real.r; board.restore(); }
+  assert.deepEqual(kept(), []);
+  assert.equal(rowAt(a.out.delivery.at).delivery.state, chat.DELIVERY.PLACED);
+  assert.equal(rowAt(b.out.delivery.at).delivery.state, chat.DELIVERY.PLACED);
 });
 
 test('#6774 CONTROLS: a refusal for another reason is not kept; anyway is not kept; different words are not merged', async () => {

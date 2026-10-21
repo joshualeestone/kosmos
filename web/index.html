@@ -40519,7 +40519,7 @@ function dmRow(m, name, replyAdjacent) {
     + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
     + '<span class="msg-t">' + whenStr + wire
     + (v.said ? ' <span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span>' : '')
-    + (m.delivery && m.delivery.state === 'held' && typeof m.at === 'string'
+    + (m.delivery && m.delivery.state === 'held' && typeof m.at === 'string' && m.delivery.heldFor !== 'input' && m.delivery.behindFor !== 'input'   // #6774: the box must clear first
       ? '<button type="button" class="dm-held-send" data-held-at="' + esc(m.at) + '">Send now anyway</button>' : '')   // #5805
     + '</span></div></div></div>';
 }
@@ -42206,7 +42206,7 @@ async function sendTalk(text, attachment) {
     } else if (d.state === 'held' && inThread) {
       /* #5805 slice 2b: kept for after the agent's usage resets; the row above says so and offers Send now anyway. */
       clearSent();
-      line = dmHeldWords(name, d) + ' To send it now, use Send now anyway on the message.';
+      line = dmHeldWords(name, d) + (d.heldFor === 'input' || d.behindFor === 'input' ? '' : ' To send it now, use Send now anyway on the message.');   // #6774
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
       /* #4944: not kept, so the box is its only sure copy again: the words go back into it. */
@@ -62840,6 +62840,10 @@ function wakeHeldLine(manualText, delivery) {
   // #6249: held because its input box holds text not yet sent (a line typed there would be sent with it).
   if (delivery && delivery.heldBy === 'input') {
     return manualText + ' Its input box holds text that has not been sent, so Kosmos sent nothing; send or clear that in its window first.';
+  }
+  // #6774: kept because its input box holds text not yet sent (heldBy stays 'limit'; heldFor says why).
+  if (delivery && delivery.heldFor === 'input') {
+    return manualText + ' Its input box holds text that has not been sent, so Kosmos is keeping it to send once the box is clear.';
   }
   // #5948: held because its sign-in stopped working (heldBy stays 'limit'; heldFor says why). No reset to name.
   if (delivery && delivery.heldFor === 'signin') {
