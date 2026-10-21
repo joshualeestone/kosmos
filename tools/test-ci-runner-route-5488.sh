@@ -25,11 +25,16 @@ if ! ruby -ryaml -e '
   raise "the switch is read from vars" unless d["env"]["CI_RUNNER"] == "${{ vars.KOSMOS_CI_RUNNER }}"
   raise "head repo from the PR" unless d["env"]["HEAD_REPO"] == "${{ github.event.pull_request.head.repo.full_name }}"
   raise "this repo" unless d["env"]["THIS_REPO"] == "${{ github.repository }}"
-  raise "suite runs-on: node takes scope'"'"'s choice, a shell shard its own (#4601)" unless j["suite"]["runs-on"] == %q{${{ fromJSON(matrix.part == '"'"'node'"'"' && needs.scope.outputs.mac_runner || matrix.shard == '"'"'1/2'"'"' && needs.scope.outputs.shell1_runner || matrix.shard == '"'"'2/2'"'"' && needs.scope.outputs.shell2_runner || '"'"'"macos-latest"'"'"') }}}
+  raise "suite runs-on: node takes scope'"'"'s choice (else macos-latest), the macOS shell job macos-latest, a linux shard its own (else ubuntu-latest) (#4601, #6791)" unless j["suite"]["runs-on"] == %q{${{ fromJSON(matrix.part == '"'"'node'"'"' && needs.scope.outputs.mac_runner || matrix.part == '"'"'node'"'"' && '"'"'"macos-latest"'"'"' || matrix.platform == '"'"'mac'"'"' && '"'"'"macos-latest"'"'"' || matrix.shard == '"'"'1/2'"'"' && needs.scope.outputs.shell1_runner || matrix.shard == '"'"'2/2'"'"' && needs.scope.outputs.shell2_runner || '"'"'"ubuntu-latest"'"'"') }}}
   raise "the shard list is read from vars" unless d["env"]["CI_SHELL_SHARDS"] == "${{ vars.KOSMOS_CI_SHELL_SHARDS }}"
   raise "scope outputs a runner for each shard" unless j["scope"]["outputs"]["shell1_runner"] == "${{ steps.decide.outputs.shell1_runner }}" && j["scope"]["outputs"]["shell2_runner"] == "${{ steps.decide.outputs.shell2_runner }}"
-  shards = j["suite"]["strategy"]["matrix"]["include"].map { |x| x["shard"] }.reject { |x| x.to_s.empty? }.sort
-  raise "the routing names exactly the matrix shards (1/2, 2/2): got #{shards}" unless shards == ["1/2", "2/2"]
+  inc = j["suite"]["strategy"]["matrix"]["include"]
+  shards = inc.select { |x| x["platform"] == "linux" }.map { |x| x["shard"] }.sort
+  raise "the routing names exactly the linux matrix shards (1/2, 2/2): got #{shards}" unless shards == ["1/2", "2/2"]
+  macs = inc.select { |x| x["platform"] == "mac" }.map { |x| x["shard"] }
+  raise "one macOS shell job, whole (#6791): got #{macs}" unless macs == ["1/1"]
+  linux = j["suite"]["steps"].find { |x| x["name"].to_s.include?("Linux tools") }
+  raise "the Linux tools step runs only on Linux, before the tmux step (#6791)" unless linux && linux["if"] == "runner.os == '"'"'Linux'"'"'" && j["suite"]["steps"].index(linux) < j["suite"]["steps"].index { |x| x["name"].to_s.include?("install tmux") }
   raise "test stays on ubuntu" unless j["test"]["runs-on"] == "ubuntu-latest" && j["scope"]["runs-on"] == "ubuntu-latest"
   tmux = j["suite"]["steps"].find { |x| x["name"].to_s.include?("tmux") }
   raise "tmux installed only when missing, and never by brew on the self-hosted runner" unless tmux && tmux["run"].strip == %q{command -v tmux || { [ "$RUNNER_ENVIRONMENT" != self-hosted ] || { echo "::error::tmux is missing on the self-hosted runner (or not on its PATH); not installing into the machine owner'"'"'s Homebrew, card 5488"; exit 1; }; brew install tmux; }}
@@ -43,6 +48,7 @@ fi
 
 SELF='["self-hosted","macOS","arm64","kosmos-ci"]'
 HOSTED='"macos-latest"'
+LINUX='"ubuntu-latest"'   # #6791: where a shell shard runs when not routed to the self-hosted Mac
 route() { # <CI_RUNNER> <EVENT_NAME> <HEAD_REPO> [<CI_SHELL_SHARDS>] [<output name>] -> that output, as the REAL body wrote it
   : > "$T/out"; mkdir -p "$T/cwd" "$T/runner-temp"
   # RUNNER_TEMP is its own directory: the body writes its own decide.sh there, which must not be this copy.
@@ -69,25 +75,25 @@ shard() { # <label> <want> <CI_RUNNER> <EVENT_NAME> <HEAD_REPO> <CI_SHELL_SHARDS
   local got; got="$(route "$3" "$4" "$5" "$6" "$7")"
   [ "$got" = "$2" ] && pass "$1" || fail "$1: want $2, got '$got'"
 }
-shard "shards unset: shell 1/2 on macos-latest" "$HOSTED" on push "" "" shell1_runner
-shard "shards unset: shell 2/2 on macos-latest" "$HOSTED" on push "" "" shell2_runner
+shard "shards unset: shell 1/2 on ubuntu-latest" "$LINUX" on push "" "" shell1_runner
+shard "shards unset: shell 2/2 on ubuntu-latest" "$LINUX" on push "" "" shell2_runner
 shard "shards 1/2: shell 1/2 on the self-hosted Mac" "$SELF" on push "" "1/2" shell1_runner
-shard "shards 1/2: shell 2/2 stays on macos-latest" "$HOSTED" on push "" "1/2" shell2_runner
+shard "shards 1/2: shell 2/2 stays on ubuntu-latest" "$LINUX" on push "" "1/2" shell2_runner
 shard "shards 1/2,2/2: shell 2/2 on the self-hosted Mac" "$SELF" on pull_request owner/kosmos "1/2,2/2" shell2_runner
-shard "shards 1/2,2/2 but a FORK PR: macos-latest (follows the node rule)" "$HOSTED" on pull_request someone/kosmos "1/2,2/2" shell1_runner
-shard "shards 1/2,2/2 but the switch off: macos-latest" "$HOSTED" off push "" "1/2,2/2" shell1_runner
-shard "shards 1/2,2/2 but a FORK PR: shell 2/2 on macos-latest too" "$HOSTED" on pull_request someone/kosmos "1/2,2/2" shell2_runner
-shard "shards 1/2,2/2 but the switch off: shell 2/2 on macos-latest too" "$HOSTED" off push "" "1/2,2/2" shell2_runner
+shard "shards 1/2,2/2 but a FORK PR: ubuntu-latest (follows the node rule)" "$LINUX" on pull_request someone/kosmos "1/2,2/2" shell1_runner
+shard "shards 1/2,2/2 but the switch off: ubuntu-latest" "$LINUX" off push "" "1/2,2/2" shell1_runner
+shard "shards 1/2,2/2 but a FORK PR: shell 2/2 on ubuntu-latest too" "$LINUX" on pull_request someone/kosmos "1/2,2/2" shell2_runner
+shard "shards 1/2,2/2 but the switch off: shell 2/2 on ubuntu-latest too" "$LINUX" off push "" "1/2,2/2" shell2_runner
 shard "shards '1/2 2/2' (a space only): shell 2/2 on the self-hosted Mac" "$SELF" on push "" "1/2 2/2" shell2_runner
-shard "shards '1/2x' (not a whole shard name): macos-latest" "$HOSTED" on push "" "1/2x" shell1_runner
-shard "shards 'v1/2,2/2.' (not whole names): macos-latest" "$HOSTED" on push "" "v1/2,2/2." shell2_runner
-shard "shards '1/22' (not a listed shard): macos-latest" "$HOSTED" on push "" "1/22" shell1_runner
-shard "shards 2/2 alone: shell 1/2 stays on macos-latest (the two case lines not swapped)" "$HOSTED" on push "" "2/2" shell1_runner
+shard "shards '1/2x' (not a whole shard name): ubuntu-latest" "$LINUX" on push "" "1/2x" shell1_runner
+shard "shards 'v1/2,2/2.' (not whole names): ubuntu-latest" "$LINUX" on push "" "v1/2,2/2." shell2_runner
+shard "shards '1/22' (not a listed shard): ubuntu-latest" "$LINUX" on push "" "1/22" shell1_runner
+shard "shards 2/2 alone: shell 1/2 stays on ubuntu-latest (the two case lines not swapped)" "$LINUX" on push "" "2/2" shell1_runner
 shard "shards '1/2, 2/2' (a space): shell 2/2 on the self-hosted Mac" "$SELF" on push "" "1/2, 2/2" shell2_runner
-shard "shards 'all' (not a shard name): macos-latest" "$HOSTED" on push "" "all" shell1_runner
-shard "shards '1/2;2/2' (a wrong separator): macos-latest" "$HOSTED" on push "" "1/2;2/2" shell2_runner
+shard "shards 'all' (not a shard name): ubuntu-latest" "$LINUX" on push "" "all" shell1_runner
+shard "shards '1/2;2/2' (a wrong separator): ubuntu-latest" "$LINUX" on push "" "1/2;2/2" shell2_runner
 mkdir -p "$T/cwd/1" && : > "$T/cwd/1/2"   # a file a glob "?/?" would expand to, in the body's working directory
-shard "shards '?/?' (a glob, not a name, even where it would match a file 1/2): macos-latest" "$HOSTED" on push "" "?/?" shell1_runner
+shard "shards '?/?' (a glob, not a name, even where it would match a file 1/2): ubuntu-latest" "$LINUX" on push "" "?/?" shell1_runner
 shard "shards with a tab and a newline: still read" "$SELF" on push "" "$(printf '1/2,\t\n2/2')" shell2_runner
 
 # A value that names no shard says so in the log (the value itself is never echoed).
@@ -119,21 +125,23 @@ if ! ruby -ryaml -e '
   none = { "mac_runner" => "", "shell1_runner" => "", "shell2_runner" => "" }
   cases = [
     [{ "part" => "node", "shard" => "" }.merge(out), "M"],
-    [{ "part" => "shell", "shard" => "1/2" }.merge(out), "S1"],
-    [{ "part" => "shell", "shard" => "2/2" }.merge(out), "S2"],
+    [{ "part" => "shell", "shard" => "1/2", "platform" => "linux" }.merge(out), "S1"],
+    [{ "part" => "shell", "shard" => "2/2", "platform" => "linux" }.merge(out), "S2"],
     [{ "part" => "node", "shard" => "" }.merge(none), "\"macos-latest\""],
-    [{ "part" => "shell", "shard" => "1/2" }.merge(none), "\"macos-latest\""],
-    [{ "part" => "shell", "shard" => "2/2" }.merge(none), "\"macos-latest\""],
+    [{ "part" => "shell", "shard" => "1/2", "platform" => "linux" }.merge(none), "\"ubuntu-latest\""],
+    [{ "part" => "shell", "shard" => "2/2", "platform" => "linux" }.merge(none), "\"ubuntu-latest\""],
+    [{ "part" => "shell", "shard" => "1/1", "platform" => "mac" }.merge(out), "\"macos-latest\""],
+    [{ "part" => "shell", "shard" => "1/1", "platform" => "mac" }.merge(none), "\"macos-latest\""],
   ]
   cases.each { |ctx, want| got = ev.call(ctx); raise "#{ctx["part"]} #{ctx["shard"]}: want #{want}, got #{got}" unless got == want }
 ' "$WF" 2>"$T/ev.err"; then
   fail "suite runs-on, evaluated: $(head -2 "$T/ev.err")"
 else
-  pass "suite runs-on, evaluated: node takes mac_runner, 1/2 shell1_runner, 2/2 shell2_runner; each falls back to macos-latest when scope wrote nothing"
+  pass "suite runs-on, evaluated: node takes mac_runner (else macos-latest), 1/2 shell1_runner and 2/2 shell2_runner (else ubuntu-latest), the macOS shell job always macos-latest (never the self-hosted Mac)"
 fi
 
 # Both outputs must be JSON, or fromJSON fails the suite job before it starts.
-for v in "$SELF" "$HOSTED"; do
+for v in "$SELF" "$HOSTED" "$LINUX"; do
   if printf '%s' "$v" | ruby -rjson -e 'JSON.parse(STDIN.read, quirks_mode: true)' >/dev/null 2>&1; then pass "valid JSON for fromJSON: $v"
   else fail "not valid JSON for fromJSON: $v"; fi
 done
