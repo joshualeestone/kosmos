@@ -6,7 +6,8 @@
 # skipping their macOS work (a whole file, or the arms that need macOS), so on Linux they would test nothing they test
 # on macOS. They are listed too, at the end. #6799 then fixed a BSD-first `stat -f || stat -c` fallback, which moved
 # three of the 26 to Linux (measured there, probe run 39551438303), and a BSD-only `sed -i ''` one more (probe run
-# 39553501883). That is 30 here, and 234 commands on Linux.
+# 39553501883), and a core count and load read only from macOS sysctl (`hw.ncpu`, `vm.loadavg`) two more (probe run
+# PROBE_RUN_ID). That is 28 here, and 236 commands on Linux.
 # tools/shell-shard.js reads this file: `linux` shards run everything NOT listed here, the `mac` shard runs these, plus
 # every syntax-only check (`sh -n` / `bash -n`), which runs on both: macOS /bin/sh is bash 3.2, Linux sh is dash.
 # Each line is a test:shell command exactly as package.json writes it; a line naming no such command fails every shard,
@@ -24,10 +25,6 @@ bash tools/test-board-watchdog-2955.sh
 bash tools/test-ci-runner-setup-4601.sh
 # pgrep -fl prints the full command line on macOS, only the name on Linux (tools/lib/cut-guard.sh).
 bash tools/test-cut-guard.sh
-# sysctl hw.ncpu (tools/lib/cut-load-guard.sh).
-bash tools/test-cut-load-guard.sh
-# sysctl hw.ncpu.
-bash tools/test-cut-parallel-region.sh
 # A status above 128 decodes as a signal on Linux (which has more signals), so its non-signal arm differs.
 bash tools/test-cut-step-record.sh
 # BSD stat -f in install/setup.sh, and a real /Library path.
