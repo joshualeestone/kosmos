@@ -14,7 +14,8 @@
 #   kosmos_finished                         # directly before every success `exit 0`, and as the last line
 #
 # A non-zero exit keeps its own status. Source this BEFORE the guard is set: a failed `.` before any EXIT trap keeps
-# its status anyway.
+# its status anyway. Under `set -e` a cleanup function that returns non-zero ends the trap there, with that status
+# and no line of its own (as the old `trap '...' EXIT` did): keep cleanups to commands that cannot fail.
 
 kosmos_exit_guard() {   # <cleanup function> <name for the message>
   _KX_FINISHED=0
