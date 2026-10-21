@@ -55,8 +55,9 @@ pointer_freeze_fetch() {
 # freezes, because the commit is what a deploy publishes), or on origin/main as last fetched (a freeze pushed from
 # another machine reaches a checkout that has not pulled).
 pointer_freeze_on() {
-  [ -e "$1/$POINTER_FREEZE_FILE" ] || git -C "$1" cat-file -e "HEAD:$POINTER_FREEZE_FILE" 2>/dev/null \
-    || git -C "$1" cat-file -e "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null
+  # Silent probes (>/dev/null too): they answer by exit status alone, and print nothing into a caller's output.
+  [ -e "$1/$POINTER_FREEZE_FILE" ] || git -C "$1" cat-file -e "HEAD:$POINTER_FREEZE_FILE" >/dev/null 2>&1 \
+    || git -C "$1" cat-file -e "origin/main:$POINTER_FREEZE_FILE" >/dev/null 2>&1
 }
 
 pointer_freeze_refuse() {
