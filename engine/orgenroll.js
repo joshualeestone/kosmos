@@ -536,27 +536,28 @@ function pendingKind(opts) {
    'company', or null when it is enrolled to none or its record names no kind (both read as a company's). */
 function kindHere(opts) { return recKind(opts) || null; }
 /* kosmos#6859: the kind for a rule that must not fail open, from the files themselves (not through readers that
-   answer null on a fault). The enrollment record's kind first, then a pending leave's or join's (a family's if either is); a file
-   that parses but names no kind (one from before kinds, or one whose identity is not valid) is a company's. A file
-   that is there but cannot be read or parsed throws. null only when none of the three is there. */
+   answer null on a fault): the enrollment record, a pending leave and a pending join, all three read, and a family's
+   if any of them says so (a move into a family keeps the old record until the join settles). A file that parses but
+   names no kind (from before kinds, or with an identity readEnrollment rejects) is a company's; a file that is there
+   but cannot be read, or is not a JSON object, throws. null only when none of the three is there. */
 function kindStrict(opts) {
   const root = storeRoot(opts);
   const from = (name, pick) => {
-    let text;
-    try { text = fs.readFileSync(path.join(root, name), 'utf8'); } catch (e) {
+    let j;
+    try { j = JSON.parse(fs.readFileSync(path.join(root, name), 'utf8')); } catch (e) {
       if (e && e.code === 'ENOENT') return undefined;
       throw new Error('this Kosmos holds an enrollment file that cannot be read');
     }
-    let j;
-    try { j = JSON.parse(text); } catch { throw new Error('this Kosmos holds an enrollment file that cannot be read'); }
-    return (j && typeof j === 'object' && pick(j)) || null;
+    if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('this Kosmos holds an enrollment file that cannot be read');
+    return pick(j) || null;
   };
-  const rec = from(ENROLLMENT_FILE, (j) => j.org && j.org.kind);
-  if (rec !== undefined) return kindOf(rec);
-  const leave = from(LEAVE_PENDING_FILE, (j) => (j.rec && j.rec.org && j.rec.org.kind) || j.orgKind);
-  const join = from(JOIN_UNKNOWN_FILE, (j) => j.orgKind);
-  if (leave === undefined && join === undefined) return null;
-  return leave === 'family' || join === 'family' ? 'family' : 'company';   // a move between two orgs: either one a family's
+  const kinds = [
+    from(ENROLLMENT_FILE, (j) => j.org && j.org.kind),
+    from(LEAVE_PENDING_FILE, (j) => (j.rec && j.rec.org && j.rec.org.kind) || j.orgKind),
+    from(JOIN_UNKNOWN_FILE, (j) => j.orgKind),
+  ];
+  if (kinds.every((k) => k === undefined)) return null;
+  return kinds.includes('family') ? 'family' : 'company';
 }
 /* The same, as the two words a reader or a key wants: 'family', else 'company' (one copy of that mapping). */
 function kindNow(opts) { return kindOf(kindHere(opts)); }

@@ -158,5 +158,16 @@ test('#6859: the kind comes from the files themselves: a torn marker throws, a r
     fs.writeFileSync(path.join(store.ROOT, orgenroll.LEAVE_PENDING_FILE), JSON.stringify({ rec: { org: { id: 'org-2', kind: 'company' } } }) + '\n');
     fs.writeFileSync(path.join(store.ROOT, JOIN_UNKNOWN), JSON.stringify({ orgKind: 'family' }) + '\n');
     assert.equal(orgenroll.kindStrict(), 'family', 'a move into a family read as a company');
+    // The same move with the old company record still there, as it is until the join settles.
+    fs.writeFileSync(rec, JSON.stringify({ org: { id: 'org-2', kind: 'company' }, world: 'a'.repeat(32) }) + '\n');
+    fs.rmSync(path.join(store.ROOT, orgenroll.LEAVE_PENDING_FILE), { force: true });
+    assert.equal(orgenroll.kindStrict(), 'family', 'a company record hid a family join not yet settled');
+    assert.deepEqual(readers(), OUT);
+    // A record that is JSON but not an object is unreadable, not a company's.
+    joined(null);
+    for (const body of ['null', '"x"', '[]']) {
+      fs.writeFileSync(rec, body + '\n');
+      assert.throws(() => orgpolicy.contactAllows(), /enrollment file that cannot be read/, 'a record of ' + body + ' read as a company');
+    }
   } finally { communitysend.setSwitch(null); joined(null); }
 });

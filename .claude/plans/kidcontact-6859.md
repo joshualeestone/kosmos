@@ -14,10 +14,11 @@ all keep agents out. A company, or a computer joined to nobody, is unchanged (on
 Every reader goes through this one function (community send, community switch, the agent's community block, shared
 rooms), so all of them follow.
 
-`kindStrict` (review 4 design): reads the three enrollment files itself, once each, rather than through readers
-that answer null on a fault. The record's kind first; else a pending leave's or join's (a family's if either is, as
-in a move); a file that parses but names no kind (from before kinds, or with an identity readEnrollment rejects) is
-a company's; a file that is there but cannot be read or parsed throws; null only when none of the three is there.
+`kindStrict` (reviews 4 and 5): reads the three enrollment files itself, once each, rather than through readers
+that answer null on a fault: the record, a pending leave and a pending join, all three, and a family's if any says
+so (a move into a family keeps the old company record until the join settles). A file that parses to an object but
+names no kind (from before kinds, or with an identity readEnrollment rejects) is a company's; a file that is there
+but cannot be read, or is not a JSON object, throws; null only when none of the three is there.
 
 ## Decided, not missed
 - Board side, not coordinator: it needs no coordinator deploy and covers a family that already exists with no
@@ -69,6 +70,9 @@ a company's; a file that is there but cannot be read or parsed throws; null only
   no outside contact among them).
 - Review 4, noted: the guarantee ends when the child's computer leaves the family (a confirmed leave removes the
   record and its marker). That is the same for every policy, and #6862 records it beside the explicit-on caveat.
+- Review 5: all three files are read, not the record first: a move from a company into a family keeps the company
+  record until the join settles, and the record used to win. JSON that is not an object (null, a string, an array)
+  now throws instead of reading as a company's.
 - Review 1, deferred: one more small file read per contactAllows call (currentStrict already reads one per call);
   the require is lazy, so there is no load-order cycle.
 
@@ -88,3 +92,6 @@ a company's; a file that is there but cannot be read or parsed throws; null only
 - Review 4: a torn leave or join marker throws; a record with a bad identity keeps its kind (a company's stays open,
   a family's stays closed); a move into a family reads as a family's. Mutations: a torn file read as missing
   (2 red); a move taking the first marker (1 red).
+- Review 5: a company record beside a family join not yet settled reads as a family's; a record of null, a string
+  or an array throws. Mutations: the record winning (1 red); a non-object read as a company's (1 red); a torn file
+  read as missing (2 red).
