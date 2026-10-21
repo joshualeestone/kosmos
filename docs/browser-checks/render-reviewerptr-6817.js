@@ -5,10 +5,11 @@
  * real page, file://, fetch stubbed, on chromium and webkit:
  *   - a grant newer than the last one seen shows ONE notice in the floating stack, in the company's words, with See who
  *     and a close; two new grants still make one notice;
- *   - its x closes it and a repaint keeps it closed; a newer grant later shows it again (CONTROL: the x is not a
+ *   - its x (from the keyboard) closes it, focus stays on the board, and a repaint keeps it closed; a newer grant later shows it again (CONTROL: the x is not a
  *     permanent mute);
  *   - See who opens Settings at Kosmos+, the reviewers list is on screen, and the notice is gone;
- *   - a family's notice says "your family"; a computer in no company gets none; a failed read keeps the notice;
+ *   - a grant undone a minute later raises nothing; a family's notice says "your family"; a computer in no company gets
+ *     none; a failed read keeps the notice;
  *   - at 375 x 667 (both themes) the notice is on screen with See who and its x at least 44 px tall.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-reviewerptr-6817.js [shots-dir]
@@ -92,9 +93,11 @@ async function read(page, answer, status) {
       `${t} two new grants show one notice in the floating stack, with See who and a close, in the company's words`, JSON.stringify(first));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `reviewerptr-${eng}-light.png`) });
 
-    await page.click('#reviewer-slot button.ux');
+    await page.focus('#reviewer-slot button.ux');
+    await page.keyboard.press('Enter');
+    const focusAfter = await page.evaluate(() => document.activeElement && document.activeElement !== document.body);
     const closed = await read(page, company([g(3 * DAY), g(DAY)]));
-    chk(closed.count === 0, `${t} its x closes it, and the next read keeps it closed`, JSON.stringify(closed));
+    chk(closed.count === 0 && focusAfter, `${t} its x (from the keyboard) closes it, focus stays on the board, and the next read keeps it closed`, JSON.stringify({ ...closed, focusAfter }));
     const again = await read(page, company([g(3 * DAY), g(DAY), g(60)]));
     chk(again.count === 1, `${t} a newer grant shows it again (CONTROL: the x is not a permanent mute)`, JSON.stringify(again));
 
@@ -111,6 +114,8 @@ async function read(page, answer, status) {
       `${t} See who opens Settings at Kosmos+ with the reviewers list on screen, and the notice is gone`, JSON.stringify(went));
 
     await page.evaluate(() => { showTab('agents'); localStorage.removeItem('kosmos.reviewerGrantSeen'); });
+    const removed = await read(page, company([{ ...g(DAY / 2), removedAt: now - DAY / 2 + 60 }]));
+    chk(removed.count === 0, `${t} a grant undone a minute later raises nothing`, JSON.stringify(removed));
     const fam = await read(page, { enrolled: true, kind: 'family', reviewerGrants: [g(DAY)] });
     chk(fam.count === 1 && fam.words === 'Someone was made a reviewer for your family.', `${t} a family's notice says "your family"`, JSON.stringify(fam));
     const failed = await read(page, null, 500);
@@ -138,7 +143,7 @@ async function read(page, answer, status) {
     await browser.close();
   }
   if (engines.length === 0) chk(false, 'ENGINES named no engine, so nothing ran');
-  const EXPECTED_PER_ENGINE = 12;
+  const EXPECTED_PER_ENGINE = 13;
   if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
   console.log(`render-reviewerptr-6817: ${RAN - fail.length} PASS, ${fail.length} FAIL`);
   process.exit(fail.length ? 1 : 0);

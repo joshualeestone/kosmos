@@ -129,3 +129,22 @@ test('#6817: the notice has its own slot in the floating stack, a neutral tone, 
   assert.match(PAGE, /\n\.utoast\.reviewer-note \{ --utone: var\(--label-2\); \}/);
   assert.match(PAGE, /\.utoast\.reviewer-note \.uacts button, \.utoast\.reviewer-note \.ux \{ min-height: 44px; \}/);
 });
+
+test('#6817: a removed grant is not news, whenever it was removed (CONTROL: the same grant not removed is)', () => {
+  const { api } = board();
+  assert.equal(api.reviewerNoteNewest([{ ...grant(DAY), removedAt: NOW - DAY + 60 }], NOW), 0, 'a grant undone a minute later raised the notice');
+  assert.equal(api.reviewerNoteNewest([{ ...grant(5 * DAY), removedAt: NOW - DAY }], NOW), 0, 'a grant since removed raised the notice');
+  assert.equal(api.reviewerNoteNewest([grant(DAY)], NOW), NOW - DAY);
+});
+
+test('#6817: See who takes the person to a freshly read list and leaves seen to the list; the x hands focus on, never to the page', () => {
+  const at = PAGE.indexOf("document.addEventListener('click', (e) => {\n  const see = e.target.closest && e.target.closest('[data-reviewer-see]')");
+  assert.ok(at > 0, 'the notice\'s click handler moved; re-anchor this test');
+  const h = PAGE.slice(at, PAGE.indexOf('\n});\n', at));
+  const seeArm = h.slice(h.indexOf('if (!see) return;'));
+  assert.doesNotMatch(seeArm, /reviewerNoteSeen\(/, 'See who marks the notice seen before the list has shown the grant');
+  assert.match(seeArm, /PLUS_ORG\.at = 0;[\s\S]*settingsGo\('plus'\)/, 'See who does not force a fresh read before Settings paints');
+  assert.match(seeArm, /if \(!plusOnScreen\(\)\) return;/, 'the scroll keeps trying after the person moved on');
+  const hideArm = h.slice(h.indexOf('if (hide) {'), h.indexOf('if (!see) return;'));
+  assert.match(hideArm, /\.focus\(\)[\s\S]*focusBoardHome\(\)/, 'the x drops focus on the page');
+});

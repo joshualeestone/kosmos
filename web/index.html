@@ -52489,14 +52489,15 @@ function plusOrgReviewers(st) {
 }
 /* kosmos#6817 item 1: a member who never opens Settings is told on the board that someone in their company (or family)
    was made a reviewer. One notice in the floating stack while any grant from the last 30 days is newer than the newest
-   this computer has seen; its x, See who, and the Settings list on screen all count as seen. Seen is kept per computer
-   (the design call on the card). Read from /api/org/grants, which spends none of the one-time notes /api/org does. */
+   this browser has seen; its x and the Settings list on screen count as seen (See who only takes the person there).
+   Seen is kept per browser on this computer (the design call on the card). A removed grant is not news: it raises
+   nothing. Read from /api/org/grants, which spends none of the one-time notes /api/org does. */
 const REVIEWER_NOTE_KEY = 'kosmos.reviewerGrantSeen';
 const REVIEWER_NOTE = { at: 0, grants: null, kind: null };
 function reviewerNoteNewest(grants, now) {
   let n = 0;
   for (const g of Array.isArray(grants) ? grants : []) {
-    if (g && typeof g.grantedAt === 'number' && g.grantedAt >= now - PLUS_ORG_REVIEWER_DAYS * 86400 && g.grantedAt > n) n = g.grantedAt;
+    if (g && !g.removedAt && typeof g.grantedAt === 'number' && g.grantedAt >= now - PLUS_ORG_REVIEWER_DAYS * 86400 && g.grantedAt > n) n = g.grantedAt;
   }
   return n;
 }
@@ -52541,13 +52542,21 @@ function reviewerNoteMaybe() {
 document.addEventListener('click', (e) => {
   const see = e.target.closest && e.target.closest('[data-reviewer-see]');
   const hide = e.target.closest && e.target.closest('[data-reviewer-hide]');
-  if (hide) { reviewerNoteSeen(Number(hide.getAttribute('data-reviewer-hide'))); return; }
+  if (hide) {
+    reviewerNoteSeen(Number(hide.getAttribute('data-reviewer-hide')));
+    // The x went with its notice: focus to the next notice that takes it, else the board, never the page (as survival's).
+    const next = document.querySelector('#topnotes .utoast .utxt[tabindex="-1"]');
+    if (next) next.focus(); else if (typeof focusBoardHome === 'function') focusBoardHome();
+    return;
+  }
   if (!see) return;
-  reviewerNoteSeen(Number(see.getAttribute('data-reviewer-see')));
+  /* Not marked seen here: the list on screen does that (reviewerNoteSeenList), so a list that has not caught up yet
+     leaves the notice for next time. A fresh read, not the once-a-minute one, so the list has the new grant. */
+  PLUS_ORG.at = 0;
   showTab('settings'); settingsGo('plus');
-  // The list paints once Settings has read /api/org; bring it into view when it is there.
   let tries = 0;
   (function land() {
+    if (!plusOnScreen()) return;   // the person moved on: do not pull the page around
     const box = document.getElementById('plus-org-reviewers');
     if (box && !box.hidden) { box.scrollIntoView({ block: 'center' }); return; }
     if ((tries += 1) < 40) setTimeout(land, 100);

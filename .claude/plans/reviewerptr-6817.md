@@ -16,15 +16,21 @@ chromium and webkit, phone fit) pass, each able to fail.
   Rejected: a new banner (a new surface on the main board for one sentence).
 - **Words:** "Someone was made a reviewer for your company." (plusOrgIn gives the family's words.) Action "See who",
   not "See Settings": the action names what the person gets.
-- **Seen is per computer**, as the newest grantedAt seen, in localStorage. Rejected for now: per person (needs the relay
+- **Seen is per browser on this computer** (localStorage is per browser and per board address), as the newest grantedAt
+  seen. So the Mac app and a browser tab each show it once. A fresh browser, or the first board after joining, shows
+  the notice for any grant in the list's 30 days, as the list itself does: that is the same news, decided, not missed. Rejected for now: per person (needs the relay
   to store it). If storage is refused, the notice clears for this visit and may show again next visit.
 - **A new route, GET /api/org/grants.** The board must not read /api/org: a GET there spends the one-time notes
   (stoppedFor, leaveRefused) that the Settings block exists to show, so a board poll would eat them unseen. The new
   route spends nothing and gives grants and the org's kind to the screen only, as /api/org does.
 - **Read at most once a minute, only on the agents tab**, from the status poll beside the restart notices. A failed read
   keeps what is on screen; a read that says not enrolled clears it.
-- **What counts as new:** a grant's grantedAt inside the 30 days the Settings list shows. A removal, or a pending grant
-  taking effect, is not new.
+- **What counts as new:** a grant's grantedAt inside the 30 days the Settings list shows, and not removed. A removed
+  grant raises nothing (an admin's mistake undone a minute later must not tell every member someone was made a
+  reviewer); a pending grant taking effect is not new.
+- **See who does not mark seen.** The Settings list on screen does (reviewerNoteSeenList), so a list that has not caught
+  up leaves the notice for next time. See who resets the once-a-minute read so Settings reads /api/org fresh.
+- **The x hands focus on**, to the next notice that takes focus, else the board (as the restart notices do).
 
 ## Weakest premise
 
