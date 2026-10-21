@@ -172,7 +172,9 @@ phone yet: the remaining manual step covers it.
 
 24. **Review 13:** `read()` finds a file under the name an older build stored it with (" .env" was kept as ".env";
    the new safeName gives "env"), when that name is one plain segment and none of this module's own names, so the
-   name fix in 23 does not make anyone's existing attachments unreachable (test writes an old-style record; controls: a
+   name fix in 23 does not make existing attachments unreachable, except one stored under a name that is one of this
+   module's own as macOS and Windows compare names (" .upload.part", "record.json.", "preview.png."): those stay
+   unreachable on purpose, since following them is the collision the fix closes (review 15) (test writes an old-style record; controls: a
    record naming the part file, and one naming a path, are not followed; red with the fallback removed, and with the
    part file allowed). The reserved-name check ignores trailing dots and spaces, which Windows drops ("record.json."
    would otherwise be the record). The reply-file path maps a system error to "that file could not be kept", as the
@@ -184,6 +186,14 @@ phone yet: the remaining manual step covers it.
 25. **Review 14:** the stored-name fallback compares the part file's name as macOS and Windows do (case and trailing
    dots and spaces ignored), so ".UPLOAD.PART" or ".upload.part." is never followed (test arms; red with the old
    case-sensitive compare). Attachment folders are made 0700 (test; red without the mode).
+
+26. **Review 15:** the module's own names are compared as macOS and Windows compare them: trailing dots and spaces
+   dropped, NFKC, then lower case, so "record.jſon" (a long s) is renamed rather than stored where the record then
+   overwrites it (the reviewer saw the overwrite on this Mac). An upload's own file is checked to be 0600.
+
+### Considered and not changed (review 15)
+- **The orphan sweep checks every attachment folder's record on each run** (synchronously, at start and hourly); the
+  store only grows. Fine at today's sizes; would change it: a measured stall on a large store.
 
 ### Considered and not changed (review 14)
 - **No total or per-owner quota on person uploads.** The count was already unbounded; each file can now be 4x larger.
@@ -281,13 +291,6 @@ Updated pins: engine/attachments.test.js (/larger than 100 MB/), server.reply-fi
 M11 and M12 are each green because the other catches a cut-off upload alone (M13 proves the pair is needed). Both are
 kept as two independent guards; whether every kind of cut emits both was not measured (only the one in the test, on
 Node 26.8.1), so neither is relied on alone.
-
-## Regression sweep
-
-Every test file that names the touched code (`attachments`, `MAX_BYTES`, `reply-file`/`replyfile`/`reply --file`,
-`api/attachment`, `dmfiles`, `attachUpload`, `ATTACH_MAX`, `install/kosmos`, `previewFile`/`saveStream`/
-`saveFilled`), plus every repo-scanning test (`readdirSync(__dirname...)`, `ls-files`) and every fixed-window source
-pin, built at run time with the new test file tracked: see the result recorded below.
 
 ## Remaining manual check (needs a person and a phone; not faked)
 

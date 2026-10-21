@@ -316,6 +316,11 @@ test('#6734: an upload cut off part way leaves nothing behind, and the board kee
   const ok = await put({ 'content-type': 'text/plain', 'content-length': '5', 'x-attachment-name': 'after.txt' }, (req) => req.end('hello'));
   assert.equal(ok.status, 200, JSON.stringify(ok));
   assert.equal(JSON.parse(ok.body).attachment.preview, 'hello');
+  // Review 15: an upload (saveStream) stores its file 0600 too, not only the reply copy.
+  if (process.platform !== 'win32') {
+    const rec = attachments.read(JSON.parse(ok.body).attachment.id);
+    assert.equal(fs.statSync(rec.file).mode & 0o777, 0o600, 'an uploaded file');
+  }
 });
 
 test('#6734: a text file\'s snippet is read from its first bytes, not the whole file', () => {
@@ -623,4 +628,7 @@ test('#6734: a name Windows would read as record.json or preview.png ("record.js
   assert.equal(attachments.safeName('record.json.'), 'file-record.json.');
   assert.equal(attachments.safeName('Preview.PNG . '), 'file-Preview.PNG .');
   assert.equal(attachments.safeName('record.json.txt'), 'record.json.txt', 'CONTROL: a longer name is its own');
+  // Review 15: a long s (U+017F) folds to s on a case-insensitive disk, so this is the record's own file there.
+  const longS = 'record.j' + String.fromCharCode(0x17f) + 'on';
+  assert.equal(attachments.safeName(longS), 'file-' + longS);
 });

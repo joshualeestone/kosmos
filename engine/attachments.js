@@ -78,16 +78,21 @@ function safeName(name) {
   n = Array.from(n).slice(0, 160).join('');
   if (!n) n = 'file';
   // Review 13: Windows reads "record.json." (and with trailing spaces) as "record.json", so the reserved check ignores them.
-  if (RESERVED.has(n.replace(/[\s.]+$/, '').toLowerCase())) n = 'file-' + n;
+  if (RESERVED.has(foldName(n))) n = 'file-' + n;
   return n;
 }
+
+/** A name as macOS and Windows compare it, for checking against this module's own names: trailing dots and spaces
+    dropped (Windows), case folded, and compatibility forms unified (review 15: "record.j\u017fon", with a long s, is
+    the same file as "record.json" on a case-insensitive disk; NFKC turns it into an s). */
+function foldName(name) { return String(name).replace(/[\s.]+$/, '').normalize('NFKC').toLowerCase(); }
 
 /** A record's own name, usable as stored: one segment, no separators or controls, not "." or "..", and none of this
     module's own names. Only for records an older safeName wrote (see read). */
 function storedAsIs(name) {
   if (typeof name !== 'string' || !name || name.length > 640 || name === '.' || name === '..') return false;
   if (/[/\\\0\u0000-\u001f\u007f]/.test(name)) return false;
-  const plain = name.replace(/[\s.]+$/, '').toLowerCase();   // review 14: as macOS and Windows compare names
+  const plain = foldName(name);
   return plain !== PART && !RESERVED.has(plain);
 }
 
