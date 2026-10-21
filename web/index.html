@@ -38592,6 +38592,7 @@ function sortAgents(list, mode, projects, stars) {
    name, kept on the board (/api/agent-stars), so a star holds across restarts and on every screen that views this
    board. Outline when off, filled when on; the page's own star is drawn in CSS from one path. */
 let AGENT_STARS = new Set();
+let BOARD_STARS = new Set();   // review 5: the stars the board last confirmed (a read, or a save's answer); a failed save goes back to these
 let STARS_SEQ = 0;   // the newest read or write wins: a slow read never puts back a star changed since it went out
 const STAR_MSG = { saved: 'That star could not be saved. Try again in a moment.', removed: 'That star could not be removed. Try again in a moment.' };
 let STARS_WRITING = 0;   // writes in flight: a reload waits for them, or it could read the set from before the write
@@ -38633,6 +38634,7 @@ async function loadStars() {
     if (!r.ok) return;
     const v = await r.json();
     if (seq !== STARS_SEQ || !v || !Array.isArray(v.names)) return;
+    BOARD_STARS = new Set(v.names);
     const next = new Set(v.names);
     if (next.size === AGENT_STARS.size && [...next].every((n) => AGENT_STARS.has(n))) return;
     AGENT_STARS = next;
@@ -38666,6 +38668,7 @@ async function saveStar(name, on, seq) {
     const r = await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, on }) });
     const v = await r.json().catch(() => null);
     if (!r.ok || !v || !Array.isArray(v.names)) throw new Error('not saved');
+    if (v.names.includes(name)) BOARD_STARS.add(name); else BOARD_STARS.delete(name);
     /* Review 4: only THIS star is taken from the answer. Saves for two different stars run side by side, so either
        answer may be the older list; replacing the whole set from it dropped a star the other save had just kept. */
     if (newest()) {
@@ -38676,9 +38679,15 @@ async function saveStar(name, on, seq) {
     const msg = document.getElementById('board-msg');
     if (msg && (msg.textContent === STAR_MSG.saved || msg.textContent === STAR_MSG.removed)) { msg.textContent = ''; msg.hidden = true; }
   } catch {
-    /* This star goes back only when no later press on it is waiting (that press's own save decides it); the person is
-       told either way, since a star that flips back with no word reads as a click that did not register. */
-    if (newest()) { if (on) AGENT_STARS.delete(name); else AGENT_STARS.add(name); repaintAgentOrder(); }
+    /* Only the newest press on this star settles it (a later one waiting decides for itself). It goes back to what the
+       board last CONFIRMED, not to what the page showed before this press: that may have come from an earlier press
+       whose save failed too (review 5). The person is told only when what they asked for is not what they now see,
+       since a star that flips back with no word reads as a click that did not register. */
+    if (!newest()) return;
+    const kept = BOARD_STARS.has(name);
+    if (kept) AGENT_STARS.add(name); else AGENT_STARS.delete(name);
+    repaintAgentOrder();
+    if (kept === on) return;
     const msg = document.getElementById('board-msg');
     if (msg) { msg.textContent = on ? STAR_MSG.saved : STAR_MSG.removed; msg.hidden = false; }
   }

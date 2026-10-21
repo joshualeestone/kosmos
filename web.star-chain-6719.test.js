@@ -19,18 +19,20 @@ function page() {
   const sent = [];
   const fetch = (url, init) => new Promise((resolve) => {
     const body = JSON.parse(init.body);
-    sent.push({ body, answer: (names) => resolve({ ok: true, json: async () => ({ names, ok: true }) }) });
+    sent.push({ body, answer: (names) => resolve({ ok: true, json: async () => ({ names, ok: true }) }),
+      fail: () => resolve({ ok: false, json: async () => ({ error: 'no' }) }) });
   });
-  const doc = { getElementById: () => null };
+  const msg = { textContent: '', hidden: true };
+  const doc = { getElementById: (id) => (id === 'board-msg' ? msg : null) };
   // eslint-disable-next-line no-new-func
   const api = new Function('fetch', 'document', [
-    'let AGENT_STARS = new Set(); let STARS_SEQ = 0; let STARS_WRITING = 0;',
+    'let AGENT_STARS = new Set(); let BOARD_STARS = new Set(); let STARS_SEQ = 0; let STARS_WRITING = 0;',
     "const STAR_MSG = { saved: 's', removed: 'r' };",
     'let THROWS = 0; const repaintAgentOrder = () => { if (THROWS > 0) { THROWS -= 1; throw new Error(\'render\'); } };',
     PAGE.slice(from, to),
     'return { toggleStar, stars: () => [...AGENT_STARS].sort(), writing: () => STARS_WRITING, throwNext: (n) => { THROWS = n; } };',
   ].join('\n'))(fetch, doc);
-  return { api, sent };
+  return { api, sent, msg };
 }
 const tick = () => new Promise((r) => setImmediate(r));
 
@@ -88,4 +90,28 @@ test('#6719 review 4: a save that throws does not stop the next press on that st
   await p2;
   assert.equal(api.writing(), 0, 'a write that threw stayed counted, so the 30 s reload never runs again');
   assert.deepEqual(api.stars(), []);
+});
+
+test('#6719 review 5: when every save fails, the star goes back to what the board last confirmed, not to an unsaved press', async () => {
+  const { api, sent, msg } = page();     // the board holds no stars
+  const p1 = api.toggleStar('renet');   // star
+  const p2 = api.toggleStar('renet');   // unstar, at once
+  await tick();
+  sent[0].fail();
+  await tick(); await tick();
+  sent[1].fail();
+  await Promise.all([p1, p2]);
+  assert.deepEqual(api.stars(), [], 'a star the board never held was put back');
+  assert.equal(msg.hidden, true, 'it said a star could not be removed when the board shows what was asked for');
+});
+
+test('#6719 review 5 CONTROL: a failed star on an agent the board does not hold goes back, and says so', async () => {
+  const { api, sent, msg } = page();
+  const p1 = api.toggleStar('renet');
+  await tick();
+  sent[0].fail();
+  await p1;
+  assert.deepEqual(api.stars(), []);
+  assert.equal(msg.hidden, false);
+  assert.equal(msg.textContent, 's');
 });
