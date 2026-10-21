@@ -130,3 +130,15 @@ Fail-safe, left: a destructured require of a listed wrapper is refused (none in 
 - Controls added: a multi-line block comment, a regex cut by a new line (line count), the machine path in any case,
   spaces around a one-command string.
 - Fail-safe, left: `|| true`, `2>/dev/null`, `-f /dev/null` before -L, and prose kill-server strings are flagged.
+
+## Review 9 (Opus, scoped): one realistic accident, three lower; fixed (102 controls)
+- In scope and real: sandbox.test.js builds its socket path into a const, then passes ['-S', sock, 'kill-server'].
+  A copied status.js builder inside that const passed. The -S value is now traced through plain variables, three
+  levels deep, and the same refusals apply to everything it is built from. os.tmpdir() joined with 'tmux-...' and no
+  mkdtemp is refused too (Linux with TMPDIR unset is /tmp).
+- Narrowed: a '/tmp' folder is refused only when joined with 'tmux-...'; only process.env.TMUX_TMPDIR, not a local
+  env object, is refused.
+- A refusal for the machine's own server now says so, instead of "not a listed wrapper".
+- Controls for the six arms with none (env, /private in shape 3, a call not an array, a non-require reassignment, an
+  object never required, WRAPPERS keyed by file) and regexOk's name arm. Three new arms mutated: each control red.
+- Header: a path more than three variables away, or through a parameter, is a stated limit.
