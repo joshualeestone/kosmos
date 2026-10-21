@@ -138,7 +138,7 @@ the file in memory: an upload is written to disk as it arrives, and a download i
    `textHead` opens without blocking and reads only an ordinary file, like the download.
 
 ### Through Kosmos+ the relay cut uploads at two minutes (found while checking the five-minute figure)
-The tunnel waits 120 s for the board's response head (`BOARD_RESPONSE_HEAD_TIMEOUT`, crates/tunnel/src/proxy.rs),
+The tunnel waited 120 s for the board's response head,
 and the clock started when the request did, with the upload body streaming inside that wait. The board answers only
 once the whole file has arrived, so a phone upload that took more than two minutes got a 502 from the tunnel
 ("We could not add that file (status 502)."), whatever the board allows: 100 MB needed about 850 KB/s up.
@@ -224,6 +224,13 @@ phone yet: the remaining manual step covers it.
    it reads /dev/fd and boots a board on test ports). Both added; both guards pass. The local regression sweep that
    would have caught them was withdrawn in favour of the Mortals run, so the full suite was what caught them.
 
+32. **Review 24:** the stream lifecycle now has a test that runs on Windows (engine/attachments-stream-6734.test.js:
+   whole file renamed into place, past-cap refusal and a cut-off source each leave nothing; no /dev/fd, no board; red
+   with the folder not removed), added to the Windows run; the exclusion reason for the board-level test file names
+   only its true cause (/dev/fd). Relay internals were trimmed from this plan (this repo is public); naming the relay
+   branch follows server.js's existing comments. The reply copy's time (decision 5, measured) and the refusal reset
+   (decision 2) were raised again and stand.
+
 ### Considered and not changed (review 22)
 - The synchronous reply-file copy (decision 5), the reserved-name old files (review 17) and the 408 wording (reviews 6
   and 21) were raised again; the decisions and their weakest premises stand as recorded. The sweep test now asserts
@@ -276,7 +283,9 @@ phone yet: the remaining manual step covers it.
 ## Windows (review 1)
 
 The new test cannot run on Windows (it reads `/dev/fd`), and it is not in `tools/windows-tests.js`. That is a coverage
-gap, stated here; this branch changes no Windows-side code or test selection, so nothing was handed to Homer. Measured from the code instead: every write
+gap, stated here. Review 24: the store and the upload route do run on Windows; the stream lifecycle that matters
+there (rename only after close, removal after close) is covered by engine/attachments-stream-6734.test.js, which
+needs no /dev/fd and no board, and is in the Windows run (tools/windows-tests.js ALSO). Measured from the code instead: every write
 stream is closed before its rename or removal (Windows will not rename an open file). A download now holds the file
 open for its whole length; the only paths that delete an attachment's folder are `abandon` (a failed upload's own
 folder, before anyone can download it), `replyfile.discard` (a reply copy that was never kept, so never offered),

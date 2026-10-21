@@ -43,7 +43,8 @@ const cp = require('node:child_process');
 // Files without "win32" in their name that still speak about Windows behaviour. The engine ones
 // are named bare; root ones carry no prefix. Every test file that branches on a win32 HOST must
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
-const ALSO = ['agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
+const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream lifecycle (rename/remove after close)
+  'agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
   'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',
   'setup-assistant.winrules-4752.test.js',   // #4752: the guide's real rules, read on a Windows host
   'securewrite.fsync-5434.test.js',   // #5434: its Windows-only skips (EPERM, EISDIR) run only there
@@ -90,7 +91,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
-  'server.attachment-stream-6734.test.js': 'its win32 branches only skip the FIFO and file-mode arms (no FIFOs or POSIX modes on Windows); the file counts open descriptors through /dev/fd and boots a board on test ports, which a Windows runner cannot do; the streaming code waits for each stream to close before rename or removal, which is the Windows-relevant part (#6734)',
+  'server.attachment-stream-6734.test.js': 'it counts open descriptors through /dev/fd, which Windows does not have, and its win32 branches skip the FIFO and file-mode arms (no FIFOs or POSIX modes there); the stream lifecycle it covers that matters on Windows is run there by engine/attachments-stream-6734.test.js (#6734)',
   'server.filebrowser-6724.test.js': 'its win32 branch only skips the backslash-name arm (a backslash cannot be in a Windows name, so the case does not exist there); the file walks real symlinks and hard links throughout, which a Windows runner cannot make without admin; the Windows paths of the gates it uses (resolveListedFile, sameListedPath, sameOpenedFile) are tested in engine/projects.download.win32-5165.test.js',
   'engine/remote-mode-6548.test.js': 'its win32 branch skips every arm: it checks POSIX file modes (0600 under three umasks), which Windows does not have; the write it tests keeps 0o600, which Windows reads only as not read-only (#6548).',
   'engine/agykeep-5812.test.js': 'its win32 host branch only skips the real-agy arm (a Mac CLI against a fake Gemini API; Kosmos runs no agy agents on Windows); the bridge\'s Windows paths are tested through its platform seam on every non-Windows host',
