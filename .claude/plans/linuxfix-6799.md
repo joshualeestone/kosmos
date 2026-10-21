@@ -184,3 +184,13 @@ skip (slice 5). The other listed reasons were re-measured on Linux in probe run 
   probes, read there); test-cut-load-guard's comment says its count is the same probe order, so it does not test it.
 - NITs, left: the `--only` refusal does not name KOSMOS_SHELL_PLATFORM (the platform check refuses it a few lines
   later); one `ps` per hop (recorded in iteration 2).
+
+## Challenge loop iteration 6 (sonnet): 2 WARNINGs, 2 NITs, both WARNINGs deferred on measurement
+- WARNING, deferred: the job `suite (shell 1/1)` is now `suite (shell macOS)`, which a check matching job names would
+  miss. Measured: main's ruleset 25277985 requires only `test`, `windows` and `scope`; `git grep 'shell 1/1'` finds
+  nothing in the repo (control: `shell macOS` found in test.yml).
+- WARNING, deferred: nothing asserts the macOS share stays small (25 listed + every syntax check). Measured in #6795's
+  `suite (shell macOS)` job (run 39551114754): 110 syntax checks took 0.2 s in all, max 0.1 s; the 70% time warning
+  already covers the job.
+- NITs, left: one `ps` per hop (recorded in iteration 2); the apt step relies on the ubuntu-latest image's git, curl
+  and python3, as every other ubuntu-latest step here does.
