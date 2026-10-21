@@ -134,7 +134,7 @@ test('#6849: PDF whitespace is the PDF set: NUL separates, 0xA0 does not', () =>
   assert.ok(!fp.stablePdf(s('\xa0', 'D:1')).equals(fp.stablePdf(s('\xa0', 'D:2'))), '0xA0 was read as PDF whitespace');
 });
 
-test('#6849: a PDF over 64 MiB is its plain sha256', () => {
+test('#6849: a PDF over 64 MB (64,000,000 bytes) is its plain sha256', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fileprint-'));
   try {
     const p = path.join(dir, 'big.pdf');
@@ -166,4 +166,10 @@ test('#6849: a direct /Length is used when the body holds the word endstream, an
   assert.ok(!fp.stablePdf(direct('D:1')).equals(fp.stablePdf(direct('D:2'))), 'a direct /Length was not used');
   const cr = (words) => Buffer.from('%PDF-1.7\n1 0 obj\n<< /Length ' + words.length + ' >>\nstream\r' + words + '\rendstream\rendobj\r', 'latin1');
   assert.ok(!fp.stablePdf(cr('BT /ModDate (Pay A) Tj ET')).equals(fp.stablePdf(cr('BT /ModDate (Pay B) Tj ET'))), 'a stream after CR alone was read as objects');
+});
+
+test('#6849: the cap is the 64 MB the help and the instruction name', () => {
+  assert.equal(fp.PDF_MAX, 64000000);
+  const said = require('./defaults').block();
+  assert.match(said, /a PDF over 64 MB is hashed as plain/);
 });

@@ -17,7 +17,7 @@
  * opposite (one fingerprint for two documents) is a stream whose /Length is not a plain number and whose bytes hold the
  * word endstream: its end is then found by that word, and what follows is matched as if outside it. No renderer we measured
  * writes one, so it takes a file built to do it; a PDF fingerprint is a check for the same render, not a proof against
- * tampering. A PDF over PDF_MAX (64 MiB) is hashed as plain bytes rather than held whole in memory.
+ * tampering. A PDF over PDF_MAX (64 MB) is hashed as plain bytes rather than held whole in memory.
  *
  * Run directly, `node fileprint.js <path>` prints the fingerprint (exit 0) or the reason it could not be read (exit 2).
  */
@@ -26,7 +26,7 @@ const crypto = require('node:crypto');
 
 /* Larger PDFs are hashed as plain bytes. The metadata is taken out of the whole file in memory (a buffer, a string and
    its copies, several times the file), so the cap keeps that to a few hundred MB and well under V8's longest string. */
-const PDF_MAX = 64 * 1024 * 1024;
+const PDF_MAX = 64 * 1000 * 1000;   // 64 MB as the help and instruction say it (not MiB, review 6)
 const CHUNK = 1 << 20;               // 1 MiB a read
 
 function firstLine(s) {
