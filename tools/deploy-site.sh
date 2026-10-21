@@ -314,12 +314,12 @@ fetch_verified() {  # <url> <dest>  -- an artifact AND its <url>.sha256 sidecar 
   _FETCH_TMP_S=""
 }
 # <<< site-fetch helpers (#4745)
-# kosmos#6826: the EXIT trap above, replaced for the whole run (it stays as it is inside the block, which
-# tools/test-deploy-site-fetch-4745.sh runs on its own). On this Mac's /bin/sh (bash 3.2), a run that dies on a
+# kosmos#6826: the EXIT trap above, replaced from here to the end (it stays as it is inside the block, which
+# tools/test-deploy-site-fetch-4745.sh runs on its own; the block only defines functions and variables). On this Mac's /bin/sh (bash 3.2), a run that dies on a
 # missing library (a failed `.`) or an unset variable (set -u) reaches the EXIT trap with $? already 0, so it would
 # exit 0 having done nothing. Every success exit sets _DS_FINISHED=1 first; any other 0 is that death, made a failure.
 _DS_FINISHED=0
-trap '_ds_rc=$?; _fetch_cleanup; [ "$_ds_rc" != 0 ] || [ "$_DS_FINISHED" = 1 ] || { echo "deploy-site: the run ended without finishing (a missing library or an unset variable; see the line above). Nothing was verified: treat it as FAILED (kosmos#6826)" >&2; exit 1; }' EXIT
+trap '_ds_rc=$?; _fetch_cleanup; [ "$_ds_rc" != 0 ] || [ "$_DS_FINISHED" = 1 ] || { echo "deploy-site: the run ended without finishing (for example a missing library or an unset variable; see the line above). Nothing was verified: treat it as FAILED (kosmos#6826)" >&2; exit 1; }' EXIT
 verify_sha() {  # <file> <sha256-url>
   want=$(curl -fsSL -H 'Cache-Control: no-cache' "$2" 2>/dev/null | awk '{print $1}')
   got=$(shasum -a 256 "$1" | awk '{print $1}')
