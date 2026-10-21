@@ -58,7 +58,10 @@ function read() {
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return { installId: null }; }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { installId: null };
-  return { installId: typeof parsed.installId === 'string' && parsed.installId ? parsed.installId : null };
+  const out = { installId: typeof parsed.installId === 'string' && parsed.installId ? parsed.installId : null };
+  /* #6829: kept through read() because write() merges over it; dropping it here would erase it on the next write. */
+  if (typeof parsed.installedAt === 'string' && Number.isFinite(Date.parse(parsed.installedAt))) out.installedAt = parsed.installedAt;
+  return out;
 }
 
 function write(patch) {
@@ -83,8 +86,21 @@ function installId() {
   const had = read();
   if (had.installId) return had.installId;
   const made = crypto.randomUUID();
-  write({ installId: made });
+  write({ installId: made, installedAt: new Date().toISOString() });   // #6829: the id is minted on the first board start
   return made;
+}
+
+/**
+ * #6829: when this install began, as an ISO time, or null when it cannot be told.
+ * The time recorded when the id was minted; for an install that predates that
+ * field, ping.json's mtime (the file is written once, when the id is minted, so
+ * a later rewrite can only move it LATER, never earlier). Never mints an id.
+ */
+function installedAt() {
+  const had = read();
+  if (had.installedAt) return had.installedAt;
+  if (!had.installId) return null;
+  try { return new Date(fs.statSync(FILE).mtimeMs).toISOString(); } catch { return null; }
 }
 
 /**
@@ -97,4 +113,4 @@ function underTest() {
   return Boolean(process.env.NODE_TEST_CONTEXT);
 }
 
-module.exports = { FILE, read, installId, underTest };
+module.exports = { FILE, read, installId, installedAt, underTest };

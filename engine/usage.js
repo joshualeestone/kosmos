@@ -995,8 +995,40 @@ async function byAgentAsync(result, agents) {
   return byAgent(result, agents, (p) => (real.has(p) ? real.get(p) : path.resolve(p)));
 }
 
+/* #6829 (Josh 10-21 07:54: "all time usage beyond 14 days and for new users should only start counting on those days
+   from install forward"). The install's first UTC day: the earliest of the time the install id was minted
+   (ping.installedAt) and the time first-run setup completed. With neither, today. Both are times this Kosmos itself
+   wrote, which is why neither the data folder's birth time (recreated folders) nor the earliest frozen usage day (a
+   window request freezes days BEFORE install) is used. `deps` is for tests. */
+function installDay(deps = {}) {
+  const today = (deps.today || todayUtc)();
+  const times = [];
+  try { times.push((deps.installedAt || (() => require('./ping').installedAt()))()); } catch { /* not told */ }
+  try {
+    const s = (deps.firstRun || (() => require('./firstrun').seen()))();
+    if (s && s.done) times.push(s.at);
+  } catch { /* not told */ }
+  const days = times.map((t) => (typeof t === 'string' ? Date.parse(t) : NaN))
+    .filter(Number.isFinite).map((ms) => new Date(ms).toISOString().slice(0, 10));
+  const earliest = days.sort()[0];
+  /* A clock set back, or a restored file from the future, never makes the count start after today. */
+  return earliest && earliest <= today ? earliest : today;
+}
+
+/* #6829: every day from the install day through today, inclusive. `days` is that count (1 on install day), the
+   figure the Active Days tile shows. Clamped by dailyUsageByModel's MAX_DAYS like any other window. */
+async function usageSinceInstall(deps = {}) {
+  const since = installDay(deps);
+  const today = (deps.today || todayUtc)();
+  const days = Math.min(MAX_DAYS, Math.round((Date.parse(today + 'T00:00:00Z') - Date.parse(since + 'T00:00:00Z')) / 86400000) + 1);
+  const result = await (deps.daily || dailyUsageByModel)(days);
+  return { ...result, installDay: since, days };
+}
+
 module.exports = {
   configRoots, // re-exported so a caller can report roots without a second require
+  installDay,          // kosmos#6829
+  usageSinceInstall,   // kosmos#6829
   walkTranscriptsUnder,
   scanUsage,
   scanDayCursor,      // kosmos#5759
