@@ -3732,7 +3732,8 @@ fi
 # updating in place: after its log is opened and the release pointer is read, before the update is downloaded or
 # anything installed is changed.
 update_paused() {
-  [ "$FRESH_INSTALL" = "no" ] || return 1
+  # An existing install is a launcher OR an installed app: a copy whose bin/kosmos was deleted is still being updated.
+  [ "$FRESH_INSTALL" = "no" ] || [ -f "$KOSMOS_HOME/app/package.json" ] || return 1
   [ "${KOSMOS_UPDATE_IGNORE_PAUSE:-}" = 1 ] && return 1
   [ "${KOSMOS_UPDATE_PAUSE_ASKED:-}" = 1 ] && return 1
   _pause_have="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' "$KOSMOS_HOME/app/package.json" 2>/dev/null | head -1)" || _pause_have=""
@@ -3749,8 +3750,13 @@ update_paused() {
     while [ "${_pause_url%/}" != "$_pause_url" ]; do _pause_url="${_pause_url%/}"; done
     _pause_url="$_pause_url/v1/meta"
   fi
-  /usr/bin/curl -q -fsS --max-time 5 "$_pause_url" 2>/dev/null | /usr/bin/tr -d '\n\r' \
-    | /usr/bin/grep -Eq '"updates_paused"[[:space:]]*:[[:space:]]*true[[:space:]]*[,}]'
+  # The body is read whole first (64 KiB at most), and grep reads to the end rather than -q: under setup.sh's
+  # pipefail, a reader that stops at the first match makes its writer die of SIGPIPE, and the pipeline would then fail
+  # and read as "not paused" for a real pause. A pattern, not a JSON parse: a nested or repeated "updates_paused" can
+  # read as paused here where run-setup's JSON read says not; only the coordinator writes this answer.
+  _pause_body="$(/usr/bin/curl -q -fsS --max-time 5 --max-filesize 65536 "$_pause_url" 2>/dev/null)" || _pause_body=""
+  printf '%s' "$_pause_body" | /usr/bin/tr -d '\n\r' \
+    | /usr/bin/grep -E '"updates_paused"[[:space:]]*:[[:space:]]*true[[:space:]]*[,}]' >/dev/null
 }
 if update_paused; then
   printf '\n  Kosmos was not updated.\n     Updates are paused while Kosmos checks a problem with a release, so this update waits until the pause is lifted. Nothing was installed and your Kosmos stays as it is. Try again later.\n\n' >&2
@@ -3758,7 +3764,7 @@ if update_paused; then
 fi
 # run-setup's word that it asked is for this run only: the board and anything else this installer starts must not
 # inherit it, or a later pasted install line in their environment would skip the pause.
-unset KOSMOS_UPDATE_PAUSE_ASKED _pause_url _pause_have
+unset KOSMOS_UPDATE_PAUSE_ASKED _pause_url _pause_have _pause_body
 
 
 # 🔑 A BUSY PORT IS SAID EARLY, AND THE INSTALL STILL FINISHES.

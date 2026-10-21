@@ -83,3 +83,11 @@ fail open, nothing newer); native-app.update-ifnewer-4382.test.js (the paused ar
   sentence now says nothing was installed and Kosmos stays as it is. The lifted function now runs under setup.sh's
   `set -eu` and pipefail. A mutant comparing as text survives because it is equivalent (awk's split yields numeric
   strings); the `+ 0` is belt and braces.
+- Review 4 (sonnet): an install whose bin/kosmos was deleted but whose app/ is there read as a first install and
+  was not held; a readable app/package.json now counts as an existing install (arm; the mutant is red). The ask now
+  reads the answer whole (64 KiB at most) and greps to the end instead of `-q`. That is defence in depth, NOT a fix of
+  a live bug: review 4 reasoned that `grep -q` under setup.sh's pipefail could SIGPIPE its writer and read a real pause
+  as none, but `tr -d '\n\r'` makes the body one line, so grep cannot match before the end; the 60 KB arm passes with
+  the old pipeline too (measured, as reviews 2 and 3 found). The comment now says a nested or repeated key can read as
+  paused in the shell where run-setup's JSON read says not; only the coordinator writes the answer. The test's default
+  environment now sets KOSMOS_HOME, as setup.sh always does (the new `set -u` caught it).

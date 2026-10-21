@@ -41,7 +41,9 @@ function lifted() {
 
 /** Runs update_paused with setup.sh's variables; true when it says paused. */
 function asks(vars) {
-  const env = { PATH: '/usr/bin:/bin', HOME: tmp, FRESH_INSTALL: 'no', KOSMOS_RELEASE_BASE: 'https://installkosmos.com/dist', ...vars };
+  // setup.sh always sets KOSMOS_HOME; by default none is installed there (FRESH_INSTALL is what says one was).
+  const env = { PATH: '/usr/bin:/bin', HOME: tmp, FRESH_INSTALL: 'no', KOSMOS_HOME: path.join(tmp, 'no-install-here'),
+    KOSMOS_RELEASE_BASE: 'https://installkosmos.com/dist', ...vars };
   // Under setup.sh's own shell options, so a pipefail or unset-variable regression in the ask shows here.
   const r = spawnSync('/bin/sh', ['-c', 'set -eu; set -o pipefail\n' + lifted() + '\nif update_paused; then echo PAUSED; else echo NOT; fi'], { encoding: 'utf8', env });
   assert.equal(r.status, 0, r.stderr);
@@ -75,6 +77,16 @@ test('installer: only a NEWER version is held; a repair or reinstall of the same
   assert.equal(at('1.2.3', ''), true, 'a version this run could not read: held');
   assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: paused, KOSMOS_HOME: path.join(tmp, 'no-such-home'), TARGET_VERSION: '1.2.3' }), true,
     'an installed version that cannot be read (a broken install): held');
+});
+
+test('installer: an install whose launcher is gone but whose app is there is an update, and is held', () => {
+  const paused = meta('{"updates_paused": true}');
+  assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: paused, FRESH_INSTALL: 'yes', KOSMOS_HOME: installedAt('1.2.0'), TARGET_VERSION: '1.2.3' }), true);
+});
+
+test('installer: a long answer with the flag near its start is still paused under pipefail (the reader reads to the end)', () => {
+  const body = '{"updates_paused": true, "pad": "' + 'x'.repeat(60000) + '"}';
+  for (let i = 0; i < 3; i++) assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: meta(body) }), true, 'run ' + i);
 });
 
 test('installer: a first install, run-setup\'s own run, and the operator override are never held', () => {
