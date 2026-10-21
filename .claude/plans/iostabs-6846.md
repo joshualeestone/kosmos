@@ -40,6 +40,8 @@ board inside the app shows no tab strip of its own, because the app marks every 
   are not ours to rely on; one container per tab and a moved WKWebView is deterministic.
 - On lock (biometric gate, off by default) the holder drops its web view, as the old view's teardown did, so an unlock
   starts clean.
+- A Mac whose board predates the door answers absent to every press, so the press waits at every load and the bar
+  can name a section the page is not on. Accepted for Macs not yet updated: the door ships with this release.
 - No Today badge in this part (the card calls it optional; needsYou is already in the client).
 - A refusal puts the bar on the tab of the section in the page's address (review 4: not the bar's previous tab, which
   can have moved without the page), so never on Agents (review 3 BLOCKER: from Agents every web tab would be refused
@@ -73,5 +75,6 @@ W3), the first press of a signed-in launch landing on its section, whether a pre
 (review 6), and the board's first layout in a host that starts at zero size or is hidden (review 6, N5).
 Return reads: at 6, 12 and 18 s after a return, each applied, since the first can predate the board's next poll
 (review 6 W1); a launch round ends at its first answer. The page state a press sees (none / loading / ready) is
-decided in PressTracker, so the round 5 blocker has a test (review 6 W2). Real-device check is Baron's
+decided in PressTracker, so its rule (a press with no web view waits) is tested; BoardWeb's call order (it must ask
+the tracker before it looks for a web view) is NOT, and is checked on a device (review 7 W2). Real-device check is Baron's
 TestFlight run (#6838 frames).

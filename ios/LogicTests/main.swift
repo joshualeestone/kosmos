@@ -1187,7 +1187,7 @@ check(AppTabs.visible(tasksTab: true).map(\.symbol) == ["sun.max", "person.2", "
 section("app tabs: press bookkeeping")
 do {
     var t = PressTracker()
-    check(t.press(.projects, page: .none) == nil && t.pending == .projects, "no web view yet (a signed-in launch on Agents): the press waits, not lost")
+    check(t.press(.projects, page: .none) == nil && t.pending == .projects, "the tracker's rule: with no web view yet (a signed-in launch on Agents) a press waits, not lost")
     check(t.press(.settings, page: .loading) == nil && t.pending == .settings, "a page still loading: the press waits")
     let serialBefore = t.serial
     let run = t.press(.projects, page: .ready)
@@ -1234,7 +1234,7 @@ do {
     let back = t.returned()
     check(t.shouldRead(round: back, generation: g) && t.read(false, generation: g) == false, "a return to the front starts a round, and its answers count")
     check(t.shouldRead(round: back, generation: g), "and it keeps reading after an answer (its first reads can predate the board's next poll)")
-    check(t.loaded() == nil && t.shouldRead(round: back, generation: g), "a load during it starts no launch round and does not cut it")
+    check(t.loaded() == nil && t.shouldRead(round: back, generation: g), "once the launch has an answer, a load during it starts no launch round and does not cut it")
     check(PressTracker.returnReads.min()! > 5 && PressTracker.returnReads.count >= 2, "a return reads only after a board poll (every 5 s) could have written the flag, more than once")
     check(PressTracker.launchReads.first == 0 && PressTracker.launchReads.last == 20, "a launch reads from the load for 20 s")
     t.drop(selected: .today)

@@ -11,8 +11,9 @@ surface as buildable stubs (#718) are both here now. Full context on the cards
 (#2869, #718).
 
 **Going native (kosmos#6838, Josh 2026-10-21).** Screens move from the web view to
-SwiftUI one at a time; the plan and its order are on the card. Slice 1 is the
-native **Agents** tab beside the web **Board** tab: the app connects to the Mac by
+SwiftUI one at a time; the plan and its order are on the card. Slice 1 was the
+native **Agents** tab beside the web **Board** tab; #6846 replaced Board with four web
+tabs (Today, Projects, Tasks, Settings) sharing one web view. Agents: the app connects to the Mac by
 itself (the Kosmos+ session in the Keychain lists the account's Macs, mints a
 handoff for one, and the Mac's tunnel gate turns it into a session cookie in the
 app's own private `URLSession`), then reads `/api/status` every 5 s. The decisions
@@ -22,8 +23,8 @@ The Mac's session cookie (with the Mac's name and address and a fingerprint of t
 in the Keychain item `mac-session` (`SessionKeychain.macSession`) and reused across
 launches; a sign-out, or Kosmos+ answering that the sign-in has ended, makes this
 iPhone forget it (the Mac keeps its side until it expires, as for the web view).
-The app opens on Agents when signed in to Kosmos+, otherwise on Board (the sign-in); the
-store-screenshot build opens on Board. One Debug-only
+The app opens on Agents when signed in to Kosmos+, otherwise on Today (the sign-in); the
+store-screenshot build lights the tab of the address it opens (a project room under Projects). One Debug-only
 launch switch exists for screenshots and never reaches Release: `KOSMOS_SAMPLE_AGENTS=1`
 shows invented agents without connecting (and skips the notification prompt). App Store screenshots taken from now on include the tab bar (the stored ones predate it).
 

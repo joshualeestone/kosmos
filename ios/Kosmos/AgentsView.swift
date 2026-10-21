@@ -96,7 +96,7 @@ struct AgentsView: View {
         case .denied(let mac):
             message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.", retry: true)
         case .macRefused(let mac):
-            message("\(mac) did not accept this iPhone's sign-in.", detail: "Try again in a moment. If it keeps happening, sign out on the Today tab and in again.", retry: true)
+            message("\(mac) did not accept this iPhone's sign-in.", detail: "Try again in a moment. If it keeps happening, sign out under Settings, Kosmos+, and sign in again.", retry: true)
         case .kosmosPlusRefused:
             message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again on the Today tab. Otherwise try again in a moment.", retry: true)
         }
