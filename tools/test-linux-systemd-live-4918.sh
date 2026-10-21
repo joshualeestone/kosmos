@@ -56,6 +56,19 @@ fi
 ok "tmux found at $TMUX_BIN"
 
 TMPDIR_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/test-linux-systemd-live-4918.XXXXXXXXXX")"
+
+# #6851/#6852: run this test's tmux on a PRIVATE server, so the two `kill-server` calls below (and
+# every other bare tmux call) can only ever reset this test's own server, never the default/fleet one.
+# An inherited $TMUX outranks TMUX_TMPDIR (measured; see the #6851 audit), so a private
+# TMUX_TMPDIR alone is not enough from inside an agent pane: unset $TMUX (and TMUX_PANE) too.
+# linuxjob.unitFor copies TMUX_TMPDIR into each agent's systemd unit Environment= (engine/linuxjob.js),
+# so the systemd-launched agents land on this same private server and the bare `has-session` checks
+# still match. The live test runs only in CI (a dedicated box, no $TMUX), so the test outcome is
+# unchanged there.
+export TMUX_TMPDIR="$TMPDIR_ROOT/tmux"
+mkdir -p "$TMUX_TMPDIR"
+unset TMUX TMUX_PANE
+
 cleanup() {
   echo "Cleaning up test units and directories..."
   systemctl --user stop kosmos-agent-testagent4918.service >/dev/null 2>&1 || true
@@ -87,6 +100,10 @@ cleanup() {
     systemctl --user daemon-reload >/dev/null 2>&1 || true
   fi
 
+  # #6851: a final reset of this test's PRIVATE server, covering an early-exit or signal path that
+  # did not reach the kill-server calls below. Safe because the server is private (TMUX_TMPDIR set,
+  # $TMUX unset at the top), so it can never be the default/fleet server.
+  "$TMUX_BIN" kill-server >/dev/null 2>&1 || true
   rm -rf "$TMPDIR_ROOT"
 }
 trap cleanup EXIT
@@ -226,6 +243,7 @@ if KOSMOS_WORLD=w4918 node -e '
 else
   bad "the named world's escaped unit was not removed ($WORLD_UNIT)"
 fi
+# Safe (#6851): TMUX_TMPDIR is private and $TMUX is unset at the top, so this resets only this test's server.
 "$TMUX_BIN" kill-server 2>/dev/null || true
 
 # #4918 review 13: the real WIRING against real systemd, not only the linuxjob primitives. create.createAgent runs every
@@ -271,6 +289,7 @@ if [ "$LIVE_RC" = 0 ]; then
 else
   bad "the create/restart/remove wiring failed against real systemd (exit $LIVE_RC)"
 fi
+# Safe (#6851): private TMUX_TMPDIR + unset $TMUX at the top; resets only this test's server.
 "$TMUX_BIN" kill-server 2>/dev/null || true
 
 sleep 1
