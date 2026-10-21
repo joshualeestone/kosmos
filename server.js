@@ -3757,6 +3757,8 @@ function sendJson(res, code, obj) {
    cleanup, which closes the descriptor; a read error after the headers ends the response short, which the client
    sees as a cut download (its length does not match), never as a whole file. `unread` is the 404 sentence for a
    file that cannot be opened. */
+let DOWNLOAD_STALL_MS = 120 * 1000;
+function _setDownloadStallForTest(ms) { DOWNLOAD_STALL_MS = ms == null ? 120 * 1000 : ms; }
 function sendFileStream(req, res, file, unread, headers) {
   let fd = null;
   let size = 0;
@@ -3779,6 +3781,13 @@ function sendFileStream(req, res, file, unread, headers) {
      not left waiting for bytes that will never come. */
   const rs = fs.createReadStream(null, { fd, start: 0, end: size - 1, autoClose: true });
   rs.once('end', () => { if (rs.bytesRead < size) res.destroy(); });
+  /* Review 26: a client that stays connected but stops reading would hold the descriptor for ever; as the folder zip
+     does (ZIP_STALL_MS), a download that moves no bytes for DOWNLOAD_STALL_MS is ended, which closes it. */
+  let stall = null;
+  const arm = () => { clearTimeout(stall); stall = setTimeout(() => res.destroy(), DOWNLOAD_STALL_MS); };
+  rs.on('data', arm);
+  res.once('close', () => clearTimeout(stall));
+  arm();
   pipeline(rs, res, () => { /* aborted or failed: both streams are destroyed */ });
 }
 
@@ -25854,7 +25863,7 @@ if (require.main === module) {
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
-  _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
+  _setZipStallForTest, _setZipLimitForTest, zipPut, _setDownloadStallForTest, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up

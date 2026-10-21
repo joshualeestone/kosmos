@@ -705,3 +705,28 @@ test('#6734: saveStream refuses a request that already went away instead of wait
   live.end(Buffer.from('ok'));
   assert.equal((await kept).size, 2);
 });
+
+test('#6734: a download whose client stops reading is ended after the stall time, releasing its descriptor', async () => {
+  /* Measured on the board's side: a paused client never reads the board's close (the FIN sits unread), so the client
+     cannot report it. What matters is that the board lets go of the file while that client is still connected. */
+  const srv = require('./server');
+  const rec = storedOf(64 * MB, 'stalled.bin');   // larger than the socket buffers, so the board is left waiting
+  srv._setDownloadStallForTest(300);
+  let req = null;
+  try {
+    let openWhilePaused = -1;
+    await new Promise((resolve, reject) => {
+      req = http.get({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id }, (res) => {
+        res.pause();   // connected, reading nothing
+        openWhilePaused = fdsOn(rec.file);
+        resolve();
+      });
+      req.on('error', (e) => { if (!/socket hang up|aborted|ECONNRESET/.test(String(e && e.message))) reject(e); });
+    });
+    assert.ok(openWhilePaused >= 1, 'CONTROL: no descriptor on the file was seen once the download started');
+    assert.ok(await until(() => fdsOn(rec.file) === 0, 4000), 'the stalled download still holds the file open with its client connected');
+  } finally {
+    srv._setDownloadStallForTest(null);
+    if (req) req.destroy();
+  }
+});

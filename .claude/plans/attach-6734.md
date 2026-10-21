@@ -148,6 +148,16 @@ such uploads still fail, and the page words the 502 for a large file (decision 2
    the Windows-run test's header says what it shows (the lifecycle runs and passes there) and what it cannot (Node
    on Windows can rename an open file, so close-before-rename is not proven there). Relay timing details trimmed
    from this plan.
+34. **Review 26:** a download whose client stays connected but stops reading held the file open for ever; as the
+   folder zip does (ZIP_STALL_MS), a download that moves no bytes for two minutes is now ended, which closes the
+   descriptor. The test measures the board's side (a paused client never reads the close, so it cannot report it),
+   with a 64 MB file so the socket buffers cannot absorb it; it reds with the timer removed. Not changed, with reasons:
+   the retrying rename and folder removal can block the event loop for up to about a second, only on Windows and only
+   while a scanner holds the file, which is rarer and shorter than the failed upload it prevents (weakest premise:
+   scanners that hold a file longer); the count-based tests share one owner folder, but tests in a file run one at a
+   time and each waits for its own count to settle, so a neighbour cannot move it mid-test; the sweep still removes a
+   folder holding the finished file without a record (a record write that failed after the rename), which is exactly
+   the leak it exists for, so requiring "only a part file" would keep that leak.
 
 ### Considered and not changed (review 22)
 - The synchronous reply-file copy (decision 5), the reserved-name old files (review 17) and the 408 wording (reviews 6
