@@ -26,7 +26,10 @@ process.on('exit', () => {
   // KOSMOS_KEEP_SANDBOX=1 keeps the session too, so a red run can still be looked at.
   if (KEEP) { console.log('tmux kept: attach with TMUX_TMPDIR=' + TMUX_DIR + ' tmux attach'); return; }
   try {
-    execFileSync(process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux', ['kill-server'], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 5000 });
+    /* kosmos#6857: the socket by name. With TMUX_TMPDIR alone, a folder that is gone by now (a /tmp sweep) makes
+       tmux fall back to /tmp/tmux-<uid>/default, the machine's own server, and kill-server ends every session on it.
+       -S never falls back: a missing socket is "no server running", answered below. */
+    execFileSync(process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux', ['-S', path.join(TMUX_DIR, 'tmux-' + process.getuid(), 'default'), 'kill-server'], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 5000 });
   } catch (e) {
     const why = (String((e && e.stderr) || '').trim() || String((e && e.message) || '')).trim();
     if (e && e.code !== 'ENOENT' && !/no server running|error connecting to .*\(no such file or directory\)/i.test(why)) console.error('WARN could not stop the private tmux server in', TMUX_DIR, '-', why.slice(0, 200));

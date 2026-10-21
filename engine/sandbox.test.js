@@ -111,8 +111,9 @@ test('#5112: with $TMUX dropped, tmux answers from the TMUX_TMPDIR server, not t
   const base = { PATH: path.dirname(tmux) + ':/usr/bin:/bin', HOME: os.homedir(), LANG: 'en_US.UTF-8' };
   const run = (env, args) => spawnSync(tmux, args, { env, encoding: 'utf8', timeout: 10000 });
   t.after(() => {
-    run({ ...base, TMUX_TMPDIR: fleetDir }, ['kill-server']);
-    run({ ...base, TMUX_TMPDIR: sandDir }, ['kill-server']);
+    // kosmos#6857: each socket by name, so a folder gone missing cannot send kill-server to the machine's own server.
+    run(base, ['-S', fleetSock, 'kill-server']);
+    run(base, ['-S', path.join(sandDir, 'tmux-' + uid, 'default'), 'kill-server']);
     fs.rmSync(fleetDir, { recursive: true, force: true });
     fs.rmSync(sandDir, { recursive: true, force: true });
   });

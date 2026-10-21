@@ -91,7 +91,8 @@ test('a tmux that answers is not a problem, and clears an older one', () => {
     assert.equal(got.threw, null, 'reading our own server threw: ' + got.threw);
     assert.equal(got.problem, null, 'a healthy look left a problem standing: ' + got.problem);
   } finally {
-    try { execFileSync(TMUX_BIN, ['kill-server'], { env: tmuxEnv, stdio: 'ignore' }); } catch { /* already gone */ }
+    // kosmos#6857: the socket by name, so a folder gone missing cannot send kill-server to the machine's own server.
+    try { execFileSync(TMUX_BIN, ['-S', path.join(sock, 'tmux-' + process.getuid(), 'default'), 'kill-server'], { env: tmuxEnv, stdio: 'ignore' }); } catch { /* already gone */ }
     fs.rmSync(sb, { recursive: true, force: true });
     fs.rmSync(sock, { recursive: true, force: true });
   }
