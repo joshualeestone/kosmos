@@ -441,7 +441,7 @@ test('the installer URL is a positional parameter, never interpolated into the s
   assert.match(call, /'-c',\s*'"\$5" "\$6" run-setup "\$1" "\$7" "\$8" "\$9"; code=\$\?; printf "%s %s\\n" "\$code" "\$3" > "\$2"; if \[ "\$4" != \/dev\/null \]; then rm -f "\$4"; fi',\s*'sh',\s*setupUrl\(\)/,
     'the installer command is no longer the reviewed shape: ' + call);
   assert.ok(!/\|\s*sh\b/.test(call.slice(call.indexOf("'-c'"), call.indexOf("'sh',"))), 'the installer is piped into sh again: ' + call);
-  assert.ok(/startedMarker,\s*process\.execPath,\s*path\.join\(__dirname, 'manifest-verify\.js'\),\s*releaseBase\(\),\s*target,\s*installedRoot\(\) \|\| ''\]/.test(SRC),
+  assert.ok(/startedMarker,\s*process\.execPath,\s*path\.join\(__dirname, 'manifest-verify\.js'\),\s*releaseBase\(\),\s*target,\s*installedHomeAsInstalled\(\) \|\| ''\]/.test(SRC),   // #6659: the path as installed
     'the verifier, base, version and home no longer ride as positionals $5 to $9');
   /* The three trailing positionals, asserted on the wider source since the
      slice above stops at the URL: the status file is $2, the stamp is $3, the

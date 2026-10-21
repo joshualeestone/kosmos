@@ -60,15 +60,26 @@ test('#4997: a PDF in a project subfolder opens with the project routes; the sho
   assert.equal(a.url, '/api/project/p-1/file-download?name=reports%2FQ3.pdf');
 });
 
-test('#4997: a text file, a file with no extension, a modifier-click and a non-left click are left to the list\'s own open (CONTROL: the same row plain-clicked as a PNG opens)', () => {
+test('#4997: a file with no extension or of a kind with no preview, a modifier-click and a non-left click are left to the list\'s own open (CONTROL: the same row plain-clicked as a PNG opens)', () => {
   const { fn, opened } = lift();
-  assert.equal(fn(row('notes.txt'), { agent: 'ava' }, plain), false);
+  // #6724: a text file previews now (its start, as plain text), so it is not in this list any more (see below).
   assert.equal(fn(row('Makefile'), { agent: 'ava' }, plain), false);
+  assert.equal(fn(row('deck.pptx'), { agent: 'ava' }, plain), false);
   for (const e of [{ button: 0, metaKey: true }, { button: 0, ctrlKey: true }, { button: 0, shiftKey: true }, { button: 0, altKey: true }, { button: 1 }]) {
     assert.equal(fn(row('shot.png'), { agent: 'ava' }, e), false, JSON.stringify(e));
   }
   assert.equal(opened.length, 0);
   assert.equal(fn(row('shot.png'), { agent: 'ava' }, plain), true, 'CONTROL');
+});
+
+test('#6724: a text file opens the preview, read from the Files preview route (CONTROL: a modifier-click still keeps the list\'s open)', () => {
+  const { fn, PV_ATTS } = lift();
+  assert.equal(fn(row('reports/notes.txt'), { agent: 'ava' }, plain), true);
+  const a = PV_ATTS.get('files-preview');
+  assert.equal(a.kind, 'text');
+  assert.deepEqual(a.textOf, { kind: 'agent', owner: 'ava', name: 'reports/notes.txt' }, 'the text is read only through textOf (iterations 6, 10)');
+  assert.equal(a.name, 'notes.txt', 'the preview names the file, not its path');
+  assert.equal(lift().fn(row('notes.txt'), { agent: 'ava' }, { button: 0, metaKey: true }), false, 'CONTROL');
 });
 
 test('#4997: Open in Finder posts the listed name to the Files reveal route, never /api/attachment/, and says a refusal', async () => {

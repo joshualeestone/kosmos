@@ -8306,6 +8306,12 @@ html.has-speak .asp-speak { display: grid; }
    Tasks doors use, not the inherited body size (it read as a second heading beside FILES). */
 .dfiles-head .pj-viewall { display: inline; width: auto; font-size: var(--consolidated-link-size); }
 .dfiles-screen-head { margin-bottom: 4px; }
+.dfiles-acts { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }   /* #6724 */
+.dfiles-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; margin: 0 0 var(--space-2); font-size: var(--consolidated-link-size); }
+.dfiles-path button { background: none; border: 0; padding: 2px 4px; font: inherit; color: var(--k-ink); text-decoration: underline; cursor: pointer; border-radius: 4px; }
+.dfiles-path button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 1px; }
+.dfiles-path [aria-current] { text-decoration: none; font-weight: 600; cursor: default; }
+.dfiles-path .dfiles-sep { color: var(--k-ink-2); }
 #d-sec-files #d-filesall-msg:empty { display: none; }   /* no empty band between the title and the first row */
 #d-files-back { align-self: flex-start; }
 .dfiles-title { margin: 0; font-size: 1.375rem; font-weight: 700; letter-spacing: -.02em; color: var(--k-ink); line-height: 1.2; }   /* as #d-talk-label, the page's other section title */
@@ -10190,6 +10196,9 @@ html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter
    on Windows (win32) and, since #5865, on Linux (linux); on a Mac it stamps nothing, so neither rule matches. */
 html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
 html[data-kosmos-platform="linux"] [data-linux-hide] { display: none !important; }   /* #5865 */
+/* #6724: viewed from another computer (Kosmos+), a button that opens a window on the board's computer (Finder, a folder) is
+   hidden: that window would open on the far Mac, where nobody sees it. kplusRemote() stamps data-kplus-remote on <html>. */
+html[data-kplus-remote] [data-remote-hide] { display: none !important; }
 /* #3443 (Josh, Windows QA 2026-09-22, raised several times): Windows renders wide
    light-gray native scrollbars on scrollable panes (agent nav, conversation, the
    Members/Files/Tasks panels), which clash with the dark UI. Replace them with a thin,
@@ -12117,6 +12126,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   :is(#d-files, #d-sec-files) .pj-doc { min-height: 44px; }
   #d-files-all { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
   #d-files-back { display: inline-flex; align-items: center; min-height: 44px; }
+  #d-filesall-path button { min-height: 44px; padding: 0 10px; }   /* #6724 iteration 6: the only way back up, so a full tap target */
   /* #4088: Finder/File Explorer is on the computer running Kosmos, not the phone showing
      this page. Hide an action the phone cannot fulfil; the file rows remain available. */
   #d-files-finder { display: none; }
@@ -13828,9 +13838,15 @@ window.kosmosMeasureScrollbarWidth();
     <!-- Back to the conversation, as the project's file screen has its own back (review pass 1). -->
     <button class="back" id="d-files-back" type="button">&larr; Direct Message</button>
     <div class="dfiles-head dfiles-screen-head">
-      <h2 class="dfiles-title" id="d-filesall-h">Files</h2>
-      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>Open in Finder</button>
+      <h2 class="dfiles-title" id="d-filesall-h" tabindex="-1">Files</h2>
+      <span class="dfiles-acts">
+        <!-- #6724: the folder being shown, as one zip, to the device the person is on (Finder opens on the board's computer). -->
+        <button class="btn" id="d-files-zip" type="button">Download folder</button>
+        <button class="btn" id="d-files-finder" data-remote-hide type="button" data-win-copy="docsOpenFolder" data-linux-hide>Open in Finder</button>
+      </span>
     </div>
+    <!-- #6724: where in Files the list is: Files, then each folder entered, each a way back up. -->
+    <nav class="dfiles-path" id="d-filesall-path" aria-label="Folder" hidden></nav>
     <p class="dhint" id="d-filesall-msg" role="status"></p>
     <div class="pj-docs" id="d-filesall-list"></div>
     <p class="dhint" id="d-filesall-more" hidden></p>
@@ -17376,8 +17392,8 @@ window.kosmosMeasureScrollbarWidth();
              per-task destination the storage does not give. The hint discloses the shape.
              Same disable/say-nothing/ask/report shape as pjs-chats-reveal. -->
         <!-- #5865: this button and its hint are hidden on Linux, where revealFolder runs /usr/bin/open (not there). -->
-        <button class="btn" id="tk-chats-reveal" type="button" style="margin-top:12px;" data-linux-hide>Show me where the task conversations live</button>
-        <p class="fhint" style="margin:6px 0 0;" data-linux-hide>One folder, with a file for each task's conversation.</p>
+        <button class="btn" id="tk-chats-reveal" data-remote-hide type="button" style="margin-top:12px;" data-linux-hide>Show me where the task conversations live</button>
+        <p class="fhint" style="margin:6px 0 0;" data-remote-hide data-linux-hide>One folder, with a file for each task's conversation.</p>
         <p class="fmsg" id="tk-chats-msg" aria-live="polite"></p>
       </section>
 
@@ -17465,7 +17481,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3504 (Josh, 2026-09-23): a plain text link read as passive; make it the gold
            primary button so "Open this folder in Finder" reads as an easy, obvious action. -->
       <!-- #5865: hidden on Linux, where engine/projects.js revealFolder runs /usr/bin/open, which is not there. -->
-      <button class="btn uprime" id="docs-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>Open this folder in Finder</button>
+      <button class="btn uprime" id="docs-finder" data-remote-hide type="button" data-win-copy="docsOpenFolder" data-linux-hide>Open this folder in Finder</button>
     </div>
     <!-- Two sources, said apart (#131, Josh's 08-20 ruling): files from the
          CONVERSATION live in the attachment store, not the folder, so a
@@ -17608,7 +17624,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <!-- Outside the form: the form hides once the folder is there again, and the sentence saying so must stay seen. -->
       <p class="fmsg" id="pjs-move-msg" aria-live="polite"></p>
-      <button class="btn" id="pjs-reveal" type="button" data-linux-hide>Show me where it is</button>
+      <button class="btn" id="pjs-reveal" data-remote-hide type="button" data-linux-hide>Show me where it is</button>
       <p class="fmsg" id="pjs-reveal-msg" aria-live="polite"></p>
       <!-- 🛑 THE COMPANION SAYS "EVERY PROJECT" AND THE BUTTON ABOVE SAYS "IT"
            (kosmos#969, Josh 2026-08-26). Every room's thread lives in ONE
@@ -17618,8 +17634,8 @@ window.kosmosMeasureScrollbarWidth();
            screen answering a narrower question than it was asked.
            ⚠️ The word is "conversations", not "dialogue": his phrasing was
            "stored dialogue", and dialogue is our word for it, not a reader's. -->
-      <button class="btn" id="pjs-chats-reveal" type="button" data-linux-hide>Show me where the conversations live</button>
-      <p class="fhint" style="margin:6px 0 0;" data-linux-hide>One folder for every project, with a file for each conversation.</p>
+      <button class="btn" id="pjs-chats-reveal" data-remote-hide type="button" data-linux-hide>Show me where the conversations live</button>
+      <p class="fhint" style="margin:6px 0 0;" data-remote-hide data-linux-hide>One folder for every project, with a file for each conversation.</p>
       <p class="fmsg" id="pjs-chats-msg" aria-live="polite"></p>
     </div>
 
@@ -18522,7 +18538,7 @@ window.kosmosMeasureScrollbarWidth();
       <div class="dstack">
         <!-- Quiet and its own width (#371): a convenience, not the page's main
              action. The same size as "Open sleep settings" two rows down. -->
-        <button class="btn-quiet" type="button" id="set-reveal" hidden style="font-size:.875rem;" data-win-copy="settingsRevealButton" data-linux-hide>Show me where it is</button>
+        <button class="btn-quiet" type="button" id="set-reveal" data-remote-hide hidden style="font-size:.875rem;" data-win-copy="settingsRevealButton" data-linux-hide>Show me where it is</button>
       </div>
       <p class="dhint" id="set-reveal-msg" style="margin:12px 0 0;" hidden data-linux-hide></p>
       <!-- 🔑 THE ICON STANDS BESIDE THE SENTENCE THAT NAMES IT (kosmos#1212).
@@ -19168,7 +19184,7 @@ window.kosmosMeasureScrollbarWidth();
         <a class="btn-quiet" id="upd-download" href="#" target="_blank" rel="noopener" aria-describedby="upd-line" hidden>Download</a>
         <!-- win32-board-copy (W-25): the manual offer's second button, shown only in that arm.
              It is the same engine reveal as Settings' "Open the Kosmos folder". -->
-        <button class="btn-quiet" type="button" id="upd-open-folder" hidden data-win-copy="updateOpenFolder">Open my Kosmos folder</button>
+        <button class="btn-quiet" type="button" id="upd-open-folder" data-remote-hide hidden data-win-copy="updateOpenFolder">Open my Kosmos folder</button>
         <!-- win32-update-rollback (S5, #3017): restore the kept previous build. Shown only when the
              status carries a rollback offer (win32-only, so never on Mac); paintUpdateCard sets its
              "Roll back to X" label from that offer in script, so it carries no platform-copy key. -->
@@ -20465,6 +20481,8 @@ function kplusRemote() {
   const h = String((typeof location !== 'undefined' && location.hostname) || '').replace(/^\[|\]$/g, '').toLowerCase();
   return !!h && !['127.0.0.1', 'localhost', '::1'].includes(h);
 }
+/* #6724: the stamp the data-remote-hide rule keys on, set once at load (a page's own address does not change). */
+if (typeof document !== 'undefined' && document.documentElement && kplusRemote()) document.documentElement.setAttribute('data-kplus-remote', '');
 /* #5165 (a Kosmos+ user on a Windows laptop clicked a .pptx in a project's Files and it tried to open on the HOST):
    over Kosmos+ the person is on another device, so a file click DOWNLOADS it to that device, as an attachment
    already does (#4930), and a button that would open a folder window on the board's computer says where the folder
@@ -20503,6 +20521,27 @@ function kplusDownload(kind, owner, name, say, after) {
     try { const b = await res.json(); said = (b && (b.error || b.because)) || ''; } catch { said = ''; }
     if (say) say(asSentence(said) || 'That file could not be downloaded.');
   }).catch(() => { /* the download itself is already under way; a failed look is not a failed download */ });
+}
+/* #6724: an agent's folder (a folder in its Files, or all of Files) as one zip, the way kplusDownload sends one file: the
+   download starts in the click, and a ?check=1 look beside it says a refusal (too big, gone) through `say`. */
+function kplusDownloadFolder(owner, dir, say) {
+  const q = 'dir=' + encodeURIComponent(dir || '');
+  const ticket = {};
+  if (say && say.el) KPLUS_LATEST.set(say.el, ticket);
+  const a = document.createElement('a');
+  a.href = '/api/agent/' + encodeURIComponent(owner) + '/files/download-folder?' + q;
+  a.download = (dir ? String(dir).split('/').pop() : 'Files') + '.zip';
+  a.hidden = true;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  if (say) say('');
+  fetch('/api/agent/' + encodeURIComponent(owner) + '/files/download-folder?check=1&' + q, { cache: 'no-store' }).then(async (res) => {
+    if (res.ok || (say && say.el && KPLUS_LATEST.get(say.el) !== ticket)) return;
+    let said = '';
+    try { const b = await res.json(); said = (b && (b.error || b.because)) || ''; } catch { said = ''; }
+    if (say) say(asSentence(said) || 'That folder could not be downloaded.');
+  }).catch(() => { /* the download itself is already under way */ });
 }
 /* A sentence-setter for one message line that writes only while `stillHere()` holds, so an answer that arrives after
    the person moved to another project or agent never lands under the new one. */
@@ -42341,7 +42380,7 @@ let AGENT_FILES_STAMP = null;
 /* #6497 (Mona's 0.7.56 noise pass): `compact` is the agent page's narrow Files panel. A full date on every row cut the
    names to a few letters there, so it shows the size only, as the project page's Files panel does; the date is the
    row's hover text. The Files screen (View All) keeps the date on the row. */
-function agentFileRow(f, compact = false) {
+function agentFileRow(f, compact = false, label = null) {   // #6724: `label` (the browser shows a name, not its path)
   // A BUTTON: it opens a file, so it must be reachable from the keyboard.
   const b = document.createElement('button');
   b.type = 'button';
@@ -42350,7 +42389,7 @@ function agentFileRow(f, compact = false) {
   b.insertAdjacentHTML('afterbegin', fileIcon(f.name));
   const n = document.createElement('span');
   n.className = 'pj-doc-n';
-  n.textContent = f.name;
+  n.textContent = label || f.name;
   const w = document.createElement('span');
   w.className = 'pj-doc-w';
   const when = f.modified ? new Date(f.modified) : null;
@@ -42438,6 +42477,10 @@ async function paintAgentFiles(sessionName) {
   const all = document.getElementById('d-files-all');
   if (!section || !list || !msg) return;
   const epoch = (AGENT_FILES_EPOCH += 1);
+  /* The Files screen, when it is the one showing, follows every change, an emptied folder included. #6724: by its own
+     read and its own stamp, on every tick and FIRST (it may be showing a folder inside Files, which this flat list's
+     stamp does not see, and a failure of this list's read is not a reason for it to skip a tick). */
+  { const screen = detailSection('files'); if (screen && !screen.hidden) paintAgentFilesAll(sessionName); }
   let body;
   let status = 0;
   try {
@@ -42462,8 +42505,6 @@ async function paintAgentFiles(sessionName) {
   const stamp = ok ? String(body.stamp || '') : 'refused:' + status + ':' + String((body && body.because) || '');
   if (stamp && stamp === AGENT_FILES_STAMP) return;
   AGENT_FILES_STAMP = stamp;
-  // The Files screen, when it is the one showing, follows every change, an emptied folder included.
-  { const screen = detailSection('files'); if (screen && !screen.hidden) paintAgentFilesAll(sessionName); }
   list.textContent = '';
   if (all) all.hidden = true;
   const files = ok && Array.isArray(body.files) ? body.files : [];
@@ -42484,54 +42525,144 @@ async function paintAgentFiles(sessionName) {
   // because it is the way to the Files screen and its Open in Finder button.
   if (all) all.hidden = false;
 }
-/* #3757: the Files screen, reached from View All: every file (up to the route's own cap), with
-   Open in Finder, which moved here from the sidebar. */
+/* #3757: the Files screen, reached from View All, with Open in Finder, which moved here from the sidebar.
+   #6724: it is the in-app BROWSER of the agent's Files now (Josh, viewing a board from another computer, where Finder
+   opens on the far Mac): one folder at a time (GET .../files/browse?dir=), its folders first and then its files, a path
+   line back up, and Download folder (that folder as one zip). Read-only. A file row behaves as it always did (#4997's
+   preview for a picture, a PDF or now text; otherwise open on the computer, or download over Kosmos+). */
 let AGENT_FILES_ALL_EPOCH = 0;
+let AGENT_FILES_DIR = '';          // #6724: the folder in Files being shown, as the route names it ('' is the top)
+let AGENT_FILES_ALL_STAMP = null;  // the browse answer last painted; any failure clears it, so a recovery repaints
+let AGENT_FILES_FOCUS = false;     // set by a move to another folder: the new list gets the keyboard focus
+let AGENT_FILES_ALL_FAIL = null;   // iteration 2: the failure last shown, so the same one is not re-announced each tick
+function folderIcon() {
+  return '<svg class="ficon" viewBox="0 0 18 20" width="18" height="20" aria-hidden="true" focusable="false">'
+    + '<path d="M1.5 5.5a1 1 0 0 1 1-1h4.2l1.6 1.8h7.2a1 1 0 0 1 1 1v9.2a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1z" fill="#e8eaed" stroke="#9aa0a6" stroke-width="1"/></svg>';
+}
+function agentDirRow(d) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'pj-doc pj-dir';
+  b.dataset.dir = d.name;
+  b.insertAdjacentHTML('afterbegin', folderIcon());
+  const shown = String(d.name).split('/').pop();
+  const n = document.createElement('span');
+  n.className = 'pj-doc-n';
+  n.textContent = shown;
+  const w = document.createElement('span');
+  w.className = 'pj-doc-w';
+  const when = d.modified ? new Date(d.modified) : null;
+  w.textContent = when && !isNaN(when) ? when.toLocaleDateString() : '';
+  b.setAttribute('aria-label', 'Folder ' + shown);
+  b.append(n, w);
+  return b;
+}
+function agentFilesPath(dir) {
+  const el = document.getElementById('d-filesall-path');
+  if (!el) return;
+  el.textContent = '';
+  if (!dir) { el.hidden = true; return; }
+  el.hidden = false;
+  const segs = dir.split('/');
+  const crumb = (label, to, current) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.dataset.dir = to;
+    if (current) b.setAttribute('aria-current', 'location');
+    return b;
+  };
+  el.append(crumb('Files', '', false));
+  segs.forEach((s, i) => {
+    const sep = document.createElement('span');
+    sep.className = 'dfiles-sep';
+    sep.setAttribute('aria-hidden', 'true');
+    sep.textContent = '/';
+    el.append(sep, crumb(s, segs.slice(0, i + 1).join('/'), i === segs.length - 1));
+  });
+}
+function agentFilesGo(dir) {
+  if (!CURRENT) return;
+  AGENT_FILES_DIR = dir;
+  AGENT_FILES_ALL_STAMP = null;
+  AGENT_FILES_ALL_FAIL = null;
+  AGENT_FILES_FOCUS = true;
+  const msg = document.getElementById('d-filesall-msg');
+  if (msg) msg.textContent = '';
+  paintAgentFilesAll(CURRENT.sessionName);
+}
 async function paintAgentFilesAll(sessionName) {
   const list = document.getElementById('d-filesall-list');
   const msg = document.getElementById('d-filesall-msg');
   const more = document.getElementById('d-filesall-more');
   if (!list || !msg) return;
   const epoch = (AGENT_FILES_ALL_EPOCH += 1);
+  const dir = AGENT_FILES_DIR;
+  const stale = () => epoch !== AGENT_FILES_ALL_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName || dir !== AGENT_FILES_DIR;
   let body;
   let status = 0;
   try {
-    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/files?limit=500');
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/files/browse?dir=' + encodeURIComponent(dir), { cache: 'no-store' });
     status = res.status;
     body = await res.json();
   } catch {
-    if (epoch !== AGENT_FILES_ALL_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
+    if (stale()) return;
+    AGENT_FILES_ALL_STAMP = null;
+    AGENT_FILES_FOCUS = false;
+    // The same failure as the last tick is left as it is: rewriting a status line makes a screen reader say it again.
+    if (AGENT_FILES_ALL_FAIL === 'neterr') return;
+    AGENT_FILES_ALL_FAIL = 'neterr';
+    agentFilesPath(dir);
     list.textContent = '';
     if (more) more.hidden = true;
     msg.textContent = 'We could not read this agent’s files just now.';
     return;
   }
-  if (epoch !== AGENT_FILES_ALL_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
+  if (stale()) return;
+  const ok = Boolean(body && body.ok === true);
+  if (ok && body.stamp && body.stamp === AGENT_FILES_ALL_STAMP) return;   // nothing moved, and the screen shows it
+  AGENT_FILES_ALL_STAMP = ok ? String(body.stamp || '') || null : null;
+  if (!ok) {
+    AGENT_FILES_FOCUS = false;
+    const fail = 'refused:' + status + ':' + String((body && body.because) || '');
+    if (fail === AGENT_FILES_ALL_FAIL) return;   // as above: the same refusal is not rewritten
+    AGENT_FILES_ALL_FAIL = fail;
+  } else AGENT_FILES_ALL_FAIL = null;
+  agentFilesPath(dir);
   list.textContent = '';
   if (more) more.hidden = true;
-  if (!body || body.ok !== true) {
-    msg.textContent = status === 404
+  if (!ok) {
+    msg.textContent = status === 404 && !dir
       ? 'This agent has no folder of its own on this computer, so there is no Files list.'
       : asSentence((body && body.because) || 'We could not read this agent’s files just now.');
     return;
   }
+  const dirs = Array.isArray(body.dirs) ? body.dirs : [];
   const files = Array.isArray(body.files) ? body.files : [];
-  msg.textContent = files.length ? '' : 'This agent has no files yet.';
-  for (const f of files) list.append(agentFileRow(f));
-  const rest = Number(body.total) - files.length;
-  if (more && rest > 0) {
-    // #5165: over Kosmos+ the folder button cannot show them on this device, so it is not offered as the way.
-    // #5865: and on Linux, where the Finder button is hidden (revealFolder runs /usr/bin/open).
-    more.textContent = 'And ' + rest + ' more in the folder.'
-      + (kplusRemote() || onLinux() ? '' : ' ' + platformCopy('docsOpenFolder', 'Open in Finder') + ' shows them all.');   // the button's own words
+  msg.textContent = dirs.length || files.length ? '' : (dir ? 'This folder is empty.' : 'This agent has no files yet.');
+  for (const d of dirs) list.append(agentDirRow(d));
+  for (const f of files) list.append(agentFileRow(f, false, String(f.name).split('/').pop()));
+  if (more && body.truncated) {
+    // Iteration 3: stopped by the read budget (many hidden names) is said as the project list says it, not as a count.
+    more.textContent = body.scanCut
+      ? 'This folder holds a lot, so Kosmos stopped looking partway through it. Some files may not be listed here.'
+      : Number(body.limit) > 0   // the server's own cap
+        ? 'This folder holds more than ' + Number(body.limit).toLocaleString() + ' items, so not all of them are listed here.'
+        : 'This folder holds more items than can be listed here, so not all of them are shown.';
     more.hidden = false;
+  }
+  if (AGENT_FILES_FOCUS) {
+    AGENT_FILES_FOCUS = false;
+    const to = list.querySelector('.pj-doc') || document.querySelector('#d-filesall-path [aria-current]') || document.getElementById('d-filesall-h');
+    if (to && typeof to.focus === 'function') to.focus();
   }
 }
 for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-list', 'd-filesall-msg']]) document.getElementById(listId) && document.getElementById(listId).addEventListener('click', async (e) => {
   const row = e.target.closest('.pj-doc');
   if (!row || !CURRENT) return;
   const who = CURRENT.sessionName;
-  if (filesPvOpen(row, { agent: who }, e)) return;   // #4997: an image or PDF opens the full-page preview
+  if (row.classList.contains('pj-dir')) { agentFilesGo(row.dataset.dir || ''); return; }   // #6724: into a folder
+  if (filesPvOpen(row, { agent: who }, e)) return;   // #4997: an image, PDF or (#6724) text file opens the full-page preview
   const msg = document.getElementById(msgId);
   if (kplusRemote() || onLinux()) {   // #5165: download it to this device; #5881: on a Linux board too, which may have no desktop to open it on
     kplusDownload('agent', who, row.dataset.doc, kplusSayer(msg, () => CURRENT && CURRENT.sessionName === who));
@@ -42557,6 +42688,19 @@ document.getElementById('d-files-all') && document.getElementById('d-files-all')
 document.getElementById('d-files-back') && document.getElementById('d-files-back').addEventListener('click', () => {
   if (!CURRENT) return;
   detailGo('talk');
+});
+/* #6724: the path line: Files, then each folder entered, each one a way back up. */
+document.getElementById('d-filesall-path') && document.getElementById('d-filesall-path').addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('button[data-dir]');
+  if (!b || !CURRENT || b.hasAttribute('aria-current')) return;
+  agentFilesGo(b.dataset.dir || '');
+});
+/* #6724: Download folder: the folder being shown, as one zip, to the device the person is on (here or over Kosmos+). */
+document.getElementById('d-files-zip') && document.getElementById('d-files-zip').addEventListener('click', () => {
+  if (!CURRENT) return;
+  const who = CURRENT.sessionName;
+  const dir = AGENT_FILES_DIR;
+  kplusDownloadFolder(who, dir, kplusSayer(document.getElementById('d-filesall-msg'), () => CURRENT && CURRENT.sessionName === who && AGENT_FILES_DIR === dir));
 });
 document.getElementById('d-files-finder') && document.getElementById('d-files-finder').addEventListener('click', async () => {
   if (!CURRENT) return;
@@ -42860,6 +43004,12 @@ function openDetail(sessionName, section, fromProject) {
     if (fa) fa.hidden = true;
     for (const id of ['d-filesall-list', 'd-filesall-msg']) { const el = document.getElementById(id); if (el) el.textContent = ''; }
     { const el = document.getElementById('d-filesall-more'); if (el) el.hidden = true; }
+    // #6724: another agent's Files start at their top, never in a folder the last agent had open.
+    AGENT_FILES_DIR = '';
+    AGENT_FILES_ALL_STAMP = null;
+    AGENT_FILES_ALL_FAIL = null;
+    AGENT_FILES_FOCUS = false;
+    { const el = document.getElementById('d-filesall-path'); if (el) { el.textContent = ''; el.hidden = true; } }
   }
   paintAgentFiles(a.sessionName);
   /* #5153 slice 3: never the last agent's work while this one's is read. */
@@ -70256,7 +70406,8 @@ function pvOpen(id, from) {
     card.querySelector('span').textContent = a.meta || '';
     return card;
   };
-  if ((a.kind === 'image' || a.kind === 'pdf') && a.preview && /^\/api\//.test(a.preview)) {
+  const how = pvStageKind(a);
+  if (how === 'media') {
     const img = document.createElement('img');
     img.className = 'pv-media';
     img.alt = a.kind === 'pdf' ? 'The first page of ' + a.name : a.name;
@@ -70267,7 +70418,9 @@ function pvOpen(id, from) {
        type the server cannot preview) shows the file's card instead of a broken image on the whole screen. */
     img.addEventListener('error', () => { stage.textContent = ''; stage.appendChild(fileCard()); }, { once: true });
     pvZoomFrom(img, from);
-  } else if (a.kind === 'text' && typeof a.preview === 'string' && a.preview && !/^\/api\//.test(a.preview)) {
+  } else if (how === 'textOf') {
+    pvTextInto(stage, a.textOf, fileCard);   // #6724: a Files-list text file
+  } else if (how === 'snippet') {
     const pre = document.createElement('pre');
     pre.className = 'pv-text';
     pre.textContent = a.preview;   // the file's own words, as text, never markup
@@ -70308,6 +70461,39 @@ function pvOpen(id, from) {
   document.body.appendChild(back);
   back.querySelector('.pv-box').focus();
   return true;
+}
+/* What the preview's stage shows for a record. #6724 iteration 6: a text file is READ FROM THE BOARD only by an explicit
+   `textOf` (which list, whose, the listed name; iteration 10: pvTextInto writes the address itself), which only the Files
+   lists set (filesPvOpen). An attachment's `preview`
+   is the file's own first words, untrusted text, so it is never taken as an address (a file that begins "/api/..."
+   must not make the viewer's browser fetch that path); as before, such a snippet shows the file's card. */
+function pvStageKind(a) {
+  if (!a) return 'card';
+  if ((a.kind === 'image' || a.kind === 'pdf') && a.preview && /^\/api\//.test(a.preview)) return 'media';
+  if (a.kind === 'text' && a.textOf && (a.textOf.kind === 'agent' || a.textOf.kind === 'project') && a.textOf.owner && a.textOf.name) return 'textOf';
+  if (a.kind === 'text' && typeof a.preview === 'string' && a.preview && !/^\/api\//.test(a.preview)) return 'snippet';
+  return 'card';
+}
+/* #6724: a Files-list text file in the preview: its start, read from the board's preview route (plain text, never
+   markup), with a note when the file goes on past what is shown. One that will not read shows the file's card. An
+   answer that arrives after the preview closed writes nothing. */
+function pvTextInto(stage, of, fileCard) {
+  const pre = document.createElement('pre');
+  pre.className = 'pv-text';
+  pre.textContent = 'Reading…';
+  stage.appendChild(pre);
+  /* Iteration 10: the two addresses are written out here, once each, so the route test (#3957) reads them, as
+     kplusDownload's are; `of` names the file, never an address. */
+  const asked = of.kind === 'agent'
+    ? fetch('/api/agent/' + encodeURIComponent(of.owner) + '/files/preview?name=' + encodeURIComponent(of.name), { cache: 'no-store' })
+    : fetch('/api/project/' + encodeURIComponent(of.owner) + '/file-preview?name=' + encodeURIComponent(of.name), { cache: 'no-store' });
+  return asked.then(async (res) => {
+    if (!res.ok) throw new Error('no preview');
+    const text = await res.text();
+    if (!document.contains(pre)) return;
+    pre.textContent = text;
+    if (res.headers.get('x-kosmos-preview-cut') === '1') { const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The start of the file'; stage.appendChild(c); }
+  }).catch(() => { if (document.contains(pre)) { stage.textContent = ''; stage.appendChild(fileCard()); } });
 }
 /* The picture grows from the card it was clicked on, unless the person asked for less motion. */
 function pvZoomFrom(img, from) {
@@ -70368,7 +70554,10 @@ function filesPvOpen(row, where, e) {
   /* Review 2: only what the preview can show here. A browser draws png, jpeg, gif and webp; heic and avif may not
      decode, and a PDF's first page is drawn by macOS alone, so on Windows a PDF (and everywhere heic and avif) keeps
      opening on the computer rather than becoming a card that cannot open it. */
-  const kind = /^(png|jpe?g|gif|webp)$/.test(lower) ? 'image' : ((lower === 'pdf' && !onWindows()) ? 'pdf' : null);
+  /* #6724: and a text file (attachments.kindOf's text extensions, which the server's preview answers as its first
+     256 KiB of plain text), on every platform. */
+  const kind = /^(png|jpe?g|gif|webp)$/.test(lower) ? 'image' : ((lower === 'pdf' && !onWindows()) ? 'pdf'
+    : (/^(txt|md|markdown|csv|json|yaml|yml|log|sh|js|ts|py|html?|css)$/.test(lower) ? 'text' : null));
   if (!kind) return false;
   let base;
   if (where && where.agent) base = { preview: '/api/agent/' + encodeURIComponent(where.agent) + '/files/preview', download: '/api/agent/' + encodeURIComponent(where.agent) + '/files/download' };
@@ -70380,6 +70569,8 @@ function filesPvOpen(row, where, e) {
   PV_ATTS.set(FILES_PV_ID, {
     id: FILES_PV_ID, name: shown, kind, meta: sizeEl ? sizeEl.textContent : '',
     url: base.download + q, preview: base.preview + q,
+    // #6724: the only way a text preview is fetched (pvStageKind): which list, whose, and the listed name. Never an address.
+    textOf: kind === 'text' ? { kind: where.agent ? 'agent' : 'project', owner: where.agent || where.project, name } : undefined,
     download: () => kplusDownload(where.agent ? 'agent' : 'project', where.agent || where.project, name,
       kplusSayer(document.getElementById('pv-msg'), () => !!document.getElementById('pv-msg'))),
     reveal: async () => {

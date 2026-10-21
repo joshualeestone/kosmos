@@ -758,13 +758,13 @@ test('#5865: Settings on Linux has no Dock line, app icon, Accessibility or tmux
     // Mac's runtime/bin/node layout, so engine/update.js installedRoot finds it and auto-install runs.)
     'Open Terminal': /<div class="field" data-win-hide data-linux-hide>\s*<button class="btn" id="d-open-terminal"/,
     // engine/projects.js revealFolder runs /usr/bin/open, which a Linux board does not have.
-    'agent Files: Open in Finder': /id="d-files-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>/,
-    'project docs: Open this folder in Finder': /id="docs-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>/,
+    'agent Files: Open in Finder': /id="d-files-finder" data-remote-hide type="button" data-win-copy="docsOpenFolder" data-linux-hide>/,   // #6724: hidden over Kosmos+ too
+    'project docs: Open this folder in Finder': /id="docs-finder" data-remote-hide type="button" data-win-copy="docsOpenFolder" data-linux-hide>/,
     // The same revealFolder route, reached from project settings and the task page (review 5).
-    'project: Show me where it is': /id="pjs-reveal" type="button" data-linux-hide>/,
-    'project: Show me where the conversations live': /id="pjs-chats-reveal" type="button" data-linux-hide>/,
+    'project: Show me where it is': /id="pjs-reveal" data-remote-hide type="button" data-linux-hide>/,
+    'project: Show me where the conversations live': /id="pjs-chats-reveal" data-remote-hide type="button" data-linux-hide>/,
     'its hint': /data-linux-hide>One folder for every project, with a file for each conversation\./,
-    'task: Show me where the task conversations live': /id="tk-chats-reveal" type="button" style="margin-top:12px;" data-linux-hide>/,
+    'task: Show me where the task conversations live': /id="tk-chats-reveal" data-remote-hide type="button" style="margin-top:12px;" data-linux-hide>/,
     'its hint (task)': /data-linux-hide>One folder, with a file for each task's conversation\./,
   };
   for (const [name, re] of Object.entries(HIDDEN_ON_LINUX)) assert.match(PAGE, re, name + ' shows on Linux');
@@ -827,15 +827,12 @@ test('#5865: after a folder move on Linux the keyboard lands on the sentence, no
   assert.deepEqual(run('darwin'), { focused: 'reveal', tab: 0 }, 'CONTROL: a Mac sends the keyboard to Show me where it is');
 });
 
-test('#5865: the Files overflow line names the button in its platform\'s words', () => {
+test('#5865 + #6724: the Files screen\'s overflow line names no button on any platform (the browser lists the folder itself)', () => {
   const line = page.lift(SCRIPT, 'paintAgentFilesAll');
-  const at = line.indexOf("more.textContent = 'And '");
+  const at = line.indexOf('more.textContent = ');
   assert.ok(at > -1, 'premise: the overflow line was found');
-  const expr = line.slice(line.indexOf('=', at) + 1, line.indexOf(';', at));
-  const say = (platform) => runPage(platform, ['kplusRemote'], expr, { rest: 3, location: { hostname: '127.0.0.1' } });
-  assert.equal(say('win32'), 'And 3 more in the folder. ' + table.docsOpenFolder + ' shows them all.');
-  assert.equal(say('linux'), 'And 3 more in the folder.');
-  assert.equal(say('darwin'), 'And 3 more in the folder. Open in Finder shows them all.', 'CONTROL: the Mac line changed');
+  const said = line.slice(at, line.indexOf(';', at));
+  assert.doesNotMatch(said, /docsOpenFolder|platformCopy|Finder|File Explorer/, 'the overflow line points at a folder button');
 });
 
 test('#5865, #6538: a remote Linux board\'s failed read card names no machine, so it cannot name the wrong one', () => {
