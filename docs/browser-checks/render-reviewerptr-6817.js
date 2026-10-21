@@ -49,6 +49,7 @@ async function open(browser, w, h, theme, eng) {
           enrolledAt: 1, reporting: true, reviewerGrants: window.GRANTS.reviewerGrants });
       }
       if (u.startsWith('/api/plus/status') || u.startsWith('/api/plus')) return enc({ enrolled: true, on: true, state: 'up' });
+      if (u.startsWith('/api/history')) return enc({ readable: false });   // Settings' own history panel, in its could-not-read shape
       return enc({ ok: true });
     };
   });
@@ -78,11 +79,15 @@ async function read(page, answer, status) {
   }, [answer, status]);
 }
 
+/* A check that hangs holds the machine for everyone: four minutes, then it fails naming the step it was on. */
+let STEP = 'start';
+const WATCHDOG = setTimeout(() => { console.log('FAIL  render-reviewerptr-6817 did not finish in 4 minutes (stuck at: ' + STEP + ')'); process.exit(3); }, 240000);
 (async () => {
   const engines = (process.env.ENGINES || 'chromium,webkit').split(',').filter(Boolean);
   for (const eng of engines) {
     const browser = await pw[eng].launch();
     const t = `[${eng}]`;
+    STEP = eng + ' 1280';
     const now = Math.floor(Date.now() / 1000);
     const company = (grants) => ({ enrolled: true, kind: 'company', reviewerGrants: grants });
     const g = (ago) => ({ who: 'Pat Lee', grantedAt: now - ago, effectiveAt: now - ago + DAY });
@@ -93,6 +98,7 @@ async function read(page, answer, status) {
       `${t} two new grants show one notice in the floating stack, with See who and a close, in the company's words`, JSON.stringify(first));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `reviewerptr-${eng}-light.png`) });
 
+    STEP = eng + ' x from the keyboard';
     await page.focus('#reviewer-slot button.ux');
     await page.keyboard.press('Enter');
     const focusAfter = await page.evaluate(() => { const a = document.activeElement; return !!a && a !== document.body && a.getClientRects().length > 0; });
@@ -101,6 +107,7 @@ async function read(page, answer, status) {
     const again = await read(page, company([g(3 * DAY), g(DAY), g(60)]));
     chk(again.count === 1, `${t} a newer grant shows it again (CONTROL: the x is not a permanent mute)`, JSON.stringify(again));
 
+    STEP = eng + ' see who';
     await page.click('#reviewer-slot button[data-reviewer-see]');
     await page.waitForTimeout(800);
     // The page's 5 s tick is off in this check; in the app it repaints Settings, which marks the list seen once in view.
@@ -116,10 +123,13 @@ async function read(page, answer, status) {
       `${t} See who opens Settings at Kosmos+ with the reviewers list on screen, and the notice is gone`, JSON.stringify(went));
 
     await page.evaluate(() => { showTab('agents'); localStorage.removeItem('kosmos.reviewerGrantsSeen'); });
+    STEP = eng + ' removed grant';
     const removed = await read(page, company([{ ...g(DAY / 2), removedAt: now - DAY / 2 + 60 }]));
     chk(removed.count === 0, `${t} a grant undone a minute later raises nothing`, JSON.stringify(removed));
-    const fam = await read(page, { enrolled: true, kind: 'family', reviewerGrants: [g(DAY)] });
+    // Its own grant: the x above marked g(DAY) seen in the page's memory, which clearing storage does not reset.
+    const fam = await read(page, { enrolled: true, kind: 'family', reviewerGrants: [{ ...g(DAY), who: 'Sam Ortiz' }] });
     chk(fam.count === 1 && fam.words === 'Someone was made a reviewer for your family.', `${t} a family's notice says "your family"`, JSON.stringify(fam));
+    STEP = eng + ' failed read';
     const failed = await read(page, null, 500);
     chk(failed.count === 1, `${t} a failed read keeps the notice on screen`, JSON.stringify(failed));
     const none = await read(page, { enrolled: false, kind: null, reviewerGrants: [] });
@@ -128,6 +138,7 @@ async function read(page, answer, status) {
     await ctx.close();
 
     for (const theme of ['light', 'dark']) {
+      STEP = eng + ' 375 ' + theme;
       const p = await open(browser, 375, 667, theme, eng);
       await read(p.page, company([g(DAY)]));
       const fit = await p.page.evaluate(() => {
@@ -147,6 +158,7 @@ async function read(page, answer, status) {
   if (engines.length === 0) chk(false, 'ENGINES named no engine, so nothing ran');
   const EXPECTED_PER_ENGINE = 13;
   if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
+  clearTimeout(WATCHDOG);
   console.log(`render-reviewerptr-6817: ${RAN - fail.length} PASS, ${fail.length} FAIL`);
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });
