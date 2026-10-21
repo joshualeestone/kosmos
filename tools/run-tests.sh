@@ -457,7 +457,7 @@ seen_before() {
   # pre-initialised for `set -u` since the guard may leave it unassigned.
   local load="" cores=""
   command -v kosmos_box_load_1min >/dev/null 2>&1 && load="$(kosmos_box_load_1min)"
-  cores="$(sysctl -n hw.ncpu 2>/dev/null)"
+  command -v kosmos_cpu_count >/dev/null 2>&1 && cores="$(kosmos_cpu_count)"
   [ -n "$load" ] && lines+=("1-minute load $load on ${cores:-?} cores")
   # #5727: the wall-clock time-scale the eventually() helper applies this run, so the
   # reader of a timing red sees whether budgets were stretched for load (scale > 1x).

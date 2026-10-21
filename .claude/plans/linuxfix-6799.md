@@ -57,3 +57,28 @@ That GNU-first is harmless on macOS everywhere it runs: BSD `stat -c` exits non-
 - The list's header still said 34 listed and 230 on Linux, and 26 Linux failures with no word that three were a
   fallback-order bug; it now says 31 and 233 and names #6799's fix and its probe run.
 - test-launchagent-leak-guard-3011's entry is back in alphabetical place.
+
+## Slice 3: core count and load from macOS sysctl only (test-cut-load-guard, test-cut-parallel-region)
+- Linux failures (probe run 39553501883): `kosmos_box_load_1min live parse is non-numeric: []` and both "should
+  parallelize" arms; test-cut-parallel-region's parallel arm took the serial branch. Cause: `sysctl -n vm.loadavg` and
+  `sysctl -n hw.ncpu` both read empty on Linux, and kosmos_cut_parallel_ok goes serial on an empty core count.
+- Fix: `kosmos_cpu_count` (hw.ncpu, then `getconf _NPROCESSORS_ONLN`) at the three sites; the load read wraps
+  /proc/loadavg's first three fields in macOS's `{ 1m 5m 15m }` shape, so the one shared awk (#2749) still extracts it.
+- The test's expected core count used `hw.ncpu || echo 4`, which would now disagree with the guard on Linux; it reads
+  the count independently in the same order, and a new arm asserts kosmos_cpu_count reads one on the host platform.
+- macOS (this Mac): both pass. Linux, probe-6799c (never merged), run 39556794222: each ALONE rc 0 (the one "skip"
+  line is the test title "skips the ps header", not a platform skip; `kosmos_cpu_count reads the core count on Linux
+  (4)`); shard 1/2 "all 124 passed"; shard 2/2 "all 112 passed" but run-tests.sh's #4273 leak guard went red on
+  "7 x tmp". Cause: the release.sh region keeps its suite/page log on every abort arm ("Full output: ..."), from a bare
+  `mktemp`. GNU mktemp honours TMPDIR (/tmp there); macOS mktemp with no template ignores TMPDIR and writes to the
+  per-user /var/folders/.../T (measured on this Mac), which is why the macOS job never flagged it. The test now runs the
+  region with TMPDIR="$WORK", so on Linux its trap removes them. On macOS they still land in the per-user dir, as they
+  did before (pre-existing, left alone: release.sh's kept-on-abort logs are deliberate). Re-measured: probe-6799d.
+- run-tests.sh's load diagnostic read cores from hw.ncpu only; with the load now readable on Linux it would print
+  "on ? cores", so it uses kosmos_cpu_count (same `command -v` guard as its load read).
+- Precedent: cut-guard.sh's `_kosmos_load_and_cores` already falls back to /proc/loadavg and getconf the same way.
+- Out of scope, recorded: `ps -Ao ... -r` in kosmos_top_cpu_consumers is attribution only (GNU -r means "running
+  only"); test-time-scale.sh and build-tmux-from-source.sh fall back to 4.
+
+## Weakest premise (slice 3)
+That Linux `sysctl -n hw.ncpu` fails rather than printing something with rc 0; the probe's cpu_count arm measures it.
