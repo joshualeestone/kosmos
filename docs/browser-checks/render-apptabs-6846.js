@@ -117,8 +117,13 @@ const teardownFails = [];
     const open = async (host, theme, { app = true, computers = ONE } = {}) => {
       const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, colorScheme: theme, hasTouch: true, serviceWorkers: 'block' });
       await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {} });
-      // What the app's WKUserScript does at document start (#6846 part b).
-      if (app) await ctx.addInitScript(() => { document.documentElement.classList.add('kapptabs'); });
+      /* What the app's WKUserScript does at document start (#6846 part b). Playwright's init script can run before
+         <html> exists (documentElement null: the first run threw, the class never landed and every arm read today's
+         bar), so it adds the class as soon as <html> is there. */
+      if (app) await ctx.addInitScript(() => {
+        const add = () => { const h = document.documentElement; if (h) h.classList.add('kapptabs'); return !!h; };
+        if (!add()) new MutationObserver((m, o) => { if (add()) o.disconnect(); }).observe(document, { childList: true });
+      });
       /* M4: record the menu's first level on screen while the menu is open. A MutationObserver reports after the
          click's own synchronous work, so this sees a pass that lasts past it (the animated walk through the first level
          that kappOpenAt used to make: 160ms on screen), not a show-and-hide inside one task. */

@@ -2734,7 +2734,11 @@ async function run() {
                  byte still comes from this board. Registered FIRST so the stubs below, registered after it, win
                  (Playwright tries the newest route first); they fetch through fetchBoard, which points back at the board. */
               // kosmos#6846: what the iPhone app's WKUserScript does at document start when it shows its native tab bar.
-              if (args.appTabs) await ctx.addInitScript(() => { document.documentElement.classList.add('kapptabs'); });
+              // The init script can run before <html> exists, so the class lands as soon as it does (render-apptabs-6846).
+              if (args.appTabs) await ctx.addInitScript(() => {
+                const add = () => { const h = document.documentElement; if (h) h.classList.add('kapptabs'); return !!h; };
+                if (!add()) new MutationObserver((m, o) => { if (add()) o.disconnect(); }).observe(document, { childList: true });
+              });
               if (args.remote) {
                 await ctx.route(REMOTE_BASE + '/**', (r) => fetchBoard(r).then((res) => r.fulfill({ response: res }).catch(() => {}), () => r.abort().catch(() => {})).catch(() => {}));   // board gone: fail now, not at the screen's timeout; a late answer after close is quiet (#6022)
               }
