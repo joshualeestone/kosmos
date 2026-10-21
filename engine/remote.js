@@ -181,7 +181,143 @@ function askConnectorCapabilities() {
 /* Whether this board has started the tunnel process that forwards. Until it has, nothing is vouched for: a tunnel
    left running by an earlier board (an older binary, say) must not borrow what this board's binary says. */
 let tunnelStartedHere = false;
+/* kosmos#6616 (R01b part 6): the binary's answer AND the running tunnel's own. Once this board has started a tunnel,
+   a capability counts only if the child it runs now also lists it in its status file (`capabilities`, written by the
+   process about itself, kosmos-relay runcaps-6616). The binary's answer alone described the file on disk, which an
+   update can replace while this board's tunnel keeps forwarding, and the ten-minute recheck would then ask the NEW
+   binary about the OLD process. A status file from another process (its pid), not yet written, unreadable, or with no
+   `capabilities` (a connector older than that field) lists nothing, and so does a moment with no child running
+   (crash backoff, a stop): nothing legitimate arrives then, so it fails closed. This only ever narrows the binary's
+   answer. A tunnel orphaned by an EARLIER board that still forwards is described by neither check (it shares this
+   board's status file under its own pid), so it is ended (endForeignTunnel, kosmos#6669); where it cannot be (Windows,
+   a Linux subreaper) it stays open, as does a pid reused between ps and the signal. */
 function connectorCapabilities(now = Date.now()) {
+  const caps = binaryCapabilities(now);
+  const running = runningCapabilities();
+  return running === null ? caps : new Set([...caps].filter((c) => running.has(c)));
+}
+// kosmos#6616: tests only, the pid of a tunnel "running here" when none was spawned (a real child always wins).
+let runningPidForTests = null;
+/* A process's capabilities are compiled into it, so once this board's child has said what it lists, that holds for
+   the life of that pid (kosmos#6669, review 3: a tunnel orphaned by an earlier board rewrites the same status file
+   under its own pid, and this board's child writes it only on a state change, so without this one foreign write
+   refused every gated remote action until the child next reconnected). */
+let runningSeen = null;   // { pid, caps }
+/* What the tunnel process this board runs says it can do; null only before this board has started any (the binary's
+   answer is then gated by tunnelStartedHere alone). Read until that process has said: a small file. */
+function runningCapabilities() {
+  if (!tunnelStartedHere) return null;
+  const pid = child ? child.pid : (process.env.NODE_TEST_CONTEXT ? runningPidForTests : null);
+  if (pid === null || pid === undefined) return new Set();
+  let raw = null;
+  // Unreadable includes a moment where Windows holds the file for the tunnel's atomic replace: refused, asked again.
+  try { raw = JSON.parse(fs.readFileSync(STATUS_FILE(), 'utf8')); } catch { /* below */ }
+  // Read even when the child's list is kept (review 7), so a foreign writer is noticed on the gated path too.
+  if (raw && Number.isInteger(raw.pid) && raw.pid !== pid) {
+    endForeignTunnel(raw.pid);
+    // Review 10: ending is asynchronous, and both tunnels forward to the same port, so a request now may be the
+    // orphan's. Until that pid is settled as one to leave alone (a live board's, not ours, gone, Windows), nothing.
+    if (foreignVerdict.get(raw.pid) !== 'leave') return new Set();
+  }
+  if (runningSeen && runningSeen.pid === pid) return runningSeen.caps;
+  if (!raw || raw.pid !== pid) return new Set();
+  return noteRunning(raw, pid);
+}
+/* Keep what this board's child said (review 5: status() reads the file far more often than a gated request does, so it
+   notes the child's write too, and a foreign tunnel that cannot be ended, on Windows say, blocks gated actions only
+   until the child's first write is seen, not until its next state change). */
+function noteRunning(raw, pid) {
+  const caps = new Set(Array.isArray(raw.capabilities) ? raw.capabilities.filter((c) => typeof c === 'string') : []);
+  runningSeen = { pid, caps };
+  return caps;
+}
+/* kosmos#6669 (R01c): a tunnel this board did not start that writes this board's status file is one an earlier board
+   left behind (killed hard, so it could not reap it). Its reconnect loop takes the relay connection back from this
+   board's tunnel after each "replaced by a newer connection", so it forwards part of the time, as whatever binary it
+   was, and neither capability check describes it. It is ended (SIGTERM, to the pid the file names) ONLY when ps shows
+   all of: its parent is 1 (it was re-parented: its board is gone; review 4, a second LIVE board on the same account
+   shares this file, and killing its child would start a kill loop between the two), the text before its first
+   ` run ` is BIN() itself or one token with BIN()'s basename (review 9: no wrapper such as `strace /x/kosmos-tunnel
+   run ...`; argv, not the kernel's executable name, which a portable test
+   fixture cannot fake; review 6) and its first argument is `run`, and it was started with this board's own `--status-file` path,
+   the whole argument. A pid outside 2..2^22 is never looked at (0 and -1 would signal a group). Our own pid and our
+   child are excluded both when asked and again right before the signal. Not closed (stated): a pid that exits and is
+   reused between ps and the signal. Kept an hour per pid: "not our tunnel" (program or path). Asked again after a
+   minute (reviews 5 and 6): a live parent (its board may die later), a pid that is gone (it may be reused by one), and
+   one just ended (a tunnel that ignores TERM). Never judged while this board is itself pid 1 (a container entrypoint,
+   whose own earlier children read as orphans).
+   A failed ps is asked again after fifteen seconds.
+   Not on Windows (no command line is read there; stated on kosmos#6669). */
+const foreignLooked = new Map();   // pid -> until when its answer stands (Infinity: Windows, never judged there)
+const FOREIGN_RECHECK_MS = 60 * 1000;
+const FOREIGN_NOT_OURS_MS = 60 * 60 * 1000;
+const FOREIGN_PS_FAILED_MS = 15 * 1000;
+const foreignAsking = new Set();
+const foreignVerdict = new Map();   // pid -> 'leave' (a live board's, not ours, gone, Windows) or 'ended'
+// Tests only, and honoured only under the test runner: (pid, statusFile) => { ppid, command } or null, instead of ps.
+let endForeignForTests = null;
+let killForTests = () => {};   // with a stand-in, the signal goes here: a made-up pid can be a real process on Linux
+const PS = fs.existsSync('/bin/ps') ? '/bin/ps' : '/usr/bin/ps';   // never PATH: a writable PATH entry could answer
+function notOurs(pid) { return pid === process.pid || (child && pid === child.pid); }
+/* Whether ps's line names this board's tunnel, whatever its parent. */
+function isOurTunnel(proc, statusFile, bin = BIN()) {
+  if (!proc || typeof proc.command !== 'string') return false;
+  const command = proc.command.split('\n')[0];
+  const at = command.indexOf(' run ');
+  if (at <= 0) return false;
+  // The program, exactly: BIN() itself, or one token (no other word before it) with the tunnel's basename (review 9:
+  // `vim /x/kosmos-tunnel run ...` matched when any text ending in the basename counted).
+  const prog = command.slice(0, at);
+  if (prog !== bin && (/\s/.test(prog) || path.basename(prog) !== path.basename(bin))) return false;
+  const esc = statusFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // The whole path, ending where the argument ends: `<file>.elsewhere` is another file (a prefix match ended it).
+  return new RegExp(' --status-file ' + esc + '( |$)').test(command.slice(at));
+}
+/* ... and orphaned: re-parented to 1, its board gone. Exported for tests. */
+function isOrphanedTunnel(proc, statusFile, bin = BIN()) {
+  return Boolean(proc) && proc.ppid === 1 && isOurTunnel(proc, statusFile, bin);
+}
+function endForeignTunnel(pid, done = () => {}) {
+  // A pid no tunnel can have (out of range) is one to leave alone; our own child is not foreign (review 11).
+  if (!Number.isInteger(pid) || pid < 2 || pid > 4194304) { foreignVerdict.set(pid, 'leave'); done(false); return; }
+  if (notOurs(pid) || foreignAsking.has(pid)) { done(false); return; }
+  const until = foreignLooked.get(pid);
+  // Expired: pruned as it is read, verdict and all (review 11: a stale "leave" trusted the request that re-asks).
+  if (until !== undefined && until <= Date.now()) { foreignLooked.delete(pid); foreignVerdict.delete(pid); }
+  if ((until || 0) > Date.now() || process.pid === 1) { done(false); return; }
+  const stand = process.env.NODE_TEST_CONTEXT ? endForeignForTests : null;
+  if (process.platform === 'win32' && !stand) { foreignLooked.set(pid, Infinity); foreignVerdict.set(pid, 'leave'); done(false); return; }
+  const statusFile = STATUS_FILE();
+  const judge = (proc) => {
+    foreignAsking.delete(pid);
+    // ps failed (missing, or a ps that refuses the flags): no answer, asked again after FOREIGN_PS_FAILED_MS (review 9:
+    // with no wait, a host without a working ps forked one per status read).
+    if (proc === undefined) { foreignLooked.set(pid, Date.now() + FOREIGN_PS_FAILED_MS); done(false); return; }
+    // "Not ours" stands an hour (review 7), not for good: macOS pids wrap at 99999, and a board runs for weeks.
+    if (proc !== null && !isOurTunnel(proc, statusFile)) { foreignLooked.set(pid, Date.now() + FOREIGN_NOT_OURS_MS); foreignVerdict.set(pid, 'leave'); done(false); return; }
+    if (!isOrphanedTunnel(proc, statusFile) || notOurs(pid)) { foreignLooked.set(pid, Date.now() + FOREIGN_RECHECK_MS); foreignVerdict.set(pid, 'leave'); done(false); return; }
+    foreignLooked.set(pid, Date.now() + FOREIGN_RECHECK_MS);
+    foreignVerdict.set(pid, 'ended');
+    try { (stand ? killForTests : process.kill.bind(process))(pid, 'SIGTERM'); process.stderr.write('remote: ended a Kosmos+ tunnel an earlier board left running (pid ' + pid + ', kosmos#6669)\n'); done(true); } catch (e) {
+      // Not ours to end (another user's, EPERM) or already gone: left alone, and said (review 11).
+      foreignVerdict.set(pid, 'leave');
+      process.stderr.write('remote: could not end a tunnel an earlier board left running (pid ' + pid + '): ' + (e && e.code) + '\n');
+      done(false);
+    }
+  };
+  foreignAsking.add(pid);
+  if (stand) { let proc; try { proc = stand(pid, statusFile); } catch { proc = undefined; } judge(proc); return; }
+  try {
+    execFile(PS, ['-ww', '-o', 'ppid=,command=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 }, (err, out) => {
+      // ps exits 1 for a pid that is gone: a definite "not a tunnel". Any other failure is no answer.
+      if (err && err.code === 1 && !String(out || '').trim()) { judge(null); return; }
+      if (err) { judge(undefined); return; }
+      const m = String(out).trim().match(/^(\d+)\s+([\s\S]*)$/);
+      judge(m ? { ppid: Number(m[1]), command: m[2] } : null);
+    });
+  } catch { judge(undefined); }
+}
+function binaryCapabilities(now) {
   if (!tunnelStartedHere) return new Set();
   if (capabilitiesSeen) {
     const wait = capabilitiesSeen.answered ? CAPABILITIES_RECHECK_MS : CAPABILITIES_UNANSWERED_RECHECK_MS;
@@ -210,8 +346,13 @@ function warmConnectorCapabilities(done = () => {}) {
     if (child && child.stdin) child.stdin.end();
   } catch { done(noteCapabilities(new Set(), false, Date.now(), generation, binary)); }
 }
-const resetConnectorCapabilitiesForTests = ({ startedHere = true } = {}) => {
+const resetConnectorCapabilitiesForTests = ({ startedHere = true, runningPid = null, commandOf = null, kill = null } = {}) => {
   tunnelStartedHere = startedHere;
+  runningPidForTests = runningPid;
+  runningSeen = null;
+  foreignLooked.clear(); foreignAsking.clear(); foreignVerdict.clear();
+  endForeignForTests = commandOf;
+  killForTests = kill || (() => {});
   forgetConnectorCapabilities({ always: true, ask: false });
 };
 /* The production addresses are the defaults (#648): a bundle needs nothing
@@ -854,6 +995,7 @@ function startChild() {
   // kosmos#6595 (R01): the process that forwards is about to be this binary's, so what it vouches for is asked anew.
   tunnelStartedHere = true;
   forgetConnectorCapabilities();
+  runningSeen = null;   // a new process: its own list, even if it gets an earlier child's pid (review 10)
   if (restartPending) { restarts += 1; restartPending = false; }
   lastTunnelFailure = null;   // a new process has written nothing yet
   dialingSince = performance.now();
@@ -869,6 +1011,8 @@ function startChild() {
     args.push('--tunnel-ca', process.env.AGENT_WORKFORCE_TUNNEL_CA);
   }
   secureStateDir();
+  // kosmos#6669: a status file left by a tunnel this board did not start names that tunnel; end it if it is still one.
+  try { const left = JSON.parse(fs.readFileSync(STATUS_FILE(), 'utf8')); if (left && Number.isInteger(left.pid)) endForeignTunnel(left.pid); } catch { /* none */ }
   try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
   let spawned;
   try {
@@ -964,9 +1108,10 @@ function stopChild() {
 /* ⚠️ The child must never outlive the board (#156 is the recorded incident
    for orphans). launchd stopping the board sends SIGTERM; killing the child
    on our way out covers that and plain exit. SIGKILL leaves an orphan whose
-   own reconnect loop keeps running; accepted and documented: the next board
-   start spawns a replacement whose relay connection REPLACES the orphan's
-   (newest wins at the relay), so the orphan idles until reaped. */
+   own reconnect loop keeps running. The next board's tunnel replaces the
+   orphan's relay connection (newest wins), but the orphan just dials again
+   and takes it back, so the two alternate: it does NOT idle. Since kosmos#6669
+   the next board ends it (endForeignTunnel), where it can read its parent. */
 function reap() { try { if (child) child.kill(); } catch { /* going down anyway */ } }
 process.on('exit', reap);
 /* On a termination signal, reap the child then RE-RAISE rather than
@@ -1020,6 +1165,8 @@ function status() {
     }
     let raw;
     try { raw = JSON.parse(fs.readFileSync(STATUS_FILE(), 'utf8')); } catch { raw = null; }
+    if (raw && Number.isInteger(raw.pid) && raw.pid !== child.pid) endForeignTunnel(raw.pid);   // kosmos#6669
+    if (raw && raw.pid === child.pid && !(runningSeen && runningSeen.pid === child.pid)) noteRunning(raw, child.pid);
     if (!raw || raw.pid !== child.pid) {
       return { state: 'connecting', address: null, because: 'starting the connection' };
     }
@@ -3638,7 +3785,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,
