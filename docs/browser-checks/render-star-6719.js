@@ -16,7 +16,9 @@
  *   - on the narrowest tile the corner star does not overlap the unread badge, and in a list row it does not cover a
  *     long name; at 375 x 667 on a touch screen it is at least 44 px; on an upright tablet (touch, 768 x 1024) a
  *     running tile's long name does not run under it; in the consolidated rail it clears the row's unread badge and
- *     the title line under the name.
+ *     the title line under the name; on a touch screen its tap area is 44 x 44, inside its own row, and clear of the
+ *     title's last letter;
+ *   - a filled star is at least 3:1 on every tile and row ground in both themes (CONTROL: the brand gold is not).
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-star-6719.js [shots-dir]
  */
@@ -67,7 +69,8 @@ async function open(browser, eng, w, h, theme, touchArg) {
       mk('Bea', { lastTalkedAt: '2026-10-20T11:00:00Z' }),
       mk('Cam', { lastTalkedAt: '2026-10-20T10:00:00Z' }),
       // A long name, so the "does not cover the name" arms can fail; and the most unread, for the badge arms.
-      { ...mk('Dee', { lastTalkedAt: '2026-10-20T09:00:00Z', dmUnread: 120 }), name: 'Delphine Montgomery-Ashworth' },   // "99+", the widest badge
+      // A long role too, so the rail's title line runs into the star's column and the touch arm's title test can fail.
+      { ...mk('Dee', { lastTalkedAt: '2026-10-20T09:00:00Z', dmUnread: 120, role: 'Research coordinator for every project we run' }), name: 'Delphine Montgomery-Ashworth' },   // "99+", the widest badge
       // A running agent with a question to answer (its card carries data-answer), long-named for the tablet arm.
       { ...mk('Eve', { lastTalkedAt: '2026-10-20T08:00:00Z', running: true, state: 'needs_you', isNamedOurs: true, because: 'Which domain?' }),
         name: 'Evangeline Rutherford-Blackwood' },
@@ -259,6 +262,37 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await ctx.close();
     }
+    // Review 13: a filled star is a glyph, so it needs 3:1 on every ground it sits on: the plain, working and needs-you
+    // tiles and the list row, in both themes. The grounds are composited from the page's own tokens. CONTROL: the
+    // brand gold measured the same way fails in light, so the instrument can return the dangerous answer.
+    for (const theme of ['light', 'dark']) {
+      const t = `[${eng} ${theme} filled-star contrast]`;
+      const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme);
+      const c = await page.evaluate(() => {
+        const st = document.querySelector('#grid .astar');
+        if (!st) return { star: false };
+        st.classList.add('on');
+        const rgb = (v) => { const m = String(v).match(/[\d.]+/g); return m ? m.map(Number) : null; };
+        const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+        const probe = document.createElement('i'); document.body.appendChild(probe);
+        const resolve = (v) => { probe.style.color = v; return rgb(getComputedStyle(probe).color); };
+        const lum = ([r, g, b]) => { const f = (x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+        const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+        const over = (bg, wash) => (wash && wash.length === 4 ? bg.map((v, i) => v * (1 - wash[3]) + wash[i] * wash[3]) : bg);
+        const surface = resolve(css('--k-surface'));
+        const grounds = { plain: surface, working: over(surface, resolve(css('--wash-working'))), attn: over(surface, resolve(css('--wash-attn'))), row: over(surface, [120, 120, 128, 0.07]) };
+        const fill = rgb(getComputedStyle(st).color); const brand = resolve(css('--gold-deep'));
+        const out = { star: true, fill, min: Infinity, brandMin: Infinity, by: {} };
+        for (const [k, g] of Object.entries(grounds)) { const r = ratio(fill, g); out.by[k] = +r.toFixed(2); out.min = Math.min(out.min, r); out.brandMin = Math.min(out.brandMin, ratio(brand, g)); }
+        out.min = +out.min.toFixed(2); out.brandMin = +out.brandMin.toFixed(2);
+        probe.remove(); st.classList.remove('on');
+        return out;
+      });
+      chk(c.star && c.min >= 3, `${t} the filled star is at least 3:1 on every tile and row ground`, JSON.stringify(c));
+      if (theme === 'light') chk(c.star && c.brandMin < 3, `${t} CONTROL: the brand gold measured the same way is under 3:1 here`, JSON.stringify(c));
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await ctx.close();
+    }
     // The consolidated rail: name and title stack in one column, and the unread badge hangs off the row's corner.
     {
       const t = `[${eng} consolidated rail]`;
@@ -289,7 +323,7 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       await ctx.close();
     }
     // Review 12: a touch tablet held sideways opens on the rail, so on a coarse pointer the rail star takes a tap a
-    // little outside its drawn 26 x 20 box (an invisible 44px hit area). CONTROL: a tap well below it does not.
+    // little outside its drawn 26 x 20 box (an invisible 44px hit area), kept inside its own row (review 13).
     {
       const t = `[${eng} consolidated rail, touch]`;
       const { ctx, page, errs } = await open(browser, eng, 1280, 900, 'light', true);
@@ -300,11 +334,29 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
         const s = document.querySelector('#alist .lrow[data-agent="dee"] .lname .astar');
         if (!s) return { star: false };
         const b = s.getBoundingClientRect(); const cx = b.left + b.width / 2;
-        const at = (y) => { const e = document.elementFromPoint(cx, y); return !!(e && e.closest && e.closest('.astar') === s); };
+        const row = s.closest('.lrow').getBoundingClientRect();
+        const at = (x, y) => { const e = document.elementFromPoint(x, y); return !!(e && e.closest && e.closest('.astar') === s); };
+        // Review 13: scan the whole hit area, so a miss says by how much. Down the star's centre line and across its middle.
+        let top = null, bottom = null, left = null, right = null;
+        for (let y = Math.floor(row.top) - 20; y <= Math.ceil(row.bottom) + 20; y++) if (at(cx, y)) { if (top === null) top = y; bottom = y; }
+        const cy = top === null ? b.top + b.height / 2 : (top + bottom) / 2;
+        for (let x = Math.floor(b.left) - 30; x <= Math.ceil(b.right) + 30; x++) if (at(x, cy)) { if (left === null) left = x; right = x; }
+        // The title's last glyph, measured on its text (not its box), must not be under the hit area: a tap there opens.
+        const tt = s.closest('.lrow').querySelector('.ltitle');
+        let titleEnd = null;
+        if (tt && tt.firstChild) { const rg = document.createRange(); rg.selectNodeContents(tt); const rs = rg.getClientRects(); const last = rs[rs.length - 1]; if (last && last.width > 0) titleEnd = { x: last.right - 1, y: last.top + last.height / 2 }; }
         return { star: true, coarse: matchMedia('(pointer: coarse)').matches, drawn: [Math.round(b.width), Math.round(b.height)],
-          above: at(b.top - 10), below: at(b.bottom + 10), far: at(b.bottom + 30) };
+          span: top === null ? null : [bottom - top + 1, right - left + 1], area: top === null ? null : [left, top, right, bottom],
+          rowBox: [row.left, row.top, row.right, row.bottom].map(Math.round),
+          titleUnder: titleEnd ? at(titleEnd.x, titleEnd.y) : null,
+          far: at(cx, b.bottom + 30) };
       });
-      if (hit.coarse) chk(hit.star && hit.above && hit.below && !hit.far, `${t} the rail star takes a tap 10px above and below its drawn box (CONTROL: not 30px below)`, JSON.stringify(hit));
+      if (hit.coarse) {
+        chk(hit.star && hit.span && hit.span[0] >= 44 && hit.span[1] >= 44, `${t} the rail star's tap area is at least 44 x 44`, JSON.stringify(hit));
+        chk(hit.star && hit.area && hit.area[1] >= hit.rowBox[1] && hit.area[3] < hit.rowBox[3], `${t} the tap area stays inside its own row (a tap on the row above opens that agent)`, JSON.stringify(hit));
+        chk(hit.star && hit.titleUnder === false, `${t} the title's last letter is not under the tap area (a tap there opens the agent)`, JSON.stringify(hit));
+        chk(hit.star && !hit.far, `${t} CONTROL: a tap 30px below the star does not reach it`, JSON.stringify(hit));
+      }
       else console.log(`NOTE  ${t} this engine reports no coarse pointer here, so the touch arm did not run`);
       if (eng === 'chromium') chk(hit.coarse === true, `${t} CONTROL: chromium reports a coarse pointer, so the arm above ran`, JSON.stringify(hit));
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));

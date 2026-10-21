@@ -2876,7 +2876,11 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
          color: var(--k-ink-2); cursor: pointer; }
 .astar svg path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
 .astar:hover { color: var(--k-ink); background: rgba(120,120,128,.12); }
-.astar.on { color: var(--gold-deep); }
+/* Review 13: the brand gold (--gold-deep) is 2.5 to 2.9:1 on the light tiles' washed grounds, under the 3:1 a glyph
+   needs. Light uses #9c741b, the value .chk.ok .chk-m already uses for the same reason (3.4 to 3.9:1 on every light
+   tile, row and new-look ground); dark keeps the brand gold (4.4 to 5.6:1), where the darker value would drop to 3.3. */
+.astar.on { color: #9c741b; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .astar.on { color: var(--gold-deep); } }
 .astar.on svg path { fill: currentColor; }
 .astar:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .lname { position: relative; padding-right: 40px; }
@@ -5529,8 +5533,16 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated .lrow .lname .astar { width: 26px; height: 20px; right: 26px; border-radius: 6px; }
   html[data-layout="consolidated"] body.consolidated .lrow .lname .astar svg { width: 15px; height: 15px; }
   /* #6719 review 12: a touch tablet held sideways opens on this rail, so its star needs a 44px touch target. An
-     invisible hit area, so the drawn star (and its measured clearance of the unread badge) stays as it is. */
-  @media (pointer: coarse) { html[data-layout="consolidated"] body.consolidated .lrow .lname .astar::after { content: ''; position: absolute; inset: -12px -9px; } }
+     invisible hit area, so the drawn star (and its measured clearance of the unread badge) stays as it is.
+     Review 13: centred on the star it reached into the row above and over the title's end, so a tap meant to open an
+     agent starred one. Now it runs from the row's top edge down, the row is at least 44px tall (its lines kept at the
+     top), and the title and state lines stop short of the star's column as the name does. render-star-6719 scans it. */
+  @media (pointer: coarse) {
+    html[data-layout="consolidated"] body.consolidated .lrow { min-height: 44px; align-content: start; }
+    html[data-layout="consolidated"] body.consolidated .lrow .lname .astar::after { content: ''; position: absolute; inset: -4px -9px -20px; }
+    html[data-layout="consolidated"] body.consolidated .lrow > .ltitle,
+    html[data-layout="consolidated"] body.consolidated .lrow > .lstate { padding-right: 63px; }
+  }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav { grid-row: 1 / span 2; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lname { grid-column: 2; grid-row: 1; min-width: 0; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lname b { display: block; font-size: .8125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -11452,6 +11464,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-theme="dark"] .ask { color: #9db8e0; background: rgba(120,160,220,.16); box-shadow: inset 0 0 0 1px rgba(120,160,220,.42); }
 :root[data-theme="dark"] .astate.st-question { border-color: rgba(140,175,230,.58); }
 :root[data-theme="dark"] .acard.question { border-color: rgba(140,175,230,.42); }
+
+:root[data-theme="dark"] .astar.on { color: var(--gold-deep); }
 
 :root[data-theme="dark"] .chk.ok .chk-m { color: var(--gold-deep); }
 :root[data-theme="dark"] .chk.att .chk-m { background: rgba(255,140,130,.13); border-color: rgba(255,140,130,.5); color: #ff8c82; }
