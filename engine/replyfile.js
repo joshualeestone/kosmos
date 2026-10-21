@@ -325,19 +325,19 @@ function attach(sessionName, given, { roster } = {}) {
   if (!where) return { ok: false, because: NOT_YOURS };
   if (where.refused) return { ok: false, because: where.refused };
   if (st.size > attachments.MAX_BYTES) {
-    return { ok: false, because: 'that file is ' + attachments.sizeWords(st.size) + ', and a conversation carries files up to 25 MB; tell them where it is saved instead' };
+    return { ok: false, because: 'that file is ' + attachments.sizeWords(st.size) + ', and a conversation carries files up to ' + attachments.MAX_WORDS + '; tell them where it is saved instead' };
   }
   if (st.size === 0) return { ok: false, because: 'there is nothing in that file' };
   const used = sentToday(sessionName);
   if (used + st.size > DAILY_BYTES) {
     return { ok: false, because: 'you have attached ' + attachments.sizeWords(used) + ' to your replies in the last 24 hours, and an agent can attach up to 200 MB a day; tell them where this one is saved instead' };
   }
-  const read = readOwn(real, st, given);
-  if (!read.ok) return read;
-  const bytes = read.bytes;
   const name = path.basename(real);   // review r2 finding 5: the file's own name, not a link's (report.pdf -> notes.txt is notes.txt)
   try {
-    const rec = attachments.save('agent', sessionName, { name, type: typeOf(name), bytes, by: 'agent' });
+    /* #6734: copied across in chunks into the stored file, never held whole; a refused read leaves nothing stored. */
+    const kept = attachments.saveFilled('agent', sessionName, { name, type: typeOf(name), by: 'agent' }, (out) => readOwn(real, st, given, out));
+    if (!kept.ok) return kept;
+    const rec = kept.rec;
     ledgerAdd(sessionName, rec.id, Date.parse(rec.at), rec.size);
     return { ok: true, rec };
   } catch (err) {
@@ -359,9 +359,12 @@ const OPEN_FLAGS = fs.constants.O_RDONLY | (NOFOLLOW || 0) | (NONBLOCK || 0);
  * The bytes of `real`, which must still be the file `st` described: opened without following a link
  * and without blocking, then checked to be that same ordinary file with one name. One byte past the
  * cap is read, so a file that grew since the stat is refused, not cut.
- * Returns { ok: true, bytes } or { ok: false, because }.
+ * #6734: the bytes are written to the descriptor `out` as they are read, a chunk at a time, so a 100 MB
+ * file is never held whole; the caller's store discards them on a refusal.
+ * Returns { ok: true, size } or { ok: false, because }.
  */
-function readOwn(real, st, given) {
+const COPY_CHUNK = 1024 * 1024;
+function readOwn(real, st, given, out) {
   if (typeof given !== 'string' || !given) return { ok: false, because: CHANGED };   // required (review r6 finding 3)
   let fd = null;
   try {
@@ -381,18 +384,19 @@ function readOwn(real, st, given) {
     if (!now || now.dev !== open.dev || now.ino !== open.ino) return { ok: false, because: CHANGED };
     if (!open.isFile() || open.dev !== st.dev || open.ino !== st.ino) return { ok: false, because: CHANGED };
     if (open.nlink > 1) return { ok: false, because: HARD_LINK };
-    const buf = Buffer.allocUnsafe(Math.min(open.size, attachments.MAX_BYTES) + 1);
+    const buf = Buffer.allocUnsafe(Math.min(open.size + 1, COPY_CHUNK));
     let n = 0;
     for (;;) {
-      const got = fs.readSync(fd, buf, n, buf.length - n, n);
+      const got = fs.readSync(fd, buf, 0, buf.length, n);
       if (got === 0) break;
+      for (let w = 0; w < got;) w += fs.writeSync(out, buf, w, got - w);
       n += got;
-      if (n === buf.length) break;
+      if (n > attachments.MAX_BYTES) break;
     }
     /* Exactly the size the descriptor said (review r7 finding 1): more is a file that grew, fewer one that shrank
        between the fstat and the read, which would otherwise be sent cut. */
     if (n > attachments.MAX_BYTES || n !== open.size) return { ok: false, because: CHANGED };
-    return { ok: true, bytes: buf.subarray(0, n) };
+    return { ok: true, size: n };
   } catch {
     return { ok: false, because: 'that file could not be read' };
   } finally {
@@ -401,7 +405,8 @@ function readOwn(real, st, given) {
 }
 
 /* Review r1 finding 8 / r2 finding 4 (decided): at most this many bytes of reply attachments per agent in any
-   24 hours. Eight files at the 25 MB cap: far above a day of handing a person what was made for them.
+   24 hours: far above a day of handing a person what was made for them (#6734: two files at the 100 MB cap; kept
+   at 200 MB when the cap rose from 25 MB, since this is a brake on a loop, not a measure of one file).
    ⚠️ A BRAKE AGAINST MISTAKES AND RUNAWAY LOOPS, NOT A SECURITY BOUND. The ledger is seeded from the store's
    records (`by: 'agent'`, never the person's uploads), and the store is writable by every process of this user,
    agents included, so an agent determined to send more can rewrite the records the seed reads. It stops an

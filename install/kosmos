@@ -2817,7 +2817,7 @@ cmd_reply() {
   fi
   if [ -z "$text" ] && [ -z "$_rfile" ]; then
     say "Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and \$ arrive as written)"
-    say "       kosmos reply --file <path> [\"what it is\"]   (attach one file from your Files folder, or from inside a project you are on, up to 25 MB: they download it from your conversation)"   # #6726
+    say "       kosmos reply --file <path> [\"what it is\"]   (attach one file from your Files folder, or from inside a project you are on, up to 100 MB: they download it from your conversation)"   # #6726
     exit 2
   fi
   # With --stdin the pipe is read BEFORE this check on purpose (as in cmd_msg): a live pipe cannot

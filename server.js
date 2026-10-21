@@ -3751,6 +3751,42 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
+/* #6734: a stored file sent from disk as a stream, never read whole, so a 100 MB attachment costs the board a
+   read buffer rather than 100 MB. The file is opened and measured once, so Content-Length is the size of the very
+   file that is sent. A client that goes away mid-download, and a read that fails mid-file, both end in pipeline's
+   cleanup, which closes the descriptor; a read error after the headers ends the response short, which the client
+   sees as a cut download (its length does not match), never as a whole file. `unread` is the 404 sentence for a
+   file that cannot be opened. */
+function sendFileStream(req, res, file, unread, headers) {
+  let fd = null;
+  let size = 0;
+  try {
+    fd = fs.openSync(file, 'r');
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) throw new Error('not a file');
+    size = st.size;
+  } catch {
+    if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ }
+    sendJson(res, 404, { error: unread });
+    return;
+  }
+  res.writeHead(200, { ...headers, 'content-length': size });
+  if (req.method === 'HEAD') { fs.closeSync(fd); res.end(); return; }
+  pipeline(fs.createReadStream(null, { fd, autoClose: true }), res, () => { /* aborted or failed: both streams are destroyed */ });
+}
+
+/* #6734: an upload answered with a refusal. When the body has not all arrived (over the cap, or the client went),
+   the connection closes after the answer so the rest is never read, and is cut a moment later if the client keeps
+   it open, so a refused upload cannot hold a socket. */
+function refuseUpload(req, res, error) {
+  if (res.headersSent || res.destroyed) { req.destroy(); return; }
+  if (!req.complete) {
+    res.setHeader('connection', 'close');
+    res.once('finish', () => { setTimeout(() => req.destroy(), 1000).unref(); });
+  }
+  sendJson(res, 400, { error });
+}
+
 /* ---- #1704 PR2 (plan §5): a kept-running agent's sends are never lost ------
    On a world switch the person may keep a Kosmos's agents running. Board tokens
    are per world, so a kept-running agent's reply reached the board serving
@@ -18998,9 +19034,12 @@ const server = http.createServer(async (req, res) => {
      multipart): PUT the bytes with the file's type as content-type and its
      name in x-attachment-name, get the record back, then post the message
      with `attachment: <id>`. Two steps so a failed upload is a sentence
-     before anything is said, and so the 25 MB limit applies to the bytes
-     alone. The file is served back as a download, never inline, and the
-     preview is a PNG this Mac drew (or the image itself). */
+     before anything is said, and so the size limit (attachments.MAX_BYTES)
+     applies to the bytes alone. The file is served back as a download, never
+     inline, and the preview is a PNG this computer drew (or the image itself).
+     #6734: both ways are streams. The upload is written to disk as it arrives
+     and refused the moment it crosses the cap; the download is sent from disk.
+     Neither holds the file in memory, which is what lets the cap be 100 MB. */
   const attachUp = pathname.match(/^\/api\/(agent|project)\/([^/]+)\/attachment$/);
   if (attachUp && req.method === 'PUT') {
     const scope = attachUp[1];
@@ -19012,18 +19051,20 @@ const server = http.createServer(async (req, res) => {
       try { has = projects.readAll().some((p) => p.id === owner); } catch { sendJson(res, 500, { error: 'we could not read the projects' }); return; }
       if (!has) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
     }
-    readBody(req, attachments.MAX_BYTES + 1)
-      .then((bytes) => {
-        let name = '';
-        try { name = decodeURIComponent(String(req.headers['x-attachment-name'] || '')); } catch { name = String(req.headers['x-attachment-name'] || ''); }
-        const rec = attachments.save(scope, owner, { name, type: req.headers['content-type'], bytes });
+    /* #6734: a body that says up front it is over the cap is refused before a byte of it is read. */
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > attachments.MAX_BYTES) { refuseUpload(req, res, attachments.TOO_LARGE); return; }
+    let name = '';
+    try { name = decodeURIComponent(String(req.headers['x-attachment-name'] || '')); } catch { name = String(req.headers['x-attachment-name'] || ''); }
+    attachments.saveStream(scope, owner, { name, type: req.headers['content-type'] }, req)
+      .then((rec) => {
         /* #6098: an office file gets its text rendering before the answer, so the message that carries it can name
            it. The conversion runs in a worker thread with a memory and a time limit (attachtext.js), so a hostile
            file cannot stall or crash the board; it never fails the upload. */
         return require('./engine/attachtext').render(rec).catch(() => null)
           .then(() => sendJson(res, 200, { attachment: attachments.rowField(rec) }));
       })
-      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not keep that file') }));
+      .catch((err) => refuseUpload(req, res, String((err && err.message) || 'we could not keep that file')));
     return;
   }
   /* #4930: the full-page preview's "Open in Finder": the attachment's own file, selected in its folder (never opened).
@@ -19044,23 +19085,19 @@ const server = http.createServer(async (req, res) => {
     const rec = attachments.read(attachGet[1]);
     if (!rec) { sendJson(res, 404, { error: 'no such attachment' }); return; }
     if (attachGet[2]) {
-      attachments.preview(rec).then((pv) => {
+      attachments.previewFile(rec).then((pv) => {
         if (!pv.ok) { sendJson(res, 404, { error: pv.because }); return; }
-        res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
-        res.end(req.method === 'HEAD' ? undefined : pv.bytes);
+        sendFileStream(req, res, pv.file, pv.unread, { 'content-type': pv.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
       }).catch(() => sendJson(res, 404, { error: 'this computer could not draw the first page' }));
       return;
     }
-    let bytes;
-    try { bytes = fs.readFileSync(rec.file); } catch { sendJson(res, 404, { error: 'that file could not be read' }); return; }
     /* A download, whatever the type: a person's file is handed back as a
        file, and an HTML one never renders on the board's origin. */
-    res.writeHead(200, {
-      'content-type': rec.type, 'content-length': bytes.length, 'x-content-type-options': 'nosniff',
+    sendFileStream(req, res, rec.file, 'that file could not be read', {
+      'content-type': rec.type, 'x-content-type-options': 'nosniff',
       'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(rec.name),
       'content-security-policy': "default-src 'none'; sandbox",
     });
-    res.end(req.method === 'HEAD' ? undefined : bytes);
     return;
   }
   if (pathname === '/api/unfurl' && req.method === 'GET') {

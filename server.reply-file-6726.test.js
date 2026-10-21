@@ -210,11 +210,11 @@ test('#6726: a FIFO and a device are refused as not ordinary files', () => withL
   await refused({ text: 'hi', file: '/dev/null' }, /not an ordinary file/);
 }));
 
-test('#6726: a file over the 25 MB a conversation carries is refused before it is read', () => withLeo(async () => {
+test('#6726: a file over the 100 MB a conversation carries is refused before it is read', () => withLeo(async () => {
   const big = path.join(FILES, 'big.mov');
   fs.writeFileSync(big, '');
   fs.truncateSync(big, attachments.MAX_BYTES + 1);   // sparse: the size is real, the disk is not used
-  await refused({ text: 'hi', file: big }, /a conversation carries files up to 25 MB/);
+  await refused({ text: 'hi', file: big }, /a conversation carries files up to 100 MB/);
 }));
 
 test('#6726: a missing file and a relative path are refused', () => withLeo(async () => {

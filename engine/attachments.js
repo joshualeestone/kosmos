@@ -43,7 +43,12 @@ const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const store = require('./store');
 
-const MAX_BYTES = 25 * 1024 * 1024;
+/* #6734: 100 MB. The file is streamed both ways (stored as it arrives, served from disk), so the cap is what a
+   conversation should carry, not what the board can hold in memory. */
+const MAX_BYTES = 100 * 1024 * 1024;
+/** The cap the way a person reads it ("100 MB"), for every sentence that names it. */
+const MAX_WORDS = Math.round(MAX_BYTES / (1024 * 1024)) + ' MB';
+const TOO_LARGE = 'that file is larger than ' + MAX_WORDS + ', which is the most a conversation can carry';
 const TEXT_SNIPPET = 2000;
 const ROOT = path.join(store.ROOT, 'attachments');
 
@@ -84,28 +89,130 @@ function ownerDir(scope, owner) {
 
 function newId() { return crypto.randomBytes(12).toString('hex'); }
 
-/**
- * Store bytes as an attachment. Returns the record (with `dir` and `file`
- * for the server, which strips them before the row goes out).
- */
-function save(scope, owner, { name, type, bytes, by }) {
-  if (!Buffer.isBuffer(bytes) || !bytes.length) throw new Error('there is nothing in that file');
-  if (bytes.length > MAX_BYTES) throw new Error('that file is larger than 25 MB, which is the most a conversation can carry');
+/* #6734: a file being stored is written under this name first and renamed into place when it is whole. safeName
+   strips leading dots, so no stored file can carry it, and `read` never sees the folder until record.json is
+   written after the rename: a half-arrived file is never an attachment. */
+const PART = '.upload.part';
+
+/** A new attachment's folder, made, with its paths: { id, dir, name, file, part }. */
+function slot(scope, owner, name) {
   const id = newId();
   const dir = path.join(ownerDir(scope, owner), id);
   const clean = safeName(name);
   const file = path.join(dir, clean);
   if (!file.startsWith(dir + path.sep)) throw new Error('that file name cannot be stored');
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(file, bytes);
-  const kind = kindOf(type, clean);
+  return { id, dir, name: clean, file, part: path.join(dir, PART) };
+}
+/** The slot's part file renamed into place and its record written. Returns the record with its paths. */
+function finish(s, scope, owner, { type, size, by }) {
+  fs.renameSync(s.part, s.file);
   const record = {
-    id, name: clean, type: String(type || 'application/octet-stream').split(';')[0].trim().slice(0, 100) || 'application/octet-stream',
-    size: bytes.length, kind, at: new Date().toISOString(), scope, owner: String(owner),
+    id: s.id, name: s.name, type: String(type || 'application/octet-stream').split(';')[0].trim().slice(0, 100) || 'application/octet-stream',
+    size, kind: kindOf(type, s.name), at: new Date().toISOString(), scope, owner: String(owner),
     ...(by === 'agent' ? { by: 'agent' } : {}),   // #6726: a file the agent attached to its reply, counted against its daily total
   };
-  fs.writeFileSync(path.join(dir, 'record.json'), JSON.stringify(record, null, 2) + '\n');
-  return { ...record, dir, file };
+  fs.writeFileSync(path.join(s.dir, 'record.json'), JSON.stringify(record, null, 2) + '\n');
+  return { ...record, dir: s.dir, file: s.file };
+}
+function abandon(s) { try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+
+/**
+ * Store bytes as an attachment. Returns the record (with `dir` and `file`
+ * for the server, which strips them before the row goes out).
+ */
+function save(scope, owner, { name, type, bytes, by }) {
+  if (!Buffer.isBuffer(bytes) || !bytes.length) throw new Error('there is nothing in that file');
+  if (bytes.length > MAX_BYTES) throw new Error(TOO_LARGE);
+  const s = slot(scope, owner, name);
+  try {
+    fs.writeFileSync(s.part, bytes);
+    return finish(s, scope, owner, { type, size: bytes.length, by });
+  } catch (err) { abandon(s); throw err; }
+}
+
+/**
+ * #6734: store a file whose bytes the caller writes itself, synchronously: `fill(fd)` writes them into the open
+ * part file and returns { ok: true, size } or { ok: false, because }. A refusal, or a throw, leaves nothing stored.
+ * Returns { ok: true, rec } or { ok: false, because }. Used by a reply's attachment (engine/replyfile.js), which
+ * copies the agent's file across in chunks rather than holding it whole.
+ */
+function saveFilled(scope, owner, { name, type, by }, fill) {
+  const s = slot(scope, owner, name);
+  let fd = null;
+  try {
+    fd = fs.openSync(s.part, 'wx', 0o600);
+    const got = fill(fd);
+    fs.closeSync(fd);
+    fd = null;
+    if (!got || !got.ok) { abandon(s); return { ok: false, because: (got && got.because) || 'that file could not be kept' }; }
+    if (!(got.size > 0)) { abandon(s); return { ok: false, because: 'there is nothing in that file' }; }
+    if (got.size > MAX_BYTES) { abandon(s); return { ok: false, because: TOO_LARGE }; }
+    return { ok: true, rec: finish(s, scope, owner, { type, size: got.size, by }) };
+  } catch (err) {
+    if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ }
+    abandon(s);
+    throw err;
+  }
+}
+
+/**
+ * #6734: store an upload as it arrives, never holding it whole. `source` is a readable (the request); its bytes go
+ * to the part file and are counted on the way, so a body past MAX_BYTES is refused the moment it crosses the cap,
+ * with nothing left behind. Resolves to the record; rejects with a sentence (err.tooLarge set for the cap). The
+ * caller owns `source` after a rejection: it is paused, not destroyed, so an answer can still be written first.
+ */
+function saveStream(scope, owner, { name, type, by }, source) {
+  return new Promise((resolve, reject) => {
+    let s;
+    try { s = slot(scope, owner, name); } catch (err) { reject(err); return; }
+    const out = fs.createWriteStream(s.part, { flags: 'wx', mode: 0o600 });
+    let size = 0;
+    let settled = false;
+    const detach = () => {
+      source.removeListener('data', onData);
+      source.removeListener('end', onEnd);
+      source.removeListener('error', onFail);
+      source.removeListener('close', onClose);
+      out.removeListener('drain', onDrain);
+      source.on('error', () => {});   // a late reset on a request this no longer reads must not throw
+    };
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      detach();
+      try { source.pause(); } catch { /* gone */ }
+      /* The folder goes once the part file's descriptor is closed, so nothing is left open or behind. */
+      const gone = () => { abandon(s); reject(err); };
+      if (out.closed) gone(); else { out.once('close', gone); out.destroy(); }
+    };
+    function onData(chunk) {
+      size += chunk.length;
+      if (size > MAX_BYTES) { const e = new Error(TOO_LARGE); e.tooLarge = true; fail(e); return; }
+      if (!out.write(chunk)) source.pause();
+    }
+    function onDrain() { if (!settled) source.resume(); }
+    function onEnd() {
+      if (settled) return;
+      detach();
+      if (!size) { fail(new Error('there is nothing in that file')); return; }
+      /* Renamed into place only once the descriptor is closed: every byte is on disk and nothing is left open. */
+      out.once('close', () => {
+        if (settled) return;
+        settled = true;
+        try { resolve(finish(s, scope, owner, { type, size, by })); } catch (err) { abandon(s); reject(err); }
+      });
+      out.end();
+    }
+    function onFail() { fail(new Error('the file stopped arriving before it was whole')); }
+    function onClose() { if (!source.complete && !source.readableEnded) onFail(); }
+    out.on('error', () => fail(new Error('that file could not be kept')));
+    out.on('drain', onDrain);
+    source.on('data', onData);
+    source.on('end', onEnd);
+    source.on('error', onFail);
+    source.on('close', onClose);
+  });
 }
 
 /** The record for an id, with its paths, or null. Ids are hex, so the walk is
@@ -137,10 +244,27 @@ function rowField(rec) {
   if (!rec) return null;
   let preview = null;
   if (rec.kind === 'image' || rec.kind === 'pdf') preview = '/api/attachment/' + rec.id + '/preview';
-  else if (rec.kind === 'text') {
-    try { preview = fs.readFileSync(rec.file, 'utf8').slice(0, TEXT_SNIPPET); } catch { preview = null; }
-  }
+  else if (rec.kind === 'text') preview = textHead(rec.file);
   return { id: rec.id, name: rec.name, type: rec.type, size: rec.size, kind: rec.kind, url: '/api/attachment/' + rec.id, preview };
+}
+
+/* #6734: a text file's first TEXT_SNIPPET characters, read from its first bytes only (a 100 MB log is not read whole
+   to show a snippet). Four bytes a character covers any UTF-8, and a character cut at the end of the read sits past
+   the snippet: even three-byte characters give 2,666 whole ones. */
+function textHead(file) {
+  let fd = null;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.allocUnsafe(TEXT_SNIPPET * 4);
+    let n = 0;
+    for (;;) {
+      const got = fs.readSync(fd, buf, n, buf.length - n, n);
+      if (got === 0) break;
+      n += got;
+      if (n === buf.length) break;
+    }
+    return buf.toString('utf8', 0, n).slice(0, TEXT_SNIPPET);
+  } catch { return null; } finally { if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ } }
 }
 
 /* The preview renderer seam: tests replace it so nothing shells out. The
@@ -188,11 +312,18 @@ function imageTypeOf(name) {
  * { ok: true, type, bytes } or { ok: false, because }.
  */
 async function preview(rec) {
+  const pv = await previewFile(rec);
+  if (!pv.ok) return pv;
+  try { return { ok: true, type: pv.type, bytes: fs.readFileSync(pv.file) }; } catch { return { ok: false, because: pv.unread }; }
+}
+/** #6734: the same, as the file to send rather than its bytes ({ ok: true, type, file, unread }), so the route can
+    stream a 100 MB image instead of reading it whole. `unread` is the sentence for a file that then cannot be read. */
+async function previewFile(rec) {
   if (!rec) return { ok: false, because: 'no such attachment' };
   if (rec.kind === 'image') {
     const type = imageTypeOf(rec.name) || (IMAGE_TYPES.has(String(rec.type).toLowerCase()) ? String(rec.type).toLowerCase() : null);
     if (!type) return { ok: false, because: 'that is not an image this board will draw' };
-    try { return { ok: true, type, bytes: fs.readFileSync(rec.file) }; } catch { return { ok: false, because: 'that file could not be read' }; }
+    return { ok: true, type, file: rec.file, unread: 'that file could not be read' };
   }
   if (rec.kind !== 'pdf') return { ok: false, because: 'no preview for this kind of file' };
   const out = path.join(rec.dir, 'preview.png');
@@ -200,7 +331,7 @@ async function preview(rec) {
     const made = await renderPdf(rec.file, rec.dir, out);
     if (!made) return { ok: false, because: 'this computer could not draw the first page' };
   }
-  try { return { ok: true, type: 'image/png', bytes: fs.readFileSync(out) }; } catch { return { ok: false, because: 'this computer could not draw the first page' }; }
+  return { ok: true, type: 'image/png', file: out, unread: 'this computer could not draw the first page' };
 }
 
 /**
@@ -288,7 +419,7 @@ function headOf(file) {
 }
 
 /** A size the way a person says it: 512 bytes, 312 KB, 4.2 MB (1024s, as
-    the 25 MB cap counts). */
+    the MAX_BYTES cap counts). */
 function sizeWords(n) {
   const b = Number(n);
   if (!Number.isFinite(b) || b < 0) return null;
@@ -379,4 +510,4 @@ function rowFields(recs) {
   return { attachment: list[0], attachments: list };
 }
 
-module.exports = { MAX_BYTES, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, read, rowField, rowFields, resolveForMessage, preview, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js
+module.exports = { MAX_BYTES, MAX_WORDS, TOO_LARGE, PART, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, saveFilled, saveStream, read, rowField, rowFields, resolveForMessage, preview, previewFile, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js
