@@ -1,42 +1,47 @@
-# forgetflake-6770: the keyed-start Forget test holds under CI load (kosmos#6770)
+# forgetflake-6770: the keyed-start Forget test checks order, not wall-clock time (kosmos#6770)
 
 ## What was wrong
 `engine/remote.test.js` "kosmos#5422: a keyed start that never returns cannot hold a Forget" asserted a FIXED 700 ms bound
-on a Forget whose key-call wait is 200 ms, against a fake start that busy-waits 800 ms. It failed twice on 2026-10-20,
-both on the self-hosted kosmos-ci-agent1s runner (NOT hosted CI, as the card says), runs 39476221845 and 39485513321:
-Forget took 968 ms and 2040 ms. Both runs logged "wall-clock test time-scale 4.00x" (load 15.6 on 5 cores in one).
-The bound sat 100 ms under the start's own length, so any stall near a second read as "waited out the whole start".
+on a Forget whose key-call wait is 200 ms, against a fake start that busy-waits 800 ms from its first line. It failed
+twice on 2026-10-20 on the self-hosted kosmos-ci-agent1s runner (this Mac; NOT hosted CI, as the card says), jobs
+118814039338 and 118845006455. Read from the logs (CORRECTED in review 2; my first version misquoted them):
+- the assertion's own numbers: Forget took **1742 ms** and **789 ms** (968 and 2040 were whole-test durations);
+- both runs: `wall-clock test time-scale 1.00x`, load 3.45 and 4.36 on 10 cores. The "4.00x, load 15.6 on 5 cores" I first
+  quoted came from another PR's log (#6762), not these.
+So it was not heavy CPU load, and 789 ms sits inside the window a Forget that waited out the 800 ms start would land in.
 
-## Measured before changing anything
-- Alone, unloaded: 3/3 pass. Alone under 24 busy processes on 12 cores: 8/8, Forget 218-227 ms.
-- Whole file under the same load: 4/4, 216-229 ms. Through tools/run-tests.sh --only: 3/3, 220-275 ms.
-- Not reproduced on this machine (11 runs). The code path was read: nothing in forget()/forgetNow() waits on the start
-  except the bounded deviceIdInFlight race; in the 2040 ms run Forget outlasted the start (1419 ms in the previous test),
-  so it is not tied to the start's end. Read as load.
+## Measured on this Mac before changing anything
+- 11 runs, none failed (alone, alone under 24 busy processes, the whole file under load, through tools/run-tests.sh):
+  Forget 216 to 275 ms. Same hardware as the runner, so CPU load is not what reproduces it.
+- The code path: with nothing enrolled, nothing in forget()/forgetNow() waits on the start except the bounded
+  deviceIdInFlight race. Not explained: the 1742 ms run (longer than the start) and the 789 ms run. One unmeasured
+  candidate (review 2): forgetNow's two write() calls fsync, so disk contention could stall them; a load scale cannot
+  see that.
 
-## Call
-- The bound is `scaleBudget(700)` (the suite's load factor from tools/run-tests.sh, capped at 4x): 700 ms unloaded,
-  2800 ms at 4x.
-- The fake start for this test is a new mode word `devkey-hang-start` that SLEEPS (Atomics.wait) for
-  FAKE_HANG_START_MS = bound + 1500, so it always outlasts the bound by 1.5 s at any scale and adds no CPU load of its
-  own (the old 800 ms busy-wait burned a core during the measurement). `devkey-slow-start` is unchanged for the test
-  before it, which needs the start to finish.
+## Call: assert ORDER, not time
+The fake start in a new mode word `devkey-hang-start` SLEEPS (Atomics.wait, no CPU) for 3000 ms and then appends
+`["start-done"]` to the record. The test asserts that when forget() resolves there is NO start-done record:
+- a Forget that waited out the start ALWAYS sees start-done (fails at any load);
+- a Forget that was only slow (a stalled write) passes unless its stall outlasts the whole 3 s start.
+`await starting` moved into `finally`, so a red never leaves the sleeping start running into the next test (review 2).
+`devkey-slow-start` is unchanged for the test before it, which needs the start to finish.
 
 ## Rejected
-- Loosening the fixed bound alone: past 800 ms it would pass a Forget that waited out the whole start (vacuous).
-- Scaling the bound without lengthening the start: at 4x (2800 ms) the 800 ms start ends first, same vacuity.
-- A fixed long start (5 s): costs 4 s every run at scale 1.
+- A fixed or scaled wall-clock bound (my first version, scaleBudget(700)): CI ran at 1x, so it changed nothing there,
+  and a bound cannot tell a slow Forget from one that waited for the start (review 2, BLOCKER).
+- Loosening the bound: past 800 ms it passes a Forget that waited out the old start.
 
 ## Weakest premise
-That both reds were load and not a real race in Forget. Not reproduced here. If a race exists that makes Forget wait for
-the start, this test still fails on it (the start outlasts the bound at every scale), so the change cannot hide it.
+That the reds were slowness and not a real race in which Forget waits for the start. NOT shown: 789 ms is consistent
+with a real wait. This change does not hide such a race: if it exists, the test fails with start-done seen, now with a
+clean signal (order) instead of a timing one. If it fails again on CI, that is a real Forget defect, not a flake.
 
 ## Tests
-- Real code: pass at KOSMOS_TEST_TIME_SCALE 1 and 4.
-- MUTANT (Forget's wait set to 60 s, so it waits out the start): red at scale 1 (2370 ms, bound 700, start 2200) and at
-  scale 4 (4458 ms, bound 2800, start 4300).
-- engine/remote.test.js whole file: 239/239.
-- Cost: the test now takes about bound + 1.5 s (2.2 s at scale 1) instead of about 1 s.
+- Real code: pass. Whole file: 239/239.
+- MUTANT, Forget waits out the start (key-call wait 60 s): red, "Forget waited out the whole start (3064 ms; the start
+  sleeps 3000 ms)".
+- MUTANT, a Forget slow by 1800 ms (about the slower CI red) but not waiting for the start: PASSES, the point of the change.
+- Cost: the test takes about 3 s instead of about 1 s.
 
 ## Review round 1 (blind, sonnet): no issues
 - Verified: the start outlasts the bound by 1500 ms at every scale (eventually.js clamps 1 to 4); passes at 1x (2.6 s)
@@ -44,3 +49,12 @@ the start, this test still fails on it (the start outlasts the bound at every sc
   allowed on node's main thread and already used in the repo; no guard reads remote.test.js or forbids the pattern.
 - [NIT] an unset FAKE_HANG_START_MS would be NaN, an infinite wait --> FIXED: `|| 3000`.
 - [NIT] the test takes about 2.6 s instead of 1 s --> NOT CHANGED (the documented cost).
+
+## Review round 2 (blind, opus): BLOCKER, fixed
+- [BLOCKER] the plan misread both CI logs (scale 1.00x, not 4x; Forget 789 and 1742 ms, not 968 and 2040), so the
+  scaled bound changed nothing on CI --> FIXED: the evidence corrected above, and the test now asserts order (a
+  start-done record) instead of wall-clock time.
+- [WARNING] "cannot hide a race" overstated what the change shows --> FIXED: the weakest premise now says the 789 ms
+  run is consistent with a real wait, and that a repeat red means a real defect.
+- [NIT] on a red the sleeping start outlived the test --> FIXED: await starting in finally.
+- [NIT] inconsistent durations in the plan --> FIXED (about 3 s now).
