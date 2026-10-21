@@ -4,7 +4,7 @@
  * Kosmos to a company. Runs the real page (web/index.html, file://) with fetch answered by a stand-in for the board's
  * /api/org routes, so nothing reaches a board or a coordinator, and drives the block directly.
  *
- * #5791 (Josh 10-10): the company decided, so there is no consent preview. "Join Corporate Account" opens a code field
+ * #5791 (Josh 10-10): the company decided, so there is no consent preview. The join button ("Join Company or Family Account" since kosmos#6380) opens a code field
  * with an X Cancel; Connect Account joins at once.
  *
  *   O0  no company: only the "Join Company or Family Account" button shows; no heading, code field or joined line.
