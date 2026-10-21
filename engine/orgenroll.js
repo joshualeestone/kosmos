@@ -182,6 +182,12 @@ function cleanOrg(o) {
      other value, or none (an older coordinator), is a company's, which joins with no screen (#5791). */
   return { id: o.id, name: externalName(o.name, NAME_MAX), slug: externalName(o.slug, NAME_MAX), kind: o.kind === 'family' ? 'family' : 'company' };
 }
+/* kosmos#6859: an answer that names no kind (an older coordinator's) does not make a join this board knows is a
+   family's into a company's record; read as a company's, it would let a child's agents out (orgpolicy.contactAllows). */
+function keepFamily(org, answered, kind) {
+  if (org && !(answered && answered.kind) && kind === 'family') org.kind = 'family';
+  return org;
+}
 function cleanList(a) {
   if (!Array.isArray(a)) return [];
   const { externalName } = require('./externalname');
@@ -551,8 +557,6 @@ function kindStrict(opts) {
     if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('this Kosmos holds an enrollment file that cannot be read');
     return pick(j) || null;
   };
-  // Read in the order their writers replace them: a settling join writes the record before removing its marker, and
-  // a leave writes its marker before clearing the record, so each read finds what the one before it gave way to.
   const kinds = [
     from(JOIN_UNKNOWN_FILE, (j) => j.orgKind),
     from(ENROLLMENT_FILE, (j) => j.org && j.org.kind),
@@ -677,7 +681,7 @@ async function enrollNow(code, accepted, opts) {
     }
     r = { ok: true, data: st.data };
   }
-  const org = cleanOrg(r.data && r.data.org);
+  const org = keepFamily(cleanOrg(r.data && r.data.org), r.data && r.data.org, KIND);
   const role = cleanRole(r.data && r.data.role);
   const en = r.data && r.data.enrolled;
   /* #5530 review 2: thisComputer says the CALLING signer is the enrolled one. It catches a world id copied WITHOUT the
@@ -852,13 +856,13 @@ async function settleUnknownJoin(unsure, opts) {
   /* kosmos#6859: the marker is removed only after what replaces it is written (the record, or the undo's pending
      leave), so orgenroll.kindStrict never finds neither and reads a family's computer as joined to nobody. */
   if (verdict === 'here') {
-    const org = cleanOrg(d.org), role = cleanRole(d.role);
+    const org = keepFamily(cleanOrg(d.org), d.org, KIND), role = cleanRole(d.role);
     if (!org || !role) { setJoinUnknown(null, opts); return { ok: false, enrolled: false, because: inKind(KIND, "Your company's answer was not complete.") }; }
     const rec = { org, role, world, enrolledAt: new Date().toISOString() };
     if (unsure.consentHash) rec.consentHash = unsure.consentHash;
     if (unsure.computerSalt) rec.computerSalt = unsure.computerSalt;   // #5532: the salt the join's print was made with
     if (unsure.printPinned === true) rec.printPinned = true;
-    try { writeEnrollment(rec, opts); } catch { setJoinUnknown(unsure, opts); return { ok: false, enrolled: false, because: "This Kosmos's data folder could not be written." }; }
+    try { writeEnrollment(rec, opts); } catch { return { ok: false, enrolled: false, because: "This Kosmos's data folder could not be written." }; }   // the marker is still there
     setJoinUnknown(null, opts);
     setStopped(null, opts);
     setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now (review 35)

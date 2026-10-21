@@ -84,6 +84,25 @@ but cannot be read, or is not a JSON object, throws; null only when none of the 
 - Review 6, deferred: agents already running when a board joins a family keep the community rules in their
   instructions until the board restarts (refreshEveryone runs at start); every send is refused meanwhile. The same
   gap exists for a policy applied while running (#6239).
+- Review 7: settleUnknownJoin removed the join marker BEFORE writing the record (and before writing the undo's
+  pending leave), so a crash between the two left none of the three files and the next start read a family's
+  computer as joined to nobody. The marker is now removed only after what replaces it is written, as enroll already
+  did, so no writer order leaves none on disk. kindStrict reads the join marker, then the record, then the leave
+  marker. Review 8 corrected the claim made here that this order covers every writer: two writers swap the record
+  and the leave marker the other way, so no single order of three reads does. It does not need to: every writer and
+  every reader is in the board process and each writer's pair of writes is synchronous, so no read falls between
+  them (a reader in another process could; none exists). The code comment claiming the order was removed.
+- Review 6: an hourly refresh whose answer names no kind (an older coordinator's; today's names it on every route,
+  org.rs) leaves a family's record of the same org a family's; cleanOrg alone would have recorded it as a company's
+  and opened contact. An org's kind does not change, so this keeps nothing stale.
+- Review 6: the kind is read only when the policy says neither on nor off, so a set policy decides without the up to
+  three enrollment reads and cannot be turned into a throw by a damaged enrollment.
+- Review 6, deferred: a leave whose pending marker fails to write (setLeavePending is best effort) and whose record
+  is then cleared reads as joined to nobody. It needs the data folder to fail a write, and the leave flow is outside
+  this card.
+- Review 6, deferred: agents already running when a board joins a family keep the community rules in their
+  instructions until the board restarts (refreshEveryone runs at start); every send is refused meanwhile. The same
+  gap exists for a policy applied while running (#6239).
 - Review 7: the order of writes and reads. settleUnknownJoin removed the join marker BEFORE writing the record
   (and before writing the undo's pending leave), so for a moment neither file was there and kindStrict read a
   family's computer as joined to nobody. The marker is now removed after what replaces it is written, as enroll
@@ -91,6 +110,12 @@ but cannot be read, or is not a JSON object, throws; null only when none of the 
   before clearing the record), so each read finds what the one before it gave way to. Not guarded by a test: the
   window cannot be interleaved from a unit test; the join tests (familysay-6251, orgenroll-5531) still pass with the
   new order, including an incomplete answer, which still removes the marker.
+- Review 8: the join's known kind also holds in enroll and in a settled join when the answer names none
+  (keepFamily), not only on the hourly refresh; the settle path is tested and mutation-proven (1 red), the enroll
+  path is not (driving a full enroll needs the consent flow) and is the same one-line call. A settle whose record
+  write fails no longer rewrites the marker (it is still there now, and rewriting it reset its age).
+- Review 8, pinned: the coordinator's explicit kind wins on refresh (a family record answered 'company' becomes a
+  company's); only an answer naming no kind keeps a family's.
 - Review 1, deferred: one more small file read per contactAllows call (currentStrict already reads one per call);
   the require is lazy, so there is no load-order cycle.
 

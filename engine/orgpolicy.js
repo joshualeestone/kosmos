@@ -270,8 +270,8 @@ const CONTACT_STOPS = `${POLICY_SETTER} keeps agents out of the Kosmos+ communit
  *  family it is also stopped while the key is unset or there is no policy (a parent never saved one), and only
  *  `{ enabled: true }` allows; for anyone else no policy, or the key unset, allows. The kind is read
  *  (orgenroll.kindStrict) only when the policy does not settle it and the caller gave none (undefined; null means
- *  joined to nobody); an enrollment file that is
- *  there but cannot be read then throws, as a damaged policy record does. */
+ *  joined to nobody); an enrollment file that is there but cannot be read then throws, as a damaged policy record
+ *  does. */
 function contactAllows(policy = currentStrict(), kind) {
   const oc = policy && policy.outside_contact;
   const set = oc && typeof oc === 'object' ? oc.enabled : undefined;

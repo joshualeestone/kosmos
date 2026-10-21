@@ -186,7 +186,8 @@ test('#6859: a policy that says on or off decides without reading the enrollment
 
 test('#6859: an answer that names no kind leaves a family\'s record a family\'s (an org\'s kind does not change)', async () => {
   const world = 'b'.repeat(32);
-  for (const [had, answered, want] of [['family', undefined, 'family'], ['company', undefined, 'company'], ['family', 'family', 'family']]) {
+  // The coordinator's explicit word still wins (a family record answered 'company' becomes a company's).
+  for (const [had, answered, want] of [['family', undefined, 'family'], ['company', undefined, 'company'], ['family', 'family', 'family'], ['family', 'company', 'company']]) {
     const root = fs.mkdtempSync(path.join(SANDBOX, 'refresh-'));
     fs.writeFileSync(path.join(root, orgenroll.WORLD_ID_FILE), world + '\n');
     fs.writeFileSync(path.join(root, orgenroll.ENROLLMENT_FILE), JSON.stringify({ org: { id: 'org-1', name: 'The Smiths', slug: 'smiths', kind: had }, role: 'member', world, enrolledAt: new Date().toISOString() }) + '\n');
@@ -200,5 +201,22 @@ test('#6859: an answer that names no kind leaves a family\'s record a family\'s 
     assert.ok(after, 'CONTROL: the refresh kept a record (' + had + ')');
     assert.equal(after.org.kind, want, `a ${had} record answered with kind ${answered} became ${after.org.kind}`);
     assert.equal(orgenroll.kindStrict({ root }), want);
+  }
+});
+
+test('#6859: a family join settled from an answer that names no kind is recorded as a family\'s', async () => {
+  const world = 'c'.repeat(32);
+  for (const [joinKind, want] of [['family', 'family'], ['company', 'company']]) {
+    const root = fs.mkdtempSync(path.join(SANDBOX, 'settle-'));
+    fs.writeFileSync(path.join(root, orgenroll.WORLD_ID_FILE), world + '\n');
+    fs.writeFileSync(path.join(root, JOIN_UNKNOWN), JSON.stringify({ at: new Date().toISOString(), orgId: 'org-1', orgKind: joinKind }) + '\n');
+    const remote = { macRequest: async (method, route) => (route === orgenroll.ROUTES.status
+      ? { ok: true, data: { member: true, enrolled: { world, thisComputer: true }, org: { id: 'org-1', name: 'The Smiths', slug: 'smiths' }, role: 'member' } }
+      : { ok: false, because: 'not scripted' }) };
+    await orgenroll.refresh({ root, remote });
+    const after = orgenroll.readEnrollment({ root });
+    assert.ok(after, 'CONTROL: the join settled into a record (' + joinKind + ')');
+    assert.equal(after.org.kind, want, `a ${joinKind} join settled as ${after.org.kind}`);
+    assert.equal(fs.existsSync(path.join(root, JOIN_UNKNOWN)), false, 'CONTROL: the marker is gone once the record is written');
   }
 });
