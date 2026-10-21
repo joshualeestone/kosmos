@@ -19,6 +19,9 @@
  * Claude only in this slice. An agent on another provider (create.recordedRunner) is listed with `available: false`,
  * never a guessed zero. Four token buckets per model, never blended; one assistant message counted once by its id, and
  * synthetic rows skipped, as engine/usage.js counts them.
+ *
+ * kosmos#6842: a Claude agent's receipt also lists the pull requests it worked on while it held the task, from the
+ * `pr-link` rows Claude Code writes, so a task's cost sits beside the PRs it produced.
  */
 
 const fs = require('node:fs');

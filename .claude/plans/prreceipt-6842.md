@@ -14,10 +14,13 @@ only created) was not the rule; review 1 found the comment case.
   on every later turn (review 2: 30+ rows over an hour for one PR), so only each session's FIRST row for a PR marks an act
   (keyed by the row's sessionId, else its file). A PR is listed when some session's first row for it is inside a hold,
   once, ordered by that time. The repo must be owner/name and the number a positive integer; a link only when prUrl is
-  exactly https://github.com/<repo>/pull/<n>. Returns `prs` (first 20) and `prsMore`. A session whose first row is inside
-  a hold wrote its file at or after the hold began, so the existing skip of files last written before the first hold
-  loses nothing here. Residual, accepted: a session that acts on the same PR twice is counted at its first act only (it
-  can under-list, never over-list).
+  exactly https://github.com/<repo>/pull/<n>. Returns `prs` (first 20) and `prsMore`.
+  Residuals, accepted: (1) a session that acts on the same PR twice is counted at its first act only (under-lists).
+  (2) The receipt skips transcripts last written before the first hold. If one session's rows ever spanned two files and
+  the earlier file were skipped, a repeat in the later file would read as that session's first act (over-lists). Not
+  seen: review 3 measured 406 transcript files with pr-link rows on this Mac, every row's sessionId equal to its file's
+  name, and no subagent file holding pr-link rows. (3) Rows with no sessionId are keyed by their file; real rows all carry
+  one (review 4 sampled 13,684).
 - VERSION 3. A kept VERSION 2 receipt is kept as it was (recomputing could lose work whose transcripts were pruned, as review
   1 of #5153 found); it has no `prs`, so the page shows no pull request line for it.
 - web/index.html tkReceiptPrsHtml: "Worked on pull request(s) app#12, ..." under the agent's cost line; a link only to a
@@ -32,7 +35,8 @@ line. Recomputing them could lose work whose transcripts were pruned (#5153 revi
 kept receipt when transcripts are gone is a possible later step, noted on the card.
 
 ## Not in this slice
-Codex/Gemini/Grok PRs (their logs carry no PR link); a project's total (slice 2); the Enterprise console (slice 3).
+Codex/Gemini/Grok PRs (their logs carry no PR link); PRs on the agent page's Recent work rows (`dWorkMeta`; the receipt
+carries them, the row does not show them yet); a project's total (slice 2); the Enterprise console (slice 3).
 
 ## Verify
 - engine/receipt-5153.test.js: a session's first row in the hold (including a later session acting on a PR another session
