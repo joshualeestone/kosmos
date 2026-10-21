@@ -650,3 +650,37 @@ test('#6734: a failure answering for a stored upload takes the file back and say
   // Review 19: nothing refers to it and nothing would list it, so it must not be left taking up space.
   assert.ok(await until(() => stored().length === before), 'a file nobody can reach was left behind');
 });
+
+test('#6734: an upload whose client leaves during the conversion is taken back, not left with nobody holding its id', async () => {
+  const before = stored().length;
+  const attachtext = require('./engine/attachtext');
+  const real = attachtext.render;
+  let release = null;
+  attachtext.render = () => new Promise((r) => { release = r; });
+  try {
+    const req = http.request({ host: '127.0.0.1', port: port(), method: 'PUT', path: '/api/project/' + project.id + '/attachment',
+      headers: { 'content-type': 'application/octet-stream', 'content-length': '4', 'x-attachment-name': 'gone.docx' } });
+    req.on('error', () => {});
+    req.end('gone');
+    assert.ok(await until(() => release !== null), 'the conversion was never reached, so this tested nothing');
+    assert.equal(stored().length, before + 1, 'CONTROL: the file was stored before the client left');
+    req.destroy();
+    await wait(100);
+    release(null);
+    assert.ok(await until(() => stored().length === before), 'an upload nobody will ever hear about was left behind');
+  } finally { attachtext.render = real; }
+});
+
+test('#6734: discardStored removes only an attachment folder, never an owner folder or anything outside the store', () => {
+  const owner = path.join(attachments.ROOT, 'agent', 'discard-guard');
+  const id = path.join(owner, 'b'.repeat(24));
+  fs.mkdirSync(id, { recursive: true });
+  try {
+    attachments.discardStored({ dir: owner });
+    attachments.discardStored({ dir: path.join(owner, 'not-an-id') });
+    attachments.discardStored({ dir: path.join(attachments.ROOT, '..') });
+    assert.ok(fs.existsSync(id), 'a folder that is not one attachment was removed');
+    attachments.discardStored({ dir: id });
+    assert.ok(!fs.existsSync(id), 'CONTROL: an attachment folder is removed');
+  } finally { fs.rmSync(owner, { recursive: true, force: true }); }
+});

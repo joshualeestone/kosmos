@@ -205,6 +205,13 @@ phone yet: the remaining manual step covers it.
    (`attachments.discardStored`, inside the store only) and the answer is a 500 "we could not add that file; try again"
    (test: the answer made to fail; nothing left; red with one handler for both, and with the folder not taken back).
 
+29. **Review 20:** the take-back from 28 runs only while nothing of the answer has gone out (once headers are sent the
+   page may hold the id, so the file stays; this guard is reasoned, not tested); an upload whose client leaves during
+   the office-text conversion is taken back too, since it will never hear its id (test: the conversion held open, the
+   client gone, nothing left; red without the check); and `discardStored` removes only an exact
+   <scope>/<owner>/<24-hex id> folder (test: an owner folder, a non-id folder and a path outside the store are left;
+   red with the looser check).
+
 ### Considered and not changed (review 17)
 - A record naming exactly the part file, or a reserved name with trailing dots on macOS, stays unreachable: rare, and
   the fallback keeps one rule for all platforms rather than per-platform exceptions.
@@ -266,7 +273,7 @@ The test used to accept a reset in place of the 400. It now requires the 400 wit
 a load average of about 10. If a client ever sees a reset instead, the page's own size check has already refused the
 file before sending it.
 
-## Tests (server.attachment-stream-6734.test.js, 29 tests, and web.attach-slow-6734.test.js, 2 tests; green at each review commit, and the full suite at the final head is in the proof file)
+## Tests (server.attachment-stream-6734.test.js, 31 tests, and web.attach-slow-6734.test.js, 2 tests; green at each review commit, and the full suite at the final head is in the proof file)
 
 - the cap is 100 MB and is said as "100 MB";
 - a 6 MB download is byte-identical (sha256) with its Content-Length; HEAD has the length and no body; no

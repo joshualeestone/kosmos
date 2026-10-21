@@ -138,8 +138,9 @@ function abandon(s) { try { fs.rmSync(s.dir, { recursive: true, force: true }); 
     nothing would list it, so it would only take up space. Only a folder inside the store is removed. */
 function discardStored(rec) {
   if (!rec || typeof rec.dir !== 'string') return;
-  const rel = path.relative(ROOT, rec.dir);
-  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return;
+  // Review 20: exactly <scope>/<owner>/<id> under the store, the id 24 hex, as the orphan sweep requires.
+  const parts = path.relative(ROOT, rec.dir).split(path.sep);
+  if (parts.length !== 3 || parts.some((p) => !p || p === '..') || !/^[0-9a-f]{24}$/.test(parts[2])) return;
   abandon(rec);
 }
 

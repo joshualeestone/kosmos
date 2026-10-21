@@ -19069,12 +19069,18 @@ const server = http.createServer(async (req, res) => {
            it. The conversion runs in a worker thread with a memory and a time limit (attachtext.js), so a hostile
            file cannot stall or crash the board; it never fails the upload. */
         return require('./engine/attachtext').render(rec).catch(() => null)
-          .then(() => sendJson(res, 200, { attachment: attachments.rowField(rec) }))
+          .then(() => {
+            /* Review 20: the client left during the conversion, so it will never hear the id; take the file back. */
+            if (res.destroyed || !res.socket || res.socket.destroyed) { attachments.discardStored(rec); return; }
+            sendJson(res, 200, { attachment: attachments.rowField(rec) });
+          })
           /* Review 18/19: the file was stored, but nothing refers to it until the page hears its id, and nothing would
-             list it later, so it is taken back and the person told plainly that it was not added. */
+             list it later, so it is taken back and the person told plainly that it was not added. Review 20: only while
+             nothing of the answer has gone out; once it has, the page may hold the id, so the file stays. */
           .catch(() => {
+            if (res.headersSent) return;
             attachments.discardStored(rec);
-            if (!res.headersSent) sendJson(res, 500, { error: 'we could not add that file; try again' });
+            sendJson(res, 500, { error: 'we could not add that file; try again' });
           });
       }, (err) => refuseUpload(req, res, (err && !err.code && err.message) ? String(err.message) : 'we could not keep that file'));
       /* Review 9: a system error (it has a code, like ENOSPC) carries a path with the user's name; the person and their
