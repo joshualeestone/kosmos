@@ -38643,34 +38643,44 @@ async function loadStars() {
 /* Review 3: one save at a time per agent. Two quick presses sent as two concurrent PUTs could reach the board in
    either order, leaving the file with the first press's answer while the page showed the second's. */
 const STAR_CHAIN = new Map();
+const STAR_LAST = new Map();   // review 4: the newest press per agent, so an answer is applied only to its own star
 function toggleStar(name) {
   const on = !AGENT_STARS.has(name);
   const seq = ++STARS_SEQ;
+  STAR_LAST.set(name, seq);
   if (on) AGENT_STARS.add(name); else AGENT_STARS.delete(name);
   repaintAgentOrder();
   STARS_WRITING += 1;
-  const run = (STAR_CHAIN.get(name) || Promise.resolve()).then(() => saveStar(name, on, seq));
+  /* Review 4: a save that threw (a repaint failing, say) must not stop the presses queued after it, so the chain goes
+     on past a rejection; and the in-flight count is settled here, whatever the save did, or reloads stop for good. */
+  const run = (STAR_CHAIN.get(name) || Promise.resolve()).catch(() => {}).then(() => saveStar(name, on, seq));
   STAR_CHAIN.set(name, run);
-  return run.finally(() => { if (STAR_CHAIN.get(name) === run) STAR_CHAIN.delete(name); });
+  return run.catch(() => {}).finally(() => {
+    STARS_WRITING -= 1;
+    if (STAR_CHAIN.get(name) === run) { STAR_CHAIN.delete(name); STAR_LAST.delete(name); }
+  });
 }
 async function saveStar(name, on, seq) {
+  const newest = () => STAR_LAST.get(name) === seq;   // no later press on this star is waiting
   try {
     const r = await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, on }) });
     const v = await r.json().catch(() => null);
     if (!r.ok || !v || !Array.isArray(v.names)) throw new Error('not saved');
-    if (seq === STARS_SEQ) { AGENT_STARS = new Set(v.names); repaintAgentOrder(); }
+    /* Review 4: only THIS star is taken from the answer. Saves for two different stars run side by side, so either
+       answer may be the older list; replacing the whole set from it dropped a star the other save had just kept. */
+    if (newest()) {
+      if (v.names.includes(name)) AGENT_STARS.add(name); else AGENT_STARS.delete(name);
+      repaintAgentOrder();
+    }
     // A star that saved clears the line a failed one left, and only that line (the could-not-open receipt is not ours).
     const msg = document.getElementById('board-msg');
     if (msg && (msg.textContent === STAR_MSG.saved || msg.textContent === STAR_MSG.removed)) { msg.textContent = ''; msg.hidden = true; }
   } catch {
-    /* Only this star goes back, so a second press that did save is not undone with it; and the person is told,
-       since a star that flips back with no word reads as a click that did not register. */
-    if (on) AGENT_STARS.delete(name); else AGENT_STARS.add(name);
-    repaintAgentOrder();
+    /* This star goes back only when no later press on it is waiting (that press's own save decides it); the person is
+       told either way, since a star that flips back with no word reads as a click that did not register. */
+    if (newest()) { if (on) AGENT_STARS.delete(name); else AGENT_STARS.add(name); repaintAgentOrder(); }
     const msg = document.getElementById('board-msg');
     if (msg) { msg.textContent = on ? STAR_MSG.saved : STAR_MSG.removed; msg.hidden = false; }
-  } finally {
-    STARS_WRITING -= 1;
   }
 }
 let AGENT_SORT = (() => {

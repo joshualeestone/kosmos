@@ -26,9 +26,9 @@ function page() {
   const api = new Function('fetch', 'document', [
     'let AGENT_STARS = new Set(); let STARS_SEQ = 0; let STARS_WRITING = 0;',
     "const STAR_MSG = { saved: 's', removed: 'r' };",
-    'const repaintAgentOrder = () => {};',
+    'let THROWS = 0; const repaintAgentOrder = () => { if (THROWS > 0) { THROWS -= 1; throw new Error(\'render\'); } };',
     PAGE.slice(from, to),
-    'return { toggleStar, stars: () => [...AGENT_STARS], writing: () => STARS_WRITING };',
+    'return { toggleStar, stars: () => [...AGENT_STARS].sort(), writing: () => STARS_WRITING, throwNext: (n) => { THROWS = n; } };',
   ].join('\n'))(fetch, doc);
   return { api, sent };
 }
@@ -59,4 +59,32 @@ test('#6719 CONTROL: presses on two different stars are not held behind each oth
   assert.equal(sent.length, 2, 'a different agent\'s star waited for another\'s save');
   sent[0].answer(['renet']); sent[1].answer(['renet', 'angel']);
   await Promise.all([p1, p2]);
+});
+
+test('#6719 review 4: two stars saved side by side keep both, whichever answer comes back last', async () => {
+  const { api, sent } = page();
+  const p1 = api.toggleStar('renet');
+  const p2 = api.toggleStar('angel');
+  await tick();
+  sent[1].answer(['angel']);            // the board did angel's first, so its answer has no renet
+  await tick();
+  sent[0].answer(['angel', 'renet']);   // then renet's
+  await Promise.all([p1, p2]);
+  assert.deepEqual(api.stars(), ['angel', 'renet'], 'an older answer for another star dropped one the board kept');
+});
+
+test('#6719 review 4: a save that throws does not stop the next press on that star, nor leave a write counted', async () => {
+  const { api, sent } = page();
+  const p1 = api.toggleStar('renet');   // star
+  await tick();
+  api.throwNext(1);                     // the repaint after the board's answer throws
+  sent[0].answer(['renet']);
+  await p1;
+  const p2 = api.toggleStar('renet');   // unstar
+  await tick();
+  assert.equal(sent.length, 2, 'a press after a save that threw was never sent');
+  sent[1].answer([]);
+  await p2;
+  assert.equal(api.writing(), 0, 'a write that threw stayed counted, so the 30 s reload never runs again');
+  assert.deepEqual(api.stars(), []);
 });
