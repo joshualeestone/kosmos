@@ -1243,6 +1243,14 @@ test('kosmos#6666: pending says Kosmos+ is paused only when the tunnel wrote pau
     write(extra);
     assert.equal(remote.pendingDevices().paused, false, 'read as paused: ' + JSON.stringify(extra));
   }
+  // A snapshot older than two minutes (the tunnel stopped, or the Mac slept) no longer says paused.
+  write({ paused: true });
+  const old = new Date(Date.now() - 3 * 60 * 1000);
+  fs.utimesSync(nodePath.join(dir, 'pending.json'), old, old);
+  assert.equal(remote.pendingDevices().paused, false, 'a stale paused snapshot still read as paused');
+  const recent = new Date(Date.now() - 60 * 1000);
+  fs.utimesSync(nodePath.join(dir, 'pending.json'), recent, recent);
+  assert.equal(remote.pendingDevices().paused, true, 'a minute-old paused snapshot did not read as paused');
   fs.rmSync(nodePath.join(dir, 'pending.json'), { force: true });
   assert.equal(remote.pendingDevices().paused, false, 'no snapshot read as paused');
   write({ paused: true });
@@ -4689,6 +4697,28 @@ test('#5786 (b): removing a vouched device (Undo) drops its "on this computer" n
   assert.equal(r.ok, true, r.because);
   assert.equal(remote.read().vouched['dev-undo'], undefined, 'the note survived the Undo');
   assert.equal(remote.pendingDevices().connected_here, null, 'the notice still offers an Undo for a removed device');
+  remote.setOn(false);
+});
+
+test('kosmos#6666: a vouched browser refused because Kosmos+ is paused is not noted, not removed, and the secret ends after three tries', async () => {
+  const { secret, plant } = await vouchSignedIn('vouchpaused');
+  plant([{ device_id: 'dev-paused', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'premise: the browser was opened');
+  plant([{ device_id: 'dev-paused', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-paused') }]);
+  const removesOf = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove' && a.includes('dev-paused')).length;
+  const before = allowsOf().filter((x) => x === 'dev-paused').length;
+  process.env.FAKE_TUNNEL_MODE = 'allow-paused';
+  try {
+    for (let i = 1; i <= 3; i += 1) {
+      remote.vouchTickForTests();
+      await until(() => allowsOf().filter((x) => x === 'dev-paused').length === before + i, 'paused allow attempt ' + i);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  assert.equal(remote.read().vouched['dev-paused'], undefined, 'a paused refusal was noted as on this computer');
+  assert.equal(removesOf(), 0, 'a paused refusal was taken back out as if Kosmos+ had refused the device');
+  await until(() => remote.vouchSecretForTests() === null, 'the secret to end after three paused tries');
   remote.setOn(false);
 });
 

@@ -1908,7 +1908,8 @@ function allowSelfQuietly() {
       if (r && r.ok) { selfGrantedId = id; selfGrantedAt = Date.now(); return; }
       if (selfFailLoggedId !== id) {
         selfFailLoggedId = id;
-        process.stderr.write('kosmos+: could not approve this computer\'s own sign-in yet (' + String((r && r.because) || 'no answer') + '); retrying about once a minute\n');
+        const why = r && r.paused ? 'Kosmos+ is paused for maintenance' : String((r && r.because) || 'no answer');   // kosmos#6666
+        process.stderr.write('kosmos+: could not approve this computer\'s own sign-in yet (' + why + '); retrying about once a minute\n');
       }
     })
     .catch(() => null)
@@ -2128,6 +2129,9 @@ const CODE_WAITS = new Set(['attempts_used', 'asked_another_computer', 'another_
 /* kosmos#4794: a computer's pairing code is two groups of three digits with one space, "482 915" (kosmos-relay
    crates/proto/src/pairsas.rs sas(): format!("{:03} {:03}")); the tunnel compares it exactly. A phone's match code never is. */
 const JOIN_CODE = /^\d{3} \d{3}$/;
+/* kosmos#6666: how old pending.json may be and still say Kosmos+ is paused (the tunnel's snapshot_says_paused uses the
+   same 120 s; it rewrites the file every 5 s while it runs). */
+const PAUSED_FRESH_MS = 120 * 1000;
 /** What is waiting for this Mac's Allow. A missing snapshot is an empty
     list, not an error: the tunnel writes it only once it is up, and a
     board with Plus off has nothing waiting. `snapshot` says which. */
@@ -2176,8 +2180,11 @@ function pendingDevices() {
   // A request that is NEWER than the note (the browser removed elsewhere, asking again) still shows. A minute of slack:
   // first_seen is the coordinator's clock, the note's is this computer's.
   /* kosmos#6666: while Kosmos+ is paused for maintenance the tunnel withholds the list and says so (kosmos-relay #509,
-     kosmos#6656), so the page can say why no request shows rather than show nothing. Exactly true, or not paused. */
-  const paused = !!raw && raw.paused === true;
+     kosmos#6656), so the page can say why no request shows rather than show nothing. Exactly true, or not paused.
+     Only from a snapshot under PAUSED_FRESH_MS old: a stopped tunnel or a slept Mac leaves its last file behind. */
+  let snapAge = Infinity;
+  try { snapAge = Date.now() - fs.statSync(pendingFile()).mtimeMs; } catch { snapAge = Infinity; }
+  const paused = !!raw && raw.paused === true && snapAge < PAUSED_FRESH_MS;
   return { devices: here ? devices.filter((d) => d.device_id !== here.device_id || d.first_seen > here.at + 60) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here, paused };
 }
 /* The tunnel's answer is its last line of stdout that starts with "{", one line
@@ -2255,7 +2262,7 @@ function vouchedFor(vouched, d) {
 /** kosmos#6286: the tunnel's `account_ack` when the coordinator holds no sign-in with the id an Allow named. */
 const UNKNOWN_DEVICE = 'unknown_device';
 /** kosmos#6666: what the person reads when an Allow is refused because Kosmos+ is paused for maintenance. */
-const PAUSED_ALLOW_WORDS = 'Kosmos+ is paused for maintenance, so nothing can be allowed right now. This request waits: allow it once Kosmos+ is back.';
+const PAUSED_ALLOW_WORDS = 'Kosmos+ is paused for maintenance, so nothing can be allowed right now. This request waits: allow it once Kosmos+ is back, if it is still asking.';
 /** kosmos#6286: what the person reads when Kosmos+ holds no sign-in with the id they allowed. */
 const UNKNOWN_WORDS = 'Kosmos+ holds no sign-in waiting with that id (it was refused, or never asked). It is on this computer\'s list of devices you let in: remove it there if you did not mean to allow it.';
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
