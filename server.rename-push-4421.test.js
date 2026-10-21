@@ -2,11 +2,11 @@
 require('./test-support/tmpscope');   // #4273: this file's temp dirs are removed when it exits
 
 /**
- * #4421, the notifications half: a phone push sent after an agent is renamed carries the NEW name. The card body
- * lists notifications among the surfaces that must follow a rename, and server.rename-4421.test.js covers the card
- * and the room but sends no push. Every push names the agent from its card (`sender.card.name || who` in /api/report
- * and /api/reply), so this drives both through the REAL rename route and the REAL routes, and reads the payload the
- * stub sender captures.
+ * #4421, notifications: a needs-you push and a reply push sent after an agent is renamed carry the NEW name. The
+ * card body lists notifications among the surfaces that must follow a rename, and server.rename-4421.test.js covers
+ * the card and the room but sends no push. These two name the agent with `sender.card.name || who` (/api/report and
+ * /api/reply), so this drives both through the REAL rename route and the REAL routes, and reads the payload the stub
+ * sender captures. The other push kinds (posted, ready, the crash-loop family) are not sent here.
  * The control is in the same test: the same push BEFORE the rename must carry the born name, so a payload that
  * never moves (a constant, or the session id) fails one arm or the other.
  *
@@ -103,6 +103,8 @@ test('#4421: a push sent after a rename carries the new name (reply and needs-yo
     assert.equal((await call('POST', '/api/report', { headers: h, body: { state: 'working', text: 'w' } })).json.recorded, true, 'fixture: a report was not recorded');
     assert.equal((await call('POST', '/api/report', { headers: h, body: { state: 'needs_you', text: 'n' } })).json.recorded, true, 'fixture: a needs-you report was not recorded');
     assert.equal((await call('POST', '/api/reply', { headers: h, body: { text: 'r' } })).json.kept, true, 'fixture: a reply was not kept');
+    assert.equal(sent.length, 2, 'fixture: expected one needs_you and one replied push; got ' + JSON.stringify(sent.map((b) => b.kind))
+      + ' (needs_you sends only on a change into it and outside its cooldown; replied on a kept reply)');
     // Every push, in order: a second push of either kind (say a stale-named one beside the right one) fails here.
     return sent.map((b) => [b.kind, b.agent]);
   };
