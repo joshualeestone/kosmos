@@ -104,8 +104,9 @@ the file in memory: an upload is written to disk as it arrives, and a download i
 
 13. **A timed-out upload is named as one** (review 3). Node answers its request timeout with 408 rather than dropping
    the connection (measured on Node 26.8.1, a slow PUT against a short `requestTimeout`), so the fetch resolves and the
-   catch from decision 6 never runs for that case. A 408 now reads "We could not finish adding <name>: it took longer
-   than the five minutes Kosmos waits for a file. Try again on a faster connection." A large file whose connection
+   catch from decision 6 never runs for that case. A 408 now reads "We could not finish adding <name>: it took too long
+   to arrive. Try again on a faster connection." (review 6: no figure, since a 408 could come from a timeout on the
+   way that the page cannot tell apart) A large file whose connection
    fails outright now reads "If your connection is slow, a file this large can take longer than the five minutes
    Kosmos waits for one.", a condition, since the page cannot tell that from Kosmos not being reached. Tests: 408 at two
    sizes, a 502 control, both catch sizes; red with the 408 branch removed.
@@ -143,6 +144,14 @@ Fixed in kosmos-relay (branch headclock-6734): the 120 s now counts from the end
 tunnel, so until a build carrying it is installed, phone uploads over two minutes still fail. Not measured on a
 phone yet: the remaining manual step covers it.
 
+### Considered and not changed (review 6)
+- **No Range support on downloads**: a 100 MB download cut at 90% restarts from zero, and the tunnel retires its
+  connection hourly, which cuts a download in flight. Resuming is a feature, not a defect in this change; filed as its
+  own card, #6805. Weakest premise: that a cut 100 MB download is rare enough on a phone to ship before it.
+- **A board-side refusal while a large upload is still arriving** (a bad name, a write error) can reach the page as a
+  reset, which then shows the conditional slow-connection sentence. The page refuses over-cap files before sending,
+  and the sentence says "if", so it is not asserted as the cause.
+
 ### Considered and not changed (review 3)
 - `attachments.preview(rec)` still reads a file whole. Only tests call it (engine/attachments.test.js); every route uses
   `previewFile` and streams. Kept for those tests; a new route caller would be a review finding.
@@ -161,8 +170,8 @@ phone yet: the remaining manual step covers it.
 
 ## Windows (review 1)
 
-The new test cannot run on Windows (it reads `/dev/fd`), and it is not in `tools/windows-tests.js`; Windows-side test
-selection is Homer's lane, so this is noted rather than changed here. Measured from the code instead: every write
+The new test cannot run on Windows (it reads `/dev/fd`), and it is not in `tools/windows-tests.js`. That is a coverage
+gap, stated here; this branch changes no Windows-side code or test selection, so nothing was handed to Homer. Measured from the code instead: every write
 stream is closed before its rename or removal (Windows will not rename an open file). A download now holds the file
 open for its whole length; the only paths that delete an attachment's folder are `abandon` (a failed upload's own
 folder, before anyone can download it), `replyfile.discard` (a reply copy that was never kept, so never offered),
@@ -247,7 +256,7 @@ Card step 2. On a board running this build, signed in to Kosmos+ on an iPhone:
 Record the times, sizes and network on the card. Pass: both downloads finish with exact sizes, the cancelled one
 leaves no descriptor, the phone upload arrives whole.
 
-## Regression sweep result (2026-10-21 01:30 to 01:34 CDT, at 24ee64b031, main 0 commits ahead)
+## Regression sweep result (2026-10-21 01:30 to 01:34 CDT, at 24ee64b031, main 0 commits ahead; SUPERSEDED by the review fixes since, re-run queued at the current head, result below when it lands)
 
 278 test files, built at run time from the name list, the repo-scanning tests and the fixed-window pins, with the
 branch's four touched test files asserted present. Run through queued-heavy. `tests 5390, pass 5374, fail 0,

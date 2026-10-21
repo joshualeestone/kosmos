@@ -47,13 +47,13 @@ test('#6734: a large upload that fails at the network says a slow connection can
   assert.equal(await failedUpload(MB), 'We could not reach Kosmos to add that file.');
 });
 
-test('#6734: an upload Kosmos timed out (408) says it took longer than the five minutes, whatever the size', async () => {
+test('#6734: an upload that timed out (408) says it took too long to arrive, whatever the size', async () => {
   // Node answers its request timeout with 408 rather than dropping the connection (measured on Node 26), so fetch
   // resolves and the catch never runs: this is the path a slow upload takes.
   const timedOut = () => Promise.resolve({ ok: false, status: 408, json: () => Promise.reject(new SyntaxError('not json')) });
   for (const size of [60 * 1024 * 1024, 1024]) {
     assert.equal(await failedUpload(size, timedOut),
-      'We could not finish adding clip.mov: it took longer than the five minutes Kosmos waits for a file. Try again on a faster connection.');
+      'We could not finish adding clip.mov: it took too long to arrive. Try again on a faster connection.');
   }
   // CONTROL: another failed status keeps the generic sentence.
   const other = () => Promise.resolve({ ok: false, status: 502, json: () => Promise.reject(new SyntaxError('not json')) });

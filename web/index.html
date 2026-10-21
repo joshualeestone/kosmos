@@ -74753,9 +74753,10 @@ async function attachUpload(file, where) {
     });
     const body = await res.json().catch(() => null);
     if (!res.ok || !body || !body.attachment) {
-      /* #6734 review 3: Kosmos answers 408 when a whole upload has not arrived in five minutes. */
+      /* #6734 review 3: Kosmos answers 408 when a whole upload has not arrived in five minutes (review 6: the page
+         cannot tell that from another timeout on the way, so the sentence names no figure). */
       msg.textContent = res.status === 408
-        ? 'We could not finish adding ' + file.name + ': it took longer than the five minutes Kosmos waits for a file. Try again on a faster connection.'
+        ? 'We could not finish adding ' + file.name + ': it took too long to arrive. Try again on a faster connection.'
         : (body && body.error) ? body.error : 'We could not add that file (status ' + res.status + ').';
       return;
     }
