@@ -786,3 +786,25 @@ test('#3878: a Windows feedback pull whose engine module cannot load says so pla
   assert.equal(code, 1);
   assert.equal(err.join('\n'), 'could not pull the collected feedback');
 });
+
+test('#6849: task built --file and kosmos fingerprint give a PDF the fingerprint without its own dates', async () => {
+  const fileprint = require('./engine/fileprint');
+  const fix = path.join(__dirname, 'test-support', 'fileprint-6849');
+  const a = path.join(fix, 'chrome-a.pdf'), b = path.join(fix, 'chrome-b.pdf');
+  const want = fileprint.fingerprint(a);
+  const plain = (p) => 'sha256:' + require('node:crypto').createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+  assert.ok(want !== plain(a) && plain(a) !== plain(b), 'CONTROL: the fixtures no longer drift, so this test cannot tell the two apart');
+  const ok = await run(['task', 'built', 'proj/1', '4', 'delivered', '--file', b], () => ({ body: { task: { number: 4 }, changed: true } }));
+  assert.equal(ok.code, 0, ok.err);
+  assert.equal(ok.calls[0].body.fingerprint, want, 'the second render was sent another fingerprint than the first');
+  const printed = await run(['fingerprint', a]);
+  assert.equal(printed.code, 0, printed.err);
+  assert.equal(printed.out, want);
+  assert.equal(printed.calls.length, 0, 'fingerprint reached the board');
+  const bare = await run(['fingerprint']);
+  assert.equal(bare.code, 2);
+  assert.match(bare.err, /Usage: kosmos fingerprint <file>/);
+  const missing = await run(['fingerprint', path.join(fix, 'nope.pdf')]);
+  assert.equal(missing.code, 2);
+  assert.match(missing.err, /missing \(no such file\)/);
+});
