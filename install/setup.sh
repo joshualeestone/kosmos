@@ -5201,7 +5201,8 @@ fi
 # exactly the marker -- so a second heredoc using it (the first version of
 # this block), or even a comment containing the opener text (the second
 # version), concatenates into its fixture and fails the suite.
-if "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" <<'HOOKSEOF' 2>/dev/null
+_hooks_rc=0
+"$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" <<'HOOKSEOF' 2>/dev/null || _hooks_rc=$?
 const path = require('path');
 const kosmosHome = process.argv[2];
 const reporthook = require(path.join(kosmosHome, 'app', 'engine', 'reporthook.js'));
@@ -5219,7 +5220,17 @@ const home = accounts.HOME_FOR_TEST;
 const targets = [path.join(home, '.claude', 'settings.json')]
   .concat(accounts.list().filter((a) => !a.isDefault).map((a) => path.join(a.dir, 'settings.json')));
 let refused = 0;
+/* #6713: the same rule the board uses (engine/installroot.js): a bundle under a non-default KOSMOS_HOME is a test
+   install here (write_install_config's stance), and it leaves the real home's account settings alone. Skipped, not
+   refused: nothing went wrong. The statusline below is gated the same way, inside allowance.ensureStatusLine. */
+let leaveAlone = () => null;
+// This is the bundle just extracted, so a rule that will not load is a fault, not an older bundle: fail closed, as
+// the board does (accounts.prepare, allowance.ensureStatusLine).
+try { leaveAlone = require(path.join(kosmosHome, 'app', 'engine', 'installroot.js')).leaveAlone; } catch { leaveAlone = () => 'could not tell'; }
+let skipped = 0;
 for (const t of targets) {
+  let why; try { why = leaveAlone(t); } catch { why = 'could not tell'; }   // a rule that throws leaves it alone
+  if (why) { skipped += 1; continue; }
   const got = reporthook.ensureWired(t, script, { claudeVersion: versionFor(t) });
   if (got.wired !== true) refused += 1;
 }
@@ -5232,15 +5243,31 @@ try {
   const allowance = require(path.join(kosmosHome, 'app', 'engine', 'allowance.js'));
   for (const t of targets) { try { allowance.ensureStatusLine(t); } catch { /* fail soft */ } }
 } catch { /* missing from this bundle, or it failed to load: the hooks' answer stands */ }
-process.exit(refused === 0 ? 0 : 1);
+// #6713, codes in the 20s so node's own exit codes (3, 4, 5 for its internal failures) cannot read as one of these:
+// 20 every target left alone on purpose, 21 some left alone and the rest wired, 22 something refused AND some left
+// alone. 1: something was refused (nothing left alone).
+process.exit(targets.length > 0 && skipped === targets.length ? 20 : refused > 0 ? (skipped > 0 ? 22 : 1) : skipped > 0 ? 21 : 0);
 HOOKSEOF
-then
-  info "agents on this computer report what they are doing themselves; the board reads their"
-  info "own words instead of their screens"
-else
-  info "some agent settings could not carry the reporting hook (an unreadable settings"
-  info "file is left alone on purpose); those agents stay readable the older way"
-fi
+case "${_hooks_rc:-0}" in
+  0)
+    info "agents on this computer report what they are doing themselves; the board reads their"
+    info "own words instead of their screens" ;;
+  20)
+    info "this install is not recognised, or could not be checked, as the installed Kosmos (its layout, or KOSMOS_HOME,"
+    info "is not the default one), so it leaves the Claude settings in your home alone; agents on it are read from"
+    info "their screens instead" ;;
+  21)
+    info "some agent settings carry the reporting hook; those in your real home were left alone, because this"
+    info "install is not recognised, or could not be checked, as the installed Kosmos, so agents on them are read"
+    info "from their screens" ;;
+  22)
+    info "some agent settings could not carry the reporting hook (an unreadable settings file is left alone on"
+    info "purpose), and those in your real home were left alone because this install is not recognised, or could"
+    info "not be checked, as the installed Kosmos; those agents are read from their screens" ;;
+  *)
+    info "some agent settings could not carry the reporting hook (an unreadable settings"
+    info "file is left alone on purpose); those agents stay readable the older way" ;;
+esac
 # #3946: said only when a settings file this block targets now carries our status
 # line (checked by its marker, the same way uninstall names it), so a machine where
 # it could not be wired is not told that it was.
@@ -5249,6 +5276,8 @@ _sl_added=""
 for _sl in "$_sl_home/.claude/settings.json" "$_sl_home"/.claude-*/settings.json; do
   [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && _sl_added=yes
 done
+# #6713: only when nothing was left alone; after 20, 21 or 22 the files scanned here may be ones this run skipped.
+case "${_hooks_rc:-0}" in 0|1) ;; *) _sl_added="" ;; esac
 if [ -n "$_sl_added" ]; then
   info "Claude accounts that had no status line of their own carry Kosmos's, in every"
   info "Claude session on them: it notes how much of the weekly allowance is used and"
