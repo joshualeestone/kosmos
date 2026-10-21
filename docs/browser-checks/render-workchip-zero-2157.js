@@ -6,8 +6,9 @@
  * show the little tab thing at the top that says the number of agents working",
  * because an animated "0 Working" looks like something is running when nothing
  * is. Since #4736 (Josh, 2026-09-30) that includes a FLOORED zero (unknowns present -> "0+"):
- * "if there are 0 working, lets not show the tile". A failed poll ("?") is not a zero and the
- * tile stays shown there.
+ * "if there are 0 working, lets not show the tile". Since #6721 one missed poll keeps the board as it
+ * was (the header says Reconnecting); the second missed poll in a row is the board not answering, and
+ * then the count is "?", not a zero, and the tile is shown.
  *
  * 🔑 WHY A BROWSER, not only the extracted-slice unit test in server.test.js.
  * Two things a fake-element unit test cannot see and that ARE the point here:
@@ -105,7 +106,9 @@ function check(name, pass, detail) {
       const hiddenBeforeFail = tileEl.hidden;
       window.fetch = async () => { throw new Error('simulated poll failure'); };
       await tick();
-      const afterOneMiss = { hidden: tileEl.hidden, count: countEl.textContent };
+      // The first miss counts only after a poll has answered (cases 1 to 3 above), so keep those first.
+      const afterOneMiss = { hidden: tileEl.hidden, count: countEl.textContent,
+        reconnecting: (document.getElementById('hdr-reconnect') || {}).textContent };
       await tick();
       out.failedPoll = { hiddenBeforeFail, afterOneMiss, hidden: tileEl.hidden, count: countEl.textContent };
 
@@ -144,8 +147,9 @@ function check(name, pass, detail) {
 
     // kosmos#6721: one missed poll keeps the board as it was, so the hidden zero tile stays hidden (CONTROL: the
     // arm below is a real change, not a tile that never moves).
-    check(`${engine}: one missed poll keeps the tile as it was (Reconnecting keeps the board, #6721)`,
-      seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.afterOneMiss.hidden === true,
+    check(`${engine}: one missed poll keeps the tile as it was and the header says Reconnecting (#6721)`,
+      seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.afterOneMiss.hidden === true
+        && seen.failedPoll.afterOneMiss.reconnecting === 'Reconnecting\u2026',
       `afterOneMiss=${JSON.stringify(seen.failedPoll.afterOneMiss)}`);
     check(`${engine}: a second missed poll brings the tile BACK showing "?" (was hidden), never leaves it hidden`,
       seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.hidden === false && seen.failedPoll.count === '?',
