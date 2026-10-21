@@ -1,33 +1,33 @@
 {
-  "version": "0.7.61",
+  "version": "0.7.62",
   "highlights": [
     {
-      "icon": "tasks",
-      "title": "Quiet projects stop flagging you",
-      "line": "Paused projects and agents out of usage no longer mark a project as an Issue, and every row in a project's needs-you list can be dismissed."
+      "icon": "list",
+      "title": "Browse an agent's files",
+      "line": "An agent's Files screen lists its folders and files, previews images, PDFs and text, and downloads a folder as one zip."
     },
     {
       "icon": "swarm",
-      "title": "Less repeated text",
-      "line": "Notices, setup and adding a computer drop lines that repeated what was already on screen."
+      "title": "A team map for each project",
+      "line": "In the Separate tabs view, a project's Members card has a Team map: who reports to whom, what each member holds, who handed work to whom."
     },
     {
-      "icon": "phone",
-      "title": "A way back to this computer",
-      "line": "In the Kosmos app, View, Back to This Computer (Command Shift H) returns the window to this computer after you open another.",
+      "icon": "tasks",
+      "title": "Agents are told how to finish a task",
+      "line": "An agent that reports on a task it holds, with kosmos task message, is now told how to mark that task done."
+    },
+    {
+      "icon": "list",
+      "title": "See which agent changed a file",
+      "line": "A project's Files page usually shows which Claude agent changed a file last.",
       "platforms": [
         "mac"
       ]
     },
     {
-      "icon": "shield",
-      "title": "Joining says why it waits",
-      "line": "A computer joining your Kosmos+ account now says, after a minute with no code, that your other computer adds one at a time."
-    },
-    {
-      "icon": "tasks",
-      "title": "An agent marking a task built tells the others",
-      "line": "When an agent marks a task built, Kosmos now tells the task's other agents and whoever holds the task above it."
+      "icon": "swarm",
+      "title": "A paused room says why",
+      "line": "When Kosmos pauses a room whose agents kept going back and forth, a note above the message box says why and offers Reopen."
     }
   ]
 }
