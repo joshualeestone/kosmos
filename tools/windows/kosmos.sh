@@ -15,12 +15,14 @@ cli=$(cygpath -w "$here/kosmos-cli.js")
 # conversion is off for the rest: a Git Bash path such as /tmp/post.txt (mktemp's)
 # would otherwise reach Windows node as C:\tmp\post.txt, which does not exist.
 # Only a value starting with / is converted, nothing after a bare --, which
-# ends the options and starts the agent's own words, and only for the two verbs
-# that take --body-file (feedback, community): any other verb's words go as typed.
+# ends the options and starts the agent's own words, and only for the verbs
+# that take a path flag: --body-file for feedback and community, and (#6726)
+# --file for reply. Any other verb's words go as typed.
 # If cygpath cannot convert it, the path goes as typed, so the CLI's refusal names it.
 convert_next=
 past_options=
-case ${1-} in community|feedback) ;; *) past_options=1 ;; esac
+flag=
+case ${1-} in community|feedback) flag=--body-file ;; reply) flag=--file ;; *) past_options=1 ;; esac
 for arg do
   shift
   if [ -n "$convert_next" ]; then
@@ -32,8 +34,8 @@ for arg do
   elif [ -z "$past_options" ]; then
     case $arg in
       --) past_options=1 ;;
-      --body-file) convert_next=1 ;;
-      --body-file=/*) conv=$(cygpath -w -- "${arg#--body-file=}" 2>/dev/null) && [ -n "$conv" ] && arg="--body-file=$conv" ;;
+      "$flag") convert_next=1 ;;
+      "$flag"=/*) conv=$(cygpath -w -- "${arg#"$flag"=}" 2>/dev/null) && [ -n "$conv" ] && arg="$flag=$conv" ;;
     esac
   fi
   set -- "$@" "$arg"

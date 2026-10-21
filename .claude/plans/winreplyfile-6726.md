@@ -13,14 +13,19 @@ code would be Homer's; this touches none.
 1. tools/windows/kosmos-cli.js verbReply: take --file / --file= out of the args before `--` (past it, words);
    refuse twice, an empty or option-shaped path, a control character; make a relative path absolute by
    joining text onto the folder, as install/kosmos's "$PWD/$path" does (review 1: path.resolve removed `..`, so
-   the board never saw a `..` it refuses, and through a junction it could name another file); refuse a Windows
-   path with a drive but no folder (C:foo) or a folder but no drive (\foo); `reply --help` shows both usage
+   the board never saw a `..` it refuses, and through a junction it could name another file); on Windows take only
+   a path on a drive, and refuse C:foo, \foo, /foo, a network or device path (review 3: the board would open
+   \\host\share before any containment check, an outbound SMB connection) and a relative path from a folder not
+   on a drive; the path rules are injectable (ctx.pathRules) so the Windows refusals run through verbReply on a Mac; `reply --help` shows both usage
    lines, as install/kosmos's help does; words optional with a file; --stdin still gives the words; a wrong-world board does not keep a
    reply with a file (the file is read at send time); on kept:true name the file by the board's `attached`, else
    path.basename. A second usage line USAGE_REPLY_FILE, word for word install/kosmos's.
-2. engine/dmfiles.js: comment only. Instructions still do not teach --file on a win32 board, and the comment now
+2. tools/windows/kosmos.sh (the Git Bash shim): MSYS conversion is off for every argument, so it converts reply's
+   --file value with cygpath, as it already did --body-file's for feedback and community (review 3: /c/Users/...
+   typed in Git Bash was refused). Tested on a Mac with a stand-in cygpath and node.
+3. engine/dmfiles.js: comment only. Instructions still do not teach --file on a win32 board, and the comment now
    gives the true reason: the board's file checks have never run on Windows.
-3. tools.windows-kosmos-cli-reply-file-6726.test.js: the Mac test's arms, plus --stdin with --file, a wrong-world
+4. tools.windows-kosmos-cli-reply-file-6726.test.js: the Mac test's arms, plus --stdin with --file, a wrong-world
    CONTROL (a plain reply IS kept through the same injected outbox), and a pin of the usage line against
    install/kosmos (it caught 25 MB vs 100 MB on the first run).
 
@@ -33,10 +38,14 @@ code would be Homer's; this touches none.
 
 ## For the one real Windows run (asked of Homer on the card when the PR opens)
 - `kosmos reply --file <absolute path in Files> "x"` attaches, and downloads from the conversation.
+- Git Bash: `kosmos reply --file /c/Users/<you>/.../Files/x.txt` (the shim's conversion, real cygpath).
+- engine/replyfile.js compares the hidden-in-home check by spelling (`given.startsWith(home + sep)`), so on
+  case-insensitive NTFS `c:\users\...` may skip it (review 3, reasoned). Check it before teaching turns on.
 - Review 2: a RELATIVE path from a subfolder. node's cwd comes from kosmos.ps1's PowerShell location, which is
   not the folder the agent expects when that location is not on the FileSystem provider. A wrong root is refused
   by the board, never attached elsewhere (reasoned, not measured).
 
 ## Validation
-- New test 16/16 (review 1 arms mutation-checked: path.resolve back, and the help line dropped, each red). All tools.windows-kosmos-cli*.test.js and cli.reply-*.test.js: 408 tests, 401 pass, 7 skip
+- New test 18/18. Mutation-checked, each red: path.resolve back; the help line dropped; the old shim; verbReply
+  ignoring the injected path rules. All tools.windows-kosmos-cli*.test.js and cli.reply-*.test.js: 408 tests, 401 pass, 7 skip
   (Windows-only), 0 fail. comment-deferral (from the worktree), dmfiles, windows-coupling-audit-1732: green.

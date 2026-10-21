@@ -55,15 +55,13 @@ test('#6726: --file sends an absolute path with the words, and says what was att
 test('#6726: a relative path is made absolute from where the command runs, joined as text', async () => {
   const r = await run(['reply', '--file=Files/notes.md', 'notes'], kept);
   assert.equal(r.code, 0, r.err);
-  assert.equal(replies(r)[0].body.file, cli.replyFileAbsolute('Files/notes.md', process.cwd(), path));
-  assert.ok(replies(r)[0].body.file.startsWith(process.cwd()), 'the relative path was not put under the folder it ran in');
+  assert.equal(replies(r)[0].body.file, process.cwd().replace(/[\\/]+$/, '') + path.sep + 'Files/notes.md');
 });
 
 test('#6726 review 1: a .. in the path reaches the board as given (the board refuses it there, as on a Mac)', async () => {
   const rel = await run(['reply', '--file', 'Files/sub/../x.txt', 'x'], kept);
   assert.equal(rel.code, 0, rel.err);
-  assert.equal(replies(rel)[0].body.file, cli.replyFileAbsolute('Files/sub/../x.txt', process.cwd(), path));
-  assert.ok(replies(rel)[0].body.file.endsWith('Files/sub/../x.txt'), 'the .. was rewritten before it was sent');
+  assert.equal(replies(rel)[0].body.file, process.cwd().replace(/[\\/]+$/, '') + path.sep + 'Files/sub/../x.txt', 'the .. was rewritten before it was sent');
   const abs = process.platform === 'win32' ? 'C:\\a\\Files\\sub\\..\\x.txt' : '/a/Files/sub/../x.txt';
   const given = await run(['reply', '--file', abs, 'x'], kept);
   assert.equal(given.code, 0, given.err);
@@ -75,7 +73,10 @@ test('#6726 review 1: the Windows path forms, with the Windows path rules on any
   const cwd = 'C:\\Users\\a\\';
   assert.equal(cli.replyFileAbsolute('C:\\a\\..\\x.txt', cwd, W), 'C:\\a\\..\\x.txt');
   assert.equal(cli.replyFileAbsolute('c:/a/x.txt', cwd, W), 'c:/a/x.txt');
-  assert.equal(cli.replyFileAbsolute('\\\\srv\\share\\x.txt', cwd, W), '\\\\srv\\share\\x.txt');
+  assert.equal(cli.replyFileAbsolute('\\\\srv\\share\\x.txt', cwd, W), null, 'a network path was sent (review 3)');
+  assert.equal(cli.replyFileAbsolute('//srv/share/x.txt', cwd, W), null, 'a network path was sent (review 3)');
+  assert.equal(cli.replyFileAbsolute('\\\\?\\C:\\x.txt', cwd, W), null, 'a device path was sent (review 3)');
+  assert.equal(cli.replyFileAbsolute('x.txt', '\\\\srv\\share\\dir', W), null, 'a relative path from a network folder was sent');
   assert.equal(cli.replyFileAbsolute('Files\\x.txt', cwd, W), 'C:\\Users\\a\\Files\\x.txt');
   assert.equal(cli.replyFileAbsolute('C:foo.txt', cwd, W), null, 'a drive with no folder was sent');
   assert.equal(cli.replyFileAbsolute('\\foo.txt', cwd, W), null, 'a folder with no drive was sent');
@@ -83,6 +84,21 @@ test('#6726 review 1: the Windows path forms, with the Windows path rules on any
   /* CONTROL: the posix rules take /foo as absolute and join a relative one onto the folder. */
   assert.equal(cli.replyFileAbsolute('/foo.txt', '/w', path.posix), '/foo.txt');
   assert.equal(cli.replyFileAbsolute('a/../b', '/w', path.posix), '/w/a/../b');
+});
+
+test('#6726 review 3: under the Windows path rules, reply refuses a path with no drive and sends one on a drive', async () => {
+  const win = { pathRules: path.win32 };
+  for (const bad of ['C:foo.txt', '\\\\host\\share\\x.txt', '/c/Users/a/Files/x.txt', '\\foo.txt']) {
+    const r = await run(['reply', '--file', bad, 'x'], kept, undefined, win);
+    assert.equal(r.code, 2, bad + ': ' + r.err);
+    assert.match(r.err, /Give the file's full path on this computer, starting with its drive/, bad);
+    assert.equal(replies(r).length, 0, bad + ' reached the board');
+  }
+  /* CONTROL: a path on a drive is sent as given, and the file is named by the Windows rules (posix would name it whole). */
+  const ok = await run(['reply', '--file', 'C:\\a\\Files\\cut.mp4', 'x'], kept, undefined, win);
+  assert.equal(ok.code, 0, ok.err);
+  assert.equal(replies(ok)[0].body.file, 'C:\\a\\Files\\cut.mp4');
+  assert.match(ok.out, /Sent, with cut\.mp4 attached\./);
 });
 
 test('#6726 review 1: kosmos reply --help names --file, as install/kosmos\'s help does', async () => {
@@ -165,7 +181,8 @@ test('#6726: on a wrong-world board a reply with a file is not kept for later', 
 });
 
 test('#6726 r1-7: a path with a line break, a tab or another control character is refused, and nothing is sent', async () => {
-  for (const bad of ['/x/Files/two\nlines.txt', '/x/Files/tab\there.txt', '/x/Files/bell\u0007.txt', 'rel\u001fative.txt']) {
+  /* path.resolve gives each an absolute form on the platform running this, so the control character is what is refused (review 3). */
+  for (const bad of [path.resolve('/x/Files/two\nlines.txt'), path.resolve('/x/Files/tab\there.txt'), path.resolve('/x/Files/bell\u0007.txt'), 'rel\u001fative.txt']) {
     const r = await run(['reply', '--file', bad, 'x'], kept);
     assert.equal(r.code, 2, JSON.stringify(bad) + ': ' + r.err);
     assert.match(r.err, /control character in it, so it cannot be attached/, JSON.stringify(bad));
@@ -189,4 +206,32 @@ test('#6726 r4-5: a saved name with a double quote arrives whole (the JSON is pa
   const r = await run(['reply', '--file', path.resolve('/x/Files/say "hi".txt'), 'here'], () => ({ body: '{"kept":true,"because":null,"attached":"say \\"hi\\".txt"}' }));
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /Sent, with say "hi"\.txt attached\./);
+});
+
+/* #6726 review 3: the Git Bash shim (tools/windows/kosmos.sh) turns MSYS path conversion off for every argument, so
+   it converts --file's value for reply itself, as it does --body-file's: /c/Users/... typed in Git Bash would
+   otherwise reach Windows node unconverted and be refused. Run on any machine with a stand-in cygpath (marks what it
+   converted) and a stand-in node (prints the arguments it got); the real cygpath runs in the Windows-only arms of
+   tools.windows-kosmos-cli-body-file-5946.test.js. */
+test('#6726 review 3: the Git Bash shim converts reply --file\'s value, and nothing else', () => {
+  const cp = require('node:child_process');
+  const os = require('node:os');
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-shim-6726-')));
+  try {
+    for (const d of ['bin', 'runtime', 'fakebin']) fs.mkdirSync(path.join(root, d));
+    fs.writeFileSync(path.join(root, 'bin', 'kosmos'), fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos.sh'), 'utf8').replace(/\r/g, ''));
+    fs.writeFileSync(path.join(root, 'bin', 'kosmos-cli.js'), '');
+    fs.writeFileSync(path.join(root, 'runtime', 'node.exe'), '#!/bin/sh\nshift\nfor a do printf "[%s]\\n" "$a"; done\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(root, 'fakebin', 'cygpath'), '#!/bin/sh\n[ "$1" = -w ] && shift\n[ "$1" = -- ] && shift\ncase $1 in */runtime/node.exe|*/kosmos-cli.js) printf "%s\\n" "$1" ;; *) printf "CONV:%s\\n" "$1" ;; esac\n', { mode: 0o755 });
+    const sh = (args) => cp.execFileSync('/bin/sh', [path.join(root, 'bin', 'kosmos'), ...args], { env: { PATH: path.join(root, 'fakebin') + ':/usr/bin:/bin' }, encoding: 'utf8' });
+    assert.equal(sh(['reply', '--file', '/c/Users/a/Files/x.txt', 'see /c/y']), '[reply]\n[--file]\n[CONV:/c/Users/a/Files/x.txt]\n[see /c/y]\n');
+    assert.equal(sh(['reply', 'the cut', '--file=/tmp/a.mov']), '[reply]\n[the cut]\n[--file=CONV:/tmp/a.mov]\n');
+    /* CONTROLS: past -- it is words; a relative path is left for the CLI; another verb's --file is not touched; and
+       --body-file is still converted for community. */
+    assert.equal(sh(['reply', '--', '--file', '/c/z']), '[reply]\n[--]\n[--file]\n[/c/z]\n');
+    assert.equal(sh(['reply', '--file', 'Files/x.txt']), '[reply]\n[--file]\n[Files/x.txt]\n');
+    assert.equal(sh(['post', 'p1', '--file', '/c/q']), '[post]\n[p1]\n[--file]\n[/c/q]\n');
+    assert.equal(sh(['community', 'post', '--body-file', '/tmp/b']), '[community]\n[post]\n[--body-file]\n[CONV:/tmp/b]\n');
+    assert.equal(sh(['reply', '--body-file', '/tmp/b', 'x']), '[reply]\n[--body-file]\n[/tmp/b]\n[x]\n');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
