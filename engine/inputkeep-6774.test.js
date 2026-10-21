@@ -224,3 +224,21 @@ test('#6774: a task line kept behind messages kept for the box is flagged and to
     assert.equal(limitqueue.list('casey').find((e) => e.id === v.id).input, true);
   });
 });
+
+test('#6774: a kosmos msg re-sent AFTER the recipient answered is a new message, not folded; CONTROL: before, it folds', async () => {
+  await withFleet(async (board) => {
+    const a = await send(board, 'yes');
+    const again = await send(board, 'yes');
+    assert.equal(again.duplicate, true, 'CONTROL: with no answer between, the re-send folds');
+    // casey answers leo (its row, as the board logs a delivered message), then leo says yes again.
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'message', id: 'm900', from: 'casey', to: 'leo', text: 'ship it too?', at: new Date(Date.now() + 5).toISOString(), state: 'placed' }) + '\n');
+    messages.resetForTests();
+    messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    await new Promise((r) => setTimeout(r, 10));
+    const after = await send(board, 'yes');
+    assert.notEqual(after.duplicate, true, 'folded an answer given after the recipient spoke: ' + JSON.stringify(after));
+    assert.notEqual(after.id, a.id);
+    assert.equal(after.held, true);
+    assert.equal(limitqueue.list('casey').length, 2);
+  });
+});

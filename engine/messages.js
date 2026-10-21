@@ -1539,7 +1539,9 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   if (sameMsg && sameMsg.state === HELD_STATE) {
     const typed = log.find((r) => r && r.kind === 'held-delivered' && r.of === sameMsg.id);
     const keptCopy = typed ? null : require('./limitqueue').list(qName).find((e) => e.id === sameMsg.id);
-    if (keptCopy) {
+    /* #6774: a copy kept for a stuck input box folds only while the two have not spoken since (#4580): unlike an agent
+       out of usage, one whose box is stuck can still answer, and the same words after that answer are a new message. */
+    if (keptCopy && (keptCopy.input !== true || quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName))))) {
       return heldReceipt(toName, sameMsg.id, sameMsg.at, Date.parse(sameMsg.heldUntil) > Date.parse(at) ? sameMsg.heldUntil : null, true, keptCopy.behind === true, keptCopy.signin === true,
         { input: keptCopy.input === true, behindInput: keptCopy.behind === true && keptCopy.input === true });
     }
@@ -1562,7 +1564,11 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   if (keptEarly && require('./limitqueue').isDone(keptEarly.id)) {
     const typedRow = log.find((r) => r && r.kind === 'held-delivered' && r.of === keptEarly.id);
     if (typedRow) return { state: typedRow.state, because: null, id: keptEarly.id, at: keptEarly.at, duplicate: true };
-  } else if (keptEarly) {
+  } else if (keptEarly && (keptEarly.input !== true || (() => {
+    // #6774: as the fold above, a copy kept for the box only while the two have not spoken since its own row.
+    const row = log.find((r) => r && r.kind === 'message' && r.id === keptEarly.id);
+    return !row || quietSince(log, row, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)));
+  })())) {
     return heldReceipt(toName, keptEarly.id, keptEarly.at, !keptEarly.behind && Date.parse(keptEarly.reset) > Date.parse(at) ? keptEarly.reset : null, true, keptEarly.behind === true, keptEarly.signin === true,
       { input: keptEarly.input === true, behindInput: keptEarly.behind === true && keptEarly.input === true });
   }
@@ -1725,8 +1731,8 @@ function send(input, roster) {
 /* #5805 slice 2a: a `kosmos msg` message kept for an agent out of usage. Its row's state, and the sender's answer:
    nothing was typed (could_not), it is held (the chat held shape, heldBy 'limit'), and when it will be typed. */
 const HELD_STATE = 'held';
-/* #6774: `more.input`, kept because its input box held text not yet sent; `more.behindInput`, kept behind messages that
-   were all kept for that reason (so the sentence names the real one). */
+/* #6774: `more.input`, kept because its input box held text not yet sent; `more.behindInput`, kept behind messages any
+   of which were kept for that reason (so the sentence names the real one). */
 function heldReceipt(toName, id, at, heldUntil, duplicate, behind, signin, more) {
   more = more || {};   // no default in the signature: web.task-say-outcome-5842.test.js reads this body from its first brace
   const input = more.input === true && !behind;

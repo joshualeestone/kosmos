@@ -255,3 +255,24 @@ test('#6774: Send now anyway on a row kept for a usage limit, refused by the box
   } finally { chat.deliverAsync = real; board.restore(); }
   assert.deepEqual(kept(), [['dm', 'after the reset', false]], 'the press lost the kept message');
 });
+
+test('#6774: the box 409 names what a signed-out row and a row kept behind still wait for', async () => {
+  const real = chat.deliverAsync;
+  const board = fleet.install([fleet.agent(NAME, { state: 'idle' })]);
+  chat.deliverAsync = async () => BOX_REFUSED();
+  const press = async (at) => {
+    const res = await fetch(`${base}/api/agent/${NAME}/thread/held`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at }) });
+    return { status: res.status, out: await res.json() };
+  };
+  try {
+    const a1 = new Date().toISOString();
+    limitqueue.add(NAME, { id: 'dm-signin-1', from: '', kind: 'dm', text: 'signed out one', envelope: 'e', trailer: '', at: a1, reset: a1, signin: true });
+    const r1 = await press(a1);
+    assert.match(r1.out.error, /once it is signed in again and the box is clear$/, JSON.stringify(r1));
+    await new Promise((r) => setTimeout(r, 5));
+    const a2 = new Date().toISOString();
+    limitqueue.add(NAME, { id: 'dm-behind-1', from: '', kind: 'dm', text: 'behind one', envelope: 'e', trailer: '', at: a2, reset: a2, behind: true });
+    const r2 = await press(a2);
+    assert.match(r2.out.error, /after the messages ahead of it, once the box is clear$/, JSON.stringify(r2));
+  } finally { chat.deliverAsync = real; board.restore(); }
+});
