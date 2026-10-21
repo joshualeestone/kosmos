@@ -657,7 +657,7 @@ run_deploy "$S46" "$L46" --promote
 read -r S47 L47 <<<"$(make_rollback_scenario)"
 # The real site commits the installer pair together (#2511); this scenario committed setup alone, so add its checksum.
 ( cd "$S47" && shasum -a 256 setup > setup.sha256 ) && git -C "$S47" add -- setup.sha256 && git -C "$S47" commit -q --amend --no-edit -- setup.sha256
-git init -q --bare "$S47.origin.git" && git -C "$S47" remote add origin "$S47.origin.git" && git -C "$S47" push -q origin main
+git init -q --bare --initial-branch=main "$S47.origin.git" && git -C "$S47" remote add origin "$S47.origin.git" && git -C "$S47" push -q origin main
 # The pinned build's signed manifest, served (pointer-freeze checks it is, before it pins).
 printf '{"manifest":1}\n' > "$L47/dist/kosmos-$OLD-arm64.manifest.json"; printf 'SIG\n' > "$L47/dist/kosmos-$OLD-arm64.manifest.json.sig"
 cp "$L47/dist/kosmos-$OLD-arm64.manifest.json" "$L47/dist/kosmos-$OLD-arm64.manifest.json.sig" "$S47/dist/"   # tracked on the real site
@@ -681,7 +681,7 @@ run_deploy "$S49" "$L49" --promote
 # A freeze pushed from another machine, not yet pulled here: deploy-site reads origin/main and refuses a pointer that is
 # not the frozen version. CONTROL: arm 45 above (frozen at the committed version) deploys.
 read -r S48 L48 <<<"$(make_rollback_scenario)"
-git init -q --bare "$S48.origin.git" && git -C "$S48" remote add origin "$S48.origin.git" && git -C "$S48" push -q origin main
+git init -q --bare --initial-branch=main "$S48.origin.git" && git -C "$S48" remote add origin "$S48.origin.git" && git -C "$S48" push -q origin main
 git clone -q "$S48.origin.git" "$S48.other" && git -C "$S48.other" config user.email t@t && git -C "$S48.other" config user.name t
 printf 'mac=%s\nbecause=another machine\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S48.other/dist/POINTER_FROZEN"
 git -C "$S48.other" add dist/POINTER_FROZEN && git -C "$S48.other" commit -q -m "frozen elsewhere" && git -C "$S48.other" push -q origin main
@@ -693,7 +693,7 @@ run_deploy "$S48" "$L48" --promote
 # A freeze pushed from another machine WHILE this deploy runs (after its early check, during its artifact fetches):
 # the re-check just before vercel refuses, and live keeps what it served. CONTROL: arm 45 above deploys.
 read -r S51 L51 <<<"$(make_rollback_scenario)"
-git init -q --bare "$S51.origin.git" && git -C "$S51" remote add origin "$S51.origin.git" && git -C "$S51" push -q origin main
+git init -q --bare --initial-branch=main "$S51.origin.git" && git -C "$S51" remote add origin "$S51.origin.git" && git -C "$S51" push -q origin main
 git clone -q "$S51.origin.git" "$S51.other" && git -C "$S51.other" config user.email t@t && git -C "$S51.other" config user.name t
 printf 'mac=%s\nbecause=frozen mid-run\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S51.other/dist/POINTER_FROZEN"
 git -C "$S51.other" add dist/POINTER_FROZEN && git -C "$S51.other" commit -q -m "frozen elsewhere, mid-run"
@@ -717,7 +717,7 @@ KOSMOS_POINTER_FREEZE_OFFLINE=1 run_deploy "$S50" "$L50" --promote
 # A stale checkout holding an OLD freeze (at the version its own pointers name, so on its own it would deploy) while
 # origin/main is frozen at another version: origin/main decides. CONTROL: arm 45 (the same freeze, no origin) deploys.
 read -r S52 L52 <<<"$(make_rollback_scenario)"
-git init -q --bare "$S52.origin.git" && git -C "$S52" remote add origin "$S52.origin.git" && git -C "$S52" push -q origin main
+git init -q --bare --initial-branch=main "$S52.origin.git" && git -C "$S52" remote add origin "$S52.origin.git" && git -C "$S52" push -q origin main
 git clone -q "$S52.origin.git" "$S52.other" && git -C "$S52.other" config user.email t@t && git -C "$S52.other" config user.name t
 printf 'mac=%s\nbecause=the newer freeze\nat=2026-10-20T01:00:00Z\n' "$NEW" > "$S52.other/dist/POINTER_FROZEN"
 git -C "$S52.other" add dist/POINTER_FROZEN && git -C "$S52.other" commit -q -m "frozen at $NEW elsewhere" && git -C "$S52.other" push -q origin main
@@ -747,7 +747,7 @@ run_deploy "$S53" "$L53" --promote
 read -r S54 L54 <<<"$(make_rollback_scenario)"
 { cat "$S54/setup"; printf '# a hand edit\n'; } > "$S54/setup-staging"; ( cd "$S54" && shasum -a 256 setup-staging > setup-staging.sha256 )
 git -C "$S54" add -- setup-staging setup-staging.sha256 && git -C "$S54" commit -q -m "an installer by hand" -- setup-staging setup-staging.sha256
-git init -q --bare "$S54.origin.git" && git -C "$S54" remote add origin "$S54.origin.git" && git -C "$S54" push -q origin main
+git init -q --bare --initial-branch=main "$S54.origin.git" && git -C "$S54" remote add origin "$S54.origin.git" && git -C "$S54" push -q origin main
 git clone -q "$S54.origin.git" "$S54.other" && git -C "$S54.other" config user.email t@t && git -C "$S54.other" config user.name t
 cp "$S54/setup" "$S54.other/setup-staging"; ( cd "$S54.other" && shasum -a 256 setup-staging > setup-staging.sha256 )
 printf 'mac=%s\nbecause=frozen mid-run at this version\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S54.other/dist/POINTER_FROZEN"
@@ -760,7 +760,7 @@ FREEZE_MID_RUN_ON="dist/$OLDART" FREEZE_MID_RUN_CLONE="$S54.other" run_deploy "$
 # A BAD pointer pushed to origin/main ON TOP of the freeze, deployed from a checkout that is up to date: the refusal
 # must not send the operator to pull (pulling changes nothing); it says what is true, a file committed on top.
 read -r S55 L55 <<<"$(make_rollback_scenario)"
-git init -q --bare "$S55.origin.git" && git -C "$S55" remote add origin "$S55.origin.git"
+git init -q --bare --initial-branch=main "$S55.origin.git" && git -C "$S55" remote add origin "$S55.origin.git"
 printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S55/dist/POINTER_FROZEN"
 git -C "$S55" add -- dist/POINTER_FROZEN && git -C "$S55" commit -q -m "frozen at $OLD" -- dist/POINTER_FROZEN
 cp "$L55/dist/latest.json" "$S55/dist/latest.json"
@@ -771,7 +771,7 @@ run_deploy "$S55" "$L55" --promote
   && pass "#6620: a pointer pushed on top of the freeze, from an up-to-date checkout: refused, and not told to pull" || bad "#6620 on-top advice (rc=$RC) out=$out"
 # CONTROL for that advice: the same freeze on origin, this checkout BEHIND it (arm 48's shape): told to pull.
 read -r S56 L56 <<<"$(make_rollback_scenario)"
-git init -q --bare "$S56.origin.git" && git -C "$S56" remote add origin "$S56.origin.git" && git -C "$S56" push -q origin main
+git init -q --bare --initial-branch=main "$S56.origin.git" && git -C "$S56" remote add origin "$S56.origin.git" && git -C "$S56" push -q origin main
 git clone -q "$S56.origin.git" "$S56.other" && git -C "$S56.other" config user.email t@t && git -C "$S56.other" config user.name t
 printf 'mac=%s\nbecause=another machine\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S56.other/dist/POINTER_FROZEN"
 git -C "$S56.other" add dist/POINTER_FROZEN && git -C "$S56.other" commit -q -m "frozen elsewhere" && git -C "$S56.other" push -q origin main
@@ -825,7 +825,7 @@ DEPLOY_SHELL=dash run_deploy "$S56" "$L56" --promote
 # A checkout that has DIVERGED from a frozen origin/main (a local commit origin/main lacks, origin/main frozen since):
 # told it diverged, not to pull (a pull would merge) and not that a file was committed on top.
 read -r S60 L60 <<<"$(make_rollback_scenario)"
-git init -q --bare "$S60.origin.git" && git -C "$S60" remote add origin "$S60.origin.git" && git -C "$S60" push -q origin main
+git init -q --bare --initial-branch=main "$S60.origin.git" && git -C "$S60" remote add origin "$S60.origin.git" && git -C "$S60" push -q origin main
 git clone -q "$S60.origin.git" "$S60.other" && git -C "$S60.other" config user.email t@t && git -C "$S60.other" config user.name t
 printf 'mac=%s\nbecause=another machine\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S60.other/dist/POINTER_FROZEN"
 git -C "$S60.other" add dist/POINTER_FROZEN && git -C "$S60.other" commit -q -m "frozen elsewhere" && git -C "$S60.other" push -q origin main
@@ -837,7 +837,7 @@ run_deploy "$S60" "$L60" --promote
 # A freeze committed here and never pushed (origin/main not frozen, this checkout ahead of it): told so, with the
 # command that pushes it, not "pull" (which would do nothing).
 read -r S61 L61 <<<"$(make_rollback_scenario)"
-git init -q --bare "$S61.origin.git" && git -C "$S61" remote add origin "$S61.origin.git" && git -C "$S61" push -q origin main
+git init -q --bare --initial-branch=main "$S61.origin.git" && git -C "$S61" remote add origin "$S61.origin.git" && git -C "$S61" push -q origin main
 printf 'mac=%s\nbecause=never pushed\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S61/dist/POINTER_FROZEN"
 git -C "$S61" add -- dist/POINTER_FROZEN && git -C "$S61" commit -q -m "frozen here only" -- dist/POINTER_FROZEN
 run_deploy "$S61" "$L61" --promote
