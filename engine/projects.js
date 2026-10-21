@@ -79,6 +79,7 @@ const { execFileSync, spawn } = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const filehash = require('./filehash');   // #6761: a Files row's sha256, hashed in the background
 const win32explorer = require('./win32explorer');
 const store = require('./store');
 const instructions = require('./instructions');
@@ -1774,6 +1775,21 @@ function isScratchName(name) {
   return SCRATCH_PREFIXES.some((p) => n.startsWith(p)) || SCRATCH_NAMES.has(n) || SCRATCH_PATTERN.test(n);
 }
 
+/* #6761: a list row as sent: name, size and date, and its sha256 when `fingerprint` is asked and the hash is known (a
+   file not yet hashed is queued and gets it on a later poll). The walk's path and stat never leave the engine. */
+function rowOf(f, fingerprint) {
+  const row = { name: f.name, size: f.size, modified: f.modified };
+  if (fingerprint && f.abs && f.st) {
+    const sha = filehash.forRow(f.abs, f.st);
+    if (sha) row.sha256 = sha;
+  }
+  return row;
+}
+function fingerprintStampPart(rows) {
+  const known = rows.filter((r) => r.sha256).map((r) => r.name + '=' + r.sha256);
+  return known.length ? '\nsha:' + known.join('\n') : '';
+}
+
 /**
  * The files in a project's folder, newest first.
  *
@@ -1831,7 +1847,7 @@ function listFiles(folder, limit, opts) {
     if (!ent.isFile()) return;
     let st;
     try { st = fs.statSync(path.join(abs, ent.name)); } catch { return; }
-    files.push({ name: relName, size: st.size, modified: st.mtime.toISOString() });
+    files.push({ name: relName, size: st.size, modified: st.mtime.toISOString(), abs: path.join(abs, ent.name), st });
   };
   while (queue.length && !truncated) {
     const { abs, rel, depth } = queue.shift();
@@ -1876,8 +1892,12 @@ function listFiles(folder, limit, opts) {
      separator itself (legal in a POSIX name) cannot blend two records into
      one -- unlike a bare `\0`/`\n` join, which two review rounds independently
      flagged as a theoretical (never practical) collision. */
+  /* #6761: the rows shown get a fingerprint (opts.fingerprint, the Files routes only): what is already known, the rest
+     queued and hashed in the background, so a poll never waits on a hash. Only the rows shown: a folder of thousands is
+     never read whole for a list of ten. The stamp includes them, so the page repaints when one arrives. */
+  const shown = files.slice(0, cap).map((f) => rowOf(f, opts && opts.fingerprint));
   const stamp = crypto.createHash('sha1')
-    .update(files.map((f) => JSON.stringify([f.name, f.size, f.modified])).join('\n') + (truncated ? '\ntruncated' : '')).digest('hex').slice(0, 16);
+    .update(files.map((f) => JSON.stringify([f.name, f.size, f.modified])).join('\n') + (truncated ? '\ntruncated' : '') + fingerprintStampPart(shown)).digest('hex').slice(0, 16);
   /* ⚠️ `names` IS EVERY FILE, not the capped view, and it is here rather than
      behind a second route because the two answers must come from ONE read of
      the folder. A message body's path citations are matched against this list,
@@ -1886,7 +1906,7 @@ function listFiles(folder, limit, opts) {
      decided by sort order. It carries no sizes or times: the matcher needs
      identity, and shipping more than that would invite a second, divergent
      documents list built off the wrong field. */
-  const out = { ok: true, total: files.length, files: files.slice(0, cap), names: files.map((f) => f.name), stamp };
+  const out = { ok: true, total: files.length, files: shown, names: files.map((f) => f.name), stamp };
   if (truncated) out.truncated = true;
   return out;
 }
@@ -2126,7 +2146,7 @@ function listDir(folder, rel, where, opts) {
       if (!e) continue;
       if (dirs.length + files.length >= BROWSE_MAX_ENTRIES) { truncated = true; break; }   // a shown one past the cap
       if (e.kind === 'dir') dirs.push({ name: e.name, modified: e.modified });
-      else files.push({ name: e.name, size: e.size, modified: e.modified });
+      else files.push(rowOf({ name: e.name, size: e.size, modified: e.modified, abs: path.join(got.real, path.basename(e.name)), st: e.st }, opts && opts.fingerprint));
     }
   } catch (err) {
     if (err instanceof TypeError || err instanceof ReferenceError) throw err;
@@ -2142,7 +2162,7 @@ function listDir(folder, rel, where, opts) {
   dirs.sort(byName);
   files.sort(byName);
   const stamp = crypto.createHash('sha1')
-    .update([...dirs.map((d) => JSON.stringify(['d', d.name, d.modified])), ...files.map((f) => JSON.stringify(['f', f.name, f.size, f.modified]))].join('\n') + (truncated ? '\ntruncated' : ''))
+    .update([...dirs.map((d) => JSON.stringify(['d', d.name, d.modified])), ...files.map((f) => JSON.stringify(['f', f.name, f.size, f.modified, f.sha256 || '']))].join('\n') + (truncated ? '\ntruncated' : ''))
     .digest('hex').slice(0, 16);
   const out = { ok: true, dir: got.rel, dirs, files, stamp };
   if (truncated) { out.truncated = true; if (scanCut) out.scanCut = true; else out.limit = BROWSE_MAX_ENTRIES; }

@@ -7952,7 +7952,7 @@ const server = http.createServer(async (req, res) => {
       // it, so it is dropped here rather than sent on every poll.
       // Flat on purpose (#2245 round 7): the agent's instructions (engine/dmfiles.js) tell it to save
       // directly in Files, and this page says so; only a PROJECT's list walks subfolders.
-      const { names: _allNames, ...listed } = projects.listFiles(folder, cap, { maxDepth: 0 });
+      const { names: _allNames, ...listed } = projects.listFiles(folder, cap, { maxDepth: 0, fingerprint: true });   // #6761: each row's sha256
       sendJson(res, 200, { ...listed, folder });
       return;
     }
@@ -7971,7 +7971,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ok: true, missing: true, dir: '', dirs: [], files: [], stamp: 'missing' });
         return;
       }
-      const listed = projects.listDir(folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH });
+      const listed = projects.listDir(folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH, fingerprint: true });   // #6761
       /* Iteration 1: 404 is kept for "no such agent" (the page says it has no folder of its own); a Files that is a file
          or cannot be read answers 409 with its reason, and a folder inside Files that is not there is 404 as a file is. */
       sendJson(res, listed.ok ? 200 : (dir ? 404 : 409), listed);
@@ -21394,7 +21394,7 @@ const server = http.createServer(async (req, res) => {
        the view asks for up to 500, and an unbounded ask cannot be minted. */
     let fileCap = 10;
     try { const l = Number(new URL(req.url, ROUTING_BASE).searchParams.get('limit')); if (Number.isFinite(l) && l > 0) fileCap = Math.min(Math.floor(l), 500); } catch { fileCap = 10; }
-    const listed = projects.listFiles(record.folder, fileCap);
+    const listed = projects.listFiles(record.folder, fileCap, { fingerprint: true });   // #6761: each row's sha256
     /* #5812: each row says which agent changed it last, when the board recorded one close enough to the change. */
     if (listed && listed.ok && Array.isArray(listed.files)) {
       try {
