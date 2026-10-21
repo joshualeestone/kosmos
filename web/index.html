@@ -38594,7 +38594,13 @@ function sortAgents(list, mode, projects, stars) {
 let AGENT_STARS = new Set();
 let BOARD_STARS = new Set();   // review 5: the stars the board last confirmed (a read, or a save's answer); a failed save goes back to these
 let STARS_SEQ = 0;   // the newest read or write wins: a slow read never puts back a star changed since it went out
-const STAR_MSG = { saved: 'That star could not be saved. Try again in a moment.', removed: 'That star could not be removed. Try again in a moment.' };
+const STAR_MSG = {
+  saved: 'That star could not be saved. Try again in a moment.', removed: 'That star could not be removed. Try again in a moment.',
+  // review 8: refusals that a retry cannot fix say so, rather than asking the person to try again forever
+  full: 'That star could not be saved: 500 agents are starred already. Unstar one first.',
+  stuck: 'Stars cannot be changed right now: Kosmos cannot read or save its list of starred agents.',
+  refused: 'That agent cannot be starred.',
+};
 let STARS_WRITING = 0;   // writes in flight: a reload waits for them, or it could read the set from before the write
 const STAR_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M12 3.6l2.5 5.2 5.7.7-4.2 3.9 1.1 5.6L12 16.3 6.9 19l1.1-5.6-4.2-3.9 5.7-.7z"/></svg>';
 function starBtn(a) {
@@ -38605,19 +38611,20 @@ function starBtn(a) {
 }
 /* A repaint rebuilds the star buttons, which drops a keyboard user's focus. Every repaint of the grid or the list goes
    through this, so a focused star is focused again afterwards (the toggle, the sort control and the 5 s poll alike). */
-function keepStarFocus(paint) {
+function keepStarFocus(paint, follow) {
   const had = document.activeElement && document.activeElement.closest ? document.activeElement.closest('[data-star]') : null;
   const where = had ? had.closest('#grid, #alist') : null;
   const who = had ? had.dataset.star : null;
   paint();
   if (who && where && document.activeElement !== had) {
     const back = [...where.querySelectorAll('[data-star]')].find((b) => b.dataset.star === who);
-    if (back) back.focus();
+    // review 8: only a press follows its star (it may have moved to the top); a poll must not scroll the page to it
+    if (back) back.focus({ preventScroll: !follow });
   }
 }
 /* The grid and the list in the chosen order, now. Shared by the sort control, a star and the stars' reload, so they
    cannot disagree about what "the board's order" is. A focused star keeps its focus (keepStarFocus). */
-function repaintAgentOrder() {
+function repaintAgentOrder(follow) {
   const lim = new URLSearchParams(location.search).get('limit');
   const listed = (LAST || []).filter((a) => !(a && a.isGuide === true));
   const shown = lim ? listed.slice(0, Number(lim)) : listed;
@@ -38625,7 +38632,7 @@ function repaintAgentOrder() {
   keepStarFocus(() => {
     document.getElementById('grid').innerHTML = ordered.length ? ordered.map(card).join('') : boardEmpty();
     paintAgentListNow();
-  });
+  }, follow);
 }
 async function loadStars() {
   if (STARS_WRITING > 0) return;   // the write's own answer is newer than anything this read could bring
@@ -38653,7 +38660,7 @@ function toggleStar(name) {
   const seq = ++STARS_SEQ;
   STAR_LAST.set(name, seq);
   if (on) AGENT_STARS.add(name); else AGENT_STARS.delete(name);
-  repaintAgentOrder();
+  repaintAgentOrder(true);
   STARS_WRITING += 1;
   /* Review 4: a save that threw (a repaint failing, say) must not stop the presses queued after it, so the chain goes
      on past a rejection; and the in-flight count is settled here, whatever the save did, or reloads stop for good. */
@@ -38666,21 +38673,18 @@ function toggleStar(name) {
 }
 async function saveStar(name, on, seq) {
   const newest = () => STAR_LAST.get(name) === seq;   // no later press on this star is waiting
+  /* Review 8: only the request is inside the try. What the page does with a good answer (a repaint, say) cannot then
+     be taken for a failed save. `why` names the line a failure shows; a refusal no retry can fix says so. */
+  let v = null;
+  let why = on ? 'saved' : 'removed';
   try {
     const r = await fetch('/api/agent-stars', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, on }) });
-    const v = await r.json().catch(() => null);
-    if (!r.ok || !v || !Array.isArray(v.names)) throw new Error('not saved');
-    if (v.names.includes(name)) BOARD_STARS.add(name); else BOARD_STARS.delete(name);
-    /* Review 4: only THIS star is taken from the answer. Saves for two different stars run side by side, so either
-       answer may be the older list; replacing the whole set from it dropped a star the other save had just kept. */
-    if (newest()) {
-      if (v.names.includes(name)) AGENT_STARS.add(name); else AGENT_STARS.delete(name);
-      repaintAgentOrder();
-    }
-    // A star that saved clears the line a failed one left, and only that line (the could-not-open receipt is not ours).
-    const msg = document.getElementById('board-msg');
-    if (msg && (msg.textContent === STAR_MSG.saved || msg.textContent === STAR_MSG.removed)) { msg.textContent = ''; msg.hidden = true; }
-  } catch {
+    const got = await r.json().catch(() => null);
+    if (r.ok && got && Array.isArray(got.names)) v = got;
+    else if (r.status === 400) why = got && got.error === 'too many starred agents' ? 'full' : 'refused';
+    else if (r.status === 500) why = 'stuck';
+  } catch { /* not answered: the retry line */ }
+  if (!v) {
     /* Only the newest press on this star settles it (a later one waiting decides for itself). It goes back to what the
        board last CONFIRMED, not to what the page showed before this press: that may have come from an earlier press
        whose save failed too (review 5). The person is told only when what they asked for is not what they now see,
@@ -38691,7 +38695,18 @@ async function saveStar(name, on, seq) {
     repaintAgentOrder();
     if (kept === on) return;
     const msg = document.getElementById('board-msg');
-    if (msg) { msg.textContent = on ? STAR_MSG.saved : STAR_MSG.removed; msg.hidden = false; }
+    if (msg) { msg.textContent = STAR_MSG[why]; msg.hidden = false; }
+    return;
+  }
+  if (v.names.includes(name)) BOARD_STARS.add(name); else BOARD_STARS.delete(name);
+  // A star that saved clears the line a failed one left, and only that line (the could-not-open receipt is not ours).
+  const msg = document.getElementById('board-msg');
+  if (msg && Object.values(STAR_MSG).includes(msg.textContent)) { msg.textContent = ''; msg.hidden = true; }
+  /* Review 4: only THIS star is taken from the answer. Saves for two different stars run side by side, so either
+     answer may be the older list; replacing the whole set from it dropped a star the other save had just kept. */
+  if (newest()) {
+    if (v.names.includes(name)) AGENT_STARS.add(name); else AGENT_STARS.delete(name);
+    repaintAgentOrder();
   }
 }
 let AGENT_SORT = (() => {

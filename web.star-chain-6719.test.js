@@ -20,14 +20,15 @@ function page() {
   const fetch = (url, init) => new Promise((resolve) => {
     const body = JSON.parse(init.body);
     sent.push({ body, answer: (names) => resolve({ ok: true, json: async () => ({ names, ok: true }) }),
-      fail: () => resolve({ ok: false, json: async () => ({ error: 'no' }) }) });
+      fail: () => resolve({ ok: false, json: async () => ({ error: 'no' }) }),
+      refuse: (status, error) => resolve({ ok: false, status, json: async () => ({ error }) }) });
   });
   const msg = { textContent: '', hidden: true };
   const doc = { getElementById: (id) => (id === 'board-msg' ? msg : null) };
   // eslint-disable-next-line no-new-func
   const api = new Function('fetch', 'document', [
     'let AGENT_STARS = new Set(); let BOARD_STARS = new Set(); let STARS_SEQ = 0; let STARS_WRITING = 0;',
-    "const STAR_MSG = { saved: 's', removed: 'r' };",
+    "const STAR_MSG = { saved: 's', removed: 'r', full: 'f', stuck: 'k', refused: 'x' };",
     'let THROWS = 0; const repaintAgentOrder = () => { if (THROWS > 0) { THROWS -= 1; throw new Error(\'render\'); } };',
     PAGE.slice(from, to),
     'return { toggleStar, stars: () => [...AGENT_STARS].sort(), writing: () => STARS_WRITING, throwNext: (n) => { THROWS = n; } };',
@@ -114,4 +115,27 @@ test('#6719 review 5 CONTROL: a failed star on an agent the board does not hold 
   assert.deepEqual(api.stars(), []);
   assert.equal(msg.hidden, false);
   assert.equal(msg.textContent, 's');
+});
+
+test('#6719 review 8: a repaint that throws after a good answer is not taken for a failed save', async () => {
+  const { api, sent, msg } = page();
+  const p1 = api.toggleStar('renet');
+  await tick();
+  api.throwNext(1);                     // the repaint after the board's answer throws
+  sent[0].answer(['renet']);
+  await p1;
+  assert.deepEqual(api.stars(), ['renet'], 'a saved star was put back because the repaint after it threw');
+  assert.equal(msg.hidden, true, 'a saved star said it could not be saved');
+});
+
+test('#6719 review 8: a refusal no retry can fix says what is wrong, not "try again"', async () => {
+  for (const [status, error, line] of [[400, 'too many starred agents', 'f'], [500, 'we could not save that star', 'k'], [400, 'not an agent name', 'x']]) {
+    const { api, sent, msg } = page();
+    const p1 = api.toggleStar('renet');
+    await tick();
+    sent[0].refuse(status, error);
+    await p1;
+    assert.deepEqual(api.stars(), []);
+    assert.equal(msg.textContent, line, `${status} ${error} showed the wrong line`);
+  }
 });

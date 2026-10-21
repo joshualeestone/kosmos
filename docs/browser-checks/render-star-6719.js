@@ -176,6 +176,20 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
         paintAgentList(); const a = document.activeElement;
         return { before, star: a && a.dataset ? a.dataset.star : null, inList: !!(a && a.closest && a.closest('#alist')) };
       });
+      // Review 8: and it does not scroll the page back to that star. The person scrolled away after pressing it; the
+      // poll's repaint must leave the page where they put it. CONTROL: the page did scroll, so the arm can fail.
+      const scroll = await page.evaluate(() => {
+        document.body.style.minHeight = '4000px';
+        window.scrollTo(0, 0);
+        document.querySelector('#alist [data-star="cam"]').focus({ preventScroll: true });
+        window.scrollTo(0, 2000);
+        const moved = window.scrollY;
+        paintAgentList();
+        const a = document.activeElement;
+        return { moved, after: window.scrollY, star: a && a.dataset ? a.dataset.star : null };
+      });
+      await page.evaluate(() => { document.body.style.minHeight = ''; window.scrollTo(0, 0); });
+      chk(scroll.moved > 0 && scroll.after === scroll.moved && scroll.star === 'cam', `${t} that repaint does not scroll the page back to the star (CONTROL: the page had scrolled)`, JSON.stringify(scroll));
       await page.evaluate(() => { BOARD_LAYOUT = 'grid'; boardApplyVisibility(true); repaintAgentOrder(); });
       chk(kept.before === 'cam' && kept.star === 'cam' && kept.inList, `${t} a list repaint (the poll's) keeps a focused star focused (CONTROL: it had focus before)`, JSON.stringify(kept));
 
