@@ -278,8 +278,8 @@ async function anyAgent(t) {
    sockets, and on a loaded hosted runner a socket left idle across a request-free test came back ECONNRESET on the
    next request (two PRs, 2026-10-21; server.dm-rollover-5841 does the same for the same reason). Callers pass only
    method, headers and string bodies, and none reaches the server's one redirect. A string body with no content-type
-   is sent as text/plain, as fetch sends it, because the cross-site write guard reads that type; and a request that
-   gets no answer fails after 300 s (undici's default) as that request, not as a whole-file timeout. */
+   is sent as text/plain, as fetch sends it, because the cross-site write guard reads that type; and a request whose
+   socket sits idle for 300 s (undici's default) fails as that request, not as a whole-file timeout. */
 const http = require('node:http');
 let REQUESTS = 0;
 let REUSED = 0;
@@ -299,7 +299,7 @@ function req(path, options = {}) {
       res.on('error', reject);
     });
     r.on('socket', () => { if (r.reusedSocket) REUSED += 1; });
-    r.setTimeout(300000, () => r.destroy(new Error(`req ${options.method || 'GET'} ${path}: no answer in 300 s`)));
+    r.setTimeout(300000, () => r.destroy(new Error(`req ${options.method || 'GET'} ${path}: socket idle for 300 s`)));
     r.on('error', reject);
     if (options.body !== undefined) r.write(options.body);
     r.end();

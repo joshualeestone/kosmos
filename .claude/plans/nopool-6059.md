@@ -25,14 +25,16 @@ Same contract for callers, from an audit of all 599 sites:
   guard it did. Of fetch's other defaults, server.js reads `sec-fetch-mode` only to compare it with `navigate`, and
   `user-agent` only into an access-log line (measured by grep; `accept` and `accept-encoding` are not read), so
   leaving them out changes no answer.
-- **Timeout:** 300 s per request (undici's default), so a request that gets no answer fails as that request.
+- **Timeout:** a socket idle for 300 s (undici's default) fails the request, naming it. It is an idle timeout, not a
+  total deadline.
 
 The 21 direct `fetch(` calls in the file are left as they are: they are not on the failing path, and each is a
 deliberate fetch-semantics check.
 
 ## Test
-A harness arm counts `req()` requests and asserts that none went out on a reused socket (`reusedSocket`), and that
-the count is nonzero, so a later switch back to a pooled agent fails loudly.
+A harness arm, the last test in the file, asserts that more than 100 requests went through `req()` (a revert to
+fetch leaves the counter at 0) and that none went out on a reused socket (`reusedSocket`, a tripwire for a pooled
+agent). A name filter or `--test-only` does not run the arm (measured), so a single-test rerun is not reddened by it.
 
 ## Decided, not missed
 - Retrying on ECONNRESET was rejected: it would hide a real server reset.
@@ -52,3 +54,11 @@ there is nothing pooled left to reset, so a recurrence would disprove this premi
 - NITs: the BOM wording is gone from the comment and the plan; the REUSED assertion says "tripwire"; and a comment
   says the harness arm must stay last.
 - Measured after: server.test.js 364 of 364 pass.
+
+## Challenge loop iteration 2 (sonnet): 1 WARNING (deferred on measurement), 3 NITs
+- WARNING, deferred: "the harness arm reds a single-test rerun". Measured: `--test-name-pattern` for one test runs
+  only that test (tests 1, pass 1), so the arm does not run; `--test-only` likewise. The plan's "nonzero" now says
+  "more than 100", as the code does.
+- NIT, taken: setTimeout is an idle-socket timeout; the comment, error text and plan say so.
+- NITs, left: a response closing early with no error waits for the idle timeout (bounded); reusedSocket is a tripwire
+  (already stated).
