@@ -3681,6 +3681,9 @@ cmd_report() {
     say "$_use"
     say "  kosmos report show     (what the board has for you now; kosmos report status is the same)"
     say "  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)"
+    # kosmos#6683: what --until does to the day-old reminder (engine/selfreport.js untilDefers).
+    say "  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC)."
+    say "  --until in words (\"the owner says\"): no stale reminder at all. Anything else with a number in it: as if no --until."
     exit 2
   fi
   # #2001: blocked and needs_you are the only two states that exist to SUMMON A
