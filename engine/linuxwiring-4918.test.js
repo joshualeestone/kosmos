@@ -643,6 +643,7 @@ test('#4918 review 34: a Linux repair counts an agent systemd already runs as st
   const store = require('./store');
   assert.ok(String(store.PROFILES).startsWith(process.env.AGENT_WORKFORCE_DATA), 'CONTROL: the profile store is the sandbox: ' + store.PROFILES);
   store.writeProfile(name, { role: 'pm' });
+  require('./liveness').seen(name);   // #6714: an agent the restart survey counts has run here
   const orig = create.installJob;
   const asked = [];
   create.installJob = (n) => { asked.push(n); return { ok: true, started: false, alreadyRunning: true }; };

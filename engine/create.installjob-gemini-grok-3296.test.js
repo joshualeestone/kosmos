@@ -66,6 +66,7 @@ function bornMissingJob(name, provider) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   store.writeProfile(name, { provider });
+  require('./liveness').seen(name);   // #6714: an agent the restart survey counts has run here
   const brief = create.briefFilename(create.providerRunner(provider));
   fs.writeFileSync(nodePath.join(create.workerDir(name), brief), '# brief\n', 'utf8');
   return name;

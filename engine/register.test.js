@@ -69,8 +69,11 @@ const mac = {
   repair: (o) => register.repair({ platform: 'darwin', ...(o || {}) }),
 };
 
-function agent(name, { folder = true, job = false, profile = true } = {}) {
+/* #6714: `ran` (default true) records that the agent has reported in, as every real agent has: the survey counts
+   only agents that have run here. */
+function agent(name, { folder = true, job = false, profile = true, ran = true } = {}) {
   if (profile) store.writeProfile(name, { role: 'helper' });
+  if (ran) require('./liveness').seen(name);
   if (folder) fs.mkdirSync(create.workerDir(name), { recursive: true });
   if (job) {
     fs.mkdirSync(path.dirname(create.plistPath(name)), { recursive: true });
@@ -83,6 +86,9 @@ function reset() {
   fs.rmSync(path.join(SB, 'launch'), { recursive: true, force: true });
   fs.rmSync(path.join(SB, 'workers'), { recursive: true, force: true });
   fs.rmSync(path.join(store.ROOT, 'removed.json'), { force: true });
+  // #6714: whether each agent ran, and which notices were hidden, are per test too.
+  for (const d of ['liveness', 'selfreports']) fs.rmSync(path.join(store.ROOT, d), { recursive: true, force: true });
+  fs.rmSync(path.join(store.ROOT, 'restart-notices-hidden.json'), { force: true });
   fs.mkdirSync(path.join(SB, 'bin'), { recursive: true });
   fs.writeFileSync(path.join(SB, 'bin', 'claude'), '#!/bin/sh\n', { mode: 0o755 });
   fs.writeFileSync(path.join(SB, 'bin', 'tmux'), '#!/bin/sh\n', { mode: 0o755 });
@@ -102,7 +108,7 @@ test('an agent with a folder and no job is the thing being looked for', () => {
      saying Ava, Brigitte and Scarlett. With no display name recorded, the two
      are the same string, which is the ordinary case and not a fallback. */
   assert.deepEqual(s.agents.find((x) => x.name === 'anna'),
-    { name: 'anna', shownAs: 'anna', removed: false, folder: true, job: true, profile: true });
+    { name: 'anna', shownAs: 'anna', removed: false, folder: true, job: true, profile: true, ran: true });
 });
 
 test('the roster comes from what Kosmos wrote, never from what is in the folder', () => {
@@ -970,4 +976,123 @@ test('#6320: an agent a broken plist names is listed even while other plists wai
   foreignJob('com.broken.suspx.plist', { raw: 'not a plist, but it runs ' + create.workerDir('suspx') });
   const s = mac.survey();
   assert.ok(s.unknown.includes('suspx'), 'a real could-not-read was hidden while others waited: ' + JSON.stringify(s.unknown));
+});
+
+/* #6714 (Josh, 2026-10-20 08:35): "this is not a real agent but my only option is to set it to start at login". A test
+   that stopped half way left a profile and a folder holding only a CLAUDE.md; it had never run. */
+test('#6714: a profile and a folder that never ran are not on the restart notice, and Repair never starts them', () => {
+  reset();
+  agent('leftover-unrelated', { ran: false });
+  agent('brigitte');   // CONTROL: the same shape, but it has run
+  const s = mac.survey();
+  assert.deepEqual(s.missing, ['brigitte']);
+  assert.equal(s.agents.find((x) => x.name === 'leftover-unrelated').ran, false);
+  const r = mac.repair();
+  assert.deepEqual(r.results.map((x) => x.name), ['brigitte'], 'repair acted on an agent that never ran');
+  assert.ok(!fs.existsSync(create.plistPath('leftover-unrelated')), 'a login job was written for something that never ran');
+});
+
+test('#6714: a self-report from before liveness records existed counts as having run', () => {
+  reset();
+  agent('old', { ran: false });
+  const sr = require('./selfreport');
+  fs.mkdirSync(path.dirname(sr.fileFor('old')), { recursive: true });
+  fs.writeFileSync(sr.fileFor('old'), '{}\n');
+  assert.deepEqual(mac.survey().missing, ['old']);
+});
+
+test('#6714: a hidden notice leaves missing, is listed as hidden, and Repair of all skips it; Show brings it back', () => {
+  reset();
+  agent('brigitte');
+  agent('marilyn');
+  assert.deepEqual(register.hide('brigitte', { platform: 'darwin' }), { ok: true });
+  let s = mac.survey();
+  assert.deepEqual(s.missing, ['marilyn']);
+  assert.deepEqual(s.hidden, ['brigitte']);
+  assert.deepEqual(mac.repair().results.map((x) => x.name), ['marilyn'], 'Start them all at login started a hidden one');
+  assert.deepEqual(register.show('brigitte'), { ok: true });
+  s = mac.survey();
+  assert.deepEqual(s.missing, ['brigitte']);
+  assert.deepEqual(s.hidden, []);
+});
+
+test('#6714: only a name the notice shows can be hidden', () => {
+  reset();
+  agent('anna', { job: true });   // has a job: no notice
+  agent('never', { ran: false }); // never ran: no notice
+  for (const n of ['anna', 'never', 'nobody', '../etc']) {
+    assert.equal(register.hide(n, { platform: 'darwin' }).ok, false, n + ' was hidden');
+  }
+  assert.ok(!fs.existsSync(path.join(store.ROOT, 'restart-notices-hidden.json')), 'a refused hide wrote the file');
+});
+
+test('#6714: an unreadable hidden list hides nothing', () => {
+  reset();
+  agent('brigitte');
+  fs.writeFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), '{not json');
+  assert.deepEqual(mac.survey().missing, ['brigitte']);
+});
+
+test('#6714: Start at login for one agent starts only that one, and refuses a name the notice does not offer', () => {
+  reset();
+  agent('brigitte');
+  agent('marilyn');
+  agent('anna', { job: true });
+  const one = mac.repair({ only: 'marilyn' });
+  assert.equal(one.ok, true);
+  assert.deepEqual(one.results.map((x) => x.name), ['marilyn']);
+  assert.ok(!fs.existsSync(create.plistPath('brigitte')), 'starting one started another');
+  for (const n of ['anna', 'nobody']) assert.equal(mac.repair({ only: n }).ok, false, n + ' was repaired');
+});
+
+test('#6714 review 2: a hidden name whose agent now starts at login is forgotten, so a later loss shows the notice', () => {
+  reset();
+  agent('brigitte');
+  assert.equal(register.hide('brigitte', { platform: 'darwin' }).ok, true);
+  assert.deepEqual(mac.survey().hidden, ['brigitte']);
+  // It gets its job: the next look forgets the hide.
+  fs.mkdirSync(path.dirname(create.plistPath('brigitte')), { recursive: true });
+  fs.writeFileSync(create.plistPath('brigitte'), '<plist/>', 'utf8');
+  mac.survey();
+  // It loses the job again: the notice is back, not silently closed.
+  fs.rmSync(create.plistPath('brigitte'));
+  const s = mac.survey();
+  assert.deepEqual(s.missing, ['brigitte']);
+  assert.deepEqual(s.hidden, []);
+});
+
+/* What this can show: forgetting reads the file afresh and drops only the stale name. The race itself (a hide landing
+   between the survey's read and its write) cannot be staged in one synchronous call; forgetHidden's re-read is the fix. */
+test('#6714 review 4: the survey forgets a name whose agent now starts at login and keeps the others', () => {
+  reset();
+  agent('anna', { job: true });
+  agent('brigitte');
+  fs.writeFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), JSON.stringify({ entries: [{ name: 'anna', group: 'missing' }] }));
+  assert.equal(register.hide('brigitte', { platform: 'darwin' }).ok, true);
+  const s = mac.survey();
+  assert.deepEqual(s.hidden, ['brigitte']);
+  const onDisk = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), 'utf8')).entries.map((e) => e.name);
+  assert.deepEqual(onDisk, ['brigitte'], 'anna (now starting at login) should be forgotten and brigitte kept');
+});
+
+test('#6714 review 5: a hidden name no longer on the board at all is forgotten', () => {
+  reset();
+  agent('brigitte');
+  fs.writeFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), JSON.stringify({ entries: [{ name: 'brigitte', group: 'missing' }, { name: 'gone', group: 'missing' }] }));
+  mac.survey();
+  const onDisk = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), 'utf8')).entries.map((e) => e.name);
+  assert.deepEqual(onDisk, ['brigitte'], 'a name with no agent stayed hidden where Settings never shows it');
+});
+
+test('#6714 review 17: a closed "could not check" notice does not hide the "will not come back" one that follows', () => {
+  reset();
+  agent('brigitte');
+  // Closed while it was the uncertain notice.
+  fs.writeFileSync(path.join(store.ROOT, 'restart-notices-hidden.json'), JSON.stringify({ entries: [{ name: 'brigitte', group: 'unknown' }] }));
+  const s = mac.survey();   // the survey now proves it has no job
+  assert.deepEqual(s.missing, ['brigitte'], 'the certain warning was silenced by closing the uncertain one');
+  assert.deepEqual(s.hidden, []);
+  // CONTROL: closing the certain one does hide it.
+  assert.equal(register.hide('brigitte', { platform: 'darwin' }).ok, true);
+  assert.deepEqual(mac.survey().missing, []);
 });

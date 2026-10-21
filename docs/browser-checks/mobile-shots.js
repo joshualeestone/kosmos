@@ -456,15 +456,16 @@ const SCREENS = [
   { name: 'home', owner: 'Raiden', go: async () => {} },
   /* #5018: the login-expiry notice floating over the page under the header, with its account line, the agents'
      given names and its X. The advisory is stubbed onto this screen's own /api/status reads (gone with it). */
-  /* #6320: the restart panel naming agents whose login job could not be checked, alone and beside the fixable list.
-     /api/register is stubbed on this screen's own page with made-up names from the sample fleet. */
+  /* #6320: the restart notice naming agents whose login job could not be checked, alone and beside one that can be
+     fixed (#6714: compact notices in the floating stack). /api/register is stubbed on this screen's own page with
+     made-up names from the sample fleet. */
   { name: 'restart-unknown', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/register', (route) => route.request().method() === 'GET'
       ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, missing: [], unknown: ['pixel-moss', 'cleo-park'],
         agents: [{ name: 'pixel-moss', shownAs: 'Pixel' }, { name: 'cleo-park', shownAs: 'Cleo' }] }) })
       : route.continue());
     await at(page, '');
-    await page.waitForSelector('#restart-wrap [data-survival-unknown]', { state: 'visible', timeout: 15000 });
+    await page.waitForSelector('#survival-slot .utoast.survival.unknown', { state: 'visible', timeout: 15000 });
   } },
   { name: 'restart-both', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/register', (route) => route.request().method() === 'GET'
@@ -472,7 +473,7 @@ const SCREENS = [
         agents: [{ name: 'roo-lane', shownAs: 'Roo' }, { name: 'cleo-park', shownAs: 'Cleo' }] }) })
       : route.continue());
     await at(page, '');
-    await page.waitForSelector('#restart-wrap [data-survival-unknown]', { state: 'visible', timeout: 15000 });
+    await page.waitForSelector('#survival-slot .utoast.survival.unknown', { state: 'visible', timeout: 15000 });
   } },
   { name: 'restart-both-done', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/register', (route) => route.request().method() === 'GET'
@@ -480,12 +481,13 @@ const SCREENS = [
         agents: [{ name: 'roo-lane', shownAs: 'Roo' }, { name: 'cleo-park', shownAs: 'Cleo' }] }) })
       : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, results: [{ name: 'roo-lane', shownAs: 'Roo', ok: true, started: true }] }) }));
     await at(page, '');
-    await page.waitForSelector('#restart-wrap [data-survival-fix]', { state: 'visible', timeout: 15000 });
-    await page.click('#restart-wrap [data-survival-fix]');
-    // #6320: the report that replaces the panel still says which agents could not be checked. Wait for the REPORT
-    // (the button gone and "Done." there), since the unknown line was already on the panel before the click.
-    await page.waitForFunction(() => { const w = document.getElementById('restart-wrap');
-      return w && !w.querySelector('[data-survival-fix]') && /Done\./.test(w.innerText) && !!w.querySelector('[data-survival-unknown]'); }, null, { timeout: 15000 });
+    await page.waitForSelector('#survival-slot [data-survival-fix]', { state: 'visible', timeout: 15000 });
+    await page.click('#survival-slot [data-survival-fix]');
+    // #6320: after the report replaces Roo's notice, the could-not-check notice for Cleo is still there. Wait for the
+    // REPORT (Roo's button gone and the report shown), since Cleo's notice was already up before the click.
+    await page.waitForFunction(() => { const w = document.getElementById('survival-slot'); const rep = document.getElementById('survival-report-slot');
+      // The stub keeps Roo missing, so its notice comes back after the report (#6714 review 19): wait for the report only.
+      return w && rep && !!rep.querySelector('.utoast.survival.done') && !!w.querySelector('.utoast.survival.unknown'); }, null, { timeout: 15000 });
   } },
   { name: 'login-notice', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     const adv = [{ agents: ['roo-lane', 'pixel-moss', 'cleo-park'], names: ['Roo', 'Pixel', 'Cleo'], provider: 'Claude', service: 'Claude Code-credentials',
@@ -1957,7 +1959,7 @@ const DATA_SETS = {
     /* A Mac that is set up, which the empty sandbox is not: each agent gets a
        launch job and its own folder with instructions, and your messages were
        delivered. Without these the shots carry setup warnings no customer with
-       a working Mac would see ("will not come back if you restart", "made
+       a working Mac would see ("will not come back after a restart", "made
        before Kosmos recorded this", "could not deliver"). */
     setUp: true,
     askInProject: true,

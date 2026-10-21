@@ -153,6 +153,16 @@ function ensureStatusLine(settingsPath, opts) {
   const script = o.script === undefined ? scriptPath() : o.script;
   if (!script) return { wired: false, because: 'the statusline script is not on this machine' };
   if (typeof settingsPath !== 'string') return { wired: false, because: 'there is no settings file to wire' };
+  /* kosmos#6713: the command names THIS engine's script, so anything that is not the installed Kosmos (a source
+     checkout, a worktree, on a Mac or Linux a bundle under another KOSMOS_HOME) leaves a settings file in the real home alone
+     (installroot.js has the rule). `leaveAlone` is injectable for tests: a reason string, or null to go ahead. */
+  let leave = o.leaveAlone;
+  if (leave !== undefined && leave !== null && typeof leave !== 'string') leave = 'this board was given a rule it cannot read, so it leaves this account\'s Claude settings alone';
+  if (leave === undefined) {
+    try { leave = require('./installroot').leaveAlone(settingsPath, { platform: o.platform }); }
+    catch { leave = 'this board could not tell whether it is an installed Kosmos, so it leaves this account\'s Claude settings alone'; }
+  }
+  if (leave) return { wired: false, because: leave };
   const node = o.node || stableNode();
   const accountDir = o.accountDir || path.dirname(settingsPath);
   /* The command is a shell string, so every path in it is vetted the way the

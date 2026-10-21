@@ -1142,11 +1142,11 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .btn:hover { background: var(--attn-bg); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn:disabled:hover { background: var(--bg); }
-/* 📱 #718 row 6: "Set them to start at login", under the board when agents would not survive a
-   restart, is the one home-screen button with nothing bigger around it: 34px tall at 375 (the
-   agent names are 16px but a tap anywhere on the card or row opens the agent, and "Answer" has its
-   own touch hit area below). Phone width only; .btn is shared, so this is scoped to its box. */
-@media (max-width: 40rem) { #restart-wrap .btn { min-height: 44px; } }
+/* 📱 #718 row 6: the restart notice's buttons are the home screen's ones with nothing bigger around them (the agent
+   names are 16px but a tap anywhere on the card or row opens the agent, and "Answer" has its own touch hit area). */
+/* #6714: the restart notice is a .utoast now; its buttons get the same phone tap height, at the width its phone layout
+   and its one-notice cap use. */
+@media (max-width: 720px) { .utoast.survival .uacts button, .utoast.survival .ux { min-height: 44px; } .utoast.survival .ux { min-width: 44px; } }
 /* 🛑 #2615: THE aria-disabled ARM NEEDS ITS OWN RULE, AND ITS ABSENCE SHIPPED A
    CARD TITLED "grey out the control" THAT GREYED NOTHING OUT. `disabled` was
    doing TWO jobs: the semantics AND the dimming, via `.btn:disabled` right
@@ -1330,6 +1330,12 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 .utoast.streak { --utone: var(--gold-edge); }
 .utoast.streak .utxt b { color: var(--label); }
 .utoast.login-adv.warn { --utone: var(--warn-ink); }
+/* #6714: an agent that will not come back after a restart: a warning with a remedy, so the amber of an expiring login.
+   Its report (.done) is a fact, neutral like .reboot. Restated in each theme block below. */
+.utoast.survival { --utone: var(--warn-ink); }
+.utoast.survival.done, .utoast.survival.unknown { --utone: var(--label-2); }
+.utoast.survival.done .utxt b, .utoast.survival.unknown .utxt b { color: var(--label); font-weight: 400; }
+.utoast.survival.report .utxt b b, .utoast.survival.report .utxt small b { display: inline; font-weight: 600; }   /* the name, inside its sentence */
 .utoast.login-adv.urgent { --utone: #b3261e; }
 /* #5018: the notices float over the page, centred on the header (under the navigation), instead of growing it (Josh). The
    header is their anchor (position: relative below); the stack takes no room, and only the notices take clicks.
@@ -1497,6 +1503,14 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   .utoast.login-adv .utxt small { display: block; }
   /* #5359: the restart note's line is that Kosmos came back by itself, the point of it; kept the same way. */
   .utoast.reboot .utxt small { display: block; }
+  /* #6714: the restart notice's line says nothing is lost, the reassurance that makes it calm; a phone keeps it. */
+  .utoast.survival .utxt small { display: block; }
+  /* #6714: on a phone the words take the first row with the x, and the buttons get a row of their own beneath them
+     (lined up with the words, past the dot), so neither is squeezed into a column. */
+  .utoast.survival { flex-wrap: wrap; row-gap: 8px; }
+  .utoast.survival .utxt { flex: 1 1 0; min-width: 0; }
+  .utoast.survival .ux { order: 2; }
+  .utoast.survival .uacts { order: 3; flex: 1 0 100%; margin-left: 19px; }
   /* kosmos#6613: the certificate notice's small line says whether the check is still on; a phone keeps it. */
   .utoast.cwnote .utxt small { display: block; }
 }
@@ -1532,23 +1546,21 @@ html:has(> body > #cswitch-screen) { overflow: hidden; scrollbar-gutter: auto; }
    | right group) on the warm ground, gold underline on the selected tab.
    The pull-out tracks the app's own stage padding (--space-8), per the
    pack's rule that the bar must track the stage exactly. */
-/* #3837 F (Josh 2026-09-25 17:21-17:22): viewed remotely through a Kosmos+ address, a thin Kosmos+ bar sits above the
+/* kosmos#6718 (Josh 2026-10-20 08:42): the wide bar is gone. On an agent's page it was cut to half its height, and its
+   one job, Log out, now sits at the bottom of Settings > Kosmos+. So .kplus-bar is display:none, and only the phone
+   rule below shows it, where it is still the whole header (the Kosmos+ mark and the menu, #4823). The history below
+   is kept for the phone bar, which inherits these rules.
+   #3837 F (Josh 2026-09-25 17:21-17:22): viewed remotely through a Kosmos+ address, a thin Kosmos+ bar sits above the
    board, visually its own: "a tiny KOSMOS+ logo on the left, and a Log Out on the far right with a blue background".
    The first row of the sticky header (so it stays with it), pulled to the page edges as the header is (its side
-   margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter; #5379 pads it
-   by the width where none is reserved). The bar's fills
+   margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter; #5379 padded it
+   by the width where none is reserved, until #6718). The bar's fills
    are Kosmos+ navy and blue (the gate's own values), never gold (the 09-16 ruling); the mark keeps its own colours. */
-.kplus-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px;
+.kplus-bar { display: none; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px;
   margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6); padding: 4px var(--space-8);
   background: #17233d; border-bottom: 1px solid #2a3f6b; color: #e6ebf7; }
 .kplus-bar-mark { display: block; height: 14px; width: auto; }
 .kplus-bar-end { display: flex; align-items: center; gap: 12px; }
-.kplus-bar-msg { font-size: .8125rem; color: #e8a79c; }
-.kplus-bar-out { background: linear-gradient(150deg,#3a68d8,#2f57c4); color: #fff; border: 0; border-radius: 7px; padding: 5px 14px;
-  font: inherit; font-size: .8125rem; font-weight: 650; cursor: pointer; }
-.kplus-bar-out:hover { filter: brightness(1.06); }
-.kplus-bar-out:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-.kplus-bar-out:disabled { opacity: .6; cursor: default; }
 html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { margin: 0; }
 /* #4823 (Josh 2026-09-30 20:54, mockups navigation-mock.png and agents-listview-mock.png): on a phone viewing the board
    through Kosmos+ (html.kremote, set by kplusBar, AND the 40rem phone width) the navy bar IS the header: apple.com's
@@ -1561,8 +1573,7 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
    sideways (over 56rem) are past that definition, here as everywhere else on the board. */
 .kplus-bar-menu { display: none; }
 @media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
-  html.kremote .kplus-bar { height: 48px; min-height: 48px; padding: 0 16px; border-bottom: 0; margin-bottom: 0; }
-  html.kremote .kplus-bar-out, html.kremote .kplus-bar-msg { display: none; }
+  html.kremote .kplus-bar { display: flex; height: 48px; min-height: 48px; padding: 0 16px; border-bottom: 0; margin-bottom: 0; }
   html.kremote .kplus-bar-menu { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px;
     margin-right: -16px; padding: 0; border: 0; background: none; color: #fff; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   html.kremote .kplus-bar-menu:focus-visible { outline: 2px solid #fff; outline-offset: -7px; }
@@ -2166,7 +2177,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#cwnote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
+#cwnote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reboot-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -3522,14 +3533,15 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
      an engine reserves the gutter on a page that does not scroll: Playwright's WebKit does not (A1n).
      The cost there: a page that really scrolls sits its header 15px right of the content edge. */
   /* #5379: the tab view reserves the scrollbar gutter and consolidated does not, so where scrollbars take width the
-     header jumped on every flip. Consolidated pads its inner header (it carries the background and bottom rule), and
-     the Kosmos+ bar, by the same width less what the page gives up. */
-  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead header,
-  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar {
+     header jumped on every flip. Consolidated pads its inner header (it carries the background and bottom rule) by the
+     same width less what the page gives up. (It padded the Kosmos+ bar too, until kosmos#6718 took the bar off wide
+     screens.) */
+  /* `> header` (the one header, a direct child): the same element as a descendant match, written so this rule does not
+     repeat the anchor text web.rhythm-1303a pins to the rule near the 'grey band' fix (kosmos#6718 validation). */
+  html[data-scrollbar-measured][data-layout="consolidated"] body.consolidated > .apphead > header {
     padding-right: max(var(--space-8), calc(var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   /* #5379: with consolidated chosen, the whole-page tabs (Settings and the rest: body is not .consolidated there) reserve
-     no gutter either, so they take this rule too and their header ends where Agents and Projects' does. kplusBarFit
-     tests the same state in script (consolidated chosen, body not .consolidated, wide); the 2624 bar arm pins both. */
+     no gutter either, so they take this rule too and their header ends where Agents and Projects' does. */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead,
   html[data-scrollbar-measured][data-layout="consolidated"] > body:not(.consolidated) > .apphead {
     padding-right: max(0px, calc(3 * var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
@@ -6115,10 +6127,11 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { grid-column: 2; grid-row: 1; }
   /* #520 piece six (Josh, 2026-08-24 16:14: "missing a whole lot"): the
      board's full-width notice bars do not belong over the consolidated grid;
-     the news line already lives in the header notice slot. removed-wrap and
-     restart-wrap are board-management chrome for the tab view. #3048: the
+     the news line already lives in the header notice slot. removed-wrap is
+     board-management chrome for the tab view (#6714: the restart bar became a
+     notice in the header's floating stack, shown in both views). #3048: the
      found/scan discovery panels and their trigger were removed from the home. */
-  html[data-layout="consolidated"] body.consolidated > #removed-wrap, html[data-layout="consolidated"] body.consolidated > #restart-wrap { display: none; }
+  html[data-layout="consolidated"] body.consolidated > #removed-wrap { display: none; }
   /* #867 shipped this as flat, borderless cards "like the mock" -- a
      citation nobody actually checked. The real mock (installkosmos.com/
      consolidated-mock) draws Tasks/Members/Files as white, bordered,
@@ -8236,7 +8249,6 @@ html.has-speak .asp-speak { display: grid; }
    dashed border is the shape of a slot waiting to be filled; "we could not
    read this" is not an empty slot, it is an unanswered question. */
 .pj-empty.boardfail { border-style: solid; border-color: var(--border-strong); }
-.survival-unknown:not(:first-child) { margin-top: var(--space-5); }   /* #6320: apart from the fixable list and its button above */
 /* 🛑 THE FOUND PANEL IS LEFT-ALIGNED AND CAPPED, NOT BOARD-WIDE. An earlier
    ruling widened the rows to the board (measured at 1200px: rows ending at 620
    inside a 1150 panel read as unfinished). Josh reversed it on sight,
@@ -9252,6 +9264,8 @@ svg { display: block; }
   :root:not([data-theme="light"]) .utoast.reboot { --utone: var(--label-2); }
   :root:not([data-theme="light"]) .utoast.streak { --utone: var(--gold-edge); }
   :root:not([data-theme="light"]) .utoast.login-adv.warn { --utone: var(--warn-ink); }
+  :root:not([data-theme="light"]) .utoast.survival { --utone: var(--warn-ink); }
+  :root:not([data-theme="light"]) .utoast.survival.done, :root:not([data-theme="light"]) .utoast.survival.unknown { --utone: var(--label-2); }
   :root:not([data-theme="light"]) .utoast.login-adv.urgent { --utone: #ff8c82; }
 }
 .note  { margin-top: var(--space-4); padding: var(--space-4) var(--space-5);
@@ -11219,7 +11233,6 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    exclusion is there so a future one does not turn into a grey box inside that page's grey column. */
 :root[data-look="new"] body:not(.consolidated) .pj-empty:not(#pj-one-view .pj-empty) { background: var(--nl-grey); border-radius: 28px; }
 :root[data-look="new"] body:not(.consolidated) .pj-empty:not(.boardfail):not(#pj-one-view .pj-empty) { border-color: transparent; }
-:root[data-look="new"] body:not(.consolidated) #restart-wrap .pj-empty { margin-bottom: 18px; }
 /* Cards: the project page's corners. The plain card (no state stroke; stopped and paused cards keep the plain
    treatment, per the same 08-21 ruling) loses its border and shadow, since its grey ground is the separation. */
 :root[data-look="new"] body:not(.consolidated) #grid .acard { border-radius: 24px; }
@@ -11450,6 +11463,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-theme="dark"] .utoast.reboot { --utone: var(--label-2); }
 :root[data-theme="dark"] .utoast.streak { --utone: var(--gold-edge); }
 :root[data-theme="dark"] .utoast.login-adv.warn { --utone: var(--warn-ink); }
+:root[data-theme="dark"] .utoast.survival { --utone: var(--warn-ink); }
+:root[data-theme="dark"] .utoast.survival.done, :root[data-theme="dark"] .utoast.survival.unknown { --utone: var(--label-2); }
 :root[data-theme="dark"] .utoast.login-adv.urgent { --utone: #ff8c82; }
 
 :root[data-theme="dark"] .pcombo-list { box-shadow: 0 8px 24px rgba(0,0,0,.4); }
@@ -11609,6 +11624,8 @@ body.plus-active .utoast { --utone: #ff8c82; }
 body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice, body.plus-active .utoast.reboot { --utone: var(--label-2); }
 body.plus-active .utoast.streak { --utone: var(--gold-edge); }
 body.plus-active .utoast.login-adv.warn { --utone: var(--warn-ink); }
+body.plus-active .utoast.survival { --utone: var(--warn-ink); }
+body.plus-active .utoast.survival.done, body.plus-active .utoast.survival.unknown { --utone: var(--label-2); }
 body.plus-active .utoast.login-adv.urgent { --utone: #ff8c82; }
 /* #3692: the cards and warnings that lost their left bar are marked by a hairline and a tint, and
    those tokens' light values nearly vanish on navy, so they take the dark values here. Set on just
@@ -12546,6 +12563,11 @@ window.kosmosMeasureScrollbarWidth();
          the update/offline notices rather than overwriting them; role=status per
          the pack; renders only when data.loginAdvisories is non-empty. -->
     <div id="login-adv-slot"></div>
+    <!-- #6714: agents that will not come back if this computer restarts, one compact notice each (Start at login,
+         Remove, x). It asks for action, so it sits with the login notice, above the facts. -->
+    <!-- #6714 review 18: the result of a start sits in its own slot, so the notices below keep repainting while it is read. -->
+    <div id="survival-report-slot"></div>
+    <div id="survival-slot"></div>
     <!-- #5359: the computer restarted while Kosmos was running and Kosmos came back by itself. A fact, so it sits
          below the notices that need action (update, login); its own slot so it co-occurs with them (Mona Lisa). -->
     <div id="reboot-slot"></div>
@@ -18583,6 +18605,14 @@ window.kosmosMeasureScrollbarWidth();
       </div>
     </section>
 
+    <!-- #6714: the restart notices the person closed with their x. Closing one changes nothing about whether that agent
+         comes back, so this is where they are, with Show again. Painted by paintSurvivalHidden; hidden when none. -->
+    <section class="dbox" id="survival-hidden-box" hidden>
+      <h3 class="dlab">Restart notices you closed</h3>
+      <p class="dhint" style="margin:0 0 12px;">You closed the restart notice for these agents. Show one again to be reminded about it.</p>
+      <div id="survival-hidden-list"></div>
+    </section>
+
     <section class="dbox" id="tips-box" hidden>
       <!-- #3574: "Stop showing tips" on any tip turns them all off; this is the way back on. -->
       <!-- #3034 (Josh, 2026-09-24 18:02): titled Help, and the Setup assistant switch sits under Show tips,
@@ -19799,6 +19829,12 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="fmsg" id="plus-msg" role="alert" aria-live="assertive"></p>
     </div>
+    <!-- kosmos#6718 (Josh 2026-10-20 08:42): Log out, at the bottom of Kosmos+. It ends THIS browser's Kosmos+ session
+         (kplusLogout), so kplusBar reveals it only through a Kosmos+ address; at the computer there is nothing to end. -->
+    <div class="frow" id="plus-logout-row" hidden>
+      <button class="btn" type="button" id="plus-logout">Log out</button>
+      <p class="fmsg" id="plus-logout-msg" role="status" aria-live="polite"></p>
+    </div>
 <!-- #4080: "Lost your phone?" opens this, in place of the essay that sat on the Kosmos Plus pane (Josh, 22:06:
        "all of this probably doesnt belong on that page"). The reset keeps its ids and its two-step arm (#733).
        The words are shortened; "always" is kept, per Josh's 2026-08-29 ruling that the second step ALWAYS happens.
@@ -19808,7 +19844,7 @@ window.kosmosMeasureScrollbarWidth();
   <div class="rm-back" id="plus-lost-modal" hidden>
     <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="plus-lost-t" aria-describedby="plus-lost-say">
       <h2 class="rm-title" id="plus-lost-t">Lost your phone?</h2>
-      <p class="rm-small" id="plus-lost-say">Signing in always asks for a second code after the email code. If the phone that gives it is gone, this computer, or any other computer connected to this account, can switch the second step off. Nobody else can, not even us. Then sign in from your new phone and set it up again there.</p>
+      <p class="rm-small" id="plus-lost-say">Signing in always asks for a second code after the email code. If the phone that gives it is gone, this computer, or any other computer connected to this account, can switch the second step off. Nobody else can, not even us. Switching it off also means every phone and browser on your account will need to sign in again. Then sign in from your new phone and set it up again there.</p>
       <p class="dhint" id="plus-second-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
       <div class="rm-acts">
         <button class="btn" type="button" id="plus-lost-close">Close</button>
@@ -20015,7 +20051,6 @@ window.kosmosMeasureScrollbarWidth();
      fleet, and it is the one thing on this screen that a person cannot
      discover by looking at it. Absent entirely when every agent has a job,
      which is the ordinary case and must not carry a banner. -->
-<div id="restart-wrap" hidden></div>
 <div class="cards" id="grid"></div>
 <!-- kosmos#4812: the agents of this account's OTHER computers, read by this browser from each of them (each
      computer decides who reads it). Only on a page served from this computer's own Kosmos+ address; absent
@@ -20564,24 +20599,17 @@ function kplusBarDrawMark(cv, hh) {
   ctx.setTransform(PLUS_DPR, 0, 0, PLUS_DPR, 0, 0);
   for (const d of md.DOTS) { ctx.beginPath(); ctx.arc(d[0] * s, d[1] * s, Math.max(0.35, d[2] * s), 0, 7); ctx.fillStyle = d[3]; ctx.fill(); }
 }
-/* The bar runs edge to edge: its side margins cancel the header's own padding, read from the header, since the tab
-   layout computes the right one from the scrollbar gutter. */
+/* The phone bar (the only one drawn since kosmos#6718) runs edge to edge: its side margins cancel the header's own
+   padding, read from the header, since the tab layout computes the right one from the scrollbar gutter. */
 function kplusBarFit() {
   const bar = document.getElementById('kplus-bar'), head = document.querySelector('.apphead');
   if (!bar || !head) return;
+  /* Undrawn (every width but a phone's, kosmos#6718): nothing to fit. A turn to phone width fires resize, which fits. */
+  if (!bar.getClientRects().length) return;
   const cs = getComputedStyle(head);
   const l = '-' + (parseFloat(cs.paddingLeft) || 0) + 'px', r = '-' + (parseFloat(cs.paddingRight) || 0) + 'px';
   if (bar.style.marginLeft !== l) bar.style.marginLeft = l;
   if (bar.style.marginRight !== r) bar.style.marginRight = r;
-  /* #5379: with consolidated chosen, a whole-page tab (body not .consolidated) reserves no gutter, so the header's right
-     padding there also holds the scrollbar width, and the bar ends Log out on the same x by padding as much. Wide only:
-     the phone bar keeps its own padding. Elsewhere the stylesheet's padding stands (consolidated pads by CSS). */
-  const doc = document.documentElement;
-  const whole = doc.getAttribute('data-layout') === 'consolidated' && !document.body.classList.contains('consolidated')
-    && window.matchMedia('(min-width: 56.01rem)').matches;
-  /* At least the bar's own side padding (its left one), so a header padded by less never pulls Log out to the edge. */
-  const pr = whole ? Math.max(parseFloat(getComputedStyle(bar).paddingLeft) || 0, parseFloat(cs.paddingRight) || 0) + 'px' : '';
-  if (bar.style.paddingRight !== pr) bar.style.paddingRight = pr;
 }
 function kplusBar() {
   if (!kplusRemote() || document.getElementById('kplus-bar')) return;
@@ -20591,8 +20619,8 @@ function kplusBar() {
   bar.id = 'kplus-bar'; bar.className = 'kplus-bar';
   bar.setAttribute('role', 'region'); bar.setAttribute('aria-label', 'Kosmos+ remote session');
   bar.innerHTML = '<canvas class="kplus-bar-mark" role="img" aria-label="Kosmos+"></canvas>'
-    + '<span class="kplus-bar-end"><span class="kplus-bar-msg" id="kplus-bar-msg" role="status"></span>'
-    + '<button type="button" class="kplus-bar-out" id="kplus-logout">Log out</button>'
+    + '<span class="kplus-bar-end">'
+    /* kosmos#6718: no Log out here any more; it is at the bottom of Settings > Kosmos+ (plus-logout below). */
     /* #4823: the two lines that open the phone menu (#pnav). Shown only at phone width, by CSS. */
     + '<button type="button" class="kplus-bar-menu" id="kplus-menu" aria-label="Menu" aria-haspopup="dialog" aria-expanded="false" aria-controls="pnav">'
     + '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M.5 4.5h17M.5 13.5h17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></span>';
@@ -20604,19 +20632,26 @@ function kplusBar() {
   /* #4506: BOTH of the header's boxes, one observer each (one observer holds one box per element). The bar's margins
      cancel the header's padding, and that padding changes in two ways that no window resize reports. When the
      scrollbar gutter comes or goes, the padding moves with it by design (#3497):
-     the border box changes and the content box does not (CI, render-plus-bar-3837 P2, 15px past the page). When
+     the border box changes and the content box does not (CI, 15px past the page). When
      kosmosMeasureScrollbarWidth updates --scrollbar-width (on a press, a focus, a return to the tab), the padding
-     changes and the border box does not. render-plus-bar-3837 P8 drives both. */
+     changes and the border box does not. render-plus-bar-3837 drove both while the bar showed at desktop widths; since
+     kosmos#6718 only the phone bar is drawn, where scrollbars seldom take width, and no check drives them now. */
   if (typeof ResizeObserver === 'function') {
     new ResizeObserver(kplusBarFit).observe(head, { box: 'border-box' });
     new ResizeObserver(kplusBarFit).observe(head);
   }
-  const out = bar.querySelector('#kplus-logout'), msg = bar.querySelector('#kplus-bar-msg');
-  out.addEventListener('click', () => kplusLogout(out, msg));
+  /* kosmos#6718 (Josh 2026-10-20): Log out lives at the bottom of Settings > Kosmos+, shown only here, through a
+     Kosmos+ address: at the computer itself there is no Kosmos+ browser session to end. */
+  const logoutRow = document.getElementById('plus-logout-row');
+  const out = document.getElementById('plus-logout'), msg = document.getElementById('plus-logout-msg');
+  if (logoutRow && out && msg) {
+    logoutRow.hidden = false;
+    out.addEventListener('click', () => kplusLogout(out, msg));
+  }
   pnavBuild();
 }
-/* Log out of this browser's Kosmos+ session. One function for both doors, the bar's button and the phone menu's
-   (#4823), so they cannot come to disagree about what logging out does or says. */
+/* Log out of this browser's Kosmos+ session. One function for both doors, so they cannot come to disagree about what
+   logging out does or says: Settings > Kosmos+ (kosmos#6718; the bar's button before) and the phone menu (#4823). */
 async function kplusLogout(out, msg) {
   out.disabled = true; msg.textContent = '';
   let status = 0;
@@ -25968,20 +26003,21 @@ function showTab(tab) {
        reprints them from nowhere after the person comes back. The in-flight RESTORE_WAITING_SENTENCE is kept: its
        restore is still running, so it is still true, and only its arrival retires it. */
     /* No guard needed (review 3, measured): the only showTab during load is showTab(BOOT_TAB), after these lets are
-       declared, and SURVIVAL_HELD below is assigned the same way. */
+       declared. */
     RESTORE_BLOCKED_SAID = null;
     RESTORE_BLOCKED_SAID_FOR = null;
     RESTORE_REFUSED_SAID = null;
     RESTORE_REFUSED_SAID_FOR = null;
     /* Same reason: it describes the agents screen and must not stand under
        Projects or Settings. */
-    const rw = document.getElementById('restart-wrap');
-    if (rw) rw.hidden = true;
-    /* Leaving the screen is what finishes a repair report; see SURVIVAL_HELD. */
-    SURVIVAL_HELD = false;
+    const rw = document.getElementById('survival-slot');
+    if (rw) { rw.innerHTML = ''; delete rw.dataset.v; }
+    /* Leaving the screen is what finishes a repair report. */
+    const rr = document.getElementById('survival-report-slot');
+    if (rr) rr.innerHTML = '';
   } else { paintRemoved(); paintSurvival(); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
-  if (tab === 'settings') centreSettingsPill();
+  if (tab === 'settings') { centreSettingsPill(); refreshSurvivalHidden(); }
   /* #1615: un-blue + tear down the Plus canvases when leaving Settings (or when
      the Settings section is not Plus); re-blue + re-mount on return. The Settings
      section persists across tab switches, so this must run on every tab change,
@@ -40558,7 +40594,7 @@ function dmRow(m, name, replyAdjacent) {
     + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
     + '<span class="msg-t">' + whenStr + wire
     + (v.said ? ' <span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span>' : '')
-    + (m.delivery && m.delivery.state === 'held' && typeof m.at === 'string'
+    + (m.delivery && m.delivery.state === 'held' && typeof m.at === 'string' && m.delivery.heldFor !== 'input' && m.delivery.behindFor !== 'input'   // #6774: the box must clear first
       ? '<button type="button" class="dm-held-send" data-held-at="' + esc(m.at) + '">Send now anyway</button>' : '')   // #5805
     + '</span></div></div></div>';
 }
@@ -40576,9 +40612,11 @@ async function dmHeldSend(btn) {
     const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/thread/held', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at: btn.dataset.heldAt }),
     });
-    ok = res.ok || res.status === 409;   // 409: it was sent or dropped meanwhile; the repaint shows which
+    const out = res.ok ? null : await res.json().catch(() => null);
+    // #6774: a 409 saying its input box still holds text means it is still kept: said under the box, not repainted away.
+    const boxHeld = res.status === 409 && !!(out && out.inputHeld === true);
+    ok = res.ok || (res.status === 409 && !boxHeld);   // any other 409: it was sent or dropped meanwhile; the repaint shows which
     if (!ok) {
-      const out = await res.json().catch(() => null);
       because = out && typeof out.error === 'string' && out.error ? 'Not sent: ' + out.error.replace(/[.\s]+$/, '') + '.' : 'Kosmos could not send it. Try again.';   // never a bare status number on screen
     }
   } catch { ok = false; }
@@ -42245,7 +42283,7 @@ async function sendTalk(text, attachment) {
     } else if (d.state === 'held' && inThread) {
       /* #5805 slice 2b: kept for after the agent's usage resets; the row above says so and offers Send now anyway. */
       clearSent();
-      line = dmHeldWords(name, d) + ' To send it now, use Send now anyway on the message.';
+      line = dmHeldWords(name, d) + (d.heldFor === 'input' || d.behindFor === 'input' ? '' : ' To send it now, use Send now anyway on the message.');   // #6774
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
       /* #4944: not kept, so the box is its only sure copy again: the words go back into it. */
@@ -42255,6 +42293,11 @@ async function sendTalk(text, attachment) {
         + (inThread ? ' Your message is kept above.'
           : inBox ? (tookBox ? ' Your message is in the box below.' : ' Your message is still in the box below.')
           : ' ' + dmNotSentWhere(true, pendingIds.length > 0));
+    } else if (d.duplicateOf && inThread) {
+      /* #6774: the same words were already kept above for its input box: this copy was not sent because that one
+         goes, so the box empties (as for a held message) rather than inviting another press. */
+      clearSent();
+      line = pjSentence(d.because);   // it says itself that this copy was not sent
     } else {
       /* #4944: nothing was typed, so the words go back into the box for the retry. Even when the board
          kept a record of the attempt: before #4944 this arm never emptied the box, so the retry copy is
@@ -47900,10 +47943,11 @@ function removedUnreadable() {
  * session that was holding the unregistered one up is gone. Josh restarted on
  * 2026-08-22 and one of his sixteen agents came back.
  *
- * ⚠️ IT IS A STATE WITH A REMEDY, not a notice, so there is no dismiss. Closing
- * it would change nothing about the machine and the sentence would still be
- * true tomorrow — the same reason the update-reload line has one action and no
- * Later. It goes away by being fixed.
+ * #6714 (Josh, 2026-10-20 08:35): "i need a dismiss option". Until then this was
+ * a state with a remedy and no dismiss, on the reasoning that closing it changes
+ * nothing about the machine. He overruled that, so the × is honest about what it
+ * does instead: it says "Stop reminding me about ...", and Settings > Computer
+ * lists every hidden one with Show again.
  *
  * ⚠️ AND IT NAMES THEM. "12 agents" is a number a person cannot act on; the
  * list is what lets them notice that the one they care about is or is not in
@@ -48178,47 +48222,56 @@ async function paintScanBoard() {
 }
 
 /**
- * 🛑 THE RESULT WAS ERASED BY THE NEXT POLL, and only rendering it showed that.
- * A repair that works empties the missing list, so five seconds later
- * `paintSurvival` correctly hid the panel -- taking the per-agent report with
- * it. The person pressed a button, saw a flash, and was left with no record of
- * which agents came back and which could not be started, which is the half of
- * the report that matters.
+ * 🛑 THE RESULT WAS ERASED BY THE NEXT POLL, and only rendering it showed that. A repair that works empties the missing
+ * list, so the next poll correctly took the notice down, taking the per-agent report with it.
  *
- * ⚠️ CLEARED BY LEAVING THE SCREEN, not by a timer. The report is finished
- * being read when they go somewhere else; on return the panel asks the machine
- * again, and anything that genuinely failed is still there to say so.
+ * #6714 review 18: the report lives in its own slot (#survival-report-slot), which no poll touches; it goes by its x
+ * or by leaving the screen. The notices below keep repainting, so nothing is frozen while a report is read.
  */
-let SURVIVAL_HELD = false;
-let SURVIVAL_UNKNOWN_BLOCK = '';   // #6320: the last painted "could not check" paragraph, kept for the repair report
 function survivalSay(n) {
   /* Singular and plural written out rather than assembled, because "1 agents"
      is exactly the seam this screen keeps being caught on. */
   return n === 1
-    ? 'One of your agents will not come back if you restart this computer.'
-    : n + ' of your agents will not come back if you restart this computer.';
+    ? 'One of your agents will not come back after a restart.'
+    : n + ' of your agents will not come back after a restart.';
+}
+/* #6714: at most this many agents get a notice of their own; past it, one notice names them all, so the floating
+   stack never covers the board. */
+const SURVIVAL_EACH_MAX = 3;
+/* #6714 (Josh, 2026-10-20: "i need a dismiss option, and also this is an ugly 100% wide button"): one compact notice
+   per agent in the floating notice stack (.topnotes), in the board's .utoast shape, with Start at login, Remove and
+   a ×. The × does not claim to fix anything: its name says what it does ("Stop reminding me about ..."), and
+   Settings > Computer lists the hidden ones with Show again. */
+function survivalNotice(cls, head, line, acts, hideFor, hideLabel) {
+  return '<div class="utoast survival' + (cls ? ' ' + cls : '') + '">'
+    + '<span class="udot" aria-hidden="true"></span>'
+    + '<div class="utxt" role="status" tabindex="-1"><b>' + head + '</b>' + (line ? '<small>' + line + '</small>' : '') + '</div>'
+    + (acts ? '<div class="uacts">' + acts + '</div>' : '')
+    + '<button type="button" class="ux" data-survival-hide="' + esc(hideFor) + '" aria-label="' + esc(hideLabel)
+    + '" title="' + esc(hideLabel) + '">&times;</button>'
+    + '</div>';
 }
 async function paintSurvival() {
-  const wrap = document.getElementById('restart-wrap');
-  if (!wrap) return;
-  /* ⚠️ NEVER OVER AN IN-FLIGHT REPAIR. The five-second poll would otherwise
-     replace the result list the person is reading with the question they have
-     already answered, and re-offer a button for work that is running. */
-  if (SURVIVAL_BUSY || SURVIVAL_HELD) return;
+  const slot = document.getElementById('survival-slot');
+  if (!slot) return;
+  /* ⚠️ NEVER OVER AN IN-FLIGHT REPAIR: the poll would re-offer a button for work that is running. */
+  if (SURVIVAL_BUSY) return;
   let body = null;
   try {
     const res = await fetch('/api/register', { cache: 'no-store' });
     /* ⚠️ A failed look leaves the screen alone rather than writing "everything
-       is fine". This whole panel exists because a silence read as an all-clear,
+       is fine". This whole notice exists because a silence read as an all-clear,
        and a 500 whose JSON body parses is exactly how that happens. */
     if (!res.ok) return;
     body = await res.json().catch(() => null);
   } catch { return; }
   if (!body || body.ok !== true || !Array.isArray(body.missing)) return;
-  if (!onAgentsTab()) { wrap.hidden = true; return; }
+  paintSurvivalHidden(body);
+  /* Checked again after the wait (review 17): a start pressed while this look was in flight owns the slot now. */
+  if (SURVIVAL_BUSY) return;
+  if (!onAgentsTab()) { slot.innerHTML = ''; delete slot.dataset.v; return; }
   /* #6320: an agent we could not check is said, not dropped: silence here reads as "they all come back". */
   const unknown = Array.isArray(body.unknown) ? body.unknown : [];
-  if (!body.missing.length && !unknown.length) { wrap.hidden = true; wrap.innerHTML = ''; return; }
   /* ⚠️ THE NAME THE PERSON GAVE IT, resolved from the survey's own rows. The
      first version printed `body.missing`, which is the machine name, so the
      list read `ava, bob, brigitte` beside cards saying Ava, Brigitte and
@@ -48228,95 +48281,261 @@ async function paintSurvival() {
     const row = (body.agents || []).find((a) => a && a.name === n);
     return (row && row.shownAs) || n;
   };
-  const names = body.missing.map((n) => esc(shownFor(n))).join(', ');
-  const unknownNames = unknown.map((n) => esc(shownFor(n))).join(', ');
-  /* #6518: under the "will not come back" headline the unknown group says only that
-     it could not be checked; the restart is already said once above it. Alone, and
-     in the Done report (which no longer repeats the restart fact), it keeps the
-     full headline. */
-  const unknownBlockWith = (headline) => unknown.length
-    ? '<div class="survival-unknown"><p><b>' + esc(headline) + '</b><br>'
-      + 'Something we need for this check could not be read. ' + (unknown.length === 1
-        ? 'We will leave it as it is, and this message goes away once we can read it.'
-        : 'We will leave them as they are, and this message goes away once we can read it.') + '</p>'
-      + '<p class="dhint" data-survival-unknown>' + unknownNames + '</p></div>'
-    : '';
-  const unknownBlock = SURVIVAL_UNKNOWN_BLOCK = unknownBlockWith(unknown.length === 1
-    ? 'We could not check whether one of your agents comes back if you restart this computer.'
-    : 'We could not check whether ' + unknown.length + ' of your agents come back if you restart this computer.');
-  wrap.hidden = false;
-  // "We could not read this" is an unanswered question, not an empty slot: the solid boardfail shape (see .boardfail).
-  if (!body.missing.length) { wrap.innerHTML = '<div class="pj-empty boardfail">' + unknownBlock + '</div>'; return; }
-  wrap.innerHTML = '<div class="pj-empty boardfail">'
-    + '<p><b>' + esc(survivalSay(body.missing.length)) + '</b><br>'
-    /* #6518: the cause is the button's own words and the effect is the headline,
-       so the body says only what the headline does not. */
-    + 'Their folders and everything they remember are untouched.</p>'
-    + '<p class="dhint">' + names + '</p>'
-    + '<button class="btn" type="button" data-survival-fix>Set them to start at login</button>'
-    + unknownBlockWith(unknown.length === 1
-      ? 'We could not check one more agent.'
-      : 'We could not check ' + unknown.length + ' more agents.')
-    + '</div>';
+  const kept = 'Its folder and memory are untouched.';
+  let html = '';
+  /* On a phone one agent has a notice of its own; more share one, so the stack does not fill the screen. */
+  const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 720px)').matches;   // the notice's phone CSS uses the same width
+  const eachMax = phone ? 1 : SURVIVAL_EACH_MAX;
+  if (body.missing.length && body.missing.length <= eachMax) {
+    for (const n of body.missing) {
+      const shown = esc(shownFor(n));
+      html += survivalNotice('', shown + ' will not come back after a restart', kept,
+        '<button type="button" class="uprime" data-survival-fix="' + esc(n) + '">Start at login</button>'
+        + '<button type="button" data-survival-remove="' + esc(n) + '">Remove…</button>',
+        n, 'Stop reminding me about ' + shownFor(n));
+    }
+  } else if (body.missing.length) {
+    html += survivalNotice('', esc(survivalSay(body.missing.length)),
+      '<span data-survival-names>' + body.missing.map((n) => esc(shownFor(n))).join(', ') + '</span>. '
+      + 'Their folders and memory are untouched.',
+      '<button type="button" class="uprime" data-survival-fix="">Start them at login</button>',
+      body.missing.join(' '), 'Stop reminding me about these agents');
+  }
+  if (unknown.length) {
+    /* #6518: under a "will not come back" notice the unknown group says only that it could not be checked. */
+    const head = unknown.length === 1
+      ? 'We could not check whether ' + esc(shownFor(unknown[0])) + ' comes back after a restart'
+      : 'We could not check whether ' + unknown.length + ' of your agents come back after a restart';
+    html += survivalNotice('unknown', head,
+      'Something we need for this check could not be read. '
+      + (unknown.length === 1 ? 'We will leave it as it is.' : 'We will leave them as they are.')
+      + (unknown.length > 1 ? ' <span data-survival-unknown>' + unknown.map((n) => esc(shownFor(n))).join(', ') + '</span>' : ''),
+      '', unknown.join(' '), unknown.length === 1 ? 'Stop reminding me about ' + shownFor(unknown[0]) : 'Stop reminding me about these agents');
+  }
+  /* Repainted only when the words change: a repaint every poll would take focus off a button the person is on and
+     wipe the line saying what went wrong beside it (the login notice skips the same way). */
+  if (slot.dataset.v === html) return;
+  slot.dataset.v = html;
+  /* A repaint that does happen keeps focus on the same button (review 3), so a keyboard user is not dropped to the page. */
+  const had = typeof document.activeElement !== 'undefined' && typeof slot.contains === 'function' && slot.contains(document.activeElement)
+    ? document.activeElement : null;
+  const key = had ? ['data-survival-fix', 'data-survival-remove', 'data-survival-hide']
+    .filter((k) => had.hasAttribute(k)).map((k) => '[' + k + '="' + had.getAttribute(k) + '"]')[0] : null;
+  slot.innerHTML = html;
+  /* If that button is gone, the notice's words, never a button: Start at login would start an agent and the x would
+     silence a warning, both on a held key (reviews 16, 17; the same rule as survivalFocusNext). */
+  if (key) { const back = slot.querySelector(key) || slot.querySelector('.utoast .utxt'); if (back) back.focus(); }
+  else if (had) { const back = slot.querySelector('.utoast .utxt'); if (back) back.focus(); }   // it was on a notice's words (review 21)
+}
+
+/* #6714: Settings > Computer is read on its own, so a board opened straight into Settings (or left there) shows the
+   hidden list too, not only after a visit to the agents screen. */
+async function refreshSurvivalHidden() {
+  try {
+    const res = await fetch('/api/register', { cache: 'no-store' });
+    if (!res.ok) return;
+    const body = await res.json().catch(() => null);
+    if (body && body.ok === true) paintSurvivalHidden(body);
+  } catch { /* the next look will get there */ }
+}
+
+/* #6714: Settings > Computer lists the notices the person hid, each with Show again. Only names that would still
+   have a notice: one that now starts at login has nothing to show again. */
+function paintSurvivalHidden(body) {
+  const box = document.getElementById('survival-hidden-box');
+  const list = document.getElementById('survival-hidden-list');
+  if (!box || !list) return;
+  const hidden = Array.isArray(body.hidden) ? body.hidden : [];
+  box.hidden = !hidden.length;
+  if (!hidden.length) { list.innerHTML = ''; return; }
+  const shownFor = (n) => {
+    const row = (body.agents || []).find((a) => a && a.name === n);
+    return (row && row.shownAs) || n;
+  };
+  list.innerHTML = hidden.map((n) => '<div class="setrow"><div><b>' + esc(shownFor(n)) + '</b></div>'
+    + '<button class="btn-quiet" type="button" data-survival-show="' + esc(n) + '">Show again</button></div>').join('');
+}
+
+/* After a notice closes, focus goes to the next one's words rather than dropping to the page (#6714 review 2). Not a
+   button: Start at login would start an agent and the x would close a warning the person never chose, on a second
+   Enter (reviews 15, 17). The words are focusable (tabindex -1) and do nothing when pressed. */
+function survivalFocusNext() {
+  const next = document.querySelector('#survival-report-slot .utoast .utxt, #survival-slot .utoast .utxt');
+  if (next && typeof next.focus === 'function') next.focus();
+  else if (typeof focusBoardHome === 'function') focusBoardHome();   // the last one closed: back to the board, not the page
+}
+
+/* The notice a button belongs to, for saying what went wrong beside it. */
+function survivalSayIn(btn, said) {
+  const note = btn.closest('.utoast');
+  const txt = note && note.querySelector('.utxt');
+  if (!txt) return;
+  const old = txt.querySelector('[data-survival-err]'); if (old) old.remove();   // one line, the latest
+  const say = document.createElement('small');
+  say.setAttribute('data-survival-err', '');
+  say.setAttribute('role', 'alert');
+  say.textContent = said;
+  txt.appendChild(say);
 }
 
 document.addEventListener('click', async (e) => {
+  const hide = e.target.closest('[data-survival-hide]');
+  const show = e.target.closest('[data-survival-show]');
+  const remove = e.target.closest('[data-survival-remove]');
   const btn = e.target.closest('[data-survival-fix]');
+  if (hide) {
+    /* A report the person has read: the x just closes it. */
+    if (hide.closest('.utoast.report')) {
+      hide.closest('.utoast').remove();
+      survivalFocusNext();
+      return;
+    }
+    const names = hide.getAttribute('data-survival-hide').split(' ').filter(Boolean);
+    hide.disabled = true;
+    let ok = true;
+    let stepUpSays = '';   // a remote session asked to sign in again gets the board's own words (review 13)
+    for (const name of names) {
+      try {
+        const r = await fetch('/api/register/hide', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
+        /* A refusal that says the agent has no notice any more (it was started, or removed) is already done, not a
+           failure; any other refusal is one (review 6). */
+        const said = await r.json().catch(() => null);
+        if (!r.ok && said && /^remote_step_up/.test(String(said.code || '')) && typeof said.error === 'string') stepUpSays = said.error;
+        ok = ok && (r.ok || (r.status === 400 && !!said && said.notOffered === true));
+      } catch { ok = false; }
+    }
+    /* The notice may have been repainted while the requests ran (review 18): act on the one on the page now. */
+    const live = (hide.isConnected ? hide : null)
+      || document.querySelector('#survival-slot [data-survival-hide="' + hide.getAttribute('data-survival-hide') + '"]');
+    /* Taken down only once the board has recorded it: an x that did not stick leaves the notice there, never a dead button. */
+    if (!ok) {
+      if (live) { live.disabled = false; survivalSayIn(live, stepUpSays || 'We could not record that just now. Try again.'); live.focus(); }
+      else paintSurvival();
+      return;
+    }
+    if (live) live.closest('.utoast').remove();
+    await paintSurvival();
+    refreshSurvivalHidden();   // the Settings list too, even while a report holds the notices (review 9)
+    survivalFocusNext();
+    return;
+  }
+  if (show) {
+    show.disabled = true;
+    let ok = false;
+    try {
+      const r = await fetch('/api/register/show', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: show.getAttribute('data-survival-show') }) });
+      await r.text(); ok = r.ok;
+    } catch { ok = false; }
+    if (!ok) {
+      show.disabled = false;
+      /* The button keeps its name; what went wrong is a line beside it (review 11), as every other failure here. (Show
+         is not behind the remote step-up; if it ever is, read the step-up words here as hide does.) */
+      const row = show.closest('.setrow');
+      const old = row && row.querySelector('[data-survival-err]'); if (old) old.remove();
+      const say = document.createElement('small');
+      say.setAttribute('data-survival-err', ''); say.setAttribute('role', 'alert');
+      say.textContent = 'That did not go through. Try again.';
+      if (row && row.firstElementChild) row.firstElementChild.appendChild(say);
+      show.focus();   // back where the person was (review 19)
+      return;
+    }
+    paintSurvival();
+    await refreshSurvivalHidden();   // the list itself (review 6)
+    /* The row is gone once shown again: focus the next Show again, or the box's heading (review 19). */
+    const nextShow = document.querySelector('#survival-hidden-list [data-survival-show]');
+    /* The last one shown again hides the box, so its heading cannot take focus: the Computer section does (review 21). */
+    const sec = document.getElementById('s-sec-mac');
+    if (nextShow) nextShow.focus(); else if (sec) sec.focus();
+    return;
+  }
+  if (remove) {
+    /* The agent page's own removal: the same question from the engine and the same dialog, never a second copy. */
+    const name = remove.getAttribute('data-survival-remove');
+    remove.disabled = true;
+    let ask = null;
+    try {
+      const r = await fetch('/api/agent/' + encodeURIComponent(name) + '/removal', { cache: 'no-store' });
+      ask = await r.json().catch(() => null);   // a refusal carries the engine's own reason, so read it either way
+    } catch { ask = null; }
+    remove.disabled = false;
+    if (!ask || !ask.ok) {
+      survivalSayIn(remove, (ask && ask.because) || 'We could not reach the board just now. Try again.');
+      if (remove.isConnected) remove.focus();   // back where the person was (review 18)
+      return;
+    }
+    openRemoveModal(name, ask);
+    return;
+  }
   if (!btn) return;
-  const wrap = document.getElementById('restart-wrap');
+  /* One start at a time (review 20): a second press while one runs would race the first's repaint. */
+  if (SURVIVAL_BUSY) { survivalSayIn(btn, 'One moment: another agent is being set up.'); return; }
+  const only = btn.getAttribute('data-survival-fix');
+  const slot = document.getElementById('survival-slot');
+  const label = btn.textContent;
   SURVIVAL_BUSY = true;
   btn.disabled = true;
-  btn.textContent = 'Setting them up…';
+  btn.textContent = 'Setting up…';
   let body = null;
   try {
-    const res = await fetch('/api/register', { method: 'POST' });
+    const res = await fetch('/api/register', only
+      ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: only }) }
+      : { method: 'POST' });
     body = await res.json().catch(() => null);
   } catch { body = null; }
+  /* A remote session asked for a fresh sign-in: the board's own sentence says what to do (review 13). */
+  const stepUp = body && /^remote_step_up/.test(String(body.code || '')) && typeof body.error === 'string' ? body.error : '';
   if (!body || body.ok !== true || !Array.isArray(body.results)) {
     btn.disabled = false;
-    btn.textContent = 'Set them to start at login';
-    const old = wrap && wrap.querySelector('[data-survival-err]'); if (old) old.remove();   // one line, the latest
-    const say = document.createElement('p');
-    say.className = 'dhint';
-    say.setAttribute('data-survival-err', '');
-    say.setAttribute('role', 'alert');
-    say.textContent = (body && body.because)
-      ? body.because
-      : 'That did not go through, and nothing was changed. Try again.';
-    btn.after(say);   // beside the button it is about, not under the unknown paragraph (#6320)
+    btn.textContent = label;
+    if (btn.isConnected) btn.focus();   // back where the person was (review 19)
+    /* A refusal means the notice was out of date (started elsewhere, or closed on another device): say so plainly and
+       ask the board again, so the stale button goes (review 8). */
+    const stale = !!(body && body.refused);
+    survivalSayIn(btn, stale ? 'This changed on another screen. Showing what is true now.'
+      : stepUp || ((body && body.because) ? body.because : 'That did not go through, and nothing was changed. Try again.'));
     SURVIVAL_BUSY = false;
+    if (stale) { const sl = document.getElementById('survival-slot'); if (sl) delete sl.dataset.v; setTimeout(paintSurvival, 1500); }
     return;
   }
   /* ⚠️ PER AGENT, never a total. "12 set up" over a run where three could not
      be started is the shape of sentence this product keeps removing: the ones
      that did not start are exactly the ones somebody will go looking for. */
-  const rows = body.results.map((r) => {
-    const said = r.ok
-      ? (r.started
-        ? 'starts at login, and is running now'
-        : 'starts at your next login, but we could not start it just now')
-      : (r.because || 'we could not set that one up');
-    return '<p class="dhint"><b>' + esc(r.shownAs || r.name) + '</b>: ' + esc(said) + '</p>';
-  }).join('');
+  const said = (r) => r.ok
+    ? (r.started ? 'starts at login, and is running now' : 'starts at your next login, but we could not start it just now')
+    : (r.because || 'we could not set that one up');
   /* ⚠️ WHAT WE HAD TO ASSUME, said once and out loud. The model an agent was
      SET to run on lived only in the job that never existed, so what goes in is
-     what it last ran as — and where even that could not be read, Claude's own
+     what it last ran as, and where even that could not be read, Claude's own
      default. A person whose agent quietly changes model would have no way to
      find out why. */
-  const guessed = body.results.filter((r) => r.ok && r.guessed && r.guessed.model).length;
-  wrap.innerHTML = '<div class="pj-empty boardfail">'
-    + '<p><b>Done.</b></p>'   // #6518: each row below says it starts at login
-    + rows
-    + (guessed
-      ? '<p class="dhint">' + esc(guessed === 1
-        ? 'One of them had no record of which model it was set to run on, so it will start on the default. You can change it on its page.'
-        : guessed + ' of them had no record of which model they were set to run on, so they will start on the default. You can change that on their pages.')
-        + '</p>'
-      : '')
-    + SURVIVAL_UNKNOWN_BLOCK   // #6320: the agents we could not check are still not known; the report must not hide them
-    + '</div>';
+  const guessedLine = (r) => r.ok && r.guessed && r.guessed.model
+    ? 'It had no record of which model it was set to run on, so it will start on the default. You can change it on its page.'
+    : '';
+  /* Past the notice cap, one report lists every agent (still per agent, never a total), so pressing Start them at
+     login cannot stack a dozen notices over the board (review 5). */
+  const capNow = (typeof matchMedia === 'function' && matchMedia('(max-width: 720px)').matches) ? 1 : SURVIVAL_EACH_MAX;
+  const report = body.results.length > capNow
+    ? survivalNotice(body.results.every((r) => r.ok) ? 'done report' : 'failed report', 'Here is what happened',
+      /* Each row keeps what we had to assume (review 7): the guessed-model sentence is the disclosure, not a detail. */
+      body.results.map((r) => '<b>' + esc(r.shownAs || r.name) + '</b>: ' + esc(said(r))
+        + (guessedLine(r) ? ' ' + esc(guessedLine(r)) : '')).join('<br>'), '',
+      body.results.map((r) => r.name).join(' '), 'Close the report')
+    : body.results.map((r) => survivalNotice(r.ok ? 'done report' : 'failed report',
+    '<b>' + esc(r.shownAs || r.name) + '</b> ' + esc(said(r)), esc(guessedLine(r)), '', r.name,
+    /* The Close button carries the result, and takes focus (review 3): a status region inserted already filled is not
+       announced everywhere, and the button that had focus is gone. */
+    'Close: ' + (r.shownAs || r.name) + ' ' + said(r))).join('');
+  /* The report goes in its own slot (review 18), only while the agents screen is up (a tab switch mid-start empties it). */
+  const reports = document.getElementById('survival-report-slot');
+  let fresh = null;
+  if (reports && onAgentsTab()) { reports.insertAdjacentHTML('afterbegin', report); fresh = reports.firstElementChild; }
+  /* Focus goes to the report just put in (review 7), its words, so a screen reader reads the result and a second press
+     does nothing (review 17). */
+  const readIt = fresh && fresh.querySelector('.utxt');
+  if (readIt) readIt.focus();
   SURVIVAL_BUSY = false;
-  SURVIVAL_HELD = true;
+  if (slot) delete slot.dataset.v;
+  paintSurvival();   // the started agents leave the notices now, not at the next poll
   /* The board can now see them, so ask it again rather than waiting out the
      poll: the whole point of the repair is that they are running. */
   try { await tick(); } catch { /* the poll will get there */ }
@@ -53043,8 +53262,16 @@ function plusCountdown(line, btn, why, secs) {
    what happens next (sign in from the new phone, set it up again) is a
    thing the coordinator does not know to say. One place for the words. */
 const PLUS_SECOND_WORDS = {
-  armed: 'This switches the second step off for your whole account until you set it up again. Press the button once more to do it.',
-  done: 'The second step is off. Sign in from your new phone with the email code, and set the second step up again there.',
+  /* #6611: since kosmos#6605 a reset also signs every phone and browser out, so the person hears it before
+     agreeing, not after. */
+  armed: 'This switches the second step off for your whole account until you set it up again. Every phone and browser signed in to your account will need to sign in again. Press the button once more to do it.',
+  done: 'The second step is off. Every phone and browser will need to sign in again. Sign in from your new phone with the email code, and set the second step up again there.',
+  /* #6611: the coordinator answered that there was no second step to clear (`had` null): nothing was switched off and
+     nobody was signed out, so the page must not say they were. */
+  none: 'There was no second step on your account to switch off, so nobody was signed out. If you had started setting one up, start again.',
+  /* An answer that did not say what it cleared (it went wrong somewhere): the words from before #6605, which claim no
+     sign-out either way. */
+  doneUnknown: 'The second step is off. Sign in from your new phone with the email code, and set the second step up again there.',
   failed: (why) => 'The second step was not reset: ' + why + '.',
 };
 let PLUS_SECOND_ARMED = false;
@@ -53072,7 +53299,11 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
     if (!res.ok) {
       msg.textContent = PLUS_SECOND_WORDS.failed(plusWords(((await res.json().catch(() => null)) || {}).error || 'this computer could not ask'));
     } else {
-      msg.textContent = PLUS_SECOND_WORDS.done;
+      // #6611: say what the coordinator actually did, by what it reported clearing.
+      const said = (await res.json().catch(() => null)) || {};
+      msg.textContent = said.had === null ? PLUS_SECOND_WORDS.none
+        : typeof said.had === 'string' && said.had.trim() ? PLUS_SECOND_WORDS.done
+        : PLUS_SECOND_WORDS.doneUnknown;
     }
   } catch { msg.textContent = PLUS_SECOND_WORDS.failed('this computer could not reach its own engine'); }
   PLUS_SECOND_BUSY = false;
@@ -75267,7 +75498,10 @@ function dmHeldWords(name, d) {
   // Kosmos tried to send it and could not (the sweep recorded why): said after the reason it is held.
   const stuck = d && d.stuck && typeof d.stuck.because === 'string' && d.stuck.because
     ? ' Kosmos tried to send it and could not: ' + d.stuck.because.replace(/[.\s]+$/, '') + '.' : '';
+  if (d && d.behind === true && d.behindFor === 'input') return 'Held: Kosmos sends this after the messages kept for ' + name + ' while its input box held text not yet sent.' + stuck;   // #6774
   if (d && d.behind === true) return 'Held: Kosmos sends this after the messages kept for ' + name + ' while it was out of usage.' + stuck;
+  // #6774: held because its input box holds text not yet sent; sent by the minute sweep once the box reads empty.
+  if (d && d.heldFor === 'input') return 'Held: ' + name + "'s input box holds text not yet sent. Kosmos sends it once the box is clear." + stuck;
   // #5948: held because its sign-in stopped working; there is no reset to name, only signing in again.
   if (d && d.heldFor === 'signin') return 'Held: ' + name + ' is signed out. Kosmos sends it once it is signed in again.' + stuck;
   const at = d && typeof d.heldUntil === 'string' ? Date.parse(d.heldUntil) : NaN;
@@ -75303,6 +75537,10 @@ function pjVerdict(m, name) {
     said = 'Could not confirm ' + esc(name) + ' got that'
       + (note ? ' (' + note + ')' : '') + '. '
       + esc(pjSentence(d.because || 'we typed it and could not tell whether it arrived'));
+  } else if (d.duplicateOf) {
+    // #6774: a re-send not sent because the same words were already kept above: not a failure, so not worded as one.
+    mark = ' held';
+    said = esc(pjSentence(d.because || 'the same message was already kept above, so this copy was not sent'));
   } else {
     mark = ' failed';
     /**

@@ -434,6 +434,8 @@ test('#5977 r5: Repair rebuilds a Qwen agent on its recorded Qwen account, and r
   fs.mkdirSync(create.workerDir('r5-unknown'), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir('r5-unknown'), 'AGENTS.md'), '# brief\n');
   store.writeProfile('r5-unknown', { provider: 'alibaba' });
+  // #6714: both have run here, so the restart survey counts them
+  for (const n of ['r5-known', 'r5-unknown']) require('./liveness').seen(n);
   const out = register.repair({ platform: 'darwin' });
   const r = (out.results || []).find((x) => x.name === 'r5-known');
   const u = (out.results || []).find((x) => x.name === 'r5-unknown');
@@ -460,6 +462,9 @@ test('#5977 r5: Repair rebuilds a Qwen agent on its recorded Qwen account, and r
   fs.mkdirSync(create.workerDir('r6-held'), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir('r6-held'), 'AGENTS.md'), '# brief\n');
   store.writeProfile('r6-held', { provider: 'alibaba', qwenAccount: other, policyHeld: true });
+  /* #6714: the restart survey counts only agents that have run here, and a held import never has, so this arm gives it a
+     run record to keep the policy check on Repair exercised (an agent that ran and was held later reaches it). */
+  require('./liveness').seen('r6-held');
   fs.mkdirSync(nodePath.dirname(orgpolicy.APPLIED()), { recursive: true });
   fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 1, applied_at: 1,
     policy: { providers_allowed: ['alibaba'], models_allowed: { alibaba: [EP.model] } } }));
