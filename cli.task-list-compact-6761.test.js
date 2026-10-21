@@ -152,12 +152,12 @@ test('Mac: an install without the module says so (and lists nothing as if it wer
 });
 
 /* An older board (no state filter, no listState) and a board that counts more than it sends. */
-async function stubBoard(body) {
+async function stubBoard(body, raw = false) {
   const srv = http.createServer((req, res) => {
     req.resume();
     req.on('end', () => {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(req.url.startsWith('/api/health') ? '{"ok":true,"app":"kosmos"}' : JSON.stringify(body));
+      res.end(req.url.startsWith('/api/health') ? '{"ok":true,"app":"kosmos"}' : (raw ? body : JSON.stringify(body)));
     });
   });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
@@ -182,4 +182,22 @@ test('both: an older board\'s whole list is refused under a compact flag; a shor
     assert.equal(m.code, 0, m.out);
     assert.match(m.out, /The board counted 4 but sent 1/);
   } finally { short.close(); }
+});
+
+test('iteration 1: both CLIs give the same words for an answer that is not a task list, and refuse an empty word after the flag', async () => {
+  const junk = await stubBoard('<html>not json</html>', true);
+  try {
+    const port = junk.address().port;
+    const w = await win(['task', 'list', 'p1', '--open'], `http://127.0.0.1:${port}`);
+    const m = await mac(['task', 'list', 'p1', '--open'], port);
+    assert.notEqual(w.code, 0);
+    assert.notEqual(m.code, 0, m.out);
+    const said = 'Kosmos sent no task list, so there is nothing to show.';
+    assert.equal(w.err, said);
+    assert.deepEqual(w.out, [], 'Windows printed a refusal as a list');
+    assert.equal(m.out.trim(), said, 'the two CLIs said different things');
+  } finally { junk.close(); }
+  const empty = await mac(['task', 'list', projectId, '--open', '']);
+  assert.equal(empty.code, 2, empty.out);
+  assert.match(empty.out, /--open takes nothing after it/);
 });

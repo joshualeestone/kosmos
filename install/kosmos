@@ -5222,7 +5222,8 @@ cmd_task() {
         case "${3:-}" in open|built|held|done) ;; *) say "--state takes one of: open, built, held, done."; exit 2 ;; esac
       fi
       # #6761: the compact forms (one line per task, then a count) take nothing after them.
-      case "${2:-}" in --open|--blocked|--built) [ -z "${3:-}" ] || { say "${2} takes nothing after it: kosmos task list <project-id> ${2}"; exit 2; } ;; esac ;;
+      # (Counted, not tested for emptiness, so an empty word after it is refused as the Windows CLI refuses it.)
+      case "${2:-}" in --open|--blocked|--built) [ "$#" -le 2 ] || { say "${2} takes nothing after it: kosmos task list <project-id> ${2}"; exit 2; } ;; esac ;;
     add)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"] [--parent <task-number>] [--who <agent>|me] [--done \"<check>\"]"; exit 2; }
       # #3861: the sentence comes first, so `add <project> --parent 3 "x"` would file a task
