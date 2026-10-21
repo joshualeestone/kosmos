@@ -42479,8 +42479,10 @@ function agentFileRow(f, compact = false, label = null) {   // #6724: `label` (t
   w.className = 'pj-doc-w';
   const when = f.modified ? new Date(f.modified) : null;
   const day = when && !isNaN(when) ? when.toLocaleDateString() : '';
-  w.textContent = (day && !compact ? day + ' · ' : '') + pjSize(f.size);
+  const fp = fileFingerprint(f);   // #6761
+  w.textContent = (day && !compact ? day + ' · ' : '') + pjSize(f.size) + (fp && !compact ? ' · sha256 ' + fp.slice(0, 12) : '');
   if (day && compact) b.title = f.name + ', changed ' + day;
+  if (fp) b.title = (b.title || f.name) + ', sha256 ' + fp;   // the whole value (the narrow panel shows it only here)
   b.append(n, w);
   return b;
 }
@@ -69876,8 +69878,13 @@ const PJ_DOCS_PER = 50;
 /* One Files row's small line: size, date, and (#5812) the agent that changed it last when the board recorded one. */
 function pjDocMeta(f) {
   return pjSize(f.size) + (f.modified ? ' · ' + new Date(f.modified).toLocaleDateString() : '')
-    + (typeof f.changedBy === 'string' && f.changedBy ? ' · changed by ' + f.changedBy : '');
+    + (typeof f.changedBy === 'string' && f.changedBy ? ' · changed by ' + f.changedBy : '')
+    + (fileFingerprint(f) ? ' · sha256 ' + fileFingerprint(f).slice(0, 12) : '');   // #6761
 }
+/* #6761 (a feedback report: a revised file handed over can be mistaken for an earlier version): a Files row's sha256,
+   as the board sent it (hashed in the background, so a row may have none yet), or ''. Only a whole hex digest is shown;
+   the row shows its first 12 digits and the whole value is the row's hover text. */
+function fileFingerprint(f) { return f && typeof f.sha256 === 'string' && /^[0-9a-f]{64}$/.test(f.sha256) ? f.sha256 : ''; }
 function pjDocsPaintPage() {
   const box = document.getElementById('docs-list');
   const count = document.getElementById('docs-count');
@@ -69893,6 +69900,7 @@ function pjDocsPaintPage() {
     const n = document.createElement('span'); n.className = 'pj-doc-n'; n.textContent = f.name;
     const w = document.createElement('span'); w.className = 'pj-doc-w';
     w.textContent = pjDocMeta(f);
+    if (fileFingerprint(f)) b.title = f.name + ', sha256 ' + fileFingerprint(f);   // #6761: the whole value
     b.append(n, w); box.append(b);
   }
   const floor = PJ_DOCS_TOTAL > PJ_DOCS_FILES.length
@@ -70177,6 +70185,7 @@ async function pjLoadDocs(id) {
     const w = document.createElement('span');
     w.className = 'pj-doc-w';
     w.textContent = pjSize(f.size);
+    if (fileFingerprint(f)) b.title = f.name + ', sha256 ' + fileFingerprint(f);   // #6761: the narrow rail shows it on hover
     b.append(n, w);
     box.append(b);
   }

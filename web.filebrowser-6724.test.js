@@ -89,7 +89,7 @@ function harness(respond) {
   };
   const calls = [];
   const env = { CURRENT: BOARD.agents.find((c) => c.sessionName === 'ana') };
-  const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'folderIcon', 'agentDirRow', 'agentFilesPath', 'agentFilesGo', 'paintAgentFilesAll']);
+  const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'fileFingerprint', 'folderIcon', 'agentDirRow', 'agentFilesPath', 'agentFilesGo', 'paintAgentFilesAll']);
   let gate = null;
   const api = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'asSentence', 'env',
     'let AGENT_FILES_ALL_EPOCH = 0; let AGENT_FILES_DIR = ""; let AGENT_FILES_ALL_STAMP = null; let AGENT_FILES_FOCUS = false; let AGENT_FILES_ALL_FAIL = null;\n'
