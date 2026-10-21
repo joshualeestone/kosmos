@@ -28,7 +28,10 @@ board inside the app shows no tab strip of its own, because the app marks every 
    writes its flag only when its first status poll answers, after the page has loaded, so the app reads again every
    2 s for 20 s after a load until a read answers (review 3). A relaunch's first read is the board's stored value
    from last time. After that only a return from the background changes it. If Tasks is selected and leaves the bar (another Mac), the app goes to Today.
-   A press before the page can take it (web view not made, or loading) waits and runs when the page finishes.
+   A press before the page can take it (web view not made, or loading) waits and runs when the page finishes. The
+   tracker must see the press before BoardWeb looks for a web view (review 5 BLOCKER: the other order dropped the first
+   press of every signed-in launch, which opens on Agents, so no web view exists yet).
+   A press on the selected tab, where SwiftUI reports one, presses again: back to the section's top (iOS convention).
 5. Agent taps (Agents list, notifications) go to Today, as Board did. Not signed in opens on Today (sign-in is there).
    The store-shots build opens on Today.
 
@@ -46,8 +49,7 @@ board inside the app shows no tab strip of its own, because the app marks every 
 - The press answers three ways (review 2): opened; absent (no door: the sign-in page, an older board, or an error
   mid-navigation), which waits for the next load; refused (the door said no because a box or a full-screen step is
   up, the backdrops .rm-back/.fr-back/.frc-back, NOT a chat: review 2 read rm-back as a chat's back button, it is the
-  modal backdrop), which puts the bar back on the tab it came from, or for a press that waited, the tab of the
-  section in the page's address. Rejected: keeping a refused press pending, which fired later on an unrelated reload,
+  modal backdrop), which ends the press and moves the bar as above. Rejected: keeping a refused press pending, which fired later on an unrelated reload,
   and loading ?tab= over the box, which would throw away the box the person had not answered.
 
 ## Weakest premise
@@ -57,9 +59,15 @@ change on screen once per launch (review 1, N3). If Tasks is showing when it lea
 Today, so the board follows. Rejected: holding the first read to the next return, which leaves an earned Tasks out of
 the bar for a first launch's whole session. What would change this: per-Mac memory, or a person reporting the jump.
 
+Also: in the board's wide layout (a large iPhone in landscape) Settings opens in place and the address keeps the
+section it was on, so a refusal there puts the bar on that section instead of Settings (review 5, N3). Accepted: a
+refusal needs a box up, and the bar still names a section the board can show.
+
 ## Validation
 LogicTests: AppTabs order and the Tasks gate, keep(), board names, door JS text, answer reading (true only), the
 kapptabs script text, the page flag reading ("1"/"0" only). The kapptabs and localStorage scripts run in a real JS engine
 (JavaScriptCore on the Mac) where they can, not only as text. Mutants: a tasks gate that always
-shows; an answer reader that takes non-nil as opened. Simulator build (queued-heavy). Real-device check is Baron's
+shows; an answer reader that takes non-nil as opened. Simulator build (queued-heavy). NOT checkable here, so named for the device check: Tasks entering the bar while
+Settings is selected and leaving while Tasks is selected (UIKit's tab bar tracks the selection by position; review 5
+W3), and the first press of a signed-in launch landing on its section. Real-device check is Baron's
 TestFlight run (#6838 frames).

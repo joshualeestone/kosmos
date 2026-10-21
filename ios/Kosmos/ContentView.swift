@@ -26,7 +26,8 @@ struct ContentView: View {
     // Whether the app has really been in the background, for the bar's Tasks check on return (tracked apart from the
     // biometric gate's didBackground, which only runs when that gate is on).
     @State private var tabsBackgrounded = false
-    // Mona Lisa's slice 1 spec: open on Agents until Today exists. The App Store screenshot build
+    // A signed-in launch opens on Agents, as in slice 1, until Mona Lisa rules on opening on Today (#6846 leaves it
+    // open). The App Store screenshot build
     // (ios/store/shoot-app.sh) photographs board screens in the web view, opened by address, so it lights the tab
     // that address belongs to (a project room under Projects).
     #if KOSMOS_STORE_SHOTS
@@ -80,7 +81,10 @@ struct ContentView: View {
         .onChange(of: web.refused) { back in
             guard let back = back else { return }
             web.refused = nil
-            tab = AppTabs.keep(back, tasksTab: web.tasksTab)
+            let shown = AppTabs.keep(back, tasksTab: web.tasksTab)
+            // The board can be on a Tasks section the bar does not offer (its door presses a hidden Tasks tab).
+            if shown != back { NSLog("[Tabs] the page is on \(back), which the bar does not show") }
+            tab = shown
         }
         // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing.
         .onChange(of: web.tasksTab) { shown in
@@ -137,8 +141,9 @@ struct ContentView: View {
         web.press(new)
     }
 
-    // Agents is the native list; the other four show the shared board. Pressing the tab already selected does nothing
-    // (the selection does not change): an agent's chat opened under Today stays until another tab is pressed.
+    // Agents is the native list; the other four show the shared board. Where SwiftUI reports a press on the tab
+    // already selected, it presses again, which takes the section back to its top (the iOS convention; the board's own
+    // tab does the same): from an agent's chat under Today, pressing Today goes back to the board's home.
     @ViewBuilder private func tabPage(_ which: Tab) -> some View {
         if which == .agents {
             AgentsView(client: board, openChat: { url in
@@ -274,8 +279,10 @@ final class BoardWeb: ObservableObject {
     func adopt(_ webView: WKWebView) { self.webView = webView }
 
     func press(_ tab: AppTabs.Tab) {
-        let ready = webView.map { !$0.isLoading } ?? false
-        guard let webView = webView, let run = tracker.press(tab, pageReady: ready) else { return }
+        // The tracker sees every press first, web view or not: with none yet (a signed-in launch opens on Agents, and
+        // a web tab's host is made only when it is first shown) the press must wait for the page, not be lost.
+        let run = tracker.press(tab, pageReady: webView.map { !$0.isLoading } ?? false)
+        guard let run = run, let webView = webView else { return }
         webView.evaluateJavaScript(run.script) { [weak self] result, error in
             guard let self = self else { return }
             let answer = AppTabs.answer(result, error: error)
