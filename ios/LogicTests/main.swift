@@ -1141,37 +1141,32 @@ check(AppTabs.keep(.projects, tasksTab: false) == .projects, "any other tab stay
 check(AppTabs.keep(.tasks, tasksTab: true) == .tasks, "Tasks stays while it is in the bar")
 check(AppTabs.Tab.today.boardName == "agents", "Today opens the board's home, its agents tab")
 check(AppTabs.Tab.agents.boardName == nil && AppTabs.pressScript(.agents) == nil, "Agents is native: no press on the board")
-check(AppTabs.pressScript(.settings) == "typeof window.kosmosAppTab === 'function' && window.kosmosAppTab('settings')", "a press calls the door only where it exists")
+check(AppTabs.pressScript(.settings)?.contains("window.kosmosAppTab('settings')") == true, "a press asks the door for that tab's board name")
 
 section("app tabs: the door's answer")
 struct DoorError: Error {}
-check(AppTabs.opened(true, error: nil), "true is opened")
-check(!AppTabs.opened(false, error: nil), "false is not opened")
-check(!AppTabs.opened(nil, error: nil), "nothing is not opened")
-check(!AppTabs.opened("true", error: nil), "a string is not opened")
-check(!AppTabs.opened(NSNumber(value: 1), error: nil), "a number 1 is not opened: only a real true")
-check(!AppTabs.opened(true, error: DoorError()), "an error is not opened, whatever came with it")
+check(AppTabs.answer("opened", error: nil) == .opened, "opened is opened")
+check(AppTabs.answer("refused", error: nil) == .refused, "refused is refused: the bar goes back")
+check(AppTabs.answer("absent", error: nil) == .absent, "absent waits for the next page")
+check(AppTabs.answer(nil, error: nil) == .absent && AppTabs.answer(true, error: nil) == .absent, "anything else is no answer, never opened")
+check(AppTabs.answer("opened", error: DoorError()) == .absent, "an error (a page mid-navigation) is no answer, whatever came with it")
 
-section("app tabs: the scripts, run")
-func pressIn(_ door: String?, _ tab: AppTabs.Tab) -> Bool {
+section("app tabs: the press, run")
+func pressIn(_ door: String?, _ tab: AppTabs.Tab) -> (AppTabs.DoorAnswer, String?) {
     let js = JSContext()!
     js.evaluateScript("var window = {}; var pressed = null;")
     if let door = door { js.evaluateScript("window.kosmosAppTab = function (n) { pressed = n; return \(door); };") }
-    let answer = js.evaluateScript(AppTabs.pressScript(tab)!)
+    let result = js.evaluateScript(AppTabs.pressScript(tab)!)?.toObject()
     let threw = js.exception != nil
-    let opened = AppTabs.opened(answer?.toObject(), error: threw ? DoorError() : nil)
-    return !threw && opened && js.evaluateScript("pressed").toString() == tab.boardName
+    let pressed = js.evaluateScript("pressed")?.toString()
+    return (threw ? .absent : AppTabs.answer(result, error: nil), threw ? "threw" : pressed)
 }
-func pressThrows(_ tab: AppTabs.Tab) -> Bool {
-    let js = JSContext()!
-    js.evaluateScript("var window = {};")
-    js.evaluateScript(AppTabs.pressScript(tab)!)
-    return js.exception != nil
-}
-check(pressIn("true", .projects), "a board with the door opens the section it was asked for")
-check(!pressIn("false", .projects), "a door that refuses is not opened")
-check(!pressIn(nil, .today), "a page without the door (sign-in, an older board) is not opened")
-check(!pressThrows(.today), "and asking it does not throw")
+check(pressIn("true", .projects) == (.opened, "projects"), "a board that opens the section answers opened, for the name asked")
+check(pressIn("true", .today) == (.opened, "agents"), "Today asks for the board's home")
+check(pressIn("false", .projects) == (.refused, "projects"), "a board that says no answers refused")
+check(pressIn("1", .projects) == (.refused, "projects"), "only a real true is opened (a number 1 is refused)")
+check(pressIn("undefined", .settings) == (.refused, "settings"), "a door that answers nothing is refused, not opened")
+check(pressIn(nil, .today) == (.absent, "null"), "a page without the door answers absent, and asking does not throw")
 func marked(rootLater: Bool) -> Bool {
     let js = JSContext()!
     js.evaluateScript("""

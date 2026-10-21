@@ -44,8 +44,9 @@ struct ContentView: View {
     // agent tap, a notification) does not press, so the page it was sent to stays.
     private var pressing: Binding<Tab> {
         Binding(get: { tab }, set: { new in
+            let old = tab
             tab = new
-            web.press(new)
+            web.press(new, from: old)
         })
     }
 
@@ -64,7 +65,9 @@ struct ContentView: View {
                     webBoard(.projects)
                         .tabItem { Label("Projects", systemImage: "folder") }
                         .tag(Tab.projects)
-                    // Earned, as on the computer (#3559); the bar changes only at launch or on return to the front.
+                    // Earned, as on the computer (#3559). The bar takes it from the board page once per launch (the
+                    // first page that answers, which can be a while after launch when the first web tab is opened
+                    // late) and otherwise only on a return to the front, never on each poll.
                     if web.tasksTab {
                         webBoard(.tasks)
                             .tabItem { Label("Tasks", systemImage: "checklist") }
@@ -84,6 +87,13 @@ struct ContentView: View {
         // native).
         .onChange(of: pushManager.boardToOpen) { request in
             if request != nil { tab = .today }
+        }
+        // The board refused a press (a box was up): the bar goes back to the tab the page still shows, so pressing
+        // the same tab again later is a real press.
+        .onChange(of: web.refused) { back in
+            guard let back = back else { return }
+            web.refused = nil
+            tab = AppTabs.keep(back, tasksTab: web.tasksTab)
         }
         // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing.
         .onChange(of: web.tasksTab) { shown in
@@ -135,8 +145,9 @@ struct ContentView: View {
     // The app moving the bar itself (not an agent tap, which loads its own page): the board follows it.
     private func select(_ new: Tab) {
         guard new != tab else { return }
+        let old = tab
         tab = new
-        web.press(new)
+        web.press(new, from: old)
     }
 
     private func webBoard(_ which: Tab) -> some View {
@@ -144,7 +155,7 @@ struct ContentView: View {
             // Navy behind the tab bar too, so the space below the page is the page's own colour, not a white band.
             Color(UIColor.kosmosNavy).ignoresSafeArea()
             // Under the status bar as before; the tab bar keeps its own space below. How each page keeps clear
-            // of the notch is set in makeUIView (safe areas). The keyboard is left to the web view, as before.
+            // of the notch is set in makeWebView (safe areas). The keyboard is left to the web view, as before.
             WebView(
                 web: web,
                 active: tab == which,
@@ -251,7 +262,11 @@ final class BoardWeb: ObservableObject {
     private(set) var webView: WKWebView?
     private(set) var coordinator = WebView.Coordinator()
     // Whether the bar shows Tasks: the board's own flag, remembered so a launch shows the bar it last had.
+    // Remembered for the app, not per computer (the board's own flag is per computer): after a switch, a launch shows
+    // the last computer's bar until the first read lands.
     @Published private(set) var tasksTab = UserDefaults.standard.bool(forKey: AppTabs.rememberedTasksKey)
+    // Set when the board refuses a press: the tab to put the bar back on.
+    @Published var refused: AppTabs.Tab?
     // The press the page has not yet taken (the web view not made, still loading, or a page without the door, such
     // as the sign-in page before the hand-off to the Mac). Tried again at every load until the door says true; a new
     // press, the native tab, or a page the app loads itself (an agent tap) replaces it.
@@ -263,14 +278,23 @@ final class BoardWeb: ObservableObject {
 
     func adopt(_ webView: WKWebView) { self.webView = webView }
 
-    func press(_ tab: AppTabs.Tab) {
+    // `from` is the tab the bar showed before, where it goes back if the board refuses. A press that waited for a load
+    // has none (the bar may have moved since), so the bar goes to the tab of the section the page is on, which the
+    // board keeps in its address (?tab=, replaceState).
+    func press(_ tab: AppTabs.Tab, from: AppTabs.Tab? = nil) {
         guard let script = AppTabs.pressScript(tab) else { pending = nil; return }
         pending = tab
         guard let webView = webView, !webView.isLoading else { return }
         webView.evaluateJavaScript(script) { [weak self] result, error in
             guard let self = self, self.pending == tab else { return }
-            if AppTabs.opened(result, error: error) { self.pending = nil }
-            else { NSLog("[Tabs] the page did not open \(tab) yet") }
+            switch AppTabs.answer(result, error: error) {
+            case .opened: self.pending = nil
+            case .absent: break
+            case .refused:
+                self.pending = nil
+                NSLog("[Tabs] the board refused \(tab)")
+                self.refused = from ?? AppTabs.tab(forBoardURL: webView.url)
+            }
         }
     }
 
@@ -294,6 +318,11 @@ final class BoardWeb: ObservableObject {
 
     // On lock: the page goes, with its session handler, and the next tab to show makes a fresh one.
     func drop(selected: AppTabs.Tab) {
+        // The old page is stopped and cut off, so a late load of it cannot report into the new page's state.
+        webView?.stopLoading()
+        webView?.navigationDelegate = nil
+        webView?.uiDelegate = nil
+        coordinator.web = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: PushNotificationManager.sessionHandlerName)
         webView?.removeFromSuperview()
         webView = nil

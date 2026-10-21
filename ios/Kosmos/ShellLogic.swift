@@ -227,19 +227,30 @@ enum AppTabs {
         visible(tasksTab: tasksTab).contains(selected) ? selected : .today
     }
 
-    // The call the app makes for a press. The door is absent on the sign-in page, an error page or an older board, so
-    // the typeof test answers false there rather than throwing.
+    // The call the app makes for a press. It tells apart a page without the door (the sign-in page, an error page,
+    // an older board: the typeof test, so it never throws) from a board that refused (a box or full-screen step is up,
+    // where a person could not press either). Only a real true from the door is "opened".
     static func pressScript(_ tab: Tab) -> String? {
         guard let name = tab.boardName else { return nil }
-        return "typeof window.kosmosAppTab === 'function' && window.kosmosAppTab('\(name)')"
+        return "typeof window.kosmosAppTab !== 'function' ? 'absent' : (window.kosmosAppTab('\(name)') === true ? 'opened' : 'refused')"
     }
 
-    // Opened only on a real true. false, nothing, any other value (a number 1 too) and an error all mean the section
-    // did not open.
-    static func opened(_ result: Any?, error: Error?) -> Bool {
-        guard error == nil, let value = result as? NSNumber,
-              CFGetTypeID(value) == CFBooleanGetTypeID() else { return false }
-        return value.boolValue
+    enum DoorAnswer: Equatable {
+        // The section opened.
+        case opened
+        // The board said no: the press is over, and the bar goes back to the tab the page still shows.
+        case refused
+        // No door, or no answer (an error mid-navigation): the press waits for the next page to load.
+        case absent
+    }
+
+    static func answer(_ result: Any?, error: Error?) -> DoorAnswer {
+        guard error == nil else { return .absent }
+        switch result as? String {
+        case "opened": return .opened
+        case "refused": return .refused
+        default: return .absent
+        }
     }
 
     // The tab whose section a board address opens (?tab=), so a build that starts on an address lights the right tab.

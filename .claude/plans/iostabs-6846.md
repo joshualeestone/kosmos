@@ -36,6 +36,12 @@ board inside the app shows no tab strip of its own, because the app marks every 
 - On lock (biometric gate, off by default) the holder drops its web view, as the old view's teardown did, so an unlock
   starts clean.
 - No Today badge in this part (the card calls it optional; needsYou is already in the client).
+- The press answers three ways (review 2): opened; absent (no door: the sign-in page, an older board, or an error
+  mid-navigation), which waits for the next load; refused (the door said no because a box or a full-screen step is
+  up, the backdrops .rm-back/.fr-back/.frc-back, NOT a chat: review 2 read rm-back as a chat's back button, it is the
+  modal backdrop), which puts the bar back on the tab it came from, or for a press that waited, the tab of the
+  section in the page's address. Rejected: keeping a refused press pending, which fired later on an unrelated reload,
+  and loading ?tab= over the box, which would throw away the box the person had not answered.
 
 ## Weakest premise
 What "at launch" means. The bar takes the remembered value, then the first page read of the launch that answers, in
