@@ -286,6 +286,10 @@ const NAMES_EVERY_KOSMOS = /\bevery kosmos on this computer\b/i;
    carry it. The coordinator's consent_names_cap is pinned to the same phrase. The line must not say token, usage or
    cost: NAMES_USAGE would read it as consent to per-day usage, which the coordinator refuses. */
 const NAMES_CAP = /\bmonthly AI cap\b/i;
+/* kosmos#6842 slice 3: whether the accepted words name per-project token use (the tokens each project's finished tasks
+   used, by AI model, with their estimated cost), so the daily rollup may carry projectUsage. The coordinator's
+   CONSENT_NAMES_PROJECT_USAGE is pinned to the same phrase. A match on the phrase, as NAMES_EVERY_KOSMOS is. */
+const NAMES_PROJECT_USAGE = /\beach project's finished tasks\b/i;
 /* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
    words held for the hash an existing record carries. */
 const CONSENT_KEEP = 8;
@@ -321,7 +325,8 @@ function acceptedConsent(opts) {
        coordinator's "the agent, project, activity and token use lines above from every Kosmos on this computer"): a
        usage line alone covers this Kosmos's own. The coordinator's words are pinned by kosmos-relay
        coordinator/tests/api.rs (the company consent hash) and tools/family-e2e-6239.js here. */
-    everyKosmosUsageConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l) && NAMES_USAGE.test(l)), capConsented: reports.some((l) => NAMES_CAP.test(l)) };
+    everyKosmosUsageConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l) && NAMES_USAGE.test(l)), capConsented: reports.some((l) => NAMES_CAP.test(l)),
+    projectUsageConsented: reports.some((l) => NAMES_PROJECT_USAGE.test(l) && NAMES_USAGE.test(l)) };
 }
 /* #5791 (Josh 10-10: the company decided; no member consent step): the board takes the company's current words and
    re-accepts them itself, with no screen: the same codeless enroll a person's Accept used to send (review: true),
