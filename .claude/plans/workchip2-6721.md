@@ -15,8 +15,11 @@ would leave a failed board able to claim none are working.
 
 ## Tests run
 - On this branch (main plus this change), chromium and webkit: 14/14 passed.
-- Control, the page at 4695cda373 (before #6721) with this check: the first-miss arm FAILS in both engines
-  (afterOneMiss hidden=false count="?"), 12/14.
+- Control, the page at 4695cda373 (before #6721) with the check as it stood at its first commit (19693263c2): the
+  first-miss arm FAILS in both engines (afterOneMiss hidden=false count="?"), 12/14. Measured then, NOT re-run since:
+  reviews 1 to 3 added the Reconnecting and miss-count assertions. A later blind review reads (not measured) that on
+  that page the second-miss arm now fails too, because the Reconnecting element does not exist there yet: a side
+  reason, not the rule. The first-miss arm is still the one that tells the two rules apart.
 - On main before this change: 10/12, the two failed-poll arms red (the failure PR #6797 hit).
 
 **Weakest premise.** That two misses is the whole rule. If #6721's threshold changes again, this arm moves with it.

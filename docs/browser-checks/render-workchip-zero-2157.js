@@ -149,8 +149,8 @@ function check(name, pass, detail) {
       seen.floorZero.hidden === true && seen.floorZero.count === '0+' && seen.floorZero.anim === false,
       `hidden=${seen.floorZero.hidden} count=${JSON.stringify(seen.floorZero.count)} anim=${seen.floorZero.anim}`);
 
-    // kosmos#6721: one missed poll keeps the board as it was, so the hidden zero tile stays hidden (CONTROL: the
-    // arm below is a real change, not a tile that never moves).
+    // kosmos#6721: one missed poll keeps the board as it was, so the hidden zero tile stays hidden. The two arms are a
+    // pair: this one passes for a tile that never moves, and only the arm below shows the tile does move.
     check(`${engine}: one missed poll keeps the tile as it was and the header says Reconnecting (#6721)`,
       seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.afterOneMiss.hidden === true
         && seen.failedPoll.afterOneMiss.count === '0' && seen.failedPoll.afterOneMiss.reconnecting === 'Reconnecting\u2026'
