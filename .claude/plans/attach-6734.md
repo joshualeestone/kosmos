@@ -217,6 +217,13 @@ phone yet: the remaining manual step covers it.
    tick, but one `await` added before it would make every aborted upload a leak). Test with a destroyed stream and a
    live one as the control; red without the check (it waits for ever).
 
+31. **Full suite on Mortals (final validation, first run at 65f757f55c): 22,846 tests, 2 failed**, both repo-scanning
+   Windows guards, not behaviour: the #1732 coupling audit (two new `O_NONBLOCK || 0` opens, in sendFileStream and
+   textHead, needed classified inventory rows: benign, since the isFile check after each refuses a FIFO on every
+   platform), and #1777 (the new test file branches on win32 and needed a HOST_BRANCH_EXCLUDED entry with its reason:
+   it reads /dev/fd and boots a board on test ports). Both added; both guards pass. The local regression sweep that
+   would have caught them was withdrawn in favour of the Mortals run, so the full suite was what caught them.
+
 ### Considered and not changed (review 22)
 - The synchronous reply-file copy (decision 5), the reserved-name old files (review 17) and the 408 wording (reviews 6
   and 21) were raised again; the decisions and their weakest premises stand as recorded. The sweep test now asserts
