@@ -3164,6 +3164,66 @@ function permissionAnswerable(text) {
   const box = permissionBox(text);
   return Boolean(box && box.top >= 0);
 }
+/* kosmos#6727 (Josh, 10-20): the permission prompt as a short card instead of its screen. Read from the box, only where
+   permissionAnswerable (the whole box on screen, the same gate as the buttons), else null and the old text stays.
+   Measured on 2.1.296 (test-support/claude-screens): under the full-width rule, a title line ("Bash command", "Create
+   file"), an optional "Tip:" line, then Claude's own description of a command or the file's name; the body between two
+   dashed rules (the command, or the file's text); then, above the question, any reason Claude Code gives ("This command
+   requires approval", or a warning such as a dangerous rm). Returns { kind, title, says, target, detail, reason, allow,
+   deny }: kind is 'delete' | 'command' | 'create' | 'edit' | 'fetch' | 'other'; allow and deny are the numbers of the
+   prompt's own "Yes" and "No" options (claudePermissionPrompt guarantees both). Every text field is plain text: no
+   rule, option, key hint or control character. */
+const PERMISSION_DASHED = /^\s*╌{8,}\s*$/;
+function permissionCard(text) {
+  const box = permissionBox(text);
+  if (!box || box.top < 0) return null;
+  const lines = String(text == null ? '' : text).split('\n').slice(box.top, box.pp.at);
+  const segs = [[]];
+  for (const l of lines) {
+    if (PERMISSION_DASHED.test(l)) { segs.push([]); continue; }
+    segs[segs.length - 1].push(l);
+  }
+  // eslint-disable-next-line no-control-regex
+  const clean = (l) => l.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  const headAll = segs[0].map(clean).filter(Boolean);
+  const tipSeen = headAll.some((l) => /^Tip:/i.test(l));
+  const head = headAll.filter((l) => !/^Tip:/i.test(l));
+  const title = head[0] || '';
+  const rest = head.slice(1);
+  /* Review 4: a tip wraps on a narrow pane and its next line is not marked; with a tip on screen the description is
+     known only when exactly one line is left, so anything else is ambiguous and stays under Show details. */
+  const sub = rest.join(' ');
+  const subSure = !tipSeen || rest.length === 1;
+  const body = segs.length >= 3 ? segs.slice(1, -1).flat() : [];
+  const indent = Math.min(...body.filter((l) => l.trim()).map((l) => l.match(/^\s*/)[0].length), 80);
+  const detail = body.map((l) => l.slice(Number.isFinite(indent) ? indent : 0).replace(/\s+$/, '')).join('\n').replace(/^\n+|\n+$/g, '');
+  const tail = segs.length >= 2 ? segs[segs.length - 1].map(clean).filter(Boolean) : [];
+  const reason = tail.join(' ');
+  let kind = 'other';
+  if (/^Bash command\b/i.test(title)) kind = /\brm\b|delet|remov/i.test(reason) ? 'delete' : 'command';
+  else if (/^Create file\b/i.test(title)) kind = 'create';
+  else if (/^(Edit|Update|Write) file\b/i.test(title)) kind = 'edit';
+  else if (/^(Fetch|Web ?fetch|Web search)\b/i.test(title)) kind = 'fetch';   // review 1: the known titles only
+  const opts = box.pp.options;
+  const allow = opts.find((o) => o.label === 'Yes');
+  const deny = opts.find((o) => /^No\b/.test(o.label));
+  if (!allow || !deny) return null;
+  const isCommand = kind === 'command' || kind === 'delete';
+  const isFile = kind === 'create' || kind === 'edit';
+  /* Review 2: only a MEASURED shape puts a line where the person reads it without opening the details: a command's
+     description, a file's name. Any other box (an MCP tool's, a layout not captured) keeps its lines under Show
+     details, so a request's arguments never reach the headline. */
+  const ruled = segs.length >= 3;
+  /* Review 4: only the MEASURED shape is a card, its body between two dashed rules. Without them there is no telling
+     where the request is, and a card could offer Allow with nothing under Show details; null keeps the old text. */
+  if (!ruled) return null;
+  const extra = ((isCommand || isFile) && subSure) ? '' : sub;
+  // A file's text is drawn with a line-number gutter ("  1 hello"); the details show the text (review 2).
+  const gutter = isFile && detail && detail.split('\n').every((l) => !l.trim() || /^\s*\d+\s/.test(l));
+  const fileText = gutter ? detail.split('\n').map((l) => l.replace(/^\s*\d+\s?/, '')).join('\n') : detail;
+  return { kind, title, says: isCommand && subSure ? sub : '', target: isFile && subSure ? sub : '',
+    detail: [extra, fileText].filter(Boolean).join('\n'), reason, allow: allow.n, deny: deny.n };
+}
 function questionIn(text, runner) {
   const whole = String(text == null ? '' : text);
   if (!whole.trim()) return null;
@@ -5007,7 +5067,7 @@ module.exports = {
   composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
   setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
   recoverStuckInput, setDraftSaver, withDraftRows, STUCK_INPUT_MS, stuckShrunk,   // kosmos#6717
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,

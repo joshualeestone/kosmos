@@ -16529,7 +16529,8 @@ const server = http.createServer(async (req, res) => {
       const atMs = rep && rep.found === true ? Date.parse(rep.askedAt || rep.at || '') : NaN;
       const ageMs = Number.isFinite(atMs) ? Date.now() - atMs : null;
       const stale = !!(rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state)
-        && ageMs !== null && ageMs > selfreport.STALE_WAIT_MS);
+        && ageMs !== null && ageMs > selfreport.STALE_WAIT_MS
+        && !selfreport.untilDefers(rep, Date.now()));   // kosmos#6683: the same until rule as the reminder
       /* A no-report agent is a SUCCESSFUL read of "you have no state yet" -- 200,
          found:false -- never a refusal, so the CLI exits 0 on it. Only auth /
          server-fault paths above are non-2xx. */
@@ -17978,8 +17979,16 @@ const server = http.createServer(async (req, res) => {
       // Both menu readers agree on the options, so a drawn button is one the key path will accept (review 21).
       && cqNow.options.length === options.length
       && cqNow.options.every((o, k) => o.n === options[k].n && chat.cleanMessage(o.label) === chat.cleanMessage(options[k].label));
+    /* kosmos#6727: a permission prompt read off the screen is served as a short card (what the agent wants to do,
+       Allow, Deny, the raw request under Show details), not as its screen. Only where its buttons are offered
+       (`pressable`, which also keeps it out of the setup guide's masked thread, review 1): a card with no Allow or Deny
+       would promise an action it cannot take, so there the old text stays. Only the live pane question. */
+    const permCard = (pressable && question === paneQuestion && view && typeof view.text === 'string')
+      ? chat.permissionCard(view.text) : null;
     sendJson(res, 200, {
-      messages: servedRows,
+      messages: permCard
+        ? servedRows.map((m) => (m && m.kind === 'question' && !m.reported ? { ...m, permission: permCard } : m))
+        : servedRows,
       olderCount,
       historyBecause,
       historyUnfilable,
