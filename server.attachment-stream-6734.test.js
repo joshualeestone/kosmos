@@ -344,7 +344,7 @@ test('#6734: the page, the agent\'s instructions and the CLI name the route\'s o
   assert.ok(cli.includes('a project you are on, up to ' + attachments.MAX_WORDS + ':'), 'kosmos reply --file help names another cap');
 });
 
-test('#6734: an office file over the conversion limit is attached unconverted and never read whole', async () => {
+test('#6734: an office file over the conversion limit is attached unconverted, and not sent to the PDF fallback', async () => {
   const attachtext = require('./engine/attachtext');
   const dir = fs.mkdtempSync(path.join(SCRATCH, 'render-'));
   const big = path.join(dir, 'big.pdf');

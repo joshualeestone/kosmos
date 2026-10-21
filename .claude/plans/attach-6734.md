@@ -72,11 +72,10 @@ the file in memory: an upload is written to disk as it arrives, and a download i
    it for an agent-side path that is limited to 200 MB a day.
 6. **Upload time.** Node's default request timeout (300 s) is unchanged. 100 MB at 1 MB/s takes 100 s; a slower
    uplink than about 350 KB/s cannot finish a 100 MB upload. Not changed here: Node has no per-route request timeout,
-   so a longer one widens what a slow client can hold open on every route. Instead the page says so: a failed upload
-   of a file over 25 MB (`ATTACH_SLOW_BYTES`) reads "We could not finish adding <name>. Kosmos waits up to five minutes
-   for a file, and a large one on a slow connection can take longer: try a faster connection." A smaller one keeps
-   "We could not reach Kosmos to add that file." (web.attach-slow-6734.test.js runs the page's own attachUpload with a
-   failing fetch, both sizes; red with the size check removed.)
+   so a longer one widens what a slow client can hold open on every route. Instead the page says so; the sentences
+   that ship are in decision 13 (this decision's first wording was replaced there). A smaller file's network failure
+   keeps "We could not reach Kosmos to add that file." (web.attach-slow-6734.test.js runs the page's own attachUpload
+   with a failing fetch and with a 408, at both sizes.)
 7. **Office files are not converted above 25 MB** (review 1). The text rendering (#6098) reads the whole file into
    its worker, and Buffer memory is outside the worker's heap limit, so at a 100 MB cap two PDFs at once could hold
    about 200 MB. `attachtext.MAX_RENDER_BYTES` (25 MB, the cap the conversion was built under) gates it, before any
@@ -139,8 +138,9 @@ The tunnel waits 120 s for the board's response head (`BOARD_RESPONSE_HEAD_TIMEO
 and the clock started when the request did, with the upload body streaming inside that wait. The board answers only
 once the whole file has arrived, so a phone upload that took more than two minutes got a 502 from the tunnel
 ("We could not add that file (status 502)."), whatever the board allows: 100 MB needed about 850 KB/s up.
-Fixed in kosmos-relay (branch headclock-6734): the 120 s now counts from the end of the request body, with a
-15-minute bound on the whole wait (the board refuses a body slower than five minutes itself). It ships with the
+Fixed in kosmos-relay (branch headclock-6734): the 120 s now counts, in full, from the end of the request body, and
+the body itself may take up to 6 minutes (just past the board's five, which is Node's default request timeout: the
+board sets none, measured with git grep at kosmos origin/main). It ships with the
 tunnel, so until a build carrying it is installed, phone uploads over two minutes still fail. Not measured on a
 phone yet: the remaining manual step covers it.
 
@@ -256,7 +256,7 @@ Card step 2. On a board running this build, signed in to Kosmos+ on an iPhone:
 Record the times, sizes and network on the card. Pass: both downloads finish with exact sizes, the cancelled one
 leaves no descriptor, the phone upload arrives whole.
 
-## Regression sweep result (2026-10-21 01:30 to 01:34 CDT, at 24ee64b031, main 0 commits ahead; SUPERSEDED by the review fixes since, re-run queued at the current head, result below when it lands)
+## Regression sweep result (2026-10-21 01:30 to 01:34 CDT, at 24ee64b031, main 0 commits ahead; SUPERSEDED by the review fixes since: the full suite on Mortals at the final head replaces it, recorded in the proof file)
 
 278 test files, built at run time from the name list, the repo-scanning tests and the fixed-window pins, with the
 branch's four touched test files asserted present. Run through queued-heavy. `tests 5390, pass 5374, fail 0,

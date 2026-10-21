@@ -101,7 +101,8 @@ function slot(scope, owner, name) {
   const clean = safeName(name);
   const file = path.join(dir, clean);
   if (!file.startsWith(dir + path.sep)) throw new Error('that file name cannot be stored');
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(path.dirname(dir), { recursive: true });
+  fs.mkdirSync(dir);   // review 7: exclusive, so a new upload can never share (and on failure remove) an existing folder
   return { id, dir, name: clean, file, part: path.join(dir, PART) };
 }
 /** The slot's part file renamed into place and its record written. Returns the record with its paths. */
