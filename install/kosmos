@@ -5432,9 +5432,9 @@ cmd_task() {
       if [ -n "$_compact" ]; then
         # The module checks the group the board answered (an older board's whole list is never passed off as it).
         local _tnode _tmod
-        _tnode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print that list; list it without ${2}."; exit 1; }
+        _tnode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print that list; list it without ${2}." >&2; exit 1; }
         _tmod="$(kosmos_engine_module tasklist).js"
-        [ -f "$_tmod" ] || { say "This install of Kosmos has no compact task list yet; update Kosmos, or list without ${2}."; exit 1; }
+        [ -f "$_tmod" ] || { say "This install of Kosmos has no compact task list yet; update Kosmos, or list without ${2}." >&2; exit 1; }   # stderr, as every refusal here
         printf '%s' "$body" | "$_tnode" "$_tmod" compact "$_compact" "${1:-}"
         exit $?
       fi

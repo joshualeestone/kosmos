@@ -46,7 +46,9 @@ function known(path, st) {
 function want(path, st) {
   if (!st || typeof st.isFile !== 'function' || !st.isFile() || st.size > MAX_BYTES) return;
   const now = Date.now();
-  if (SETTLE_MS > 0 && now - Math.max(st.mtimeMs, st.ctimeMs) < SETTLE_MS) return;   // still being written: a later poll asks again
+  /* Iteration 2: settled by the CHANGE time only, which the kernel sets on every write and no one can set: a modification
+     time in the future (cp -p or an archive from a fast clock, touch -d) would otherwise keep a file unhashed until then. */
+  if (SETTLE_MS > 0 && now - st.ctimeMs < SETTLE_MS) return;   // still being written: a later poll asks again
   if ((backoff.get(path) || 0) > now) return;
   backoff.delete(path);
   const key = keyOf(st);

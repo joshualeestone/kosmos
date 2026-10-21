@@ -62,10 +62,16 @@ test('iteration 1: the Documents view fills fingerprints in after it opens, by t
     const st = { PJ_CURRENT: 'p1', PJ_VIEW: view, DOCS_OPEN_GEN: 7, painted: 0, fetched: 0,
       PJ_DOCS_FILES: [{ name: 'a.txt', size: 1, modified: 'm1' }, { name: 'b.txt', size: 2, modified: 'm2' }] };
     const timers = [];
-    const api = new Function('st', 'setTimeout', 'fetch',
-      'let PJ_DOCS_FILES = st.PJ_DOCS_FILES; const pjDocsPaintPage = () => { st.painted += 1; };\n'
+    /* A stub page: the Documents list holds one row per file; the person's keyboard is on b.txt's row. A repaint makes
+       new rows (as pjDocsPaintPage does), so focus is only kept if the fill puts it back. */
+    const rowFor = (doc) => ({ dataset: { doc }, focus() { st.refocused = doc; } });
+    st.rows = st.PJ_DOCS_FILES.map((f) => rowFor(f.name));
+    const box = { contains: (el) => st.rows.includes(el), querySelectorAll: () => st.rows };
+    const document = { getElementById: (id) => (id === 'docs-list' ? box : null), get activeElement() { return st.rows[1]; } };
+    const api = new Function('st', 'setTimeout', 'fetch', 'document',
+      'let PJ_DOCS_FILES = st.PJ_DOCS_FILES; const pjDocsPaintPage = () => { st.painted += 1; st.rows = st.PJ_DOCS_FILES.map((f) => ({ dataset: { doc: f.name }, focus() { st.refocused = f.name; } })); };\n'
       + fn.replace(/\bPJ_CURRENT\b/g, 'st.PJ_CURRENT').replace(/\bPJ_VIEW\b/g, 'st.PJ_VIEW').replace(/\bDOCS_OPEN_GEN\b/g, 'st.DOCS_OPEN_GEN')
-      + '\nreturn docsFingerprintFill;')(st, (f) => { timers.push(f); }, async () => { st.fetched += 1; const a = answers[Math.min(st.fetched - 1, answers.length - 1)]; return { json: async () => a }; });
+      + '\nreturn docsFingerprintFill;')(st, (f) => { timers.push(f); }, async () => { st.fetched += 1; const a = answers[Math.min(st.fetched - 1, answers.length - 1)]; return { json: async () => a }; }, document);
     return { st, timers, fill: api };
   };
   const drain = async (t, max = 50) => { for (let i = 0; i < max && t.timers.length; i++) await t.timers.shift()(); };
@@ -76,6 +82,7 @@ test('iteration 1: the Documents view fills fingerprints in after it opens, by t
   assert.deepEqual(ok.st.PJ_DOCS_FILES.map((f) => f.sha256), [FP, 'cd'.repeat(32)]);
   assert.equal(ok.st.painted, 2);
   assert.equal(ok.st.fetched, 2, 'it kept reading after every row had its fingerprint');
+  assert.equal(ok.st.refocused, 'b.txt', 'iteration 2: the row the keyboard was on lost focus to the repaint');
   // A newer version of a file (another date) is never given to the row the person is looking at.
   const newer = run([{ files: [{ name: 'a.txt', size: 1, modified: 'LATER', sha256: FP }] }]);
   newer.fill('p1', 7, 0);
