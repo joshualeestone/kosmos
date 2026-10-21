@@ -107,7 +107,8 @@ function check(name, pass, detail) {
       window.fetch = async () => { throw new Error('simulated poll failure'); };
       await tick();
       // The first miss counts only after a poll has answered (cases 1 to 3 above), so keep those first.
-      // misses: the page's own count, so a race with its 5 s poll (two misses already) reads as that, not a mystery red.
+      // misses: the page's own count. The arm requires 1, so a race with the page's 5 s poll fails with misses=2 in
+      // its detail, which names the cause.
       const afterOneMiss = { hidden: tileEl.hidden, count: countEl.textContent,
         reconnecting: (document.getElementById('hdr-reconnect') || {}).textContent,
         misses: typeof BOARD_MISSES === 'number' ? BOARD_MISSES : null };
@@ -152,7 +153,8 @@ function check(name, pass, detail) {
     // arm below is a real change, not a tile that never moves).
     check(`${engine}: one missed poll keeps the tile as it was and the header says Reconnecting (#6721)`,
       seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.afterOneMiss.hidden === true
-        && seen.failedPoll.afterOneMiss.count === '0' && seen.failedPoll.afterOneMiss.reconnecting === 'Reconnecting\u2026',
+        && seen.failedPoll.afterOneMiss.count === '0' && seen.failedPoll.afterOneMiss.reconnecting === 'Reconnecting\u2026'
+        && seen.failedPoll.afterOneMiss.misses === 1,
       `afterOneMiss=${JSON.stringify(seen.failedPoll.afterOneMiss)}`);
     check(`${engine}: a second missed poll brings the tile BACK showing "?" (was hidden) and clears Reconnecting`,
       seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.hidden === false && seen.failedPoll.count === '?'
