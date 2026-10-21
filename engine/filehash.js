@@ -19,6 +19,12 @@ const crypto = require('node:crypto');
 const MAX_BYTES = 512 * 1024 * 1024;
 const CACHE_MAX = 5000;      // fingerprints kept; the oldest go first
 const QUEUE_MAX = 2000;      // files waiting to be hashed; past it, new ones wait for a later poll
+/* Iteration 1 (measured: a 200 MB file appended to every 200 ms cost 1.8 GB of reads in 10 s, and was never cached):
+   a file is hashed only once it has SETTLED (not written in the last SETTLE_MS), and a file that changed while it was
+   read is not tried again for BACKOFF_MS. A growing log or a recording being written gets its fingerprint when it stops. */
+let SETTLE_MS = 5000;
+const BACKOFF_MS = 60 * 1000;
+const backoff = new Map();   // path -> time before which it is not tried again
 
 const cache = new Map();     // path -> { key, sha256 }
 const queue = [];            // [{ path, key }]
@@ -31,12 +37,18 @@ const keyOf = (st) => [st.dev, st.ino, st.size, st.mtimeMs, st.ctimeMs].join(':'
 /** The fingerprint already known for this file as it is now (its stat), or null. Never reads the file. */
 function known(path, st) {
   const hit = cache.get(path);
-  return hit && st && hit.key === keyOf(st) ? hit.sha256 : null;
+  if (!(hit && st && hit.key === keyOf(st))) return null;
+  cache.delete(path); cache.set(path, hit);   // iteration 1: least recently SHOWN goes first, not least recently hashed
+  return hit.sha256;
 }
 
 /** Ask for this file to be fingerprinted in the background. Returns at once. */
 function want(path, st) {
   if (!st || typeof st.isFile !== 'function' || !st.isFile() || st.size > MAX_BYTES) return;
+  const now = Date.now();
+  if (SETTLE_MS > 0 && now - Math.max(st.mtimeMs, st.ctimeMs) < SETTLE_MS) return;   // still being written: a later poll asks again
+  if ((backoff.get(path) || 0) > now) return;
+  backoff.delete(path);
   const key = keyOf(st);
   if (known(path, st) || queued.has(path + '\0' + key) || queue.length >= QUEUE_MAX) return;
   queued.add(path + '\0' + key);
@@ -65,7 +77,11 @@ async function hashOne(job) {
       pos += bytesRead;
     }
     const after = await fh.stat();
-    if (keyOf(after) !== job.key) return;   // written to while it was read: never cache a mix of two versions
+    if (keyOf(after) !== job.key) {   // written to while it was read: never cache a mix of two versions
+      backoff.set(job.path, Date.now() + BACKOFF_MS);
+      while (backoff.size > CACHE_MAX) backoff.delete(backoff.keys().next().value);
+      return;
+    }
     remember(job.path, job.key, h.digest('hex'));
   } finally {
     await fh.close().catch(() => {});
@@ -92,8 +108,9 @@ function forRow(path, st) {
   return sha;
 }
 
-function _resetForTest() { cache.clear(); queue.length = 0; queued.clear(); }
+function _resetForTest() { cache.clear(); queue.length = 0; queued.clear(); backoff.clear(); }
+function _settleForTest(ms) { SETTLE_MS = ms == null ? 5000 : ms; }
 function _onHashedForTest(fn) { onHashed = fn || null; }
 function _idleForTest() { return !running && queue.length === 0; }
 
-module.exports = { MAX_BYTES, known, want, forRow, keyOf, _resetForTest, _onHashedForTest, _idleForTest };
+module.exports = { MAX_BYTES, BACKOFF_MS, known, want, forRow, keyOf, _resetForTest, _settleForTest, _onHashedForTest, _idleForTest };

@@ -31,7 +31,7 @@ const projects = require('./engine/projects');
 const filehash = require('./engine/filehash');
 
 let base;
-test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
+test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; filehash._settleForTest(0); });   // the fixtures are written a moment before
 test.after(() => { try { server.close(); } catch { /* closed */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
