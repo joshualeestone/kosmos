@@ -187,3 +187,13 @@ Controls: counted in the file. Against origin/main's three files: red, naming al
   and for a -L name built on a default variable.
 - Mutants on the helper (identity check off, load-time TMUX_TMPDIR off, call-time TMUX_TMPDIR on, existence check off):
   each fails a helper test. Helper tests 8, guard tests 2, all pass.
+
+## Review 13 (Opus): helper and sites correct; two test gaps, fixed
+- No test could fail for the load-time $TMUX read (live-connect deletes $TMUX after loading the helper, so that read is
+  its only $TMUX protection). New child-process test: $TMUX set at load, deleted before the call, refused; control:
+  $TMUX naming something else, the same file is ended.
+- The /tmp/tmux-<uid>/default test passed without that check inside an agent's pane ($TMUX names the same socket).
+  It now runs in a child with TMUX, TMUX_PANE and TMUX_TMPDIR removed.
+- Both mutants that survived round 13 now fail a test. Helper tests 9, all pass.
+- Noted, not changed: with the identity check, the folder-symlink resolution in real() no longer changes an outcome
+  (a missing socket runs nothing anyway). Kept: it is what makes the refusal hold for a socket that does not exist yet.

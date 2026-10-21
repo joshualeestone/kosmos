@@ -8,6 +8,22 @@ const os = require('node:os');
 const path = require('node:path');
 const { killServerAt, machineSockets } = require('../test-support/tmux-kill');
 
+/* Calls killServerAt in a fresh node, so what the module reads AT LOAD is under the test's control. `before` runs in
+   the child after the helper loads and before the call. Prints 'ran' or the error's message. */
+function inChild(env, bin, sock, before) {
+  const script = 'const { killServerAt } = require(' + JSON.stringify(path.join(__dirname, '..', 'test-support', 'tmux-kill.js')) + ');\n'
+    + (before || '') + '\n'
+    + 'try { killServerAt(' + JSON.stringify(bin) + ', ' + JSON.stringify(sock) + "); console.log('ran'); } catch (e) { console.log(e.message); }";
+  return require('node:child_process').execFileSync(process.execPath, ['-e', script], { env, encoding: 'utf8' });
+}
+/* This process's env with every tmux variable removed, so one refusal cannot stand in for another (review 13: inside
+   an agent's pane, $TMUX names the same socket as /tmp/tmux-<uid>/default). */
+function noTmuxEnv(extra) {
+  const env = { ...process.env, ...(extra || {}) };
+  for (const k of ['TMUX', 'TMUX_PANE', 'TMUX_TMPDIR']) if (!(extra && k in extra)) delete env[k];
+  return env;
+}
+
 function fakeTmux(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'k6857-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -32,14 +48,24 @@ test('#6857: no socket there, nothing is run (the case that used to fall back to
   assert.deepEqual(f.calls(), [], 'tmux was run for a socket that is not there');
 });
 
-test("#6857: the machine's own socket is refused, written either way, and tmux is not run", { skip: typeof process.getuid !== 'function' && 'no uid here' }, (t) => {
+test("#6857: the machine's own socket is refused, written either way, with no tmux variable set, and tmux is not run", { skip: typeof process.getuid !== 'function' && 'no uid here' }, (t) => {
   const f = fakeTmux(t);
   const uid = process.getuid();
-  for (const p of ['/tmp/tmux-' + uid + '/default', '/tmp/./tmux-' + uid + '/default']) {
-    assert.throws(() => killServerAt(f.bin, p), /machine's own tmux server/, p);
-  }
-  if (fs.existsSync('/private/tmp')) assert.throws(() => killServerAt(f.bin, '/private/tmp/tmux-' + uid + '/default'), /machine's own/);
+  const paths = ['/tmp/tmux-' + uid + '/default', '/tmp/./tmux-' + uid + '/default'];
+  if (fs.existsSync('/private/tmp')) paths.push('/private/tmp/tmux-' + uid + '/default');
+  for (const p of paths) assert.match(inChild(noTmuxEnv(), f.bin, p), /machine's own tmux server/, p);
   assert.deepEqual(f.calls(), []);
+});
+
+test('#6857: $TMUX read when the helper loads still refuses after a test deletes it (what live-connect does)', { skip: process.platform === 'win32' && 'no tmux on Windows' }, (t) => {
+  const f = fakeTmux(t);
+  const fleet = path.join(f.dir, 'fleet');
+  fs.writeFileSync(fleet, '');
+  assert.match(inChild(noTmuxEnv({ TMUX: fleet + ',1,0' }), f.bin, fleet, 'delete process.env.TMUX;'), /machine's own/);
+  assert.deepEqual(f.calls(), []);
+  // CONTROL: with $TMUX naming something else at load, the same file is ended.
+  assert.equal(inChild(noTmuxEnv({ TMUX: path.join(f.dir, 'other') + ',1,0' }), f.bin, fleet, 'delete process.env.TMUX;').trim(), 'ran');
+  assert.deepEqual(f.calls(), ['-S', fleet, 'kill-server']);
 });
 
 test('#6857: the socket $TMUX names is refused, even when $TMUX is read at the call', { skip: process.platform === 'win32' && 'no tmux on Windows' }, (t) => {
@@ -87,12 +113,7 @@ test('#6857: the default socket under the TMUX_TMPDIR the machine had at load is
   const sock = path.join(f.dir, 'tmux-' + process.getuid(), 'default');
   fs.mkdirSync(path.dirname(sock));
   fs.writeFileSync(sock, '');
-  const script = "const { killServerAt } = require(" + JSON.stringify(path.join(__dirname, '..', 'test-support', 'tmux-kill.js')) + ");\n"
-    + 'try { killServerAt(' + JSON.stringify(f.bin) + ', ' + JSON.stringify(sock) + "); console.log('ran'); } catch (e) { console.log(e.message); }";
-  const env = { ...process.env, TMUX_TMPDIR: f.dir };
-  delete env.TMUX;
-  const out = require('node:child_process').execFileSync(process.execPath, ['-e', script], { env, encoding: 'utf8' });
-  assert.match(out, /machine's own/);
+  assert.match(inChild(noTmuxEnv({ TMUX_TMPDIR: f.dir }), f.bin, sock), /machine's own/);
   assert.deepEqual(f.calls(), []);
 });
 
