@@ -241,3 +241,12 @@ skip (slice 5). The other listed reasons were re-measured on Linux in probe run 
   library they exercise.
 - NITs, left: one `ps` per hop (iteration 2); the `a && b || c` runs-on expressions (each branch evaluated by
   test-ci-runner-route-5488).
+
+## Challenge loop iteration 11 (opus): 4 NITs, no BLOCKER/WARNING/CONVENTION: CONVERGED
+- NITs, left: the header's narrative does not say test-running-anchor-5470 came back as `both:` (the totals are right
+  and asserted; iteration 9 above says why); the `forPlatform` seam with `mac` and no `both` drops both: lines (test
+  seam only, and one arm uses exactly that as its control); an exported OSTYPE=darwin* on a Linux box would send the
+  helper to -fl (needs a darwin OSTYPE exported on Linux).
+- NIT, left as the weakest open premise: "one simple command in `$( )` gets no extra shell" is measured on Linux only
+  from a trap-free caller. A Linux caller holding an EXIT or ERR trap (run-tests.sh) is evidenced, not pinned: the
+  Linux shards run every guard through run-tests.sh green (probe runs 39559795454, 39563371896, 39564000974).
