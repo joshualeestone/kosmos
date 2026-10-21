@@ -1,5 +1,5 @@
-# #4919: the node half of the test suite (KOSMOS_TEST_PART=node), run on ubuntu-latest. The shell half
-# does not run on Linux yet.
+# #4919: the node half of the test suite (KOSMOS_TEST_PART=node), run on ubuntu-latest. (The shell half runs
+# on ubuntu-latest in test.yml since #6791, apart from tools/shell-macos-only.txt.)
 #
 # Runs on demand (workflow_dispatch), and on pushes to a linux-ci-* branch so the lane can be run before
 # it is on main. Not on every pull request: until the rest of the port lands (#4916 pieces B and D) the

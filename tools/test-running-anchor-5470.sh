@@ -123,9 +123,10 @@ case "$(printf '%s\n' "$got" | sed -n 's/^raw //p')" in
 esac
 
 # #6799: the Linux branch on THIS host's bash (3.2 on macOS, where a bare case pattern `)` inside `$( )` fails to
-# parse at run time, which `bash -n` cannot see): OSTYPE forced to linux-gnu and pgrep stubbed to list the caller's
-# parent, the caller and a stranger. Only the stranger may remain; with nothing matching, the answer is 1.
-got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; pgrep(){ printf "%s\n" "$PPID parent" "$$ caller" "99999 stranger"; }; ( _kosmos_pgrep_cmdlines x ); echo "rc=$?"' 2>&1)"
+# parse at run time, which `bash -n` cannot see): OSTYPE forced to linux-gnu and pgrep stubbed to list the calling
+# subshell itself (not $$: a walk that started at $$ would keep it), the caller, its parent and a stranger. Only the
+# stranger may remain; with nothing matching, the answer is 1.
+got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; ( me="$(exec sh -c '\''echo "$PPID"'\'')"; pgrep(){ printf "%s\n" "$me subshell" "$PPID parent" "$$ caller" "99999 stranger"; }; _kosmos_pgrep_cmdlines x ); echo "rc=$?"' 2>&1)"
 [ "$got" = "$(printf '%s\n' '99999 stranger' 'rc=0')" ] && ok "the Linux branch drops the caller's lineage and keeps a stranger, on this bash" \
   || bad "the Linux branch on this bash: [$got]"
 got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; pgrep(){ return 1; }; ( _kosmos_pgrep_cmdlines x ); echo "rc=$?"' 2>&1)"

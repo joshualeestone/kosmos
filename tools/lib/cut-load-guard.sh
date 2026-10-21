@@ -63,7 +63,9 @@ kosmos_box_load_1min() {
 
 # #6799: the core count. macOS answers `sysctl -n hw.ncpu`; Linux has no hw.ncpu
 # and answers `getconf _NPROCESSORS_ONLN`. Prints nothing when neither does, so
-# each caller keeps its own fallback (4, or serial).
+# each caller keeps its own fallback (4, or serial). Its twin for the light side is
+# _kosmos_load_and_cores in tools/lib/cut-guard.sh, which reads cores and load the
+# same way; change one, change both.
 kosmos_cpu_count() {
   sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || true
 }

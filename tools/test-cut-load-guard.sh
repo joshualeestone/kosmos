@@ -27,8 +27,9 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/test-cut-load-guard.XXXXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 # --- threshold ---
-# #6799: the core count, read independently of the guard (macOS hw.ncpu, Linux getconf), so a guard
-# that reads nothing on one platform and falls back to 4 cannot agree with itself here.
+# #6799: the core count, read here directly rather than through the guard, so a guard that reads nothing on one
+# platform and falls back to 4 disagrees with it. It is the same probe order as kosmos_cpu_count, so it does not
+# test that order.
 ncpu="$(sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 case "$(kosmos_cpu_count)" in
   ''|*[!0-9]*|0) bad "kosmos_cpu_count read no core count on $(uname -s): [$(kosmos_cpu_count)]" ;;

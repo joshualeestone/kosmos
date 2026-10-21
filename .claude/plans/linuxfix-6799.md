@@ -173,3 +173,14 @@ skip (slice 5). The other listed reasons were re-measured on Linux in probe run 
   second file operand, which is missing, so it exits nonzero after printing; measured on Linux in slice 1.
 - NITs, taken: the apt comment says update and install retry together; test.yml's comment reflowed. Left: naming the
   callers of forPlatform's `mac` seam.
+
+## Challenge loop iteration 5 (opus): 1 WARNING, 6 NITs
+- WARNING, fixed (in this loop's own iteration-2 test): the host-bash arm's stub listed only `$$` and its parent, so a
+  walk started at `$$` would also pass; it pinned the bash 3.2 parse, not the start point iteration 2 credited it
+  with. The stub now also lists the calling `( )` subshell's own pid. Mutant measured: with the start point forced
+  back to `$$`, the arm fails (keeps the subshell line); with the real lib it passes.
+- NITs, taken: linux.yml's header no longer says the shell half never runs on Linux; test.yml's "fourth macOS runner"
+  is now "one more"; kosmos_cpu_count's comment names its twin reader (_kosmos_load_and_cores in cut-guard.sh, same
+  probes, read there); test-cut-load-guard's comment says its count is the same probe order, so it does not test it.
+- NITs, left: the `--only` refusal does not name KOSMOS_SHELL_PLATFORM (the platform check refuses it a few lines
+  later); one `ps` per hop (recorded in iteration 2).
