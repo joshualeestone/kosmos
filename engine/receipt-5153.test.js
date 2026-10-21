@@ -375,33 +375,39 @@ test('a receipt kept by slice 1 with no Codex or Gemini agent is kept as it was,
   assert.equal((await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('12:00') })).agents[0].available, true);
 });
 
-/* kosmos#6842: a pr-link row as Claude Code writes it when a session opens a pull request (and repeats on later turns). */
+/* kosmos#6842: a pr-link row as Claude Code writes it when a session acts on a pull request (opens, comments on or
+   merges it), repeated on that session's later turns. */
 const prLink = (at, repo, number, url = `https://github.com/${repo}/pull/${number}`) =>
   JSON.stringify({ type: 'pr-link', timestamp: T(at), sessionId: 's', prNumber: number, prRepository: repo, prUrl: url });
 
-test('#6842: the pull requests an agent opened while it held the task, by each PR\'s first pr-link row', async () => {
+test('#6842: the pull requests an agent worked on while it held the task: any pr-link row inside a hold, once each', async () => {
   const project = 'p' + (++pn);
   const pia = worker('pia');
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'pia' }, { at: '11:00', kind: 'closed' }]);
   const d = claudeDir(pia);
-  fs.writeFileSync(path.join(d, 'early.jsonl'), prLink('09:30', 'acme/app', 7) + '\n');   // opened before the hold ...
+  // A PR opened yesterday in another session, then commented on in a new session during the hold: worked on in the hold.
+  const opened = path.join(d, 'opened-yesterday.jsonl');
+  fs.writeFileSync(opened, prLink('09:30', 'acme/app', 7) + '\n');
+  const before = new Date(ms('09:31'));
+  fs.utimesSync(opened, before, before);
   fs.writeFileSync(path.join(d, 's.jsonl'), [
     assistant('10:05', { id: 'p1', usage: use(1, 1) }),
-    prLink('10:06', 'acme/app', 7),   // ... and only repeated inside it: not this task's
+    prLink('10:06', 'acme/app', 7),
     prLink('10:20', 'acme/app', 12),
     prLink('10:21', 'acme/app', 12),   // a later turn repeats it: one PR
     prLink('10:30', 'acme/relay', 3, 'https://evil.example/acme/relay/pull/3'),   // a URL that is not this PR's: no link
     prLink('10:31', 'not a repo', 4),
     JSON.stringify({ type: 'pr-link', timestamp: T('10:32'), prRepository: 'acme/app', prNumber: '5' }),   // a number as text
-    prLink('11:30', 'acme/app', 99),
+    prLink('11:30', 'acme/app', 99),   // after the hold
   ].join('\n') + '\n');
   const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
   const a = r.agents[0];
   assert.equal(r.version, 3);
   assert.deepEqual(a.prs, [
+    { repo: 'acme/app', number: 7, url: 'https://github.com/acme/app/pull/7' },
     { repo: 'acme/app', number: 12, url: 'https://github.com/acme/app/pull/12' },
     { repo: 'acme/relay', number: 3, url: null },
-  ], 'first opened inside the hold, once each, in order; not #7 (opened before), #99 (after) or malformed rows');
+  ], 'worked on inside the hold, once each, by first time inside it; not #99 (after) or malformed rows');
   assert.equal(a.prsMore, 0);
 });
 

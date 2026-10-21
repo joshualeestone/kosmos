@@ -46,17 +46,18 @@ test('a Claude agent: files, a command count, tokens and an at-API-prices figure
   assert.doesNotMatch(t, /undo/i, 'no undo is offered in this slice');
 });
 
-test('#6842: the pull requests the agent opened sit under its cost; a link only to a github.com pull request', () => {
+test('#6842: the pull requests the agent worked on sit under its cost; a link only to a github.com pull request', () => {
   const models = { 'claude-fable-5': buckets(1e6, 0, 0, 0) };
   const base = { who: 'ann', available: true, transcriptsWithWork: 1, models, files: [], filesMore: 0, commands: 1 };
   const one = B.tkReceiptAgentHtml({ ...base, prs: [{ repo: 'acme/app', number: 12, url: 'https://github.com/acme/app/pull/12' }], prsMore: 0 });
-  assert.match(text(one), /\$10 at API prices\. Opened pull request app#12 ?\./);   // text() turns the </a> into a space
+  assert.match(text(one), /\$10 at API prices\. Worked on pull request app#12 ?\./);   // text() turns the </a> into a space
   assert.match(one, /<a href="https:\/\/github\.com\/acme\/app\/pull\/12" target="_blank" rel="noopener noreferrer"/);
   const many = text(B.tkReceiptAgentHtml({ ...base, prs: [{ repo: 'acme/app', number: 1, url: null }, { repo: 'acme/relay', number: 2, url: null }], prsMore: 3 }));
-  assert.match(many, /Opened pull requests app#1, relay#2 and 3 more\./);
+  assert.match(many, /Worked on pull requests app#1, relay#2 and 3 more\./);
   const bad = B.tkReceiptAgentHtml({ ...base, prs: [{ repo: 'acme/<b>x', number: 5, url: 'javascript:alert(1)' }] });
   assert.doesNotMatch(bad, /<a /, 'no link but to a github.com pull request');
   assert.doesNotMatch(bad, /<b>x/, 'the repo is escaped');
+  assert.match(text(B.tkReceiptAgentHtml({ ...base, prs: [null, { repo: 'acme/app', number: 9, url: null }] })), /Worked on pull request app#9/, 'a null entry is skipped, not a broken receipt');
   for (const prs of [undefined, []]) {
     assert.doesNotMatch(text(B.tkReceiptAgentHtml({ ...base, prs })), /pull request/i, 'no prs (an older receipt) or none: nothing said');
   }
