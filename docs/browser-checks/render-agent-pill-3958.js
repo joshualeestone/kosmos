@@ -1,4 +1,4 @@
-// Browser-check-surface: d-state d-task d-start-wrap d-linklost d-linklost-text d-linklost-restart d-linklost-msg
+// Browser-check-surface: d-state d-task d-start-wrap d-linklost d-linklost-text d-linklost-restart d-linklost-msg d-said d-said-box d-said-lab
 'use strict';
 /**
  * #3958 (Josh, 2026-09-26): on the agent page the status pill said Idle while the same page's DM

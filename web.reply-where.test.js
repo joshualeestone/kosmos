@@ -349,9 +349,12 @@ test('#6716: a failed sign-in quotes the screen in the side chat only, not on th
   // eslint-disable-next-line no-new-func
   const busyRow = new Function('esc', 'discTint', 'discInk', 'initials', 'WORKING_VERB',
     PAGE.slice(at, i + 1) + '\nreturn busyRow;')((x) => String(x), () => '#000', () => '#fff', () => 'R', 'working');
-  const row = { name: 'Renet', sessionName: 'renet', state: 'auth_failed', stateEvidence: 'Login expired, please run /login' };
+  // A real card from the fleet (fixture-discipline: no hand-built cards), signed out, with its screen's own words.
+  const row = require('./test-support/fleet').install([require('./test-support/fleet').agent('renet', { state: 'auth_failed' })])
+    .agents.find((a) => a.name === 'renet');
+  assert.ok(row && row.state === 'auth_failed' && String(row.stateEvidence || '').length > 0, `control: the fleet gave a signed-out card with screen text: ${JSON.stringify(row && { state: row.state, ev: row.stateEvidence })}`);
   assert.match(busyRow(row, 'Renet'), /sign-in isn&rsquo;t working/, 'control: the sign-in line is drawn');
   assert.doesNotMatch(busyRow(row, 'Renet'), /last seen/, 'the agent page quoted the screen beside its fold');
-  assert.match(busyRow(row, 'Renet', { quote: true }), /last seen: &ldquo;Login expired, please run \/login&rdquo;/, 'the side chat lost the screen quote');
+  assert.match(busyRow(row, 'Renet', { quote: true }), /last seen: &ldquo;/, 'the side chat lost the screen quote');
   assert.match(PAGE, /busyRow\(busyRowOf, who, \{ quote: true \}\)/, 'the side chat does not ask for the quote');
 });

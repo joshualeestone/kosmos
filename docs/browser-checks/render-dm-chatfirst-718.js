@@ -1,4 +1,4 @@
-// Browser-check-surface: d-sec-talk d-talk-box d-dmthread d-say d-send d-attach d-emoji-btn d-emoji d-talk-search d-talk-older d-nav dleft dhead d-talk-label dmbar kosmos-keyboard-up
+// Browser-check-surface: d-sec-talk d-talk-box d-dmthread d-say d-send d-attach d-emoji-btn d-emoji d-talk-search d-talk-older d-nav dleft dhead d-talk-label dmbar kosmos-keyboard-up d-said d-said-box d-said-lab
 'use strict';
 
 /**

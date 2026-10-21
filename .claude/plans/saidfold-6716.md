@@ -23,7 +23,8 @@ stuck prompt.
   (Option-Tab in WebKit); render-signin-visible-3892 asserts Enter toggles it there, then steps on.
 - `.detail-said` leaves web.no-left-bars-3692's allowlist, since it has no left bar now.
 - **The conversation's busy line for a failed sign-in no longer quotes the screen** ("last seen: ..."): it was the
-  same raw text, unfolded, on the same page as the fold. It still says the sign-in is not working.
+  same raw text, unfolded, on the same page as the fold. It still says the sign-in is not working. The guide's side
+  chat has no fold, so it keeps the quote (busyRow's `{ quote: true }`, review 8).
 - **The fold closes when it appears again**, including after a one-poll gap in a waiting state's text. Accepted: a
   flicker there is rare and a closed fold is the safe default.
 
@@ -32,6 +33,8 @@ stuck prompt.
   with `<summary id="d-said-lab">`; `.detail-saidbox`, `.detail-saidlab`, `.detail-said` CSS.
 - Tests: web.pill-remembered-3958 (harness + the stale-sample test rewritten: a waiting state shows the line, working
   never does), web.said-attrib (markup and label pins), web.replychan-5820 and web.healthline-5959 (harness),
-  web.no-left-bars-3692 (allowlist).
+  web.no-left-bars-3692 (allowlist), web.reply-where (the side chat keeps the quote, the agent page does not; a
+  fleet card).
 - Browser checks: render-signin-visible-3892, render-dm-chatfirst-718 (open the fold to measure it at its tallest),
-  render-agent-pill-3958 (the fold shows for auth_failed and is gone for working).
+  render-agent-pill-3958 (the fold shows for auth_failed and is gone for working), render-busy-anim-3421. The two that
+  read the fold name d-said, d-said-box and d-said-lab in their surface header, so a change to the fold selects them.
