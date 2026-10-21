@@ -129,3 +129,5 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
   live pointer that cannot be read is said); when this checkout could not reach the pushed commit, `on` says the
   deploy only works after it does; deploy-site says "pull" (not "off") when the freeze it sees is only on
   origin/main. The lib is #!/bin/sh and says it must stay POSIX.
+- Review 8 (one warning): the docs say the autodeploy tick's refused --publish during a freeze is expected (it parks
+  until the pin is deployed), so it does not read as a fault mid-incident.

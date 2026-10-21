@@ -227,6 +227,11 @@ pinned, and `publish-kosmos-windows.sh` will not change them while frozen); and 
 which goes around every script, as below. The re-checks just before a deploy narrow the window to the deploy itself;
 a freeze landing while vercel uploads is not seen.
 
+Expected during a freeze: the site's autodeploy tick (`tools/site-autodeploy.sh`, every 15 minutes) fast-forwards to
+the pushed pin and runs `deploy-site.sh --publish`. When the pin differs from live, that publish is refused (a move
+of the prod pointer needs `--promote`) and the tick parks with a red line. That is the tick declining to move the
+pointer, not a fault: deploy the pin with the line `on` printed, and the tick un-parks once live matches.
+
 ## A floor under the installer: never serve one from before 0.7.45 (kosmos#4455)
 
 From the release that carries kosmos#4455, the installer leaves the installed `app/` read-only by default. An
