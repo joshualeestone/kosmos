@@ -27,6 +27,9 @@
  * leaves this computer. Two differences from a real phone, neither shown by any screen today: a board redirect is
  * followed by the router (the page never sees the 3xx), and the made-up http host is not a secure context, so no
  * service worker registers.
+ * --app-tabs (kosmos#6846) is --remote as the iPhone app with its native tab bar shows the board: the app adds the class
+ * `kapptabs` to the page at document start, so the bar is the app's own header (no Kosmos+ mark, no two lines, the
+ * computer switcher and the person's face). The app-* screens are meant for it.
  * --data marketing (#5782) is the store fleet with a shape, for installkosmos.com's product shots: Cleo leads and the
  * others report to her (the org chart draws a team), the person is a made-up "Sam Rivera" (the hub shows an initial),
  * and the tasks are spread across the team, each agent reporting what it is on. --faces DIR seeds pictures from a
@@ -560,6 +563,24 @@ const SCREENS = [
     }
     await page.click('#burger');
     await page.waitForSelector('#burger[aria-expanded="true"]', { timeout: 5000 });
+  } },
+  // kosmos#6846: the iPhone app's own header (run with --app-tabs). One computer: the face only (Josh #6396).
+  { name: 'app-header', owner: 'Mona Lisa', phoneOnly: true, go: async (page) => {
+    await page.waitForSelector('#kapp-me', { state: 'visible', timeout: 8000 });
+  } },
+  // The face opens the phone menu at Settings.
+  { name: 'app-header-menu', owner: 'Mona Lisa', phoneOnly: true, go: async (page) => {
+    await page.click('#kapp-me');
+    await page.waitForSelector('#pnav .pnav-level[data-level="settings"]:not([hidden])', { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById('pnav').getAnimations({ subtree: true }).every((a) => a.playState !== 'running'), null, { timeout: 5000 });
+  } },
+  // Two computers: this computer's name on the left (the board re-reads them, answered here with two).
+  { name: 'app-header-two', owner: 'Mona Lisa', phoneOnly: true, noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/remote/computers*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, domain: 'kosmosplus.example', computers: [
+      { name: 'Studio Mac', address: 'studio.kosmosplus.example', this: true, online: true },
+      { name: 'Desk Mini', address: 'desk.kosmosplus.example', this: false, online: true }] }) }));
+    await page.evaluate(() => computersFetch().catch(() => {}));
+    await page.waitForSelector('#kapp-comp', { state: 'visible', timeout: 8000 });
   } },
   // #4470: the new look (the hidden switch), on the Agents page as a grid and as a list, and on the project room.
   { name: 'nl-home', owner: 'Mona Lisa', go: async (page) => { await newLook(page); } },
@@ -1868,7 +1889,7 @@ const SCREENS = [
 
 /* ------------------------------------------------------------------ args */
 function parseArgs(argv) {
-  const a = { out: null, screens: null, sizes: DEFAULT_SIZES, themes: THEMES, engines: ENGINES, strict: false, list: false, keep: false, data: 'sample', scale: 'css', remote: false };
+  const a = { out: null, screens: null, sizes: DEFAULT_SIZES, themes: THEMES, engines: ENGINES, strict: false, list: false, keep: false, data: 'sample', scale: 'css', remote: false, appTabs: false };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = () => argv[++i];
@@ -1883,6 +1904,7 @@ function parseArgs(argv) {
     else if (k === '--data') a.data = v();
     else if (k === '--scale') a.scale = v();
     else if (k === '--remote') a.remote = true;
+    else if (k === '--app-tabs') { a.appTabs = true; a.remote = true; }   // kosmos#6846: the iPhone app's own header
     else if (k === '--faces') a.faces = v();
     else throw new Error('unknown argument ' + k);
   }
@@ -2701,6 +2723,8 @@ async function run() {
                  itself, so the page's own address is not loopback (kplusRemote() true -> html.kremote) while every
                  byte still comes from this board. Registered FIRST so the stubs below, registered after it, win
                  (Playwright tries the newest route first); they fetch through fetchBoard, which points back at the board. */
+              // kosmos#6846: what the iPhone app's WKUserScript does at document start when it shows its native tab bar.
+              if (args.appTabs) await ctx.addInitScript(() => { document.documentElement.classList.add('kapptabs'); });
               if (args.remote) {
                 await ctx.route(REMOTE_BASE + '/**', (r) => fetchBoard(r).then((res) => r.fulfill({ response: res }).catch(() => {}), () => r.abort().catch(() => {})).catch(() => {}));   // board gone: fail now, not at the screen's timeout; a late answer after close is quiet (#6022)
               }

@@ -37,7 +37,6 @@ function run(name, { tabs = ['agents', 'projects', 'tasks'], profile = true, ine
       if (id === 'tabs') return noTabs ? null : tabsEl;
       if (id === 'userpop-go-you') return profile ? { click: () => calls.push('press your profile') } : null;
       if (id === 'pnav') return { hidden: !menuOpen };
-      if (id === 'kplus-menu') return { focus: () => calls.push('focus menu button') };
       throw new Error('unexpected id ' + id);
     },
   };
@@ -85,9 +84,9 @@ test('#6846: the press it relies on still resets to the top of the section, and 
   }
 });
 
-test('#6846: the open phone menu closes first and gives focus back to its button, as its own choices do', () => {
-  assert.deepEqual(run('projects', { menuOpen: true }).calls, ['pnavClose false', 'focus menu button', 'press projects']);
-  assert.deepEqual(run('settings', { menuOpen: true }).calls, ['pnavClose false', 'focus menu button', 'press your profile']);
+test('#6846: the open phone menu closes first, giving focus back to what opened it (pnavClose(true))', () => {
+  assert.deepEqual(run('projects', { menuOpen: true }).calls, ['pnavClose true', 'press projects']);
+  assert.deepEqual(run('settings', { menuOpen: true }).calls, ['pnavClose true', 'press your profile']);
 });
 
 test('#6846: while first run, an update or a restart covers the board, nothing opens and the app is told so', () => {

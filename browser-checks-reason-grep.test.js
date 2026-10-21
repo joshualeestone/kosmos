@@ -340,6 +340,7 @@ const SITE_COUNTS = {
   'render-agent-pill-3958.js': [1, 0],
   'render-allagents-4812.js': [1, 0],
   'render-alltasks.js': [1, 0],
+  'render-apptabs-6846.js': [3, 1],
   'render-assistant-bubble-3034.js': [2, 0],
   'render-assistant-hosted-3660.js': [2, 0],
   'render-autohello-2686.js': [0, 1],
