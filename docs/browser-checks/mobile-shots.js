@@ -845,7 +845,7 @@ const SCREENS = [
     await at(page, '?tab=settings&sec=plus');
     await page.waitForFunction(() => /Working out the code with laptop/.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
   } },
-  /* #5531, #5791: Join Corporate Account opened, a company code typed, before Connect Account (which joins at once). */
+  /* #5531, #5791, kosmos#6380: Join Company or Family Account opened, a company code typed, before Connect Account (which joins at once). */
   { name: 'plus-org-connect', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => { await orgConnected(page, false); await at(page, '?tab=settings&sec=plus');
     // A computer with no company sees one button first (10-08): open it the person's way.
     await page.waitForSelector('#plus-org-open', { state: 'visible', timeout: 10000 });
