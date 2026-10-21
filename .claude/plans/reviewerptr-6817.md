@@ -40,8 +40,10 @@ chromium and webkit, phone fit) pass, each able to fail.
 
 ## Weakest premise
 
-That "newer than the last seen grantedAt" is enough. If a pending grant taking effect matters as its own moment, that is
-a second notice; left out until someone asks.
+That a grant's name and grantedAt identify it. Two grants to the same name in the same second would read as one (the
+second goes unannounced); a person granted again later, at a new time, is news again, which is intended. The seen set
+is not scoped to a company, so after a move between companies an old key could match only on the same name and second.
+Also left out until someone asks: a pending grant taking effect as its own moment.
 
 ## Tests run
 

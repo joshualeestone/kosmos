@@ -52534,7 +52534,7 @@ function paintReviewerNote() {
   const news = onAgentsTab() && REVIEWER_NOTE.grants ? reviewerNoteUnseen(REVIEWER_NOTE.grants, Date.now() / 1000).length > 0 : false;
   const html = news
     ? '<div class="utoast reviewer-note"><span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt" role="status"><b>' + esc(plusOrgIn({ kind: REVIEWER_NOTE.kind }, 'Someone was made a reviewer for your company.')) + '</b></div>'
+      + '<div class="utxt" role="status" tabindex="-1"><b>' + esc(plusOrgIn({ kind: REVIEWER_NOTE.kind }, 'Someone was made a reviewer for your company.')) + '</b></div>'
       + '<div class="uacts"><button type="button" class="uprime" data-reviewer-see>See who</button></div>'
       + '<button type="button" class="ux" data-reviewer-hide aria-label="Close this notice" title="Close this notice">&times;</button>'
       + '</div>'

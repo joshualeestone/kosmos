@@ -55,6 +55,7 @@ test('#6817: an unseen grant shows one notice, with See who and a close, in the 
   assert.match(b.slot.html, /<b>Someone was made a reviewer for your company\.<\/b>/);
   assert.match(b.slot.html, /<button type="button" class="uprime" data-reviewer-see>See who<\/button>/);
   assert.match(b.slot.html, /class="ux" data-reviewer-hide aria-label="Close this notice"/);
+  assert.match(b.slot.html, /<div class="utxt" role="status" tabindex="-1">/, 'the notice text cannot take focus, as its siblings can');
   b.api.REVIEWER_NOTE.kind = 'family';
   b.api.paintReviewerNote();
   assert.match(b.slot.html, /<b>Someone was made a reviewer for your family\.<\/b>/);
