@@ -19808,7 +19808,7 @@ window.kosmosMeasureScrollbarWidth();
   <div class="rm-back" id="plus-lost-modal" hidden>
     <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="plus-lost-t" aria-describedby="plus-lost-say">
       <h2 class="rm-title" id="plus-lost-t">Lost your phone?</h2>
-      <p class="rm-small" id="plus-lost-say">Signing in always asks for a second code after the email code. If the phone that gives it is gone, this computer, or any other computer connected to this account, can switch the second step off. Nobody else can, not even us. Then sign in from your new phone and set it up again there.</p>
+      <p class="rm-small" id="plus-lost-say">Signing in always asks for a second code after the email code. If the phone that gives it is gone, this computer, or any other computer connected to this account, can switch the second step off. Nobody else can, not even us. Switching it off also means every phone and browser on your account will need to sign in again. Then sign in from your new phone and set it up again there.</p>
       <p class="dhint" id="plus-second-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
       <div class="rm-acts">
         <button class="btn" type="button" id="plus-lost-close">Close</button>
@@ -53043,8 +53043,16 @@ function plusCountdown(line, btn, why, secs) {
    what happens next (sign in from the new phone, set it up again) is a
    thing the coordinator does not know to say. One place for the words. */
 const PLUS_SECOND_WORDS = {
-  armed: 'This switches the second step off for your whole account until you set it up again. Press the button once more to do it.',
-  done: 'The second step is off. Sign in from your new phone with the email code, and set the second step up again there.',
+  /* #6611: since kosmos#6605 a reset also signs every phone and browser out, so the person hears it before
+     agreeing, not after. */
+  armed: 'This switches the second step off for your whole account until you set it up again. Every phone and browser signed in to your account will need to sign in again. Press the button once more to do it.',
+  done: 'The second step is off. Every phone and browser will need to sign in again. Sign in from your new phone with the email code, and set the second step up again there.',
+  /* #6611: the coordinator answered that there was no second step to clear (`had` null): nothing was switched off and
+     nobody was signed out, so the page must not say they were. */
+  none: 'There was no second step on your account to switch off, so nobody was signed out. If you had started setting one up, start again.',
+  /* An answer that did not say what it cleared (it went wrong somewhere): the words from before #6605, which claim no
+     sign-out either way. */
+  doneUnknown: 'The second step is off. Sign in from your new phone with the email code, and set the second step up again there.',
   failed: (why) => 'The second step was not reset: ' + why + '.',
 };
 let PLUS_SECOND_ARMED = false;
@@ -53072,7 +53080,11 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
     if (!res.ok) {
       msg.textContent = PLUS_SECOND_WORDS.failed(plusWords(((await res.json().catch(() => null)) || {}).error || 'this computer could not ask'));
     } else {
-      msg.textContent = PLUS_SECOND_WORDS.done;
+      // #6611: say what the coordinator actually did, by what it reported clearing.
+      const said = (await res.json().catch(() => null)) || {};
+      msg.textContent = said.had === null ? PLUS_SECOND_WORDS.none
+        : typeof said.had === 'string' && said.had.trim() ? PLUS_SECOND_WORDS.done
+        : PLUS_SECOND_WORDS.doneUnknown;
     }
   } catch { msg.textContent = PLUS_SECOND_WORDS.failed('this computer could not reach its own engine'); }
   PLUS_SECOND_BUSY = false;
