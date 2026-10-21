@@ -7,11 +7,14 @@ import Security
 // another device through a backup, and it is readable after the first unlock so a
 // launch in the background can still use it.
 //
-// Two items: `live` is the signed-in session, `pendingUnregister` a signed-out one
-// that still owes the coordinator an unregister (see PushRegistrar).
+// Three items: `live` is the signed-in session, `pendingUnregister` a signed-out one
+// that still owes the coordinator an unregister (see PushRegistrar), and `macSession`
+// the Mac's session cookie for the native Agents tab (kosmos#6838, BoardClient).
 struct SessionKeychain: SessionStore {
     static let live = SessionKeychain(account: "session")
     static let pendingUnregister = SessionKeychain(account: "pending-unregister")
+    // kosmos#6838: the Mac's session for the native Agents tab (Board.SavedMacSession, as JSON).
+    static let macSession = SessionKeychain(account: "mac-session")
 
     private let service = "io.kosmos.app.coordinator-session"
     let account: String

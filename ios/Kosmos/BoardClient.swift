@@ -4,7 +4,8 @@ import Foundation
 // live in BoardLogic.swift (tested); this file only moves bytes and publishes state
 // for AgentsView. It has its own private session (cookies, cache and credentials in
 // memory, never the web view's) and follows no redirect, so the Kosmos+ session and
-// a handoff token only ever go to the host they were addressed to.
+// a handoff token only ever go to the host they were addressed to. The Mac's session
+// cookie alone is kept between launches, in the Keychain (Board.SavedMacSession).
 @MainActor
 final class BoardClient: ObservableObject {
 
@@ -14,6 +15,7 @@ final class BoardClient: ObservableObject {
         case noMac
         case waitingForAllow(mac: String, code: String?)
         case denied(mac: String)
+        case kosmosPlusDown
         case unreachable(mac: String)
         case live(mac: Board.Mac)
     }
@@ -24,30 +26,37 @@ final class BoardClient: ObservableObject {
 
     private let coordinator: URL
     private let sessionStore: SessionStore
+    private let macStore: SessionStore
+    private let cookies: HTTPCookieStorage
     private let http: URLSession
     private var loop: Task<Void, Never>?
     // Bumped by every start and stop, so a run that was cancelled cannot write the screen afterwards.
     private var generation = 0
-    // The Mac this client holds a session for, kept across tab switches within one launch, and the Kosmos+
-    // session it was opened under: a sign-out or another account on the Board tab drops it (start()).
+    // The Mac this client holds a session for and the Kosmos+ session it was opened under: a sign-out or another
+    // account on the Board tab drops it (start()).
     private var admitted: (mac: Board.Mac, url: URL, session: String)?
     private var failedRefreshes = 0
-    private static let failuresBeforeNotAnswering = 3
     private var lastReconnect: Date?
     private static let rememberedKey = "nativeBoardMac"
     private static let reconnectGap: TimeInterval = 30
+    private static let failuresBeforeNotAnswering = 3
+    private static let freshHandoffsWhileWaiting = 3
 
-    init(coordinator: URL = KosmosConfig.coordinatorOrigin, sessionStore: SessionStore = SessionKeychain.live) {
+    init(coordinator: URL = KosmosConfig.coordinatorOrigin,
+         sessionStore: SessionStore = SessionKeychain.live,
+         macStore: SessionStore = SessionKeychain.macSession) {
         self.coordinator = coordinator
         self.sessionStore = sessionStore
+        self.macStore = macStore
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieAcceptPolicy = .always
         config.timeoutIntervalForRequest = 15
+        self.cookies = config.httpCookieStorage ?? HTTPCookieStorage()
+        config.httpCookieStorage = cookies
         self.http = URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
     }
 
-    // Starts (or resumes) the loop when the tab appears. A Mac already admitted in this launch is polled again
-    // without a new sign-in to it.
+    // Starts (or resumes) the loop when the tab appears or the app comes back.
     func start() {
         loop?.cancel()
         generation += 1
@@ -69,7 +78,13 @@ final class BoardClient: ObservableObject {
         #endif
         let session = sessionStore.load()
         if let held = admitted, held.session != session { forget() }
-        if admitted == nil { set(.starting, gen) }
+        if admitted == nil, let session, let saved = Board.usableSaved(macStore.load(), session: session, coordinator: coordinator),
+           let url = Board.macURL(address: saved.address, coordinator: coordinator) {
+            // The Mac's session from an earlier launch: tried first, and dropped by refresh() if the Mac has ended it.
+            restoreCookie(saved.cookie, for: url)
+            admitted = (Board.Mac(name: saved.name, address: saved.address, usable: true), url, session)
+        }
+        if case .live = phase {} else { set(.starting, gen) }
         loop = Task { await self.run(gen) }
     }
 
@@ -85,17 +100,32 @@ final class BoardClient: ObservableObject {
         return PushBridge.boardURL(fromNotification: ["address": mac.address, "session": agent.session], coordinator: coordinator)
     }
 
-    // Everything learned under the previous Kosmos+ session goes, cookies included.
+    // Everything learned under the previous Kosmos+ session goes, cookies and the kept Mac session included.
     private func forget() {
         admitted = nil
         agents = []
         updatedAt = nil
         UserDefaults.standard.removeObject(forKey: Self.rememberedKey)
-        http.configuration.httpCookieStorage?.removeCookies(since: .distantPast)
+        cookies.removeCookies(since: .distantPast)
+        macStore.delete()
     }
 
     private func set(_ p: Phase, _ gen: Int) {
         if gen == generation { phase = p }
+    }
+
+    private func restoreCookie(_ value: String, for url: URL) {
+        guard let host = url.host, let cookie = HTTPCookie(properties: [
+            .name: Board.macCookieName, .value: value, .domain: host, .path: "/", .secure: "TRUE",
+        ]) else { return }
+        cookies.setCookie(cookie)
+    }
+
+    private func keepMacSession(_ mac: Board.Mac, url: URL, session: String) {
+        guard let value = cookies.cookies(for: url)?.first(where: { $0.name == Board.macCookieName })?.value,
+              let record = Board.encode(Board.SavedMacSession(name: mac.name, address: mac.address, cookie: value, owner: Board.owner(of: session)))
+        else { return }
+        macStore.save(record)
     }
 
     private func run(_ gen: Int) async {
@@ -105,24 +135,30 @@ final class BoardClient: ObservableObject {
             guard let url = Board.macURL(address: mac.address, coordinator: coordinator) else { set(.noMac, gen); return }
             guard await openSession(session: session, mac: mac, url: url, gen), gen == generation else { return }
             admitted = (mac, url, session)
+            keepMacSession(mac, url: url, session: session)
             UserDefaults.standard.set(mac.address, forKey: Self.rememberedKey)
         }
         guard let (mac, url, _) = admitted else { return }
         failedRefreshes = 0
-        set(.live(mac: mac), gen)
         while !Task.isCancelled && gen == generation {
             guard await refresh(url: url, mac: mac, gen) else { return }
             try? await Task.sleep(nanoseconds: 5_000_000_000)   // the board page polls /api/status every 5 s too
         }
     }
 
+    // An answer from Kosmos+ that is not a success: a 401 is a sign-out, a 403 a refusal of this iPhone, anything
+    // else (no answer, a 5xx, a 429) Kosmos+ being unreachable for now.
+    private func kosmosPlusFailed(status: Int, mac: String?, _ gen: Int) {
+        if status == 401 { set(.signedOut, gen) }
+        else if status == 403 { set(.denied(mac: mac ?? "Kosmos+"), gen) }
+        else { set(.kosmosPlusDown, gen) }
+    }
+
     private func chooseMac(session: String, _ gen: Int) async -> Board.Mac? {
-        guard let (data, resp) = try? await http.data(for: Board.macsRequest(coordinator: coordinator, session: session)),
-              let status = (resp as? HTTPURLResponse)?.statusCode
-        else { set(.unreachable(mac: "Kosmos+"), gen); return nil }
-        if status == 401 { set(.signedOut, gen); return nil }
-        guard (200...299).contains(status), let macs = Board.parseMacs(data) else {
-            set(.unreachable(mac: "Kosmos+"), gen); return nil
+        let result = try? await http.data(for: Board.macsRequest(coordinator: coordinator, session: session))
+        let status = (result?.1 as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(status), let data = result?.0, let macs = Board.parseMacs(data) else {
+            kosmosPlusFailed(status: status, mac: nil, gen); return nil
         }
         guard let mac = Board.pickMac(macs, remembered: UserDefaults.standard.string(forKey: Self.rememberedKey)) else {
             set(.noMac, gen); return nil
@@ -130,22 +166,23 @@ final class BoardClient: ObservableObject {
         return mac
     }
 
+    // nil when it failed, with the phase already set to say why.
     private func handoff(session: String, mac: Board.Mac, _ gen: Int) async -> String? {
-        guard let (data, resp) = try? await http.data(for: Board.handoffRequest(coordinator: coordinator, session: session, address: mac.address)),
-              let status = (resp as? HTTPURLResponse)?.statusCode
-        else { set(.unreachable(mac: mac.name), gen); return nil }
-        if status == 401 { set(.signedOut, gen); return nil }
-        guard (200...299).contains(status), let token = Board.parseHandoffToken(data) else {
-            set(.unreachable(mac: mac.name), gen); return nil
+        let result = try? await http.data(for: Board.handoffRequest(coordinator: coordinator, session: session, address: mac.address))
+        let status = (result?.1 as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(status), let data = result?.0, let token = Board.parseHandoffToken(data) else {
+            kosmosPlusFailed(status: status, mac: mac.name, gen); return nil
         }
         return token
     }
 
     // A handoff token from Kosmos+, then the Mac's gate. While the Mac shows Allow it asks again every 3 s, rides
-    // out a slow network, and fetches a new handoff when the old one has expired during the wait.
+    // out a slow network, and fetches a new handoff when the old one is refused (it expires during a long wait), up
+    // to three times in a row.
     private func openSession(session: String, mac: Board.Mac, url: URL, _ gen: Int) async -> Bool {
         guard var token = await handoff(session: session, mac: mac, gen) else { return false }
         var waiting = false
+        var fresh = 0
         while !Task.isCancelled && gen == generation {
             let result = try? await http.data(for: Board.sessionRequest(mac: url, handoffToken: token))
             let status = (result?.1 as? HTTPURLResponse)?.statusCode ?? 0
@@ -158,6 +195,7 @@ final class BoardClient: ObservableObject {
                 return true
             case .pending(let code):
                 waiting = true
+                fresh = 0
                 set(.waitingForAllow(mac: mac.name, code: code), gen)
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
             case .retry:
@@ -165,8 +203,13 @@ final class BoardClient: ObservableObject {
             case .denied:
                 set(.denied(mac: mac.name), gen); return false
             case .refused:
-                if waiting, let fresh = await handoff(session: session, mac: mac, gen) { token = fresh; continue }
-                set(.unreachable(mac: mac.name), gen); return false
+                guard waiting, fresh < Self.freshHandoffsWhileWaiting else {
+                    set(.unreachable(mac: mac.name), gen); return false
+                }
+                fresh += 1
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard let next = await handoff(session: session, mac: mac, gen) else { return false }
+                token = next
             }
         }
         return false
@@ -175,19 +218,22 @@ final class BoardClient: ObservableObject {
     // false ends the loop. A 401, or the gate's sign-in page in place of the board's answer, means the Mac's session
     // ended: sign in to it again, at most once every 30 s. Three refreshes in a row with no list (no answer, a 5xx,
     // a redirect, an answer that is not the list) say the Mac is not answering rather than leave an old list up.
+    // The list shows as current only after a refresh that read it.
     private func refresh(url: URL, mac: Board.Mac, _ gen: Int) async -> Bool {
         let result = try? await http.data(for: Board.statusRequest(mac: url))
         guard gen == generation else { return false }
-        let http = result?.1 as? HTTPURLResponse
-        let status = http?.statusCode ?? 0
+        let answer = result?.1 as? HTTPURLResponse
+        let status = answer?.statusCode ?? 0
         if (200...299).contains(status), let data = result?.0, let rows = Board.parseAgents(data) {
             agents = Board.sorted(rows)
             updatedAt = Date()
             failedRefreshes = 0
+            set(.live(mac: mac), gen)
             return true
         }
-        if Board.sessionEnded(status: status, contentType: http?.value(forHTTPHeaderField: "Content-Type")) {
+        if Board.sessionEnded(status: status, contentType: answer?.value(forHTTPHeaderField: "Content-Type")) {
             admitted = nil
+            macStore.delete()
             if let last = lastReconnect, Date().timeIntervalSince(last) < Self.reconnectGap {
                 set(.unreachable(mac: mac.name), gen)
                 return false

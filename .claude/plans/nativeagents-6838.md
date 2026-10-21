@@ -1,7 +1,7 @@
 # #6838 slice 1: the iPhone app connects to the Mac by itself and shows a native Agents tab
 
-Josh, #admin 2026-10-21 09:03: he wants the app actually native, not web views. Plan for the whole move:
-`/Users/agent1/work/workers/angel/Files/kosmos-iphone-native-plan.pdf` (on the card too).
+Josh, #admin 2026-10-21 09:03: he wants the app actually native, not web views. The plan for the whole move is on
+the card (and as a PDF handed to Josh).
 
 ## Finished looks like
 
@@ -29,19 +29,29 @@ simulator; logic covered by `ios/LogicTests`.
    and status; the session answer classified (admitted, pending with code, denied, retry, refused with reason); the
    status JSON decoded into agent rows; one status word per state, written once here.
 2. `ios/Kosmos/BoardClient.swift`: one `URLSession` with its own cookie store for the Mac session, never the web
-   view's; the KST from `SessionKeychain`; picks the Mac (the one remembered, else the first live one).
-3. `ios/Kosmos/AgentsView.swift`: the native list (Mona's Agents design: name, role, one-word status, "Asked you"),
+   view's; the KST from `SessionKeychain`; picks the Mac (the one remembered while connected, else a connected one seen most recently).
+3. `ios/Kosmos/AgentsView.swift`: the native list (Mona's Agents design: name, role, the computer's status word),
    the waiting-for-Allow state with the match code, and plain sentences for signed out, no Mac, Mac not answering.
 4. `ContentView`: a `TabView` with Agents (native) and Board (today's web view). A tap on an agent opens the web view
    at `?tab=detail&agent=<sessionName>`, as a notification tap already does.
 
 ## Weakest premise
 
-That a native `URLSession` POST to `/_kosmos/session` is admitted like the page's fetch. Read from gate.rs, not yet
-measured; this slice measures it. If it is refused, Kosmos+ needs a small route (2 to 3 days, the plan's risk line).
+That a native `URLSession` POST to `/_kosmos/session` is admitted like the page's fetch. Half measured: the gate's own
+test pins `origin_ok_for_state_change(None, None, OWN)` as allowed (gate.rs, "a legacy client with neither header").
+Not yet measured end to end: that needs a phone signed in to Kosmos+, so the first TestFlight run is the measurement.
+If it is refused, Kosmos+ needs a small route (2 to 3 days, the plan's risk line).
 
 ## Decided
 
 - Status words are decided on the phone in this slice (one table, tested). The plan's Mac-side change (item 2) will
   send them ready-made; until then the table mirrors the board's states.
-- The native client never shares the web view's cookies; a separate session per app install, like a second browser.
+- The native client never shares the web view's cookies. Its Mac session is kept in the Keychain (only the cookie,
+  tied to a fingerprint of the Kosmos+ session) and reused across launches: the gate keeps at most 16 sessions per
+  device and drops the oldest, and this app shares its device with the Board tab, so a new session every launch would
+  in time sign the Board tab out.
+- Status words follow engine/cardlabel.js labelOf (the computer's words), not Mona's "Asked you": the card's done
+  line is "the status the computer shows". Anything that needs you is marked in amber.
+- Deferred: the connect, poll and reconnect loop in BoardClient has no automated test (only BoardLogic's decisions
+  do); an injectable transport, as PushRegistrar has, is the way, and belongs with Foundation's route-shape check.
+- Deferred: the App Store screenshots (ios/store/shoot-app.sh) now show the tab bar. That is the real app.

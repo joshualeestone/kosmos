@@ -707,6 +707,22 @@ do {
     check(!Board.sessionEnded(status: 502, contentType: "text/html") && !Board.sessionEnded(status: 302, contentType: nil), "a 5xx or a redirect is a missed refresh, not a sign-out")
 }
 
+section("native board: the Mac's session kept between launches")
+do {
+    let rec = Board.SavedMacSession(name: "Studio", address: "studio.kosmosplus.com", cookie: "c1", owner: Board.owner(of: "kst1"))
+    let stored = Board.encode(rec)
+    check(stored != nil && !(stored ?? "").contains("kst1"), "kept as a record that holds a fingerprint of the Kosmos+ session, never the session")
+    check(Board.usableSaved(stored, session: "kst1", coordinator: coordinator) == rec, "reused under the same Kosmos+ session")
+    check(Board.usableSaved(stored, session: "kst2", coordinator: coordinator) == nil, "never under another account or a new sign-in")
+    check(Board.usableSaved(stored, session: nil, coordinator: coordinator) == nil, "never when signed out")
+    check(Board.usableSaved(nil, session: "kst1", coordinator: coordinator) == nil && Board.usableSaved("not json", session: "kst1", coordinator: coordinator) == nil, "nothing kept, or something unreadable, is nothing")
+    let foreign = Board.encode(Board.SavedMacSession(name: "x", address: "evil.example.com", cookie: "c1", owner: Board.owner(of: "kst1")))
+    check(Board.usableSaved(foreign, session: "kst1", coordinator: coordinator) == nil, "a kept record naming a host outside the relay is refused")
+    let empty = Board.encode(Board.SavedMacSession(name: "x", address: "studio.kosmosplus.com", cookie: "", owner: Board.owner(of: "kst1")))
+    check(Board.usableSaved(empty, session: "kst1", coordinator: coordinator) == nil, "an empty cookie is not a session")
+    check(Board.owner(of: "kst1") != Board.owner(of: "kst2") && Board.owner(of: "kst1").count == 64, "fingerprints differ per session")
+}
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

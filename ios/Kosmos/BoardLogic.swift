@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 // kosmos#6838 slice 1: the native Agents tab's decisions, kept free of UIKit and
 // SwiftUI so ios/LogicTests proves them on a Mac (#718). BoardClient and
@@ -137,6 +138,39 @@ enum Board {
     static func sessionEnded(status: Int, contentType: String?) -> Bool {
         if status == 401 { return true }
         return (200...299).contains(status) && (contentType?.lowercased().contains("text/html") ?? false)
+    }
+
+    // MARK: - The Mac's session, kept between launches
+
+    // The gate's session cookie (kosmos-relay crates/tunnel/src/gate.rs COOKIE_NAME).
+    static let macCookieName = "__Host-kosmos_tunnel_session"
+
+    // Kept in the Keychain so a launch reuses the Mac's session instead of opening a new one each time (the gate keeps
+    // at most 16 per device, oldest dropped first, and this app shares its device with the Board tab). `owner` is a
+    // fingerprint of the Kosmos+ session it was opened under, never the session itself.
+    struct SavedMacSession: Codable, Equatable {
+        let name: String
+        let address: String
+        let cookie: String
+        let owner: String
+    }
+
+    static func owner(of session: String) -> String {
+        SHA256.hash(data: Data(session.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func encode(_ saved: SavedMacSession) -> String? {
+        (try? JSONEncoder().encode(saved)).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    // The saved session, only while it belongs to the Kosmos+ session signed in now and names a Mac under the relay.
+    static func usableSaved(_ stored: String?, session: String?, coordinator: URL) -> SavedMacSession? {
+        guard let stored, let session,
+              let saved = try? JSONDecoder().decode(SavedMacSession.self, from: Data(stored.utf8)),
+              saved.owner == owner(of: session), !saved.cookie.isEmpty,
+              macURL(address: saved.address, coordinator: coordinator) != nil
+        else { return nil }
+        return saved
     }
 
     // MARK: - The agents

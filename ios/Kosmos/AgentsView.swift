@@ -6,6 +6,8 @@ import SwiftUI
 struct AgentsView: View {
     @ObservedObject var client: BoardClient
     let openChat: (URL) -> Void
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var visible = false
 
     var body: some View {
         NavigationView {
@@ -13,8 +15,13 @@ struct AgentsView: View {
                 .navigationTitle("Agents")
         }
         .navigationViewStyle(.stack)
-        .onAppear { client.start() }
-        .onDisappear { client.stop() }
+        .onAppear { visible = true; client.start() }
+        .onDisappear { visible = false; client.stop() }
+        // No polling in the background: stop when the app leaves the screen, resume when it comes back.
+        .onChange(of: scenePhase) { phase in
+            guard visible else { return }
+            if phase == .active { client.start() } else if phase == .background { client.stop() }
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -30,6 +37,12 @@ struct AgentsView: View {
                     detail: code.map { "Your Mac is showing a code. Check it matches: \($0)" } ?? "Your Mac is asking whether to let this iPhone in.")
         case .denied(let mac):
             message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access.")
+        case .kosmosPlusDown:
+            VStack(spacing: 12) {
+                message("Kosmos+ could not be reached.", detail: "Check your connection, then try again.")
+                Button("Try again") { client.start() }
+                    .buttonStyle(.borderedProminent)
+            }
         case .unreachable(let mac):
             VStack(spacing: 12) {
                 message("\(mac) is not answering.", detail: "It may be asleep or offline.")
@@ -43,7 +56,7 @@ struct AgentsView: View {
 
     private var list: some View {
         List {
-            Section(footer: Text("New agents, models and connections are set up on your computer.")) {
+            Section(footer: footer) {
                 ForEach(client.agents) { agent in
                     Button {
                         if let url = client.chatURL(for: agent) { openChat(url) }
@@ -60,6 +73,18 @@ struct AgentsView: View {
                 ProgressView().accessibilityLabel("Loading your agents")
             } else if client.agents.isEmpty {
                 message("No agents yet.", detail: "Agents you create on your computer show here.")
+            }
+        }
+    }
+
+    // A list more than a minute old says when it was last read, so an old list never reads as current.
+    private var footer: some View {
+        TimelineView(.periodic(from: .now, by: 15)) { context in
+            VStack(alignment: .leading, spacing: 4) {
+                if let at = client.updatedAt, context.date.timeIntervalSince(at) > 60 {
+                    Text("Last updated \(at.formatted(date: .omitted, time: .shortened)).")
+                }
+                Text("New agents, models and connections are set up on your computer.")
             }
         }
     }
