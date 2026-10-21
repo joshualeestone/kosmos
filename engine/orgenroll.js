@@ -681,7 +681,9 @@ async function enrollNow(code, accepted, opts) {
     }
     r = { ok: true, data: st.data };
   }
-  const org = keepFamily(cleanOrg(r.data && r.data.org), r.data && r.data.org, recKind(opts) === 'family' ? 'family' : KIND);
+  const was = readEnrollment(opts);   // kosmos#6859: this board's record of the same org keeps its kind too
+  const sameOrg = was && r.data && r.data.org && was.org.id === r.data.org.id;
+  const org = keepFamily(cleanOrg(r.data && r.data.org), r.data && r.data.org, sameOrg && was.org.kind === 'family' ? 'family' : KIND);
   const role = cleanRole(r.data && r.data.role);
   const en = r.data && r.data.enrolled;
   /* #5530 review 2: thisComputer says the CALLING signer is the enrolled one. It catches a world id copied WITHOUT the

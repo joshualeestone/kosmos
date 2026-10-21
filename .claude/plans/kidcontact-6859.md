@@ -111,7 +111,8 @@ but cannot be read, or is not a JSON object, throws; null only when none of the 
   and its agents may reach outside. The family removed it; the same holds after a confirmed leave.
 - Review 12: enroll keeps a family's kind also when this board's current record is a family's (the screen always
   passes an explicit kind, taken from a preview that reads a missing kind as a company's, so the join's own kind
-  alone never said family in the case keepFamily is for). Still untested on the enroll path.
+  alone never said family in the case keepFamily is for). Review 13: only the record of the SAME org, as refresh
+  requires, so a move from a family to a company is not recorded as a family's. Still untested on the enroll path.
 - Review 12: the refresh clears a join marker beside a record by its presence on disk, not by whether it parses:
   a torn marker no refresh could read would otherwise have closed a company board for good (tested and
   mutation-proven, 1 red).
