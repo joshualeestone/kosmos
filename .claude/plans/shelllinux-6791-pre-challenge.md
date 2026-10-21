@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: shelllinux-6791
-diff_hash: 5a6b4a169495b1fa444154760fa8b2559f51150c8a0ef48146eec82d4b2867f1
+diff_hash: 594f51008e849aed617cf485862164855291d056171b6931cf93ad1919053347
 validation: passed on Mortals but for two unrelated #6668 arms (see Validation)
 subdir_audit: passed (no subdirectory CLAUDE.md changed)
 timestamp: 2026-10-21T04:16:52Z
@@ -17,7 +17,8 @@ converged: true
 The measurements (three probes on ubuntu-latest), decisions, the stated weakest premise and the iteration-by-iteration fixes are in .claude/plans/shelllinux-6791.md.
 
 **Validation, measured:**
-- **Mortals full suite on the head 3cdd8bf2** (on main 00790aa9; hash 5a6b4a16, matching the diff_hash above): 22813
+- **Mortals full suite on the code head 3cdd8bf2** (on main 00790aa9; hash 5a6b4a16; since then only the plan's billing
+  note changed, and Mortals is re-run on the new head, see below): 22813
   tests, 22491 passed, 2 failed, 320 skipped. The 2 are #6668's watchdog arms (untouched here, red under load on every
   branch tonight; #6768 fixes them). A full run with no shard runs all of test:shell, as before this change.
 - **On Linux, through the real runner:** branch probe-6791-runner (this change at 5df1a84e plus a probe workflow, never
