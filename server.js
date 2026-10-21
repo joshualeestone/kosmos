@@ -19071,7 +19071,8 @@ const server = http.createServer(async (req, res) => {
         return require('./engine/attachtext').render(rec).catch(() => null)
           .then(() => {
             /* Review 20: the client left during the conversion, so it will never hear the id; take the file back. */
-            if (res.destroyed || !res.socket || res.socket.destroyed) { attachments.discardStored(rec); return; }
+            // Review 25: not `!res.socket`, which is also true for a pipelined request still waiting its turn.
+            if (res.destroyed || (req.socket && req.socket.destroyed)) { attachments.discardStored(rec); return; }
             sendJson(res, 200, { attachment: attachments.rowField(rec) });
           })
           /* Review 18/19: the file was stored, but nothing refers to it until the page hears its id, and nothing would

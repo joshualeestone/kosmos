@@ -1,8 +1,9 @@
 'use strict';
 /**
- * #6734: the attachment store's stream lifecycle, with no /dev/fd and no board, so it also runs on Windows (where a
- * file cannot be renamed or removed while it is open). saveStream keeps the file whole, refuses past the cap and when
- * the source stops, and leaves nothing behind in either case.
+ * #6734: the attachment store's stream lifecycle, with no /dev/fd and no board, so it also runs on Windows: a file is
+ * stored whole, a stream past the cap or one that stops is refused, and nothing is left behind. It shows the lifecycle
+ * runs and passes there; it does not prove close-before-rename on Windows (Node opens files there with share-delete,
+ * so renaming an open file succeeds anyway).
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -58,3 +59,24 @@ test('#6734: a stream that stops before it is whole is refused and leaves nothin
 });
 
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+test('#6734: a rename that fails once as a Windows scanner makes it fail (EBUSY) is retried and the file is stored', async () => {
+  const real = fs.renameSync;
+  let failed = 0;
+  fs.renameSync = function (from) {
+    if (String(from).endsWith(attachments.PART) && failed === 0) {
+      failed += 1;
+      throw Object.assign(new Error('resource busy or locked'), { code: 'EBUSY' });
+    }
+    return real.apply(this, arguments);
+  };
+  let rec;
+  try {
+    const src = new PassThrough();
+    const kept = attachments.saveStream('agent', 'lifecycle', { name: 'busy.bin', type: 'application/octet-stream' }, src);
+    src.end(Buffer.from('held'));
+    rec = await kept;
+  } finally { fs.renameSync = real; }
+  assert.equal(failed, 1, 'the first rename was never made to fail, so this tested nothing');
+  assert.equal(fs.readFileSync(rec.file, 'utf8'), 'held');
+});

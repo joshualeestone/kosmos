@@ -124,7 +124,8 @@ function slot(scope, owner, name) {
 }
 /** The slot's part file renamed into place and its record written. Returns the record with its paths. */
 function finish(s, scope, owner, { type, size, by }) {
-  fs.renameSync(s.part, s.file);
+  // Review 25: a Windows scanner often opens a file just written; the repo's retrying rename rides that out.
+  require('./win32swap').renameWithRetry(s.part, s.file);
   const record = {
     id: s.id, name: s.name, type: String(type || 'application/octet-stream').split(';')[0].trim().slice(0, 100) || 'application/octet-stream',
     size, kind: kindOf(type, s.name), at: new Date().toISOString(), scope, owner: String(owner),
@@ -133,7 +134,7 @@ function finish(s, scope, owner, { type, size, by }) {
   fs.writeFileSync(path.join(s.dir, 'record.json'), JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });   // review 12: as the file
   return { ...record, dir: s.dir, file: s.file };
 }
-function abandon(s) { try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+function abandon(s) { try { fs.rmSync(s.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch { /* best effort */ } }   // retries: a scanner holding a file (review 25)
 /** #6734 review 19: take back an attachment just stored whose upload could not be answered: no message carries it, and
     nothing would list it, so it would only take up space. Only a folder inside the store is removed. */
 function discardStored(rec) {

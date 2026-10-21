@@ -137,99 +137,17 @@ the file in memory: an upload is written to disk as it arrives, and a download i
 19. **The reply-file refusal says "larger than 100 MB"** (review 5): its rounded size read "100 MB" just past the cap.
    `textHead` opens without blocking and reads only an ordinary file, like the download.
 
-### Through Kosmos+ the relay cut uploads at two minutes (found while checking the five-minute figure)
-The tunnel waited 120 s for the board's response head,
-and the clock started when the request did, with the upload body streaming inside that wait. The board answers only
-once the whole file has arrived, so a phone upload that took more than two minutes got a 502 from the tunnel
-("We could not add that file (status 502)."), whatever the board allows: 100 MB needed about 850 KB/s up.
-Fixed in kosmos-relay (branch headclock-6734): the 120 s now counts, in full, from the end of the request body, and
-the body itself may take up to 6 minutes (just past the board's five, which is Node's default request timeout: the
-board sets none, measured with git grep at kosmos origin/main). It ships with the
-tunnel, so until a build carrying it is installed, phone uploads over two minutes still fail. Not measured on a
-phone yet: the remaining manual step covers it.
+### Through Kosmos+ phone uploads over two minutes failed (found while checking the five-minute figure)
+Measured from the tunnel's code: a phone upload through Kosmos+ that took more than two minutes was answered 502,
+whatever the board allows. Fixed in the relay (branch headclock-6734); until a tunnel build carrying it is installed,
+such uploads still fail, and the page words the 502 for a large file (decision 27). Not measured on a phone.
 
-20. **Review 8:** the orphan sweep's safety condition is stated at the function and guarded by a test that fails if any
-   file other than attachments.js reaches into the store (by `attachments.ROOT` or by building the path), or if
-   replyfile starts writing there (red with either spelling appended to another engine file). An upload whose part
-   file cannot be written (a full disk, injected through the write stream's own `fs` option) is refused with "that
-   file could not be kept" and leaves nothing (red with another sentence, and with the folder not removed). A client
-   sending `Expect: 100-continue` with an over-cap length gets Node's automatic 100 Continue and then the refusal, so
-   it may send its body before the connection closes: bandwidth only, nothing stored, and the page never sends one.
-
-21. **Review 9:** an upload that fails with a system error (a rename or record write on a full disk, say) is refused
-   with "we could not keep that file", not the raw error, which carries a path with the user's name and would reach
-   their phone too. The store's own refusals are sentences with no `code` and pass through unchanged.
-
-22. **Review 10:** a large file's network failure reads "We could not reach Kosmos to finish adding <name>. If your
-   connection is slow, a file this large can take longer than Kosmos waits for one.", naming both causes, since the
-   page cannot tell Kosmos being unreachable from the wait running out. (Review 11: "to add", not "to finish adding",
-   which was untrue when nothing had started.)
-23. **Review 11:** `safeName` stripped leading dots before trimming, so " .upload.part" kept its dot and was stored
-   under the part file's own name (an attachment that answered 200 and could never be read). Leading spaces and dots
-   are now stripped together (tests: " .upload.part", " .env", " . .x"; red with the old order). The orphan sweep's
-   record check fails closed: only a record that is certainly absent (ENOENT) makes an orphan, so a dangling
-   record.json link keeps its folder (test with backdated times, so age cannot be what keeps it; red with the old
-   `existsSync`). The sweep test cleans its controls in a `finally`.
-
-24. **Review 13:** `read()` finds a file under the name an older build stored it with (" .env" was kept as ".env";
-   the new safeName gives "env"), when that name is one plain segment and none of this module's own names, so the
-   name fix in 23 does not make existing attachments unreachable, except one stored under a name that is one of this
-   module's own as macOS and Windows compare names (" .upload.part", "record.json.", "preview.png."): those stay
-   unreachable on purpose, since following them is the collision the fix closes (review 15) (test writes an old-style record; controls: a
-   record naming the part file, and one naming a path, are not followed; red with the fallback removed, and with the
-   part file allowed). The reserved-name check ignores trailing dots and spaces, which Windows drops ("record.json."
-   would otherwise be the record). The reply-file path maps a system error to "that file could not be kept", as the
-   upload route does (test injects a failing rename; red with the raw message). A unit test no longer zero-fills 100 MB
-   to check a refusal.
-   Decision 5 measured: the 1 MB chunked copy of 100 MB took 12 to 14 ms (three runs, load average 15), with the source
-   just written, so in the page cache. A cold read, or a slow or network disk, will be slower and is not measured.
-
-25. **Review 14:** the stored-name fallback compares the part file's name as macOS and Windows do (case and trailing
-   dots and spaces ignored), so ".UPLOAD.PART" or ".upload.part." is never followed (test arms; red with the old
-   case-sensitive compare). Attachment folders are made 0700 (test; red without the mode). Review 16: so are the
-   scope and owner folders above them, when this code is the one making them (an install's existing ones keep their
-   mode; nothing in them is readable without the 0600 files and 0700 id folders).
-
-26. **Review 15:** the module's own names are compared as macOS and Windows compare them: trailing dots and spaces
-   dropped, NFKC, then lower case, so "record.jſon" (a long s) is renamed rather than stored where the record then
-   overwrites it (the reviewer saw the overwrite on this Mac). An upload's own file is checked to be 0600.
-
-27. **Review 17:** until the tunnel carries kosmos-relay headclock-6734, a phone upload over two minutes ends in the
-   tunnel's 502, which the page showed as "(status 502)". A large file's 502 or 504 now gets the conditional
-   slow-connection sentence; a small file's, and any answer carrying the board's own sentence, are unchanged.
-
-28. **Review 18, corrected in review 19:** a failure after the file was stored (building the answer) went to the store
-   failure handler, which answered 400 with the raw message. The two are now handled apart. Round 18 answered "that
-   file was kept ... reload to see it", which was false: an uploaded file is known only to the page until it is sent,
-   so a reload shows nothing, and with its record it is never swept. Now the stored folder is taken back
-   (`attachments.discardStored`, inside the store only) and the answer is a 500 "we could not add that file; try again"
-   (test: the answer made to fail; nothing left; red with one handler for both, and with the folder not taken back).
-
-29. **Review 20:** the take-back from 28 runs only while nothing of the answer has gone out (once headers are sent the
-   page may hold the id, so the file stays; this guard is reasoned, not tested); an upload whose client leaves during
-   the office-text conversion is taken back too, since it will never hear its id (test: the conversion held open, the
-   client gone, nothing left; red without the check); and `discardStored` removes only an exact
-   <scope>/<owner>/<24-hex id> folder (test: an owner folder, a non-id folder and a path outside the store are left;
-   red with the looser check).
-
-30. **Review 21:** `saveStream` refuses a source that has already ended or gone away, at once, instead of waiting for
-   events that will never come with the part file open (unreachable from today's route, which calls it in the first
-   tick, but one `await` added before it would make every aborted upload a leak). Test with a destroyed stream and a
-   live one as the control; red without the check (it waits for ever).
-
-31. **Full suite on Mortals (final validation, first run at 65f757f55c): 22,846 tests, 2 failed**, both repo-scanning
-   Windows guards, not behaviour: the #1732 coupling audit (two new `O_NONBLOCK || 0` opens, in sendFileStream and
-   textHead, needed classified inventory rows: benign, since the isFile check after each refuses a FIFO on every
-   platform), and #1777 (the new test file branches on win32 and needed a HOST_BRANCH_EXCLUDED entry with its reason:
-   it reads /dev/fd and boots a board on test ports). Both added; both guards pass. The local regression sweep that
-   would have caught them was withdrawn in favour of the Mortals run, so the full suite was what caught them.
-
-32. **Review 24:** the stream lifecycle now has a test that runs on Windows (engine/attachments-stream-6734.test.js:
-   whole file renamed into place, past-cap refusal and a cut-off source each leave nothing; no /dev/fd, no board; red
-   with the folder not removed), added to the Windows run; the exclusion reason for the board-level test file names
-   only its true cause (/dev/fd). Relay internals were trimmed from this plan (this repo is public); naming the relay
-   branch follows server.js's existing comments. The reply copy's time (decision 5, measured) and the refusal reset
-   (decision 2) were raised again and stand.
+33. **Review 25:** the rename into place uses the repo's retrying rename (a Windows scanner opening a just-written file
+   gives a transient EPERM/EBUSY), and folder removal retries too; a client counts as gone by `res.destroyed` or its
+   socket being destroyed, not by `res.socket` being unset (a pipelined request has none while it waits its turn);
+   the Windows-run test's header says what it shows (the lifecycle runs and passes there) and what it cannot (Node
+   on Windows can rename an open file, so close-before-rename is not proven there). Relay timing details trimmed
+   from this plan.
 
 ### Considered and not changed (review 22)
 - The synchronous reply-file copy (decision 5), the reserved-name old files (review 17) and the 408 wording (reviews 6
@@ -258,7 +176,7 @@ phone yet: the remaining manual step covers it.
   bounds have controls that show the instrument sees a 64 MB Buffer).
 
 ### Considered and not changed (review 6)
-- **No Range support on downloads**: a 100 MB download cut at 90% restarts from zero, and the tunnel retires its
+- **No Range support on downloads**: a 100 MB download cut at 90% restarts from zero, and a long-lived connection can be cut by the network path, which
   connection hourly, which cuts a download in flight. Resuming is a feature, not a defect in this change; filed as its
   own card, #6805. Weakest premise: that a cut 100 MB download is rare enough on a phone to ship before it.
 - **A board-side refusal while a large upload is still arriving** (a bad name, a write error) can reach the page as a
@@ -282,8 +200,7 @@ phone yet: the remaining manual step covers it.
 
 ## Windows (review 1)
 
-The new test cannot run on Windows (it reads `/dev/fd`), and it is not in `tools/windows-tests.js`. That is a coverage
-gap, stated here. Review 24: the store and the upload route do run on Windows; the stream lifecycle that matters
+The board-level test file cannot run on Windows (it reads `/dev/fd`) and is excluded with that reason. Review 24: the store and the upload route do run on Windows; the stream lifecycle that matters
 there (rename only after close, removal after close) is covered by engine/attachments-stream-6734.test.js, which
 needs no /dev/fd and no board, and is in the Windows run (tools/windows-tests.js ALSO). Measured from the code instead: every write
 stream is closed before its rename or removal (Windows will not rename an open file). A download now holds the file
