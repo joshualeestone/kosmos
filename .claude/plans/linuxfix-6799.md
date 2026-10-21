@@ -147,3 +147,17 @@ skip (slice 5). The other listed reasons were re-measured on Linux in probe run 
 - NITs, left: a /proc read instead of `ps` per hop (cheap as is); a Linux sysctl printing to stdout with rc 0 for an
   unknown key (procps prints to stderr and exits 255; the Linux probe read 4 cores); the list header's count is not
   asserted (it is a comment; the split itself is pinned by tools.shell-shard-4317.test.js).
+
+## Challenge loop iteration 3 (opus): 3 WARNINGs, 5 NITs
+- WARNING, recorded + carded: PR CI no longer runs product shell code's tests on macOS, so a GNU-only form there is
+  caught only by the release cut's full macOS suite. A lint is new scope: filed #6808, and the list header names the
+  gap. Rejected: a per-PR macOS run of the Linux share (that is the paid queue #6791 exists to shrink).
+- WARNING, fixed: the #6791 platform-forward test ran a real run-tests.sh with every KOSMOS_ variable stripped, so on a
+  shared Mac it waited on another suite's claim past its 120 s timeout (the red recorded in iteration 1). It now passes
+  the same three overrides test-runner-scale-export-5727 uses; the forward does not depend on the wait.
+- WARNING, fixed (was deferred in iteration 2): the apt install retries 3 times. New point that changed the call: two
+  required Linux shards double a mirror hiccup's chance of failing a run.
+- NITs, taken: a comment pins the one-simple-command `$( )` assumption on the pgrep line and names the arm that
+  measures it; the time-scale arm stubs 1 core / load 1 (discriminates on any box with 2+ cores; the old lib gives 1.00,
+  measured); test.yml's comment re-wrapped, and its probe numbers marked as the original measurement.
+- NIT, left: a missing `ps` stops the ancestor walk early, which fails toward refusing (a run reads itself as busy).
