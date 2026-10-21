@@ -123,3 +123,8 @@ Card: kosmos#6761, from a user feedback report (a project-manager agent, 2026-10
   property, which an engine without ARIA reflection keeps as an expando nothing reads (back to 64 hex spoken). All
   three rows now use setAttribute('aria-description', ...); the test asserts the attribute and that no reflection
   property is used (mutant red). web.* 3123/3123.
+- Mortals full suite at e2a0562db (2026-10-20 20:25): 22768 tests, 7 failed. Two were #6668's watchdog arms (known, load;
+  #6768 fixes them). Five were this branch's, all fixed since: web.project-page's two pjLoadDocs tests (fixed in iteration
+  7); engine.reachable (filehash's four test seams are now in SEAMS_5548, by file); the two #1732 audits (the stat key
+  joins with '|', not ':', and the open flags are captured once each as FP_NOFOLLOW / FP_NONBLOCK with classified
+  INVENTORY rows, as filepreview.js does, rather than a bumped count).
