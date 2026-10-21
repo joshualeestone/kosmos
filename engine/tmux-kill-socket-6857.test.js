@@ -1,33 +1,32 @@
 'use strict';
-/* kosmos#6857: every kill-server in the repo's JavaScript names its server with -S or -L.
+/* kosmos#6857: no kill-server in the repo's JavaScript can reach the machine's own tmux server.
    TMUX_TMPDIR alone is not enough: tmux 3.6a skips a TMUX_TMPDIR whose realpath() fails and falls back to
    /tmp/tmux-<uid>/default, the machine's own server, so a folder that went missing before the kill (a /tmp sweep,
    another cleanup, a reordered finally) ends every agent session on the machine. That is how every bot on Agent1s
-   was restarted at 14:22 on 2026-10-21 (#6851, #6855). -S names the socket's path and never falls back. -L names a
-   socket in that same folder, so it falls back with it to /tmp/tmux-<uid>/<name>: safe only with a name nobody else
-   uses, and never `-L default`, which IS the machine's server (review 5).
-   Shell scripts are not read here: tools/test-linux-systemd-live-4918.sh is #6852's (PR #6853).
+   was restarted at 14:22 on 2026-10-21 (#6851, #6855). Shell scripts are not read here: tools/test-linux-systemd-
+   live-4918.sh is #6852's (PR #6853).
 
-   The rule is a SHAPE, not an inference (four review rounds found new ways to fool a check that tried to work out
-   whether arbitrary code names a socket). A kill-server is accepted only as:
-     1. an element of an array literal whose first element is '-S' or '-L': ['-S', sock, 'kill-server'], used as it
-        is (nothing after its ']' but ',' or ')': no .slice, no [2])
-     2. an element of an array handed straight to a wrapper listed in WRAPPERS below, whose own definition is
-        checked here to start its tmux arguments with '-S' or '-L'
-     3. inside a string only as one whole command: "[tmux] -S|-L <name> kill-server", nothing else in it and no
-        backslash (an escape could hide a second command)
-   Anything else fails, including tmux's shortened spellings (kill-ser, kill-serv): write it in one of the shapes.
-   Files are read as tokens, so comments and regex literals are not code.
+   Two ways to end a private server, and this test holds the repo to them (review 11, after eleven rounds of a check
+   that tried to tell from source whether an -S PATH could be the machine's: it kept finding new ways it could):
+     -S, by a socket's PATH: only through test-support/tmux-kill.js's killServerAt, which decides at RUN TIME (it
+        refuses the machine's own socket and $TMUX's, and runs nothing for a socket that is not there). So a
+        'kill-server' in an array that holds '-S' is refused anywhere else.
+     -L, by a socket's NAME: -L names a socket in the same TMUX_TMPDIR folder, so it falls back with it to
+        /tmp/tmux-<uid>/<name>: safe with a name nobody else uses, never `-L default`, which IS the machine's server.
+        Accepted only as
+          1. an array literal whose first element is '-L' and whose name is not default: ['-L', name, 'kill-server'],
+             used as it is (nothing after its ']' but ',' or ')');
+          2. an array handed straight to a wrapper listed in WRAPPERS, whose every definition starts its tmux
+             arguments that way;
+          3. one whole command in a string: "[tmux] -L <plain name> kill-server", nothing else in it.
+   Everything else fails, including tmux's shortened spellings (kill-ser, kill-serv). Files are read as tokens, so
+   comments and regex literals are not code.
 
-   SCOPE (decided after review 7): this is a tripwire for the shapes an author writes by mistake, not a defence
-   against code written to get past it; nothing that reads source can be that. Not seen, by construction: a name built
-   at run time ('kill-ser' + 'ver') or spelled with escapes beyond \x and \u ('kil\l-server', octal, a line
-   continuation); code inside a template's ${} ; a socket name that only resolves to the default one ('./default');
-   a wrapper shadowed by a parameter or a destructure; a socket path built more than three variables away, or passed
-   in through a function's parameter; a variable traced by position, not scope (a nearer same-named declaration in a
-   closed block is read, which refuses rather than passes); a property named mkdtemp read as the call; a named array
-   sliced by the call it is handed to; a listed
-   wrapper that builds its -S/-L array and then drops it; and a -L whose name is a variable holding "default". */
+   SCOPE (decided after review 7): this is a tripwire for what an author writes BY MISTAKE, not a defence against code
+   written to get past it. Not seen, by construction: a name built at run time ('kill-ser' + 'ver') or spelled with
+   escapes beyond \x and \u; code inside a template's ${}; a wrapper shadowed by a parameter or a destructure; a -L
+   name that is a variable holding "default" set anywhere but its nearest declaration; a listed wrapper that builds
+   its -L array and then drops it. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
@@ -35,6 +34,8 @@ const fs = require('node:fs');
 
 const ROOT = path.resolve(__dirname, '..');
 const SKIP = new Set(['node_modules', '.git', '.claude', 'dist', 'build']);
+const HELPER = 'test-support/tmux-kill.js';   // the one place an -S kill-server is written
+const HELPER_TEST = 'engine/tmux-kill-helper-6857.test.js';   // its own test, which states the arguments it expects
 
 function jsFiles(dir, out) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -45,6 +46,7 @@ function jsFiles(dir, out) {
   }
   return out;
 }
+
 
 /* JavaScript as tokens: { t: 'str' | 'id' | 'p' | 'num', v, line }. Comments and regex literals are skipped. A
    template is one 'str' whose v is its text with each ${...} written as ${}; the code inside ${...} is read as code,
@@ -120,13 +122,15 @@ const WRAPPERS = {
   'engine/tmuxsignin.test.js': { runTmux: 'engine/tmuxsignin.js' },
 };
 
+
 const KILL = /kill-ser/;   // tmux takes any unique prefix, and kill-ser is the shortest that is not kill-session
-/* Shape 3, the one form the repo uses: an optional tmux (or a template's ${}), -S or -L, a plain name, kill-server.
-   Review 6: a name of \S+ also took shell operators (`tmux -L a;tmux kill-server`) and quotes (`-L "default"`). */
-const ONE_COMMAND = /^(?:tmux\s+|\$\{\}\s+)?(-[SL])\s+([\w./-]+|\$\{\})\s+kill-server$/;
-/* A string with its \x, \u and \u{} escapes read, so an escaped name is still seen (review 6: kill\x2dserver). */
+/* Shape 3: an optional tmux (or a template's ${}), -L, a plain name, kill-server, and nothing else. */
+const ONE_COMMAND = /^(?:tmux\s+|\$\{\}\s+)?-L\s+([\w./-]+|\$\{\})\s+kill-server$/;
+/* A string with its \x, \u and \u{} escapes read, so an escaped name is still seen. */
 const decode = (v) => v.replace(/\\x([0-9a-fA-F]{2})|\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})/g, (m, x, u1, u2) => String.fromCodePoint(parseInt(x || u1 || u2, 16)));
-const named = (tok) => tok && tok.t === 'str' && (tok.v === '-S' || tok.v === '-L');
+const str = (tok, v) => !!tok && tok.t === 'str' && tok.v === v;
+const isDefault = (v) => typeof v === 'string' && v.toLowerCase() === 'default';   // the volume may not tell case
+
 
 /* The index of the ']' that closes the '[' at `h`, or -1. */
 function closeOf(toks, h) {
@@ -139,37 +143,6 @@ function closeOf(toks, h) {
   return -1;
 }
 
-/* Whether a socket value names the machine's own server: -L default (any case; tmux takes the last -L, and the volume
-   may not tell DEFAULT from default), or -S written as the machine's own path /tmp/tmux-<uid>/default (review 7). */
-function defaultSocket(value, flagName) {
-  if (flagName === '-L') return value.toLowerCase() === 'default';
-  return /^\/(private\/)?tmp\/tmux-[^/]+\/default$/i.test(value);
-}
-
-/* Whether any '-S'/'-L' in the array at `h` is followed by a value naming the machine's server (review 7: an array
-   handed to a listed wrapper was never read, so tm(['-L', 'default', 'kill-server']) passed). The whole value is read,
-   to the next ',' at its depth. Review 8: an -S built from '/tmp' or from process.env.TMUX_TMPDIR (status.js's
-   `path.join(process.env.TMUX_TMPDIR || '/tmp', 'tmux-' + uid, 'default')`) is the machine's server whenever that
-   variable is unset, so it is refused; a socket of its own is built from a folder of its own. */
-function arrayNamesDefault(toks, h) {
-  const c = closeOf(toks, h), end = c < 0 ? toks.length : c;
-  let d = 0;
-  for (let k = h + 1; k < end - 1; k += 1) {
-    const v = toks[k].t === 'p' ? toks[k].v : '';
-    if (v === '(' || v === '[' || v === '{') { d += 1; continue; }
-    if (v === ')' || v === ']' || v === '}') { d -= 1; continue; }
-    if (d !== 0 || !named(toks[k]) || !toks[k + 1] || toks[k + 1].v !== ',') continue;
-    const value = [];
-    for (let m = k + 2, e = 0; m < end; m += 1) {
-      const w = toks[m].t === 'p' ? toks[m].v : '';
-      if (e === 0 && w === ',') break;
-      if (w === '(' || w === '[' || w === '{') e += 1; else if (w === ')' || w === ']' || w === '}') e -= 1;
-      value.push(toks[m]);
-    }
-    if (machineValue(toks, value, toks[k].v, k)) return true;
-  }
-  return false;
-}
 
 /* The initializer tokens of the declaration of `name` nearest before token `pos` (`const|let|var name = ...` to
    its ';' or ',' at depth 0), or null. Review 10: the nearest one only; reading every same-named const in the file
@@ -190,42 +163,32 @@ function nearestInit(toks, name, pos) {
   return { at, init };
 }
 
-/* The tokens a value is built from: the value, plus the nearest declaration of each plain variable in it, three
-   levels deep (sandbox.test.js builds its socket path into a const two levels from the mkdtemp). */
-function traced(toks, value, pos, depth, seen) {
-  const out = value.slice();
-  if (depth === 0) return out;
-  value.forEach((t, n) => {
-    if (t.t !== 'id' || seen.has(t.v) || (n > 0 && value[n - 1].v === '.')) return;
-    seen.add(t.v);
-    const d = nearestInit(toks, t.v, pos);
-    if (d) out.push(...traced(toks, d.init, d.at, depth - 1, seen));
-  });
-  return out;
+/* Whether the array at `h` holds an '-S' anywhere, at any depth: an -S kill is the helper's. */
+function holdsS(toks, h) {
+  const c = closeOf(toks, h);
+  for (let k = h + 1; k < (c < 0 ? toks.length : c); k += 1) if (str(toks[k], '-S')) return true;
+  return false;
 }
 
-/* Whether a socket value names the machine's own server, or may.
-   -L: 'default', written directly or as a variable's nearest value.
-   -S (review 10: one rule that grants, instead of rules that refuse): the socket must be built from a folder made
-   by mkdtemp, in the value or the nearest declarations it is built from. That is how all three fixed sites build it,
-   and it closes, without listing them, a path from TMUX_TMPDIR, $TMUX, /tmp or os.tmpdir() (each of which is, or can
-   be, the machine's own server). A fixed path is refused even when it is private: make the folder with mkdtemp. */
-function machineValue(toks, value, flagName, pos) {
-  if (flagName === '-L') {
-    if (value.length === 1 && value[0].t === 'str') return defaultSocket(value[0].v, '-L');
-    if (value.length === 1 && value[0].t === 'id') {
-      const d = nearestInit(toks, value[0].v, pos);
-      return !!d && d.init.length === 1 && d.init[0].t === 'str' && defaultSocket(d.init[0].v, '-L');
+/* Whether any '-L' in the array at `h` names default, directly or as the nearest value of a variable (tmux takes the
+   last -L). */
+function namesDefault(toks, h) {
+  const c = closeOf(toks, h);
+  for (let k = h + 1; k < (c < 0 ? toks.length : c) - 2; k += 1) {
+    if (!str(toks[k], '-L') || toks[k + 1].v !== ',') continue;
+    const v = toks[k + 2];
+    if (v.t === 'str' && isDefault(v.v)) return true;
+    if (v.t === 'id' && toks[k + 3] && (toks[k + 3].v === ',' || toks[k + 3].v === ']')) {
+      const d = nearestInit(toks, v.v, k);
+      if (d && d.init.length === 1 && d.init[0].t === 'str' && isDefault(d.init[0].v)) return true;
     }
-    return false;
   }
-  return !traced(toks, value, pos, 3, new Set()).some((t) => t.t === 'id' && /^mkdtemp(Sync)?$/.test(t.v));
+  return false;
 }
 
-/* The array at `h` starts with the literal '-S' or '-L' as a whole first element, and names no default socket. */
+/* The array at `h` starts with the literal '-L' as a whole first element and names no default socket. */
 function startsNamed(toks, h) {
-  if (!named(toks[h + 1]) || !toks[h + 2] || toks[h + 2].v !== ',') return false;
-  return !arrayNamesDefault(toks, h);
+  return str(toks[h + 1], '-L') && !!toks[h + 2] && toks[h + 2].v === ',' && !namesDefault(toks, h) && !holdsS(toks, h);
 }
 
 /* The index of the bracket that directly holds token `i`, or -1. */
@@ -240,7 +203,7 @@ function holder(toks, i) {
 }
 
 /* Whether `name` is defined in `toks` (`const name = ...` or `function name(`) and EVERY such definition's first
-   array literal starts with '-S' or '-L' (startsNamed), with no '?' before it. Review 5: every definition, since which
+   array literal starts with '-L' and a name that is not default (startsNamed), with no '?' before it. Review 5: every definition, since which
    one a call reaches is scope this does not model. */
 function wrapperNamesSocket(toks, name) {
   let defs = 0;
@@ -290,9 +253,10 @@ function requiredFrom(toks, obj, rel, home) {
   return seen > 0;
 }
 
-/* Every kill-server in `src` that is not in one of the three shapes. `rel` is the file's path from the repo root
-   (for WRAPPERS); `read(rel)` returns another repo file's text. */
+/* Every kill-server in `src` that is not one of the accepted forms. `rel` is the file's path from the repo root;
+   `read(rel)` returns another repo file's text. */
 function bareKills(src, rel, read) {
+  if (rel === HELPER || rel === HELPER_TEST) return [];
   const toks = lex(src);
   const found = [];
   toks.forEach((tok, i) => {
@@ -300,13 +264,13 @@ function bareKills(src, rel, read) {
     const flag = (why) => found.push({ line: tok.line, text: why });
     if (tok.v !== 'kill-server') {
       const one = ONE_COMMAND.exec(tok.v.trim());
-      if (!one || defaultSocket(one[2], one[1])) flag(JSON.stringify(tok.v.slice(0, 60)) + ': write it as arguments, or as one command that names its socket');
+      if (!one || isDefault(one[1])) flag(JSON.stringify(tok.v.slice(0, 60)) + ': write it as arguments, or as one command "tmux -L <name> kill-server"');
       return;
     }
     const h = holder(toks, i);
     if (h < 0 || toks[h].v !== '[') return flag("'kill-server' not in an array");
-    // Review 9: say the real reason, not "not a listed wrapper", when the socket is or may be the machine's server.
-    if (arrayNamesDefault(toks, h)) return flag("'kill-server' with a socket that is or may be the machine's own server (-L default, or an -S not built from a mkdtemp folder)");
+    if (holdsS(toks, h)) return flag("'kill-server' by an -S path: end it with killServerAt from " + HELPER + ', which refuses the machine server at run time');
+    if (namesDefault(toks, h)) return flag("'kill-server' on -L default, which is the machine's own server");
     if (startsNamed(toks, h)) {   // shape 1, used as it is
       const c = closeOf(toks, h), after = c > 0 ? toks[c + 1] : null;
       if (after && (after.v === ',' || after.v === ')')) return;
@@ -317,21 +281,20 @@ function bareKills(src, rel, read) {
     if (call > 0 && toks[call].v === '(' && prev && (prev.v === '(' || prev.v === ',')) {
       const callee = toks[call - 1];
       let home = callee && callee.t === 'id' && (WRAPPERS[rel] || {})[callee.v];
-      /* Review 5: a plain call reaches the wrapper only in its own file; `obj.name(...)` only when obj is required
-         from the wrapper's file. */
+      /* A plain call reaches the wrapper only in its own file; `obj.name(...)` only when obj is required from the
+         wrapper's file. */
       if (home) {
         const member = toks[call - 2] && toks[call - 2].v === '.';
         if (member ? !(toks[call - 3] && toks[call - 3].t === 'id' && requiredFrom(toks, toks[call - 3].v, rel, home)) : home !== rel) home = null;
       }
-      if (home && arrayNamesDefault(toks, h)) return flag("'kill-server' handed to " + callee.v + '() with the default socket');
       if (home) {
         const text = home === rel ? src : read(home);
         if (text != null && wrapperNamesSocket(lex(text), callee.v)) return;   // shape 2
-        return flag("'kill-server' handed to " + callee.v + '(), whose definition in ' + home + ' does not start with -S or -L');
+        return flag("'kill-server' handed to " + callee.v + '(), whose definition in ' + home + " does not start with -L and a name");
       }
       return flag("'kill-server' handed to " + (callee && callee.t === 'id' ? callee.v + '()' : 'a call') + ', which is not a listed wrapper');
     }
-    flag("'kill-server' in an array that does not start with '-S' or '-L'");
+    flag("'kill-server' in an array that does not start with '-L' and a name");
   });
   return found;
 }
@@ -339,28 +302,59 @@ function bareKills(src, rel, read) {
 /* Exact 'kill-server' arguments in a file's code (comments, regex literals and longer strings not counted). */
 const killArgs = (src) => lex(src).filter((t) => t.t === 'str' && t.v === 'kill-server').length;
 
-test('#6857: the checker passes the three shapes and flags everything else (control)', () => {
+test('#6857: the checker accepts -L in its three forms, refuses -S outside the helper, and flags the rest (control)', () => {
   const flags = (s, rel, read) => bareKills(s, rel || 'x.js', read || (() => null)).length;
+  // -S belongs to the helper.
+  assert.equal(flags("execFileSync(T, ['-S', sock, 'kill-server'])"), 1, 'an -S kill outside the helper');
+  assert.equal(flags("const sock = fs.mkdtempSync('/tmp/k-');\nexecFileSync(T, ['-S', sock, 'kill-server'])"), 1, 'even one built from mkdtemp: use killServerAt');
+  assert.equal(flags("execFileSync(T, ['-L', s, '-S', p, 'kill-server'])"), 1, 'an -S after an -L');
+  assert.equal(flags("execFileSync(T, ['-S', p, 'kill-server'])", 'test-support/tmux-kill.js'), 0, 'the helper itself');
+  assert.equal(flags("assert.deepEqual(calls(), ['-S', sock, 'kill-server'])", 'engine/tmux-kill-helper-6857.test.js'), 0, "the helper's own test");
+  assert.equal(flags("execFileSync(T, ['-S', p, 'kill-server'])", 'test-support/other.js'), 1, 'only those two files');
+  assert.match(bareKills("execFileSync(T, ['-S', p, 'kill-server'])", 'x.js', () => null)[0].text, /killServerAt/, 'the refusal names the helper');
   // Shape 1, and its failing twins.
-  assert.equal(flags("const sock = fs.mkdtempSync('/tmp/k-');\nexecFileSync(T, ['-S', sock, 'kill-server'])"), 0);
   assert.equal(flags("execFileSync(T, ['-L', name, 'kill-server'], { env })"), 0);
-  assert.equal(flags("const sock = fs.mkdtempSync('/tmp/k-');\nexecFileSync(T, [\n  '-S', sock,\n  'kill-server',\n]);"), 0, 'an array over several lines');
+  assert.equal(flags("execFileSync(T, [\n  '-L', name,\n  'kill-server',\n]);"), 0, 'an array over several lines');
+  assert.equal(flags("execFileSync(T, ['-L', f(a, [b]), 'kill-server'])"), 0, 'brackets inside an element do not move its holder');
   assert.equal(flags("execFileSync(T, ['kill-server'], { env })"), 1, 'a bare kill-server');
   assert.equal(flags("run({ ...base, TMUX_TMPDIR: d }, ['kill-server']);"), 1, 'TMUX_TMPDIR alone');
   assert.equal(flags("const args = ['kill-server']; execFileSync(T, args);"), 1, 'an array in a variable');
-  assert.equal(flags("execFileSync(T, ['capture-pane', '-p', '-S', '-50', ';', 'kill-server'])"), 1, "another command's -S");
-  assert.equal(flags("execFileSync(T, [...(sock ? ['-S', sock] : []), 'kill-server'])"), 1, 'a socket only sometimes there');
-  assert.equal(flags("spawnSync(T, ['-S'].concat(['kill-server']))"), 1, 'concat is not a listed wrapper');
-  assert.equal(flags("run(['-S', s, 'new'], ['kill-server'])"), 1, "an earlier argument's -S");
-  assert.equal(flags("execFileSync(T, ['-S', s, 'kill-serv'])"), 1, 'a shortened spelling');
+  assert.equal(flags("const c = 'kill-server'; execFileSync(T, [c]);"), 1, 'kill-server not in an array');
+  assert.equal(flags("execFileSync(T, ...tmuxArgs('-L', s, 'kill-server'))"), 1, 'kill-server in a call, not an array');
+  assert.equal(flags("execFileSync(T, ['capture-pane', '-p', '-L', 'x', ';', 'kill-server'])"), 1, 'an array that does not start with -L');
+  assert.equal(flags("execFileSync(T, [...(s ? ['-L', s] : []), 'kill-server'])"), 1, 'a socket only sometimes there');
+  assert.equal(flags("execFileSync(T, ['-L', 'default', 'kill-server'])"), 1, '-L default is the machine server');
+  assert.equal(flags("execFileSync(T, ['-L', 'DEFAULT', 'kill-server'])"), 1, '-L DEFAULT');
+  assert.equal(flags("execFileSync(T, ['-L', 'a', '-L', 'default', 'kill-server'])"), 1, 'a later -L default (tmux takes the last)');
+  assert.equal(flags("const n = 'default';\nexecFileSync(T, ['-L', n, 'kill-server'])"), 1, '-L default through a variable');
+  assert.equal(flags("const n = 'k1';\nexecFileSync(T, ['-L', n, 'kill-server']);\nfunction f() { const n = 'default'; }"), 0, 'the nearest declaration before it, not a later one');
+  assert.match(bareKills("execFileSync(T, ['-L', 'default', 'kill-server'])", 'x.js', () => null)[0].text, /machine's own server/, 'the refusal says the real reason');
+  assert.equal(flags("execFileSync(T, ['-L', s, 'kill-server'].slice(2))"), 1, 'a named array not used as it is');
+  assert.equal(flags("execFileSync(T, ['-L' && 'kill-server'])"), 1, "'-L' that is not a whole element");
+  assert.equal(flags("execFileSync(T, [['-L', s, 'kill-server'][2]])"), 1, 'an element picked out of a named array');
+  assert.equal(flags("execFileSync(T, ['x', ['-L', s, 'kill-server']])"), 1, 'a named array that is an element of another');
+  assert.equal(flags("execFileSync(T, ['-L', s, 'kill-serv'])"), 1, 'a shortened spelling');
   assert.equal(flags("execFileSync(T, ['kill-ser'])"), 1, 'the shortest spelling');
-  // Shape 2: a listed wrapper, checked at its definition.
+  assert.equal(flags("execFileSync(T, ['kill\\x2dserver'])"), 1, 'an \\x escape');
+  assert.equal(flags("execFileSync(T, ['kill\\u002dserver'])"), 1, 'a \\u escape');
+  assert.equal(flags("execFileSync(T, ['kill\\u{2d}server'])"), 1, 'a \\u{} escape');
+  // Shape 2: a listed wrapper, checked at every definition, reached from its own file or through its require.
   const sess = 'engine/sessionccd-6095.test.js';
   assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', sock, '-f', '/dev/null', ...a]);\ntm(['kill-server']);", sess), 0);
   assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', sock, ...a]);\ntm(['kill-server']);"), 1, 'an unlisted wrapper fails until it is listed');
-  assert.equal(flags("const tm = (a) => execFileSync(T, a, ['x']);\ntm(['kill-server']);", sess), 1, "a listed wrapper whose array does not start with -L");
-  assert.equal(flags("const tm = (a) => execFileSync(T, sock ? ['-S', sock, ...a] : a);\ntm(['kill-server']);", sess), 1, 'a listed wrapper with a conditional socket');
-  assert.equal(flags("const tm = (a) => capture(['x', '-S', '-200']) || execFileSync(T, a);\ntm(['kill-server']);", sess), 1, "a listed wrapper whose -S is another call's");
+  assert.equal(flags("const tm = (a) => execFileSync(T, a, ['x']);\ntm(['kill-server']);", sess), 1, 'a listed wrapper whose array does not start with -L');
+  assert.equal(flags("const tm = (a) => execFileSync(T, ['-S', sock, ...a]);\ntm(['kill-server']);", sess), 1, 'a listed wrapper on -S');
+  assert.equal(flags("const tm = (a) => execFileSync(T, s ? ['-L', s, ...a] : a);\ntm(['kill-server']);", sess), 1, 'a listed wrapper with a conditional socket');
+  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', 'default', ...a]);\ntm(['kill-server']);", sess), 1, 'a listed wrapper on -L default');
+  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\ntm(['-L', 'default', 'kill-server']);", sess), 1, 'a listed wrapper handed -L default');
+  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\nfunction f() { const tm = (a) => execFileSync(T, a, ['x']); tm(['kill-server']); }", sess), 1, 'every definition of a listed wrapper');
+  assert.equal(flags("const tm = (a) => execFileSync(T, a);\nconst o = ['-L', s];\ntm(['kill-server']);", sess), 1, "a wrapper does not take the next statement's array");
+  assert.equal(flags("function tm(a) { return execFileSync(T, a); }\nconst o = ['-L', s];\ntm(['kill-server']);", sess), 1, "a function wrapper ends at its body's '}'");
+  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\ntm = (a) => execFileSync(T, a);\ntm(['kill-server']);", sess), 1, 'a wrapper reassigned');
+  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\nconst o = { tm(a) { return execFileSync(T, a); } };\ntm(['kill-server']);", sess), 1, 'a method of the same name');
+  assert.equal(flags("tm(['kill-server']);", sess), 1, 'a listed wrapper defined nowhere in its file');
+  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\ntm(x || ['kill-server']);", sess), 1, 'an array that is not a direct argument');
+  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\ntm(['kill-server']);", 'engine/tmuxsignin.test.js'), 1, 'WRAPPERS is keyed by the calling file');
   const sig = 'engine/tmuxsignin.test.js';
   const good = "function runTmux(owner, socketName, args) {\n  const full = ['-L', socketName].concat(args);\n}";
   const via = "const sig = require('./tmuxsignin');\n";
@@ -368,121 +362,56 @@ test('#6857: the checker passes the three shapes and flags everything else (cont
   assert.equal(flags(via + "sig.runTmux('o', 'sock', ['kill-server'])", sig, fromFile(good)), 0, 'a wrapper in another file');
   assert.equal(flags(via + "sig.runTmux('o', 'sock', ['kill-server'])", sig, fromFile('function runTmux(o, s, a) { return run(a); }')), 1, 'that wrapper without its -L');
   assert.equal(flags(via + "sig.runTmux('o', 'sock', ['kill-server'])", sig), 1, 'that wrapper missing');
-  // Review 5.
   assert.equal(flags("const other = require('./elsewhere');\nother.runTmux('o', 'sock', ['kill-server'])", sig, fromFile(good)), 1, 'a listed name on an object not required from its file');
   assert.equal(flags("runTmux('o', 'sock', ['kill-server'])", sig, fromFile(good)), 1, 'a listed name called plain outside its own file');
-  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\nfunction f() { const tm = (a) => execFileSync(T, a, ['x']); tm(['kill-server']); }", sess), 1, 'every definition of a listed wrapper');
-  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', 'default', ...a]);\ntm(['kill-server']);", sess), 1, 'a listed wrapper on -L default');
-  assert.equal(flags("execFileSync(T, ['-L', 'default', 'kill-server'])"), 1, '-L default is the machine server');
-  assert.equal(flags("execSync('tmux -L default kill-server')"), 1, '-L default in a command string');
-  assert.equal(flags("execFileSync(T, ['-S', s, 'kill-server'].slice(2))"), 1, 'a named array not used as it is');
-  assert.equal(flags("execFileSync(T, ['-S' && 'kill-server'])"), 1, "'-S' that is not a whole element");
-  assert.equal(flags("execFileSync(T, [['-S', s, 'kill-server'][2]])"), 1, 'an element picked out of a named array');
-  assert.equal(flags("execSync('tmux\\x20kill-server;\\x20tmux -L a kill-server')"), 1, 'an escape in a command string');
-  assert.equal(flags("const c = 'kill-server'; execFileSync(T, [c]);"), 1, 'kill-server not in an array');
-  assert.equal(flags("execFileSync(T, ['-S', f(fs.mkdtempSync(p), [b]), 'kill-server'])"), 0, 'brackets inside an element do not move its holder');
-  assert.equal(flags("execFileSync(T, ['x', ['-S', s, 'kill-server']])"), 1, 'a named array that is an element of another is not used as it is');
-  assert.equal(flags("execFileSync(T, ['-S', s, '\\', ['kill-server']'])"), 0, 'an escaped quote inside a string does not end it');
-  assert.equal(flags("const r = /[/']/; execFileSync(T, ['kill-server']);"), 1, 'a quote in a regex class opens no string');
-  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\ntm(['kill-server']);", 'engine/tmuxsignin.test.js'), 1, 'WRAPPERS is keyed by the calling file');
-  // Review 6.
-  assert.equal(flags("const tm = (a) => execFileSync(T, a);\nconst o = ['-L', s];\ntm(['kill-server']);", sess), 1, "a wrapper does not take the next statement's array");
-  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\ntm = (a) => execFileSync(T, a);\ntm(['kill-server']);", sess), 1, 'a wrapper reassigned');
-  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\nconst o = { tm(a) { return execFileSync(T, a); } };\ntm(['kill-server']);", sess), 1, 'a method of the same name');
-  assert.equal(flags("const sig = require('./tmuxsignin');\nfunction f() { sig = require('./other'); }\nsig.runTmux('o', 's', ['kill-server'])", sig, fromFile(good)), 1, 'the object required again from elsewhere');
-  assert.equal(flags("execFileSync(T, ['-L', 'a', '-L', 'default', 'kill-server'])"), 1, 'a later -L default');
-  assert.equal(flags("execFileSync(T, ['-L', 'DEFAULT', 'kill-server'])"), 1, '-L DEFAULT');
-  assert.equal(flags("execFileSync(T, ['kill\\x2dserver'])"), 1, 'an escaped name');
-  // Review 7.
-  assert.equal(flags("tm(['-L', 'default', 'kill-server'])", sess, null), 1, 'a listed wrapper handed -L default');
-  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', sock, ...a]);\ntm(['-L', 'default', 'kill-server']);", sess), 1, 'the same, with the wrapper defined');
-  assert.equal(flags("execFileSync(T, ['-S', '/tmp/tmux-501/default', 'kill-server'])"), 1, "-S the machine's own socket path");
-  assert.equal(flags("execFileSync(T, ['-S', '/private/tmp/tmux-501/default', 'kill-server'])"), 1, 'the same under /private');
-  assert.equal(flags("execFileSync(T, ['-S', '/tmp/k5112f-x/tmux-501/default', 'kill-server'])"), 1, 'a fixed path, even a private one: make the folder with mkdtemp');
-  assert.equal(flags("execSync('tmux -S /tmp/tmux-501/default kill-server')"), 1, "the machine's socket path in a command string");
-  assert.equal(flags("function tm(a) { return execFileSync(T, a); }\nconst o = ['-L', s];\ntm(['kill-server']);", sess), 1, "a function wrapper ends at its body's '}'");
-  assert.equal(flags("const sig = require('./tmuxsignin');\nsig = makeFake();\nsig.runTmux('o', 's', ['kill-server'])", sig, fromFile(good)), 1, 'the object reassigned to something that is not a require');
-  assert.equal(flags("tm(['kill-server']);", sess), 1, 'a listed wrapper defined nowhere in its file');
-  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', sock, ...a]);\ntm(x || ['kill-server']);", sess), 1, 'an array that is not a direct argument');
-  assert.equal(flags("execFileSync(T, ['kill\\u002dserver'])"), 1, 'a \\u escape');
-  assert.equal(flags("execFileSync(T, ['kill\\u{2d}server'])"), 1, 'a \\u{} escape');
-  // Review 8.
-  assert.equal(flags("execFileSync(T, ['-S', path.join(process.env.TMUX_TMPDIR || '/tmp', 'tmux-' + uid, 'default'), 'kill-server'])"), 1, "status.js's idiom: the machine's server when TMUX_TMPDIR is unset");
-  assert.equal(flags("execFileSync(T, ['-S', '/tmp/tmux-' + uid + '/default', 'kill-server'])"), 1, "the machine's path built by +");
-  assert.equal(flags("execFileSync(T, ['-S', `/tmp/tmux-${uid}/default`, 'kill-server'])"), 1, "the machine's path in a template");
-  assert.equal(flags("execFileSync(T, ['-S', path.join('/tmp', 'tmux-' + uid, 'default'), 'kill-server'])"), 1, "the machine's folder by path.join");
-  assert.equal(flags("const dir = fs.mkdtempSync('/tmp/x-');\nexecFileSync(T, ['-S', path.join(dir, 'tmux-' + uid, 'default'), 'kill-server'])"), 0, 'a folder of its own, built the same way');
-  assert.equal(flags("/* a comment\n   over ['kill-server'] lines */\nexecFileSync(T, ['kill-server']);"), 1, 'a block comment over several lines ends where it ends');
-  assert.deepEqual(bareKills("const r = /abc\nexecFileSync(T, ['kill-server']);", 'x.js', () => null).map((k) => k.line), [2], 'a regex cut short by a new line keeps the line count');
-  assert.equal(flags("execFileSync(T, ['-S', '/TMP/TMUX-501/DEFAULT', 'kill-server'])"), 1, 'the machine path in any case');
-  assert.equal(flags("execSync('  tmux -L k1 kill-server  ')"), 0, 'spaces around one command');
-  // Review 9.
-  assert.equal(flags("const sock = path.join(process.env.TMUX_TMPDIR || '/tmp', 'tmux-' + uid, 'default');\nexecFileSync(T, ['-S', sock, 'kill-server']);"), 1, "status.js's builder in a variable");
-  assert.equal(flags("const dir = process.env.TMUX_TMPDIR || '/tmp';\nconst sock = path.join(dir, 'tmux-' + uid, 'default');\nexecFileSync(T, ['-S', sock, 'kill-server']);"), 1, 'two variables away');
-  assert.equal(flags("const sock = path.join(os.tmpdir(), 'tmux-' + uid, 'default');\nexecFileSync(T, ['-S', sock, 'kill-server']);"), 1, 'os.tmpdir() with no mkdtemp');
-  assert.equal(flags("const d = fs.mkdtempSync(path.join(os.tmpdir(), 'lc-'));\nexecFileSync(T, ['-S', path.join(d, 'tmux-' + uid, 'default'), 'kill-server']);"), 0, "live-connect's form: a mkdtemp folder");
-  assert.equal(flags("const fleetDir = fs.mkdtempSync('/tmp/k5112f-');\nconst fleetSock = path.join(fleetDir, 'tmux-' + uid, 'default');\nrun(base, ['-S', fleetSock, 'kill-server']);"), 0, "sandbox's form: a mkdtemp folder two variables away");
-  assert.equal(flags("execFileSync(T, ['-S', path.join('/tmp', 'kosmos-' + pid, 'sock'), 'kill-server'])"), 1, 'a fixed folder under /tmp is not made by mkdtemp');
-  assert.equal(flags("const env = { TMUX_TMPDIR: fs.mkdtempSync('/tmp/e-') };\nexecFileSync(T, ['-S', path.join(env.TMUX_TMPDIR, 'tmux-' + uid, 'default'), 'kill-server'])"), 0, 'a local env object built from mkdtemp');
-  assert.equal(flags("execFileSync(T, ['-S', path.join(process.env.TMUX_TMPDIR || os.tmpdir(), 'tmux-' + uid, 'default'), 'kill-server'])"), 1, 'process.env.TMUX_TMPDIR with no /tmp in sight');
-  assert.equal(flags("const n = 'default';\nexecFileSync(T, ['-L', n, 'kill-server'])"), 1, '-L default through a variable');
-  assert.match(bareKills("execFileSync(T, ['-L', 'default', 'kill-server'])", 'x.js', () => null)[0].text, /machine's own server/, 'the refusal says the real reason');
-  assert.equal(flags("execSync('tmux -S /private/tmp/tmux-501/default kill-server')"), 1, "the machine's path under /private in a command string");
-  assert.equal(flags("execFileSync(T, ...tmuxArgs('-S', s, 'kill-server'))"), 1, 'kill-server in a call, not an array');
-  assert.equal(flags("const sig = require('./tmuxsignin');\nsig = makeFake('./tmuxsignin');\nsig.runTmux('o', 's', ['kill-server'])", sig, fromFile(good)), 1, 'reassigned by a call that is not require');
+  assert.equal(flags(via + "function f() { sig = require('./other'); }\nsig.runTmux('o', 's', ['kill-server'])", sig, fromFile(good)), 1, 'the object required again from elsewhere');
+  assert.equal(flags(via + "sig = makeFake('./tmuxsignin');\nsig.runTmux('o', 's', ['kill-server'])", sig, fromFile(good)), 1, 'reassigned by a call that is not require');
   assert.equal(flags("function f(sig) { sig.runTmux('o', 's', ['kill-server']); }", sig, fromFile(good)), 1, 'an object never required in the file');
-  assert.equal(flags("const s = require('./sessionccd-6095.test');\ns.tm(['kill-server'])", sig, (r) => null), 1, "a wrapper listed for another calling file");
-  assert.equal(flags("const h = total / 2; execFileSync(T, ['kill-server']); const q = a / b;"), 1, 'a / after a name divides');
-  // Review 10: -S must be built from a mkdtemp folder, through the NEAREST declaration of each variable.
-  assert.equal(flags("const sock = process.env.TMUX.split(',')[0];\nexecFileSync(T, ['-S', sock, 'kill-server']);"), 1, "$TMUX inside an agent's pane is the machine's server");
-  assert.equal(flags("test('a', () => { const dir = process.env.TMUX_TMPDIR || '/tmp'; });\ntest('b', () => { const dir = fs.mkdtempSync('/tmp/b-'); execFileSync(T, ['-S', path.join(dir, 'tmux-' + uid, 'default'), 'kill-server']); });"), 0, "another test's same-named variable does not condemn this one");
-  assert.equal(flags("test('a', () => { const root = fs.mkdtempSync('/tmp/a-'); });\ntest('b', () => { const root = os.tmpdir(); execFileSync(T, ['-S', path.join(root, 'tmux-' + uid, 'default'), 'kill-server']); });"), 1, "another test's mkdtemp does not vouch for this one");
-  assert.equal(flags("const a = fs.mkdtempSync('/tmp/a-');\nconst b = path.join(a, 'x');\nconst c = path.join(b, 'tmux-' + uid);\nexecFileSync(T, ['-S', path.join(c, 'default'), 'kill-server']);"), 0, 'three variables deep');
-  assert.equal(flags("const a = fs.mkdtempSync('/tmp/a-');\nconst b = path.join(a, 'x');\nconst c = path.join(b, 'y');\nconst d = path.join(c, 'tmux-' + uid);\nexecFileSync(T, ['-S', path.join(d, 'default'), 'kill-server']);"), 1, 'four deep is past the trace: refused');
-  assert.equal(flags("const d = fs.mkdtempSync('/tmp/d-');\nprocess.env.TMUX_TMPDIR = d;\nexecFileSync(T, ['-S', path.join(process.env.TMUX_TMPDIR, 'tmux-' + uid, 'default'), 'kill-server']);"), 1, 'read back from process.env: refused, use d');
-  assert.equal(flags("const n = 'k1';\nexecFileSync(T, ['-L', n, 'kill-server']);\nfunction f() { const n = 'default'; }"), 0, "-L through the nearest declaration before it, not a later one");
-  assert.equal(flags("const n = 'k1';\nfunction f() { const n = 'default'; }\nexecFileSync(T, ['-L', n, 'kill-server'])"), 1, 'position, not scope: a nearer one in a closed block is read (stated limit, fails safe)');
-  assert.equal(flags("const p = fs.mkdtempSync('/tmp/p-'), sock = '/tmp/tmux-501/default';\nexecFileSync(T, ['-S', sock, 'kill-server']);"), 1, 'a second declarator ends at its own comma');
-  assert.equal(flags("const sock = obj.mkdtempSync;\nexecFileSync(T, ['-S', sock, 'kill-server']);"), 0, 'a property named mkdtempSync is read as mkdtemp (stated limit: a name, not a call)');
-  // Shape 3: one whole command in a string.
+  // Shape 3: one whole -L command in a string.
   assert.equal(flags("execSync('tmux -L k1 kill-server')"), 0);
-  assert.equal(flags('execSync(`${T} -S ${sock} kill-server`)'), 0);
+  assert.equal(flags('execSync(`${T} -L ${name} kill-server`)'), 0);
   assert.equal(flags("assert.deepEqual(r, ['-L sock kill-server'])"), 0, 'an expected value');
+  assert.equal(flags("execSync('  tmux -L k1 kill-server  ')"), 0, 'spaces around one command');
+  assert.equal(flags('execSync(`tmux -S ${sock} kill-server`)'), 1, 'an -S command string: use the helper');
   assert.equal(flags("execSync('tmux kill-server')"), 1, 'a command string');
   assert.equal(flags('execSync(`${T} kill-server`)'), 1, 'a template');
-  assert.equal(flags("execSync('tmux -L a kill-server; tmux kill-server')"), 1, 'two commands');
-  assert.equal(flags("execSync('tmux -L a new\\ntmux kill-server')"), 1, 'two commands over an escaped new line');
-  assert.equal(flags("execSync('tmux -L a new & tmux kill-server')"), 1, 'two commands joined by &');
-  assert.equal(flags("execSync('tmux -L a;tmux kill-server')"), 1, 'an operator with no spaces');
-  assert.equal(flags("execSync('tmux -S x&&tmux kill-server')"), 1, '&& with no spaces');
-  assert.equal(flags("execSync('tmux -L a|tmux kill-server')"), 1, '| with no spaces');
-  assert.equal(flags('execSync(`tmux -S ${sock};tmux kill-server`)'), 1, 'a template with an operator');
-  assert.equal(flags("execSync('tmux -L \"default\" kill-server')"), 1, '-L "default", quoted');
+  assert.equal(flags("execSync('tmux -L default kill-server')"), 1, '-L default in a command string');
   assert.equal(flags("execSync('tmux -L Default kill-server')"), 1, '-L Default');
+  assert.equal(flags("execSync('tmux -L \"default\" kill-server')"), 1, '-L "default", quoted');
+  assert.equal(flags("execSync('tmux -L a kill-server; tmux kill-server')"), 1, 'two commands');
+  assert.equal(flags("execSync('tmux -L a;tmux kill-server')"), 1, 'an operator with no spaces');
+  assert.equal(flags("execSync('tmux -L a|tmux kill-server')"), 1, '| with no spaces');
+  assert.equal(flags("execSync('tmux -L a new\\ntmux kill-server')"), 1, 'two commands over an escaped new line');
+  assert.equal(flags("execSync('tmux\\x20kill-server;\\x20tmux -L a kill-server')"), 1, 'an escape in a command string');
   // Reading code as code.
   assert.equal(flags("// never a bare 'kill-server' here\n/* nor ['kill-server'] */"), 0, 'a comment is not a call');
+  assert.equal(flags("/* a comment\n   over ['kill-server'] lines */\nexecFileSync(T, ['kill-server']);"), 1, 'a block comment over several lines ends where it ends');
   assert.equal(flags("glob('engine/*.test.js'); execFileSync(T, ['kill-server']); /* end */"), 1, 'a /* inside a string opens no comment');
   assert.equal(flags("const r = x.replace(/\\/*$/, ''); execFileSync(T, ['kill-server']); /* end */"), 1, 'a /* inside a regex opens no comment');
   assert.equal(flags("const u = 'http: //h'; execFileSync(T, ['kill-server']);"), 1, 'a // inside a string opens no comment');
   assert.equal(flags("let n = 1; n++ / 2; execFileSync(T, ['kill-server']);"), 1, 'n++ / 2 is a division, not a regex');
+  assert.equal(flags("const h = total / 2; execFileSync(T, ['kill-server']); const q = a / b;"), 1, 'a / after a name divides');
+  assert.equal(flags("const r = /[/']/; execFileSync(T, ['kill-server']);"), 1, 'a quote in a regex class opens no string');
+  assert.equal(flags("execFileSync(T, ['-L', s, '\\', ['kill-server']'])"), 0, 'an escaped quote inside a string does not end it');
   assert.equal(flags('const s = `${x.replace(/[`]/g, "")}`; execFileSync(T, [\'kill-server\']);'), 1, 'a backtick in a regex inside ${} opens no template');
   assert.deepEqual(bareKills("#!/usr/bin/env node\nconst a = /x/;\n\nexecFileSync(T, ['kill-server']);", 'x.js', () => null).map((k) => k.line), [4], 'line numbers hold after a hashbang');
+  assert.deepEqual(bareKills("const r = /abc\nexecFileSync(T, ['kill-server']);", 'x.js', () => null).map((k) => k.line), [2], 'a regex cut short by a new line keeps the line count');
 });
 
 /* Every file that holds a real kill-server today, and how many. The scan must reach each with at least that many, so
    a walk or a lexer that stops seeing code fails here instead of passing clean. */
 const EXPECTED = {
-  'docs/browser-checks/live-connect.js': 1,
-  'engine/last-look.test.js': 1,
-  'engine/sandbox.test.js': 2,
+  [HELPER]: 1,
   'engine/agysignin.test.js': 1,
   'engine/musesignin.test.js': 1,
   'engine/sessionccd-6095.test.js': 1,
   'engine/tmuxsignin.test.js': 1,
   'supervisor.provider-key-inject-3296.test.js': 1,
 };
+/* The three places that end a private server by its path, and must keep doing it through the helper. */
+const HELPER_USERS = ['docs/browser-checks/live-connect.js', 'engine/last-look.test.js', 'engine/sandbox.test.js'];
 
-test('#6857: no kill-server in the repo\'s JavaScript runs without -S or -L', () => {
+test('#6857: no kill-server in the repo\'s JavaScript can reach the machine\'s own server', () => {
   const read = (rel) => { try { return fs.readFileSync(path.join(ROOT, rel), 'utf8'); } catch { return null; } };
   const bad = [];
   const reached = {};
@@ -499,5 +428,6 @@ test('#6857: no kill-server in the repo\'s JavaScript runs without -S or -L', ()
     assert.ok((reached[rel] || 0) >= n, rel + ': the scan saw ' + (reached[rel] || 0) + ' kill-server calls, expected ' + n + '; it is not reading that file');
   }
   for (const rel of Object.keys(WRAPPERS)) assert.ok(fs.existsSync(path.join(ROOT, rel)), rel + ' is gone: update WRAPPERS here');
-  assert.deepEqual(bad, [], 'kill-server with no -S or -L (name the socket, kosmos#6857):\n' + bad.join('\n'));
+  for (const rel of HELPER_USERS) assert.match(read(rel) || '', /killServerAt\(/, rel + ' no longer ends its server through killServerAt');
+  assert.deepEqual(bad, [], 'a kill-server that can reach the machine\'s own server (kosmos#6857):\n' + bad.join('\n'));
 });

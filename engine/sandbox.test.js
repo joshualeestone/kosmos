@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { killServerAt } = require('../test-support/tmux-kill');
 const { audit, sentence } = require('./sandbox');
 
 const clean = (over) => Object.assign({}, over);
@@ -111,9 +112,10 @@ test('#5112: with $TMUX dropped, tmux answers from the TMUX_TMPDIR server, not t
   const base = { PATH: path.dirname(tmux) + ':/usr/bin:/bin', HOME: os.homedir(), LANG: 'en_US.UTF-8' };
   const run = (env, args) => spawnSync(tmux, args, { env, encoding: 'utf8', timeout: 10000 });
   t.after(() => {
-    // kosmos#6857: each socket by name, so a folder gone missing cannot send kill-server to the machine's own server.
-    run(base, ['-S', fleetSock, 'kill-server']);
-    run(base, ['-S', path.join(sandDir, 'tmux-' + uid, 'default'), 'kill-server']);
+    // kosmos#6857: each by its socket's path, through the one helper, so a folder gone missing cannot reach the machine's server.
+    for (const sock of [fleetSock, path.join(sandDir, 'tmux-' + uid, 'default')]) {
+      try { killServerAt(tmux, sock, { env: base, stdio: 'ignore', timeout: 10000 }); } catch { /* already gone */ }
+    }
     fs.rmSync(fleetDir, { recursive: true, force: true });
     fs.rmSync(sandDir, { recursive: true, force: true });
   });
