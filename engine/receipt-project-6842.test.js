@@ -67,6 +67,17 @@ test('a pull request worked on in two tasks is listed once with both tasks; one 
   assert.equal(r.prsMore, 4, 'what each agent counted but did not name is carried as a count');
 });
 
+test('an agent whose receipt has no prs is counted as unknown, not as none', async () => {
+  const id = project([closedTask(1, '11:00'), closedTask(2, '12:00')]);
+  const receiptOf = async (pid, task) => ({ agents: [
+    task.number === 1 ? { who: 'a', available: true, models: {}, prs: [], prsMore: 0 } : { who: 'b', available: true, models: {} },
+    { who: 'c', available: false },
+  ] });
+  const r = await receipt.forProject(id, { now: ms('15:00'), receiptOf });
+  assert.equal(r.prsUnknown, 1, 'only the readable agent with no prs field; an empty list is a measured none');
+  assert.deepEqual(r.prs, []);
+});
+
 test('what could not be read is counted as such, never folded into the total', async (t) => {
   t.mock.method(console, 'error', () => {});
   const id = project([closedTask(1, '11:00'), closedTask(2, '12:00'), closedTask(3, '13:00')]);

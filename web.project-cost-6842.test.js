@@ -67,3 +67,10 @@ test('the pull requests the tasks worked on, at most 20 named and the rest count
   assert.doesNotMatch(bad, /<a |<b>x/);
   assert.equal(B.pjsCostParts(ok()).prs, '', 'no line when there are none');
 });
+
+test('pull requests that were never recorded read as unknown, not none', () => {
+  assert.match(text(B.pjsCostParts(ok({ prsUnknown: 1 })).prs), /^1 part of the work does not record pull requests, so there may be more\.$/);
+  const both = text(B.pjsCostParts(ok({ prsUnknown: 3, prs: [{ repo: 'acme/app', number: 4, url: 'https://github.com/acme/app/pull/4' }] })).prs);
+  assert.match(both, /^Worked on pull request app#4 .*\. 3 parts of the work do not record pull requests, so there may be more\.$/);
+  assert.equal(B.pjsCostParts(ok({ prsUnknown: 0 })).prs, '', 'control: none unknown, no line');
+});

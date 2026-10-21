@@ -7,6 +7,9 @@ Stacked on prreceipt-6842 (slice 1). Opens as a PR only after slice 1 merges (re
   project's newest 50 closed tasks, using forTask (the same receipts the task pages show). PRs once each with their
   task numbers; each agent's own prsMore carried as a count. Left out, and said: notCounted (older tasks), unread
   (agent not readable), partial (receipt read in part), failed (forTask threw).
+  prsUnknown: agents whose receipt has no `prs` (kept at version 2 before slice 1, or not a Claude agent); the page
+  says those parts do not record pull requests, so a total never reads "none" where the truth is "unknown" (raised by
+  slice 1's iteration 9 review).
 - GET /api/project/:id/receipts: refused to an agent's token (403), 404 no project, 400 bad name, 500 otherwise.
 - Project settings: a field "What its finished tasks cost": one line (tasks, tokens, cost at API prices from the
   page's one price table, then what was left out), and the PR line reusing tkReceiptPrsHtml (20 named, rest counted).
@@ -23,5 +26,6 @@ Stacked on prreceipt-6842 (slice 1). Opens as a PR only after slice 1 merges (re
 - engine/receipt-project-6842.test.js (6, incl. one through the real forTask and a real transcript); mutants caught:
   no newest-first order, no PR merging.
 - server.receipt-5153.test.js: the route (empty, one closed task, 403, 404, 400).
-- web.project-cost-6842.test.js (4); mutant caught: the could-not-be-read caveat dropped.
+- web.project-cost-6842.test.js (5); mutants caught: the could-not-be-read caveat dropped; the unknown-PRs line dropped.
+- engine prsUnknown test; mutant caught: not counting an agent with no prs.
 - Settings-related web tests (5 files) pass.

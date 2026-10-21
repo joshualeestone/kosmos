@@ -547,7 +547,8 @@ async function forAgent(who, { limit = 10, now = Date.now(), receiptOf = forTask
  * agent that held a part, the tasks counted and the pull requests they worked on (each once, with the tasks that list
  * it). The newest `limit` closed tasks are counted (a receipt not yet kept reads transcripts); `notCounted` says how many
  * older ones were left out. An agent whose work could not be read (no folder, a provider with no receipt) is counted in
- * `unread`, and a receipt read only in part in `partial`, so the total never reads as more complete than it is. Each
+ * `unread`, and a receipt read only in part in `partial`, so the total never reads as more complete than it is. An agent
+ * whose receipt has no `prs` is counted in `prsUnknown`, so its pull requests read as unknown rather than none. Each
  * task's receipt is the one its task page shows (forTask), so the two never disagree.
  */
 async function forProject(projectId, { limit = 50, now = Date.now(), receiptOf = forTask } = {}) {   // receiptOf: a test seam
@@ -578,6 +579,7 @@ async function forProject(projectId, { limit = 50, now = Date.now(), receiptOf =
   let partial = 0;
   let failed = 0;
   let prsMore = 0;   // beyond an agent's own shown list: counted, not named
+  let prsUnknown = 0;   // agents whose receipt has no `prs` (kept before #6842, or not a Claude agent): unknown, not none
   receipts.forEach((r, i) => {
     const number = picked[i].task.number;
     if (!r || !Array.isArray(r.agents)) { failed += 1; return; }
@@ -591,6 +593,7 @@ async function forProject(projectId, { limit = 50, now = Date.now(), receiptOf =
         for (const f of BUCKET_FIELDS) into[f] += Number(b[f]) || 0;
         into.rows += Number(b.rows) || 0;
       }
+      if (!Array.isArray(a.prs)) prsUnknown += 1;
       prsMore += Number(a.prsMore) || 0;
       for (const p of Array.isArray(a.prs) ? a.prs : []) {
         if (!p || typeof p !== 'object' || !Number.isFinite(Number(p.number))) continue;
@@ -602,7 +605,7 @@ async function forProject(projectId, { limit = 50, now = Date.now(), receiptOf =
     }
   });
   return { ok: true, tasks: picked.length - failed, notCounted: closed.length - picked.length, failed, unread, partial,
-    models, prs: [...prs.values()], prsMore };
+    models, prs: [...prs.values()], prsMore, prsUnknown };
 }
 
 module.exports = { forAgent, forTask, forProject, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION,

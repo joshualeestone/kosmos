@@ -68947,7 +68947,12 @@ function pjsCostParts(r) {
   if (unread) line += ' Some of the work could not be read, so the real cost is higher.';
   const prs = Array.isArray(r.prs) ? r.prs.filter((p) => p && typeof p === 'object') : [];
   const prsMore = Math.max(0, prs.length - PJS_COST_PRS_SHOWN) + (Number(r.prsMore) || 0);
-  return { line, prs: tkReceiptPrsHtml({ prs: prs.slice(0, PJS_COST_PRS_SHOWN), prsMore }) };
+  const unknown = Number(r.prsUnknown) || 0;
+  const unknownLine = unknown
+    ? '<p class="tkr-line tkr-muted">' + (unknown === 1 ? '1 part of the work does' : usageNum(unknown) + ' parts of the work do')
+      + ' not record pull requests, so there may be more.</p>'
+    : '';
+  return { line, prs: tkReceiptPrsHtml({ prs: prs.slice(0, PJS_COST_PRS_SHOWN), prsMore }) + unknownLine };
 }
 let PJS_COST_ASK = 0;
 async function pjsLoadCost(p) {
