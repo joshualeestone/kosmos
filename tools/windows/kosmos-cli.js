@@ -567,10 +567,36 @@ async function verbMsg(ctx, args) {
   return 1;
 }
 
+/* #6726: the second usage line install/kosmos prints for reply, word for word (cli.reply-file-6726 pins both). */
+const USAGE_REPLY_FILE = '       kosmos reply --file <path> ["what it is"]   (attach one file from your Files folder, or from inside a project you are on, up to 100 MB: they download it from your conversation)';
+const USAGE_REPLY_FILE_NEEDS_PATH = '--file needs the path of the file to attach, so nothing was sent: kosmos reply --file <path> "what it is"';
 async function verbReply(ctx, args) {
   /* #4582: --stdin (leading) reads the reply from standard input, as msg and post do (#2909), via
      the shared readPipedMessage; every failure after the read keeps the piped reply in a private
      file, since it may have no other copy. Parity with install/kosmos. */
+  /* #6726, as install/kosmos: --file <path> (or --file=<path>) attaches one of the agent's own files, as the
+     attachment a person's upload is. Taken out of the args before `--`, wherever it sits, so the rest parse as
+     before; past `--` it is words. The board decides which files may go (engine/replyfile.js); this only makes a
+     relative path absolute and refuses one it cannot send as written. */
+  let file = '';
+  {
+    const rest = [];
+    let past = false;
+    let got = false;
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (!past && a === '--') { past = true; rest.push(a); continue; }
+      if (past || !(a === '--file' || a.startsWith('--file='))) { rest.push(a); continue; }
+      if (got) { ctx.err('--file was given twice, so nothing was sent. Attach one file per reply.'); return 2; }
+      got = true;
+      if (a === '--file') { file = i + 1 < args.length ? args[++i] : ''; } else file = a.slice('--file='.length);
+      if (file === '' || file === '--' || /^--[A-Za-z]/.test(file)) { ctx.err(USAGE_REPLY_FILE_NEEDS_PATH); return 2; }
+      /* Review r1 finding 7 on install/kosmos: a control character cannot be sent as written. */
+      if (/[\u0000-\u001f\u007f]/.test(file)) { ctx.err('That file\'s path has a line break or another control character in it, so it cannot be attached. Rename the file, then send it again.'); return 2; }
+      file = path.resolve(file);
+    }
+    args = rest;
+  }
   const fromStdin = args[0] === '--stdin';
   if (fromStdin) args.shift();
   let text = args.join(' ');
@@ -582,9 +608,9 @@ async function verbReply(ctx, args) {
     if (got.code !== undefined) return got.code;
     text = got.text;
   }
-  if (!text) { ctx.err(USAGE.reply); return 2; }
+  if (!text && !file) { ctx.err(USAGE.reply); ctx.err(USAGE_REPLY_FILE); return 2; }
   const keepPiped = () => { if (fromStdin) keepPipedCopy(ctx, text); };
-  const body = { text, from_pane: '' };
+  const body = file ? { text, from_pane: '', file } : { text, from_pane: '' };
   /* The board drops a request body over its read limit, which would read as unreachable. */
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was kept: that reply is too large to send to the board at all. Send a summary, or split it.'); keepPiped(); return 2; }
   const r = await ctx.call('POST', '/api/reply', body);
@@ -595,13 +621,20 @@ async function verbReply(ctx, args) {
     return code;
   }
   if (ctx.wrongWorld(r)) {
+    /* #6726: a reply with a file is not kept for later: the file is read when it is sent, and it may change before then. */
+    if (file) { ctx.err('Not sent: your Kosmos is not the one open right now, and a reply with a file is not kept for later. Send it again once your Kosmos is open.'); keepPiped(); return 1; }
     let kept = 1;
     try { kept = ctx.keepForLater('reply', body); } catch (e) { ctx.err('This Kosmos could not keep that for later (' + String((e && e.message) || e) + ').'); }
     if (kept !== 0) keepPiped();
     return kept;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); keepPiped(); return 1; }   // #5333
-  if (r.json && r.json.kept === true) { ctx.out('Sent. It is in their conversation with you.'); return 0; }
+  if (r.json && r.json.kept === true) {
+    /* #6726: the name the board saved it under (a link's target's name), else the given one. */
+    if (file) { const named = typeof r.json.attached === 'string' && r.json.attached ? r.json.attached : path.basename(file); ctx.out('Sent, with ' + named + ' attached. It is in their conversation with you.'); return 0; }
+    ctx.out('Sent. It is in their conversation with you.');
+    return 0;
+  }
   ctx.err('That was not kept: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
   tokenRefusedHint(ctx, r);   // #5333: a refused reply is {kept:false, because}, not an error
   keepPiped();
@@ -2960,7 +2993,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, DESCRIBE, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
+module.exports = { main, argvFrom, DESCRIBE, USAGE_REPLY_FILE, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
   taskList, // #1307: the task list's rendering (the webhook mark), for cli.task-webhook-1307.test.js
 };
 
