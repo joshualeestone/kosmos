@@ -3147,8 +3147,6 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 /* `.acut` is retired: the pack dropped the rule AND the divs together, and a
    surviving rule would still draw a line under markup that no longer exists. */
 /* The role sits directly under the name as one unit (Josh's regroup). */
-/* #5957 slice 2: an offline card's far-behind note: small and muted, so the quieter offline card stays quiet. */
-.acard .arules { font-size: .75rem; color: var(--k-ink-2); line-height: 1.35; margin-top: 4px; }
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
 /* Josh, 2026-08-19: "a tiny bit more. Not crazy." One pixel is not a gap, it is
    the absence of one. Mona Lisa's spec (#184) is `--space-3`.
@@ -3160,7 +3158,6 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    heights still line their model up, and shrunk a long way — Josh: "very much
    smaller". This is the change that let the whole card get shorter. */
 .acard .amodel { font-size: .75rem; color: var(--k-ink-2); margin-top: auto; padding-top: 16px; }
-.acard .note { text-align: left; margin-top: 12px; }
 /* presence is NOT status: three states, and the third does not look like off */
 .pres { position: absolute; right: 6px; bottom: 6px; width: 14px; height: 14px;
         border-radius: 50%; border: 2.5px solid var(--k-surface); box-sizing: content-box; }
@@ -4092,7 +4089,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .ltask { font-size: .9375rem; color: var(--k-ink-2); overflow: hidden;
          text-overflow: ellipsis; white-space: nowrap; }
 /* #6045: a note in the task cell (rules behind, not run in N days) is the model column's size, not a task line's. */
-.ltask.lnote { font-size: .75rem; }
 .lmem { display: flex; align-items: center; gap: 10px; }
 .bar { flex: 1; height: 6px; border-radius: 100px; background: rgba(20,22,26,.10);
        overflow: hidden; display: block; }
@@ -21281,7 +21277,9 @@ const STATE_COPY = {
      merely throttled it. "Working" forever was the bug; "Paused" would be
      the wrong reassurance (it implies "will resume on its own"), so this
      gets its own label. */
-  auth_failed:  { label: "Sign-in isn't working", attn: true  },
+  /* #6716 (Josh, 2026-10-20: "lets shorten it to \"Sign-in Issue\""): the pill is a word, like the others; the sentence
+     is its hover and its page's. */
+  auth_failed:  { label: 'Sign-in Issue', attn: true  },
   /* #3410: a TRANSIENT network error (DNS/network blip) took the agent's
      connection to the API, distinct from auth_failed (the account is fine).
      An attention state, but a RECOVERABLE one: it is the kind of thing a retry
@@ -21327,7 +21325,7 @@ function stateReadOf(a) {
   return Object.prototype.hasOwnProperty.call(STATE_READ_SAY, r) ? r : '';
 }
 /* The attributes for a state pill: a title to hover and the mark the CSS draws. Empty for a fresh look. */
-/* `also`: another hover sentence for the same element (a rate-limited pill's, #6398), so the two share one title
+/* `also`: another hover sentence for the same element (the pill's own sentence, pillSay: #6398, every state since #6716), so the two share one title
    attribute rather than writing it twice. */
 function stateReadAttrs(a, also) {
   const r = stateReadOf(a);
@@ -21582,7 +21580,8 @@ function taskLine(a, opts) {
  * status), so today only `rate_limited`, `auth_failed` (#874) and
  * `connection_lost` (#3410) speak and every other state shows nothing rather
  * than a stale summary. (Since then also: a crash loop, a waiting count, a stuck
- * error, and on a CARD in a calm state, rules far behind (#5957); see stateReason.)
+ * error. Since #6716 a CARD carries none of these: each is its pill's hover and hidden text, through pillSay, which
+ * also adds the rules-far-behind note (#5957) for a calm card.)
  *
  * 🛑 `taskWords` IS GONE. It stripped the "Claude Code" default out of the
  * frozen title (#222) so a brand-new agent did not read as "doing Claude Code".
@@ -21608,8 +21607,8 @@ function waitingLine(w) {
   return base + ', yours ' + (yours === 1 ? 'is' : 'are') + ' next';
 }
 /* #5957 slice 2: the one sentence for an agent whose working rules are far behind (a.rulesBehind, from
-   engine/doctrine.js: a whole number only when its own page offers the update), or ''. Said by stateReason on a
-   running card and by the offline card and list row, which draw no task line of their own. */
+   engine/doctrine.js: a whole number only when its own page offers the update), or ''. Said by pillSay (the pill's hover and hidden text) on a card or list row since #6716, and by the agent's own page.
+   */
 function rulesBehindLine(a, offline) {
   if (!(a && Number.isSafeInteger(a.rulesBehind) && a.rulesBehind > 0)) return '';
   /* `offline`: the not-running card and row (no session in the roster), where the page's update is refused (it needs
@@ -21624,18 +21623,21 @@ function idleLine(a) {
   if (!(a && Number.isSafeInteger(a.idleDays) && a.idleDays > 0)) return '';
   return 'Has not run in ' + a.idleDays + ' days. If it is no longer needed, remove it under AI Settings on its page.';
 }
-/* #6045 (Josh, 0.7.45 review): the list row's task cell. When what it holds is one of the notes above (rules behind,
-   not run in N days), it is drawn at the model column's size (.lnote), not as a task line, and carries the whole note
-   as its title since the cell ends in an ellipsis. Any other text (a task, a state sentence) is unchanged. */
-function lrowTask(text, note) {
-  const isNote = !!text && text === note;
-  return '<div class="ltask' + (isNote ? ' lnote' : '') + '"' + (isNote ? ' title="' + esc(text) + '"' : '') + '>' + esc(text || '') + '</div>';
+/* The list row's task cell. #6716: no sentence sits in it any more (each is its pill's hover), so it holds a task line or
+   nothing; #6045's note styling (.lnote) went with the notes. */
+function lrowTask(text) {
+  return '<div class="ltask">' + esc(text || '') + '</div>';
 }
 /* The offline card and list row's one note: rules behind, then not run in N days, whichever apply. */
 function offlineNote(a) {
   return [rulesBehindLine(a, true), idleLine(a)].filter(Boolean).join(' ');
 }
 function stateReason(a, opts) {
+  /* #6716 (Josh, 2026-10-20: "i dont want to show these messages on these agent tiles"): a tile and a list row carry
+     no sentence. What it would say is the pill's hover and screen-reader text (pillSay) and stays on the agent's own
+     page, which calls this without `card`. (#6398 did this for a rate limit alone.) The tile keeps its .atask slot,
+     empty, so every tile stays one height. */
+  if (opts && opts.card === true) return '';
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
   /* #5154 slice A: Kosmos keeps restarting this agent and it keeps stopping within minutes (engine/crashloop.js).
@@ -21646,16 +21648,12 @@ function stateReason(a, opts) {
     const n = Number(a.crashLoop.count) || 3;
     return 'Kosmos has restarted it ' + n + ' times in the last half hour, and each time it stopped within a couple of minutes. Kosmos will keep trying. Open it to see what it shows.';
   }
-  /* #6398: a rate-limited agent's card and list row say only the pill ("Rate Limit"); the sentence (how long, what
-     to do) is the pill's hover and screen-reader text and stays on the agent's own page, which calls this without card.
-     Below the crash-loop arm: a crash-looping agent's pill reads "Keeps stopping", so it keeps its own sentence. */
-  if (a && a.state === 'rate_limited' && opts && opts.card === true) return '';
   /* #5154 slice C: the same terminal error has stood past its threshold (engine/stuckterminal.js), so the card
      names what is wrong and what to do. Placed before the plain auth_failed / rate_limited rules below so a
      STUCK agent gets this sharper sentence; a brief one still falls through to the ordinary state sentence.
      Plain words, consistent with the "Keeps stopping" card; Mona can refine later. DELIBERATE: slice C escalates
      the SENTENCE, the Issue-filter membership (agentNeedsAttention / needsPerson) and one phone push -- not the
-     card's look or pill. auth_failed and rate_limited already render attn:true pills ("Sign-in isn't working" /
+     card's look or pill. auth_failed and rate_limited already render attn:true pills ("Sign-in Issue" /
      "Rate Limit"), so a stuck card already reads as an issue; restyling cardStOf/stateCopyOf would recolour those
      paused states wholesale, which is out of this slice's scope. */
   if (a && a.stuckError && a.stuckError.stuck === true && a.state === a.stuckError.state) {   // state-match: never a stale sentence on a mid-sweep switch
@@ -21744,15 +21742,7 @@ function stateReason(a, opts) {
     if (it.cls === 'nudge') return 'Kosmos nudged this idle agent to pick up its open task and gave up about ' + mins + ' minutes ago. Open it to see what it shows, or message it.';
     if (it.cls === 'firstreply') return 'Kosmos reminded this agent to answer its first message and gave up about ' + mins + ' minutes ago. Open it to see what it shows, or message it.';
   }
-  /* #5957 slice 2: its working rules are far behind, and its own page offers the update (a.rulesBehind, from
-     engine/doctrine.js rulesBehind: a number only then). Only on a CARD (opts.card: the agent's own page has the
-     update note itself, and "Open it" makes no sense there) and only when it is idle or stopped: the update restarts
-     it, so a working agent is not pointed at it mid-task, and it is never in the slot a person reads
-     as what a needs-you, question or blocked agent is stuck on (#986/#2833), and never over a sign-in, connection or
-     usage problem. Last of the general reasons; plain words; the card's look is unchanged. */
-  if (a && opts && opts.card === true && (a.state === 'idle' || a.state === 'stopped') && rulesBehindLine(a)) {
-    return rulesBehindLine(a);
-  }
+  /* #5957 slice 2's rules-far-behind note for a calm card lives in pillSay since #6716 (no sentence on a tile). */
   if (!a || a.state !== 'rate_limited') return '';
   /* #4588: an Antigravity agent paused on its account's shared Google quota carries the reset, so the card says
      when the quota comes back. The reset, not a promise: the resume (engine/agyquota.js) can be switched off and
@@ -21831,8 +21821,18 @@ function asSentence(s) {
    card and the agent page still show it, so #150's words are unchanged. Recognised by modelLine's own answer for a
    never-recorded agent, so the sentence is written once, in modelLine. */
 function lmodelCell(a) {
-  const line = modelLine(a);
+  const line = tileModelLine(a);
   return line === modelLine({ neverRecorded: true }) ? '<span class="vh">' + esc(line) + '</span>' : esc(line);
+}
+/* #6716 (Josh: "I am not sure why it doesnt recognize Renet's model"): the TILE's and the list row's model line. Where
+   modelLine has nothing to name (it would say "Made before Kosmos recorded this" or "Unknown Model"), the model the
+   agent's EARLIER session ran (a new one that has not replied yet) is named instead. Only here: the model picker, the
+   agent page's Runs on and every other modelLine reader keep saying what the agent runs or is set to run (review 5). */
+function tileModelLine(a) {
+  const line = modelLine(a);
+  if (!a || !a.earlierModelName || a.modelName || a.plannedModelName) return line;
+  if (line !== 'Made before Kosmos recorded this' && line !== 'Unknown Model') return line;
+  return /^claude/i.test(a.earlierModelName) ? a.earlierModelName : 'Claude ' + a.earlierModelName;
 }
 function modelLine(a) {
   /* Provider-first ("Claude Opus 5"), guarded so a modelName that already
@@ -22429,28 +22429,28 @@ function answerAttrs(a) {
 function isAnswerable(a) {
   return !!(a && a.state === 'needs_you' && a.isNamedOurs && !(a.disruption && a.disruption.failed === true));
 }
-/* #6398: the pill reads Rate Limit (not, say, a crash loop's Keeps stopping, which outranks it). */
-function pillIsRateLimit(a) {
-  return !!(a && a.state === 'rate_limited' && stateCopyOf(a) === STATE_COPY.rate_limited);
-}
 /* #6400: the name button's accessible name. On an answerable card or row a press runs the answer route (answerAttrs),
    so it says so; the visible name is in it (SC 2.5.3). */
 function nameGoLabel(a) {
   return isAnswerable(a) ? 'Answer ' + a.name + '\u2019s question' : 'Open ' + a.name;
 }
-/* #6398: the rate-limit sentence for a screen reader, inside the pill's visually hidden text (a title is not read
-   reliably, and the list pill is aria-hidden). Nothing is drawn. */
-function rateLimitVh(a) {
-  if (!pillIsRateLimit(a)) return '';
-  const why = stateReason(a);
+/* #6716 (Josh, 2026-10-20: "i dont want to show these messages on these agent tiles"): a tile and a list row say only
+   the pill. The sentence that explains it is the pill's hover (a title) and its screen-reader text (a visually hidden
+   span: a title is not read reliably, and the list pill is aria-hidden), and the agent's own page still shows it in
+   full. #6398 did this for a rate limit alone; this is every state, plus the rules-behind note an idle or stopped
+   card used to carry (#5957). */
+/* The needs-trust card's sentence when the engine sent none; on the pill's hover like every other (#6716). */
+function needsTrustSay(a) {
+  return (a && a.because) || 'It started but has not registered, most likely waiting at a workspace-trust prompt no one can see.';
+}
+function pillSay(a) {
+  if (!a) return '';
+  return stateReason(a) || ((a.state === 'idle' || a.state === 'stopped') ? rulesBehindLine(a) : '');
+}
+function pillVh(why) {
   return why ? `<span class="vh">. ${esc(why)}</span>` : '';
 }
-/* #6398: the hover text of a rate-limited pill: the sentence its page shows (how long, what to do). */
-function rateLimitSay(a) {
-  return pillIsRateLimit(a) ? (stateReason(a) || '') : '';
-}
-function rateLimitTitle(a) {
-  const why = rateLimitSay(a);
+function pillTitle(why) {
   return why ? ` title="${esc(why)}"` : '';
 }
 
@@ -22726,8 +22726,7 @@ function card(a) {
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-      <div class="astate st-attn"><span class="haz" aria-hidden="true">!</span><b>${esc(STATE_COPY.needs_trust.label)}</b></div>
-      <div class="note">${esc(a.because || 'It started but has not registered -- most likely waiting at a workspace-trust prompt no one can see.')}</div>
+      <div class="astate st-attn"${pillTitle(needsTrustSay(a))}><span class="haz" aria-hidden="true">!</span><b>${esc(STATE_COPY.needs_trust.label)}</b>${pillVh(needsTrustSay(a))}</div>
     </div>`;
     }
     /* #668: the one offline row whose "Not running" would be a lie. The board
@@ -22746,8 +22745,7 @@ function card(a) {
       <span class="pres off" aria-hidden="true"></span>${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-    <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
-    ${!split && offlineNote(a) ? `<div class="arules">${esc(offlineNote(a))}</div>` : ''}
+    <div class="astate ${split ? 'st-unknown' : 'st-stopped'}"${split ? '' : pillTitle(offlineNote(a))}>${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b>${split ? '' : pillVh(offlineNote(a))}</div>
   </div>`;
   }
   /* ⚠️ THE PACK'S CARD (stage 3). Column order: gauge -> name -> state pill
@@ -22781,15 +22779,16 @@ function card(a) {
      badge below stays: it is a measured reading, absolutely positioned (so it
      never pushes the name), and guarded by server.test.js. */
   const badge = (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
+  const say = pillSay(a);   // #6716: once, so the pill's hover and its hidden text can never disagree
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
   return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${answerAttrs(a)}${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="${esc(nameGoLabel(a))}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-    <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, rateLimitSay(a)) : rateLimitTitle(a)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${rateLimitVh(a)}</div>
+    <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, say) : pillTitle(say)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${pillVh(say)}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
-    <div class="amodel">${esc(modelLine(a))}</div>
+    <div class="amodel">${esc(tileModelLine(a))}</div>
     <div class="atask">${esc(taskLine(a, { card: true }))}</div>
   </div>`;
 }
@@ -22946,8 +22945,8 @@ function lrow(a) {
       <div class="lav">${off}<span class="pres lpres off" aria-hidden="true"></span></div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-      <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
-      ${a.jobRunningUnseen === true ? '<div class="ltask"></div>' : lrowTask(offlineNote(a), offlineNote(a))}
+      <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}"${a.jobRunningUnseen === true ? '' : pillTitle(offlineNote(a))}>${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}${a.jobRunningUnseen === true ? '' : pillVh(offlineNote(a))}</div>
+      <div class="ltask"></div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
@@ -22968,6 +22967,7 @@ function lrow(a) {
      memUnknown's SENTENCE (never the word with a noun stuck on, which announced "Not yet read memory"), and the
      dash is aria-hidden so it adds nothing to the accessible name. The agent page keeps the word. */
   const memu = memUnknown(a.context);
+  const lsay = pillSay(a);   // #6716: once, so the pill's hover and its hidden text can never disagree
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">–</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
@@ -22991,8 +22991,8 @@ function lrow(a) {
          .lav above) still marks needs-you visually, and alsowork stays because
          it is an action, not status text (#6400: the Answer link went; the row itself answers). This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
-    <div class="lstate"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a) : ''}><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${rateLimitVh(a)}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${rateLimitTitle(a)}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
-    ${lrowTask(taskLine(a, { card: true }), rulesBehindLine(a, false))}
+    <div class="lstate"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a) : ''}><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${pillVh(lsay)}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${pillTitle(lsay)}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
+    ${lrowTask(taskLine(a, { card: true }))}
     <div class="lmodel">${lmodelCell(a)}</div>
     <div class="lmem">${mem}</div>
   </div>`;
@@ -38538,12 +38538,11 @@ function sortAgents(list, mode, projects) {
   };
   const cmp = mode === 'name' ? byName
     : mode === 'model' ? (a, b) => {
-      const aa = a.agent || {}, bb = b.agent || {};
-      const ak = (aa.runner === 'codex' || aa.runner === 'gemini' || aa.runner === 'grok' || aa.runner === 'antigravity' || aa.runner === 'muse'
-        || aa.modelName || aa.plannedModelName) ? text(modelLine(aa)) : null;
-      const bk = (bb.runner === 'codex' || bb.runner === 'gemini' || bb.runner === 'grok' || bb.runner === 'antigravity' || bb.runner === 'muse'
-        || bb.modelName || bb.plannedModelName) ? text(modelLine(bb)) : null;
-      return cmpText(ak, bk) || byName(a, b);
+      // #6716 review 9: the key is the model the tile and the row SHOW (tileModelLine), so a borrowed earlier-session
+      // model sorts with that model, not with the unnamed.
+      const key = (x) => ((x.runner === 'codex' || x.runner === 'gemini' || x.runner === 'grok' || x.runner === 'antigravity' || x.runner === 'muse'
+        || x.modelName || x.plannedModelName || x.earlierModelName) ? text(tileModelLine(x)) : null);
+      return cmpText(key(a.agent || {}), key(b.agent || {})) || byName(a, b);
     }
     : mode === 'needs' ? (a, b) => needsRank(a.agent) - needsRank(b.agent) || byName(a, b)
     : mode === 'project' ? (a, b) => cmpText(agentFirstProject(a.agent, projects), agentFirstProject(b.agent, projects)) || byName(a, b)
