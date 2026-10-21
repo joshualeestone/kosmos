@@ -44,6 +44,12 @@ if [ "$got" = "4.00" ]; then ok "seam: a saturating fake load caps at 4.00 ($got
 got="$(KOSMOS_FAKE_LOAD=0.01 kosmos_test_time_scale)"
 if [ "$got" = "1.00" ]; then ok "seam: a near-idle fake load floors at 1.00 ($got)"; else bad "seam: fake load 0.01 -> got '$got', want 1.00"; fi
 
+# #6799: the no-arg path takes cores from kosmos_cpu_count when it is defined (Linux has no hw.ncpu). Stubbed to 2
+# with a fake load of 2, the scale is 2*2/2 = 2.00; a core count read anywhere else (hw.ncpu, or the fallback 4)
+# gives 1.00 on any box with 4 or more cores.
+got="$(kosmos_cpu_count() { echo 2; }; KOSMOS_FAKE_LOAD=2 kosmos_test_time_scale)"
+if [ "$got" = "2.00" ]; then ok "no-arg cores come from kosmos_cpu_count ($got)"; else bad "no-arg cores: stubbed kosmos_cpu_count=2, load 2 -> got '$got', want 2.00"; fi
+
 # No-arg, live box: whatever it reads, the result is a %.2f in [1.00, 4.00].
 got="$(kosmos_test_time_scale)"
 case "$got" in
