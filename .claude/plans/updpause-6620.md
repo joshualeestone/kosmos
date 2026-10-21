@@ -40,8 +40,11 @@ board half. The release pointer freeze (step 1) is a separate PR.
 
 ## Disclosure
 
-A board with remote access off has never contacted the coordinator. Now, when it is about to install a newer version,
-it makes one unauthenticated GET to `/v1/meta`, carrying no identifier. The site's privacy page (another repo) may
+A board with remote access off has never contacted the coordinator (engine/remote.js, kosmos#4649: a board that
+never opted in makes no call to our servers). Now it makes one unauthenticated GET to `/v1/meta`, carrying no
+identifier, only when an install is about to happen: a look that finds a newer version with automatic updates on and
+an installed copy, or run-setup itself on a manual press. That is an exception to #4649, for a security step; a board
+with automatic updates off that is not being updated asks nothing. The site's privacy page (another repo) may
 want one line saying so: a follow-up there, not built here.
 
 ## Not in this PR
@@ -61,6 +64,9 @@ want one line saying so: a follow-up there, not built here.
   or the "only when newer" condition each turns one red.
 - Only a Kosmos that already carries this code can be paused. Older installs keep updating during a pause, which
   bounds this step's reach until the fleet has taken this release.
+
+- Review 3: exit 96 now means "could not be downloaded, or updates are paused", and the board and the .pkg
+  postinstall say both (the .pkg path retries a pause on its bounded budget, then says so).
 
 ## Not held today (decided, a follow-up card)
 

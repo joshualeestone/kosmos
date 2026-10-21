@@ -86,6 +86,18 @@ test('board: with nothing newer on offer, the pause is not asked at all', async 
   });
 });
 
+test('board: with automatic updates off, the coordinator is not asked (a manual press is held by run-setup)', async () => {
+  await withPauseUrl(base + '/v1/meta', async () => {
+    answer = { updates_paused: true };
+    const before = asked;
+    board('99.0.0');
+    update.setAutoPref(() => ({ on: false, ok: true }));
+    await update.refresh();
+    assert.equal(asked, before, 'a board with automatic updates off asked the coordinator');
+    clear();
+  });
+});
+
 test('over HTTP: both forms read a real answer, and neither follows a redirect', async () => {
   answer = { updates_paused: true };
   const env = { KOSMOS_UPDATE_PAUSE_URL: base + '/v1/meta' };

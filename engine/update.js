@@ -414,13 +414,18 @@ async function refresh() {
         const prod = await readProdAlongside(doFetch, lookBase, platform, ctl.signal);
         if (prod && newer(prod.version, latest.version)) { latest = prod; pointer = 'prod'; }
       }
+      const wasPaused = cache.paused === true;
       cache = { at: Date.now(), latest, reached: true, readable: latest !== null, base: lookBase, channel, pointer };
       landed = true;
-      // kosmos#6620: only with a newer version on offer, ask whether the fleet's updates are paused (fails open), so
-      // the board can say so (run-setup's own sentence reaches no board screen). Set on THIS look's cache only: a look
-      // that replaced it meanwhile keeps its own answer. A pause turned on or off shows by the next look (the TTL).
-      if (available()) {
+      // kosmos#6620: ask whether the fleet's updates are paused (fails open) only when an automatic install could
+      // follow this look (newer version, an installed copy, automatic updates on), so a board that would not install
+      // makes no call to the coordinator. A manual press is held by run-setup itself (exit 96). The last answer is
+      // carried while this one is asked; it lands on THIS look's cache only.
+      let autoOn = false;
+      try { autoOn = Boolean((autoPref() || {}).on); } catch { autoOn = false; }   // a preference that throws reads as off
+      if (autoOn && available() && installedRoot()) {
         const mine = cache;
+        mine.paused = wasPaused;
         const paused = await manifestVerify.pausedAsync({});
         if (cache === mine) cache.paused = paused;
       }
@@ -702,7 +707,7 @@ function readStatusRecord() {
   if (!s) return null;
   if (s.code === 0) return null;   // a success seeds nothing: success is the board coming back changed
   // #6468 ask 3: 97 is run-setup's "not run": the installer did not match its signed release (or could not be checked).
-  if (s.code === 96) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be downloaded, so nothing was installed. Try again in a few minutes', log: installLog() };
+  if (s.code === 96) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be downloaded, or updates are paused for now, so nothing was installed. Try again in a few minutes', log: installLog() };
   if (s.code === 97) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be checked against its signed release, so nothing was installed. Try again in a few minutes', log: installLog() };
   return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the installer stopped before it could restart the board', log: installLog() };
 }

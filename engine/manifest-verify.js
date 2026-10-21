@@ -230,7 +230,7 @@ async function pausedAsync({ env = process.env, fetchImpl = globalThis.fetch } =
 }
 
 /** The one sentence a held install says, on either platform. */
-const PAUSED_SENTENCE = 'updates are paused while Kosmos checks a problem with a release; this update waits and is tried again later';
+const PAUSED_SENTENCE = 'updates are paused while Kosmos checks a problem with a release, so this update waits until the pause is lifted';
 
 
 /* 🛑 A FROZEN INTERFACE. `run-setup <setup-url> <release-base> <version> <installed-home>` and its exit codes (0 or

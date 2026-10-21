@@ -243,7 +243,7 @@ else
         echo "Kosmos: the installer does not match its signed release, so it was NOT run and nothing was installed." >&2
         exit 97
       fi
-      echo "Kosmos: the installer or its signed release could not be downloaded, so nothing was installed. It is safe to try again shortly." >&2
+      echo "Kosmos: the installer or its signed release could not be downloaded, or updates are paused for now, so nothing was installed. It is safe to try again shortly." >&2
       exit 96
     fi
     _pin_sleep="${KOSMOS_PKG_RETRY_SLEEP:-3}"
@@ -419,7 +419,7 @@ fi
        fi
        [ "$src" -eq 96 ] || exit "$src"
        if [ "$n" -ge "$_rmax" ]; then
-         echo "Kosmos: the installer or its signed release could not be downloaded, so nothing was changed. It is safe to try again shortly." >&2
+         echo "Kosmos: the installer or its signed release could not be downloaded, or updates are paused for now, so nothing was changed. It is safe to try again shortly." >&2
          exit 96
        fi
        /bin/sleep "$_rsleep"

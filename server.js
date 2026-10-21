@@ -15600,7 +15600,7 @@ const server = http.createServer(async (req, res) => {
     const locationRefusal = updates.windowsLocationRefusal();
     if (locationRefusal) { sendJson(res, 409, { error: locationRefusal }); return; }
     // kosmos#6620: the fleet's update pause, after the platform and source refusals (theirs is the truer sentence).
-    if (updates.paused()) { sendJson(res, 409, { error: updates.PAUSED_SENTENCE.charAt(0).toUpperCase() + updates.PAUSED_SENTENCE.slice(1) + '.' }); return; }
+    if (!updates.alreadyInstalling() && updates.paused()) { sendJson(res, 409, { error: updates.PAUSED_SENTENCE.charAt(0).toUpperCase() + updates.PAUSED_SENTENCE.slice(1) + '.' }); return; }
     if (updates.alreadyInstalling()) {
       // Idempotent: the first POST started it; a retry, a double click, or a
       // second tab gets the same true answer without a second installer
