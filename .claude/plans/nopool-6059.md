@@ -62,3 +62,13 @@ there is nothing pooled left to reset, so a recurrence would disprove this premi
 - NIT, taken: setTimeout is an idle-socket timeout; the comment, error text and plan say so.
 - NITs, left: a response closing early with no error waits for the idle timeout (bounded); reusedSocket is a tripwire
   (already stated).
+
+## Challenge loop iteration 3 (opus): 1 WARNING, 4 NITs
+- WARNING, fixed: a socket that closes mid-body may emit no `error` on the response, and the idle timer sits on a
+  closed socket, so req() could hang where fetch rejects. req() now rejects on `res` `close` when the response is not
+  complete. Measured on Node 26.8.1 with a server that promises 10 bytes and drops the socket after 3: the response
+  emits `error` (ECONNRESET) and then `close` with `complete=false`, so the new handler is the backstop for a Node that
+  emits no error (a second reject of a settled promise is a no-op).
+- NITs, taken: content-length is now added only when no casing of it is present (content-type already was); the
+  `test.after` comment says the direct fetch calls are why closeAllConnections stays.
+- NITs, left: a leading BOM is kept where fetch's text() strips it (no route sends one); REUSED is a tripwire.

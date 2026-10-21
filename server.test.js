@@ -229,6 +229,7 @@ test.before(async () => {
 test.after(() => {
   // fetch keeps sockets warm, and close() waits for them. Without this the
   // suite can hang on a slower dispatcher even though every test has passed.
+  // (#6059: req() no longer pools, but the file's direct fetch calls still do.)
   server.closeAllConnections();
   server.close();
   // Every run otherwise leaks a temp directory: SANDBOX holds commitment
@@ -288,8 +289,9 @@ function req(path, options = {}) {
     REQUESTS += 1;
     const headers = { ...(options.headers || {}) };
     if (options.body !== undefined) {
-      headers['content-length'] = Buffer.byteLength(options.body);
-      if (!Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')) headers['content-type'] = 'text/plain;charset=UTF-8';
+      const has = (name) => Object.keys(headers).some((k) => k.toLowerCase() === name);
+      if (!has('content-length')) headers['content-length'] = Buffer.byteLength(options.body);
+      if (!has('content-type')) headers['content-type'] = 'text/plain;charset=UTF-8';
     }
     const r = http.request(base + path, { method: options.method || 'GET', agent: false, headers }, (res) => {
       let body = '';
@@ -297,6 +299,8 @@ function req(path, options = {}) {
       res.on('data', (c) => { body += c; });
       res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'] || '', body }));
       res.on('error', reject);
+      // A socket that closes mid-body may emit no error; fetch rejects then, so this does too.
+      res.on('close', () => { if (!res.complete) reject(new Error(`req ${options.method || 'GET'} ${path}: the response closed before its end`)); });
     });
     r.on('socket', () => { if (r.reusedSocket) REUSED += 1; });
     r.setTimeout(300000, () => r.destroy(new Error(`req ${options.method || 'GET'} ${path}: socket idle for 300 s`)));
