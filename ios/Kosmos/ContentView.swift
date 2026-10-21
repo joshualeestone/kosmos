@@ -43,6 +43,8 @@ struct ContentView: View {
                         .tabItem { Label("Board", systemImage: "rectangle.grid.2x2") }
                         .tag(Tab.board)
                 }
+                // Mona Lisa's spec: the app's tint is the board's ink, so the selected tab is not system blue.
+                .tint(Palette.primary)
             } else {
                 LockView(onUnlock: unlock)
             }
