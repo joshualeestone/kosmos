@@ -132,3 +132,18 @@ skip (slice 5). The other listed reasons were re-measured on Linux in probe run 
 - Mac: the pgrep trio, both time-scale tests, cut-load-guard and ci-runner-setup pass. Focused node set (175 files incl.
   the repo-wide audits): 5103 pass, 1 fail, which was tools.shell-shard-4317's run-tests.sh call waiting on another
   agent's suite claim on this Mac past its 120 s limit (contention; full run is on Mortals).
+
+## Challenge loop iteration 2 (sonnet): 2 WARNINGs, 3 NITs
+- WARNING, deferred: test.yml's apt-get install has no retry. The repo's other Linux workflows install the same way
+  (linux.yml, linux-systemd.yml), and a mirror failure fails the named setup step, not a test, so it does not read as a
+  test failure.
+- WARNING, fixed: `_kosmos_pgrep_cmdlines` started its ancestor chain at `${BASHPID:-$$}`; without BASHPID (bash 3.2)
+  that is the top shell, missing the `$( )` subshells. It now falls back to `$(exec sh -c 'echo "$PPID"')` (measured on
+  bash 3.2: the subshell's own pid, not $$). Running the Linux branch on bash 3.2 then found a second defect: a bare
+  case pattern `)` inside `$( )` fails to PARSE on bash 3.2 at run time (`bash -n` passes). Fixed with the leading-paren
+  pattern form. New arms run the Linux branch on the host's own bash (OSTYPE forced, pgrep stubbed): the caller's
+  lineage is dropped and a stranger kept; nothing matching passes 1 through. Control: the pre-fix lib prints the
+  syntax error instead.
+- NITs, left: a /proc read instead of `ps` per hop (cheap as is); a Linux sysctl printing to stdout with rc 0 for an
+  unknown key (procps prints to stderr and exits 255; the Linux probe read 4 cores); the list header's count is not
+  asserted (it is a comment; the split itself is pinned by tools.shell-shard-4317.test.js).

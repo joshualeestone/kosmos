@@ -122,5 +122,14 @@ case "$(printf '%s\n' "$got" | sed -n 's/^raw //p')" in
   *) ok "raw pgrep -fa lists SELF's own lineage here, and the filter removed it" ;;
 esac
 
+# #6799: the Linux branch on THIS host's bash (3.2 on macOS, where a bare case pattern `)` inside `$( )` fails to
+# parse at run time, which `bash -n` cannot see): OSTYPE forced to linux-gnu and pgrep stubbed to list the caller's
+# parent, the caller and a stranger. Only the stranger may remain; with nothing matching, the answer is 1.
+got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; pgrep(){ printf "%s\n" "$PPID parent" "$$ caller" "99999 stranger"; }; ( _kosmos_pgrep_cmdlines x ); echo "rc=$?"' 2>&1)"
+[ "$got" = "$(printf '%s\n' '99999 stranger' 'rc=0')" ] && ok "the Linux branch drops the caller's lineage and keeps a stranger, on this bash" \
+  || bad "the Linux branch on this bash: [$got]"
+got="$(bash -c '. tools/lib/cut-guard.sh; OSTYPE=linux-gnu; pgrep(){ return 1; }; ( _kosmos_pgrep_cmdlines x ); echo "rc=$?"' 2>&1)"
+[ "$got" = "rc=1" ] && ok "the Linux branch passes pgrep's 1 (nothing) through" || bad "the Linux branch with no match: [$got]"
+
 echo "test-running-anchor-5470: $FAILS failure(s)"
 [ "$FAILS" = 0 ]
