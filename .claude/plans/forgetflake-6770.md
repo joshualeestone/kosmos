@@ -58,3 +58,8 @@ clean signal (order) instead of a timing one. If it fails again on CI, that is a
   run is consistent with a real wait, and that a repeat red means a real defect.
 - [NIT] on a red the sleeping start outlived the test --> FIXED: await starting in finally.
 - [NIT] inconsistent durations in the plan --> FIXED (about 3 s now).
+
+## Review round 3 (blind, sonnet): converged
+- No issues found. Verified the escape matches the line-40 record write, recorded() parses ["start-done"], the
+  mutant fails (3153 ms on its own copy), start-done can only exist if the 3 s start ended before Forget resolved,
+  setupRun never rejects so `await starting` cannot hang, and the CI numbers in this plan match both logs.
