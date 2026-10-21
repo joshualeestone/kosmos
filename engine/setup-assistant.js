@@ -2757,9 +2757,10 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
       /* #5668: the account's own file, and the agent folder's settings.local.json (cleanLocalSettings keeps its denies,
          review 1), reach the same profile. */
       // Review 7: and the root-owned managed settings file, when an admin installed it (it merges into the same profile).
-      const managed = deps.managedSettingsPath !== undefined ? deps.managedSettingsPath : MANAGED_SETTINGS_PATH;
+      // #4491: and its drop-in from tools/managed-sandbox-lock.sh (a test's managedSettingsPath stands in for both).
+      const managed = deps.managedSettingsPath !== undefined ? (deps.managedSettingsPath ? [deps.managedSettingsPath] : []) : [MANAGED_SETTINGS_PATH, MANAGED_DROPIN_PATH];
       // Review 11: the job read once (ownConfigDir, above).
-      const acct = settingsLists([accountSettingsFile(agentName, { ...deps, accountConfigDir: ownConfigDir }), path.join(rules.settingsDir, 'settings.local.json'), ...(managed ? [managed] : [])]);
+      const acct = settingsLists([accountSettingsFile(agentName, { ...deps, accountConfigDir: ownConfigDir }), path.join(rules.settingsDir, 'settings.local.json'), ...managed]);
       const fsbNow = next.sandbox.filesystem;
       sz = sandboxDenySize({ denyRead: [...(fsbNow.denyRead || []), ...acct.denyRead], denyWrite: [...(fsbNow.denyWrite || []), ...acct.denyWrite] }, [...next.permissions.deny, ...acct.deny], deps.home, deps.platform || process.platform);
     }
@@ -2784,14 +2785,19 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
   }
 }
 
-/* #4491: Claude Code's root-owned managed-settings file on macOS. With the right content (the sandbox on, unsandboxed
-   commands off, the board.token deny), it makes the token-only guard durable: the agent's uid cannot write this path.
-   Installing it is an admin step, parked on the card. This code only checks that the file EXISTS (review 15: not its
-   content), so a missing warning means "a managed file is there", not "the guard is durable". */
+/* #4491: Claude Code's root-owned managed settings on macOS. With the right content they make the token-only guard
+   durable: the agent's uid cannot write these paths, and a managed `sandbox.filesystem` block makes
+   sandbox.filesystem.disabled managed-only, so USER settings can no longer switch the guard's denies off. The content
+   is tools/managed-sandbox-lock.sh's drop-in (managed-settings.d/kosmos-token-guard.json: a board.token deny; NOT
+   sandbox.enabled, which would sandbox every agent on the Mac). Installing it is the admin step, parked on the card.
+   This code only checks that a managed file EXISTS, the base file or that drop-in (review 15: not its content), so a
+   missing warning means "a managed file is there", not "the guard is durable". */
 const MANAGED_SETTINGS_PATH = '/Library/Application Support/ClaudeCode/managed-settings.json';
-function managedSettingsPresent(platform = process.platform) {
+const MANAGED_DROPIN_PATH = '/Library/Application Support/ClaudeCode/managed-settings.d/kosmos-token-guard.json';
+// paths: a test's stand-ins (review 2: with the real ones, installing the drop-in on a dev Mac turned a test red).
+function managedSettingsPresent(platform = process.platform, paths = [MANAGED_SETTINGS_PATH, MANAGED_DROPIN_PATH]) {
   if (platform !== 'darwin') return false;   // managed-settings is a macOS/Seatbelt concept here
-  try { return fs.existsSync(MANAGED_SETTINGS_PATH); } catch { return false; }
+  try { return paths.some((p) => fs.existsSync(p)); } catch { return false; }
 }
 
 const STARTS_A_PROCESS = ['hooks', 'statusLine', 'apiKeyHelper', 'mcpServers', 'enableAllProjectMcpServers', 'enabledMcpjsonServers'];
@@ -2839,7 +2845,7 @@ function cleanLocalSettings(file) {
    parked admin step). workerDir is overridable for tests. { guarded: [names], unguarded: [{ name, because }], managed: boolean }. Never throws. */
 function refreshTokenOnlyGuards(deps = {}) {
   const platform = deps.platform || process.platform;
-  const out = { guarded: [], unguarded: [], managed: managedSettingsPresent(platform) };
+  const out = { guarded: [], unguarded: [], managed: managedSettingsPresent(platform, deps.managedPaths) };
   let names;
   try { names = require('./sendertoken').tokenOnlyList(); } catch { return out; }   // the roster's own reader (#4491)
   // Review 22: the supervisor guards ONE listed agent at its launch (a name listed after board start), not them all.

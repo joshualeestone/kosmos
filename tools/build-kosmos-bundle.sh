@@ -1026,10 +1026,14 @@ TARBALL_OUT="$OUT/kosmos-$ARCH.tar.gz"
 rm -f "$TARBALL_OUT"
 # #6562: store a neutral owner NAME (the numeric ids still come from disk; install/setup.sh extracts with
 # --no-same-owner, so no install applies a recorded owner), and refuse a tarball that still records this Mac's account.
-tar -czf "$TARBALL_OUT" --uname kosmos --gname staff -C "$STAGE" bin app runtime VERSION
+# #6678: and none of this Mac's extended attributes or file flags (no ._ entries, no xattr or fflags headers); the gate below says why it takes all four.
+COPYFILE_DISABLE=1 /usr/bin/tar -czf "$TARBALL_OUT" --uname kosmos --gname staff -C "$STAGE" --no-mac-metadata --no-xattrs --no-fflags bin app runtime VERSION
 . "$(dirname "${BASH_SOURCE[0]}")/lib/tar-owner-gate.sh"
 tar_owner_gate "$TARBALL_OUT" || exit 1
+. "$(dirname "${BASH_SOURCE[0]}")/lib/tar-macmeta-gate.sh"
+tar_macmeta_gate "$TARBALL_OUT" || exit 1
 echo "==> the tarball records no build account as owner (#6562)"
+echo "==> the tarball carries no macOS metadata from this Mac (#6678)"
 # ⚠️ The .sha256 is what install/setup.sh verifies before extracting; a
 # tarball published without it refuses to install, on purpose.
 ( cd "$OUT" && shasum -a 256 "$(basename "$TARBALL_OUT")" > "$(basename "$TARBALL_OUT").sha256" )

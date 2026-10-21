@@ -4018,7 +4018,7 @@ function installJob(name, opts) {
      stat-ed the plist, so on win32 it answered "no job here" for an agent whose
      Scheduled Task was registered and whose supervisor was running -- and the
      win32 arm below does not just register a task, it LAUNCHES THE AGENT. So
-     `repair` (the "Set them to start at login" button, fed by a survey that
+     `repair` (the restart notice's "Start at login", fed by a survey that
      called every Windows agent unregistered) would have spawned a SECOND live
      agent in the same folder for every agent on the board.
 

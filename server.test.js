@@ -229,6 +229,7 @@ test.before(async () => {
 test.after(() => {
   // fetch keeps sockets warm, and close() waits for them. Without this the
   // suite can hang on a slower dispatcher even though every test has passed.
+  // (#6059: req() no longer pools, but the file's direct fetch calls still do.)
   server.closeAllConnections();
   server.close();
   // Every run otherwise leaks a temp directory: SANDBOX holds commitment
@@ -274,9 +275,41 @@ async function anyAgent(t) {
   return encodeURIComponent(tied.sessionName);
 }
 
-async function req(path, options) {
-  const res = await fetch(base + path, options);
-  return { status: res.status, type: res.headers.get('content-type') || '', body: await res.text() };
+/* #6059: every request on a NEW connection (agent: false), never a pooled one. Global fetch reuses keep-alive
+   sockets, and on a loaded hosted runner a socket left idle across a request-free test came back ECONNRESET on the
+   next request (two PRs, 2026-10-21; server.dm-rollover-5841 does the same for the same reason). Callers pass only
+   method, headers and string bodies, and none reaches the server's one redirect. A string body with no content-type
+   is sent as text/plain, as fetch sends it, because the cross-site write guard reads that type; and a request whose
+   socket sits idle for 300 s (undici's default) fails as that request, not as a whole-file timeout. */
+const http = require('node:http');
+let REQUESTS = 0;
+let REUSED = 0;
+function req(path, options = {}) {
+  return new Promise((resolve, reject) => {
+    REQUESTS += 1;
+    const headers = { ...(options.headers || {}) };
+    if (options.body !== undefined) {
+      const has = (name) => Object.keys(headers).some((k) => k.toLowerCase() === name);
+      if (!has('content-length')) headers['content-length'] = Buffer.byteLength(options.body);
+      if (!has('content-type')) headers['content-type'] = 'text/plain;charset=UTF-8';
+    }
+    const r = http.request(base + path, { method: options.method || 'GET', agent: false, headers }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'] || '', body }));
+      res.on('error', reject);
+      // A socket that closes mid-body may emit no error; fetch rejects then, so this does too.
+      res.on('close', () => { if (!res.complete) reject(new Error(`req ${options.method || 'GET'} ${path}: the response closed before its end`)); });
+    });
+    // shouldKeepAlive is false for every agent: false request and true for every pooled keep-alive one, so this is
+    // deterministic; reusedSocket alone would move only if a socket happened to be reused during the run.
+    r.on('socket', () => { if (r.reusedSocket || r.shouldKeepAlive) REUSED += 1; });
+    r.setTimeout(300000, () => r.destroy(new Error(`req ${options.method || 'GET'} ${path}: socket idle for 300 s`)));
+    r.on('error', reject);
+    if (options.body !== undefined) r.write(options.body);
+    r.end();
+  });
 }
 
 const postJson = (path, obj) => req(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
@@ -16915,4 +16948,11 @@ test('kosmos#5628: a managed computer sets up through the company sign-in routes
     }
     require('./engine/remote').resetForTests();
   }
+});
+
+/* Keep this the LAST test in the file: it reads the counts every earlier test left. REQUESTS catches req() going back
+   to fetch (the counter would stay 0); REUSED is a tripwire for req() going back to a pooled agent. */
+test('#6059 harness: every req() went out on a new connection, none on a reused socket', () => {
+  assert.equal(REUSED, 0, 'a req() went out on a keep-alive (poolable) connection, the shape that came back ECONNRESET on a loaded runner');
+  assert.ok(REQUESTS > 100, `only ${REQUESTS} requests went through req(), so this arm proves little`);
 });

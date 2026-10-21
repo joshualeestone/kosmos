@@ -210,11 +210,11 @@ test('#6726: a FIFO and a device are refused as not ordinary files', () => withL
   await refused({ text: 'hi', file: '/dev/null' }, /not an ordinary file/);
 }));
 
-test('#6726: a file over the 25 MB a conversation carries is refused before it is read', () => withLeo(async () => {
+test('#6726: a file over the 100 MB a conversation carries is refused before it is read', () => withLeo(async () => {
   const big = path.join(FILES, 'big.mov');
   fs.writeFileSync(big, '');
   fs.truncateSync(big, attachments.MAX_BYTES + 1);   // sparse: the size is real, the disk is not used
-  await refused({ text: 'hi', file: big }, /a conversation carries files up to 25 MB/);
+  await refused({ text: 'hi', file: big }, /that file is larger than 100 MB, the most a conversation carries/);
 }));
 
 test('#6726: a missing file and a relative path are refused', () => withLeo(async () => {
@@ -869,4 +869,24 @@ test('#6726 r7-2: two projects on one folder: the file attaches whichever is lis
   } finally {
     projects.writeAll(kept);
   }
+}));
+
+/* #6734 review 13: a system error while storing a reply copy (here the final rename, as on a full disk) reaches the
+   agent as a sentence, never as the raw error, which carries a path with the user's name. */
+test('#6734: a system error storing a reply copy is a sentence with no path in it', () => withLeo(async (board) => {
+  const src = write(path.join(PROJ, 'cuts', 'rename-fails.txt'), 'x');
+  const attachments = require('./engine/attachments');
+  const real = fs.renameSync;
+  let thrown = 0;
+  fs.renameSync = function (from) {
+    if (String(from).endsWith(attachments.PART)) {
+      thrown += 1;
+      throw Object.assign(new Error("ENOSPC: no space left on device, rename '" + from + "'"), { code: 'ENOSPC' });
+    }
+    return real.apply(this, arguments);
+  };
+  let got;
+  try { got = replyfile.attach(WHO, src, { roster: board.roster }); } finally { fs.renameSync = real; }
+  assert.ok(thrown > 0, 'the rename was never reached, so this tested nothing');
+  assert.deepEqual(got, { ok: false, because: 'that file could not be kept' });
 }));

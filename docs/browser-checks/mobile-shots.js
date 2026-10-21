@@ -280,13 +280,13 @@ async function joinWaiting(page, confirmed, retry) {
 }
 /* #5531: a connected computer, for Settings > Kosmos+ > Your company. The company's answers are stand-ins in the shape
    of #5530's contract; the consent words are the sample the contract carries. */
-async function orgConnected(page, enrolled) {
+async function orgConnected(page, enrolled, extra) {
   const remote = { configured: true, on: true, ok: true, enrolled: true, email: 'owner@example.com', status: { state: 'up', address: 'sample.kosmosplus.com' } };
   await page.route('**/api/remote', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(r.request().method() === 'GET' ? remote : { ok: true }) }));
   await page.route('**/api/remote/devices', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pending: [], allowed: [], email: 'owner@example.com', on: true }) }));
   const ORG = { id: 'org_sample', name: 'Northwind Design', slug: 'northwind' };
   await page.route('**/api/org', (r) => r.fulfill({ status: 200, contentType: 'application/json',
-    body: JSON.stringify(enrolled ? { enrolled: true, org: ORG, role: 'member', enrolledAt: new Date().toISOString() } : { enrolled: false, org: null, role: null, enrolledAt: null }) }));
+    body: JSON.stringify(enrolled ? { enrolled: true, org: ORG, role: 'member', enrolledAt: new Date().toISOString(), ...(extra || {}) } : { enrolled: false, org: null, role: null, enrolledAt: null }) }));
   await page.route('**/api/org/preview', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, org: ORG, role: 'member', consent: {
     reports: ['agent names, the AI provider and model each uses', 'project names', 'tokens and estimated cost per day', 'when you were last active', 'which company policy you have and when you were last backed up'],
     backsUp: ['agent folders and their files', 'transcripts', 'projects and what agents make'],
@@ -456,15 +456,16 @@ const SCREENS = [
   { name: 'home', owner: 'Raiden', go: async () => {} },
   /* #5018: the login-expiry notice floating over the page under the header, with its account line, the agents'
      given names and its X. The advisory is stubbed onto this screen's own /api/status reads (gone with it). */
-  /* #6320: the restart panel naming agents whose login job could not be checked, alone and beside the fixable list.
-     /api/register is stubbed on this screen's own page with made-up names from the sample fleet. */
+  /* #6320: the restart notice naming agents whose login job could not be checked, alone and beside one that can be
+     fixed (#6714: compact notices in the floating stack). /api/register is stubbed on this screen's own page with
+     made-up names from the sample fleet. */
   { name: 'restart-unknown', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/register', (route) => route.request().method() === 'GET'
       ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, missing: [], unknown: ['pixel-moss', 'cleo-park'],
         agents: [{ name: 'pixel-moss', shownAs: 'Pixel' }, { name: 'cleo-park', shownAs: 'Cleo' }] }) })
       : route.continue());
     await at(page, '');
-    await page.waitForSelector('#restart-wrap [data-survival-unknown]', { state: 'visible', timeout: 15000 });
+    await page.waitForSelector('#survival-slot .utoast.survival.unknown', { state: 'visible', timeout: 15000 });
   } },
   { name: 'restart-both', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/register', (route) => route.request().method() === 'GET'
@@ -472,7 +473,7 @@ const SCREENS = [
         agents: [{ name: 'roo-lane', shownAs: 'Roo' }, { name: 'cleo-park', shownAs: 'Cleo' }] }) })
       : route.continue());
     await at(page, '');
-    await page.waitForSelector('#restart-wrap [data-survival-unknown]', { state: 'visible', timeout: 15000 });
+    await page.waitForSelector('#survival-slot .utoast.survival.unknown', { state: 'visible', timeout: 15000 });
   } },
   { name: 'restart-both-done', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/register', (route) => route.request().method() === 'GET'
@@ -480,12 +481,13 @@ const SCREENS = [
         agents: [{ name: 'roo-lane', shownAs: 'Roo' }, { name: 'cleo-park', shownAs: 'Cleo' }] }) })
       : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, results: [{ name: 'roo-lane', shownAs: 'Roo', ok: true, started: true }] }) }));
     await at(page, '');
-    await page.waitForSelector('#restart-wrap [data-survival-fix]', { state: 'visible', timeout: 15000 });
-    await page.click('#restart-wrap [data-survival-fix]');
-    // #6320: the report that replaces the panel still says which agents could not be checked. Wait for the REPORT
-    // (the button gone and "Done." there), since the unknown line was already on the panel before the click.
-    await page.waitForFunction(() => { const w = document.getElementById('restart-wrap');
-      return w && !w.querySelector('[data-survival-fix]') && /Done\./.test(w.innerText) && !!w.querySelector('[data-survival-unknown]'); }, null, { timeout: 15000 });
+    await page.waitForSelector('#survival-slot [data-survival-fix]', { state: 'visible', timeout: 15000 });
+    await page.click('#survival-slot [data-survival-fix]');
+    // #6320: after the report replaces Roo's notice, the could-not-check notice for Cleo is still there. Wait for the
+    // REPORT (Roo's button gone and the report shown), since Cleo's notice was already up before the click.
+    await page.waitForFunction(() => { const w = document.getElementById('survival-slot'); const rep = document.getElementById('survival-report-slot');
+      // The stub keeps Roo missing, so its notice comes back after the report (#6714 review 19): wait for the report only.
+      return w && rep && !!rep.querySelector('.utoast.survival.done') && !!w.querySelector('.utoast.survival.unknown'); }, null, { timeout: 15000 });
   } },
   { name: 'login-notice', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     const adv = [{ agents: ['roo-lane', 'pixel-moss', 'cleo-park'], names: ['Roo', 'Pixel', 'Cleo'], provider: 'Claude', service: 'Claude Code-credentials',
@@ -855,6 +857,19 @@ const SCREENS = [
   /* #5531: Your company, this Kosmos joined. */
   { name: 'plus-org-joined', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => { await orgConnected(page, true); await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-org-in', { state: 'visible', timeout: 10000 });
+    await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));
+  } },
+  /* kosmos#6752: the joined view listing reviewer grants of the last 30 days, one of each kind: pending (made an hour
+     ago), in effect (made three days ago) and removed. Times are made from now; the names are samples. */
+  { name: 'plus-org-reviewers', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => {
+    const now = Math.floor(Date.now() / 1000), day = 86400;
+    await orgConnected(page, true, { reviewerGrants: [
+      { who: 'jordan', grantedAt: now - 3 * day, effectiveAt: now - 2 * day },
+      { who: 'alex', grantedAt: now - 2 * day, effectiveAt: now - day, removedAt: now - day / 2 },
+      { who: 'sam.ortiz', grantedAt: now - 3600, effectiveAt: now - 3600 + day },
+    ] });
+    await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-org-reviewers', { state: 'visible', timeout: 10000 });
     await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));
   } },
   /* #5787 (Mona Lisa): the connected Kosmos+ pane, where every sign-in now lands: the connect block (line art, the
@@ -1957,7 +1972,7 @@ const DATA_SETS = {
     /* A Mac that is set up, which the empty sandbox is not: each agent gets a
        launch job and its own folder with instructions, and your messages were
        delivered. Without these the shots carry setup warnings no customer with
-       a working Mac would see ("will not come back if you restart", "made
+       a working Mac would see ("will not come back after a restart", "made
        before Kosmos recorded this", "could not deliver"). */
     setUp: true,
     askInProject: true,

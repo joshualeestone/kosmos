@@ -56,7 +56,7 @@ const ATTACH_PARAGRAPH = process.platform === 'win32' ? [] : [
   '`kosmos reply --file <path> "what it is"`. It arrives in your conversation',
   'with them as a file they can download, wherever they read it.',
   'Only a file directly in your Files folder, or inside the folder of a project',
-  'you are on, can be attached, up to 25 MB. For a bigger file, or when Kosmos',
+  'you are on, can be attached, up to 100 MB. For a bigger file, or when Kosmos',
   'refuses it, tell them where you saved it.',
   '',
 ];
