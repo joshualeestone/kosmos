@@ -1727,7 +1727,8 @@ function send(input, roster) {
 const HELD_STATE = 'held';
 /* #6774: `more.input`, kept because its input box held text not yet sent; `more.behindInput`, kept behind messages that
    were all kept for that reason (so the sentence names the real one). */
-function heldReceipt(toName, id, at, heldUntil, duplicate, behind, signin, more = {}) {
+function heldReceipt(toName, id, at, heldUntil, duplicate, behind, signin, more) {
+  more = more || {};   // no default in the signature: web.task-say-outcome-5842.test.js reads this body from its first brace
   const input = more.input === true && !behind;
   return {
     state: chat.DELIVERY.COULD_NOT, held: true, heldBy: 'limit', heldUntil: (!behind && !signin && !input && heldUntil) || null, id, at,

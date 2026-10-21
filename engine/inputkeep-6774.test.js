@@ -165,14 +165,15 @@ test('#6774: a mixed queue (one kept for a usage limit, one for the box) waits f
   const hooks = limitqueue.sweepHooks({ chat, messages });
   const real = { e: chat.inputBoxEmpty, r: chat.limitQueueReleased };
   const live = [{ id: 'a', envelope: 'x' }, { id: 'b', envelope: 'y', input: true }];
-  const card = { sessionName: 'casey' };
+  const board = fleet.install([fleet.agent('casey', { state: 'idle' })]);   // a real card, never a hand-built one
+  const card = board.agents.find((c) => c.sessionName === 'casey');
   try {
     for (const [limitOk, boxEmpty, want] of [[true, true, true], [false, true, false], [true, false, false]]) {
       chat.limitQueueReleased = () => limitOk;
       chat.inputBoxEmpty = () => boxEmpty;
       assert.equal(hooks.isReleased(card, [], live), want, `limit ${limitOk}, box empty ${boxEmpty}`);
     }
-  } finally { chat.inputBoxEmpty = real.e; chat.limitQueueReleased = real.r; }
+  } finally { chat.inputBoxEmpty = real.e; chat.limitQueueReleased = real.r; board.restore(); }
 });
 
 test('#6774: a kosmos msg re-sent while kept BEHIND the box backlog is told the box is the reason', async () => {
