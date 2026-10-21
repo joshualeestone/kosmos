@@ -32,22 +32,16 @@ bash tools/test-cut-parallel-region.sh
 bash tools/test-cut-step-record.sh
 # BSD stat -f in install/setup.sh, and a real /Library path.
 bash tools/test-data-root-1511.sh
-# A stat -f ... || stat -c fallback that breaks on GNU (GNU stat -f prints filesystem info before failing).
-bash tools/test-deploy-site-staged-mac-4819.sh
 # BSD date -v.
 bash tools/test-feedback-digest-daily.sh
 # BSD stat -f.
 bash tools/test-install-page-readable-3268.sh
 # Apple's nc -G (tools/test-install.sh).
 bash tools/test-install-portprobe-6457.sh
-# The stat -f ... || stat -c fallback that breaks on GNU (tools/lib/launchagent-leak-guard.sh).
-bash tools/test-launchagent-leak-guard-3011.sh
 # pgrep -fl (tools/lib/cut-guard.sh).
 bash tools/test-light-side-4911.sh
 # Its CONTROL relies on BSD sed's N on the last line (GNU sed prints the pattern space instead).
 bash tools/test-msg-newlines-1927.sh
-# The stat -f ... || stat -c fallback that breaks on GNU.
-bash tools/test-permission-acceptance.sh
 # Real codesign and PlistBuddy.
 bash tools/test-release-detached.sh
 # pgrep -fl.
@@ -58,8 +52,6 @@ bash tools/test-scan-hatch-symlink-2125b.sh
 bash tools/test-site-autodeploy-5589.sh
 # The process start token has another shape on Linux.
 bash tools/test-stopmark-6651.sh
-# The stat -f ... || stat -c fallback that breaks on GNU.
-bash tools/test-supervisor-codex-isolation-4592.sh
 # bsdtar's --uname/--gname.
 bash tools/test-tar-owner-gate-6562.sh
 # Apple's nc -G (tools/tunnel-handshake-gate.sh).
