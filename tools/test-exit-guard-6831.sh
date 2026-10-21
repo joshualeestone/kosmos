@@ -100,6 +100,12 @@ EOF
   else
     [ "${r%% *}" != 0 ] && pass "R$n: a dying cut exits ${r%% *} (this bash keeps the status)" || bad "R$n: '$r'"
   fi
+  # With stderr closed the trap's message cannot be written; the cut must still be recorded as failed.
+  rm -f "$TMP/recorded"; bash "$TMP/rel.sh" > "$TMP/out" 2>&-; rc=$?; got=$(cat "$TMP/recorded" 2>/dev/null || echo none)
+  if [ "$LOSES_rel" = 1 ]; then
+    [ "$rc $got" = "1 1" ] && pass "R$n: with stderr closed, a dying cut is still recorded as 1 and exits 1" \
+      || bad "R$n: with stderr closed a dying cut gave rc=$rc recorded=$got"
+  fi
   r=$(rel '_REL_FINISHED=1')
   [ "$r" = "0 0" ] && pass "R$n: a finished cut records 0 and exits 0" || bad "R$n: a finished cut gave '$r': $(cat "$TMP/out")"
   r=$(rel 'exit 3')
