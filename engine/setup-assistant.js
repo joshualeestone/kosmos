@@ -2784,10 +2784,13 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
   }
 }
 
-/* #4491: Claude Code's root-owned managed-settings file on macOS. With the right content (the sandbox on, unsandboxed
-   commands off, the board.token deny), it makes the token-only guard durable: the agent's uid cannot write this path.
-   Installing it is an admin step, parked on the card. This code only checks that the file EXISTS (review 15: not its
-   content), so a missing warning means "a managed file is there", not "the guard is durable". */
+/* #4491: Claude Code's root-owned managed-settings file on macOS. With the right content it makes the token-only guard
+   durable: the agent's uid cannot write this path, and a managed `sandbox.filesystem` block makes
+   sandbox.filesystem.disabled managed-only, so USER settings can no longer switch the guard's denies off. The content
+   is tools/managed-sandbox-lock.sh's (allowManagedReadPathsOnly plus a board.token deny; NOT sandbox.enabled, which
+   would sandbox every agent on the Mac); installing it is the admin step, parked on the card. This code only checks
+   that the file EXISTS (review 15: not its content), so a missing warning means "a managed file is there", not "the
+   guard is durable". */
 const MANAGED_SETTINGS_PATH = '/Library/Application Support/ClaudeCode/managed-settings.json';
 function managedSettingsPresent(platform = process.platform) {
   if (platform !== 'darwin') return false;   // managed-settings is a macOS/Seatbelt concept here
