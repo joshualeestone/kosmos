@@ -25,8 +25,9 @@
 # (the verifier refuses a downgrade), so they need a newer clean release; a fresh install through /setup gets the
 # pinned build (Kosmos.pkg does not: see below).
 #
-# NOT COVERED: Windows prod is served from R2 (tools/windows/publish-r2.ps1 -Promote), which this tool does not touch;
-# pin it there by hand. Nor the site's Kosmos.pkg (a deploy carries the live one): replace it by hand. The --because
+# NOT COVERED: Windows prod is served from R2, which this tool does not touch. tools/windows/publish-r2.ps1 -Promote
+# moves it only onto the staged build (Josh's approval, a passing staging check, a signed manifest), so pinning an
+# older good build means re-staging it first. Nor the site's Kosmos.pkg (a deploy carries the live one): replace it by hand. The --because
 # line is committed to the site repo, so keep it to what that repo's readers may see. Vercel Instant Rollback bypasses
 # every check. And a freeze does not stop an attacker who controls the release Mac itself (they control this
 # checkout): it stops the operator's own tools and the fleet's release automation from moving the pointer during an
@@ -222,8 +223,9 @@ cmd_on() {
     say "NOT deployed yet. Deploy it:"
     say "  KOSMOS_SITE=$SITE KOSMOS_STAGING_ROLLBACK=$v tools/deploy-site.sh --promote"
   fi
-  say "Not pinned by this, each by hand: the Windows pointers (prod on R2, tools/windows/publish-r2.ps1 -Promote of a"
-  say "known-good build; the site's latest-win*.json, which publish-kosmos-windows.sh will not change while frozen) and"
+  say "Not pinned by this, each by hand: the Windows pointers (prod is on R2: tools/windows/publish-r2.ps1 -Promote moves"
+  say "prod only onto the STAGED build, with Josh's approval and a passing staging check, so an older good build must be"
+  say "re-staged first; the site's latest-win*.json, which publish-kosmos-windows.sh will not change while frozen) and"
   say "the site's Kosmos.pkg (a deploy carries the live one)."
 }
 

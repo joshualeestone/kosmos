@@ -417,7 +417,7 @@ fi
 # checkout on another Mac cannot publish over a freeze it has not pulled. A fetch that fails is said, and $H decides.
 # As every writer (tools/lib/pointer-freeze.sh): a site origin that cannot be fetched refuses (nothing deployed), unless
 # KOSMOS_POINTER_FREEZE_OFFLINE=1 says to decide on $H.
-. "$REPO/tools/lib/pointer-freeze.sh"
+. "$REPO/tools/lib/pointer-freeze.sh" || { echo "deploy-site: cannot load $REPO/tools/lib/pointer-freeze.sh (kosmos#6620) -- refusing; nothing was deployed"; exit 1; }
 FROZEN_SRC=""
 if git -C "$SITE" cat-file -e "$H:dist/POINTER_FROZEN" 2>/dev/null; then FROZEN_SRC="$H"
 elif ! git -C "$SITE" remote get-url origin >/dev/null 2>&1; then :   # no origin at all: $H decides

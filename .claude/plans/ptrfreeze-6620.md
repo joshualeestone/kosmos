@@ -135,3 +135,6 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
   mismatch, red after 4 ticks, never parks; my round-8 line described it without reading it). deploy-site no longer
   offers `off` when the marker is in the deploying tree but a pointer was committed on top of it: it says to restore
   the pin (off, then on again), never to lift it to get past the refusal.
+- Review 10 (one warning): the R2 instruction is corrected from publish-r2.ps1 itself (-Promote moves Windows prod
+  only onto the staged build, with Josh's approval and a passing staging check, so an older good build is re-staged
+  first). The lib's header admits `local`; deploy-site says so if it cannot load the lib.

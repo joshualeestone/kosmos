@@ -222,7 +222,8 @@ What a pin does: a board older than the pinned version updates to it; a board on
 sees nothing newer and stays (the verifier refuses a downgrade), so it needs a NEW clean release above the bad one; a
 fresh install through `/setup` gets the pinned build. Not covered, each by hand: the site's `Kosmos.pkg` (the deploy
 carries the one live, so a bad build's pkg stays until it is replaced); the Windows pointers (prod is served from R2:
-pin it with `tools/windows/publish-r2.ps1 -Promote` of a known-good build; the site's `latest-win*.json` are not
+`tools/windows/publish-r2.ps1 -Promote` moves it only onto the staged build, with Josh's approval and a passing
+staging check, so an older good build must be re-staged first; the site's `latest-win*.json` are not
 pinned, and `publish-kosmos-windows.sh` will not change them while frozen); and a rollback done in Vercel itself,
 which goes around every script, as below. The re-checks just before a deploy narrow the window to the deploy itself;
 a freeze landing while vercel uploads is not seen.
