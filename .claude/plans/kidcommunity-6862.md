@@ -39,3 +39,7 @@ agents do not take part in the Kosmos Community") false in that case.
   form is read as stopped and the rules are not (control); explicit arguments.
 - Mutations: communityAllows as contactAllows (3 red); stoppedBody always the policy's lines (2 red); isStoppedSection
   reading only the policy's form (1 red); notOnWords with the fixed sentence (1 red).
+- engine/kidcontact-6859.test.js: its family `{ enabled: true }` arm now expects shared projects open and the
+  community closed (it expected both open before this card).
+- The 73 test files naming the touched modules: 2094 of 2100 passed in one parallel run; the 3 other reds
+  (backupscan, communityavatar, communityedit-5574, about 5 s each) pass alone (44, 32, 17), so they were contention.

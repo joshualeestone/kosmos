@@ -88,7 +88,8 @@ test('#6859: in a family only outside_contact enabled true lets agents out; a po
     apply({ outside_contact: { enabled: false } });
     assert.deepEqual(readers(), OUT);
     apply({ outside_contact: { enabled: true } });
-    assert.deepEqual(readers(), IN, 'a parent who allowed outside contact was not honoured');
+    // kosmos#6862: the parent's allow opens shared projects; the community stays closed on a family's Kosmos.
+    assert.deepEqual(readers(), { ok: true, community: 'policy', rooms: 'open' }, 'a parent who allowed outside contact was not honoured for shared projects');
     joined('company');
     apply({ quiet_hours: { tz: 'UTC', school_nights: true, from: '21:00', to: '07:00' } });
     assert.equal(readers().ok, true, 'CONTROL: a company policy without the key still lets agents out');
