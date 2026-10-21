@@ -3751,6 +3751,58 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
+/* #6734: a stored file sent from disk as a stream, never read whole, so a 100 MB attachment costs the board a
+   read buffer rather than 100 MB. The file is opened and measured once, so Content-Length is the size of the very
+   file that is sent. A client that goes away mid-download, and a read that fails mid-file, both end in pipeline's
+   cleanup, which closes the descriptor; a read error after the headers ends the response short, which the client
+   sees as a cut download (its length does not match), never as a whole file. `unread` is the 404 sentence for a
+   file that cannot be opened. */
+let DOWNLOAD_STALL_MS = 120 * 1000;
+function _setDownloadStallForTest(ms) { DOWNLOAD_STALL_MS = ms == null ? 120 * 1000 : ms; }
+function sendFileStream(req, res, file, unread, headers) {
+  let fd = null;
+  let size = 0;
+  try {
+    // Review 3: without blocking, so a FIFO put in a file's place cannot stall the board; isFile() then refuses it.
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) throw new Error('not a file');
+    size = st.size;
+    res.writeHead(200, { ...headers, 'content-length': size });   // review 4: inside the try, so a throw closes fd
+  } catch {
+    if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ }
+    if (!res.headersSent) sendJson(res, 404, { error: unread });
+    else res.destroy();
+    return;
+  }
+  if (req.method === 'HEAD' || size === 0) { res.end(); try { fs.closeSync(fd); } catch { /* closed */ } return; }
+  /* Review 2: read no further than the size measured, so a file that grows meanwhile cannot overrun Content-Length.
+     Review 4: and one that shrank cuts the response at its end instead of ending it short, so a keep-alive client is
+     not left waiting for bytes that will never come. */
+  const rs = fs.createReadStream(null, { fd, start: 0, end: size - 1, autoClose: true });
+  rs.once('end', () => { if (rs.bytesRead < size) res.destroy(); });
+  /* Review 26: a client that stays connected but stops reading would hold the descriptor for ever; as the folder zip
+     does (ZIP_STALL_MS), a download that moves no bytes for DOWNLOAD_STALL_MS is ended, which closes it. */
+  let stall = null;
+  const arm = () => { clearTimeout(stall); stall = setTimeout(() => res.destroy(), DOWNLOAD_STALL_MS); stall.unref(); };
+  rs.on('data', arm);
+  res.once('close', () => clearTimeout(stall));
+  arm();
+  pipeline(rs, res, () => { /* aborted or failed: both streams are destroyed */ });
+}
+
+/* #6734: an upload answered with a refusal. When the body has not all arrived (over the cap, or the client went),
+   the connection closes after the answer so the rest is never read, and is cut a moment later if the client keeps
+   it open, so a refused upload cannot hold a socket. */
+function refuseUpload(req, res, error) {
+  if (res.headersSent || res.destroyed) { req.destroy(); return; }
+  if (!req.complete) {
+    res.setHeader('connection', 'close');
+    res.once('finish', () => { setTimeout(() => req.destroy(), 1000).unref(); });
+  }
+  sendJson(res, 400, { error });
+}
+
 /* ---- #1704 PR2 (plan §5): a kept-running agent's sends are never lost ------
    On a world switch the person may keep a Kosmos's agents running. Board tokens
    are per world, so a kept-running agent's reply reached the board serving
@@ -19122,9 +19174,12 @@ const server = http.createServer(async (req, res) => {
      multipart): PUT the bytes with the file's type as content-type and its
      name in x-attachment-name, get the record back, then post the message
      with `attachment: <id>`. Two steps so a failed upload is a sentence
-     before anything is said, and so the 25 MB limit applies to the bytes
-     alone. The file is served back as a download, never inline, and the
-     preview is a PNG this Mac drew (or the image itself). */
+     before anything is said, and so the size limit (attachments.MAX_BYTES)
+     applies to the bytes alone. The file is served back as a download, never
+     inline, and the preview is a PNG this computer drew (or the image itself).
+     #6734: both ways are streams. The upload is written to disk as it arrives
+     and refused the moment it crosses the cap; the download is sent from disk.
+     Neither holds the file in memory, which is what lets the cap be 100 MB. */
   const attachUp = pathname.match(/^\/api\/(agent|project)\/([^/]+)\/attachment$/);
   if (attachUp && req.method === 'PUT') {
     const scope = attachUp[1];
@@ -19136,18 +19191,34 @@ const server = http.createServer(async (req, res) => {
       try { has = projects.readAll().some((p) => p.id === owner); } catch { sendJson(res, 500, { error: 'we could not read the projects' }); return; }
       if (!has) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
     }
-    readBody(req, attachments.MAX_BYTES + 1)
-      .then((bytes) => {
-        let name = '';
-        try { name = decodeURIComponent(String(req.headers['x-attachment-name'] || '')); } catch { name = String(req.headers['x-attachment-name'] || ''); }
-        const rec = attachments.save(scope, owner, { name, type: req.headers['content-type'], bytes });
+    /* #6734: a body that says up front it is over the cap is refused before a byte of it is read. */
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > attachments.MAX_BYTES) { refuseUpload(req, res, attachments.TOO_LARGE); return; }
+    let name = '';
+    try { name = decodeURIComponent(String(req.headers['x-attachment-name'] || '')); } catch { name = String(req.headers['x-attachment-name'] || ''); }
+    attachments.saveStream(scope, owner, { name, type: req.headers['content-type'] }, req)
+      .then((rec) => {
         /* #6098: an office file gets its text rendering before the answer, so the message that carries it can name
            it. The conversion runs in a worker thread with a memory and a time limit (attachtext.js), so a hostile
            file cannot stall or crash the board; it never fails the upload. */
         return require('./engine/attachtext').render(rec).catch(() => null)
-          .then(() => sendJson(res, 200, { attachment: attachments.rowField(rec) }));
-      })
-      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not keep that file') }));
+          .then(() => {
+            /* Review 20: the client left during the conversion, so it will never hear the id; take the file back. */
+            // Review 25: not `!res.socket`, which is also true for a pipelined request still waiting its turn.
+            if (res.destroyed || (req.socket && req.socket.destroyed)) { attachments.discardStored(rec); return; }
+            sendJson(res, 200, { attachment: attachments.rowField(rec) });
+          })
+          /* Review 18/19: the file was stored, but nothing refers to it until the page hears its id, and nothing would
+             list it later, so it is taken back and the person told plainly that it was not added. Review 20: only while
+             nothing of the answer has gone out; once it has, the page may hold the id, so the file stays. */
+          .catch(() => {
+            if (res.headersSent) return;
+            attachments.discardStored(rec);
+            sendJson(res, 500, { error: 'we could not add that file; try again' });
+          });
+      }, (err) => refuseUpload(req, res, (err && !err.code && err.message) ? String(err.message) : 'we could not keep that file'));
+      /* Review 9: a system error (it has a code, like ENOSPC) carries a path with the user's name; the person and their
+         phone get the sentence instead. The store's own refusals are sentences and have no code. */
     return;
   }
   /* #4930: the full-page preview's "Open in Finder": the attachment's own file, selected in its folder (never opened).
@@ -19168,23 +19239,19 @@ const server = http.createServer(async (req, res) => {
     const rec = attachments.read(attachGet[1]);
     if (!rec) { sendJson(res, 404, { error: 'no such attachment' }); return; }
     if (attachGet[2]) {
-      attachments.preview(rec).then((pv) => {
+      attachments.previewFile(rec).then((pv) => {
         if (!pv.ok) { sendJson(res, 404, { error: pv.because }); return; }
-        res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
-        res.end(req.method === 'HEAD' ? undefined : pv.bytes);
+        sendFileStream(req, res, pv.file, pv.unread, { 'content-type': pv.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
       }).catch(() => sendJson(res, 404, { error: 'this computer could not draw the first page' }));
       return;
     }
-    let bytes;
-    try { bytes = fs.readFileSync(rec.file); } catch { sendJson(res, 404, { error: 'that file could not be read' }); return; }
     /* A download, whatever the type: a person's file is handed back as a
        file, and an HTML one never renders on the board's origin. */
-    res.writeHead(200, {
-      'content-type': rec.type, 'content-length': bytes.length, 'x-content-type-options': 'nosniff',
+    sendFileStream(req, res, rec.file, 'that file could not be read', {
+      'content-type': rec.type, 'x-content-type-options': 'nosniff',
       'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(rec.name),
       'content-security-policy': "default-src 'none'; sandbox",
     });
-    res.end(req.method === 'HEAD' ? undefined : bytes);
     return;
   }
   if (pathname === '/api/unfurl' && req.method === 'GET') {
@@ -24314,6 +24381,9 @@ function start(port = PORT) {
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
+  /* #6734: attachment folders a stopped upload left with no record, now and hourly (attachments.sweepOrphans). */
+  try { attachments.sweepOrphans(); } catch { /* best effort */ }
+  setInterval(() => { try { attachments.sweepOrphans(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
   require('./engine/agentnames').setFleetSource(() => nameCheckFleet());   // #5957: one display name per agent
   /* #5535 E0.6 slice (d): the company backup tick, hourly and only while orgenroll.mayReport (enrolled here AND the
      company's words accepted here). The first run is an hour after start, never at boot. Kosmos+ answers backup_off
@@ -25918,6 +25988,7 @@ module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
   _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
+  _setDownloadStallForTest, // kosmos#6734: the download's stall timeout, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up

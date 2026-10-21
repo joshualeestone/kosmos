@@ -75032,7 +75032,7 @@ async function attachUpload(file, where) {
   const msg = document.getElementById(where.msgId);
   const input = document.getElementById(where.textId);
   if (!file) return;
-  if (file.size > 25 * 1024 * 1024) { msg.textContent = 'That file is over 25 MB, which is the most a message can carry.'; return; }
+  if (file.size > ATTACH_MAX_BYTES) { msg.textContent = 'That file is over ' + Math.round(ATTACH_MAX_BYTES / 1048576) + ' MB, which is the most a message can carry.'; return; }
   if (!attachTarget(where)) { msg.textContent = 'Open a conversation first.'; return; }
   if (attachList(where).length >= ATTACH_MAX) { msg.textContent = 'A message can carry ' + ATTACH_MAX + ' files; send these first.'; return; }
   const btn = document.getElementById(where.btnId);
@@ -75047,7 +75047,16 @@ async function attachUpload(file, where) {
     });
     const body = await res.json().catch(() => null);
     if (!res.ok || !body || !body.attachment) {
-      msg.textContent = (body && body.error) ? body.error : 'We could not add that file (status ' + res.status + ').';
+      /* #6734 review 3: Kosmos answers 408 when a whole upload has not arrived in five minutes (review 6: the page
+         cannot tell that from another timeout on the way, so the sentence names no figure). */
+      /* Review 17: through Kosmos+, a tunnel without kosmos-relay headclock-6734 answers a large upload that takes over
+         two minutes with 502 (504 from a proxy is the same case); for a large file that is said as the network failure is. */
+      msg.textContent = res.status === 408
+        ? 'We could not finish adding ' + file.name + ': it took too long to arrive. Try again on a faster connection.'
+        : (body && body.error) ? body.error
+        : ((res.status === 502 || res.status === 504) && file.size > ATTACH_SLOW_BYTES)
+          ? 'We could not reach Kosmos to add ' + file.name + '. If your connection is slow, a file this large can take longer than Kosmos waits for one.'
+          : 'We could not add that file (status ' + res.status + ').';
       return;
     }
     /* ATTACHED, NOT SENT (Josh, 2026-08-23 1:59 PM). The file waits on a chip
@@ -75060,7 +75069,12 @@ async function attachUpload(file, where) {
     if (input) input.focus();
     if (where.after) where.after();
   } catch {
-    msg.textContent = 'We could not reach Kosmos to add that file.';
+    /* #6734: the connection failed, which for a large file may also be the wait for it running out; the sentence names
+       that as a possibility, since the page cannot tell it from Kosmos not being reached (review 8: and no figure, which
+       would change with any timeout on the way). */
+    msg.textContent = file.size > ATTACH_SLOW_BYTES
+      ? 'We could not reach Kosmos to add ' + file.name + '. If your connection is slow, a file this large can take longer than Kosmos waits for one.'
+      : 'We could not reach Kosmos to add that file.';
   } finally {
     ATTACH_UPLOADING = Math.max(0, ATTACH_UPLOADING - 1);
     if (btn) btn.disabled = false;
@@ -75092,6 +75106,10 @@ const ATTACH_PENDING = { room: {}, agent: {} };
 /* #3955 round 9: files still uploading (ATTACH_PENDING holds a file only once its upload answered). */
 let ATTACH_UPLOADING = 0;
 const ATTACH_MAX = 10;
+/* #6734: the route's own cap (engine/attachments.js MAX_BYTES), checked here before the upload starts.
+   server.attachment-stream-6734.test.js holds the two equal. */
+const ATTACH_MAX_BYTES = 100 * 1024 * 1024;
+const ATTACH_SLOW_BYTES = 25 * 1024 * 1024;   // #6734: a file this large may outlast the board's request timeout on a slow connection
 function attachTarget(where) {
   return where.key === 'room' ? (PJ_CURRENT || null) : (CURRENT ? CURRENT.sessionName : null);
 }

@@ -36,7 +36,10 @@ let NOFOLLOW = KERNEL_NOFOLLOW;
 const NONBLOCK = fs.constants.O_NONBLOCK;
 function _setNofollowForTest(v) { NOFOLLOW = arguments.length ? v : KERNEL_NOFOLLOW; }
 
-function tooBig(st) { return st.size > attachments.MAX_BYTES; }
+/* #6734: its own limit, not the attachment cap. This preview reads the whole file (and a PDF twice), so when the cap
+   rose to 100 MB it stayed at the 25 MB it was built under. */
+const MAX_PREVIEW_BYTES = 25 * 1024 * 1024;
+function tooBig(st) { return st.size > MAX_PREVIEW_BYTES; }
 /* Only a file the list would show: listFiles' rules, walked (resolveListedFile's `listed` mode). An agent's Files
    list is flat (maxDepth 0); a project's walks its subfolders. */
 function resolve(folder, name, where, opts) {
@@ -262,4 +265,4 @@ function reveal(folder, name, where, opts) {
   return projects.revealFile(got.target, { namedAs: path.join(String(folder), got.given) });   // the record's spelling, for Windows (as openFile)
 }
 
-module.exports = { get CACHE() { return cacheDir(); }, CACHE_KEEP, SOURCE_FILE, TEXT_PREVIEW_BYTES, resolve, preview, reveal, sweep, _setNofollowForTest };
+module.exports = { get CACHE() { return cacheDir(); }, CACHE_KEEP, MAX_PREVIEW_BYTES, SOURCE_FILE, TEXT_PREVIEW_BYTES, resolve, preview, reveal, sweep, _setNofollowForTest };

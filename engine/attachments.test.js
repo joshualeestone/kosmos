@@ -30,6 +30,11 @@ test('kind is decided by type first and extension second, and an unknown file is
 test('a file name becomes one path segment: no separators, no leading dots, never empty', () => {
   assert.equal(attachments.safeName('../../etc/passwd'), '_.._etc_passwd');
   assert.equal(attachments.safeName('record.json'), 'file-record.json', 'a file named like the metadata would overwrite it');
+  // #6734 review 11: a leading space no longer protects a leading dot, so no name can become the part file's.
+  assert.equal(attachments.safeName(' .upload.part'), 'upload.part');
+  assert.equal(attachments.safeName(' .env'), 'env');
+  assert.equal(attachments.safeName(' . .x'), 'x');
+  assert.equal(attachments.safeName('.upload.part'), 'upload.part', 'CONTROL: the plain dotted name was already safe');
   assert.equal(attachments.safeName('Preview.PNG'), 'file-Preview.PNG');
   assert.equal(attachments.safeName('a\u001bb\u0007.txt'), 'ab.txt', 'control characters reach the pane');
   assert.equal(Array.from(attachments.safeName('😀'.repeat(200))).length, 160, 'a surrogate pair was halved');
@@ -109,7 +114,8 @@ test('the preview: an image is itself, a PDF goes through the renderer seam and 
 });
 
 test('too large, empty, and a bad id are refused in words, and read never walks a path the id built', () => {
-  assert.throws(() => attachments.save('agent', 'april', { name: 'big', type: 'x', bytes: Buffer.alloc(attachments.MAX_BYTES + 1) }), /25 MB/);
+  // allocUnsafe: the refusal reads only the length, so the 100 MB is never written to (review 13).
+  assert.throws(() => attachments.save('agent', 'april', { name: 'big', type: 'x', bytes: Buffer.allocUnsafe(attachments.MAX_BYTES + 1) }), /larger than 100 MB/);
   assert.throws(() => attachments.save('agent', 'april', { name: 'empty', type: 'x', bytes: Buffer.alloc(0) }), /nothing in that file/);
   assert.equal(attachments.read('../../etc'), null);
   assert.equal(attachments.read('zzzzzzzzzzzzzzzzzzzzzzzz'), null);
