@@ -55,7 +55,11 @@ _kosmos_pgrep_cmdlines() {   # <ERE>
   local raw rc anc=" " p hops=0 kept
   raw="$(pgrep -fa "$1")"; rc=$?
   [ "$rc" -eq 0 ] || return "$rc"
-  p="${BASHPID:-$$}"
+  # This shell's own pid, which inside a `$( )` is not $$. BASHPID is bash 4+; without it, `exec sh` makes sh a
+  # direct child of this shell, so its PPID is this shell.
+  p="${BASHPID:-}"
+  [ -n "$p" ] || p="$(exec sh -c 'echo "$PPID"' 2>/dev/null)"
+  [ -n "$p" ] || p=$$
   while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null; do
     anc="$anc$p "
     p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d '[:space:]')"
@@ -63,7 +67,7 @@ _kosmos_pgrep_cmdlines() {   # <ERE>
   done
   kept="$(printf '%s\n' "$raw" | while IFS= read -r line; do
     [ -n "$line" ] || continue
-    case "$anc" in *" ${line%% *} "*) continue ;; esac
+    case "$anc" in (*" ${line%% *} "*) continue ;; esac   # leading ( : bash 3.2 misparses a bare pattern ) inside $( )
     printf '%s\n' "$line"
   done)"
   [ -n "$kept" ] || return 1
