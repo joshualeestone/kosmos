@@ -369,6 +369,8 @@ if (args[0] === 'devices') {
   if (verb === 'allow' && mode.includes('slow-allow')) { const until = Date.now() + 1500; while (Date.now() < until) { /* wait */ } }
   // kosmos#5786 (b): an allow the tunnel refuses (the vouch path's retry cap).
   if (verb === 'allow' && mode.includes('allow-fails')) { process.stderr.write('error: the coordinator refused\\n'); process.exit(1); }
+  // kosmos#6666: an Allow refused because Kosmos+ is paused for maintenance (kosmos-relay #509: exit 0, paused true).
+  if (verb === 'allow' && mode.includes('allow-paused')) { console.log(JSON.stringify({ device_id: flag('--device-id'), acked: false, check: false, allowed: false, paused: true })); process.exit(0); }
   if (verb === 'allow' && mode.includes('allow-unknown')) { console.log(JSON.stringify({ allowed: true, acked: false, account_ack: 'unknown_device', device_id: flag('--device-id') })); process.exit(0); }
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
   process.exit(0);
@@ -1226,6 +1228,39 @@ test('kosmos#6286: an allow the coordinator answers "no such sign-in" is a refus
     assert.match(r.because, /^Kosmos\+ holds no sign-in waiting with that id \(it was refused, or never asked\)\. It is on this computer's list/);
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
   // CONTROL: the same call with the tunnel's ordinary answer is still allowed.
+  const ok = await remote.deviceAllow('dev-9', 'iPhone');
+  assert.equal(ok.ok, true, ok.because);
+});
+
+test('kosmos#6666: pending says Kosmos+ is paused only when the tunnel wrote paused exactly true', () => {
+  const dir = enrol();
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+  remote.setOn(true);
+  const write = (extra) => fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [], ...extra }));
+  write({ paused: true });
+  assert.equal(remote.pendingDevices().paused, true, 'a paused snapshot did not read as paused');
+  for (const extra of [{ paused: false }, { paused: 'true' }, { paused: 1 }, {}]) {
+    write(extra);
+    assert.equal(remote.pendingDevices().paused, false, 'read as paused: ' + JSON.stringify(extra));
+  }
+  fs.rmSync(nodePath.join(dir, 'pending.json'), { force: true });
+  assert.equal(remote.pendingDevices().paused, false, 'no snapshot read as paused');
+  write({ paused: true });
+  remote.setOn(false);
+  assert.notEqual(remote.pendingDevices().paused, true, 'a board with Plus off said Kosmos+ is paused');
+});
+
+test('kosmos#6666: an Allow refused while Kosmos+ is paused says so, and is neither allowed nor listed', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'allow-paused';
+  try {
+    const r = await remote.deviceAllow('dev-9', 'iPhone');
+    assert.equal(r.ok, false, 'an Allow refused while paused read as allowed');
+    assert.equal(r.paused, true);
+    assert.match(r.because, /^Kosmos\+ is paused for maintenance, so nothing can be allowed right now\./);
+    assert.notEqual(r.listed, true, 'a paused Allow writes nothing to this computer\'s list');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  // CONTROL: the same call with the tunnel's ordinary answer is allowed.
   const ok = await remote.deviceAllow('dev-9', 'iPhone');
   assert.equal(ok.ok, true, ok.because);
 });

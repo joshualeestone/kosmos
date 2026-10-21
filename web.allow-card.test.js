@@ -195,3 +195,17 @@ test('#5786 a desktop browser is told its code is in that browser, in the tab wh
   // The browser name is escaped where it is put into the card.
   assert.doesNotMatch(JS, /showing in ' \+ deskBrowser\[2\]/);
 });
+
+test('kosmos#6666: while Kosmos+ is paused for maintenance the Plus section says why no request shows', () => {
+  // The line exists once, inside the requests section, and starts hidden.
+  const line = PAGE.match(/<p class="plus-paused" id="plus-paused" hidden>([^<]+)<\/p>/);
+  assert.ok(line, 'the paused line is missing, or does not start hidden');
+  assert.equal(PAGE.split('id="plus-paused"').length - 1, 1, 'the paused line appears more than once');
+  assert.match(line[1], /^Kosmos\+ is paused for maintenance\. /);
+  const panel = PAGE.slice(PAGE.indexOf('id="plus-asks"'), PAGE.indexOf('id="plus-ask-rows"'));
+  assert.ok(panel.includes('id="plus-paused"'), 'the paused line is not inside the requests section');
+  // The poll reads paused as exactly true, and painting shows the line and keeps the section open for it.
+  assert.match(JS, /ASK\.paused = r\.paused === true;/);
+  assert.match(JS, /const anything = [^;]*\|\| ASK\.paused;/);
+  assert.match(JS, /document\.getElementById\('plus-paused'\); if \(p\) p\.hidden = !ASK\.paused;/);
+});
