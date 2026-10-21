@@ -80,3 +80,14 @@ Weakest premise: a listed wrapper is trusted from its first array; a wrapper tha
 it would pass. Three wrappers today, each read.
 Controls: 35 (each failing shape from rounds 1 to 4 red, each accepted shape green). Against origin/main's three
 files: red on all four.
+
+## Review 5 (Opus): one medium, four low; all fixed with controls (51 now)
+- -L does fall back: it names a socket in the same TMUX_TMPDIR folder, so with the folder gone it is
+  /tmp/tmux-<uid>/<name>, and `-L default` IS the machine's server. Header corrected; `-L default` refused in all
+  three shapes. The repo's -L calls are safe because every label is unique per process.
+- Shape 1 now needs '-S'/'-L' as a whole first element, and the array used as it is (only ',' or ')' after its ']').
+- Shape 3 refuses a backslash (an escape could hide a second command).
+- A listed wrapper: every definition must start with -S/-L; a plain call only in the wrapper's own file; obj.name(...)
+  only when obj is required from the wrapper's file. (Round 4 had dropped round 3's every-definition rule silently.)
+- Controls added for the arms that had none: not in an array, holder depth, regex class, escaped quote, per-file
+  WRAPPERS keying.
