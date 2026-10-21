@@ -57,6 +57,45 @@ test('#6857: the socket $TMUX names is refused, even when $TMUX is read at the c
   assert.deepEqual(f.calls(), ['-S', sock, 'kill-server']);
 });
 
+test('#6857: a symlink to the machine socket is refused by the file it names (review 12)', { skip: process.platform === 'win32' && 'no tmux on Windows' }, (t) => {
+  const f = fakeTmux(t);
+  const fleet = path.join(f.dir, 'fleet');
+  fs.writeFileSync(fleet, '');
+  const link = path.join(f.dir, 'looks-private');
+  fs.symlinkSync(fleet, link);
+  const was = process.env.TMUX;
+  t.after(() => { if (was === undefined) delete process.env.TMUX; else process.env.TMUX = was; });
+  process.env.TMUX = fleet + ',1,0';
+  assert.throws(() => killServerAt(f.bin, link), /machine's own/);
+  assert.deepEqual(f.calls(), []);
+});
+
+test("#6857: a test's own TMUX_TMPDIR, set after load or passed in opts.env, is the server it ends, not the machine's", { skip: process.platform === 'win32' && 'no tmux on Windows' }, (t) => {
+  const f = fakeTmux(t);
+  const sock = path.join(f.dir, 'tmux-' + (process.getuid ? process.getuid() : 0), 'default');
+  fs.mkdirSync(path.dirname(sock));
+  fs.writeFileSync(sock, '');
+  const was = process.env.TMUX_TMPDIR;
+  t.after(() => { if (was === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = was; });
+  process.env.TMUX_TMPDIR = f.dir;   // what live-connect does after it requires the helper
+  killServerAt(f.bin, sock, { env: { TMUX_TMPDIR: f.dir } });   // what last-look passes
+  assert.deepEqual(f.calls(), ['-S', sock, 'kill-server']);
+});
+
+test('#6857: the default socket under the TMUX_TMPDIR the machine had at load is refused', { skip: (process.platform === 'win32' || typeof process.getuid !== 'function') && 'no tmux on Windows' }, (t) => {
+  const f = fakeTmux(t);
+  const sock = path.join(f.dir, 'tmux-' + process.getuid(), 'default');
+  fs.mkdirSync(path.dirname(sock));
+  fs.writeFileSync(sock, '');
+  const script = "const { killServerAt } = require(" + JSON.stringify(path.join(__dirname, '..', 'test-support', 'tmux-kill.js')) + ");\n"
+    + 'try { killServerAt(' + JSON.stringify(f.bin) + ', ' + JSON.stringify(sock) + "); console.log('ran'); } catch (e) { console.log(e.message); }";
+  const env = { ...process.env, TMUX_TMPDIR: f.dir };
+  delete env.TMUX;
+  const out = require('node:child_process').execFileSync(process.execPath, ['-e', script], { env, encoding: 'utf8' });
+  assert.match(out, /machine's own/);
+  assert.deepEqual(f.calls(), []);
+});
+
 test('#6857: no socket path is an error, not a bare kill-server', () => {
   assert.throws(() => killServerAt('tmux', ''), /no socket path/);
   assert.throws(() => killServerAt('tmux'), /no socket path/);

@@ -178,7 +178,7 @@ function namesDefault(toks, h) {
     if (!str(toks[k], '-L') || toks[k + 1].v !== ',') continue;
     const v = toks[k + 2];
     if (v.t === 'str' && isDefault(v.v)) return true;
-    if (v.t === 'id' && toks[k + 3] && (toks[k + 3].v === ',' || toks[k + 3].v === ']')) {
+    if (v.t === 'id') {
       const d = nearestInit(toks, v.v, k);
       if (d && d.init.length === 1 && d.init[0].t === 'str' && isDefault(d.init[0].v)) return true;
     }
@@ -344,6 +344,8 @@ test('#6857: the checker accepts -L in its three forms, refuses -S outside the h
   assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', sock, ...a]);\ntm(['kill-server']);"), 1, 'an unlisted wrapper fails until it is listed');
   assert.equal(flags("const tm = (a) => execFileSync(T, a, ['x']);\ntm(['kill-server']);", sess), 1, 'a listed wrapper whose array does not start with -L');
   assert.equal(flags("const tm = (a) => execFileSync(T, ['-S', sock, ...a]);\ntm(['kill-server']);", sess), 1, 'a listed wrapper on -S');
+  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, '-S', p, ...a]);\ntm(['kill-server']);", sess), 1, 'a listed wrapper with an -S after its -L');
+  assert.equal(flags("const n = 'default';\nexecFileSync(T, ['-L', n + '', 'kill-server'])"), 1, 'a -L name built on a variable holding default');
   assert.equal(flags("const tm = (a) => execFileSync(T, s ? ['-L', s, ...a] : a);\ntm(['kill-server']);", sess), 1, 'a listed wrapper with a conditional socket');
   assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', 'default', ...a]);\ntm(['kill-server']);", sess), 1, 'a listed wrapper on -L default');
   assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\ntm(['-L', 'default', 'kill-server']);", sess), 1, 'a listed wrapper handed -L default');
