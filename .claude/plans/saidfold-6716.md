@@ -25,7 +25,8 @@ stuck prompt.
 - **The conversation's busy line for a failed sign-in no longer quotes the screen** ("last seen: ..."): it was the
   same raw text, unfolded, on the same page as the fold. It still says the sign-in is not working. The guide's side
   chat has no fold, so it keeps the quote (busyRow's `{ quote: true }`, review 8).
-- **The fold closes for a new wait, another agent, or a page open**, and not when a waiting agent's screen text is empty
+- **The fold closes for a new wait (including a move to a different waiting state, review 12), another agent, or a
+  page open**, and not when a waiting agent's screen text is empty
   for one poll (review 11 reversed the earlier acceptance: two blind reviews raised it, and keying on the wait was a
   three-line change). Weakest premise: that the engine's state stays in SAID_STATES across that gap.
 
@@ -37,5 +38,6 @@ stuck prompt.
   web.no-left-bars-3692 (allowlist), web.reply-where (the side chat keeps the quote, the agent page does not; a
   fleet card).
 - Browser checks: render-signin-visible-3892, render-dm-chatfirst-718 (open the fold to measure it at its tallest),
-  render-agent-pill-3958 (the fold shows for auth_failed and is gone for working), render-busy-anim-3421. The two that
-  read the fold name d-said, d-said-box and d-said-lab in their surface header, so a change to the fold selects them.
+  render-agent-pill-3958 (the fold shows for auth_failed and is gone for working), render-busy-anim-3421. The three that
+  read the fold (3958, 718, 3892) name d-said, d-said-box and d-said-lab in their surface header, so a change to the
+  fold selects them.

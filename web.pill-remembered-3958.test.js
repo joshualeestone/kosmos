@@ -202,6 +202,11 @@ test('#6716: the screen-line fold starts closed each time it appears, and a poll
     assert.equal(box.hidden, true, 'control: an empty line hides the fold');
     pillFor.repaint(waiting);
     assert.equal(box.open, true, 'one poll with no screen text closed the fold during the same wait (review 11)');
+    pillFor.repaint({ ...waiting, state: 'auth_failed' });   // a different wait, with different words
+    assert.equal(box.open, false, 'a move to another waiting state kept the fold open over its new words (review 12)');
+    box.open = true;
+    pillFor.repaint({ ...waiting, state: 'auth_failed' });
+    assert.equal(box.open, true, 'control: the same waiting state on the next poll leaves it open');
     pillFor.repaint(card);   // back to working: hidden
     assert.equal(box.hidden, true);
     pillFor.repaint(waiting);   // waiting on something again

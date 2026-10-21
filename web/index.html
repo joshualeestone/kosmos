@@ -42776,12 +42776,13 @@ function paintDetailState(card) {
       /* Starts folded each time it appears: for another agent, or for this one when it is waiting on something again
          after it was not. The poll while it stays shown for the same agent leaves an opened fold as the person left it.
          Review 11: "again" is a new WAIT, not the text coming back. A waiting agent whose screen text is empty for one
-         poll keeps the fold as the person left it (dataset.waiting remembers the last paint's state). */
+         poll keeps the fold as the person left it (dataset.waiting remembers the last paint's waiting state). Review 12:
+         a move to a different waiting state (a limit, then a failed sign-in) is a new wait too, with new words. */
       const forName = a.sessionName || '';
-      const waiting = SAID_STATES.has(a.state);
-      const appears = waiting && saidBox.dataset.waiting !== '1';
+      const waitState = SAID_STATES.has(a.state) ? a.state : '';
+      const appears = !!waitState && saidBox.dataset.waiting !== waitState;
       if (appears || saidBox.dataset.for !== forName) { saidBox.open = false; saidBox.dataset.for = forName; }
-      saidBox.dataset.waiting = waiting ? '1' : '';
+      saidBox.dataset.waiting = waitState;
       /* Hiding the fold while its summary has the keyboard would drop focus to the top of the page: it moves to the
          state line beside the heading instead, which is what changed (tabindex -1, so it adds no Tab stop). */
       if (!line && !saidBox.hidden && document.activeElement && saidBox.contains(document.activeElement)) {

@@ -1,4 +1,4 @@
-// Browser-check-surface: d-reauth d-start-wrap d-start-agent dhead d-said d-said-box d-instr-stale d-sec-talk d-swarm-panel d-nav-swarm d-dmthread linkish d-name d-task d-meta detail-state dnamerow
+// Browser-check-surface: d-reauth d-start-wrap d-start-agent dhead d-said d-said-box d-said-lab d-instr-stale d-sec-talk d-swarm-panel d-nav-swarm d-dmthread linkish d-name d-task d-meta detail-state dnamerow
 'use strict';
 
 /**
