@@ -352,6 +352,20 @@ test('run-tests.sh: the default part is all, so `yarn test` still runs the node 
   assert.match(src, /\[ "\$KOSMOS_TEST_PART" != shell \] \|\|/, 'a shard outside a shell-only run is refused');
 });
 
+test('#6799: the list header states the counts the list has (test.yml points readers to it for them)', () => {
+  const text = fs.readFileSync(sh.MAC_ONLY_FILE, 'utf8');
+  const all = sh.commands();
+  const counts = (t) => {
+    const m = t.match(/That is (\d+) here, and (\d+) commands on Linux\./);
+    assert.ok(m, 'the header no longer says "That is N here, and M commands on Linux."');
+    return [Number(m[1]), Number(m[2])];
+  };
+  const actual = [sh.macOnly(text, all).size, sh.forPlatform(all, 'linux').length];
+  assert.deepEqual(counts(text), actual, 'the header\'s counts differ from the list (listed, Linux)');
+  const off = text.replace(/That is (\d+) here/, (_, n) => `That is ${Number(n) + 1} here`);
+  assert.notDeepEqual(counts(off), actual, 'CONTROL: a header one count off must not match');
+});
+
 test('#6791 review 2: run-tests.sh hands its platform to shell-shard.js (a lost forward would turn the macOS job into all of test:shell, green)', () => {
   const stub = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-6791-stub-'));
   const log = path.join(stub, 'argv.log');
