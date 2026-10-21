@@ -128,3 +128,20 @@ test('a file written WHILE it is hashed is not cached (a fingerprint never descr
   await settle();
   assert.equal(filehash.known(p, fs.statSync(p)), sha(fs.readFileSync(p)));
 });
+
+test('iteration 2: a file whose modification time is in the future is still fingerprinted once settled', async () => {
+  filehash._settleForTest(60 * 1000);
+  const p = write('future.txt', 'from a fast clock');
+  const future = new Date(Date.now() + 365 * 24 * 3600 * 1000);
+  fs.utimesSync(p, future, future);   // sets mtime (the change time moves to now)
+  filehash.forRow(p, fs.statSync(p));
+  await settle();
+  assert.equal(filehash.known(p, fs.statSync(p)), null, 'premise: just changed, so not yet settled');
+  // Settled by the change time: pretend it was changed long ago, as a file copied in yesterday would be.
+  const st = fs.statSync(p);
+  const old = Object.assign(Object.create(Object.getPrototypeOf(st)), st, { ctimeMs: Date.now() - 120 * 1000 });
+  const real = fs.promises.open;
+  fs.promises.open = async (...x) => { const fh = await real(...x); const s0 = fh.stat.bind(fh); fh.stat = async () => Object.assign(Object.create(Object.getPrototypeOf(st)), await s0(), { ctimeMs: old.ctimeMs }); return fh; };
+  try { filehash.want(p, old); await settle(); } finally { fs.promises.open = real; }
+  assert.equal(filehash.known(p, old), sha('from a fast clock'), 'a future modification time kept the file unhashed');
+});

@@ -80,3 +80,8 @@ Card: kosmos#6761, from a user feedback report (a project-manager agent, 2026-10
   - NIT, fixed: the CLIs now agree on the error paths too: a refusal goes to stderr on both, an answer that is not a
     task list gets one sentence, and an empty word after the flag is refused on both. Tested strictly.
   - Wording: the rows say "fingerprint"; the hover names the algorithm (sha256) beside the whole value.
+- Iteration 2 (sonnet): WARNING, fixed (measured by the reviewer: a file with a 2030 modification time never got one): the
+  settle rule read the modification time, which a copy or an archive can set in the future; it now reads the change
+  time alone, which the kernel sets on every write. Test with a future mtime; the mutant (back to mtime) red. NITs,
+  fixed: the Documents fill's repaint kept the keyboard focus only by luck; the focused row gets it back (tested, mutant
+  red). The Mac's two shell-side refusals go to stderr, as every other refusal on both CLIs.

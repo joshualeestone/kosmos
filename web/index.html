@@ -69929,7 +69929,13 @@ function docsFingerprintFill(forProject, openGen, tries) {
       const sha = !fileFingerprint(f) && got.get(f.name + '\u0000' + f.size + '\u0000' + f.modified);   // the same file as listed, never a newer one
       if (sha) { f.sha256 = sha; added = true; }
     }
-    if (added) pjDocsPaintPage();
+    if (added) {
+      // Iteration 2: the repaint rebuilds the rows; a row that had the keyboard keeps it (found again by its name).
+      const box = document.getElementById('docs-list');
+      const had = box && document.activeElement && box.contains(document.activeElement) ? document.activeElement.dataset.doc : null;
+      pjDocsPaintPage();
+      if (had != null && box) { const again = [...box.querySelectorAll('.pj-doc')].find((r) => r.dataset.doc === had); if (again) again.focus(); }
+    }
     docsFingerprintFill(forProject, openGen, tries + 1);
   }, 2000);
 }
