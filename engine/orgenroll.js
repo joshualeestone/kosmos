@@ -1072,6 +1072,9 @@ async function refreshNow(opts) {
   const org = cleanOrg(d.org);
   const role = cleanRole(d.role);
   if (!org || !role) return { ok: false, because: inKind(KIND, 'Your company\'s answer was not complete.'), enrolled: !!before };
+  // kosmos#6859: an org's kind does not change, so an answer that names none (an older coordinator's) leaves a
+  // family's record a family's; read as a company's, it would let a child's agents out (orgpolicy.contactAllows).
+  if (!(d.org && d.org.kind) && before && before.org && before.org.id === org.id && before.org.kind === 'family') org.kind = 'family';
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
   // kosmos#6752: this answer's reviewer grants, or none (an answer without them, an older coordinator's, drops the old list).
   const grants = cleanReviewerGrants(d.reviewerGrants);

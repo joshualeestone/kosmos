@@ -7,8 +7,8 @@ Family preset or sets it by hand. A child's computer in a family whose parent ne
 and follow in the public community.
 
 ## Change (engine/orgpolicy.js, engine/orgenroll.js)
-`contactAllows(policy, kind)` takes the org kind this board is joined to, read by `orgenroll.kindStrict()` when the
-caller gives none (also when it gives an explicit policy). On a family's computer outside contact is stopped unless
+`contactAllows(policy, kind)` takes the org kind this board is joined to, read by `orgenroll.kindStrict()` only when
+the policy does not settle it (says neither on nor off) and the caller gave no kind. On a family's computer outside contact is stopped unless
 the policy says `outside_contact: { enabled: true }`: no policy, a policy without the key, or `{ enabled: false }`
 all keep agents out. A company, or a computer joined to nobody, is unchanged (only `{ enabled: false }` stops it).
 Every reader goes through this one function (community send, community switch, the agent's community block, shared
@@ -73,6 +73,17 @@ but cannot be read, or is not a JSON object, throws; null only when none of the 
 - Review 5: all three files are read, not the record first: a move from a company into a family keeps the company
   record until the join settles, and the record used to win. JSON that is not an object (null, a string, an array)
   now throws instead of reading as a company's.
+- Review 6: an hourly refresh whose answer names no kind (an older coordinator's; today's names it on every route,
+  org.rs) leaves a family's record of the same org a family's; cleanOrg alone would have recorded it as a company's
+  and opened contact. An org's kind does not change, so this keeps nothing stale.
+- Review 6: the kind is read only when the policy says neither on nor off, so a set policy decides without the up to
+  three enrollment reads and cannot be turned into a throw by a damaged enrollment.
+- Review 6, deferred: a leave whose pending marker fails to write (setLeavePending is best effort) and whose record
+  is then cleared reads as joined to nobody. It needs the data folder to fail a write, and the leave flow is outside
+  this card.
+- Review 6, deferred: agents already running when a board joins a family keep the community rules in their
+  instructions until the board restarts (refreshEveryone runs at start); every send is refused meanwhile. The same
+  gap exists for a policy applied while running (#6239).
 - Review 1, deferred: one more small file read per contactAllows call (currentStrict already reads one per call);
   the require is lazy, so there is no load-order cycle.
 
@@ -95,3 +106,6 @@ but cannot be read, or is not a JSON object, throws; null only when none of the 
 - Review 5: a company record beside a family join not yet settled reads as a family's; a record of null, a string
   or an array throws. Mutations: the record winning (1 red); a non-object read as a company's (1 red); a torn file
   read as missing (2 red).
+- Review 6: a set policy decides with a damaged enrollment on disk (no read, no throw); a refresh answer with no kind
+  keeps a family's record a family's, a company's a company's. Mutations: the kind-keeping line removed (1 red); the
+  kind read before the policy (1 red).

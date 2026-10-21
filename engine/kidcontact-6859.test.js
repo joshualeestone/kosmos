@@ -171,3 +171,34 @@ test('#6859: the kind comes from the files themselves: a torn marker throws, a r
     }
   } finally { communitysend.setSwitch(null); joined(null); }
 });
+
+test('#6859: a policy that says on or off decides without reading the enrollment', () => {
+  const rec = path.join(store.ROOT, orgenroll.ENROLLMENT_FILE);
+  try {
+    joined(null);
+    fs.mkdirSync(store.ROOT, { recursive: true });
+    fs.writeFileSync(rec, '{ torn');
+    assert.throws(() => orgpolicy.contactAllows({}), /enrollment file that cannot be read/, 'CONTROL: the kind is read when the policy does not settle it');
+    assert.equal(orgpolicy.contactAllows({ outside_contact: { enabled: false } }).ok, false);
+    assert.equal(orgpolicy.contactAllows({ outside_contact: { enabled: true } }).ok, true);
+  } finally { joined(null); }
+});
+
+test('#6859: an answer that names no kind leaves a family\'s record a family\'s (an org\'s kind does not change)', async () => {
+  const world = 'b'.repeat(32);
+  for (const [had, answered, want] of [['family', undefined, 'family'], ['company', undefined, 'company'], ['family', 'family', 'family']]) {
+    const root = fs.mkdtempSync(path.join(SANDBOX, 'refresh-'));
+    fs.writeFileSync(path.join(root, orgenroll.WORLD_ID_FILE), world + '\n');
+    fs.writeFileSync(path.join(root, orgenroll.ENROLLMENT_FILE), JSON.stringify({ org: { id: 'org-1', name: 'The Smiths', slug: 'smiths', kind: had }, role: 'member', world, enrolledAt: new Date().toISOString() }) + '\n');
+    const org = { id: 'org-1', name: 'The Smiths', slug: 'smiths' };
+    if (answered) org.kind = answered;
+    const remote = { macRequest: async (method, route) => (route === orgenroll.ROUTES.status
+      ? { ok: true, data: { member: true, enrolled: { world, thisComputer: true }, org, role: 'member' } }
+      : { ok: false, because: 'not scripted' }) };
+    await orgenroll.refresh({ root, remote });
+    const after = orgenroll.readEnrollment({ root });
+    assert.ok(after, 'CONTROL: the refresh kept a record (' + had + ')');
+    assert.equal(after.org.kind, want, `a ${had} record answered with kind ${answered} became ${after.org.kind}`);
+    assert.equal(orgenroll.kindStrict({ root }), want);
+  }
+});
