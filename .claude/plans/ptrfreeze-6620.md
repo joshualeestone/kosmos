@@ -176,3 +176,11 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
   checkout that cannot follow the pushed commit prints git's own words. Left as they are: the late re-check goes on
   when its fetch fails (decided in round 3: a flaky network should not abort a built deploy; the early check failed
   closed minutes before); a Ctrl-C can leave the temporary index directory in $TMPDIR (small, harmless).
+- Review 16 (three warnings, a nit): deploy-site chose its advice by where the freeze was read, so a BAD pointer
+  pushed on top of the freeze, deployed from an up-to-date checkout, was told to pull (which changes nothing, in an
+  incident), and the moved-files refusal offered to lift the freeze, which would publish what it had stopped. One
+  freeze_advice now picks by what is true: behind origin/main (pull), origin/main read and not frozen (lifted, or
+  never pushed), else a file committed on top (never lift; put the files back or re-pin). The moved-files anchor is
+  the commit that ADDED the marker (`on` only adds it, refusing when already frozen; `off` removes it), so a later
+  commit that edits the marker cannot hide a move: that arm DEPLOYED against the pre-fix code. A marker with no
+  sha256 (never written by pointer-freeze.sh) says only the version was checked.

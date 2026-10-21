@@ -738,7 +738,7 @@ git -C "$S53" add -- dist/POINTER_FROZEN && git -C "$S53" commit -q -m "frozen a
 git -C "$S53" add -- setup-staging setup-staging.sha256 && git -C "$S53" commit -q -m "an installer by hand on top of the freeze" -- setup-staging setup-staging.sha256
 LIVE53="$(cat "$L53/dist/latest.json")"
 run_deploy "$S53" "$L53" --promote
-{ [ "$RC" = 1 ] && has "$out" "since the freeze commit" && has "$out" "setup-staging" && [ "$(cat "$L53/dist/latest.json")" = "$LIVE53" ]; } \
+{ [ "$RC" = 1 ] && has "$out" "since the freeze commit" && has "$out" "setup-staging" && has "$out" "do NOT lift the freeze" && ! has "$out" "lift the freeze first" && [ "$(cat "$L53/dist/latest.json")" = "$LIVE53" ]; } \
   && pass "#6620: an installer moved on top of the freeze is refused, live untouched" || bad "#6620 moved on top (rc=$RC) out=$out"
 
 # A freeze landing WHILE this deploy runs, at the very version this deploy carries, whose commit restores an installer
@@ -756,6 +756,41 @@ LIVE54="$(cat "$L54/dist/latest.json")"
 FREEZE_MID_RUN_ON="dist/$OLDART" FREEZE_MID_RUN_CLONE="$S54.other" run_deploy "$S54" "$L54" --promote
 { [ "$RC" = 1 ] && [ -e "$S54.other.pushed" ] && has "$out" "on origin/main while this ran, and this deploy changes setup-staging" && [ "$(cat "$L54/dist/latest.json")" = "$LIVE54" ]; } \
   && pass "#6620: a freeze landing mid-run at this version, which restores an installer this tree changed, is refused before vercel" || bad "#6620 mid-run moved installer (rc=$RC, pushed=$([ -e "$S54.other.pushed" ] && echo y || echo n)) out=$out"
+
+# A BAD pointer pushed to origin/main ON TOP of the freeze, deployed from a checkout that is up to date: the refusal
+# must not send the operator to pull (pulling changes nothing); it says what is true, a file committed on top.
+read -r S55 L55 <<<"$(make_rollback_scenario)"
+git init -q --bare "$S55.origin.git" && git -C "$S55" remote add origin "$S55.origin.git"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S55/dist/POINTER_FROZEN"
+git -C "$S55" add -- dist/POINTER_FROZEN && git -C "$S55" commit -q -m "frozen at $OLD" -- dist/POINTER_FROZEN
+cp "$L55/dist/latest.json" "$S55/dist/latest.json"
+git -C "$S55" commit -q -m "the bad pointer by hand on top of the freeze" -- dist/latest.json && git -C "$S55" push -q origin main
+LIVE55="$(cat "$L55/dist/latest.json")"
+run_deploy "$S55" "$L55" --promote
+{ [ "$RC" = 1 ] && has "$out" "the pointers are FROZEN at $OLD" && has "$out" "committed on top of the freeze" && ! has "$out" "pull it" && [ "$(cat "$L55/dist/latest.json")" = "$LIVE55" ]; } \
+  && pass "#6620: a pointer pushed on top of the freeze, from an up-to-date checkout: refused, and not told to pull" || bad "#6620 on-top advice (rc=$RC) out=$out"
+# CONTROL for that advice: the same freeze on origin, this checkout BEHIND it (arm 48's shape): told to pull.
+read -r S56 L56 <<<"$(make_rollback_scenario)"
+git init -q --bare "$S56.origin.git" && git -C "$S56" remote add origin "$S56.origin.git" && git -C "$S56" push -q origin main
+git clone -q "$S56.origin.git" "$S56.other" && git -C "$S56.other" config user.email t@t && git -C "$S56.other" config user.name t
+printf 'mac=%s\nbecause=another machine\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S56.other/dist/POINTER_FROZEN"
+git -C "$S56.other" add dist/POINTER_FROZEN && git -C "$S56.other" commit -q -m "frozen elsewhere" && git -C "$S56.other" push -q origin main
+run_deploy "$S56" "$L56" --promote
+{ [ "$RC" = 1 ] && has "$out" "This checkout is behind origin/main: pull it"; } \
+  && pass "#6620 CONTROL: a checkout behind a freeze on origin/main is told to pull" || bad "#6620 behind advice (rc=$RC) out=$out"
+
+# A commit that moves an installer AND edits the marker (a because= line, say) after the freeze: the anchor is the
+# commit that ADDED the marker, so the move is still seen. CONTROL: arm 45 (nothing moved) deploys.
+read -r S57 L57 <<<"$(make_rollback_scenario)"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S57/dist/POINTER_FROZEN"
+git -C "$S57" add -- dist/POINTER_FROZEN && git -C "$S57" commit -q -m "frozen at $OLD" -- dist/POINTER_FROZEN
+{ cat "$S57/setup"; printf '# a hand edit\n'; } > "$S57/setup-staging"; ( cd "$S57" && shasum -a 256 setup-staging > setup-staging.sha256 )
+printf 'mac=%s\nbecause=a test incident, reworded\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S57/dist/POINTER_FROZEN"
+git -C "$S57" add -- setup-staging setup-staging.sha256 dist/POINTER_FROZEN && git -C "$S57" commit -q -m "an installer and a reworded marker" -- setup-staging setup-staging.sha256 dist/POINTER_FROZEN
+LIVE57="$(cat "$L57/dist/latest.json")"
+run_deploy "$S57" "$L57" --promote
+{ [ "$RC" = 1 ] && has "$out" "since the freeze commit" && has "$out" "setup-staging" && [ "$(cat "$L57/dist/latest.json")" = "$LIVE57" ]; } \
+  && pass "#6620: an installer moved in the same commit as a marker edit is still refused" || bad "#6620 marker-edit anchor (rc=$RC) out=$out"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

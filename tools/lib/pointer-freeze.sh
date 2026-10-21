@@ -66,10 +66,12 @@ pointer_freeze_on() {
 
 # pointer_freeze_moved <site> <freeze source> <tree>: prints the release files (every release pointer, the Windows ones
 # too, and the installer pair the freeze pins) that <tree> changes since the commit in <freeze source> that froze the
-# pointers. Fails (status 1, nothing printed) when that commit or the diff cannot be read: the caller refuses.
+# pointers: the one that ADDED the marker (`on` only ever adds it, `off` removes it), so a later commit that merely
+# edits the marker cannot become the anchor and hide what moved before it. Fails (status 1, nothing printed) when
+# that commit or the diff cannot be read: the caller refuses.
 pointer_freeze_moved() {
   local fc out
-  fc="$(git -C "$1" log -1 --format=%H "$2" -- "$POINTER_FREEZE_FILE" 2>/dev/null)" && [ -n "$fc" ] || return 1
+  fc="$(git -C "$1" log -1 --diff-filter=A --format=%H "$2" -- "$POINTER_FREEZE_FILE" 2>/dev/null)" && [ -n "$fc" ] || return 1
   out="$(git -C "$1" diff --name-only "$fc" "$3" -- 'dist/latest*.json' setup setup.sha256 setup-staging setup-staging.sha256 2>/dev/null)" || return 1
   [ -z "$out" ] || printf '%s\n' "$out"
 }
