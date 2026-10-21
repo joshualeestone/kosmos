@@ -87,7 +87,8 @@ function safeName(name) {
 function storedAsIs(name) {
   if (typeof name !== 'string' || !name || name.length > 640 || name === '.' || name === '..') return false;
   if (/[/\\\0\u0000-\u001f\u007f]/.test(name)) return false;
-  return name !== PART && !RESERVED.has(name.replace(/[\s.]+$/, '').toLowerCase());
+  const plain = name.replace(/[\s.]+$/, '').toLowerCase();   // review 14: as macOS and Windows compare names
+  return plain !== PART && !RESERVED.has(plain);
 }
 
 /** Where an owner's attachments live: ('project', id) or ('agent', name). */
@@ -113,7 +114,7 @@ function slot(scope, owner, name) {
   const file = path.join(dir, clean);
   if (!file.startsWith(dir + path.sep)) throw new Error('that file name cannot be stored');
   fs.mkdirSync(path.dirname(dir), { recursive: true });
-  fs.mkdirSync(dir);   // review 7: exclusive, so a new upload can never share (and on failure remove) an existing folder
+  fs.mkdirSync(dir, { mode: 0o700 });   // review 7: exclusive, so an upload never shares an existing folder; 0700 (review 14)
   return { id, dir, name: clean, file, part: path.join(dir, PART) };
 }
 /** The slot's part file renamed into place and its record written. Returns the record with its paths. */
@@ -287,14 +288,15 @@ function read(id) {
     absent, when there is none. ⚠️ For kind 'text' it is the file's own first
     characters, UNTRUSTED TEXT, never markup: a `.html` upload is kind text,
     and the page must draw the snippet with textContent. */
-/* #6734 review 5: an image's preview IS the image, so a card would pull the whole file to draw a thumbnail. Above this
-   an image has no preview (its card is the file card, and Download still gives the file). The cap it was built under. */
-const MAX_IMAGE_PREVIEW_BYTES = 25 * 1024 * 1024;
-function imageTooBigToPreview(rec) { return rec.kind === 'image' && !(Number(rec.size) <= MAX_IMAGE_PREVIEW_BYTES); }
+/* #6734 review 5: an image's preview IS the image, so a card would pull the whole file to draw a thumbnail; and a PDF's
+   is drawn by reading the whole file (review 14: never measured at 100 MB). Above this neither has a preview (its card
+   is the file card, and Download still gives the file). The cap they were built under. */
+const MAX_THUMBNAIL_BYTES = 25 * 1024 * 1024;
+function tooBigToPreview(rec) { return (rec.kind === 'image' || rec.kind === 'pdf') && !(Number(rec.size) <= MAX_THUMBNAIL_BYTES); }
 function rowField(rec) {
   if (!rec) return null;
   let preview = null;
-  if ((rec.kind === 'image' && !imageTooBigToPreview(rec)) || rec.kind === 'pdf') preview = '/api/attachment/' + rec.id + '/preview';
+  if ((rec.kind === 'image' || rec.kind === 'pdf') && !tooBigToPreview(rec)) preview = '/api/attachment/' + rec.id + '/preview';
   else if (rec.kind === 'text') preview = textHead(rec.file);
   return { id: rec.id, name: rec.name, type: rec.type, size: rec.size, kind: rec.kind, url: '/api/attachment/' + rec.id, preview };
 }
@@ -375,12 +377,13 @@ async function preview(rec) {
 async function previewFile(rec) {
   if (!rec) return { ok: false, because: 'no such attachment' };
   if (rec.kind === 'image') {
-    if (imageTooBigToPreview(rec)) return { ok: false, because: 'that image is too large to preview here; download it instead' };
+    if (tooBigToPreview(rec)) return { ok: false, because: 'that image is too large to preview here; download it instead' };
     const type = imageTypeOf(rec.name) || (IMAGE_TYPES.has(String(rec.type).toLowerCase()) ? String(rec.type).toLowerCase() : null);
     if (!type) return { ok: false, because: 'that is not an image this board will draw' };
     return { ok: true, type, file: rec.file, unread: 'that file could not be read' };
   }
   if (rec.kind !== 'pdf') return { ok: false, because: 'no preview for this kind of file' };
+  if (tooBigToPreview(rec)) return { ok: false, because: 'that PDF is too large to preview here; download it instead' };
   const out = path.join(rec.dir, 'preview.png');
   if (!fs.existsSync(out)) {
     const made = await renderPdf(rec.file, rec.dir, out);
@@ -565,4 +568,4 @@ function rowFields(recs) {
   return { attachment: list[0], attachments: list };
 }
 
-module.exports = { MAX_BYTES, MAX_WORDS, TOO_LARGE, PART, ORPHAN_AGE_MS, MAX_IMAGE_PREVIEW_BYTES, sweepOrphans, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, saveFilled, saveStream, read, rowField, rowFields, resolveForMessage, preview, previewFile, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js
+module.exports = { MAX_BYTES, MAX_WORDS, TOO_LARGE, PART, ORPHAN_AGE_MS, MAX_THUMBNAIL_BYTES, sweepOrphans, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, saveFilled, saveStream, read, rowField, rowFields, resolveForMessage, preview, previewFile, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js

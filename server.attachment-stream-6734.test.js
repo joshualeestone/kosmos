@@ -508,8 +508,8 @@ test('#6734: a reply copy that cannot be written says Kosmos could not store it,
   try { assert.deepEqual(replyfile.readOwn(real, fs.statSync(real), src, ok), { ok: true, size: 64 * 1024 }); } finally { fs.closeSync(ok); }
 });
 
-test('#6734: an image over 25 MB has no thumbnail, so a card never pulls the whole file to draw one', async () => {
-  const LIMIT = attachments.MAX_IMAGE_PREVIEW_BYTES;
+test('#6734: an image or PDF over 25 MB has no thumbnail, so a card never reads the whole file to draw one', async () => {
+  const LIMIT = attachments.MAX_THUMBNAIL_BYTES;
   assert.equal(LIMIT, 25 * 1024 * 1024);
   const image = (size) => ({ id: 'e'.repeat(24), name: 'photo.png', type: 'image/png', kind: 'image', size, file: '/nonexistent/photo.png' });
   assert.equal(attachments.rowField(image(LIMIT + 1)).preview, null);
@@ -518,8 +518,11 @@ test('#6734: an image over 25 MB has no thumbnail, so a card never pulls the who
   // CONTROL: at the limit, the image is its own preview, as before.
   assert.equal(attachments.rowField(image(LIMIT)).preview, '/api/attachment/' + 'e'.repeat(24) + '/preview');
   assert.equal((await attachments.previewFile(image(LIMIT))).ok, true);
-  // A PDF's thumbnail is a small rendered page, whatever the PDF's size, so it keeps its preview.
-  assert.match(attachments.rowField({ ...image(attachments.MAX_BYTES), kind: 'pdf', name: 'big.pdf' }).preview, /\/preview$/);
+  // Review 14: a PDF's thumbnail is drawn by reading the whole PDF, so the same limit applies.
+  const pdf = (size) => ({ ...image(size), kind: 'pdf', name: 'big.pdf', type: 'application/pdf' });
+  assert.equal(attachments.rowField(pdf(LIMIT + 1)).preview, null);
+  assert.deepEqual(await attachments.previewFile(pdf(LIMIT + 1)), { ok: false, because: 'that PDF is too large to preview here; download it instead' });
+  assert.match(attachments.rowField(pdf(LIMIT)).preview, /\/preview$/, 'CONTROL: a PDF at the limit keeps its thumbnail');
 });
 
 test('#6734: only attachments.js writes under the store, so the orphan sweep never meets a folder that keeps its record elsewhere', () => {
@@ -584,6 +587,7 @@ test('#6734: a stored attachment and its record are both readable by this user o
   const rec = storedOf(1024, 'modes.bin');
   assert.equal(fs.statSync(rec.file).mode & 0o777, 0o600, 'the file');
   assert.equal(fs.statSync(path.join(rec.dir, 'record.json')).mode & 0o777, 0o600, 'the record');
+  assert.equal(fs.statSync(rec.dir).mode & 0o777, 0o700, 'the folder');
 });
 
 test('#6734: a file an older build stored under its old clean name (".env" from " .env") is still found', () => {
@@ -605,6 +609,11 @@ test('#6734: a file an older build stored under its old clean name (".env" from 
     assert.equal(attachments.read('a2'.repeat(12)), null);
     record('a3'.repeat(12), '../a1a1a1a1a1a1a1a1a1a1a1a1/.env', []);
     assert.equal(attachments.read('a3'.repeat(12)), null);
+    // Review 14: the part file in another case, or with a trailing dot, is the same file on macOS and Windows.
+    record('a4'.repeat(12), '.UPLOAD.PART', [attachments.PART]);
+    assert.equal(attachments.read('a4'.repeat(12)), null);
+    record('a5'.repeat(12), attachments.PART + '.', [attachments.PART]);
+    assert.equal(attachments.read('a5'.repeat(12)), null);
   } finally {
     fs.rmSync(owner, { recursive: true, force: true });
   }

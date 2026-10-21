@@ -130,8 +130,9 @@ the file in memory: an upload is written to disk as it arrives, and a download i
 18. **An image over 25 MB has no thumbnail** (review 5). An image's preview is the image itself, so at a 100 MB cap a
    message card scrolled into view could pull 100 MB (on a phone, over cellular, then decoded in memory).
    `rowField` gives such an image no preview URL, so its card is the plain file card and Download still gives the
-   file; the preview route refuses it too. A PDF keeps its thumbnail (a small rendered page). Test: 25 MB + 1 has none,
-   exactly 25 MB keeps it, a 100 MB PDF keeps it; red with the limit removed.
+   file; the preview route refuses it too. Review 14: a PDF's thumbnail is drawn by reading the whole PDF, never
+   measured at 100 MB, so the same 25 MB limit (`MAX_THUMBNAIL_BYTES`) applies to PDFs. Test: 25 MB + 1 has none and
+   exactly 25 MB keeps it, for an image and a PDF; red with the limit removed, and with PDFs left out of it.
 19. **The reply-file refusal says "larger than 100 MB"** (review 5): its rounded size read "100 MB" just past the cap.
    `textHead` opens without blocking and reads only an ordinary file, like the download.
 
@@ -179,6 +180,14 @@ phone yet: the remaining manual step covers it.
    to check a refusal.
    Decision 5 measured: the 1 MB chunked copy of 100 MB took 12 to 14 ms (three runs, load average 15), with the source
    just written, so in the page cache. A cold read, or a slow or network disk, will be slower and is not measured.
+
+25. **Review 14:** the stored-name fallback compares the part file's name as macOS and Windows do (case and trailing
+   dots and spaces ignored), so ".UPLOAD.PART" or ".upload.part." is never followed (test arms; red with the old
+   case-sensitive compare). Attachment folders are made 0700 (test; red without the mode).
+
+### Considered and not changed (review 14)
+- **No total or per-owner quota on person uploads.** The count was already unbounded; each file can now be 4x larger.
+  The agent side has its 200 MB daily brake. Would change it: a disk filling from attachments, or a quota card.
 
 ### Considered and not changed (review 10)
 - **The orphan sweep's residual cases:** a writer reaching the store by a spelling the guard does not scan (a shell
@@ -301,8 +310,6 @@ Card step 2. On a board running this build, signed in to Kosmos+ on an iPhone:
 Record the times, sizes and network on the card. Pass: both downloads finish with exact sizes, the cancelled one
 leaves no descriptor, the phone upload arrives whole.
 
-## Regression sweep result (2026-10-21 01:30 to 01:34 CDT, at 24ee64b031, main 0 commits ahead; SUPERSEDED by the review fixes since: the full suite on Mortals at the final head replaces it, recorded in the proof file)
-
-278 test files, built at run time from the name list, the repo-scanning tests and the fixed-window pins, with the
-branch's four touched test files asserted present. Run through queued-heavy. `tests 5390, pass 5374, fail 0,
-cancelled 0, skipped 16`, node exit 0. The branch's own tests appear in the output by name.
+## Regression sweep
+The local sweep run at 24ee64b031 (before the review fixes) is superseded and its numbers are not repeated here: the
+full suite on Mortals at the final head is the result, recorded in the proof file.
