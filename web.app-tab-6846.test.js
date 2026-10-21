@@ -15,9 +15,10 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const page = require('./test-support/page');
 const SCRIPT = page.scriptOf(PAGE);
 
+const POPOVERS = '[aria-haspopup][aria-expanded="true"]:not(#kplus-menu):not(#burger), #worldsw-btn[aria-expanded="true"]';
 const BLOCK = SCRIPT.match(/^if \(typeof window !== 'undefined'\) window\.kosmosAppTab = \(name\) => \{\n[\s\S]*?\n\};$/m);
 
-function run(name, { tabs = ['agents', 'projects', 'tasks'], inert = false, menuOpen = false, noTabs = false, backdrop = false, consolidated = false } = {}) {
+function run(name, { tabs = ['agents', 'projects', 'tasks'], inert = false, menuOpen = false, noTabs = false, backdrop = false, consolidated = false, popover = false } = {}) {
   assert.ok(BLOCK, 'the page no longer publishes kosmosAppTab for the iPhone app');
   const calls = [];
   const win = {};
@@ -32,8 +33,9 @@ function run(name, { tabs = ['agents', 'projects', 'tasks'], inert = false, menu
   const doc = {
     body: { classList: { contains: (c) => c === 'consolidated' && consolidated } },
     querySelector: (sel) => {
-      assert.equal(sel, '.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])');
-      return backdrop ? {} : null;
+      if (sel === '.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])') return backdrop ? {} : null;
+      if (sel === POPOVERS) return popover ? {} : null;
+      throw new Error('unexpected selector ' + sel);
     },
     getElementById: (id) => {
       if (id === 'tabs') return noTabs ? null : tabsEl;
@@ -118,4 +120,16 @@ test('#6846: Settings opens in place in the consolidated layout, as the user men
   assert.deepEqual(calls, ['openConsolidatedSettings you'], 'Settings left the consolidated layout, or opened on the last section');
   assert.match(SCRIPT, /function userpopSettingsGo\(section\) \{[\s\S]{0,1200}?if \(document\.body\.classList\.contains\('consolidated'\)\) \{\n\s*if \(section\) SETTINGS_SEC = section;\n\s*openConsolidatedSettings\(\);/,
     'the user menu changed how it opens Settings; keep kosmosAppTab in step');
+});
+
+test('#6846: while a header menu is open over the page, nothing changes under it and the app is told so', () => {
+  for (const name of ['agents', 'projects', 'tasks', 'settings']) {
+    const { answer, calls } = run(name, { popover: true });
+    assert.equal(answer, false, name + ' answered opened under an open header menu');
+    assert.deepEqual(calls, [], name + ' changed the page under an open header menu');
+  }
+  // The same open-menu test the tips use, less the two menus the door handles itself (the phone menu it closes, the
+  // burger the press closes). If the tips' test grows, look at whether this one should too.
+  assert.ok(SCRIPT.includes("return !!document.querySelector('[aria-haspopup][aria-expanded=\"true\"], #burger[aria-expanded=\"true\"], #worldsw-btn[aria-expanded=\"true\"]');"),
+    'tipMenuOpen changed its open-menu test; keep kosmosAppTab in step');
 });
