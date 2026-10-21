@@ -42462,6 +42462,22 @@ function fitDetailName() {
 const AGENT_FILES_SHOWN = 10;   // as many as the project page's Files list shows
 let AGENT_FILES_EPOCH = 0;
 let AGENT_FILES_STAMP = null;
+/* #6761 iteration 5: a fingerprint arriving moves a list's stamp, so a polled list repaints with no file changed. These
+   two let a repaint give the keyboard back to the same row (by its file or folder name), as the Documents fill does. */
+function rowKey(el) {
+  if (!el || !el.dataset) return null;
+  if (el.dataset.doc != null) return 'doc:' + el.dataset.doc;
+  return el.dataset.dir != null ? 'dir:' + el.dataset.dir : null;
+}
+function focusedRowKey(box) {
+  const at = document.activeElement;
+  return box && at && at !== box && box.contains(at) ? rowKey(at) : null;
+}
+function refocusRow(box, key) {
+  if (!key || !box) return;
+  const again = [...box.querySelectorAll('button')].find((r) => rowKey(r) === key);
+  if (again) again.focus();
+}
 /* #6497 (Mona's 0.7.56 noise pass): `compact` is the agent page's narrow Files panel. A full date on every row cut the
    names to a few letters there, so it shows the size only, as the project page's Files panel does; the date is the
    row's hover text. The Files screen (View All) keeps the date on the row. */
@@ -42592,6 +42608,7 @@ async function paintAgentFiles(sessionName) {
   const stamp = ok ? String(body.stamp || '') : 'refused:' + status + ':' + String((body && body.because) || '');
   if (stamp && stamp === AGENT_FILES_STAMP) return;
   AGENT_FILES_STAMP = stamp;
+  const hadFocus = focusedRowKey(list);   // #6761 iteration 5
   list.textContent = '';
   if (all) all.hidden = true;
   const files = ok && Array.isArray(body.files) ? body.files : [];
@@ -42608,6 +42625,7 @@ async function paintAgentFiles(sessionName) {
   }
   msg.textContent = '';
   for (const f of files) list.append(agentFileRow(f, true));   // #6497: the narrow panel, size only
+  refocusRow(list, hadFocus);
   // #3994 (Josh, 11:18 and again 16:14 on 0.6.99): View All whenever there is a file, even one,
   // because it is the way to the Files screen and its Open in Finder button.
   if (all) all.hidden = false;
@@ -42716,6 +42734,7 @@ async function paintAgentFilesAll(sessionName) {
     AGENT_FILES_ALL_FAIL = fail;
   } else AGENT_FILES_ALL_FAIL = null;
   agentFilesPath(dir);
+  const hadFocus = focusedRowKey(list);   // #6761 iteration 5
   list.textContent = '';
   if (more) more.hidden = true;
   if (!ok) {
@@ -42742,7 +42761,7 @@ async function paintAgentFilesAll(sessionName) {
     AGENT_FILES_FOCUS = false;
     const to = list.querySelector('.pj-doc') || document.querySelector('#d-filesall-path [aria-current]') || document.getElementById('d-filesall-h');
     if (to && typeof to.focus === 'function') to.focus();
-  }
+  } else refocusRow(list, hadFocus);
 }
 for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-list', 'd-filesall-msg']]) document.getElementById(listId) && document.getElementById(listId).addEventListener('click', async (e) => {
   const row = e.target.closest('.pj-doc');
@@ -70179,6 +70198,7 @@ async function pjLoadDocs(id) {
   if (nowOk && PJ_DOCS_OK && body.stamp === PJ_DOCS_STAMP) return;
   if (nowOk) PJ_DOCS_STAMP = body.stamp;
   PJ_DOCS_OK = nowOk;
+  const hadFocus = focusedRowKey(box);   // #6761 iteration 5
   box.textContent = '';
   if (!body || body.ok !== true) {
     PJ_DOCS_RAIL_PARTIAL = false; // #2245: a failed read carries no list to be partial about
@@ -70219,6 +70239,7 @@ async function pjLoadDocs(id) {
     b.append(n, w);
     box.append(b);
   }
+  refocusRow(box, hadFocus);
   all.hidden = false;
   /* The SCREEN Josh asked for exists now (#134), so the button opens it and
      says so; the Finder hand-off lives inside that screen, named as what it

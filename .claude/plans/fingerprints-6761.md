@@ -98,3 +98,8 @@ Card: kosmos#6761, from a user feedback report (a project-manager agent, 2026-10
   would tell it from a placeholder); its row simply shows none. The Documents fill gives up after 15 reads (30 s): a
   folder of several large settled files may finish hashing after that, and its rows fill in on the next open. A browsed
   folder queues each of its up to 1000 files once (deduplicated), which iteration 1's declined byte budget would bound.
+- Iteration 5 (opus): one NIT, fixed. A fingerprint arriving moves a list's stamp, so the three polled lists (the agent's
+  narrow Files panel, the Files screen, the project rail) repaint with no file changed and dropped keyboard focus. Shared
+  helpers rowKey / focusedRowKey / refocusRow now give focus back to the same row (by file or folder name) after each of
+  those repaints; the Files screen's move-to-folder focus still wins. Tested (web.fingerprints-6761, two mutants red).
+  Not done: patching rows in place when only fingerprints moved (a rebuild with focus kept is enough).

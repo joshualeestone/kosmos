@@ -95,3 +95,25 @@ test('iteration 1: the Documents view fills fingerprints in after it opens, by t
   await drain(left);
   assert.equal(left.st.fetched, 0);
 });
+
+test('iteration 5: the polled Files lists give the keyboard back to the same row when a fingerprint repaints them', () => {
+  const rows = (names) => names.map(([k, v]) => ({ dataset: { [k]: v }, focus() { st.focused = k + ':' + v; } }));
+  const st = { focused: null };
+  let kids = rows([['dir', 'reports'], ['doc', 'a.txt'], ['doc', 'b.txt']]);
+  const box = { contains: (el) => kids.includes(el), querySelectorAll: () => kids };
+  const doc = { activeElement: kids[2] };
+  const fns = new Function('document', page.liftAll(SCRIPT, ['rowKey', 'focusedRowKey', 'refocusRow']) + '\nreturn { focusedRowKey, refocusRow };')(doc);
+  const key = fns.focusedRowKey(box);
+  assert.equal(key, 'doc:b.txt');
+  kids = rows([['dir', 'reports'], ['doc', 'a.txt'], ['doc', 'b.txt']]);   // the repaint makes new rows
+  fns.refocusRow(box, key);
+  assert.equal(st.focused, 'doc:b.txt', 'focus was not put back on the same file');
+  doc.activeElement = { dataset: { doc: 'elsewhere' } };   // CONTROL: the keyboard is outside the list
+  assert.equal(fns.focusedRowKey(box), null, 'focus outside the list was pulled into it');
+  st.focused = null;
+  fns.refocusRow(box, 'doc:gone.txt');
+  assert.equal(st.focused, null, 'a file no longer listed moved the focus');
+  // All three repaint paths use them: the narrow panel, the Files screen, the project rail.
+  assert.equal((SCRIPT.match(/const hadFocus = focusedRowKey\((list|box)\);/g) || []).length, 3);
+  assert.equal((SCRIPT.match(/refocusRow\((list|box), hadFocus\);/g) || []).length, 3);
+});
