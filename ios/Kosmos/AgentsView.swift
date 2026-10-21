@@ -143,7 +143,6 @@ struct AgentsView: View {
             .font(.footnote)
             .foregroundColor(Palette.tertiary)
             .padding(.top, 8)
-            .padding(.horizontal, 16)
     }
 
     private func message(_ title: String, detail: String, retry: Bool = false) -> some View {

@@ -94,6 +94,8 @@ final class BoardClient: ObservableObject {
                 Board.Agent(session: "dana", name: "Dana", role: "Writer", state: "working", task: "Pages 9 to 12", needsYou: false),
                 Board.Agent(session: "eli", name: "Eli", role: "Researcher", state: "working", task: nil, needsYou: false),
                 Board.Agent(session: "farah", name: "Farah", role: "Bookkeeper", state: "idle", task: nil, needsYou: false),
+                Board.Agent(session: "hana", name: "Hana", role: "Support", state: "auth_failed", task: nil, needsYou: false),
+                Board.Agent(session: "gus", name: "Gus", role: "Social media", state: "stopped", task: nil, needsYou: false, running: false),
             ])
             updatedAt = Date()
             phase = .live(mac: Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true))

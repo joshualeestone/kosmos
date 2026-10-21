@@ -818,7 +818,33 @@ func boardLoopTests() async {
         Board.encode(Board.SavedMacSession(name: "Studio", address: "studio.kosmosplus.com", cookie: cookie, owner: Board.owner(of: owner)))!
     }
 
-    section("native board loop: connecting")
+    section("native board: the spec's tones and order (Mona Lisa, slice 1)")
+do {
+    func a(_ s: String, _ name: String, state: String, needs: Bool = false, agent: Bool = false, approval: Bool = false) -> Board.Agent {
+        Board.Agent(session: s, name: name, role: nil, state: state, task: nil, needsYou: needs, awaitingApproval: approval, reportedByAgent: agent)
+    }
+    check(Board.tone(a("q", "Q", state: "needs_you", needs: true, agent: true)) == .asked, "Question is asked (gold)")
+    check(Board.tone(a("p", "P", state: "needs_you", needs: true, approval: true)) == .needsYou, "Needs permission is needs you (red)")
+    check(Board.tone(a("r", "R", state: "rate_limited")) == .needsYou && Board.tone(a("s", "S", state: "stopped")) == .needsYou, "Rate Limit and Not running are needs you")
+    check(Board.tone(a("w", "W", state: "working")) == .working && Board.tone(a("i", "I", state: "idle")) == .quiet, "Working is working, Idle is quiet")
+    check(Board.tone(a("c", "C", state: "idle", needs: true)) == .needsYou, "a word the table does not list is needs you when the board counts the agent as needing the person")
+    check(Board.tone(a("n", "N", state: "something_new")) == .needsYou, "Can't tell (a state the phone does not know) is in the table as needs you")
+    let mixed = [a("i", "Ivy", state: "idle"), a("w", "Wes", state: "working"), a("q", "Quinn", state: "needs_you", needs: true, agent: true), a("p", "Pat", state: "rate_limited")]
+    check(Board.sorted(mixed).map(\.session) == ["p", "q", "w", "i"], "needs you and asked first (by name), then working, then quiet")
+    let shown = [a("w", "Wes", state: "working"), a("i", "Ivy", state: "idle")]
+    let fresh = [a("i", "Ivy", state: "needs_you", needs: true, agent: true), a("w", "Wes", state: "idle"), a("z", "Zed", state: "working"), a("b", "Bo", state: "idle")]
+    let kept = Board.keepingOrder(shown, with: fresh)
+    check(kept.map(\.session) == ["w", "i", "z", "b"], "a live update keeps the shown order and adds new agents at the end, sorted among themselves")
+    check(kept[1].state == "needs_you", "while each kept row takes its new state")
+    check(Board.keepingOrder(shown, with: [a("i", "Ivy", state: "idle")]).map(\.session) == ["i"], "an agent that is gone is dropped")
+    let mac = URL(string: "https://studio.kosmosplus.com/")!
+    check(Board.avatarRequest(mac: mac, session: "dana")?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/dana/avatar", "an agent's picture comes from its Mac")
+    check(Board.avatarRequest(mac: mac, session: "../x") == nil && Board.avatarRequest(mac: mac, session: "a/b") == nil, "never for a name outside the agent-name characters")
+    let pic = Board.parseAgents(Data(#"{"agents":[{"sessionName":"d","name":"D","state":"idle","hasAvatar":true,"avatarVer":3}]}"#.utf8))?.first
+    check(pic?.hasAvatar == true && pic?.avatarVer == "3", "the picture flag and version are read from the snapshot")
+}
+
+section("native board loop: connecting")
     do {
         let (c, w, _, macs) = make("kst1")
         c.start()
@@ -970,6 +996,22 @@ func boardLoopTests() async {
         c.start()
         let ok35 = await settle { c.phase == .macRefused(mac: "Studio") }
         check(ok35 && w.count("/v1/account/handoff") == 7, "a gate that keeps refusing gets six fresh handoffs, then says it did not accept the sign-in")
+        c.stop()
+    }
+
+    section("native board loop: rows hold still until pull to refresh")
+    do {
+        let (c, w, _, _) = make("kst1")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"zed","name":"Zed","state":"working"},{"sessionName":"amy","name":"Amy","state":"idle"}]}"#)
+        c.start()
+        let ok40 = await settle { isLive(c) }
+        check(ok40 && c.agents.map(\.session) == ["zed", "amy"], "on appear the list is sorted (working before quiet)")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"zed","name":"Zed","state":"idle"},{"sessionName":"amy","name":"Amy","state":"needs_you","stateReportedBy":"agent"}]}"#)
+        let polls = w.count("/api/status")
+        let ok41 = await settle { w.count("/api/status") >= polls + 2 && c.agents.first?.state == "idle" }
+        check(ok41 && c.agents.map(\.session) == ["zed", "amy"], "a live update changes the rows in place and does not move them")
+        await c.refreshNow()
+        check(c.agents.map(\.session) == ["amy", "zed"], "pull to refresh re-sorts (Amy's question first)")
         c.stop()
     }
 
