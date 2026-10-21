@@ -20,7 +20,7 @@ struct ContentView: View {
     @StateObject private var shell = ShellState()
     // kosmos#6838: the native Agents tab beside the web board, until every screen is native.
     @StateObject private var board = BoardClient()
-    @State private var tab = Tab.board
+    @State private var tab = Tab.agents   // Mona Lisa's slice 1 spec: open on Agents until Today exists
     #if DEBUG
     // Screenshots only (a Debug build; Release has no such switch): KOSMOS_START_TAB=agents opens on Agents.
     init(pushManager: PushNotificationManager) {
@@ -40,7 +40,7 @@ struct ContentView: View {
                     .tabItem { Label("Agents", systemImage: "person.2") }
                     .tag(Tab.agents)
                     webBoard
-                        .tabItem { Label("Board", systemImage: "rectangle.grid.1x2") }
+                        .tabItem { Label("Board", systemImage: "rectangle.grid.2x2") }
                         .tag(Tab.board)
                 }
             } else {

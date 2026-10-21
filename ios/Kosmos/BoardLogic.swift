@@ -198,7 +198,7 @@ enum Board {
         let role: String?
         let state: String
         let task: String?   // not shown in the Agents list; kept for the Today screen ("who is working on what")
-        let askedYou: Bool
+        let needsYou: Bool
         var awaitingApproval = false
         var reportedByAgent = false
         var running = true
@@ -207,6 +207,8 @@ enum Board {
         var needsTrust = false
         var jobRunningUnseen = false
         var restartTimedOut = false
+        var hasAvatar = false
+        var avatarVer = ""
         var id: String { session }
     }
 
@@ -226,7 +228,7 @@ enum Board {
                          role: (row["role"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                          state: state,
                          task: (row["task"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                         askedYou: Board.needsPerson(row),
+                         needsYou: Board.needsPerson(row),
                          awaitingApproval: approval,
                          reportedByAgent: (row["stateReportedBy"] as? String) == "agent",
                          running: (row["running"] as? Bool) != false,
@@ -234,7 +236,9 @@ enum Board {
                          reconnecting: state == "connection_lost" && (phase == "waiting" || phase == "retried"),
                          needsTrust: (row["needsTrust"] as? Bool) == true,
                          jobRunningUnseen: (row["jobRunningUnseen"] as? Bool) == true,
-                         restartTimedOut: ((row["disruption"] as? [String: Any])?["timedOut"] as? Bool) == true)
+                         restartTimedOut: ((row["disruption"] as? [String: Any])?["timedOut"] as? Bool) == true,
+                         hasAvatar: (row["hasAvatar"] as? Bool) == true,
+                         avatarVer: (row["avatarVer"] as? NSNumber)?.stringValue ?? (row["avatarVer"] as? String) ?? "")
         }
     }
 
@@ -275,9 +279,49 @@ enum Board {
             || flag("crashLoop", "looping") || flag("stuckError", "stuck") || flag("ownBound", "raised")
     }
 
-    // Those that asked you first, then working, then the rest; by name within each.
+    // Mona Lisa's slice 1 spec (kosmos#6838): each status word has a tone, which sets the dot and the word's colour.
+    enum Tone: Equatable { case needsYou, asked, working, quiet }
+
+    // The board's words that mean "needs you" (the spec's table).
+    static let needsYouWords: Set<String> = ["Needs permission", "Issue", "Rate Limit", "Sign-in isn't working",
+                                             "Connection lost", "Waiting", "Not running", "Can't tell"]
+
+    // Question is asked; the needs-you words, or any agent the board itself counts as needing the person
+    // (needsPerson: a crash loop and the like, whose words the table does not list), are needs you; Working is
+    // working; anything else, including a word the phone does not know, is quiet.
+    static func tone(_ agent: Agent) -> Tone {
+        let word = statusWord(agent)
+        if word == "Question" { return .asked }
+        if needsYouWords.contains(word) || agent.needsYou { return .needsYou }
+        if word == "Working" { return .working }
+        return .quiet
+    }
+
+    // Needs you and asked first, then working, then quiet; by name within each (then by key, so equal names keep one
+    // order). Set when the list appears and on pull to refresh only.
     static func sorted(_ agents: [Agent]) -> [Agent] {
-        func rank(_ a: Agent) -> Int { a.askedYou ? 0 : (a.state == "working" ? 1 : 2) }
+        func rank(_ a: Agent) -> Int { switch tone(a) { case .needsYou, .asked: return 0; case .working: return 1; case .quiet: return 2 } }
         return agents.sorted { (rank($0), $0.name.lowercased(), $0.session) < (rank($1), $1.name.lowercased(), $1.session) }
     }
+
+    // A live update changes rows in place and never moves them under the person's thumb: the shown order is kept,
+    // a row that is gone is dropped, and a new agent joins at the end (new ones sorted among themselves).
+    static func keepingOrder(_ shown: [Agent], with fresh: [Agent]) -> [Agent] {
+        let byKey = Dictionary(fresh.map { ($0.session, $0) }, uniquingKeysWith: { a, _ in a })
+        let kept = shown.compactMap { byKey[$0.session] }
+        let known = Set(shown.map(\.session))
+        return kept + sorted(fresh.filter { !known.contains($0.session) })
+    }
+
+    // The agent's picture on its Mac (server.js /api/agent/<name>/avatar, keyed by the agent's session name).
+    static func avatarRequest(mac: URL, session: String) -> URLRequest? {
+        guard isAgentSession(session) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/avatar", relativeTo: mac)!.absoluteURL)
+        r.setValue("image/*", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+
+    // The same agent-name characters a notification tap accepts.
+    static func isAgentSession(_ s: String) -> Bool { PushBridge.isAgentSession(s) }
 }

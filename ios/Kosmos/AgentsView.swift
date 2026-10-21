@@ -1,8 +1,10 @@
 import SwiftUI
+import UIKit
 
-// kosmos#6838 slice 1: the native Agents tab (Mona Lisa's design, 2026-10-19): one
-// line per agent with name, role and one word of status; the one that asked you
-// is marked. Tapping an agent opens its chat on the Board tab until Chat is native.
+// kosmos#6838 slice 1: the native Agents tab, built to Mona Lisa's slice 1 spec (#6838, 21 Oct): one inset list of
+// agents with picture, status dot, name, role and the board's own status word, the board's light and dark colours,
+// rows that hold still during live updates, and the states for reaching, no agents and not updating. Tapping an
+// agent opens its chat on the Board tab until Chat is native.
 struct AgentsView: View {
     @ObservedObject var client: BoardClient
     let openChat: (URL) -> Void
@@ -14,6 +16,7 @@ struct AgentsView: View {
         NavigationView {
             content
                 .navigationTitle("Agents")
+                .background(Palette.ground.ignoresSafeArea())
         }
         .navigationViewStyle(.stack)
         .onAppear { visible = true; client.start() }
@@ -30,19 +33,25 @@ struct AgentsView: View {
     @ViewBuilder private var content: some View {
         switch client.phase {
         case .starting:
-            ProgressView("Connecting to your Mac")
+            reaching
+        case .live(let mac):
+            if client.agents.isEmpty {
+                // The list arrives with the first read; until then this is still reaching.
+                if client.updatedAt == nil { reaching } else { noAgents }
+            } else {
+                list(mac, stale: false)
+            }
+        case .unreachable(let mac) where !client.agents.isEmpty:
+            // Lost while open: the last list stays, marked as not updating.
+            list(Board.Mac(name: mac, address: "", usable: true), stale: true)
+        case .unreachable:
+            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: client.retry)
+        case .kosmosPlusDown:
+            LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: client.retry)
         case .signedOut:
-            VStack(spacing: 12) {
-                message("Sign in to Kosmos+ on the Board tab.", detail: "Your agents show here once you are signed in. If you already are, sign out there and in again.")
-                Button("Try again") { client.retry() }
-                    .buttonStyle(.borderedProminent)
-            }
+            message("Sign in to Kosmos+ on the Board tab.", detail: "Your agents show here once you are signed in. If you already are, sign out there and in again.", retry: true)
         case .noMac:
-            VStack(spacing: 12) {
-                message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then try again.")
-                Button("Try again") { client.retry() }
-                    .buttonStyle(.borderedProminent)
-            }
+            message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then try again.", retry: true)
         case .waitingForAllow(let mac, let code):
             VStack(spacing: 12) {
                 message("Allow this iPhone on \(mac).",
@@ -59,134 +68,216 @@ struct AgentsView: View {
                 ProgressView().accessibilityLabel("Waiting for your Mac")
             }
         case .denied(let mac):
-            VStack(spacing: 12) {
-                message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.")
-                Button("Try again") { client.retry() }
-                    .buttonStyle(.borderedProminent)
-            }
-        case .kosmosPlusRefused:
-            VStack(spacing: 12) {
-                message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again on the Board tab. Otherwise try again in a moment.")
-                Button("Try again") { client.retry() }
-                    .buttonStyle(.borderedProminent)
-            }
-        case .kosmosPlusDown:
-            VStack(spacing: 12) {
-                message("Kosmos+ could not be reached.", detail: "Check your connection, then try again.")
-                Button("Try again") { client.retry() }
-                    .buttonStyle(.borderedProminent)
-            }
+            message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.", retry: true)
         case .macRefused(let mac):
-            VStack(spacing: 12) {
-                message("\(mac) did not accept this iPhone's sign-in.", detail: "Try again in a moment. If it keeps happening, sign out on the Board tab and in again.")
-                Button("Try again") { client.retry() }
-                    .buttonStyle(.borderedProminent)
-            }
-        case .unreachable(let mac):
-            VStack(spacing: 12) {
-                message("\(mac) is not answering.", detail: "It may be asleep or offline.")
-                Button("Try again") { client.retry() }
-                    .buttonStyle(.borderedProminent)
-            }
-        case .live(let mac):
-            list(mac)
+            message("\(mac) did not accept this iPhone's sign-in.", detail: "Try again in a moment. If it keeps happening, sign out on the Board tab and in again.", retry: true)
+        case .kosmosPlusRefused:
+            message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again on the Board tab. Otherwise try again in a moment.", retry: true)
         }
     }
 
-    private func list(_ mac: Board.Mac) -> some View {
+    // First connect, nothing shown yet (spec frame 3).
+    private var reaching: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+            Text("Reaching your computer\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+
+    // No agents (spec frame 4): no list and no footer line.
+    private var noAgents: some View {
+        VStack(spacing: 6) {
+            Text("No agents yet").font(.headline).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
+            Text("Make your first one on your computer.").font(.subheadline).foregroundColor(Palette.secondary)
+        }
+        .multilineTextAlignment(.center)
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func list(_ mac: Board.Mac, stale: Bool) -> some View {
         List {
-            // Which computer these agents are on, for an account with more than one.
-            Section(header: Text("On \(mac.name)"), footer: footer) {
+            if stale {
+                Section {
+                    notUpdating
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
+            }
+            Section(footer: footer) {
                 ForEach(client.agents) { agent in
                     Button {
                         if let url = client.chatURL(for: agent) { openChat(url) }
                     } label: {
-                        AgentRow(agent: agent)
+                        AgentRow(agent: agent, picture: client.pictures[agent.session].flatMap(UIImage.init(data:)), stale: stale)
                     }
                     .buttonStyle(.plain)
+                    .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+                    .listRowBackground(Palette.card)
+                    .listRowSeparatorTint(Palette.separator)
+                    // The separator starts at the text: 16 + 40 + 12 = 68pt from the card edge (52 from the inset).
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 52 }
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .overlay {
-            if client.updatedAt == nil {
-                ProgressView().accessibilityLabel("Loading your agents")
-            } else if client.agents.isEmpty {
-                message("No agents yet.", detail: "Agents you create on your computer show here.")
-            }
-        }
+        .scrollContentBackground(.hidden)
+        .background(Palette.ground)
+        .refreshable { await client.refreshNow() }
     }
 
-    // A list more than a minute old says when it was last read, so an old list never reads as current.
+    // Lost while open (spec frames 5 and 6): the time of the last good read, in the system's time format.
+    private var notUpdating: some View {
+        Text("Not updating. Your Mac isn't answering." + (client.updatedAt.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""))
+            .font(.footnote)
+            .foregroundColor(Palette.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Palette.banner))
+    }
+
     private var footer: some View {
-        TimelineView(.periodic(from: .now, by: 15)) { context in
-            VStack(alignment: .leading, spacing: 4) {
-                if let at = client.updatedAt, context.date.timeIntervalSince(at) > 60 {
-                    Text("Last updated \(at.formatted(date: .omitted, time: .shortened)).")
-                }
-                Text("New agents, models and connections are set up on your computer.")
-            }
-        }
+        Text("New agents, models and connections are set up on your computer.")
+            .font(.footnote)
+            .foregroundColor(Palette.tertiary)
+            .padding(.top, 8)
+            .padding(.horizontal, 16)
     }
 
-    private func message(_ title: String, detail: String) -> some View {
-        VStack(spacing: 6) {
-            Text(title).font(.headline).accessibilityAddTraits(.isHeader)
-            Text(detail).font(.subheadline).foregroundColor(.secondary).multilineTextAlignment(.center)
+    private func message(_ title: String, detail: String, retry: Bool = false) -> some View {
+        VStack(spacing: 12) {
+            VStack(spacing: 6) {
+                Text(title).font(.headline).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
+                Text(detail).font(.subheadline).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
+            }
+            if retry {
+                Button("Try again") { client.retry() }
+                    .buttonStyle(.borderedProminent)
+            }
         }
         .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
 struct AgentRow: View {
     let agent: Board.Agent
+    let picture: UIImage?
+    // Not updating: every dot quiet and every word secondary, so nothing old reads as live or urgent.
+    let stale: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    // Amber that keeps AA contrast as body text: #8A5A00 on white is about 6:1, #F5B942 on the dark
-    // grouped background about 9:1. System orange on white is under 3:1.
-    static let askedColor = Color(UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0xF5 / 255, green: 0xB9 / 255, blue: 0x42 / 255, alpha: 1)
-            : UIColor(red: 0x8A / 255, green: 0x5A / 255, blue: 0x00 / 255, alpha: 1)
-    })
+    private var tone: Board.Tone { stale ? .quiet : Board.tone(agent) }
+    private var word: String { Board.statusWord(agent) }
+    private var large: Bool { typeSize.isAccessibilitySize }
 
     var body: some View {
-        Group {
-            if typeSize.isAccessibilitySize {
-                // The largest text sizes: the status goes under the name rather than being cut off beside it.
-                VStack(alignment: .leading, spacing: 2) { names; status }
+        HStack(alignment: large ? .top : .center, spacing: 12) {
+            avatar
+            if large {
+                // The largest text sizes: the status goes under the role, and nothing truncates it.
+                VStack(alignment: .leading, spacing: 2) { name; role; status }
             } else {
-                HStack(spacing: 12) {
-                    ZStack {
-                        Circle().fill(Color(.systemGray5)).frame(width: 36, height: 36)
-                        Text(String(agent.name.prefix(1)).uppercased()).font(.subheadline.weight(.semibold))
-                    }
-                    .accessibilityHidden(true)
-                    names.layoutPriority(1)
-                    Spacer()
-                    status
-                }
+                VStack(alignment: .leading, spacing: 2) { name; role }
+                Spacer(minLength: 8)
+                status.layoutPriority(1)
             }
         }
-        .padding(.vertical, 4)
+        .frame(minHeight: 40)
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([agent.name, agent.role, word].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens the chat")
     }
 
-    private var names: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(agent.name).font(.body.weight(.semibold))
-            if let role = agent.role {
-                Text(role).font(.subheadline).foregroundColor(.secondary)
+    private var size: CGFloat { large ? 48 : 40 }
+
+    private var avatar: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Group {
+                if let picture {
+                    Image(uiImage: picture).resizable().scaledToFill()
+                } else {
+                    ZStack {
+                        Palette.avatarFill
+                        Text(String(agent.name.prefix(1)).uppercased())
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(Palette.avatarLetter)
+                    }
+                }
             }
+            .frame(width: size, height: size)
+            .clipShape(Circle())
+            // The status dot, 12pt with a 2pt ring in the card colour, 1pt outside the picture.
+            Circle()
+                .fill(Palette.dot(tone))
+                .frame(width: 12, height: 12)
+                .overlay(Circle().stroke(Palette.card, lineWidth: 2))
+                .offset(x: 1, y: 1)
+                .animation(.easeInOut(duration: 0.2), value: tone)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var name: some View {
+        Text(agent.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(large ? nil : 1)
+    }
+
+    @ViewBuilder private var role: some View {
+        if let role = agent.role {
+            Text(role).font(.footnote).foregroundColor(Palette.secondary).lineLimit(large ? nil : 1)
         }
     }
 
-    // Anything that needs you (Board.needsPerson) is in amber, in the board's own words.
+    // The board's own word, never truncated; a live change crossfades in 0.2s.
     private var status: some View {
-        Text(Board.statusWord(agent))
-            .font(.subheadline.weight(agent.askedYou ? .semibold : .regular))
-            .foregroundColor(agent.askedYou ? AgentRow.askedColor : .secondary)
+        Text(word)
+            .font(.footnote.weight(tone == .asked || tone == .needsYou ? .semibold : .regular))
+            .foregroundColor(Palette.word(tone))
+            .fixedSize()
+            .id(word)
+            .transition(.opacity)
+            .animation(.easeInOut(duration: 0.2), value: word)
+    }
+}
+
+// The board's own light and dark tokens (web/index.html), as Mona Lisa's slice 1 spec lists them.
+enum Palette {
+    static func pair(_ light: UInt32, _ dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1) -> Color {
+        func color(_ hex: UInt32, _ alpha: CGFloat) -> UIColor {
+            UIColor(red: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
+        }
+        return Color(UIColor { $0.userInterfaceStyle == .dark ? color(dark, darkAlpha) : color(light, lightAlpha) })
+    }
+    static let ground = pair(0xfaf9f7, 0x0c0d0f)
+    static let card = pair(0xffffff, 0x17191c)
+    static let primary = pair(0x14161a, 0xf5f5f4)
+    static let secondary = pair(0x4a4f57, 0xa9adb3)
+    static let tertiary = pair(0x14161a, 0xf5f5f4, lightAlpha: 0.61, darkAlpha: 0.47)
+    static let separator = pair(0xe3e1dc, 0x2a2d31)
+    static let avatarFill = pair(0xece7dd, 0x252529)
+    static let avatarLetter = pair(0x4a4f57, 0xc7c7cc)
+    static let banner = pair(0xf3efe6, 0x1c1f23)
+    static let askedWord = pair(0x7a5200, 0xffca55)
+    static let dangerWord = pair(0xb3261e, 0xff6b5e)
+
+    static func dot(_ tone: Board.Tone) -> Color {
+        switch tone {
+        case .working: return pair(0x1f7a4d, 0x4ade80)
+        case .asked: return pair(0xd6a62e, 0xe3b341)
+        case .needsYou: return pair(0xb3261e, 0xff6b5e)
+        case .quiet: return pair(0xa9adb3, 0x6e7278)
+        }
+    }
+
+    static func word(_ tone: Board.Tone) -> Color {
+        switch tone {
+        case .asked: return askedWord
+        case .needsYou: return dangerWord
+        case .working, .quiet: return secondary
+        }
     }
 }

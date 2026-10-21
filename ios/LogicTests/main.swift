@@ -693,7 +693,7 @@ do {
     check(agents.count == 7, "a row with no sessionName is dropped")
     check(agents.first { $0.session == "cleo" }?.role == nil, "an empty role is no role")
     check(word("cleo") == "Question" && word("farah") == "Needs permission", "a question and a permission prompt, in the board's words")
-    check(agents.first { $0.session == "farah" }?.askedYou == true && agents.first { $0.session == "dana" }?.askedYou == false, "needs you is marked, working is not")
+    check(agents.first { $0.session == "farah" }?.needsYou == true && agents.first { $0.session == "dana" }?.needsYou == false, "needs you is marked, working is not")
     // The board's needsPerson (engine/status.js), case by case.
     check(Board.needsPerson(["state": "needs_trust"]), "a trust prompt needs you")
     check(Board.needsPerson(["state": "connection_lost", "reconnect": ["phase": "gave_up"]]) && !Board.needsPerson(["state": "connection_lost", "reconnect": ["phase": "waiting"]]), "a connection Kosmos gave up on needs you; one still reconnecting does not")
@@ -705,12 +705,12 @@ do {
     check(word("hal") == "Reconnecting\u{2026}", "a lost connection that is retrying says Reconnecting")
     check(word("ida") == "Keeps stopping", "a crash loop says Keeps stopping")
     check(Board.sorted(agents).prefix(2).map(\.session) == ["cleo", "farah"], "what needs you first, by name")
-    let twins = [Board.Agent(session: "b", name: "Ann", role: nil, state: "idle", task: nil, askedYou: false), Board.Agent(session: "a", name: "ann", role: nil, state: "idle", task: nil, askedYou: false)]
+    let twins = [Board.Agent(session: "b", name: "Ann", role: nil, state: "idle", task: nil, needsYou: false), Board.Agent(session: "a", name: "ann", role: nil, state: "idle", task: nil, needsYou: false)]
     check(Board.sorted(twins).map(\.session) == ["a", "b"] && Board.sorted(twins.reversed()).map(\.session) == ["a", "b"], "names equal but for case keep one order")
-    let w = { (s: String) in Board.statusWord(Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, askedYou: false)) }
+    let w = { (s: String) in Board.statusWord(Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, needsYou: false)) }
     check(w("working") == "Working" && w("idle") == "Idle" && w("stopped") == "Not running" && w("blocked") == "Waiting", "the same words as engine/cardlabel.js for the plain states")
     check(w("needs_trust") == "Waiting on a trust prompt", "including a trust prompt")
-    let off = { (s: String, trust: Bool, unseen: Bool) in Board.statusWord(Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, askedYou: false, running: false, needsTrust: trust, jobRunningUnseen: unseen)) }
+    let off = { (s: String, trust: Bool, unseen: Bool) in Board.statusWord(Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, needsYou: false, running: false, needsTrust: trust, jobRunningUnseen: unseen)) }
     check(off("working", true, false) == "Waiting on a trust prompt", "not running at a trust prompt says so")
     check(off("working", false, true) == "Can't tell", "not running with a job Kosmos cannot see is Can't tell")
     check(off("restarting", false, false) == "Restarting agent", "a restarting agent is not called Not running")

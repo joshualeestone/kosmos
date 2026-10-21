@@ -39,6 +39,11 @@ final class BoardClient: ObservableObject {
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var agents: [Board.Agent] = []
     @Published private(set) var updatedAt: Date?
+    // Agent pictures by session name, fetched through this client's own session (the board's route needs it).
+    @Published private(set) var pictures: [String: Data] = [:]
+    private var pictureVersions: [String: String] = [:]
+    // The list is re-sorted when it appears and on pull to refresh; live updates keep the order (Mona's spec).
+    private var resortNext = true
 
     private let coordinator: URL
     private let sessionStore: SessionStore
@@ -85,10 +90,10 @@ final class BoardClient: ObservableObject {
         // (the names in Mona Lisa's design) without connecting, so no real account is ever in a picture.
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" {
             agents = Board.sorted([
-                Board.Agent(session: "cleo", name: "Cleo", role: "Project manager", state: "needs_you", task: nil, askedYou: true, reportedByAgent: true),
-                Board.Agent(session: "dana", name: "Dana", role: "Writer", state: "working", task: "Pages 9 to 12", askedYou: false),
-                Board.Agent(session: "eli", name: "Eli", role: "Researcher", state: "working", task: nil, askedYou: false),
-                Board.Agent(session: "farah", name: "Farah", role: "Bookkeeper", state: "idle", task: nil, askedYou: false),
+                Board.Agent(session: "cleo", name: "Cleo", role: "Project manager", state: "needs_you", task: nil, needsYou: true, reportedByAgent: true),
+                Board.Agent(session: "dana", name: "Dana", role: "Writer", state: "working", task: "Pages 9 to 12", needsYou: false),
+                Board.Agent(session: "eli", name: "Eli", role: "Researcher", state: "working", task: nil, needsYou: false),
+                Board.Agent(session: "farah", name: "Farah", role: "Bookkeeper", state: "idle", task: nil, needsYou: false),
             ])
             updatedAt = Date()
             phase = .live(mac: Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true))
@@ -121,6 +126,7 @@ final class BoardClient: ObservableObject {
         skipSaved = false
         unauthorizedSince = nil
         listedThisRun = false
+        resortNext = true
         // The list stays up on a return to the tab, but never with nothing in it (after a sign-out or another account).
         if case .live = phase, !agents.isEmpty {} else { set(.starting, gen) }
         loop = Task { await self.run(gen) }
@@ -140,6 +146,13 @@ final class BoardClient: ObservableObject {
         start()
     }
 
+    // Pull to refresh: read now and re-sort. When nothing is connected (not answering, a refusal), it is a Try again.
+    func refreshNow() async {
+        guard case .live = phase, let held = admitted else { retry(); return }
+        resortNext = true
+        _ = await refresh(url: held.url, mac: held.mac, generation)
+    }
+
     func stop() {
         loop?.cancel()
         loop = nil
@@ -152,9 +165,25 @@ final class BoardClient: ObservableObject {
         return PushBridge.boardURL(fromNotification: ["address": mac.address, "session": agent.session], coordinator: coordinator)
     }
 
+    // Pictures for agents that have one and whose version changed, one at a time; a failed fetch is tried again on
+    // the next refresh, and an agent without a picture shows its letter.
+    private func fetchPictures(url: URL, _ gen: Int) async {
+        for agent in agents where agent.hasAvatar && pictureVersions[agent.session] != agent.avatarVer {
+            guard let request = Board.avatarRequest(mac: url, session: agent.session) else { continue }
+            let result = await env.send(request)
+            guard gen == generation else { return }
+            if let (data, answer) = result, (200...299).contains(answer.statusCode), !data.isEmpty {
+                pictures[agent.session] = data
+                pictureVersions[agent.session] = agent.avatarVer
+            }
+        }
+    }
+
     // Everything learned under the previous Kosmos+ session goes, cookies and the kept Mac session included.
     private func forget() {
         admitted = nil
+        pictures = [:]
+        pictureVersions = [:]
         agents = []
         updatedAt = nil
         env.defaults.removeObject(forKey: Board.rememberedMacKey)
@@ -306,7 +335,8 @@ final class BoardClient: ObservableObject {
         let answer = result?.1
         let status = answer?.statusCode ?? 0
         if (200...299).contains(status), let data = result?.0, let rows = Board.parseAgents(data) {
-            agents = Board.sorted(rows)
+            agents = resortNext ? Board.sorted(rows) : Board.keepingOrder(agents, with: rows)
+            resortNext = false
             updatedAt = env.now()
             failedRefreshes = 0
             unauthorizedSince = nil
@@ -316,6 +346,7 @@ final class BoardClient: ObservableObject {
             listedThisRun = true
             retriedUnreachable = false
             set(.live(mac: mac), gen)
+            await fetchPictures(url: url, gen)
             return true
         }
         if Board.sessionEnded(status: status, contentType: answer?.value(forHTTPHeaderField: "Content-Type")) {
