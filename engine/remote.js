@@ -2185,8 +2185,8 @@ function pendingDevices() {
   const here = recentlyVouched(settings);
   // A request that is NEWER than the note (the browser removed elsewhere, asking again) still shows. A minute of slack:
   // first_seen is the coordinator's clock, the note's is this computer's.
-  /* kosmos#6666: while Kosmos+ is paused for maintenance the tunnel withholds the list and says so (kosmos-relay #509,
-     kosmos#6656), so the page can say why no request shows rather than show nothing. Exactly true, or not paused.
+  /* kosmos#6666: while Kosmos+ is paused for maintenance the tunnel withholds new requests and says so (kosmos-relay
+     #509, kosmos#6656; code checks in progress here still show), so the page can say why no request shows. Exactly true, or not paused.
      Only from a snapshot under PAUSED_FRESH_MS old: a stopped tunnel or a slept Mac leaves its last file behind. */
   const paused = !!raw && raw.paused === true && snapAge > -1000 && snapAge < PAUSED_FRESH_MS;   // a future mtime (the clock stepped back) is not fresh; a file written this instant can read a fraction of a ms ahead of Date.now()
   return { devices: here ? devices.filter((d) => d.device_id !== here.device_id || d.first_seen > here.at + 60) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here, paused };

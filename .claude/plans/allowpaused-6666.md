@@ -4,6 +4,12 @@ Follow-up to kosmos#6656, whose tunnel half (kosmos-relay #509) withholds the pe
 maintenance and says so: `pending.json` carries `"paused": true`, and a refused `devices allow` answers
 `{allowed: false, paused: true}` with exit 0.
 
+**Current wording** (after review round 7; the rounds below show how it got here):
+- The page line, `#plus-paused`: "Kosmos+ is paused for maintenance. No new phone, browser or computer can be let in
+  until it is back, and one that was asking may need to ask again then."
+- An Allow refused while paused (PAUSED_ALLOW_WORDS): "Kosmos+ is paused for maintenance, so nothing can be allowed
+  right now. This request may need to ask again once Kosmos+ is back."
+
 ## What changes
 - engine/remote.js `pendingDevices`: passes `paused`, true only when the snapshot says exactly `true` (a string, a
   number, a missing field or no snapshot is not paused; a board with Plus off never says paused).
@@ -81,4 +87,12 @@ with an ordinary-answer control); web.allow-card.test.js (+1: the line, its plac
   from round 1, line 41 above) made the promise round 5 removed from the page. It now reads "This request may need to
   ask again once Kosmos+ is back."
 - The page line says "Nothing can be allowed until it is back" (it said "Nothing new can connect or be allowed"): the
-  tunnel refuses every Allow while paused, code checks included, so this is true of any row still shown.
+  tunnel refuses every Allow while paused. WRONG, corrected in round 7: a code check is confirmed before the paused
+  refusal, so its row still works while paused.
+
+## Review round 7
+- Round 6 said the tunnel refuses every Allow while paused, code checks included. It does not: `allow_outcome`
+  confirms a code re-check (`confirm_recheck`) before its paused refusal, and the snapshot still lists those rows
+  (kosmos-relay crates/tunnel/src/devices.rs, measured on origin/main 0b93a6ab1). I wrote that sentence without
+  reading the source. The line is now about new devices only, so it stays true beside a working code-check row, and
+  the two comments that said the tunnel shows no requests now say no new requests.
