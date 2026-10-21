@@ -649,7 +649,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* Height from padding, not flex: a flex summary loses its disclosure triangle. 12 + 20 + 12 = 44px. */
 .detail-saidlab { margin: 0; padding: 12px 0; line-height: 20px;
                   font-size: .75rem; color: var(--k-ink-2); cursor: pointer; border-radius: 6px; }
-.detail-saidlab:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+.detail-saidlab:focus-visible { outline: 2px solid var(--label); outline-offset: -2px; }   /* inset (#6716 review 8): .dleft and .dhead scroll and would clip an outset ring at the column's edges */
 /* #6716: a full hairline box, not a left bar (Josh: no solid left accent bars). */
 .detail-said { margin: 4px 0 0; padding: 6px 10px;
                border: 1px solid var(--k-rule); border-radius: 8px; color: var(--k-ink-2);
@@ -39606,7 +39606,7 @@ function memoryBox(a) {
    cannot drift apart on it. */
 const WORKING_VERB = 'working';
 
-function busyRow(fresh, name) {
+function busyRow(fresh, name, opts) {
   const who = name || (fresh && fresh.name) || 'This agent';
   const face = (fresh && fresh.hasAvatar)
     ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/'
@@ -39642,8 +39642,10 @@ function busyRow(fresh, name) {
     return face
       + '<span class="haz" aria-hidden="true">!</span>'
       + '<span>' + esc(who) + '&rsquo;s Claude sign-in isn&rsquo;t working'
-      /* #6716: no quote of its screen here. The page's folded "What <name>'s screen said" carries it; a quote in this
-         line put the CLI's own words on the page unfolded. */
+      /* #6716: on the agent page, no quote of its screen here: the page's folded "What <name>'s screen said" carries
+         it, and a quote in this line put the CLI's own words on the page unfolded. The guide's side chat has no fold,
+         so it asks for the quote (opts.quote, review 8): there it is the only place the vendor's own words show. */
+      + (opts && opts.quote && fresh.stateEvidence ? ', last seen: &ldquo;' + esc(fresh.stateEvidence) + '&rdquo;' : '')
       + '</span>';
   }
   return face
@@ -85091,7 +85093,7 @@ function asbPaint() {
       signIn ? (row.stateEvidence || '') : ''].join('\u0001');
     const rekeyed = busy.dataset.busyKey !== key;
     if (rekeyed) {
-      busy.innerHTML = !key ? '' : busyRowOf ? busyRow(busyRowOf, who)
+      busy.innerHTML = !key ? '' : busyRowOf ? busyRow(busyRowOf, who, { quote: true })   // #6716: the side chat has no fold, so it keeps the quote
         : '<div class="msg-av" aria-hidden="true"><img src="' + ASB_HOSTED_AVATAR + '" alt=""></div><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>' + esc(who) + ' is ' + WORKING_VERB + '&hellip;</span>';
       busy.dataset.busyKey = key;
     }
