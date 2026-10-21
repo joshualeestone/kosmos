@@ -53,6 +53,35 @@ test('ping records installedAt when it mints the id, keeps it through later writ
   const old = new Date('2026-08-21T23:18:45.000Z');
   fs.utimesSync(ping.FILE, old, old);
   assert.equal(ping.installedAt(), old.toISOString());
+  // ...and records it, so a copy that does not keep the mtime cannot move it later.
+  const now = new Date();
+  fs.utimesSync(ping.FILE, now, now);
+  assert.equal(ping.installedAt(), old.toISOString(), 'the recorded time wins over the new mtime');
+  assert.equal(ping.read().installId, 'old', 'recording it kept the id');
+});
+
+test('a scan that could not read every transcript shows past days but does not save them', async () => {
+  const day = (back) => new Date(Date.now() - back * 86400000).toISOString().slice(0, 10);
+  const proj = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects');
+  const ok = path.join(proj, 'ok');
+  const locked = path.join(proj, 'locked');
+  fs.mkdirSync(ok, { recursive: true });
+  fs.mkdirSync(locked, { recursive: true });
+  const row = JSON.stringify({ timestamp: `${day(3)}T09:00:00.000Z`, sessionId: 's', message: { id: 'm1', model: 'claude-u', usage: { input_tokens: 5, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+  fs.writeFileSync(path.join(ok, 's.jsonl'), row + '\n');
+  const frozen = path.join(usage.USAGE_DIR, `${day(3)}.v2.json`);
+  fs.rmSync(frozen, { force: true });
+  fs.chmodSync(locked, 0o000);
+  try {
+    const a = await usage.dailyUsageByModel(5);
+    assert.equal(a.byDay[day(3)]['claude-u'].input_tokens, 5, 'shown');
+    assert.equal(fs.existsSync(frozen), false, 'not saved while a folder could not be read');
+  } finally {
+    fs.chmodSync(locked, 0o755);
+  }
+  // Control: the same scan with every folder readable saves the day.
+  await usage.dailyUsageByModel(5);
+  assert.equal(fs.existsSync(frozen), true, 'saved once everything was read');
 });
 
 test('saveSinceInstall runs one read at a time and survives a failure', async () => {

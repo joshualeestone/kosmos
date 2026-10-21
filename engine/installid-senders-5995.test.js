@@ -123,6 +123,9 @@ test('#5995: the files that name engine/ping.js in a quoted word are exactly the
     assert.match(line, LOADS_PING, 'CONTROL: this way of loading it is not seen: ' + line);
   }
   for (const line of ["require('./pinger')", "require('./shipping')", "require('./ping-pong')", 'const ping = await fetch(url)']) assert.doesNotMatch(line, LOADS_PING, 'CONTROL: this is not loading it: ' + line);
+  // kosmos#6829: usage.js is listed for installedAt only; it must not reach the id itself.
+  assert.match(read('engine/usage.js'), /\.installedAt\(\)/, 'CONTROL: usage.js reads installedAt');
+  assert.doesNotMatch(read('engine/usage.js'), /installId/, 'engine/usage.js names the install id; only installedAt is allowed there');
 });
 
 test('#5995: the files that name the id\'s own file, ping.json, are exactly the ones listed here', () => {

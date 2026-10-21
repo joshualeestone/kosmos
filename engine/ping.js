@@ -88,21 +88,24 @@ function installId() {
   const had = read();
   if (had.installId) return had.installId;
   const made = crypto.randomUUID();
-  write({ installId: made, installedAt: new Date().toISOString() });   // #6829: the id is minted on the first board start
+  write({ installId: made, installedAt: new Date().toISOString() });   // #6829: when the id is first minted
   return made;
 }
 
 /**
  * #6829: when this install began, as an ISO time, or null when it cannot be told.
- * The time recorded when the id was minted; for an install that predates that
- * field, ping.json's mtime (the file is written once, when the id is minted, so
- * a later rewrite can only move it LATER, never earlier). Never mints an id.
+ * The time recorded when the id was minted. An install that predates that field
+ * takes ping.json's mtime once and records it, so a later copy that does not keep
+ * mtimes cannot move it. Never mints an id.
  */
 function installedAt() {
   const had = read();
   if (had.installedAt) return had.installedAt;
   if (!had.installId) return null;
-  try { return new Date(fs.statSync(FILE).mtimeMs).toISOString(); } catch { return null; }
+  let at;
+  try { at = new Date(fs.statSync(FILE).mtimeMs).toISOString(); } catch { return null; }
+  write({ installedAt: at });
+  return at;
 }
 
 /**

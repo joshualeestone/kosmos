@@ -44064,18 +44064,6 @@ function usageRowValue(total) {
    week x 52), matching the approved /design/token-value calc. Display layer, with
    the other two value constants. */
 const USAGE_VALUE_HOURS_PER_YEAR = 2080;
-/* #2840: the approved /design/token-value hero, built verbatim per Josh's
-   2026-09-14 ruling (the blended total is the headline and is correct as full
-   engineering value). Reuses the design's own calc, already live in the app for
-   the Value column: hours = total / USAGE_VALUE_TOKENS_PER_HOUR, value = hours *
-   USAGE_VALUE_BLENDED_RATE, years = hours / 2080. `total` is the deliberate
-   blended 4-class sum -- the single headline #2617 once refused, now Josh-ruled
-   correct because it reflects full engineering value, not output "typing" alone.
-   The three stats are work-hours, years, and the equivalent API cost; apiCostUsd
-   is computed by the caller from published provider list prices (usageApiCost) and
-   passed in, or null while that is unavailable, in which case the box shows a
-   quiet "-" rather than a guessed number. `activeDays` is the count of days with
-   any recorded usage. Pure + node-testable like its siblings. */
 /* #6829: Active Days on Kosmos counts from the install day (1 on that day), as the board reports it. It used to be
    the number of days in the window asked for, so a brand-new install showed 14. Without the figure the box shows the
    days that have any usage, never the window's length. */
@@ -44090,6 +44078,18 @@ const USAGE_CHART_DAYS = 14;
 function usageChartDays(series) {
   return (series || []).slice(-USAGE_CHART_DAYS);
 }
+/* #2840: the approved /design/token-value hero, built verbatim per Josh's
+   2026-09-14 ruling (the blended total is the headline and is correct as full
+   engineering value). Reuses the design's own calc, already live in the app for
+   the Value column: hours = total / USAGE_VALUE_TOKENS_PER_HOUR, value = hours *
+   USAGE_VALUE_BLENDED_RATE, years = hours / 2080. `total` is the deliberate
+   blended 4-class sum -- the single headline #2617 once refused, now Josh-ruled
+   correct because it reflects full engineering value, not output "typing" alone.
+   The three stats are work-hours, years, and the equivalent API cost; apiCostUsd
+   is computed by the caller from published provider list prices (usageApiCost) and
+   passed in, or null while that is unavailable, in which case the box shows a
+   quiet "-" rather than a guessed number. `activeDays` comes from usageActiveDays
+   (above). Pure + node-testable like its siblings. */
 function usageHeroDigits(n) {
   return String(Math.max(0, Math.floor(Number(n) || 0)))
     .split('')

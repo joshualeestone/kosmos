@@ -831,6 +831,11 @@ async function dailyUsageByModel(days = 7) {
       ? await scanDayCursor(today)
       : await scanUsage({ sinceDay, untilDay, mtimeCut: true });
     rootsRead = scanResult.rootsRead;
+    /* #6829: a scan that could not read every transcript is shown but not saved, as the providers' half already does
+       (mergeProviders): a past day is never rescanned once saved, so a passing read error would fix it short for good.
+       That matters most now that the board saves on a clock, with nobody looking. */
+    const mayFreeze = !(scanResult.unreadable > 0);
+    if (!mayFreeze) console.error('usage: ' + scanResult.unreadable + ' transcript(s) could not be read; past days are shown but not saved, and read again next time');
     for (const day of missing) {
       /* Whichever half of a past day is already frozen keeps it: re-deriving
          it from today's transcripts could only lose what has been pruned
@@ -840,7 +845,7 @@ async function dailyUsageByModel(days = 7) {
       const folderFrozen = has(byFolder);
       if (!modelFrozen) byDay[day] = scanResult.days[day] || {};
       if (!folderFrozen) byFolder[day] = scanResult.folders[day] || {};
-      if (day !== today) {
+      if (day !== today && mayFreeze) {
         try {
           await ensureUsageDir();
         } catch { /* the writes below fail and say so */ }
