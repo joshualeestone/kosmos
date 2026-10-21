@@ -198,7 +198,7 @@ test('#1674: `kosmos reply --help` (and every verb\'s --help) reaches a LISTENIN
   for (const argv of [['reply', '--help'], ['reply', 'hello', '--help'], ['msg', 'mona', '-h'], ['post', projectId, 'hi', '--help'], ['report', 'blocked', '--help'], ['whoami', '--help'], ['task', 'message', projectId, '1', 'x', '--help'], ['room', 'reopen', projectId, '-h']]) {
     const r = await kosmos(argv, tokens.leo);
     assert.equal(r.code, 0, argv.join(' '));
-    assert.equal(r.out, cli.USAGE[argv[0]]);
+    assert.equal(r.out, cli.helpFor(argv[0]));
   }
   assert.equal(requestsSeen, before, '--help sent something to the board');
   const control = await kosmos(['whoami'], tokens.leo);

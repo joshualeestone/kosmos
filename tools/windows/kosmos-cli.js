@@ -582,6 +582,8 @@ function replyFileAbsolute(file, cwd, p) {
 }
 /* #6726: the second usage line install/kosmos prints for reply, word for word (cli.reply-file-6726 pins both). */
 const USAGE_REPLY_FILE = '       kosmos reply --file <path> ["what it is"]   (attach one file from your Files folder, or from inside a project you are on, up to 100 MB: they download it from your conversation)';
+/* What --help prints for a verb: its usage, and for reply (#6726) the --file line too, as install/kosmos's help does. */
+function helpFor(verb) { return verb === 'reply' ? USAGE.reply + '\n' + USAGE_REPLY_FILE : USAGE[verb]; }
 const USAGE_REPLY_FILE_NEEDS_PATH = '--file needs the path of the file to attach, so nothing was sent: kosmos reply --file <path> "what it is"';
 async function verbReply(ctx, args) {
   /* #4582: --stdin (leading) reads the reply from standard input, as msg and post do (#2909), via
@@ -2745,7 +2747,7 @@ async function main(argv, io) {
   }
   /* #1674: BEFORE any handler, so a verb added to the table later is covered
      without anyone remembering. No request of any kind, whoami included. */
-  if (asksForHelp) { out(USAGE[verb]); if (verb === 'reply') out(USAGE_REPLY_FILE); return 0; }   // #6726: as install/kosmos's help, both reply lines
+  if (asksForHelp) { out(helpFor(verb)); return 0; }
 
   const doFetch = o.fetch || fetch;
   const hook = o.hook || require(path.join(engineDir(), 'kosmos-report-hook.js'));
@@ -3008,7 +3010,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, DESCRIBE, USAGE_REPLY_FILE, replyFileAbsolute, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
+module.exports = { main, argvFrom, DESCRIBE, USAGE_REPLY_FILE, replyFileAbsolute, helpFor, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
   taskList, // #1307: the task list's rendering (the webhook mark), for cli.task-webhook-1307.test.js
 };
 
