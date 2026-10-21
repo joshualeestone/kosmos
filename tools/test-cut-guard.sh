@@ -1101,7 +1101,7 @@ printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_
 # The caller reads as a fixture (a node --test ancestor), except the stand-in pids $DEAD and $SUITE (see the wiring test below).
 printf '#!/bin/sh\n{ [ "$1" = '"$DEAD"' ] || [ "$1" = '"$SUITE"' ]; } || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
 rt_run() { (cd "$RT" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
-  KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= "$@" bash tools/run-tests.sh 2>&1); }
+  KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= "$@" bash tools/run-tests.sh 2>&1); }
 out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none")"
 has "$out" "is ahead of" && pass "#4498 CONTROL: a plain run waits behind an older waiting suite" \
   || fail "#4498 CONTROL: a plain run did not queue ($(printf '%s' "$out" | tail -2))"
@@ -1124,7 +1124,7 @@ chmod +x "$T/fakebin/node"
 # Every other listed name set to 1, built here: a case pattern's ")" inside a nested $( ) ends the substitution on bash 3.2.
 _ovr=""; for v in $KOSMOS_WAIT_CONTROL_VARS; do [ "$v" = KOSMOS_NO_WAIT ] || [ "$v" = KOSMOS_WAIT_MAX_S ] || _ovr="$_ovr $v=1"; done
 out="$(cd "$RT2" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
-  KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=node KOSMOS_TEST_PART_LOCAL=1 KOSMOS_SHELL_SHARD= \
+  KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=node KOSMOS_TEST_PART_LOCAL=1 KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= \
   $_ovr PATH="$T/fakebin:$PATH" bash tools/run-tests.sh 2>&1)"
 rm -rf "$RT2"
 # One list: run-tests.sh unsets the lib's list, not its own copy (review 19).
@@ -1143,7 +1143,7 @@ _rt_marker_class() {   # <tree> [class]: start its run-tests.sh (class light by 
   q_ready "$wq"
   printf '100 %s\n%s\n%s\n%s\n' "$wq" "$(ps -ww -o command= -p "$wq")" "$(_kosmos_pid_started_local "$wq")" "$(_kosmos_pid_started "$wq")" > "$(_kosmos_marker_dir)/suitewait.$wq"
   (cd "$tree" && exec env KOSMOS_QUEUE_CLASS="$qc" KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
-    KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh) >/dev/null 2>&1 &
+    KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= bash tools/run-tests.sh) >/dev/null 2>&1 &
   rp=$!; RP_LIVE="$rp $wq"   # stopped by the EXIT trap too, if this test is interrupted before the cleanup below
   for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     [ -s "$(_kosmos_marker_dir)/suitewait.$rp" ] && { cls="$(sed -n '5p' "$(_kosmos_marker_dir)/suitewait.$rp")" || cls=""; break; }
@@ -1192,7 +1192,7 @@ exit 1
 SH
 chmod +x "$T/sprobe-then-cut"; rm -f "$W/cutcalls" "$W/markers/machine-claim"
 out="$(cd "$RT" && env KOSMOS_SUITE_MAX=1 KOSMOS_WAIT_EVERY_S=1 KOSMOS_WAIT_MAX_S=3 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" \
-  KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/sprobe-then-cut" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh 2>&1)"; rc=$?
+  KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/sprobe-then-cut" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= bash tools/run-tests.sh 2>&1)"; rc=$?
 # It began waiting on the suite (the first ask), then the claim held it to the bound. After the claim appears the claim
 # is asked first and refuses, so the suite probe is asked only once.
 { [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running" && has "$out" "release 0.9.99" \
@@ -1205,7 +1205,7 @@ kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null; rm -f "$W/markers/machin
 # KOSMOS_NO_WAIT=1 (and KOSMOS_WAIT_MAX_S=0, so even a build that ignores it cannot wait) and names the suite, before it runs a test. (A green end-to-end would run the whole
 # suite; the go paths are shown above.) test-install.sh refuses an unknown argument.
 out="$(cd "$HERE/.." && KOSMOS_SUITE_MAX=1 KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/sprobe-live" \
-  KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh 2>&1)"; rc=$?
+  KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= bash tools/run-tests.sh 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running" && has "$out" "KOSMOS_TESTS_IGNORE_SUITE=1"; } \
   && pass "#4498 run-tests.sh refuses beside another live suite at KOSMOS_SUITE_MAX=1 (KOSMOS_NO_WAIT=1), naming its override" \
   || fail "#4498 run-tests.sh did not refuse beside a live suite (rc=$rc, $(printf '%s' "$out" | tail -3))"
@@ -1214,7 +1214,7 @@ out="$(cd "$HERE/.." && KOSMOS_SUITE_MAX=1 KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 
 # kept, a probe line), which is asked after the suite check: that the suite check passed is shown by reaching it. They run
 # in the $RT scratch tree, so a run that got past both checks would stop at its coverage check, never start a suite.
 rt_e2e() { (cd "$RT" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_HARNESS_KEEP_FIXTURES=1 \
-  KOSMOS_HARNESS_SELF_PID=999999 KOSMOS_HARNESS_PROBE="$T/hprobe-real" KOSMOS_SUITE_PROBE="$T/$1" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= "${@:2}" bash tools/run-tests.sh 2>&1); }
+  KOSMOS_HARNESS_SELF_PID=999999 KOSMOS_HARNESS_PROBE="$T/hprobe-real" KOSMOS_SUITE_PROBE="$T/$1" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= "${@:2}" bash tools/run-tests.sh 2>&1); }
 out="$(rt_e2e sprobe-live)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "an install harness" && ! has "$out" "test suite (tools/run-tests.sh) is already running" && ! has "$out" "test suites (tools/run-tests.sh) are"; } \
   && pass "#6334 run-tests.sh by default passes the suite check beside one live suite (it reached the harness check)" \
@@ -1287,7 +1287,7 @@ out="$(rt_e2e sprobe-live KOSMOS_RUN_MARKER_DIR="$SMAX")"; rc=$?
 printf '#!/bin/sh\n{ [ "$1" = '"$DEAD"' ] || [ "$1" = '"$SUITE"' ]; } || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
 # #6334: KOSMOS_SUITE_MAX=1, or a broken skip would pass the suite check beside one suite and print the same harness line.
 out="$(cd "$HERE/.." && KOSMOS_SUITE_MAX=1 KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all" KOSMOS_HARNESS_KEEP_FIXTURES=1 KOSMOS_HARNESS_SELF_PID=999999 \
-  KOSMOS_HARNESS_PROBE="$T/hprobe-real" KOSMOS_SUITE_PROBE="$T/sprobe-live" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh 2>&1)"; rc=$?
+  KOSMOS_HARNESS_PROBE="$T/hprobe-real" KOSMOS_SUITE_PROBE="$T/sprobe-live" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= KOSMOS_SHELL_PLATFORM= bash tools/run-tests.sh 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "an install harness" && ! has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
   && pass "#4498 a run-tests.sh inside a test does not wait on the suite that started it" \
   || fail "#4498 a run-tests.sh fixture checked for other suites (rc=$rc, $(printf '%s' "$out" | tail -3))"
