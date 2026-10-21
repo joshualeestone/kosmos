@@ -96,16 +96,18 @@ function check(name, pass, detail) {
       await tick();
       out.floorZero = { hidden: tileEl.hidden, count: countEl.textContent, anim: animLaidOut() };
 
-      // 4) failed poll -> the tile (left hidden by case 2/known-zero above if it
-      //    persisted) must come BACK showing "?", never stay hidden claiming none
-      //    work on the one poll that knows nothing. Re-hide first so the arm is a
-      //    real transition, then fail the fetch.
+      // 4) failed polls. Since kosmos#6721 one missed poll keeps the board as it was (the header says Reconnecting);
+      //    the second in a row is the board not answering, and then the tile (hidden by the known zero above) must
+      //    come BACK showing "?", never stay hidden claiming none work when nothing is known. Re-hide first so the
+      //    arm is a real transition, then fail the fetch twice.
       okFetch(['idle', 'idle'], { total: 2, unreadableLines: 0 });
       await tick(); // tile hidden again
       const hiddenBeforeFail = tileEl.hidden;
       window.fetch = async () => { throw new Error('simulated poll failure'); };
       await tick();
-      out.failedPoll = { hiddenBeforeFail, hidden: tileEl.hidden, count: countEl.textContent };
+      const afterOneMiss = { hidden: tileEl.hidden, count: countEl.textContent };
+      await tick();
+      out.failedPoll = { hiddenBeforeFail, afterOneMiss, hidden: tileEl.hidden, count: countEl.textContent };
 
       /* #6649 (Josh, 2026-10-19): no Idle or Waiting tile, on a fleet that has idle and blocked agents. Read by the
          row's labels, not by id, because the ids are gone (CONTROL: the Working label is still there). */
@@ -140,7 +142,12 @@ function check(name, pass, detail) {
       seen.floorZero.hidden === true && seen.floorZero.count === '0+' && seen.floorZero.anim === false,
       `hidden=${seen.floorZero.hidden} count=${JSON.stringify(seen.floorZero.count)} anim=${seen.floorZero.anim}`);
 
-    check(`${engine}: a failed poll brings the tile BACK showing "?" (was hidden), never leaves it hidden`,
+    // kosmos#6721: one missed poll keeps the board as it was, so the hidden zero tile stays hidden (CONTROL: the
+    // arm below is a real change, not a tile that never moves).
+    check(`${engine}: one missed poll keeps the tile as it was (Reconnecting keeps the board, #6721)`,
+      seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.afterOneMiss.hidden === true,
+      `afterOneMiss=${JSON.stringify(seen.failedPoll.afterOneMiss)}`);
+    check(`${engine}: a second missed poll brings the tile BACK showing "?" (was hidden), never leaves it hidden`,
       seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.hidden === false && seen.failedPoll.count === '?',
       `hiddenBeforeFail=${seen.failedPoll.hiddenBeforeFail} hidden=${seen.failedPoll.hidden} count=${JSON.stringify(seen.failedPoll.count)}`);
 
