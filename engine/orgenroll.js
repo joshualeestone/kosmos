@@ -288,7 +288,7 @@ const NAMES_EVERY_KOSMOS = /\bevery kosmos on this computer\b/i;
 const NAMES_CAP = /\bmonthly AI cap\b/i;
 /* kosmos#6842 slice 3: whether the accepted words name per-project token use (the tokens each project's finished tasks
    used, by AI model, with their estimated cost), so the daily rollup may carry projectUsage. The coordinator's
-   CONSENT_NAMES_PROJECT_USAGE is pinned to the same phrase. A match on the phrase, as NAMES_EVERY_KOSMOS is. */
+   names_project_usage (kosmos-relay coordinator/src/org.rs) reads the same phrase. A match on the phrase, as NAMES_EVERY_KOSMOS is. */
 const NAMES_PROJECT_USAGE = /\beach project's finished tasks\b/i;
 /* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
    words held for the hash an existing record carries. */

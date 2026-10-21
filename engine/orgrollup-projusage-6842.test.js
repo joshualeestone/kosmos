@@ -132,7 +132,7 @@ test('projectUsageByDay: tasks closed in the last 7 days, summed per project, cl
     return { agents: [{ who: 'a', available: true, models: { 'claude-opus-5-5': b(task.number * 10) } }, { who: 'b', available: true, models: { 'claude-opus-5-5': b(1) } }] };
   };
   const u = await r.projectUsageByDay([{ id: 'p1', name: 'Launch' }], { now: NOW, receiptOf, readAll: () => all });
-  assert.deepEqual(asked.sort(), ['p1#1', 'p1#2'], 'not the 8-day-old task, the open one, or a project gather did not keep');
+  assert.deepEqual(asked.sort(), ['p1#1', 'p1#2'], 'not the task closed 7 UTC days ago (the window is today and the 6 before), the open one, or a project gather did not keep');
   assert.deepEqual(u, { byProject: { Launch: { [DAY(0)]: { 'claude-opus-5-5': b(32) } } }, complete: true });
 });
 
@@ -148,6 +148,41 @@ test('projectUsageByDay: a receipt that fails, an agent that could not be read, 
   }
   const ok = await r.projectUsageByDay([{ id: 'p1', name: 'Launch' }], { now: NOW, receiptOf: async () => ({ agents: [] }), readAll: () => all });
   assert.equal(ok.complete, true, 'the control');
+});
+
+test('projectUsageByDay: an agent on a provider with no receipt is not counted and does not make the read incomplete', async () => {
+  const all = [{ id: 'p1', name: 'Launch', tasks: [{ number: 1, closedAt: new Date(NOW - 3600e3).toISOString() }] }];
+  const receiptOf = async () => ({ agents: [
+    { who: 'a', available: true, models: { 'claude-opus-5-5': b(4) } },
+    { who: 'g', available: false, because: 'provider', provider: 'grok' },
+  ] });
+  const u = await r.projectUsageByDay([{ id: 'p1', name: 'Launch' }], { now: NOW, receiptOf, readAll: () => all });
+  assert.equal(u.complete, true, 'a provider with no receipt is by design, not a short read');
+  assert.deepEqual(u.byProject, { Launch: { [DAY(0)]: { 'claude-opus-5-5': b(4) } } });
+  const missing = await r.projectUsageByDay([{ id: 'p1', name: 'Launch' }], { now: NOW, readAll: () => all,
+    receiptOf: async () => ({ agents: [{ who: 'x', available: false, because: 'no-folder' }] }) });
+  assert.equal(missing.complete, false, 'the control: an agent whose folder is gone IS a short read');
+});
+
+test('projectUsageByDay: a task whose close cannot be read is left out and marks the read incomplete', async () => {
+  const bad = { number: 2 };
+  Object.defineProperty(bad, 'closedAt', { get() { throw new Error('malformed'); } });
+  const all = [{ id: 'p1', name: 'Launch', tasks: [{ number: 1, closedAt: new Date(NOW - 3600e3).toISOString() }, bad] }];
+  const u = await r.projectUsageByDay([{ id: 'p1', name: 'Launch' }], { now: NOW, readAll: () => all,
+    receiptOf: async () => ({ agents: [{ who: 'a', available: true, models: { 'claude-opus-5-5': b(2) } }] }) });
+  assert.equal(u.complete, false);
+  assert.deepEqual(u.byProject, { Launch: { [DAY(0)]: { 'claude-opus-5-5': b(2) } } }, 'the readable task still counts');
+});
+
+test('readProjectUsage: projects that could not be listed are not reported, never sent as none', async () => {
+  let asked = 0;
+  const out = { projectRecords: [], projectsUnreadable: true };
+  await r.readProjectUsage({ projectUsage: async () => { asked += 1; return { byProject: {}, complete: true }; } }, out, 1000);
+  assert.equal(asked, 0);
+  assert.equal('projectUsage' in out, false);
+  const ok = { projectRecords: [] };
+  await r.readProjectUsage({ projectUsage: async () => ({ byProject: {}, complete: true }) }, ok, 1000);
+  assert.deepEqual(ok.projectUsage, {}, 'the control: a listed, empty read is none');
 });
 
 /* ---- readProjectUsage ---- */

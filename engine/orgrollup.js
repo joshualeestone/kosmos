@@ -96,15 +96,17 @@ async function projectUsageByDay(projects, { days = USAGE_DAYS, now = Date.now()
   const byId = new Map((Array.isArray(projects) ? projects : []).filter((p) => p && p.id && p.name).map((p) => [p.id, p.name]));
   const all = (readAll || (() => require('./projects').readAll()))() || [];
   const jobs = [];
+  let complete = true;
   for (const proj of all) {
     if (!proj || !byId.has(proj.id)) continue;
     for (const task of proj.tasks || []) {
-      const at = Date.parse(receipt.closedAtOf(task) || '');
+      // A task whose close cannot be read is left out and marks the read incomplete, never fails the whole read.
+      let at = NaN;
+      try { at = Date.parse(receipt.closedAtOf(task) || ''); } catch { complete = false; continue; }
       if (Number.isFinite(at) && at >= from && at <= now) jobs.push({ id: proj.id, name: byId.get(proj.id), task, at, day: new Date(at).toISOString().slice(0, 10) });
     }
   }
   const byProject = {};
-  let complete = true;
   jobs.sort((x, y) => y.at - x.at);
   if (jobs.length > PROJECT_USAGE_TASKS) { complete = false; jobs.length = PROJECT_USAGE_TASKS; }
   const AT_ONCE = 3;
@@ -115,6 +117,9 @@ async function projectUsageByDay(projects, { days = USAGE_DAYS, now = Date.now()
       if (!r || !Array.isArray(r.agents)) { complete = false; return; }
       for (const a of r.agents) {
         if (!a || typeof a !== 'object') continue;
+        // A provider with no receipt (Grok, Antigravity, Muse) is not counted, by design, as on the task page: it is not
+        // an incomplete read, which would mark every daily body truncated for as long as such tasks keep closing.
+        if (a.available === false && a.because === 'provider') continue;
         if (!a.available || a.complete === false) complete = false;
         for (const [m, b] of Object.entries((a.available && a.models) || {})) {
           if (!b || typeof b !== 'object') continue;
@@ -444,6 +449,8 @@ function plainMap(x) { return !!x && typeof x === 'object' && !Array.isArray(x);
    of the body (not reported); it is never sent as [] (none). Never throws. */
 async function readProjectUsage(s, out, waitMs) {
   delete out.projectUsage; delete out.projectUsageIncomplete;
+  // Projects that could not be listed leave nothing to sum: not reported, never [] (none), which would clear the week.
+  if (out.projectsUnreadable === true) return;
   if (typeof s.projectUsage !== 'function') return;
   let timer = null;
   const slow = new Promise((res) => { timer = setTimeout(() => res(SLOW), Number.isFinite(waitMs) ? waitMs : PROJECT_USAGE_READ_MS); });
@@ -572,7 +579,7 @@ async function gather(src, opts) {
       out.projects.push({ name: p.name, agents: members });
       out.projectRecords.push({ id: p.id, name: p.name });   // kosmos#6842: which records the usage read may sum (never sent)
     }
-  } catch { out.partial = true; }   // projects unreadable: say so rather than send "no projects"
+  } catch { out.partial = true; out.projectsUnreadable = true; }   // projects unreadable: say so rather than send "no projects"
   if (wantUsage) await readUsage(s, out, opts && opts.usageReadMs);
   else out.usageWithheld = true;   // not consented: say so, never read it
   out.lastActive = latest;

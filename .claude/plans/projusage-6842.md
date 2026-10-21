@@ -36,10 +36,18 @@ Coordinator half: kosmos-relay branch projusage-6842. Full plan on kosmos#6842 (
 - An agent whose work cannot be read (removed, or a provider with no receipt) on a task closed in the last 7 days keeps
   the daily body truncated until that task ages out. Conservative and true: that work is unknown (iteration 2).
 
+- An agent on a provider with no receipt (Grok, Antigravity, Muse) is not counted and does not make the read incomplete,
+  as the task page shows it; marking it incomplete would make that member "partial" everywhere for as long as such
+  tasks keep closing (iteration 3).
+- Projects that could not be listed leave project use not reported, never []; a task whose close cannot be read is left
+  out and marks the read incomplete (iteration 3).
+- The console shows numbers only where rows exist, so "never reported" and "reported none" both show nothing next to a
+  project. Telling them apart needs a stored "reported at" per Kosmos, a separate change (iteration 3).
+
 ## Weakest premise
 That reading up to a week of receipts inside the daily tick is fast enough. Kept receipts are one file read each; an
 unkept one reads transcripts once and is then kept.
 
 ## Verify
-- engine/orgrollup-projusage-6842.test.js (9); mutants caught: read on a change send; per-day usage trimmed before
+- engine/orgrollup-projusage-6842.test.js (15); mutants caught: read on a change send; per-day usage trimmed before
   project rows. orgrollup-5532 and enroll tests pass with acceptedConsent's new key.
