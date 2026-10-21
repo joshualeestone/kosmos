@@ -90,6 +90,20 @@ test('#6849: only a file that starts with %PDF- is read as a PDF; text that ment
     assert.equal(fp.isPdfHead(fs.readFileSync(note)), false);
     assert.equal(fp.fingerprint(note), raw(note), 'a note about PDFs was hashed as one');
     assert.equal(fp.isPdfHead(fs.readFileSync(at('chrome-a.pdf'))), true, 'CONTROL: a real PDF reads as one');
-    assert.notEqual(fp.stablePdf(fs.readFileSync(at('cups-a.pdf'))).length, 0);
+    assert.ok(fp.stablePdf(fs.readFileSync(at('cups-a.pdf'))).equals(fp.stablePdf(fs.readFileSync(at('cups-b.pdf')))), 'the two renders differ after their metadata is emptied');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#6849: a long unclosed value neither overflows nor stalls (each value is bounded)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fileprint-'));
+  try {
+    const long = path.join(dir, 'long.pdf');
+    fs.writeFileSync(long, '%PDF-1.7\n/ModDate (' + 'a'.repeat(20 * 1024 * 1024) + ')\n', 'latin1');
+    const many = path.join(dir, 'many.pdf');
+    fs.writeFileSync(many, '%PDF-1.7\n' + '/ModDate (aaaa'.repeat(150000), 'latin1');
+    const t0 = Date.now();
+    assert.ok(fp.isPrint(fp.fingerprint(long)), 'a 20 MB unclosed date was refused');
+    assert.ok(fp.isPrint(fp.fingerprint(many)), 'many unclosed dates were refused');
+    assert.ok(Date.now() - t0 < 10000, 'took ' + (Date.now() - t0) + ' ms');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

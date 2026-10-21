@@ -2369,7 +2369,7 @@ const DESCRIBE = {
   report: 'say what you are doing: working, blocked, waiting on someone',
   whoami: 'say which agent you are and which account you are on',
   handoff: 'print facts for your handoff: your live state, artifact fingerprints, instruction and git status',
-  fingerprint: 'print the fingerprint of a file, to check a handed-off copy (the dates inside a PDF are left out)',
+  fingerprint: 'print the fingerprint of a file, to check a handed-off copy (the dates and ID inside a PDF are left out)',
   room: 'read a project room',
   task: "a project's tasks: list, add, close, reopen, message, mark built",
   project: 'list, show, create or pause projects, or say your role on one',

@@ -4,7 +4,7 @@
  * `kosmos fingerprint` all give, so an agent checking a handed-off file compares like with like.
  *
  * For every file but a PDF it is the plain sha256 of the bytes (what `shasum -a 256` prints). For a PDF it is the sha256
- * of the bytes with the PDF's own clock and identity left out: the /CreationDate and /ModDate in its document info,
+ * of the bytes with the PDF's own clock and identity left out: every /CreationDate and /ModDate in it,
  * the /ID pair in its trailer, and the matching XMP fields. Those change on every render, so the same source rendered
  * twice gave two fingerprints (measured on #6849: Chrome's print to PDF differs only in its two dates; macOS cupsfilter
  * in its two dates and its /ID). The fields are matched over the raw bytes, so a change to what the PDF shows still
@@ -32,15 +32,17 @@ function firstLine(s) {
   return nl === -1 ? t : t.slice(0, nl).trim();
 }
 
-const LIT = '\\((?:\\\\[\\s\\S]|[^\\\\)])*\\)';   // a PDF literal string, (...) with backslash escapes
-const HEX = '<[0-9A-Fa-f\\s]*>';                  // a PDF hex string
+/* Each value is bounded (real dates and IDs are under ~100 bytes): unbounded, a long unclosed `(` overflowed the stack
+   and a file of many made every match scan to the end (192 s for 2 MB, measured in review). */
+const LIT = '\\((?:\\\\[\\s\\S]|[^\\\\)]){0,256}\\)';   // a PDF literal string, (...) with backslash escapes
+const HEX = '<[0-9A-Fa-f\\s]{0,512}>';                  // a PDF hex string
 const XMP = '(?:xmp:CreateDate|xmp:ModifyDate|xmp:MetadataDate|xmpMM:DocumentID|xmpMM:InstanceID)';
 /* The PDF's clock and identity, each replaced by an empty value of the same field. */
 const VOLATILE = [
   [new RegExp('/(CreationDate|ModDate)\\s*(?:' + LIT + '|' + HEX + ')', 'g'), '/$1()'],
   [new RegExp('/ID\\s*\\[\\s*(?:' + HEX + '|' + LIT + ')\\s*(?:' + HEX + '|' + LIT + ')\\s*\\]', 'g'), '/ID[]'],
-  [new RegExp('<(' + XMP + ')>[^<]*</\\1>', 'g'), '<$1></$1>'],
-  [new RegExp('\\b(' + XMP + ')="[^"]*"', 'g'), '$1=""'],
+  [new RegExp('<(' + XMP + ')>[^<]{0,256}</\\1>', 'g'), '<$1></$1>'],
+  [new RegExp('\\b(' + XMP + ')="[^"]{0,256}"', 'g'), '$1=""'],
 ];
 
 /** True when these first bytes are a PDF's: it starts with %PDF-. (The PDF spec lets a reader look further in, but a file

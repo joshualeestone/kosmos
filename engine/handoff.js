@@ -21,7 +21,7 @@
  *     state a handoff can measure.
  *   - when the instruction file last changed, from engine/instructions.js
  *     staleness().editedAt. A bad or epoch mtime reads "cannot tell", never 1970.
- *   - a sha256 for each artifact path the agent names, honest about a missing,
+ *   - a fingerprint (engine/fileprint.js) for each artifact path the agent names, honest about a missing,
  *     directory or unreadable path (it says which), with paths kept intact so a
  *     path with spaces is never split.
  *   - whether the current folder is a git repository: "not a git repository" is
@@ -37,6 +37,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { fingerprint, firstLine } = require('./fileprint');   // #6849: the shared fingerprint
 
 /* A sane calendar year floors "cannot tell": an mtime at or before the epoch, or
  * one that does not parse, is not a date to show (#6506 axis 3: never 1970). */
@@ -151,7 +152,6 @@ function gitFact(cwd) {
 
 /* The fingerprint, or an honest reason, for one artifact path (#6506 axis 5): engine/fileprint.js since #6849, the
    one `kosmos task built --file` and `kosmos fingerprint` give, so a PDF re-rendered from the same source matches. */
-const { fingerprint, firstLine } = require('./fileprint');
 
 /** The agent's live state from the self-report, "never reported" when absent
  * (#6506 axis 2). Never defaults to idle. */
