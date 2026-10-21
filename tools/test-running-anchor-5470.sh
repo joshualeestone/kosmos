@@ -96,5 +96,31 @@ out="$(pgrep() { return 3; }; kosmos_running_lines "$SCRIPT")"; rc=$?
 kosmos_running_lines "" >/dev/null; rc=$?
 [ "$rc" = 2 ] && ok "no script named: returns 2" || bad "empty script: rc=$rc"
 
+# #6799: _kosmos_pgrep_cmdlines does not list its own ancestors. macOS pgrep never does; procps pgrep does, and the
+# caller plus every `$( )` subshell around the call carry the caller's command line, so a run would read itself as a
+# second run. SELF calls it from nested subshells; SIB is a separate process matching the same pattern (the control:
+# it must be listed, so this arm can fail). Off macOS, SELF also counts what raw `pgrep -fa` lists of its own
+# lineage, which must be nonzero, or the filter was never exercised.
+ANC="fake-anc-6799-$$"
+printf '#!/bin/bash\nsleep 30\n' > "$T/tools/$ANC-sib.sh"
+{
+  printf '%s\n' '#!/bin/bash' '. "$1/tools/lib/cut-guard.sh"'
+  printf 'out="$( ( _kosmos_pgrep_cmdlines "%s" ) )"\n' "$ANC"
+  printf 'case "${OSTYPE:-}" in darwin*) raw=skip ;; *) raw="$( ( pgrep -fa "%s" | grep -c -- -self\\.sh ) )" ;; esac\n' "$ANC"
+  printf '%s\n' 'echo "raw $raw"' 'printf "%s\n" "$out"'
+} > "$T/tools/$ANC-self.sh"
+start bash "$T/tools/$ANC-sib.sh"; sib="${PIDS##* }"
+for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -f "$ANC-sib\.sh" | grep -qx "$sib" && break; sleep 0.5; done
+got="$(bash "$T/tools/$ANC-self.sh" "$PWD")"
+printf '%s\n' "$got" | grep -qE "^$sib " && ok "_kosmos_pgrep_cmdlines lists a separate matching process (control)" \
+  || bad "the separate matching process $sib was not listed: [$got]"
+printf '%s\n' "$got" | grep -q -- '-self\.sh' && bad "_kosmos_pgrep_cmdlines listed its own ancestors: [$got]" \
+  || ok "_kosmos_pgrep_cmdlines does not list its own ancestors"
+case "$(printf '%s\n' "$got" | sed -n 's/^raw //p')" in
+  skip) ok "macOS: pgrep excludes its own ancestors itself (no raw count to check)" ;;
+  ''|0) bad "raw pgrep -fa listed none of SELF's own lineage, so the ancestor filter was never exercised" ;;
+  *) ok "raw pgrep -fa lists SELF's own lineage here, and the filter removed it" ;;
+esac
+
 echo "test-running-anchor-5470: $FAILS failure(s)"
 [ "$FAILS" = 0 ]

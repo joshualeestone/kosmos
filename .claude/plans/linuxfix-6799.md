@@ -95,9 +95,7 @@ That Linux `sysctl -n hw.ncpu` fails rather than printing something with rc 0; t
   _kosmos_playwright_browsers, and the two test-side probes (test-cut-guard's mention check, test-running-anchor's
   settle). tools/ci-runner-setup.sh:257 keeps `pgrep -fl`: it is the macOS runner's own setup script.
 - macOS (this Mac): all three pass (test-cut-guard's one skip line is unchanged from the base).
-- Weakest premise: Linux pgrep also lists the CALLER's ancestors (macOS never does). Reasoned safe: each caller drops
-  its own run by the self-subtree walk or anchors on a script path an ancestor does not carry. Under run-tests.sh the
-  runner itself is an ancestor of these tests; the shard runs through run-tests.sh are what measure it.
+- Weakest premise, as first written: "every caller drops its own run". Wrong (challenge loop iteration 1, below).
 - Linux, probe-6799e (never merged), run 39559795454: all three jobs success. ALONE: each rc 0, 0 failures (test-cut-guard's
   one "skip" line is the test title "is skipped only for the claim holder", as on macOS). Through run-tests.sh: shard 1/2
   "all 125 passed", shard 2/2 "all 114 passed" (239 = the list's new count), so the ancestor premise held there too.
@@ -112,3 +110,25 @@ That Linux `sysctl -n hw.ncpu` fails rather than printing something with rc 0; t
 ## Card groups, all done
 stat order (slice 1), `sed -i ''` (slice 2), sysctl hw.ncpu + vm.loadavg (slice 3), `pgrep -fl` (slice 4), the swiftc
 skip (slice 5). The other listed reasons were re-measured on Linux in probe run 39553501883 and still hold.
+
+## Challenge loop (whole branch vs origin/main), iteration 1 (opus): 2 WARNINGs, 4 NITs
+- WARNING, fixed: kosmos_refuse_if_cut_live drops only its own pid. procps pgrep lists its own ancestors (the caller
+  and every `$( )` subshell around the call, all carrying the caller's command line), so on Linux a release.sh would
+  have read itself as a second cut. Fixed in the helper, not the guard: on Linux `_kosmos_pgrep_cmdlines` drops the
+  calling shell's ancestor chain, so both platforms answer the same and no caller changes (the release guard's own
+  scope note keeps the subtree walk out of it). New arm in test-running-anchor-5470: a separate matching process IS
+  listed (control), none of the caller's own lineage is, and off macOS raw `pgrep -fa` does list that lineage (so the
+  filter is exercised). Rejected: moving kosmos_refuse_if_cut_live to the subtree walk (touches an armed release guard
+  for a platform that never cuts).
+- WARNING, fixed: slice 3 made the time scale (#5727) live on Linux (the load now reads), with cores still hw.ncpu or 4.
+  kosmos_test_time_scale now takes cores from kosmos_cpu_count when it is defined. Arm: stubbed cores 2, load 2 ->
+  2.00 (the old lib gives 1.00 under the same stub, measured). Recorded: on Linux CI the scale now follows the load,
+  only ever lengthening a budget (floor 1, cap 4).
+- NIT, taken: `$OSTYPE` instead of a forked `uname` (a failing uname can no longer send a Mac to `-a`).
+- NIT, taken: test.yml's counts (230 / 34) no longer restated; the list header keeps the one count.
+- NIT, taken: ci-runner-setup.sh's comment names pgrep `-fl` as the macOS form.
+- NIT, left: run-tests.sh's "running ONLY the ... part" banner does not name the platform; the shard runner prints its
+  own command count, and both jobs are named by platform in the workflow.
+- Mac: the pgrep trio, both time-scale tests, cut-load-guard and ci-runner-setup pass. Focused node set (175 files incl.
+  the repo-wide audits): 5103 pass, 1 fail, which was tools.shell-shard-4317's run-tests.sh call waiting on another
+  agent's suite claim on this Mac past its 120 s limit (contention; full run is on Mortals).

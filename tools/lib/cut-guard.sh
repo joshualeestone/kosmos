@@ -45,11 +45,29 @@ unset _kosmos_cut_guard_lib_dir
 _KOSMOS_SH_OPTS='( +([-+][ABCDEFGHIJKLMNOPQRSTUVWXYZabdefghijklmopqrstuvwxyz]*[oO] +[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_]+|--(rcfile|init-file) +[^ ]+|[-+][ABCDEFGHIJKLMNOPQRSTUVWXYZabdefghijklmopqrstuvwxyz]+|--[abcdefghijklmnopqrstuvwxyz][abcdefghijklmnopqrstuvwxyz-]*|--))*'
 # #6799: `pid <whole command line>` for every process whose command line matches the ERE $1, with pgrep's own
 # status (1 none, 2+ could not run). macOS `pgrep -fl` prints the whole command line; Linux (procps) `pgrep -fl`
-# prints only the process NAME and needs `-fa`, while macOS reads -a as "include ancestors". So the flag follows
-# the platform. On Linux pgrep also lists the caller's ancestors (macOS never does); every caller here already
-# drops its own run by the self-subtree walk below or anchors on a script path an ancestor does not carry.
+# prints only the process NAME and needs `-fa`, while macOS reads -a as "include ancestors", so the flag follows
+# the platform ($OSTYPE: a builtin, so it cannot fail and send a Mac to -a). macOS pgrep also never lists its own
+# ancestors, and those include the caller and every `$( )` subshell around this call, which carry the caller's
+# command line; procps pgrep lists them. So on Linux the caller's ancestor chain is dropped here, and both
+# platforms answer the same (tools/test-running-anchor-5470.sh: "does not list its own ancestors").
 _kosmos_pgrep_cmdlines() {   # <ERE>
-  if [ "$(uname -s 2>/dev/null)" = Darwin ]; then pgrep -fl "$1"; else pgrep -fa "$1"; fi
+  case "${OSTYPE:-}" in darwin*) pgrep -fl "$1"; return ;; esac
+  local raw rc anc=" " p hops=0 kept
+  raw="$(pgrep -fa "$1")"; rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+  p="${BASHPID:-$$}"
+  while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null; do
+    anc="$anc$p "
+    p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d '[:space:]')"
+    hops=$((hops + 1)); [ "$hops" -gt 64 ] && break
+  done
+  kept="$(printf '%s\n' "$raw" | while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case "$anc" in *" ${line%% *} "*) continue ;; esac
+    printf '%s\n' "$line"
+  done)"
+  [ -n "$kept" ] || return 1
+  printf '%s\n' "$kept"
 }
 
 kosmos_running_lines() {   # <script path>

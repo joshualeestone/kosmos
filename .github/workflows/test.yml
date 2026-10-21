@@ -226,7 +226,7 @@ jobs:
     # where the suite is green. (A first attempt on ubuntu-latest went red on exactly
     # these platform tests; recorded so nobody re-picks ubuntu for this suite.)
     # #6791: test:shell is different, and MEASURED: each of its 264 commands run alone on ubuntu-latest (probe run
-    # 39535595626), 238 passed, 8 of them only by skipping their macOS work (probe run 39538876370). The other 230 run on ubuntu-latest in shells 1/2 and 2/2; the 34 that need macOS are listed,
+    # 39535595626), 238 passed, 8 of them only by skipping their macOS work (probe run 39538876370). The rest run on ubuntu-latest in shells 1/2 and 2/2; those that need macOS are listed (the current count is in its header),
     # each with its reason, in tools/shell-macos-only.txt and run in `shell macOS` on macos-latest, never the
     # self-hosted Mac (#4601: some shell tests touch launchd and sweep processes by pattern). `shell macOS` also runs
     # every syntax-only check (`sh -n` / `bash -n`, about no time), because macOS /bin/sh is bash 3.2 and Linux sh is
