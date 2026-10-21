@@ -337,18 +337,25 @@ struct PressTracker {
     private(set) var serial = 0
     // Moves on only when a lock drops the page, so reads of the dropped page are ignored.
     private(set) var generation = 0
-    // Moves on with each load, so only the latest load's round of Tasks reads runs (they do not stack).
+    // Moves on with each round of Tasks reads, so only the latest round runs (they do not stack).
     private(set) var readRound = 0
+    // Whether the latest round is a launch's (it ends at the first answer) or a return's (it reads at each of its
+    // times, since its first reads can be the board's flag from before the board's next poll).
+    private(set) var readRoundIsLaunch = true
     // Whether a Tasks read of this launch has answered; until then a read may change the bar.
     private(set) var readThisLaunch = false
 
+    // What BoardWeb sees of its page when a press comes: no web view yet (a signed-in launch opens on Agents, and a
+    // web tab's host is made only when first shown), one still loading, or one that can take the press.
+    enum Page { case none, loading, ready }
+
     // A press: the script to run now and the number its answer must carry, or nil when there is nothing to run now
-    // (the native tab, which also ends a waiting press; or no page able to take it yet, when it waits).
-    mutating func press(_ tab: AppTabs.Tab, pageReady: Bool) -> (script: String, serial: Int)? {
+    // (the native tab, which also ends a waiting press; or a page not ready, when the press waits for its load).
+    mutating func press(_ tab: AppTabs.Tab, page: Page) -> (script: String, serial: Int)? {
         serial += 1
         guard let script = AppTabs.pressScript(tab) else { pending = nil; return nil }
         pending = tab
-        return pageReady ? (script, serial) : nil
+        return page == .ready ? (script, serial) : nil
     }
 
     // An answer to the press numbered `serial`: where the bar goes, or nil.
@@ -366,16 +373,31 @@ struct PressTracker {
         pending = nil
     }
 
-    // A page finished loading: a round of Tasks reads starts if none has answered this launch (its number, or nil).
+    // A launch's reads: every 2 s for 20 s from the load, ending at the first answer (on a fresh install the board
+    // writes its flag only when its first status poll answers, after the page has loaded).
+    static let launchReads = Array(stride(from: 0.0, through: 20.0, by: 2.0))
+    // A return's reads: after the board's polls (every 5 s) have had time to write the flag again, each applied.
+    static let returnReads = [6.0, 12.0, 18.0]
+
+    // A page finished loading: a launch round of Tasks reads starts if none has answered this launch (its number, or
+    // nil).
     mutating func loaded() -> Int? {
         guard !readThisLaunch else { return nil }
         readRound += 1
+        readRoundIsLaunch = true
+        return readRound
+    }
+
+    // The app came back to the front: a return round of reads starts.
+    mutating func returned() -> Int {
+        readRound += 1
+        readRoundIsLaunch = false
         return readRound
     }
 
     // Whether a read scheduled in `round` for `generation` should still run.
-    func shouldRead(round: Int?, generation: Int) -> Bool {
-        generation == self.generation && (round == nil || (round == readRound && !readThisLaunch))
+    func shouldRead(round: Int, generation: Int) -> Bool {
+        generation == self.generation && round == readRound && !(readRoundIsLaunch && readThisLaunch)
     }
 
     // A read's answer: the value to put in the bar, or nil to leave it.

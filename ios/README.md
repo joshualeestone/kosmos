@@ -17,7 +17,7 @@ itself (the Kosmos+ session in the Keychain lists the account's Macs, mints a
 handoff for one, and the Mac's tunnel gate turns it into a session cookie in the
 app's own private `URLSession`), then reads `/api/status` every 5 s. The decisions
 are in `Kosmos/BoardLogic.swift`; `BoardClient.swift` moves the bytes;
-`AgentsView.swift` draws the list. Tapping an agent opens its chat on the Board tab.
+`AgentsView.swift` draws the list. Tapping an agent opens its chat under Today, the board's home tab (#6846: Today, Agents, Projects, Tasks, Settings; the four web tabs share one web view).
 The Mac's session cookie (with the Mac's name and address and a fingerprint of the Kosmos+ session, never the session) is kept
 in the Keychain item `mac-session` (`SessionKeychain.macSession`) and reused across
 launches; a sign-out, or Kosmos+ answering that the sign-in has ended, makes this

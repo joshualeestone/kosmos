@@ -43,7 +43,9 @@ struct ContentView: View {
     typealias Tab = AppTabs.Tab
 
     // A person's press on the bar: it also asks the board to open that tab's section. A tab the app selects itself (an
-    // agent tap, a notification) does not press, so the page it was sent to stays.
+    // agent tap, a notification) does not press, so the page it was sent to stays. Where SwiftUI reports a press on
+    // the tab already selected (not verified here: a device check), it presses again, which takes the section back to
+    // its top, as the board's own tab does: from an agent's chat under Today, pressing Today goes to the board's home.
     private var pressing: Binding<Tab> {
         Binding(get: { tab }, set: { new in
             tab = new
@@ -103,7 +105,7 @@ struct ContentView: View {
             if newPhase == .background { tabsBackgrounded = true }
             if newPhase == .active && tabsBackgrounded {
                 tabsBackgrounded = false
-                web.readTasks()
+                web.returned()
             }
             // iOS 16 single-parameter onChange. No-op when the gate is off.
             guard KosmosConfig.requireBiometricUnlock else { return }
@@ -141,9 +143,7 @@ struct ContentView: View {
         web.press(new)
     }
 
-    // Agents is the native list; the other four show the shared board. Where SwiftUI reports a press on the tab
-    // already selected, it presses again, which takes the section back to its top (the iOS convention; the board's own
-    // tab does the same): from an agent's chat under Today, pressing Today goes back to the board's home.
+    // Agents is the native list; the other four show the shared board.
     @ViewBuilder private func tabPage(_ which: Tab) -> some View {
         if which == .agents {
             AgentsView(client: board, openChat: { url in
@@ -279,10 +279,9 @@ final class BoardWeb: ObservableObject {
     func adopt(_ webView: WKWebView) { self.webView = webView }
 
     func press(_ tab: AppTabs.Tab) {
-        // The tracker sees every press first, web view or not: with none yet (a signed-in launch opens on Agents, and
-        // a web tab's host is made only when it is first shown) the press must wait for the page, not be lost.
-        let run = tracker.press(tab, pageReady: webView.map { !$0.isLoading } ?? false)
-        guard let run = run, let webView = webView else { return }
+        // The tracker decides from what the page is (PressTracker.Page); a press with no web view yet waits.
+        let page: PressTracker.Page = webView.map { $0.isLoading ? .loading : .ready } ?? .none
+        guard let run = tracker.press(tab, page: page), let webView = webView else { return }
         webView.evaluateJavaScript(run.script) { [weak self] result, error in
             guard let self = self else { return }
             let answer = AppTabs.answer(result, error: error)
@@ -293,14 +292,19 @@ final class BoardWeb: ObservableObject {
 
     func loadingOwnPage() { tracker.loadingOwnPage() }
 
-    // A page finished loading: run a press that waited for it, and read the board's Tasks flag. Until a read of this
-    // launch has answered, it reads every 2 s for 20 s: on a fresh install the board writes the flag only when its
-    // first status poll answers, after the page has loaded. A later load replaces the round.
+    // A page finished loading: run a press that waited for it, and start a launch round of Tasks reads if no read has
+    // answered this launch (PressTracker.launchReads). A later load replaces the round.
     func loaded() {
         if let tab = tracker.pending { press(tab) }
-        guard let round = tracker.loaded() else { return }
+        if let round = tracker.loaded() { schedule(round, at: PressTracker.launchReads) }
+    }
+
+    // The app came back to the front: a return round of reads (PressTracker.returnReads).
+    func returned() { schedule(tracker.returned(), at: PressTracker.returnReads) }
+
+    private func schedule(_ round: Int, at waits: [Double]) {
         let page = tracker.generation
-        for wait in stride(from: 0.0, through: 20.0, by: 2.0) {
+        for wait in waits {
             DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
                 guard let self = self, self.tracker.shouldRead(round: round, generation: page) else { return }
                 self.readTasks()
@@ -308,7 +312,7 @@ final class BoardWeb: ObservableObject {
         }
     }
 
-    func readTasks() {
+    private func readTasks() {
         let page = tracker.generation
         webView?.evaluateJavaScript(AppTabs.tasksReadScript) { [weak self] result, _ in
             guard let self = self, let shown = self.tracker.read(AppTabs.tasksTab(fromPage: result), generation: page) else { return }

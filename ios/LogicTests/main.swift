@@ -1187,30 +1187,33 @@ check(AppTabs.visible(tasksTab: true).map(\.symbol) == ["sun.max", "person.2", "
 section("app tabs: press bookkeeping")
 do {
     var t = PressTracker()
-    check(t.press(.projects, pageReady: false) == nil && t.pending == .projects, "no page yet: the press waits")
-    let run = t.press(.projects, pageReady: true)
-    check(run != nil && run?.script == AppTabs.pressScript(.projects), "a ready page: the press runs")
+    check(t.press(.projects, page: .none) == nil && t.pending == .projects, "no web view yet (a signed-in launch on Agents): the press waits, not lost")
+    check(t.press(.settings, page: .loading) == nil && t.pending == .settings, "a page still loading: the press waits")
+    let serialBefore = t.serial
+    let run = t.press(.projects, page: .ready)
+    check(run != nil && run?.script == AppTabs.pressScript(.projects) && run?.serial == serialBefore + 1, "a ready page: the press runs, with a new number")
     check(t.answered(serial: run!.serial, .absent, pageURL: nil) == nil && t.pending == .projects, "no door: it still waits")
     check(t.answered(serial: run!.serial, .opened, pageURL: nil) == nil && t.pending == nil, "opened: over")
 
     var u = PressTracker()
-    let first = u.press(.projects, pageReady: true)!
-    let second = u.press(.settings, pageReady: true)!
+    let first = u.press(.projects, page: .ready)!
+    let second = u.press(.settings, page: .ready)!
     check(u.answered(serial: first.serial, .refused, pageURL: roomURL) == nil && u.pending == .settings, "a late answer to an earlier press moves nothing and ends nothing")
     check(u.answered(serial: second.serial, .refused, pageURL: roomURL) == .projects && u.pending == nil, "the latest press's refusal ends it and moves the bar to the page's tab")
 
     var v = PressTracker()
-    let shown = v.press(.settings, pageReady: true)!
+    let shown = v.press(.settings, page: .ready)!
     v.loadingOwnPage()
     check(v.pending == nil && v.answered(serial: shown.serial, .refused, pageURL: settingsURL) == nil, "an agent tap ends a press, and a late refusal of it cannot move the bar")
-    _ = v.press(.projects, pageReady: false)
-    check(v.press(.agents, pageReady: true) == nil && v.pending == nil, "the native tab ends a waiting press")
+    _ = v.press(.projects, page: .loading)
+    check(v.press(.agents, page: .ready) == nil && v.pending == nil, "the native tab ends a waiting press")
 
     var w = PressTracker()
-    let before = w.press(.tasks, pageReady: true)!
+    let before = w.press(.tasks, page: .ready)!
     let page = w.generation
+    check(w.read(true, generation: page) == true && w.readThisLaunch, "a read before the lock counts")
     w.drop(selected: .projects)
-    check(w.pending == .projects, "after a lock, the fresh page opens the selected tab")
+    check(w.pending == .projects && !w.readThisLaunch, "after a lock, the fresh page opens the selected tab and reads again")
     check(w.answered(serial: before.serial, .opened, pageURL: nil) == nil && w.pending == .projects, "a late answer from the dropped page does not end it")
     check(w.read(true, generation: page) == nil && !w.readThisLaunch, "nor does a late Tasks read from it count")
     w.drop(selected: .agents)
@@ -1221,17 +1224,23 @@ section("app tabs: Tasks read rounds")
 do {
     var t = PressTracker()
     let g = t.generation
-    let r1 = t.loaded()
-    let r2 = t.loaded()
-    check(r1 != nil && r2 != nil && r1 != r2, "each load starts a round")
+    let r1 = t.loaded() ?? -1
+    let r2 = t.loaded() ?? -2
+    check(r1 > 0 && r2 > 0 && r1 != r2, "each load starts a round")
     check(!t.shouldRead(round: r1, generation: g) && t.shouldRead(round: r2, generation: g), "only the latest round reads, so they do not stack")
     check(t.read(nil, generation: g) == nil && !t.readThisLaunch, "the sign-in page's nothing does not end the launch's reads")
     check(t.read(true, generation: g) == true && t.readThisLaunch, "the first answer sets the bar")
     check(!t.shouldRead(round: r2, generation: g) && t.loaded() == nil, "and then the rounds stop, and loads start none")
-    check(t.shouldRead(round: nil, generation: g) && t.read(false, generation: g) == false, "a return to the front still reads, and its answer counts")
+    let back = t.returned()
+    check(t.shouldRead(round: back, generation: g) && t.read(false, generation: g) == false, "a return to the front starts a round, and its answers count")
+    check(t.shouldRead(round: back, generation: g), "and it keeps reading after an answer (its first reads can predate the board's next poll)")
+    check(t.loaded() == nil && t.shouldRead(round: back, generation: g), "a load during it starts no launch round and does not cut it")
+    check(PressTracker.returnReads.min()! > 5 && PressTracker.returnReads.count >= 2, "a return reads only after a board poll (every 5 s) could have written the flag, more than once")
+    check(PressTracker.launchReads.first == 0 && PressTracker.launchReads.last == 20, "a launch reads from the load for 20 s")
     t.drop(selected: .today)
-    check(!t.readThisLaunch && t.loaded() != nil, "after a lock the fresh page reads again, as at launch")
-    check(!t.shouldRead(round: nil, generation: g), "and reads of the dropped page do not run")
+    check(!t.readThisLaunch && !t.shouldRead(round: back, generation: g), "after a lock the dropped page's reads do not run")
+    let fresh = t.loaded()
+    check(fresh != nil && t.shouldRead(round: fresh!, generation: t.generation), "and the fresh page reads again, as at launch")
 }
 func marked(rootLater: Bool) -> Bool {
     let js = JSContext()!

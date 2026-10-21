@@ -33,7 +33,7 @@ board inside the app shows no tab strip of its own, because the app marks every 
    press of every signed-in launch, which opens on Agents, so no web view exists yet).
    A press on the selected tab, where SwiftUI reports one, presses again: back to the section's top (iOS convention).
 5. Agent taps (Agents list, notifications) go to Today, as Board did. Not signed in opens on Today (sign-in is there).
-   The store-shots build opens on Today.
+   The store-shots build lights the tab its address belongs to (a project room under Projects).
 
 ## Decisions
 - Reparenting rather than a web view layered under a TabView with clear pages: TabView page backgrounds and hit-testing
@@ -69,5 +69,9 @@ kapptabs script text, the page flag reading ("1"/"0" only). The kapptabs and loc
 (JavaScriptCore on the Mac) where they can, not only as text. Mutants: a tasks gate that always
 shows; an answer reader that takes non-nil as opened. Simulator build (queued-heavy). NOT checkable here, so named for the device check: Tasks entering the bar while
 Settings is selected and leaving while Tasks is selected (UIKit's tab bar tracks the selection by position; review 5
-W3), and the first press of a signed-in launch landing on its section. Real-device check is Baron's
+W3), the first press of a signed-in launch landing on its section, whether a press on the selected tab is reported
+(review 6), and the board's first layout in a host that starts at zero size or is hidden (review 6, N5).
+Return reads: at 6, 12 and 18 s after a return, each applied, since the first can predate the board's next poll
+(review 6 W1); a launch round ends at its first answer. The page state a press sees (none / loading / ready) is
+decided in PressTracker, so the round 5 blocker has a test (review 6 W2). Real-device check is Baron's
 TestFlight run (#6838 frames).

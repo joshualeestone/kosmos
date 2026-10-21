@@ -4,7 +4,7 @@ import UIKit
 // kosmos#6838 slice 1: the native Agents tab, built to Mona Lisa's slice 1 spec (#6838, 21 Oct): one inset list of
 // agents with picture, status dot, name, role and the board's own status word, the board's light and dark colours,
 // rows that hold still during live updates, and the states for reaching, no agents and not updating. Tapping an
-// agent opens its chat on the Board tab until Chat is native.
+// agent opens its chat under Today until Chat is native.
 struct AgentsView: View {
     @ObservedObject var client: BoardClient
     let openChat: (URL) -> Void
@@ -64,7 +64,7 @@ struct AgentsView: View {
             // still reaching, not "No agents yet".
             if client.updatedAt == nil || !client.fresh { reaching } else { noAgents }
         case .unreachable:
-            // Today's navy page, as it is: no title over it, and Back opens the Board tab.
+            // Today's navy page, as it is: no title over it, and Back opens Today, the board.
             LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)
                 .navigationBarHidden(true)
         case .kosmosPlusDown:
@@ -96,9 +96,9 @@ struct AgentsView: View {
         case .denied(let mac):
             message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.", retry: true)
         case .macRefused(let mac):
-            message("\(mac) did not accept this iPhone's sign-in.", detail: "Try again in a moment. If it keeps happening, sign out on the Board tab and in again.", retry: true)
+            message("\(mac) did not accept this iPhone's sign-in.", detail: "Try again in a moment. If it keeps happening, sign out on the Today tab and in again.", retry: true)
         case .kosmosPlusRefused:
-            message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again on the Board tab. Otherwise try again in a moment.", retry: true)
+            message("Kosmos+ did not let this iPhone in.", detail: "If this iPhone was removed from your account, sign in again on the Today tab. Otherwise try again in a moment.", retry: true)
         }
     }
 
