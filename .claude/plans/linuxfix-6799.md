@@ -161,3 +161,15 @@ skip (slice 5). The other listed reasons were re-measured on Linux in probe run 
   measures it; the time-scale arm stubs 1 core / load 1 (discriminates on any box with 2+ cores; the old lib gives 1.00,
   measured); test.yml's comment re-wrapped, and its probe numbers marked as the original measurement.
 - NIT, left: a missing `ps` stops the ancestor walk early, which fails toward refusing (a run reads itself as busy).
+
+## Challenge loop iteration 4 (sonnet): 2 WARNINGs, 1 CONVENTION, 3 NITs
+- WARNING, fixed (left as a NIT in iteration 2; raised again and test.yml now points readers at the header): the list
+  header's "That is N here, and M commands on Linux." is asserted against the parsed list in tools.shell-shard-4317,
+  with a control that a header one count off does not match.
+- WARNING, deferred: the ancestor walk's last resort `$$` (no BASHPID AND no runnable `sh`). That needs a box where `sh`
+  cannot run, which breaks the tooling well before this; the `exec sh` fallback itself runs on every macOS bash 3.2
+  pass of the host-bash arm.
+- CONVENTION, deferred (the reviewer also said nothing to change): GNU `stat -f FMT file` without -c takes FMT as a
+  second file operand, which is missing, so it exits nonzero after printing; measured on Linux in slice 1.
+- NITs, taken: the apt comment says update and install retry together; test.yml's comment reflowed. Left: naming the
+  callers of forPlatform's `mac` seam.
