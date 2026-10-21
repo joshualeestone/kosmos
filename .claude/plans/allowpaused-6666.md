@@ -18,7 +18,12 @@ maintenance and says so: `pending.json` carries `"paused": true`, and a refused 
   something to act on). Weakest premise: that the person looks at the Kosmos+ section when they wonder why a phone's
   request has not shown; the phone side is told separately by Kosmos+ itself.
 - The vouch path (an automatic Allow for a browser this computer itself signed in): a paused refusal returns
-  ok false without `listed`, so it is retried on the path's own budget, not taken back.
+  ok false without `listed`, so it is not taken back. Review round 2: it is also not counted as a try (as "still
+  signing in" is not), so a pause that ends inside the secret's own 3-minute window still lets the browser in
+  without the Allow card. Rejected: counting it (three paused refusals ended the secret in about 9 s, turning a
+  one-step connect into a manual one for any pause). Cost: during a long pause the vouch path asks once per tick
+  for the whole window instead of stopping after three. Weakest premise: that one tunnel call per tick for at most
+  3 minutes is cheap; what would change it is a pause answer that is slow or rate limited.
 
 ## Validation
 engine/remote.test.js (+3, see review round 1; first two: paused only when exactly true, with controls; a paused Allow refused in words, not listed,
@@ -34,3 +39,10 @@ with an ordinary-answer control); web.allow-card.test.js (+1: the line, its plac
 - Words: "allow it once Kosmos+ is back, if it is still asking". The paused line gets a muted style under
   `.plus-asks`. The self-grant log says "Kosmos+ is paused for maintenance" rather than quoting the person-facing
   sentence.
+
+## Review round 2
+- The snapshot's age is taken before it is read, so a rewrite in between can only make it look older (never a stale
+  paused paired with a fresh mtime).
+- A paused vouch refusal is not counted (see Decided). The test now asserts three paused refusals leave the secret
+  live and the next ordinary answer lets the browser in. Mutant (counted again): red.
+- `paused: false` on the Plus-off early return, so the field is always present.

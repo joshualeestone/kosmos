@@ -2072,7 +2072,9 @@ function vouchTick() {
         // Only the tunnel's refusals count: a busy register or Forget is waited out. (A setup-not-finished refusal is
         // not counted either, but the next tick's !enrolled() ends S: it fails closed rather than waiting.)
         const why = String((r && r.because) || '');
-        if (!busy() && !/being forgotten|still signing in|finish the Plus sign-up/.test(why)) v.tries += 1;
+        // kosmos#6666: nor is a refusal because Kosmos+ is paused: it waits within the secret's own window, so a pause
+        // that ends inside it still lets this browser in without the Allow card.
+        if (!busy() && !(r && r.paused) && !/being forgotten|still signing in|finish the Plus sign-up/.test(why)) v.tries += 1;
         // Three tries, then the ordinary Allow card is the way in (no spawn every 3 s for the whole window).
         if (vouchState === v && v.tries >= 3) {
           process.stderr.write('kosmos+: could not allow the browser this computer opened (' + String((r && r.because) || 'no answer') + '); the Allow card stays\n');
@@ -2130,7 +2132,7 @@ const CODE_WAITS = new Set(['attempts_used', 'asked_another_computer', 'another_
    crates/proto/src/pairsas.rs sas(): format!("{:03} {:03}")); the tunnel compares it exactly. A phone's match code never is. */
 const JOIN_CODE = /^\d{3} \d{3}$/;
 /* kosmos#6666: how old pending.json may be and still say Kosmos+ is paused (the tunnel's snapshot_says_paused uses the
-   same 120 s; it rewrites the file every 5 s while it runs). */
+   same 120 s; it rewrites the file every PENDING_POLL_SECS, 5 s, in crates/tunnel/src/lib.rs). */
 const PAUSED_FRESH_MS = 120 * 1000;
 /** What is waiting for this Mac's Allow. A missing snapshot is an empty
     list, not an error: the tunnel writes it only once it is up, and a
@@ -2138,8 +2140,11 @@ const PAUSED_FRESH_MS = 120 * 1000;
 function pendingDevices() {
   const settings = read();
   // kosmos#5786 (b): a device allowed while Kosmos+ was being switched off still shows its notice and Undo.
-  if (!settings.on || !enrolled()) return { devices: [], snapshot: false, email: settings.email || '', connected_here: recentlyVouched(settings) };
+  if (!settings.on || !enrolled()) return { devices: [], snapshot: false, email: settings.email || '', connected_here: recentlyVouched(settings), paused: false };
   let raw;
+  // kosmos#6666: the file's age, taken BEFORE it is read, so a rewrite in between can only make it look older.
+  let snapAge = Infinity;
+  try { snapAge = Date.now() - fs.statSync(pendingFile()).mtimeMs; } catch { snapAge = Infinity; }
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { raw = null; }
   const list = raw && Array.isArray(raw.devices) ? raw.devices : [];
   /* #4610 (Josh, 12:50: "This computer (Kosmos app)" asked him to approve it): this Mac's OWN in-app sign-in is a
@@ -2182,8 +2187,6 @@ function pendingDevices() {
   /* kosmos#6666: while Kosmos+ is paused for maintenance the tunnel withholds the list and says so (kosmos-relay #509,
      kosmos#6656), so the page can say why no request shows rather than show nothing. Exactly true, or not paused.
      Only from a snapshot under PAUSED_FRESH_MS old: a stopped tunnel or a slept Mac leaves its last file behind. */
-  let snapAge = Infinity;
-  try { snapAge = Date.now() - fs.statSync(pendingFile()).mtimeMs; } catch { snapAge = Infinity; }
   const paused = !!raw && raw.paused === true && snapAge < PAUSED_FRESH_MS;
   return { devices: here ? devices.filter((d) => d.device_id !== here.device_id || d.first_seen > here.at + 60) : devices, snapshot: raw !== null, email: settings.email || '', connected_here: here, paused };
 }

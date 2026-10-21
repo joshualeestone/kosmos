@@ -4700,7 +4700,7 @@ test('#5786 (b): removing a vouched device (Undo) drops its "on this computer" n
   remote.setOn(false);
 });
 
-test('kosmos#6666: a vouched browser refused because Kosmos+ is paused is not noted, not removed, and the secret ends after three tries', async () => {
+test('kosmos#6666: a vouched browser refused because Kosmos+ is paused is not noted, not removed, and is let in once the pause ends', async () => {
   const { secret, plant } = await vouchSignedIn('vouchpaused');
   plant([{ device_id: 'dev-paused', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
   remote.vouchTickForTests();
@@ -4718,7 +4718,11 @@ test('kosmos#6666: a vouched browser refused because Kosmos+ is paused is not no
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
   assert.equal(remote.read().vouched['dev-paused'], undefined, 'a paused refusal was noted as on this computer');
   assert.equal(removesOf(), 0, 'a paused refusal was taken back out as if Kosmos+ had refused the device');
-  await until(() => remote.vouchSecretForTests() === null, 'the secret to end after three paused tries');
+  // A pause is waited out, not counted: three refusals (the cap for real ones) leave the secret live.
+  assert.ok(remote.vouchSecretForTests(), 'three paused refusals ended the secret, as if they were real refusals');
+  // The pause ends: the next tick lets the browser in, without the Allow card.
+  remote.vouchTickForTests();
+  await until(() => remote.read().vouched['dev-paused'], 'the vouched allow to be noted once the pause ended');
   remote.setOn(false);
 });
 
