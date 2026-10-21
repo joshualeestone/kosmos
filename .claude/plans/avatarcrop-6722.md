@@ -8,9 +8,9 @@ image I get some basic cropping tools before i save?"
   (`#you-file`) opens an editor first: the picture under a circle, dimmed outside it.
 - Drag moves it; a zoom slider, the wheel, a pinch and +/- zoom it (1x to 4x); arrow keys move it (Shift for larger
   steps); Enter saves, Escape cancels; Tab stays inside the editor; focus returns to what opened it.
-- Save gives a 512 x 512 PNG of the square inside the circle; Cancel changes nothing and uploads nothing.
+- Save gives a 512 x 512 PNG of the square the circle sits in (its corners fall outside the circle; avatars are drawn round); Cancel changes nothing and uploads nothing.
 - A phone photo with a rotation tag comes in upright; a very large picture is scaled to 2048 px on its long side
-  before editing, so the editor stays quick.
+  before editing, so the editor stays quick (the first decode is still full size: the browser gives no size before decoding).
 - It works in Chromium and WebKit (the Windows app's and the Mac app's engines), at desktop and phone sizes.
 
 ## Decisions
@@ -38,3 +38,12 @@ image I get some basic cropping tools before i save?"
 - web/index.html: CSS `.crop-*`; markup `#cropmodal`; JS `cropRead`, `cropSide`, `cropClamp`, `cropDiameter`,
   `cropPaint`, `cropMove`, `cropZoomTo`, `cropFinish`, `cropPicture`, `wireCrop`; the three pickers call it.
 - docs/browser-checks/render-avatar-crop-6722.js (new, hermetic, chromium + webkit), its README row and gated.txt line.
+
+## Review 4 (night shift, 2026-10-21)
+- **Fixed:** the editor's keys are taken in the capture phase and stop there while it is open, so one Escape no longer
+  also closes a window under it; What's New and the file preview stand aside while it is open. The check asserts a
+  page-level Escape handler hears nothing during the editor and one press after it (control).
+- **Not fixed:** a very large photo is decoded at full size once before the 2048 px cap applies. Weakest premise: that
+  this machine and a phone survive one full decode; would change it: a report of a crash on a big photo.
+- **Not fixed:** if the agent a picture was chosen for is deleted while the editor is open, the upload fails without a
+  word (the error shows only while the panel is on that agent). Rare, and nothing is lost but the picture.

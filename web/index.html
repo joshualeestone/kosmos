@@ -45071,7 +45071,7 @@ function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
   // #4930: and the full-page file preview.
   // #4343: and the restart screen. #4823: and the phone menu.
-  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, #pnav:not([hidden]), #pv-preview');
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, #pnav:not([hidden]), #pv-preview, #cropmodal:not([hidden])');
 }
 /* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
    document-level Escape and Tab handlers, and one Escape must not close both. */
@@ -47040,11 +47040,15 @@ function cropPicture(file, verb) {
   let downOnBack = false;
   document.getElementById('cropmodal').addEventListener('pointerdown', (e) => { downOnBack = e.target.id === 'cropmodal'; });
   document.getElementById('cropmodal').addEventListener('click', (e) => { if (e.target.id === 'cropmodal' && downOnBack) cropFinish(false); downOnBack = false; });
+  /* Review 4: in the capture phase, and no key goes past the editor while it is open. It opens over other windows
+     (an agent's settings), whose own document-level handlers would otherwise act on the same key: one Escape closed
+     both. Stopping the event leaves the slider's and the buttons' own key behaviour alone (that is a default action). */
   document.addEventListener('keydown', (e) => {
     if (!CROP || document.getElementById('cropmodal').hidden) return;
+    if (!(e.ctrlKey || e.metaKey || e.altKey)) e.stopImmediatePropagation();
     const onStage = e.target === stage;
     const step = e.shiftKey ? 40 : 10;
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cropFinish(false); return; }
+    if (e.key === 'Escape') { e.preventDefault(); cropFinish(false); return; }
     if (e.key === 'Tab') {
       // Kept inside the editor: the stage, the slider, Cancel, Save.
       const ring = [stage, zoom, document.getElementById('crop-no'), document.getElementById('crop-go')];
@@ -47064,7 +47068,7 @@ function cropPicture(file, verb) {
     if (moves[e.key]) { e.preventDefault(); cropMove(moves[e.key][0], moves[e.key][1]); return; }
     if (e.key === '+' || e.key === '=') { e.preventDefault(); cropZoomTo(CROP.zoom * 1.1); return; }
     if (e.key === '-' || e.key === '_') { e.preventDefault(); cropZoomTo(CROP.zoom / 1.1); }
-  });
+  }, true);
 })();
 
 document.getElementById('d-file').addEventListener('change', async (e) => {
@@ -70832,7 +70836,7 @@ document.addEventListener('click', (e) => {
    page ever open one: none does today) owns the keys.
    The phone menu is not one: it sits under the preview. While the update overlay is up the preview and the update
    window both stand aside to it, the window on top. */
-function pvCovered() { return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open]'); }
+function pvCovered() { return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #cropmodal:not([hidden])'); }
 document.addEventListener('keydown', (e) => {
   const back = document.getElementById('pv-preview');
   if (!back || pvCovered()) return;

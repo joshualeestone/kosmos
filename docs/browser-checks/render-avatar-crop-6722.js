@@ -9,7 +9,7 @@
  *   - a drag to the right, and separately the Right arrow key, slide the picture right, so the circle shows its left
  *     edge and the saved picture is the left colour all the way across (CONTROL: the centred save above is not);
  *   - the wheel and + zoom in (the slider follows), - zooms back out;
- *   - Enter on the picture saves, Escape cancels, and Tab stays inside the editor;
+ *   - Enter on the picture saves, Escape cancels (and reaches no handler under the editor), and Tab stays inside the editor;
  *   - a phone photo whose rotation tag says "turned" comes in upright (its sides swapped), and the same photo with no
  *     tag does not (the CONTROL that the tag, not the photo, did it);
  *   - a GIF is handed back exactly as chosen (an animated one would stop moving);
@@ -164,9 +164,14 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     await page.keyboard.press(eng === 'webkit' ? 'Alt+Tab' : 'Tab');
     const ring = await page.evaluate(() => document.activeElement && document.activeElement.id);
     chk(ring === 'crop-stage', `${t} Tab from Save comes back to the picture, not out of the editor`, ring);
+    // Review 4: a window under the editor keeps its own document-level Escape handler; one Escape must not reach it.
+    await page.evaluate(() => { window.UNDER_ESC = 0; document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.UNDER_ESC += 1; }); });
     await page.keyboard.press('Escape');
-    const esc = await page.evaluate(async () => ({ r: await window.CROP_P, hidden: document.getElementById('cropmodal').hidden }));
+    const esc = await page.evaluate(async () => ({ r: await window.CROP_P, hidden: document.getElementById('cropmodal').hidden, under: window.UNDER_ESC }));
     chk(esc.r === null && esc.hidden, `${t} Escape cancels`, JSON.stringify(esc));
+    await page.keyboard.press('Escape');
+    const under = await page.evaluate(() => window.UNDER_ESC);
+    chk(esc.under === 0 && under === 1, `${t} the editor's Escape does not reach a handler under it (CONTROL: with the editor closed it does)`, JSON.stringify({ during: esc.under, after: under }));
 
     // A phone photo with a rotation tag comes in upright; the same photo without one does not.
     const turn = await page.evaluate(async () => {
@@ -354,7 +359,7 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
   }
   // The count is part of the result: a run that skipped arms (or an empty ENGINES) must not read as green.
   if (engines.length === 0) chk(false, 'ENGINES named no engine, so nothing ran');
-  const EXPECTED_PER_ENGINE = 28;
+  const EXPECTED_PER_ENGINE = 29;
   if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
   console.log(`render-avatar-crop-6722: ${RAN - fail.length} PASS, ${fail.length} FAIL`);
   process.exit(fail.length ? 1 : 0);
