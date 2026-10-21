@@ -1,0 +1,69 @@
+'use strict';
+/* kosmos#6842 slice 2: the words Project settings shows for what a project's finished tasks cost, from the real functions
+ * in web/index.html.
+ *   node --test web.project-cost-6842.test.js */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const nodePath = require('node:path');
+const page = require('./test-support/page');
+
+const RAW = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+const SCRIPT = page.scriptOf(RAW);
+const lift = (name) => page.lift(SCRIPT, name);
+
+function bundle() {
+  // eslint-disable-next-line no-new-func
+  return new Function(
+    page.liftConst(SCRIPT, 'USAGE_MODEL_PRICES') + '\n'
+    + page.liftConst(SCRIPT, 'PJS_COST_PRS_SHOWN') + '\n'
+    + lift('esc') + '\n'
+    + lift('usageNum') + '\n'
+    + lift('usageAbbr') + '\n'
+    + lift('usageUsd') + '\n'
+    + lift('usageRowTokenTotal') + '\n'
+    + lift('usageModelPrice') + '\n'
+    + lift('usageApiCost') + '\n'
+    + lift('tkReceiptPrsHtml') + '\n'
+    + lift('pjsCostParts') + '\n'
+    + 'return { pjsCostParts, usageApiCost };',
+  )();
+}
+const B = bundle();
+const text = (html) => html.replace(/<[^>]*>/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+const buckets = (i) => ({ input_tokens: i, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 });
+const ok = (over) => ({ ok: true, tasks: 2, notCounted: 0, failed: 0, unread: 0, partial: 0, models: { 'claude-fable-5': buckets(1e6) }, prs: [], prsMore: 0, ...over });
+
+test('the finished tasks, their tokens and the cost at API prices, from the page\'s one price table', () => {
+  assert.ok(B.usageApiCost({ receipt: { 'claude-fable-5': buckets(1e6) } }).cost > 0, 'control: the fixture model is priced');
+  assert.match(B.pjsCostParts(ok()).line, /^2 finished tasks: 1(\.0)?M tokens, \$10 at API prices\.$/);
+  assert.match(B.pjsCostParts(ok({ tasks: 1 })).line, /^1 finished task: /);
+});
+
+test('what was left out is said: older tasks, and work that could not be read', () => {
+  const older = B.pjsCostParts(ok({ tasks: 50, notCounted: 3 })).line;
+  assert.match(older, /Counting the newest 50; 3 older tasks are not counted\./);
+  assert.match(B.pjsCostParts(ok({ notCounted: 1 })).line, /1 older task is not counted\./);
+  for (const k of ['unread', 'partial', 'failed']) {
+    assert.match(B.pjsCostParts(ok({ [k]: 1 })).line, /could not be read, so the real cost is higher\./, k);
+  }
+  assert.doesNotMatch(B.pjsCostParts(ok()).line, /could not be read|not counted/, 'the control says neither');
+});
+
+test('nothing finished, nothing readable, and a failed answer each say so', () => {
+  assert.equal(B.pjsCostParts(ok({ tasks: 0, models: {} })).line, 'No finished tasks yet.');
+  assert.equal(B.pjsCostParts(ok({ tasks: 0, failed: 2, models: {} })).line, 'Kosmos could not read the work on its finished tasks.');
+  assert.match(B.pjsCostParts({ ok: false, because: 'no-project' }).line, /could not work out/);
+  assert.match(B.pjsCostParts(null).line, /could not work out/);
+});
+
+test('the pull requests the tasks worked on, at most 20 named and the rest counted, links only to github.com', () => {
+  const prs = Array.from({ length: 22 }, (_, i) => ({ repo: 'acme/app', number: i + 1, url: 'https://github.com/acme/app/pull/' + (i + 1), tasks: [1] }));
+  const t = text(B.pjsCostParts(ok({ prs, prsMore: 1 })).prs);
+  assert.match(t, /^Worked on pull requests app#1 /);
+  assert.match(t, /app#20 ?\(opens in your browser\) ?and 3 more\.$/, '2 beyond the shown 20, plus 1 an agent counted');
+  assert.doesNotMatch(t, /app#21/);
+  const bad = B.pjsCostParts(ok({ prs: [{ repo: 'acme/<b>x', number: 5, url: 'javascript:alert(1)' }] })).prs;
+  assert.doesNotMatch(bad, /<a |<b>x/);
+  assert.equal(B.pjsCostParts(ok()).prs, '', 'no line when there are none');
+});

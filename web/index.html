@@ -17702,6 +17702,14 @@ window.kosmosMeasureScrollbarWidth();
       <p class="fmsg" id="pjs-chats-msg" aria-live="polite"></p>
     </div>
 
+    <!-- kosmos#6842 slice 2: what this project's finished tasks cost, the sum of the receipts their task pages show.
+         Here rather than in the project head (my call, for Mona Lisa's review): the head is tight in all three looks. -->
+    <div class="field" id="pjs-cost-field">
+      <span class="flabel">What its finished tasks cost</span>
+      <p class="fhint" id="pjs-cost" aria-live="polite"></p>
+      <div id="pjs-cost-prs"></div>
+    </div>
+
     <div class="field">
       <span class="flabel" id="pjs-agents-label">Project members</span>
       <!-- #762 (Josh, 2026-08-24 22:02): a duplicate of New project's agents
@@ -68915,6 +68923,49 @@ function paintProjectSettings(p) {
   document.getElementById('pjs-add-row').hidden = true;
   paintSettingsFacts(p);
   pjsHooksOpen(p);   // #1307
+  pjsLoadCost(p);   // kosmos#6842
+}
+/* kosmos#6842 slice 2: the project's cost, from GET /api/project/:id/receipts. Pure: the sentence and the pull request
+   line. Says what was left out (older tasks, work that could not be read), so the total never reads as complete when
+   it is not. */
+const PJS_COST_PRS_SHOWN = 20;
+function pjsCostParts(r) {
+  if (!r || !r.ok) return { line: 'Kosmos could not work out what these tasks cost just now.', prs: '' };
+  const n = Number(r.tasks) || 0;
+  const older = Number(r.notCounted) || 0;
+  const unread = (Number(r.unread) || 0) + (Number(r.partial) || 0) + (Number(r.failed) || 0);
+  if (!n && !older) return { line: unread ? 'Kosmos could not read the work on its finished tasks.' : 'No finished tasks yet.', prs: '' };
+  const models = r.models && typeof r.models === 'object' ? r.models : {};
+  let tokens = 0;
+  for (const b of Object.values(models)) tokens += usageRowTokenTotal(b);
+  const { cost, unpriced } = usageApiCost({ receipt: models });
+  const bits = [(n === 1 ? '1 finished task' : usageNum(n) + ' finished tasks') + ': ' + usageAbbr(tokens) + ' tokens'];
+  if (cost !== null) bits.push(usageUsd(cost) + ' at API prices' + (unpriced.length ? ' (not counting ' + unpriced.join(', ') + (unpriced.length > 1 ? ', which have' : ', which has') + ' no published price)' : ''));
+  else if (unpriced.length) bits.push('no published price for ' + unpriced.join(', '));
+  let line = bits.join(', ') + '.';
+  if (older) line += ' Counting the newest ' + usageNum(n) + '; ' + (older === 1 ? '1 older task is' : usageNum(older) + ' older tasks are') + ' not counted.';
+  if (unread) line += ' Some of the work could not be read, so the real cost is higher.';
+  const prs = Array.isArray(r.prs) ? r.prs.filter((p) => p && typeof p === 'object') : [];
+  const prsMore = Math.max(0, prs.length - PJS_COST_PRS_SHOWN) + (Number(r.prsMore) || 0);
+  return { line, prs: tkReceiptPrsHtml({ prs: prs.slice(0, PJS_COST_PRS_SHOWN), prsMore }) };
+}
+let PJS_COST_ASK = 0;
+async function pjsLoadCost(p) {
+  const line = document.getElementById('pjs-cost');
+  const prsEl = document.getElementById('pjs-cost-prs');
+  if (!line || !prsEl || !p || !p.id) return;
+  const ask = ++PJS_COST_ASK;
+  line.textContent = 'Working it out…';
+  prsEl.innerHTML = '';
+  let r = null;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/receipts', { cache: 'no-store' });
+    r = await res.json();
+  } catch { r = null; }
+  if (ask !== PJS_COST_ASK) return;   // another project's settings were opened meanwhile
+  const parts = pjsCostParts(r);
+  line.textContent = parts.line;
+  prsEl.innerHTML = parts.prs;
 }
 /* ---- #1307: a project's webhooks ---------------------------------------------------------
    Listed, made, renamed and deleted through /api/project/:id/webhooks. The full link exists only
