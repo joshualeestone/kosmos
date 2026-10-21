@@ -40,7 +40,7 @@ test('the two receipts that still need a line share it, and they are its only wr
   assert.match(PAGE, /<p class="fmsg board-msg" id="board-msg" role="status" aria-live="polite" hidden><\/p>/);
   const writers = PAGE.match(/getElementById\('board-msg'\)/g) || [];
   // #6719: the star's could-not-save receipt is the second writer (its success path clears only its own sentences).
-  assert.equal(writers.length, 4, 'one visibility gate, the could-not-open receipt, and the star\'s two (#6719), nothing else');
+  assert.equal(writers.length, 5, 'one visibility gate, the could-not-open receipt, and the star\'s three (#6719: a failed save, a good save and a good reload clear or write it), nothing else');
   assert.match(PAGE, /Object\.values\(STAR_MSG\)\.includes\(msg\.textContent\)\) \{ msg\.textContent = ''/,
     'the star clears the line only when the sentence there is its own');
   assert.match(PAGE, /getElementById\('board-msg'\);\n\s+if \(msg\) \{\n\s+msg\.textContent = 'We could not open '/);

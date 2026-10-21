@@ -19,15 +19,18 @@ function slice(start, end) {
 const LOAD = slice('async function loadStars() {', '/* Drawn at once');
 const BTN = slice('function starBtn(a) {', '/* A repaint rebuilds');
 
-function page(answer) {
+function page(answer, line = '') {
+  const msg = { textContent: line, hidden: !line };
   // eslint-disable-next-line no-new-func
-  return new Function('fetch', [
+  const api = new Function('fetch', 'document', [
     "let AGENT_STARS = new Set(['renet']); let BOARD_STARS = new Set(['renet']); let STARS_SEQ = 0; let STARS_WRITING = 0;",
     'let PAINTS = 0; const repaintAgentOrder = () => { PAINTS += 1; };',
-    "const esc = (s) => String(s); const STAR_SVG = '';",
+    "const esc = (s) => String(s); const STAR_SVG = ''; const STAR_MSG = { saved: 's', removed: 'r', full: 'f', stuck: 'k', refused: 'x' };",
     LOAD, BTN,
     'return { loadStars, starBtn, stars: () => [...AGENT_STARS].sort(), board: () => [...BOARD_STARS].sort(), paints: () => PAINTS };',
-  ].join('\n'))(async () => ({ ok: true, json: async () => answer }));
+  ].join('\n'))(async () => ({ ok: true, json: async () => answer }), { getElementById: (id) => (id === 'board-msg' ? msg : null) });
+  api.msg = msg;
+  return api;
 }
 
 test('#6719 review 7: an unreadable stars file (ok false) leaves the stars as they were', async () => {
@@ -51,4 +54,16 @@ test('#6719 review 7: an agent with no session name has no star; one with a name
   assert.equal(p.starBtn({ name: 'Echo' }), '');
   assert.equal(p.starBtn({ name: 'Echo', sessionName: '' }), '');
   assert.match(p.starBtn({ name: 'Renet', sessionName: 'renet' }), /data-star="renet"[^>]*aria-label="Unstar Renet"/);
+});
+
+test('#6719 review 11: a good read clears a star\'s failed-save line; another receipt is left alone (CONTROL)', async () => {
+  const stale = page({ names: ['renet'], ok: true }, 's');
+  await stale.loadStars();
+  assert.equal(stale.msg.hidden, true, 'a try-again line stayed on the board after the board answered');
+  const other = page({ names: ['renet'], ok: true }, 'We could not open Renet.');
+  await other.loadStars();
+  assert.equal(other.msg.hidden, false, 'the stars reload cleared a line that was not its own');
+  const failed = page({ names: [], ok: false }, 's');
+  await failed.loadStars();
+  assert.equal(failed.msg.hidden, false, 'a read the board said failed cleared the line');
 });

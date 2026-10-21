@@ -38644,6 +38644,9 @@ async function loadStars() {
     // ok false: the board could not read its stars file, so its empty list is not "no stars"; keep what we have
     if (seq !== STARS_SEQ || !v || !Array.isArray(v.names) || v.ok === false) return;
     BOARD_STARS = new Set(v.names);
+    // Review 11: the board answered, so a star's failed-save line from earlier no longer describes anything.
+    const said = document.getElementById('board-msg');
+    if (said && Object.values(STAR_MSG).includes(said.textContent)) { said.textContent = ''; said.hidden = true; }
     const next = new Set(v.names);
     if (next.size === AGENT_STARS.size && [...next].every((n) => AGENT_STARS.has(n))) return;
     AGENT_STARS = next;
@@ -38660,7 +38663,8 @@ function toggleStar(name, follow) {
   const seq = ++STARS_SEQ;
   STAR_LAST.set(name, seq);
   if (on) AGENT_STARS.add(name); else AGENT_STARS.delete(name);
-  repaintAgentOrder(follow);
+  // Review 11: a repaint that throws must not stop the save going out (the page would show a star the board never got).
+  try { repaintAgentOrder(follow); } catch { /* the save below still runs, and its answer repaints */ }
   STARS_WRITING += 1;
   /* Review 4: a save that threw (a repaint failing, say) must not stop the presses queued after it, so the chain goes
      on past a rejection; and the in-flight count is settled here, whatever the save did, or reloads stop for good. */

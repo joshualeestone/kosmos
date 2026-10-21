@@ -139,3 +139,15 @@ test('#6719 review 8: a refusal no retry can fix says what is wrong, not "try ag
     assert.equal(msg.textContent, line, `${status} ${error} showed the wrong line`);
   }
 });
+
+test('#6719 review 11: a press whose repaint throws still sends its save', async () => {
+  const { api, sent } = page();
+  api.throwNext(1);                     // the press's own repaint throws
+  const p1 = api.toggleStar('renet');
+  await tick();
+  assert.equal(sent.length, 1, 'the save never went because the press\'s repaint threw');
+  sent[0].answer(['renet']);
+  await p1;
+  assert.deepEqual(api.stars(), ['renet']);
+  assert.equal(api.writing(), 0);
+});
