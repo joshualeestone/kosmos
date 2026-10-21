@@ -14,8 +14,8 @@
 #   C  CONTROL: the old trap (`trap '_fetch_cleanup' EXIT`) on R1, to show this shell really loses the status.
 #      Where the shell keeps it (dash, bash 5), the control cannot show the danger and says so; R1 to R4 still hold.
 # And one source pin:
-#   P  every `exit 0` in deploy-site.sh is directly preceded by `_DS_FINISHED=1`, so no success path is turned
-#      into a failure and none was added without the flag.
+#   P  every `exit 0` alone on its line in deploy-site.sh is directly preceded by `_DS_FINISHED=1`. An inline
+#      `exit 0` (inside `{ ...; }`) is not seen; it would fail safe, a success reported as a failure.
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
