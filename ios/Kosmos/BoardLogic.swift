@@ -205,6 +205,7 @@ enum Board {
         var reconnecting = false
         var needsTrust = false
         var jobRunningUnseen = false
+        var restartTimedOut = false
         var id: String { session }
     }
 
@@ -232,7 +233,8 @@ enum Board {
                          crashLooping: ((row["crashLoop"] as? [String: Any])?["looping"] as? Bool) == true,
                          reconnecting: state == "connection_lost" && (phase == "waiting" || phase == "retried"),
                          needsTrust: (row["needsTrust"] as? Bool) == true,
-                         jobRunningUnseen: (row["jobRunningUnseen"] as? Bool) == true)
+                         jobRunningUnseen: (row["jobRunningUnseen"] as? Bool) == true,
+                         restartTimedOut: ((row["disruption"] as? [String: Any])?["timedOut"] as? Bool) == true)
         }
     }
 
@@ -240,7 +242,8 @@ enum Board {
     // A third copy, kept equal by hand and by the cases in ios/LogicTests; nothing compares it with cardlabel.js
     // automatically. It goes away when the Mac sends its words ready-made (the native plan's step 1, item 2).
     // Not copied: restartingLabel's causes ("Switching model" and the like), which read "Restarting agent" here
-    // until the Mac sends its words ready-made (the plan's item 2).
+    // until the Mac sends its words ready-made (the plan's item 2). Its ", not back yet" for a restart that timed
+    // out is copied.
     static let stateCopy: [String: String] = [
         "working": "Working", "needs_you": "Issue", "rate_limited": "Rate Limit",
         "auth_failed": "Sign-in isn't working", "connection_lost": "Connection lost", "blocked": "Waiting",
@@ -257,6 +260,7 @@ enum Board {
         if agent.state == "needs_you" && agent.reportedByAgent { return "Question" }
         if agent.state == "needs_you" && agent.awaitingApproval { return "Needs permission" }
         if agent.reconnecting { return "Reconnecting\u{2026}" }
+        if agent.state == "restarting" { return agent.restartTimedOut ? "Restarting agent, not back yet" : "Restarting agent" }
         return stateCopy[agent.state] ?? "Can't tell"
     }
 

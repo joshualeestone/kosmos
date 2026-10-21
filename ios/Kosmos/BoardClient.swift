@@ -201,7 +201,12 @@ final class BoardClient: ObservableObject {
     // An answer from Kosmos+ that is not a success: a 401 is a sign-out, a 403 a refusal of this iPhone, anything
     // else (no answer, a 5xx, a 429) Kosmos+ being unreachable for now.
     private func kosmosPlusFailed(status: Int, _ gen: Int) {
-        if status == 401 { set(.signedOut, gen) }
+        if status == 401 {
+            // The Kosmos+ session is dead, so the Mac session kept under it is useless: forgotten with it.
+            macStore.delete()
+            cookies.removeCookies(since: .distantPast)
+            set(.signedOut, gen)
+        }
         else if status == 403 { set(.kosmosPlusRefused, gen) }
         else { set(.kosmosPlusDown, gen) }
     }
@@ -260,12 +265,13 @@ final class BoardClient: ObservableObject {
                 await env.sleep(3)
             case .denied:
                 set(.denied(mac: mac.name), gen); return false
-            case .refused(let because):
+            case .refused:
                 // Refused handoffs are retried a few times: one expires during a long wait for Allow, and a Mac that
                 // has just started refuses until it knows its account again (gate.rs ACCOUNT_NOT_KNOWN_YET).
                 guard fresh < Self.freshHandoffs else {
-                    // Logged for the first runs on a phone: this is where the plan's weakest premise would show.
-                    NSLog("[Board] the Mac's gate refused the sign-in (\(status)): \(String((because ?? "no reason given").prefix(200)))")
+                    // Logged for the first runs on a phone: this is where the plan's weakest premise would show. Only
+                    // the status: the Mac's own words are not written to the device log.
+                    NSLog("[Board] the Mac's gate refused the sign-in (\(status))")
                     set(.macRefused(mac: mac.name), gen); return false
                 }
                 fresh += 1

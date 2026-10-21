@@ -711,6 +711,8 @@ do {
     check(off("working", false, true) == "Can't tell", "not running with a job Kosmos cannot see is Can't tell")
     check(off("restarting", false, false) == "Restarting agent", "a restarting agent is not called Not running")
     check(w("restarting") == "Restarting agent" && w("question") == "Question" && w("approval") == "Needs permission", "restarting while running, and the question and approval states, in the board's words")
+    let stuck = Board.parseAgents(Data(#"{"agents":[{"sessionName":"r","name":"R","state":"restarting","disruption":{"timedOut":true}}]}"#.utf8)) ?? []
+    check(stuck.first.map(Board.statusWord) == "Restarting agent, not back yet", "a restart that timed out says so, as the board does")
     check(w("connection_lost") == "Connection lost" && w("rate_limited") == "Rate Limit" && w("needs_you") == "Issue", "including the plain ones")
     check(w("something_new") == "Can't tell", "a state the phone does not know says what the board says for it, never blank")
     check(Board.parseAgents(Data(#"{"counts":{}}"#.utf8)) == nil, "a snapshot with no agents list reads as nothing")
@@ -786,9 +788,9 @@ func boardLoopTests() async {
         let world = FakeBoardWorld()
         let sessions = MemoryStore(session)
         let macs = MemoryStore(kept)
-        // One fixed suite, emptied for every case, so the runs leave nothing behind in ~/Library/Preferences.
-        UserDefaults().removePersistentDomain(forName: "kosmos-board-loop-tests")
+        // One fixed suite, emptied for every case: the runs leave one small plist, never one per run.
         let defaults = UserDefaults(suiteName: "kosmos-board-loop-tests")!
+        defaults.removePersistentDomain(forName: "kosmos-board-loop-tests")
         let client = BoardClient(coordinator: coordinator, sessionStore: sessions, macStore: macs, cookies: world.cookies,
                                  env: .init(send: { world.send($0) },
                                             sleep: { world.clock += $0; await Task.yield() },
