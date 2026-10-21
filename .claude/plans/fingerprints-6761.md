@@ -103,3 +103,7 @@ Card: kosmos#6761, from a user feedback report (a project-manager agent, 2026-10
   helpers rowKey / focusedRowKey / refocusRow now give focus back to the same row (by file or folder name) after each of
   those repaints; the Files screen's move-to-folder focus still wins. Tested (web.fingerprints-6761, two mutants red).
   Not done: patching rows in place when only fingerprints moved (a rebuild with focus kept is enough).
+- Iteration 6 (sonnet): one WARNING, fixed. Giving focus back after a background repaint (refocusRow, and the Documents
+  fill) used a plain focus(), which scrolls the row into view, so a person who had scrolled away was pulled back on every
+  fingerprint. Both now use focus({ preventScroll: true }); the deliberate move-to-folder focus keeps its scroll. Tested
+  (both arms assert the option; two mutants red).
