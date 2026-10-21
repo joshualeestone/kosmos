@@ -77,5 +77,8 @@ If it is refused, Kosmos+ needs a small route (2 to 3 days, the plan's risk line
 - Not covered by the loop tests: how Foundation keys a cookie from the gate's real Set-Cookie (host-only __Host-)
   against one the app restored. keepMacSession keeps one, the value that is not the restored one, and removes any
   other of that name, so a mismatch cannot leave the ended cookie in use.
-- "Needs you" (red, listed first) mirrors the board's engine/status.js needsPerson exactly, case by case in the
-  tests; a plain sign-in failure is not one, as on the board.
+- The Agent.needsYou field mirrors the board's engine/status.js needsPerson exactly, case by case in the tests (a
+  plain sign-in failure is not one, as on the board). The red, listed-first set on screen is wider: needsPerson plus
+  the words the spec marks red (Board.needsYouWords: Needs permission, Issue, Rate Limit, Sign-in isn't
+  working, Connection lost, Waiting, Not running, Can't tell), as agreed with
+  Mona Lisa on the card.

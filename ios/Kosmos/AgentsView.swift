@@ -32,28 +32,37 @@ struct AgentsView: View {
         }
     }
 
-    @ViewBuilder private var content: some View {
+    // Whether the list is on screen, and if so whether it is marked not updating. Decided once, so the list is drawn
+    // from a single place: a list drawn from several switch branches is a new list at every phase change, which throws
+    // the person back to the top and cancels a pull in progress.
+    private var shownList: Bool? {
+        guard !client.agents.isEmpty else { return nil }
         switch client.phase {
         // A list already on screen stays while the app reconnects or the Mac does not answer, marked not updating; the
         // reaching spinner is only for a first connect with nothing to show yet (spec frame 3).
-        case .starting where !client.agents.isEmpty, .connecting where !client.agents.isEmpty:
-            list(stale: true)
+        case .starting, .connecting, .unreachable: return true
+        // Back on the tab with a list from an earlier read: shown as not current until the first new read.
+        case .live: return !client.fresh
+        default: return nil
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        if let stale = shownList {
+            list(stale: stale)
+        } else {
+            others
+        }
+    }
+
+    @ViewBuilder private var others: some View {
+        switch client.phase {
         case .starting:
             reaching
-        case .live where !client.fresh:
-            // Back on the tab with a list from an earlier read: shown as not current until the first new read (an
-            // empty one shows the reaching spinner, not "No agents yet", until then).
-            if client.agents.isEmpty { reaching } else { list(stale: true) }
         case .live:
-            if client.agents.isEmpty {
-                // The list arrives with the first read; until then this is still reaching.
-                if client.updatedAt == nil { reaching } else { noAgents }
-            } else {
-                list(stale: false)
-            }
-        case .unreachable where !client.agents.isEmpty:
-            // Lost while open: the last list stays, marked as not updating.
-            list(stale: true)
+            // The list arrives with the first read; until then (or with an empty earlier list not yet re-read) this is
+            // still reaching, not "No agents yet".
+            if client.updatedAt == nil || !client.fresh { reaching } else { noAgents }
         case .unreachable:
             // Today's navy page, as it is: no title over it, and Back opens the Board tab.
             LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)

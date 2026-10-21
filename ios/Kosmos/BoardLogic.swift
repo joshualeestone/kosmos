@@ -242,7 +242,9 @@ enum Board {
         }
     }
 
-    // The card's words, in the order of engine/cardlabel.js labelOf and its STATE_COPY (the board page's own copy).
+    // The card's words, from engine/cardlabel.js labelOf and its STATE_COPY (the board page's own copy). The checks
+    // follow labelOf's order except that restarting comes after the question, permission and reconnecting checks; those
+    // states cannot coincide, so the answers are the same.
     // A third copy, kept equal by hand and by the cases in ios/LogicTests; nothing compares it with cardlabel.js
     // automatically. It goes away when the Mac sends its words ready-made (the native plan's step 1, item 2).
     // Not copied: restartingLabel's causes ("Switching model" and the like), which read "Restarting agent" here
