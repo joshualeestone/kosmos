@@ -567,6 +567,19 @@ async function verbMsg(ctx, args) {
   return 1;
 }
 
+/* #6726: the path sent for --file, made absolute by joining text as install/kosmos's "$PWD/$path" does. Never
+   path.resolve: it removes `..` and `.` by text, so the board would not see a `..` it refuses, and through a link or
+   junction the shortened path names another file. On Windows a path that names a drive but no folder (C:foo) or
+   a folder but no drive (\foo) has no single meaning here, so it is refused (null). p is path.win32 or
+   path.posix, so both are tested on any machine. */
+function replyFileAbsolute(file, cwd, p) {
+  if (p.sep === '\\') {
+    if (/^[A-Za-z]:[\\/]/.test(file) || /^[\\/]{2}/.test(file)) return file;
+    if (/^[A-Za-z]:/.test(file) || /^[\\/]/.test(file)) return null;
+    return cwd.replace(/[\\/]+$/, '') + '\\' + file;
+  }
+  return file.startsWith('/') ? file : cwd + '/' + file;
+}
 /* #6726: the second usage line install/kosmos prints for reply, word for word (cli.reply-file-6726 pins both). */
 const USAGE_REPLY_FILE = '       kosmos reply --file <path> ["what it is"]   (attach one file from your Files folder, or from inside a project you are on, up to 100 MB: they download it from your conversation)';
 const USAGE_REPLY_FILE_NEEDS_PATH = '--file needs the path of the file to attach, so nothing was sent: kosmos reply --file <path> "what it is"';
@@ -591,9 +604,11 @@ async function verbReply(ctx, args) {
       got = true;
       if (a === '--file') { file = i + 1 < args.length ? args[++i] : ''; } else file = a.slice('--file='.length);
       if (file === '' || file === '--' || /^--[A-Za-z]/.test(file)) { ctx.err(USAGE_REPLY_FILE_NEEDS_PATH); return 2; }
-      /* Review r1 finding 7 on install/kosmos: a control character cannot be sent as written. */
+      const given = file;
+      file = replyFileAbsolute(given, process.cwd(), path);
+      if (file === null) { ctx.err('Give the file\'s full path, starting with its drive (C:\\...), so nothing was sent: ' + given + ' is relative to a drive or to the top of one.'); return 2; }
+      /* Review r1 finding 7 on install/kosmos, checked after the folder is added as there. */
       if (/[\u0000-\u001f\u007f]/.test(file)) { ctx.err('That file\'s path has a line break or another control character in it, so it cannot be attached. Rename the file, then send it again.'); return 2; }
-      file = path.resolve(file);
     }
     args = rest;
   }
@@ -2736,7 +2751,7 @@ async function main(argv, io) {
   }
   /* #1674: BEFORE any handler, so a verb added to the table later is covered
      without anyone remembering. No request of any kind, whoami included. */
-  if (asksForHelp) { out(USAGE[verb]); return 0; }
+  if (asksForHelp) { out(USAGE[verb]); if (verb === 'reply') out(USAGE_REPLY_FILE); return 0; }   // #6726: as install/kosmos's help, both reply lines
 
   const doFetch = o.fetch || fetch;
   const hook = o.hook || require(path.join(engineDir(), 'kosmos-report-hook.js'));
@@ -2999,7 +3014,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, DESCRIBE, USAGE_REPLY_FILE, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
+module.exports = { main, argvFrom, DESCRIBE, USAGE_REPLY_FILE, replyFileAbsolute, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
   taskList, // #1307: the task list's rendering (the webhook mark), for cli.task-webhook-1307.test.js
 };
 

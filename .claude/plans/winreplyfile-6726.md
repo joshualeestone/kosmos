@@ -11,8 +11,11 @@ code would be Homer's; this touches none.
 
 ## Changes
 1. tools/windows/kosmos-cli.js verbReply: take --file / --file= out of the args before `--` (past it, words);
-   refuse twice, an empty or option-shaped path, a control character; make a relative path absolute
-   (path.resolve); words optional with a file; --stdin still gives the words; a wrong-world board does not keep a
+   refuse twice, an empty or option-shaped path, a control character; make a relative path absolute by
+   joining text onto the folder, as install/kosmos's "$PWD/$path" does (review 1: path.resolve removed `..`, so
+   the board never saw a `..` it refuses, and through a junction it could name another file); refuse a Windows
+   path with a drive but no folder (C:foo) or a folder but no drive (\foo); `reply --help` shows both usage
+   lines, as install/kosmos's help does; words optional with a file; --stdin still gives the words; a wrong-world board does not keep a
    reply with a file (the file is read at send time); on kept:true name the file by the board's `attached`, else
    path.basename. A second usage line USAGE_REPLY_FILE, word for word install/kosmos's.
 2. engine/dmfiles.js: comment only. Instructions still do not teach --file on a win32 board, and the comment now
@@ -29,5 +32,5 @@ code would be Homer's; this touches none.
 - The JSON-escape fallback install/kosmos needs for `attached` is not copied: the Windows CLI parses JSON.
 
 ## Validation
-- New test 13/13. All tools.windows-kosmos-cli*.test.js and cli.reply-*.test.js: 408 tests, 401 pass, 7 skip
+- New test 16/16 (review 1 arms mutation-checked: path.resolve back, and the help line dropped, each red). All tools.windows-kosmos-cli*.test.js and cli.reply-*.test.js: 408 tests, 401 pass, 7 skip
   (Windows-only), 0 fail. comment-deferral (from the worktree), dmfiles, windows-coupling-audit-1732: green.
