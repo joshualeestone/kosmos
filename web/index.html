@@ -42502,6 +42502,9 @@ function agentFileRow(f, compact = false, label = null) {   // #6724: `label` (t
   w.textContent = (day && !compact ? day + ' · ' : '') + pjSize(f.size) + (fp && !compact ? ' · fingerprint ' + fp.slice(0, 12) : '');
   if (day && compact) b.title = f.name + ', changed ' + day;
   if (fp) b.title = (b.title || f.name) + ', fingerprint sha256 ' + fp;   // the whole value (the narrow panel shows it only here)
+  /* Iteration 7: a title is also a button's spoken description, and 64 hex read aloud on every row is noise. The
+     spoken one carries the short form (and the date the narrow row keeps only on hover). */
+  if (fp) b.ariaDescription = (day && compact ? 'changed ' + day + ', ' : '') + 'fingerprint ' + fp.slice(0, 12);
   b.append(n, w);
   return b;
 }
@@ -66073,6 +66076,12 @@ function pjById(id) { return PROJECTS.find((p) => p.id === id) || null; }
    list left standing would dress another project's words as citations of files
    this one does not have. */
 let PJ_DOC_NAMES = null;
+function sameDocNames(a, b) {   // #6761 iteration 7: two PJ_DOC_NAMES values name the same files
+  if (!a || !b) return a === b;
+  if (a.size !== b.size) return false;
+  for (const n of a) if (!b.has(n)) return false;
+  return true;
+}
 /* #2245: shown by both document views when the folder walk stopped short. */
 let PJ_DOCS_VIEW_PARTIAL = false; // #2245: the open View All list was cut short
 let PJ_DOCS_RAIL_PARTIAL = false; // #2245: the rail's last list was cut short
@@ -69978,6 +69987,7 @@ function pjDocsPaintPage() {
     const w = document.createElement('span'); w.className = 'pj-doc-w';
     w.textContent = pjDocMeta(f);
     if (fileFingerprint(f)) b.title = f.name + ', fingerprint sha256 ' + fileFingerprint(f);   // #6761: the whole value
+    if (fileFingerprint(f)) b.ariaDescription = 'fingerprint ' + fileFingerprint(f).slice(0, 12);   // iteration 7: spoken short (an empty one would fall back to the title)
     b.append(n, w); box.append(b);
   }
   const floor = PJ_DOCS_TOTAL > PJ_DOCS_FILES.length
@@ -70235,12 +70245,15 @@ async function pjLoadDocs(id) {
     all.hidden = true;
     return;
   }
+  const namesBefore = PJ_DOC_NAMES;
   PJ_DOC_NAMES = Array.isArray(body.names) ? new Set(body.names) : null;
   /* The room is repainted so citations become chips as soon as the names land.
      Its own cache key is cleared first, or the change-guard skips the repaint
-     and the chips appear only after the next unrelated change. */
+     and the chips appear only after the next unrelated change.
+     #6761 iteration 7: only when the NAMES moved. A fingerprint arriving moves the stamp too, and rebuilding the whole
+     conversation for it would close an open reaction picker and drop a selection with no name changed. */
   const roomBox = document.getElementById('pj-room');
-  if (roomBox) { roomBox.__lastRoom = undefined; if (roomBox.__lastBody) paintRoom(roomBox.__lastBody); }
+  if (roomBox && !sameDocNames(namesBefore, PJ_DOC_NAMES)) { roomBox.__lastRoom = undefined; if (roomBox.__lastBody) paintRoom(roomBox.__lastBody); }
   const files = Array.isArray(body.files) ? body.files : [];
   PJ_DOCS_RAIL_PARTIAL = body.truncated === true;
   if (!files.length) {
@@ -70265,6 +70278,7 @@ async function pjLoadDocs(id) {
     w.className = 'pj-doc-w';
     w.textContent = pjSize(f.size);
     if (fileFingerprint(f)) b.title = f.name + ', fingerprint sha256 ' + fileFingerprint(f);   // #6761: the narrow rail shows it on hover
+    if (fileFingerprint(f)) b.ariaDescription = 'fingerprint ' + fileFingerprint(f).slice(0, 12);   // iteration 7: spoken short
     b.append(n, w);
     box.append(b);
   }

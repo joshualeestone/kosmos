@@ -29,6 +29,8 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 
 const fleet = require('./test-support/fleet');
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
+/* #6761: functions pjLoadDocs now calls (fingerprints on rows, focus kept on a repaint, the room rebuilt only on a name change). */
+const PJ_DOCS_HELPERS = 'let PJ_DOC_NAMES = null;\n' + require('./test-support/page').liftAll(SCRIPT, ['fileFingerprint', 'rowKey', 'focusedRowKey', 'refocusRow', 'sameDocNames']);
 
 test('a member row derives its title the way the cards do, so a catalogue role reads as the catalogue writes it', () => {
   const at = SCRIPT.indexOf('function roleLine('); const fn = SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 3);
@@ -219,7 +221,7 @@ test('pjLoadDocs repaints only when the stamp actually moved, and a could-not-re
   let currentBody = null;
   const fetchImpl = () => Promise.resolve({ json: () => Promise.resolve(currentBody) });
   const pjLoadDocs = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'esc',
-    stampDecl + '\n' + fn + '\nreturn pjLoadDocs;')(
+    stampDecl + '\n' + PJ_DOCS_HELPERS + '\n' + fn + '\nreturn pjLoadDocs;')(
     { getElementById: (id) => els[id], createElement: () => ({ append() {}, insertAdjacentHTML() {}, dataset: {} }) },
     fetchImpl, () => '', () => '', (s) => s);
   global.PJ_CURRENT = 'p1';
@@ -284,7 +286,7 @@ test('pjLoadDocs epoch guard: an older in-flight read cannot overwrite a newer o
   const pending = [];
   const fetchImpl = () => new Promise((resolve) => { pending.push(resolve); });
   const pjLoadDocs = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'esc',
-    stampDecl + '\n' + fn + '\nreturn pjLoadDocs;')(
+    stampDecl + '\n' + PJ_DOCS_HELPERS + '\n' + fn + '\nreturn pjLoadDocs;')(
     { getElementById: (id) => els[id], createElement: () => ({ append() {}, insertAdjacentHTML() {}, dataset: {} }) },
     fetchImpl, () => '', () => '', (s) => s);
   global.PJ_CURRENT = 'p1';
