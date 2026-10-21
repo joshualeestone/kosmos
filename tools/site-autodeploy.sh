@@ -38,6 +38,9 @@
 # re-running a refusing deploy every 15 minutes would bury it. The next merge, or deleting `parked`,
 # tries again. A checkout fault (off main, dirty, diverged) or a missing source of the older
 # downloads parks at once: retrying cannot fix either.
+# kosmos#6771, the Vercel token: no secrets accessor (nosecrets), no token filed (notoken), or deploy-site.sh's exit 77
+# (Vercel refused the authorization before making a deployment) are each red once a day, keyed on no sha, never
+# counted and never parked: filing or replacing the token is the whole fix, and the next tick deploys.
 #
 # State (KOSMOS_AUTODEPLOY_STATE, default ~/.kosmos-site-autodeploy):
 #   heartbeat      the time of the last tick that held the lock (a stall shows as an old heartbeat)
@@ -444,6 +447,8 @@ if [ -z "${VERCEL_TOKEN:-}" ]; then
   VERCEL_TOKEN=$("$SECRETS_CMD" value "$VERCEL_TOKEN_TARGET" 2>"$_whyf") || VERCEL_TOKEN=""
   _why=$(head -1 "$_whyf" 2>/dev/null | tr '\r\n' '  '); [ "$_whyf" = /dev/null ] || rm -f "$_whyf"
 fi
+case "${VERCEL_TOKEN:-}" in *"
+"*) TARGET="" red_once notoken "FAIL: the Vercel token read for $VERCEL_TOKEN_TARGET has more than one line, which no token has; refile it (kosmos#6771); nothing deployed" ;; esac
 [ -n "${VERCEL_TOKEN:-}" ] || TARGET="" red_once notoken "FAIL: no Vercel token for the deploy (secrets target $VERCEL_TOKEN_TARGET${_why:+; the accessor said: $_why}): file a scoped token for the chaoskosmos-site project with /add-secret on this machine (kosmos#6771); nothing deployed"
 # In GitHub Actions the token did not come from a repository secret, so the log does not know to hide it: tell it.
 # Straight to stdout, never through say: the mask line itself must not go into $LOG.
