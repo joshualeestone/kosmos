@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: exittrap-6826
-diff_hash: a3af795f6a6d01df4b3555946667433055128b02db03ce29d789d7d31762b0cf
+diff_hash: 6cc410d98fad3393e3a250885094a6ae74a95532c1485ec8f69a6a2c499e722a
 validation: passed (Mortals, full suite, clean entry 2026-10-21T13:26:24Z, 22856 node tests, 0 failed)
 subdir_audit: passed
 timestamp: 2026-10-21T13:26:36Z
