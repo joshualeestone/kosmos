@@ -69,6 +69,8 @@ function addOrWhy(name, entry) {
       key: typeof entry.key === 'string' ? entry.key : '', spill: typeof entry.spill === 'string' ? entry.spill : null,
       ...(entry.behind === true ? { behind: true } : {}),
       ...(entry.signin === true ? { signin: true } : {}),   // #5948: kept while its sign-in had stopped working
+      ...(entry.input === true ? { input: true } : {}),   // #6774: kept while its input box held text not yet sent
+      ...(entry.plain === true ? { plain: true } : {}),   // #6774: a person's message with no attachment, not a reply
       // #5805 slice 2b: a person's own message: its text and trailer are typed with the envelope, as the route types them.
       ...(entry.kind === 'dm' ? { kind: 'dm', text: String(entry.text || ''), trailer: String(entry.trailer || '') } : {}),
       // A task message's line: typed as it is, and on a drop its sender is told which task it was in. #5842: the task
@@ -134,6 +136,7 @@ function isDone(id) { return done.has(id); }   // read by the tests; the sweep r
 function keptNote(e) {
   return e && e.behind ? ' [kept behind earlier messages; sent ' + e.at + ']'
     : e && e.signin ? ' [kept for you while you were signed out; sent ' + e.at + ']'   // #5948
+    : e && e.input ? ' [kept for you while your input box held text not yet sent; sent ' + e.at + ']'   // #6774
     : ' [kept for you while you were out of usage; sent ' + e.at + ']';
 }
 /* Send now anyway (slice 2b) takes the same claim while it types a kept message, so the sweep skips it and a crash
@@ -148,9 +151,9 @@ let flushingSince = 0;
 let runToken = 0;
 const FLUSH_STUCK_MS = 15 * 60 * 1000;
 /* The minute sweep. For each agent with kept messages: drop those DROP_AFTER_MS past their reset (onDropped); then,
-   when `isReleased(card)` (the card for the agent in `roster`), type the rest in order with `deliver`. A message typed
-   (placed or unconfirmed) is removed and reported (onDelivered); the first that is not stops that agent's run and
-   stays. Returns [{ name, id, state }] for what was typed. */
+   when `isReleased(card, roster, live)` (the card for the agent in `roster`, and the messages still kept), type the
+   rest in order with `deliver`. A message typed (placed or unconfirmed) is removed and reported (onDelivered); the
+   first that is not stops that agent's run and stays. Returns [{ name, id, state }] for what was typed. */
 async function flush(roster, opts) {
   // One run at a time: a run still typing a backlog when the next minute starts would type each message twice. A run
   // that has not finished in FLUSH_STUCK_MS (a delivery that never settled) no longer blocks the next one.
@@ -182,7 +185,7 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
       }
       if (!live.length) continue;
       const card = resolveCard(roster, name);
-      if (!card || !isReleased(card, roster)) continue;
+      if (!card || !isReleased(card, roster, live)) continue;
       let typedNow = 0;
       for (const e of live) {
         // Claimed by a run that outlived the guard: this agent waits, so nothing is typed ahead of it.
@@ -235,7 +238,11 @@ function sweepHooks({ chat, messages }) {
   retryRows(chat);
   return {
     deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r)),
-    resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY, isReleased: chat.limitQueueReleased,
+    resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
+    /* #6774: a queue holding a message kept for a stuck input box waits for the box to read empty as well (the #6256
+       rule: an unreadable box keeps them waiting). */
+    isReleased: (card, roster, live) => chat.limitQueueReleased(card, roster)
+      && (!Array.isArray(live) || !live.some((e) => e && e.input === true) || chat.inputBoxEmpty(card)),
     // A task line has no message-log row to point back at: the task's own conversation is its record (#5842).
     onDelivered: (e, v) => (e.kind === 'dm' ? setRow(e.to, e.at, v, chat) : e.kind === TASK_KIND ? messages.recordTaskLineOutcome(e, v) : messages.logHeldDelivered(e, v)),
     // A person's message the sweep could not type: its row stays held and says why (a menu up, no window), so it does
