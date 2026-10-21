@@ -16,7 +16,8 @@
 #      and prints nothing, so R1, R2, E1 and E2 then check only the non-zero exit.
 # End to end, on a COPY of the real deploy-site.sh with one death injected right after its EXIT trap line (a site
 # repo, the real tools, a stub vercel; nothing is fetched or deployed, the run dies first):
-#   E1 a failed `.`       must exit non-zero (with the message, where the shell loses the status)
+#   E1 a failed `.`       must reach the injected line (it prints a marker) and exit non-zero (with the
+#                         message, where the shell loses the status)
 #   E2 an unset variable  must exit non-zero (likewise)
 #   EC CONTROL: the same copy with the old plain trap, on E1 (exits 0 on macOS /bin/sh)
 # And one source pin:
@@ -86,12 +87,12 @@ e2e() {   # e2e <name> <injected line> [old]; prints the exit status
   KOSMOS_SITE="$TMP/site" KOSMOS_REPO="$REPO" PATH="$TMP/bin:$PATH" sh "$TMP/$1.sh" > "$TMP/$1.out" 2>&1
   echo $?
 }
-rc=$(e2e e1 ". $TMP/no-such-lib.sh")
-[ "$rc" != 0 ] && [ "$rc" != inject-failed ] && said "$TMP/e1.out" \
+rc=$(e2e e1 "echo INJECTED-6826; . $TMP/no-such-lib.sh")
+[ "$rc" != 0 ] && [ "$rc" != inject-failed ] && grep -q INJECTED-6826 "$TMP/e1.out" && said "$TMP/e1.out" \
   && pass "E1: the real script, dying on a failed . after its trap, exits $rc and says so" \
   || bad "E1: the real script exited $rc: $(tail -3 "$TMP/e1.out")"
-rc=$(e2e e2 ': "$NO_SUCH_VAR_6826"')
-[ "$rc" != 0 ] && [ "$rc" != inject-failed ] && said "$TMP/e2.out" \
+rc=$(e2e e2 'echo INJECTED-6826; : "$NO_SUCH_VAR_6826"')
+[ "$rc" != 0 ] && [ "$rc" != inject-failed ] && grep -q INJECTED-6826 "$TMP/e2.out" && said "$TMP/e2.out" \
   && pass "E2: the real script, dying on an unset variable after its trap, exits $rc and says so" \
   || bad "E2: the real script exited $rc: $(tail -3 "$TMP/e2.out")"
 rc=$(e2e ec ". $TMP/no-such-lib.sh" old)
