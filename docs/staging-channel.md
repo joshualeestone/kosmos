@@ -203,18 +203,20 @@ site's own history on origin/main. Before writing anything it refuses a version 
 artifact is no longer served with the pointer's sha256, and one whose commit lacks its installer pair. It writes the
 tracked marker `dist/POINTER_FROZEN` and PUSHES the change to origin/main (built on the fetched tip, as a release's
 site push is), so every machine sees it. It does not deploy; the second line does, and the marker itself is never
-served. While origin/main or a checkout carries the marker:
+served. The `--because` line is committed to the site repo (keep it to what the repo's readers may see). While the
+marker is on origin/main (each tool fetches it first) or in a checkout:
 - `release.sh`, `promote-channel.sh`, `publish-staging-pointer.sh` and `publish-kosmos-windows.sh` refuse before
-  changing anything;
+  changing anything (if the fetch fails, they decide on the checkout and say so);
 - a release's site push refuses a frozen tip, and a cut re-checks origin/main just before it deploys;
 - `deploy-site.sh` publishes only the frozen Mac version.
 `tools/pointer-freeze.sh status` says whether it is frozen; `off` lifts it (the pointers stay until the next release).
 
 What a pin does: a board older than the pinned version updates to it; a board on the bad version, or between the two,
 sees nothing newer and stays (the verifier refuses a downgrade), so it needs a NEW clean release above the bad one; a
-fresh install gets the pinned build. Not covered: Windows prod is served from R2 (pin it with
-`tools/windows/publish-r2.ps1 -Promote` of a known-good build, by hand), and a rollback done in Vercel itself goes
-around every script, as below.
+fresh install through `/setup` gets the pinned build. Not covered, each by hand: the site's `Kosmos.pkg` (the deploy
+carries the one live, so a bad build's pkg stays until it is replaced), Windows prod (served from R2: pin it with
+`tools/windows/publish-r2.ps1 -Promote` of a known-good build), and a rollback done in Vercel itself, which goes around
+every script, as below.
 
 ## A floor under the installer: never serve one from before 0.7.45 (kosmos#4455)
 

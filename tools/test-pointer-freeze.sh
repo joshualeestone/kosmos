@@ -44,6 +44,7 @@ make_site() {
   git init -q --initial-branch=main "$s"; git -C "$s" config user.email t@t; git -C "$s" config user.name t
   for v in $LOW $GOOD $BAD; do
     printf 'ARTIFACT-%s\n' "$v" > "$HOSTDIR/dist/kosmos-$v-arm64.tar.gz"
+    printf '{"manifest":1,"version":"%s"}\n' "$v" > "$HOSTDIR/dist/kosmos-$v-arm64.manifest.json"; printf 'SIG\n' > "$HOSTDIR/dist/kosmos-$v-arm64.manifest.json.sig"
     ptr "$v" "$(sha_of "$HOSTDIR/dist/kosmos-$v-arm64.tar.gz")" > "$s/dist/latest.json"
     cp "$s/dist/latest.json" "$s/dist/latest-staging.json"
     printf 'installer for %s KOSMOS_READONLY_APP\n' "$v" > "$s/setup"
@@ -101,6 +102,20 @@ S="$(make_site)"; H0="$(git -C "$S" rev-parse HEAD)"; git -C "$S" remote set-url
 out="$(pf "$S" on --mac $GOOD --because x)"; rc=$?
 { [ $rc = 1 ] && unchanged "$S" "$H0" && [ ! -e "$S/dist/POINTER_FROZEN" ]; } && pass "no reachable origin: refused, the checkout untouched" || bad "no origin (rc=$rc) out=$out st=$(git -C "$S" status --porcelain)"
 
+# ---- a writer on a checkout that has not pulled a freeze pushed elsewhere still refuses (it asks origin first) -------
+S="$(make_site)"; O2="$T/stale"; git clone -q "$S.origin.git" "$O2"
+pf "$S" on --mac $GOOD --because "pushed elsewhere" >/dev/null
+[ ! -e "$O2/dist/POINTER_FROZEN" ] || bad "PRECONDITION: the stale clone already has the marker"
+sbefore="$(cat "$O2/dist/latest-staging.json")"
+out="$(HOME="$T/home" bash "$HERE/publish-staging-pointer.sh" "$O2" 9.9.9 2>&1)"; rc=$?
+{ [ $rc != 0 ] && has "$out" "FROZEN at $GOOD" && [ "$(cat "$O2/dist/latest-staging.json")" = "$sbefore" ]; } \
+  && pass "a stale checkout's writer refuses a freeze it has not pulled, changing nothing" || bad "stale writer (rc=$rc) out=$out"
+# ---- on from a checkout that is not on main: pushed, and this checkout left exactly as it was -------------------
+S="$(make_site)"; git -C "$S" checkout -q -b some-branch
+out="$(pf "$S" on --mac $GOOD --because "not on main")"; rc=$?
+{ [ $rc = 0 ] && on_origin "$S" && [ -z "$(git -C "$S" status --porcelain)" ] && [ ! -e "$S/dist/POINTER_FROZEN" ] && has "$out" "not on main"; } \
+  && pass "on from a checkout not on main: pushed, and the checkout is untouched" || bad "not on main (rc=$rc) out=$out st=$(git -C "$S" status --porcelain)"
+
 # ---- refusals before anything is written ------------------------------------------------------------------------
 S="$(make_site)"; H0="$(git -C "$S" rev-parse HEAD)"
 out="$(pf "$S" on --mac 0.7.99 --because x)"; rc=$?
@@ -117,6 +132,10 @@ printf 'TAMPERED\n' > "$T/good"; cp "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz" "$
 out="$(pf "$S" on --mac $GOOD --because x)"; rc=$?
 cp "$T/good.orig" "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz"
 { [ $rc = 1 ] && has "$out" "not the pointer's" && unchanged "$S" "$H0"; } && pass "refused: the served artifact's sha256 is not the pointer's" || bad "sha mismatch (rc=$rc) out=$out"
+mv "$HOSTDIR/dist/kosmos-$GOOD-arm64.manifest.json.sig" "$T/sig-aside"
+out="$(pf "$S" on --mac $GOOD --because x)"; rc=$?
+mv "$T/sig-aside" "$HOSTDIR/dist/kosmos-$GOOD-arm64.manifest.json.sig"
+{ [ $rc = 1 ] && has "$out" "manifest.json.sig" && unchanged "$S" "$H0"; } && pass "refused: the pinned version's manifest signature is not served" || bad "no sig (rc=$rc) out=$out"
 printf 'edited\n' >> "$S/dist/latest-staging.json"
 out="$(pf "$S" on --mac $GOOD --because x)"; rc=$?
 { [ $rc = 1 ] && has "$out" "uncommitted changes" && [ "$(git -C "$S" rev-parse HEAD)" = "$H0" ] && [ ! -e "$S/dist/POINTER_FROZEN" ]; } \

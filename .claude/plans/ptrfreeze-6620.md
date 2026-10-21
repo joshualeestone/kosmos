@@ -80,3 +80,16 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
     checkout cannot publish over a freeze it has not pulled; a failed fetch is said, and $H decides).
   - The wording is narrowed to the Mac pointers: the Windows prod pointer is pinned in R2 by hand.
   - An end-to-end arm runs `on` and then the deploy it prints.
+- Review 2 (six warnings):
+  - Every writer (through tools/lib/pointer-freeze.sh) fetches origin/main and honours a marker there, so a stale
+    checkout refuses before it changes anything. release.sh's early check therefore sees a freeze pushed elsewhere
+    before the build, not only at the site push. A failed fetch is said, and the checkout decides.
+  - `on` builds the pin in the temporary index from the found commit's own blobs (with their file modes) and the
+    marker's blob. The shared working tree is never written, so a cut or promote on the same box cannot read a
+    half-made pin, and a checkout not on main is left exactly as it was.
+  - The push retry re-checks the freeze on every tip: `on` never overwrites a freeze pushed meanwhile, and `off`
+    never lifts one already gone.
+  - `on` refuses a pin whose signed manifest or `.sig` is not served.
+  - The docs say what is not covered (the site's Kosmos.pkg, Windows R2, a Vercel rollback) and that `--because` is
+    committed to the site repo.
+  - New arms: a freeze only on origin/main refuses deploy-site; a stale writer refuses; `on` off main.

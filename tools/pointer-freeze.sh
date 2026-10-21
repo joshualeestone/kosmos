@@ -23,7 +23,8 @@
 # (the verifier refuses a downgrade), so they need a newer clean release; a fresh install gets the pinned build.
 #
 # NOT COVERED: Windows prod is served from R2 (tools/windows/publish-r2.ps1 -Promote), which this tool does not touch;
-# pin it there by hand. Vercel Instant Rollback bypasses every check. And a freeze does not stop an attacker who
+# pin it there by hand. Nor the site's Kosmos.pkg (a deploy carries the live one): replace it by hand. The --because
+# line is committed to the site repo, so keep it to what that repo's readers may see. Vercel Instant Rollback bypasses every check. And a freeze does not stop an attacker who
 # controls the release Mac itself (they control this checkout): it stops the operator's own tools and the fleet's
 # release automation from moving the pointer during an incident, which is how a hand pin is realistically lost.
 #
@@ -44,19 +45,30 @@ die() { printf 'pointer-freeze: %s\n' "$*" >&2; exit 1; }
 field() { printf '%s' "$1" | sed -n "s/.*\"$2\":[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p"; }
 sha_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
-# Commit <paths> (read from the working tree) and/or the removal of <rm-path> onto the freshly fetched origin/main, in a
-# TEMPORARY index (the shared checkout's own index and local main are never touched, as tools/lib/site-push.sh), and
-# push it; a push rejected because origin/main moved is rebuilt on the new tip, up to 3 times. Prints the new sha.
-publish_on_origin() {  # <msg> <rm-path or ""> <paths...>
-  local msg="$1" rmp="$2" attempt=1 base d tree sha err; shift 2
+# Build a commit on the freshly fetched origin/main in a TEMPORARY index from blob entries ("mode,blob,path"), push it,
+# and print its sha. Nothing here writes the shared checkout's working tree, its index or local main (as
+# tools/lib/site-push.sh), so a cut or promote running on the same box never reads a half-made pin. A push rejected
+# because origin/main moved is rebuilt on the new tip, up to 3 times, and the freeze is re-checked on every tip: `on`
+# never overwrites a freeze someone else pushed meanwhile, and `off` never lifts one that is already gone.
+publish_on_origin() {  # <msg> <on|off> <mode,blob,path ...>
+  local msg="$1" mode="$2" attempt=1 base d tree sha err entry; shift 2
   while :; do
     git -C "$SITE" fetch -q origin main 2>/dev/null || { echo "pointer-freeze: could not fetch origin/main; nothing was pushed" >&2; return 1; }
     base="$(git -C "$SITE" rev-parse origin/main)" || return 1
+    if [ "$mode" = on ] && git -C "$SITE" cat-file -e "$base:$POINTER_FREEZE_FILE" 2>/dev/null; then
+      echo "pointer-freeze: origin/main was frozen by someone else meanwhile; nothing was pushed (run status)" >&2; return 1
+    fi
+    if [ "$mode" = off ] && ! git -C "$SITE" cat-file -e "$base:$POINTER_FREEZE_FILE" 2>/dev/null; then
+      echo "pointer-freeze: origin/main is no longer frozen; nothing was pushed" >&2; return 1
+    fi
     d="$(mktemp -d "${TMPDIR:-/tmp}/pointer-freeze-index.XXXXXX")" || return 1
-    if ! GIT_INDEX_FILE="$d/index" git -C "$SITE" read-tree "$base" \
-      || { [ $# -gt 0 ] && ! GIT_INDEX_FILE="$d/index" git -C "$SITE" add -- "$@"; } \
-      || { [ -n "$rmp" ] && ! GIT_INDEX_FILE="$d/index" git -C "$SITE" update-index --force-remove -- "$rmp"; }; then
-      rm -rf "$d"; echo "pointer-freeze: could not build the commit on origin/main; nothing was pushed" >&2; return 1
+    if ! GIT_INDEX_FILE="$d/index" git -C "$SITE" read-tree "$base"; then rm -rf "$d"; echo "pointer-freeze: could not read origin/main; nothing was pushed" >&2; return 1; fi
+    for entry in "$@"; do
+      GIT_INDEX_FILE="$d/index" git -C "$SITE" update-index --add --cacheinfo "$entry" \
+        || { rm -rf "$d"; echo "pointer-freeze: could not stage $entry; nothing was pushed" >&2; return 1; }
+    done
+    if [ "$mode" = off ] && ! GIT_INDEX_FILE="$d/index" git -C "$SITE" update-index --force-remove -- "$POINTER_FREEZE_FILE"; then
+      rm -rf "$d"; echo "pointer-freeze: could not remove the marker; nothing was pushed" >&2; return 1
     fi
     tree="$(GIT_INDEX_FILE="$d/index" git -C "$SITE" write-tree)"; rm -rf "$d"
     [ -n "$tree" ] && sha="$(git -C "$SITE" commit-tree "$tree" -p "$base" -m "$msg")" && [ -n "$sha" ] \
@@ -70,21 +82,18 @@ publish_on_origin() {  # <msg> <rm-path or ""> <paths...>
   done
 }
 
-# After a push: put the files this run wrote back as they were and fast-forward the checkout to the pushed commit, so
-# it shows what origin/main has. A checkout not on main, or one that cannot move forward, is left as it is and said so.
-follow_local() {  # <sha> <paths written...>
-  local sha="$1"; shift
-  [ "$(git -C "$SITE" symbolic-ref --quiet --short HEAD 2>/dev/null)" = main ] || { say "(the site checkout is not on main, so it was not moved; origin/main has the change)"; return 0; }
-  put_back "$@"
-  git -C "$SITE" merge -q --ff-only "$sha" 2>/dev/null || say "(the site checkout could not fast-forward to ${sha:0:12}; origin/main has the change: git -C $SITE pull --ff-only)"
+# "mode,blob,<as-path>" for <path> in <commit>, for update-index --cacheinfo (keeps the file's mode, e.g. an executable).
+entry_of() {  # <commit> <path> <as-path>
+  local line; line="$(git -C "$SITE" ls-tree "$1" -- "$2")" || return 1
+  [ -n "$line" ] || return 1
+  printf '%s,%s,%s\n' "$(printf '%s' "$line" | awk '{print $1}')" "$(printf '%s' "$line" | awk '{print $3}')" "$3"
 }
 
-# The files this run wrote, back as HEAD has them (a file HEAD does not have is removed). They were clean before it ran.
-put_back() {  # <paths...>
-  local f
-  for f in "$@"; do
-    if git -C "$SITE" cat-file -e "HEAD:$f" 2>/dev/null; then git -C "$SITE" checkout -q HEAD -- "$f" 2>/dev/null; else rm -f "$SITE/$f"; fi
-  done
+# After a push: fast-forward the checkout to it, so it shows what origin/main has. A checkout not on main, or one that
+# cannot move forward (a colleague's change in the way), is left as it is and said so; origin/main has the change.
+follow_local() {  # <sha>
+  [ "$(git -C "$SITE" symbolic-ref --quiet --short HEAD 2>/dev/null)" = main ] || { say "(the site checkout is not on main, so it was not moved; origin/main has the change)"; return 0; }
+  git -C "$SITE" merge -q --ff-only "$1" 2>/dev/null || say "(the site checkout could not fast-forward to ${1:0:12}; origin/main has the change: git -C $SITE pull --ff-only)"
 }
 
 git -C "$SITE" rev-parse --verify HEAD >/dev/null 2>&1 || die "$SITE is not a git checkout with a HEAD (set KOSMOS_SITE)"
@@ -142,41 +151,46 @@ cmd_on() {
   # deploy-site.sh refuses otherwise, and a pin it then refuses would leave the site frozen and undeployable.
   { git -C "$SITE" cat-file -e "${found}:setup" 2>/dev/null && git -C "$SITE" cat-file -e "${found}:setup.sha256" 2>/dev/null; } \
     || die "site commit ${found:0:12} does not have both setup and setup.sha256 committed with that pointer (the bad release's installer would stay, or be served without its checksum); nothing was changed"
+  # The signed manifest the boards verify the pinned build against (engine/manifest-verify.js): served, with its .sig,
+  # and not empty. deploy-site.sh does not look at manifests, so without this a pin could deploy that no board accepts.
+  local man mf; man="$(field "$json" manifest)"
+  [ -n "$man" ] || die "the pointer for $v names no manifest; nothing was changed"
+  for mf in "$man" "$man.sig"; do
+    tmp="$(mktemp "${TMPDIR:-/tmp}/pointer-freeze.XXXXXX")" || die "could not make a temp file; nothing was changed"
+    if ! "$CURL_CMD" -fsSL -o "$tmp" "$HOST/dist/$mf" || [ ! -s "$tmp" ]; then rm -f "$tmp"; die "$HOST does not serve $mf (or serves it empty), so boards could not verify a pin to $v; nothing was changed"; fi
+    rm -f "$tmp"
+  done
   local want_setup; want_setup="$(field "$json" setup_sha256)"
   if [ -n "$want_setup" ]; then
     [ "$(git -C "$SITE" show "${found}:setup" | shasum -a 256 | awk '{print $1}')" = "$want_setup" ] \
       || die "the setup committed with $v (commit ${found:0:12}) is not the installer its pointer names (setup_sha256); nothing was changed"
   fi
 
-  printf '%s\n' "$json" > "$SITE/dist/latest.json" || die "could not write dist/latest.json"
-  printf '%s\n' "$json" > "$SITE/dist/latest-staging.json" || die "could not write dist/latest-staging.json"
-  # The installer pair that stood with the pointer (both checked above), for prod and staging alike.
-  local restored="setup setup-staging setup.sha256 setup-staging.sha256"
-  # shellcheck disable=SC2086
-  { git -C "$SITE" show "${found}:setup" > "$SITE/setup" && cp "$SITE/setup" "$SITE/setup-staging" \
-    && git -C "$SITE" show "${found}:setup.sha256" > "$SITE/setup.sha256" && cp "$SITE/setup.sha256" "$SITE/setup-staging.sha256"; } \
-    || { put_back $PTRS $restored; die "could not restore the installer pair; nothing was changed"; }
-  printf 'mac=%s\nbecause=%s\nat=%s\n' "$v" "$because" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SITE/$POINTER_FREEZE_FILE" || { put_back $PTRS $restored "$POINTER_FREEZE_FILE"; die "could not write the marker; nothing was changed"; }
-  local sha
-  # shellcheck disable=SC2086 # the lists are fixed words
-  if ! sha="$(publish_on_origin "pointer-freeze: Mac pointers pinned and frozen at $v (kosmos#6620): $because" "" $PTRS $restored "$POINTER_FREEZE_FILE")"; then
-    # shellcheck disable=SC2086
-    put_back $PTRS $restored "$POINTER_FREEZE_FILE"
-    die "NOT pushed, so nothing is frozen; the checkout is as it was. Fix the cause above and run on again"
-  fi
-  # shellcheck disable=SC2086
-  follow_local "$sha" $PTRS $restored "$POINTER_FREEZE_FILE"
-  say "frozen at $v (from site commit ${found:0:12}): dist/latest.json, dist/latest-staging.json${restored:+, $restored} and $POINTER_FREEZE_FILE pushed to origin/main (${sha:0:12})."
+  # The pin, as blob entries from the found commit itself (the pointer to prod and staging; the installer pair to both
+  # names), and the marker: built in the temporary index, so nothing in this checkout changes until the fast-forward.
+  local e entries="" marker_blob sha
+  for e in "dist/latest.json dist/latest.json" "dist/latest.json dist/latest-staging.json" "setup setup" "setup setup-staging" \
+           "setup.sha256 setup.sha256" "setup.sha256 setup-staging.sha256"; do
+    # shellcheck disable=SC2086 # two words: the path in the found commit, and the path it is written to
+    entries="$entries $(entry_of "$found" $e)" || die "could not read ${e%% *} from site commit ${found:0:12}; nothing was changed"
+  done
+  marker_blob="$(printf 'mac=%s\nbecause=%s\nat=%s\n' "$v" "$because" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | git -C "$SITE" hash-object -w --stdin)" \
+    && [ -n "$marker_blob" ] || die "could not write the marker; nothing was changed"
+  # shellcheck disable=SC2086 # each entry is one word (mode,blob,path)
+  sha="$(publish_on_origin "pointer-freeze: Mac pointers pinned and frozen at $v (kosmos#6620): $because" on $entries "100644,$marker_blob,$POINTER_FREEZE_FILE")" \
+    || die "NOT pushed, so nothing is frozen and this checkout is unchanged. Fix the cause above and run on again"
+  follow_local "$sha"
+  say "frozen at $v (from site commit ${found:0:12}): both Mac pointers, the installer pair and $POINTER_FREEZE_FILE pushed to origin/main (${sha:0:12})."
   say "NOT deployed yet. Deploy it:   KOSMOS_SITE=$SITE KOSMOS_STAGING_ROLLBACK=$v tools/deploy-site.sh --promote"
-  say "Windows prod is served from R2: pin it there by hand (tools/windows/publish-r2.ps1 -Promote of a known-good build)."
+  say "Not pinned by this: the Windows prod pointer (R2: tools/windows/publish-r2.ps1 -Promote of a known-good build) and the site's Kosmos.pkg (replace it by hand if the bad build's is served)."
 }
 
 cmd_off() {
   git -C "$SITE" fetch -q origin main 2>/dev/null || die "could not fetch origin/main; nothing was changed"
   git -C "$SITE" cat-file -e "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null || { say "origin/main is not frozen; nothing changed"; return 0; }
   local was sha; was="$(git -C "$SITE" show "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null | sed -n 's/^mac=//p' | head -1)"
-  sha="$(publish_on_origin "pointer-freeze: freeze at ${was:-?} lifted (kosmos#6620)" "$POINTER_FREEZE_FILE")" || die "the freeze was NOT lifted (see above)"
-  follow_local "$sha" "$POINTER_FREEZE_FILE"
+  sha="$(publish_on_origin "pointer-freeze: freeze at ${was:-?} lifted (kosmos#6620)" off)" || die "the freeze was NOT lifted (see above)"
+  follow_local "$sha"
   say "freeze at ${was:-?} lifted and pushed (${sha:0:12}); the pointers stay where they are until the next release moves them."
 }
 

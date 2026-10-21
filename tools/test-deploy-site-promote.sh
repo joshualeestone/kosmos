@@ -653,12 +653,26 @@ read -r S47 L47 <<<"$(make_rollback_scenario)"
 # The real site commits the installer pair together (#2511); this scenario committed setup alone, so add its checksum.
 ( cd "$S47" && shasum -a 256 setup > setup.sha256 ) && git -C "$S47" add -- setup.sha256 && git -C "$S47" commit -q --amend --no-edit -- setup.sha256
 git init -q --bare "$S47.origin.git" && git -C "$S47" remote add origin "$S47.origin.git" && git -C "$S47" push -q origin main
+# The pinned build's signed manifest, served (pointer-freeze checks it is, before it pins).
+printf '{"manifest":1}\n' > "$L47/dist/kosmos-$OLD-arm64.manifest.json"; printf 'SIG\n' > "$L47/dist/kosmos-$OLD-arm64.manifest.json.sig"
 fout="$(PATH="$BIN:$PATH" LIVE_DIR="$L47" HOST_URL="$HOSTURL" KOSMOS_SITE="$S47" KOSMOS_SITE_URL="$HOSTURL" \
   bash "$REPO/tools/pointer-freeze.sh" on --mac "$OLD" --because "an end-to-end test incident" 2>&1)"; frc=$?
 [ "$frc" = 0 ] || bad "#6620 end to end: pointer-freeze on (rc=$frc) out=$fout"
 KOSMOS_STAGING_ROLLBACK="$OLD" run_deploy "$S47" "$L47" --promote
 { [ "$frc" = 0 ] && [ "$RC" = 0 ] && has "$out" "FROZEN at $OLD" && has "$(cat "$L47/dist/latest.json")" "\"version\":\"$OLD\"" && [ ! -e "$L47/dist/POINTER_FROZEN" ]; } \
   && pass "#6620 end to end: on, then the printed --promote, serves the pinned $OLD (and not the marker)" || bad "#6620 end to end (rc=$RC) out=$out"
+
+# A freeze pushed from another machine, not yet pulled here: deploy-site reads origin/main and refuses a pointer that is
+# not the frozen version. CONTROL: arm 45 above (frozen at the committed version) deploys.
+read -r S48 L48 <<<"$(make_rollback_scenario)"
+git init -q --bare "$S48.origin.git" && git -C "$S48" remote add origin "$S48.origin.git" && git -C "$S48" push -q origin main
+git clone -q "$S48.origin.git" "$S48.other" && git -C "$S48.other" config user.email t@t && git -C "$S48.other" config user.name t
+printf 'mac=%s\nbecause=another machine\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S48.other/dist/POINTER_FROZEN"
+git -C "$S48.other" add dist/POINTER_FROZEN && git -C "$S48.other" commit -q -m "frozen elsewhere" && git -C "$S48.other" push -q origin main
+LIVE48="$(cat "$L48/dist/latest.json")"
+run_deploy "$S48" "$L48" --promote
+{ [ "$RC" = 1 ] && has "$out" "the pointers are FROZEN at $NEW" && [ "$(cat "$L48/dist/latest.json")" = "$LIVE48" ]; } \
+  && pass "#6620: a freeze only on origin/main (this checkout stale) still refuses the deploy" || bad "#6620 origin-only freeze (rc=$RC) out=$out"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

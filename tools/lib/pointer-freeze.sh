@@ -13,25 +13,33 @@
 #
 # Usage: source this file, then
 #   pointer_freeze_refuse <site> <tool>   prints why on stderr and returns 1 while frozen; returns 0 when not
-#   pointer_freeze_on <site>              0 while frozen (the marker in the working tree, or committed at HEAD)
+#   pointer_freeze_on <site>              0 while frozen (the marker here, at HEAD, or on origin/main as fetched)
 #   pointer_freeze_value <site> <key>     the marker's value for mac / because / at (empty when absent)
 POINTER_FREEZE_FILE=dist/POINTER_FROZEN
 
 pointer_freeze_value() {
-  { cat "$1/$POINTER_FREEZE_FILE" 2>/dev/null || git -C "$1" show "HEAD:$POINTER_FREEZE_FILE" 2>/dev/null; } | sed -n "s/^$2=//p" | head -1
+  { cat "$1/$POINTER_FREEZE_FILE" 2>/dev/null || git -C "$1" show "HEAD:$POINTER_FREEZE_FILE" 2>/dev/null \
+      || git -C "$1" show "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null; } | sed -n "s/^$2=//p" | head -1
 }
 
-# Frozen when the marker is in the working tree OR committed at HEAD: a marker deleted by hand and not committed (a stray
-# rm, a stash) still freezes, because the commit is what a deploy publishes.
+# Frozen when the marker is in the working tree, committed at HEAD (a marker deleted by hand and not committed still
+# freezes, because the commit is what a deploy publishes), or on origin/main as last fetched (a freeze pushed from
+# another machine reaches a checkout that has not pulled).
 pointer_freeze_on() {
-  [ -e "$1/$POINTER_FREEZE_FILE" ] || git -C "$1" cat-file -e "HEAD:$POINTER_FREEZE_FILE" 2>/dev/null
+  [ -e "$1/$POINTER_FREEZE_FILE" ] || git -C "$1" cat-file -e "HEAD:$POINTER_FREEZE_FILE" 2>/dev/null \
+    || git -C "$1" cat-file -e "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null
 }
 
 pointer_freeze_refuse() {
   local site="$1" tool="$2" mac because
+  # Ask origin first, so a freeze pushed from another machine stops this run before it does anything. A fetch that
+  # fails (no network, no origin) is said, and the checkout decides.
+  if git -C "$site" remote get-url origin >/dev/null 2>&1; then
+    git -C "$site" fetch -q origin main 2>/dev/null || printf '%s: could not fetch the site origin to check the pointer freeze (kosmos#6620); deciding on this checkout\n' "$tool" >&2
+  fi
   pointer_freeze_on "$site" || return 0
   mac="$(pointer_freeze_value "$site" mac)"; because="$(pointer_freeze_value "$site" because)"
-  printf '%s: the release pointers are FROZEN at %s (%s), so no pointer may move and nothing was changed. To release again, an operator runs tools/pointer-freeze.sh off first (kosmos#6620).\n' \
+  printf '%s: the release pointers are FROZEN at %s (%s), so no pointer may move and nothing was changed. To release again, an operator runs tools/pointer-freeze.sh off first; if it was lifted already, pull the site checkout (kosmos#6620).\n' \
     "$tool" "${mac:-an unreadable marker}" "${because:-no reason recorded}" >&2
   return 1
 }
