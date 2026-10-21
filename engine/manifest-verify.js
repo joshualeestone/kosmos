@@ -179,7 +179,11 @@ function verifySetup({ manifest, sig, setup, version, installedVersion, keys = K
  * operator who must install during a pause), and KOSMOS_UPDATE_PAUSE_URL asks another address.
  *
  * Not held today: a .pkg install that takes the pinned path (install/pkg-verify/floor not "off") and a pasted
- * install line over an existing install, which run the installer without run-setup (a follow-up card).
+ * install line over an existing install, which run the installer without run-setup (#6781).
+ *
+ * A second reader of /v1/meta beside engine/remote.js fetchMetaFlag, on purpose: run-setup is the installed copy of
+ * this file run on its own (also by .pkg files already downloaded), so it requires nothing of the board's modules, and
+ * it needs a synchronous form (curl) that fetchMetaFlag cannot give. Both refuse redirects and read only a boolean.
  */
 const PAUSE_DEFAULT_COORDINATOR = 'https://login.kosmosplus.com';
 const PAUSE_TIMEOUT_SECS = 5;
@@ -232,7 +236,6 @@ async function pausedAsync({ env = process.env, fetchImpl = globalThis.fetch } =
 /** The one sentence a held install says, on either platform. */
 const PAUSED_SENTENCE = 'updates are paused while Kosmos checks a problem with a release, so this update waits until the pause is lifted';
 
-
 /* 🛑 A FROZEN INTERFACE. `run-setup <setup-url> <release-base> <version> <installed-home>` and its exit codes (0 or
  * the installer's own, 96 not fetched, 97 refused) are also called by .pkg files already downloaded (#6474), which
  * run against whatever NEWER copy of this file is installed. Add forms; never reorder or remove these.
@@ -250,7 +253,7 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
   // kosmos#6620: held during the fleet's update pause (any version run-setup is asked for, a reinstall of the same one
   // too), as NOT_FETCHED: a retry, once the pause is off, succeeds.
   // Its own curl, not the injected spawnSync: a test that counts runSetup's downloads must see only those.
-  if (pausedSync()) return sayFetch(PAUSED_SENTENCE);
+  if (pausedSync()) { process.stderr.write('Kosmos: ' + PAUSED_SENTENCE + '; the installer was not run.\n'); return NOT_FETCHED; }
   let dir;
   try { dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'kosmos-setup-')); } catch { return say('there was no private folder to check the installer in'); }
   try {

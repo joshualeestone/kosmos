@@ -55,8 +55,8 @@ want one line saying so: a follow-up there, not built here.
 
 ## Review 2 decisions
 
-- The board's answer is per look (the 15-minute TTL), so a pause turned on or off shows on the board's status by the
-  next look. An Install press does not use it: /api/update asks the coordinator at the press (review 4), so a pause
+- The board's answer is per look (the 15-minute TTL), and only the board's own automatic install reads it; nothing
+  shows the pause on screen yet (review 5). An Install press does not use it: /api/update asks the coordinator at the press (review 4), so a pause
   lifted since the look does not refuse, and run-setup holds a live one itself (96) either way. Set only on the look's own
   cache, so a newer look's answer is never overwritten.
 - A test file run with plain `node` (no runner, no harness) can ask the real coordinator: accepted, since only
@@ -67,6 +67,11 @@ want one line saying so: a follow-up there, not built here.
 - Only a Kosmos that already carries this code can be paused. Older installs keep updating during a pause, which
   bounds this step's reach until the fleet has taken this release.
 
+- Review 5: /api/update asks first, before every other check, so none is read before an ask of seconds (an account
+  move begun meanwhile still holds the board); its refusal still answers after the platform and source refusals. Left
+  as they are: two overlapping looks can start an automatic install that run-setup then holds, which backs automatic
+  updates off for an hour (nothing is installed, the update comes late); the 96 sentence's "try again in a few
+  minutes" is short for a long pause, and a manual press during one is refused by the route before it reaches 96.
 - Review 4: the ask's time limit is 5 s (it was 10), so a coordinator that does not answer delays a look or a
   run-setup by at most that; it still never holds the install.
 - Review 3: exit 96 now means "could not be downloaded, or updates are paused", and the board and the .pkg

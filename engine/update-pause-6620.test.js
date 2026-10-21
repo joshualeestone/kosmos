@@ -141,8 +141,14 @@ test('the /api/update route refuses from the live ask (a source pin: deleting th
   const start = src.indexOf("pathname === '/api/update' && req.method === 'POST'");
   assert.ok(start > 0, 'the /api/update route moved; re-pin this test');
   const route = src.slice(start, src.indexOf('if (updates.alreadyInstalling()) {', start));
-  assert.match(route, /const pauseRefusal = await updates\.pauseRefusalNow\(\);\s*\n\s*if \(pauseRefusal\) \{ sendJson\(res, 409, \{ error: pauseRefusal \}\); return; \}/);
-  assert.ok(route.indexOf('pauseRefusalNow') > route.indexOf('windowsLocationRefusal'), 'the platform and location refusals still answer first');
+  const ask = route.indexOf('const pauseRefusal = await updates.pauseRefusalNow();');
+  const refuse = route.indexOf('if (pauseRefusal && !updates.alreadyInstalling()) { sendJson(res, 409, { error: pauseRefusal }); return; }');
+  assert.ok(ask > 0 && refuse > 0, 'the live ask or its refusal is gone from the route');
+  // Review 5: the ask (an await) comes before every check, so none of them is read before a pause of seconds.
+  for (const check of ['updates.available()', 'moveHoldsBoard()', 'updates.installedRoot()', 'updates.selfInstallRefusal()']) {
+    assert.ok(route.indexOf(check) > ask, check + ' is read before the pause ask');
+  }
+  assert.ok(refuse > route.indexOf('windowsLocationRefusal'), 'the platform and location refusals still answer first');
 });
 
 test('during the ask, paused() keeps the previous look\'s answer rather than dropping to not paused', async () => {
