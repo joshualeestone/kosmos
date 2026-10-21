@@ -89,7 +89,12 @@ function chk(ok, label, extra) {
           for (const width of [900, 1200]) {
             const page = await browser.newPage({ viewport: { width, height: 600 } });
             const errs = [];
-            page.on('pageerror', (e) => errs.push(e.message));
+            /* #6714: each section is a fresh page.goto, which cuts off the previous section's reads still in flight, and
+               WebKit reports each as "Fetch API cannot load ... due to access control checks". On a slow CI runner more
+               are in flight, so this arm went red on WebKit with every one of them caught by the page. That message is
+               the navigation, not the change (the same filter as render-account-usage-6108 and four other checks); any
+               other page error still fails. */
+            page.on('pageerror', (e) => { if (!/due to access control checks/.test(e.message)) errs.push(e.message); });
             for (const sec of ['mac', 'connect']) {
               const tag = `${engineName} ${layout} ${width}px ${sec}`;
               await page.goto(URL + '/?tab=settings&sec=' + sec);
@@ -289,7 +294,7 @@ function chk(ok, label, extra) {
         for (const width of [1000, 1280]) {
           const page = await browser.newPage({ viewport: { width, height: 600 } });
           const errs = [];
-          page.on('pageerror', (e) => errs.push(e.message));
+          page.on('pageerror', (e) => { if (!/due to access control checks/.test(e.message)) errs.push(e.message); });   // as above
           const tag = `${engineName} consolidated view ${width}px mac`;
           await page.goto(URL + '/?tab=projects');
           await page.waitForSelector('#userpop-settings', { state: 'attached', timeout: 20000 });
