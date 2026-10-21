@@ -24,7 +24,10 @@ notifications turned on through the real PUT /api/phone-notify (fake tunnel mint
 ## Not covered: reasoned, not measured
 The `posted` (room post) and `ready` (task built) pushes read the live card's name too, and the crash-loop family
 names the agent from a `shown` map built each tick from the live roster. Reading the source, they should follow a
-rename the same way, but no test here sends them, and the file header says so. This test drives the two the card's screenshot is about: a DM reply, and the needs-you change.
+rename the same way, but no test here sends them, and the file header says so.
+`posted` builds its sender with `senderFromAgentToken(req, body, roster)`, from the same live roster the measured
+reply path reads, and server.phonenotify-718.test.js pins that source line. A real room post needs a project,
+membership and delivery, which no end-to-end test here sets up yet; that is the follow-up if one is wanted. This test drives the two the card's screenshot is about: a DM reply, and the needs-you change.
 
 ## Review round 1
 - The pushes are now compared as an ordered [kind, agent] list, so a second push (say a stale-named one beside the
@@ -36,3 +39,7 @@ rename the same way, but no test here sends them, and the file header says so. T
 - Header narrowed to the two pushes it sends; the plan's untested kinds are labelled reasoned.
 - An explicit count check, with a message naming the needs_you and replied preconditions, so an empty send fails clearly.
 - This plan is committed with the branch (the repo tracks plans).
+
+## Review round 3
+- `posted` push left unmeasured, with the reasoning above (same roster as the reply path; source line pinned).
+- Dropped an unused AGENT_WORKFORCE_FAKE_PANES line and a setClock(null) for a clock this file never sets.
