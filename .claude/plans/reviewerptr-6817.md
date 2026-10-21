@@ -47,6 +47,11 @@ browser check (render-reviewerptr-6817.js, chromium and webkit, phone fit) pass,
 - The notice's role="status" arrives with its text, as its siblings' does, so some screen readers will not announce it;
   it is found in the stack and by tab order, the same as the restart notices.
 
+- Settings opened another way (not See who) can show a list read up to a minute before the notice's own read; the list
+  then marks only what it shows, and the notice stays for the newer grant. That is the rule working (review 8).
+- The admin who made a grant, if they also use a work Kosmos, is told "Someone was made a reviewer" about their own
+  act; the same decided gap as the reviewer's own case below (the board cannot match a name to its person).
+
 ## Weakest premise
 
 That a grant's name and grantedAt identify it. Two grants to the same name in the same second would read as one (the
