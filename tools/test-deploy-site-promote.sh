@@ -180,7 +180,7 @@ run_deploy() {  # <site> <live> <flag...> ; echoes output, sets RC
   local s="$1" live="$2"; shift 2
   out="$(PATH="$BIN:$PATH" LIVE_DIR="$live" HOST_URL="$HOSTURL" \
     KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$s" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" \
-    bash "$DEPLOY" "$@" 2>&1)"
+    ${DEPLOY_SHELL:-bash} "$DEPLOY" "$@" 2>&1)"   # DEPLOY_SHELL=dash: the arms that run it as /bin/sh is on Linux
   RC=$?
 }
 
@@ -675,7 +675,7 @@ LIVE49="$(cat "$L49/dist/latest.json")"
 printf 'mac=%s\nsha256=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" "0000000000000000000000000000000000000000000000000000000000000000" > "$S49/dist/POINTER_FROZEN"
 git -C "$S49" add -- dist/POINTER_FROZEN && git -C "$S49" commit -q -m "frozen at $OLD, other bytes" -- dist/POINTER_FROZEN
 run_deploy "$S49" "$L49" --promote
-{ [ "$RC" = 1 ] && has "$out" "names other bytes" && [ "$(cat "$L49/dist/latest.json")" = "$LIVE49" ]; } \
+{ [ "$RC" = 1 ] && has "$out" "names another artifact" && [ "$(cat "$L49/dist/latest.json")" = "$LIVE49" ]; } \
   && pass "#6620: frozen at the version but other bytes: refused, live untouched" || bad "#6620 sha mismatch (rc=$RC) out=$out"
 
 # A freeze pushed from another machine, not yet pulled here: deploy-site reads origin/main and refuses a pointer that is
@@ -791,6 +791,48 @@ LIVE57="$(cat "$L57/dist/latest.json")"
 run_deploy "$S57" "$L57" --promote
 { [ "$RC" = 1 ] && has "$out" "since the freeze commit" && has "$out" "setup-staging" && [ "$(cat "$L57/dist/latest.json")" = "$LIVE57" ]; } \
   && pass "#6620: an installer moved in the same commit as a marker edit is still refused" || bad "#6620 marker-edit anchor (rc=$RC) out=$out"
+
+# An ordinary site change on top of the pin (a page, not a release file) deploys while frozen: the freeze holds the
+# release files, not the site. Run under dash, the shell deploy-site.sh's #!/bin/sh is on Linux, so the freeze block's
+# success path runs there too. The refusal beside it is arm 53 (an installer moved on top).
+read -r S58 L58 <<<"$(make_rollback_scenario)"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S58/dist/POINTER_FROZEN"
+git -C "$S58" add -- dist/POINTER_FROZEN && git -C "$S58" commit -q -m "frozen at $OLD" -- dist/POINTER_FROZEN
+printf '<p>an incident notice</p>\n' > "$S58/incident.html"
+git -C "$S58" add -- incident.html && git -C "$S58" commit -q -m "a page during the freeze" -- incident.html
+DEPLOY_SHELL=dash run_deploy "$S58" "$L58" --promote
+{ [ "$RC" = 0 ] && has "$out" "no release pointer or installer moved since the freeze"; } \
+  && pass "#6620 (dash): a page committed on top of the pin deploys while frozen" || bad "#6620 page during freeze (rc=$RC) out=$out"
+
+# After off, the release tools are free again: a deploy of the (pulled) checkout is not refused for a freeze.
+# The refusal beside it is arm 46 (frozen at another version).
+read -r S59 L59 <<<"$(make_rollback_scenario)"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S59/dist/POINTER_FROZEN"
+git -C "$S59" add -- dist/POINTER_FROZEN && git -C "$S59" commit -q -m "frozen at $NEW" -- dist/POINTER_FROZEN
+git -C "$S59" rm -q -- dist/POINTER_FROZEN && git -C "$S59" commit -q -m "lifted" -- dist/POINTER_FROZEN
+run_deploy "$S59" "$L59" --promote
+{ [ "$RC" = 0 ] && ! has "$out" "FROZEN"; } \
+  && pass "#6620: after off, the same deploy arm 46 refused goes ahead" || bad "#6620 after off (rc=$RC) out=$out"
+
+# The two refusal paths that read git under dash: the moved-files diff (arm 57's shape) and an origin fetch (arm 56's).
+DEPLOY_SHELL=dash run_deploy "$S57" "$L57" --promote
+{ [ "$RC" = 1 ] && has "$out" "since the freeze commit" && has "$out" "setup-staging"; } \
+  && pass "#6620 (dash): an installer moved on top of the freeze is refused" || bad "#6620 dash moved (rc=$RC) out=$out"
+DEPLOY_SHELL=dash run_deploy "$S56" "$L56" --promote
+{ [ "$RC" = 1 ] && has "$out" "This checkout is behind origin/main: pull it"; } \
+  && pass "#6620 (dash): a freeze read from origin/main refuses a checkout behind it, and says pull" || bad "#6620 dash origin (rc=$RC) out=$out"
+
+# A checkout that has DIVERGED from a frozen origin/main (a local commit origin/main lacks, origin/main frozen since):
+# told it diverged, not to pull (a pull would merge) and not that a file was committed on top.
+read -r S60 L60 <<<"$(make_rollback_scenario)"
+git init -q --bare "$S60.origin.git" && git -C "$S60" remote add origin "$S60.origin.git" && git -C "$S60" push -q origin main
+git clone -q "$S60.origin.git" "$S60.other" && git -C "$S60.other" config user.email t@t && git -C "$S60.other" config user.name t
+printf 'mac=%s\nbecause=another machine\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S60.other/dist/POINTER_FROZEN"
+git -C "$S60.other" add dist/POINTER_FROZEN && git -C "$S60.other" commit -q -m "frozen elsewhere" && git -C "$S60.other" push -q origin main
+printf '<p>local</p>\n' > "$S60/local.html"; git -C "$S60" add -- local.html && git -C "$S60" commit -q -m "a local commit" -- local.html
+run_deploy "$S60" "$L60" --promote
+{ [ "$RC" = 1 ] && has "$out" "has diverged from origin/main" && ! has "$out" "pull it" && ! has "$out" "committed on top"; } \
+  && pass "#6620: a checkout diverged from a frozen origin/main is told so" || bad "#6620 diverged advice (rc=$RC) out=$out"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

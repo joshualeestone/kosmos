@@ -69,10 +69,20 @@ pointer_freeze_on() {
 # pointers: the one that ADDED the marker (`on` only ever adds it, `off` removes it), so a later commit that merely
 # edits the marker cannot become the anchor and hide what moved before it. Fails (status 1, nothing printed) when
 # that commit or the diff cannot be read: the caller refuses.
+POINTER_FREEZE_HELD="dist/latest*.json setup setup.sha256 setup-staging setup-staging.sha256"   # pathspecs; a glob for git
+
+# pointer_freeze_commit <site> <freeze source>: prints the commit that ADDED the marker there, or fails.
+pointer_freeze_commit() {
+  local fc
+  fc="$(git -C "$1" log -1 --diff-filter=A --format=%H "$2" -- "$POINTER_FREEZE_FILE" 2>/dev/null)" && [ -n "$fc" ] || return 1
+  printf '%s\n' "$fc"
+}
+
 pointer_freeze_moved() {
   local fc out
-  fc="$(git -C "$1" log -1 --diff-filter=A --format=%H "$2" -- "$POINTER_FREEZE_FILE" 2>/dev/null)" && [ -n "$fc" ] || return 1
-  out="$(git -C "$1" diff --name-only "$fc" "$3" -- 'dist/latest*.json' setup setup.sha256 setup-staging setup-staging.sha256 2>/dev/null)" || return 1
+  fc="$(pointer_freeze_commit "$1" "$2")" || return 1
+  # shellcheck disable=SC2086 # the held paths are separate pathspecs, and git expands the glob itself
+  out="$(set -f; git -C "$1" diff --name-only "$fc" "$3" -- $POINTER_FREEZE_HELD 2>/dev/null)" || return 1
   [ -z "$out" ] || printf '%s\n' "$out"
 }
 

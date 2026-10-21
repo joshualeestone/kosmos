@@ -184,3 +184,14 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
   the commit that ADDED the marker (`on` only adds it, refusing when already frozen; `off` removes it), so a later
   commit that edits the marker cannot hide a move: that arm DEPLOYED against the pre-fix code. A marker with no
   sha256 (never written by pointer-freeze.sh) says only the version was checked.
+- Review 17 (three warnings, nits): the advice for a file committed on top offered off-then-on, which leaves every
+  release tool free between the two in an incident; it now says to put the files back from the freeze commit in a
+  new commit (naming the commit), with re-pin only as a last resort and its window named. A diverged checkout and a
+  decision made without origin get their own words (arms for diverged, behind, on top). New arms that the freeze
+  must ALLOW: a page committed on top of the pin deploys while frozen, and the deploy refused while frozen goes
+  ahead after off. deploy-site.sh runs under dash in four arms (the success path, the moved-files refusal, and an
+  origin fetch), since #!/bin/sh is dash on Linux. The messages say "artifact sha256" for the pointer's sha256
+  field (pointer_freeze_moved holds the pointer files' other bytes; the comment says it is not redundant). The held
+  file list is one variable in the lib. Left: a missing perl reads as a fetch failure (fails closed; decided in
+  round 13); release.sh's structural test (its late re-check now RUNS in test-deploy-landed-5471, which is the
+  real coverage).

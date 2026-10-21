@@ -424,17 +424,20 @@ fi
 . "$REPO/tools/lib/pointer-freeze.sh"
 FROZEN_SRC=""; ORIGIN_READ=0
 H_FROZEN=""; git -C "$SITE" cat-file -e "$H:dist/POINTER_FROZEN" 2>/dev/null && H_FROZEN="$H"
-# What a refusal tells the operator to do, chosen by what is TRUE of this checkout, not by where the freeze was read:
-# behind origin/main: pull; origin/main read and not frozen: it was lifted there (pull) or this freeze never went up;
-# otherwise a release file was committed on top of the freeze, and lifting it would publish exactly that.
+# What a refusal tells the operator to do, chosen by what is TRUE of this checkout, not by where the freeze was read.
+# Never "lift it": off, then on again, leaves every release tool free between the two, in the middle of an incident.
 freeze_advice() {
-  if [ "$ORIGIN_READ" = 1 ] && [ "$(git -C "$SITE" rev-parse "$H" 2>/dev/null)" != "$(git -C "$SITE" rev-parse origin/main 2>/dev/null)" ] \
-     && git -C "$SITE" merge-base --is-ancestor "$H" origin/main 2>/dev/null; then
+  _fa_h="$(git -C "$SITE" rev-parse "$H" 2>/dev/null)"; _fa_o="$(git -C "$SITE" rev-parse origin/main 2>/dev/null)"
+  if [ "$ORIGIN_READ" = 1 ] && [ "$_fa_h" != "$_fa_o" ] && git -C "$SITE" merge-base --is-ancestor "$H" origin/main 2>/dev/null; then
     echo "This checkout is behind origin/main: pull it (git -C $SITE pull --ff-only), then deploy."
   elif [ "$ORIGIN_READ" = 1 ] && [ "$FROZEN_SRC" = "$H" ]; then
     echo "origin/main is not frozen (lifted there, or this freeze was never pushed): pull this checkout, or if the freeze should stand, run tools/pointer-freeze.sh on --mac $FROZEN_AT again."
+  elif [ "$ORIGIN_READ" = 1 ] && [ "$_fa_h" != "$_fa_o" ] && ! git -C "$SITE" merge-base --is-ancestor origin/main "$H" 2>/dev/null; then
+    echo "This checkout has diverged from origin/main (commits here that origin/main does not have): save what you need, reset it to origin/main, then deploy."
   else
-    echo "A release file was committed on top of the freeze: do NOT lift the freeze to get past this (that would publish it). Put the files back as the freeze commit has them, or re-pin (tools/pointer-freeze.sh off, then on --mac $FROZEN_AT), then deploy."
+    _fa_fc="$(pointer_freeze_commit "$SITE" "$FROZEN_SRC" 2>/dev/null)"
+    [ "$ORIGIN_READ" = 1 ] || printf '%s' "(Decided on this checkout alone: origin/main was not read.) "
+    echo "A release file was committed on top of the freeze: do NOT lift the freeze to get past this, that would publish it. Put those files back as the freeze commit has them, in a new commit: git -C $SITE checkout ${_fa_fc:-<the freeze commit>} -- <the files named above>, commit and push, then deploy. Only as a last resort re-pin (tools/pointer-freeze.sh off, then on --mac $FROZEN_AT): between the two every release tool may move the pointers."
   fi
 }
 if ! git -C "$SITE" remote get-url origin >/dev/null 2>&1; then FROZEN_SRC="$H_FROZEN"   # no origin at all: $H decides
@@ -452,14 +455,15 @@ if [ -n "$FROZEN_SRC" ]; then
   [ -n "$FROZEN_AT" ] || { echo "deploy-site: $FROZEN_SRC carries dist/POINTER_FROZEN but it names no version -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
   [ "$(ptr_version "$CJ")" = "$FROZEN_AT" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (dist/POINTER_FROZEN) but the committed dist/latest.json names $(ptr_version "$CJ") -- refusing (kosmos#6620); nothing was deployed. $(freeze_advice)"; exit 1; }
   [ -z "$CSJ" ] || [ "$(ptr_version "$CSJ")" = "$FROZEN_AT" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT but the committed dist/latest-staging.json names $(ptr_version "$CSJ") -- refusing (kosmos#6620); nothing was deployed. $(freeze_advice)"; exit 1; }
-  # The marker records the pinned pointer's sha256 (tools/pointer-freeze.sh): the same version with other bytes (a
-  # re-cut, a hand edit) is not the frozen build.
+  # The marker records the pinned pointer's ARTIFACT sha256 (its sha256 field, tools/pointer-freeze.sh): the same version
+  # naming another artifact (a re-cut) is not the frozen build. The pointer files' own bytes (every other field) are
+  # held by pointer_freeze_moved below, which is not redundant with this.
   FROZEN_SHA=$(git -C "$SITE" show "$FROZEN_SRC:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^sha256=//p' | head -1)
   if [ -n "$FROZEN_SHA" ]; then
-    [ "$(ptr_sha "$CJ")" = "$FROZEN_SHA" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (sha256 $FROZEN_SHA) but the committed dist/latest.json names other bytes ($(ptr_sha "$CJ")) -- refusing (kosmos#6620); nothing was deployed. $(freeze_advice)"; exit 1; }
-    [ -z "$CSJ" ] || [ "$(ptr_sha "$CSJ")" = "$FROZEN_SHA" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT but the committed dist/latest-staging.json names other bytes -- refusing (kosmos#6620); nothing was deployed. $(freeze_advice)"; exit 1; }
+    [ "$(ptr_sha "$CJ")" = "$FROZEN_SHA" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (sha256 $FROZEN_SHA) but the committed dist/latest.json names another artifact (sha256 $(ptr_sha "$CJ")) -- refusing (kosmos#6620); nothing was deployed. $(freeze_advice)"; exit 1; }
+    [ -z "$CSJ" ] || [ "$(ptr_sha "$CSJ")" = "$FROZEN_SHA" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT but the committed dist/latest-staging.json names another artifact -- refusing (kosmos#6620); nothing was deployed. $(freeze_advice)"; exit 1; }
   else
-    echo "deploy-site: the freeze marker records no sha256 (not written by tools/pointer-freeze.sh), so only the version was checked, not the bytes"
+    echo "deploy-site: the freeze marker records no sha256 (not written by tools/pointer-freeze.sh), so only the version was checked, not the artifact's sha256"
   fi
   # Nothing that releases may have moved since the freeze commit: every release pointer (the Windows ones too, which
   # publish-kosmos-windows.sh will not change while frozen) and the installer pair the freeze pinned. A hand commit on
@@ -908,7 +912,7 @@ elif git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; t
   _late_sha=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^sha256=//p' | head -1)
   if [ "$(ptr_version "$CJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CJ")" != "$_late_sha" ]; } \
     || { [ -n "$CSJ" ] && { [ "$(ptr_version "$CSJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CSJ")" != "$_late_sha" ]; }; }; }; then
-    echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy carries $(ptr_version "$CJ")$( [ "$(ptr_version "$CJ")" = "$_late_v" ] && echo " with other bytes than the pinned build (sha256 $(ptr_sha "$CJ"), the freeze names ${_late_sha})") -- refusing (kosmos#6620); nothing was deployed"
+    echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy carries $(ptr_version "$CJ")$( [ "$(ptr_version "$CJ")" = "$_late_v" ] && echo " naming another artifact than the pinned build (sha256 $(ptr_sha "$CJ"), the freeze names ${_late_sha})") -- refusing (kosmos#6620); nothing was deployed"
     rm -rf "$EXPORT"; exit 1
   fi
   # And the rest of what the freeze holds still (the early check's list, against the freeze that landed meanwhile).
