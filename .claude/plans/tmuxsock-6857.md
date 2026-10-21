@@ -175,3 +175,15 @@ Rejected: another round of path rules (eleven rounds show the edge never closes 
 Weakest premise: that the machine's server is /tmp/tmux-<uid>/default or $TMUX's socket. A server started with its own
 -S elsewhere is not "the machine's" in this sense; the fleet's is the default one (measured on #6851).
 Controls: counted in the file. Against origin/main's three files: red, naming all four calls.
+
+## Review 12 (Sonnet): three low findings on the redesign; fixed
+- killServerAt compared spellings: /tmp/tmux-501/DEFAULT (case-insensitive volume) or a symlink to the machine socket
+  passed. It now also compares the file itself (device and inode) for a socket that exists.
+- The default socket under TMUX_TMPDIR is now treated as the machine's, but ONLY as TMUX_TMPDIR was when the module
+  loaded. Caught before running: two of the three sites set TMUX_TMPDIR to their own folder (live-connect after it
+  requires the helper; last-look in opts.env), so a call-time read would have refused the very server being ended.
+  A test pins that case (it is the regression I nearly shipped).
+- Guard: the -L variable follow check is gone (it only exempted `n + ''`); controls for a wrapper's -S after its -L
+  and for a -L name built on a default variable.
+- Mutants on the helper (identity check off, load-time TMUX_TMPDIR off, call-time TMUX_TMPDIR on, existence check off):
+  each fails a helper test. Helper tests 8, guard tests 2, all pass.
