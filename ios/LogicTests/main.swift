@@ -690,6 +690,8 @@ do {
     check(word("hal") == "Reconnecting\u{2026}", "a lost connection that is retrying says Reconnecting")
     check(word("ida") == "Keeps stopping", "a crash loop says Keeps stopping")
     check(Board.sorted(agents).prefix(2).map(\.session) == ["cleo", "farah"], "what needs you first, by name")
+    let twins = [Board.Agent(session: "b", name: "Ann", role: nil, state: "idle", task: nil, askedYou: false), Board.Agent(session: "a", name: "ann", role: nil, state: "idle", task: nil, askedYou: false)]
+    check(Board.sorted(twins).map(\.session) == ["a", "b"] && Board.sorted(twins.reversed()).map(\.session) == ["a", "b"], "names equal but for case keep one order")
     let w = { (s: String) in Board.statusWord(Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, askedYou: false)) }
     check(w("working") == "Working" && w("idle") == "Idle" && w("stopped") == "Not running" && w("blocked") == "Waiting", "the same words as engine/cardlabel.js for the plain states")
     check(w("needs_trust") == "Waiting on a trust prompt", "including a trust prompt")

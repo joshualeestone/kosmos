@@ -244,6 +244,6 @@ enum Board {
     // Those that asked you first, then working, then the rest; by name within each.
     static func sorted(_ agents: [Agent]) -> [Agent] {
         func rank(_ a: Agent) -> Int { a.askedYou ? 0 : (a.state == "working" ? 1 : 2) }
-        return agents.sorted { (rank($0), $0.name.lowercased()) < (rank($1), $1.name.lowercased()) }
+        return agents.sorted { (rank($0), $0.name.lowercased(), $0.session) < (rank($1), $1.name.lowercased(), $1.session) }
     }
 }

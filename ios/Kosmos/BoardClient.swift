@@ -17,6 +17,8 @@ final class BoardClient: ObservableObject {
         case denied(mac: String)
         case kosmosPlusDown
         case unreachable(mac: String)
+        // The Mac's gate answered but would not take this iPhone's sign-in (neither waiting for Allow nor denied).
+        case macRefused(mac: String)
         case live(mac: Board.Mac)
     }
 
@@ -36,6 +38,7 @@ final class BoardClient: ObservableObject {
     // account on the Board tab drops it (start()).
     private var admitted: (mac: Board.Mac, url: URL, session: String)?
     private var failedRefreshes = 0
+    private var skipSaved = false
     private var lastReconnect: Date?
     private static let rememberedKey = "nativeBoardMac"
     private static let reconnectGap: TimeInterval = 30
@@ -78,14 +81,27 @@ final class BoardClient: ObservableObject {
         #endif
         let session = sessionStore.load()
         if let held = admitted, held.session != session { forget() }
-        if admitted == nil, let session, let saved = Board.usableSaved(macStore.load(), session: session, coordinator: coordinator),
+        // Signed out: nothing from the last sign-in may outlive it, the kept Mac session included.
+        if session == nil { forget() }
+        let stored = macStore.load()
+        // A kept Mac session from another sign-in is never used, so it is not kept either.
+        if stored != nil, Board.usableSaved(stored, session: session, coordinator: coordinator) == nil { macStore.delete() }
+        if admitted == nil, !skipSaved, let session, let saved = Board.usableSaved(stored, session: session, coordinator: coordinator),
            let url = Board.macURL(address: saved.address, coordinator: coordinator) {
             // The Mac's session from an earlier launch: tried first, and dropped by refresh() if the Mac has ended it.
             restoreCookie(saved.cookie, for: url)
             admitted = (Board.Mac(name: saved.name, address: saved.address, usable: true), url, session)
         }
+        skipSaved = false
         if case .live = phase {} else { set(.starting, gen) }
         loop = Task { await self.run(gen) }
+    }
+
+    // Try again after a failure: ask Kosmos+ for the Macs afresh, so a Mac that went away or came online counts.
+    func retry() {
+        admitted = nil
+        skipSaved = true
+        start()
     }
 
     func stop() {
@@ -202,9 +218,11 @@ final class BoardClient: ObservableObject {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
             case .denied:
                 set(.denied(mac: mac.name), gen); return false
-            case .refused:
+            case .refused(let because):
                 guard waiting, fresh < Self.freshHandoffsWhileWaiting else {
-                    set(.unreachable(mac: mac.name), gen); return false
+                    // Logged for the first runs on a phone: this is where the plan's weakest premise would show.
+                    NSLog("[Board] the Mac's gate refused the sign-in (%d): %@", status, because ?? "no reason given")
+                    set(.macRefused(mac: mac.name), gen); return false
                 }
                 fresh += 1
                 try? await Task.sleep(nanoseconds: 3_000_000_000)

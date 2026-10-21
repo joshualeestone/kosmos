@@ -8,6 +8,7 @@ struct AgentsView: View {
     let openChat: (URL) -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
+    @State private var wasBackground = false
 
     var body: some View {
         NavigationView {
@@ -20,7 +21,9 @@ struct AgentsView: View {
         // No polling in the background: stop when the app leaves the screen, resume when it comes back.
         .onChange(of: scenePhase) { phase in
             guard visible else { return }
-            if phase == .active { client.start() } else if phase == .background { client.stop() }
+            // Only a return from the background restarts it, not a passing Face ID prompt or Control Center.
+            if phase == .background { wasBackground = true; client.stop() }
+            else if phase == .active && wasBackground { wasBackground = false; client.start() }
         }
     }
 
@@ -29,7 +32,7 @@ struct AgentsView: View {
         case .starting:
             ProgressView("Connecting to your Mac")
         case .signedOut:
-            message("Sign in on the Board tab first.", detail: "Your agents show here once you are signed in to Kosmos+.")
+            message("Sign in to Kosmos+ on the Board tab.", detail: "Your agents show here once you are signed in. If you already are, sign out there and in again.")
         case .noMac:
             message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then come back.")
         case .waitingForAllow(let mac, let code):
@@ -43,10 +46,16 @@ struct AgentsView: View {
                 Button("Try again") { client.start() }
                     .buttonStyle(.borderedProminent)
             }
+        case .macRefused(let mac):
+            VStack(spacing: 12) {
+                message("\(mac) did not accept this iPhone's sign-in.", detail: "Sign out on the Board tab and in again, then try once more.")
+                Button("Try again") { client.retry() }
+                    .buttonStyle(.borderedProminent)
+            }
         case .unreachable(let mac):
             VStack(spacing: 12) {
                 message("\(mac) is not answering.", detail: "It may be asleep or offline.")
-                Button("Try again") { client.start() }
+                Button("Try again") { client.retry() }
                     .buttonStyle(.borderedProminent)
             }
         case .live:

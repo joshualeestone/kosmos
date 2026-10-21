@@ -55,3 +55,7 @@ If it is refused, Kosmos+ needs a small route (2 to 3 days, the plan's risk line
 - Deferred: the connect, poll and reconnect loop in BoardClient has no automated test (only BoardLogic's decisions
   do); an injectable transport, as PushRegistrar has, is the way, and belongs with Foundation's route-shape check.
 - Deferred: the App Store screenshots (ios/store/shoot-app.sh) now show the tab bar. That is the real app.
+- Deferred: a tap on an agent opens its chat in the web view, whose Mac session is its own. If the web view has never
+  opened that Mac, the tap lands on the gate's sign-in (and possibly Allow) first, exactly as a notification tap does
+  today. Native Chat (the plan's next screen) removes it; handing the web view a fresh handoff is the stopgap if the
+  first phone runs show it is common.
