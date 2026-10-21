@@ -39,8 +39,10 @@ final class BoardClient: ObservableObject {
     private var admitted: (mac: Board.Mac, url: URL, session: String)?
     private var failedRefreshes = 0
     private var skipSaved = false
+    // The Mac answers 401 for a moment after it starts, while keeping the session (kosmos-relay proxy.rs
+    // KeptSession::Hold), so one 401 is a missed refresh and only a second in a row ends the session.
+    private var unauthorizedOnce = false
     private var lastReconnect: Date?
-    private static let rememberedKey = "nativeBoardMac"
     private static let reconnectGap: TimeInterval = 30
     private static let failuresBeforeNotAnswering = 3
     private static let freshHandoffsWhileWaiting = 3
@@ -121,7 +123,7 @@ final class BoardClient: ObservableObject {
         admitted = nil
         agents = []
         updatedAt = nil
-        UserDefaults.standard.removeObject(forKey: Self.rememberedKey)
+        UserDefaults.standard.removeObject(forKey: Board.rememberedMacKey)
         cookies.removeCookies(since: .distantPast)
         macStore.delete()
     }
@@ -152,7 +154,7 @@ final class BoardClient: ObservableObject {
             guard await openSession(session: session, mac: mac, url: url, gen), gen == generation else { return }
             admitted = (mac, url, session)
             keepMacSession(mac, url: url, session: session)
-            UserDefaults.standard.set(mac.address, forKey: Self.rememberedKey)
+            UserDefaults.standard.set(mac.address, forKey: Board.rememberedMacKey)
         }
         guard let (mac, url, _) = admitted else { return }
         failedRefreshes = 0
@@ -176,7 +178,7 @@ final class BoardClient: ObservableObject {
         guard (200...299).contains(status), let data = result?.0, let macs = Board.parseMacs(data) else {
             kosmosPlusFailed(status: status, mac: nil, gen); return nil
         }
-        guard let mac = Board.pickMac(macs, remembered: UserDefaults.standard.string(forKey: Self.rememberedKey)) else {
+        guard let mac = Board.pickMac(macs, remembered: UserDefaults.standard.string(forKey: Board.rememberedMacKey)) else {
             set(.noMac, gen); return nil
         }
         return mac
@@ -246,10 +248,13 @@ final class BoardClient: ObservableObject {
             agents = Board.sorted(rows)
             updatedAt = Date()
             failedRefreshes = 0
+            unauthorizedOnce = false
             set(.live(mac: mac), gen)
             return true
         }
         if Board.sessionEnded(status: status, contentType: answer?.value(forHTTPHeaderField: "Content-Type")) {
+            if status == 401 && !unauthorizedOnce { unauthorizedOnce = true; return true }
+            unauthorizedOnce = false
             admitted = nil
             macStore.delete()
             if let last = lastReconnect, Date().timeIntervalSince(last) < Self.reconnectGap {

@@ -70,6 +70,8 @@ enum Board {
         let usable: Bool
         var connected: Bool = true
         var lastSeen: Double = 0
+        // Kosmos+ says this Mac refused this iPhone (`this_device` "denied").
+        var refusedThisDevice = false
     }
 
     // `{macs:[{name,address,last_seen,retired_at,remote_off,not_connected,held,refused}]}`.
@@ -87,14 +89,18 @@ enum Board {
                 || (row["refused"] as? Bool ?? false)
             return Mac(name: name, address: address, usable: !off,
                        connected: !(row["not_connected"] as? Bool ?? false),
-                       lastSeen: (row["last_seen"] as? NSNumber)?.doubleValue ?? 0)
+                       lastSeen: (row["last_seen"] as? NSNumber)?.doubleValue ?? 0,
+                       refusedThisDevice: (row["this_device"] as? String) == "denied")
         }
     }
 
     // The Mac remembered from last time while it is usable and connected; else a connected usable one, most
-    // recently seen first; else the remembered or most recently seen usable one.
+    // recently seen first; else the remembered or most recently seen usable one. A Mac that refused this iPhone is
+    // picked only when there is no other.
     static func pickMac(_ macs: [Mac], remembered: String?) -> Mac? {
-        let usable = macs.filter(\.usable).sorted { ($0.lastSeen, $1.address) > ($1.lastSeen, $0.address) }
+        let all = macs.filter(\.usable).sorted { ($0.lastSeen, $1.address) > ($1.lastSeen, $0.address) }
+        let open = all.filter { !$0.refusedThisDevice }
+        let usable = open.isEmpty ? all : open
         if let r = remembered, let m = usable.first(where: { $0.address == r && $0.connected }) { return m }
         if let m = usable.first(where: { $0.connected }) { return m }
         if let r = remembered, let m = usable.first(where: { $0.address == r }) { return m }
@@ -141,6 +147,9 @@ enum Board {
     }
 
     // MARK: - The Mac's session, kept between launches
+
+    // The Mac last admitted, by address (UserDefaults; not a secret). A sign-out clears it.
+    static let rememberedMacKey = "nativeBoardMac"
 
     // The gate's session cookie (kosmos-relay crates/tunnel/src/gate.rs COOKIE_NAME).
     static let macCookieName = "__Host-kosmos_tunnel_session"
@@ -226,7 +235,7 @@ enum Board {
         "working": "Working", "needs_you": "Issue", "rate_limited": "Rate Limit",
         "auth_failed": "Sign-in isn't working", "connection_lost": "Connection lost", "blocked": "Waiting",
         "idle": "Idle", "restarting": "Restarting agent", "stopped": "Not running", "unknown": "Can't tell",
-        "needs_trust": "Waiting on a trust prompt",
+        "needs_trust": "Waiting on a trust prompt", "question": "Question", "approval": "Needs permission",
     ]
 
     static func statusWord(_ agent: Agent) -> String {

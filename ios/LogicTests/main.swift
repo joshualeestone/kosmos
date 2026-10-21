@@ -658,6 +658,10 @@ do {
     check(Board.pickMac(Board.parseMacs(Data(allDown.utf8)) ?? [], remembered: nil)?.address == "b.kosmosplus.com", "with none connected, the most recently seen, so the screen can say it is not answering")
     let tie = [Board.Mac(name: "z", address: "z.kosmosplus.com", usable: true), Board.Mac(name: "a", address: "a.kosmosplus.com", usable: true)]
     check(Board.pickMac(tie, remembered: nil)?.address == "a.kosmosplus.com", "equal last-seen: by address, the same answer every time")
+    let refused = #"{"macs":[{"address":"new.kosmosplus.com","last_seen":900,"this_device":"denied"},{"address":"old.kosmosplus.com","last_seen":100}]}"#
+    check(Board.pickMac(Board.parseMacs(Data(refused.utf8)) ?? [], remembered: nil)?.address == "old.kosmosplus.com", "a Mac that refused this iPhone is passed over while another can be tried")
+    let onlyRefused = #"{"macs":[{"address":"new.kosmosplus.com","last_seen":900,"this_device":"denied"}]}"#
+    check(Board.pickMac(Board.parseMacs(Data(onlyRefused.utf8)) ?? [], remembered: nil)?.address == "new.kosmosplus.com", "and still picked when it is the only one, so the screen can say it refused")
     check(Board.parseMacs(Data("[]".utf8)) == nil, "a body that is not the list reads as nothing")
     check(Board.parseHandoffToken(Data(#"{"token":"t"}"#.utf8)) == "t" && Board.parseHandoffToken(Data(#"{"token":""}"#.utf8)) == nil, "the handoff token, never an empty one")
 }

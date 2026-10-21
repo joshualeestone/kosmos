@@ -212,8 +212,9 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   (`?tab=detail&agent=<session>`, the session checked against the board's agent-name rule), or
   the board home when the push carries no usable session.
 - **No white flash:** the WebView is navy until the first page paints. Safe areas behave as in
-  Safari: a page that opts in with `viewport-fit=cover` (sign-in, the gate) pads for the notch and
-  home bar itself, and WebKit keeps any other page (the board today) clear of them.
+  Safari: a page that opts in with `viewport-fit=cover` (sign-in, the gate) pads for the notch
+  itself, and WebKit keeps any other page (the board today) clear of it. Since the tab bar
+  (kosmos#6838) the web view ends above it, with navy behind the bar.
 - **Launch screen:** Kosmos navy, from the asset catalog (see "App icon and launch screen" above),
   so launch, the WebView before its first paint and the sign-in page are one colour.
 

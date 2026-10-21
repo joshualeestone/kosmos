@@ -34,12 +34,20 @@ struct AgentsView: View {
         case .signedOut:
             message("Sign in to Kosmos+ on the Board tab.", detail: "Your agents show here once you are signed in. If you already are, sign out there and in again.")
         case .noMac:
-            message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then come back.")
+            VStack(spacing: 12) {
+                message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then try again.")
+                Button("Try again") { client.retry() }
+                    .buttonStyle(.borderedProminent)
+            }
         case .waitingForAllow(let mac, let code):
             message("Allow this iPhone on \(mac).",
                     detail: code.map { "Your Mac is showing a code. Check it matches: \($0)" } ?? "Your Mac is asking whether to let this iPhone in.")
         case .denied(let mac):
-            message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access.")
+            VStack(spacing: 12) {
+                message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.")
+                Button("Try again") { client.retry() }
+                    .buttonStyle(.borderedProminent)
+            }
         case .kosmosPlusDown:
             VStack(spacing: 12) {
                 message("Kosmos+ could not be reached.", detail: "Check your connection, then try again.")
@@ -58,14 +66,15 @@ struct AgentsView: View {
                 Button("Try again") { client.retry() }
                     .buttonStyle(.borderedProminent)
             }
-        case .live:
-            list
+        case .live(let mac):
+            list(mac)
         }
     }
 
-    private var list: some View {
+    private func list(_ mac: Board.Mac) -> some View {
         List {
-            Section(footer: footer) {
+            // Which computer these agents are on, for an account with more than one.
+            Section(header: Text("On \(mac.name)"), footer: footer) {
                 ForEach(client.agents) { agent in
                     Button {
                         if let url = client.chatURL(for: agent) { openChat(url) }
@@ -131,7 +140,7 @@ struct AgentRow: View {
                         Text(String(agent.name.prefix(1)).uppercased()).font(.subheadline.weight(.semibold))
                     }
                     .accessibilityHidden(true)
-                    names
+                    names.layoutPriority(1)
                     Spacer()
                     status
                 }
