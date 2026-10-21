@@ -46,3 +46,11 @@ stuck prompt.
 ## Review 14
 - **Not changed:** when the fold hides under the keyboard, focus moves to the state pill, which may draw the browser's
   focus ring there. Kept: it shows a keyboard user where focus went. Would change it: Josh finding the ring ugly.
+
+## Review 16
+- **Not changed:** an agent's own question (needs_you, reported by the agent) is folded with the screen line. The pill
+  already says it has a question and one tap opens it. Weakest premise: that agents ask the question itself in the
+  conversation, so the fold is never the only place it appears. Would change it: an agent whose question shows nowhere
+  else on the page.
+- **Not changed:** the guide's side chat still quotes a failed sign-in's screen text unfolded. It did before this card,
+  and this card is about the agent page; the side chat has no fold to put it in.
