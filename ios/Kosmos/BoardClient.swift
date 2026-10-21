@@ -327,7 +327,6 @@ final class BoardClient: ObservableObject {
             unauthorizedSince = nil
             admitted = nil
             // The session has ended, so its kept record is dead and is never restored again (not even by a Try again).
-            // Its cookie stays in the jar, so the gate forgets the old session when it admits the next (proxy.rs).
             macStore.delete()
             if let last = lastReconnect, env.now().timeIntervalSince(last) < Self.reconnectGap {
                 // The Mac ended this iPhone's session twice in 30 s: it answers, but will not keep the sign-in.
