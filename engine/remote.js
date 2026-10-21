@@ -2294,8 +2294,11 @@ async function deviceAllow(id, name, code) {
   }
   return got;
 }
-/** Say no: the coordinator drops the request and the phone is told. Writes
-    nothing on this Mac; a fresh sign-in may ask again. */
+/** Say no: the coordinator drops the request and the phone is told. On a real
+    refusal (not a mere code-check drop) this records a small local note in
+    remote.json (the `denied` map, newest 50): it words a later re-ask and keeps
+    the device out of the automatic browser-vouch allow (it can still be Allowed
+    by hand). It is not a block, so a fresh sign-in may ask again. */
 async function deviceDeny(id) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
