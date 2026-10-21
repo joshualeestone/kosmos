@@ -53,7 +53,7 @@ test('#6842: the pull requests the agent worked on sit under its cost; a link on
   assert.match(text(one), /\$10 at API prices\. Worked on pull request app#12 ?\./);   // text() turns the </a> into a space
   assert.match(one, /<a href="https:\/\/github\.com\/acme\/app\/pull\/12" target="_blank" rel="noopener noreferrer"/);
   const many = text(B.tkReceiptAgentHtml({ ...base, prs: [{ repo: 'acme/app', number: 1, url: null }, { repo: 'acme/relay', number: 2, url: null }], prsMore: 3 }));
-  assert.match(many, /Worked on pull requests app#1, relay#2 and 3 more\./);
+  assert.match(many, /Worked on pull requests app#1 ?, relay#2 ?and 3 more\./);
   const bad = B.tkReceiptAgentHtml({ ...base, prs: [{ repo: 'acme/<b>x', number: 5, url: 'javascript:alert(1)' }] });
   assert.doesNotMatch(bad, /<a /, 'no link but to a github.com pull request');
   assert.doesNotMatch(bad, /<b>x/, 'the repo is escaped');

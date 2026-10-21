@@ -401,6 +401,13 @@ test('#6842: the pull requests an agent worked on while it held the task: a sess
     JSON.stringify({ type: 'pr-link', timestamp: T('10:32'), sessionId: 's', prRepository: 'acme/app', prNumber: '5' }),   // a number as text
     prLink('11:30', 'acme/app', 99),   // after the hold
   ].join('\n') + '\n');
+  // A second session acts on #12 later in the same hold (a merge after the open): still one #12, at the earlier time.
+  fs.writeFileSync(path.join(d, 'merge-session.jsonl'), prLink('10:50', 'acme/app', 12, 'merger') + '\n');
+  // Rows with no sessionId are keyed by their file: #8 first acted on in one such file before the hold, and in another
+  // inside it, is listed (a key shared by every such row would see only the earlier act).
+  const noSession = (at, number) => JSON.stringify({ type: 'pr-link', timestamp: T(at), prRepository: 'acme/app', prNumber: number, prUrl: `https://github.com/acme/app/pull/${number}` });
+  fs.writeFileSync(path.join(d, 'no-session-a.jsonl'), noSession('09:40', 8) + '\n');
+  fs.writeFileSync(path.join(d, 'no-session-b.jsonl'), noSession('10:55', 8) + '\n');
   const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
   const a = r.agents[0];
   assert.equal(r.version, 3);
@@ -408,8 +415,21 @@ test('#6842: the pull requests an agent worked on while it held the task: a sess
     { repo: 'acme/app', number: 7, url: 'https://github.com/acme/app/pull/7' },
     { repo: 'acme/app', number: 12, url: 'https://github.com/acme/app/pull/12' },
     { repo: 'acme/relay', number: 3, url: null },
+    { repo: 'acme/app', number: 8, url: 'https://github.com/acme/app/pull/8' },
   ], 'a session\'s first row inside the hold, once each, in order; not #40 (carried forward), #99 (after) or malformed rows');
   assert.equal(a.prsMore, 0);
+});
+
+test('#6842: at most 20 pull requests are listed, oldest first, and the rest are counted', async () => {
+  const project = 'p' + (++pn);
+  const max = worker('max');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'max' }, { at: '11:00', kind: 'closed' }]);
+  const rows = [];
+  for (let n = 1; n <= 23; n++) rows.push(prLink('10:' + String(n + 10).padStart(2, '0'), 'acme/app', n));
+  fs.writeFileSync(path.join(claudeDir(max), 's.jsonl'), rows.join('\n') + '\n');
+  const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
+  assert.deepEqual(a.prs.map((p) => p.number), Array.from({ length: 20 }, (_, i) => i + 1));
+  assert.equal(a.prsMore, 3);
 });
 
 test('#6842: a version 2 receipt is kept as it was (no prs), never worked out again', async () => {

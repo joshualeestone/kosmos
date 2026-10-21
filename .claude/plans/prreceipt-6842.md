@@ -37,8 +37,9 @@ Codex/Gemini/Grok PRs (their logs carry no PR link); a project's total (slice 2)
 ## Verify
 - engine/receipt-5153.test.js: a session's first row in the hold (including a later session acting on a PR another session
   opened), a row only carried forward from before the hold not listed, repeats once, after the hold not listed, malformed
-  rows, foreign URL; v2 kept. Mutants (no session key, no hold check, keeping the last row, trusting prUrl, dropping the v2
-  keep) each fail a test.
+  rows, foreign URL; two sessions acting on one PR in the hold list it once; rows without a sessionId keyed by their file; at
+  most 20 listed with the rest counted; v2 kept. Mutants (no session key, no hold check, keeping the last row, trusting
+  prUrl, dropping the v2 keep, not merging sessions, one shared key for rows with no sessionId, no cap) each fail a test.
 - web.receipt-5153.test.js: the line, the link, escaping, no link for a non-github URL, a null entry skipped, nothing for
   absent/empty. Mutant (no null guard) fails a test; the URL check was mutated before the wording change too.
 - Real transcripts: claudeWork over icecreamkitty's own folder lists kosmos-relay#545 for a hold 15:00-15:30Z 10-21 (opened

@@ -67334,7 +67334,7 @@ function tkReceiptPrsHtml(a) {
     const label = esc(String(p.repo || '').split('/').pop() + '#' + p.number);
     return typeof p.url === 'string' && /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/\d+$/.test(p.url)
       ? '<a href="' + esc(p.url) + '" target="_blank" rel="noopener noreferrer" title="' + esc(p.repo + '#' + p.number) + '">' + label + '</a>'
-      : label;
+      : '<span title="' + esc(p.repo + '#' + p.number) + '">' + label + '</span>';
   };
   const more = Number(a.prsMore) || 0;
   const n = prs.length + more;
