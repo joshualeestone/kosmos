@@ -49,6 +49,9 @@
 # Usage:
 #   tools/deploy-site.sh              # DRY RUN: fetch + verify + export + guards, then stop
 #   tools/deploy-site.sh --publish    # the same, then vercel deploy --prod, then verify SERVED bytes
+#                                     # (exit 77, kosmos#6771: Vercel refused this machine's authorization before
+#                                     # making a deployment; said in full only when output is not a terminal,
+#                                     # which is how the autodeploy runs it. At a terminal it is exit 1.)
 #   tools/deploy-site.sh --promote    # PUBLISH a pointer-MOVE deploy (#2195): serve the COMMITTED
 #                                     # latest.json even though it differs from live (a staging->prod
 #                                     # promote, or a rollback to a prior pointer). Skips the
@@ -79,6 +82,9 @@
 # That holds on this macOS-only fleet (it already hardcodes $HOME/work/... and `shasum`); it would
 # need a #!/bin/bash and rework to run under dash.
 set -eu
+# kosmos#6771: a Vercel token given in the environment goes to the vercel command alone, not to any step before it
+# (the checks, the fetches, the build): kept in an unexported variable, and the environment's copy removed first.
+_vercel_token="${VERCEL_TOKEN:-}"; unset VERCEL_TOKEN
 
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 REPO="${KOSMOS_REPO:-$HOME/work/agent-workforce}"
@@ -157,9 +163,6 @@ fi
 # abort mid-run when the source fails -- matching the checks above for the other sourced libs.
 [ "$PROMOTE" != 1 ] || [ -f "$REPO/tools/lib/sha256-name.sh" ] || { echo "deploy-site: --promote needs $REPO/tools/lib/sha256-name.sh (to derive the alias checksum), which is missing"; exit 1; }
 command -v vercel >/dev/null 2>&1 || { echo "deploy-site: vercel CLI not found"; exit 1; }
-# kosmos#6771: a Vercel token given in the environment goes to the vercel command alone, not to every step this
-# script runs (the build, the fetches): kept in an unexported variable and the environment's copy removed.
-_vercel_token="${VERCEL_TOKEN:-}"; unset VERCEL_TOKEN
 
 # --- 1) fetch and verify the CURRENT live artifacts into the site dist/ -------
 # The export carries whatever is in dist/. We make the critical current artifacts present
