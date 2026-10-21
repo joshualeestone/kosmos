@@ -77,8 +77,17 @@ function safeName(name) {
   let n = String(name || '').replace(/[/\\\0]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').replace(/^[\s.]+/, '').trim();
   n = Array.from(n).slice(0, 160).join('');
   if (!n) n = 'file';
-  if (RESERVED.has(n.toLowerCase())) n = 'file-' + n;
+  // Review 13: Windows reads "record.json." (and with trailing spaces) as "record.json", so the reserved check ignores them.
+  if (RESERVED.has(n.replace(/[\s.]+$/, '').toLowerCase())) n = 'file-' + n;
   return n;
+}
+
+/** A record's own name, usable as stored: one segment, no separators or controls, not "." or "..", and none of this
+    module's own names. Only for records an older safeName wrote (see read). */
+function storedAsIs(name) {
+  if (typeof name !== 'string' || !name || name.length > 640 || name === '.' || name === '..') return false;
+  if (/[/\\\0\u0000-\u001f\u007f]/.test(name)) return false;
+  return name !== PART && !RESERVED.has(name.replace(/[\s.]+$/, '').toLowerCase());
 }
 
 /** Where an owner's attachments live: ('project', id) or ('agent', name). */
@@ -263,7 +272,10 @@ function read(id) {
       const dir = path.join(base, owner, clean);
       let rec;
       try { rec = JSON.parse(fs.readFileSync(path.join(dir, 'record.json'), 'utf8')); } catch { continue; }
-      const file = path.join(dir, safeName(rec.name));
+      let file = path.join(dir, safeName(rec.name));
+      /* #6734 review 13: a name an older build stored (" .env" was kept as ".env") is still found under the name it was
+         stored with, when that is one plain segment and none of this module's own names; safeName now gives "env". */
+      if (!fs.existsSync(file) && storedAsIs(rec.name)) file = path.join(dir, rec.name);
       if (!fs.existsSync(file)) continue;
       return { ...rec, dir, file };
     }

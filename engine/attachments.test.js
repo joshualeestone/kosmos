@@ -114,7 +114,8 @@ test('the preview: an image is itself, a PDF goes through the renderer seam and 
 });
 
 test('too large, empty, and a bad id are refused in words, and read never walks a path the id built', () => {
-  assert.throws(() => attachments.save('agent', 'april', { name: 'big', type: 'x', bytes: Buffer.alloc(attachments.MAX_BYTES + 1) }), /larger than 100 MB/);
+  // allocUnsafe: the refusal reads only the length, so the 100 MB is never written to (review 13).
+  assert.throws(() => attachments.save('agent', 'april', { name: 'big', type: 'x', bytes: Buffer.allocUnsafe(attachments.MAX_BYTES + 1) }), /larger than 100 MB/);
   assert.throws(() => attachments.save('agent', 'april', { name: 'empty', type: 'x', bytes: Buffer.alloc(0) }), /nothing in that file/);
   assert.equal(attachments.read('../../etc'), null);
   assert.equal(attachments.read('zzzzzzzzzzzzzzzzzzzzzzzz'), null);

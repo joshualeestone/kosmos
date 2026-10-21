@@ -169,6 +169,17 @@ phone yet: the remaining manual step covers it.
    record.json link keeps its folder (test with backdated times, so age cannot be what keeps it; red with the old
    `existsSync`). The sweep test cleans its controls in a `finally`.
 
+24. **Review 13:** `read()` finds a file under the name an older build stored it with (" .env" was kept as ".env";
+   the new safeName gives "env"), when that name is one plain segment and none of this module's own names, so the
+   name fix in 23 does not make anyone's existing attachments unreachable (test writes an old-style record; controls: a
+   record naming the part file, and one naming a path, are not followed; red with the fallback removed, and with the
+   part file allowed). The reserved-name check ignores trailing dots and spaces, which Windows drops ("record.json."
+   would otherwise be the record). The reply-file path maps a system error to "that file could not be kept", as the
+   upload route does (test injects a failing rename; red with the raw message). A unit test no longer zero-fills 100 MB
+   to check a refusal.
+   Decision 5 measured: the 1 MB chunked copy of 100 MB took 12 to 14 ms (three runs, load average 15), with the source
+   just written, so in the page cache. A cold read, or a slow or network disk, will be slower and is not measured.
+
 ### Considered and not changed (review 10)
 - **The orphan sweep's residual cases:** a writer reaching the store by a spelling the guard does not scan (a shell
   script, say), or an older build. Older builds also wrote record.json last, so a folder without one was already an
@@ -217,7 +228,7 @@ The test used to accept a reset in place of the 400. It now requires the 400 wit
 a load average of about 10. If a client ever sees a reset instead, the page's own size check has already refused the
 file before sending it.
 
-## Tests (server.attachment-stream-6734.test.js, 26 tests, and web.attach-slow-6734.test.js, 2 tests; green at each review commit, and the full suite at the final head is in the proof file)
+## Tests (server.attachment-stream-6734.test.js, 28 tests, and web.attach-slow-6734.test.js, 2 tests; green at each review commit, and the full suite at the final head is in the proof file)
 
 - the cap is 100 MB and is said as "100 MB";
 - a 6 MB download is byte-identical (sha256) with its Content-Length; HEAD has the length and no body; no

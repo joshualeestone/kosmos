@@ -870,3 +870,23 @@ test('#6726 r7-2: two projects on one folder: the file attaches whichever is lis
     projects.writeAll(kept);
   }
 }));
+
+/* #6734 review 13: a system error while storing a reply copy (here the final rename, as on a full disk) reaches the
+   agent as a sentence, never as the raw error, which carries a path with the user's name. */
+test('#6734: a system error storing a reply copy is a sentence with no path in it', () => withLeo(async (board) => {
+  const src = write(path.join(PROJ, 'cuts', 'rename-fails.txt'), 'x');
+  const attachments = require('./engine/attachments');
+  const real = fs.renameSync;
+  let thrown = 0;
+  fs.renameSync = function (from) {
+    if (String(from).endsWith(attachments.PART)) {
+      thrown += 1;
+      throw Object.assign(new Error("ENOSPC: no space left on device, rename '" + from + "'"), { code: 'ENOSPC' });
+    }
+    return real.apply(this, arguments);
+  };
+  let got;
+  try { got = replyfile.attach(WHO, src, { roster: board.roster }); } finally { fs.renameSync = real; }
+  assert.ok(thrown > 0, 'the rename was never reached, so this tested nothing');
+  assert.deepEqual(got, { ok: false, because: 'that file could not be kept' });
+}));

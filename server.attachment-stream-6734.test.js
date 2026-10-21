@@ -585,3 +585,33 @@ test('#6734: a stored attachment and its record are both readable by this user o
   assert.equal(fs.statSync(rec.file).mode & 0o777, 0o600, 'the file');
   assert.equal(fs.statSync(path.join(rec.dir, 'record.json')).mode & 0o777, 0o600, 'the record');
 });
+
+test('#6734: a file an older build stored under its old clean name (".env" from " .env") is still found', () => {
+  const owner = path.join(attachments.ROOT, 'agent', 'old-names');
+  const record = (id, name, files) => {
+    const dir = path.join(owner, id);
+    fs.mkdirSync(dir, { recursive: true });
+    for (const f of files) fs.writeFileSync(path.join(dir, f), 'content of ' + f);
+    fs.writeFileSync(path.join(dir, 'record.json'), JSON.stringify({ id, name, type: 'text/plain', size: 1, kind: 'text', at: new Date().toISOString(), scope: 'agent', owner: 'old-names' }));
+  };
+  try {
+    record('a1'.repeat(12), '.env', ['.env']);   // what the old safeName kept for " .env"
+    const got = attachments.read('a1'.repeat(12));
+    assert.ok(got, 'an old record was lost');
+    assert.equal(path.basename(got.file), '.env');
+    assert.equal(fs.readFileSync(got.file, 'utf8'), 'content of .env');
+    // CONTROLS: a record naming the part file, or a path, is never followed as stored.
+    record('a2'.repeat(12), attachments.PART, [attachments.PART]);
+    assert.equal(attachments.read('a2'.repeat(12)), null);
+    record('a3'.repeat(12), '../a1a1a1a1a1a1a1a1a1a1a1a1/.env', []);
+    assert.equal(attachments.read('a3'.repeat(12)), null);
+  } finally {
+    fs.rmSync(owner, { recursive: true, force: true });
+  }
+});
+
+test('#6734: a name Windows would read as record.json or preview.png ("record.json." or with spaces) is renamed', () => {
+  assert.equal(attachments.safeName('record.json.'), 'file-record.json.');
+  assert.equal(attachments.safeName('Preview.PNG . '), 'file-Preview.PNG .');
+  assert.equal(attachments.safeName('record.json.txt'), 'record.json.txt', 'CONTROL: a longer name is its own');
+});

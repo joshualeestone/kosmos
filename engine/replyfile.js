@@ -342,7 +342,8 @@ function attach(sessionName, given, { roster } = {}) {
     ledgerAdd(sessionName, rec.id, Date.parse(rec.at), rec.size);
     return { ok: true, rec };
   } catch (err) {
-    return { ok: false, because: String((err && err.message) || 'that file could not be kept') };
+    // #6734 review 13: a system error (it has a code) carries a path with the user's name; the agent gets the sentence.
+    return { ok: false, because: (err && !err.code && err.message) ? String(err.message) : 'that file could not be kept' };
   }
 }
 
