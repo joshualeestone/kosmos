@@ -44,6 +44,9 @@ merges every file there), so the base managed-settings.json is never edited and 
 - node for the JSON merge: the installer runs as root, so only `/usr/bin/plutil` touches the file.
 
 ## Weakest premise
+- That a `sandbox.filesystem` block arriving through a managed-settings.d drop-in counts as "managed settings configure
+  sandbox.filesystem" for the lock, as one in managed-settings.json would. The docs say drop-ins merge into the managed
+  tier, and 2.1.306's loader merges them; the lock through a drop-in is still to be measured at the first install.
 - The lock is documented, not measured. Measuring it needs root (the managed path is under /Library), which no agent
   has. The first install is that measurement: a planted user `sandbox.filesystem.disabled` must stop working for the
   token-only agent, and builders must notice nothing.
