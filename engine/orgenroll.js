@@ -1049,9 +1049,20 @@ async function refreshNow(opts) {
   const role = cleanRole(d.role);
   if (!org || !role) return { ok: false, because: inKind(KIND, 'Your company\'s answer was not complete.'), enrolled: !!before };
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
-  // kosmos#6752: this answer's reviewer grants, or none (an answer without them, an older coordinator's, drops the old list).
-  const grants = cleanReviewerGrants(d.reviewerGrants);
-  if (grants.length) rec.reviewerGrants = grants;
+  /* kosmos#6752: this answer's reviewer grants. kosmos#6817: a coordinator sends [] for none and leaves the field out
+     only when it could not read them (kosmos-relay #542), so an answer WITHOUT the field keeps the list this record
+     had, for the same world and company, with the time it was last confirmed (`reviewerGrantsAt`, epoch ms); the page
+     says how old a list is and drops grants past 30 days itself. An older coordinator never sends the field, so its
+     records never have a list to keep. */
+  if (Array.isArray(d.reviewerGrants)) {
+    const grants = cleanReviewerGrants(d.reviewerGrants);
+    if (grants.length) rec.reviewerGrants = grants;
+    rec.reviewerGrantsAt = Date.now();
+  } else if (before && before.world === world && before.org && before.org.id === org.id
+    && Array.isArray(before.reviewerGrants) && before.reviewerGrants.length) {
+    rec.reviewerGrants = cleanReviewerGrants(before.reviewerGrants);
+    if (Number.isFinite(before.reviewerGrantsAt)) rec.reviewerGrantsAt = before.reviewerGrantsAt;
+  }
   // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
   if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
   // #5532: the salt belongs to the company its print was pinned for; a different company on the answer drops it (review 11).

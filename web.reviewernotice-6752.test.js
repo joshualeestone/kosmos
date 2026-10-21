@@ -35,7 +35,7 @@ function el(tag) {
 }
 function page() {
   const els = {};
-  for (const id of ['plus-org-reviewers', 'plus-org-reviewers-head', 'plus-org-reviewers-what', 'plus-org-reviewers-list']) els[id] = el('div');
+  for (const id of ['plus-org-reviewers', 'plus-org-reviewers-head', 'plus-org-reviewers-what', 'plus-org-reviewers-list', 'plus-org-reviewers-age']) els[id] = el('div');
   const list = els['plus-org-reviewers-list'];
   let text = '';
   Object.defineProperty(list, 'textContent', { get: () => text, set: (v) => { text = v; if (v === '') list.children = []; } });
@@ -111,4 +111,18 @@ test('#6752 review 2: "today" and "tomorrow" are calendar days, so the night the
     assert.match(make(before)(before + 3600), /^tomorrow at /);
     assert.match(make(before)(before + 600), /^today at /);
   } finally { if (prev === undefined) delete process.env.TZ; else process.env.TZ = prev; }
+});
+
+test('#6817: a list last confirmed over a day ago says when; a fresh one, or one with no time, says nothing', () => {
+  const now = Date.now() / 1000;
+  const grants = [{ who: 'pat', grantedAt: Math.floor(now - 3 * DAY), effectiveAt: Math.floor(now - 2 * DAY) }];
+  const old = paint({ enrolled: true, org: { kind: 'company' }, reviewerGrants: grants, reviewerGrantsAt: Date.now() - 2 * DAY * 1000 });
+  assert.equal(old['plus-org-reviewers-age'].hidden, false);
+  assert.match(old['plus-org-reviewers-age'].textContent, /^Kosmos last confirmed this list \S+ \d+\.$|^Kosmos last confirmed this list \d+ \S+\.$/);
+  const fresh = paint({ enrolled: true, org: { kind: 'company' }, reviewerGrants: grants, reviewerGrantsAt: Date.now() - 3600 * 1000 });
+  assert.equal(fresh['plus-org-reviewers-age'].hidden, true, 'a list confirmed an hour ago claimed to be old');
+  const none = paint({ enrolled: true, org: { kind: 'company' }, reviewerGrants: grants });
+  assert.equal(none['plus-org-reviewers-age'].hidden, true);
+  assert.match(fn('function plusOrgReviewers(st)'), /plus-org-reviewers-age/, 'CONTROL: the page reads the age element');
+  assert.match(SERVER, /reviewerGrantsAt: rec\.reviewerGrantsAt/, '/api/org does not pass the time on');
 });
