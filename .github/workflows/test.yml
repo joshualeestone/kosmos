@@ -360,7 +360,7 @@ jobs:
   # top of this file); if `test` is ever made required, note that GitHub counts a skipped job as
   # passing.
   # It runs no tests, only reads needs.suite and needs.scope, so it is on ubuntu-latest on purpose: the
-  # macOS rule above is for the suite, and a fourth macOS runner per run would be waste.
+  # macOS rule above is for the suite, and one more macOS runner per run would be waste.
   test:
     needs: [scope, suite]
     if: ${{ !cancelled() }}
