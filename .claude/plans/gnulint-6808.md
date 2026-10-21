@@ -11,21 +11,30 @@ and on a Mac.
 ## Changes
 - New `tools/test-gnu-only-forms-6808.sh`: the scanner and its tests (long spellings included). Forms: `sed -i` with the script after it,
   `date -d`, `stat -c`, `base64 -w`, `timeout N`, `grep -P`, `find -printf`. Each but the last two has a BSD
-  counterpart; a hit with its counterpart within 3 lines is the idiom and is allowed. `# gnu-ok: <why>` on a line
-  excuses it. Comment lines are not read. 11 planted forms flagged, 12 allowed shapes kept, the two-line sed idiom
-  allowed and a counterpart 5 lines away not; then every tracked product shell file (117 today, floor 100).
+  counterpart; a hit is the idiom (allowed) when its counterpart is on the same line joined by `||`, or on the line
+  directly beside it. `# gnu-ok: <why>` on a line excuses it. Comment lines are not read. 23 planted forms flagged,
+  14 allowed shapes kept, the tree's two-line idioms allowed, a counterpart 2 or 5 lines away not; then every tracked
+  product shell file (117 today, floor 100).
 - `package.json` test:shell runs it (with its `bash -n`), at the end.
 
 ## Decisions
 - **The lint, not a scheduled macOS run.** The card offered both. A lint fails in the PR that adds the form, names the
   line, and costs no runner; a scheduled run finds it after merge and needs someone to read it.
-- **Counterpart within 3 lines, not "errors silenced".** All 5 GNU forms on the tree today sit beside their BSD form
+- **A counterpart on the same `||` chain or the next line, not "errors silenced".** All 5 GNU forms on the tree today sit beside their BSD form
   (same line or the next). Accepting any `2>/dev/null` would excuse `sed -i 's/x/y/' f 2>/dev/null`, which fails
   silently on a Mac, the worst case.
 - **Not flagged:** `readlink -f` (macOS has it since 12.3; Kosmos's floor is 13.5, `MACOS_FLOOR_*` in
   install/setup.sh), `xargs -r`, `sort -V` (macOS has them).
 - **Test files are out of scope** (as the card says): many are Linux-only on purpose, and a GNU form in one goes red on
   the macOS full suite at the cut.
+
+## Review rounds (2026-10-21)
+- **Round 1 (SHOULDs, all on regex reach):** a 3-line window excused an unrelated command (a BSD stat for another file),
+  and a line with `sed -i ''` excused a GNU `sed -i` joined by `&&`. Now: same line only when joined by `||` (timeout:
+  `&&`, its guard idiom), else the line directly beside. Also caught now: long spellings, flags with digits before the
+  one that matters (`grep -m1 -oP`), `date -d@N`, `stat -Lc`, `timeout "$T"`, a command after a quote, a path or a
+  brace (`bash -c "sed -i ..."`, `/usr/bin/sed`); `sed -Ei ''` allowed; `#! /bin/sh` shebangs listed.
+  Documented, not built: backslash-continued commands, and the other GNU-only tools (header, "A FLOOR, NOT A PROOF").
 
 ## Weakest premise
 - That these seven forms are "the common ones". The list is from the card plus the coreutils options macOS lacks. A
