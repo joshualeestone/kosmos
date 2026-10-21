@@ -2883,11 +2883,13 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .astar.on { color: var(--gold-deep); } }
 .astar.on svg path { fill: currentColor; }
 .astar:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
-.lname { position: relative; padding-right: 40px; }
+.lname { position: relative; }
+/* Review 15: the room for the star only where there is one (another computer's agent has none). */
+.lname:has(.astar) { padding-right: 40px; }
 .lname .astar { top: 50%; right: 0; transform: translateY(-50%); }
 /* After the base rules, so the touch sizes win (same specificity). */
 @media (pointer: coarse) { .acard .astar { top: 2px; right: 2px; width: 44px; height: 44px; }
-  .lname { padding-right: 48px; } .lname .astar { width: 44px; height: 44px; } }
+  .lname:has(.astar) { padding-right: 48px; } .lname .astar { width: 44px; height: 44px; } }
 .acard.unk { border-style: dashed; }
 /* 🔑 STATE OWNS THE GROUND AND THE STROKE (Josh, 2026-08-21), ported from the
    pack cut of the same day. Working takes a green wash, needs-you a red one, and
@@ -5529,7 +5531,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   /* Pulled 26 px in from the name column's edge: the row's badge hangs off the row's corner, and "99+" (the widest it
      gets, as the count is capped there) measured 3 px into a star at 18 px in both engines (render-star-6719 reports
      the boxes). At 26 px the star ends 5 px short of it. */
-  html[data-layout="consolidated"] body.consolidated .lrow .lname { padding-right: 54px; }
+  html[data-layout="consolidated"] body.consolidated .lrow .lname:has(.astar) { padding-right: 54px; }
   html[data-layout="consolidated"] body.consolidated .lrow .lname .astar { width: 26px; height: 20px; right: 26px; border-radius: 6px; }
   html[data-layout="consolidated"] body.consolidated .lrow .lname .astar svg { width: 15px; height: 15px; }
   /* #6719 review 12: a touch tablet held sideways opens on this rail, so its star needs a 44px touch target. An

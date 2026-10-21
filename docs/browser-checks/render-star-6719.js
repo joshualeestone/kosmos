@@ -343,7 +343,8 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
         for (let x = Math.floor(b.left) - 30; x <= Math.ceil(b.right) + 30; x++) if (at(x, cy)) { if (left === null) left = x; right = x; }
         // The title's visible end (its content box: a long title is clipped there with an ellipsis, while its text range
         // runs on past the row) must not be under the hit area, or a tap there stars instead of opening. CONTROL: with
-        // the title's padding taken off, the same probe does land on the star, so this can fail (review 14).
+        // the title's padding cut to 44px (the middle of the area, 22 to 66px in), the same probe does land on the star,
+        // so this can fail (review 14; review 15: at 0px the probe sat right of the area and the control could not pass).
         const tt = s.closest('.lrow').querySelector('.ltitle');
         const titleEndAt = () => { const r = tt.getBoundingClientRect(); const cs = getComputedStyle(tt);
           return { x: r.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth) - 1, y: r.top + r.height / 2 }; };
@@ -351,7 +352,7 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
         if (tt) {
           titleClipped = tt.scrollWidth > tt.clientWidth;
           const e1 = titleEndAt(); titleUnder = at(e1.x, e1.y);
-          tt.style.paddingRight = '0px'; const e0 = titleEndAt(); titleUnderUnpadded = at(e0.x, e0.y); tt.style.paddingRight = '';
+          tt.style.paddingRight = '44px'; const e0 = titleEndAt(); titleUnderUnpadded = at(e0.x, e0.y); tt.style.paddingRight = '';
         }
         // The "99+" badge takes no taps, so a hit area over it would star the agent when the badge is pressed.
         const bd = s.closest('.lrow').querySelector(':scope > .dmbadge');
@@ -368,7 +369,7 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
         chk(hit.star && hit.area && hit.area[1] >= hit.rowBox[1] && hit.area[3] < hit.rowBox[3], `${t} the tap area stays inside its own row (a tap on the row above opens that agent)`, JSON.stringify(hit));
         chk(hit.star && hit.titleClipped === true, `${t} CONTROL: the long title is clipped, so it runs to its visible edge`, JSON.stringify(hit));
         chk(hit.star && hit.titleUnder === false, `${t} the title's visible end is not under the tap area (a tap there opens the agent)`, JSON.stringify(hit));
-        chk(hit.star && hit.titleUnderUnpadded === true, `${t} CONTROL: without its padding the title's end IS under the tap area, so the test above can fail`, JSON.stringify(hit));
+        chk(hit.star && hit.titleUnderUnpadded === true, `${t} CONTROL: with its padding cut to 44px the title's end IS under the tap area, so the test above can fail`, JSON.stringify(hit));
         chk(hit.star && hit.badgeUnder === false, `${t} the tap area ends short of the unread badge`, JSON.stringify(hit));
         chk(hit.star && !hit.far, `${t} CONTROL: a tap 30px below the star does not reach it`, JSON.stringify(hit));
       }
