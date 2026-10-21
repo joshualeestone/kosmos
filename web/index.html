@@ -1147,6 +1147,7 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 /* #6714: the restart notice is a .utoast now; its buttons get the same phone tap height, at the width its phone layout
    and its one-notice cap use. */
 @media (max-width: 720px) { .utoast.survival .uacts button, .utoast.survival .ux { min-height: 44px; } .utoast.survival .ux { min-width: 44px; } }
+@media (max-width: 720px) { .utoast.reviewer-note .uacts button, .utoast.reviewer-note .ux { min-height: 44px; } .utoast.reviewer-note .ux { min-width: 44px; } }
 /* 🛑 #2615: THE aria-disabled ARM NEEDS ITS OWN RULE, AND ITS ABSENCE SHIPPED A
    CARD TITLED "grey out the control" THAT GREYED NOTHING OUT. `disabled` was
    doing TWO jobs: the semantics AND the dimming, via `.btn:disabled` right
@@ -1333,6 +1334,7 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 /* #6714: an agent that will not come back after a restart: a warning with a remedy, so the amber of an expiring login.
    Its report (.done) is a fact, neutral like .reboot. Restated in each theme block below. */
 .utoast.survival { --utone: var(--warn-ink); }
+.utoast.reviewer-note { --utone: var(--label-2); }   /* kosmos#6817: news, not a warning */
 .utoast.survival.done, .utoast.survival.unknown { --utone: var(--label-2); }
 .utoast.survival.done .utxt b, .utoast.survival.unknown .utxt b { color: var(--label); font-weight: 400; }
 .utoast.survival.report .utxt b b, .utoast.survival.report .utxt small b { display: inline; font-weight: 600; }   /* the name, inside its sentence */
@@ -1511,6 +1513,11 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   .utoast.survival .utxt { flex: 1 1 0; min-width: 0; }
   .utoast.survival .ux { order: 2; }
   .utoast.survival .uacts { order: 3; flex: 1 0 100%; margin-left: 19px; }
+  /* kosmos#6817: the reviewer notice takes the same phone rows: words and x, then its button beneath. */
+  .utoast.reviewer-note { flex-wrap: wrap; row-gap: 8px; }
+  .utoast.reviewer-note .utxt { flex: 1 1 0; min-width: 0; }
+  .utoast.reviewer-note .ux { order: 2; }
+  .utoast.reviewer-note .uacts { order: 3; flex: 1 0 100%; margin-left: 19px; }
   /* kosmos#6613: the certificate notice's small line says whether the check is still on; a phone keeps it. */
   .utoast.cwnote .utxt small { display: block; }
 }
@@ -9265,6 +9272,7 @@ svg { display: block; }
   :root:not([data-theme="light"]) .utoast.streak { --utone: var(--gold-edge); }
   :root:not([data-theme="light"]) .utoast.login-adv.warn { --utone: var(--warn-ink); }
   :root:not([data-theme="light"]) .utoast.survival { --utone: var(--warn-ink); }
+  :root:not([data-theme="light"]) .utoast.reviewer-note { --utone: var(--label-2); }
   :root:not([data-theme="light"]) .utoast.survival.done, :root:not([data-theme="light"]) .utoast.survival.unknown { --utone: var(--label-2); }
   :root:not([data-theme="light"]) .utoast.login-adv.urgent { --utone: #ff8c82; }
 }
@@ -11464,6 +11472,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-theme="dark"] .utoast.streak { --utone: var(--gold-edge); }
 :root[data-theme="dark"] .utoast.login-adv.warn { --utone: var(--warn-ink); }
 :root[data-theme="dark"] .utoast.survival { --utone: var(--warn-ink); }
+:root[data-theme="dark"] .utoast.reviewer-note { --utone: var(--label-2); }
 :root[data-theme="dark"] .utoast.survival.done, :root[data-theme="dark"] .utoast.survival.unknown { --utone: var(--label-2); }
 :root[data-theme="dark"] .utoast.login-adv.urgent { --utone: #ff8c82; }
 
@@ -11625,6 +11634,7 @@ body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice, body.
 body.plus-active .utoast.streak { --utone: var(--gold-edge); }
 body.plus-active .utoast.login-adv.warn { --utone: var(--warn-ink); }
 body.plus-active .utoast.survival { --utone: var(--warn-ink); }
+body.plus-active .utoast.reviewer-note { --utone: var(--label-2); }
 body.plus-active .utoast.survival.done, body.plus-active .utoast.survival.unknown { --utone: var(--label-2); }
 body.plus-active .utoast.login-adv.urgent { --utone: #ff8c82; }
 /* #3692: the cards and warnings that lost their left bar are marked by a hairline and a tint, and
@@ -12572,6 +12582,9 @@ window.kosmosMeasureScrollbarWidth();
     <!-- #6714 review 18: the result of a start sits in its own slot, so the notices below keep repainting while it is read. -->
     <div id="survival-report-slot"></div>
     <div id="survival-slot"></div>
+    <!-- kosmos#6817: someone in this person's company (or family) was made a reviewer. One notice, cleared on its x, on
+         See who, or when the Settings list is on screen. Its own slot so it co-occurs with the others. -->
+    <div id="reviewer-slot"></div>
     <!-- #5359: the computer restarted while Kosmos was running and Kosmos came back by itself. A fact, so it sits
          below the notices that need action (update, login); its own slot so it co-occurs with them (Mona Lisa). -->
     <div id="reboot-slot"></div>
@@ -25739,6 +25752,7 @@ async function tick() {
     // is active, so `grid.hidden` stopped meaning "not on the agents tab".
     // `onAgentsTab()` reads boardbar, which tracks the tab and nothing else.
     if (onAgentsTab()) { paintRemoved(); paintSurvival(); }
+    reviewerNoteMaybe();   // kosmos#6817: clears itself off the agents tab
   } catch (err) {
     clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
     if (answered && !(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;   // a refusal is an answer too (#268)
@@ -52420,6 +52434,7 @@ function plusOrgPaint() {
   else if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.';
   else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : ''));
   plusOrgReviewers(here ? st : null);   // kosmos#6752
+  if (here) reviewerNoteSeenList(st);   // kosmos#6817: the list on screen counts as seen
 }
 /* kosmos#6752: what follows the reviewer's name on one grant's line, leading with what is true now (Mona Lisa's review):
    every grant is inside 30 days, so a date has no year and no time, except a grant that lands within a day, the one
@@ -52472,6 +52487,72 @@ function plusOrgReviewers(st) {
     list.appendChild(line);
   }
 }
+/* kosmos#6817 item 1: a member who never opens Settings is told on the board that someone in their company (or family)
+   was made a reviewer. One notice in the floating stack while any grant from the last 30 days is newer than the newest
+   this computer has seen; its x, See who, and the Settings list on screen all count as seen. Seen is kept per computer
+   (the design call on the card). Read from /api/org/grants, which spends none of the one-time notes /api/org does. */
+const REVIEWER_NOTE_KEY = 'kosmos.reviewerGrantSeen';
+const REVIEWER_NOTE = { at: 0, grants: null, kind: null };
+function reviewerNoteNewest(grants, now) {
+  let n = 0;
+  for (const g of Array.isArray(grants) ? grants : []) {
+    if (g && typeof g.grantedAt === 'number' && g.grantedAt >= now - PLUS_ORG_REVIEWER_DAYS * 86400 && g.grantedAt > n) n = g.grantedAt;
+  }
+  return n;
+}
+function reviewerNoteSeenAt() { try { return Number(localStorage.getItem(REVIEWER_NOTE_KEY)) || 0; } catch { return 0; } }
+function reviewerNoteSeen(at) {
+  if (!(at > reviewerNoteSeenAt())) return;
+  try { localStorage.setItem(REVIEWER_NOTE_KEY, String(at)); } catch { /* storage refused: it shows again on the next visit */ }
+  const slot = document.getElementById('reviewer-slot');
+  if (slot) { slot.innerHTML = ''; delete slot.dataset.v; }
+}
+function reviewerNoteSeenList(st) {
+  const box = document.getElementById('plus-org-reviewers');
+  if (!box || box.hidden || !plusOnScreen()) return;
+  reviewerNoteSeen(reviewerNoteNewest(st && st.reviewerGrants, Date.now() / 1000));
+}
+function paintReviewerNote() {
+  const slot = document.getElementById('reviewer-slot');
+  if (!slot) return;
+  const newest = onAgentsTab() && REVIEWER_NOTE.grants ? reviewerNoteNewest(REVIEWER_NOTE.grants, Date.now() / 1000) : 0;
+  const html = newest > reviewerNoteSeenAt()
+    ? '<div class="utoast reviewer-note"><span class="udot" aria-hidden="true"></span>'
+      + '<div class="utxt" role="status"><b>' + esc(plusOrgIn({ kind: REVIEWER_NOTE.kind }, 'Someone was made a reviewer for your company.')) + '</b></div>'
+      + '<div class="uacts"><button type="button" class="uprime" data-reviewer-see="' + newest + '">See who</button></div>'
+      + '<button type="button" class="ux" data-reviewer-hide="' + newest + '" aria-label="Close this notice" title="Close this notice">&times;</button>'
+      + '</div>'
+    : '';
+  if (slot.dataset.v === html) return;   // a repaint every poll would take focus off its button
+  slot.dataset.v = html;
+  slot.innerHTML = html;
+}
+function reviewerNoteMaybe() {
+  paintReviewerNote();
+  if (!onAgentsTab() || Date.now() - REVIEWER_NOTE.at < 60000) return;   // at most once a minute, failed reads included
+  REVIEWER_NOTE.at = Date.now();
+  fetch('/api/org/grants', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+    if (!j) return;   // a failed read keeps what is on screen
+    REVIEWER_NOTE.grants = j.enrolled === true && Array.isArray(j.reviewerGrants) ? j.reviewerGrants : [];
+    REVIEWER_NOTE.kind = j.kind === 'family' ? 'family' : 'company';
+    paintReviewerNote();
+  }).catch(() => { /* the next minute tries again */ });
+}
+document.addEventListener('click', (e) => {
+  const see = e.target.closest && e.target.closest('[data-reviewer-see]');
+  const hide = e.target.closest && e.target.closest('[data-reviewer-hide]');
+  if (hide) { reviewerNoteSeen(Number(hide.getAttribute('data-reviewer-hide'))); return; }
+  if (!see) return;
+  reviewerNoteSeen(Number(see.getAttribute('data-reviewer-see')));
+  showTab('settings'); settingsGo('plus');
+  // The list paints once Settings has read /api/org; bring it into view when it is there.
+  let tries = 0;
+  (function land() {
+    const box = document.getElementById('plus-org-reviewers');
+    if (box && !box.hidden) { box.scrollIntoView({ block: 'center' }); return; }
+    if ((tries += 1) < 40) setTimeout(land, 100);
+  })();
+});
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */
 async function plusOrgPost(kind, body) {
