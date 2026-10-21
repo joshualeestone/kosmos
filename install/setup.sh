@@ -3716,6 +3716,35 @@ if [ "$FRESH_INSTALL" = "no" ]; then
   info "Kosmos is already installed here. Updating it in place."
 fi
 
+# kosmos#6781 (O04-5c): the fleet's update pause holds THIS installer too. run-setup asks before it runs the installer
+# (engine/manifest-verify.js pausedSync, kosmos#6620), but a pasted install line over an existing install, and a .pkg
+# on its pinned path, run the installer directly. So an update in place asks here, the same way: the coordinator's
+# /v1/meta, `"updates_paused": true` exactly (a lookalike such as "true" in quotes is not paused), 5 s, no redirect,
+# and no answer of any kind is "not paused" (a fleet that holds every update whenever the coordinator blinks cannot
+# take a security fix). A first install is never held: there is no running copy to protect, and it installs no update.
+# Asked only for a release from the production site, or when KOSMOS_UPDATE_PAUSE_URL names the address (a test does),
+# so an install from a local or file:// release (every test) never asks the production coordinator.
+# KOSMOS_UPDATE_PAUSE_ASKED=1 is set by run-setup, which has already asked; KOSMOS_UPDATE_IGNORE_PAUSE=1 is the
+# operator's override, as in run-setup. Exits 96, which the .pkg reads as "a retry can succeed".
+update_paused() {
+  [ "$FRESH_INSTALL" = "no" ] || return 1
+  [ "${KOSMOS_UPDATE_IGNORE_PAUSE:-}" = 1 ] && return 1
+  [ "${KOSMOS_UPDATE_PAUSE_ASKED:-}" = 1 ] && return 1
+  _pause_url="${KOSMOS_UPDATE_PAUSE_URL:-}"
+  if [ -z "$_pause_url" ]; then
+    case "$KOSMOS_RELEASE_BASE" in https://installkosmos.com/*) ;; *) return 1 ;; esac
+    _pause_url="${AGENT_WORKFORCE_TUNNEL_COORDINATOR:-https://login.kosmosplus.com}"
+    while [ "${_pause_url%/}" != "$_pause_url" ]; do _pause_url="${_pause_url%/}"; done
+    _pause_url="$_pause_url/v1/meta"
+  fi
+  /usr/bin/curl -q -fsS --max-time 5 "$_pause_url" 2>/dev/null | /usr/bin/tr -d '\n\r' \
+    | /usr/bin/grep -Eq '"updates_paused"[[:space:]]*:[[:space:]]*true[[:space:]]*[,}]'
+}
+if update_paused; then
+  printf '\n  Kosmos was not updated.\n     Updates are paused while Kosmos checks a problem with a release, so this update waits until the pause is lifted. Your Kosmos keeps working as it is. Try again later.\n\n' >&2
+  exit 96
+fi
+
 
 # 🔑 A BUSY PORT IS SAID EARLY, AND THE INSTALL STILL FINISHES.
 #

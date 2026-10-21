@@ -180,8 +180,8 @@ function verifySetup({ manifest, sig, setup, version, installedVersion, keys = K
  * AGENT_WORKFORCE_TUNNEL_COORDINATOR, is required to be https: one set to http lets a network in between hold updates,
  * the same reach as whoever controls the answer above, and setting it already takes control of this computer's env.
  *
- * Not held today: a .pkg install that takes the pinned path (install/pkg-verify/floor not "off") and a pasted
- * install line over an existing install, which run the installer without run-setup (#6781).
+ * The installer asks the same question itself when it updates in place (install/setup.sh update_paused, #6781), so a
+ * pasted install line and a .pkg on its pinned path are held too; runSetup tells the installer it has already asked.
  *
  * A second reader of /v1/meta beside engine/remote.js fetchMetaFlag, on purpose: run-setup is the installed copy of
  * this file run on its own (also by .pkg files already downloaded), so it requires nothing of the board's modules, and
@@ -314,6 +314,8 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
        board installed anywhere else (a test board, a home of the person's choosing) updated the default copy instead,
        stopping and replacing the person's own Kosmos. */
     env.KOSMOS_HOME = asTheInstallerNamesIt(home);
+    // #6781: the installer asks the update pause itself (for a pasted line or a pinned .pkg); this run already asked.
+    env.KOSMOS_UPDATE_PAUSE_ASKED = '1';
     // stdin is not handed on: under curl | sh the installer's stdin was its own bytes, so it never read one.
     const run = spawnSync('/bin/sh', [files.setup], { stdio: ['ignore', 'inherit', 'inherit'], env });
     // 96 and 97 are reserved for "not run": an installer that exits either itself is reported as a plain failure.
@@ -530,6 +532,12 @@ if (require.main === module && process.argv[2] === 'needs-key-list') {
   let code;
   try { code = runSetup({ setupUrl, base, version, home }); } catch (e) { process.stderr.write('Kosmos: the installer could not be checked (' + (e && e.code || 'error') + '), so it was not run.\n'); code = NOT_RUN; }
   process.exit(code);
+} else if (require.main === module && process.argv[2] === 'paused') {
+  // #6781: <installed node> manifest-verify.js paused: exit 0 when the fleet's updates are paused, 1 when not (or no
+  // answer). `kosmos update --if-newer` asks it so a connect computer's app can say "paused", not "failed".
+  let p = false;
+  try { p = pausedSync(); } catch { p = false; }
+  process.exit(p ? 0 : 1);
 } else if (require.main === module && process.argv[2] === 'tmux') {
   // <installed node> manifest-verify.js tmux <manifest> <sig> <tmux.tar.gz> <version> <installed-home>
   const [manifest, sig, tmux, version, home] = process.argv.slice(3);

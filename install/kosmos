@@ -2528,6 +2528,14 @@ EOF
     printf 'newer %s\n' "$v"
     exit 0
   fi
+  # #6781: while the fleet's updates are paused, say so in a word the app reads (`paused <version>`), rather than run
+  # run-setup, which would hold the install too but answer only `failed`, with the reason in install.log. An app that
+  # predates the word reads it as unknown, which retries later, as a pause wants. --install does not pass a pause:
+  # it overrides "updates are off here", not the fleet's hold. No answer from the coordinator is "not paused".
+  if "$_node" "$KOSMOS_HOME/app/engine/manifest-verify.js" paused >/dev/null 2>&1; then
+    printf 'paused %s\n' "$v"
+    exit 0
+  fi
   mkdir -p "$LOG_DIR"
   started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf '%s\n' "$started" > "$LOG_DIR/install.started" 2>/dev/null || true
