@@ -274,9 +274,30 @@ async function anyAgent(t) {
   return encodeURIComponent(tied.sessionName);
 }
 
-async function req(path, options) {
-  const res = await fetch(base + path, options);
-  return { status: res.status, type: res.headers.get('content-type') || '', body: await res.text() };
+/* #6059: every request on a NEW connection (agent: false), never a pooled one. Global fetch reuses keep-alive
+   sockets, and on a loaded hosted runner a socket left idle across a request-free test came back ECONNRESET on the
+   next request (two PRs, 2026-10-21; server.dm-rollover-5841 does the same for the same reason). Callers pass only
+   method, headers and string bodies, and none reaches the server's one redirect, so the contract is unchanged. */
+const http = require('node:http');
+let REQUESTS = 0;
+let REUSED = 0;
+function req(path, options = {}) {
+  return new Promise((resolve, reject) => {
+    REQUESTS += 1;
+    const headers = { ...(options.headers || {}) };
+    if (options.body !== undefined) headers['content-length'] = Buffer.byteLength(options.body);
+    const r = http.request(base + path, { method: options.method || 'GET', agent: false, headers }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'] || '', body }));
+      res.on('error', reject);
+    });
+    r.on('socket', () => { if (r.reusedSocket) REUSED += 1; });
+    r.on('error', reject);
+    if (options.body !== undefined) r.write(options.body);
+    r.end();
+  });
 }
 
 const postJson = (path, obj) => req(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
@@ -16915,4 +16936,9 @@ test('kosmos#5628: a managed computer sets up through the company sign-in routes
     }
     require('./engine/remote').resetForTests();
   }
+});
+
+test('#6059 harness: every req() went out on a new connection, none on a reused socket', () => {
+  assert.ok(REQUESTS > 100, `only ${REQUESTS} requests went through req(), so this arm proves little`);
+  assert.equal(REUSED, 0, 'a req() reused a pooled socket, which is what came back ECONNRESET on a loaded runner');
 });
