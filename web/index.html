@@ -46992,7 +46992,8 @@ function cropPicture(file, verb) {
       file, name: file.name, done, opener, ptrs: new Map(), closing: false };
     document.getElementById('crop-go').textContent = verb || 'Save';
     document.getElementById('cropmodal').hidden = false;
-    cropPaint();
+    try { cropPaint(); }
+    catch { cropFinish(true); return; }   // a picture the editor cannot draw is kept as chosen, as a failed cut is
     document.getElementById('crop-stage').focus();
   }), () => { CROP_READING = false; return file; });
 }

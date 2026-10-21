@@ -13,6 +13,7 @@
  *   - a phone photo whose rotation tag says "turned" comes in upright (its sides swapped), and the same photo with no
  *     tag does not (the CONTROL that the tag, not the photo, did it);
  *   - a GIF is handed back exactly as chosen (an animated one would stop moving);
+ *   - a picture the editor cannot draw is handed back as chosen, and the next choice still opens the editor;
  *   - a small picture is saved at its own size, not blown up to 512;
  *   - a key with a modifier (Ctrl+=, Ctrl+Tab) is left to the browser; a drag that ends on the backdrop does not cancel;
  *   - wired, all three pickers: the person's own picture and an agent's page (Cancel uploads nothing; Save uploads
@@ -223,6 +224,23 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
       return { same: r === f, hidden: document.getElementById('cropmodal').hidden };
     });
     chk(gif.same && gif.hidden, `${t} a GIF is handed back exactly as chosen, with no editor`, JSON.stringify(gif));
+    // A picture the editor cannot draw is handed back as chosen, the editor closes, and the next choice still opens it.
+    const unpaintable = await page.evaluate(async () => {
+      const real = window.cropPaint;
+      window.cropPaint = () => { throw new Error('cannot draw'); };
+      const f = await T.twoTone(400, 200);
+      const r = await Promise.race([cropPicture(f), new Promise((res) => setTimeout(() => res('hung'), 3000))]);
+      window.cropPaint = real;
+      const out = { same: r === f, hidden: document.getElementById('cropmodal').hidden, crop: CROP === null };
+      window.CROP_P = cropPicture(await T.twoTone(400, 200));
+      for (let i = 0; i < 100 && document.getElementById('cropmodal').hidden; i += 1) await new Promise((res) => setTimeout(res, 20));
+      out.nextOpens = !document.getElementById('cropmodal').hidden;
+      document.getElementById('crop-no').click();
+      await window.CROP_P;
+      return out;
+    });
+    chk(unpaintable.same && unpaintable.hidden && unpaintable.crop && unpaintable.nextOpens,
+      `${t} a picture the editor cannot draw is kept as chosen, and the next choice still opens the editor`, JSON.stringify(unpaintable));
 
     // Wired: the person's own picture.
     const pick = async () => page.evaluate(async () => {
@@ -372,7 +390,7 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
   }
   // The count is part of the result: a run that skipped arms (or an empty ENGINES) must not read as green.
   if (engines.length === 0) chk(false, 'ENGINES named no engine, so nothing ran');
-  const EXPECTED_PER_ENGINE = 30;
+  const EXPECTED_PER_ENGINE = 31;
   if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
   console.log(`render-avatar-crop-6722: ${RAN - fail.length} PASS, ${fail.length} FAIL`);
   process.exit(fail.length ? 1 : 0);
