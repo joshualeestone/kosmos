@@ -21,6 +21,8 @@ The measurements (three probes on ubuntu-latest), decisions, the stated weakest 
   note changed, and Mortals is re-run on the new head, see below): 22813
   tests, 22491 passed, 2 failed, 320 skipped. The 2 are #6668's watchdog arms (untouched here, red under load on every
   branch tonight; #6768 fixes them). A full run with no shard runs all of test:shell, as before this change.
+- **Mortals full suite on the PR head c175b76f** (after the plan's billing correction; hash 594f5100, matching the
+  diff_hash above): 22813 tests, 22491 passed, 2 failed (the same two #6668 arms), 320 skipped.
 - **On Linux, through the real runner:** branch probe-6791-runner (this change at 5df1a84e plus a probe workflow, never
   merged) ran both Linux shards exactly as the changed test.yml does, on ubuntu-latest (run 39540270814): shell 1/2
   "all 121 passed" (job 8.5 min), shell 2/2 "all 109 passed" (job 12.5 min). Since then only the macOS share changed
