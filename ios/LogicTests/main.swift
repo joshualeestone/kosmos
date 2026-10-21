@@ -1171,13 +1171,68 @@ check(pressIn("(function () { throw new Error('broken'); })()", .projects) == (.
 
 section("app tabs: what an answer does")
 let roomURL = URL(string: "https://studio.kosmosplus.com/?tab=projects&project=x")
-check(AppTabs.afterAnswer(.opened, from: .today, pageURL: roomURL) == (true, nil), "opened: the press is over, the bar stays")
-check(AppTabs.afterAnswer(.absent, from: .today, pageURL: roomURL) == (false, nil), "absent: the press waits, the bar stays")
-check(AppTabs.afterAnswer(.refused, from: .settings, pageURL: roomURL) == (true, .settings), "refused: back to the web tab it came from")
-check(AppTabs.afterAnswer(.refused, from: .agents, pageURL: roomURL) == (true, .projects), "refused from Agents: to the page's own tab, where the box is, never back to Agents")
-check(AppTabs.afterAnswer(.refused, from: .agents, pageURL: nil) == (true, .today), "and with no address, Today, still never Agents")
-check(AppTabs.afterAnswer(.refused, from: nil, pageURL: roomURL) == (true, .projects), "a press that waited for a load: the page's own tab")
-check(AppTabs.Tab.allCases.allSatisfy { from in AppTabs.afterAnswer(.refused, from: from, pageURL: roomURL).barTo != .agents }, "no refusal ever puts the bar on Agents")
+let settingsURL = URL(string: "https://studio.kosmosplus.com/?tab=settings&sec=you")
+check(AppTabs.afterAnswer(.opened, pageURL: roomURL) == (true, nil), "opened: the press is over, the bar stays")
+check(AppTabs.afterAnswer(.absent, pageURL: roomURL) == (false, nil), "absent: the press waits, the bar stays")
+check(AppTabs.afterAnswer(.refused, pageURL: roomURL) == (true, .projects), "refused: the bar goes to the section the page is on (a project room: Projects)")
+check(AppTabs.afterAnswer(.refused, pageURL: settingsURL) == (true, .settings), "on Settings: Settings")
+check(AppTabs.afterAnswer(.refused, pageURL: nil) == (true, .today), "no address: Today")
+let anyURL = ["?tab=agents", "?tab=detail&agent=a", "?tab=projects", "?tab=tasks", "?tab=settings", "", "?tab=zzz"].map { URL(string: "https://m.kosmosplus.com/" + $0) }
+check(anyURL.allSatisfy { AppTabs.afterAnswer(.refused, pageURL: $0).barTo != .agents }, "no refusal ever puts the bar on Agents, where the box would be out of sight")
+
+section("app tabs: the bar's labels")
+check(AppTabs.visible(tasksTab: true).map(\.title) == ["Today", "Agents", "Projects", "Tasks", "Settings"], "the bar's words, in order")
+check(AppTabs.visible(tasksTab: true).map(\.symbol) == ["sun.max", "person.2", "folder", "checklist", "gearshape"], "the spec's symbols")
+
+section("app tabs: press bookkeeping")
+do {
+    var t = PressTracker()
+    check(t.press(.projects, pageReady: false) == nil && t.pending == .projects, "no page yet: the press waits")
+    let run = t.press(.projects, pageReady: true)
+    check(run != nil && run?.script == AppTabs.pressScript(.projects), "a ready page: the press runs")
+    check(t.answered(serial: run!.serial, .absent, pageURL: nil) == nil && t.pending == .projects, "no door: it still waits")
+    check(t.answered(serial: run!.serial, .opened, pageURL: nil) == nil && t.pending == nil, "opened: over")
+
+    var u = PressTracker()
+    let first = u.press(.projects, pageReady: true)!
+    let second = u.press(.settings, pageReady: true)!
+    check(u.answered(serial: first.serial, .refused, pageURL: roomURL) == nil && u.pending == .settings, "a late answer to an earlier press moves nothing and ends nothing")
+    check(u.answered(serial: second.serial, .refused, pageURL: roomURL) == .projects && u.pending == nil, "the latest press's refusal ends it and moves the bar to the page's tab")
+
+    var v = PressTracker()
+    let shown = v.press(.settings, pageReady: true)!
+    v.loadingOwnPage()
+    check(v.pending == nil && v.answered(serial: shown.serial, .refused, pageURL: settingsURL) == nil, "an agent tap ends a press, and a late refusal of it cannot move the bar")
+    _ = v.press(.projects, pageReady: false)
+    check(v.press(.agents, pageReady: true) == nil && v.pending == nil, "the native tab ends a waiting press")
+
+    var w = PressTracker()
+    let before = w.press(.tasks, pageReady: true)!
+    let page = w.generation
+    w.drop(selected: .projects)
+    check(w.pending == .projects, "after a lock, the fresh page opens the selected tab")
+    check(w.answered(serial: before.serial, .opened, pageURL: nil) == nil && w.pending == .projects, "a late answer from the dropped page does not end it")
+    check(w.read(true, generation: page) == nil && !w.readThisLaunch, "nor does a late Tasks read from it count")
+    w.drop(selected: .agents)
+    check(w.pending == nil, "a lock on Agents leaves nothing to press")
+}
+
+section("app tabs: Tasks read rounds")
+do {
+    var t = PressTracker()
+    let g = t.generation
+    let r1 = t.loaded()
+    let r2 = t.loaded()
+    check(r1 != nil && r2 != nil && r1 != r2, "each load starts a round")
+    check(!t.shouldRead(round: r1, generation: g) && t.shouldRead(round: r2, generation: g), "only the latest round reads, so they do not stack")
+    check(t.read(nil, generation: g) == nil && !t.readThisLaunch, "the sign-in page's nothing does not end the launch's reads")
+    check(t.read(true, generation: g) == true && t.readThisLaunch, "the first answer sets the bar")
+    check(!t.shouldRead(round: r2, generation: g) && t.loaded() == nil, "and then the rounds stop, and loads start none")
+    check(t.shouldRead(round: nil, generation: g) && t.read(false, generation: g) == false, "a return to the front still reads, and its answer counts")
+    t.drop(selected: .today)
+    check(!t.readThisLaunch && t.loaded() != nil, "after a lock the fresh page reads again, as at launch")
+    check(!t.shouldRead(round: nil, generation: g), "and reads of the dropped page do not run")
+}
 func marked(rootLater: Bool) -> Bool {
     let js = JSContext()!
     js.evaluateScript("""

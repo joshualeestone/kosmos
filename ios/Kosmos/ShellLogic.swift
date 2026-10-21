@@ -202,8 +202,29 @@ enum Shell {
 // The app's own tab bar (kosmos#6846, part b): Agents is native, the other four open their part of the board in the
 // one web view through the board's door, window.kosmosAppTab (part a, .claude/plans/apptab-6846.md).
 enum AppTabs {
-    enum Tab: CaseIterable, Equatable {
+    enum Tab: CaseIterable, Hashable {
         case today, agents, projects, tasks, settings
+
+        var title: String {
+            switch self {
+            case .today: return "Today"
+            case .agents: return "Agents"
+            case .projects: return "Projects"
+            case .tasks: return "Tasks"
+            case .settings: return "Settings"
+            }
+        }
+
+        // Mona Lisa's slice 1 spec.
+        var symbol: String {
+            switch self {
+            case .today: return "sun.max"
+            case .agents: return "person.2"
+            case .projects: return "folder"
+            case .tasks: return "checklist"
+            case .settings: return "gearshape"
+            }
+        }
 
         // The name the board's door takes; nil for the native tab. Today is the board's home, its agents tab.
         var boardName: String? {
@@ -245,17 +266,16 @@ enum AppTabs {
         case absent
     }
 
-    // What a press's answer does: whether the press is over, and where the bar goes (nil: it stays). On a refusal
-    // the bar goes back to the web tab it came from; never to a native tab (Agents), since from there every web tab
-    // would be refused in turn while the box refusing them sits out of sight. Then, and for a press that waited for a
-    // load, it goes to the tab of the section in the page's address, where the person can see what is in the way.
-    static func afterAnswer(_ answer: DoorAnswer, from: Tab?, pageURL: URL?) -> (over: Bool, barTo: Tab?) {
+    // What a press's answer does: whether the press is over, and where the bar goes (nil: it stays). A refusal puts
+    // the bar on the tab of the section the page is really on, read from its address (the board keeps ?tab= there
+    // with replaceState). Not the bar's previous tab: the bar may have moved since without the page following. And
+    // never Agents (an address never names it): from Agents every web tab would be refused in turn while the box
+    // refusing them sat out of sight.
+    static func afterAnswer(_ answer: DoorAnswer, pageURL: URL?) -> (over: Bool, barTo: Tab?) {
         switch answer {
         case .opened: return (true, nil)
         case .absent: return (false, nil)
-        case .refused:
-            if let from = from, from.boardName != nil { return (true, from) }
-            return (true, tab(forBoardURL: pageURL))
+        case .refused: return (true, tab(forBoardURL: pageURL))
         }
     }
 
@@ -303,4 +323,73 @@ enum AppTabs {
 
     // The app's own memory of the flag, so a launch shows the bar it last had.
     static let rememberedTasksKey = "kosmos.app.tasksTab"
+}
+
+// The bookkeeping behind the app's presses and its Tasks reads (kosmos#6846), apart from WebKit so LogicTests can
+// drive it. BoardWeb (ContentView.swift) only carries out what this says.
+struct PressTracker {
+    // The press the page has not yet taken (no page yet, still loading, or a page without the door, such as the
+    // sign-in page before the hand-off to the Mac). Tried again at every load until the door opens the section or
+    // refuses; a new press, the native tab, or a page the app loads itself (an agent tap) replaces it.
+    private(set) var pending: AppTabs.Tab?
+    // Every press, every page the app loads itself and every drop take a new number; an answer counts only for the
+    // latest, so a late answer to an earlier press can neither end nor move anything newer.
+    private(set) var serial = 0
+    // Moves on only when a lock drops the page, so reads of the dropped page are ignored.
+    private(set) var generation = 0
+    // Moves on with each load, so only the latest load's round of Tasks reads runs (they do not stack).
+    private(set) var readRound = 0
+    // Whether a Tasks read of this launch has answered; until then a read may change the bar.
+    private(set) var readThisLaunch = false
+
+    // A press: the script to run now and the number its answer must carry, or nil when there is nothing to run now
+    // (the native tab, which also ends a waiting press; or no page able to take it yet, when it waits).
+    mutating func press(_ tab: AppTabs.Tab, pageReady: Bool) -> (script: String, serial: Int)? {
+        serial += 1
+        guard let script = AppTabs.pressScript(tab) else { pending = nil; return nil }
+        pending = tab
+        return pageReady ? (script, serial) : nil
+    }
+
+    // An answer to the press numbered `serial`: where the bar goes, or nil.
+    mutating func answered(serial: Int, _ answer: AppTabs.DoorAnswer, pageURL: URL?) -> AppTabs.Tab? {
+        guard serial == self.serial else { return nil }
+        let next = AppTabs.afterAnswer(answer, pageURL: pageURL)
+        if next.over { pending = nil }
+        return next.barTo
+    }
+
+    // The app is loading a page of its own choosing (an agent tap, a notification): no earlier press may cover it,
+    // and no answer to one may move the bar.
+    mutating func loadingOwnPage() {
+        serial += 1
+        pending = nil
+    }
+
+    // A page finished loading: a round of Tasks reads starts if none has answered this launch (its number, or nil).
+    mutating func loaded() -> Int? {
+        guard !readThisLaunch else { return nil }
+        readRound += 1
+        return readRound
+    }
+
+    // Whether a read scheduled in `round` for `generation` should still run.
+    func shouldRead(round: Int?, generation: Int) -> Bool {
+        generation == self.generation && (round == nil || (round == readRound && !readThisLaunch))
+    }
+
+    // A read's answer: the value to put in the bar, or nil to leave it.
+    mutating func read(_ shown: Bool?, generation: Int) -> Bool? {
+        guard generation == self.generation, let shown = shown else { return nil }
+        readThisLaunch = true
+        return shown
+    }
+
+    // The page was dropped (a lock): the fresh page opens the selected tab's section and may set Tasks, as at launch.
+    mutating func drop(selected: AppTabs.Tab) {
+        serial += 1
+        generation += 1
+        pending = AppTabs.pressScript(selected) == nil ? nil : selected
+        readThisLaunch = false
+    }
 }

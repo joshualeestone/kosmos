@@ -30,7 +30,8 @@ struct ContentView: View {
     // (ios/store/shoot-app.sh) photographs board screens in the web view, opened by address, so it lights the tab
     // that address belongs to (a project room under Projects).
     #if KOSMOS_STORE_SHOTS
-    @State private var tab = AppTabs.tab(forBoardURL: KosmosConfig.shotsOrigin)
+    @State private var tab = AppTabs.keep(AppTabs.tab(forBoardURL: KosmosConfig.shotsOrigin),
+                                          tasksTab: UserDefaults.standard.bool(forKey: AppTabs.rememberedTasksKey))
     #else
     // Not signed in yet (a first launch): open on Today, the board, where the sign-in is (the spec's "today's sign-in
     // flow"). Read once per launch (a static), not on every redraw. A launch before first unlock reads no session and
@@ -44,9 +45,8 @@ struct ContentView: View {
     // agent tap, a notification) does not press, so the page it was sent to stays.
     private var pressing: Binding<Tab> {
         Binding(get: { tab }, set: { new in
-            let old = tab
             tab = new
-            web.press(new, from: old)
+            web.press(new)
         })
     }
 
@@ -54,28 +54,15 @@ struct ContentView: View {
         Group {
             if isUnlocked {
                 TabView(selection: pressing) {
-                    webBoard(.today)
-                        .tabItem { Label("Today", systemImage: "sun.max") }
-                        .tag(Tab.today)
-                    AgentsView(client: board, openChat: { url in
-                        pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-                    }, openBoard: { select(.today) })
-                    .tabItem { Label("Agents", systemImage: "person.2") }
-                    .tag(Tab.agents)
-                    webBoard(.projects)
-                        .tabItem { Label("Projects", systemImage: "folder") }
-                        .tag(Tab.projects)
-                    // Earned, as on the computer (#3559). The bar takes it from the board page once per launch (the
-                    // first read that answers, retried for 20 s after a load, which is later than launch when the
-                    // first web tab is opened late) and otherwise only on a return to the front, never on each poll.
-                    if web.tasksTab {
-                        webBoard(.tasks)
-                            .tabItem { Label("Tasks", systemImage: "checklist") }
-                            .tag(Tab.tasks)
+                    // In Mona Lisa's order. Tasks is earned, as on the computer (#3559): the bar takes it from the
+                    // board page once per launch (the first read that answers, retried for 20 s after a load, which is
+                    // later than launch when the first web tab is opened late) and otherwise only on a return to the
+                    // front, never on each poll.
+                    ForEach(AppTabs.visible(tasksTab: web.tasksTab), id: \.self) { which in
+                        tabPage(which)
+                            .tabItem { Label(which.title, systemImage: which.symbol) }
+                            .tag(which)
                     }
-                    webBoard(.settings)
-                        .tabItem { Label("Settings", systemImage: "gearshape") }
-                        .tag(Tab.settings)
                 }
                 // Mona Lisa's spec: the app's tint is the board's ink, so the selected tab is not system blue.
                 .tint(Palette.primary)
@@ -88,8 +75,8 @@ struct ContentView: View {
         .onChange(of: pushManager.boardToOpen) { request in
             if request != nil { tab = .today }
         }
-        // The board refused a press (a box was up): the bar goes back to the tab the page still shows, so pressing
-        // the same tab again later is a real press.
+        // The board refused a press (a box was up): the bar goes to the tab the page really shows, so pressing the
+        // same tab again later is a real press.
         .onChange(of: web.refused) { back in
             guard let back = back else { return }
             web.refused = nil
@@ -107,11 +94,12 @@ struct ContentView: View {
             if !isUnlocked { unlock() }
         }
         .onChange(of: scenePhase) { newPhase in
-            // Back at the front after a real background: the bar may take Tasks now (Mona Lisa: never while on screen).
+            // Back at the front after a real background: the bar may take Tasks now. Mona Lisa: the bar changes at
+            // launch or on a return, not on each poll (a launch's first read can still land while it is on screen).
             if newPhase == .background { tabsBackgrounded = true }
             if newPhase == .active && tabsBackgrounded {
                 tabsBackgrounded = false
-                web.readTasks(apply: true)
+                web.readTasks()
             }
             // iOS 16 single-parameter onChange. No-op when the gate is off.
             guard KosmosConfig.requireBiometricUnlock else { return }
@@ -145,9 +133,20 @@ struct ContentView: View {
     // The app moving the bar itself (not an agent tap, which loads its own page): the board follows it.
     private func select(_ new: Tab) {
         guard new != tab else { return }
-        let old = tab
         tab = new
-        web.press(new, from: old)
+        web.press(new)
+    }
+
+    // Agents is the native list; the other four show the shared board. Pressing the tab already selected does nothing
+    // (the selection does not change): an agent's chat opened under Today stays until another tab is pressed.
+    @ViewBuilder private func tabPage(_ which: Tab) -> some View {
+        if which == .agents {
+            AgentsView(client: board, openChat: { url in
+                pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+            }, openBoard: { select(.today) })
+        } else {
+            webBoard(which)
+        }
     }
 
     private func webBoard(_ which: Tab) -> some View {
@@ -267,73 +266,54 @@ final class BoardWeb: ObservableObject {
     @Published private(set) var tasksTab = UserDefaults.standard.bool(forKey: AppTabs.rememberedTasksKey)
     // Set when the board refuses a press: the tab to put the bar back on.
     @Published var refused: AppTabs.Tab?
-    // The press the page has not yet taken (the web view not made, still loading, or a page without the door, such
-    // as the sign-in page before the hand-off to the Mac). Tried again at every load until the door answers; it ends
-    // when the door opens the section or refuses, and a new press, the native tab, or a page the app loads itself (an
-    // agent tap) replaces it.
-    private var pending: AppTabs.Tab?
-    // Every press, and every drop of the page, takes a new number; an answer counts only for the latest one, so a
-    // late answer to an earlier press (or to the page a lock dropped) can neither end nor move a newer one.
-    private var serial = 0
-    // Moves on only when a lock drops the page, so a Tasks read of the dropped page is ignored.
-    private var generation = 0
-    // The first board read of a launch may change the bar (it is still launching); later ones wait for a return.
-    private var readThisLaunch = false
+    // What to press and read, and which answers still count (ShellLogic.swift, tested).
+    private var tracker = PressTracker()
 
     init() { coordinator.web = self }
 
     func adopt(_ webView: WKWebView) { self.webView = webView }
 
-    // `from` is the tab the bar showed before. A press that waited for a load has none (the bar may have moved
-    // since); AppTabs.afterAnswer decides where the bar goes on a refusal.
-    func press(_ tab: AppTabs.Tab, from: AppTabs.Tab? = nil) {
-        serial += 1
-        guard let script = AppTabs.pressScript(tab) else { pending = nil; return }
-        pending = tab
-        guard let webView = webView, !webView.isLoading else { return }
-        let mine = serial
-        webView.evaluateJavaScript(script) { [weak self] result, error in
-            guard let self = self, self.serial == mine else { return }
+    func press(_ tab: AppTabs.Tab) {
+        let ready = webView.map { !$0.isLoading } ?? false
+        guard let webView = webView, let run = tracker.press(tab, pageReady: ready) else { return }
+        webView.evaluateJavaScript(run.script) { [weak self] result, error in
+            guard let self = self else { return }
             let answer = AppTabs.answer(result, error: error)
-            let next = AppTabs.afterAnswer(answer, from: from, pageURL: webView.url)
-            if next.over { self.pending = nil }
             if answer == .refused { NSLog("[Tabs] the board refused \(tab)") }
-            if let back = next.barTo { self.refused = back }
+            if let back = self.tracker.answered(serial: run.serial, answer, pageURL: webView.url) { self.refused = back }
         }
     }
 
-    // The app is loading a page of its own choosing (an agent tap, a notification): no earlier press may cover it.
-    func loadingOwnPage() { pending = nil }
+    func loadingOwnPage() { tracker.loadingOwnPage() }
 
     // A page finished loading: run a press that waited for it, and read the board's Tasks flag. Until a read of this
-    // launch has answered, it reads again every 2 s for 20 s: on a fresh install the board writes the flag only when
-    // its first status poll answers, after the page has finished loading.
+    // launch has answered, it reads every 2 s for 20 s: on a fresh install the board writes the flag only when its
+    // first status poll answers, after the page has loaded. A later load replaces the round.
     func loaded() {
-        if let tab = pending { press(tab) }
-        guard !readThisLaunch else { return }
-        let page = generation
+        if let tab = tracker.pending { press(tab) }
+        guard let round = tracker.loaded() else { return }
+        let page = tracker.generation
         for wait in stride(from: 0.0, through: 20.0, by: 2.0) {
             DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
-                guard let self = self, !self.readThisLaunch, self.generation == page else { return }
-                self.readTasks(apply: true)
+                guard let self = self, self.tracker.shouldRead(round: round, generation: page) else { return }
+                self.readTasks()
             }
         }
     }
 
-    func readTasks(apply: Bool) {
-        let page = generation
+    func readTasks() {
+        let page = tracker.generation
         webView?.evaluateJavaScript(AppTabs.tasksReadScript) { [weak self] result, _ in
-            guard let self = self, self.generation == page, let shown = AppTabs.tasksTab(fromPage: result) else { return }
+            guard let self = self, let shown = self.tracker.read(AppTabs.tasksTab(fromPage: result), generation: page) else { return }
             UserDefaults.standard.set(shown, forKey: AppTabs.rememberedTasksKey)
-            self.readThisLaunch = true
-            if apply && shown != self.tasksTab { self.tasksTab = shown }
+            if shown != self.tasksTab { self.tasksTab = shown }
         }
     }
 
     // On lock: the page goes, with its session handler, and the next tab to show makes a fresh one.
     func drop(selected: AppTabs.Tab) {
         // The old page is stopped and cut off, so a late load of it cannot report into the new page's state, and the
-        // serial moves on, so a late answer to a press made on it is ignored.
+        // tracker moves on, so a late answer or read from it is ignored.
         webView?.stopLoading()
         webView?.navigationDelegate = nil
         webView?.uiDelegate = nil
@@ -341,11 +321,9 @@ final class BoardWeb: ObservableObject {
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: PushNotificationManager.sessionHandlerName)
         webView?.removeFromSuperview()
         webView = nil
-        serial += 1
-        generation += 1
-        pending = AppTabs.pressScript(selected) == nil ? nil : selected
-        // The fresh page's first read may set the bar, as at launch: it comes right after an unlock, a return.
-        readThisLaunch = false
+        // The fresh page opens the selected tab's section and its first read may set the bar, as at launch: it
+        // comes right after an unlock, a return.
+        tracker.drop(selected: selected)
         coordinator = WebView.Coordinator()
         coordinator.web = self
     }

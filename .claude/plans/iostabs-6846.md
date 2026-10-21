@@ -10,18 +10,19 @@ pressing one of them asks the board, without a reload, to open its section (Toda
 board inside the app shows no tab strip of its own, because the app marks every page it loads with `kapptabs`.
 
 ## Steps
-1. ShellLogic.swift (`AppTabs`, tested on a Mac): the tab list in order, which tabs show for a tasksTab value, each tab's
-   board name, the JS that calls the door (`typeof window.kosmosAppTab === 'function' && window.kosmosAppTab('<name>')`),
-   the reading of its answer (opened only on a real `true`; false, nil, a non-Bool or an error is "not opened"), and
-   the document-start script that adds `kapptabs` once `document.documentElement` exists (the part c harness showed an
+1. ShellLogic.swift (`AppTabs` and `PressTracker`, tested on a Mac): the tab list in order with titles and symbols
+   (the bar is built from it), which tabs show for a tasksTab value, each tab's board name, the JS that calls the door
+   and answers opened / refused / absent (a door that throws is refused), what each answer does (afterAnswer), the
+   press and Tasks-read bookkeeping (PressTracker: which press an answer belongs to, what waits for a load, which
+   read round runs, what a lock resets), and the document-start script that adds `kapptabs` once `document.documentElement` exists (the part c harness showed an
    init script can run before <html> exists).
 2. Tasks source: the board page's own flag (localStorage `kosmos.tasksTab`, written by tskTabGate from every status
    poll, per Mac), read through the web view. NOT the native client: it polls only while Agents is on screen
    (AgentsView start/stop), so a person living in the web tabs would never see Tasks arrive.
 3. ContentView: one `BoardWeb` holder (a StateObject) owns the one WKWebView and its coordinator; each of the four web
    tabs hosts a container view, and the selected one adopts the web view (reparenting), so switching never reloads
-   and sign-in carries. A press on a web tab runs the door through evaluateJavaScript; "not opened" leaves the page as
-   it is and logs (no reload: the page may be the sign-in page or an older board).
+   and sign-in carries. A press on a web tab runs the door through evaluateJavaScript and does what PressTracker says
+   (never a reload: the page may be the sign-in page or an older board).
 4. Tasks in the bar: applied only at launch and on return to the front (Mona Lisa, #6846). "Launch" is the remembered
    value (UserDefaults) plus the first page read of the launch that answers (the sign-in page does not). The board
    writes its flag only when its first status poll answers, after the page has loaded, so the app reads again every
@@ -37,8 +38,9 @@ board inside the app shows no tab strip of its own, because the app marks every 
 - On lock (biometric gate, off by default) the holder drops its web view, as the old view's teardown did, so an unlock
   starts clean.
 - No Today badge in this part (the card calls it optional; needsYou is already in the client).
-- A refusal never puts the bar on Agents (review 3 BLOCKER): from Agents every web tab would be refused in turn while
-  the box refusing them sits out of sight. It goes to the page's own tab instead (AppTabs.afterAnswer, tested).
+- A refusal puts the bar on the tab of the section in the page's address (review 4: not the bar's previous tab, which
+  can have moved without the page), so never on Agents (review 3 BLOCKER: from Agents every web tab would be refused
+  in turn while the box refusing them sits out of sight). AppTabs.afterAnswer, tested.
   Every press and every drop take a serial, so a late answer to an older press cannot end or move a newer one; a
   door that throws counts as refused.
 - The press answers three ways (review 2): opened; absent (no door: the sign-in page, an older board, or an error
