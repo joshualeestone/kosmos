@@ -20706,15 +20706,30 @@ function kappHeadPaint() {
     me.setAttribute('aria-label', 'Menu, ' + ((typeof YOU_NAME === 'string' && YOU_NAME) || 'You'));
   }
 }
-/* #6846: open the phone menu straight at a level: Settings for the person's menu, Switch Computers for the switcher
-   (from Settings, so Back walks back up the way it came). */
+/* #6846: open the phone menu straight at a level: Settings for the person's menu, Switch Computers for the switcher.
+   The level is put in place at once, never passing through the first level (whose Agents, Projects and Tasks the
+   native tab bar already shows), with the trail set as if walked there, so Back walks up the way it would have come. */
 function kappOpenAt(levels, opener) {
   const nav = document.getElementById('pnav');
   if (!nav || !nav.hidden) return;
-  pnavOpen();
+  pnavOpen(true);
   PNAV_OPENER = opener;
   opener.setAttribute('aria-expanded', 'true');
-  for (const lv of levels) pnavTo(lv, opener);
+  for (const lv of levels) {
+    /* As pnavTo does: the computers are read as their level opens, before the copy (so a stale row is never offered). */
+    if (lv === 'computers' && typeof computersFetch === 'function') computersFetch().catch(() => {});
+    pnavFill(lv);
+    PNAV_FROM.push(opener);
+    PNAV_TRAIL.push(lv);
+  }
+  const last = PNAV_TRAIL[PNAV_TRAIL.length - 1];
+  for (const lv of nav.querySelectorAll('.pnav-level')) { lv.hidden = lv.dataset.level !== last; lv.className = 'pnav-level'; }
+  nav.classList.toggle('deep', PNAV_TRAIL.length > 1);
+  const back = document.getElementById('pnav-back');
+  back.tabIndex = PNAV_TRAIL.length > 1 ? 0 : -1;
+  back.setAttribute('aria-label', PNAV_TRAIL.length > 2 ? 'Back to Settings' : 'Main menu');
+  const level = pnavLevel(last);
+  (level.querySelector('button.pnav-item, a.pnav-item, .pnav-small:not([hidden])') || level).focus({ preventScroll: true });
 }
 function kplusBar() {
   if (!kplusRemote() || document.getElementById('kplus-bar')) return;
@@ -20857,9 +20872,10 @@ function pnavBuild() {
     const tab = e.target.closest('[data-pnav-tab]');
     if (tab) {
       const real = document.querySelector('#tabs .tab[data-tab="' + tab.dataset.pnavTab + '"]');
+      const opener = PNAV_OPENER;
       pnavClose(false);
       if (real) real.click();
-      document.getElementById('kplus-menu').focus({ preventScroll: true });
+      pnavReturnFocus(opener);
       return;
     }
     const go = e.target.closest('[data-pnav-go]');
@@ -20867,10 +20883,11 @@ function pnavBuild() {
     if (go) { pnavTo(go.dataset.pnavGo, go); return; }
     const sec = e.target.closest('[data-pnav-sec]');
     if (sec) {
+      const opener = PNAV_OPENER;
       pnavClose(false);
       showTab('settings');
       settingsOpen(sec.dataset.pnavSec);
-      document.getElementById('kplus-menu').focus({ preventScroll: true });
+      pnavReturnFocus(opener);
     }
   });
   /* On the document, not the menu: focus can sit on a level itself (a level with nothing to press), and a key there
@@ -20956,7 +20973,9 @@ let PNAV_OPENING_T = 0;
 /* The item that opened each deeper level, so Back returns focus to it (as apple.com's menu does). */
 let PNAV_FROM = [];
 function pnavLevel(name) { return document.querySelector('#pnav .pnav-level[data-level="' + name + '"]'); }
-function pnavOpen() {
+/* quiet (#6846): the caller puts focus itself (kappOpenAt, which opens at a deeper level), so the first level's first
+   item is never focused, or read out, on the way. */
+function pnavOpen(quiet) {
   const nav = document.getElementById('pnav');
   if (!nav || !nav.hidden) return;
   pnavSettle();
@@ -20977,7 +20996,7 @@ function pnavOpen() {
   document.documentElement.classList.add('pnav-up');
   document.getElementById('kplus-menu').setAttribute('aria-expanded', 'true');
   const first = nav.querySelector('.pnav-level[data-level="main"] .pnav-item');
-  if (first) first.focus({ preventScroll: true });
+  if (first && quiet !== true) first.focus({ preventScroll: true });
   PNAV_FROM = [];
 }
 function pnavClose(refocus) {
@@ -20992,8 +21011,13 @@ function pnavClose(refocus) {
   const opener = PNAV_OPENER;
   PNAV_OPENER = null;
   if (opener) opener.setAttribute('aria-expanded', 'false');
-  /* Back to what opened it while that is on screen (the app header's control), else the two lines as before. */
-  if (refocus) (opener && opener.getClientRects().length ? opener : btn).focus();
+  if (refocus) pnavReturnFocus(opener);
+}
+/* #6846: where focus goes when the menu closes: what opened it while that is on screen (the app header's control),
+   else the app header's face, else the two lines, as before the app header. */
+function pnavReturnFocus(opener) {
+  const to = [opener, document.getElementById('kapp-me'), document.getElementById('kplus-menu')].find((el) => el && el.getClientRects().length);
+  if (to) to.focus({ preventScroll: true });
 }
 /* Fill a level from the board as it is now, then move to it the way apple.com does. */
 function pnavFill(name) {
@@ -23445,7 +23469,7 @@ function paintLoginAdvisories(advs) {
     // Keyboard focus stays on the notices while any is left, then goes to the first visible of the K mark, the
     // Kosmos+ bar's menu (the phone remote view hides the mark) and the page heading.
     const next = slot.querySelector('.ux')
-      || ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+      || ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   }));
 }
@@ -23463,7 +23487,7 @@ function rebootWhen(iso) {
 }
 /* Where focus goes when the note leaves under it: the K mark, as after the login notice. */
 function rebootFocusAway() {
-  const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+  const next = ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
   if (next) next.focus();
 }
 function paintRebootNote(note) {
@@ -30696,7 +30720,7 @@ function worldswOneKosmos() {
     const wv = document.getElementById('wv-modal');
     if (wv && !wv.hidden) wvClose();
     if (focusWasInside) {
-      const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+      const next = ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
       if (next) next.focus();
     }
     btn.removeAttribute('aria-expanded');
@@ -53679,7 +53703,7 @@ async function pollCwNote() {
       return;
     }
     // Keyboard focus goes where #5018's notices send it when they close: the K mark, the remote bar's menu, the heading.
-    const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+    const next = ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   });
   const ackBtn = document.getElementById('plus-cw-ack');

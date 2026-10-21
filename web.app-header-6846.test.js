@@ -60,73 +60,109 @@ test('#6846: the painter runs whenever its facts change: after each computers an
   assert.match(SCRIPT, /document\.documentElement\.classList\.add\('kremote'\);[^\n]*\n\s*kappHeadPaint\(\);/, 'the bar is drawn without painting its app controls');
 });
 
+function level(name) {
+  const items = [el({ id: name + '-first', tagName: 'BUTTON' })];
+  return el({ dataset: { level: name }, className: 'pnav-level', hidden: name !== 'main', querySelector: () => items[0], first: items[0] });
+}
 function opener() {
   const calls = [];
-  const nav = el({ hidden: true });
+  const levels = { main: level('main'), settings: level('settings'), computers: level('computers') };
+  const nav = el({ hidden: true, querySelectorAll: () => Object.values(levels), classList: { toggle: (c, on) => calls.push('deep ' + on) } });
   const twoLines = el();
-  const doc = { getElementById: (id) => (id === 'pnav' ? nav : id === 'kplus-menu' ? twoLines : null),
-    documentElement: { classList: { remove() {} } } };
-  const scope = { PNAV_OPENER: null };
+  const face = el({ id: 'kapp-me' });
+  const back = el({ tabIndex: -1 });
+  const ids = { pnav: nav, 'kplus-menu': twoLines, 'kapp-me': face, 'pnav-back': back };
+  const doc = { getElementById: (id) => ids[id] || null, documentElement: { classList: { remove() {} } } };
+  const scope = { PNAV_OPENER: null, PNAV_TRAIL: ['main'], PNAV_FROM: [] };
   const fns = {
-    pnavOpen: () => { calls.push('open'); nav.hidden = false; },
-    pnavTo: (lv, by) => calls.push('to ' + lv + (by ? ' by ' + by.id : '')),
+    pnavOpen: (quiet) => { calls.push('open' + (quiet === true ? ' quiet' : '')); nav.hidden = false; levels.main.hidden = false; scope.PNAV_TRAIL = ['main']; scope.PNAV_FROM = []; },
+    pnavFill: (lv) => calls.push('fill ' + lv),
+    pnavLevel: (lv) => levels[lv],
+    computersFetch: () => { calls.push('read computers'); return Promise.resolve(); },
     pnavSettle: () => {}, pnavOpened: () => {},
   };
-  const src = page.liftAll(SCRIPT, ['kappOpenAt', 'pnavClose']);
-  const api = new Function('document', 'scope', 'pnavOpen', 'pnavTo', 'pnavSettle', 'pnavOpened',
-    'with (scope) {\n' + src + '\nreturn { kappOpenAt, pnavClose };\n}')(doc, scope, fns.pnavOpen, fns.pnavTo, fns.pnavSettle, fns.pnavOpened);
-  return { api, calls, nav, twoLines, scope };
+  const src = page.liftAll(SCRIPT, ['kappOpenAt', 'pnavClose', 'pnavReturnFocus']);
+  const api = new Function('document', 'scope', 'pnavOpen', 'pnavFill', 'pnavLevel', 'computersFetch', 'pnavSettle', 'pnavOpened',
+    'with (scope) {\n' + src + '\nreturn { kappOpenAt, pnavClose, pnavReturnFocus };\n}')(doc, scope, fns.pnavOpen, fns.pnavFill, fns.pnavLevel, fns.computersFetch, fns.pnavSettle, fns.pnavOpened);
+  return { api, calls, nav, levels, twoLines, face, back, scope, ids };
 }
 
-test('#6846: the face opens the menu at Settings, the switcher at Switch Computers by way of Settings', () => {
+test('#6846: the face opens the menu straight at Settings, never passing through the first level', () => {
   const a = opener();
-  const me = el({ id: 'kapp-me' });
-  a.api.kappOpenAt(['settings'], me);
-  assert.deepEqual(a.calls, ['open', 'to settings by kapp-me']);
-  assert.equal(me.getAttribute('aria-expanded'), 'true');
-  assert.equal(a.scope.PNAV_OPENER, me, 'the opener was not remembered');
+  a.api.kappOpenAt(['settings'], a.face);
+  assert.deepEqual(a.calls, ['open quiet', 'fill settings', 'deep true'], 'opened by way of an animated walk, or focused the first level on the way');
+  assert.equal(a.levels.main.hidden, true);
+  assert.equal(a.levels.settings.hidden, false);
+  assert.deepEqual(a.scope.PNAV_TRAIL, ['main', 'settings']);
+  assert.equal(a.back.tabIndex, 0);
+  assert.equal(a.back.getAttribute('aria-label'), 'Main menu');
+  assert.equal(a.levels.settings.first.focused, 1, 'focus did not land on the level\'s first item');
+  assert.equal(a.face.getAttribute('aria-expanded'), 'true');
+  assert.equal(a.scope.PNAV_OPENER, a.face);
+});
+
+test('#6846: the switcher opens straight at Switch Computers, reading the computers as the level opens; Back walks to Settings', () => {
   const b = opener();
-  b.api.kappOpenAt(['settings', 'computers'], el({ id: 'kapp-comp' }));
-  assert.deepEqual(b.calls, ['open', 'to settings by kapp-comp', 'to computers by kapp-comp']);
+  const comp = el({ id: 'kapp-comp' });
+  b.api.kappOpenAt(['settings', 'computers'], comp);
+  assert.deepEqual(b.calls, ['open quiet', 'fill settings', 'read computers', 'fill computers', 'deep true']);
+  assert.deepEqual(b.scope.PNAV_TRAIL, ['main', 'settings', 'computers']);
+  assert.equal(b.levels.computers.hidden, false);
+  assert.equal(b.levels.settings.hidden, true);
+  assert.equal(b.back.getAttribute('aria-label'), 'Back to Settings');
+  assert.deepEqual(b.scope.PNAV_FROM, [comp, comp]);
   // Already open: nothing happens (a second tap cannot stack levels).
   b.calls.length = 0;
-  b.api.kappOpenAt(['settings'], el({ id: 'kapp-me' }));
+  b.api.kappOpenAt(['settings'], b.face);
   assert.deepEqual(b.calls, []);
 });
 
-test('#6846: closing gives focus back to the app header control that opened the menu, else the two lines', () => {
+test('#6846: closing gives focus back to the app header control that opened the menu, else the face, else the two lines', () => {
   const a = opener();
-  const me = el({ id: 'kapp-me' });
-  a.api.kappOpenAt(['settings'], me);
+  a.api.kappOpenAt(['settings'], a.face);
   a.api.pnavClose(true);
-  assert.equal(me.focused, 1, 'focus did not go back to the face');
+  assert.equal(a.face.focused, 1, 'focus did not go back to the face');
   assert.equal(a.twoLines.focused, 0, 'focus went to the two lines, which the app hides');
-  assert.equal(me.getAttribute('aria-expanded'), 'false');
+  assert.equal(a.face.getAttribute('aria-expanded'), 'false');
   assert.equal(a.scope.PNAV_OPENER, null, 'the opener outlived the menu');
-  // CONTROL: opened by the two lines (no opener), focus goes to them, as before.
+  // An opener no longer on screen (the switcher hidden by a fresh answer while the menu was open) falls to the face.
+  const c = opener();
+  const gone = el({ id: 'kapp-comp', laidOut: false });
+  c.api.kappOpenAt(['settings', 'computers'], gone);
+  c.api.pnavClose(true);
+  assert.equal(gone.focused, 0);
+  assert.equal(c.face.focused, 1);
+  // CONTROL: off the app (no face on screen), opened by the two lines, focus goes to them, as before.
   const b = opener();
+  b.face.laidOut = false;
   b.nav.hidden = false;
   b.api.pnavClose(true);
   assert.equal(b.twoLines.focused, 1);
-  // An opener no longer on screen (the app bar gone at a wider width) falls back to the two lines.
-  const c = opener();
-  const gone = el({ id: 'kapp-me', laidOut: false });
-  c.api.kappOpenAt(['settings'], gone);
-  c.api.pnavClose(true);
-  assert.equal(gone.focused, 0);
-  assert.equal(c.twoLines.focused, 1);
   // Closing without refocus moves nothing.
   const d = opener();
-  const me2 = el({ id: 'kapp-me' });
-  d.api.kappOpenAt(['settings'], me2);
+  d.api.kappOpenAt(['settings'], d.face);
+  d.levels.settings.first.focused = 0;
   d.api.pnavClose(false);
-  assert.equal(me2.focused + d.twoLines.focused, 0);
+  assert.equal(d.face.focused + d.twoLines.focused, 0);
+});
+
+test('#6846: choosing an item in the menu gives focus back to its opener, not to the hidden two lines', () => {
+  // Both item handlers (a tab, a Settings section) close without refocus and then return focus to the opener taken first.
+  const m = SCRIPT.match(/nav\.addEventListener\('click', \(e\) => \{\n\s*const tab = e\.target\.closest\('\[data-pnav-tab\]'\);[\s\S]*?\n {2}\}\);/);
+  assert.ok(m, 'the menu click handler moved');
+  assert.equal((m[0].match(/const opener = PNAV_OPENER;\n\s*pnavClose\(false\);/g) || []).length, 2, 'an item handler closes without taking the opener first');
+  assert.equal((m[0].match(/pnavReturnFocus\(opener\);/g) || []).length, 2, 'an item handler does not give focus back to the opener');
+  assert.ok(!/getElementById\('kplus-menu'\)\.focus/.test(m[0]), 'an item handler still focuses the two lines, hidden in the app');
+  // The page's other focus fallbacks know the face as well.
+  assert.equal((SCRIPT.match(/'\.kplus-bar-menu', '#kapp-me', '\.apphead h1'\]/g) || []).length, 4);
+  assert.ok(!SCRIPT.includes("'.kplus-bar-menu', '.apphead h1']"), 'a focus fallback skips the face');
 });
 
 test('#6846: the app header is scoped to the app (kapptabs) on a phone over Kosmos+, and is never drawn elsewhere', () => {
   // Inside the #4823 phone block, keyed on both classes.
-  const block = SCRIPT === PAGE ? '' : PAGE.slice(PAGE.indexOf('html.kremote .apphead header .headleft { gap: 8px; }'));
-  assert.ok(block, 'the #4823 phone header block moved');
+  const at = PAGE.indexOf('html.kremote .apphead header .headleft { gap: 8px; }');
+  assert.ok(at >= 0, 'the #4823 phone header block moved');
+  const block = PAGE.slice(at);
   const end = block.indexOf('\n}\n');
   const inPhone = block.slice(0, end);
   for (const rule of ['html.kremote.kapptabs .kplus-bar { height: 44px; min-height: 44px; }',

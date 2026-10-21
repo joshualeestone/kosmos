@@ -113,6 +113,22 @@ const teardownFails = [];
       await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {} });
       // What the app's WKUserScript does at document start (#6846 part b).
       if (app) await ctx.addInitScript(() => { document.documentElement.classList.add('kapptabs'); });
+      /* M4: record the menu's first level on screen while the menu is open. A MutationObserver reports after the
+         click's own synchronous work, so this sees a pass that lasts past it (the animated walk through the first level
+         that kappOpenAt used to make: 160ms on screen), not a show-and-hide inside one task. */
+      await ctx.addInitScript(() => {
+        window.__mainSeen = false;
+        const watch = () => {
+          const nav = document.getElementById('pnav');
+          if (!nav) return;
+          const main = nav.querySelector('.pnav-level[data-level="main"]');
+          new MutationObserver(() => { if (!nav.hidden && main && !main.hidden) window.__mainSeen = true; })
+            .observe(nav, { attributes: true, subtree: true, attributeFilter: ['hidden', 'class'] });
+        };
+        let tries = 0;   // the menu is built at boot over Kosmos+; off it (C2) there is none, so stop after 10 s
+        const tryWatch = () => { if (document.getElementById('pnav')) watch(); else if (++tries < 100) setTimeout(tryWatch, 100); };
+        document.addEventListener('DOMContentLoaded', tryWatch);
+      });
       if (engine === 'webkit' && host === 'remote.test') {
         await ctx.route(/^http:\/\/remote\.test(:\d+)?\//, async (r) => {
           try {
@@ -133,9 +149,10 @@ const teardownFails = [];
       await page.route('**/_kosmos/logout', (r) => r.fulfill({ status: 404, body: '' }));
       await page.goto('http://' + host + ':' + port + '/', { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(200); }
-      // The computers answer has landed (the board reads them in the background at start).
-      await page.waitForFunction(() => typeof COMPUTERS_READ_AT !== 'undefined' && COMPUTERS_READ_AT > 0, null, { timeout: 10000 }).catch(() => {});
-      await page.waitForTimeout(300);
+      /* The computers answer has been taken in (worldswComputersSeen names this computer), not merely asked for: an arm
+         about one computer must not pass on a board that has not heard yet (review 1). Off Kosmos+ there is no read. */
+      const landed = host !== 'remote.test' ? true : await page.waitForFunction(() => typeof THIS_COMPUTER_NAME !== 'undefined' && THIS_COMPUTER_NAME === 'studio-laptop', null, { timeout: 10000 }).then(() => true, () => false);
+      chk(landed, '[' + engine + '] ' + theme + ' the computers answer was taken in before the arms read the header');
       return { ctx, page };
     };
     const E = '[' + engine + '] ';
@@ -166,7 +183,7 @@ const teardownFails = [];
             T + 'H1 the app header is the navy bar, 44px, edge to edge at the top', JSON.stringify({ bar: l.bar, bg: l.barBg, pageW: l.pageW }));
           chk(!l.mark && !l.twoLines && !l.tabs && !l.burger && !l.klink,
             T + 'H2 no Kosmos+ mark, no two lines, no tab strip, no menu button, no K mark', JSON.stringify({ mark: l.mark, two: l.twoLines, tabs: l.tabs, burger: l.burger, klink: l.klink }));
-          chk(!l.comp, T + 'H3 one computer: nothing on the left (Josh #6396)', JSON.stringify({ comp: l.comp, name: l.compName }));
+          chk(!l.comp && l.compName === 'studio-laptop', T + 'H3 one computer: nothing on the left (Josh #6396), though the header knows its name', JSON.stringify({ comp: l.comp, name: l.compName }));
           chk(l.me && l.me.w === 44 && l.me.h === 44 && l.face && l.face.w === 32 && l.face.h === 32 && Math.abs(l.face.r - (l.pageW - 16)) <= 1
             && Math.abs((l.face.t + l.face.h / 2) - 22) <= 1 && /^Menu, /.test(l.meLabel || ''),
             T + 'H4 the face is 32px in a 44px target, 16px from the right, centred on the bar, named Menu', JSON.stringify({ me: l.me, face: l.face, label: l.meLabel, pageW: l.pageW }));
@@ -182,6 +199,17 @@ const teardownFails = [];
           m = await look(page);
           chk(m.nav && !m.nav.shown && m.focus === 'kapp-me' && m.meExp === 'false',
             T + 'M2 closing gives focus back to the face (the two lines are hidden here)', JSON.stringify({ nav: m.nav, focus: m.focus, exp: m.meExp }));
+          // Choosing a Settings section opens it and gives focus back to the face too (review 1: it fell to the page).
+          await page.click('#kapp-me');
+          await settled(page);
+          const passedMain = await page.evaluate(() => window.__mainSeen === true);
+          await page.click('#pnav .pnav-level[data-level="settings"] [data-pnav-sec="usage"]');
+          await settled(page);
+          m = await look(page);
+          const usage = await page.evaluate(() => { const p = document.getElementById('panel-settings'); const b = document.querySelector('#s-nav button.on'); return !!p && p.getClientRects().length > 0 && !!b && b.dataset.go === 'usage'; });
+          chk(m.nav && !m.nav.shown && usage && m.focus === 'kapp-me',
+            T + 'M3 a Settings section chosen from the face opens it, and focus goes back to the face', JSON.stringify({ nav: m.nav, usage, focus: m.focus }));
+          chk(!passedMain, T + 'M4 the face opens straight at Settings, never showing the first level on the way', String(passedMain));
           await shut(ctx, page);
         }
         // Two computers: the name on the left opens Switch Computers.
