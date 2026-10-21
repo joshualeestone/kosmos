@@ -72,3 +72,11 @@ there is nothing pooled left to reset, so a recurrence would disprove this premi
 - NITs, taken: content-length is now added only when no casing of it is present (content-type already was); the
   `test.after` comment says the direct fetch calls are why closeAllConnections stays.
 - NITs, left: a leading BOM is kept where fetch's text() strips it (no route sends one); REUSED is a tripwire.
+
+## Challenge loop iteration 4 (sonnet): 1 WARNING (deferred on measurement), 4 NITs
+- WARNING, deferred: "a HEAD response could close without `complete` and be rejected". The reviewer's premise that no
+  req() uses HEAD was wrong: six do (/api/status, the agent avatar, /api/you/avatar, an icon, /api/remote/join,
+  /api/roles). Measured on Node 26.8.1: a HEAD response announcing a 42-byte content-length closes with
+  `complete=true`, and all six arms pass (364 of 364).
+- NITs, left: a header value of `undefined` throws in http.request where fetch sends the string (no caller passes
+  one); the timeout's error listener order (async, works); BOM and tripwire (recorded above).
