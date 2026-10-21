@@ -237,7 +237,7 @@ cut_record_done() {
 # 0, and it would then be recorded and exit as a success. A 0 is the cut's own only when the last line set
 # _REL_FINISHED=1; any other 0 is recorded and exits as 1. (Same rule in the full trap below.)
 _REL_FINISHED=0
-trap '_rc=$?; [ "$_rc" != 0 ] || [ "${_REL_FINISHED:-0}" = 1 ] || { echo "release: the cut stopped before finishing; the cause is above. Treat the cut as FAILED (kosmos#6831)" >&2; _rc=1; }; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$_rc" = 0 ] || exit "$_rc"' EXIT
+trap '_rc=$?; [ "$_rc" != 0 ] || [ "${_REL_FINISHED:-0}" = 1 ] || { _rc=1; echo "release: the cut stopped before finishing; the cause is above. Treat the cut as FAILED (kosmos#6831)" >&2 || true; }; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$_rc" = 0 ] || exit "$_rc"' EXIT
 # #610 nit 2: make teardown robust against Ctrl-C / kill, not just a normal exit.
 # These convert the signal into a normal `exit`, which runs whichever EXIT trap is
 # current (this one, or the full site-restore/thaw trap that REPLACES it after the
@@ -1002,7 +1002,7 @@ DEPLOYED=0
 # On any exit before step 8 finished, the site checkout stops claiming $V
 # (#609 review, Splinter 23:05: a failed cut left latest.json and setup.sha256
 # uncommitted at the new version, and the pair that made cut 5 refuse).
-trap '_rc=$?; [ "$_rc" != 0 ] || [ "${_REL_FINISHED:-0}" = 1 ] || { echo "release: the cut stopped before finishing; the cause is above. Treat the cut as FAILED (kosmos#6831)" >&2; _rc=1; }; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"; [ "$_rc" = 0 ] || exit "$_rc"' EXIT
+trap '_rc=$?; [ "$_rc" != 0 ] || [ "${_REL_FINISHED:-0}" = 1 ] || { _rc=1; echo "release: the cut stopped before finishing; the cause is above. Treat the cut as FAILED (kosmos#6831)" >&2 || true; }; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"; [ "$_rc" = 0 ] || exit "$_rc"' EXIT
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD" "$V" "$CUT_CHANNEL"
 # kosmos#6149: the installer this cut publishes is the FROZEN tree's. Step 1a-floor checked the checkout's copy, and the
