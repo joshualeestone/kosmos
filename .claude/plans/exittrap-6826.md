@@ -35,7 +35,8 @@ a failed `.` with no trap exits 1). The only `.` before it is the served-verify 
 
 `tools/test-deploy-site-exit-trap-6826.sh` lifts the real trap line out of deploy-site.sh and runs it against a
 failed `.`, an unset variable, an explicit `exit 3` and a finished `exit 0`, with the old trap as a control. A pin
-checks that every `exit 0` sets the flag first. E1/E2 copy the REAL deploy-site.sh, inject a death straight after its trap line, and
+checks every exit in command position (outside quotes): a literal non-zero code, or `exit 0` as the whole line
+directly after `_DS_FINISHED=1`; a bare `exit`, `exit "$var"` or `|| exit 0` is reported. E1/E2 copy the REAL deploy-site.sh, inject a death straight after its trap line, and
 run it (site repo, real tools, stub vercel), with the old trap as the control; moving the flag after the block
 makes them red. `tools/test-deploy-site-exit0-2791.sh` B1d runs a COMPLETED dry run against its fake live
 site and asserts rc 0 with no #6826 line (dropping the dry-run flag makes it red); B1 already covers the publish
