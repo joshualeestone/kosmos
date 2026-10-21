@@ -648,5 +648,17 @@ run_deploy "$S46" "$L46" --promote
 { [ "$RC" = 1 ] && has "$out" "the pointers are FROZEN at $NEW" && [ "$(cat "$L46/dist/latest.json")" = "$LIVE46" ]; } \
   && pass "#6620: frozen at another version, the deploy is refused and live is untouched" || bad "#6620 frozen at another version (rc=$RC) out=$out"
 
+# The runbook's two lines end to end (docs/staging-channel.md): tools/pointer-freeze.sh on, then the deploy it prints.
+read -r S47 L47 <<<"$(make_rollback_scenario)"
+# The real site commits the installer pair together (#2511); this scenario committed setup alone, so add its checksum.
+( cd "$S47" && shasum -a 256 setup > setup.sha256 ) && git -C "$S47" add -- setup.sha256 && git -C "$S47" commit -q --amend --no-edit -- setup.sha256
+git init -q --bare "$S47.origin.git" && git -C "$S47" remote add origin "$S47.origin.git" && git -C "$S47" push -q origin main
+fout="$(PATH="$BIN:$PATH" LIVE_DIR="$L47" HOST_URL="$HOSTURL" KOSMOS_SITE="$S47" KOSMOS_SITE_URL="$HOSTURL" \
+  bash "$REPO/tools/pointer-freeze.sh" on --mac "$OLD" --because "an end-to-end test incident" 2>&1)"; frc=$?
+[ "$frc" = 0 ] || bad "#6620 end to end: pointer-freeze on (rc=$frc) out=$fout"
+KOSMOS_STAGING_ROLLBACK="$OLD" run_deploy "$S47" "$L47" --promote
+{ [ "$frc" = 0 ] && [ "$RC" = 0 ] && has "$out" "FROZEN at $OLD" && has "$(cat "$L47/dist/latest.json")" "\"version\":\"$OLD\"" && [ ! -e "$L47/dist/POINTER_FROZEN" ]; } \
+  && pass "#6620 end to end: on, then the printed --promote, serves the pinned $OLD (and not the marker)" || bad "#6620 end to end (rc=$RC) out=$out"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

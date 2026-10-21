@@ -50,8 +50,12 @@ make_site() {
     ( cd "$s" && shasum -a 256 setup > setup.sha256 ); cp "$s/setup" "$s/setup-staging"; cp "$s/setup.sha256" "$s/setup-staging.sha256"
     git -C "$s" add -A && git -C "$s" commit -q -m "release $v"
   done
+  # Its origin: a bare repo, as the real site's GitHub remote. The freeze is pushed there.
+  git init -q --bare "$s.origin.git" && git -C "$s" remote add origin "$s.origin.git" && git -C "$s" push -q origin main
+  git -C "$s" fetch -q origin && git -C "$s" branch -q --set-upstream-to=origin/main main
   printf '%s' "$s"
 }
+on_origin() { git -C "$1" fetch -q origin && git -C "$1" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; }
 pf() { KOSMOS_SITE="$1" KOSMOS_SITE_URL=http://fake.test POINTER_FREEZE_CURL_CMD="$T/curl" bash "$HERE/pointer-freeze.sh" "${@:2}" 2>&1; }
 ver() { sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$1"; }
 unchanged() { [ -z "$(git -C "$1" status --porcelain)" ] && [ "$(git -C "$1" rev-parse HEAD)" = "$2" ]; }
@@ -67,6 +71,9 @@ out="$(pf "$S" on --mac $GOOD --because "release $BAD is suspect")"; rc=$?
   && pass "on: the marker records the version, the reason and the time" || bad "on: marker: $(cat "$S/dist/POINTER_FROZEN" 2>&1)"
 { [ -z "$(git -C "$S" status --porcelain)" ] && git -C "$S" ls-files --error-unmatch dist/POINTER_FROZEN >/dev/null 2>&1; } \
   && pass "on: everything is committed, the marker tracked" || bad "on: not committed: $(git -C "$S" status --porcelain)"
+{ on_origin "$S" && [ "$(git -C "$S" rev-parse HEAD)" = "$(git -C "$S" rev-parse origin/main)" ]; } \
+  && pass "on: the freeze is PUSHED to origin/main, and the checkout followed it" || bad "on: not on origin/main"
+[ -z "$(git -C "$S" diff --cached --name-only)" ] && pass "on: nothing is left staged in the shared index" || bad "on: staged: $(git -C "$S" diff --cached --name-only)"
 has "$out" "tools/deploy-site.sh --promote" && has "$out" "NOT deployed" && pass "on: says it did not deploy, and the command that does" || bad "on: next step: $out"
 
 # ---- on again, off, status ----------------------------------------------------------------------------------------
@@ -77,9 +84,22 @@ out="$(pf "$S" on --mac $LOW --because other)"; rc=$?
 { [ $rc = 1 ] && has "$out" "run off first" && unchanged "$S" "$H1"; } && pass "on at another version while frozen: refused, nothing changes" || bad "on other (rc=$rc) out=$out"
 has "$(pf "$S" status)" "FROZEN at $GOOD" && pass "status: says frozen and at what" || bad "status frozen: $(pf "$S" status)"
 out="$(pf "$S" off)"; rc=$?
-{ [ $rc = 0 ] && [ ! -e "$S/dist/POINTER_FROZEN" ] && [ -z "$(git -C "$S" status --porcelain)" ] && [ "$(ver "$S/dist/latest.json")" = $GOOD ]; } \
-  && pass "off: the marker is removed and committed; the pointers stay" || bad "off (rc=$rc) out=$out"
+{ [ $rc = 0 ] && [ ! -e "$S/dist/POINTER_FROZEN" ] && [ -z "$(git -C "$S" status --porcelain)" ] && [ "$(ver "$S/dist/latest.json")" = $GOOD ] && ! on_origin "$S"; } \
+  && pass "off: the marker is removed on origin/main and here; the pointers stay" || bad "off (rc=$rc) out=$out"
 has "$(pf "$S" off)" "not frozen" && pass "off when not frozen: says so" || bad "off twice"
+
+# ---- a stale checkout: another machine pushed since; the freeze goes on the fresh tip and keeps that commit --------
+S="$(make_site)"; O="$T/other"; git clone -q "$S.origin.git" "$O"; git -C "$O" config user.email t@t; git -C "$O" config user.name t
+printf '<p>a page edit pushed from another machine</p>\n' > "$O/page.html"; git -C "$O" add page.html && git -C "$O" commit -q -m "page edit" && git -C "$O" push -q origin main
+out="$(pf "$S" on --mac $GOOD --because "stale checkout arm")"; rc=$?
+{ [ $rc = 0 ] && on_origin "$S" && git -C "$S" cat-file -e origin/main:page.html; } \
+  && pass "on from a stale checkout: built on the fresh origin/main, the other machine's commit kept" || bad "stale (rc=$rc) out=$out"
+git -C "$O" pull -q --ff-only; [ -e "$O/dist/POINTER_FROZEN" ] && pass "the other machine sees the freeze after a pull" || bad "other machine: no marker"
+out="$(pf "$O" status)"; has "$out" "FROZEN at $GOOD" && pass "status reads origin/main" || bad "status: $out"
+# A push that cannot happen: nothing is frozen and the checkout is as it was, so on can simply run again.
+S="$(make_site)"; H0="$(git -C "$S" rev-parse HEAD)"; git -C "$S" remote set-url origin "$T/no-such-origin.git"
+out="$(pf "$S" on --mac $GOOD --because x)"; rc=$?
+{ [ $rc = 1 ] && unchanged "$S" "$H0" && [ ! -e "$S/dist/POINTER_FROZEN" ]; } && pass "no reachable origin: refused, the checkout untouched" || bad "no origin (rc=$rc) out=$out st=$(git -C "$S" status --porcelain)"
 
 # ---- refusals before anything is written ------------------------------------------------------------------------
 S="$(make_site)"; H0="$(git -C "$S" rev-parse HEAD)"

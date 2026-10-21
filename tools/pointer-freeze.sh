@@ -44,17 +44,63 @@ die() { printf 'pointer-freeze: %s\n' "$*" >&2; exit 1; }
 field() { printf '%s' "$1" | sed -n "s/.*\"$2\":[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p"; }
 sha_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
+# Commit <paths> (read from the working tree) and/or the removal of <rm-path> onto the freshly fetched origin/main, in a
+# TEMPORARY index (the shared checkout's own index and local main are never touched, as tools/lib/site-push.sh), and
+# push it; a push rejected because origin/main moved is rebuilt on the new tip, up to 3 times. Prints the new sha.
+publish_on_origin() {  # <msg> <rm-path or ""> <paths...>
+  local msg="$1" rmp="$2" attempt=1 base d tree sha err; shift 2
+  while :; do
+    git -C "$SITE" fetch -q origin main 2>/dev/null || { echo "pointer-freeze: could not fetch origin/main; nothing was pushed" >&2; return 1; }
+    base="$(git -C "$SITE" rev-parse origin/main)" || return 1
+    d="$(mktemp -d "${TMPDIR:-/tmp}/pointer-freeze-index.XXXXXX")" || return 1
+    if ! GIT_INDEX_FILE="$d/index" git -C "$SITE" read-tree "$base" \
+      || { [ $# -gt 0 ] && ! GIT_INDEX_FILE="$d/index" git -C "$SITE" add -- "$@"; } \
+      || { [ -n "$rmp" ] && ! GIT_INDEX_FILE="$d/index" git -C "$SITE" update-index --force-remove -- "$rmp"; }; then
+      rm -rf "$d"; echo "pointer-freeze: could not build the commit on origin/main; nothing was pushed" >&2; return 1
+    fi
+    tree="$(GIT_INDEX_FILE="$d/index" git -C "$SITE" write-tree)"; rm -rf "$d"
+    [ -n "$tree" ] && sha="$(git -C "$SITE" commit-tree "$tree" -p "$base" -m "$msg")" && [ -n "$sha" ] \
+      || { echo "pointer-freeze: could not write the commit; nothing was pushed" >&2; return 1; }
+    err="$(LC_ALL=C git -C "$SITE" push -q origin "$sha:refs/heads/main" 2>&1)" && { printf '%s\n' "$sha"; return 0; }
+    if ! printf '%s' "$err" | grep -qiE 'fetch first|non-fast-forward|\[rejected\]|cannot lock ref'; then
+      echo "pointer-freeze: the push failed and was not retried; nothing was pushed. git said: $err" >&2; return 1
+    fi
+    [ "$attempt" -ge 3 ] && { echo "pointer-freeze: origin/main kept moving; nothing was pushed after 3 tries" >&2; return 1; }
+    attempt=$((attempt + 1))
+  done
+}
+
+# After a push: put the files this run wrote back as they were and fast-forward the checkout to the pushed commit, so
+# it shows what origin/main has. A checkout not on main, or one that cannot move forward, is left as it is and said so.
+follow_local() {  # <sha> <paths written...>
+  local sha="$1"; shift
+  [ "$(git -C "$SITE" symbolic-ref --quiet --short HEAD 2>/dev/null)" = main ] || { say "(the site checkout is not on main, so it was not moved; origin/main has the change)"; return 0; }
+  put_back "$@"
+  git -C "$SITE" merge -q --ff-only "$sha" 2>/dev/null || say "(the site checkout could not fast-forward to ${sha:0:12}; origin/main has the change: git -C $SITE pull --ff-only)"
+}
+
+# The files this run wrote, back as HEAD has them (a file HEAD does not have is removed). They were clean before it ran.
+put_back() {  # <paths...>
+  local f
+  for f in "$@"; do
+    if git -C "$SITE" cat-file -e "HEAD:$f" 2>/dev/null; then git -C "$SITE" checkout -q HEAD -- "$f" 2>/dev/null; else rm -f "$SITE/$f"; fi
+  done
+}
+
 git -C "$SITE" rev-parse --verify HEAD >/dev/null 2>&1 || die "$SITE is not a git checkout with a HEAD (set KOSMOS_SITE)"
 
 cmd_status() {
   local committed live
   committed="$(field "$(cat "$SITE/dist/latest.json" 2>/dev/null)" version)"
   live="$(field "$("$CURL_CMD" -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json" 2>/dev/null)" version)"
-  if [ -e "$SITE/$POINTER_FREEZE_FILE" ]; then
-    say "FROZEN at $(pointer_freeze_value "$SITE" mac) since $(pointer_freeze_value "$SITE" at): $(pointer_freeze_value "$SITE" because)"
+  local m
+  git -C "$SITE" fetch -q origin main 2>/dev/null || say "(could not fetch origin/main: this says what this checkout last saw)"
+  if m="$(git -C "$SITE" show "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null)"; then
+    say "FROZEN at $(printf '%s\n' "$m" | sed -n 's/^mac=//p') since $(printf '%s\n' "$m" | sed -n 's/^at=//p'): $(printf '%s\n' "$m" | sed -n 's/^because=//p')"
   else
-    say "not frozen"
+    say "not frozen on origin/main"
   fi
+  pointer_freeze_on "$SITE" && ! git -C "$SITE" cat-file -e "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null && say "(but this checkout still has a marker: it is behind origin/main or holds an uncommitted one)" || true
   say "committed dist/latest.json: ${committed:-unreadable}; live at $HOST: ${live:-could not read}"
 }
 
@@ -71,18 +117,20 @@ cmd_on() {
   [ -n "$because" ] || die "--because is required: the marker is the incident record of why the pointer is frozen"
   case "$because" in *"
 "*) die "--because must be one line" ;; esac
-  if [ -e "$SITE/$POINTER_FREEZE_FILE" ]; then
-    [ "$(pointer_freeze_value "$SITE" mac)" = "$v" ] && { say "already frozen at $v; nothing changed"; return 0; }
-    die "already frozen at $(pointer_freeze_value "$SITE" mac); run off first to move the freeze"
+  git -C "$SITE" fetch -q origin main 2>/dev/null || die "could not fetch origin/main (the freeze must reach every machine through it); nothing was changed"
+  if git -C "$SITE" cat-file -e "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null; then
+    local at; at="$(git -C "$SITE" show "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null | sed -n 's/^mac=//p' | head -1)"
+    [ "$at" = "$v" ] && { say "already frozen at $v on origin/main; nothing changed"; return 0; }
+    die "origin/main is already frozen at ${at:-an unreadable marker}; run off first to move the freeze"
   fi
   for f in $PTRS $SETUPS "$POINTER_FREEZE_FILE"; do
     [ -z "$(git -C "$SITE" status --porcelain -- "$f")" ] || die "$f has uncommitted changes in $SITE; nothing was changed"
   done
-  for c in $(git -C "$SITE" log --format=%H -- dist/latest.json); do
+  for c in $(git -C "$SITE" log --format=%H origin/main -- dist/latest.json); do
     json="$(git -C "$SITE" show "${c}:dist/latest.json" 2>/dev/null)" || continue
     [ "$(field "$json" version)" = "$v" ] && { found="$c"; break; }
   done
-  [ -n "$found" ] || die "no commit in $SITE has a dist/latest.json naming $v; nothing was changed"
+  [ -n "$found" ] || die "no commit on origin/main has a dist/latest.json naming $v; nothing was changed"
   kosmos_setup_floor_pointer_ok "pointer-freeze" "$json" || die "$v is below the setup floor; nothing was changed"
   art="$(field "$json" artifact)"; sha="$(field "$json" sha256)"
   [ -n "$art" ] && [ -n "$sha" ] || die "the pointer for $v (commit ${found:0:12}) names no artifact or sha256; nothing was changed"
@@ -90,35 +138,46 @@ cmd_on() {
   if ! "$CURL_CMD" -fsSL -o "$tmp" "$HOST/dist/$art"; then rm -f "$tmp"; die "$HOST does not serve $art, so a pin to $v could not deploy; nothing was changed"; fi
   got="$(sha_of "$tmp")"; rm -f "$tmp"
   [ "$got" = "$sha" ] || die "$HOST serves $art with sha256 $got, not the pointer's $sha; nothing was changed"
+  # The installer that stood with this pointer must be there and, when the pointer names it (#5032), be those bytes:
+  # deploy-site.sh refuses otherwise, and a pin it then refuses would leave the site frozen and undeployable.
+  { git -C "$SITE" cat-file -e "${found}:setup" 2>/dev/null && git -C "$SITE" cat-file -e "${found}:setup.sha256" 2>/dev/null; } \
+    || die "site commit ${found:0:12} does not have both setup and setup.sha256 committed with that pointer (the bad release's installer would stay, or be served without its checksum); nothing was changed"
+  local want_setup; want_setup="$(field "$json" setup_sha256)"
+  if [ -n "$want_setup" ]; then
+    [ "$(git -C "$SITE" show "${found}:setup" | shasum -a 256 | awk '{print $1}')" = "$want_setup" ] \
+      || die "the setup committed with $v (commit ${found:0:12}) is not the installer its pointer names (setup_sha256); nothing was changed"
+  fi
 
   printf '%s\n' "$json" > "$SITE/dist/latest.json" || die "could not write dist/latest.json"
   printf '%s\n' "$json" > "$SITE/dist/latest-staging.json" || die "could not write dist/latest-staging.json"
-  local restored=""
-  if git -C "$SITE" cat-file -e "${found}:setup" 2>/dev/null; then
-    git -C "$SITE" show "${found}:setup" > "$SITE/setup" && cp "$SITE/setup" "$SITE/setup-staging" || die "could not restore setup"
-    restored="setup setup-staging"
-    if git -C "$SITE" cat-file -e "${found}:setup.sha256" 2>/dev/null; then
-      git -C "$SITE" show "${found}:setup.sha256" > "$SITE/setup.sha256" && cp "$SITE/setup.sha256" "$SITE/setup-staging.sha256" || die "could not restore setup.sha256"
-      restored="$restored setup.sha256 setup-staging.sha256"
-    fi
-  fi
-  printf 'mac=%s\nbecause=%s\nat=%s\n' "$v" "$because" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SITE/$POINTER_FREEZE_FILE" || die "could not write the marker"
+  # The installer pair that stood with the pointer (both checked above), for prod and staging alike.
+  local restored="setup setup-staging setup.sha256 setup-staging.sha256"
+  # shellcheck disable=SC2086
+  { git -C "$SITE" show "${found}:setup" > "$SITE/setup" && cp "$SITE/setup" "$SITE/setup-staging" \
+    && git -C "$SITE" show "${found}:setup.sha256" > "$SITE/setup.sha256" && cp "$SITE/setup.sha256" "$SITE/setup-staging.sha256"; } \
+    || { put_back $PTRS $restored; die "could not restore the installer pair; nothing was changed"; }
+  printf 'mac=%s\nbecause=%s\nat=%s\n' "$v" "$because" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SITE/$POINTER_FREEZE_FILE" || { put_back $PTRS $restored "$POINTER_FREEZE_FILE"; die "could not write the marker; nothing was changed"; }
+  local sha
   # shellcheck disable=SC2086 # the lists are fixed words
-  git -C "$SITE" add -- $PTRS $restored "$POINTER_FREEZE_FILE" \
-    && git -C "$SITE" commit -q -m "pointer-freeze: Mac pointers pinned and frozen at $v (kosmos#6620): $because" -- $PTRS $restored "$POINTER_FREEZE_FILE" \
-    || die "the files are written but the commit failed: commit them by hand (git -C $SITE status)"
-  say "frozen at $v (from site commit ${found:0:12}): dist/latest.json, dist/latest-staging.json${restored:+, $restored} and $POINTER_FREEZE_FILE committed."
+  if ! sha="$(publish_on_origin "pointer-freeze: Mac pointers pinned and frozen at $v (kosmos#6620): $because" "" $PTRS $restored "$POINTER_FREEZE_FILE")"; then
+    # shellcheck disable=SC2086
+    put_back $PTRS $restored "$POINTER_FREEZE_FILE"
+    die "NOT pushed, so nothing is frozen; the checkout is as it was. Fix the cause above and run on again"
+  fi
+  # shellcheck disable=SC2086
+  follow_local "$sha" $PTRS $restored "$POINTER_FREEZE_FILE"
+  say "frozen at $v (from site commit ${found:0:12}): dist/latest.json, dist/latest-staging.json${restored:+, $restored} and $POINTER_FREEZE_FILE pushed to origin/main (${sha:0:12})."
   say "NOT deployed yet. Deploy it:   KOSMOS_SITE=$SITE KOSMOS_STAGING_ROLLBACK=$v tools/deploy-site.sh --promote"
   say "Windows prod is served from R2: pin it there by hand (tools/windows/publish-r2.ps1 -Promote of a known-good build)."
 }
 
 cmd_off() {
-  [ -e "$SITE/$POINTER_FREEZE_FILE" ] || { say "not frozen; nothing changed"; return 0; }
-  local was; was="$(pointer_freeze_value "$SITE" mac)"
-  git -C "$SITE" rm -q -- "$POINTER_FREEZE_FILE" \
-    && git -C "$SITE" commit -q -m "pointer-freeze: freeze at ${was:-?} lifted (kosmos#6620)" -- "$POINTER_FREEZE_FILE" \
-    || die "could not remove and commit $POINTER_FREEZE_FILE"
-  say "freeze at ${was:-?} lifted and committed; the pointers stay where they are until the next release moves them."
+  git -C "$SITE" fetch -q origin main 2>/dev/null || die "could not fetch origin/main; nothing was changed"
+  git -C "$SITE" cat-file -e "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null || { say "origin/main is not frozen; nothing changed"; return 0; }
+  local was sha; was="$(git -C "$SITE" show "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null | sed -n 's/^mac=//p' | head -1)"
+  sha="$(publish_on_origin "pointer-freeze: freeze at ${was:-?} lifted (kosmos#6620)" "$POINTER_FREEZE_FILE")" || die "the freeze was NOT lifted (see above)"
+  follow_local "$sha" "$POINTER_FREEZE_FILE"
+  say "freeze at ${was:-?} lifted and pushed (${sha:0:12}); the pointers stay where they are until the next release moves them."
 }
 
 case "${1:-}" in

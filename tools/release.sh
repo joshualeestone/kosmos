@@ -1772,6 +1772,17 @@ site_deploy_landed_args_ok "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_
 # own INT trap as well as vercel, and the trap deletes the local copy).
 _my_sha="$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" 2>/dev/null || true)"   # set -e: a missing file must not end the cut here
 echo "   (#5471 record) THIS cut's build is sha256 ${_my_sha:-<unreadable>}; once deployed it is served as ${HOST:-https://installkosmos.com}/dist/kosmos-$V-arm64.tar.gz.sha256 (equal: this cut landed; different: another build of $V is served)."
+# kosmos#6620: a freeze pushed since this cut's site push (from any machine) still stops the deploy. The push itself
+# refused a frozen tip; this asks origin/main again, seconds before vercel. A fetch that fails here is said and the
+# cut goes on: the push-time check ran on a tip fetched moments ago.
+if git -C "$SITE" fetch -q origin main 2>/dev/null; then
+  if git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then
+    echo "the site's origin/main is FROZEN now (dist/POINTER_FROZEN, kosmos#6620), so this cut does not deploy; nothing was deployed. Its site commit is on origin/main: tools/pointer-freeze.sh status says what is frozen."
+    exit 1
+  fi
+else
+  echo "   (#6620) could not fetch origin/main to re-check the pointer freeze before deploying; going on (the site push checked it moments ago)"
+fi
 _vdep_rc=0
 ( cd "$_site_export" && vercel deploy --prod --yes ) || _vdep_rc=$?
 if [ "$_vdep_rc" != 0 ]; then

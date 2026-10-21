@@ -412,11 +412,19 @@ if git -C "$SITE" cat-file -e "$H:dist/latest.json" 2>/dev/null && [ -z "$CJ" ];
 fi
 [ -z "$CJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest.json" "$CJ" || exit 1
 [ -z "$CSJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest-staging.json" "$CSJ" || exit 1
-# kosmos#6620: while the COMMITTED tree carries the pointer freeze (tools/pointer-freeze.sh), this deploy publishes only
-# the frozen version: both Mac pointers must name it. Read from $H, the tree that deploys, not the working copy.
-if git -C "$SITE" cat-file -e "$H:dist/POINTER_FROZEN" 2>/dev/null; then
-  FROZEN_AT=$(git -C "$SITE" show "$H:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^mac=//p' | head -1)
-  [ -n "$FROZEN_AT" ] || { echo "deploy-site: $H carries dist/POINTER_FROZEN but it names no version -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
+# kosmos#6620: while the pointer freeze (tools/pointer-freeze.sh) is on, this deploy publishes only the frozen version:
+# both Mac pointers must name it. The freeze is the marker in $H (the tree that deploys) OR on origin/main, so a stale
+# checkout on another Mac cannot publish over a freeze it has not pulled. A fetch that fails is said, and $H decides.
+FROZEN_SRC=""
+if git -C "$SITE" cat-file -e "$H:dist/POINTER_FROZEN" 2>/dev/null; then FROZEN_SRC="$H"
+elif git -C "$SITE" fetch -q origin main 2>/dev/null; then
+  git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null && FROZEN_SRC="origin/main"
+else
+  echo "deploy-site: could not fetch origin/main to check the pointer freeze (kosmos#6620); deciding on $H alone"
+fi
+if [ -n "$FROZEN_SRC" ]; then
+  FROZEN_AT=$(git -C "$SITE" show "$FROZEN_SRC:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^mac=//p' | head -1)
+  [ -n "$FROZEN_AT" ] || { echo "deploy-site: $FROZEN_SRC carries dist/POINTER_FROZEN but it names no version -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
   [ "$(ptr_version "$CJ")" = "$FROZEN_AT" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (dist/POINTER_FROZEN) but the committed dist/latest.json names $(ptr_version "$CJ") -- refusing (kosmos#6620); nothing was deployed. Lift it with tools/pointer-freeze.sh off first."; exit 1; }
   [ -z "$CSJ" ] || [ "$(ptr_version "$CSJ")" = "$FROZEN_AT" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT but the committed dist/latest-staging.json names $(ptr_version "$CSJ") -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
   echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (dist/POINTER_FROZEN); the committed Mac pointers name it"

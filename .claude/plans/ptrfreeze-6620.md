@@ -64,3 +64,19 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
 
 - publish-r2.ps1 honouring the marker (Windows, untestable here): follow-up.
 - Vercel Instant Rollback bypasses every check (docs/staging-channel.md:203-210): stated in the runbook.
+
+## Review decisions
+
+- Review 1 (two blockers, five warnings):
+  - `on` and `off` build their commit on the freshly fetched origin/main in a temporary index and PUSH it (as the
+    release's site push does), then fast-forward this checkout. Before, the freeze lived only on one disk, so another
+    machine's cut never saw it.
+  - The site push (tools/lib/site-push.sh) refuses a frozen fetched tip on every attempt, which catches a freeze
+    pushed while a cut runs. release.sh asks origin/main again just before its own `vercel deploy`.
+  - The marker is never served: the export drops it, because its reason may name a live incident.
+  - `on` refuses a pointer whose commit lacks its installer pair, or whose setup is not the pointer's setup_sha256,
+    before writing anything.
+  - Writers read the marker from the working tree OR HEAD. deploy-site reads it from $H OR origin/main (a stale
+    checkout cannot publish over a freeze it has not pulled; a failed fetch is said, and $H decides).
+  - The wording is narrowed to the Mac pointers: the Windows prod pointer is pinned in R2 by hand.
+  - An end-to-end arm runs `on` and then the deploy it prints.

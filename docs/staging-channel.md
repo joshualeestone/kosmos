@@ -198,11 +198,16 @@ tools/pointer-freeze.sh on --mac <known-good version> --because "<one line: why>
 KOSMOS_STAGING_ROLLBACK=<that version> tools/deploy-site.sh --promote
 ```
 
-`on` restores that version's `latest.json` (to prod and staging) and the installer pair that stood with it from the
-site's own history, refuses first if the version is below the setup floor or its artifact is no longer served with
-the pointer's sha256, writes the tracked marker `dist/POINTER_FROZEN`, and commits. It does not deploy; the second
-line does. While the marker is committed, `release.sh`, `promote-channel.sh`, `publish-staging-pointer.sh` and
-`publish-kosmos-windows.sh` refuse before changing anything, and `deploy-site.sh` publishes only the frozen version.
+`on` restores that version's `latest.json` (to prod and staging) and the installer pair committed with it, from the
+site's own history on origin/main. Before writing anything it refuses a version below the setup floor, one whose
+artifact is no longer served with the pointer's sha256, and one whose commit lacks its installer pair. It writes the
+tracked marker `dist/POINTER_FROZEN` and PUSHES the change to origin/main (built on the fetched tip, as a release's
+site push is), so every machine sees it. It does not deploy; the second line does, and the marker itself is never
+served. While origin/main or a checkout carries the marker:
+- `release.sh`, `promote-channel.sh`, `publish-staging-pointer.sh` and `publish-kosmos-windows.sh` refuse before
+  changing anything;
+- a release's site push refuses a frozen tip, and a cut re-checks origin/main just before it deploys;
+- `deploy-site.sh` publishes only the frozen Mac version.
 `tools/pointer-freeze.sh status` says whether it is frozen; `off` lifts it (the pointers stay until the next release).
 
 What a pin does: a board older than the pinned version updates to it; a board on the bad version, or between the two,

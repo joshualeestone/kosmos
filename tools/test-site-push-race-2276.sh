@@ -240,6 +240,19 @@ ERR_F1="$(site_commit_on_fresh_main "$T/sF" "$MSG" "relative/dir" 5 "$PATHS" "$V
 OUT_F2="$(site_commit_on_fresh_main "$T/sF" "$MSG" "$T" 5 "dist/latest-staging.json setup" "$VER" "$REPO" 2>/dev/null)"; [ "$?" != 0 ] && ok "F: a paths set without versions.html refused" || bad "F: missing versions.html accepted"
 
 # =====================================================================
+# Case FZ (kosmos#6620): another machine froze the pointers (pushed dist/POINTER_FROZEN) since this cut began. The
+# push builds on the fetched tip, sees the marker there, and refuses: nothing is pushed. CONTROL: the same site with
+# no marker pushes (case A above is that control).
+mk_site "$T/oG.git" "$T/sG"
+git clone -q "$T/oG.git" "$T/otherG" 2>/dev/null
+mkdir -p "$T/otherG/dist"; printf 'mac=0.7.50\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' > "$T/otherG/dist/POINTER_FROZEN"
+git -C "$T/otherG" add -A && git -C "$T/otherG" commit -q -m "frozen" && git -C "$T/otherG" push -q origin HEAD:main 2>/dev/null
+TIP_G="$(git -C "$T/oG.git" rev-parse main)"
+ERR_G="$(site_commit_on_fresh_main "$T/sG" "$MSG" "$T" 5 "$PATHS" "$VER" "$REPO" 2>&1 1>/dev/null)"; RC=$?
+{ [ "$RC" != 0 ] && printf '%s' "$ERR_G" | grep -q "FROZEN at 0.7.50" && [ "$(git -C "$T/oG.git" rev-parse main)" = "$TIP_G" ]; } \
+  && ok "FZ: a frozen origin/main tip is refused, nothing pushed" || bad "FZ: frozen tip (rc=$RC): $ERR_G"
+
+# =====================================================================
 # Unit: reinsert-versions-entry.js
 RE="$REPO/tools/reinsert-versions-entry.js"
 base_versions > "$T/ub.html"
