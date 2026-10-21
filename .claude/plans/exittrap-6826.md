@@ -37,5 +37,6 @@ a failed `.` with no trap exits 1). The only `.` before it is the served-verify 
 failed `.`, an unset variable, an explicit `exit 3` and a finished `exit 0`, with the old trap as a control. A pin
 checks that every `exit 0` sets the flag first. E1/E2 copy the REAL deploy-site.sh, inject a death straight after its trap line, and
 run it (site repo, real tools, stub vercel), with the old trap as the control; moving the flag after the block
-makes them red. End to end: the 06:13 input now exits 1 (it was 0), and a good dry
-run still exits 0.
+makes them red. `tools/test-deploy-site-exit0-2791.sh` B1d runs a COMPLETED dry run against its fake live
+site and asserts rc 0 with no #6826 line (dropping the dry-run flag makes it red); B1 already covers the publish
+exit. By hand on Agent1s: the 06:13 input now exits 1 (it was 0).

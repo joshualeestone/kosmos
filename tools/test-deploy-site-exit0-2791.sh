@@ -206,6 +206,16 @@ else
   bad "B1: a successful --publish did not return 0 with the success line (rc=$RC); out=$out"
 fi
 
+# B1d) kosmos#6826: a COMPLETED DRY RUN returns 0 too. Its exit is the other one that must set _DS_FINISHED=1
+# first; without it the EXIT trap reads the run as unfinished and exits 1.
+read -r S L <<<"$(make_publish_scenario ok)"
+run_deploy "$S" "$L"
+if [ "$RC" = 0 ] && has "$out" "DRY RUN complete" && ! has "$out" "stopped before finishing"; then
+  pass "B1d: a completed dry run returns 0 and is not read as unfinished (kosmos#6826)"
+else
+  bad "B1d: a completed dry run did not return 0 cleanly (rc=$RC); out=$out"
+fi
+
 # B2) CONTROL: a STALE site (committed pointer != live) must REFUSE with a non-zero exit -- proving
 # B1's rc==0 is a real success signal, not a harness that returns 0 no matter what.
 read -r S2 L2 <<<"$(make_publish_scenario stale)"
