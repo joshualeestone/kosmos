@@ -165,7 +165,7 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     const ring = await page.evaluate(() => document.activeElement && document.activeElement.id);
     chk(ring === 'crop-stage', `${t} Tab from Save comes back to the picture, not out of the editor`, ring);
     // Review 4: a window under the editor keeps its own document-level Escape handler; one Escape must not reach it.
-    await page.evaluate(() => { window.UNDER_ESC = 0; document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.UNDER_ESC += 1; }); });
+    await page.evaluate(() => { window.UNDER_ESC = 0; document.addEventListener('keydown', () => { window.UNDER_ESC += 1; }); });   // counts ANY key that reaches it
     await page.keyboard.press('Escape');
     const esc = await page.evaluate(async () => ({ r: await window.CROP_P, hidden: document.getElementById('cropmodal').hidden, under: window.UNDER_ESC }));
     chk(esc.r === null && esc.hidden, `${t} Escape cancels`, JSON.stringify(esc));
@@ -173,10 +173,11 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     const under = await page.evaluate(() => window.UNDER_ESC);
     // Review 7: and with a modifier held (Option+Escape) the editor still closes and nothing under it hears it.
     await start(page);
+    await page.keyboard.press('Alt+ArrowRight');   // review 8: a chord other than Escape stops at the editor too
     await page.keyboard.press('Alt+Escape');
     const alt = await page.evaluate(async () => ({ r: await window.CROP_P, hidden: document.getElementById('cropmodal').hidden, under: window.UNDER_ESC }));
     chk(esc.under === 0 && under === 1 && alt.r === null && alt.hidden && alt.under === 1,
-      `${t} the editor's Escape, plain or with Option, does not reach a handler under it (CONTROL: with the editor closed it does)`, JSON.stringify({ during: esc.under, after: under, alt }));
+      `${t} no key the editor gets (Escape, Option+Escape, Option+Arrow) reaches a handler under it (CONTROL: with the editor closed one does)`, JSON.stringify({ during: esc.under, after: under, alt }));
 
     // A phone photo with a rotation tag comes in upright; the same photo without one does not.
     const turn = await page.evaluate(async () => {

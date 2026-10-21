@@ -57,3 +57,9 @@ image I get some basic cropping tools before i save?"
 ## Review 7
 - **Fixed:** Escape with a modifier held (Option+Escape) closed the editor and still reached windows under it; Escape
   now stops at the editor whatever is held. The Escape arm also presses Option+Escape.
+
+## Review 8
+- **Fixed:** every key stops at the editor while it is open, not only unmodified ones (Option+Arrow reached the window
+  under it). Stopping propagation never blocks a default action, so the browser's chords and the slider still work.
+- **Not changed:** the background is not made inert for a screen reader's virtual cursor; the Tab trap matches the
+  page's other dialogs. Would change it: a screen-reader pass that finds the editor escapable.
