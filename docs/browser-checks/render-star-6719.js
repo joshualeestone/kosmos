@@ -288,6 +288,28 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await ctx.close();
     }
+    // Review 12: a touch tablet held sideways opens on the rail, so on a coarse pointer the rail star takes a tap a
+    // little outside its drawn 26 x 20 box (an invisible 44px hit area). CONTROL: a tap well below it does not.
+    {
+      const t = `[${eng} consolidated rail, touch]`;
+      const { ctx, page, errs } = await open(browser, eng, 1280, 900, 'light', true);
+      const hit = await page.evaluate(() => {
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        showTab('projects');
+        repaintAgentOrder();
+        const s = document.querySelector('#alist .lrow[data-agent="dee"] .lname .astar');
+        if (!s) return { star: false };
+        const b = s.getBoundingClientRect(); const cx = b.left + b.width / 2;
+        const at = (y) => { const e = document.elementFromPoint(cx, y); return !!(e && e.closest && e.closest('.astar') === s); };
+        return { star: true, coarse: matchMedia('(pointer: coarse)').matches, drawn: [Math.round(b.width), Math.round(b.height)],
+          above: at(b.top - 10), below: at(b.bottom + 10), far: at(b.bottom + 30) };
+      });
+      if (hit.coarse) chk(hit.star && hit.above && hit.below && !hit.far, `${t} the rail star takes a tap 10px above and below its drawn box (CONTROL: not 30px below)`, JSON.stringify(hit));
+      else console.log(`NOTE  ${t} this engine reports no coarse pointer here, so the touch arm did not run`);
+      if (eng === 'chromium') chk(hit.coarse === true, `${t} CONTROL: chromium reports a coarse pointer, so the arm above ran`, JSON.stringify(hit));
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await ctx.close();
+    }
     await browser.close();
   }
   console.log(`render-star-6719: ${RAN - fail.length} PASS, ${fail.length} FAIL`);
