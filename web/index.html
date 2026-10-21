@@ -11806,6 +11806,10 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
    line (Lost your phone?) does not read as a heading over Join Corporate Account. A rule, not a label: no new words
    (Josh 10-08: one quiet line for a person with no company; Josh 10-17: no new lines). */
 #s-sec-plus #plus-org { padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
+/* kosmos#6752 (Mona Lisa's review): each grant reads as a line of the block, the sentence's size and colour, 4px apart,
+   and the block's paragraph gap before Leave company. */
+#s-sec-plus #plus-org-reviewers-list p.fhint { margin: 0 0 4px; }
+#s-sec-plus #plus-org-reviewers-list { margin-bottom: var(--space-6); }   /* the sentences' gap reads as about 16px with their leading; the button has none */
 #s-sec-plus .plus-lost-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 #s-sec-plus .plus-foot .plus-signin-link { font-weight: 600; }
 /* states 2 (paid sign-in gate) & 3 (connected) — the blue premium card. The
@@ -19755,6 +19759,13 @@ window.kosmosMeasureScrollbarWidth();
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say" tabindex="-1"></p>
+          <!-- kosmos#6752: every member sees when someone is made a reviewer (kosmos#6594): the grants of the last 30 days,
+               from the hourly status read. Shown only when there are some. -->
+          <div id="plus-org-reviewers" hidden>
+            <p class="fhint" id="plus-org-reviewers-head"></p>
+            <p class="fhint" id="plus-org-reviewers-what"></p>
+            <div id="plus-org-reviewers-list"></div>
+          </div>
           <!-- kosmos#6239: a family's words not accepted on this computer wait for a parent; this opens them (plusOrgFamilyReview). -->
           <div class="frow" id="plus-org-words-row" hidden><button class="btn uprime" type="button" id="plus-org-words">Read the family's words</button></div>
           <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
@@ -52408,6 +52419,58 @@ function plusOrgPaint() {
   if (here && st.wordsNeeded === true && PLUS_ORG.wordsRefused) document.getElementById('plus-org-say').textContent = 'This Kosmos still shows ' + (st.org.name || 'a family account') + ' on this computer, and it reports nothing to the family.';
   else if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.';
   else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : ''));
+  plusOrgReviewers(here ? st : null);   // kosmos#6752
+}
+/* kosmos#6752: what follows the reviewer's name on one grant's line, leading with what is true now (Mona Lisa's review):
+   every grant is inside 30 days, so a date has no year and no time, except a grant that lands within a day, the one
+   case a member might act on. `now` and `fmt` (fmt.day: Unix seconds to "Oct 19"; fmt.soon: to "today at 3:46 AM" or
+   "tomorrow at ...") are passed in so a test can fix them. Pending or in effect is worked out from the times, not taken
+   from the coordinator: the record is up to an hour old. "No longer a reviewer", not "removed": the coordinator's time
+   is set when an admin removes them and when they leave on their own (review 1). */
+function plusOrgReviewerLine(g, now, fmt) {
+  if (g.removedAt && g.removedAt < g.effectiveAt) return ', removed before it took effect, ' + fmt.day(g.removedAt) + ' (made a reviewer ' + fmt.day(g.grantedAt) + ')';   // review 2
+  if (g.removedAt) return ', no longer a reviewer since ' + fmt.day(g.removedAt) + ' (made a reviewer ' + fmt.day(g.grantedAt) + ')';
+  if (g.effectiveAt > now) return ', becomes a reviewer ' + (g.effectiveAt - now <= 86400 ? fmt.soon(g.effectiveAt) : fmt.day(g.effectiveAt));
+  return ', a reviewer since ' + fmt.day(g.effectiveAt);
+}
+const PLUS_ORG_REVIEWER_DAYS = 30;   // the coordinator's window (relay REVIEWER_GRANTS_SHOWN_SECS)
+function plusOrgReviewers(st) {
+  const box = document.getElementById('plus-org-reviewers');
+  const list = document.getElementById('plus-org-reviewers-list');
+  if (!box || !list) return;
+  const now = Date.now() / 1000;
+  /* Review 1: a refresh that fails keeps the old record, so the page drops anything older than the heading's 30 days
+     itself; newest first, so the grant that matters most (a pending one) is on top. */
+  const grants = (st && st.enrolled === true && Array.isArray(st.reviewerGrants) ? st.reviewerGrants : [])
+    .filter((g) => g && g.grantedAt >= now - PLUS_ORG_REVIEWER_DAYS * 86400).reverse();
+  list.textContent = '';
+  box.hidden = grants.length === 0;
+  if (!grants.length) return;
+  document.getElementById('plus-org-reviewers-head').textContent = plusOrgIn(st.org, 'Reviewers added to your company in the last 30 days:');
+  // What the role means for this member, in the coordinator's own consent words (relay #516; Mona Lisa's question 5).
+  document.getElementById('plus-org-reviewers-what').textContent = st.org && st.org.kind === 'family'
+    ? 'In a family, a reviewer opens nothing: there is no family backup.'
+    : 'Once reviewer access is available, a reviewer may later be given the key to members\u2019 backups, and with it see their conversations, projects and files.';
+  const fmt = {
+    day: (t) => new Date(t * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' }),
+    /* Review 2: today and tomorrow by calendar day, not by "within 24 hours": on the night the clocks go forward, 24
+       hours ahead can be two calendar days ahead. Anything else gets its date. */
+    soon: (t) => {
+      const d = new Date(t * 1000), today = new Date(now * 1000), tomorrow = new Date(now * 1000);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const at = ' at ' + d.toLocaleTimeString([], { timeStyle: 'short' });
+      return d.toDateString() === today.toDateString() ? 'today' + at : d.toDateString() === tomorrow.toDateString() ? 'tomorrow' + at : fmt.day(t) + at;
+    },
+  };
+  for (const g of grants) {
+    const line = document.createElement('p');
+    line.className = 'fhint';
+    const name = document.createElement('bdi');   // a right-to-left name cannot reorder the sentence around it
+    name.textContent = g.who;   // text, never markup: the name is the coordinator's
+    line.appendChild(name);
+    line.appendChild(document.createTextNode(plusOrgReviewerLine(g, now, fmt)));
+    list.appendChild(line);
+  }
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */

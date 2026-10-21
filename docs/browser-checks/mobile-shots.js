@@ -280,13 +280,13 @@ async function joinWaiting(page, confirmed, retry) {
 }
 /* #5531: a connected computer, for Settings > Kosmos+ > Your company. The company's answers are stand-ins in the shape
    of #5530's contract; the consent words are the sample the contract carries. */
-async function orgConnected(page, enrolled) {
+async function orgConnected(page, enrolled, extra) {
   const remote = { configured: true, on: true, ok: true, enrolled: true, email: 'owner@example.com', status: { state: 'up', address: 'sample.kosmosplus.com' } };
   await page.route('**/api/remote', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(r.request().method() === 'GET' ? remote : { ok: true }) }));
   await page.route('**/api/remote/devices', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pending: [], allowed: [], email: 'owner@example.com', on: true }) }));
   const ORG = { id: 'org_sample', name: 'Northwind Design', slug: 'northwind' };
   await page.route('**/api/org', (r) => r.fulfill({ status: 200, contentType: 'application/json',
-    body: JSON.stringify(enrolled ? { enrolled: true, org: ORG, role: 'member', enrolledAt: new Date().toISOString() } : { enrolled: false, org: null, role: null, enrolledAt: null }) }));
+    body: JSON.stringify(enrolled ? { enrolled: true, org: ORG, role: 'member', enrolledAt: new Date().toISOString(), ...(extra || {}) } : { enrolled: false, org: null, role: null, enrolledAt: null }) }));
   await page.route('**/api/org/preview', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, org: ORG, role: 'member', consent: {
     reports: ['agent names, the AI provider and model each uses', 'project names', 'tokens and estimated cost per day', 'when you were last active', 'which company policy you have and when you were last backed up'],
     backsUp: ['agent folders and their files', 'transcripts', 'projects and what agents make'],
@@ -857,6 +857,19 @@ const SCREENS = [
   /* #5531: Your company, this Kosmos joined. */
   { name: 'plus-org-joined', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => { await orgConnected(page, true); await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-org-in', { state: 'visible', timeout: 10000 });
+    await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));
+  } },
+  /* kosmos#6752: the joined view listing reviewer grants of the last 30 days, one of each kind: pending (made an hour
+     ago), in effect (made three days ago) and removed. Times are made from now; the names are samples. */
+  { name: 'plus-org-reviewers', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => {
+    const now = Math.floor(Date.now() / 1000), day = 86400;
+    await orgConnected(page, true, { reviewerGrants: [
+      { who: 'jordan', grantedAt: now - 3 * day, effectiveAt: now - 2 * day },
+      { who: 'alex', grantedAt: now - 2 * day, effectiveAt: now - day, removedAt: now - day / 2 },
+      { who: 'sam.ortiz', grantedAt: now - 3600, effectiveAt: now - 3600 + day },
+    ] });
+    await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-org-reviewers', { state: 'visible', timeout: 10000 });
     await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));
   } },
   /* #5787 (Mona Lisa): the connected Kosmos+ pane, where every sign-in now lands: the connect block (line art, the
