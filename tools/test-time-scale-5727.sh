@@ -50,6 +50,11 @@ if [ "$got" = "1.00" ]; then ok "seam: a near-idle fake load floors at 1.00 ($go
 got="$(kosmos_cpu_count() { echo 1; }; KOSMOS_FAKE_LOAD=1 kosmos_test_time_scale)"
 if [ "$got" = "2.00" ]; then ok "no-arg cores come from kosmos_cpu_count ($got)"; else bad "no-arg cores: stubbed kosmos_cpu_count=1, load 1 -> got '$got', want 2.00"; fi
 
+# #6799: without kosmos_cpu_count and with a sysctl that fails (Linux has no hw.ncpu), the core count falls to 4, and
+# a caller under `set -e` is not ended by the failed read. Load 8 on 4 cores scales to 4.00.
+got="$(bash -c 'set -e; . "$1"; sysctl(){ return 1; }; kosmos_test_time_scale 8; echo done' _ "$REPO/tools/lib/test-time-scale.sh" 2>&1)"
+if [ "$got" = "$(printf '4.00\ndone')" ]; then ok "a failed sysctl under set -e falls to 4 cores ($got)"; else bad "a failed sysctl under set -e: got '$got', want 4.00 then done"; fi
+
 # No-arg, live box: whatever it reads, the result is a %.2f in [1.00, 4.00].
 got="$(kosmos_test_time_scale)"
 case "$got" in

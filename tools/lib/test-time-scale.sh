@@ -42,7 +42,7 @@ kosmos_test_time_scale() {
     if command -v kosmos_cpu_count >/dev/null 2>&1; then
       cores="$(kosmos_cpu_count)"
     else
-      cores="$(sysctl -n hw.ncpu 2>/dev/null)"
+      cores="$(sysctl -n hw.ncpu 2>/dev/null || true)"   # errexit-safe: a failed read falls to 4 below
     fi
     [ -n "$cores" ] || cores=4
   fi
