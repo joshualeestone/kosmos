@@ -188,6 +188,29 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
 6. **Rollback** = promote a prior staging pointer, or flip `latest.json` back, then re-deploy per
    step 5. No rebuild.
 
+## Freezing the pointer in an incident (kosmos#6620)
+
+When a release may be compromised, pin the Mac pointers to the last known-good version AND stop every tool from
+moving them again until the incident is over:
+
+```
+tools/pointer-freeze.sh on --mac <known-good version> --because "<one line: why>"
+KOSMOS_STAGING_ROLLBACK=<that version> tools/deploy-site.sh --promote
+```
+
+`on` restores that version's `latest.json` (to prod and staging) and the installer pair that stood with it from the
+site's own history, refuses first if the version is below the setup floor or its artifact is no longer served with
+the pointer's sha256, writes the tracked marker `dist/POINTER_FROZEN`, and commits. It does not deploy; the second
+line does. While the marker is committed, `release.sh`, `promote-channel.sh`, `publish-staging-pointer.sh` and
+`publish-kosmos-windows.sh` refuse before changing anything, and `deploy-site.sh` publishes only the frozen version.
+`tools/pointer-freeze.sh status` says whether it is frozen; `off` lifts it (the pointers stay until the next release).
+
+What a pin does: a board older than the pinned version updates to it; a board on the bad version, or between the two,
+sees nothing newer and stays (the verifier refuses a downgrade), so it needs a NEW clean release above the bad one; a
+fresh install gets the pinned build. Not covered: Windows prod is served from R2 (pin it with
+`tools/windows/publish-r2.ps1 -Promote` of a known-good build, by hand), and a rollback done in Vercel itself goes
+around every script, as below.
+
 ## A floor under the installer: never serve one from before 0.7.45 (kosmos#4455)
 
 From the release that carries kosmos#4455, the installer leaves the installed `app/` read-only by default. An

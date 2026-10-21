@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# kosmos#6620: tools/pointer-freeze.sh (the incident "stop the pointer" pin) and the writers that honour its marker.
+# A fake site git repo holds a known-good build (GOOD) and a later bad one (BAD); a fake curl serves the host's dist/
+# from a folder. Every refusal is checked to have changed nothing, and every writer's refusal has a control (the same
+# run with no marker does not say FROZEN), so a refusal for another reason cannot pass as this one.
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd)"
+T="$(mktemp -d "${TMPDIR:-/tmp}/test-pointer-freeze.XXXXXX")"
+trap 'rm -rf "$T"' EXIT
+fail=0
+pass() { printf 'PASS  %s\n' "$*"; }
+bad() { printf 'FAIL  %s\n' "$*"; fail=1; }
+has() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
+
+GOOD=0.7.50; BAD=0.7.51; LOW=0.7.40
+HOSTDIR="$T/host"; mkdir -p "$HOSTDIR/dist"
+# The fake curl: serves http://fake.test/<path> from $HOSTDIR/<path>; -o FILE writes there, else stdout; 22 when absent.
+cat > "$T/curl" <<'EOF'
+#!/bin/sh
+out=""; url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    -H) shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+f="$FAKE_HOSTDIR/${url#http://fake.test/}"
+[ -f "$f" ] || exit 22
+if [ -n "$out" ]; then cp "$f" "$out"; else cat "$f"; fi
+EOF
+chmod +x "$T/curl"
+export FAKE_HOSTDIR="$HOSTDIR"
+
+ptr() { printf '{"version":"%s","sha256":"%s","artifact":"kosmos-%s-arm64.tar.gz","manifest":"kosmos-%s-arm64.manifest.json"}\n' "$1" "$2" "$1" "$1"; }
+sha_of() { shasum -a 256 "$1" | awk '{print $1}'; }
+
+# A site whose history holds LOW, then GOOD (with its installer), then BAD (with a different installer); the host
+# serves GOOD's and BAD's artifacts.
+make_site() {
+  local s v
+  s="$(mktemp -d "$T/site.XXXXXX")"; mkdir -p "$s/dist"
+  git init -q --initial-branch=main "$s"; git -C "$s" config user.email t@t; git -C "$s" config user.name t
+  for v in $LOW $GOOD $BAD; do
+    printf 'ARTIFACT-%s\n' "$v" > "$HOSTDIR/dist/kosmos-$v-arm64.tar.gz"
+    ptr "$v" "$(sha_of "$HOSTDIR/dist/kosmos-$v-arm64.tar.gz")" > "$s/dist/latest.json"
+    cp "$s/dist/latest.json" "$s/dist/latest-staging.json"
+    printf 'installer for %s KOSMOS_READONLY_APP\n' "$v" > "$s/setup"
+    ( cd "$s" && shasum -a 256 setup > setup.sha256 ); cp "$s/setup" "$s/setup-staging"; cp "$s/setup.sha256" "$s/setup-staging.sha256"
+    git -C "$s" add -A && git -C "$s" commit -q -m "release $v"
+  done
+  printf '%s' "$s"
+}
+pf() { KOSMOS_SITE="$1" KOSMOS_SITE_URL=http://fake.test POINTER_FREEZE_CURL_CMD="$T/curl" bash "$HERE/pointer-freeze.sh" "${@:2}" 2>&1; }
+ver() { sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$1"; }
+unchanged() { [ -z "$(git -C "$1" status --porcelain)" ] && [ "$(git -C "$1" rev-parse HEAD)" = "$2" ]; }
+
+# ---- on: pins both Mac pointers and the installer pair to GOOD, writes the marker, commits ----------------------
+S="$(make_site)"
+out="$(pf "$S" on --mac $GOOD --because "release $BAD is suspect")"; rc=$?
+{ [ $rc = 0 ] && [ "$(ver "$S/dist/latest.json")" = $GOOD ] && [ "$(ver "$S/dist/latest-staging.json")" = $GOOD ]; } \
+  && pass "on: both Mac pointers name $GOOD" || bad "on: pointers (rc=$rc) out=$out"
+{ grep -q "installer for $GOOD" "$S/setup" && grep -q "installer for $GOOD" "$S/setup-staging" && cmp -s "$S/setup.sha256" "$S/setup-staging.sha256"; } \
+  && pass "on: the installer pair that stood with $GOOD is restored, prod and staging" || bad "on: installer pair: $(cat "$S/setup")"
+{ [ "$(sed -n 's/^mac=//p' "$S/dist/POINTER_FROZEN")" = $GOOD ] && grep -q "^because=release $BAD is suspect$" "$S/dist/POINTER_FROZEN" && grep -Eq '^at=20[0-9-]+T' "$S/dist/POINTER_FROZEN"; } \
+  && pass "on: the marker records the version, the reason and the time" || bad "on: marker: $(cat "$S/dist/POINTER_FROZEN" 2>&1)"
+{ [ -z "$(git -C "$S" status --porcelain)" ] && git -C "$S" ls-files --error-unmatch dist/POINTER_FROZEN >/dev/null 2>&1; } \
+  && pass "on: everything is committed, the marker tracked" || bad "on: not committed: $(git -C "$S" status --porcelain)"
+has "$out" "tools/deploy-site.sh --promote" && has "$out" "NOT deployed" && pass "on: says it did not deploy, and the command that does" || bad "on: next step: $out"
+
+# ---- on again, off, status ----------------------------------------------------------------------------------------
+H1="$(git -C "$S" rev-parse HEAD)"
+out="$(pf "$S" on --mac $GOOD --because again)"; rc=$?
+{ [ $rc = 0 ] && has "$out" "already frozen at $GOOD" && unchanged "$S" "$H1"; } && pass "on at the same version: nothing changes" || bad "on same (rc=$rc) out=$out"
+out="$(pf "$S" on --mac $LOW --because other)"; rc=$?
+{ [ $rc = 1 ] && has "$out" "run off first" && unchanged "$S" "$H1"; } && pass "on at another version while frozen: refused, nothing changes" || bad "on other (rc=$rc) out=$out"
+has "$(pf "$S" status)" "FROZEN at $GOOD" && pass "status: says frozen and at what" || bad "status frozen: $(pf "$S" status)"
+out="$(pf "$S" off)"; rc=$?
+{ [ $rc = 0 ] && [ ! -e "$S/dist/POINTER_FROZEN" ] && [ -z "$(git -C "$S" status --porcelain)" ] && [ "$(ver "$S/dist/latest.json")" = $GOOD ]; } \
+  && pass "off: the marker is removed and committed; the pointers stay" || bad "off (rc=$rc) out=$out"
+has "$(pf "$S" off)" "not frozen" && pass "off when not frozen: says so" || bad "off twice"
+
+# ---- refusals before anything is written ------------------------------------------------------------------------
+S="$(make_site)"; H0="$(git -C "$S" rev-parse HEAD)"
+out="$(pf "$S" on --mac 0.7.99 --because x)"; rc=$?
+{ [ $rc = 1 ] && has "$out" "no commit" && unchanged "$S" "$H0"; } && pass "refused: a version no commit names" || bad "unknown version (rc=$rc) out=$out"
+out="$(pf "$S" on --mac $LOW --because x)"; rc=$?
+{ [ $rc = 1 ] && has "$out" "setup floor" && unchanged "$S" "$H0"; } && pass "refused: below the setup floor" || bad "below floor (rc=$rc) out=$out"
+out="$(pf "$S" on --mac $GOOD)"; rc=$?
+{ [ $rc = 1 ] && has "$out" "--because is required" && unchanged "$S" "$H0"; } && pass "refused: no reason given" || bad "no because (rc=$rc) out=$out"
+mv "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz" "$T/held-aside"
+out="$(pf "$S" on --mac $GOOD --because x)"; rc=$?
+mv "$T/held-aside" "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz"
+{ [ $rc = 1 ] && has "$out" "does not serve" && unchanged "$S" "$H0"; } && pass "refused: the host no longer serves the artifact" || bad "not served (rc=$rc) out=$out"
+printf 'TAMPERED\n' > "$T/good"; cp "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz" "$T/good.orig"; cp "$T/good" "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz"
+out="$(pf "$S" on --mac $GOOD --because x)"; rc=$?
+cp "$T/good.orig" "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz"
+{ [ $rc = 1 ] && has "$out" "not the pointer's" && unchanged "$S" "$H0"; } && pass "refused: the served artifact's sha256 is not the pointer's" || bad "sha mismatch (rc=$rc) out=$out"
+printf 'edited\n' >> "$S/dist/latest-staging.json"
+out="$(pf "$S" on --mac $GOOD --because x)"; rc=$?
+{ [ $rc = 1 ] && has "$out" "uncommitted changes" && [ "$(git -C "$S" rev-parse HEAD)" = "$H0" ] && [ ! -e "$S/dist/POINTER_FROZEN" ]; } \
+  && pass "refused: a pointer with uncommitted changes" || bad "dirty (rc=$rc) out=$out"
+git -C "$S" checkout -q -- dist/latest-staging.json
+
+# ---- every pointer writer refuses while frozen; CONTROL: without the marker it does not say FROZEN ---------------
+S="$(make_site)"
+pf "$S" on --mac $GOOD --because "writer arms" >/dev/null
+SB="$T/home"; mkdir -p "$SB"
+# release.sh runs from a copy in a folder that is NOT a git repo, with only its libs and package.json: if the freeze
+# check ever stopped refusing (or for the no-marker control), the cut dies at step 1 there and can never start for
+# real, whichever checkout this test runs from.
+RSANDBOX="$T/release-sandbox"; mkdir -p "$RSANDBOX/tools/lib"
+cp "$HERE/release.sh" "$RSANDBOX/tools/"; cp "$HERE"/lib/*.sh "$RSANDBOX/tools/lib/"; cp "$HERE/../package.json" "$RSANDBOX/"
+git -C "$RSANDBOX" rev-parse --git-dir >/dev/null 2>&1 && { echo "FAIL  the release sandbox is inside a git repo; refusing to run release.sh"; exit 1; }
+CURV="$(sed -n 's/.*"version":[[:space:]]*"\([0-9.]*\)".*/\1/p' "$HERE/../package.json" | head -1)"
+_p=$(( 10#${CURV##*.} + 1 )); NEXTV="${CURV%.*}.$(printf '%02d' "$_p")"   # 10#: a 0.5.09 patch is not octal
+printf 'zip' > "$T/kosmos-9.9.9-win-x64.zip"
+run_writer() {  # <site> <name> : sets WRC and out (not in a subshell, so both reach the caller)
+  local site="$1" w="$2"
+  case "$w" in
+    release) HOME="$SB" KOSMOS_SITE="$site" bash "$RSANDBOX/tools/release.sh" "$NEXTV" > "$T/w.out" 2>&1; WRC=$? ;;   # the next patch: past the version-jump guard
+    promote-channel) HOME="$SB" KOSMOS_SITE="$site" bash "$HERE/promote-channel.sh" > "$T/w.out" 2>&1; WRC=$? ;;
+    publish-staging-pointer) HOME="$SB" bash "$HERE/publish-staging-pointer.sh" "$site" 9.9.9 > "$T/w.out" 2>&1; WRC=$? ;;
+    publish-kosmos-windows) HOME="$SB" KOSMOS_SITE="$site" bash "$HERE/publish-kosmos-windows.sh" "$T/kosmos-9.9.9-win-x64.zip" > "$T/w.out" 2>&1; WRC=$? ;;
+  esac
+  out="$(cat "$T/w.out")"
+}
+C="$(make_site)"
+for w in release promote-channel publish-staging-pointer publish-kosmos-windows; do
+  before="$(git -C "$S" rev-parse HEAD) $(cat "$S/dist/latest.json" "$S/dist/latest-staging.json" | shasum -a 256)"
+  run_writer "$S" "$w"
+  after="$(git -C "$S" rev-parse HEAD) $(cat "$S/dist/latest.json" "$S/dist/latest-staging.json" | shasum -a 256)"
+  { [ "$WRC" != 0 ] && has "$out" "$w.sh: the release pointers are FROZEN at $GOOD" && [ "$before" = "$after" ]; } \
+    && pass "$w.sh refuses while frozen, changing nothing" || bad "$w.sh while frozen (rc=$WRC): $(printf '%s' "$out" | tail -3)"
+  run_writer "$C" "$w"
+  has "$out" "FROZEN" && bad "CONTROL: $w.sh says FROZEN with no marker: $(printf '%s' "$out" | tail -2)" || pass "CONTROL: $w.sh with no marker does not refuse for a freeze"
+done
+
+echo ""
+if [ "$fail" = 0 ]; then echo "test-pointer-freeze: ALL PASS"; else echo "test-pointer-freeze: FAILURES above"; exit 1; fi

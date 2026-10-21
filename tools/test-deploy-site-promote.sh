@@ -630,5 +630,23 @@ run_deploy_real "$S40" "$L40" --publish
 { [ "$RC" = 0 ] && [ "$(cat "$L40/dist/latest.json")" = "$GOODLIVE41" ]; } \
   && pass "#6149 repair (usual case): --publish deploys the restored set, as the doc says" || bad "#6149 repair usual: --publish (rc=$RC) out=$out"
 
+# =============================================================================================
+# kosmos#6620: the pointer freeze (tools/pointer-freeze.sh). While the COMMITTED tree carries dist/POINTER_FROZEN, a deploy
+# publishes only the frozen version. Arm 1: a freeze naming the rollback's own version deploys it. Arm 2 (the control
+# that can return the dangerous answer): a freeze naming another version refuses, and live keeps what it served.
+read -r S45 L45 <<<"$(make_rollback_scenario)"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S45/dist/POINTER_FROZEN"
+git -C "$S45" add -- dist/POINTER_FROZEN && git -C "$S45" commit -q -m "frozen at $OLD" -- dist/POINTER_FROZEN
+run_deploy "$S45" "$L45" --promote
+{ [ "$RC" = 0 ] && has "$out" "FROZEN at $OLD (dist/POINTER_FROZEN); the committed Mac pointers name it"; } \
+  && pass "#6620: frozen at the committed version, the rollback promote deploys it" || bad "#6620 frozen at the committed version (rc=$RC) out=$out"
+read -r S46 L46 <<<"$(make_rollback_scenario)"
+LIVE46="$(cat "$L46/dist/latest.json")"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S46/dist/POINTER_FROZEN"
+git -C "$S46" add -- dist/POINTER_FROZEN && git -C "$S46" commit -q -m "frozen at $NEW" -- dist/POINTER_FROZEN
+run_deploy "$S46" "$L46" --promote
+{ [ "$RC" = 1 ] && has "$out" "the pointers are FROZEN at $NEW" && [ "$(cat "$L46/dist/latest.json")" = "$LIVE46" ]; } \
+  && pass "#6620: frozen at another version, the deploy is refused and live is untouched" || bad "#6620 frozen at another version (rc=$RC) out=$out"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

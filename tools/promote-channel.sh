@@ -103,6 +103,9 @@ case "$FAMILY" in
 esac
 SITE="${SITE:-${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}}"
 [ -d "$SITE/dist" ] || { echo "promote-channel: no $SITE/dist" >&2; exit 1; }
+# kosmos#6620: no release pointer moves while the site is frozen (tools/pointer-freeze.sh, the incident pin).
+. "$(cd "$(dirname "$0")" && pwd)/lib/pointer-freeze.sh" || { echo "promote-channel: cannot load tools/lib/pointer-freeze.sh" >&2; exit 1; }
+pointer_freeze_refuse "$SITE" promote-channel.sh || exit 1
 command -v node >/dev/null 2>&1 || { echo "promote-channel: node is required" >&2; exit 1; }
 
 # The family decides which two pointers and which pointer field names the versioned artifact.

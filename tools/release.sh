@@ -434,6 +434,10 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 . "$REPO/tools/lib/connector-provenance.sh"
 . "$REPO/tools/lib/connector-currency.sh"
 . "$REPO/tools/lib/coordinator-floor.sh"
+# kosmos#6620: a cut moves a release pointer, so none starts while the site is frozen (tools/pointer-freeze.sh, the
+# incident pin). Before the cut marks itself, so a frozen site refuses without registering a cut.
+. "$REPO/tools/lib/pointer-freeze.sh"
+pointer_freeze_refuse "$SITE" release.sh || exit 1
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
