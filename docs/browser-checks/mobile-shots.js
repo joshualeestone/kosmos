@@ -426,6 +426,31 @@ async function openTaskOne(page, projectId) {
   await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
   await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
 }
+/* kosmos#6727: an agent held on Claude Code's permission prompt, as its chat now shows it: one short card, and the card
+   after each press (design review). The thread is stubbed in the screen's own context with what the route serves for
+   the real bash capture (test-support/claude-screens), read by the engine itself; a press is answered "placed" by the
+   stub, so no key reaches any pane. Three literal screens below call this, so each declares noServiceWorker (#6206). */
+async function permCardGo(page, data, press) {
+  const chatEng = require(path.join(REPO, 'engine', 'chat'));
+  const screen = require('fs').readFileSync(path.join(REPO, 'test-support', 'claude-screens', 'permission-prompt-bash-2.1.296.txt'), 'utf8');
+  const q = chatEng.questionIn(screen, 'claude');
+  const body = { olderCount: 0, historyBecause: null, historyUnfilable: false, owes: null, presence: 'on', presenceBecause: null,
+    asking: true, question: { text: q.text }, questionBecause: null, codexHooks: null, answerNote: null,
+    options: chatEng.optionsIn(q.text), asked: chatEng.questionAbove(q.text),
+    messages: [{ id: 'needs-you-question:' + data.chatAgent, at: null, text: q.text, from: data.chatAgent, delivery: null,
+      kind: 'question', reported: false, permission: chatEng.permissionCard(screen) }] };
+  await page.route('**/api/agent/*/thread*', (r) => r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify(r.request().method() === 'GET' ? body : { delivery: { state: 'placed' }, recorded: true }) }));
+  await at(page, '?agent=' + data.chatAgent);
+  await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
+  await page.waitForSelector('#d-dmthread .dmperm .dmperm-main', { state: 'visible', timeout: 8000 });
+  if (press) {
+    await page.locator('#d-dmthread .dmperm-main .dmchoice', { hasText: press }).click({ timeout: 5000 });
+    await page.waitForFunction((w) => ((document.querySelector('#d-dmthread .dmperm-main .dmchoices-msg') || {}).textContent || '') === w,
+      press === 'Allow' ? 'Allowed.' : 'Denied.', { timeout: 5000 });
+  }
+}
+
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -631,6 +656,9 @@ const SCREENS = [
     await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
   } },
+  { name: 'agent-perm-card', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, null) },
+  { name: 'agent-perm-card-allowed', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Allow') },
+  { name: 'agent-perm-card-denied', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Deny') },
   // #5481: the Mac app's refused mic, which becomes [X   Turn on in Settings] in the mic's place. A stand-in bridge
   // (the app's message handler) answers the press with the refusal the app sends; nothing reaches System Settings.
   { name: 'agent-chat-mic-settings', owner: 'Renet Tilley', go: async (page, data) => {
