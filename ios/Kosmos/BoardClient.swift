@@ -105,6 +105,7 @@ final class BoardClient: ObservableObject {
                 Board.Agent(session: "gus", name: "Gus", role: "Social media", state: "stopped", task: nil, needsYou: false, running: false),
             ])
             updatedAt = Date()
+            fresh = true
             phase = .live(mac: Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true))
             return
         }
@@ -170,6 +171,8 @@ final class BoardClient: ObservableObject {
         case .starting, .connecting, .waitingForAllow: return
         default: break
         }
+        // A reconnect in flight under a list still shown as live (the Mac ended the session) is a connect too.
+        if admitted == nil && loop != nil, case .live = phase { return }
         guard case .live = phase, let held = admitted else { retry(); return }
         resortNext = true
         let before = updatedAt
@@ -266,7 +269,14 @@ final class BoardClient: ObservableObject {
             guard let session = sessionStore.load() else { set(.signedOut, gen); return }
             guard let mac = await chooseMac(session: session, gen), gen == generation else { return }
             guard let url = Board.macURL(address: mac.address, coordinator: coordinator) else { set(.noMac, gen); return }
-            guard await openSession(session: session, mac: mac, url: url, gen), gen == generation else { return }
+            guard await openSession(session: session, mac: mac, url: url, gen), gen == generation else {
+                // A list is still on screen marked not answering: keep trying behind it, so it clears by itself.
+                if case .unreachable = phase, !agents.isEmpty, gen == generation {
+                    await env.sleep(15)
+                    if gen == generation { start() }
+                }
+                return
+            }
             admitted = (mac, url, session)
             keepMacSession(mac, url: url, session: session)
             env.defaults.set(mac.address, forKey: Board.rememberedMacKey)

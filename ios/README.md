@@ -22,7 +22,8 @@ The Mac's session cookie (with the Mac's name and address and a fingerprint of t
 in the Keychain item `mac-session` (`SessionKeychain.macSession`) and reused across
 launches; a sign-out, or Kosmos+ answering that the sign-in has ended, makes this
 iPhone forget it (the Mac keeps its side until it expires, as for the web view).
-The app opens on Agents (the store-screenshot build opens on Board). One Debug-only
+The app opens on Agents when signed in to Kosmos+, otherwise on Board (the sign-in); the
+store-screenshot build opens on Board. One Debug-only
 launch switch exists for screenshots and never reaches Release: `KOSMOS_SAMPLE_AGENTS=1`
 shows invented agents without connecting (and skips the notification prompt). App Store screenshots taken from now on include the tab bar (the stored ones predate it).
 
