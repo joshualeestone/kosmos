@@ -59,3 +59,15 @@ the second signal for that reason.
 - web: the render asks for `days=all`; Active Days comes from daysOnKosmos (a 14-day byDay with daysOnKosmos 1
   shows 1, the control); charts get only the last 14 days.
 - browser-check render-token-usage-2617 updated for the new fetch.
+
+## Decided while building
+
+- Each chart card's header total and share stay ALL-TIME (they are totals); the line under them is the last 14
+  days, and its aria-label says how many days it draws. Rejected: windowed header totals, which would make the four
+  cards disagree with the hero above them.
+- Active Days without `daysOnKosmos` (an older board answering a newer page) counts days that have any usage,
+  never the number of days in the answer.
+- `engine/installid-senders-5995.test.js` lists `engine/usage.js` as a reader of engine/ping.js: it reads
+  `installedAt` only, never the id. ping.js's header names the field.
+- Measured on Agent1s for the card: 61 days since 08-21; 30 saved, 18 lost (08-28 to 09-06, 09-13 to 09-20),
+  13 not saved but still recoverable (reasoned from the oldest transcript, 09-21; the first save reads them).
