@@ -40,13 +40,14 @@ test('#6849: any file but a PDF is its plain sha256, even when its text looks li
 
 /* A small PDF in the shapes the real fixtures do not carry: hex-string dates, an /ID pair of literal strings, and XMP
    fields as elements and as attributes. `pad` puts the metadata past the first 1 MiB read. */
-function synth({ when = 'D:20261021175907Z', id = 'aa', words = 'Hello', pad = 0 } = {}) {
+function synth({ when = 'D:20261021175907Z', id = 'aa', words = 'Hello', pad = 0, xmpHead = '<x:xmpmeta>', xmpTail = '</x:xmpmeta>' } = {}) {
   const hexWhen = Buffer.from(when).toString('hex');
+  const xmp = xmpHead + '<rdf:Description xmp:CreateDate="' + when
+    + '" xmpMM:DocumentID="uuid:' + id + '"><xmp:ModifyDate>' + when + '</xmp:ModifyDate><xmpMM:InstanceID>uuid:' + id
+    + '</xmpMM:InstanceID></rdf:Description>' + xmpTail;
   return '%PDF-1.7\n' + '%' + 'x'.repeat(pad) + '\n'
     + '1 0 obj\n<< /Producer (Test) /CreationDate <' + hexWhen + '> /ModDate (' + when + ') >>\nendobj\n'
-    + '2 0 obj\n<< /Type /Metadata /Subtype /XML >>\nstream\n<x:xmpmeta><rdf:Description xmp:CreateDate="' + when
-    + '" xmpMM:DocumentID="uuid:' + id + '"><xmp:ModifyDate>' + when + '</xmp:ModifyDate><xmpMM:InstanceID>uuid:' + id
-    + '</xmpMM:InstanceID></rdf:Description></x:xmpmeta>\nendstream\nendobj\n'
+    + '2 0 obj\n<< /Type /Metadata /Subtype /XML /Length ' + xmp.length + ' >>\nstream\n' + xmp + '\nendstream\nendobj\n'
     + '3 0 obj\n<< /Length 5 >>\nstream\n' + words + '\nendstream\nendobj\n'
     + 'trailer\n<< /Root 2 0 R /Info 1 0 R /ID [ (' + id + 'x) (' + id + 'y) ] >>\n%%EOF\n';
 }
@@ -144,4 +145,25 @@ test('#6849: a PDF over 64 MiB is its plain sha256', () => {
     fs.truncateSync(p, fp.PDF_MAX);
     assert.notEqual(fp.fingerprint(p), raw(p));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+/* Review 5: the metadata stream is found by its dictionary (/Type /Metadata) as well as by how its body starts. */
+test('#6849: an XMP stream whose body does not start with xmpmeta is still found by its /Type /Metadata', () => {
+  const a = Buffer.from(synth({ xmpHead: '<rdf:RDF>', xmpTail: '</rdf:RDF>' }), 'latin1');
+  const b = Buffer.from(synth({ xmpHead: '<rdf:RDF>', xmpTail: '</rdf:RDF>', when: 'D:20261022093001Z', id: 'bb' }), 'latin1');
+  assert.ok(!a.equals(b), 'CONTROL: the two differ as bytes');
+  assert.ok(fp.stablePdf(a).equals(fp.stablePdf(b)), 'the XMP dates in a /Type /Metadata stream were kept');
+});
+
+/* The regex fix for an indirect /Length read as a shorter direct one (`/Length 1234 0 R` as 123) has no test here: a
+   misread could only end a stream at the word endstream inside it, which the indirect fallback does anyway (the residual
+   the header names). */
+test('#6849: a direct /Length is used when the body holds the word endstream, and a stream after CR alone is a stream', () => {
+  const direct = (when) => {
+    const body = 'x'.repeat(5) + 'endstream /ModDate (' + when + ') ';
+    return Buffer.from('%PDF-1.7\n1 0 obj\n<< /Length ' + body.length + ' >>\nstream\n' + body + '\nendstream\nendobj\n', 'latin1');
+  };
+  assert.ok(!fp.stablePdf(direct('D:1')).equals(fp.stablePdf(direct('D:2'))), 'a direct /Length was not used');
+  const cr = (words) => Buffer.from('%PDF-1.7\n1 0 obj\n<< /Length ' + words.length + ' >>\nstream\r' + words + '\rendstream\rendobj\r', 'latin1');
+  assert.ok(!fp.stablePdf(cr('BT /ModDate (Pay A) Tj ET')).equals(fp.stablePdf(cr('BT /ModDate (Pay B) Tj ET'))), 'a stream after CR alone was read as objects');
 });

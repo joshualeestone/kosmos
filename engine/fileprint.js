@@ -53,9 +53,10 @@ const XMPS = [
 ];
 const VOLATILE = INFO.concat(XMPS);
 /* A stream's start: the keyword after its dictionary's >>, then its end of line. */
-const STREAM = new RegExp('>>' + WS + '*stream(?:\\r\\n|\\n)', 'g');
-/* A direct /Length in the stream's dictionary (an indirect one, `/Length 12 0 R`, is not read). */
-const LENGTH = new RegExp('/Length' + WS + '+(\\d{1,12})(?!' + WS + '+\\d+' + WS + '+R)', 'g');
+const STREAM = new RegExp('>>' + WS + '*stream(?:\\r\\n|\\n|\\r)', 'g');   // CR alone is off-spec, but written
+/* A direct /Length in the stream's dictionary (an indirect one, `/Length 12 0 R`, is not read; the (?![0-9]) stops it
+   being read as a shorter direct one, `/Length 1234 0 R` as 123). */
+const LENGTH = new RegExp('/Length' + WS + '+(\\d{1,12})(?![0-9])(?!' + WS + '+\\d+' + WS + '+R)', 'g');
 const ENDSTREAM = new RegExp('^' + WS + '*endstream');
 
 const empty = (s, rules) => { for (const [re, to] of rules) s = s.replace(re, to); return s; };
