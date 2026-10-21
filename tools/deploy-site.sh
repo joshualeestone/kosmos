@@ -169,6 +169,8 @@ command -v vercel >/dev/null 2>&1 || { echo "deploy-site: vercel CLI not found";
 # --- 1) fetch and verify the CURRENT live artifacts into the site dist/ -------
 # The export carries whatever is in dist/. We make the critical current artifacts present
 # and correct so the deploy cannot drop them; a stale or empty checkout is then safe.
+# kosmos#6826: 0 until a success exit sets it to 1; the EXIT trap in the block below reads it.
+_DS_FINISHED=0
 # >>> site-fetch helpers (#4745) -- tools/test-deploy-site-fetch-4745.sh extracts and tests this block.
 # 🛑 #4745: NEVER FETCH ONTO THE REAL NAME. This used to be `curl ... "$1" -o "$2"`, straight onto
 # the artifact path. A stalled download (curl exit 18, "Transferred a partial file") refused
@@ -204,7 +206,11 @@ _fetch_cleanup() {
 # Every exit path removes a temp in flight: the refusals below remove it explicitly, and these
 # traps cover an interrupt or an unexpected set -e abort mid-fetch. (They also remove the deploy
 # step's output and code files, VOUT and VRC: kosmos#6771.)
-trap '_fetch_cleanup' EXIT
+# kosmos#6826: on this Mac's /bin/sh (bash 3.2), a run that dies on a missing library (a failed `.`) or an
+# unset variable (set -u) reaches this trap with $? already 0, so it would exit 0 having done nothing. So a 0
+# here is a failure unless a success exit set _DS_FINISHED=1. Unset (this block run on its own, as the #4745
+# test does) counts as finished, which keeps that test's exits as they were.
+trap '_ds_rc=$?; _fetch_cleanup; [ "$_ds_rc" != 0 ] || [ "${_DS_FINISHED:-1}" = 1 ] || { echo "deploy-site: the run ended without finishing (for example a missing library or an unset variable; see the line above). Nothing was verified: treat it as FAILED (kosmos#6826)" >&2; exit 1; }' EXIT
 trap '_fetch_cleanup; exit 130' INT
 trap '_fetch_cleanup; exit 143' TERM HUP
 _fetch_tmp_for() {  # <dest> -> the temp path beside it
@@ -314,12 +320,6 @@ fetch_verified() {  # <url> <dest>  -- an artifact AND its <url>.sha256 sidecar 
   _FETCH_TMP_S=""
 }
 # <<< site-fetch helpers (#4745)
-# kosmos#6826: the EXIT trap above, replaced from here to the end (it stays as it is inside the block, which
-# tools/test-deploy-site-fetch-4745.sh runs on its own; the block only defines functions and variables). On this Mac's /bin/sh (bash 3.2), a run that dies on a
-# missing library (a failed `.`) or an unset variable (set -u) reaches the EXIT trap with $? already 0, so it would
-# exit 0 having done nothing. Every success exit sets _DS_FINISHED=1 first; any other 0 is that death, made a failure.
-_DS_FINISHED=0
-trap '_ds_rc=$?; _fetch_cleanup; [ "$_ds_rc" != 0 ] || [ "$_DS_FINISHED" = 1 ] || { echo "deploy-site: the run ended without finishing (for example a missing library or an unset variable; see the line above). Nothing was verified: treat it as FAILED (kosmos#6826)" >&2; exit 1; }' EXIT
 verify_sha() {  # <file> <sha256-url>
   want=$(curl -fsSL -H 'Cache-Control: no-cache' "$2" 2>/dev/null | awk '{print $1}')
   got=$(shasum -a 256 "$1" | awk '{print $1}')

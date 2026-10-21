@@ -13,6 +13,11 @@
 #   R4 a finished `exit 0`       must exit 0 (the success path still works)
 #   C  CONTROL: the old trap (`trap '_fetch_cleanup' EXIT`) on R1, to show this shell really loses the status.
 #      Where the shell keeps it (dash, bash 5), the control cannot show the danger and says so; R1 to R4 still hold.
+# End to end, on a COPY of the real deploy-site.sh with one death injected right after its EXIT trap line (a site
+# repo, the real tools, a stub vercel; nothing is fetched or deployed, the run dies first):
+#   E1 a failed `.`       must exit non-zero with the message
+#   E2 an unset variable  must exit non-zero with the message
+#   EC CONTROL: the same copy with the old plain trap, on E1 (exits 0 on macOS /bin/sh)
 # And one source pin:
 #   P  every `exit 0` alone on its line in deploy-site.sh is directly preceded by `_DS_FINISHED=1`. An inline
 #      `exit 0` (inside `{ ...; }`) is not seen; it would fail safe, a success reported as a failure.
@@ -63,6 +68,32 @@ rc=$(run r4 "$TRAP" '_DS_FINISHED=1; exit 0')
 rc=$(run c "trap '_fetch_cleanup' EXIT" ". $TMP/no-such-lib.sh")
 if [ "$rc" = 0 ]; then pass "C: CONTROL: the old trap exits 0 on a failed . on this shell, so R1 is measuring the real danger"
 else pass "C: CONTROL: this shell keeps the status even with the old trap (rc=$rc), so R1 cannot show the danger here; it does on macOS /bin/sh"; fi
+
+# E: the real script, copied, with a death injected straight after its trap line.
+REPO=$(cd "$HERE/.." && pwd)
+mkdir -p "$TMP/site/.vercel" "$TMP/bin"
+printf '{}\n' > "$TMP/site/.vercel/project.json"
+git -C "$TMP/site" init -q && git -C "$TMP/site" -c user.name=t -c user.email=t@t commit -q --allow-empty -m t
+printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/vercel"; chmod +x "$TMP/bin/vercel"
+e2e() {   # e2e <name> <injected line> [old]; prints the exit status
+  awk -v inj="$2" -v old="${3:-}" '
+    /^trap '"'"'_ds_rc=/ { if (old) print "trap '"'"'_fetch_cleanup'"'"' EXIT"; else print; print inj; n++; next }
+    { print } END { if (n != 1) exit 3 }' "$DEPLOY" > "$TMP/$1.sh" || { echo "inject-failed"; return; }
+  KOSMOS_SITE="$TMP/site" KOSMOS_REPO="$REPO" PATH="$TMP/bin:$PATH" sh "$TMP/$1.sh" > "$TMP/$1.out" 2>&1
+  echo $?
+}
+rc=$(e2e e1 ". $TMP/no-such-lib.sh")
+[ "$rc" != 0 ] && [ "$rc" != inject-failed ] && grep -q 'ended without finishing' "$TMP/e1.out" \
+  && pass "E1: the real script, dying on a failed . after its trap, exits $rc and says so" \
+  || bad "E1: the real script exited $rc: $(tail -3 "$TMP/e1.out")"
+rc=$(e2e e2 ': "$NO_SUCH_VAR_6826"')
+[ "$rc" != 0 ] && [ "$rc" != inject-failed ] && grep -q 'ended without finishing' "$TMP/e2.out" \
+  && pass "E2: the real script, dying on an unset variable after its trap, exits $rc and says so" \
+  || bad "E2: the real script exited $rc: $(tail -3 "$TMP/e2.out")"
+rc=$(e2e ec ". $TMP/no-such-lib.sh" old)
+if [ "$rc" = 0 ]; then pass "EC: CONTROL: the real script with the old trap exits 0 on that death on this shell, so E1 measures the danger"
+elif [ "$rc" = inject-failed ]; then bad "EC: could not inject into deploy-site.sh"
+else pass "EC: CONTROL: this shell keeps the status with the old trap too (rc=$rc), so E1 cannot show the danger here"; fi
 
 # P: every `exit 0` line (any indent) is directly preceded by a `_DS_FINISHED=1` line.
 unflagged=$(awk '{ t = $0; sub(/^[ \t]+/, "", t) } t == "exit 0" && prev != "_DS_FINISHED=1" { print NR } { prev = t }' "$DEPLOY")

@@ -14,10 +14,11 @@ trap cannot recover it. A dry run of deploy-site.sh from a worktree died on a mi
 - `_DS_FINISHED=0`, and an EXIT trap that runs the cleanup, keeps any non-zero status, and turns a 0 into exit 1
   (with a line saying the run did not finish) unless `_DS_FINISHED=1`.
 - Both success exits (the dry-run end and the trailing `exit 0`) set `_DS_FINISHED=1` directly before `exit 0`.
-- The new trap is installed right AFTER the site-fetch helper block. The block keeps its own plain cleanup trap,
-  because tools/test-deploy-site-fetch-4745.sh extracts and runs the block alone. Inside it, the finished check
-  would turn every extracted run into a failure (measured: 5 arms of that test went red when the trap sat in the
-  block).
+- The finished check IS the block's EXIT trap (line 213), so it covers the run from the moment a trap exists.
+  `_DS_FINISHED=0` is set just before the block. The trap reads `${_DS_FINISHED:-1}`, so the block run on its own
+  (tools/test-deploy-site-fetch-4745.sh extracts it) counts as finished and keeps its exits as they were.
+  First version: the trap sat after the block. That left the old plain trap armed for about 110 lines, and a
+  review round caught it. Measured: with the trap in the block and no default, 5 arms of the #4745 test went red.
 
 ## Decided, with what was rejected
 
@@ -27,12 +28,14 @@ trap cannot recover it. A dry run of deploy-site.sh from a worktree died on a mi
 - Scope: deploy-site.sh only. About 40 other scripts under tools/ share the shape (an EXIT trap plus set -u). Having
   the shape does not make a script affected, so each needs its own look. That stays on the card.
 
-Weakest premise: that the window between the block's trap (line 207) and the new trap holds nothing that can die
-this way. Read it: that window only defines functions and variables.
+Weakest premise: before line 213 there is no EXIT trap at all, so a death there keeps its real status (measured:
+a failed `.` with no trap exits 1). The only `.` before it is at line 162.
 
 ## Tests
 
 `tools/test-deploy-site-exit-trap-6826.sh` lifts the real trap line out of deploy-site.sh and runs it against a
 failed `.`, an unset variable, an explicit `exit 3` and a finished `exit 0`, with the old trap as a control. A pin
-checks that every `exit 0` sets the flag first. End to end: the 06:13 input now exits 1 (it was 0), and a good dry
+checks that every `exit 0` sets the flag first. E1/E2 copy the REAL deploy-site.sh, inject a death straight after its trap line, and
+run it (site repo, real tools, stub vercel), with the old trap as the control; moving the flag after the block
+makes them red. End to end: the 06:13 input now exits 1 (it was 0), and a good dry
 run still exits 0.
