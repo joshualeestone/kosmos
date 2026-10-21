@@ -9,7 +9,7 @@
     {
       "icon": "swarm",
       "title": "A team map for each project",
-      "line": "In the Separate tabs view, a project's Members card has a Team map: who reports to whom, what each member holds, who handed work to whom."
+      "line": "A project's Team map, on its Members card or above its Agents list, shows who reports to whom, what each holds and who handed work on."
     },
     {
       "icon": "tasks",
