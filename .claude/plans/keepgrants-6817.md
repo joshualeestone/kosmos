@@ -28,6 +28,12 @@ two apart.
    millisecond with "refreshed"; the line reads "...this list on Oct 19." Not changed: the world half of the keep rule
    has no arm of its own (a record for another world is cleared earlier in refresh).
 
+5. **Review 2, recorded:** two rare rebuilds (a join whose outcome was unknown being settled, and an undo whose record
+   was gone) write a fresh record without the list. Not carried: both are rare, a later failed read is rarer still,
+   and the next successful hourly read restores the list; carrying it would add the four-part check to two delicate
+   paths for that. A coordinator sending a non-empty list that cleans to nothing clears the list (garbage is treated
+   as "none", not "unread"): clearing is the safe direction for a screen that warns.
+
 ## Tests (each proven red by a mutation)
 `engine/reviewernotice-6752.test.js` (absent keeps list and time, [] clears, another company starts empty) and
 `web.reviewernotice-6752.test.js` (the age line only past a day; the route passes the time). Arms, all red: absent
