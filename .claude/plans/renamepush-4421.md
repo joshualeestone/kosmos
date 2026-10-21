@@ -16,10 +16,15 @@ notifications turned on through the real PUT /api/phone-notify (fake tunnel mint
 
 ## Measured
 - Passes on the branch, which is origin/main plus this test.
-- Red-capable: with both `agent: sender.card.name || who` sites changed to `agent: who`, it fails on the born-name
-  control ("before the rename the pushes were not exactly these"). Restored by git checkout.
-- File-scanning guards (fixture-discipline, no-name-refs, no-brand-refs, comment-deferral, one-derivation,
-  bundle.contents, engine.reachable): 45/45.
+- Red-capable, each arm on its own (both mutants in server.js, restored by `git checkout -- server.js`):
+  - both `agent: sender.card.name || who` sites changed to `agent: who`: fails the born-name CONTROL ("before the
+    rename the pushes were not exactly these");
+  - both changed to remember the first name pushed per agent (`(globalThis.__staleName ||= {})[who] ||= (...)`, a
+    stale cache): passes the control and fails the AFTER arm ("the pushes after the rename were not exactly these,
+    with the new name").
+- Re-run: `TMUX_PANE= TMUX= node --test server.rename-push-4421.test.js` from the worktree.
+- File-scanning guards: `node --test fixture-discipline.test.js no-name-refs-3071.test.js no-brand-refs-1881.test.js
+  comment-deferral.test.js one-derivation.test.js bundle.contents.test.js engine.reachable.test.js`, 45/45.
 
 ## Not covered: reasoned, not measured
 The `posted` (room post) and `ready` (task built) pushes read the live card's name too, and the crash-loop family
@@ -43,3 +48,7 @@ membership and delivery, which no end-to-end test here sets up yet; that is the 
 ## Review round 3
 - `posted` push left unmeasured, with the reasoning above (same roster as the reply path; source line pinned).
 - Dropped an unused AGENT_WORKFORCE_FAKE_PANES line and a setClock(null) for a clock this file never sets.
+
+## Review round 4
+- The after arm is now shown red on its own, by a stale-name mutant that passes the control (above).
+- The guard command is named so the 45/45 can be re-run.
