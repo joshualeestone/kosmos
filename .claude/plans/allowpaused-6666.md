@@ -33,8 +33,9 @@ maintenance and says so: `pending.json` carries `"paused": true`, and a refused 
   whole window.
 
 ## Validation
-engine/remote.test.js (+3, see review round 1; first two: paused only when exactly true, with controls; a paused Allow refused in words, not listed,
-with an ordinary-answer control); web.allow-card.test.js (+1: the line, its place, the poll and the paint).
+engine/remote.test.js, three tests: paused only when exactly true and fresh, with controls; a paused Allow refused in
+words and not listed, with an ordinary-answer control; the vouch path waits out a pause. web.allow-card.test.js, one
+test: the line, its place, the poll and the paint. docs/browser-checks/render-plus-paused-6666.js at 1400 and 390.
 
 ## Review round 1
 - `paused` counts only from a pending.json written under 2 minutes ago (PAUSED_FRESH_MS, the same 120 s as the
@@ -96,3 +97,8 @@ with an ordinary-answer control); web.allow-card.test.js (+1: the line, its plac
   (kosmos-relay crates/tunnel/src/devices.rs, measured on origin/main 0b93a6ab1). I wrote that sentence without
   reading the source. The line is now about new devices only, so it stays true beside a working code-check row, and
   the two comments that said the tunnel shows no requests now say no new requests.
+
+## Review round 8
+- Stated limit, not changed: a failed poll keeps the last paint (the rule every card on this page follows), so if
+  the board itself cannot be reached while paused, the paused line stays until the next good poll. Clearing it on a
+  failed poll would make the section go blank for a blip, which is the confusion this card removes.
