@@ -232,7 +232,10 @@ Expected during a freeze, until the pin is deployed: the site's autodeploy tick 
 minutes) sees site main's pointer differ from what live serves and SKIPS, by design (a website deploy never moves a
 release pointer). It runs nothing, logs "skip: site main's dist/latest.json is not what live serves", and turns red
 after 4 such ticks in a row (about an hour). It does not park. That is not a fault: deploy the pin with the line `on`
-printed, and the tick goes quiet once live serves it.
+printed, and the tick goes quiet once live serves it. After that, its mirror's ceiling is the pinned version (the
+newer of the two pointers' versions), so its next deploy carries no versioned build above the pin: the bad build, and
+any good builds between, leave the site's downloads. That is containment; they come back after `off` and a newer
+release.
 
 ## A floor under the installer: never serve one from before 0.7.45 (kosmos#4455)
 

@@ -58,7 +58,10 @@ make_site() {
   printf '%s' "$s"
 }
 on_origin() { git -C "$1" fetch -q origin && git -C "$1" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; }
-pf() { KOSMOS_SITE="$1" KOSMOS_SITE_URL=http://fake.test POINTER_FREEZE_CURL_CMD="$T/curl" bash "$HERE/pointer-freeze.sh" "${@:2}" 2>&1; }
+# Never the real site: an empty path (a failed mktemp) would let KOSMOS_SITE fall back to $HOME's checkout, so refuse
+# it, and run with HOME sandboxed as well.
+pf() { [ -n "$1" ] && [ -d "$1" ] || { echo "pf: no fake site given; refusing"; return 1; }
+  HOME="$T/home" KOSMOS_SITE="$1" KOSMOS_SITE_URL=http://fake.test POINTER_FREEZE_CURL_CMD="$T/curl" bash "$HERE/pointer-freeze.sh" "${@:2}" 2>&1; }
 ver() { sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$1"; }
 unchanged() { [ -z "$(git -C "$1" status --porcelain)" ] && [ "$(git -C "$1" rev-parse HEAD)" = "$2" ]; }
 

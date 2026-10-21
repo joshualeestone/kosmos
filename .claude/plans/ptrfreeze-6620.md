@@ -28,13 +28,13 @@ What already works for a pin (so this does not rebuild it):
 ## What it does
 
 `tools/pointer-freeze.sh`, run in the site checkout (KOSMOS_SITE, default ~/work/chaoskosmos-site):
-- `on --mac <version> [--because <words>]`: finds the newest site commit whose `dist/latest.json` names `<version>`,
+- `on --mac <version> --because <words> [--sha256 <sha>]`: finds the newest site commit whose `dist/latest.json` names `<version>`,
   restores that pointer and its installer pair (`setup`, `setup.sha256`, #5032) from it, and writes the tracked marker
-  `dist/POINTER_FROZEN` (`mac=<version>`, `because=`, `at=` UTC). Refuses below the setup floor and when the version's
+  `dist/POINTER_FROZEN` (`mac=<version>`, `sha256=`, `because=`, `at=` UTC). Refuses below the setup floor and when the version's
   artifact is not served from the host with the pointer's sha (the same two refusals deploy-site.sh would give later,
-  given now, before anything is written). Commits locally. Prints the next command: `tools/deploy-site.sh --promote`.
+  given now, before anything is written). Pushes to origin/main (see the review decisions). Prints the deploy to run.
   It does not deploy (the same boundary as promote-channel.sh).
-- `off`: removes the marker (commits locally); the next normal release moves the pointer again.
+- `off`: removes the marker on origin/main; the next normal release moves the pointer again.
 - `status`: the marker, the committed pointer's version, and the live one.
 
 Every pointer writer refuses while `dist/POINTER_FROZEN` exists, before it changes anything: release.sh (early, before
@@ -138,3 +138,11 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
 - Review 10 (one warning): the R2 instruction is corrected from publish-r2.ps1 itself (-Promote moves Windows prod
   only onto the staged build, with Josh's approval and a passing staging check, so an older good build is re-staged
   first). The lib's header admits `local`; deploy-site says so if it cannot load the lib.
+- Review 11 (three warnings, one convention): deploy-site's freeze-fetch failure exits 75 (try again later), so the
+  autodeploy tick retries rather than parks; the time limit kills git's whole process group (measured: an https
+  helper otherwise held the output for the OS's 75 s connect timeout); the test refuses an empty site path and runs
+  `on`/`off` with HOME sandboxed; deploy-site checks the lib exists before sourcing it (a failed `.` under sh exits
+  before an `||`). A push stopped by the limit is reported as unknown (run status), not as "not pushed". The docs
+  say a pin lowers the autodeploy mirror's ceiling (builds above the pin leave the site's downloads), read from its
+  code. Left as it is: promote-channel.sh checks the freeze at its start, not again before its local write minutes
+  later (deploy-site still refuses the result; the leftover pointer files are the cost).

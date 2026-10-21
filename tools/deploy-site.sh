@@ -417,7 +417,9 @@ fi
 # checkout on another Mac cannot publish over a freeze it has not pulled. A fetch that fails is said, and $H decides.
 # As every writer (tools/lib/pointer-freeze.sh): a site origin that cannot be fetched refuses (nothing deployed), unless
 # KOSMOS_POINTER_FREEZE_OFFLINE=1 says to decide on $H.
-. "$REPO/tools/lib/pointer-freeze.sh" || { echo "deploy-site: cannot load $REPO/tools/lib/pointer-freeze.sh (kosmos#6620) -- refusing; nothing was deployed"; exit 1; }
+# Checked first: under #!/bin/sh a failed `.` ends the shell before any `||` could speak.
+[ -f "$REPO/tools/lib/pointer-freeze.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/pointer-freeze.sh (kosmos#6620) -- refusing; nothing was deployed"; exit 1; }
+. "$REPO/tools/lib/pointer-freeze.sh"
 FROZEN_SRC=""
 if git -C "$SITE" cat-file -e "$H:dist/POINTER_FROZEN" 2>/dev/null; then FROZEN_SRC="$H"
 elif ! git -C "$SITE" remote get-url origin >/dev/null 2>&1; then :   # no origin at all: $H decides
@@ -426,7 +428,7 @@ elif pointer_freeze_fetch "$SITE"; then
 elif [ "${KOSMOS_POINTER_FREEZE_OFFLINE:-}" = 1 ]; then
   echo "deploy-site: could not fetch origin/main; KOSMOS_POINTER_FREEZE_OFFLINE=1, so deciding the pointer freeze on $H (kosmos#6620)"
 else
-  echo "deploy-site: could not fetch origin/main to check the pointer freeze (kosmos#6620) -- refusing; nothing was deployed. Try again, or set KOSMOS_POINTER_FREEZE_OFFLINE=1 to decide on $H."; exit 1
+  echo "deploy-site: could not fetch origin/main to check the pointer freeze (kosmos#6620) -- refusing; nothing was deployed. Try again, or set KOSMOS_POINTER_FREEZE_OFFLINE=1 to decide on $H. (exit 75: try again later, #5589)"; exit 75
 fi
 if [ -n "$FROZEN_SRC" ]; then
   FROZEN_AT=$(git -C "$SITE" show "$FROZEN_SRC:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^mac=//p' | head -1)

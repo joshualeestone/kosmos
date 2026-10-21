@@ -708,7 +708,7 @@ read -r S50 L50 <<<"$(make_rollback_scenario)"
 git -C "$S50" remote add origin "$T/no-such-origin.git"
 LIVE50="$(cat "$L50/dist/latest.json")"
 run_deploy "$S50" "$L50" --promote
-{ [ "$RC" = 1 ] && has "$out" "could not fetch origin/main to check the pointer freeze" && [ "$(cat "$L50/dist/latest.json")" = "$LIVE50" ]; } \
+{ [ "$RC" = 75 ] && has "$out" "could not fetch origin/main to check the pointer freeze" && [ "$(cat "$L50/dist/latest.json")" = "$LIVE50" ]; } \
   && pass "#6620: a site origin that cannot be fetched refuses the deploy, live untouched" || bad "#6620 fail closed (rc=$RC) out=$out"
 KOSMOS_POINTER_FREEZE_OFFLINE=1 run_deploy "$S50" "$L50" --promote
 { [ "$RC" = 0 ] && has "$out" "KOSMOS_POINTER_FREEZE_OFFLINE=1, so deciding the pointer freeze"; } \

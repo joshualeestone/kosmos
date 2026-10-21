@@ -12,7 +12,8 @@
 #   3. writes that pointer as dist/latest.json AND dist/latest-staging.json (staging subscribers older than a bad
 #      build would otherwise still be offered it), and the installer pair that stood with it (setup, setup.sha256, and
 #      the same bytes as setup-staging, setup-staging.sha256, #5032);
-#   4. writes the tracked marker dist/POINTER_FROZEN (mac=, because=, at= UTC), which every pointer writer honours
+#   4. writes the tracked marker dist/POINTER_FROZEN (mac=, sha256= of the pinned pointer, because=, at= UTC), which
+#      every pointer writer honours
 #      (tools/lib/pointer-freeze.sh): release.sh, promote-channel.sh, publish-staging-pointer.sh,
 #      publish-kosmos-windows.sh refuse, and deploy-site.sh publishes only the frozen version;
 #   5. builds that change in a TEMPORARY index on the freshly fetched origin/main and pushes it (this checkout's own
@@ -204,7 +205,7 @@ cmd_on() {
     && [ -n "$marker_blob" ] || die "could not write the marker; nothing was changed"
   # shellcheck disable=SC2086 # each entry is one word (mode,blob,path)
   pushed="$(publish_on_origin "pointer-freeze: Mac pointers pinned and frozen at $v (kosmos#6620): $because" on $entries "100644,$marker_blob,$POINTER_FREEZE_FILE")" \
-    || die "NOT pushed, so nothing is frozen and this checkout is unchanged. Fix the cause above and run on again"
+    || die "the push did not confirm (see above), so whether origin/main is frozen is not known: run status; this checkout is unchanged, and on can safely run again"
   follow_local "$pushed"
   say "frozen at $v (from site commit ${found:0:12}): both Mac pointers, the installer pair and $POINTER_FREEZE_FILE pushed to origin/main (${pushed:0:12})."
   # Which deploy works is decided by BYTES, as deploy-site.sh decides it: --promote refuses a committed prod pointer
@@ -233,7 +234,7 @@ cmd_off() {
   pointer_freeze_fetch "$SITE" || die "could not fetch origin/main; nothing was changed"
   git -C "$SITE" cat-file -e "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null || { say "origin/main is not frozen; nothing changed"; return 0; }
   local was sha; was="$(git -C "$SITE" show "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null | sed -n 's/^mac=//p' | head -1)"
-  sha="$(publish_on_origin "pointer-freeze: freeze at ${was:-?} lifted (kosmos#6620)" off)" || die "the freeze was NOT lifted (see above)"
+  sha="$(publish_on_origin "pointer-freeze: freeze at ${was:-?} lifted (kosmos#6620)" off)" || die "the lift did not confirm (see above): run status to see whether it is lifted; off can safely run again"
   follow_local "$sha"
   say "freeze at ${was:-?} lifted and pushed (${sha:0:12}); the pointers stay where they are until the next release moves them."
   say "Another checkout that still has the marker at its HEAD keeps refusing until it pulls (git -C <site> pull --ff-only)."
