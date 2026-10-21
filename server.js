@@ -15826,6 +15826,11 @@ const server = http.createServer(async (req, res) => {
    * update never touches.
    */
   if (pathname === '/api/update' && req.method === 'POST') {
+    /* kosmos#6620: the fleet's update pause, asked live (review 4) and FIRST (review 5): the ask can take seconds, so
+       every check below reads the board as it is after it, not before (a move begun meanwhile still holds the board).
+       Its refusal is answered further down, after the platform and source refusals, whose sentences are truer. With
+       nothing on offer and nothing running (review 6), the answer below is "no update" whatever the pause says: no ask. */
+    const pauseRefusal = (updates.available() || updates.alreadyInstalling()) ? await updates.pauseRefusalNow() : null;
     const avail = updates.available();
     if (!avail) { sendJson(res, 409, { error: 'there is no update to install right now' }); return; }
     /* 🛑 #570: THE PLATFORM ARM GOES FIRST, AND ITS ORDER IS THE WHOLE POINT.
@@ -15852,6 +15857,8 @@ const server = http.createServer(async (req, res) => {
        skipped) on the Mac and for a normal win32 bundle. */
     const locationRefusal = updates.windowsLocationRefusal();
     if (locationRefusal) { sendJson(res, 409, { error: locationRefusal }); return; }
+    // kosmos#6620: the pause asked at the top; an install that started during that ask is joined below, not refused.
+    if (pauseRefusal && !updates.alreadyInstalling()) { sendJson(res, 409, { error: pauseRefusal }); return; }
     if (updates.alreadyInstalling()) {
       // Idempotent: the first POST started it; a retry, a double click, or a
       // second tab gets the same true answer without a second installer

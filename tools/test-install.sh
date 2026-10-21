@@ -351,10 +351,14 @@ export AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_LAUNCH="$SB/launch"
 # fresh install id, and a cut runs this file as its install gate, so every run told
 # installkosmos.com about dozens of Mac installs that do not exist. The beacon is
 # untouched (Josh's 09-14 ruling); only this harness points it at a dead local port.
-# The env -i reboot simulation below starts from nothing, so it names both again.
+# The env -i reboot simulation below starts from nothing, so it names them again.
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
+# kosmos#6620 (review 7): `kosmos update --if-newer` below runs run-setup, which asks the coordinator whether updates
+# are paused. A cut runs this file as its install gate, so it must never ask the real one: during an incident pause
+# that answer would hold the very release meant to end it, and every run would reach the production coordinator.
+export KOSMOS_UPDATE_PAUSE_URL=http://127.0.0.1:9/v1/meta
 export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: the harness's boards write no language block, whatever this Mac's language is
 # 🛑 EVERY ROOT THE GATE NAMES, AND AN INERT TMUX, or the board this harness
 # installs refuses to start (#634): a sandbox with some roots live is the
@@ -2146,6 +2150,7 @@ RC=0; env -i \
   AGENT_WORKFORCE_CREATED_URL="$AGENT_WORKFORCE_CREATED_URL" \
   AGENT_WORKFORCE_FEEDBACK_URL="$AGENT_WORKFORCE_FEEDBACK_URL" \
   AGENT_WORKFORCE_COMMUNITY_URL="$AGENT_WORKFORCE_COMMUNITY_URL" \
+  KOSMOS_UPDATE_PAUSE_URL="$KOSMOS_UPDATE_PAUSE_URL" \
   AGENT_WORKFORCE_PERSON_LOCALE="$AGENT_WORKFORCE_PERSON_LOCALE" \
   "$PETE_HOME/bin/kosmos" start > "$SB/reboot-sim.log" 2>&1 || RC=$?
 chk "a simulated reboot (plist env only) starts the board, not #634's refusal" "rc_ok $RC"
