@@ -33,3 +33,19 @@ seen. None exists today.
 - Another call's -S on the same line (capture-pane -S -200) counted. Now only the enclosing call's arguments.
 - The count floor counts command strings too. Control re-run against main's three files (checked out from
   origin/main, not stashed: committed files do not stash): red on all four calls.
+
+## Review 2 (Sonnet): the text scan could not tell code from strings, comments and regexes; replaced by a lexer
+- A glob ('engine/*.test.js') or a regex (/\/*$/) opened a "comment" that hid real code; ' //' in a string ate the
+  line; a brace-less arrow with no semicolon ran into the next statement; brackets in strings moved the depth; another
+  command's -L in the same command string vouched; the whole-repo count was padded by a regex literal and an expected
+  string.
+- Now: a small tokenizer (strings, templates with ${...} read as code through a brace stack, comments, regex literals
+  by the previous token). Calls, wrappers and depth are read over tokens; a command string is split at ; && || | and
+  new lines and only kill-server's own command must name the socket; an arrow ends at a new line at depth 0 unless the
+  line continues the expression; the count floor is per file (EXPECTED), so a file the lexer stops reading fails.
+- Found while building it: a regex holding a backtick inside a template's ${...} swallowed 12,203 characters of
+  sessionccd-6095 (the per-file floor caught it); and function definitions started one token past '(' (runTmux's
+  -L was missed). Both fixed.
+- Limits stated in the header: a name split across strings, a flag built at run time, a -L that is only a default
+  parameter's value.
+- Controls: 26 (each round-1 and round-2 shape red, its twin green). Against origin/main's three files: red on all four.
