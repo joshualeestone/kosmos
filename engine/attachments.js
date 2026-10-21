@@ -118,7 +118,7 @@ function slot(scope, owner, name) {
   const clean = safeName(name);
   const file = path.join(dir, clean);
   if (!file.startsWith(dir + path.sep)) throw new Error('that file name cannot be stored');
-  fs.mkdirSync(path.dirname(dir), { recursive: true });
+  fs.mkdirSync(path.dirname(dir), { recursive: true, mode: 0o700 });   // review 16: the folders it makes above, too
   fs.mkdirSync(dir, { mode: 0o700 });   // review 7: exclusive, so an upload never shares an existing folder; 0700 (review 14)
   return { id, dir, name: clean, file, part: path.join(dir, PART) };
 }
@@ -138,8 +138,9 @@ function abandon(s) { try { fs.rmSync(s.dir, { recursive: true, force: true }); 
 /* #6734 review 2: a board that stops mid-upload (a crash, a kill, a power cut) leaves an attachment folder with no
    record.json: a part file of up to the cap, or a renamed file whose record was never written. read() never serves
    one, so only the disk space is at stake; this takes it back. Only a folder named like an attachment id, two levels
-   under ROOT, with no record.json, and nothing in it touched for ORPHAN_AGE_MS (an upload waits at most five minutes
-   for its body, so an hour is never one still arriving). Returns how many it removed.
+   under ROOT, with no record.json, and nothing in it touched for ORPHAN_AGE_MS. An upload still arriving keeps its
+   part file's mtime fresh with every write, and Node refuses one whose body takes over five minutes anyway, so an
+   hour untouched is never a live upload (review 16: the mtime, not only the timeout, is what protects it). Returns how many it removed.
    ⚠️ Safe only while slot() is the one maker of id folders under ROOT (it always writes record.json or removes the
    folder). server.attachment-stream-6734.test.js fails if another file starts writing under the store. */
 const ORPHAN_AGE_MS = 60 * 60 * 1000;

@@ -185,7 +185,9 @@ phone yet: the remaining manual step covers it.
 
 25. **Review 14:** the stored-name fallback compares the part file's name as macOS and Windows do (case and trailing
    dots and spaces ignored), so ".UPLOAD.PART" or ".upload.part." is never followed (test arms; red with the old
-   case-sensitive compare). Attachment folders are made 0700 (test; red without the mode).
+   case-sensitive compare). Attachment folders are made 0700 (test; red without the mode). Review 16: so are the
+   scope and owner folders above them, when this code is the one making them (an install's existing ones keep their
+   mode; nothing in them is readable without the 0600 files and 0700 id folders).
 
 26. **Review 15:** the module's own names are compared as macOS and Windows compare them: trailing dots and spaces
    dropped, NFKC, then lower case, so "record.jſon" (a long s) is renamed rather than stored where the record then

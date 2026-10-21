@@ -593,6 +593,7 @@ test('#6734: a stored attachment and its record are both readable by this user o
   assert.equal(fs.statSync(rec.file).mode & 0o777, 0o600, 'the file');
   assert.equal(fs.statSync(path.join(rec.dir, 'record.json')).mode & 0o777, 0o600, 'the record');
   assert.equal(fs.statSync(rec.dir).mode & 0o777, 0o700, 'the folder');
+  assert.equal(fs.statSync(path.dirname(rec.dir)).mode & 0o777, 0o700, 'the owner folder above it');
 });
 
 test('#6734: a file an older build stored under its old clean name (".env" from " .env") is still found', () => {
