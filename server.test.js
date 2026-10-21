@@ -277,7 +277,9 @@ async function anyAgent(t) {
 /* #6059: every request on a NEW connection (agent: false), never a pooled one. Global fetch reuses keep-alive
    sockets, and on a loaded hosted runner a socket left idle across a request-free test came back ECONNRESET on the
    next request (two PRs, 2026-10-21; server.dm-rollover-5841 does the same for the same reason). Callers pass only
-   method, headers and string bodies, and none reaches the server's one redirect, so the contract is unchanged. */
+   method, headers and string bodies, and none reaches the server's one redirect. A string body with no content-type
+   is sent as text/plain, as fetch sends it, because the cross-site write guard reads that type; and a request that
+   gets no answer fails after 300 s (undici's default) as that request, not as a whole-file timeout. */
 const http = require('node:http');
 let REQUESTS = 0;
 let REUSED = 0;
@@ -285,7 +287,10 @@ function req(path, options = {}) {
   return new Promise((resolve, reject) => {
     REQUESTS += 1;
     const headers = { ...(options.headers || {}) };
-    if (options.body !== undefined) headers['content-length'] = Buffer.byteLength(options.body);
+    if (options.body !== undefined) {
+      headers['content-length'] = Buffer.byteLength(options.body);
+      if (!Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')) headers['content-type'] = 'text/plain;charset=UTF-8';
+    }
     const r = http.request(base + path, { method: options.method || 'GET', agent: false, headers }, (res) => {
       let body = '';
       res.setEncoding('utf8');
@@ -294,6 +299,7 @@ function req(path, options = {}) {
       res.on('error', reject);
     });
     r.on('socket', () => { if (r.reusedSocket) REUSED += 1; });
+    r.setTimeout(300000, () => r.destroy(new Error(`req ${options.method || 'GET'} ${path}: no answer in 300 s`)));
     r.on('error', reject);
     if (options.body !== undefined) r.write(options.body);
     r.end();
@@ -16938,7 +16944,9 @@ test('kosmos#5628: a managed computer sets up through the company sign-in routes
   }
 });
 
+/* Keep this the LAST test in the file: it reads the counts every earlier test left. REQUESTS catches req() going back
+   to fetch (the counter would stay 0); REUSED is a tripwire for req() going back to a pooled agent. */
 test('#6059 harness: every req() went out on a new connection, none on a reused socket', () => {
   assert.ok(REQUESTS > 100, `only ${REQUESTS} requests went through req(), so this arm proves little`);
-  assert.equal(REUSED, 0, 'a req() reused a pooled socket, which is what came back ECONNRESET on a loaded runner');
+  assert.equal(REUSED, 0, 'tripwire: a req() went out on a reused pooled socket, the shape that came back ECONNRESET on a loaded runner');
 });
