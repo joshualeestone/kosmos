@@ -45,6 +45,8 @@ test('the control lives behind "Lost your phone?" under Plus, hidden until enrol
   // kosmos#3860: every live Mac on the account can reset the step, not only this one. The
   // sentence used to say "this computer can ... Nobody else can", which read as this Mac alone.
   assert.match(sec2, /this computer, or any other computer connected to this account, can switch the second step off/, 'kosmos#3860: the sentence says only this computer can reset the step');
+  // #6611: the dialog's opening words say the sign-out too, before the button is pressed at all.
+  assert.match(sec2, /Switching it off also means every phone and browser on your account will need to sign in again\./, '#6611: the dialog does not say a reset signs everyone out');
   const paint = SCRIPT.slice(SCRIPT.indexOf('async function paintPlus('), SCRIPT.indexOf("document.getElementById('plus-switch').addEventListener"));
   assert.match(paint, /getElementById\('plus-devices'\)\.hidden = r\.enrolled !== true/, 'the block with the link is not gated on enrolled; an unenrolled Mac cannot sign the request');
   assert.match(paint, /plusSecondDisarm\(\)/, 'a repaint leaves a half-taken click armed');
@@ -52,18 +54,36 @@ test('the control lives behind "Lost your phone?" under Plus, hidden until enrol
 
 test('the first click arms and asks nothing; the second asks once and says it is done', async () => {
   const calls = [];
-  const w = world(async (url, opts) => { calls.push([url, (opts || {}).method]); return { ok: true, json: async () => ({ ok: true }) }; });
+  const w = world(async (url, opts) => { calls.push([url, (opts || {}).method]); return { ok: true, json: async () => ({ ok: true, had: 'totp' }) }; });
   await w.click();
   assert.deepEqual(calls, [], 'one click reached the engine');
   assert.equal(w.el('plus-second-reset').textContent, 'Yes, reset it');
   assert.match(w.el('plus-second-msg').textContent, /once more/);
+  // #6611: the person hears about the sign-out before they agree to it.
+  assert.match(w.el('plus-second-msg').textContent, /Every phone and browser signed in to your account will need to sign in again\./);
   await w.click();
   assert.deepEqual(calls, [['/api/remote/second-reset', 'POST']]);
   assert.match(w.el('plus-second-msg').textContent, /^The second step is off\./);
   assert.match(w.el('plus-second-msg').textContent, /new phone/);
+  assert.match(w.el('plus-second-msg').textContent, /Every phone and browser will need to sign in again/);
   assert.equal(w.el('plus-second-reset').textContent, 'Reset the second step', 'the button did not disarm after the reset');
   assert.equal(w.el('plus-second-reset').disabled, false);
 });
+
+// #6611: the done words follow what the coordinator reported clearing. No factor cleared (had: null) must never say
+// anyone was signed out; an answer without `had` (one that went wrong somewhere) gets the words that claim no sign-out.
+for (const [label, body, want, notWant] of [
+  ['nothing to clear', { ok: true, had: null }, /^There was no second step on your account to switch off, so nobody was signed out\. If you had started setting one up, start again\.$/, /Every phone and browser/],
+  ['without had', { ok: true }, /^The second step is off\. Sign in from your new phone/, /Every phone and browser/],
+]) {
+  test('#6611: a reset that answered ' + label + ' says only what happened', async () => {
+    const w = world(async () => ({ ok: true, json: async () => body }));
+    await w.click();
+    await w.click();
+    assert.match(w.el('plus-second-msg').textContent, want);
+    assert.doesNotMatch(w.el('plus-second-msg').textContent, notWant);
+  });
+}
 
 test("a refusal is said in the engine's own words, and the button comes back", async () => {
   let asked = 0;

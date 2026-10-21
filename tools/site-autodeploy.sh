@@ -38,6 +38,9 @@
 # re-running a refusing deploy every 15 minutes would bury it. The next merge, or deleting `parked`,
 # tries again. A checkout fault (off main, dirty, diverged) or a missing source of the older
 # downloads parks at once: retrying cannot fix either.
+# kosmos#6771, the Vercel token: no secrets accessor (nosecrets), no token filed (notoken), or deploy-site.sh's exit 77
+# (Vercel refused the authorization before making a deployment) are each red once a day, keyed on no sha, never
+# counted and never parked: filing or replacing the token is the whole fix, and the next tick deploys.
 #
 # State (KOSMOS_AUTODEPLOY_STATE, default ~/.kosmos-site-autodeploy):
 #   heartbeat      the time of the last tick that held the lock (a stall shows as an old heartbeat)
@@ -72,7 +75,10 @@
 # deploy's wall-clock limit in seconds: default 900, at most 1200; empty, non-numeric, 0 or a leading 0
 # means 900), KOSMOS_AUTODEPLOY_FETCH_MAX_S (the fetch's limit: default 120, at most 300, same fallbacks),
 # KOSMOS_SITE_URL (default
-# https://installkosmos.com, the same variable deploy-site.sh reads).
+# https://installkosmos.com, the same variable deploy-site.sh reads), VERCEL_TOKEN (the deploy's Vercel token; when
+# unset it is read from the secrets map, target KOSMOS_AUTODEPLOY_VERCEL_TARGET, default vercel-chaoskosmos-site:
+# kosmos#6771), KOSMOS_AUTODEPLOY_SECRETS (the PATH of the secrets-map accessor, an executable, default secrets-map.sh
+# on PATH or in ~/.claude/scripts).
 # Test seams, TEST ONLY (each is run with sh -c, so never set them in the job's environment):
 # KOSMOS_AUTODEPLOY_DEPLOY (the deploy command, default this repo's deploy-site.sh --publish),
 # KOSMOS_AUTODEPLOY_PS (the process list command, default `ps -axo command=`).
@@ -422,6 +428,32 @@ if publisher_running; then
   exit 0
 fi
 now > "$STATE/heartbeat"   # fresh before the long part, so a slow deploy never reads as a wedged lock
+# kosmos#6771: the deploy authenticates with a scoped project token, never this machine's CLI sign-in (which lapsed on
+# 10-20 and failed as a bare "Not authorized"). An inherited VERCEL_TOKEN wins; otherwise it is read from the secrets
+# map. The CLI reads VERCEL_TOKEN from the environment, so the token is never on a command line. Missing, nothing
+# is deployed and it is red once a day (no failure counted, no park): filing the token is the whole fix, and the next
+# tick then deploys.
+VERCEL_TOKEN_TARGET="${KOSMOS_AUTODEPLOY_VERCEL_TARGET:-vercel-chaoskosmos-site}"
+if [ -z "${VERCEL_TOKEN:-}" ]; then
+  SECRETS_CMD="${KOSMOS_AUTODEPLOY_SECRETS:-}"
+  [ -n "$SECRETS_CMD" ] || SECRETS_CMD=$(command -v secrets-map.sh 2>/dev/null || echo "$HOME/.claude/scripts/secrets-map.sh")
+  # A lookup that cannot run is not a token nobody filed: told apart, so nobody files a token that is already there.
+  # TARGET="" keys the red record on no sha (as the fetch's is), so a new site merge does not make it red again the
+  # same day: the cause is the machine's, not the commit's.
+  [ -x "$SECRETS_CMD" ] || TARGET="" red_once nosecrets "FAIL: cannot read the Vercel token: $SECRETS_CMD is not there or not executable (secrets-map.sh, the fleet's credential accessor); nothing deployed (kosmos#6771)"
+  # The accessor's reason on stderr names the target and the file, never the value (secrets-map.sh's own rule; a
+  # KOSMOS_AUTODEPLOY_SECRETS stand-in must keep it).
+  _whyf=$(mktemp "${TMPDIR:-/tmp}/site-autodeploy-why.XXXXXX") || _whyf=/dev/null
+  VERCEL_TOKEN=$("$SECRETS_CMD" value "$VERCEL_TOKEN_TARGET" 2>"$_whyf") || VERCEL_TOKEN=""
+  _why=$(head -1 "$_whyf" 2>/dev/null | tr '\r\n' '  '); [ "$_whyf" = /dev/null ] || rm -f "$_whyf"
+fi
+case "${VERCEL_TOKEN:-}" in *"
+"*) TARGET="" red_once notoken "FAIL: the Vercel token read for $VERCEL_TOKEN_TARGET has more than one line, which no token has; refile it (kosmos#6771); nothing deployed" ;; esac
+[ -n "${VERCEL_TOKEN:-}" ] || TARGET="" red_once notoken "FAIL: no Vercel token for the deploy (secrets target $VERCEL_TOKEN_TARGET${_why:+; the accessor said: $_why}): file a scoped token for the chaoskosmos-site project with /add-secret on this machine (kosmos#6771); nothing deployed"
+# In GitHub Actions the token did not come from a repository secret, so the log does not know to hide it: tell it.
+# Straight to stdout, never through say: the mask line itself must not go into $LOG.
+[ "${GITHUB_ACTIONS:-}" = true ] && printf '::add-mask::%s\n' "$VERCEL_TOKEN"
+export VERCEL_TOKEN   # deploy-site.sh takes it out of the environment again and gives it to the vercel command only
 say "deploying site main ${TARGET:0:9} (last deployed ${LAST:0:9}); its output is printed when it ends, and kept in $STATE/deploy.out"
 # The deploy's output goes to this run's output and the log once it ends; rc is the deploy's own.
 # KOSMOS_REPO pins deploy-site.sh's libraries to THIS checkout; without it they load from
@@ -518,6 +550,12 @@ if [ "$rc" = 75 ]; then
   [ "$n" -ge "$RETRY_ALARM" ] && red_once moving "FAIL: ${TARGET:0:9} has hit a moving or unreadable live site $n ticks in a row; still retrying"
   say "retry: the live site moved or could not be read during the deploy of ${TARGET:0:9} ($n in a row); the next tick tries again"
   exit 0
+fi
+# 77: deploy-site.sh says Vercel refused this machine's authorization (kosmos#6771): a token to make or replace, not a
+# finding about this sha. Not counted and NOT parked, so a new token is the whole fix; red once a day, on no sha.
+if [ "$rc" = 77 ]; then
+  accounted=1
+  TARGET="" red_once vercelauth "FAIL: Vercel refused this machine's authorization for the deploy (deploy-site.sh exit 77; its own line above says whether a token was given). Make a scoped token for the chaoskosmos-site project and file it as vercel-chaoskosmos-site (kosmos#6771); nothing counted, not parked"
 fi
 printf '%s rc=%s %s\n' "$TARGET" "$rc" "$(now)" > "$STATE/last-failure"
 n=$(( $(count_for "$STATE/failures") + 1 )); echo "$TARGET $n" > "$STATE/failures"; accounted=1

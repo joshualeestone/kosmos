@@ -31,6 +31,8 @@ DEPLOYS="$T/deploys"; : > "$DEPLOYS"; REPOENV="$T/repoenv"
 export KOSMOS_AUTODEPLOY_SITE="$T/site" KOSMOS_AUTODEPLOY_STATE="$T/state" KOSMOS_AUTODEPLOY_DIST_FROM="$CUTDIST" KOSMOS_SITE_URL="file://$SERVED"
 export KOSMOS_AUTODEPLOY_DEPLOY='git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS"'; printf %s "$KOSMOS_REPO" > '"$REPOENV"'; echo deploy-said-this; exit "${DEPLOY_RC:-0}"'
 export KOSMOS_AUTODEPLOY_PS="printf %s\\n idle"
+# kosmos#6771: every arm below runs with a token, as the job will once it is filed; the token arms at the end unset it.
+export VERCEL_TOKEN=test-token-6771
 ST="$T/state"
 tick() { OUT=$(bash "$AD" 2>&1); RC=$?; }
 ndeploys() { wc -l < "$DEPLOYS" | tr -d ' '; }
@@ -485,6 +487,70 @@ KOSMOS_AUTODEPLOY_PS="printf ''" tick; p1=$RC; OUTP=$OUT; KOSMOS_AUTODEPLOY_PS="
 { [ "$p1" = 1 ] && [ "$p2" = 0 ] && [ "$(ndeploys)" = "$n35" ] && printf '%s' "$OUTP" | grep -q "could not read the process list"; } \
   && pass "an unreadable process list never deploys: red once, then reported" || bad "unreadable ps (p1=$p1 p2=$p2 deploys $n35 -> $(ndeploys)) $OUTP"
 tick; [ "$(cat "$ST/last-deployed")" = "$H35" ] && pass "with the process list readable again, it deploys (control)" || bad "no deploy after ps recovered"
+
+# 6771) the Vercel token. The deploy is not run without one, and the job reads it from the secrets map.
+SEC="$T/secrets"; SECLOG="$T/secrets.log"; TOKSEEN="$T/tokseen"
+cat > "$SEC" <<EOF
+#!/bin/sh
+echo "\$*" >> "$SECLOG"
+[ -n "\${SEC_TOKEN:-}" ] || exit 1
+printf '%s' "\$SEC_TOKEN"
+EOF
+chmod +x "$SEC"
+H6771=$(advance six-seven-seven-one); n0=$(ndeploys)
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; echo "$RC" > "$T/rc1"; printf '%s' "$OUT" > "$T/out1"
+  KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; echo "$RC" > "$T/rc2"; printf '%s' "$OUT" > "$T/out2" )
+{ [ "$(cat "$T/rc1")" = 1 ] && grep -q "no Vercel token for the deploy (secrets target vercel-chaoskosmos-site" "$T/out1" && [ "$(ndeploys)" = "$n0" ]; } \
+  && pass "6771: no token anywhere: red, names the secrets target, nothing deployed" || bad "6771 no token (rc=$(cat "$T/rc1")): $(cat "$T/out1")"
+{ [ "$(cat "$T/rc2")" = 0 ] && grep -q "STILL FAILING (reported): no Vercel token" "$T/out2" && [ "$(ndeploys)" = "$n0" ] && [ ! -e "$ST/parked" ]; } \
+  && pass "6771: the next tick without a token: green with STILL FAILING, still nothing deployed, never parked" || bad "6771 second tick (rc=$(cat "$T/rc2")): $(cat "$T/out2")"
+# A new site merge while the token is still missing stays green the same day (the record is the machine's, not the sha's).
+H6771n=$(advance six-seven-seven-one-new)
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; echo "$RC" > "$T/rcn"; printf '%s' "$OUT" > "$T/outn" )
+{ [ "$(cat "$T/rcn")" = 0 ] && grep -q "STILL FAILING (reported): no Vercel token" "$T/outn"; } \
+  && pass "6771: a new merge without the token: still green with STILL FAILING (red once a day, not once a sha)" || bad "6771 new sha re-red (rc=$(cat "$T/rcn")): $(cat "$T/outn")"
+grep -qx "value vercel-chaoskosmos-site" "$SECLOG" && pass "6771: the token is asked for by its secrets target, with the value accessor" || bad "6771: secrets asked with: $(cat "$SECLOG" 2>/dev/null)"
+( unset VERCEL_TOKEN; SEC_TOKEN=from-the-map KOSMOS_AUTODEPLOY_SECRETS="$SEC" KOSMOS_AUTODEPLOY_DEPLOY='printf %s "$VERCEL_TOKEN" > '"$TOKSEEN"'; git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS" tick; echo "$RC" > "$T/rc3" )
+{ [ "$(cat "$T/rc3")" = 0 ] && [ "$(cat "$TOKSEEN" 2>/dev/null)" = from-the-map ] && [ "$(cat "$ST/last-deployed")" = "$H6771n" ]; } \
+  && pass "6771: once the token is filed, the next tick deploys with it in VERCEL_TOKEN" || bad "6771 filed token (rc=$(cat "$T/rc3")): saw '$(cat "$TOKSEEN" 2>/dev/null)'"
+H6771b=$(advance six-seven-seven-one-b); : > "$SECLOG"
+KOSMOS_AUTODEPLOY_SECRETS="$SEC" KOSMOS_AUTODEPLOY_DEPLOY='printf %s "$VERCEL_TOKEN" > '"$TOKSEEN"'; git -C "$KOSMOS_SITE" rev-parse HEAD >> '"$DEPLOYS" tick
+{ [ "$RC" = 0 ] && [ "$(cat "$TOKSEEN")" = test-token-6771 ] && [ ! -s "$SECLOG" ]; } \
+  && pass "6771: a token already in the environment wins, and the secrets map is not read" || bad "6771 inherited token (rc=$RC): saw '$(cat "$TOKSEEN")', secrets log '$(cat "$SECLOG")'"
+
+# A lookup that cannot run is said as that, not as a missing token; and the accessor's reason is kept.
+H6771c=$(advance six-seven-seven-one-c)
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_SECRETS="$T/no-such-secrets-map" tick; echo "$RC" > "$T/rc4"; printf '%s' "$OUT" > "$T/out4" )
+{ [ "$(cat "$T/rc4")" = 1 ] && grep -q "cannot read the Vercel token: $T/no-such-secrets-map is not there or not executable" "$T/out4" && ! grep -q "file a scoped token" "$T/out4"; } \
+  && pass "6771: no secrets-map: its own red, not 'file a token'" || bad "6771 no accessor (rc=$(cat "$T/rc4")): $(cat "$T/out4")"
+cat > "$T/secrets-why" <<'EOF'
+#!/bin/sh
+echo "secrets-map: no credential for target '$2' (the map lists none)" >&2; exit 1
+EOF
+chmod +x "$T/secrets-why"; rm -rf "$ST/reported.d"
+( unset VERCEL_TOKEN; KOSMOS_AUTODEPLOY_SECRETS="$T/secrets-why" tick; printf '%s' "$OUT" > "$T/out5" )
+grep -q "the accessor said: secrets-map: no credential for target 'vercel-chaoskosmos-site'" "$T/out5" && pass "6771: the accessor's own reason is in the red line" || bad "6771 accessor reason: $(cat "$T/out5")"
+# In Actions the token is masked before anything else prints; outside Actions nothing prints it.
+( unset VERCEL_TOKEN; GITHUB_ACTIONS=true SEC_TOKEN=mask-me KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; printf '%s' "$OUT" > "$T/out6" )
+grep -qx '::add-mask::mask-me' "$T/out6" && pass "6771: in GitHub Actions the token is masked" || bad "6771 no mask in Actions: $(head -5 "$T/out6")"
+H6771d=$(advance six-seven-seven-one-d)
+( unset VERCEL_TOKEN GITHUB_ACTIONS; SEC_TOKEN=do-not-print KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; printf '%s' "$OUT" > "$T/out7" )
+! grep -q 'do-not-print' "$T/out7" && [ "$(cat "$ST/last-deployed")" = "$H6771d" ] && pass "6771: outside Actions the token is never printed (and the tick did reach the deploy)" || bad "6771 token printed outside Actions"
+
+# deploy-site.sh's exit 77 (Vercel refused the authorization) is red once, never counted, never parked, so a new token
+# deploys on the next tick.
+H6771e=$(advance six-seven-seven-one-e); rm -rf "$ST/reported.d"; rm -f "$ST/failures" "$ST/parked"
+KOSMOS_AUTODEPLOY_DEPLOY='exit 77' tick; r77a=$RC; o77a=$OUT
+KOSMOS_AUTODEPLOY_DEPLOY='exit 77' tick; r77b=$RC; o77b=$OUT
+{ [ "$r77a" = 1 ] && printf '%s' "$o77a" | grep -q "Vercel refused this machine's authorization" && [ "$r77b" = 0 ] && printf '%s' "$o77b" | grep -q "STILL FAILING (reported): Vercel refused" && [ ! -e "$ST/parked" ] && [ ! -s "$ST/failures" ]; } \
+  && pass "6771: exit 77 twice: red once, then STILL FAILING, no failure counted, not parked" || bad "6771 exit 77 (r=$r77a/$r77b, parked=$(cat "$ST/parked" 2>/dev/null), failures=$(cat "$ST/failures" 2>/dev/null)): $o77b"
+tick
+[ "$RC" = 0 ] && [ "$(cat "$ST/last-deployed")" = "$H6771e" ] && pass "6771: after the refusals, the next tick with a working deploy deploys (nothing parked it)" || bad "6771 after 77 (rc=$RC): $OUT"
+
+# A token with more than one line is refused, never half-masked.
+H6771f=$(advance six-seven-seven-one-f); rm -rf "$ST/reported.d"
+( unset VERCEL_TOKEN; SEC_TOKEN="$(printf 'line1\nline2')" KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; echo "$RC" > "$T/rc8"; printf '%s' "$OUT" > "$T/out8" )
+{ [ "$(cat "$T/rc8")" = 1 ] && grep -q "has more than one line" "$T/out8" && ! grep -q 'line2' "$T/out8"; } && pass "6771: a two-line token is refused and not printed" || bad "6771 two-line token (rc=$(cat "$T/rc8")): $(cat "$T/out8")"
 
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
