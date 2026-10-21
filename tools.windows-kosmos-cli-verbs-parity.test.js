@@ -208,7 +208,7 @@ test('#1674: --help and -h on every verb and subcommand print that verb\'s usage
         const r = await runWindows(argv);
         assert.equal(r.calls.length, 0, 'kosmos ' + argv.join(' ') + ' SENT a request');
         assert.equal(r.code, 0, 'kosmos ' + argv.join(' '));
-        assert.equal(r.out, cli.helpFor(verb));
+        assert.equal(r.out, cli.USAGE[verb] + (verb === 'reply' ? '\n' + cli.USAGE_REPLY_FILE : ''));   // #6726: reply's help names --file too
       }
     }
   }

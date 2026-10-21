@@ -219,9 +219,8 @@ test('#6726 r4-5: a saved name with a double quote arrives whole (the JSON is pa
 /* #6726 review 3: the Git Bash shim (tools/windows/kosmos.sh) turns MSYS path conversion off for every argument, so
    it converts --file's value for reply itself, as it does --body-file's: /c/Users/... typed in Git Bash would
    otherwise reach Windows node unconverted and be refused. Run on any machine with a stand-in cygpath (marks what it
-   converted) and a stand-in node (prints the arguments it got); the real cygpath runs in the Windows-only arms of
-   tools.windows-kosmos-cli-body-file-5946.test.js. */
-test('#6726 review 3: the Git Bash shim converts reply --file\'s value, and nothing else', { skip: ON_WINDOWS && 'needs /bin/sh and a shebang node stand-in; Windows has the real-cygpath arms in tools.windows-kosmos-cli-body-file-5946.test.js' }, () => {
+   converted) and a stand-in node (prints the arguments it got). */
+test('#6726 review 3: the Git Bash shim converts reply --file\'s value, and nothing else', { skip: ON_WINDOWS && 'needs /bin/sh and a shebang node stand-in' }, () => {
   const cp = require('node:child_process');
   const os = require('node:os');
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-shim-6726-')));
