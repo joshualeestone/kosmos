@@ -13,6 +13,8 @@
  *   - a phone photo whose rotation tag says "turned" comes in upright (its sides swapped), and the same photo with no
  *     tag does not (the CONTROL that the tag, not the photo, did it);
  *   - a GIF is handed back exactly as chosen (an animated one would stop moving);
+ *   - with the browser's resize options refused, a big picture is still read at 2048 (a canvas does it); the editor
+ *     stacks above the file preview and first run;
  *   - a picture the editor cannot draw closes the editor with a picture, not a hang, and the next choice still opens it;
  *   - a small picture is saved at its own size, not blown up to 512;
  *   - a key with a modifier (Ctrl+=, Ctrl+Tab) is left to the browser; a drag that ends on the backdrop does not cancel;
@@ -207,6 +209,18 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
     chk(big.large[0] === 2048 && big.large[1] === 512 && big.opened && big.saved && big.saved.w === 512 && big.saved.left === 'red' && big.saved.right === 'blue',
       `${t} a 4000 px picture is read at 2048, opens the editor, and saves a 512 centre square`, JSON.stringify(big));
     chk(Array.isArray(big.thin) && big.thin[0] === 1 && big.thin[1] === 2048, `${t} a 1 x 5000 picture is read at 1 x 2048, not refused`, JSON.stringify(big));
+    // A browser that refuses the resize options (an older WebKit) still reads a phone-sized picture at 2048, through a
+    // canvas, rather than skipping the editor.
+    const noResize = await page.evaluate(async () => {
+      const real = window.createImageBitmap;
+      window.createImageBitmap = (src, opts) => (opts && opts.resizeWidth ? Promise.reject(new Error('no resize options')) : real(src, opts));
+      try { const b = await cropRead(await T.twoTone(4000, 1000)); const s = [b.width, b.height]; b.close(); return s; }
+      catch (e) { return String(e); } finally { window.createImageBitmap = real; }
+    });
+    chk(Array.isArray(noResize) && noResize[0] === 2048 && noResize[1] === 512, `${t} with the resize options refused, a 4000 px picture is still read at 2048`, JSON.stringify(noResize));
+    // The editor paints above the file preview (59) and first run (60), so the windows that count it as covering them are under it.
+    const z = await page.evaluate(() => Number(getComputedStyle(document.getElementById('cropmodal')).zIndex));
+    chk(z > 60, `${t} the editor stacks above the file preview and first run`, String(z));
 
     // A small picture is not blown up: its cut is saved at its own size, so it is not blurred.
     const small = await page.evaluate(async () => {
@@ -391,7 +405,7 @@ const result = (page) => page.evaluate(async () => { const r = await window.CROP
   }
   // The count is part of the result: a run that skipped arms (or an empty ENGINES) must not read as green.
   if (engines.length === 0) chk(false, 'ENGINES named no engine, so nothing ran');
-  const EXPECTED_PER_ENGINE = 31;
+  const EXPECTED_PER_ENGINE = 33;
   if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
   console.log(`render-avatar-crop-6722: ${RAN - fail.length} PASS, ${fail.length} FAIL`);
   process.exit(fail.length ? 1 : 0);

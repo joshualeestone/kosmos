@@ -9726,6 +9726,7 @@ body.consolidated .tkcard:hover { border-color: transparent; }
 .crop-stage:active { cursor: grabbing; }
 .crop-stage:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 3px; }
 .crop-stage canvas { display: block; width: 100%; height: 100%; }
+#cropmodal { z-index: 61; }   /* #6722: above the file preview (59) and first run (60), so a window that counts it as covering it really is under it */
 .crop-zoom { display: flex; align-items: center; gap: var(--space-4); margin: 0 0 var(--space-5);
              font: var(--text-callout) var(--font-ui); color: var(--label-2); }
 .crop-zoom input[type="range"] { flex: 1; min-width: 0; min-height: 44px; accent-color: var(--gold-deep); }
@@ -46890,9 +46891,16 @@ async function cropRead(file) {
   const big = Math.max(bmp.width, bmp.height);
   if (big <= CROP_READ_MAX) return bmp;
   const k = CROP_READ_MAX / big;
+  // At least 1 px a side: a very long, thin picture would round its short side to 0, which the browser refuses.
+  const w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k));
   try {
-    // At least 1 px a side: a very long, thin picture would round its short side to 0, which the browser refuses.
-    return await createImageBitmap(bmp, { resizeWidth: Math.max(1, Math.round(bmp.width * k)), resizeHeight: Math.max(1, Math.round(bmp.height * k)), resizeQuality: 'high' });
+    return await createImageBitmap(bmp, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
+  } catch {
+    // A browser that refuses the resize options (an older WebKit) shrinks it through a canvas instead, so a phone photo
+    // still opens the editor rather than skipping it.
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(bmp, 0, 0, w, h);
+    return await createImageBitmap(cv);
   } finally { bmp.close(); }
 }
 /* The square the circle covers, in image pixels: its side at this zoom, centred on (cx, cy). */
