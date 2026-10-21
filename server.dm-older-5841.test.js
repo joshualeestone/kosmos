@@ -10,10 +10,7 @@
  *
  *   node --test server.dm-older-5841.test.js
  */
-// kosmos#4273: this file's temp dirs, removed when it exits. #6362: a validation on 10-21 failed the leak guard on one
-// aw-dm-older-5841-* folder although every test here passed and test.after removes SANDBOX, so something still wrote
-// into it after that; the exit sweep covers it.
-require('./test-support/tmpscope');
+require('./test-support/tmpscope'); // kosmos#4273/#6362: this file's temp dirs, removed when it exits
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');

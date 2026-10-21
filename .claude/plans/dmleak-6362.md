@@ -11,8 +11,14 @@ branch had no such leak.
 14 runs of the file on Agent1s (6 one at a time, 8 at once) left nothing. So the late writer is not identified.
 
 ## The change
-Require `./test-support/tmpscope` first, as 62 other server tests already do. It points TMPDIR at a per-process folder
+Require `./test-support/tmpscope` first, as 63 other server tests already do. It points TMPDIR at a per-process folder
 and removes the whole folder when the process exits, so anything written into SANDBOX after test.after is swept.
+
+The trade, stated: the sweep HIDES the late writer from the leak guard from now on rather than finding it. If the
+writer is a server timer or async path still writing into a deleted HOME after `server.close()` (not awaited in
+test.after), that stays. The leak was also possibly not a late write at all: a process killed between the last test
+and test.after leaves the same folder. #6362 stays open for that; this change only stops one unrelated test failing
+whole validations.
 
 ## Proof both ways (measured)
 A copy of the file with one extra test.after that writes `SANDBOX/late/x` after the removal:
