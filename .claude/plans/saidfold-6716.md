@@ -54,3 +54,9 @@ stuck prompt.
   else on the page.
 - **Not changed:** the guide's side chat still quotes a failed sign-in's screen text unfolded. It did before this card,
   and this card is about the agent page; the side chat has no fold to put it in.
+
+## Review 17
+- **Not changed:** a trust prompt's (and a block's) screen text is folded too. That is the card's ask exactly ("raw
+  screen text only behind details, and only for a stuck prompt"); the page still says it in plain words ("Waiting on a
+  trust prompt", with Trust & Restart). Checked: the #1918 "Sign in again" button's visible text names no quote, so
+  folding the quote strands nothing.
