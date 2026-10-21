@@ -425,6 +425,17 @@ header > .headleft  { justify-self: start; }
 header > .tabs      { justify-self: center; }
 header > .headright { justify-self: end; }
 .headright { display: flex; align-items: baseline; gap: var(--space-5); }
+/* kosmos#6721: small and quiet; it says a moment's wait, not an outage. OUT of the flow (absolute, just left of the
+   right controls), so it takes no flex gap and moves nothing when it comes and goes; where it is drawn it stays in
+   the page, empty, as a live region must to be announced (below 64rem and on a Kosmos+ phone it is not drawn, so
+   there it is not announced either; the full card after two misses still is). (Review 3: an in-flow span, even empty, took the row's 14px .appright gap.) */
+.headright { position: relative; }
+.hdr-reconnect { position: absolute; right: calc(100% + 14px); top: 50%; transform: translateY(-50%);
+  font-size: .8125rem; color: var(--k-ink-2); white-space: nowrap; pointer-events: none; }
+/* Below 64rem the header's left side or the centred tabs can reach under where it would sit (measured: the left group
+   at 320-430px; the tabs at 897-960px with every tab shown and a long name), so it is not drawn there. Narrower
+   windows still get the rule that matters: the full card only after two unanswered polls. */
+@media (max-width: 64rem) { .hdr-reconnect { display: none; } }
 h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* The pack's stamp: an uppercase chrome label over a promoted bold line.
    The stale/failed variants are the app's honest extras (the pack draws
@@ -1558,6 +1569,9 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote .kplus-bar-menu svg { display: block; }
   html.kremote .apphead header .kmark, html.kremote .apphead header .klink, html.kremote .apphead header .worldsw, html.kremote .apphead header .userpop,
   html.kremote .apphead header .burger, html.kremote .apphead .tabs { display: none; }
+  /* kosmos#6721: the phone header row is meant to be empty under the navy bar; Reconnecting would add a line there. The
+     phone still gets the rule that matters: the full card only after two unanswered polls. */
+  html.kremote .apphead .hdr-reconnect { display: none; }
   /* With those gone the header row holds only notices, which are empty on a quiet board: no gap, no padding, no rule,
      so the navy bar is the whole header (the mock). */
   html.kremote .apphead { border-bottom: 0; }
@@ -7132,6 +7146,17 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dmchoices-msg { font-size: .8125rem; color: var(--k-ink-2); }
 /* #6172: a lasting choice pressed once, waiting for the second press that sends it. */
 .dmchoice.armed { border-color: var(--k-ink); box-shadow: inset 0 0 0 1px var(--k-ink); }
+/* #6727: a permission prompt as a short card: the ask, Allow and Deny at equal weight (design review: the choice is the
+   person's judgement, not a default to nudge), the raw request under Show details. */
+.dmperm-ask { margin: 2px 0 0; font-weight: 600; }
+.dmperm-says { margin: 2px 0 0; color: var(--k-ink-2); }
+.dmperm-more { margin: 6px 0 0; }
+.dmperm-more > summary { cursor: pointer; font-size: .8125rem; color: var(--k-ink-2); }
+.dmperm-reason { margin: 6px 0 0; font-size: .8125rem; color: var(--k-ink-2); }
+.dmperm-detail { margin: 6px 0 0; padding: 8px 10px; background: var(--k-sunk); border-radius: 8px; font-family: var(--k-mono);
+  font-size: .8125rem; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14em; overflow: auto; }
+@media (max-width: 600px) { .dmperm-main .dmchoice { min-height: 44px; }
+  .dmperm-more > summary { padding: 14px 0; }   /* 44 px tall, and still a list item, so its open/closed marker stays */ }
 /* #5943: under a reported question, its age and the person's own "Answered, clear this" (the .dmchoice tokens, AA). */
 .dmq-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 2px; }
 .dmq-age { font-size: .8125rem; color: var(--k-ink-2); }
@@ -8281,6 +8306,12 @@ html.has-speak .asp-speak { display: grid; }
    Tasks doors use, not the inherited body size (it read as a second heading beside FILES). */
 .dfiles-head .pj-viewall { display: inline; width: auto; font-size: var(--consolidated-link-size); }
 .dfiles-screen-head { margin-bottom: 4px; }
+.dfiles-acts { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }   /* #6724 */
+.dfiles-path { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 4px; margin: 0 0 var(--space-2); font-size: var(--consolidated-link-size); }
+.dfiles-path button { background: none; border: 0; padding: 2px 4px; font: inherit; color: var(--k-ink); text-decoration: underline; cursor: pointer; border-radius: 4px; }
+.dfiles-path button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 1px; }
+.dfiles-path [aria-current] { text-decoration: none; font-weight: 600; cursor: default; }
+.dfiles-path .dfiles-sep { color: var(--k-ink-2); }
 #d-sec-files #d-filesall-msg:empty { display: none; }   /* no empty band between the title and the first row */
 #d-files-back { align-self: flex-start; }
 .dfiles-title { margin: 0; font-size: 1.375rem; font-weight: 700; letter-spacing: -.02em; color: var(--k-ink); line-height: 1.2; }   /* as #d-talk-label, the page's other section title */
@@ -10165,6 +10196,9 @@ html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter
    on Windows (win32) and, since #5865, on Linux (linux); on a Mac it stamps nothing, so neither rule matches. */
 html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
 html[data-kosmos-platform="linux"] [data-linux-hide] { display: none !important; }   /* #5865 */
+/* #6724: viewed from another computer (Kosmos+), a button that opens a window on the board's computer (Finder, a folder) is
+   hidden: that window would open on the far Mac, where nobody sees it. kplusRemote() stamps data-kplus-remote on <html>. */
+html[data-kplus-remote] [data-remote-hide] { display: none !important; }
 /* #3443 (Josh, Windows QA 2026-09-22, raised several times): Windows renders wide
    light-gray native scrollbars on scrollable panes (agent nav, conversation, the
    Members/Files/Tasks panels), which clash with the dark UI. Replace them with a thin,
@@ -10277,6 +10311,8 @@ html:not([data-fed-ui="show"]) #pj-fed-outside,html:not([data-fed-ui="show"]) #a
 #fedinv-modal .rm-title { font: 600 var(--text-title-1) var(--font-ui); color: var(--label); margin: 0 0 var(--space-5); }
 #fedinv-modal p.fhint { font: var(--text-callout) var(--font-ui); color: var(--label-3); line-height: inherit; margin-bottom: var(--space-4); }
 #fedinv-modal p.fmsg { font: var(--text-callout) var(--font-ui); color: var(--label-2); line-height: inherit; margin-bottom: 0; }
+/* kosmos#6707 (Mona Lisa, the #6681 design review): both of the sheet's text fields are a 44 px tap target on phones. */
+@media (max-width: 40rem) { #fedinv-label, #fedinv-email { min-height: 44px; } }
 #fedinv-modal p.rm-small { font: var(--text-callout) var(--font-ui); color: var(--label-2); line-height: 1.45; margin-bottom: var(--space-8); }
 #fedinv-modal p.fedinv-josh { margin-bottom: var(--space-4); }
 /* kosmos#4649 slice C (Mona's NIT 4): shot 02 has no hairline between the title and the first question or
@@ -11719,6 +11755,8 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-cw-line:empty { display: block; margin: 0; }
 #s-sec-plus #plus-cw-ack { margin-top: 6px; }   /* kosmos#6613: not flush against the line or the switch row */
 #s-sec-plus .plus-cw-line[data-state="foreign"] { color: var(--danger); font-weight: 600; }
+#s-sec-plus .plus-sk-line:empty { display: block; margin: 0; }   /* kosmos#6587: as plus-cw-line, no room when it says nothing */
+#s-sec-plus .plus-sk-line[data-state="mismatch"] { color: var(--danger); font-weight: 600; }
 /* #4744: one line (Josh, "lets make sure this all fits on one line"). The Settings column caps this panel at 544px on
    a desktop window, where the sentence at .9rem needs ~452px of the ~404 left beside Copy (measured). So the box
    reaches into the panel's side padding, Copy is compact, and the sentence's size follows the box's width (container
@@ -12088,6 +12126,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   :is(#d-files, #d-sec-files) .pj-doc { min-height: 44px; }
   #d-files-all { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
   #d-files-back { display: inline-flex; align-items: center; min-height: 44px; }
+  #d-filesall-path button { min-height: 44px; padding: 0 10px; }   /* #6724 iteration 6: the only way back up, so a full tap target */
   /* #4088: Finder/File Explorer is on the computer running Kosmos, not the phone showing
      this page. Hide an action the phone cannot fulfil; the file rows remain available. */
   #d-files-finder { display: none; }
@@ -12572,6 +12611,8 @@ window.kosmosMeasureScrollbarWidth();
          #rail-me), reusing youFaceHtml(). Popover mechanics reuse the world-switcher pattern. -->
     <!-- #3755 (Josh 2026-09-25 11:07): no "?" beside the name. The tips show once each, by themselves;
          "Stop showing tips" and the Settings switch are the controls. -->
+    <!-- kosmos#6721: one unanswered status poll says this, small, instead of the full "not answering" card. -->
+    <span class="hdr-reconnect" id="hdr-reconnect" role="status" aria-live="polite"></span>
     <div class="userpop" id="userpop">
       <!-- #3051: NO aria-label. The accessible name derives from the visible name
            (#userpop-name; the avatar and chevron are aria-hidden), so it satisfies
@@ -13797,9 +13838,15 @@ window.kosmosMeasureScrollbarWidth();
     <!-- Back to the conversation, as the project's file screen has its own back (review pass 1). -->
     <button class="back" id="d-files-back" type="button">&larr; Direct Message</button>
     <div class="dfiles-head dfiles-screen-head">
-      <h2 class="dfiles-title" id="d-filesall-h">Files</h2>
-      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>Open in Finder</button>
+      <h2 class="dfiles-title" id="d-filesall-h" tabindex="-1">Files</h2>
+      <span class="dfiles-acts">
+        <!-- #6724: the folder being shown, as one zip, to the device the person is on (Finder opens on the board's computer). -->
+        <button class="btn" id="d-files-zip" type="button">Download folder</button>
+        <button class="btn" id="d-files-finder" data-remote-hide type="button" data-win-copy="docsOpenFolder" data-linux-hide>Open in Finder</button>
+      </span>
     </div>
+    <!-- #6724: where in Files the list is: Files, then each folder entered, each a way back up. -->
+    <nav class="dfiles-path" id="d-filesall-path" aria-label="Folder" hidden></nav>
     <p class="dhint" id="d-filesall-msg" role="status"></p>
     <div class="pj-docs" id="d-filesall-list"></div>
     <p class="dhint" id="d-filesall-more" hidden></p>
@@ -17345,8 +17392,8 @@ window.kosmosMeasureScrollbarWidth();
              per-task destination the storage does not give. The hint discloses the shape.
              Same disable/say-nothing/ask/report shape as pjs-chats-reveal. -->
         <!-- #5865: this button and its hint are hidden on Linux, where revealFolder runs /usr/bin/open (not there). -->
-        <button class="btn" id="tk-chats-reveal" type="button" style="margin-top:12px;" data-linux-hide>Show me where the task conversations live</button>
-        <p class="fhint" style="margin:6px 0 0;" data-linux-hide>One folder, with a file for each task's conversation.</p>
+        <button class="btn" id="tk-chats-reveal" data-remote-hide type="button" style="margin-top:12px;" data-linux-hide>Show me where the task conversations live</button>
+        <p class="fhint" style="margin:6px 0 0;" data-remote-hide data-linux-hide>One folder, with a file for each task's conversation.</p>
         <p class="fmsg" id="tk-chats-msg" aria-live="polite"></p>
       </section>
 
@@ -17434,7 +17481,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3504 (Josh, 2026-09-23): a plain text link read as passive; make it the gold
            primary button so "Open this folder in Finder" reads as an easy, obvious action. -->
       <!-- #5865: hidden on Linux, where engine/projects.js revealFolder runs /usr/bin/open, which is not there. -->
-      <button class="btn uprime" id="docs-finder" type="button" data-win-copy="docsOpenFolder" data-linux-hide>Open this folder in Finder</button>
+      <button class="btn uprime" id="docs-finder" data-remote-hide type="button" data-win-copy="docsOpenFolder" data-linux-hide>Open this folder in Finder</button>
     </div>
     <!-- Two sources, said apart (#131, Josh's 08-20 ruling): files from the
          CONVERSATION live in the attachment store, not the folder, so a
@@ -17577,7 +17624,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <!-- Outside the form: the form hides once the folder is there again, and the sentence saying so must stay seen. -->
       <p class="fmsg" id="pjs-move-msg" aria-live="polite"></p>
-      <button class="btn" id="pjs-reveal" type="button" data-linux-hide>Show me where it is</button>
+      <button class="btn" id="pjs-reveal" data-remote-hide type="button" data-linux-hide>Show me where it is</button>
       <p class="fmsg" id="pjs-reveal-msg" aria-live="polite"></p>
       <!-- 🛑 THE COMPANION SAYS "EVERY PROJECT" AND THE BUTTON ABOVE SAYS "IT"
            (kosmos#969, Josh 2026-08-26). Every room's thread lives in ONE
@@ -17587,8 +17634,8 @@ window.kosmosMeasureScrollbarWidth();
            screen answering a narrower question than it was asked.
            ⚠️ The word is "conversations", not "dialogue": his phrasing was
            "stored dialogue", and dialogue is our word for it, not a reader's. -->
-      <button class="btn" id="pjs-chats-reveal" type="button" data-linux-hide>Show me where the conversations live</button>
-      <p class="fhint" style="margin:6px 0 0;" data-linux-hide>One folder for every project, with a file for each conversation.</p>
+      <button class="btn" id="pjs-chats-reveal" data-remote-hide type="button" data-linux-hide>Show me where the conversations live</button>
+      <p class="fhint" style="margin:6px 0 0;" data-remote-hide data-linux-hide>One folder for every project, with a file for each conversation.</p>
       <p class="fmsg" id="pjs-chats-msg" aria-live="polite"></p>
     </div>
 
@@ -17980,6 +18027,15 @@ window.kosmosMeasureScrollbarWidth();
         <label class="pj-mode-opt"><input type="radio" name="fedinv-kind" id="fedinv-kind-person" value="person" checked> A person</label>
         <label class="pj-mode-opt"><input type="radio" name="fedinv-kind" id="fedinv-kind-agent" value="agent"> Their agent</label>
       </div>
+    </div>
+    <!-- kosmos#6681 (S-11-fed): optional. With it, only the Kosmos+ account with this address can use the code. 254 is
+         the board's INVITE_EMAIL_MAX (engine/federation.js, in bytes); the coordinator checks it is an address. -->
+    <div class="field">
+      <label class="flabel" for="fedinv-email">Their email address (optional)</label>
+      <p class="fhint" id="fedinv-email-hint">Then only the Kosmos+ account with this address can use the code.</p>
+      <!-- type=email gives the phone's @ keyboard; autocapitalize off. autocomplete stays off on purpose (design review,
+           Mona Lisa): "email" would fill in the person's OWN address, which is the one thing this field must not hold. -->
+      <input class="tk-inp" id="fedinv-email" type="email" maxlength="254" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="fedinv-email-hint fedinv-msg">
     </div>
     <div class="fedinv-can" id="fedinv-can"><b>They can</b> read and post in this project's conversation, and add their own agents to it.<br><b>They cannot</b> see your files or tasks, or tell your computer or your agents to do anything. Your agents read what they write and decide for themselves.</div>
     <p class="fmsg" id="fedinv-msg" aria-live="polite"></p>
@@ -18482,7 +18538,7 @@ window.kosmosMeasureScrollbarWidth();
       <div class="dstack">
         <!-- Quiet and its own width (#371): a convenience, not the page's main
              action. The same size as "Open sleep settings" two rows down. -->
-        <button class="btn-quiet" type="button" id="set-reveal" hidden style="font-size:.875rem;" data-win-copy="settingsRevealButton" data-linux-hide>Show me where it is</button>
+        <button class="btn-quiet" type="button" id="set-reveal" data-remote-hide hidden style="font-size:.875rem;" data-win-copy="settingsRevealButton" data-linux-hide>Show me where it is</button>
       </div>
       <p class="dhint" id="set-reveal-msg" style="margin:12px 0 0;" hidden data-linux-hide></p>
       <!-- 🔑 THE ICON STANDS BESIDE THE SENTENCE THAT NAMES IT (kosmos#1212).
@@ -19128,7 +19184,7 @@ window.kosmosMeasureScrollbarWidth();
         <a class="btn-quiet" id="upd-download" href="#" target="_blank" rel="noopener" aria-describedby="upd-line" hidden>Download</a>
         <!-- win32-board-copy (W-25): the manual offer's second button, shown only in that arm.
              It is the same engine reveal as Settings' "Open the Kosmos folder". -->
-        <button class="btn-quiet" type="button" id="upd-open-folder" hidden data-win-copy="updateOpenFolder">Open my Kosmos folder</button>
+        <button class="btn-quiet" type="button" id="upd-open-folder" data-remote-hide hidden data-win-copy="updateOpenFolder">Open my Kosmos folder</button>
         <!-- win32-update-rollback (S5, #3017): restore the kept previous build. Shown only when the
              status carries a rollback offer (win32-only, so never on Mac); paintUpdateCard sets its
              "Roll back to X" label from that offer in script, so it carries no platform-copy key. -->
@@ -19609,6 +19665,9 @@ window.kosmosMeasureScrollbarWidth();
             <button class="toggle" type="button" id="plus-cw-switch" role="switch" aria-labelledby="plus-cw-label" hidden><i></i></button>
             <span class="fhint" id="plus-cw-label">While Kosmos+ is on, check the public certificate logs for this computer's address once a day (this sends the address to Cert Spotter)</span>
           </div>
+          <!-- kosmos#6587: said only when the key this computer trusts for the Kosmos+ service is not on the signed list
+               this version came with. Painted by paintPlusServiceKeys. Never hidden, as plus-cw-line is not. -->
+          <p class="fhint plus-sk-line" id="plus-sk-line" role="status"></p>
           <!-- #4794 slice 1 (Mona Lisa's design): while this computer waits to be allowed, the code both computers show,
                in place of the coordinator's sentence above, and "The codes match". Painted by paintPlusJoin. -->
           <div class="plus-join" id="plus-join" aria-live="polite" tabindex="-1" hidden></div>
@@ -20119,6 +20178,22 @@ window.kosmosMeasureScrollbarWidth();
 <script>
 'use strict';
 
+/* #6725: a request a reload or navigation cuts off rejects (WebKit: "Load failed" / "due to access control checks"),
+   and any caller without its own catch turns that into an uncaught error on a page that is going away. Those are
+   ignored, and only those: a TypeError (what fetch rejects with) while the page is leaving. The flag is set at
+   beforeunload, because WebKit rejects the cut-off requests BEFORE pagehide (measured), and clears itself after a
+   second, so a navigation that never happens (a download link) cannot hide a real failure later. */
+let PAGE_LEAVING = false;
+let PAGE_LEAVING_TIMER = null;
+window.addEventListener('beforeunload', () => {
+  PAGE_LEAVING = true;
+  clearTimeout(PAGE_LEAVING_TIMER);   // review 3: a later beforeunload gets its whole second
+  PAGE_LEAVING_TIMER = setTimeout(() => { PAGE_LEAVING = false; }, 1000);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (PAGE_LEAVING && e.reason instanceof TypeError) e.preventDefault();
+});
+
 /* #6192: a refused reply's body is always read. Left unread, the request did not finish (measured in Chromium against
    the board's own 404s: 19 still open 8 s after a load whose every read was refused), so anything waiting for the
    page's network to go quiet waited for good.
@@ -20406,6 +20481,8 @@ function kplusRemote() {
   const h = String((typeof location !== 'undefined' && location.hostname) || '').replace(/^\[|\]$/g, '').toLowerCase();
   return !!h && !['127.0.0.1', 'localhost', '::1'].includes(h);
 }
+/* #6724: the stamp the data-remote-hide rule keys on, set once at load (a page's own address does not change). */
+if (typeof document !== 'undefined' && document.documentElement && kplusRemote()) document.documentElement.setAttribute('data-kplus-remote', '');
 /* #5165 (a Kosmos+ user on a Windows laptop clicked a .pptx in a project's Files and it tried to open on the HOST):
    over Kosmos+ the person is on another device, so a file click DOWNLOADS it to that device, as an attachment
    already does (#4930), and a button that would open a folder window on the board's computer says where the folder
@@ -20444,6 +20521,27 @@ function kplusDownload(kind, owner, name, say, after) {
     try { const b = await res.json(); said = (b && (b.error || b.because)) || ''; } catch { said = ''; }
     if (say) say(asSentence(said) || 'That file could not be downloaded.');
   }).catch(() => { /* the download itself is already under way; a failed look is not a failed download */ });
+}
+/* #6724: an agent's folder (a folder in its Files, or all of Files) as one zip, the way kplusDownload sends one file: the
+   download starts in the click, and a ?check=1 look beside it says a refusal (too big, gone) through `say`. */
+function kplusDownloadFolder(owner, dir, say) {
+  const q = 'dir=' + encodeURIComponent(dir || '');
+  const ticket = {};
+  if (say && say.el) KPLUS_LATEST.set(say.el, ticket);
+  const a = document.createElement('a');
+  a.href = '/api/agent/' + encodeURIComponent(owner) + '/files/download-folder?' + q;
+  a.download = (dir ? String(dir).split('/').pop() : 'Files') + '.zip';
+  a.hidden = true;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  if (say) say('');
+  fetch('/api/agent/' + encodeURIComponent(owner) + '/files/download-folder?check=1&' + q, { cache: 'no-store' }).then(async (res) => {
+    if (res.ok || (say && say.el && KPLUS_LATEST.get(say.el) !== ticket)) return;
+    let said = '';
+    try { const b = await res.json(); said = (b && (b.error || b.because)) || ''; } catch { said = ''; }
+    if (say) say(asSentence(said) || 'That folder could not be downloaded.');
+  }).catch(() => { /* the download itself is already under way */ });
 }
 /* A sentence-setter for one message line that writes only while `stillHere()` holds, so an answer that arrives after
    the person moved to another project or agent never lands under the new one. */
@@ -21087,10 +21185,11 @@ const STATE_COPY = {
      `state==='needs_you' && stateReportedBy==='agent'` predicate (glyphOf follows cardStOf.st). */
   question:     { label: 'Question',      attn: false },
   /* #6091: a Claude agent stopped on its permission prompt (the card's awaitingApproval, status.awaitingApprovalOf)
-     reads "Waiting for you", not "Issue": it is waiting on the person's Yes/No (#6054 buttons on its page),
+     reads "Needs permission" (#6727; "Waiting for you" before), not "Issue": it is waiting on the person's Yes/No,
      not broken. Still an attention state with the needs-you look: it blocks the agent, and #2808 keeps a technical
-     prompt red on purpose, as the fallback when nothing answers it. Only the word changes. */
-  approval:     { label: 'Waiting for you', attn: true },
+     prompt red on purpose, as the fallback when nothing answers it. Only the word changes.
+     #6727 (Josh, 10-20): the word says what it waits for, "Needs permission". */
+  approval:     { label: 'Needs permission', attn: true },
   /* #6398 (Josh 2026-10-17 11:09): "Lets reduce all that to a \"Rate Limit\" and put it where the \"Paused\" status is." */
   rate_limited: { label: 'Rate Limit',    attn: true  },
   /* #874: Anthropic has rejected this account's bearer token outright, not
@@ -23920,7 +24019,7 @@ async function updCheckNowClick() {
      press just made -- a second Enter or Space -- reloads the document
      immediately. The offer arm has the same relabel shape but a confirm
      dialog absorbs a stray press; this one has nothing in front of it, and the
-     page has no beforeunload, so anything typed and unsent is gone.
+     page has no unsaved-changes prompt (#6725's beforeunload asks nothing), so anything typed and unsent is gone.
      ⚠️ The accessibility reason for the refocus still holds for every other
      outcome, which is why this is a narrow exception rather than a removal. */
   /* A press that landed the Windows manual offer hid this button, so the keyboard's place is the
@@ -24529,7 +24628,8 @@ const RESTART_SCREEN_AFTER_MS = 15000;
    answer inside this long counts as no answer. 10 s is the Windows launcher's own "stuck" limit (per
    #4543, Homer's launcher half, branch win-launcher-stuck-4543); any
    HTTP answer at all, even a refusal, still counts as the board answering. So a frozen board shows the
-   screen after about 10 s + RESTART_SCREEN_AFTER_MS; a board answering inside 10 s is never counted
+   screen after about 10 s + RESTART_SCREEN_AFTER_MS, plus one poll (kosmos#6721: the first miss only says Reconnecting,
+   so the clock starts at the second); a board answering inside 10 s is never counted
    down. (One whose every answer takes longer than 10 s would be: the premise is that a working board
    answers /api/status in well under that.) */
 const STATUS_POLL_TIMEOUT_MS = 10000;
@@ -25068,6 +25168,8 @@ async function tick() {
     // still not told us what is on this machine.
     BOARD_LOOKED = true;
     BOARD_LOOK_FAILED = null;
+    BOARD_MISSES = 0;   // kosmos#6721
+    paintReconnecting(false);
     BOARD_NEEDS_SIGNIN = false; // #2023: a successful read means this browser is authed.
     BOARD_SIGNED_OUT = false;
     BOARD_DEVICE_OFFLINE = false;
@@ -25595,6 +25697,16 @@ async function tick() {
     clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
     if (answered && !(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;   // a refusal is an answer too (#268)
     if (!answered && tick.answeredSeq > pollSeq) return;   // a newer poll already answered: this is old news
+    /* kosmos#6721: the first unanswered poll, over a board that has answered before, keeps everything on screen and
+       only says Reconnecting in the header; the second in a row falls through to the full failure below. A refusal is
+       an answer (it resets the count), and this device being offline is known at once, so neither waits. */
+    if (answered) BOARD_MISSES = 0;
+    else if (BOARD_LOOKED && !deviceOffline()) {
+      BOARD_MISSES++;
+      // During a restart the person asked for, the board's own screens say so; no Reconnecting over them.
+      if (BOARD_MISSES < 2) { if (!(typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)) paintReconnecting(true); return; }
+    }
+    paintReconnecting(false);
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
     // the projects poll is suppressed while it is open — so a failure that only
@@ -30835,7 +30947,7 @@ function computersInApp() {
 /* kosmos#6406 (Josh 12:04): every link to another of the person's computers. In the Kosmos app, no target: the app keeps
    a same-window https://<name>.kosmosplus.com address in its window (Mac in every mode; Windows once the computer's mode
    is chosen, an unchosen Windows computer still sends it to the browser). In a browser, a new tab as before. The same
-   page then replaces this one, so unsent text in a composer goes, as it does on a reload (the page has no beforeunload). */
+   page then replaces this one, so unsent text in a composer goes, as it does on a reload (the page has no unsaved-changes prompt). */
 function computersLinkTarget(a) {
   if (!computersInApp()) a.target = '_blank';
   // kosmos#6406 step 2: marked, so a plain click in the app opens it with a ticket (computersOpenClick). An attribute,
@@ -38917,6 +39029,16 @@ const DEVICE_SIGNIN_BUTTON = '<button class="btn" type="button" data-device-sign
    network", which is no proof the internet is reachable, so it proves nothing either way.
    Set and cleared at the same points as BOARD_SIGNED_OUT. */
 let BOARD_DEVICE_OFFLINE = false;
+/* kosmos#6721 (Josh 10-20, decided by Splinter 09:04): status polls in a row that got NO answer. One is a busy computer
+   (the board answered in 0.4 s a moment later each time Josh saw the full card, at load 43): the board keeps what it
+   showed and the header says Reconnecting. The second in a row is the full failure, as before. */
+let BOARD_MISSES = 0;
+function paintReconnecting(on) {
+  /* The live region is always there and its TEXT changes, which screen readers announce (a revealed node often is not). */
+  const el = document.getElementById('hdr-reconnect');
+  const want = on ? 'Reconnecting\u2026' : '';
+  if (el && el.textContent !== want) el.textContent = want;
+}
 function deviceOffline() {
   return kplusRemote() && typeof navigator !== 'undefined' && navigator.onLine === false;
 }
@@ -40305,6 +40427,18 @@ function dmRow(m, name, replyAdjacent) {
      `at`, the anchor matches the FIRST -- a drift of at most one adjacent row,
      no worse than the pixel offset it replaces. */
   const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
+  if (m && m.kind === 'kosmos' && m.draft === true && typeof m.draftId === 'string') {
+    /* kosmos#6717: text Kosmos moved out of the agent's input box, where it had sat unsent and kept messages from
+       reaching it. It was NOT sent, and nothing sends it: the person can put it in the message box below, or dismiss
+       it. Plain text, never linked: these are words from a terminal, not Kosmos's own. */
+    return '<div class="msg-valve dm-kosmos dm-draft" data-mid="' + midOf(m) + '">'
+      + 'This text sat unsent in its input box and kept messages from reaching it, so Kosmos took it out and saved it here. It was not sent.'
+      + '<blockquote class="dmunsent-text dm-draft-text" tabindex="0" aria-label="The text that was in its input box">' + esc(m.text || '') + '</blockquote>'
+      + '<div class="pj-refused-act">'   // the band's own button look (#4624's Reopen the room), 44px on touch
+      + '<button type="button" class="pj-refused-add dm-draft-use" data-draft-id="' + esc(m.draftId) + '">Put in the message box</button> '
+      + '<button type="button" class="pj-refused-add dm-draft-dismiss" data-draft-id="' + esc(m.draftId) + '">Dismiss</button>'
+      + '</div></div>';
+  }
   /* #3723: Kosmos's own line (an account problem), in the room's quiet Kosmos band: no avatar and no
      name, so nobody takes it for the agent speaking or for something they sent. */
   if (m && m.kind === 'kosmos') {
@@ -40355,9 +40489,13 @@ function dmRow(m, name, replyAdjacent) {
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(shownFrom) + '</b>'
       + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256 (guarded: the lifted dmRow tests run without it)
-      + pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
-      + pjPreviewCard(m.preview) + pjAttachmentCards(m)
-      + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m) : '')   // #5406 (guarded: the lifted dmRow tests run without it)
+      + ((m.kind === 'question' && m.permission && typeof dmPermissionHtml === 'function' && dmChoicesHtml(m, 'main'))
+        // #6727: a permission prompt is a short card, never its screen; only while Allow and Deny can be drawn (review 1:
+        // with the composer closed there are no buttons, and a card would promise an action it cannot take)
+        ? dmPermissionHtml(m)
+        : pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
+          + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+          + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m) : ''))   // #5406 (guarded: the lifted dmRow tests run without it)
       + (typeof dmQuestionFootHtml === 'function' ? dmQuestionFootHtml(m) : '')   // #5943 (guarded: the lifted dmRow tests run without it)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
@@ -40457,6 +40595,50 @@ if (typeof document !== 'undefined' && document.addEventListener) {
   document.addEventListener('click', (ev) => {
     const btn = ev.target && ev.target.closest ? ev.target.closest('.dm-held-send') : null;
     if (btn) { ev.preventDefault(); dmHeldSend(btn); }
+  });
+}
+/* kosmos#6717: a draft Kosmos took out of the agent's input box. "Put in the message box" only fills the box below (added
+   after anything already typed there), so the person sends it, or not, themselves; Dismiss forgets the draft. */
+async function dmDraftDismiss(btn) {
+  if (!btn || btn.disabled || !CURRENT) return;
+  btn.disabled = true;
+  const session = CURRENT.sessionName;
+  let ok = false;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(session) + '/unsent-draft/dismiss', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: btn.dataset.draftId }),
+    });
+    ok = res.ok || res.status === 404;   // 404: it was dismissed already; the repaint shows it gone
+  } catch { ok = false; }
+  if (!ok) {
+    btn.disabled = false;
+    const under = document.getElementById('d-say-msg');
+    if (under && CURRENT && CURRENT.sessionName === session) under.textContent = 'Kosmos could not dismiss that draft. Try again.';
+    return;
+  }
+  if (CURRENT && CURRENT.sessionName === session) await paintTalk(session, CURRENT.name);
+}
+function dmDraftUse(btn) {
+  const row = btn && btn.closest ? btn.closest('.dm-draft') : null;
+  const quote = row ? row.querySelector('.dm-draft-text') : null;
+  const input = document.getElementById('d-say');
+  if (!quote || !input) return;
+  const words = quote.textContent || '';
+  input.value = input.value.trim() ? input.value.replace(/\s+$/, '') + '\n' + words : words;
+  input.dispatchEvent(new Event('input', { bubbles: true }));   // the box sizes itself and the send button wakes
+  input.focus();
+  /* Setting the value skips the box's own maxlength, so a long draft is said now rather than refused at send. */
+  const under = document.getElementById('d-say-msg');
+  if (under && input.maxLength > 0 && input.value.length > input.maxLength) {
+    under.textContent = 'This is longer than one message can be. Send it in parts.';
+  }
+}
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('click', (ev) => {
+    const use = ev.target && ev.target.closest ? ev.target.closest('.dm-draft-use') : null;
+    if (use) { ev.preventDefault(); dmDraftUse(use); return; }
+    const dismiss = ev.target && ev.target.closest ? ev.target.closest('.dm-draft-dismiss') : null;
+    if (dismiss) { ev.preventDefault(); dmDraftDismiss(dismiss); }
   });
 }
 
@@ -40663,8 +40845,17 @@ function dmChoicesFrom(body, sessionName) {
     : null;
   if (!DM_CHOICES) DM_CHOICE_ANSWERED.delete(sessionName);   // this agent's menu is gone, and so is what the lock was about
 }
-function dmChoicesHtml(m) {
+/* #6727: `part` draws a permission card's buttons: 'main' is Allow and Deny (the prompt's own "Yes" and "No", by
+   number, so the press is the same one key as any choice), 'more' is every other option, inside Show details. Without
+   a part, every option, as before. */
+function dmChoicesHtml(m, part) {
   if (!DM_CHOICES || !m || m.kind !== 'question' || m.reported || typeof CURRENT === 'undefined' || !CURRENT || CURRENT.sessionName !== DM_CHOICES.session) return '';
+  const perm = part && m.permission ? m.permission : null;
+  const shown = perm ? DM_CHOICES.options.filter((o) => ((o.n === perm.allow || o.n === perm.deny) ? part === 'main' : part === 'more'))
+    .sort((a, b) => (part === 'main' ? (a.n === perm.allow ? -1 : 1) : a.n - b.n)) : DM_CHOICES.options;
+  if (!shown.length) return '';
+  if (perm && part === 'main' && shown.length !== 2) return '';   // review 5: Allow AND Deny, or no card (the old text)
+  const labelOf = (o) => (perm && part === 'main' ? (o.n === perm.allow ? 'Allow' : 'Deny') : o.label);
   /* Any press in the air for this agent draws its buttons off (a press on another question of the same agent would be
      ignored by dmChoicePress, so it must not look pressable). */
   const flying = DM_CHOICE_INFLIGHT.has(DM_CHOICES.session)
@@ -40676,11 +40867,48 @@ function dmChoicesHtml(m) {
   const pressing = DM_CHOICE_INFLIGHT.has(DM_CHOICES.session);   // a typed send in the air draws them off but says nothing here
   const armedN = DM_CHOICES.options.map((o) => o.n).find((n) => dmChoiceArmed(DM_CHOICES, n));
   const note = pressing ? 'Sending…' : (locked && done.sure) ? 'Sent.' : armedN !== undefined ? DM_CHOICE_ARM_NOTE : '';
-  const noteId = 'dmchoices-msg-' + DM_CHOICES.gen;
-  return '<div class="dmchoices" role="group" aria-label="Choices">'
-    + DM_CHOICES.options.map((o) => '<button type="button" class="dmchoice' + (o.n === armedN ? ' armed" aria-describedby="' + noteId : '') + '" data-n="' + esc(String(o.n)) + '" data-gen="' + esc(String(DM_CHOICES.gen)) + '"' + (off ? ' disabled' : '') + '>'
-      + '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ' + esc(o.label) + '</button>').join('')
-    + '<span class="dmchoices-msg" id="' + noteId + '" role="status" aria-live="polite">' + esc(note) + '</span></div>';
+  const noteId = 'dmchoices-msg-' + DM_CHOICES.gen + (part === 'more' ? '-more' : '');
+  /* #6727: on a card, "Sending…" and "Sent." are said once, under Allow and Deny; "press it again" sits in the part that
+     holds the armed button (a lasting choice lives under Show details), so the button it describes points at it. */
+  const armedHere = armedN !== undefined && shown.some((o) => o.n === armedN);
+  /* Design review (Mona Lisa): after a sure press the card says what was chosen, "Allowed." or "Denied.", where a
+     plain choice says "Sent.". */
+  const chosen = locked && done.sure && perm ? (done.n === perm.allow ? 'Allowed.' : done.n === perm.deny ? 'Denied.' : note) : note;
+  const partNote = !perm ? note
+    : (pressing || (locked && done.sure)) ? (part === 'main' ? chosen : '')
+    : armedHere ? DM_CHOICE_ARM_NOTE : '';
+  return '<div class="dmchoices' + (perm ? ' dmperm-' + part : '') + '" role="group" aria-label="' + (perm && part === 'main' ? 'Allow or deny' : 'Choices') + '">'
+    + shown.map((o) => '<button type="button" class="dmchoice' + (perm && part === 'main' ? (o.n === perm.allow ? ' dmperm-allow' : ' dmperm-deny') : '') + (o.n === armedN ? ' armed" aria-describedby="' + noteId : '') + '" data-n="' + esc(String(o.n)) + '" data-gen="' + esc(String(DM_CHOICES.gen)) + '"' + (off ? ' disabled' : '') + '>'
+      + (perm && part === 'main' ? '' : '<span class="dmchoice-n">' + esc(String(o.n)) + '</span> ') + esc(labelOf(o)) + '</button>').join('')
+    + '<span class="dmchoices-msg" id="' + noteId + '" role="status" aria-live="polite">' + esc(partNote) + '</span></div>';
+}
+/* #6727 (Josh, 10-20: "yikes.. what is this"): an agent stopped on its permission prompt reads as one short card, built
+   from the server's reading of the box (chat.permissionCard): what it wants to do in plain words, Allow and Deny, and
+   the raw request only under Show details, closed. No rule, option number, key hint or "Tab to amend" is drawn. */
+const DM_PERM_DOES = {
+  delete: 'run a command that deletes files',
+  command: 'run a command',
+  create: 'create a file',
+  edit: 'change a file',
+  fetch: 'fetch something from the web',
+  other: 'do something that needs your permission',
+};
+function dmPermissionHtml(m) {
+  const p = m.permission || {};
+  const does = DM_PERM_DOES[p.kind] || DM_PERM_DOES.other;
+  const str = (v) => (typeof v === 'string' ? v : '');
+  const more = typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m, 'more') : '';
+  return '<div class="dmperm">'
+    // Design review: the bubble's header already names the agent, so the line does not say it again.
+    + '<p class="dmperm-ask">' + esc('Wants to ' + does + (str(p.target) ? ': ' + str(p.target) : '') + '.') + '</p>'
+    // Review 3: the description is the agent's own words about its command, not Kosmos's reading of it, so it says so.
+    + (str(p.says) ? '<p class="dmperm-says">' + esc('It says: ' + str(p.says)) + '</p>' : '')
+    + (typeof dmChoicesHtml === 'function' ? dmChoicesHtml(m, 'main') : '')
+    + '<details class="dmperm-more"><summary>Show details</summary>'
+    + (str(p.reason) ? '<p class="dmperm-reason">' + esc(str(p.reason)) + '</p>' : '')
+    + (str(p.detail) ? '<pre class="dmperm-detail">' + esc(str(p.detail)) + '</pre>' : '')
+    + more
+    + '</details></div>';
 }
 const DM_CHOICE_UNSURE = 'We could not confirm that it went (pressing again may answer twice).';
 async function dmChoicePress(btn) {
@@ -40747,7 +40975,7 @@ async function dmChoicePress(btn) {
   /* Placed, or may have been sent (could not confirm): the same short lock, so a quick second press cannot answer twice
      while the page's poll is still catching up. Only a refusal or could_not (nothing typed) gives the buttons back now. */
   const mayHaveSent = ok || unsure;
-  if (mayHaveSent) DM_CHOICE_ANSWERED.set(session, { asked: c.asked, at: Date.now(), sure: ok });
+  if (mayHaveSent) DM_CHOICE_ANSWERED.set(session, { asked: c.asked, at: Date.now(), sure: ok, n: opt.n });   // n: #6727 says which
   /* Review 32: emptied either way; a success is announced once, in #d-reply-say below (the repaint draws "Sent." here
      for the eye, in a new node a screen reader does not read out again). */
   if (msg) msg.textContent = '';
@@ -41024,7 +41252,7 @@ function paintTalkThread(body, name) {
   DM_ROWS_NAME = name;
   DM_ROWS_OLDER = CURRENT && earlierOn(CURRENT.sessionName) ? EARLIER.before : (Number(body.olderCount) || 0);   // kosmos#5841
   DM_ROWS_OLDEST = null;
-  for (const r of allRows) if (r && r.kind !== 'question' && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;   // #5943: the dated question is not a stored row
+  for (const r of allRows) if (r && r.kind !== 'question' && r.draft !== true && typeof r.at === 'string' && (DM_ROWS_OLDEST === null || r.at < DM_ROWS_OLDEST)) DM_ROWS_OLDEST = r.at;   // #5943: the dated question is not a stored row; #6717: nor is a draft
   dmReplyPaint(DM_ROWS_OF);
   convPaint();   // #5624 review 1: the toggle follows the agent on screen, whatever this paint shows
   if (TALK_QUERY && String(TALK_QUERY).trim()) convPause();   // #5624 review 4: any search, a no-match one too
@@ -42145,7 +42373,7 @@ let AGENT_FILES_STAMP = null;
 /* #6497 (Mona's 0.7.56 noise pass): `compact` is the agent page's narrow Files panel. A full date on every row cut the
    names to a few letters there, so it shows the size only, as the project page's Files panel does; the date is the
    row's hover text. The Files screen (View All) keeps the date on the row. */
-function agentFileRow(f, compact = false) {
+function agentFileRow(f, compact = false, label = null) {   // #6724: `label` (the browser shows a name, not its path)
   // A BUTTON: it opens a file, so it must be reachable from the keyboard.
   const b = document.createElement('button');
   b.type = 'button';
@@ -42154,7 +42382,7 @@ function agentFileRow(f, compact = false) {
   b.insertAdjacentHTML('afterbegin', fileIcon(f.name));
   const n = document.createElement('span');
   n.className = 'pj-doc-n';
-  n.textContent = f.name;
+  n.textContent = label || f.name;
   const w = document.createElement('span');
   w.className = 'pj-doc-w';
   const when = f.modified ? new Date(f.modified) : null;
@@ -42242,6 +42470,10 @@ async function paintAgentFiles(sessionName) {
   const all = document.getElementById('d-files-all');
   if (!section || !list || !msg) return;
   const epoch = (AGENT_FILES_EPOCH += 1);
+  /* The Files screen, when it is the one showing, follows every change, an emptied folder included. #6724: by its own
+     read and its own stamp, on every tick and FIRST (it may be showing a folder inside Files, which this flat list's
+     stamp does not see, and a failure of this list's read is not a reason for it to skip a tick). */
+  { const screen = detailSection('files'); if (screen && !screen.hidden) paintAgentFilesAll(sessionName); }
   let body;
   let status = 0;
   try {
@@ -42266,8 +42498,6 @@ async function paintAgentFiles(sessionName) {
   const stamp = ok ? String(body.stamp || '') : 'refused:' + status + ':' + String((body && body.because) || '');
   if (stamp && stamp === AGENT_FILES_STAMP) return;
   AGENT_FILES_STAMP = stamp;
-  // The Files screen, when it is the one showing, follows every change, an emptied folder included.
-  { const screen = detailSection('files'); if (screen && !screen.hidden) paintAgentFilesAll(sessionName); }
   list.textContent = '';
   if (all) all.hidden = true;
   const files = ok && Array.isArray(body.files) ? body.files : [];
@@ -42288,54 +42518,144 @@ async function paintAgentFiles(sessionName) {
   // because it is the way to the Files screen and its Open in Finder button.
   if (all) all.hidden = false;
 }
-/* #3757: the Files screen, reached from View All: every file (up to the route's own cap), with
-   Open in Finder, which moved here from the sidebar. */
+/* #3757: the Files screen, reached from View All, with Open in Finder, which moved here from the sidebar.
+   #6724: it is the in-app BROWSER of the agent's Files now (Josh, viewing a board from another computer, where Finder
+   opens on the far Mac): one folder at a time (GET .../files/browse?dir=), its folders first and then its files, a path
+   line back up, and Download folder (that folder as one zip). Read-only. A file row behaves as it always did (#4997's
+   preview for a picture, a PDF or now text; otherwise open on the computer, or download over Kosmos+). */
 let AGENT_FILES_ALL_EPOCH = 0;
+let AGENT_FILES_DIR = '';          // #6724: the folder in Files being shown, as the route names it ('' is the top)
+let AGENT_FILES_ALL_STAMP = null;  // the browse answer last painted; any failure clears it, so a recovery repaints
+let AGENT_FILES_FOCUS = false;     // set by a move to another folder: the new list gets the keyboard focus
+let AGENT_FILES_ALL_FAIL = null;   // iteration 2: the failure last shown, so the same one is not re-announced each tick
+function folderIcon() {
+  return '<svg class="ficon" viewBox="0 0 18 20" width="18" height="20" aria-hidden="true" focusable="false">'
+    + '<path d="M1.5 5.5a1 1 0 0 1 1-1h4.2l1.6 1.8h7.2a1 1 0 0 1 1 1v9.2a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1z" fill="#e8eaed" stroke="#9aa0a6" stroke-width="1"/></svg>';
+}
+function agentDirRow(d) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'pj-doc pj-dir';
+  b.dataset.dir = d.name;
+  b.insertAdjacentHTML('afterbegin', folderIcon());
+  const shown = String(d.name).split('/').pop();
+  const n = document.createElement('span');
+  n.className = 'pj-doc-n';
+  n.textContent = shown;
+  const w = document.createElement('span');
+  w.className = 'pj-doc-w';
+  const when = d.modified ? new Date(d.modified) : null;
+  w.textContent = when && !isNaN(when) ? when.toLocaleDateString() : '';
+  b.setAttribute('aria-label', 'Folder ' + shown);
+  b.append(n, w);
+  return b;
+}
+function agentFilesPath(dir) {
+  const el = document.getElementById('d-filesall-path');
+  if (!el) return;
+  el.textContent = '';
+  if (!dir) { el.hidden = true; return; }
+  el.hidden = false;
+  const segs = dir.split('/');
+  const crumb = (label, to, current) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.dataset.dir = to;
+    if (current) b.setAttribute('aria-current', 'location');
+    return b;
+  };
+  el.append(crumb('Files', '', false));
+  segs.forEach((s, i) => {
+    const sep = document.createElement('span');
+    sep.className = 'dfiles-sep';
+    sep.setAttribute('aria-hidden', 'true');
+    sep.textContent = '/';
+    el.append(sep, crumb(s, segs.slice(0, i + 1).join('/'), i === segs.length - 1));
+  });
+}
+function agentFilesGo(dir) {
+  if (!CURRENT) return;
+  AGENT_FILES_DIR = dir;
+  AGENT_FILES_ALL_STAMP = null;
+  AGENT_FILES_ALL_FAIL = null;
+  AGENT_FILES_FOCUS = true;
+  const msg = document.getElementById('d-filesall-msg');
+  if (msg) msg.textContent = '';
+  paintAgentFilesAll(CURRENT.sessionName);
+}
 async function paintAgentFilesAll(sessionName) {
   const list = document.getElementById('d-filesall-list');
   const msg = document.getElementById('d-filesall-msg');
   const more = document.getElementById('d-filesall-more');
   if (!list || !msg) return;
   const epoch = (AGENT_FILES_ALL_EPOCH += 1);
+  const dir = AGENT_FILES_DIR;
+  const stale = () => epoch !== AGENT_FILES_ALL_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName || dir !== AGENT_FILES_DIR;
   let body;
   let status = 0;
   try {
-    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/files?limit=500');
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/files/browse?dir=' + encodeURIComponent(dir), { cache: 'no-store' });
     status = res.status;
     body = await res.json();
   } catch {
-    if (epoch !== AGENT_FILES_ALL_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
+    if (stale()) return;
+    AGENT_FILES_ALL_STAMP = null;
+    AGENT_FILES_FOCUS = false;
+    // The same failure as the last tick is left as it is: rewriting a status line makes a screen reader say it again.
+    if (AGENT_FILES_ALL_FAIL === 'neterr') return;
+    AGENT_FILES_ALL_FAIL = 'neterr';
+    agentFilesPath(dir);
     list.textContent = '';
     if (more) more.hidden = true;
     msg.textContent = 'We could not read this agent’s files just now.';
     return;
   }
-  if (epoch !== AGENT_FILES_ALL_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
+  if (stale()) return;
+  const ok = Boolean(body && body.ok === true);
+  if (ok && body.stamp && body.stamp === AGENT_FILES_ALL_STAMP) return;   // nothing moved, and the screen shows it
+  AGENT_FILES_ALL_STAMP = ok ? String(body.stamp || '') || null : null;
+  if (!ok) {
+    AGENT_FILES_FOCUS = false;
+    const fail = 'refused:' + status + ':' + String((body && body.because) || '');
+    if (fail === AGENT_FILES_ALL_FAIL) return;   // as above: the same refusal is not rewritten
+    AGENT_FILES_ALL_FAIL = fail;
+  } else AGENT_FILES_ALL_FAIL = null;
+  agentFilesPath(dir);
   list.textContent = '';
   if (more) more.hidden = true;
-  if (!body || body.ok !== true) {
-    msg.textContent = status === 404
+  if (!ok) {
+    msg.textContent = status === 404 && !dir
       ? 'This agent has no folder of its own on this computer, so there is no Files list.'
       : asSentence((body && body.because) || 'We could not read this agent’s files just now.');
     return;
   }
+  const dirs = Array.isArray(body.dirs) ? body.dirs : [];
   const files = Array.isArray(body.files) ? body.files : [];
-  msg.textContent = files.length ? '' : 'This agent has no files yet.';
-  for (const f of files) list.append(agentFileRow(f));
-  const rest = Number(body.total) - files.length;
-  if (more && rest > 0) {
-    // #5165: over Kosmos+ the folder button cannot show them on this device, so it is not offered as the way.
-    // #5865: and on Linux, where the Finder button is hidden (revealFolder runs /usr/bin/open).
-    more.textContent = 'And ' + rest + ' more in the folder.'
-      + (kplusRemote() || onLinux() ? '' : ' ' + platformCopy('docsOpenFolder', 'Open in Finder') + ' shows them all.');   // the button's own words
+  msg.textContent = dirs.length || files.length ? '' : (dir ? 'This folder is empty.' : 'This agent has no files yet.');
+  for (const d of dirs) list.append(agentDirRow(d));
+  for (const f of files) list.append(agentFileRow(f, false, String(f.name).split('/').pop()));
+  if (more && body.truncated) {
+    // Iteration 3: stopped by the read budget (many hidden names) is said as the project list says it, not as a count.
+    more.textContent = body.scanCut
+      ? 'This folder holds a lot, so Kosmos stopped looking partway through it. Some files may not be listed here.'
+      : Number(body.limit) > 0   // the server's own cap
+        ? 'This folder holds more than ' + Number(body.limit).toLocaleString() + ' items, so not all of them are listed here.'
+        : 'This folder holds more items than can be listed here, so not all of them are shown.';
     more.hidden = false;
+  }
+  if (AGENT_FILES_FOCUS) {
+    AGENT_FILES_FOCUS = false;
+    const to = list.querySelector('.pj-doc') || document.querySelector('#d-filesall-path [aria-current]') || document.getElementById('d-filesall-h');
+    if (to && typeof to.focus === 'function') to.focus();
   }
 }
 for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-list', 'd-filesall-msg']]) document.getElementById(listId) && document.getElementById(listId).addEventListener('click', async (e) => {
   const row = e.target.closest('.pj-doc');
   if (!row || !CURRENT) return;
   const who = CURRENT.sessionName;
-  if (filesPvOpen(row, { agent: who }, e)) return;   // #4997: an image or PDF opens the full-page preview
+  if (row.classList.contains('pj-dir')) { agentFilesGo(row.dataset.dir || ''); return; }   // #6724: into a folder
+  if (filesPvOpen(row, { agent: who }, e)) return;   // #4997: an image, PDF or (#6724) text file opens the full-page preview
   const msg = document.getElementById(msgId);
   if (kplusRemote() || onLinux()) {   // #5165: download it to this device; #5881: on a Linux board too, which may have no desktop to open it on
     kplusDownload('agent', who, row.dataset.doc, kplusSayer(msg, () => CURRENT && CURRENT.sessionName === who));
@@ -42361,6 +42681,19 @@ document.getElementById('d-files-all') && document.getElementById('d-files-all')
 document.getElementById('d-files-back') && document.getElementById('d-files-back').addEventListener('click', () => {
   if (!CURRENT) return;
   detailGo('talk');
+});
+/* #6724: the path line: Files, then each folder entered, each one a way back up. */
+document.getElementById('d-filesall-path') && document.getElementById('d-filesall-path').addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('button[data-dir]');
+  if (!b || !CURRENT || b.hasAttribute('aria-current')) return;
+  agentFilesGo(b.dataset.dir || '');
+});
+/* #6724: Download folder: the folder being shown, as one zip, to the device the person is on (here or over Kosmos+). */
+document.getElementById('d-files-zip') && document.getElementById('d-files-zip').addEventListener('click', () => {
+  if (!CURRENT) return;
+  const who = CURRENT.sessionName;
+  const dir = AGENT_FILES_DIR;
+  kplusDownloadFolder(who, dir, kplusSayer(document.getElementById('d-filesall-msg'), () => CURRENT && CURRENT.sessionName === who && AGENT_FILES_DIR === dir));
 });
 document.getElementById('d-files-finder') && document.getElementById('d-files-finder').addEventListener('click', async () => {
   if (!CURRENT) return;
@@ -42664,6 +42997,12 @@ function openDetail(sessionName, section, fromProject) {
     if (fa) fa.hidden = true;
     for (const id of ['d-filesall-list', 'd-filesall-msg']) { const el = document.getElementById(id); if (el) el.textContent = ''; }
     { const el = document.getElementById('d-filesall-more'); if (el) el.hidden = true; }
+    // #6724: another agent's Files start at their top, never in a folder the last agent had open.
+    AGENT_FILES_DIR = '';
+    AGENT_FILES_ALL_STAMP = null;
+    AGENT_FILES_ALL_FAIL = null;
+    AGENT_FILES_FOCUS = false;
+    { const el = document.getElementById('d-filesall-path'); if (el) { el.textContent = ''; el.hidden = true; } }
   }
   paintAgentFiles(a.sessionName);
   /* #5153 slice 3: never the last agent's work while this one's is read. */
@@ -51602,6 +51941,7 @@ async function paintPlus() {
   if (!r || r.enrolled !== true) {
     // kosmos#6613: a computer no longer set up has no finding to raise when the person leaves Kosmos+.
     if (r && r.enrolled === false && typeof paintCwNote === 'function') paintCwNote(null);   // an error answer is not "not set up"
+    if (r && r.enrolled === false && typeof paintPlusServiceKeys === 'function') paintPlusServiceKeys({ state: '' });   // kosmos#6587: nothing to say off setup
     /* #4794 review 7: not enrolled (a Forget, or never signed in) ends any pairing this page knew; this return skips the
        pairing block's own clearing below, so it happens here. A failed read (r null) is not an answer and keeps it. */
     if (r && typeof plusJoinReset === 'function') plusJoinReset();
@@ -51679,6 +52019,8 @@ async function paintPlus() {
   /* r.on === true: a reply that does not say Kosmos+ is on counts as off, which quiets only the cannot-confirm
      sentences (the safe direction); a finding is said either way. */
   if (typeof paintPlusCertWatch === 'function') paintPlusCertWatch(r.certWatch, r.on === true);
+  /* kosmos#6587: whether the pinned coordinator key is on the signed service key set this version shipped. */
+  if (typeof paintPlusServiceKeys === 'function') paintPlusServiceKeys(r.serviceKeys);
   /* #4794: while this computer waits for one of the person's computers to allow it, the pairing code replaces the
      coordinator's sentence (paintPlusJoin). Anything else hides it. */
   if (typeof plusJoinTick === 'function') {   // the page tests lift paintPlus alone
@@ -52499,6 +52841,17 @@ function paintPlusCertWatch(cw, plusOn) {
     finally { cwBusy = false; cwSw.removeAttribute('aria-busy'); }
     paintPlus();
   }); }
+/* kosmos#6587 (S-7a slice 2a): the service key line. The server passes only a state (engine/servicekeys-check.js); the
+   one sentence is fixed. Off, refused (a broken build, not news), none, unknown and listed say nothing. An answer with
+   no serviceKeys (an older board) leaves the line as it is. */
+var PLUS_SK_MISMATCH = 'Warning: the key this computer trusts for the Kosmos+ service is not on the signed list that came with this version of Kosmos. Something may be posing as the Kosmos+ service.';
+function paintPlusServiceKeys(sk) {
+  const line = document.getElementById('plus-sk-line');
+  if (!line || !sk || typeof sk !== 'object') return;
+  const say = sk.state === 'mismatch' ? PLUS_SK_MISMATCH : '';
+  if (line.textContent !== say) line.textContent = say;   // rewritten only on a change, so it is not re-read every poll
+  if (line.dataset) line.dataset.state = say ? 'mismatch' : '';
+}
 /* kosmos#6613: the notice for a finding, a card in the floating stack (#cwnote-slot, the .utoast look and its red),
    on every view but Kosmos+. Its close (and Review) put away the finding set shown (its key, kept per browser, as
    #6315's request notice and #5018's login notice keep theirs); a new finding is a new key and brings it back. The
@@ -70046,7 +70399,8 @@ function pvOpen(id, from) {
     card.querySelector('span').textContent = a.meta || '';
     return card;
   };
-  if ((a.kind === 'image' || a.kind === 'pdf') && a.preview && /^\/api\//.test(a.preview)) {
+  const how = pvStageKind(a);
+  if (how === 'media') {
     const img = document.createElement('img');
     img.className = 'pv-media';
     img.alt = a.kind === 'pdf' ? 'The first page of ' + a.name : a.name;
@@ -70057,7 +70411,9 @@ function pvOpen(id, from) {
        type the server cannot preview) shows the file's card instead of a broken image on the whole screen. */
     img.addEventListener('error', () => { stage.textContent = ''; stage.appendChild(fileCard()); }, { once: true });
     pvZoomFrom(img, from);
-  } else if (a.kind === 'text' && typeof a.preview === 'string' && a.preview && !/^\/api\//.test(a.preview)) {
+  } else if (how === 'textOf') {
+    pvTextInto(stage, a.textOf, fileCard);   // #6724: a Files-list text file
+  } else if (how === 'snippet') {
     const pre = document.createElement('pre');
     pre.className = 'pv-text';
     pre.textContent = a.preview;   // the file's own words, as text, never markup
@@ -70098,6 +70454,39 @@ function pvOpen(id, from) {
   document.body.appendChild(back);
   back.querySelector('.pv-box').focus();
   return true;
+}
+/* What the preview's stage shows for a record. #6724 iteration 6: a text file is READ FROM THE BOARD only by an explicit
+   `textOf` (which list, whose, the listed name; iteration 10: pvTextInto writes the address itself), which only the Files
+   lists set (filesPvOpen). An attachment's `preview`
+   is the file's own first words, untrusted text, so it is never taken as an address (a file that begins "/api/..."
+   must not make the viewer's browser fetch that path); as before, such a snippet shows the file's card. */
+function pvStageKind(a) {
+  if (!a) return 'card';
+  if ((a.kind === 'image' || a.kind === 'pdf') && a.preview && /^\/api\//.test(a.preview)) return 'media';
+  if (a.kind === 'text' && a.textOf && (a.textOf.kind === 'agent' || a.textOf.kind === 'project') && a.textOf.owner && a.textOf.name) return 'textOf';
+  if (a.kind === 'text' && typeof a.preview === 'string' && a.preview && !/^\/api\//.test(a.preview)) return 'snippet';
+  return 'card';
+}
+/* #6724: a Files-list text file in the preview: its start, read from the board's preview route (plain text, never
+   markup), with a note when the file goes on past what is shown. One that will not read shows the file's card. An
+   answer that arrives after the preview closed writes nothing. */
+function pvTextInto(stage, of, fileCard) {
+  const pre = document.createElement('pre');
+  pre.className = 'pv-text';
+  pre.textContent = 'Reading…';
+  stage.appendChild(pre);
+  /* Iteration 10: the two addresses are written out here, once each, so the route test (#3957) reads them, as
+     kplusDownload's are; `of` names the file, never an address. */
+  const asked = of.kind === 'agent'
+    ? fetch('/api/agent/' + encodeURIComponent(of.owner) + '/files/preview?name=' + encodeURIComponent(of.name), { cache: 'no-store' })
+    : fetch('/api/project/' + encodeURIComponent(of.owner) + '/file-preview?name=' + encodeURIComponent(of.name), { cache: 'no-store' });
+  return asked.then(async (res) => {
+    if (!res.ok) throw new Error('no preview');
+    const text = await res.text();
+    if (!document.contains(pre)) return;
+    pre.textContent = text;
+    if (res.headers.get('x-kosmos-preview-cut') === '1') { const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The start of the file'; stage.appendChild(c); }
+  }).catch(() => { if (document.contains(pre)) { stage.textContent = ''; stage.appendChild(fileCard()); } });
 }
 /* The picture grows from the card it was clicked on, unless the person asked for less motion. */
 function pvZoomFrom(img, from) {
@@ -70158,7 +70547,10 @@ function filesPvOpen(row, where, e) {
   /* Review 2: only what the preview can show here. A browser draws png, jpeg, gif and webp; heic and avif may not
      decode, and a PDF's first page is drawn by macOS alone, so on Windows a PDF (and everywhere heic and avif) keeps
      opening on the computer rather than becoming a card that cannot open it. */
-  const kind = /^(png|jpe?g|gif|webp)$/.test(lower) ? 'image' : ((lower === 'pdf' && !onWindows()) ? 'pdf' : null);
+  /* #6724: and a text file (attachments.kindOf's text extensions, which the server's preview answers as its first
+     256 KiB of plain text), on every platform. */
+  const kind = /^(png|jpe?g|gif|webp)$/.test(lower) ? 'image' : ((lower === 'pdf' && !onWindows()) ? 'pdf'
+    : (/^(txt|md|markdown|csv|json|yaml|yml|log|sh|js|ts|py|html?|css)$/.test(lower) ? 'text' : null));
   if (!kind) return false;
   let base;
   if (where && where.agent) base = { preview: '/api/agent/' + encodeURIComponent(where.agent) + '/files/preview', download: '/api/agent/' + encodeURIComponent(where.agent) + '/files/download' };
@@ -70170,6 +70562,8 @@ function filesPvOpen(row, where, e) {
   PV_ATTS.set(FILES_PV_ID, {
     id: FILES_PV_ID, name: shown, kind, meta: sizeEl ? sizeEl.textContent : '',
     url: base.download + q, preview: base.preview + q,
+    // #6724: the only way a text preview is fetched (pvStageKind): which list, whose, and the listed name. Never an address.
+    textOf: kind === 'text' ? { kind: where.agent ? 'agent' : 'project', owner: where.agent || where.project, name } : undefined,
     download: () => kplusDownload(where.agent ? 'agent' : 'project', where.agent || where.project, name,
       kplusSayer(document.getElementById('pv-msg'), () => !!document.getElementById('pv-msg'))),
     reveal: async () => {
@@ -73782,9 +74176,11 @@ async function pjPostSend(attachment) {
   /* A post that did not go stays drawn, marked, with the reason; its words go back in an empty box to send again. If a
      read already showed the room holding it (paintRoom handed over and dropped the pending entry), it did go: nothing is
      marked and the words are NOT put back, or a second press would post it twice. */
-  const notKept = (because, unsure) => {
+  const notKept = (because, unsure, wasOnFloor) => {
     if (PJ_ROOM_PENDING[sentProject] !== pend) return;
-    const keepFloor = PJ_CURRENT === sentProject && onFloor();   // before the box refills and the pill grows the row
+    // Before the box refills and the pill grows the row. #6629: the caller can read it earlier still, before the note
+    // under the box (which, in the one-page layout, takes its height from the room) has been written.
+    const keepFloor = PJ_CURRENT === sentProject && (wasOnFloor === undefined ? onFloor() : wasOnFloor);
     restoreUnsent();
     pend.failed = true; pend.because = because; pend.unsure = !!unsure;
     try { repaintPending(keepFloor); } catch { /* the next read paints it; a throw here must not escape the catch below */ }
@@ -73802,8 +74198,14 @@ async function pjPostSend(attachment) {
       if (unsure || PJ_ROOM_PENDING[sentProject]) return;
       PJ_ROOM_PENDING[sentProject] = pend;
     }
+    // #6629: the floor is read BEFORE the note is written. Showing the note under the box shrinks the room in the
+    // one-page layout, so read after it, a reader on the floor looked above it and was not pinned. On a busy page the answer can
+    // beat the press-time scroll event's frame: that event then reads the shrunk room, marks the reader off the floor
+    // (__wasOnFloor), and the resize rescue leaves them there, 50 px short with the failed pill below the fold. Read
+    // first, the pin here lands before that event, which then reads the floor.
+    const wasOnFloor = PJ_CURRENT === sentProject && onFloor();
     verdict(line);
-    notKept(because, unsure);
+    notKept(because, unsure, wasOnFloor);
   };
   let answered = false;   // the board kept it: from here a throw is the page's own, not the post's
   try {
@@ -76654,6 +77056,10 @@ function pjFedMessage(body, fallback, opts) {
     'other-account': 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.',
     'no-remote': 'Sign in to Kosmos+ again in Settings on this computer, then paste the code again.',
     'old-code': 'This code was made by an older Kosmos. Update Kosmos on the computer that has the project, then make a new code there.',
+    // kosmos#6681 (S-11-fed): a code bound to one address. Names nobody: the person told is the one it was not for.
+    'wrong-invitee': 'That code was made for someone else. Ask whoever sent it to invite the email address you use for Kosmos+.',
+    'bad-email': 'That email address does not look right. Check it, or leave it empty.',
+    'invites-full': 'You have too many invitations nobody has used yet, across your projects. Withdraw some from a project\'s Members, or wait for them to expire, then try again.',
   };
   return (reason && M[reason]) || fallback;
 }
@@ -78106,6 +78512,8 @@ function fedInviteOpen(opener, prefill) {
   const label = document.getElementById('fedinv-label');
   label.value = '';
   pjFieldOk('fedinv-label', 'fedinv-msg');
+  document.getElementById('fedinv-email').value = '';   // kosmos#6681
+  pjFieldOk('fedinv-email', 'fedinv-msg');
   document.getElementById('fedinv-kind-person').checked = true;
   document.getElementById('fedinv-make').disabled = false;
   document.getElementById('fedinv-code').value = '';
@@ -78169,6 +78577,15 @@ async function fedInviteMake() {
   if (!label) { pjFieldBad('fedinv-label', 'fedinv-msg', 'Write who it is for, so you can tell your invitations apart.'); return; }
   pjFieldOk('fedinv-label', 'fedinv-msg');
   const kind = document.getElementById('fedinv-kind-agent').checked ? 'agent' : 'person';
+  const emailEl = document.getElementById('fedinv-email');
+  const email = emailEl.value.trim();   // kosmos#6681: optional; empty sends none
+  /* Review 1: an address the browser already sees is not one is answered here, without a round trip; the coordinator
+     stays the judge of everything else (its refusal lands on this field below). */
+  if (email && emailEl.validity && emailEl.validity.typeMismatch) {
+    pjFieldBad('fedinv-email', 'fedinv-msg', pjFedMessage({ reason: 'bad-email' }, 'That email address does not look right.'));
+    return;
+  }
+  pjFieldOk('fedinv-email', 'fedinv-msg');
   const seq = ++FEDINV_SEQ;
   const askedFor = FEDINV_PROJECT;
   make.disabled = true;
@@ -78186,7 +78603,7 @@ async function fedInviteMake() {
     try {
       res = await fetch('/api/federation/invite', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ project: FEDINV_PROJECT, invited_kind: kind, label }), signal: ctl ? ctl.signal : undefined,
+        body: JSON.stringify({ project: FEDINV_PROJECT, invited_kind: kind, label, ...(email ? { email } : {}) }), signal: ctl ? ctl.signal : undefined,
       });
       body = await res.json().catch(() => null);
     } finally { if (timer) clearTimeout(timer); }
@@ -78200,6 +78617,11 @@ async function fedInviteMake() {
     }
     if (!res.ok || !body || typeof body.code !== 'string' || !body.code) {
       // A 403 means the request did not read as from this screen: nothing the person can act on.
+      // kosmos#6681 review 1: a refused address marks the address field (and puts focus there), not "Who is it for?".
+      if (res.status !== 403 && body && body.reason === 'bad-email') {
+        pjFieldBad('fedinv-email', 'fedinv-msg', pjFedMessage(body, fallback));
+        return;
+      }
       msg.textContent = res.status === 403 ? fallback
         : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback);
       document.getElementById('fedinv-label').focus();   // back in the field (pjFieldBad's way), not on <body>
@@ -78215,12 +78637,20 @@ async function fedInviteMake() {
     // else "they" (a label like "my sister", or anyone who is not a person): the same test as the Remove dialog's
     // body (fedFirstName, for a person only).
     const first = kind === 'person' ? fedFirstName(label) : '';
-    document.getElementById('fedinv-until').textContent = (until ? 'It works once, until ' + until + '.' : 'It works once.')
-      + ' You can withdraw it from Members until ' + (first ? first + ' joins.' : 'they join.');
+    const boundTo = typeof body.email === 'string' ? body.email : '';   // kosmos#6708: the coordinator's echo
+    const withdraw = ' You can withdraw it from Members until ' + (first ? first + ' joins.' : 'they join.');
+    const once = until ? 'It works once, until ' + until + '.' : 'It works once.';
+    // kosmos#6708: only when the coordinator says it bound the code (review 1), never from the typed value alone. The
+    // address is bold (design review): it is the one thing the owner checks for a typo before sending. Built as nodes,
+    // never as HTML, so the address is text whatever it holds.
+    const bold = document.createElement('strong');
+    bold.textContent = boundTo;
+    document.getElementById('fedinv-until').replaceChildren(...(boundTo
+      ? [once + ' Only the Kosmos+ account with ', bold, ' can use it.' + withdraw] : [once + withdraw]));
     document.getElementById('fedinv-easier').textContent = 'Easier: copy the whole invitation. It has the code and the three steps '
       + (first ? first + ' needs' : 'they need') + ', ready to paste into an email or a text.';
     const proj = pjById(askedFor);
-    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '', projectId: askedFor };
+    FEDINV_MADE = { label, code: body.code, expires_at: body.expires_at, project: (proj && proj.name) || '', projectId: askedFor, email: boundTo };   // kosmos#6708: the address the coordinator bound it to
     document.getElementById('fedinv-copy-all').focus();
     // kosmos#4649 slice B: the new pending row appears in Members behind the sheet (and an expired row with
     // the same label goes, fedOutsideRows), so "Done" lands on the list as it now is.
@@ -78382,7 +78812,11 @@ function fedInviteText(made) {
     + '\n'
     + made.code + '\n'
     + '\n'
-    + (until ? 'The code works once, until ' + until + '.' : 'The code works once.');
+    + (until ? 'The code works once, until ' + until + '.' : 'The code works once.')
+    // kosmos#6708: a code bound to an address says so, so the person invited signs in with that one before pasting it.
+    + (made.email ? '\nIt works only for the Kosmos+ account with the email address ' + line(made.email) + '.'
+      // Design review: what to do when it is the wrong address, so the first they learn of it is not a refusal.
+      + '\nIf that is not your Kosmos+ email, ask for a new code.' : '');
 }
 // Copy the invitation: through fedCopyText (select-and-copy first, then the clipboard with its limit). A refusal of
 // both keeps its line on screen and says what to do instead; it never throws.

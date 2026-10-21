@@ -42,6 +42,7 @@ const win32update = require('./win32update');
 const connectUpdate = require('./win32connectupdate');
 const { buildZip } = require('../test-support/zipfixture');
 const { SIGNED_KOSMOS } = require('../test-support/signedkosmos');
+const { TEST_KEYS, signedRelease } = require('../test-support/winreleasemanifest');
 
 test.after(() => {
   win32board.setRunner(null);
@@ -135,9 +136,14 @@ function site(version) {
   const versioned = `kosmos-${version}-win-${ARCH}.zip`;
   const pointer = { version, sha256: sha256(zip), artifact: `kosmos-win-${ARCH}.zip`, versioned, arch: ARCH };
   const urls = [];
+  /* #6466: the release's signed manifest beside the zip, signed with the suites' key. */
+  const release = signedRelease(zip, { version, arch: ARCH });
+  const manifestFile = versioned.replace(/\.zip$/, '.manifest.json');
   const fetch = async (url) => {
     urls.push(String(url));
     const file = decodeURIComponent(new URL(url).pathname.split('/').pop());
+    if (file === manifestFile) return new Response(release.bytes);
+    if (file === manifestFile + '.sig') return new Response(release.sig);
     if (file === 'latest-win.json') return new Response(JSON.stringify(pointer));
     if (file === `${versioned}.sha256`) return new Response(`${pointer.sha256}  ${versioned}\n`);
     if (file === versioned) return new Response(zip, { headers: { 'content-length': String(zip.length) } });
@@ -196,6 +202,8 @@ function seamsFor(c, s, sim) {
       runStagedNode: () => NODE_VERSION + '\n',
       /* #1765: the staged Kosmos.exe here is a stub; Windows' answer for a published build stands in for it. */
       checkSignature: () => SIGNED_KOSMOS,
+      /* #6466: the suites' release key, which site() signs with. */
+      manifestKeys: TEST_KEYS,
       log: (line) => c.log.push(line),
       /* Production starts the helper detached with the anchored node.exe; here it runs in this process, with
          no mayStartBoard seam, so the helper's own mode reader decides whether a board is started. */

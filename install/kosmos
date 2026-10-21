@@ -617,7 +617,8 @@ _lsof_present() { _lsof_cmd >/dev/null 2>&1; }
 #     evidence, a health curl killed by a signal or an lsof refused: this shell cannot check at all,
 #     _UNREACH_BLIND);
 #   - on busy it tries again with a longer wait each time (2, 4, 8, 8... s) until KOSMOS_BUSY_WAIT
-#     (default 20 s) has passed, saying once on stderr that it is waiting. Only then does it give up,
+#     (default 20 s) has passed, saying once on stderr that it is waiting from the SECOND busy reading on
+#     (#6682; a budget too short for a second reading never says it). Only then does it give up,
 #     still as busy, so the caller says "busy" (say_not_up), never "not running" and never "start it".
 #   - `healthy --once` is a single short probe, for the start/stop loops that poll on their own.
 # #4636: a refused connect while a listener holds the port is "unreachable" (this shell is blocked, not the
@@ -791,7 +792,7 @@ healthy() {
     if [ "$HEALTH_STATE" = up ]; then return 0; fi
     return 1
   fi
-  local _limit _start="$SECONDS" _t=2 _left _said=""
+  local _limit _start="$SECONDS" _t=2 _left _said="" _busy=0
   _limit="$(_busy_wait)"
   local _ps _w
   while :; do
@@ -801,7 +802,12 @@ healthy() {
     if [ "$HEALTH_STATE" != busy ]; then return 1; fi
     _left=$(( _limit - (SECONDS - _start) ))
     if [ "$_left" -le 0 ]; then return 1; fi
-    if [ -z "$_said" ]; then printf '%sKosmos is busy, retrying...\n' "${KOSMOS_SAY_INDENT:-  }" >&2; _said=1; fi
+    # #6682: said only from the SECOND busy reading on. One slow answer that the next probe catches is an ordinary
+    # moment, and saying "busy" for it on most commands read as steady contention; two in a row (two timeouts is about
+    # 6 s with no answer; two fast refusals, about 2 s) is a board that really is busy, and the line says so. A budget
+    # too short for a second reading (the --auto report's 6 s) never says it; its give-up message says busy itself.
+    _busy=$(( _busy + 1 ))
+    if [ -z "$_said" ] && [ "$_busy" -ge 2 ]; then printf '%sKosmos is busy, retrying...\n' "${KOSMOS_SAY_INDENT:-  }" >&2; _said=1; fi
     # A busy reading can come back FAST (a reset or empty reply, an older board's 5xx page): wait out the
     # rest of this probe's budget before the next one, so a board already too loaded to answer is not hit
     # in a tight loop for the whole busy window.
@@ -1970,7 +1976,7 @@ cmd_start() {
   # #5450: a direct start is a person's, unless the watchdog (KOSMOS_START_BY=supervisor) is bringing back a board
   # nobody stopped.
   local _start_by=person; [ "${KOSMOS_START_BY:-}" = supervisor ] && _start_by=supervisor
-  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_UPDATE_BY_BOARD -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_start_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
+  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_UPDATE_BY_BOARD -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_start_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" KOSMOS_INSTALLED_HOME="$KOSMOS_HOME" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
   local _launched="$!"   # #4636: this launch's pid, handed to the wait below (board.pid could change meanwhile)
   set +m
   printf '%s' "$_launched" > "$PIDFILE"
@@ -1982,6 +1988,27 @@ cmd_start() {
   # only witness.
   _await_board_up "$_launched" && return 0
   die "Kosmos did not come up. What it said is in $BOARD_LOG"
+}
+
+# kosmos#6667 (Linux): run every minute by the board's pause check (engine/linuxboard.js pauseCheckUnitsFor).
+# systemd's ConditionPathExists=!board.stopped cannot read an update's name files, so an update killed mid-pause left
+# the board down until a person started it; the Mac's watchdog clears that (#6651). This clears ONLY a stranded update
+# pause, only while the board's unit is enabled (it is supposed to run: the watchdog's gate 2), then asks systemd to
+# start the board. A person's stop, a running update, or a board down for any other reason is left alone. Internal,
+# not for people.
+cmd_board_revive() {
+  [ -e "$STOP_MARKER" ] || exit 0
+  local unit; unit="$(_kosmos_board_systemd_unit)"   # the same name linuxboard.js gives this home's board
+  [ "$("$SYSTEMCTL" --user is-enabled "$unit" 2>/dev/null)" = enabled ] || exit 0
+  kosmos_clear_stranded_pause pause-check || exit 0
+  # --no-block: this oneshot does not wait for the board's start. systemd still re-checks the board's
+  # ConditionPathExists when the start runs, so a stop landing after the clear wins. Exit 1 catches a start systemd
+  # would not take (unit missing or masked, no user bus), not a board that fails after it is started.
+  if ! "$SYSTEMCTL" --user start --no-block "$unit" 2>/dev/null; then
+    ( printf '[%s] pause-check: cleared the pause, but systemd would not start %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$unit" \
+      >> "$KOSMOS_HOME/logs/board-watchdog.log" ) >/dev/null 2>&1 || true
+    exit 1
+  fi
 }
 
 # #2956: the SUPERVISED foreground entry. A launchd (or Task Scheduler) job runs
@@ -2085,7 +2112,7 @@ cmd_board_run() {
          fi ;;                                                # time, from the future): the timer decides, as before
     esac
   fi
-  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_UPDATE_BY_BOARD -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_started_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" "$NODE" "$APP"
+  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY -u KOSMOS_NO_KEYCHAIN_NOTE -u KOSMOS_UPDATE_BY_BOARD -u KOSMOS_START_BY PORT="$PORT" KOSMOS_BOARD_STARTED_BY="$_started_by" KOSMOS_BOARD_PERSON_MARK="$PERSON_START_FILE" KOSMOS_INSTALLED_HOME="$KOSMOS_HOME" "$NODE" "$APP"
 }
 
 # #5359: remove the board's last-alive record (engine/restartnote.js), best effort, from the same data root
@@ -2733,6 +2760,41 @@ cmd_reply() {
   # _read_piped_message does the read; from_stdin arms _keep_piped, so every failure after the
   # read keeps the piped reply in a private file (it may have no other copy).
   local from_stdin=0 _orig="" _trimmed _keep
+  # #6726: --file <path> (or --file=<path>) attaches one of the agent's own files, as the attachment a person's
+  # upload is. Taken out of the args before `--`, wherever it sits, so the rest parse as before; past `--` it is
+  # words. The board decides which files may go (engine/replyfile.js); this only makes a relative path absolute.
+  local _rfile="" _rgot=0 _rpast=0 _rargs=()
+  while [ $# -gt 0 ]; do
+    if [ "$_rpast" = 0 ]; then
+      case "$1" in
+        --) _rpast=1 ;;
+        --file|--file=*)
+          if [ "$_rgot" = 1 ]; then say "--file was given twice, so nothing was sent. Attach one file per reply."; exit 2; fi
+          _rgot=1
+          if [ "$1" = --file ]; then
+            if [ $# -ge 2 ]; then _rfile="$2"; shift; fi
+          else
+            _rfile="${1#--file=}"
+          fi
+          case "$_rfile" in
+            ''|--|--[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*)
+              say "--file needs the path of the file to attach, so nothing was sent: kosmos reply --file <path> \"what it is\""
+              exit 2 ;;
+          esac
+          case "$_rfile" in /*) ;; *) _rfile="$PWD/$_rfile" ;; esac
+          # Review r1 finding 7: a path with a control character (a line break, a tab, any other) cannot be sent
+          # as written, so it is refused here rather than mangled into a path that names another file or none.
+          case "$_rfile" in
+            *[[:cntrl:]]*)
+              say "That file's path has a line break or another control character in it, so it cannot be attached. Rename the file, then send it again."
+              exit 2 ;;
+          esac
+          shift; continue ;;
+      esac
+    fi
+    _rargs+=("$1"); shift
+  done
+  set -- ${_rargs[@]+"${_rargs[@]}"}
   if [ "${1:-}" = "--stdin" ]; then from_stdin=1; shift; fi
   text="$*"
   if [ "$from_stdin" = 1 ]; then
@@ -2753,8 +2815,9 @@ cmd_reply() {
     _text_args reply "Usage: kosmos reply [--stdin] <what you want to tell them>" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
     text="$*"
   fi
-  if [ -z "$text" ]; then
+  if [ -z "$text" ] && [ -z "$_rfile" ]; then
     say "Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and \$ arrive as written)"
+    say "       kosmos reply --file <path> [\"what it is\"]   (attach one file from your Files folder, or from inside a project you are on, up to 25 MB: they download it from your conversation)"   # #6726
     exit 2
   fi
   # With --stdin the pipe is read BEFORE this check on purpose (as in cmd_msg): a live pipe cannot
@@ -2786,6 +2849,11 @@ cmd_reply() {
     *) _tok="$KOSMOS_AGENT_TOKEN" ;;
   esac
   local _data="{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
+  if [ -n "$_rfile" ]; then   # #6726: the board copies the file from this path and checks it is the agent's own
+    local esc_file
+    esc_file=$(printf '%s' "$_rfile" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g')   # control characters were refused at the flag
+    _data="{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\",\"file\":\"$esc_file\"}"
+  fi
   # #4582: refuse a body over the board's read limit with the real reason (the board would drop the
   # connection, which reads as unreachable), and send it to curl on stdin, not argv, so a long piped
   # reply meets the board's own 2000-character refusal instead of an argument-length failure.
@@ -2809,7 +2877,16 @@ cmd_reply() {
     exit 1
   fi
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
-  case "$body" in '{"wrongWorld":true'*) keep_in_outbox reply "$_data" ;; esac
+  case "$body" in
+    '{"wrongWorld":true'*)
+      # #6726: a reply with a file is not kept for later: the file is read when it is sent, and it may change before then.
+      if [ -n "$_rfile" ]; then
+        say "Not sent: your Kosmos is not the one open right now, and a reply with a file is not kept for later. Send it again once your Kosmos is open."
+        _keep_piped
+        exit 1
+      fi
+      keep_in_outbox reply "$_data" ;;
+  esac
   case "$body" in
     *'"error"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
@@ -2818,6 +2895,13 @@ cmd_reply() {
       _keep_piped
       exit 1 ;;
     *'"kept":true'*)
+      if [ -n "$_rfile" ]; then   # #6726: the name the board saved it under (a link's target's name), else the given one
+        local _aname
+        _aname=$(printf '%s' "$body" | sed -n 's/.*"attached":"\([^"]*\)".*/\1/p')
+        case "$_aname" in *\\*) _aname="" ;; esac   # a JSON-escaped name (a quote, a backslash) is cut by that read: use the given name
+        say "Sent, with ${_aname:-${_rfile##*/}} attached. It is in their conversation with you."
+        return 0
+      fi
       # ⚠️ "It is on their screen" is what this can claim and the LIMIT of it:
       # the reply is in the record the page reads. Whether anybody is looking is
       # not ours to say, and a sentence implying they saw it would be the
@@ -3187,8 +3271,14 @@ cmd_post() {
         # this one reply only agreed with what was already said, so Kosmos did not pass it on. A post with something new
         # goes through straight away, so the copy says exactly that and never speaks of a pause, an hour, or the person.
         *'"code":"ack_only"'*)
+          # #6608: an owner-named post (the board sends who it named): say so, not "already said", which is untrue there.
+          _owner=$(printf '%s' "$body" | sed -n 's/.*"owner":"\([^"]*\)".*/\1/p')
+          # a name with a quote or backslash arrives escaped and the sed halves it: say the general words instead
+          if [ "${_owner#*\\}" != "$_owner" ]; then _owner=""; fi
           if [ -n "${_retried:-}" ]; then
             say "Not posted this time: this only agreed with what was already said, so Kosmos did not pass it on. Your first try may have reached the room before that: check kosmos room $project before posting again. A post with something new goes through straight away."
+          elif [ -n "$_owner" ]; then
+            say "Not posted: that post named $_owner to take it, so Kosmos did not pass on an agreement-only reply from anyone else. Nothing was sent. If you see a problem with it or have something new to add, post that; it goes through straight away."
           else
             say "Not posted: this only agreed with what was already said, so Kosmos did not pass it on. Nothing was sent. Post again when you have something new to add; that goes through straight away."
           fi ;;
@@ -3648,6 +3738,9 @@ cmd_report() {
     say "$_use"
     say "  kosmos report show     (what the board has for you now; kosmos report status is the same)"
     say "  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)"
+    # kosmos#6683: what --until does to the day-old reminder (engine/selfreport.js untilDefers).
+    say "  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC)."
+    say "  --until in words (\"the owner says\"): no stale reminder at all. Anything else with a number in it: as if no --until."
     exit 2
   fi
   # #2001: blocked and needs_you are the only two states that exist to SUMMON A
@@ -6143,6 +6236,7 @@ case "${1:-}" in
   stop)    agent_board_guard "$@"; cmd_stop ;;
   restart) agent_board_guard "$@"; cmd_restart ;;
   board-run) cmd_board_run ;;   # #2956: internal supervised foreground entry (launchd/Task Scheduler), not for people
+  board-revive) cmd_board_revive ;;   # kosmos#6667: internal, the Linux pause check's timer, not for people
   keep-copy) shift; cmd_keep_copy "$@" ;;   # #5153: internal, the report hook's copy before an edit, not for people
   tool-failed) shift; cmd_tool_failed "$@" ;;   # #6071: internal, the report hook's digest of a failed tool call, not for people
   status)  cmd_status ;;

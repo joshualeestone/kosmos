@@ -12,10 +12,27 @@ upload step, with the same file set and the same gates as those two scripts.
 TWO MODES.
 
   Staging (the default). From a built zip (tools/build-kosmos-windows.sh):
-    kosmos-<v>-win-x64.zip, its .sha256 sidecar, then latest-win-staging.json LAST (the pointer is
-    the go-live, so it never names bytes that are not already up). Prod readers are untouched.
+    kosmos-<v>-win-x64.zip, its .sha256 sidecar, its SIGNED release manifest
+    (kosmos-<v>-win-x64.manifest.json and .sig, #6466, read from beside the zip), then
+    latest-win-staging.json LAST (the pointer is the go-live, so it never names bytes that are not
+    already up). Prod readers are untouched. A build whose updater checks signed manifests (its
+    app/engine/win32update.js carries the capability line) is refused without a manifest that
+    verifies under the pinned release key and matches the zip file for file, and the manifest and
+    its .sig must be SERVED through installkosmos.com before the pointer moves: installs of that
+    build fetch them from there and refuse an update without them.
 
     pwsh tools/windows/publish-r2.ps1 -Zip .\dist\kosmos-win-x64.zip
+
+  For signing (-ForSigning, #6466). The release key stays on a fleet Mac, and its holder signs the
+  manifest of a build that is already up. So, before the stage: the same checks on the zip, then
+  ONLY kosmos-<v>-win-x64.zip, its .sha256 and the UNSIGNED manifest (checked against the zip,
+  file for file) are uploaded and read back. latest-win-staging.json, latest-win.json and the
+  alias are never touched. It prints the version and the manifest's sha256 to send the key
+  holder, who uploads kosmos-<v>-win-x64.manifest.json.sig beside it (or sends the file: pass it
+  to the stage with -Sig <path>). The stage then takes the .sig from -Sig, from beside the zip,
+  or from the bucket, in that order.
+
+    pwsh tools/windows/publish-r2.ps1 -Zip .\dist\kosmos-win-x64.zip -ForSigning
 
   Promote (prod, ONLY on Josh's go). Moves prod onto the staged build, the R2 twin of
   promote-channel.sh --family win. It refuses unless ALL of these hold, checked case-sensitively:
@@ -23,7 +40,9 @@ TWO MODES.
       pointer shape, and the staged zip and its sidecar hold exactly those bytes;
     - -ApprovalRef is a Slack ts or permalink of Josh's message, and is logged before any write;
     - this PC holds a passing verification record for that sha (tools/win-staging-verify.js
-      writes it; tools/lib/win-staging-record.js validates it, through node).
+      writes it; tools/lib/win-staging-record.js validates it, through node);
+    - #6466: the staged version's signed manifest in the bucket verifies against the staged zip, or,
+      when it has none, prod's current build has none either (so prod's installs do not check one).
   Then: the alias kosmos-win-x64.zip becomes a server-side copy of the staged zip (pinned to the
   exact object just verified), its sidecar is rewritten to name the alias, both are read back, and
   only then latest-win.json becomes the staging pointer's bytes verbatim, LAST.
@@ -54,6 +73,10 @@ param(
   [Parameter(ParameterSetName = 'Staging', Mandatory = $true)] [string] $Zip,
   [Parameter(ParameterSetName = 'Staging')] [string] $Version,
   [Parameter(ParameterSetName = 'Staging')] [switch] $ReplaceVersioned,
+  # #6466: upload the zip, its sidecar and the unsigned manifest for the key holder to sign; no pointer moves.
+  [Parameter(ParameterSetName = 'Staging')] [switch] $ForSigning,
+  # #6466: the manifest's .sig as a file the key holder sent (else beside the zip, else the one in the bucket).
+  [Parameter(ParameterSetName = 'Staging')] [string] $Sig,
 
   [Parameter(ParameterSetName = 'Promote')] [switch] $Promote,
   [Parameter(ParameterSetName = 'Promote', Mandatory = $true)] [string] $ApprovedVersion,
@@ -64,6 +87,9 @@ param(
   [string] $CredentialFile = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'Kosmos\release-secrets\r2-dist-win.env' } else { '' }),
   # Where users are served from; read only to confirm a write reached them.
   [string] $ServedBase = 'https://installkosmos.com/dist',
+  # The bucket's own public address (what installkosmos.com/dist redirects to). Read only by -ForSigning, for a
+  # manifest name the site does not redirect yet (#6466). Names under it carry -KeyPrefix.
+  [string] $BucketBase = 'https://dl.chaoskosmos.com',
   # For tests only: write every key under this prefix (e.g. "_selftest/abc/"). A non-default
   # -ServedBase is refused without it, so no stand-in server can speak for prod. -ServedBase
   # must then ALREADY END IN the prefix (the bucket's public URL + "/_selftest/abc"): names are
@@ -155,6 +181,22 @@ function New-SigV4Authorization([string] $Method, [string] $HostName, [string] $
   $k = Hmac ($Utf8.GetBytes('AWS4' + $Secret)) $day
   $k = Hmac $k $Region; $k = Hmac $k 's3'; $k = Hmac $k 'aws4_request'
   "AWS4-HMAC-SHA256 Credential=$AccessKey/$scope, SignedHeaders=$signed, Signature=$(Hex (Hmac $k $toSign))"
+}
+
+# An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments).
+function Get-NodeExe { Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1 }
+# #6466: tools/lib/win-release-manifest.js, run with node. It prints its one-line verdict on STDOUT (stderr from a
+# native command can turn into a terminating error under Stop on 5.1); returns @{ Rc; Out }.
+function Invoke-WinManifest([string[]] $Arguments) {
+  $node = Get-NodeExe
+  if (-not $node) { Refuse "node (an executable, not a .cmd shim) is required to check the signed release manifest (#6466). Nothing was written." }
+  $js = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-release-manifest.js'
+  $prevEnc = [Console]::OutputEncoding
+  # A command that never ran as a process leaves $LASTEXITCODE as it was, so it is set first: never read as a pass.
+  $global:LASTEXITCODE = 99
+  try { [Console]::OutputEncoding = $Utf8; $out = (& $node.Source $js @Arguments) -join ' '; $rc = $LASTEXITCODE }
+  finally { [Console]::OutputEncoding = $prevEnc }
+  @{ Rc = $rc; Out = $out }
 }
 
 # ---------- credentials -------------------------------------------------------------------------
@@ -430,13 +472,18 @@ function Unlock-Publish {
 }
 
 # ---------- confirming what users are served (after writing) ------------------------------------
-function Get-Served([string] $Name) {
+function Get-Served([string] $Name, [switch] $Bucket) {
   if ($FakeDir) {
+    # Test transport: KOSMOS_PUBLISH_R2_FAKE_SITE_404 names files the SITE answers 404 for (its redirect missing);
+    # the bucket's own address still serves them.
+    if (-not $Bucket -and $env:KOSMOS_PUBLISH_R2_FAKE_SITE_404 -and (@($env:KOSMOS_PUBLISH_R2_FAKE_SITE_404 -split ',') -ccontains $Name)) {
+      return [pscustomobject]@{ Status = 404; Bytes = [byte[]]@(); Url = "fake-site:$KeyPrefix$Name" }
+    }
     $p = Join-Path $FakeDir "$KeyPrefix$Name"
     if (Test-Path -LiteralPath $p -PathType Leaf) { return [pscustomobject]@{ Status = 200; Bytes = [IO.File]::ReadAllBytes($p); Url = "fake:$KeyPrefix$Name" } }
     return [pscustomobject]@{ Status = 404; Bytes = [byte[]]@(); Url = "fake:$KeyPrefix$Name" }
   }
-  $url = "$($ServedBase.TrimEnd('/'))/$Name"
+  $url = if ($Bucket) { "$($BucketBase.TrimEnd('/'))/$KeyPrefix$Name" } else { "$($ServedBase.TrimEnd('/'))/$Name" }
   $req = New-Object Net.Http.HttpRequestMessage ([Net.Http.HttpMethod]::Get), $url
   $req.Headers.CacheControl = New-Object Net.Http.Headers.CacheControlHeaderValue
   $req.Headers.CacheControl.NoCache = $true
@@ -448,10 +495,10 @@ function Get-Served([string] $Name) {
     [pscustomobject]@{ Status = 0; Bytes = [byte[]]@(); Url = $url }
   } finally { $req.Dispose() }
 }
-function Assert-Served([string] $Name, [string] $WantSha) {
+function Assert-Served([string] $Name, [string] $WantSha, [switch] $Bucket) {
   # The edge can lag a write by a moment; retry briefly before calling it a failure.
   for ($i = 1; $i -le 6; $i++) {
-    $s = Get-Served $Name
+    $s = Get-Served $Name -Bucket:$Bucket
     $got = if ($s.Status -eq 200) { Sha256-Bytes $s.Bytes } else { '' }
     if ($got -ceq $WantSha) { Say "served OK: $($s.Url) ($WantSha)"; return }
     if ($FakeDir -or $i -eq 6) { break }
@@ -559,13 +606,66 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   $Sha = Sha256-File $ZipPath
   Say "staging $Versioned ($Sha) from $ZipPath"
 
+  # #6466: the release manifest, beside the zip (tools/build-kosmos-windows.sh writes it there). The key holder signs
+  # it on a fleet Mac (tools/lib/manifest-sign.js), after -ForSigning has put the zip and the manifest up. Its .sig
+  # comes from -Sig, from beside the zip, or from the bucket (checked under the lock, below), in that order.
+  $ManifestName = "kosmos-$Version-win-$Arch.manifest.json"
+  $ManifestPath = Join-Path (Split-Path -Parent $ZipPath) $ManifestName
+  $SigPath = "$ManifestPath.sig"
+  if ($Sig) {
+    if ($ForSigning) { Refuse "-Sig is for the stage after signing, not for -ForSigning. Nothing was written." }
+    if (-not (Test-Path -LiteralPath $Sig -PathType Leaf)) { Refuse "no such signature file: $Sig. Nothing was written." }
+    $SigPath = (Resolve-Path -LiteralPath $Sig).ProviderPath
+  }
+  $ManifestBytes = $null; $SigBytes = $null; $SigFromBucket = $false
+  $checker = Invoke-WinManifest @('ships-checker', $ZipPath)
+  if ($checker.Rc -ne 0 -and $checker.Rc -ne 1) { Refuse "could not tell whether the updater inside $ZipPath checks signed release manifests ($($checker.Out)). Nothing was written." }
+  $hasM = Test-Path -LiteralPath $ManifestPath -PathType Leaf
+  $hasS = Test-Path -LiteralPath $SigPath -PathType Leaf
+  if ($ForSigning) {
+    if (-not $hasM) { Refuse "-ForSigning needs the manifest the build wrote beside the zip ($ManifestName), and there is none. Rebuild with tools/build-kosmos-windows.sh. Nothing was written." }
+    $mc = Invoke-WinManifest @('check-unsigned', $ManifestPath, $ZipPath, $Version, $Arch)
+    if ($mc.Rc -ne 0) { Refuse "the manifest $ManifestName does not describe this zip ($($mc.Out)), so it must not be signed. Nothing was written." }
+    $ManifestBytes = [IO.File]::ReadAllBytes($ManifestPath)
+    Say "manifest for signing: $($mc.Out)"
+  } elseif ($hasM -and $hasS) {
+    $mc = Invoke-WinManifest @('check', $ManifestPath, $SigPath, $ZipPath, $Version, $Arch)
+    if ($mc.Rc -ne 0) { Refuse "the signed release manifest $ManifestName does not check out against this zip ($($mc.Out)). Nothing was written." }
+    $ManifestBytes = [IO.File]::ReadAllBytes($ManifestPath); $SigBytes = [IO.File]::ReadAllBytes($SigPath)
+    Say "signed manifest: $($mc.Out)"
+  } elseif ($hasM) {
+    # No .sig given or beside the zip: the key holder's, in the bucket, is read and checked under the lock.
+    $ManifestBytes = [IO.File]::ReadAllBytes($ManifestPath); $SigFromBucket = $true
+  } elseif ($hasS) {
+    Refuse "$ManifestName.sig is there but the manifest it signs is not beside the zip. Nothing was written."
+  } elseif ($checker.Rc -eq 0) {
+    Refuse "this build's updater refuses any update without a signed release manifest (#6466), and there is no $ManifestName beside $ZipPath. Run this with -ForSigning first, have the key holder sign it, then stage. Nothing was written."
+  } else {
+    Say "NOTICE (#6466): no release manifest beside the zip. This build's updater does not check one, so it is staged without it; the next build's installs will require one."
+  }
+
   # The versioned name is IMMUTABLE once published (the same promise publish-kosmos-windows.sh
   # keeps): republishing different bytes under it hands two builds one name, which is how 0.6.94
   # staging was served with bytes nobody had announced (2026-09-25). Read from the bucket itself,
   # and keyed on the ZIP, so an earlier run cut off before its sidecar still counts.
   # WHATEVER the path (create, same bytes, replace): prod must not be naming this version at a
   # different sha, or the sidecar written below would pin bytes prod's updaters then refuse.
-  Lock-Publish 'stage'
+  Lock-Publish $(if ($ForSigning) { 'for-signing' } else { 'stage' })
+  if ($SigFromBucket) {
+    # The key holder's .sig, uploaded beside the manifest -ForSigning put up. Checked against THIS zip and the
+    # manifest beside it: a .sig for other manifest bytes (a rebuild since) is refused.
+    $bucketSig = Get-Object "$ManifestName.sig"
+    if (-not $bucketSig) { Refuse "there is no $ManifestName.sig beside the zip, from -Sig, or in the bucket. Run -ForSigning, have the key holder sign it, then stage again. Nothing was written." }
+    $sdir = Join-Path ([IO.Path]::GetTempPath()) ('kosmos-stage-sig-' + [Guid]::NewGuid().ToString('N'))
+    [void] (New-Item -ItemType Directory -Path $sdir)
+    try {
+      [IO.File]::WriteAllBytes((Join-Path $sdir "$ManifestName.sig"), $bucketSig.Bytes)
+      $mc = Invoke-WinManifest @('check', $ManifestPath, (Join-Path $sdir "$ManifestName.sig"), $ZipPath, $Version, $Arch)
+    } finally { Remove-Item -LiteralPath $sdir -Recurse -Force -ErrorAction SilentlyContinue }
+    if ($mc.Rc -ne 0) { Refuse "the $ManifestName.sig in the bucket does not check out against this zip and its manifest ($($mc.Out)). Nothing was written." }
+    $SigBytes = $bucketSig.Bytes
+    Say "signed manifest (its .sig from the bucket): $($mc.Out)"
+  }
   $prodNamed = Get-Object 'latest-win.json'
   if ($prodNamed) {
     $pn = Read-PointerFields $prodNamed.Bytes
@@ -640,6 +740,40 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   }
   $side = New-SidecarBytes $Sha $Versioned
   Put-Object "$Versioned.sha256" $side $null (Sha256-Bytes $side) 'text/plain; charset=utf-8' $NoCache
+  if ($ForSigning) {
+    # #6466: the manifest for the key holder, and NOTHING that moves a channel: no pointer, no alias, no .sig.
+    $ManifestSha = Sha256-Bytes $ManifestBytes
+    Put-Object $ManifestName $ManifestBytes $null $ManifestSha 'application/json' $NoCache
+    if ($DryRun) { Say "DRY RUN complete: nothing was written."; exit 0 }
+    $script:AfterNote = " (the zip, its sidecar and the manifest may be up; no pointer was touched. Re-run the same command to finish the checks.)"
+    Assert-Served $Versioned $Sha
+    Assert-Served "$Versioned.sha256" (Sha256-Bytes $side)
+    # The site redirects the manifest names only once its /dist rule covers them; until then the bucket's own address
+    # is read, and that is said, since installs read the site.
+    $first = Get-Served $ManifestName
+    if ($first.Status -eq 404) {
+      Say "NOTICE (#6466): $($first.Url) answers 404 (installkosmos.com does not redirect this name yet); reading it from the bucket's own address instead. Installs need the site to serve it before this build is staged."
+      Assert-Served $ManifestName $ManifestSha -Bucket
+    } else { Assert-Served $ManifestName $ManifestSha }
+    $script:AfterNote = ''
+    if ($FakeDir) { Say "TEST TRANSPORT, NOTHING PUBLISHED:" }
+    Say "UP FOR SIGNING: version $Version, manifest $ManifestName sha256 $ManifestSha (zip sha256 $Sha). No pointer was touched."
+    Say "Send the key holder the version and the manifest sha256 above. They sign it with tools/lib/manifest-sign.js and upload $ManifestName.sig beside it (or send the file). Then stage:"
+    Say "  pwsh tools/windows/publish-r2.ps1 -Zip $Zip   [-Sig <the .sig file, if it was sent rather than uploaded>]"
+    Unlock-Publish
+    exit 0
+  }
+  if ($ManifestBytes) {
+    # #6466: up, and SERVED, before the pointer names this build. Installs fetch both through installkosmos.com
+    # (whose /dist redirect must cover these names); one that cannot fetch them refuses the update. A .sig the key
+    # holder already put in the bucket is not written again.
+    Put-Object $ManifestName $ManifestBytes $null (Sha256-Bytes $ManifestBytes) 'application/json' $NoCache
+    if (-not $SigFromBucket) { Put-Object "$ManifestName.sig" $SigBytes $null (Sha256-Bytes $SigBytes) 'text/plain; charset=utf-8' $NoCache }
+    if (-not $DryRun) {
+      Assert-Served $ManifestName (Sha256-Bytes $ManifestBytes)
+      Assert-Served "$ManifestName.sig" (Sha256-Bytes $SigBytes)
+    }
+  }
   $ptr = New-PointerBytes $Version $Sha $Versioned
   Put-Object 'latest-win-staging.json' $ptr $null (Sha256-Bytes $ptr) 'application/json' $NoCache
 
@@ -689,11 +823,47 @@ $staged = Assert-Object $Versioned $ApprovedSha
 [void](Assert-Object "$Versioned.sha256" (Sha256-Bytes (New-SidecarBytes $ApprovedSha $Versioned)))
 if (-not $staged.ETag) { Refuse "the bucket gave no ETag for $Versioned, so the copy cannot be pinned to the bytes just checked. Nothing was written." }
 
+# #6466: the staged version's signed manifest, checked against the staged zip's own bytes. With none, the promote
+# goes on only while prod's current build has none either: prod installs that check would refuse this update.
+$ManifestName = "kosmos-$ApprovedVersion-win-$Arch.manifest.json"
+$stagedManifest = Get-Object $ManifestName
+$stagedSig = Get-Object "$ManifestName.sig"
+if ($stagedManifest -or $stagedSig) {
+  if (-not ($stagedManifest -and $stagedSig)) { Refuse "the bucket holds only one of $ManifestName and its .sig. Re-stage with this script. Nothing was written." }
+  $mdir = Join-Path ([IO.Path]::GetTempPath()) ('kosmos-promote-manifest-' + [Guid]::NewGuid().ToString('N'))
+  [void] (New-Item -ItemType Directory -Path $mdir)
+  try {
+    [IO.File]::WriteAllBytes((Join-Path $mdir $ManifestName), $stagedManifest.Bytes)
+    [IO.File]::WriteAllBytes((Join-Path $mdir "$ManifestName.sig"), $stagedSig.Bytes)
+    [IO.File]::WriteAllBytes((Join-Path $mdir $Versioned), $staged.Bytes)
+    $mc = Invoke-WinManifest @('check', (Join-Path $mdir $ManifestName), (Join-Path $mdir "$ManifestName.sig"), (Join-Path $mdir $Versioned), $ApprovedVersion, $Arch)
+  } finally { Remove-Item -LiteralPath $mdir -Recurse -Force -ErrorAction SilentlyContinue }
+  if ($mc.Rc -ne 0) { Refuse "the staged signed manifest does not check out against the staged zip ($($mc.Out)). Nothing was written." }
+  Say "signed manifest: $($mc.Out)"
+  # Installs fetch both through installkosmos.com. A site deploy since the stage could have dropped the redirect that
+  # serves them, and prod's installs would then refuse this update, so they are read back again before prod moves.
+  if (-not $DryRun) {
+    Assert-Served $ManifestName (Sha256-Bytes $stagedManifest.Bytes)
+    Assert-Served "$ManifestName.sig" (Sha256-Bytes $stagedSig.Bytes)
+  }
+} else {
+  # "Prod's installs check" is read from whether prod's current build was published with a manifest, which every build
+  # that checks is (staging refuses one without). A build published with one that does not check reads as checking:
+  # the safe direction, a refusal here rather than stranded installs.
+  $prodNow = Get-Object 'latest-win.json'
+  $pnow = if ($prodNow) { Read-PointerFields $prodNow.Bytes } else { $null }
+  if ($prodNow -and -not $pnow) { Refuse "the staged build has no signed manifest, and prod's latest-win.json cannot be read to tell whether prod's installs require one. Nothing was written." }
+  if ($pnow -and (Get-Object "kosmos-$($pnow.version)-win-$Arch.manifest.json")) {
+    Refuse "the staged build has no signed manifest, and prod's current build ($($pnow.version)) was published with one, so its installs check signatures and would refuse this update (#6466). Nothing was written."
+  }
+  Say "NOTICE (#6466): the staged build has no signed manifest; prod's current build has none either, so its installs do not require one."
+}
+
 # The verification record for this sha on this PC, validated by the one spec the writer uses.
 $spec = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-staging-record.js'
 # An executable node, not a node.cmd shim (cmd.exe would mangle the script). The script goes to
 # node on STDIN, never on the command line or in a temp file.
-$nodeExe = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1
+$nodeExe = Get-NodeExe
 if (-not $nodeExe) { Refuse "node (an executable, not a .cmd shim) is required to validate the verification record. Nothing was written." }
 if (-not (Test-Path -LiteralPath $spec)) { Refuse "the record spec $spec is missing. Nothing was written." }
 $verdictJs = @'

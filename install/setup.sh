@@ -195,6 +195,27 @@ _kosmos_linux_unit_name() {
     printf 'kosmos-board.%s.service' "$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8)"
   fi
 }
+# kosmos#6667: the board's pause check (linuxboard.pauseCheckNames): kosmos-board[.<hash>].service gives
+# kosmos-pause-check[.<hash>].service and .timer. Prints the shared base; callers add .timer or .service. Pure shell,
+# no sed: install.linux-board-4920.test.js runs these blocks with a PATH that has none.
+_kosmos_linux_pause_check_base() {
+  _kpc_base="$(_kosmos_linux_unit_name)"; _kpc_base="kosmos-pause-check${_kpc_base#kosmos-board}"
+  printf '%s' "${_kpc_base%.service}"
+}
+# kosmos#6667: remove the pause check before the board, in every uninstall branch, so its timer cannot start a board
+# that is being removed. With no systemctl there is no user manager to stop it: the files and the timer's enable link go.
+_kosmos_linux_remove_pause_check() {
+  _kpr_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+  _kpr_base="$(_kosmos_linux_pause_check_base)"; _kpr_timer="$_kpr_base.timer"; _kpr_service="$_kpr_base.service"
+  [ -f "$_kpr_dir/$_kpr_timer" ] || [ -f "$_kpr_dir/$_kpr_service" ] || return 0
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user disable --now "$_kpr_timer" 2>/dev/null || true
+    systemctl --user stop "$_kpr_service" 2>/dev/null || true
+  fi
+  rm -f "$_kpr_dir/$_kpr_timer" "$_kpr_dir/$_kpr_service" "$_kpr_dir/timers.target.wants/$_kpr_timer"
+  if command -v systemctl >/dev/null 2>&1; then systemctl --user daemon-reload 2>/dev/null || true; fi
+  return 0
+}
 # #4920 review 11: a unit an earlier release wrote (0.7.27) has no KillMode=, so systemd's default control-group kill
 # applies: stopping the board kills every process in its cgroup, and an in-app update runs this script there, beside
 # the agents' tmux server. Before the update pauses the board, give that unit KillMode=process, as linuxboard's unit
@@ -912,6 +933,20 @@ update_manifest_ok() {
       rm -rf "$_UM_DIR"; _UM_DIR=""
       info "the update's signed manifest could not be downloaded, so it was not installed. Wait a minute and try again."
       return 1; }
+    # #6609 phase 2b: an installed copy that checks updates with the release key list (it lists "keylist" and says so
+    # with needs-key-list, i.e. a recovery key is pinned) is handed the list beside the manifest; without it that copy
+    # refuses. One fresh query per attempt over http(s), shared by both files, so a cache cannot pair one list's
+    # signature with another list. Off, nothing more is fetched.
+    if /usr/bin/grep -Eq "manifest-verify capabilities:( [a-z0-9-]+)* keylist( |\$)" "$dest/app/engine/manifest-verify.js" \
+      && env -u NODE_OPTIONS "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" needs-key-list >/dev/null 2>&1; then
+      _um_q=""
+      case "$KOSMOS_RELEASE_BASE" in http://*|https://*) _um_q="?r=$(/usr/bin/od -An -N8 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')" ;; esac
+      curl -fsL -m 30 "$KOSMOS_RELEASE_BASE/release-keys.json$_um_q" -o "$_UM_DIR/release-keys.json" 2>/dev/null \
+        && curl -fsL -m 30 "$KOSMOS_RELEASE_BASE/release-keys.json.sig$_um_q" -o "$_UM_DIR/release-keys.json.sig" 2>/dev/null || {
+        rm -rf "$_UM_DIR"; _UM_DIR=""
+        info "the release key list could not be downloaded, so the update was not installed. Wait a minute and try again."
+        return 1; }
+    fi
   fi
   case "$phase" in
     early) arg="-"; tb="-" ;;
@@ -924,7 +959,8 @@ update_manifest_ok() {
              info "the update's signed manifest went missing, so it was not installed"; return 1; }
            arg="$stage"; tb="$stage/kosmos.tar.gz" ;;
   esac
-  out="$(env -u NODE_OPTIONS "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" "$_UM_DIR/manifest.json" \
+  out="$(env -u NODE_OPTIONS KOSMOS_KEY_LIST="$_UM_DIR/release-keys.json" KOSMOS_KEY_LIST_SIG="$_UM_DIR/release-keys.json.sig" \
+    "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" "$_UM_DIR/manifest.json" \
     "$_UM_DIR/manifest.sig" "$tb" "$arg" "$v" "$dest" 2>&1)" || rc=$?
   if [ "$phase" = post ] || [ "$rc" != 0 ]; then rm -rf "$_UM_DIR"; _UM_DIR=""; fi
   case "$rc" in
@@ -943,7 +979,8 @@ update_manifest_ok() {
 update_tmux_ok() {
   local tgz="$1" dest="$2" rc=0 out
   [ -n "$_UM_DIR" ] && [ -f "$_UM_DIR/manifest.json" ] || return 0
-  out="$(env -u NODE_OPTIONS "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" tmux "$_UM_DIR/manifest.json" \
+  out="$(env -u NODE_OPTIONS KOSMOS_KEY_LIST="$_UM_DIR/release-keys.json" KOSMOS_KEY_LIST_SIG="$_UM_DIR/release-keys.json.sig" \
+    "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" tmux "$_UM_DIR/manifest.json" \
     "$_UM_DIR/manifest.sig" "$tgz" "${TARGET_VERSION:-}" "$dest" 2>&1)" || rc=$?
   case "$rc" in
     0) return 0 ;;
@@ -2076,6 +2113,13 @@ uninstall() {
     # installBoard. Run before the app folder is deleted, since it is the app's own code.
     # As the install step does: systemctl --user needs the user bus, which su and cron do not set up.
     [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"
+    # kosmos#6667: the pause check goes first, before any branch below touches the board. Only this home's (its name
+    # carries this home's hash, as the board's does): another install's units, its pause check included, are not
+    # touched. Skipped exactly when linuxboard's runner refuses systemd (LAUNCH set, no
+    # AGENT_WORKFORCE_SYSTEMD_DIR); with a units folder of its own a run still talks to real systemd, as linuxboard does.
+    if [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || [ -n "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then
+      _kosmos_linux_remove_pause_check
+    fi
     if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then
       # A sandboxed run never touches real systemd (linuxboard refuses it by design): said as what it is.
       info "sandboxed run: the systemd step was skipped on purpose"
@@ -2160,6 +2204,12 @@ BOARDEOF
         [ -f "$_lb_f" ] || continue
         [ "${_lb_f##*/}" = "$_lb_name" ] && continue
         info "a Kosmos board service is still at $_lb_f. This install's app code or runtime is missing, so it was not removed: it may be this install's or another Kosmos's on this computer. If it is this one's, run: systemctl --user disable --now ${_lb_f##*/} and delete the file."
+      done
+      # kosmos#6667: the same for a pause check with another hash (its timer is harmless once its folder is gone).
+      for _lb_f in "$_lb_dir"/kosmos-pause-check*.timer; do
+        [ -f "$_lb_f" ] || continue
+        [ "${_lb_f##*/}" = "$(_kosmos_linux_pause_check_base).timer" ] && continue
+        info "a Kosmos pause check is still at $_lb_f. It may be this install's or another Kosmos's on this computer. If it is this one's, run: systemctl --user disable --now ${_lb_f##*/} and delete it and the .service beside it."
       done
     fi
   fi
@@ -3305,6 +3355,80 @@ case "${1:-}" in
     exit 2
     ;;
 esac
+
+# #6650: an install with no launch folder of its own (AGENT_WORKFORCE_LAUNCH) is refused, before anything is
+# written, when its home is under a temp folder (another KOSMOS_HOME, or the default one under a temp HOME). That
+# shape left three test boards respawning on a release Mac for 20 hours, one holding the real board off its port
+# for three: the cleaner deletes the home and leaves the job behind. A fake HOME does not make it safe: it scopes
+# the plist file, not launchd, which still registers the job in this account's own domain. A person's own kept
+# home is not refused, whatever its port, and a release walk in a kept folder is unaffected;
+# KOSMOS_ALLOW_TEMP_LAUNCH=1 lets one through on purpose. macOS only: a Linux systemd user unit has the same shape
+# and is not guarded here. Prints why and returns 1 to refuse.
+_kosmos_temp_launch_refusal() {
+  [ "$(uname -s)" = Darwin ] && [ "${KOSMOS_ALLOW_TEMP_LAUNCH:-}" != 1 ] || return 0
+  _tl_low() { printf '%s' "$1" | /usr/bin/tr -s '/' | /usr/bin/tr '[:upper:]' '[:lower:]'; }
+  # With a launch folder set, setup.sh runs no launchctl at all: the only harm left is a plist written into THIS
+  # ACCOUNT's real LaunchAgents, which loads at the next login. So that folder is no folder of the caller's own; a
+  # fake HOME's own LaunchAgents is. The account's home comes from the directory service (KOSMOS_ACCOUNT_HOME is the
+  # test seam). Matched by -ef and as spelled, case-blind like the disk: on a new account the folder may not exist
+  # yet, and -ef then matches nothing.
+  _tl_launch="${AGENT_WORKFORCE_LAUNCH:-}"
+  _tl_ll="$(_tl_low "$_tl_launch")"; _tl_ll="${_tl_ll%/}"
+  # Only a folder spelled .../Library/LaunchAgents can be one, so only then is the directory service asked (it can
+  # be slow on a Mac bound to a directory that does not answer). Its silence leaves HOME standing in, unless HOME is
+  # itself a temp folder: that is a harness's fake one, never an account's.
+  case "$_tl_ll" in
+    */library/launchagents)
+      # /Search reaches a network or directory account too; a value with a space comes on its own indented line,
+      # so the key is dropped, the lines joined, and the one leading space taken off.
+      _tl_acct="${KOSMOS_ACCOUNT_HOME:-$(/usr/bin/dscl /Search -read "/Users/$(/usr/bin/id -un)" NFSHomeDirectory 2>/dev/null \
+        | /usr/bin/sed 's/^NFSHomeDirectory://' | /usr/bin/tr -d '\n' | /usr/bin/sed 's/^ //')}"
+      if [ -z "$_tl_acct" ]; then
+        case "$(_tl_low "$HOME")/" in
+          /tmp/*|/private/tmp/*|/var/tmp/*|/private/var/tmp/*|/var/folders/*|/private/var/folders/*) ;;
+          *) _tl_acct="$HOME" ;;
+        esac
+      fi
+      if [ -n "$_tl_acct" ]; then
+        _tl_la="$(_tl_low "${_tl_acct%/}/Library/LaunchAgents")"
+        { [ "$_tl_launch" -ef "$_tl_acct/Library/LaunchAgents" ] || [ "$_tl_ll" = "$_tl_la" ]; } && _tl_launch=""
+      fi ;;
+  esac
+  [ -z "$_tl_launch" ] || return 0
+  # The home as written and as resolved (its nearest existing folder, so a symlink into a temp folder or the
+  # /System/Volumes/Data spelling counts), slash-squeezed and lowercased: the default disk ignores case. A folder
+  # that cannot be entered leaves only the written spelling.
+  _tl_d="$KOSMOS_HOME"
+  while [ ! -d "$_tl_d" ] && [ -n "$_tl_d" ]; do _tl_d="${_tl_d%/*}"; done
+  if _tl_res="$(cd "${_tl_d:-/}" 2>/dev/null && pwd -P)"; then
+    _tl_res="$(_tl_low "$_tl_res/${KOSMOS_HOME#"$_tl_d"}")/"
+    _tl_res="${_tl_res#/system/volumes/data}"
+  else
+    _tl_res="$(_tl_low "$KOSMOS_HOME")/"
+  fi
+  _tl_raw="$(_tl_low "$KOSMOS_HOME")/"
+  # This run's TMPDIR as given and resolved, each kept only if it is narrower than HOME (a TMPDIR of /, HOME or a
+  # folder above it names no temp folder, and would refuse every home).
+  _tl_hl="$(_tl_low "$HOME")"; _tl_hl="${_tl_hl%/}/"
+  _tl_t1="$(_tl_low "${TMPDIR:-}")"; _tl_t1="${_tl_t1%/}"
+  _tl_t2="$(_tl_low "$(cd "${TMPDIR:-/nonexistent-6650}" 2>/dev/null && pwd -P)")"; _tl_t2="${_tl_t2%/}"
+  case "$_tl_t1" in /*) case "$_tl_hl" in "$_tl_t1"/*) _tl_t1="" ;; esac ;; *) _tl_t1="" ;; esac
+  case "$_tl_t2" in /*) case "$_tl_hl" in "$_tl_t2"/*) _tl_t2="" ;; esac ;; *) _tl_t2="" ;; esac
+  _tl_why=""
+  for _tl_h in "$_tl_raw" "$_tl_res"; do
+    case "$_tl_h" in
+      /tmp/*|/private/tmp/*|/var/tmp/*|/private/var/tmp/*|/var/folders/*|/private/var/folders/*) _tl_why=yes ;;
+    esac
+    [ -n "$_tl_t1" ] && case "$_tl_h" in "$_tl_t1"/*) _tl_why=yes ;; esac
+    [ -n "$_tl_t2" ] && case "$_tl_h" in "$_tl_t2"/*) _tl_why=yes ;; esac
+  done
+  [ -n "$_tl_why" ] || return 0
+  printf '\n  This install puts Kosmos in a temporary folder (%s), so its background job would be\n' "$KOSMOS_HOME" >&2
+  printf '  left running in your real login items. Nothing was changed. For a test install, set AGENT_WORKFORCE_LAUNCH to\n' >&2
+  printf '  a folder of its own, or install into a folder you keep; to do this on purpose, set KOSMOS_ALLOW_TEMP_LAUNCH=1.\n\n' >&2
+  return 1
+}
+_kosmos_temp_launch_refusal || exit 2
 
 # ---- preflight --------------------------------------------------------------
 # ⚠️ ASK WHETHER THIS IS A FRESH MACHINE **BEFORE** ANYTHING CREATES A DIRECTORY.
@@ -5386,6 +5510,13 @@ BOARDEOF
       # restarted it through systemd, and a second bounce would only risk a healthy board; and a unit left by an earlier
       # run whose own hand-off failed is still handed over now. Not on a computer set not to run a board (a restart
       # would clear board.stopped). Best-effort: the unit is enabled either way and starts at the next login or boot.
+      # kosmos#6667: installBoard enables the pause check too, but does not fail the install when systemd refuses it
+      # (the board runs without it). Asked of systemd here, not of the node step's output, which is matched exactly below.
+      # Not in a run whose units went to a folder of its own (AGENT_WORKFORCE_SYSTEMD_DIR): real systemd never read them.
+      _kpc_timer="$(_kosmos_linux_pause_check_base).timer"
+      if [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ] && [ "$(systemctl --user is-enabled "$_kpc_timer" 2>/dev/null)" != enabled ]; then
+        info "note: systemd did not enable $_kpc_timer, so if an update is ever stopped partway, Kosmos stays off until you run: kosmos start"
+      fi
       _kosmos_board_decide
       # The first hand-over (loose) only with linger on: without it the unit dies at logout, while the board setup.sh
       # started survives it (logind keeps user processes by default), so handing over would make a no-linger server less

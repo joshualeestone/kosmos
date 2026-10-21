@@ -1,0 +1,42 @@
+# boundtext-6708: a code bound to an address says so (done step and copied invitation)
+
+Card: kosmos#6708, follow-up to kosmos#6681 slices 1 and 2 (#6688 merged; #6701 the field). Stacked on fedfield-6681.
+
+## Why
+Once a code is bound to one address, nothing on the invite sheet's done step or in the copied invitation said so: the
+person invited learned it only from a refusal ("made for someone else") if they redeemed from another account.
+
+## What changes
+- Review 1: the sentence rests on the COORDINATOR's echo (`email` in its invite answer, kosmos-relay #502), passed
+  through by `federation.invite` only when a string, never on the typed value: an older coordinator ignores `email` and
+  mints an unbound code, and the sheet must not promise a restriction that does not exist. The typed-without-echo
+  case is tested at the engine (federation.test.js) and, after review 2, on the page by its own block (below). Review 2:
+  the engine passes the echo only when shaped like an address, with no space and (review 3) no control or format
+  character (`\p{C}`: bidi, zero-width, tags) and at most INVITE_EMAIL_MAX bytes, so both screens show one clean string.
+- The copied text runs the address through the same line cleaner; an arm feeds it a newline and a bidi control.
+- The done step's line adds "Only the Kosmos+ account with <address> can use it." for a bound code.
+- `fedInviteText` (the copied invitation) ends with "It works only for the Kosmos+ account with the email address
+  <address>." for a bound code, the address passed through the same line cleaner as the rest of the text.
+- An unbound code's text is unchanged.
+
+Live only once kosmos-relay #502 (the coordinator's binding and echo) is merged and deployed; until then no coordinator
+echoes an address and the sentence never shows, which is the safe direction.
+
+## Decided
+- The address shown is the coordinator's echo (its normalised form, lowercased), since that is what it will check;
+  review 1 replaced "as typed".
+- The address goes into the invitation text the owner chooses to send; it names the recipient to the recipient.
+
+## Tests
+`docs/browser-checks/render-federation-invite-4649.js`: a bound code (A4's) names the address on the done step and in
+the invitation; CONTROL: B7's unbound code mentions no address; A5's pinned sentence updated. Review 2's block: an address typed but
+not echoed is named nowhere; an echo differing in case from the typed value is the one shown (and is the arm's own
+positive control, since it must name an address). Mutants: the done-step line removed, red; `boundTo` built from the
+typed value, red on exactly the two review-2 arms (A4 stays green under it, which is the gap review 2 found).
+
+Left on purpose (review 4 NIT): the page does not clean the echo itself; the engine route is the only one that hands
+the done step an echo, and it refuses spaces, control and format characters, and overlong values.
+
+## Weakest premise
+That showing the address in the copied text is wanted. It is the recipient's own address, sent by the owner to them;
+if the owner pastes the invitation somewhere public, the address goes with it.

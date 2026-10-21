@@ -113,7 +113,9 @@ function cut(start, end) {
   return SETUP.slice(i, j + end.length);
 }
 const INSTALL_BLOCK = cut('  if ! command -v systemctl >/dev/null 2>&1; then\n    if [ "$_kosmos_board_off" = yes ]; then\n      info "note: systemctl not available', '\n  fi\n  ok\nelse\n').replace(/\n  ok\nelse\n$/, '\n');
-const UNIT_FNS = cut('_kosmos_linux_unit_name() {', '\n  return 0\n}\n');
+// kosmos#6667: ends at the KillMode function's OWN closing lines. The pause-check helpers sit between the two and
+// end in `return 0` too, so a bare `return 0` + `}` marker stopped before the KillMode function.
+const UNIT_FNS = cut('_kosmos_linux_unit_name() {', '    rm -f "$_lk_tmp"\n  fi\n  return 0\n}\n');
 const UNINSTALL_BLOCK = cut('    if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then', '\n      done\n    fi\n');
 
 function world({ systemctl = true, app = true, legacy = false, nodeOut = '', nodeRc = 0, units = [], restartRc = 0 } = {}) {

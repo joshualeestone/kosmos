@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * #570: the unsigned Windows package, and the ways it can go wrong silently.
+ * #570: the Windows package, and the ways it can go wrong silently.
  *
  *   node --test tools.build-windows-570.test.js
  *
@@ -127,7 +127,7 @@ test('every launcher line is CRLF, because cmd.exe does not forgive LF', () => {
 });
 
 test('the runtime is checksum-verified and a mismatch kills the build', () => {
-  /* An unsigned installer already asks somebody to click through a warning.
+  /* A package from a new publisher already asks somebody to click through a warning.
      Shipping an unverified runtime inside it would ask them to trust something
      we did not check ourselves. */
   assert.match(WIN, /SHASUMS256\.txt/, 'the node download is not checked against nodejs.org');
@@ -162,7 +162,16 @@ test('the build summary prints the zip size, and labels the unpacked total', () 
 });
 
 test('the package tells the truth about itself', () => {
-  assert.match(WIN, /"signed": false/, 'the manifest does not record that this build is unsigned');
+  /* #6679: Kosmos.exe and the connector are signed, so `"signed": false` was a false claim. The manifest records
+     each signed program's signature as the build saw it, and carries no blanket "signed" a reader could take as
+     covering every file in the zip. */
+  const manifestAt = WIN.indexOf('cat > "$STAGE/manifest.json" <<JSON');
+  const manifest = WIN.slice(manifestAt, WIN.indexOf('\nJSON\n', manifestAt));
+  assert.ok(manifestAt > -1 && manifest.includes('"product": "kosmos"'), 'the manifest block moved; this reads nothing');
+  assert.doesNotMatch(manifest, /"signed":/, 'the manifest still carries a blanket "signed" field');
+  assert.match(manifest, /"signatures": \{ "Kosmos\.exe": "\$_launcher_sig", "app\/bin\/kosmos-tunnel\.exe": "\$_tunnel_sig" \}/,
+    'the manifest does not record what is signed, per file');
+  assert.match(WIN, /pe_signature_present "\$LAUNCHER"/, 'the build does not check Kosmos.exe for a signature (the step itself is run in tools.build-windows-connector-4597)');
   /* #570 7c: agents work on Windows now (measured, R1-R8), so the package says so.
      The old warnings are pinned ABSENT, because a README that still says "agents
      do not work" over a build where they do sends people away from the thing
@@ -191,7 +200,7 @@ test('the package tells the truth about itself', () => {
   const folder = require('./engine/win32board').TASK_NAME.split('\\')[0];
   assert.equal(require('./engine/win32job').TASK_PREFIX.split('\\')[0], folder);
   assert.match(WIN, new RegExp("printf 'Task Scheduler Library, then the " + folder + " folder\\."), 'the README names a Task Scheduler folder the tasks are not in');
-  assert.match(WIN, /Windows protected your PC/, 'the README does not warn about the unsigned warning');
+  assert.match(WIN, /Windows protected your PC/, 'the README does not walk people past the SmartScreen warning');
 });
 
 test('🛑 the manifest stamps source provenance, and a dirty tree warns (#1749)', () => {
@@ -243,7 +252,9 @@ test('🛑 the warning reaches her BEFORE the launcher does, which a README cann
      README names the dialog a person can actually see, and unblocks the ZIP
      before extracting rather than each file after. */
   assert.doesNotMatch(WIN, /came from another computer/, 'the README describes a checkbox label as if it were a prompt');
-  assert.match(WIN, /The publisher could not be verified", click Run\./, 'the README does not cover the Open File security warning');
+  /* #6679: a signed Kosmos.exe names its publisher in the Open File box, so the "could not be verified" line went. */
+  assert.doesNotMatch(WIN, /The publisher could not be verified/, 'the README still describes an unverified publisher');
+  assert.match(WIN, /printf 'If a box asks whether to run Kosmos\.exe\\r\\n'\n\s*printf 'from Kosmos Agent Manager, Inc\., click Run\./, 'the README does not say what to click in the Open File box, which a signed Kosmos.exe still raises');
   assert.match(WIN, /Tip: before you extract, right-click the zip, choose Properties, tick/, 'the README does not say to unblock the zip before extracting');
 });
 

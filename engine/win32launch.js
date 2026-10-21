@@ -344,7 +344,7 @@ function preacceptClaudeFirstRun(s) {
     process.stderr.write('[win32launch] ' + String(s.name || 'agent') + ': could not pre-accept its Claude settings (' + r.because + '); it starts anyway\n');
   }
   /* kosmos#5612: a default-account agent reads <home>\.claude\settings.json once, as its Claude starts, and only the
-     reporting hooks in it make the agent report idle and needs-you. The board wires them at its own start, but the
+     reporting hooks in it make the agent report idle and needs-you. The board (an installed one: kosmos#6601) wires them at its own start, but the
      board and the supervisors are separate logon tasks with no order between them, so an agent launched before the
      board's write would run its whole session without them. So wire them here too, just before this agent's Claude
      reads the file. Keyed on the REAL platform (process.platform, never the injected s.platform), so a test that

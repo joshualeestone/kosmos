@@ -76,7 +76,8 @@ function withStubBoard(fn, reply) {
   });
 }
 
-const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
+const { withoutAgentIdentity } = require('./test-support/agent-env');   // kosmos#6740: never run the CLI as the agent running the test
+const envFor = (port) => ({ ...withoutAgentIdentity(process.env), AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
 
 test('#5187: kosmos msg tells the sender when a message is queued with a busy agent', () => withStubBoard(async (port) => {
   const out = await runCli(['msg', 'johnnycage', 'hello there'], envFor(port));

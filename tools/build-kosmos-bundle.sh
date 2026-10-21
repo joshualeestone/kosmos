@@ -67,6 +67,9 @@ mkdir -p "$STAGE/app/engine" "$STAGE/app/bin"
 for f in "$REPO"/engine/*.js; do
   case "$f" in *.test.js) ;; *) cp "$f" "$STAGE/app/engine/" ;; esac
 done
+# kosmos#6587: the signed service key set ships beside the engine that checks it, checked (tools/lib/stage-service-keys.sh).
+. "$REPO/tools/lib/stage-service-keys.sh"
+kosmos_stage_service_keys "$REPO" "$STAGE/app/engine" || exit 1
 cp -R "$REPO/web" "$STAGE/app/web"
 # 🛑 BAKE THE VERSION INTO THE PAGE. It used to be readable only from the status
 # poll, so on a machine whose board was not running the version was unknown for

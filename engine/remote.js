@@ -872,6 +872,11 @@ function ackCertWatchLost(at) {
   if (!enrolled()) return { ok: false, because: 'this computer is not set up for Kosmos+ yet' };
   return certWatchFiles.ackLostIn(STATE_DIR(), at);
 }
+/* kosmos#6587 (S-7a slice 2a): whether the pinned coordinator key is on the signed service key set this version
+   shipped (engine/servicekeys-check.js). A state only. Shown to the person; never put in status().because, which
+   the coordinator also receives, since the coordinator is the party a mismatch suspects. */
+const serviceKeyFiles = require('./servicekeys-check');
+function serviceKeys() { return serviceKeyFiles.serviceKeyCheck(STATE_DIR(), { production: COORDINATOR() === DEFAULT_COORDINATOR }); }
 
 /** The switch. Turning on does not start anything by itself unless setup
     already happened; the Settings flow calls setupStart/setupComplete and
@@ -1422,6 +1427,7 @@ async function assistantChat(body) {
  * setup in progress and an open browser secret. A final refusal is wiped as before:
  * keeping a key Kosmos+ will never accept would say "try again" forever. */
 async function forget({ anyway = false } = {}) {
+  forgetTlsPins();   // kosmos#6589
   // #3827: a sign-in in flight ends with the Mac's identity. Cancel it (its register
   // must not turn the switch back on), and WAIT for a register already out, so what
   // is retired and wiped below includes it; otherwise it writes a fresh identity
@@ -2483,6 +2489,7 @@ async function deviceRemove(id) {
 }
 /* kosmos#5786 (b): a removed device (the notice's Undo, or the list's Remove) is no longer "on this computer". */
 function forgetVouched(id, answer) {
+  forgetTlsPins();   // kosmos#6589: a removed device may be one a cached pin rests on
   const vouched = read().vouched || {};
   // A remove that timed out may not have happened: the note stays, so the device keeps saying where it came from.
   if (answer && answer.ok && Object.prototype.hasOwnProperty.call(vouched, id) && !(answer.data && answer.data.timed_out)) {
@@ -2602,6 +2609,95 @@ async function openTicket(address) {
   if (typeof t !== 'string' || !/^[A-Za-z0-9_-]{20,2048}$/.test(t)) return { ok: false, because: 'that did not go through' };
   return { ok: true, because: null, data: { ticket: t } };
 }
+
+/* kosmos#6589 (S-7c): which TLS key another of the person's computers vouches for (kosmos-tunnel tls-pin: its
+   statement, signed with the key its pairing carries, checked against peers.json; the origin stays pinned to that
+   peer). The Mac app compares the certificate it is handed with this before it lets a window open there.
+   - pinned: { spki: [64-hex], from } - the app must be handed a certificate with one of these keys;
+   - none: never pinned here and no statement (a computer on an older version): nothing to compare;
+   - required: do not proceed (a pinned origin with no usable statement, a refused one, or an error).
+   Cached 5 min per address, so a page of switches costs one fetch; `fresh` skips the cache (the app's one retry on a
+   mismatch, so a renewal is not taken for an attack: Ice Cream Kitty's review). A connector from before tls-pin
+   answers `none`: it has never pinned anything, so there is nothing it could fail to enforce. */
+const TLS_PIN_TTL_MS = 5 * 60 * 1000;
+const tlsPinCache = new Map();
+const tlsPinInFlight = new Map();   // review 1: WebKit's parallel connections to one host share one tunnel run
+let tlsPinGeneration = 0;           // review 2: bumped by a forget, so an ask that began before it writes nothing
+const tlsPinWarmQuiet = new Map();  // review 2: address -> until when warming leaves it alone (it answered required)
+const TLS_PIN_WARM_QUIET_MS = 60 * 1000;
+const SPKI = /^[0-9a-f]{64}$/;
+async function tlsPin(address, { fresh = false } = {}) {
+  // Review 9: not while this computer is being signed out of Plus (its state folder is going away).
+  if (forgetting) return { ok: true, because: null, data: { state: 'required', because: 'this computer is signing out of Plus' } };
+  if (!enrolled()) return { ok: true, because: null, data: { state: 'none', because: 'not signed up for Plus here' } };
+  const now = Date.now();
+  const hit = tlsPinCache.get(address);
+  if (!fresh && hit && now - hit.at < TLS_PIN_TTL_MS) return hit.answer;
+  /* Review 7: ONE run per address at a time. The computer signs a new statement per request and the tunnel refuses
+     one older than the newest it has seen, so two runs side by side could have the slower one refused. A plain ask
+     joins whatever is running; a fresh ask joins a fresh run, or waits for a plain one to finish and then runs. */
+  const running = tlsPinInFlight.get(address);
+  if (running && (!fresh || running.fresh)) return running.p;
+  const start = () => tlsPinAsk(address, Date.now());
+  const p = (running ? running.p.catch(() => {}).then(start) : start())
+    // Only its OWN entry: a forget may have cleared it and a newer ask taken the address since (review 3).
+    .finally(() => { const cur = tlsPinInFlight.get(address); if (cur && cur.p === p) tlsPinInFlight.delete(address); });
+  tlsPinInFlight.set(address, { p, fresh });
+  return p;
+}
+async function tlsPinAsk(address, now) {
+  const generation = tlsPinGeneration;
+  // The statement fetch has its own 10 s limit in the tunnel; this bounds the whole call.
+  const r = await tracked(setupRun(['tls-pin', '--state-dir', STATE_DIR(), '--to', 'https://' + address], null, 20000));
+  const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
+  let answer;
+  if (!r.ok && r.code === 2 && /unrecognized subcommand '?tls-pin'?/.test(said)) {
+    answer = { ok: true, because: null, data: { state: 'none', because: 'this version of the connector cannot check that yet' } };
+  } else {
+    const got = parseSaid(r);
+    const d = got.ok && got.data ? got.data : null;
+    if (d && d.state === 'pinned' && Array.isArray(d.spki) && d.spki.length && d.spki.every((k) => typeof k === 'string' && SPKI.test(k))) {
+      answer = { ok: true, because: null, data: { state: 'pinned', spki: d.spki.slice(0, 4) } };   // the relay sends one
+    } else if (d && d.state === 'none') {
+      answer = { ok: true, because: null, data: { state: 'none', because: 'never checked here' } };
+    } else {
+      // Anything else, an answer of the wrong shape included, is "do not proceed": a check that cannot be read
+      // must never read as nothing to check. The tunnel's own words stay here (a path, a key name).
+      answer = { ok: true, because: null, data: { state: 'required', because: "this computer's certificate could not be checked" } };
+    }
+  }
+  // Only a definite answer is cached: a required one is asked again next time (it may be a passing failure).
+  // A forget while this ran (a sign-out, a removed device): the answer is still returned, never kept.
+  // Nor over a NEWER answer (review 3). A BACKSTOP since review 7: with one run per address an older run cannot finish
+  // after a newer one, so this cannot fire today; it stays so a change to that rule cannot quietly regress the cache.
+  const newer = tlsPinCache.get(address);
+  if (generation === tlsPinGeneration && !(newer && newer.at > now)) {
+    if (answer.data.state !== 'required') tlsPinCache.set(address, { at: now, answer });
+    else tlsPinCache.delete(address);
+  }
+  return answer;
+}
+
+/* kosmos#6589 (review 1): ask about each of the account's other computers in the background whenever the list is read,
+   so the FIRST switch to one finds its address already pinned (a pin is made only when a statement verifies, and
+   whoever re-routes a name could answer the first ask with a 404). Bounded to 10, and the cache makes it cheap. */
+function warmTlsPins(computers) {
+  if (!Array.isArray(computers)) return;
+  const now = Date.now();
+  for (const c of computers.filter((x) => x && !x.this && typeof x.address === 'string').slice(0, 10)) {
+    // A computer that answered required (offline, say) is left alone for a minute, so every list read does not
+    // start ten connector runs again. The app's own ask is never held back by this.
+    if ((tlsPinWarmQuiet.get(c.address) || 0) > now) continue;
+    tlsPin(c.address)
+      .then((got) => { if (got && got.data && got.data.state === 'required') tlsPinWarmQuiet.set(c.address, Date.now() + TLS_PIN_WARM_QUIET_MS); })
+      .catch(() => {});
+  }
+}
+/* A sign-out or a removed device may end the trust a cached pin rests on: forget the cache (the tunnel's own
+   check runs again on the next ask). */
+/* Review 8: running asks are not dropped from tlsPinInFlight (a new ask still waits its turn behind them, one run per
+   address); the generation keeps whatever they answer out of the cache. */
+function forgetTlsPins() { tlsPinGeneration += 1; tlsPinCache.clear(); tlsPinWarmQuiet.clear(); }
 
 /** kosmos#6404, "Check the code": this computer was allowed, but its code ran out before The codes match was pressed
     here, so it does not trust the other computer yet. Asks for ONE fresh code check with it (the next round starts it).
@@ -3695,7 +3791,7 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   enrolled,
   spawnFedSeat,
   address,
-  certWatch, setCertWatch, ackCertWatchLost,
+  certWatch, setCertWatch, ackCertWatchLost, serviceKeys,
   ensure,
   status,
   setupStart,
@@ -3720,6 +3816,7 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   joinConfirm,
   joinRetry,
   openTicket,
+  tlsPin, TLS_PIN_TTL_MS, warmTlsPins, forgetTlsPins /* kosmos#6589 */,
   joinRecheck,
   deviceDeny,
   deviceRemove,
@@ -3755,7 +3852,7 @@ module.exports = { connectorCapabilities, warmConnectorCapabilities, askConnecto
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   bumpSelfEpochForTests: () => { selfEpoch += 1; },
-  resetForTests: () => { vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
+  resetForTests: () => { tlsPinCache.clear(); tlsPinInFlight.clear(); tlsPinWarmQuiet.clear(); vouchAllowingId = ''; notMeDuringVouch.clear(); lastVouched = null; flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; companySetup = null; companyFinishing = null; companyOpenCommandForTests = null; companyOpenSourceForTests = null; companyOpenedAt = 0; companySecondInFlight = null; companyStartInFlight = null; companyStatusInFlight = null; managedReader = defaultManagedReader; managedCache = null; signinSession = null; mintedDeviceId = null; heldIdentity = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopVouch(); vouchOpenedUrl = ''; stopChild(); },
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
