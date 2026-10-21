@@ -9,7 +9,7 @@ the tree, and that allows the GNU-first-with-BSD-fallback idiom. It reads files 
 and on a Mac.
 
 ## Changes
-- New `tools/test-gnu-only-forms-6808.sh`: the scanner and its tests. Forms: `sed -i` with the script after it,
+- New `tools/test-gnu-only-forms-6808.sh`: the scanner and its tests (long spellings included). Forms: `sed -i` with the script after it,
   `date -d`, `stat -c`, `base64 -w`, `timeout N`, `grep -P`, `find -printf`. Each but the last two has a BSD
   counterpart; a hit with its counterpart within 3 lines is the idiom and is allowed. `# gnu-ok: <why>` on a line
   excuses it. Comment lines are not read. 11 planted forms flagged, 12 allowed shapes kept, the two-line sed idiom
