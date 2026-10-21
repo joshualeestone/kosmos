@@ -234,13 +234,18 @@ final class BoardClient: ObservableObject {
         guard var token = await handoff(session: session, mac: mac, gen) else { return false }
         var waiting = false
         var fresh = 0
+        var misses = 0
         while !Task.isCancelled && gen == generation {
             let result = try? await http.data(for: Board.sessionRequest(mac: url, handoffToken: token))
             let status = (result?.1 as? HTTPURLResponse)?.statusCode ?? 0
             if status == 0 {
-                if waiting { try? await Task.sleep(nanoseconds: 3_000_000_000); continue }
+                // No answer at all: while waiting, a few are a slow network; three in a row (as the gate page counts
+                // them) say the Mac is not answering, with Try again.
+                misses += 1
+                if waiting && misses < 3 { try? await Task.sleep(nanoseconds: 3_000_000_000); continue }
                 set(.unreachable(mac: mac.name), gen); return false
             }
+            misses = 0
             switch Board.classifySession(status: status, body: result?.0, waiting: waiting) {
             case .admitted:
                 return true
@@ -286,6 +291,9 @@ final class BoardClient: ObservableObject {
             updatedAt = Date()
             failedRefreshes = 0
             unauthorizedSince = nil
+            // The first list in a run (re)keeps the Mac's session, so a kept record dropped while the Mac was away is
+            // restored once it answers again.
+            if !listedThisRun, let held = admitted { keepMacSession(mac, url: url, session: held.session) }
             listedThisRun = true
             retriedUnreachable = false
             set(.live(mac: mac), gen)
@@ -299,7 +307,8 @@ final class BoardClient: ObservableObject {
             }
             unauthorizedSince = nil
             admitted = nil
-            macStore.delete()
+            // The kept record stays until a new session replaces it (keepMacSession), so a Mac that only needs a moment
+            // longer is not forgotten if the app is closed meanwhile.
             if let last = lastReconnect, Date().timeIntervalSince(last) < Self.reconnectGap {
                 // The Mac ended this iPhone's session twice in 30 s: it answers, but will not keep the sign-in.
                 set(.macRefused(mac: mac.name), gen)

@@ -32,7 +32,11 @@ struct AgentsView: View {
         case .starting:
             ProgressView("Connecting to your Mac")
         case .signedOut:
-            message("Sign in to Kosmos+ on the Board tab.", detail: "Your agents show here once you are signed in. If you already are, sign out there and in again.")
+            VStack(spacing: 12) {
+                message("Sign in to Kosmos+ on the Board tab.", detail: "Your agents show here once you are signed in. If you already are, sign out there and in again.")
+                Button("Try again") { client.retry() }
+                    .buttonStyle(.borderedProminent)
+            }
         case .noMac:
             VStack(spacing: 12) {
                 message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then try again.")
@@ -72,7 +76,7 @@ struct AgentsView: View {
             }
         case .macRefused(let mac):
             VStack(spacing: 12) {
-                message("\(mac) did not accept this iPhone's sign-in.", detail: "Sign out on the Board tab and in again, then try once more.")
+                message("\(mac) did not accept this iPhone's sign-in.", detail: "Try again in a moment. If it keeps happening, sign out on the Board tab and in again.")
                 Button("Try again") { client.retry() }
                     .buttonStyle(.borderedProminent)
             }

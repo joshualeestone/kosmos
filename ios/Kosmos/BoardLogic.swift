@@ -195,7 +195,7 @@ enum Board {
         let name: String
         let role: String?
         let state: String
-        let task: String?
+        let task: String?   // not shown in the Agents list; kept for the Today screen ("who is working on what")
         let askedYou: Bool
         var awaitingApproval = false
         var reportedByAgent = false
