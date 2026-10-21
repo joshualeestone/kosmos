@@ -2,9 +2,9 @@
 pre_challenge: true
 method: challenge-loop
 branch: ptrfreeze-6620
-diff_hash: 16c8f708bc8e95d81e9bda207b3d368935c6ea09c0569332816846df973d4f26
+diff_hash: 985de895ee637fa20045df12bb68fb9065d53b79ffe63c2b90f2dbe41795302a
 validation: passed (tools/test-pointer-freeze.sh, test-deploy-site-promote.sh, test-deploy-landed-5471.sh, test-site-push-race-2276.sh all green; 49 more tools/test-*.sh that use the changed scripts green; node --test tools.*.test.js 1220 pass 0 fail; dash -n on the lib and deploy-site.sh; every new refusal arm also run against the pre-fix code; em-dash sweeps by every reviewer with a control)
-timestamp: 2026-10-21T11:55:45Z
+timestamp: 2026-10-21T12:28:55Z
 iterations: 19
 converged: true
 ---
@@ -51,3 +51,10 @@ Second test-only change (2026-10-21T11:55:45Z): the hosted run then failed four 
 (reproduced with init.defaultBranch=master: 4 red; 0 after, under both defaults). Its bare origin, and
 tools/test-deploy-landed-5471.sh's, now start on main. A sweep of every test file this branch touches finds no other
 unpinned bare origin. No product code changed; the diff_hash above covers it.
+Main merged in (2026-10-21T12:28:55Z): the PR conflicted with main (#6771's token-aware vercel deploy and #6738's served-versions
+table), so GitHub ran no CI for 52cb2b8fe2. Resolved by keeping both sides: package.json's test:shell line is main's
+with this branch's pointer-freeze entries re-inserted (checked that those were the only differences); deploy-site.sh
+keeps the late freeze re-check and then main's new deploy block in place of the old one-line vercel call;
+site-deploy.sh removes the freeze marker and then writes main's served-versions table. On the merged tree: nine
+site-deploy shell tests green (export, served-versions, pointer-freeze, promote, deploy-landed, autodeploy, push-race,
+fetch, staged-mac) and the full node suite, 22,875 tests, 0 failed.
