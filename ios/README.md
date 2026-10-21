@@ -228,7 +228,8 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 ### Tests that run without a simulator
 
 `LogicTests/run.sh` compiles the UIKit-free files (`PushBridgeLogic.swift`,
-`PushRegistrar.swift`, `ShellLogic.swift`, `NotificationCategories.swift`, `BoardLogic.swift`) for
+`PushRegistrar.swift`, `ShellLogic.swift`, `NotificationCategories.swift`, `BoardLogic.swift`,
+`BoardClient.swift`, the native connect and refresh loop, driven against a fake Kosmos+ and Mac) for
 macOS with the tests and runs them. It ends with one
 `VERDICT:` line; no verdict line means the run did not finish. Pass a directory
 to run the suite against a modified copy of those files (how the suite was

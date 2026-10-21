@@ -737,6 +737,173 @@ do {
     check(Board.owner(of: "kst1") != Board.owner(of: "kst2") && Board.owner(of: "kst1").count == 64, "fingerprints differ per session")
 }
 
+// MARK: - kosmos#6838: the connect, poll and reconnect loop, against a fake Kosmos+ and Mac
+
+// A fake world: Kosmos+ answers the Mac list and handoffs, the Mac's gate admits (setting its cookie in the client's
+// jar, as a real Set-Cookie would), and /api/status answers from a queue. Waiting advances a fake clock, so the 15 s
+// grace and the 30 s reconnect gap are real arithmetic, not real seconds.
+final class FakeBoardWorld {
+    var clock = Date(timeIntervalSince1970: 1_000_000)
+    var requests: [String] = []
+    var macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":100}]}"#
+    var sessionAnswer: (Int, String) = (200, #"{"ok":true}"#)
+    // Each status request takes the first queued answer; nil is no answer at all. Empty queue: statusDefault.
+    var statusQueue: [(Int, String)?] = []
+    var statusDefault: (Int, String)? = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
+    var admitted = 0
+    let cookies = URLSessionConfiguration.ephemeral.httpCookieStorage!
+
+    func count(_ path: String) -> Int { requests.filter { $0.hasSuffix(path) }.count }
+
+    func send(_ r: URLRequest) -> (Data, HTTPURLResponse)? {
+        let url = r.url!
+        requests.append("\(r.httpMethod ?? "GET") \(url.host ?? "")\(url.path)")
+        func answer(_ code: Int, _ body: String) -> (Data, HTTPURLResponse) {
+            (Data(body.utf8), HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!)
+        }
+        switch url.path {
+        case "/v1/account/macs": return answer(200, macsBody)
+        case "/v1/account/handoff": return answer(200, #"{"token":"hand"}"#)
+        case "/_kosmos/session":
+            if sessionAnswer.0 == 200 {
+                admitted += 1
+                cookies.setCookie(HTTPCookie(properties: [.name: Board.macCookieName, .value: "fresh-\(admitted)", .domain: url.host!, .path: "/", .secure: "TRUE"])!)
+            }
+            return answer(sessionAnswer.0, sessionAnswer.1)
+        case "/api/status":
+            let next: (Int, String)? = statusQueue.isEmpty ? statusDefault : statusQueue.removeFirst()
+            return next.map { answer($0.0, $0.1) }
+        default: return nil
+        }
+    }
+}
+
+@MainActor
+func boardLoopTests() async {
+    func make(_ session: String?, kept: String? = nil) -> (BoardClient, FakeBoardWorld, MemoryStore, MemoryStore) {
+        let world = FakeBoardWorld()
+        let sessions = MemoryStore(session)
+        let macs = MemoryStore(kept)
+        let defaults = UserDefaults(suiteName: "board-loop-\(UUID().uuidString)")!
+        let client = BoardClient(coordinator: coordinator, sessionStore: sessions, macStore: macs, cookies: world.cookies,
+                                 env: .init(send: { world.send($0) },
+                                            sleep: { world.clock += $0; await Task.yield() },
+                                            now: { world.clock },
+                                            defaults: defaults))
+        return (client, world, sessions, macs)
+    }
+    func settle(_ cond: () -> Bool) async -> Bool {
+        for _ in 0..<5000 { if cond() { return true }; await Task.yield() }
+        return cond()
+    }
+    func isLive(_ c: BoardClient) -> Bool { if case .live = c.phase { return !c.agents.isEmpty }; return false }
+    func keptRecord(_ owner: String, cookie: String) -> String {
+        Board.encode(Board.SavedMacSession(name: "Studio", address: "studio.kosmosplus.com", cookie: cookie, owner: Board.owner(of: owner)))!
+    }
+
+    section("native board loop: connecting")
+    do {
+        let (c, w, _, macs) = make("kst1")
+        c.start()
+        let ok1 = await settle { isLive(c) }
+        check(ok1, "a fresh connect lists the agents")
+        check(w.count("/v1/account/macs") == 1 && w.count("/v1/account/handoff") == 1 && w.count("/_kosmos/session") == 1, "by the Mac list, one handoff and one gate session")
+        check(Board.usableSaved(macs.value, session: "kst1", coordinator: coordinator)?.cookie == "fresh-1", "and keeps the Mac's session for the next launch")
+        c.stop()
+    }
+    do {
+        let (c, w, _, _) = make("kst1", kept: keptRecord("kst1", cookie: "kept"))
+        c.start()
+        let ok2 = await settle { isLive(c) }
+        check(ok2, "a kept Mac session is used at launch")
+        check(w.count("/v1/account/handoff") == 0 && w.count("/_kosmos/session") == 0, "without a new sign-in to the Mac")
+        c.stop()
+    }
+    do {
+        // The bug review found (iteration 12): the reconnect restored the very record that had just ended.
+        let (c, w, _, macs) = make("kst1", kept: keptRecord("kst1", cookie: "kept"))
+        w.statusQueue = [(401, "{}")]
+        c.start()
+        let ok3 = await settle { isLive(c) }
+        check(ok3, "a kept session the Mac has ended is replaced and the list comes back")
+        check(w.count("/v1/account/handoff") == 1, "by one fresh sign-in, not by restoring the ended record again")
+        check(Board.usableSaved(macs.value, session: "kst1", coordinator: coordinator)?.cookie == "fresh-1", "and the new session is the one kept")
+        c.stop()
+    }
+
+    section("native board loop: a Mac that has just started")
+    do {
+        let (c, w, _, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        w.statusQueue = [(401, "{}"), (401, "{}")]
+        let before = w.count("/api/status")
+        let ok4 = await settle { w.count("/api/status") >= before + 4 }
+        check(ok4, "it keeps polling through 401s")
+        check(w.count("/v1/account/handoff") == 1 && isLive(c), "two 401s within 15 s of a working session keep it (no new sign-in)")
+        w.statusDefault = (401, "{}")
+        let ok5 = await settle { w.count("/v1/account/handoff") == 2 }
+        check(ok5, "401s past the 15 s grace sign in again")
+        c.stop()
+    }
+
+    section("native board loop: sign-out and another account")
+    do {
+        let (c, w, sessions, macs) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        sessions.value = "kst2"
+        c.start()
+        check(c.agents.isEmpty, "another account's sign-in clears the old list at once")
+        let ok6 = await settle { isLive(c) && Board.usableSaved(macs.value, session: "kst2", coordinator: coordinator) != nil }
+        check(ok6, "and connects again under the new account")
+        check(w.count("/v1/account/handoff") == 2, "with its own sign-in to the Mac")
+        sessions.value = nil
+        c.start()
+        let ok7 = await settle { c.phase == .signedOut } && c.agents.isEmpty
+        check(ok7, "signed out: nothing shown")
+        check(macs.value != nil, "the kept Mac session is left for the sign-out itself to delete (PushNotificationManager)")
+        c.stop()
+    }
+
+    section("native board loop: not answering, and Try again")
+    do {
+        let (c, w, _, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        w.statusDefault = nil
+        let ok8 = await settle { c.phase == .unreachable(mac: "Studio") }
+        check(ok8, "three refreshes with no answer say the Mac is not answering")
+        let lists = w.count("/v1/account/macs")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
+        c.retry()
+        let ok9 = await settle { isLive(c) } && w.count("/v1/account/macs") == lists
+        check(ok9, "the first Try again reuses the Mac session (the Mac may only have slept)")
+        w.statusDefault = nil
+        _ = await settle { c.phase == .unreachable(mac: "Studio") }
+        c.retry()
+        _ = await settle { c.phase == .unreachable(mac: "Studio") }
+        c.retry()
+        let ok10 = await settle { w.count("/v1/account/macs") == lists + 1 }
+        check(ok10, "a second Try again in a row asks Kosmos+ for the Macs afresh")
+        c.stop()
+    }
+
+    section("native board loop: waiting for Allow")
+    do {
+        let (c, w, _, _) = make("kst1")
+        w.sessionAnswer = (403, #"{"pending":true,"code":"4821"}"#)
+        c.start()
+        let ok11 = await settle { c.phase == .waitingForAllow(mac: "Studio", code: "4821") }
+        check(ok11, "the Mac showing Allow shows its code")
+        w.sessionAnswer = (200, #"{"ok":true}"#)
+        let ok12 = await settle { isLive(c) }
+        check(ok12, "and once Allow is pressed the list comes")
+        c.stop()
+    }
+}
+await boardLoopTests()
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

@@ -2,10 +2,11 @@ import Foundation
 
 // kosmos#6838 slice 1: the native connection to the person's Mac. The decisions
 // live in BoardLogic.swift (tested); this file only moves bytes and publishes state
-// for AgentsView. It has its own private session (cookies, cache and credentials in
-// memory, never the web view's) and follows no redirect, so the Kosmos+ session and
-// a handoff token only ever go to the host they were addressed to. The Mac's session
-// cookie alone is kept between launches, in the Keychain (Board.SavedMacSession).
+// for AgentsView. The app's environment (BoardClient+App.swift) is a private session
+// (cookies, cache and credentials in memory, never the web view's) that follows no
+// redirect, so the Kosmos+ session and a handoff token only ever go to the host they
+// were addressed to. The Mac's session cookie alone is kept between launches, in the
+// Keychain (Board.SavedMacSession). ios/LogicTests drives this loop with a fake Mac.
 @MainActor
 final class BoardClient: ObservableObject {
 
@@ -26,6 +27,15 @@ final class BoardClient: ObservableObject {
         case live(mac: Board.Mac)
     }
 
+    // What the client needs from the world, so ios/LogicTests can drive the loop with a fake Mac, clock and waits.
+    struct Environment {
+        // nil when no answer came at all (no network, a timeout).
+        var send: (URLRequest) async -> (Data, HTTPURLResponse)?
+        var sleep: (TimeInterval) async -> Void
+        var now: () -> Date
+        var defaults: UserDefaults
+    }
+
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var agents: [Board.Agent] = []
     @Published private(set) var updatedAt: Date?
@@ -34,7 +44,7 @@ final class BoardClient: ObservableObject {
     private let sessionStore: SessionStore
     private let macStore: SessionStore
     private let cookies: HTTPCookieStorage
-    private let http: URLSession
+    private let env: Environment
     private var loop: Task<Void, Never>?
     // Bumped by every start and stop, so a run that was cancelled cannot write the screen afterwards.
     private var generation = 0
@@ -56,21 +66,13 @@ final class BoardClient: ObservableObject {
     // About 30 s of retries for a Mac that refuses while it starts up.
     private static let freshHandoffs = 6
 
-    init(coordinator: URL = KosmosConfig.coordinatorOrigin,
-         sessionStore: SessionStore = SessionKeychain.live,
-         macStore: SessionStore = SessionKeychain.macSession) {
+    // `cookies` must be the store `env.send` uses, so forget() clears the very cookies the requests carry.
+    init(coordinator: URL, sessionStore: SessionStore, macStore: SessionStore, cookies: HTTPCookieStorage, env: Environment) {
         self.coordinator = coordinator
         self.sessionStore = sessionStore
         self.macStore = macStore
-        let config = URLSessionConfiguration.ephemeral
-        config.httpCookieAcceptPolicy = .always
-        config.timeoutIntervalForRequest = 15
-        // An ephemeral configuration carries its own private, in-memory cookie store; held here so forget() clears
-        // the very store the session uses.
-        let jar = config.httpCookieStorage ?? HTTPCookieStorage()
-        config.httpCookieStorage = jar
-        self.cookies = jar
-        self.http = URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
+        self.cookies = cookies
+        self.env = env
     }
 
     // Starts (or resumes) the loop when the tab appears or the app comes back.
@@ -155,7 +157,7 @@ final class BoardClient: ObservableObject {
         admitted = nil
         agents = []
         updatedAt = nil
-        UserDefaults.standard.removeObject(forKey: Board.rememberedMacKey)
+        env.defaults.removeObject(forKey: Board.rememberedMacKey)
         cookies.removeCookies(since: .distantPast)
         macStore.delete()
     }
@@ -186,13 +188,13 @@ final class BoardClient: ObservableObject {
             guard await openSession(session: session, mac: mac, url: url, gen), gen == generation else { return }
             admitted = (mac, url, session)
             keepMacSession(mac, url: url, session: session)
-            UserDefaults.standard.set(mac.address, forKey: Board.rememberedMacKey)
+            env.defaults.set(mac.address, forKey: Board.rememberedMacKey)
         }
         guard let (mac, url, _) = admitted else { return }
         failedRefreshes = 0
         while !Task.isCancelled && gen == generation {
             guard await refresh(url: url, mac: mac, gen) else { return }
-            try? await Task.sleep(nanoseconds: 5_000_000_000)   // the board page polls /api/status every 5 s too
+            await env.sleep(5)   // the board page polls /api/status every 5 s too
         }
     }
 
@@ -205,13 +207,13 @@ final class BoardClient: ObservableObject {
     }
 
     private func chooseMac(session: String, _ gen: Int) async -> Board.Mac? {
-        let result = try? await http.data(for: Board.macsRequest(coordinator: coordinator, session: session))
-        let status = (result?.1 as? HTTPURLResponse)?.statusCode ?? 0
+        let result = await env.send(Board.macsRequest(coordinator: coordinator, session: session))
+        let status = result?.1.statusCode ?? 0
         guard (200...299).contains(status), let data = result?.0, let macs = Board.parseMacs(data) else {
             kosmosPlusFailed(status: status, gen); return nil
         }
         guard let mac = Board.pickMac(Board.reachableMacs(macs, coordinator: coordinator),
-                                      remembered: UserDefaults.standard.string(forKey: Board.rememberedMacKey)) else {
+                                      remembered: env.defaults.string(forKey: Board.rememberedMacKey)) else {
             set(.noMac, gen); return nil
         }
         return mac
@@ -219,8 +221,8 @@ final class BoardClient: ObservableObject {
 
     // nil when it failed, with the phase already set to say why.
     private func handoff(session: String, mac: Board.Mac, _ gen: Int) async -> String? {
-        let result = try? await http.data(for: Board.handoffRequest(coordinator: coordinator, session: session, address: mac.address))
-        let status = (result?.1 as? HTTPURLResponse)?.statusCode ?? 0
+        let result = await env.send(Board.handoffRequest(coordinator: coordinator, session: session, address: mac.address))
+        let status = result?.1.statusCode ?? 0
         guard (200...299).contains(status), let data = result?.0, let token = Board.parseHandoffToken(data) else {
             kosmosPlusFailed(status: status, gen); return nil
         }
@@ -236,13 +238,13 @@ final class BoardClient: ObservableObject {
         var fresh = 0
         var misses = 0
         while !Task.isCancelled && gen == generation {
-            let result = try? await http.data(for: Board.sessionRequest(mac: url, handoffToken: token))
-            let status = (result?.1 as? HTTPURLResponse)?.statusCode ?? 0
+            let result = await env.send(Board.sessionRequest(mac: url, handoffToken: token))
+            let status = result?.1.statusCode ?? 0
             if status == 0 {
                 // No answer at all: while waiting, a few are a slow network; three in a row (as the gate page counts
                 // them) say the Mac is not answering, with Try again.
                 misses += 1
-                if waiting && misses < 3 { try? await Task.sleep(nanoseconds: 3_000_000_000); continue }
+                if waiting && misses < 3 { await env.sleep(3); continue }
                 set(.unreachable(mac: mac.name), gen); return false
             }
             misses = 0
@@ -253,9 +255,9 @@ final class BoardClient: ObservableObject {
                 waiting = true
                 fresh = 0
                 set(.waitingForAllow(mac: mac.name, code: code), gen)
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await env.sleep(3)
             case .retry:
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await env.sleep(3)
             case .denied:
                 set(.denied(mac: mac.name), gen); return false
             case .refused(let because):
@@ -268,7 +270,7 @@ final class BoardClient: ObservableObject {
                 }
                 fresh += 1
                 if !waiting { set(.connecting(mac: mac.name), gen) }
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                await env.sleep(5)
                 guard gen == generation else { return false }
                 guard let next = await handoff(session: session, mac: mac, gen) else { return false }
                 token = next
@@ -282,13 +284,13 @@ final class BoardClient: ObservableObject {
     // a redirect, an answer that is not the list) say the Mac is not answering rather than leave an old list up.
     // The list shows as current only after a refresh that read it.
     private func refresh(url: URL, mac: Board.Mac, _ gen: Int) async -> Bool {
-        let result = try? await http.data(for: Board.statusRequest(mac: url))
+        let result = await env.send(Board.statusRequest(mac: url))
         guard gen == generation else { return false }
-        let answer = result?.1 as? HTTPURLResponse
+        let answer = result?.1
         let status = answer?.statusCode ?? 0
         if (200...299).contains(status), let data = result?.0, let rows = Board.parseAgents(data) {
             agents = Board.sorted(rows)
-            updatedAt = Date()
+            updatedAt = env.now()
             failedRefreshes = 0
             unauthorizedSince = nil
             // The first list in a run (re)keeps the Mac's session, so a kept record dropped while the Mac was away is
@@ -301,20 +303,20 @@ final class BoardClient: ObservableObject {
         }
         if Board.sessionEnded(status: status, contentType: answer?.value(forHTTPHeaderField: "Content-Type")) {
             if status == 401 {
-                let since = unauthorizedSince ?? Date()
+                let since = unauthorizedSince ?? env.now()
                 unauthorizedSince = since
-                if listedThisRun && Date().timeIntervalSince(since) < Self.unauthorizedGrace { return true }
+                if listedThisRun && env.now().timeIntervalSince(since) < Self.unauthorizedGrace { return true }
             }
             unauthorizedSince = nil
             admitted = nil
             // The kept record stays until a new session replaces it (keepMacSession), so a Mac that only needs a moment
             // longer is not forgotten if the app is closed meanwhile.
-            if let last = lastReconnect, Date().timeIntervalSince(last) < Self.reconnectGap {
+            if let last = lastReconnect, env.now().timeIntervalSince(last) < Self.reconnectGap {
                 // The Mac ended this iPhone's session twice in 30 s: it answers, but will not keep the sign-in.
                 set(.macRefused(mac: mac.name), gen)
                 return false
             }
-            lastReconnect = Date()
+            lastReconnect = env.now()
             // A fresh sign-in, never the kept record: that is the session that just ended. Its cookie stays in the
             // jar, so the gate forgets the old session when it admits the new one (proxy.rs `replaced`).
             skipSaved = true
@@ -330,14 +332,5 @@ final class BoardClient: ObservableObject {
             return false
         }
         return true
-    }
-}
-
-// No redirect is followed: none of these calls expects one, and following it could carry the bearer session or a
-// handoff token to another host.
-private final class NoRedirects: NSObject, URLSessionTaskDelegate {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)
     }
 }

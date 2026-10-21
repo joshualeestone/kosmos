@@ -52,11 +52,12 @@ If it is refused, Kosmos+ needs a small route (2 to 3 days, the plan's risk line
   in time sign the Board tab out.
 - Status words follow engine/cardlabel.js labelOf (the computer's words), not Mona's "Asked you": the card's done
   line is "the status the computer shows". Anything that needs you is marked in amber.
-- Deferred: the connect, poll and reconnect loop in BoardClient has no automated test (only BoardLogic's decisions
-  do); an injectable transport, as PushRegistrar has, is the way, and belongs with Foundation's route-shape check.
-  Review found two real bugs in this loop that only reading caught. The first sequences to test: a kept session
-  restored at launch that the Mac has ended (must sign in fresh, not restore it again); a Mac that answers 401
-  while starting (grace, then reconnect); sign-out and account switch mid-run; Try again after not answering.
+- The connect, poll and reconnect loop is tested: BoardClient takes its network, clock, waits and defaults as an
+  Environment (the app's real one is in BoardClient+App.swift), and ios/LogicTests drives it against a fake Kosmos+
+  and Mac with a clock that advances on every wait. Covered: a fresh connect, a kept session reused, a kept session
+  the Mac has ended (signs in fresh; this was a real bug review found), the 15 s 401 grace and the reconnect after
+  it, an account switch and a sign-out, Try again after not answering, and waiting for Allow. Each was measured red
+  with its rule removed. Not covered: the real URLSession, cookies set by a real Set-Cookie, and real timing.
 - Deferred: the App Store screenshots (ios/store/shoot-app.sh) now show the tab bar. That is the real app.
 - Deferred: a tap on an agent opens its chat in the web view, whose Mac session is its own. If the web view has never
   opened that Mac, the tap lands on the gate's sign-in (and possibly Allow) first, exactly as a notification tap does
