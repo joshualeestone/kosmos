@@ -2,9 +2,9 @@
 pre_challenge: true
 method: challenge-loop
 branch: ptrfreeze-6620
-diff_hash: 985de895ee637fa20045df12bb68fb9065d53b79ffe63c2b90f2dbe41795302a
+diff_hash: d1d93e3c183a9635b38c07d899f14fe5ab1bc5bd8c87aa9b797c9d80946aa72f
 validation: passed (tools/test-pointer-freeze.sh, test-deploy-site-promote.sh, test-deploy-landed-5471.sh, test-site-push-race-2276.sh all green; 49 more tools/test-*.sh that use the changed scripts green; node --test tools.*.test.js 1220 pass 0 fail; dash -n on the lib and deploy-site.sh; every new refusal arm also run against the pre-fix code; em-dash sweeps by every reviewer with a control)
-timestamp: 2026-10-21T12:28:55Z
+timestamp: 2026-10-21T18:48:09Z
 iterations: 19
 converged: true
 ---
@@ -58,3 +58,5 @@ keeps the late freeze re-check and then main's new deploy block in place of the 
 site-deploy.sh removes the freeze marker and then writes main's served-versions table. On the merged tree: nine
 site-deploy shell tests green (export, served-versions, pointer-freeze, promote, deploy-landed, autodeploy, push-race,
 fetch, staged-mac) and the full node suite, 22,875 tests, 0 failed.
+
+Main merged in again (2026-10-21T18:48:09Z): package.json's test:shell line conflicted (main added the tar-macmeta and managed-sandbox-lock tests). Resolved with main's line plus this branch's four pointer-freeze entries re-inserted after test-site-restore-1548.sh; package.json was the only file both sides changed since the last merge. Also covered by this hash: d4936594d5 (test-pointer-freeze runs release.sh with a sandboxed TMPDIR, the hosted-CI red; mutant red). On the merged tree: syntax checks on the lib (bash and sh) and tools/test-pointer-freeze.sh ALL PASS.
