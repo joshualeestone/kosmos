@@ -20,8 +20,8 @@ are in `Kosmos/BoardLogic.swift`; `BoardClient.swift` moves the bytes;
 `AgentsView.swift` draws the list. Tapping an agent opens its chat on the Board tab.
 The Mac's session cookie (only that, with a fingerprint of the Kosmos+ session) is kept
 in the Keychain item `mac-session` (`SessionKeychain.macSession`) and reused across
-launches; a sign-out makes this iPhone forget it (the Mac keeps its side until it
-expires, as for the web view). Two Debug-only launch switches exist for screenshots
+launches; a sign-out, or Kosmos+ answering that the sign-in has ended, makes this
+iPhone forget it (the Mac keeps its side until it expires, as for the web view). Two Debug-only launch switches exist for screenshots
 and never reach Release: `KOSMOS_START_TAB=agents` opens on Agents, and
 `KOSMOS_SAMPLE_AGENTS=1` shows invented agents without connecting (and skips the
 notification prompt). The App Store screenshots now include the tab bar.

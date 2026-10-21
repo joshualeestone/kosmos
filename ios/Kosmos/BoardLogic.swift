@@ -225,8 +225,7 @@ enum Board {
                          role: (row["role"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                          state: state,
                          task: (row["task"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                         askedYou: Board.needsYou(state: state, running: (row["running"] as? Bool) != false,
-                                                  needsTrust: (row["needsTrust"] as? Bool) == true),
+                         askedYou: Board.needsPerson(row),
                          awaitingApproval: approval,
                          reportedByAgent: (row["stateReportedBy"] as? String) == "agent",
                          running: (row["running"] as? Bool) != false,
@@ -264,10 +263,15 @@ enum Board {
         return stateCopy[agent.state] ?? "Can't tell"
     }
 
-    // Whatever only the person can move: a question or permission, a trust prompt, a provider sign-in that broke.
-    // Marked in amber and listed first.
-    static func needsYou(state: String, running: Bool, needsTrust: Bool) -> Bool {
-        ["needs_you", "question", "approval", "needs_trust", "auth_failed"].contains(state) || (!running && needsTrust)
+    // The board's own "needs the person" (engine/status.js needsPerson, which web/index.html agentNeedsAttention
+    // matches): needs_you, needs_trust, a connection Kosmos gave up reconnecting, a crash loop, an error it is stuck
+    // on, and a helper that gave up. Marked in amber and listed first, as the board lists them as an Issue.
+    static func needsPerson(_ row: [String: Any]) -> Bool {
+        let state = row["state"] as? String
+        func flag(_ key: String, _ field: String) -> Bool { ((row[key] as? [String: Any])?[field] as? Bool) == true }
+        return state == "needs_you" || state == "needs_trust"
+            || (state == "connection_lost" && ((row["reconnect"] as? [String: Any])?["phase"] as? String) == "gave_up")
+            || flag("crashLoop", "looping") || flag("stuckError", "stuck") || flag("ownBound", "raised")
     }
 
     // Those that asked you first, then working, then the rest; by name within each.

@@ -166,15 +166,25 @@ final class BoardClient: ObservableObject {
         if gen == generation { phase = p }
     }
 
+    private var restoredCookie: String?
+
     private func restoreCookie(_ value: String, for url: URL) {
+        restoredCookie = value
         guard let host = url.host, let cookie = HTTPCookie(properties: [
             .name: Board.macCookieName, .value: value, .domain: host, .path: "/", .secure: "TRUE",
         ]) else { return }
         cookies.setCookie(cookie)
     }
 
+    // Keeps the Mac's current session cookie. If the gate's own Set-Cookie and a restored one ever sit side by side in
+    // the jar, the one that is not the restored (ended) value is kept and the others are removed, so only one is sent.
     private func keepMacSession(_ mac: Board.Mac, url: URL, session: String) {
-        guard let value = cookies.cookies(for: url)?.first(where: { $0.name == Board.macCookieName })?.value,
+        // Not after a sign-out or another sign-in meanwhile: the record belongs to the session it was opened under.
+        guard sessionStore.load() == session else { return }
+        let named = (cookies.cookies(for: url) ?? []).filter { $0.name == Board.macCookieName }
+        let current = named.count > 1 ? (named.first { $0.value != restoredCookie } ?? named.last) : named.first
+        for other in named where other !== current { cookies.deleteCookie(other) }
+        guard let value = current?.value,
               let record = Board.encode(Board.SavedMacSession(name: mac.name, address: mac.address, cookie: value, owner: Board.owner(of: session)))
         else { return }
         macStore.save(record)
@@ -201,6 +211,7 @@ final class BoardClient: ObservableObject {
     // An answer from Kosmos+ that is not a success: a 401 is a sign-out, a 403 a refusal of this iPhone, anything
     // else (no answer, a 5xx, a 429) Kosmos+ being unreachable for now.
     private func kosmosPlusFailed(status: Int, _ gen: Int) {
+        guard gen == generation else { return }
         if status == 401 {
             // The Kosmos+ session is dead, so the Mac session kept under it is useless: forgotten with it.
             macStore.delete()

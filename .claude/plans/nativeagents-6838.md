@@ -70,6 +70,11 @@ If it is refused, Kosmos+ needs a small route (2 to 3 days, the plan's risk line
   re-issues the session for the same account (it can, for example after enrolment), the kept cookie is dropped and one
   new gate session opened. Safe, but it weakens the reuse; keying on the account instead needs the account id, which
   the app does not hold today. Watch for it on the first phone runs.
-- Known reliance: an agent tap (like a notification tap) is opened by the Board tab's web view, which exists from
-  launch because Board is the default tab. Not covered by a simulator run with a tap (the simulator here cannot tap);
-  the first TestFlight run checks it with the sign-in path.
+- An agent tap (like a notification tap) is opened by the Board tab's web view: an existing one loads it on update,
+  and one made later loads it when it is made (WebView.makeUIView reads boardToOpen). Not run in the simulator with
+  a tap (it cannot tap here); the first TestFlight run checks it with the sign-in path.
+- Not covered by the loop tests: how Foundation keys a cookie from the gate's real Set-Cookie (host-only __Host-)
+  against one the app restored. keepMacSession keeps one, the value that is not the restored one, and removes any
+  other of that name, so a mismatch cannot leave the ended cookie in use.
+- "Needs you" (amber, listed first) mirrors the board's engine/status.js needsPerson exactly, case by case in the
+  tests; a plain sign-in failure is not one, as on the board.

@@ -50,6 +50,8 @@ struct AgentsView: View {
                 ProgressView().accessibilityLabel("Waiting for your Mac")
             }
             .accessibilityElement(children: .combine)
+            // The code is spelled out character by character, as the gate page reads it.
+            .accessibilityLabel("Allow this iPhone on \(mac). " + (code.map { "Your Mac is showing a code. Check it matches: \($0.map(String.init).joined(separator: " "))" } ?? "Your Mac is asking whether to let this iPhone in."))
             .accessibilityAddTraits(.updatesFrequently)
         case .connecting(let mac):
             VStack(spacing: 12) {
