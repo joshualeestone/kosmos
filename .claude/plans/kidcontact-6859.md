@@ -14,9 +14,10 @@ all keep agents out. A company, or a computer joined to nobody, is unchanged (on
 Every reader goes through this one function (community send, community switch, the agent's community block, shared
 rooms), so all of them follow.
 
-`kindStrict`: the record's kind; a record file that is there but cannot be read throws, whatever markers sit beside
-it; with no record, a pending join's or leave's kind ('company' when the marker names none, as markers from before
-kinds do); null only with no enrollment at all.
+`kindStrict` (review 4 design): reads the three enrollment files itself, once each, rather than through readers
+that answer null on a fault. The record's kind first; else a pending leave's or join's (a family's if either is, as
+in a move); a file that parses but names no kind (from before kinds, or with an identity readEnrollment rejects) is
+a company's; a file that is there but cannot be read or parsed throws; null only when none of the three is there.
 
 ## Decided, not missed
 - Board side, not coordinator: it needs no coordinator deploy and covers a family that already exists with no
@@ -51,14 +52,23 @@ kinds do); null only with no enrollment at all.
 - Review 2, deferred: on a fault the agent's community block keeps the rules (communityblock.policyStopped reads a
   throw as not stopped, so a fault never rewrites every agent's instructions) while every send is refused. That is
   the existing posture for a damaged policy record; nothing leaks.
-- Review 3: kindStrict reads the record file once (readEnrollment and kindStrict share enrollmentFrom), so a join
-  that lands between a read and a stat is never taken for a damaged record.
+- Review 3: kindStrict reads the record file once, so a join that lands between a read and a stat is never taken
+  for a damaged record (kept in review 4's design; the shared enrollmentFrom it added is gone with it).
 - Review 3, deferred: the moments with no record and no marker, which read as joined to nobody: a join before its
   marker exists, and a leave after its record is cleared and before its marker is written. In both the computer is
   between memberships (before the join is confirmed it is not yet the family's); reordering the leave's writes is a
   change to the leave flow, outside this card.
 - Review 3, checked: the console's Family preset sets Outside contact off, so `{ enabled: true }` comes only from a
   parent choosing it.
+- Review 4: the kind is separated from the identity. Reviews 1 to 3 read the kind through readEnrollment, which
+  answers null for a record whose identity is not valid, and then threw; nothing clears such a record, so a
+  company board would have been closed for good. The kind now comes from the parsed file whatever its identity, and
+  only a file that cannot be read or parsed throws, which covers torn markers too (they used to read as a company's).
+- Review 4, noted: a family's refused community acts are reported to the console as the outside-contact rule (the
+  agent-events refusal report) even when the parent saved no policy. That is true of the Kids default (#6239 lists
+  no outside contact among them).
+- Review 4, noted: the guarantee ends when the child's computer leaves the family (a confirmed leave removes the
+  record and its marker). That is the same for every policy, and #6862 records it beside the explicit-on caveat.
 - Review 1, deferred: one more small file read per contactAllows call (currentStrict already reads one per call);
   the require is lazy, so there is no load-order cycle.
 
@@ -75,3 +85,6 @@ kinds do); null only with no enrollment at all.
 - Review 2: a marker beside a damaged record does not hide it; a kindless marker reads as a company's; a family
   leave not yet confirmed keeps agents out; throws are matched by their words. Mutations: review 1's kindStrict body
   (red: a marker hid a damaged record); a kindless marker throwing (red).
+- Review 4: a torn leave or join marker throws; a record with a bad identity keeps its kind (a company's stays open,
+  a family's stays closed); a move into a family reads as a family's. Mutations: a torn file read as missing
+  (2 red); a move taking the first marker (1 red).

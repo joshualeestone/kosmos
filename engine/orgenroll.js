@@ -101,14 +101,11 @@ function holdsEnrollment(opts) {
 
 /* The company this world is enrolled to, as last confirmed by the coordinator, or null. */
 function readEnrollment(opts) {
-  try { return enrollmentFrom(fs.readFileSync(path.join(storeRoot(opts), ENROLLMENT_FILE), 'utf8')); } catch { return null; }
-}
-/* The record in `text`, or null when it is not one (kosmos#6859: shared with kindStrict, which reads the file once). */
-function enrollmentFrom(text) {
-  let rec;
-  try { rec = JSON.parse(text); } catch { return null; }
-  if (!rec || typeof rec !== 'object' || !rec.org || typeof rec.org.id !== 'string' || !WORLD_ID.test(rec.world || '')) return null;
-  return rec;
+  try {
+    const rec = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), ENROLLMENT_FILE), 'utf8'));
+    if (!rec || typeof rec !== 'object' || !rec.org || typeof rec.org.id !== 'string' || !WORLD_ID.test(rec.world || '')) return null;
+    return rec;
+  } catch { return null; }
 }
 /* #5683 review 38: the agent-events state is marked withdrawn WHERE reporting stops, not only when the board's
    timer next notices (a Leave started and refused inside one timer interval wrote the SAME record back, and the
@@ -538,22 +535,28 @@ function pendingKind(opts) {
 /* kosmos#6263: the kind of the org this Kosmos is enrolled to, for sentences elsewhere (a policy's): 'family',
    'company', or null when it is enrolled to none or its record names no kind (both read as a company's). */
 function kindHere(opts) { return recKind(opts) || null; }
-/* kosmos#6859: the kind for a rule that must not fail open. The record's kind; a record file that is there but cannot
-   be read throws, whatever else is beside it. With no record, a pending join's or leave's kind ('company' when the
-   marker names none, as markers from before kinds do); null only when this Kosmos holds no enrollment at all. */
+/* kosmos#6859: the kind for a rule that must not fail open, from the files themselves (not through readers that
+   answer null on a fault). The enrollment record's kind first, then a pending leave's or join's (a family's if either is); a file
+   that parses but names no kind (one from before kinds, or one whose identity is not valid) is a company's. A file
+   that is there but cannot be read or parsed throws. null only when none of the three is there. */
 function kindStrict(opts) {
-  let text = null;
-  try { text = fs.readFileSync(path.join(storeRoot(opts), ENROLLMENT_FILE), 'utf8'); } catch (e) {
-    if (!e || e.code !== 'ENOENT') throw new Error('this Kosmos holds an enrollment record that cannot be read');
-  }
-  if (text !== null) {   // one read, so a join that lands between two reads is never taken for a damaged record
-    const r = enrollmentFrom(text);
-    if (r) return kindOf(r.org.kind);
-    throw new Error('this Kosmos holds an enrollment record that cannot be read');
-  }
-  if (!holdsEnrollment(opts)) return null;
-  const j = joinUnknown(opts);
-  return kindOf(pendingKind(opts) || (j && j.orgKind));
+  const root = storeRoot(opts);
+  const from = (name, pick) => {
+    let text;
+    try { text = fs.readFileSync(path.join(root, name), 'utf8'); } catch (e) {
+      if (e && e.code === 'ENOENT') return undefined;
+      throw new Error('this Kosmos holds an enrollment file that cannot be read');
+    }
+    let j;
+    try { j = JSON.parse(text); } catch { throw new Error('this Kosmos holds an enrollment file that cannot be read'); }
+    return (j && typeof j === 'object' && pick(j)) || null;
+  };
+  const rec = from(ENROLLMENT_FILE, (j) => j.org && j.org.kind);
+  if (rec !== undefined) return kindOf(rec);
+  const leave = from(LEAVE_PENDING_FILE, (j) => (j.rec && j.rec.org && j.rec.org.kind) || j.orgKind);
+  const join = from(JOIN_UNKNOWN_FILE, (j) => j.orgKind);
+  if (leave === undefined && join === undefined) return null;
+  return leave === 'family' || join === 'family' ? 'family' : 'company';   // a move between two orgs: either one a family's
 }
 /* The same, as the two words a reader or a key wants: 'family', else 'company' (one copy of that mapping). */
 function kindNow(opts) { return kindOf(kindHere(opts)); }

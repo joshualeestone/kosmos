@@ -112,12 +112,12 @@ test('#6859: an enrollment that cannot be read, or a family join not yet settled
   try {
     joined('family');
     fs.writeFileSync(file, '{ not json');
-    assert.throws(() => orgpolicy.contactAllows(), /enrollment record that cannot be read/, 'a damaged enrollment read as joined to nobody');
+    assert.throws(() => orgpolicy.contactAllows(), /enrollment file that cannot be read/, 'a damaged enrollment read as joined to nobody');
     assert.equal(communitysend.switchState(), 'policy_unreadable');
     assert.equal(fedseats.contactStopped(), true);
     // A marker beside a damaged record does not stand in for it (a damaged family record plus a company join).
     fs.writeFileSync(path.join(store.ROOT, JOIN_UNKNOWN), JSON.stringify({ at: new Date().toISOString(), orgKind: 'company' }) + '\n');
-    assert.throws(() => orgpolicy.contactAllows(), /enrollment record that cannot be read/, 'a marker hid a damaged record');
+    assert.throws(() => orgpolicy.contactAllows(), /enrollment file that cannot be read/, 'a marker hid a damaged record');
     joined(null);
     fs.writeFileSync(path.join(store.ROOT, JOIN_UNKNOWN), JSON.stringify({ at: new Date().toISOString(), orgKind: 'family' }) + '\n');
     assert.equal(orgenroll.kindStrict(), 'family', 'CONTROL: the pending join is read');
@@ -133,5 +133,30 @@ test('#6859: an enrollment that cannot be read, or a family join not yet settled
     fs.writeFileSync(path.join(store.ROOT, orgenroll.LEAVE_PENDING_FILE), JSON.stringify({ at: new Date().toISOString(), rec: { org: { id: 'org-1', kind: 'family' } } }) + '\n');
     assert.equal(orgenroll.kindStrict(), 'family', 'CONTROL: the pending leave is read');
     assert.deepEqual(readers(), OUT, 'a family leave not yet confirmed let agents out');
+  } finally { communitysend.setSwitch(null); joined(null); }
+});
+
+test('#6859: the kind comes from the files themselves: a torn marker throws, a record with a bad identity keeps its kind', () => {
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  const rec = path.join(store.ROOT, orgenroll.ENROLLMENT_FILE);
+  try {
+    joined(null);
+    fs.writeFileSync(path.join(store.ROOT, orgenroll.LEAVE_PENDING_FILE), '{ torn');
+    assert.throws(() => orgpolicy.contactAllows(), /enrollment file that cannot be read/, 'a torn leave marker read as a company');
+    joined(null);
+    fs.writeFileSync(path.join(store.ROOT, JOIN_UNKNOWN), '{ torn');
+    assert.throws(() => orgpolicy.contactAllows(), /enrollment file that cannot be read/, 'a torn join marker read as a company');
+    // A record whose identity readEnrollment rejects (world null) still says whose it is.
+    joined(null);
+    fs.writeFileSync(rec, JSON.stringify({ org: { id: 'org-1', kind: 'company' }, world: null }) + '\n');
+    assert.equal(orgenroll.readEnrollment(), null, 'CONTROL: readEnrollment rejects this record');
+    assert.deepEqual(readers(), IN, 'a company record with a bad identity closed the board for good');
+    fs.writeFileSync(rec, JSON.stringify({ org: { id: 'org-1', kind: 'family' }, world: null }) + '\n');
+    assert.deepEqual(readers(), OUT, 'a family record with a bad identity let agents out');
+    // A move: a company leave pending beside a family join keeps agents out.
+    joined(null);
+    fs.writeFileSync(path.join(store.ROOT, orgenroll.LEAVE_PENDING_FILE), JSON.stringify({ rec: { org: { id: 'org-2', kind: 'company' } } }) + '\n');
+    fs.writeFileSync(path.join(store.ROOT, JOIN_UNKNOWN), JSON.stringify({ orgKind: 'family' }) + '\n');
+    assert.equal(orgenroll.kindStrict(), 'family', 'a move into a family read as a company');
   } finally { communitysend.setSwitch(null); joined(null); }
 });
