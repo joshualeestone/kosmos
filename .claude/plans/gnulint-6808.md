@@ -44,6 +44,10 @@ and on a Mac.
   (`sed -i '' 's/a/b/;s/c/d/' f || sed -i ...` was flagged). Now an awk walker splits at `;` and `&&` outside quotes
   only. Two allow cases added (a quoted `;` in sed and in a date format).
 
+- **Round 4 (one SHOULD):** an escaped quote (`\"`, `\'`) opened a quote that never closed and merged the rest of the
+  line into one piece, which could only excuse. A backslash outside single quotes now takes the next character with
+  it. Two must-flag cases added; mutant (the backslash rule removed) turns both red.
+
 ## Weakest premise
 - That these seven forms are "the common ones". The list is from the card plus the coreutils options macOS lacks. A
   form not on it (GNU `cp --reflink`, `ls --time-style`, long options generally) still slips through; the lint is a

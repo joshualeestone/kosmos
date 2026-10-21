@@ -55,11 +55,14 @@ forms() {
 # its counterpart ($cpat) and a || in that same piece. A function, not inline in $(...): bash 3.2 cannot parse a case
 # inside a command substitution.
 unchained_pieces() {
-    # Split at ; and && OUTSIDE quotes only: `sed -i 's/a/b/;s/c/d/'` is one command (escapes are not followed).
+    # Split at ; and && OUTSIDE quotes only: `sed -i 's/a/b/;s/c/d/'` is one command. A backslash outside single quotes
+    # takes the next character with it, so `\"` or `\'` never opens a quote that would swallow the rest of the line
+    # (and with it the split points: that would only ever excuse a GNU form).
     printf '%s\n' "$1" | awk '{
         out = ""; q = ""; n = length($0)
         for (i = 1; i <= n; i++) {
             c = substr($0, i, 1)
+            if (c == "\\" && q != "\047") { out = out c substr($0, i + 1, 1); i++; continue }
             if (q != "") { if (c == q) q = ""; out = out c; continue }
             if (c == "\047" || c == "\"") { q = c; out = out c; continue }
             if (c == ";") { out = out "\n"; continue }
@@ -123,6 +126,8 @@ for case_ in \
     "sed-i|sed -i '' 's/x/y/' a && sed -i 's/p/q/' b" \
     "sed-i|sed -i '' 's/x/y/' a && sed -i 's/p/q/' b || true" \
     "stat-c|stat -f %z a; stat -c %s b || exit 1" \
+    "stat-c|echo \"a\\\"b\"; stat -c %s b; y || stat -f %z a" \
+    "stat-c|echo it\\'s; stat -c %s b; x || stat -f %z a" \
     "sed-i|bash -c \"sed -i 's/a/b/' f\"" \
     "sed-i|/usr/bin/sed -i 's/a/b/' f" \
     "date-d|date -d@123 +%s" \
