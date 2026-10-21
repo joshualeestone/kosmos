@@ -36,6 +36,10 @@ and on a Mac.
   brace (`bash -c "sed -i ..."`, `/usr/bin/sed`); `sed -Ei ''` allowed; `#! /bin/sh` shebangs listed.
   Documented, not built: backslash-continued commands, and the other GNU-only tools (header, "A FLOOR, NOT A PROOF").
 
+- **Round 2 (one SHOULD):** any `||` on the line excused a hit, so `sed -i '' a && sed -i 's/p/q/' b || true` passed.
+  Now the line is split at `;` and `&&`, and each piece holding a GNU form needs its counterpart and a `||` in that
+  piece. Two must-flag cases added. Header: a form inside any quoted string is flagged (B counts a quote).
+
 ## Weakest premise
 - That these seven forms are "the common ones". The list is from the card plus the coreutils options macOS lacks. A
   form not on it (GNU `cp --reflink`, `ls --time-style`, long options generally) still slips through; the lint is a

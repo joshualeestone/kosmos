@@ -21,7 +21,7 @@
 # backslash-continued line (`find . \` then `-printf`) is missed; other GNU-only tools and options (tac, head -n -N,
 # du -b, sha256sum on older macOS, sed's \n in a replacement) are not on the list. And two over-reaches that
 # `# gnu-ok:` settles: `git grep -P` is flagged (it works only where git was built with PCRE), and so is the word
-# "timeout" followed by a number inside a string.
+# a form inside a quoted string (B counts a quote as a command start, for `bash -c "sed -i ..."`), e.g. an echo of usage.
 #
 # A line that is deliberately GNU-only (inside a Linux-only branch, say) says so on the line: `# gnu-ok: <why>`.
 # Comment lines are not read. Test files (tools/test-*.sh, */test-*.sh, test/) are not product code: a GNU form in one
@@ -51,6 +51,19 @@ forms() {
 # A hit is excused by its BSD counterpart only where the two are one decision: on the SAME line joined by ||, or on
 # the line directly before or after (the tree's idioms: `cmd -bsd ... \` then `|| cmd -gnu ...`, `date -r ... &&
 # return 0` above `date -d ...`, and an if/else on two lines). Further away it is someone else's command.
+# unchained_pieces <line>: prints one x per ;/&&-separated piece of the line that holds a GNU form ($name, $pat) without
+# its counterpart ($cpat) and a || in that same piece. A function, not inline in $(...): bash 3.2 cannot parse a case
+# inside a command substitution.
+unchained_pieces() {
+    printf '%s\n' "$1" | awk '{ gsub(/&&|;/, "\n"); print }' | while IFS= read -r piece; do
+        g=$piece
+        [ "$name" = sed-i ] && g=$(printf '%s\n' "$piece" | sed -E "s/-([a-zA-Z]*)i[[:space:]]+(''|\"\")/-\\1/g")
+        printf '%s\n' "$g" | grep -qE "$pat" || continue
+        case "$piece" in *'||'*) printf '%s\n' "$piece" | grep -qE "$cpat" && continue ;; esac
+        echo x
+    done
+}
+
 scan_file() {
     f=$1; label=$2
     forms | while IFS="$(printf '\t')" read -r name pat cpat; do
@@ -62,13 +75,13 @@ scan_file() {
             case "$(printf '%s' "$text" | sed 's/^[[:space:]]*//')" in '#'*) continue ;; esac
             if [ -n "$cpat" ]; then
                 if printf '%s\n' "$text" | grep -qE "$cpat"; then
-                    # sed -i '' matches the GNU pattern too: with every BSD form taken out, is a GNU one left?
-                    if [ "$name" = sed-i ]; then
-                        printf '%s\n' "$text" | sed -E "s/-([a-zA-Z]*)i[[:space:]]+(''|\"\")/-\\1/g" | grep -qE "$pat" || continue
-                    fi
-                    case "$text" in *'||'*) continue ;; esac
                     # `command -v timeout ... && timeout N` guards with &&, not ||.
                     [ "$name" = timeout ] && continue
+                    # Otherwise the two must be one || chain: split the line at ; and &&, and every piece that holds a
+                    # GNU form must hold the counterpart and a || too (a trailing `|| true` elsewhere excuses nothing).
+                    # For sed, the BSD `-i ''` is taken out of a piece first, since it matches the GNU pattern as well.
+                    left=$(unchained_pieces "$text")
+                    [ -z "$left" ] && continue
                 fi
                 if [ "$n" -gt 1 ]; then near="$((n - 1))p;$((n + 1))p"; else near="$((n + 1))p"; fi
                 sed -n "$near" "$f" | grep -qE "$cpat" && continue
@@ -96,6 +109,8 @@ for case_ in \
     "find-printf|find . -name x -printf '%p'" \
     "sed-i|sed --in-place 's/a/b/' f" \
     "sed-i|sed -i '' 's/x/y/' a && sed -i 's/p/q/' b" \
+    "sed-i|sed -i '' 's/x/y/' a && sed -i 's/p/q/' b || true" \
+    "stat-c|stat -f %z a; stat -c %s b || exit 1" \
     "sed-i|bash -c \"sed -i 's/a/b/' f\"" \
     "sed-i|/usr/bin/sed -i 's/a/b/' f" \
     "date-d|date -d@123 +%s" \
