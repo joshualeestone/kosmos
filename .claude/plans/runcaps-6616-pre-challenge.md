@@ -1,8 +1,8 @@
 ---
 method: challenge-loop
 branch: runcaps-6616
-diff_hash: 0ab3acca09f097838da11ed53d6396fe34dac536109c00cd115f480355ee5319
-timestamp: 2026-10-20T08:04:41Z
+diff_hash: 3c35e6bb4f997faed13cb20e3d52b93ce72fdeeb6e076576c5340387ac1d0b60
+timestamp: 2026-10-21T08:33:06Z
 subdir_audit: passed
 iterations: 11
 converged: true
@@ -72,3 +72,11 @@ test's fake tunnel writes its own pid, so the foreign-tunnel path does not run i
 [NIT] the non-array arm covered only a string (an array of non-strings added)
 [STRENGTH] the signal path is fenced by independent fail-closed conditions, each with a test that can fail
 [STRENGTH] connectorCapabilities only narrows; a status file cannot widen a binary that says no
+
+## After convergence (2026-10-21T08:33:06Z): main merged in, one guard line
+The relay half (kosmos-relay #523) merged, so this PR came out of draft. Main (285 commits behind) was merged in
+cleanly, and the full suite was run on that tree with tools/run-tests.sh: 22,819 tests, 4 red. Three were contention
+(supervisor.codexhook-5812, supervisor.qwen-endpoint-5977, supervisor.retire-token-4530: each green alone). The fourth
+was real and this branch's: engine/windows-tests-1777's guard, because the R01c arm in server.remotestepup-6595.test.js
+skips on win32 and the file was in neither list. It is now in HOST_BRANCH_EXCLUDED with its reason (the arm reads the
+process table with ps), and the guard passes (23/23). No product code changed after convergence.
