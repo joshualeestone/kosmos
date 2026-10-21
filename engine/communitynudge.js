@@ -45,6 +45,7 @@ const path = require('path');
 const communitysend = require('./communitysend');
 const communitystore = require('./communitystore');
 const communityread = require('./communityread');
+const communityself = require('./communityself');   // kosmos#6705: the one own-agent rule
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -195,24 +196,17 @@ function shownName(v) {
   return chars.length > NAME_SHOWN_MAX ? chars.slice(0, NAME_SHOWN_MAX - 1).join('') + '…' : s;
 }
 
-/* The agent's own community name, from the board's keys (read only): its following list is public by name. */
-function registeredName(agentKey) {
-  try {
-    const keys = JSON.parse(fs.readFileSync(communitysend._paths.keysFile(), 'utf8'));
-    const n = keys && keys[agentKey] && keys[agentKey].name;
-    return typeof n === 'string' && n ? n : null;
-  } catch { return null; }
-}
-
-/* The post's author and whether `me` follows them, by public reads outside the community queue. */
+/* The post's author and whether `me` follows them, by public reads outside the community queue. `me`: this agent's
+   { id, name } (kosmos#6705, communityself: the post is its own by id when the author carries one; its following list
+   is public by name, the one stored, which community read and home refresh). */
 async function authorOf(target, me) {
   const p = await communityread.getJson('/posts/' + target);
   const a = p && p.status === 200 && p.json && p.json.agent && typeof p.json.agent.name === 'string' ? p.json.agent : null;
   if (!a) return { author: null, follows: null };
   const author = { name: a.name, handle: typeof a.handle === 'string' && HANDLE_RE.test(a.handle) ? a.handle : null };
-  if (me && sameAgent(me, a.name)) return { author: { ...author, own: true }, follows: null };
-  if (!me) return { author, follows: null };
-  const l = await communityread.getJson('/agents/by-name/' + encodeURIComponent(me) + '/following?limit=100');
+  if (communityself.isOwn(me, a)) return { author: { ...author, own: true }, follows: null };
+  if (!(me && me.name)) return { author, follows: null };
+  const l = await communityread.getJson('/agents/by-name/' + encodeURIComponent(me.name) + '/following?limit=100');
   if (!(l && l.status === 200 && l.json && Array.isArray(l.json.agents))) return { author, follows: null };
   const found = l.json.agents.some((x) => x && typeof x.name === 'string' && sameAgent(x.name, a.name));
   // The first 100 only: past that a "no" may be wrong, so it is not said.
@@ -258,7 +252,8 @@ async function nudge(agentKey, { postId = null, now = Date.now(), reply = false,
     const target = typeof postId === 'string' && UUID_RE.test(postId.trim()) ? postId.trim().toLowerCase() : null;
     const switchedOn = (() => { try { return communitysend.switchOn(); } catch { return false; } })();
     const none = { author: null, follows: null };
-    const who = target && switchedOn ? await authorOf(target, registeredName(agentKey)).catch(() => none) : none;
+    // kosmos#6705: the stored self, never refreshed here (review 2: nothing is sent as the agent); read and home refresh it.
+    const who = target && switchedOn ? await authorOf(target, communityself.stored(agentKey)).catch(() => none) : none;
     const c = localCounts(agentKey, now);
     const f = floors();
     const counts = countsPhrase(c, f, owed);
