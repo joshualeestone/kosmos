@@ -612,6 +612,76 @@ do {
     check(cats.allSatisfy { $0.options.isEmpty }, "no category asks for dismiss delivery, which the handler has no branch for")
 }
 
+// MARK: - kosmos#6838: the native Agents tab
+
+section("native board: requests")
+do {
+    let mac = URL(string: "https://studio.kosmosplus.com/")!
+    let macs = Board.macsRequest(coordinator: coordinator, session: "kst1")
+    check(macs.url?.absoluteString == "https://login.kosmosplus.com/v1/account/macs", "the Mac list is asked of Kosmos+")
+    check(macs.value(forHTTPHeaderField: "Authorization") == "Bearer kst1", "with the Kosmos+ session as a bearer")
+    check(macs.httpShouldHandleCookies == false, "and no cookies")
+    let h = Board.handoffRequest(coordinator: coordinator, session: "kst1", address: "studio.kosmosplus.com")
+    check(h.httpMethod == "POST" && h.url?.path == "/v1/account/handoff", "a handoff is a POST to /v1/account/handoff")
+    let hb = (try? JSONSerialization.jsonObject(with: h.httpBody ?? Data())) as? [String: String]
+    check(hb == ["address": "studio.kosmosplus.com"], "naming the Mac's address and nothing else")
+    let s = Board.sessionRequest(mac: mac, handoffToken: "hand1")
+    check(s.url?.absoluteString == "https://studio.kosmosplus.com/_kosmos/session" && s.httpMethod == "POST", "the gate's session door")
+    check(s.value(forHTTPHeaderField: "Origin") == nil, "with no Origin header (the gate refuses only a foreign one)")
+    let sb = (try? JSONSerialization.jsonObject(with: s.httpBody ?? Data())) as? [String: String]
+    check(sb == ["token": "hand1"], "carrying the handoff token as the gate page does")
+    check(Board.statusRequest(mac: mac).url?.absoluteString == "https://studio.kosmosplus.com/api/status", "the board snapshot")
+}
+
+section("native board: which Mac")
+do {
+    check(Board.macURL(address: "studio.kosmosplus.com", coordinator: coordinator)?.absoluteString == "https://studio.kosmosplus.com/", "a Mac under the relay domain")
+    check(Board.macURL(address: "STUDIO.kosmosplus.com", coordinator: coordinator)?.host == "studio.kosmosplus.com", "case does not matter")
+    check(Board.macURL(address: "login.kosmosplus.com", coordinator: coordinator) == nil, "the coordinator itself is not a Mac")
+    check(Board.macURL(address: "evil.example.com", coordinator: coordinator) == nil, "another domain is refused")
+    check(Board.macURL(address: "a.b.kosmosplus.com", coordinator: coordinator) == nil, "a deeper name is refused")
+    let json = #"{"macs":[{"name":"Old","address":"old.kosmosplus.com","retired_at":1700000000},{"name":"Off","address":"off.kosmosplus.com","remote_off":true},{"name":"Studio","address":"studio.kosmosplus.com","retired_at":null},{"name":"","address":"laptop.kosmosplus.com"},{"name":"No address"}]}"#
+    let macs = Board.parseMacs(Data(json.utf8)) ?? []
+    check(macs.count == 4, "a row with no address is dropped")
+    check(macs.map(\.usable) == [false, false, true, true], "retired and switched-off Macs are not usable; a null retired_at is")
+    check(macs[3].name == "laptop.kosmosplus.com", "an empty name falls back to the address")
+    check(Board.pickMac(macs, remembered: nil)?.address == "studio.kosmosplus.com", "the first usable Mac")
+    check(Board.pickMac(macs, remembered: "laptop.kosmosplus.com")?.address == "laptop.kosmosplus.com", "the remembered Mac while it is usable")
+    check(Board.pickMac(macs, remembered: "old.kosmosplus.com")?.address == "studio.kosmosplus.com", "not a remembered Mac that was retired")
+    check(Board.parseMacs(Data("[]".utf8)) == nil, "a body that is not the list reads as nothing")
+    check(Board.parseHandoffToken(Data(#"{"token":"t"}"#.utf8)) == "t" && Board.parseHandoffToken(Data(#"{"token":""}"#.utf8)) == nil, "the handoff token, never an empty one")
+}
+
+section("native board: the Mac's answer")
+do {
+    func a(_ status: Int, _ body: String?, waiting: Bool = false) -> Board.SessionAnswer {
+        Board.classifySession(status: status, body: body.map { Data($0.utf8) }, waiting: waiting)
+    }
+    check(a(200, nil) == .admitted, "200 is in")
+    check(a(403, #"{"pending":true,"code":"4821"}"#) == .pending(code: "4821"), "pending, with the match code the Mac shows")
+    check(a(403, #"{"pending":true}"#) == .pending(code: nil), "pending with no code")
+    check(a(403, #"{"denied":true}"#) == .denied, "the Mac said no")
+    check(a(400, nil, waiting: true) == .retry, "a 400 while waiting is a slow network, asked again")
+    check(a(400, #"{"because":"that link expired"}"#) == .refused(because: "that link expired"), "a 400 before waiting is a refusal, with the reason")
+    check(a(403, #"{"because":"wrong key"}"#) == .refused(because: "wrong key"), "a 403 that is neither pending nor denied is a refusal")
+    check(a(502, "not json") == .refused(because: nil), "anything else is a refusal with no reason")
+}
+
+section("native board: agents")
+do {
+    let json = #"{"agents":[{"sessionName":"eli","name":"Eli","role":"Researcher","state":"idle"},{"sessionName":"cleo","name":"Cleo","role":"","state":"needs_you"},{"sessionName":"dana","name":"Dana","state":"working","task":"Pages 9 to 12"},{"name":"No key","state":"working"},{"sessionName":"farah","name":"Farah","state":"idle","awaitingApproval":true}]}"#
+    let agents = Board.parseAgents(Data(json.utf8)) ?? []
+    check(agents.count == 4, "a row with no sessionName is dropped")
+    check(agents.first { $0.session == "cleo" }?.role == nil, "an empty role is no role")
+    check(agents.first { $0.session == "farah" }?.askedYou == true, "awaitingApproval means it asked you")
+    check(Board.sorted(agents).map(\.session) == ["cleo", "farah", "dana", "eli"], "asked you first, then working, then the rest, by name")
+    let w = { (s: String) in Board.statusWord(Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, askedYou: false)) }
+    check(w("working") == "Working" && w("idle") == "Idle" && w("connection_lost") == "Offline" && w("auth_failed") == "Signed out", "one word per state")
+    check(w("something_new") == "Unknown", "a state the phone does not know yet says Unknown, never blank")
+    check(Board.statusWord(agents.first { $0.session == "cleo" }!) == "Asked you", "the one that asked says so")
+    check(Board.parseAgents(Data(#"{"counts":{}}"#.utf8)) == nil, "a snapshot with no agents list reads as nothing")
+}
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

@@ -1,8 +1,8 @@
 import SwiftUI
 import WebKit
 
-// The board, rendered full-screen in a WKWebView, optionally gated behind a
-// biometric unlock (KosmosConfig.requireBiometricUnlock).
+// Two tabs (kosmos#6838): the native Agents list, and the board in a WKWebView.
+// Optionally gated behind a biometric unlock (KosmosConfig.requireBiometricUnlock).
 struct ContentView: View {
     // Receives the session the coordinator sign-in page hands over (#718).
     @ObservedObject var pushManager: PushNotificationManager
@@ -18,29 +18,38 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     // The shell's failure page and retry requests (kosmos#718).
     @StateObject private var shell = ShellState()
+    // kosmos#6838: the native Agents tab beside the web board, until every screen is native.
+    @StateObject private var board = BoardClient()
+    @State private var tab = Tab.board
+    #if DEBUG
+    // Screenshots only (a Debug build; Release has no such switch): KOSMOS_START_TAB=agents opens on Agents.
+    init(pushManager: PushNotificationManager) {
+        self.pushManager = pushManager
+        if ProcessInfo.processInfo.environment["KOSMOS_START_TAB"] == "agents" { _tab = State(initialValue: .agents) }
+    }
+    #endif
+    enum Tab { case agents, board }
 
     var body: some View {
         Group {
             if isUnlocked {
-                ZStack {
-                    // Edge to edge, as before; how each page keeps clear of the notch
-                    // and home bar is set in makeUIView (safe areas).
-                    WebView(
-                        url: KosmosConfig.boardURL,
-                        pushManager: pushManager,
-                        boardToOpen: pushManager.boardToOpen,
-                        shell: shell,
-                        retryCount: shell.retryCount,
-                        backCount: shell.backCount
-                    )
-                        .ignoresSafeArea()
-                    if let failure = shell.failure {
-                        LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back)
+                TabView(selection: $tab) {
+                    AgentsView(client: board) { url in
+                        pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
                     }
+                    .tabItem { Label("Agents", systemImage: "person.2") }
+                    .tag(Tab.agents)
+                    webBoard
+                        .tabItem { Label("Board", systemImage: "rectangle.grid.1x2") }
+                        .tag(Tab.board)
                 }
             } else {
                 LockView(onUnlock: unlock)
             }
+        }
+        // A tapped notification, or an agent tapped on the Agents tab, opens on the Board tab.
+        .onChange(of: pushManager.boardToOpen) { request in
+            if request != nil { tab = .board }
         }
         .onAppear {
             // Cold launch: onChange does not fire for scenePhase's initial value,
@@ -70,6 +79,25 @@ struct ContentView: View {
                 }
             default:
                 break
+            }
+        }
+    }
+
+    private var webBoard: some View {
+        ZStack {
+            // Edge to edge, as before; how each page keeps clear of the notch
+            // and home bar is set in makeUIView (safe areas). The tab bar keeps its own space.
+            WebView(
+                url: KosmosConfig.boardURL,
+                pushManager: pushManager,
+                boardToOpen: pushManager.boardToOpen,
+                shell: shell,
+                retryCount: shell.retryCount,
+                backCount: shell.backCount
+            )
+                .ignoresSafeArea(edges: .top)
+            if let failure = shell.failure {
+                LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back)
             }
         }
     }
