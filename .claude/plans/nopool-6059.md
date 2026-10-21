@@ -18,7 +18,14 @@ Same contract for callers, from an audit of all 599 sites:
 - **Redirects:** `fetch` follows them and `http.request` does not. The server's only redirect is the `?boot=` /
   `?token=` bootstrap (server.js 302), and no `req()` call in this file reaches it (0 matches; a control grep finds
   the 65 `/api/status` calls).
-- **Return value:** unchanged, `{ status, type, body }`; the body is decoded as UTF-8 text, as `res.text()` did.
+- **Return value:** unchanged, `{ status, type, body }`; the body is decoded as UTF-8 text.
+- **Request shape (challenge loop iteration 1):** fetch types a string body with no content-type as
+  `text/plain;charset=UTF-8`, and server.js's cross-site write guard refuses that type. So req() adds the same
+  default, and the one arm that relied on it (`/api/remote/cert-watch/ack-lost`, expecting 403) still proves the
+  guard it did. Of fetch's other defaults, server.js reads `sec-fetch-mode` only to compare it with `navigate`, and
+  `user-agent` only into an access-log line (measured by grep; `accept` and `accept-encoding` are not read), so
+  leaving them out changes no answer.
+- **Timeout:** 300 s per request (undici's default), so a request that gets no answer fails as that request.
 
 The 21 direct `fetch(` calls in the file are left as they are: they are not on the failing path, and each is a
 deliberate fetch-semantics check.
@@ -35,3 +42,13 @@ the count is nonzero, so a later switch back to a pooled agent fails loudly.
 That a pooled-socket reset is the cause. Neither run captured which socket was reset. The evidence: the reset comes
 on the first request after a request-free test, which is the shape #6059 and #5841 measured. With `agent: false`
 there is nothing pooled left to reset, so a recurrence would disprove this premise.
+
+## Challenge loop iteration 1 (opus): 3 WARNINGs, 3 NITs, all taken
+- WARNING: "the contract is unchanged" was not true of the request headers. fetch types a string body with no
+  content-type as text/plain, which the cross-site write guard refuses, so the one POST arm with no headers
+  (`/api/remote/cert-watch/ack-lost`, expecting 403) had its 403 come from a different check. req() now sends the same
+  default, so every caller sends the content-type it did before (two WARNINGs, one fix).
+- WARNING: no timeout. req() now gives up after 300 s (undici's default) with an error naming the request.
+- NITs: the BOM wording is gone from the comment and the plan; the REUSED assertion says "tripwire"; and a comment
+  says the harness arm must stay last.
+- Measured after: server.test.js 364 of 364 pass.
