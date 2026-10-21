@@ -73,7 +73,9 @@ That GNU-first is harmless on macOS everywhere it runs: BSD `stat -c` exits non-
   `mktemp`. GNU mktemp honours TMPDIR (/tmp there); macOS mktemp with no template ignores TMPDIR and writes to the
   per-user /var/folders/.../T (measured on this Mac), which is why the macOS job never flagged it. The test now runs the
   region with TMPDIR="$WORK", so on Linux its trap removes them. On macOS they still land in the per-user dir, as they
-  did before (pre-existing, left alone: release.sh's kept-on-abort logs are deliberate). Re-measured: probe-6799d.
+  did before (pre-existing, left alone: release.sh's kept-on-abort logs are deliberate).
+- Re-measured, probe-6799d (never merged), run 39558291451: all three jobs success; both ALONE rc 0; shard 1/2 "all 124
+  passed", shard 2/2 "all 112 passed", no #4273 leak; the load line now reads "on 4 cores".
 - run-tests.sh's load diagnostic read cores from hw.ncpu only; with the load now readable on Linux it would print
   "on ? cores", so it uses kosmos_cpu_count (same `command -v` guard as its load read).
 - Precedent: cut-guard.sh's `_kosmos_load_and_cores` already falls back to /proc/loadavg and getconf the same way.
