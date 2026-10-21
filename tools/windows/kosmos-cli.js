@@ -526,6 +526,14 @@ async function verbMsg(ctx, args) {
   }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not re-send; check with them.');
   // #5805 slice 2a: kept for an agent out of usage, typed after its reset. Accepted, so 0, as Queued is.
+  if (d.held === true && d.heldBy === 'limit' && d.behind === true && d.behindFor === 'input') {   // #6774
+    ctx.out('Held for ' + to + ': it still has messages kept while its input box held text not yet sent, and Kosmos types this one after them. Do not re-send.');
+    return 0;
+  }
+  if (d.held === true && d.heldBy === 'limit' && d.heldFor === 'input') {   // #6774
+    ctx.out('Held for ' + to + ': its input box holds text not yet sent. Kosmos types it once the box is clear; do not re-send.');
+    return 0;
+  }
   if (d.held === true && d.heldBy === 'limit' && d.behind === true) {
     ctx.out('Held for ' + to + ': it still has messages kept from while it was out of usage, and Kosmos types this one after them. Do not re-send.');
     return 0;

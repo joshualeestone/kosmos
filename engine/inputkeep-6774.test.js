@@ -88,6 +88,7 @@ test('#6774: two messages refused by a stuck box are kept, then typed in order, 
     const b = await send(board, 'second, and then the release');
     assert.equal(b.held, true, JSON.stringify(b));
     assert.equal(b.behind, true);
+    assert.equal(b.behindFor, 'input', 'the CLIs word it from this field');
     assert.match(b.because, /still has messages kept while its input box held text not yet sent/);
     assert.deepEqual(tmux.pastedTo('casey'), [], 'a held message was typed behind the stuck text');
     assert.deepEqual(limitqueue.list('casey').map((e) => e.id), [a.id, b.id]);

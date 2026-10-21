@@ -1738,6 +1738,7 @@ function heldReceipt(toName, id, at, heldUntil, duplicate, behind, signin, more 
       : 'held: ' + toName + ' is out of usage' + (heldUntil ? ' until ' + heldUntil : '') + '; Kosmos types it after the reset',
     ...(!behind && signin ? { heldFor: 'signin' } : {}),
     ...(input ? { heldFor: 'input' } : {}),
+    ...(behind && more.behindInput === true ? { behindFor: 'input' } : {}),
     ...(behind ? { behind: true } : {}),
     ...(duplicate ? { duplicate: true } : {}),
   };

@@ -2725,8 +2725,8 @@ cmd_msg() {
     *'"heldBy":"limit"'*|*'"heldBy": "limit"'*)
       # #5805 slice 2a: kept for an agent out of usage, typed after its reset. Accepted, so 0, as Queued is.
       case "$body" in
-        # #6774: behind messages that were all kept for a stuck input box (the server's sentence says so).
-        *'"behind":true'*'kept while its input box held text'*|*'"behind": true'*'kept while its input box held text'*|*'kept while its input box held text'*'"behind":true'*|*'kept while its input box held text'*'"behind": true'*)
+        # #6774: behind messages that were all kept for a stuck input box.
+        *'"behindFor":"input"'*|*'"behindFor": "input"'*)
           say "Held for $to: it still has messages kept while its input box held text not yet sent, and Kosmos types this one after them. Do not re-send." ;;
         *'"behind":true'*|*'"behind": true'*) say "Held for $to: it still has messages kept from while it was out of usage, and Kosmos types this one after them. Do not re-send." ;;
         *'"heldFor":"input"'*|*'"heldFor": "input"'*) say "Held for $to: its input box holds text not yet sent. Kosmos types it once the box is clear; do not re-send." ;;   # #6774
