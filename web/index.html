@@ -6703,6 +6703,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkreceipt { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
 .tkreceipt .dlab { margin: 10px 0 4px; }
 .tkr-line, .tkr-intro, .tkr-again { margin: 2px 0 0; font-size: inherit; }
+/* kosmos#6842: a pull request label (repo#number) is one word, and a repository name may have no hyphen to break at. */
+.tkr-line { overflow-wrap: anywhere; }
 .tkr-intro, .tkr-again, .tkr-muted { color: var(--k-ink-3, var(--label-2)); }
 .tkr-agent { padding: 8px 0; }
 .tkr-agent + .tkr-agent { border-top: 1px solid var(--k-rule); }

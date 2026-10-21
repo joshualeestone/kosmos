@@ -25,7 +25,9 @@ catch {
 }
 
 const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
-const LONG = 'example/a-repository-name-long-enough-to-need-wrapping-on-a-phone';
+// No hyphen and no other break point: Chromium breaks after a hyphen, so a hyphenated name wraps with or without a
+// wrap rule and could not catch an overflow (challenge iteration 8). GitHub allows a name of letters only.
+const LONG = 'example/arepositorynamelongenoughtoneedwrappingonaphonewithnohyphen';
 const RECEIPT = {
   closedAt: '2026-10-21T15:00:00.000Z',
   retries: { reopened: 0, handoffs: 0 },
