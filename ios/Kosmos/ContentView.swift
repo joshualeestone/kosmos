@@ -27,9 +27,10 @@ struct ContentView: View {
     // biometric gate's didBackground, which only runs when that gate is on).
     @State private var tabsBackgrounded = false
     // Mona Lisa's slice 1 spec: open on Agents until Today exists. The App Store screenshot build
-    // (ios/store/shoot-app.sh) photographs board screens in the web view, so it opens on Board.
+    // (ios/store/shoot-app.sh) photographs board screens in the web view, opened by address, so it lights the tab
+    // that address belongs to (a project room under Projects).
     #if KOSMOS_STORE_SHOTS
-    @State private var tab = Tab.today
+    @State private var tab = AppTabs.tab(forBoardURL: KosmosConfig.shotsOrigin)
     #else
     // Not signed in yet (a first launch): open on Today, the board, where the sign-in is (the spec's "today's sign-in
     // flow"). Read once per launch (a static), not on every redraw. A launch before first unlock reads no session and
@@ -57,7 +58,7 @@ struct ContentView: View {
                         .tag(Tab.today)
                     AgentsView(client: board, openChat: { url in
                         pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-                    }, openBoard: { tab = .today })
+                    }, openBoard: { select(.today) })
                     .tabItem { Label("Agents", systemImage: "person.2") }
                     .tag(Tab.agents)
                     webBoard(.projects)
@@ -86,7 +87,7 @@ struct ContentView: View {
         }
         // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing.
         .onChange(of: web.tasksTab) { shown in
-            tab = AppTabs.keep(tab, tasksTab: shown)
+            select(AppTabs.keep(tab, tasksTab: shown))
         }
         .onAppear {
             // A notification tapped on a cold launch can set boardToOpen before the first draw, which onChange misses.
@@ -114,8 +115,9 @@ struct ContentView: View {
                 isUnlocked = false
                 didBackground = true
                 unlockGeneration += 1
-                // The locked app keeps no page: an unlock starts a fresh web view, as before the tabs shared one.
-                web.drop()
+                // The locked app keeps no page: an unlock starts a fresh web view, as before the tabs shared one,
+                // opening the section of the tab still selected.
+                web.drop(selected: tab)
             case .active:
                 // Re-prompt on the return from a real background, driven here
                 // rather than from LockView.onAppear (which does not re-fire when
@@ -128,6 +130,13 @@ struct ContentView: View {
                 break
             }
         }
+    }
+
+    // The app moving the bar itself (not an agent tap, which loads its own page): the board follows it.
+    private func select(_ new: Tab) {
+        guard new != tab else { return }
+        tab = new
+        web.press(new)
     }
 
     private func webBoard(_ which: Tab) -> some View {
@@ -243,7 +252,9 @@ final class BoardWeb: ObservableObject {
     private(set) var coordinator = WebView.Coordinator()
     // Whether the bar shows Tasks: the board's own flag, remembered so a launch shows the bar it last had.
     @Published private(set) var tasksTab = UserDefaults.standard.bool(forKey: AppTabs.rememberedTasksKey)
-    // A press made before the page could take it (the web view not made yet, or still loading); run once it loads.
+    // The press the page has not yet taken (the web view not made, still loading, or a page without the door, such
+    // as the sign-in page before the hand-off to the Mac). Tried again at every load until the door says true; a new
+    // press, the native tab, or a page the app loads itself (an agent tap) replaces it.
     private var pending: AppTabs.Tab?
     // The first board read of a launch may change the bar (it is still launching); later ones wait for a return.
     private var readThisLaunch = false
@@ -253,13 +264,18 @@ final class BoardWeb: ObservableObject {
     func adopt(_ webView: WKWebView) { self.webView = webView }
 
     func press(_ tab: AppTabs.Tab) {
-        guard let script = AppTabs.pressScript(tab) else { return }
-        guard let webView = webView, !webView.isLoading else { pending = tab; return }
-        pending = nil
-        webView.evaluateJavaScript(script) { result, error in
-            if !AppTabs.opened(result, error: error) { NSLog("[Tabs] the page did not open \(tab)") }
+        guard let script = AppTabs.pressScript(tab) else { pending = nil; return }
+        pending = tab
+        guard let webView = webView, !webView.isLoading else { return }
+        webView.evaluateJavaScript(script) { [weak self] result, error in
+            guard let self = self, self.pending == tab else { return }
+            if AppTabs.opened(result, error: error) { self.pending = nil }
+            else { NSLog("[Tabs] the page did not open \(tab) yet") }
         }
     }
+
+    // The app is loading a page of its own choosing (an agent tap, a notification): no earlier press may cover it.
+    func loadingOwnPage() { pending = nil }
 
     // A page finished loading: run a press that waited for it, and read the board's Tasks flag.
     func loaded() {
@@ -277,11 +293,13 @@ final class BoardWeb: ObservableObject {
     }
 
     // On lock: the page goes, with its session handler, and the next tab to show makes a fresh one.
-    func drop() {
+    func drop(selected: AppTabs.Tab) {
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: PushNotificationManager.sessionHandlerName)
         webView?.removeFromSuperview()
         webView = nil
-        pending = nil
+        pending = AppTabs.pressScript(selected) == nil ? nil : selected
+        // The fresh page's first read may set the bar, as at launch: it comes right after an unlock, a return.
+        readThisLaunch = false
         coordinator = WebView.Coordinator()
         coordinator.web = self
     }
@@ -362,6 +380,7 @@ struct WebView: UIViewRepresentable {
         // A cold launch from a tapped notification opens that board straight away.
         webView.load(URLRequest(url: boardToOpen?.url ?? url))
         if let request = boardToOpen {
+            web.loadingOwnPage()
             web.coordinator.issued = request.id
             consume(request)
         }
@@ -392,6 +411,7 @@ struct WebView: UIViewRepresentable {
         // clear lands.
         guard let request = boardToOpen, web.coordinator.issued != request.id else { return }
         web.coordinator.issued = request.id
+        web.loadingOwnPage()
         webView.load(URLRequest(url: request.url))
         consume(request)
     }

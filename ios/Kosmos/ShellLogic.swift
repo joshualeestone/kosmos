@@ -234,10 +234,21 @@ enum AppTabs {
         return "typeof window.kosmosAppTab === 'function' && window.kosmosAppTab('\(name)')"
     }
 
-    // Opened only on a real true. false, nothing, any other value and an error all mean the section did not open.
+    // Opened only on a real true. false, nothing, any other value (a number 1 too) and an error all mean the section
+    // did not open.
     static func opened(_ result: Any?, error: Error?) -> Bool {
-        guard error == nil, let value = result as? Bool else { return false }
-        return value
+        guard error == nil, let value = result as? NSNumber,
+              CFGetTypeID(value) == CFBooleanGetTypeID() else { return false }
+        return value.boolValue
+    }
+
+    // The tab whose section a board address opens (?tab=), so a build that starts on an address lights the right tab.
+    // The board's home, an agent's chat and anything unknown are Today.
+    static func tab(forBoardURL url: URL?) -> Tab {
+        let name = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+            .queryItems?.first(where: { $0.name == "tab" })?.value
+        guard let name = name else { return .today }
+        return Tab.allCases.first { $0 != .today && $0.boardName == name } ?? .today
     }
 
     // Marks every page the app loads, at document start, so the board hides its own navigation (part c). A script at

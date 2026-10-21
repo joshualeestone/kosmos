@@ -38,9 +38,11 @@ board inside the app shows no tab strip of its own, because the app marks every 
 - No Today badge in this part (the card calls it optional; needsYou is already in the client).
 
 ## Weakest premise
-That a remembered tasksTab is good enough at launch. It is the last Mac's value, so a person who switches to a Mac below
-25 tasks sees Tasks until the next return to the front. Josh's rule is that once shown it stays, so the error is one
-extra tab for a while, never a missing earned one. What would change this: per-Mac memory, if anyone switches Macs often.
+What "at launch" means. The bar takes the remembered value, then the first page read of the launch that answers, in
+either direction. Usually that is the first seconds, but after a late sign-in it can be minutes in, so the bar can
+change on screen once per launch (review 1, N3). If Tasks is showing when it leaves, the app goes to Today and presses
+Today, so the board follows. Rejected: holding the first read to the next return, which leaves an earned Tasks out of
+the bar for a first launch's whole session. What would change this: per-Mac memory, or a person reporting the jump.
 
 ## Validation
 LogicTests: AppTabs order and the Tasks gate, keep(), board names, door JS text, answer reading (true only), the

@@ -1149,6 +1149,7 @@ check(AppTabs.opened(true, error: nil), "true is opened")
 check(!AppTabs.opened(false, error: nil), "false is not opened")
 check(!AppTabs.opened(nil, error: nil), "nothing is not opened")
 check(!AppTabs.opened("true", error: nil), "a string is not opened")
+check(!AppTabs.opened(NSNumber(value: 1), error: nil), "a number 1 is not opened: only a real true")
 check(!AppTabs.opened(true, error: DoorError()), "an error is not opened, whatever came with it")
 
 section("app tabs: the scripts, run")
@@ -1157,12 +1158,20 @@ func pressIn(_ door: String?, _ tab: AppTabs.Tab) -> Bool {
     js.evaluateScript("var window = {}; var pressed = null;")
     if let door = door { js.evaluateScript("window.kosmosAppTab = function (n) { pressed = n; return \(door); };") }
     let answer = js.evaluateScript(AppTabs.pressScript(tab)!)
-    let opened = AppTabs.opened(answer?.toObject(), error: js.exception == nil ? nil : DoorError())
-    return opened && js.evaluateScript("pressed").toString() == tab.boardName
+    let threw = js.exception != nil
+    let opened = AppTabs.opened(answer?.toObject(), error: threw ? DoorError() : nil)
+    return !threw && opened && js.evaluateScript("pressed").toString() == tab.boardName
+}
+func pressThrows(_ tab: AppTabs.Tab) -> Bool {
+    let js = JSContext()!
+    js.evaluateScript("var window = {};")
+    js.evaluateScript(AppTabs.pressScript(tab)!)
+    return js.exception != nil
 }
 check(pressIn("true", .projects), "a board with the door opens the section it was asked for")
 check(!pressIn("false", .projects), "a door that refuses is not opened")
-check(!pressIn(nil, .today), "a page without the door (sign-in, an older board) is not opened and does not throw")
+check(!pressIn(nil, .today), "a page without the door (sign-in, an older board) is not opened")
+check(!pressThrows(.today), "and asking it does not throw")
 func marked(rootLater: Bool) -> Bool {
     let js = JSContext()!
     js.evaluateScript("""
@@ -1188,13 +1197,22 @@ func pageFlag(_ stored: String?, storage: Bool = true) -> Bool? {
     } else {
         js.evaluateScript("var localStorage = { getItem: function () { throw new Error('blocked'); } };")
     }
-    return AppTabs.tasksTab(fromPage: js.evaluateScript(AppTabs.tasksReadScript)?.toObject())
+    let answer = js.evaluateScript(AppTabs.tasksReadScript)?.toObject()
+    return js.exception == nil ? AppTabs.tasksTab(fromPage: answer) : true   // a throw reads as a wrong answer
 }
 check(pageFlag("1") == true, "the board's flag 1 shows Tasks")
 check(pageFlag("0") == false, "0 hides it")
 check(pageFlag(nil) == nil, "no flag (the sign-in page, an older board) says nothing")
 check(pageFlag(nil, storage: false) == nil, "blocked storage says nothing, and does not throw")
 check(AppTabs.tasksTab(fromPage: NSNull()) == nil && AppTabs.tasksTab(fromPage: 1) == nil, "only the strings 1 and 0 count")
+
+section("app tabs: the tab an address belongs to")
+func tabFor(_ s: String) -> AppTabs.Tab { AppTabs.tab(forBoardURL: URL(string: s)) }
+check(tabFor("http://10.0.0.2:8080/?tab=projects&project=launchthespringcatalogue") == .projects, "a project room lights Projects")
+check(tabFor("http://10.0.0.2:8080/?tab=tasks") == .tasks && tabFor("http://10.0.0.2:8080/?tab=settings&sec=you") == .settings, "tasks and settings light their own")
+check(tabFor("http://10.0.0.2:8080/?tab=detail&agent=cleo") == .today, "an agent's chat lights Today, where chats show")
+check(tabFor("http://10.0.0.2:8080/") == .today && tabFor("http://10.0.0.2:8080/?tab=agents") == .today, "the home lights Today")
+check(tabFor("http://10.0.0.2:8080/?tab=nonsense") == .today && AppTabs.tab(forBoardURL: nil) == .today, "anything else lights Today")
 
 await boardLoopTests()
 
