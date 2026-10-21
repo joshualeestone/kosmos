@@ -2757,9 +2757,10 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
       /* #5668: the account's own file, and the agent folder's settings.local.json (cleanLocalSettings keeps its denies,
          review 1), reach the same profile. */
       // Review 7: and the root-owned managed settings file, when an admin installed it (it merges into the same profile).
-      const managed = deps.managedSettingsPath !== undefined ? deps.managedSettingsPath : MANAGED_SETTINGS_PATH;
+      // #4491: and its drop-in from tools/managed-sandbox-lock.sh (a test's managedSettingsPath stands in for both).
+      const managed = deps.managedSettingsPath !== undefined ? (deps.managedSettingsPath ? [deps.managedSettingsPath] : []) : [MANAGED_SETTINGS_PATH, MANAGED_DROPIN_PATH];
       // Review 11: the job read once (ownConfigDir, above).
-      const acct = settingsLists([accountSettingsFile(agentName, { ...deps, accountConfigDir: ownConfigDir }), path.join(rules.settingsDir, 'settings.local.json'), ...(managed ? [managed] : [])]);
+      const acct = settingsLists([accountSettingsFile(agentName, { ...deps, accountConfigDir: ownConfigDir }), path.join(rules.settingsDir, 'settings.local.json'), ...managed]);
       const fsbNow = next.sandbox.filesystem;
       sz = sandboxDenySize({ denyRead: [...(fsbNow.denyRead || []), ...acct.denyRead], denyWrite: [...(fsbNow.denyWrite || []), ...acct.denyWrite] }, [...next.permissions.deny, ...acct.deny], deps.home, deps.platform || process.platform);
     }
@@ -2784,17 +2785,18 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
   }
 }
 
-/* #4491: Claude Code's root-owned managed-settings file on macOS. With the right content it makes the token-only guard
-   durable: the agent's uid cannot write this path, and a managed `sandbox.filesystem` block makes
+/* #4491: Claude Code's root-owned managed settings on macOS. With the right content they make the token-only guard
+   durable: the agent's uid cannot write these paths, and a managed `sandbox.filesystem` block makes
    sandbox.filesystem.disabled managed-only, so USER settings can no longer switch the guard's denies off. The content
-   is tools/managed-sandbox-lock.sh's (allowManagedReadPathsOnly plus a board.token deny; NOT sandbox.enabled, which
-   would sandbox every agent on the Mac); installing it is the admin step, parked on the card. This code only checks
-   that the file EXISTS (review 15: not its content), so a missing warning means "a managed file is there", not "the
-   guard is durable". */
+   is tools/managed-sandbox-lock.sh's drop-in (managed-settings.d/kosmos-token-guard.json: a board.token deny; NOT
+   sandbox.enabled, which would sandbox every agent on the Mac). Installing it is the admin step, parked on the card.
+   This code only checks that a managed file EXISTS, the base file or that drop-in (review 15: not its content), so a
+   missing warning means "a managed file is there", not "the guard is durable". */
 const MANAGED_SETTINGS_PATH = '/Library/Application Support/ClaudeCode/managed-settings.json';
+const MANAGED_DROPIN_PATH = '/Library/Application Support/ClaudeCode/managed-settings.d/kosmos-token-guard.json';
 function managedSettingsPresent(platform = process.platform) {
   if (platform !== 'darwin') return false;   // managed-settings is a macOS/Seatbelt concept here
-  try { return fs.existsSync(MANAGED_SETTINGS_PATH); } catch { return false; }
+  try { return fs.existsSync(MANAGED_SETTINGS_PATH) || fs.existsSync(MANAGED_DROPIN_PATH); } catch { return false; }
 }
 
 const STARTS_A_PROCESS = ['hooks', 'statusLine', 'apiKeyHelper', 'mcpServers', 'enableAllProjectMcpServers', 'enabledMcpjsonServers'];

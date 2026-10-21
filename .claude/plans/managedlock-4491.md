@@ -12,20 +12,32 @@ needs-operator only for a named step.
   the guard is measured there.
 
 ## The call: what goes in the file
-`{"sandbox":{"filesystem":{"allowManagedReadPathsOnly":true,"denyRead":["~/Library/Application Support/Kosmos/board.token"]}}}`
-merged into any managed file already there.
+`{"sandbox":{"filesystem":{"denyRead":["~/Library/Application Support/Kosmos/board.token"]}}}`, as its own drop-in,
+`/Library/Application Support/ClaudeCode/managed-settings.d/kosmos-token-guard.json` (Claude Code 2.1.306 loads and
+merges every file there), so the base managed-settings.json is never edited and --uninstall removes one file.
 - **Why this closes the hole.** Claude Code's docs (sandboxing, "Which settings can disable it"): user settings may set
   `sandbox.filesystem.disabled`; project settings may not; and once MANAGED settings configure `sandbox.filesystem` at
   all, only managed settings may. The 10-02 hole was exactly a planted `~/.claude/settings.json`.
-  `allowManagedReadPathsOnly` stops a lower tier re-opening a read path (an `allowRead` over the token). The token-only
-  agent's own settings already strip allowRead/allowWrite, so nothing it relies on is lost.
+  The single denyRead entry is what makes the block non-empty.
 - **Why not sandbox.enabled or allowUnsandboxedCommands.** Managed settings reach every Claude Code session on the
   Mac (docs: no per-project scope). Either key would sandbox the fleet's builders. The agent's PROJECT settings set
   both already, and project settings outrank user settings, so a planted user file cannot undo them.
 - **Why the deny list need not be complete.** The agent's project settings deny every token root concretely. The
   managed entry exists so the block is non-empty; it does not need to replace that list.
 
+## Review round 1 (2026-10-21), and what changed
+- `allowManagedReadPathsOnly` DROPPED: the installed Claude Code 2.1.306 itself warns it "would drop the sandbox's own
+  directories from the readable set". A denyRead entry alone makes the block non-empty, which is what locks `disabled`.
+- A drop-in instead of merging into managed-settings.json: uninstall restoring or deleting the whole file lost anything
+  added after install. Now no merge, no kept copy; uninstall removes only our file.
+- Refuses when a managed file already sets `sandbox.filesystem.disabled: true` (read-denies would not be enforced, and
+  it would have said "installed").
+- Refuses to write through a link, or into an existing folder root does not own; sets owner and mode only on folders
+  it created; the temp file is made with mktemp inside the drop-in folder.
+- engine: managedSettingsPresent and the #5668 deny-size count see the drop-in too.
+
 ## Rejected
+- `allowManagedReadPathsOnly` (see review round 1).
 - A managed `permissions.deny` on `Edit(~/.claude/settings.json)`: it would block every agent's Write tool on that
   file, including the fleet's own setup skills.
 - Option A (Keychain): dropped on 10-12, measured (trust follows the code; a dialog on the person's screen).

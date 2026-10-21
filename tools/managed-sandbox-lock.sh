@@ -1,7 +1,7 @@
 #!/bin/bash
 # tools/managed-sandbox-lock.sh [--install | --uninstall]   (kosmos#4491)
 #
-# The one admin step that makes the token-only guard durable on a Mac: a root-owned Claude Code managed-settings file
+# The one admin step that makes the token-only guard durable on a Mac: a root-owned Claude Code managed-settings drop-in
 # that locks the sandbox's filesystem block, so an agent cannot switch off, from USER settings it can write, the
 # board.token denies its own project settings carry.
 #
@@ -9,91 +9,78 @@
 # setup-assistant.js). The hole found on 2026-10-02: USER settings (~/.claude/settings.json, which every agent on the
 # Mac user can write) may set `sandbox.filesystem.disabled: true`, which project settings cannot, and so undo the guard.
 # Claude Code's docs (sandboxing, "Which settings can disable it"): when MANAGED settings configure `sandbox.filesystem`
-# at all, only managed settings can set that key. So the file needs only a `sandbox.filesystem` block:
-#   allowManagedReadPathsOnly: true   lower tiers cannot re-open a read path (an allowRead over board.token)
-#   denyRead: [board.token]           a concrete entry, so the block is not empty
-# It deliberately does NOT set sandbox.enabled or allowUnsandboxedCommands: managed settings apply to EVERY Claude Code
-# session on the Mac, so either would sandbox the fleet's builders too. Sessions whose sandbox is off (every agent but
-# the token-only ones) are not restricted by a filesystem list, which only the sandbox enforces.
+# at all, only managed settings can set that key. So the drop-in holds one non-empty `sandbox.filesystem` block:
+#   denyRead: [~/Library/Application Support/Kosmos/board.token]
+# Deliberately NOT here:
+#   sandbox.enabled, allowUnsandboxedCommands   managed settings reach EVERY Claude Code session on the Mac, so either
+#                                              would sandbox the fleet's builders too (the agent's project settings
+#                                              already set both, and they outrank user settings)
+#   allowManagedReadPathsOnly                  Claude Code 2.1.306 warns it "would drop the sandbox's own directories
+#                                              from the readable set" (review 1)
 #
-# DEFAULT IS A DRY RUN: it prints the file it would write and changes nothing. --install needs root (sudo); it keeps a
-# copy of any file already there, merges into it with /usr/bin/plutil (no other tool runs as root), and leaves the file
-# owned by root, mode 644. --uninstall puts the kept copy back, or removes the file if there was none.
+# A DROP-IN, not an edit of managed-settings.json: Claude Code reads every file in managed-settings.d/ beside it (2.1.306
+# loads and merges them; lists concatenate), so nothing another administrator wrote is touched, and --uninstall removes
+# exactly this one file.
 #
-# Test seam: KOSMOS_MANAGED_SETTINGS_PATH points every read and write at another file; with it, root is not required
-# and ownership is not changed (deploy is never through the seam).
+# DEFAULT IS A DRY RUN: it prints what --install would write and changes nothing. --install needs root (sudo). It refuses
+# when a managed file already sets sandbox.filesystem.disabled (that would leave the guard off while this said it was on),
+# and when any path it would write through is a link or a folder not owned by root.
+#
+# Test seam: KOSMOS_MANAGED_DIR stands in for /Library/Application Support/ClaudeCode; with it, root is not required and
+# ownership is neither checked nor set.
 set -u
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
-TARGET=${KOSMOS_MANAGED_SETTINGS_PATH:-/Library/Application Support/ClaudeCode/managed-settings.json}
-KEEP="$TARGET.before-kosmos-4491"
-TOKEN_PATH='~/Library/Application Support/Kosmos/board.token'
+BASE=${KOSMOS_MANAGED_DIR:-/Library/Application Support/ClaudeCode}
+DROPDIR="$BASE/managed-settings.d"
+FILE="$DROPDIR/kosmos-token-guard.json"
+CONTENT='{"sandbox":{"filesystem":{"denyRead":["~/Library/Application Support/Kosmos/board.token"]}}}'
 mode=${1:-dry-run}
 case "$mode" in dry-run|--dry-run) mode=dry-run ;; --install|--uninstall) ;; *) echo "usage: $0 [--install | --uninstall]  (no argument: show what --install would write)"; exit 2 ;; esac
-[ -n "${KOSMOS_MANAGED_SETTINGS_PATH:-}" ] && seam=1 || seam=''
+[ -n "${KOSMOS_MANAGED_DIR:-}" ] && seam=1 || seam=''
 [ "$(uname -s)" = Darwin ] || [ -n "$seam" ] || { echo "managed-sandbox-lock: macOS only (managed settings are the Seatbelt sandbox's lock)"; exit 2; }
 if [ "$mode" != dry-run ] && [ -z "$seam" ] && [ "$(id -u)" != 0 ]; then
-    echo "managed-sandbox-lock: $mode writes $TARGET, which only an administrator can: run it with sudo"; exit 2
+    echo "managed-sandbox-lock: $mode writes under $BASE, which only an administrator can: run it with sudo"; exit 2
 fi
 
-# merge_into <file>: add the lock to a settings file in place, keeping every other key. Fails on a file plutil cannot read.
-merge_into() {
-    f=$1
-    # JSON text only (Claude Code reads JSON): plutil would also take an XML plist, and write it back as XML.
-    [ "$(tr -d ' \t\r\n' < "$f" | head -c 1)" = '{' ] || { echo "managed-sandbox-lock: $f is not a JSON object; nothing changed"; return 1; }
-    # (plutil -lint reads plists, not JSON; a conversion is what proves plutil can read this JSON.)
-    plutil -convert json -o - "$f" >/dev/null 2>&1 || { echo "managed-sandbox-lock: $f is not JSON plutil can read; nothing changed"; return 1; }
-    # plutil writes a file back in the format it read, and a bare {} reads as an old OpenStep plist, which it cannot
-    # write: an empty file starts from a shape only JSON has.
-    [ "$(plutil -convert json -o - "$f" 2>/dev/null)" = '{}' ] && printf '{"sandbox":{"filesystem":{}}}\n' > "$f"
-    if plutil -extract sandbox raw "$f" >/dev/null 2>&1; then
-        [ "$(plutil -type sandbox "$f" 2>/dev/null)" = dictionary ] || { echo "managed-sandbox-lock: sandbox in $f is not a block; nothing changed"; return 1; }
-    else plutil -insert sandbox -dictionary "$f" || return 1; fi
-    if plutil -extract sandbox.filesystem raw "$f" >/dev/null 2>&1; then
-        [ "$(plutil -type sandbox.filesystem "$f" 2>/dev/null)" = dictionary ] || { echo "managed-sandbox-lock: sandbox.filesystem in $f is not a block; nothing changed"; return 1; }
-    else plutil -insert sandbox.filesystem -dictionary "$f" || return 1; fi
-    plutil -replace sandbox.filesystem.allowManagedReadPathsOnly -bool YES "$f" || return 1
-    if plutil -extract sandbox.filesystem.denyRead raw "$f" >/dev/null 2>&1; then
-        [ "$(plutil -type sandbox.filesystem.denyRead "$f" 2>/dev/null)" = array ] || { echo "managed-sandbox-lock: sandbox.filesystem.denyRead in $f is not a list; nothing changed"; return 1; }
-    else plutil -insert sandbox.filesystem.denyRead -array "$f" || return 1; fi
-    # Added once: a second --install leaves the list as it is.
-    plutil -extract sandbox.filesystem.denyRead json -o - "$f" 2>/dev/null | grep -qF 'Kosmos\/board.token"' \
-        || plutil -insert sandbox.filesystem.denyRead -string "$TOKEN_PATH" -append "$f" || return 1
-}
-
-# has_lock <file>: the lock is already in it (both keys). Then --install changes nothing: re-merging would rewrite the
-# file, and keeping a copy of it would make --uninstall put the lock back instead of taking it away.
-has_lock() {
-    [ "$(plutil -extract sandbox.filesystem.allowManagedReadPathsOnly raw "$1" 2>/dev/null)" = true ] \
-        && plutil -extract sandbox.filesystem.denyRead json -o - "$1" 2>/dev/null | grep -qF 'Kosmos\/board.token"'
-}
-if [ "$mode" = --install ] && [ -f "$TARGET" ] && has_lock "$TARGET"; then
-    echo "managed-sandbox-lock: $TARGET already holds the lock; nothing changed"; exit 0
+# Paths root writes through: never a link, and an existing folder must be root's (else its owner could swap in a link).
+for p in "$BASE" "$DROPDIR" "$FILE"; do
+    [ -L "$p" ] && { echo "managed-sandbox-lock: $p is a link; refusing to write through it"; exit 1; }
+done
+if [ -z "$seam" ]; then
+    for d in "$BASE" "$DROPDIR"; do
+        [ -d "$d" ] && [ "$(stat -f %u "$d")" != 0 ] && { echo "managed-sandbox-lock: $d is not owned by root; refusing"; exit 1; }
+    done
 fi
 
-work=$(mktemp -d "${TMPDIR:-/tmp}/managed-lock.XXXXXX") || exit 1
-trap 'rm -rf "$work"' EXIT
+# disabled_in <file>: the file sets sandbox.filesystem.disabled to true (read-denies are then not enforced at all).
+disabled_in() { [ "$(plutil -extract sandbox.filesystem.disabled raw "$1" 2>/dev/null)" = true ]; }
+blocking=''
+for f in "$BASE/managed-settings.json" "$DROPDIR"/*.json; do
+    [ -f "$f" ] && [ "$f" != "$FILE" ] && disabled_in "$f" && blocking="$blocking $f"
+done
+
 case "$mode" in
-dry-run|--install)
-    if [ -f "$TARGET" ]; then cp "$TARGET" "$work/new.json" || exit 1; else printf '{}\n' > "$work/new.json"; fi
-    merge_into "$work/new.json" || exit 1
-    if [ "$mode" = dry-run ]; then
-        echo "managed-sandbox-lock: DRY RUN. --install (with sudo) would write $TARGET:"
-        cat "$work/new.json"; echo
-        [ -f "$TARGET" ] && echo "(merged into the file already there, which would be kept as $KEEP)"
-        exit 0
-    fi
-    dir=$(dirname "$TARGET")
-    mkdir -p "$dir" || exit 1
-    # Kept once: a second --install must not overwrite the original with our own earlier output.
-    if [ -f "$TARGET" ] && [ ! -e "$KEEP" ]; then cp -p "$TARGET" "$KEEP" || exit 1; fi
-    cp "$work/new.json" "$TARGET.tmp.$$" || exit 1
-    if [ -z "$seam" ]; then chown root:wheel "$TARGET.tmp.$$" "$dir" && chmod 755 "$dir" || { rm -f "$TARGET.tmp.$$"; exit 1; }; fi
-    chmod 644 "$TARGET.tmp.$$" && mv -f "$TARGET.tmp.$$" "$TARGET" || { rm -f "$TARGET.tmp.$$"; exit 1; }
-    echo "managed-sandbox-lock: installed $TARGET. Restart the board so token-only agents pick it up; --uninstall undoes it."
-    ;;
+dry-run)
+    echo "managed-sandbox-lock: DRY RUN. --install (with sudo) would write $FILE:"
+    printf '%s\n' "$CONTENT"
+    [ -n "$blocking" ] && echo "and would REFUSE: sandbox.filesystem.disabled is true in$blocking"
+    exit 0 ;;
+--install)
+    [ -z "$blocking" ] || { echo "managed-sandbox-lock: sandbox.filesystem.disabled is true in$blocking, so read-denies are not enforced and this lock would do nothing; nothing written"; exit 1; }
+    if [ -f "$FILE" ] && [ "$(cat "$FILE")" = "$CONTENT" ]; then echo "managed-sandbox-lock: $FILE is already in place; nothing changed"; exit 0; fi
+    for d in "$BASE" "$DROPDIR"; do
+        if [ ! -d "$d" ]; then
+            mkdir "$d" || exit 1
+            # Only a folder this created is given owner and mode (an existing one, perhaps a device manager's, is left as is).
+            if [ -z "$seam" ]; then chown root:wheel "$d" && chmod 755 "$d" || exit 1; fi
+        fi
+    done
+    tmp=$(mktemp "$DROPDIR/.kosmos-token-guard.XXXXXX") || exit 1
+    printf '%s\n' "$CONTENT" > "$tmp" || { rm -f "$tmp"; exit 1; }
+    if [ -z "$seam" ]; then chown root:wheel "$tmp" || { rm -f "$tmp"; exit 1; }; fi
+    chmod 644 "$tmp" && mv -f "$tmp" "$FILE" || { rm -f "$tmp"; exit 1; }
+    echo "managed-sandbox-lock: installed $FILE. Restart the board so token-only agents start under it; --uninstall removes it." ;;
 --uninstall)
-    if [ -e "$KEEP" ]; then mv -f "$KEEP" "$TARGET" && echo "managed-sandbox-lock: put back the file that was there before ($TARGET)"
-    elif [ -f "$TARGET" ]; then rm -f "$TARGET" && echo "managed-sandbox-lock: removed $TARGET (there was none before)"
-    else echo "managed-sandbox-lock: nothing to undo ($TARGET is not there)"; fi
-    ;;
+    if [ -f "$FILE" ]; then rm -f "$FILE" && echo "managed-sandbox-lock: removed $FILE"
+    else echo "managed-sandbox-lock: nothing to undo ($FILE is not there)"; fi ;;
 esac
