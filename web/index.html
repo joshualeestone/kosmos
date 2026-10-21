@@ -5080,7 +5080,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      float-gap, so the agents column reads as ONE column with the person
      pinned at its foot and the rule running unbroken down its edge. */
   /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 44
-     (since #6722; 42 before) is the body grid's last track, sized by this element, so while the grid
+     (since #6722; 43 before) is the body grid's last track, sized by this element, so while the grid
      fits 100vh the strip sits at the viewport foot by construction.
      ⚠️ THAT IS NO LONGER "ALWAYS", and the qualifier is not decoration. The
      body is `overflow-y: auto` with a `minmax(200px, 1fr)` floor on the list
@@ -47040,7 +47040,7 @@ function cropPicture(file, verb) {
   let downOnBack = false;
   document.getElementById('cropmodal').addEventListener('pointerdown', (e) => { downOnBack = e.target.id === 'cropmodal'; });
   document.getElementById('cropmodal').addEventListener('click', (e) => { if (e.target.id === 'cropmodal' && downOnBack) cropFinish(false); downOnBack = false; });
-  /* Review 4: in the capture phase, and no key goes past the editor while it is open. It opens over other windows
+  /* Review 4: in the capture phase, and no unmodified key goes past the editor while it is open (a Ctrl, Cmd or Alt chord is the browser's). It opens over other windows
      (an agent's settings), whose own document-level handlers would otherwise act on the same key: one Escape closed
      both. Stopping the event leaves the slider's and the buttons' own key behaviour alone (that is a default action). */
   document.addEventListener('keydown', (e) => {
