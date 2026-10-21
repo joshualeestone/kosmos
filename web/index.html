@@ -19725,6 +19725,12 @@ window.kosmosMeasureScrollbarWidth();
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say" tabindex="-1"></p>
+          <!-- kosmos#6752: every member sees when someone is made a reviewer (kosmos#6594): the grants of the last 30 days,
+               from the hourly status read. Shown only when there are some. -->
+          <div id="plus-org-reviewers" hidden>
+            <p class="fhint" id="plus-org-reviewers-head"></p>
+            <ul class="fhint" id="plus-org-reviewers-list"></ul>
+          </div>
           <!-- kosmos#6239: a family's words not accepted on this computer wait for a parent; this opens them (plusOrgFamilyReview). -->
           <div class="frow" id="plus-org-words-row" hidden><button class="btn uprime" type="button" id="plus-org-words">Read the family's words</button></div>
           <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
@@ -52189,6 +52195,30 @@ function plusOrgPaint() {
   if (here && st.wordsNeeded === true && PLUS_ORG.wordsRefused) document.getElementById('plus-org-say').textContent = 'This Kosmos still shows ' + (st.org.name || 'a family account') + ' on this computer, and it reports nothing to the family.';
   else if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.';
   else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : ''));
+  plusOrgReviewers(here ? st : null);   // kosmos#6752
+}
+/* kosmos#6752: one reviewer grant as a line. `now` and `when` (Unix seconds to words) are passed in so a test can fix
+   them. Pending or in effect is worked out here from the times, not taken from the coordinator: the record is up to an
+   hour old. */
+function plusOrgReviewerLine(g, now, when) {
+  return g.who + ', made a reviewer ' + when(g.grantedAt) + (g.removedAt ? ', removed ' + when(g.removedAt)
+    : g.effectiveAt > now ? ', takes effect ' + when(g.effectiveAt) : ', in effect since ' + when(g.effectiveAt)) + '.';
+}
+function plusOrgReviewers(st) {
+  const box = document.getElementById('plus-org-reviewers');
+  const list = document.getElementById('plus-org-reviewers-list');
+  if (!box || !list) return;
+  const grants = st && st.enrolled === true && Array.isArray(st.reviewerGrants) ? st.reviewerGrants : [];
+  list.textContent = '';
+  box.hidden = grants.length === 0;
+  if (!grants.length) return;
+  document.getElementById('plus-org-reviewers-head').textContent = plusOrgIn(st.org, 'Reviewers added to your company in the last 30 days:');
+  const when = (s) => new Date(s * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  for (const g of grants) {
+    const li = document.createElement('li');
+    li.textContent = plusOrgReviewerLine(g, Date.now() / 1000, when);   // text, never markup: the name is the coordinator's
+    list.appendChild(li);
+  }
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */

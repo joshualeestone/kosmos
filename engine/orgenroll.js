@@ -353,6 +353,29 @@ function consentWithdrawn(opts, hash) {
 // The coordinator's org.rs ROLES. reviewer (#5685, #5529) may view this work Kosmos's content, each view logged.
 const ROLES = new Set(['member', 'recovery', 'reviewer', 'admin']);
 function cleanRole(r) { return ROLES.has(r) ? r : null; }
+/* kosmos#6752: the reviewer grants a status answer names (kosmos#6594, relay #516: given in the last 30 days, removed
+   ones included, oldest first), kept on the record so the Settings company block can list them. Each keeps the
+   reviewer's name before the @, when the role was given, when it takes effect, and when it was removed, all Unix
+   seconds. The coordinator's `state` is not kept: it was true when the answer was made, and the record is read for up
+   to an hour after, so the page works it out from the times. A malformed entry is left out; the newest 20 are kept. */
+const MAX_REVIEWER_GRANTS = 20;
+function cleanReviewerGrants(list) {
+  if (!Array.isArray(list)) return [];
+  const secs = (n) => (Number.isSafeInteger(n) && n > 0 ? n : null);
+  const out = [];
+  for (const g of list.slice(-200)) {
+    if (!g || typeof g !== 'object') continue;
+    // Control and direction-changing characters out: the name is shown as text, and must read as what it is.
+    const who = typeof g.who === 'string' ? g.who.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, '').trim().slice(0, 64) : '';
+    const grantedAt = secs(g.grantedAt);
+    if (!who || !grantedAt) continue;
+    const effectiveAt = g.effectiveAt == null ? grantedAt : secs(g.effectiveAt);
+    const removedAt = g.removedAt == null ? null : secs(g.removedAt);
+    if (!effectiveAt || (g.removedAt != null && !removedAt)) continue;
+    out.push({ who, grantedAt, effectiveAt, ...(removedAt ? { removedAt } : {}) });
+  }
+  return out.slice(-MAX_REVIEWER_GRANTS);
+}
 
 /* The coordinator's public error codes (#5530), said in plain words. The tunnel passes its answer through on the last
    line of `because`, so the code is found anywhere in it; anything unrecognised keeps its own words. */
@@ -1026,6 +1049,9 @@ async function refreshNow(opts) {
   const role = cleanRole(d.role);
   if (!org || !role) return { ok: false, because: inKind(KIND, 'Your company\'s answer was not complete.'), enrolled: !!before };
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
+  // kosmos#6752: this answer's reviewer grants, or none (an answer without them, an older coordinator's, drops the old list).
+  const grants = cleanReviewerGrants(d.reviewerGrants);
+  if (grants.length) rec.reviewerGrants = grants;
   // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
   if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
   // #5532: the salt belongs to the company its print was pinned for; a different company on the answer drops it (review 11).
@@ -1091,5 +1117,6 @@ function applyPolicy(token, opts, orgId) {
 module.exports = {
   onEnrollmentEnded,   // #6232 review 10
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindNow, kindOf, codeOf,
+  cleanReviewerGrants, MAX_REVIEWER_GRANTS, // kosmos#6752
   worldId, siblingId, SIBLING_ID_FILE, STOPPED_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, stoppedKind, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, memberCheck, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };
