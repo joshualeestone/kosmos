@@ -267,8 +267,9 @@ function reportingRequired(policy) {
 /** kosmos#6239: whether agents may reach anyone outside this computer (the Kosmos community, federation, rooms shared
  *  with another computer). Stopped by `outside_contact: { enabled: false }`. kosmos#6859: on a computer joined to a
  *  family it is also stopped while the key is unset or there is no policy (a parent never saved one), and only
- *  `{ enabled: true }` allows; for anyone else no policy, or the key unset, allows. */
-function contactAllows(policy = currentStrict(), kind = require('./orgenroll').kindHere()) {
+ *  `{ enabled: true }` allows; for anyone else no policy, or the key unset, allows. An enrollment record that is there
+ *  but cannot be read throws, as a damaged policy record does (orgenroll.kindStrict). */
+function contactAllows(policy = currentStrict(), kind = require('./orgenroll').kindStrict()) {
   const oc = policy && policy.outside_contact;
   const set = oc && typeof oc === 'object' ? oc.enabled : undefined;
   if (set === false || (kind === 'family' && set !== true)) {

@@ -27,6 +27,7 @@ const orgenroll = require('./orgenroll');
 const orgpolicy = require('./orgpolicy');
 const communitysend = require('./communitysend');
 const fedseats = require('./fedseats');
+const cb = require('./communityblock');
 
 test.after(() => { fedseats.stopAll(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
@@ -42,11 +43,13 @@ function apply(policy) {
   const r = orgpolicy.refresh({ now, pinned: PINNED });
   assert.equal(r.refused, null, 'the test policy did not apply: ' + r.refused);
 }
+const JOIN_UNKNOWN = 'org-join-unknown.json';   // orgenroll's marker for a join whose outcome is not known yet
 /* This board joined to an org of `kind` ('family' or 'company'), or to nothing (null). No policy is in force. */
 function joined(kind) {
   orgpolicy.clear();
   fs.rmSync(orgpolicy.APPLIED(), { force: true });
   const file = path.join(store.ROOT, orgenroll.ENROLLMENT_FILE);
+  fs.rmSync(path.join(store.ROOT, JOIN_UNKNOWN), { force: true });
   if (kind === null) { fs.rmSync(file, { force: true }); return; }
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ org: { id: 'org-1', name: 'The Smiths', slug: 'smiths', kind }, world: 'a'.repeat(32) }) + '\n');
@@ -69,6 +72,9 @@ test('#6859: a family with no policy keeps agents out; a company with no policy 
     joined('family');
     assert.deepEqual(readers(), OUT, 'a family that never saved a policy let its agents out');
     assert.match(orgpolicy.contactAllows().because, /keeps agents out of the Kosmos\+ community/);
+    assert.equal(cb.policyStopped(), true, "the agent's community block was not told it does not take part");
+    joined('company');
+    assert.equal(cb.policyStopped(), false, "CONTROL: a company's agent block is not stopped");
   } finally { communitysend.setSwitch(null); joined(null); }
 });
 
@@ -97,4 +103,22 @@ test('#6859: an explicit policy and kind are read as given (orgpolicy.contactAll
     assert.equal(orgpolicy.contactAllows(null, kind).ok, true, String(kind));
     assert.equal(orgpolicy.contactAllows({ outside_contact: { enabled: false } }, kind).ok, false, String(kind));
   }
+});
+
+test('#6859: an enrollment that cannot be read, or a family join not yet settled, does not let agents out', () => {
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  const file = path.join(store.ROOT, orgenroll.ENROLLMENT_FILE);
+  try {
+    joined('family');
+    fs.writeFileSync(file, '{ not json');
+    assert.throws(() => orgpolicy.contactAllows(), 'a damaged enrollment read as joined to nobody');
+    assert.equal(communitysend.switchState(), 'policy_unreadable');
+    assert.equal(fedseats.contactStopped(), true);
+    joined(null);
+    fs.writeFileSync(path.join(store.ROOT, JOIN_UNKNOWN), JSON.stringify({ at: new Date().toISOString(), orgKind: 'family' }) + '\n');
+    assert.equal(orgenroll.kindStrict(), 'family', 'CONTROL: the pending join is read');
+    assert.deepEqual(readers(), OUT, 'a family join not yet settled let agents out');
+    fs.writeFileSync(path.join(store.ROOT, JOIN_UNKNOWN), JSON.stringify({ at: new Date().toISOString(), orgKind: 'company' }) + '\n');
+    assert.deepEqual(readers(), IN, 'CONTROL: a company join not yet settled lets agents out');
+  } finally { communitysend.setSwitch(null); joined(null); }
 });
