@@ -1,8 +1,8 @@
 import SwiftUI
 import WebKit
 
-// The board, rendered full-screen in a WKWebView, optionally gated behind a
-// biometric unlock (KosmosConfig.requireBiometricUnlock).
+// Two tabs (kosmos#6838): the native Agents list, and the board in a WKWebView.
+// Optionally gated behind a biometric unlock (KosmosConfig.requireBiometricUnlock).
 struct ContentView: View {
     // Receives the session the coordinator sign-in page hands over (#718).
     @ObservedObject var pushManager: PushNotificationManager
@@ -18,31 +18,47 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     // The shell's failure page and retry requests (kosmos#718).
     @StateObject private var shell = ShellState()
+    // kosmos#6838: the native Agents tab beside the web board, until every screen is native.
+    @StateObject private var board = BoardClient()
+    // Mona Lisa's slice 1 spec: open on Agents until Today exists. The App Store screenshot build
+    // (ios/store/shoot-app.sh) photographs board screens in the web view, so it opens on Board.
+    #if KOSMOS_STORE_SHOTS
+    @State private var tab = Tab.board
+    #else
+    // Not signed in yet (a first launch): open on Board, where the sign-in is (the spec's "today's sign-in flow").
+    // Read once per launch (a static), not on every redraw. A launch before first unlock reads no session and opens
+    // on Board, the safe side.
+    private static let startTab: Tab = SessionKeychain.live.load() == nil ? .board : .agents
+    @State private var tab = ContentView.startTab
+    #endif
+    enum Tab { case agents, board }
 
     var body: some View {
         Group {
             if isUnlocked {
-                ZStack {
-                    // Edge to edge, as before; how each page keeps clear of the notch
-                    // and home bar is set in makeUIView (safe areas).
-                    WebView(
-                        url: KosmosConfig.boardURL,
-                        pushManager: pushManager,
-                        boardToOpen: pushManager.boardToOpen,
-                        shell: shell,
-                        retryCount: shell.retryCount,
-                        backCount: shell.backCount
-                    )
-                        .ignoresSafeArea()
-                    if let failure = shell.failure {
-                        LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back)
-                    }
+                TabView(selection: $tab) {
+                    AgentsView(client: board, openChat: { url in
+                        pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+                    }, openBoard: { tab = .board })
+                    .tabItem { Label("Agents", systemImage: "person.2") }
+                    .tag(Tab.agents)
+                    webBoard
+                        .tabItem { Label("Board", systemImage: "rectangle.grid.2x2") }
+                        .tag(Tab.board)
                 }
+                // Mona Lisa's spec: the app's tint is the board's ink, so the selected tab is not system blue.
+                .tint(Palette.primary)
             } else {
                 LockView(onUnlock: unlock)
             }
         }
+        // A tapped notification, or an agent tapped on the Agents tab, opens on the Board tab.
+        .onChange(of: pushManager.boardToOpen) { request in
+            if request != nil { tab = .board }
+        }
         .onAppear {
+            // A notification tapped on a cold launch can set boardToOpen before the first draw, which onChange misses.
+            if pushManager.boardToOpen != nil { tab = .board }
             // Cold launch: onChange does not fire for scenePhase's initial value,
             // so prompt here when we start locked.
             if !isUnlocked { unlock() }
@@ -70,6 +86,28 @@ struct ContentView: View {
                 }
             default:
                 break
+            }
+        }
+    }
+
+    private var webBoard: some View {
+        ZStack {
+            // Navy behind the tab bar too, so the space below the page is the page's own colour, not a white band.
+            Color(UIColor.kosmosNavy).ignoresSafeArea()
+            // Under the status bar as before; the tab bar keeps its own space below. How each page keeps clear
+            // of the notch is set in makeUIView (safe areas). The keyboard is left to the web view, as before.
+            WebView(
+                url: KosmosConfig.boardURL,
+                pushManager: pushManager,
+                boardToOpen: pushManager.boardToOpen,
+                shell: shell,
+                retryCount: shell.retryCount,
+                backCount: shell.backCount
+            )
+                .ignoresSafeArea(edges: .top)
+                .ignoresSafeArea(.keyboard)
+            if let failure = shell.failure {
+                LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back)
             }
         }
     }

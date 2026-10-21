@@ -10,6 +10,23 @@ notification handling, biometric unlock). The shell (#2869) plus that native
 surface as buildable stubs (#718) are both here now. Full context on the cards
 (#2869, #718).
 
+**Going native (kosmos#6838, Josh 2026-10-21).** Screens move from the web view to
+SwiftUI one at a time; the plan and its order are on the card. Slice 1 is the
+native **Agents** tab beside the web **Board** tab: the app connects to the Mac by
+itself (the Kosmos+ session in the Keychain lists the account's Macs, mints a
+handoff for one, and the Mac's tunnel gate turns it into a session cookie in the
+app's own private `URLSession`), then reads `/api/status` every 5 s. The decisions
+are in `Kosmos/BoardLogic.swift`; `BoardClient.swift` moves the bytes;
+`AgentsView.swift` draws the list. Tapping an agent opens its chat on the Board tab.
+The Mac's session cookie (with the Mac's name and address and a fingerprint of the Kosmos+ session, never the session) is kept
+in the Keychain item `mac-session` (`SessionKeychain.macSession`) and reused across
+launches; a sign-out, or Kosmos+ answering that the sign-in has ended, makes this
+iPhone forget it (the Mac keeps its side until it expires, as for the web view).
+The app opens on Agents when signed in to Kosmos+, otherwise on Board (the sign-in); the
+store-screenshot build opens on Board. One Debug-only
+launch switch exists for screenshots and never reaches Release: `KOSMOS_SAMPLE_AGENTS=1`
+shows invented agents without connecting (and skips the notification prompt). App Store screenshots taken from now on include the tab bar (the stored ones predate it).
+
 ## What this is
 
 - `Kosmos.xcodeproj` plus `Kosmos/*.swift`: a SwiftUI app (`KosmosApp`) whose
@@ -203,15 +220,17 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   (`?tab=detail&agent=<session>`, the session checked against the board's agent-name rule), or
   the board home when the push carries no usable session.
 - **No white flash:** the WebView is navy until the first page paints. Safe areas behave as in
-  Safari: a page that opts in with `viewport-fit=cover` (sign-in, the gate) pads for the notch and
-  home bar itself, and WebKit keeps any other page (the board today) clear of them.
+  Safari: a page that opts in with `viewport-fit=cover` (sign-in, the gate) pads for the notch
+  itself, and WebKit keeps any other page (the board today) clear of it. Since the tab bar
+  (kosmos#6838) the web view ends above it, with navy behind the bar.
 - **Launch screen:** Kosmos navy, from the asset catalog (see "App icon and launch screen" above),
   so launch, the WebView before its first paint and the sign-in page are one colour.
 
 ### Tests that run without a simulator
 
 `LogicTests/run.sh` compiles the UIKit-free files (`PushBridgeLogic.swift`,
-`PushRegistrar.swift`, `ShellLogic.swift`, `NotificationCategories.swift`) for
+`PushRegistrar.swift`, `ShellLogic.swift`, `NotificationCategories.swift`, `BoardLogic.swift`,
+`BoardClient.swift`, the native connect and refresh loop, driven against a fake Kosmos+ and Mac) for
 macOS with the tests and runs them. It ends with one
 `VERDICT:` line; no verdict line means the run did not finish. Pass a directory
 to run the suite against a modified copy of those files (how the suite was
