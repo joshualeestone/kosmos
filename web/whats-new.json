@@ -4,7 +4,7 @@
     {
       "icon": "list",
       "title": "Browse an agent's files",
-      "line": "An agent's Files screen lists its folders and files, previews images, PDFs and text, and downloads a folder as one zip."
+      "line": "An agent's Files screen lists its folders and files, previews images and text, and downloads a folder as one zip."
     },
     {
       "icon": "swarm",
