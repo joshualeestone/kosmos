@@ -80,7 +80,7 @@ converged: true
 - [WARNING] providers' days frozen from a partial read in the timed save --> DEFERRED: not an issue, mergeProviders freezes only when its read reports complete (`freeze = !!(res && res.complete)`)
 - [WARNING] only days=all reads are serialised --> DEFERRED: the comment says all-time reads, which the reviewer confirmed accurate
 - [NIT] chart header totals vs line (plan decision); [NIT] MAX_DAYS clamp (unreachable)
-**Converged** — no new actionable findings.
+**Converged**: no new actionable findings.
 
 ### Final Ledger
 
