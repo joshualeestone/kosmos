@@ -91,3 +91,15 @@ files: red on all four.
   only when obj is required from the wrapper's file. (Round 4 had dropped round 3's every-definition rule silently.)
 - Controls added for the arms that had none: not in an array, holder depth, regex class, escaped quote, per-file
   WRAPPERS keying.
+
+## Review 6 (Sonnet): one high, four lower; all fixed (64 controls)
+- Shape 3's name was \S+, which also took shell operators with no spaces (`tmux -L a;tmux kill-server`) and quotes
+  (`-L "default"`). Shape 3 is now only the form the repo uses: [tmux|${}] -S|-L <name of [\w./-] or ${}> kill-server,
+  and the name is never default in any case.
+- Shape 1: no -L anywhere in the array may name default (tmux takes the last -L), compared without case.
+- A listed wrapper is read only inside its own definition (it took the next statement's array), and a name also made
+  another way (reassigned, or a method of that name) is refused.
+- obj.name(...): every `obj = ...` in the file must be the require from the wrapper's file.
+- Escapes are read before matching (kill\x2dserver), and the per-file prefilter is /kill/i.
+- Found while fixing: a function wrapper's walk started past its '(' again (same slip as round 2), and the -L default
+  scan compared against the comma. Both fixed and covered by controls.

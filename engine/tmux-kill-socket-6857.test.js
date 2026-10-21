@@ -113,7 +113,11 @@ const WRAPPERS = {
 };
 
 const KILL = /kill-ser/;   // tmux takes any unique prefix, and kill-ser is the shortest that is not kill-session
-const ONE_COMMAND = /^(?:\S+\s+)?-[SL]\s+\S+\s+kill-server$/;
+/* Shape 3, the one form the repo uses: an optional tmux (or a template's ${}), -S or -L, a plain name, kill-server.
+   Review 6: a name of \S+ also took shell operators (`tmux -L a;tmux kill-server`) and quotes (`-L "default"`). */
+const ONE_COMMAND = /^(?:tmux\s+|\$\{\}\s+)?-[SL]\s+([\w./-]+|\$\{\})\s+kill-server$/;
+/* A string with its \x, \u and \u{} escapes read, so an escaped name is still seen (review 6: kill\x2dserver). */
+const decode = (v) => v.replace(/\\x([0-9a-fA-F]{2})|\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})/g, (m, x, u1, u2) => String.fromCodePoint(parseInt(x || u1 || u2, 16)));
 const named = (tok) => tok && tok.t === 'str' && (tok.v === '-S' || tok.v === '-L');
 
 /* The index of the ']' that closes the '[' at `h`, or -1. */
@@ -127,10 +131,16 @@ function closeOf(toks, h) {
   return -1;
 }
 
-/* The array at `h` starts with the literal '-S' or '-L' as a whole first element, and not `-L default`. */
+/* The array at `h` starts with the literal '-S' or '-L' as a whole first element, and no '-L' anywhere in it names
+   default, in any case (review 6: tmux takes the last -L, and the volume may not tell DEFAULT from default). */
 function startsNamed(toks, h) {
   if (!named(toks[h + 1]) || !toks[h + 2] || toks[h + 2].v !== ',') return false;
-  return !(toks[h + 1].v === '-L' && toks[h + 3] && toks[h + 3].t === 'str' && toks[h + 3].v === 'default');
+  const c = closeOf(toks, h);
+  for (let k = h + 1; k < (c < 0 ? toks.length : c) - 1; k += 1) {
+    const next = toks[k + 1] && toks[k + 1].v === ',' ? toks[k + 2] : null;
+    if (toks[k].t === 'str' && toks[k].v === '-L' && next && next.t === 'str' && next.v.toLowerCase() === 'default') return false;
+  }
+  return true;
 }
 
 /* The index of the bracket that directly holds token `i`, or -1. */
@@ -154,25 +164,45 @@ function wrapperNamesSocket(toks, name) {
     const def = (a.v === 'function' && b.v === name && c.v === '(') || (['const', 'let', 'var'].includes(a.v) && b.v === name && c.v === '=');
     if (!def) continue;
     defs += 1;
-    let ok = false;
-    for (let k = j + 3; k < Math.min(toks.length - 1, j + 60); k += 1) {
-      if (toks[k].t === 'p' && toks[k].v === '?') break;   // a socket only sometimes there names nothing
-      if (toks[k].t === 'p' && toks[k].v === '[') { ok = startsNamed(toks, k); break; }
+    /* Only inside this definition (review 6: a wrapper with no named array took the next statement's): a function to
+       the end of its body, a const to its ';' or ',' at depth 0. */
+    let ok = false, d = 0;
+    for (let k = a.v === 'function' ? j + 2 : j + 3; k < toks.length - 1; k += 1) {   // from its '(' or after '='
+      const v = toks[k].t === 'p' ? toks[k].v : '';
+      if (v === '?') break;   // a socket only sometimes there names nothing
+      if (v === '[') { ok = startsNamed(toks, k); break; }
+      if (v === '(' || v === '{') d += 1;
+      else if (v === ')' || v === '}') { d -= 1; if (d < 0 || (a.v === 'function' && d === 0 && v === '}')) break; }
+      else if (d === 0 && a.v !== 'function' && (v === ';' || v === ',')) break;
     }
     if (!ok) return false;
+  }
+  /* A name also made some other way (`tm = ...`, a method `tm(a) { ... }`) is a definition this does not read: refused. */
+  for (let j = 1; j < toks.length - 1; j += 1) {
+    if (toks[j].t !== 'id' || toks[j].v !== name || toks[j - 1].v === '.') continue;
+    const prev = toks[j - 1].v;
+    if (toks[j + 1].v === '=' && toks[j + 2] && toks[j + 2].v !== '=' && !['const', 'let', 'var'].includes(prev)) return false;
+    if (toks[j + 1].v === '(' && prev !== 'function') {
+      let d = 0, k = j + 1;
+      for (; k < toks.length; k += 1) { if (toks[k].v === '(') d += 1; else if (toks[k].v === ')') { d -= 1; if (d === 0) break; } }
+      if (toks[k + 1] && toks[k + 1].v === '{') return false;
+    }
   }
   return defs > 0;
 }
 
-/* For a call `obj.name(...)`, whether `obj` is required (`obj = require('./x')`) from the file `home`. */
+/* For a call `obj.name(...)`, whether `obj` is required (`obj = require('./x')`) from the file `home`, and only from
+   there: every `obj = ...` in the file must be that require (review 6: a later one in an inner scope was not seen). */
 function requiredFrom(toks, obj, rel, home) {
-  for (let j = 0; j < toks.length - 4; j += 1) {
-    if (toks[j].v === obj && toks[j + 1].v === '=' && toks[j + 2].v === 'require' && toks[j + 3].v === '(' && toks[j + 4].t === 'str') {
-      const p = path.posix.normalize(path.posix.join(path.posix.dirname(rel), toks[j + 4].v));
-      return p === home || p + '.js' === home;
-    }
+  let seen = 0;
+  for (let j = 0; j < toks.length - 1; j += 1) {
+    if (toks[j].v !== obj || toks[j + 1].v !== '=' || (toks[j + 2] && toks[j + 2].v === '=') || (j > 0 && toks[j - 1].v === '.')) continue;
+    if (!(toks[j + 2] && toks[j + 2].v === 'require' && toks[j + 3] && toks[j + 3].v === '(' && toks[j + 4] && toks[j + 4].t === 'str')) return false;
+    const p = path.posix.normalize(path.posix.join(path.posix.dirname(rel), toks[j + 4].v));
+    if (p !== home && p + '.js' !== home) return false;
+    seen += 1;
   }
-  return false;
+  return seen > 0;
 }
 
 /* Every kill-server in `src` that is not in one of the three shapes. `rel` is the file's path from the repo root
@@ -181,10 +211,11 @@ function bareKills(src, rel, read) {
   const toks = lex(src);
   const found = [];
   toks.forEach((tok, i) => {
-    if (tok.t !== 'str' || !KILL.test(tok.v)) return;
+    if (tok.t !== 'str' || !KILL.test(decode(tok.v))) return;
     const flag = (why) => found.push({ line: tok.line, text: why });
     if (tok.v !== 'kill-server') {
-      if (!ONE_COMMAND.test(tok.v.trim()) || tok.v.includes('\\') || /-L\s+default\s/.test(tok.v)) flag(JSON.stringify(tok.v.slice(0, 60)) + ': write it as arguments, or as one command that names its socket');
+      const one = ONE_COMMAND.exec(tok.v.trim());
+      if (!one || tok.v.includes('\\') || one[1].toLowerCase() === 'default') flag(JSON.stringify(tok.v.slice(0, 60)) + ': write it as arguments, or as one command that names its socket');
       return;
     }
     const h = holder(toks, i);
@@ -266,6 +297,14 @@ test('#6857: the checker passes the three shapes and flags everything else (cont
   assert.equal(flags("execFileSync(T, ['-S', s, '\\'', 'kill-server'])"), 0, 'an escaped quote inside a string does not end it');
   assert.equal(flags("const r = /[/']/; execFileSync(T, ['kill-server']);"), 1, 'a quote in a regex class opens no string');
   assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\ntm(['kill-server']);", 'engine/tmuxsignin.test.js'), 1, 'WRAPPERS is keyed by the calling file');
+  // Review 6.
+  assert.equal(flags("const tm = (a) => execFileSync(T, a);\nconst o = ['-L', s];\ntm(['kill-server']);", sess), 1, "a wrapper does not take the next statement's array");
+  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\ntm = (a) => execFileSync(T, a);\ntm(['kill-server']);", sess), 1, 'a wrapper reassigned');
+  assert.equal(flags("const tm = (a) => execFileSync(T, ['-L', s, ...a]);\nconst o = { tm(a) { return execFileSync(T, a); } };\ntm(['kill-server']);", sess), 1, 'a method of the same name');
+  assert.equal(flags("const sig = require('./tmuxsignin');\nfunction f() { sig = require('./other'); }\nsig.runTmux('o', 's', ['kill-server'])", sig, fromFile(good)), 1, 'the object required again from elsewhere');
+  assert.equal(flags("execFileSync(T, ['-L', 'a', '-L', 'default', 'kill-server'])"), 1, 'a later -L default');
+  assert.equal(flags("execFileSync(T, ['-L', 'DEFAULT', 'kill-server'])"), 1, '-L DEFAULT');
+  assert.equal(flags("execFileSync(T, ['kill\\x2dserver'])"), 1, 'an escaped name');
   // Shape 3: one whole command in a string.
   assert.equal(flags("execSync('tmux -L k1 kill-server')"), 0);
   assert.equal(flags('execSync(`${T} -S ${sock} kill-server`)'), 0);
@@ -275,6 +314,12 @@ test('#6857: the checker passes the three shapes and flags everything else (cont
   assert.equal(flags("execSync('tmux -L a kill-server; tmux kill-server')"), 1, 'two commands');
   assert.equal(flags("execSync('tmux -L a new\\ntmux kill-server')"), 1, 'two commands over an escaped new line');
   assert.equal(flags("execSync('tmux -L a new & tmux kill-server')"), 1, 'two commands joined by &');
+  assert.equal(flags("execSync('tmux -L a;tmux kill-server')"), 1, 'an operator with no spaces');
+  assert.equal(flags("execSync('tmux -S x&&tmux kill-server')"), 1, '&& with no spaces');
+  assert.equal(flags("execSync('tmux -L a|tmux kill-server')"), 1, '| with no spaces');
+  assert.equal(flags('execSync(`tmux -S ${sock};tmux kill-server`)'), 1, 'a template with an operator');
+  assert.equal(flags("execSync('tmux -L \"default\" kill-server')"), 1, '-L "default", quoted');
+  assert.equal(flags("execSync('tmux -L Default kill-server')"), 1, '-L Default');
   // Reading code as code.
   assert.equal(flags("// never a bare 'kill-server' here\n/* nor ['kill-server'] */"), 0, 'a comment is not a call');
   assert.equal(flags("glob('engine/*.test.js'); execFileSync(T, ['kill-server']); /* end */"), 1, 'a /* inside a string opens no comment');
@@ -306,7 +351,7 @@ test('#6857: no kill-server in the repo\'s JavaScript runs without -S or -L', ()
     if (f === __filename) continue;   // this file's controls hold bare examples on purpose
     const rel = path.relative(ROOT, f).split(path.sep).join('/');
     const src = fs.readFileSync(f, 'utf8');
-    if (!KILL.test(src)) continue;
+    if (!/kill/i.test(src)) continue;   // wide on purpose: an escaped kill-server (kill\x2dserver) still says kill
     reached[rel] = killArgs(src);
     for (const k of bareKills(src, rel, read)) bad.push(rel + ':' + k.line + '  ' + k.text);
   }
