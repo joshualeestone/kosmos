@@ -40,8 +40,18 @@ struct AgentsView: View {
                     .buttonStyle(.borderedProminent)
             }
         case .waitingForAllow(let mac, let code):
-            message("Allow this iPhone on \(mac).",
-                    detail: code.map { "Your Mac is showing a code. Check it matches: \($0)" } ?? "Your Mac is asking whether to let this iPhone in.")
+            VStack(spacing: 12) {
+                message("Allow this iPhone on \(mac).",
+                        detail: code.map { "Your Mac is showing a code. Check it matches: \($0)" } ?? "Your Mac is asking whether to let this iPhone in.")
+                ProgressView().accessibilityLabel("Waiting for your Mac")
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.updatesFrequently)
+        case .macStarting(let mac):
+            VStack(spacing: 12) {
+                message("\(mac) is starting up.", detail: "Connecting as soon as it is ready.")
+                ProgressView().accessibilityLabel("Waiting for your Mac")
+            }
         case .denied(let mac):
             VStack(spacing: 12) {
                 message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.")

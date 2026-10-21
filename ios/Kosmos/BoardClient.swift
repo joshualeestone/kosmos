@@ -14,6 +14,8 @@ final class BoardClient: ObservableObject {
         case signedOut
         case noMac
         case waitingForAllow(mac: String, code: String?)
+        // The Mac refused while it starts up (it does until it knows its account again); asked again shortly.
+        case macStarting(mac: String)
         case denied(mac: String)
         case kosmosPlusDown
         // Kosmos+ itself refused (a 403 on the Mac list or the handoff): not something the Mac's Allow fixes.
@@ -44,11 +46,14 @@ final class BoardClient: ObservableObject {
     // The Mac answers 401 for a moment after it starts, while keeping the session (kosmos-relay proxy.rs
     // KeptSession::Hold, until its 5 s account poll answers), so 401s end the session only after 15 s of them.
     private var unauthorizedSince: Date?
+    // The grace is for a session that worked in this run; a kept one the Mac no longer honours is signed in again at once.
+    private var listedThisRun = false
     private static let unauthorizedGrace: TimeInterval = 15
     private var lastReconnect: Date?
     private static let reconnectGap: TimeInterval = 30
     private static let failuresBeforeNotAnswering = 3
-    private static let freshHandoffs = 3
+    // About 30 s of retries for a Mac that refuses while it starts up.
+    private static let freshHandoffs = 6
 
     init(coordinator: URL = KosmosConfig.coordinatorOrigin,
          sessionStore: SessionStore = SessionKeychain.live,
@@ -107,6 +112,7 @@ final class BoardClient: ObservableObject {
         }
         skipSaved = false
         unauthorizedSince = nil
+        listedThisRun = false
         if case .live = phase {} else { set(.starting, gen) }
         loop = Task { await self.run(gen) }
     }
@@ -210,8 +216,8 @@ final class BoardClient: ObservableObject {
     }
 
     // A handoff token from Kosmos+, then the Mac's gate. While the Mac shows Allow it asks again every 3 s, rides
-    // out a slow network, and fetches a new handoff when the old one is refused (it expires during a long wait), up
-    // to three times in a row.
+    // out a slow network, and fetches a new handoff when the old one is refused (it expires during a long wait, and
+    // a Mac that has just started refuses for a while), up to six times (about 30 s) in a row.
     private func openSession(session: String, mac: Board.Mac, url: URL, _ gen: Int) async -> Bool {
         guard var token = await handoff(session: session, mac: mac, gen) else { return false }
         var waiting = false
@@ -244,7 +250,8 @@ final class BoardClient: ObservableObject {
                     set(.macRefused(mac: mac.name), gen); return false
                 }
                 fresh += 1
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if !waiting { set(.macStarting(mac: mac.name), gen) }
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard let next = await handoff(session: session, mac: mac, gen) else { return false }
                 token = next
             }
@@ -252,7 +259,7 @@ final class BoardClient: ObservableObject {
         return false
     }
 
-    // false ends the loop. 401s for 15 s, or the gate's sign-in page in place of the board's answer, mean the Mac's
+    // false ends the loop. 401s for 15 s (at once if no list was read in this run), or the gate's sign-in page in place of the board's answer, mean the Mac's
     // session ended: sign in to it again, at most once every 30 s. Three refreshes in a row with no list (no answer, a 5xx,
     // a redirect, an answer that is not the list) say the Mac is not answering rather than leave an old list up.
     // The list shows as current only after a refresh that read it.
@@ -266,6 +273,7 @@ final class BoardClient: ObservableObject {
             updatedAt = Date()
             failedRefreshes = 0
             unauthorizedSince = nil
+            listedThisRun = true
             set(.live(mac: mac), gen)
             return true
         }
@@ -273,7 +281,7 @@ final class BoardClient: ObservableObject {
             if status == 401 {
                 let since = unauthorizedSince ?? Date()
                 unauthorizedSince = since
-                if Date().timeIntervalSince(since) < Self.unauthorizedGrace { return true }
+                if listedThisRun && Date().timeIntervalSince(since) < Self.unauthorizedGrace { return true }
             }
             unauthorizedSince = nil
             admitted = nil

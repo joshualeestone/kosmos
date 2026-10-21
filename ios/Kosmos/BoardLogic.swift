@@ -45,6 +45,7 @@ enum Board {
     static func statusRequest(mac: URL) -> URLRequest {
         var r = URLRequest(url: URL(string: "/api/status", relativeTo: mac)!.absoluteURL)
         r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
     }
 
@@ -230,6 +231,8 @@ enum Board {
     }
 
     // The card's words, in the order of engine/cardlabel.js labelOf and its STATE_COPY (the board page's own copy).
+    // A third copy, kept equal by hand and by the cases in ios/LogicTests; nothing compares it with cardlabel.js
+    // automatically. It goes away when the Mac sends its words ready-made (the native plan's step 1, item 2).
     // Not copied: restartingLabel's causes ("Switching model" and the like), which read "Restarting agent" here
     // until the Mac sends its words ready-made (the plan's item 2).
     static let stateCopy: [String: String] = [
