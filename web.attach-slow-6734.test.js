@@ -41,7 +41,8 @@ async function failedUpload(size, fetchImpl = () => Promise.reject(new TypeError
 test('#6734: a large upload that fails at the network says a slow connection can outlast the wait', async () => {
   const MB = 1024 * 1024;
   const big = await failedUpload(60 * MB);
-  assert.equal(big, 'We could not finish adding clip.mov. If your connection is slow, a file this large can take longer than Kosmos waits for one.');
+  // Review 10: it names both causes, since the page cannot tell Kosmos being unreachable from the wait running out.
+  assert.equal(big, 'We could not reach Kosmos to finish adding clip.mov. If your connection is slow, a file this large can take longer than Kosmos waits for one.');
   assert.ok(!big.includes(String.fromCharCode(0x2014)), 'no em dash');
   // CONTROL: a small one keeps the plain sentence, so the size decides it.
   assert.equal(await failedUpload(MB), 'We could not reach Kosmos to add that file.');

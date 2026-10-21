@@ -156,6 +156,18 @@ phone yet: the remaining manual step covers it.
    with "we could not keep that file", not the raw error, which carries a path with the user's name and would reach
    their phone too. The store's own refusals are sentences with no `code` and pass through unchanged.
 
+22. **Review 10:** a large file's network failure reads "We could not reach Kosmos to finish adding <name>. If your
+   connection is slow, a file this large can take longer than Kosmos waits for one.", naming both causes, since the
+   page cannot tell Kosmos being unreachable from the wait running out.
+
+### Considered and not changed (review 10)
+- **The orphan sweep's residual cases:** a writer reaching the store by a spelling the guard does not scan (a shell
+  script, say), or an older build. Older builds also wrote record.json last, so a folder without one was already an
+  orphan. Attachments sit outside what backups copy, so a restore never writes there. Would change it: any feature
+  that stores files under the attachment store without going through attachments.js.
+- **Windows coverage and the memory tests' sensitivity to load:** as recorded above (the Windows section; the memory
+  bounds have controls that show the instrument sees a 64 MB Buffer).
+
 ### Considered and not changed (review 6)
 - **No Range support on downloads**: a 100 MB download cut at 90% restarts from zero, and the tunnel retires its
   connection hourly, which cuts a download in flight. Resuming is a feature, not a defect in this change; filed as its
@@ -196,7 +208,7 @@ The test used to accept a reset in place of the 400. It now requires the 400 wit
 a load average of about 10. If a client ever sees a reset instead, the page's own size check has already refused the
 file before sending it.
 
-## Tests (server.attachment-stream-6734.test.js, 25 tests, and web.attach-slow-6734.test.js, 2 tests, all green)
+## Tests (server.attachment-stream-6734.test.js, 25 tests, and web.attach-slow-6734.test.js, 2 tests; green at each review commit, and the full suite at the final head is in the proof file)
 
 - the cap is 100 MB and is said as "100 MB";
 - a 6 MB download is byte-identical (sha256) with its Content-Length; HEAD has the length and no body; no
