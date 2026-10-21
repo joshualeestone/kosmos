@@ -107,10 +107,13 @@ function check(name, pass, detail) {
       window.fetch = async () => { throw new Error('simulated poll failure'); };
       await tick();
       // The first miss counts only after a poll has answered (cases 1 to 3 above), so keep those first.
+      // misses: the page's own count, so a race with its 5 s poll (two misses already) reads as that, not a mystery red.
       const afterOneMiss = { hidden: tileEl.hidden, count: countEl.textContent,
-        reconnecting: (document.getElementById('hdr-reconnect') || {}).textContent };
+        reconnecting: (document.getElementById('hdr-reconnect') || {}).textContent,
+        misses: typeof BOARD_MISSES === 'number' ? BOARD_MISSES : null };
       await tick();
-      out.failedPoll = { hiddenBeforeFail, afterOneMiss, hidden: tileEl.hidden, count: countEl.textContent };
+      out.failedPoll = { hiddenBeforeFail, afterOneMiss, hidden: tileEl.hidden, count: countEl.textContent,
+        reconnecting: (document.getElementById('hdr-reconnect') || {}).textContent };
 
       /* #6649 (Josh, 2026-10-19): no Idle or Waiting tile, on a fleet that has idle and blocked agents. Read by the
          row's labels, not by id, because the ids are gone (CONTROL: the Working label is still there). */
@@ -149,11 +152,12 @@ function check(name, pass, detail) {
     // arm below is a real change, not a tile that never moves).
     check(`${engine}: one missed poll keeps the tile as it was and the header says Reconnecting (#6721)`,
       seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.afterOneMiss.hidden === true
-        && seen.failedPoll.afterOneMiss.reconnecting === 'Reconnecting\u2026',
+        && seen.failedPoll.afterOneMiss.count === '0' && seen.failedPoll.afterOneMiss.reconnecting === 'Reconnecting\u2026',
       `afterOneMiss=${JSON.stringify(seen.failedPoll.afterOneMiss)}`);
-    check(`${engine}: a second missed poll brings the tile BACK showing "?" (was hidden), never leaves it hidden`,
-      seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.hidden === false && seen.failedPoll.count === '?',
-      `hiddenBeforeFail=${seen.failedPoll.hiddenBeforeFail} hidden=${seen.failedPoll.hidden} count=${JSON.stringify(seen.failedPoll.count)}`);
+    check(`${engine}: a second missed poll brings the tile BACK showing "?" (was hidden) and clears Reconnecting`,
+      seen.failedPoll.hiddenBeforeFail === true && seen.failedPoll.hidden === false && seen.failedPoll.count === '?'
+        && seen.failedPoll.reconnecting === '',
+      `hiddenBeforeFail=${seen.failedPoll.hiddenBeforeFail} hidden=${seen.failedPoll.hidden} count=${JSON.stringify(seen.failedPoll.count)} reconnecting=${JSON.stringify(seen.failedPoll.reconnecting)}`);
 
     check(`${engine}: #6649 the stats row has no Idle or Waiting tile (CONTROL: Working is there)`,
       seen.labels.includes('Working') && !seen.labels.includes('Idle') && !seen.labels.includes('Waiting'), JSON.stringify(seen.labels));
