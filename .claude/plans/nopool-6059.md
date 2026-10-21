@@ -28,7 +28,7 @@ Same contract for callers, from an audit of all 599 sites:
 - **Timeout:** a socket idle for 300 s (undici's default) fails the request, naming it. It is an idle timeout, not a
   total deadline.
 
-The 21 direct `await fetch(` calls in the file (counted by that pattern; more lines mention `fetch(` in comments) are left as they are: they are not on the failing path, and each is a
+The 20 direct `await fetch(` calls left in the file (counted by that pattern after this change; main has 21, the 21st being req()'s own; more lines mention `fetch(` in comments) are left as they are: they are not on the failing path, and each is a
 deliberate fetch-semantics check.
 
 ## Test
@@ -86,7 +86,7 @@ there is nothing pooled left to reset, so a recurrence would disprove this premi
   could pass on a fast run. The tripwire now also counts `r.shouldKeepAlive`, which is false for every `agent: false`
   request and true for every keep-alive one, and it is asserted before the count. Mutant (a keep-alive agent), run
   with only 6 requests: the arm fails on the keep-alive assertion. Real file: 364 of 364.
-- NIT, taken: the plan says how the 21 direct fetch calls were counted.
+- NIT, taken: the plan says how the direct fetch calls were counted (20 after this change; 21 on main, one of them req()'s).
 - NITs, left: the arm must stay last (stated in its comment; the >100 floor is already met by the tests before it);
   a non-string body would throw inside the executor (no caller passes one).
 - The reviewer's note that the six HEAD sites call fetch directly is wrong: grep shows them as `req(` (iteration 4).
