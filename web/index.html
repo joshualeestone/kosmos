@@ -74755,9 +74755,14 @@ async function attachUpload(file, where) {
     if (!res.ok || !body || !body.attachment) {
       /* #6734 review 3: Kosmos answers 408 when a whole upload has not arrived in five minutes (review 6: the page
          cannot tell that from another timeout on the way, so the sentence names no figure). */
+      /* Review 17: through Kosmos+, a tunnel without kosmos-relay headclock-6734 answers a large upload that takes over
+         two minutes with 502 (504 from a proxy is the same case); for a large file that is said as the network failure is. */
       msg.textContent = res.status === 408
         ? 'We could not finish adding ' + file.name + ': it took too long to arrive. Try again on a faster connection.'
-        : (body && body.error) ? body.error : 'We could not add that file (status ' + res.status + ').';
+        : (body && body.error) ? body.error
+        : ((res.status === 502 || res.status === 504) && file.size > ATTACH_SLOW_BYTES)
+          ? 'We could not reach Kosmos to add ' + file.name + '. If your connection is slow, a file this large can take longer than Kosmos waits for one.'
+          : 'We could not add that file (status ' + res.status + ').';
       return;
     }
     /* ATTACHED, NOT SENT (Josh, 2026-08-23 1:59 PM). The file waits on a chip

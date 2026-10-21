@@ -82,8 +82,9 @@ the file in memory: an upload is written to disk as it arrives, and a download i
    read: a larger file gets a rendering that says "Kosmos converts files up to 25 MB to text; this one is larger, so
    it is attached as it is.", and the macOS PDF fallback is skipped for it too. Test: a sparse 25 MB + 1 file gets that
    note with no fallback, and a small file (control) goes to the converter; red with the gate removed.
-8. **Stored files are 0600 on every path**, `save()` included (review 1 NIT; it was the umask default), and so is each
-   attachment's record.json (review 12; test checks both).
+8. **A stored file and its record.json are 0600 on every path that stores one**, `save()` included (review 1 NIT; it was
+   the umask default; review 12 for the record). Files Kosmos derives later inside the folder (the office text, a PDF's
+   preview.png) keep the umask default; the 0700 folder (decision 25) is what keeps them private (review 17).
 
 9. **The Files preview keeps its own 25 MB limit** (review 2). `filepreview.tooBig` used `attachments.MAX_BYTES`, so
    raising the cap would have let the full-page preview of an agent's or a project's file read 100 MB whole (a PDF
@@ -192,6 +193,15 @@ phone yet: the remaining manual step covers it.
 26. **Review 15:** the module's own names are compared as macOS and Windows compare them: trailing dots and spaces
    dropped, NFKC, then lower case, so "record.jſon" (a long s) is renamed rather than stored where the record then
    overwrites it (the reviewer saw the overwrite on this Mac). An upload's own file is checked to be 0600.
+
+27. **Review 17:** until the tunnel carries kosmos-relay headclock-6734, a phone upload over two minutes ends in the
+   tunnel's 502, which the page showed as "(status 502)". A large file's 502 or 504 now gets the conditional
+   slow-connection sentence; a small file's, and any answer carrying the board's own sentence, are unchanged.
+
+### Considered and not changed (review 17)
+- A record naming exactly the part file, or a reserved name with trailing dots on macOS, stays unreachable: rare, and
+  the fallback keeps one rule for all platforms rather than per-platform exceptions.
+- Server-side failures are answered 400 with their sentence (the page reads the sentence, not the code).
 
 ### Considered and not changed (review 15)
 - **The orphan sweep checks every attachment folder's record on each run** (synchronously, at start and hourly); the

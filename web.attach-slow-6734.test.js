@@ -59,4 +59,12 @@ test('#6734: an upload that timed out (408) says it took too long to arrive, wha
   // CONTROL: another failed status keeps the generic sentence.
   const other = () => Promise.resolve({ ok: false, status: 502, json: () => Promise.reject(new SyntaxError('not json')) });
   assert.equal(await failedUpload(1024, other), 'We could not add that file (status 502).');
+  // Review 17: a large file's 502 or 504 (the tunnel cutting a slow upload) gets the slow-connection sentence.
+  for (const status of [502, 504]) {
+    const cut = () => Promise.resolve({ ok: false, status, json: () => Promise.reject(new SyntaxError('not json')) });
+    assert.equal(await failedUpload(60 * 1024 * 1024, cut),
+      'We could not reach Kosmos to add clip.mov. If your connection is slow, a file this large can take longer than Kosmos waits for one.');
+  }
+  const refusedWithWords = () => Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({ error: 'the board said why' }) });
+  assert.equal(await failedUpload(60 * 1024 * 1024, refusedWithWords), 'the board said why', 'CONTROL: a sentence from the board wins');
 });
