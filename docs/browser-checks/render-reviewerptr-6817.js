@@ -48,7 +48,8 @@ async function open(browser, w, h, theme, eng) {
         return enc({ enrolled: true, org: { name: 'Acme', slug: 'acme', kind: window.GRANTS.kind || 'company' }, role: 'member',
           enrolledAt: 1, reporting: true, reviewerGrants: window.GRANTS.reviewerGrants });
       }
-      if (u.startsWith('/api/plus/status') || u.startsWith('/api/plus')) return enc({ enrolled: true, on: true, state: 'up' });
+      // Settings' Kosmos+ section reads /api/remote (paintPlus) and opens the company block only for an enrolled computer.
+      if (u === '/api/remote') return enc({ enrolled: true, on: true, configured: true, status: { state: 'up' } });
       if (u.startsWith('/api/history')) return enc({ readable: false });   // Settings' own history panel, in its could-not-read shape
       return enc({ ok: true });
     };
