@@ -16,8 +16,11 @@ at 21:18 against 9 self-hosted). Can the part of test:shell that does not need m
   a signal on Linux). Both "unsure" files passed. By time: 1369 s on Linux in all, 283 s of it the 26.
 
 ## Corrections to the card's premise (on the card)
-- Billing: standard hosted runners are free for a public repository (reasoned from GitHub's documentation). The cost
-  is the queue: hosted macOS is a handful of concurrent jobs for this repo, the Linux pool far larger.
+- Billing: I first wrote that standard hosted runners are free for a public repository. That was reasoned from GitHub's
+  documentation and never measured on this account, and it is contradicted by Splinter (2026-10-21 00:22): hosted macOS
+  for every run costs about $30+ overnight here. So the cost is real and unverified by me. This change lowers it either
+  way (two of three hosted macOS shell jobs move to ubuntu-latest). The queue is the measured part: hosted macOS is a
+  handful of concurrent jobs for this repo, the Linux pool far larger.
 - A self-hosted Linux runner is not a drop-in: tools/ci-runner-job-guard.sh reads the event JSON with
   `/usr/bin/plutil`, so on Linux it would refuse every job. This repository is public, so a fork PR can name any
   runner label. ubuntu-latest needs no trust decision (a throwaway VM), so this change uses it.
