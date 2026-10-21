@@ -185,7 +185,7 @@ test('the line typed to the next agent carries the fingerprint, and a mark witho
     assert.equal(stored(n).builtFingerprint, A, 'CONTROL: the fingerprint was kept');
     const withPrint = typed.find((t) => t.includes('mona marked task ' + n + ' built'));
     const without = typed.find((t) => t.includes('marked task ' + n2 + ' built'));
-    assert.ok(withPrint && withPrint.includes(' - fingerprint ' + A + ' - reply in the task'), JSON.stringify(typed));
+    assert.ok(withPrint && withPrint.includes(' - fingerprint ' + A + ' (check your copy with: kosmos fingerprint <file>) - reply in the task'), JSON.stringify(typed));
     assert.ok(without && !without.includes('fingerprint'), JSON.stringify(typed));
   } finally {
     chat.resetForTests();
