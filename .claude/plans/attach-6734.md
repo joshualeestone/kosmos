@@ -14,6 +14,9 @@ the file in memory: an upload is written to disk as it arrives, and a download i
   on the upload's answer and on every message that carries it.
 - `replyfile.readOwn` allocated the whole file (up to the cap plus one byte) and `attachments.save` wrote it.
 - The page checked `25 * 1024 * 1024` itself (web/index.html, `attachUpload`), not tied to the route.
+- Two more readers of a whole file followed the cap without saying so (found in review, not in the first pass):
+  `filepreview.tooBig` compared against `attachments.MAX_BYTES` (decision 9), and the office-file text conversion
+  (`attachtext.render`) read whatever was stored (decision 7). Both now have their own 25 MB limit.
 - 25 MB was also written into the agent's instructions (engine/dmfiles.js), the CLI help (install/kosmos), the
   reply-file refusal (engine/replyfile.js), the store's own refusal, and three tests.
 
@@ -81,6 +84,35 @@ the file in memory: an upload is written to disk as it arrives, and a download i
    note with no fallback, and a small file (control) goes to the converter; red with the gate removed.
 8. **Stored files are 0600 on every path**, `save()` included (review 1 NIT; it was the umask default).
 
+9. **The Files preview keeps its own 25 MB limit** (review 2). `filepreview.tooBig` used `attachments.MAX_BYTES`, so
+   raising the cap would have let the full-page preview of an agent's or a project's file read 100 MB whole (a PDF
+   twice). It is now `filepreview.MAX_PREVIEW_BYTES`, 25 MB. Test: a 25 MB + 1 file is "too big to show here", one at
+   exactly 25 MB is not (control); red with the old comparison.
+10. **Orphans from a stopped board are swept** (review 2). A crash mid-upload leaves a folder with a part file, or a
+   renamed file whose record.json was never written. `attachments.sweepOrphans()` runs at board start and hourly
+   beside the preview cache sweep: it removes only a folder named like an attachment id, two levels under the store
+   root, with no record.json and nothing touched for an hour. Test: two old orphans removed; a fresh one, a real
+   attachment and a folder not named like an id kept; red with either the record check or the age check removed.
+11. **Reads stop at what was measured** (review 2). `replyfile.readOwn` copies at most one byte past the size its
+   descriptor reported (as before #6734), not up to the cap; a download streams exactly the measured size
+   (`start`/`end`). Tests make fstat under-report (what a file that grew looks like): the reply copy writes at most
+   size + 1 bytes, and two downloads over one keep-alive connection both arrive whole. Without the bound the second
+   response on that connection fails to parse (measured), so the bound protects the next request, not just this one.
+12. **Smaller:** a failed stat before conversion converts nothing (it used to read as size 0); a HEAD answer or an empty
+   file ends the response before closing the descriptor, inside a try.
+
+### Considered and not changed (review 2)
+- **The reply-file copy is synchronous** (decision 5 stands). Yielding between chunks would reopen the window the
+  descriptor identity checks closed. Bounded by the 200 MB daily total per agent. Weakest premise: "well under a
+  second" was measured on a local SSD; a slow network disk would stall the board for the copy. Would change it: a
+  report of the board stalling while an agent attaches a file.
+- **A declared over-cap body larger than the test's 16 bytes** may see a reset before the 400 on a real socket. The
+  page refuses an over-cap file before sending, so only the CLI or another client meets it, and the refusal still
+  holds (nothing is stored). Not tested with a large body.
+- **The five-minute figure in the slow-upload sentence** is Node's default request timeout on the board. It was not
+  measured through the relay, which is what a phone uses; the relay may cut sooner. The sentence is shown only after
+  a failure, for a file over 25 MB, and says "can take longer", not a promise.
+
 ## Windows (review 1)
 
 The new test cannot run on Windows (it reads `/dev/fd`), and it is not in `tools/windows-tests.js`; Windows-side test
@@ -96,7 +128,7 @@ The test used to accept a reset in place of the 400. It now requires the 400 wit
 a load average of about 10. If a client ever sees a reset instead, the page's own size check has already refused the
 file before sending it.
 
-## Tests (server.attachment-stream-6734.test.js, 14 tests, and web.attach-slow-6734.test.js, 1 test, all green)
+## Tests (server.attachment-stream-6734.test.js, 18 tests, and web.attach-slow-6734.test.js, 1 test, all green)
 
 - the cap is 100 MB and is said as "100 MB";
 - a 6 MB download is byte-identical (sha256) with its Content-Length; HEAD has the length and no body; no

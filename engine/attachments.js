@@ -117,6 +117,34 @@ function finish(s, scope, owner, { type, size, by }) {
 }
 function abandon(s) { try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
 
+/* #6734 review 2: a board that stops mid-upload (a crash, a kill, a power cut) leaves an attachment folder with no
+   record.json: a part file of up to the cap, or a renamed file whose record was never written. read() never serves
+   one, so only the disk space is at stake; this takes it back. Only a folder named like an attachment id, two levels
+   under ROOT, with no record.json, and nothing in it touched for ORPHAN_AGE_MS (an upload waits at most five minutes
+   for its body, so an hour is never one still arriving). Returns how many it removed. */
+const ORPHAN_AGE_MS = 60 * 60 * 1000;
+function sweepOrphans(now = Date.now()) {
+  let removed = 0;
+  const list = (d) => { try { return fs.readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); } catch { return []; } };
+  for (const scope of list(ROOT)) {
+    for (const owner of list(path.join(ROOT, scope))) {
+      for (const id of list(path.join(ROOT, scope, owner))) {
+        if (!/^[0-9a-f]{24}$/.test(id)) continue;
+        const dir = path.join(ROOT, scope, owner, id);
+        try {
+          if (fs.existsSync(path.join(dir, 'record.json'))) continue;
+          let newest = fs.statSync(dir).mtimeMs;
+          for (const f of fs.readdirSync(dir)) newest = Math.max(newest, fs.lstatSync(path.join(dir, f)).mtimeMs);
+          if (now - newest < ORPHAN_AGE_MS) continue;
+          fs.rmSync(dir, { recursive: true, force: true });
+          removed += 1;
+        } catch { /* best effort: the next sweep tries again */ }
+      }
+    }
+  }
+  return removed;
+}
+
 /**
  * Store bytes as an attachment. Returns the record (with `dir` and `file`
  * for the server, which strips them before the row goes out).
@@ -510,4 +538,4 @@ function rowFields(recs) {
   return { attachment: list[0], attachments: list };
 }
 
-module.exports = { MAX_BYTES, MAX_WORDS, TOO_LARGE, PART, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, saveFilled, saveStream, read, rowField, rowFields, resolveForMessage, preview, previewFile, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js
+module.exports = { MAX_BYTES, MAX_WORDS, TOO_LARGE, PART, ORPHAN_AGE_MS, sweepOrphans, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, saveFilled, saveStream, read, rowField, rowFields, resolveForMessage, preview, previewFile, wireNote, imageFacts, signatureType, sizeWords, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js

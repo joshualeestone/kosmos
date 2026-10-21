@@ -360,3 +360,86 @@ test('#6734: an office file over the conversion limit is attached unconverted an
   const out2 = await attachtext.render({ name: 'small.pdf', file: small, dir: fs.mkdtempSync(path.join(SCRATCH, 'render-')) });
   assert.doesNotMatch(fs.readFileSync(out2, 'utf8'), /converts files up to/);
 });
+
+test('#6734: the Files preview keeps its own 25 MB limit when the attachment cap rises, since it reads the whole file', async () => {
+  const filepreview = require('./engine/filepreview');
+  assert.equal(filepreview.MAX_PREVIEW_BYTES, 25 * 1024 * 1024);
+  assert.ok(filepreview.MAX_PREVIEW_BYTES < attachments.MAX_BYTES, 'the preview limit must not follow the attachment cap');
+  const dir = fs.mkdtempSync(path.join(SCRATCH, 'files-'));
+  const sparse = (name, size) => { const f = path.join(dir, name); fs.closeSync(fs.openSync(f, 'w')); fs.truncateSync(f, size); };
+  sparse('over.png', filepreview.MAX_PREVIEW_BYTES + 1);
+  sparse('at.png', filepreview.MAX_PREVIEW_BYTES);
+  const over = await filepreview.preview(dir, 'over.png', 'here', { maxDepth: 0 });
+  assert.deepEqual([over.ok, over.because], [false, 'that file is too big to show here']);
+  // CONTROL: exactly at the limit is not refused for its size.
+  const at = await filepreview.preview(dir, 'at.png', 'here', { maxDepth: 0 });
+  assert.notEqual(at.because, 'that file is too big to show here', JSON.stringify({ ok: at.ok, because: at.because }));
+});
+
+test('#6734: a folder a stopped upload left with no record is swept once it is an hour old, and nothing else is', () => {
+  assert.ok(attachments.ROOT.startsWith(SANDBOX), 'the sweep must run on the sandbox, never the real store');
+  const owner = path.join(attachments.ROOT, 'agent', 'sweep-test');
+  const make = (id, files, ageMs) => {
+    const dir = path.join(owner, id);
+    fs.mkdirSync(dir, { recursive: true });
+    const when = (Date.now() - ageMs) / 1000;
+    for (const f of files) { fs.writeFileSync(path.join(dir, f), 'x'); fs.utimesSync(path.join(dir, f), when, when); }
+    fs.utimesSync(dir, when, when);
+    return dir;
+  };
+  const HOUR = attachments.ORPHAN_AGE_MS;
+  const oldPart = make('a'.repeat(24), [attachments.PART], HOUR + 60000);
+  const oldNoRecord = make('b'.repeat(24), ['clip.mov'], HOUR + 60000);   // renamed, record never written
+  const fresh = make('c'.repeat(24), [attachments.PART], 60000);          // CONTROL: may still be arriving
+  const kept = make('d'.repeat(24), ['clip.mov', 'record.json'], HOUR * 5); // CONTROL: a real attachment
+  const notAnId = make('not-an-attachment-id', [attachments.PART], HOUR * 5); // CONTROL: not ours to judge
+  assert.equal(attachments.sweepOrphans(), 2);
+  assert.deepEqual([oldPart, oldNoRecord, fresh, kept, notAnId].map((d) => fs.existsSync(d)), [false, false, true, true, true]);
+});
+
+test('#6734: a reply file that grew after it was measured is refused having copied at most one byte past the measure', () => {
+  const replyfile = require('./engine/replyfile');
+  const src = path.join(fs.mkdtempSync(path.join(SCRATCH, 'grow-')), 'grows.bin');
+  fs.writeFileSync(src, Buffer.alloc(3 * MB, 1));
+  const real = fs.realpathSync(src);
+  const st = fs.statSync(real);
+  const outFile = path.join(SCRATCH, 'grow-out-' + process.pid);
+  const out = fs.openSync(outFile, 'w');
+  const fstat = fs.fstatSync;
+  // The descriptor reports 1 MB: what a file that grew from 1 MB to 3 MB after the fstat looks like to the reader.
+  fs.fstatSync = function (fd) { const s = fstat.apply(this, arguments); if (fd !== out) Object.defineProperty(s, 'size', { value: MB }); return s; };
+  let got;
+  try { got = replyfile.readOwn(real, st, src, out); } finally { fs.fstatSync = fstat; fs.closeSync(out); }
+  assert.equal(got.ok, false, JSON.stringify(got));
+  assert.ok(fs.statSync(outFile).size <= MB + 1, 'copied ' + fs.statSync(outFile).size + ' bytes of a file measured at ' + MB);
+});
+
+test('#6734: a download sends exactly the size it measured, even if the file is longer when it is read', async () => {
+  const rec = storedOf(3 * MB, 'grows-later.bin');
+  const whole = fs.readFileSync(rec.file);
+  const fstat = fs.fstatSync;
+  // The download's fstat reports 1 MB: a file that grew after it was measured.
+  fs.fstatSync = function () { const s = fstat.apply(this, arguments); Object.defineProperty(s, 'size', { value: MB }); return s; };
+  // One keep-alive socket for two requests: bytes sent past the first response's length would land in front of the
+  // second response, so the second one is the check that can see an overrun.
+  const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+  const fetchOnce = () => new Promise((resolve) => {
+      const req = http.get({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id, agent }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve({ status: res.statusCode, length: res.headers['content-length'], complete: res.complete, body: Buffer.concat(chunks) }));
+        res.on('error', (e) => resolve({ error: e.message }));
+      });
+      req.on('error', (e) => resolve({ error: e.message }));
+    });
+  let got;
+  let second;
+  try { got = await fetchOnce(); second = await fetchOnce(); } finally { fs.fstatSync = fstat; agent.destroy(); }
+  assert.equal(second.status, 200, 'the next response on the same connection: ' + JSON.stringify({ ...second, body: undefined }));
+  assert.ok(second.body.equals(whole.subarray(0, MB)), 'the next response on the same connection was not the file');
+  assert.equal(got.status, 200, JSON.stringify({ ...got, body: undefined }));
+  assert.equal(got.length, String(MB));
+  assert.equal(got.complete, true, 'the response was cut rather than ended at its length');
+  assert.equal(got.body.length, MB);
+  assert.ok(got.body.equals(whole.subarray(0, MB)), 'the bytes sent are not the first MB of the file');
+});

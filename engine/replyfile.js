@@ -386,12 +386,14 @@ function readOwn(real, st, given, out) {
     if (open.nlink > 1) return { ok: false, because: HARD_LINK };
     const buf = Buffer.allocUnsafe(Math.min(open.size + 1, COPY_CHUNK));
     let n = 0;
-    for (;;) {
-      const got = fs.readSync(fd, buf, 0, buf.length, n);
+    /* Review 2: never past one byte beyond the size measured, as before #6734, so a file that keeps growing costs at
+       most that one byte, not a copy up to the cap. */
+    const limit = Math.min(open.size, attachments.MAX_BYTES) + 1;
+    while (n < limit) {
+      const got = fs.readSync(fd, buf, 0, Math.min(buf.length, limit - n), n);
       if (got === 0) break;
       for (let w = 0; w < got;) w += fs.writeSync(out, buf, w, got - w);
       n += got;
-      if (n > attachments.MAX_BYTES) break;
     }
     /* Exactly the size the descriptor said (review r7 finding 1): more is a file that grew, fewer one that shrank
        between the fstat and the read, which would otherwise be sent cut. */

@@ -1162,7 +1162,7 @@ async function render(rec) {
   const kind = rec && kindFor(rec.name);
   if (!kind) return null;
   let size = 0;
-  try { size = fs.statSync(rec.file).size; } catch { size = 0; }
+  try { size = fs.statSync(rec.file).size; } catch { size = Infinity; }   // review 2: a failed stat converts nothing
   let got = size > MAX_RENDER_BYTES
     ? { failed: 'Kosmos converts files up to ' + (MAX_RENDER_BYTES / 1024 / 1024) + ' MB to text; this one is larger, so it is attached as it is.' }
     : await convertIsolated(rec.file, kind);

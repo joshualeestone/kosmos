@@ -3771,8 +3771,9 @@ function sendFileStream(req, res, file, unread, headers) {
     return;
   }
   res.writeHead(200, { ...headers, 'content-length': size });
-  if (req.method === 'HEAD') { fs.closeSync(fd); res.end(); return; }
-  pipeline(fs.createReadStream(null, { fd, autoClose: true }), res, () => { /* aborted or failed: both streams are destroyed */ });
+  if (req.method === 'HEAD' || size === 0) { res.end(); try { fs.closeSync(fd); } catch { /* closed */ } return; }
+  /* Review 2: read no further than the size measured, so a file that grows meanwhile cannot overrun Content-Length. */
+  pipeline(fs.createReadStream(null, { fd, start: 0, end: size - 1, autoClose: true }), res, () => { /* aborted or failed: both streams are destroyed */ });
 }
 
 /* #6734: an upload answered with a refusal. When the body has not all arrived (over the cap, or the client went),
@@ -24227,6 +24228,9 @@ function start(port = PORT) {
   /* #5254: cached first pages whose PDF, project or agent is gone are removed now and hourly (engine/filepreview.js). */
   try { filepreview.sweep(); } catch { /* best effort */ }
   setInterval(() => { try { filepreview.sweep(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
+  /* #6734: attachment folders a stopped upload left with no record, now and hourly (attachments.sweepOrphans). */
+  try { attachments.sweepOrphans(); } catch { /* best effort */ }
+  setInterval(() => { try { attachments.sweepOrphans(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
   require('./engine/agentnames').setFleetSource(() => nameCheckFleet());   // #5957: one display name per agent
   /* #5535 E0.6 slice (d): the company backup tick, hourly and only while orgenroll.mayReport (enrolled here AND the
      company's words accepted here). The first run is an hour after start, never at boot. Kosmos+ answers backup_off
