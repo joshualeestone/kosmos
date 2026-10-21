@@ -21,8 +21,8 @@
 #   E2 an unset variable  must exit non-zero (likewise)
 #   EC CONTROL: the same copy with the old plain trap, on E1 (exits 0 on macOS /bin/sh)
 # And one source pin:
-#   P  every `exit 0` alone on its line in deploy-site.sh is directly preceded by `_DS_FINISHED=1`, and no
-#      `exit 0` sits inline (inside `{ ...; }` or after `;`), where the flag could not be checked.
+#   P  every exit in command position (outside quotes) is a literal non-zero code, or `exit 0` as the whole line
+#      directly after `_DS_FINISHED=1`. Anything else could end a success without the flag.
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -78,7 +78,7 @@ rc=$(run r4 "$TRAP" '_DS_FINISHED=1; exit 0')
 REPO=$(cd "$HERE/.." && pwd)
 mkdir -p "$TMP/site/.vercel" "$TMP/bin"
 printf '{}\n' > "$TMP/site/.vercel/project.json"
-git -C "$TMP/site" init -q && git -C "$TMP/site" -c user.name=t -c user.email=t@t commit -q --allow-empty -m t
+git -C "$TMP/site" init -q && git -C "$TMP/site" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m t
 printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/vercel"; chmod +x "$TMP/bin/vercel"
 e2e() {   # e2e <name> <injected line> [old]; prints the exit status
   awk -v inj="$2" -v old="${3:-}" '
@@ -100,15 +100,35 @@ if [ "$rc" = 0 ]; then pass "EC: CONTROL: the real script with the old trap exit
 elif [ "$rc" = inject-failed ]; then bad "EC: could not inject into deploy-site.sh"
 else pass "EC: CONTROL: this shell keeps the status with the old trap too (rc=$rc), so E1 cannot show the danger here"; fi
 
-# P: every `exit 0` line (any indent) is directly preceded by a `_DS_FINISHED=1` line.
-unflagged=$(awk '{ t = $0; sub(/^[ \t]+/, "", t) } t == "exit 0" && prev != "_DS_FINISHED=1" { print NR } { prev = t }' "$DEPLOY")
-exits=$(grep -cE '^[[:space:]]*exit 0$' "$DEPLOY")
+# P: every exit in command position, outside quotes: a literal non-zero code, or `exit 0` as the whole line directly
+# after `_DS_FINISHED=1`. A bare `exit`, `exit "$var"`, `|| exit 0` or an inline `exit 0` could end a success
+# without the flag, so each is reported.
+pin_awk() {
+  cat <<'AWK'
+# Every exit in command position, outside quotes: a literal non-zero code passes; `exit 0` passes only as the whole line, directly
+# after `_DS_FINISHED=1`; anything else (bare exit, exit "$var", an inline exit 0) is reported as NR: line.
+{ t = $0; sub(/^[ \t]+/, "", t) }
+t ~ /^#/ { prev = t; next }
+{
+  rest = " " $0
+  gsub(/'[^']*'/, "''", rest)                 # quoted text (awk programs, trap strings, messages) is not the
+  gsub(/"([^"\\]|\\.)*"/, """", rest)    # script's own flow
+  while (match(rest, /(^|[;&|{(])[ \t]*exit([ \t]+[^ \t;}&|)]+)?/)) {
+    m = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH)
+    sub(/^[;&|{( \t]*exit[ \t]*/, "", m)
+    if (m ~ /^[1-9][0-9]*$/) continue
+    if (m == "0" && t == "exit 0" && prev == "_DS_FINISHED=1") continue
+    print NR ": " $0
+  }
+  prev = t
+}
+AWK
+}
+unflagged=$(awk "$(pin_awk)" "$DEPLOY")
+exits=$(grep -cx '[[:space:]]*exit 0' "$DEPLOY")
 [ "$exits" -ge 2 ] && [ -z "$unflagged" ] \
-  && pass "P: all $exits success exits in deploy-site.sh set _DS_FINISHED=1 first" \
-  || bad "P: success exits without _DS_FINISHED=1 just before them, at lines: ${unflagged:-none} ($exits exit 0 lines)"
-
-inline=$(grep -nE 'exit 0[[:space:]]*(;|\})' "$DEPLOY" | grep -v '^[0-9]*:[[:space:]]*#' || true)
-[ -z "$inline" ] && pass "P: no inline exit 0 in deploy-site.sh" || bad "P: inline exit 0 the flag cannot cover: $inline"
+  && pass "P: every exit in deploy-site.sh is a non-zero code or one of its $exits flagged success exits" \
+  || bad "P: exits that could end a success without _DS_FINISHED=1 ($exits flagged exit 0 lines): ${unflagged:-none}"
 
 echo
 [ "$fails" = 0 ] && { echo "test-deploy-site-exit-trap-6826: all passed"; exit 0; }
