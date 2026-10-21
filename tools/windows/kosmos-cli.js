@@ -91,6 +91,7 @@ const USAGE = {
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
+  fingerprint: 'Usage: kosmos fingerprint <file>   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: the sha256 of the file, with the creation and change dates and document ID inside a PDF left out, so the same source rendered twice matches)',
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a sha256 for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
   inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
@@ -1216,21 +1217,16 @@ async function taskBuilt(ctx, args) {
   if (wantFile) { ctx.err('--file needs the path of the delivered file.'); return 2; }
   const note = words.join(' ');
   if (clear && note) { ctx.err('--clear takes the mark off, so it takes no note. Run it without the note.'); return 2; }
-  /* #6330 slice 2: the delivered file's sha256, hashed here; the board never reads the file. */
+  /* #6330 slice 2: the delivered file's fingerprint, worked out here; the board never reads the file. kosmos#6849: the one
+     engine/fileprint.js gives, as the Mac and `kosmos fingerprint` do (a PDF's own dates and document ID left out). */
   let fingerprint = null;
   if (file !== null) {
     if (clear) { ctx.err('--clear takes the mark off, so it takes no file. Run it without --file.'); return 2; }
-    /* In chunks, as shasum streams on the Mac: a whole-file read refuses anything over 2 GiB (review 1). */
-    const hash = require('node:crypto').createHash('sha256');
-    let fd = null;
-    try {
-      if (!fs.statSync(file).isFile()) throw new Error('not a file');
-      fd = fs.openSync(file, 'r');
-      const buf = Buffer.alloc(1 << 20);
-      for (let got; (got = fs.readSync(fd, buf, 0, buf.length, null)) > 0;) hash.update(buf.subarray(0, got));
-    } catch { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
-    finally { if (fd !== null) fs.closeSync(fd); }
-    fingerprint = 'sha256:' + hash.digest('hex');
+    let fileprint;
+    try { fileprint = ctx.engine('fileprint'); } catch { ctx.err('Kosmos could not find its own fingerprint reader; this install looks incomplete.'); return 1; }
+    const got = fileprint.fingerprint(file);
+    if (!fileprint.isPrint(got)) { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
+    fingerprint = got;
   }
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}) });
   if (!r.reached) {
@@ -2245,6 +2241,18 @@ async function verbHandoff(ctx, args) {
   return 0;
 }
 
+/* kosmos#6849, as install/kosmos cmd_fingerprint: a file's fingerprint, the one `kosmos task built --file` sends and
+   `kosmos handoff` prints (engine/fileprint.js), so an agent checking a handed-off copy compares like with like. */
+async function verbFingerprint(ctx, args) {
+  if (args.length !== 1 || !args[0]) { ctx.err(USAGE.fingerprint); return 2; }
+  let fileprint;
+  try { fileprint = ctx.engine('fileprint'); } catch { ctx.err('Kosmos could not find its own fingerprint reader; this install looks incomplete.'); return 1; }
+  const got = fileprint.fingerprint(args[0]);
+  if (!fileprint.isPrint(got)) { ctx.err(args[0] + ': ' + got); return 2; }
+  ctx.out(got);
+  return 0;
+}
+
 /* The door checks the token with the service (up to 30 s) before storing it, so connect waits longer. */
 const CONNECT_TIMEOUT_MS = 35000;
 const CONNECT_TOKEN_MAX_BYTES = 64 * 1024;
@@ -2313,6 +2321,7 @@ const VERB_HANDLERS = {
   report: verbReport,
   whoami: verbWhoami,
   handoff: verbHandoff,
+  fingerprint: verbFingerprint,
   inbox: verbInbox,
   room: verbRoom,
   task: subcommandRequired('task'),
@@ -2360,6 +2369,7 @@ const DESCRIBE = {
   report: 'say what you are doing: working, blocked, waiting on someone',
   whoami: 'say which agent you are and which account you are on',
   handoff: 'print facts for your handoff: your live state, artifact fingerprints, instruction and git status',
+  fingerprint: 'print the fingerprint of a file, to check a handed-off copy (the dates inside a PDF are left out)',
   room: 'read a project room',
   task: "a project's tasks: list, add, close, reopen, message, mark built",
   project: 'list, show, create or pause projects, or say your role on one',

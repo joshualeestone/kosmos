@@ -36,7 +36,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
 /* A sane calendar year floors "cannot tell": an mtime at or before the epoch, or
@@ -158,55 +157,9 @@ function gitFact(cwd) {
   return where + ' at `' + sha + '`, ' + state;
 }
 
-/** sha256, or an honest reason, for one artifact path (#6506 axis 5). The path is
- * echoed back exactly as given (never re-split), so a path with spaces is safe. */
-function fingerprint(p) {
-  let st;
-  try {
-    st = fs.statSync(p);
-  } catch (e) {
-    if (e && e.code === 'ENOENT') return 'missing (no such file)';
-    if (e && e.code === 'EACCES') return 'unreadable (permission denied)';
-    if (e && e.code === 'ELOOP') return 'unreadable (symlink loop)';
-    if (e && e.code === 'ENOTDIR') return 'missing (a parent path element is not a directory)';
-    return 'could not be read (' + firstLine(e && e.message) + ')';
-  }
-  if (st.isDirectory()) return 'is a directory, not a file';
-  if (!st.isFile()) return 'not a regular file';
-  // Hash in chunks rather than reading the whole file into memory: a named artifact can be a
-  // large build output or media file, and a whole-file read would throw on a multi-GB file and
-  // report a perfectly readable file as unreadable. The chunked read also closes the
-  // stat-then-read window: a path swapped for a directory in between surfaces as EISDIR here
-  // and is said as a directory, not as a mystery read error.
-  let fd;
-  try {
-    fd = fs.openSync(p, 'r');
-  } catch (e) {
-    if (e && e.code === 'EACCES') return 'unreadable (permission denied)';
-    if (e && e.code === 'EISDIR') return 'is a directory, not a file';
-    if (e && e.code === 'ENOENT') return 'missing (no such file)';
-    return 'could not be read (' + firstLine(e && e.message) + ')';
-  }
-  try {
-    const hash = crypto.createHash('sha256');
-    const buf = Buffer.allocUnsafe(1 << 20);   // 1 MiB at a time
-    for (;;) {
-      let n;
-      try {
-        n = fs.readSync(fd, buf, 0, buf.length, null);
-      } catch (e) {
-        if (e && e.code === 'EISDIR') return 'is a directory, not a file';
-        if (e && e.code === 'EACCES') return 'unreadable (permission denied)';
-        return 'could not be read (' + firstLine(e && e.message) + ')';
-      }
-      if (n === 0) break;
-      hash.update(buf.subarray(0, n));
-    }
-    return 'sha256:' + hash.digest('hex');
-  } finally {
-    try { fs.closeSync(fd); } catch (_) { /* best effort */ }
-  }
-}
+/* The fingerprint, or an honest reason, for one artifact path (#6506 axis 5): engine/fileprint.js since #6849, the
+   one `kosmos task built --file` and `kosmos fingerprint` give, so a PDF re-rendered from the same source matches. */
+const { fingerprint } = require('./fileprint');
 
 /** The agent's live state from the self-report, "never reported" when absent
  * (#6506 axis 2). Never defaults to idle. */
