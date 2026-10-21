@@ -10,15 +10,19 @@
  * in its two dates and its /ID). Nothing else is left out, so a change to what the PDF shows still changes the print.
  *
  * Not covered, and why: a PDF that keeps its document info inside a compressed object stream is hashed as it is (its
- * dates are not readable without inflating every stream); and a PDF over PDF_MAX is hashed as plain bytes rather than
- * held whole in memory.
+ * dates are not readable without inflating every stream), and so is a compressed XMP stream; Adobe's xmpMM:History events,
+ * single-quoted XMP attributes and an /ID literal holding unescaped brackets are not emptied; a date whose LENGTH changes
+ * between renders still moves the xref offsets. Each of these gives two fingerprints, never one for two different
+ * documents. A PDF over PDF_MAX (64 MiB) is hashed as plain bytes rather than held whole in memory.
  *
  * Run directly, `node fileprint.js <path>` prints the fingerprint (exit 0) or the reason it could not be read (exit 2).
  */
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 
-const PDF_MAX = 512 * 1024 * 1024;   // larger PDFs are hashed as plain bytes, not held whole in memory
+/* Larger PDFs are hashed as plain bytes. The metadata is taken out of the whole file in memory (a buffer, a string and
+   its copies, several times the file), so the cap keeps that to a few hundred MB and well under V8's longest string. */
+const PDF_MAX = 64 * 1024 * 1024;
 const CHUNK = 1 << 20;               // 1 MiB a read
 
 function firstLine(s) {
@@ -38,9 +42,10 @@ const VOLATILE = [
   [new RegExp('\\b(' + XMP + ')="[^"]*"', 'g'), '$1=""'],
 ];
 
-/** True when these first bytes are a PDF's: the header is within the first 1024 bytes (the PDF spec's allowance). */
+/** True when these first bytes are a PDF's: it starts with %PDF-. (The PDF spec lets a reader look further in, but a file
+ * that only mentions %PDF- somewhere near its top is text, and stays its plain sha256.) */
 function isPdfHead(head) {
-  return head.subarray(0, 1024).toString('latin1').indexOf('%PDF-') !== -1;
+  return head.subarray(0, 5).toString('latin1') === '%PDF-';
 }
 
 /** A PDF's bytes with its clock and identity emptied (latin1, so every byte maps to itself and back). */
@@ -118,7 +123,7 @@ function fingerprint(p) {
 
 const isPrint = (s) => /^sha256:[0-9a-f]{64}$/.test(s);
 
-module.exports = { fingerprint, printFd, stablePdf, isPdfHead, isPrint, PDF_MAX };
+module.exports = { fingerprint, isPrint, isPdfHead, stablePdf, firstLine, PDF_MAX };
 
 if (require.main === module) {
   const p = process.argv[2];

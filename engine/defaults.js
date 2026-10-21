@@ -1166,8 +1166,13 @@ function block() {
  *     leave such a post to the agent it names, and engine/messages.js stops passing on
  *     another agent's agreement-only reply to it from the first one. No new heading, so as
  *     in 32 an agent's EDITED copy of that section is not re-offered it.
+ *  37. kosmos#6849 (a user's feedback, 10-21). The same source rendered twice as a PDF gave
+ *     two fingerprints (each render stamps its own dates). The tasks section now says to check
+ *     a delivered file with `kosmos fingerprint`, which leaves a PDF's own dates out; for any
+ *     other file it is still the plain sha256. No new heading, so as in 32 an agent's EDITED
+ *     copy of that section is not re-offered it.
  */
-const DOCTRINE_VERSION = 36;
+const DOCTRINE_VERSION = 37;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

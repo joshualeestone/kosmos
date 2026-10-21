@@ -51,11 +51,6 @@ function iso(ms) {
 
 /* A one-line, control-stripped excerpt of a tool's error, so a multi-line git
  * message never becomes extra Markdown lines. */
-function firstLine(s) {
-  const t = String(s == null ? '' : s).replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, ' ').trim();
-  const nl = t.indexOf('\n');
-  return nl === -1 ? t : t.slice(0, nl).trim();
-}
 
 /* An ISO timestamp only when the time is believable: at or after MIN_SANE_YEAR and not in
  * the future beyond a day's slack for clock skew. A zero or epoch time, a parse failure, or
@@ -159,7 +154,7 @@ function gitFact(cwd) {
 
 /* The fingerprint, or an honest reason, for one artifact path (#6506 axis 5): engine/fileprint.js since #6849, the
    one `kosmos task built --file` and `kosmos fingerprint` give, so a PDF re-rendered from the same source matches. */
-const { fingerprint } = require('./fileprint');
+const { fingerprint, firstLine } = require('./fileprint');
 
 /** The agent's live state from the self-report, "never reported" when absent
  * (#6506 axis 2). Never defaults to idle. */

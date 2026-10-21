@@ -3423,7 +3423,7 @@ cmd_accounts() {
 # checking a handed-off file compares like with like (engine/fileprint.js: plain sha256, a PDF's own dates and document
 # ID left out). A local read; it changes nothing.
 cmd_fingerprint() {
-  if [ "$#" -ne 1 ] || [ -z "$1" ]; then say "Usage: kosmos fingerprint <file>"; exit 2; fi
+  if [ "$#" -ne 1 ] || [ -z "$1" ]; then say "Usage: kosmos fingerprint <file>" >&2; exit 2; fi
   local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to fingerprint that file."; exit 1; }
   local _mod; _mod="$(kosmos_engine_module fileprint).js"
   [ -f "$_mod" ] || { say "Kosmos could not find its own fingerprint reader; this install looks incomplete."; exit 1; }
@@ -4992,7 +4992,7 @@ if [ "$_kosmos_help" = 1 ]; then
       exit 0 ;;
     handoff)
       # #6506: run bare it prints your handoff facts (a local read); --help must only say what it does, not gather them.
-      printf 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a sha256 for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)\n'
+      printf 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)\n'
       exit 0 ;;
     adopt|whoami|connections)
       # These show read-only OUTPUT on --help (they act read-only), so their own

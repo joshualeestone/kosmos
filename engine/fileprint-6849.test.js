@@ -73,11 +73,23 @@ test('#6849: run directly it prints the fingerprint (exit 0) or why it could not
   const mod = path.join(__dirname, 'fileprint.js');
   const out = execFileSync(process.execPath, [mod, at('cups-a.pdf')], { encoding: 'utf8' }).trim();
   assert.equal(out, fp.fingerprint(at('cups-b.pdf')));
-  for (const args of [[path.join(FIX, 'nope.pdf')], [FIX], []]) {
+  for (const [args, said] of [[[path.join(FIX, 'nope.pdf')], /missing \(no such file\)/], [[FIX], /is a directory, not a file/], [[], /Usage: kosmos fingerprint/]]) {
     let code = 0, err = '';
     try { execFileSync(process.execPath, [mod, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); }
     catch (x) { code = x.status; err = String(x.stderr); }
     assert.equal(code, 2, JSON.stringify(args));
-    assert.match(err, args.length ? /missing|directory/ : /Usage: kosmos fingerprint/);
+    assert.match(err, said);
   }
+});
+
+test('#6849: only a file that starts with %PDF- is read as a PDF; text that mentions it near the top stays its plain sha256', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fileprint-'));
+  try {
+    const note = path.join(dir, 'note.md');
+    fs.writeFileSync(note, 'How to read %PDF-1.7 files\n/ModDate (D:20261021) xmp:CreateDate="2026"\n');
+    assert.equal(fp.isPdfHead(fs.readFileSync(note)), false);
+    assert.equal(fp.fingerprint(note), raw(note), 'a note about PDFs was hashed as one');
+    assert.equal(fp.isPdfHead(fs.readFileSync(at('chrome-a.pdf'))), true, 'CONTROL: a real PDF reads as one');
+    assert.notEqual(fp.stablePdf(fs.readFileSync(at('cups-a.pdf'))).length, 0);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
