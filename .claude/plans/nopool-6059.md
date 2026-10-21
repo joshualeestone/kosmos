@@ -90,3 +90,12 @@ there is nothing pooled left to reset, so a recurrence would disprove this premi
 - NITs, left: the arm must stay last (stated in its comment; the >100 floor is already met by the tests before it);
   a non-string body would throw inside the executor (no caller passes one).
 - The reviewer's note that the six HEAD sites call fetch directly is wrong: grep shows them as `req(` (iteration 4).
+
+## Challenge loop iteration 6 (sonnet): CONVERGED (every finding a duplicate of a ledger entry)
+- The tripwire's scope (it checks req()'s own agent choice): iteration 5's fix states exactly that scope.
+- "The arm must be last": iteration 2 (deferred on measurement) and iteration 5 (NIT, left). The new angle, within-file
+  parallel tests, does not apply: node:test runs a file's top-level tests one at a time. Moving the check to
+  test.after was rejected because an after hook also runs on a single-test rerun, which brings back iteration 2's
+  false red.
+- NITs (redundant inner `require('node:http')`, the documented fetch differences, the close backstop): recorded or
+  harmless.
