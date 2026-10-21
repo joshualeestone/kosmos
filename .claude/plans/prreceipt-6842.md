@@ -20,7 +20,9 @@ only created) was not the rule; review 1 found the comment case.
   the earlier file were skipped, a repeat in the later file would read as that session's first act (over-lists). Not
   seen: review 3 measured 406 transcript files with pr-link rows on this Mac, every row's sessionId equal to its file's
   name, and no subagent file holding pr-link rows. (3) Rows with no sessionId are keyed by their file; real rows all carry
-  one (review 4 sampled 13,684).
+  one (review 4 sampled 13,684). (4) A PR is tied to a task by TIME only, as the receipt's tokens and commands already are:
+  an agent holding two tasks at once, or acting on an unrelated PR during a hold, lists that PR on this task too
+  (over-lists). Slices built on this (a project's total, the Enterprise console) must not treat the PR attribution as exact.
 - VERSION 3. A kept VERSION 2 receipt is kept as it was (recomputing could lose work whose transcripts were pruned, as review
   1 of #5153 found); it has no `prs`, so the page shows no pull request line for it.
 - web/index.html tkReceiptPrsHtml: "Worked on pull request(s) app#12, ..." under the agent's cost line; a link only to a

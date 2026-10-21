@@ -67331,10 +67331,12 @@ function tkReceiptPrsHtml(a) {
   const prs = Array.isArray(a && a.prs) ? a.prs.filter((p) => p && typeof p === 'object') : null;
   if (!prs || !prs.length) return '';
   const one = (p) => {
-    const label = esc(String(p.repo || '').split('/').pop() + '#' + p.number);
+    const repo = String(p.repo || '');
+    const label = esc(repo.split('/').pop() + '#' + p.number);
+    const full = esc(repo + '#' + p.number);
     return typeof p.url === 'string' && /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/\d+$/.test(p.url)
-      ? '<a href="' + esc(p.url) + '" target="_blank" rel="noopener noreferrer" title="' + esc(p.repo + '#' + p.number) + '">' + label + '</a>'
-      : '<span title="' + esc(p.repo + '#' + p.number) + '">' + label + '</span>';
+      ? '<a href="' + esc(p.url) + '" target="_blank" rel="noopener noreferrer" title="' + full + '">' + label + '<span class="vh"> (opens in your browser)</span></a>'
+      : '<span title="' + full + '">' + label + '</span>';
   };
   const more = Number(a.prsMore) || 0;
   const n = prs.length + more;
