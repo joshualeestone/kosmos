@@ -116,6 +116,11 @@ but cannot be read, or is not a JSON object, throws; null only when none of the 
   write fails no longer rewrites the marker (it is still there now, and rewriting it reset its age).
 - Review 8, pinned: the coordinator's explicit kind wins on refresh (a family record answered 'company' becomes a
   company's); only an answer naming no kind keeps a family's.
+- Review 9: in a settled join's undo the join marker is removed only once the undo's pending leave is on disk
+  (setLeavePending is best effort); if it could not be written the marker stays and the next pass settles again.
+  Not guarded by a test (it needs a failed write).
+- Review 9, decided: a computer the org stopped (its record cleared, a stopped note left) reads as joined to nobody,
+  and its agents may reach outside. The family removed it; the same holds after a confirmed leave.
 - Review 1, deferred: one more small file read per contactAllows call (currentStrict already reads one per call);
   the require is lazy, so there is no load-order cycle.
 

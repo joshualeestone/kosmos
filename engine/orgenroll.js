@@ -876,7 +876,7 @@ async function settleUnknownJoin(unsure, opts) {
     // The join's own salt, company and whether it sent a print, from the marker (review 17), so the undo carries the print.
     const joinPrint = { computerSalt: unsure.computerSalt || undefined, orgId: unsure.orgId || undefined, printSent: unsure.printPinned === true, orgKind: KIND || undefined };   // kosmos#6251 board review 5: the undo is said in the join's kind
     setLeavePending(true, Object.assign({}, opts, joinPrint), null, true, unsure.consentHash);   // bound elsewhere: the undo is sent by the pending-leave path
-    setJoinUnknown(null, opts);
+    if (leavePending(opts)) setJoinUnknown(null, opts);   // kept when the leave could not be written: the next pass settles again
     return leaveNow(opts, true);
   }
   setJoinUnknown(null, opts);
