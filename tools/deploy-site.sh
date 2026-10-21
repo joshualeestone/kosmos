@@ -169,7 +169,8 @@ command -v vercel >/dev/null 2>&1 || { echo "deploy-site: vercel CLI not found";
 # --- 1) fetch and verify the CURRENT live artifacts into the site dist/ -------
 # The export carries whatever is in dist/. We make the critical current artifacts present
 # and correct so the deploy cannot drop them; a stale or empty checkout is then safe.
-# kosmos#6826: 0 until a success exit sets it to 1; the EXIT trap in the block below reads it.
+# kosmos#6826: 0 until a success exit sets it to 1; the EXIT trap in the block below reads it. Kept OUTSIDE
+# the block on purpose: the #4745 test runs the block alone, where an unset flag counts as finished.
 _DS_FINISHED=0
 # >>> site-fetch helpers (#4745) -- tools/test-deploy-site-fetch-4745.sh extracts and tests this block.
 # 🛑 #4745: NEVER FETCH ONTO THE REAL NAME. This used to be `curl ... "$1" -o "$2"`, straight onto
@@ -210,7 +211,7 @@ _fetch_cleanup() {
 # unset variable (set -u) reaches this trap with $? already 0, so it would exit 0 having done nothing. So a 0
 # here is a failure unless a success exit set _DS_FINISHED=1. Unset (this block run on its own, as the #4745
 # test does) counts as finished, which keeps that test's exits as they were.
-trap '_ds_rc=$?; _fetch_cleanup; [ "$_ds_rc" != 0 ] || [ "${_DS_FINISHED:-1}" = 1 ] || { echo "deploy-site: the run stopped before finishing (the cause is above: for example a missing library, an unset variable or a signal). Treat the run as FAILED; if it got past the deploy step, the deploy may already be live (kosmos#6826)" >&2; exit 1; }' EXIT
+trap '_ds_rc=$?; _fetch_cleanup; [ "$_ds_rc" != 0 ] || [ "${_DS_FINISHED:-1}" = 1 ] || { echo "deploy-site: the run stopped before finishing; the cause is above. Treat the run as FAILED (kosmos#6826)" >&2; exit 1; }' EXIT
 trap '_fetch_cleanup; exit 130' INT
 trap '_fetch_cleanup; exit 143' TERM HUP
 _fetch_tmp_for() {  # <dest> -> the temp path beside it
