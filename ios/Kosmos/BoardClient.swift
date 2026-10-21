@@ -315,6 +315,9 @@ final class BoardClient: ObservableObject {
                 return false
             }
             lastReconnect = Date()
+            // A fresh sign-in, never the kept record: that is the session that just ended. Its cookie stays in the
+            // jar, so the gate forgets the old session when it admits the new one (proxy.rs `replaced`).
+            skipSaved = true
             start()
             return false
         }

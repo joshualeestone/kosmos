@@ -54,6 +54,9 @@ If it is refused, Kosmos+ needs a small route (2 to 3 days, the plan's risk line
   line is "the status the computer shows". Anything that needs you is marked in amber.
 - Deferred: the connect, poll and reconnect loop in BoardClient has no automated test (only BoardLogic's decisions
   do); an injectable transport, as PushRegistrar has, is the way, and belongs with Foundation's route-shape check.
+  Review found two real bugs in this loop that only reading caught. The first sequences to test: a kept session
+  restored at launch that the Mac has ended (must sign in fresh, not restore it again); a Mac that answers 401
+  while starting (grace, then reconnect); sign-out and account switch mid-run; Try again after not answering.
 - Deferred: the App Store screenshots (ios/store/shoot-app.sh) now show the tab bar. That is the real app.
 - Deferred: a tap on an agent opens its chat in the web view, whose Mac session is its own. If the web view has never
   opened that Mac, the tap lands on the gate's sign-in (and possibly Allow) first, exactly as a notification tap does
