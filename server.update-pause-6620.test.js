@@ -79,6 +79,9 @@ test('an Install press during a pause is refused 409 with the pause sentence; CO
   answer = { updates_paused: false };
   const free = await press();
   assert.notEqual(free.out && free.out.error, SENTENCE(), 'CONTROL: not paused, the pause refused it: ' + JSON.stringify(free.out));
+  // Review 7: the control reaches the install itself, so a refusal for another reason cannot pass as it.
+  assert.equal(free.status, 200, JSON.stringify(free.out));
+  assert.equal(free.out && free.out.updating, '99.0.0');
   answer = { updates_paused: false };
 });
 

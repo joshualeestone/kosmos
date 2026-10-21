@@ -100,6 +100,20 @@ test('board: with automatic updates off, the coordinator is not asked (a manual 
   });
 });
 
+test('board: an automatic install held back for another reason (an account move) does not ask the coordinator either (review 7)', async () => {
+  await withPauseUrl(base + '/v1/meta', async () => {
+    answer = { updates_paused: true };
+    const before = asked;
+    const started = board('99.0.0');
+    update.setAutoDefer(() => true);
+    try { await update.refresh(); } finally { update.setAutoDefer(null); }
+    assert.equal(asked, before, 'a deferred board asked the coordinator');
+    assert.equal(started(), 0);
+    clear();
+    answer = { updates_paused: false };
+  });
+});
+
 test('over HTTP: both forms read a real answer, and neither follows a redirect', async () => {
   answer = { updates_paused: true };
   const env = { KOSMOS_UPDATE_PAUSE_URL: base + '/v1/meta' };

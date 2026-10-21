@@ -42,9 +42,11 @@ board half. The release pointer freeze (step 1) is a separate PR.
 
 A board with remote access off has never contacted the coordinator (engine/remote.js, kosmos#4649: a board that
 never opted in makes no call to our servers). Now it makes one unauthenticated GET to `/v1/meta`, carrying no
-identifier, only when an install is about to happen: a look that finds a newer version with automatic updates on and
-an installed copy, or run-setup itself on a manual press. That is an exception to #4649, for a security step; a board
-with automatic updates off that is not being updated asks nothing. The site's privacy page (another repo) may
+identifier, only around an install: a look after which an automatic install would start (a newer version, an
+installed copy, automatic updates on, not backing off or deferred), an Install press while an update is on offer (it
+asks before the route's other checks, so a press later refused for another reason has still asked), and run-setup
+itself (`kosmos update`, the .pkg postinstall). That is an exception to #4649, for a security step; a board with
+automatic updates off on which nobody presses Install asks nothing. The site's privacy page (another repo) may
 want one line saying so: a follow-up there, not built here.
 
 ## Not in this PR
@@ -67,6 +69,12 @@ want one line saying so: a follow-up there, not built here.
 - Only a Kosmos that already carries this code can be paused. Older installs keep updating during a pause, which
   bounds this step's reach until the fleet has taken this release.
 
+- Review 7: tools/test-install.sh (a cut's install gate, run outside run-tests.sh) runs run-setup, so it now asks the
+  dead port too (its env -i reboot simulation as well): during an incident pause the real answer would have held the
+  release meant to end it. Swept: it is the only script that runs run-setup outside the node suites. The look asks
+  through the same gate as the automatic install (autoInstallWouldStart), so a board backing off or deferred asks
+  nothing. Left as they are: on Windows a press asks twice (the route, then begin), up to 10 s against a coordinator
+  that never answers; paused() has no on-screen reader yet.
 - Review 6: /api/update asks only when something is on offer or running (otherwise its answer is "no update" with no
   ask), and a booted-route test (server.update-pause-6620.test.js) checks the 409, its control and the no-ask case.
   Left as it is: automatic updates turned on during a pause start an install at the next look that run-setup holds,

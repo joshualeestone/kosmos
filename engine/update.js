@@ -417,13 +417,13 @@ async function refresh() {
       const wasPaused = cache.paused === true;
       cache = { at: Date.now(), latest, reached: true, readable: latest !== null, base: lookBase, channel, pointer };
       landed = true;
-      // kosmos#6620: ask whether the fleet's updates are paused (fails open) only when an automatic install could
-      // follow this look (newer version, an installed copy, automatic updates on), so a board that would not install
-      // makes no call to the coordinator. A manual press is held by run-setup itself (exit 96). The last answer is
-      // carried while this one is asked; it lands on THIS look's cache only.
-      let autoOn = false;
-      try { autoOn = Boolean((autoPref() || {}).on); } catch { autoOn = false; }   // a preference that throws reads as off
-      if (autoOn && available() && installedRoot()) {
+      // kosmos#6620: ask whether the fleet's updates are paused (fails open) only when an automatic install would
+      // follow this look (autoInstallWouldStart: the same gates maybeAutoInstall uses), so a board that would not
+      // install makes no call to the coordinator. A manual press asks at the press (/api/update); run-setup is the
+      // backstop. The last answer is carried while this one is asked; it lands on THIS look's cache only.
+      let would = false;
+      try { would = autoInstallWouldStart(); } catch { would = false; }   // a preference that throws reads as off
+      if (would) {
         const mine = cache;
         mine.paused = wasPaused;
         const paused = await manifestVerify.pausedAsync({});
@@ -490,15 +490,21 @@ async function refresh() {
 const AUTO_RETRY_AFTER = 60 * 60 * 1000;
 let autoFailedAt = 0;
 
+/* Every gate on an automatic install except the fleet's pause, in one place: maybeAutoInstall installs on it, and
+   refresh asks the coordinator about the pause only when it holds (kosmos#6620 review 7), so the two cannot drift. */
+function autoInstallWouldStart() {
+  if (!available()) return false;
+  if (!installedRoot()) return false;
+  if (!(autoPref() || {}).on) return false;
+  if (autoFailedAt && Date.now() - autoFailedAt < AUTO_RETRY_AFTER) return false;
+  /* #6173: not while an account move restarts agents; the install restarts the board, and a board restarted between
+     an agent's bootout and bootstrap leaves it unloaded. The next look installs. */
+  if (autoDefer && autoDefer()) return false;
+  return true;
+}
 function maybeAutoInstall() {
   try {
-    if (!available()) return;
-    if (!installedRoot()) return;
-    if (!(autoPref() || {}).on) return;
-    if (autoFailedAt && Date.now() - autoFailedAt < AUTO_RETRY_AFTER) return;
-    /* #6173: not while an account move restarts agents; the install restarts the board, and a board restarted between
-       an agent's bootout and bootstrap leaves it unloaded. The next look installs. */
-    if (autoDefer && autoDefer()) return;
+    if (!autoInstallWouldStart()) return;
     if (cache.paused === true) return;   // kosmos#6620: the fleet's update pause; the next look asks again
     beginInstall({ auto: true });
   } catch { /* an update that cannot start must not break the one that shows */ }
