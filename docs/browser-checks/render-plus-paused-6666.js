@@ -79,6 +79,19 @@ const PHONE = { device_id: 'd-phone', name: 'iPhone · Safari', code: 'W6-M4', f
       const both = await read();
       chk(both.asks && both.paused && both.rows === 1 && both.title, '[' + W + '] CONTROL: paused with a request still listed shows both, and "Waiting for you" over it', JSON.stringify(both));
 
+      // Pressing Allow on that row while paused: the board answers 400 with the paused words (server.js maps a refused
+      // deviceAllow to its `because`), and the card must say them, never "connected".
+      const PAUSED_WORDS = 'Kosmos+ is paused for maintenance, so no new device can be allowed right now. This request may need to ask again once Kosmos+ is back.';
+      await page.route('**/api/remote/devices/allow', (route) => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ ok: false, error: PAUSED_WORDS }) }));
+      await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-phone"]');
+      await page.waitForTimeout(300);
+      const pressed = await page.evaluate(() => ({ state: ASK.done['d-phone'] && ASK.done['d-phone'].state,
+        text: document.getElementById('plus-ask-rows').innerText.replace(/\s+/g, ' ').trim() }));
+      chk(pressed.state === 'error' && pressed.text.includes('no new device can be allowed right now') && !/connected/i.test(pressed.text),
+        '[' + W + '] Allow pressed while paused: the card says the paused words, not connected', JSON.stringify(pressed));
+      await page.unroute('**/api/remote/devices/allow');
+      await page.evaluate(() => { ASK.done = {}; paintAsk(); });
+
       // On another view the top card stays away while only the pause is showing: nothing there to act on.
       await serve({ devices: [], paused: true });
       await page.evaluate(() => { showTab('agents'); paintAsk(); });

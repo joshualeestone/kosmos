@@ -109,3 +109,9 @@ test: the line, its place, the poll and the paint. docs/browser-checks/render-pl
   whole diff was swept for every copy of the claim (refusal words, its test, the check header, the vouch comment).
 - The browser check's "both" control now also asserts "Waiting for you" returns over a listed row, and the off-Plus
   control keeps the pause on while a real request is listed, so it shows the pause does not hide that notice.
+
+## Review round 10
+- The browser check now presses Allow on a listed row while paused: the board's 400 carries the paused words and the
+  card must say them, never "connected". Until now nothing exercised the click path the card is named for.
+- Not changed, already decided in round 3: the refusal words last until the next poll withholds the row (about 5 s),
+  then the paused line says why.
