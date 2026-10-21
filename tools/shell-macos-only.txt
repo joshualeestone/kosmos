@@ -16,7 +16,7 @@
 # shards, loudly, and is added here (or fixed) on purpose. To move a test to Linux, make it pass there and remove it.
 # Lines starting with # and blank lines are ignored.
 
-# Compiles and runs Cocoa code with swiftc; skips only when swiftc is absent, not off macOS.
+# Compiles and runs Cocoa code with swiftc; skips off macOS (#6799), so on Linux it would test nothing.
 bash tools/test-a11y-writer-mock-2125.sh
 # Asserts the Darwin branch of install/setup.sh's app-bundle status, unguarded.
 bash tools/test-app-bundle-status.sh
@@ -41,7 +41,7 @@ bash tools/test-launchagent-leak-guard-3011.sh
 bash tools/test-msg-newlines-1927.sh
 # Real codesign and PlistBuddy.
 bash tools/test-release-detached.sh
-# Compiles Cocoa code with swiftc; skips only when swiftc is absent.
+# Compiles Cocoa code with swiftc; skips off macOS (#6799), so on Linux it would test nothing.
 bash tools/test-scan-hatch-symlink-2125b.sh
 # BSD date -v.
 bash tools/test-site-autodeploy-5589.sh
