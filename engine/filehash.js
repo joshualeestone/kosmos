@@ -33,7 +33,12 @@ const queued = new Set();    // path + key, so one file is queued once
 let running = false;
 let onHashed = null;         // test seam: called after each file is hashed or given up
 
-const keyOf = (st) => [st.dev, st.ino, st.size, st.mtimeMs, st.ctimeMs].join(':');
+/* Undefined on win32 (#1732 fs-const-platform-flag): ORed in undefined-safe. The before/after identity check in hashOne
+   (the listed dev:ino, size and times) refuses a swapped file on every platform; the kernel flags are a second guard. */
+const FP_NOFOLLOW = fs.constants.O_NOFOLLOW;
+const FP_NONBLOCK = fs.constants.O_NONBLOCK;
+const OPEN_FLAGS = fs.constants.O_RDONLY | (FP_NOFOLLOW || 0) | (FP_NONBLOCK || 0);
+const keyOf = (st) => [st.dev, st.ino, st.size, st.mtimeMs, st.ctimeMs].join('|');   // '|', not ':' (#1732 reserves ':' for path lists)
 
 /** The fingerprint already known for this file as it is now (its stat), or null. Never reads the file. */
 function known(path, st) {
@@ -71,8 +76,8 @@ function remember(path, key, sha256) {
 }
 
 async function hashOne(job) {
-  // O_NOFOLLOW (undefined-safe on win32): a file swapped for a link after the list read it is not followed.
-  const fh = await fs.promises.open(job.path, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+  // A file swapped for a link after the list read it is not followed; a FIFO swapped in does not block.
+  const fh = await fs.promises.open(job.path, OPEN_FLAGS);
   try {
     const before = await fh.stat();
     if (!before.isFile() || keyOf(before) !== job.key) return;   // changed since it was listed: the next poll asks again
