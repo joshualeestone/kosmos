@@ -1,7 +1,7 @@
 'use strict';
 /* kosmos#6817 item 1: the board tells a member that someone in their company (or family) was made a reviewer. One notice
-   in the floating stack while any grant from the last 30 days is newer than the newest this computer has seen; its x,
-   See who, and the Settings list on screen count as seen. The board reads /api/org/grants, which spends none of the
+   in the floating stack while any grant from the last 30 days, not removed, is one this browser has not seen (a set of
+   seen grants, no clock comparison); its x and the reviewers list in view count as seen, See who only goes there. The board reads /api/org/grants, which spends none of the
    one-time notes a GET of /api/org does. */
 const test = require('node:test');
 const assert = require('node:assert/strict');

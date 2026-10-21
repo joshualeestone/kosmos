@@ -52525,7 +52525,7 @@ function reviewerNoteSeenList(st) {
   const box = document.getElementById('plus-org-reviewers');
   if (!box || box.hidden || !plusOnScreen()) return;
   const r = box.getBoundingClientRect();
-  if (!(r.height > 0 && r.top < innerHeight && r.bottom > 0)) return;
+  if (Math.min(r.bottom, innerHeight) - Math.max(r.top, 0) < Math.min(48, r.height)) return;   // a sliver at an edge is not in view
   if (reviewerNoteUnseen(st && st.reviewerGrants, Date.now() / 1000).length) reviewerNoteSeen(st.reviewerGrants, Date.now() / 1000);
 }
 function paintReviewerNote() {
@@ -52559,7 +52559,7 @@ document.addEventListener('click', (e) => {
   const hide = e.target.closest && e.target.closest('[data-reviewer-hide]');
   if (hide) {
     reviewerNoteSeen(REVIEWER_NOTE.grants, Date.now() / 1000);   // clears the notice whatever another tab already saw
-    // The x went with its notice: focus to the next notice that takes it, else the board, never the page (as survival's).
+    // The x went with its notice: focus to the first notice left in the stack that takes it, else the board, never the page.
     const next = document.querySelector('#topnotes .utoast .utxt[tabindex="-1"]');
     if (next) next.focus(); else if (typeof focusBoardHome === 'function') focusBoardHome();
     return;

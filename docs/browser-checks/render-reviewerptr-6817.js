@@ -3,8 +3,8 @@
 /**
  * #6817 item 1: the board tells a member that someone in their company (or family) was made a reviewer. Drives the
  * real page, file://, fetch stubbed, on chromium and webkit:
- *   - a grant newer than the last one seen shows ONE notice in the floating stack, in the company's words, with See who
- *     and a close; two new grants still make one notice;
+ *   - a grant this browser has not seen (last 30 days, not removed) shows ONE notice in the floating stack, in the
+ *     company's words, with See who and a close; two unseen grants still make one notice;
  *   - its x (from the keyboard) closes it, focus stays on the board, and a repaint keeps it closed; a newer grant later shows it again (CONTROL: the x is not a
  *     permanent mute);
  *   - See who opens Settings at Kosmos+, the reviewers list is on screen, and the notice is gone;
@@ -95,9 +95,9 @@ async function read(page, answer, status) {
 
     await page.focus('#reviewer-slot button.ux');
     await page.keyboard.press('Enter');
-    const focusAfter = await page.evaluate(() => document.activeElement && document.activeElement !== document.body);
+    const focusAfter = await page.evaluate(() => { const a = document.activeElement; return !!a && a !== document.body && a.getClientRects().length > 0; });
     const closed = await read(page, company([g(3 * DAY), g(DAY)]));
-    chk(closed.count === 0 && focusAfter, `${t} its x (from the keyboard) closes it, focus stays on the board, and the next read keeps it closed`, JSON.stringify({ ...closed, focusAfter }));
+    chk(closed.count === 0 && focusAfter, `${t} its x (from the keyboard) closes it, focus lands on something visible (not the page), and the next read keeps it closed`, JSON.stringify({ ...closed, focusAfter }));
     const again = await read(page, company([g(3 * DAY), g(DAY), g(60)]));
     chk(again.count === 1, `${t} a newer grant shows it again (CONTROL: the x is not a permanent mute)`, JSON.stringify(again));
 

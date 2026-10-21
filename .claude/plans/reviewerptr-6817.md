@@ -6,7 +6,8 @@ the card (10:0x CDT 10-21) and checked against main after #6825.
 
 **Done when.** On the agents tab, a member whose company (or family) granted a reviewer they have not seen gets one
 notice in the floating stack, in the company's or family's words, with See who and a close; the x, See who, or the
-Settings list on screen counts as seen and the notice does not come back until a newer grant; See who lands on the
+reviewers list in view counts as seen (See who only takes the person there), and the notice does not come back until
+  a grant this browser has not seen; See who lands on the
 Settings list. Unit tests (web.reviewerptr-6817.test.js) and a hermetic browser check (render-reviewerptr-6817.js,
 chromium and webkit, phone fit) pass, each able to fail.
 
