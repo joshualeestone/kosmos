@@ -45,6 +45,10 @@ function known(path, st) {
 /** Ask for this file to be fingerprinted in the background. Returns at once. */
 function want(path, st) {
   if (!st || typeof st.isFile !== 'function' || !st.isFile() || st.size > MAX_BYTES) return;
+  /* Iteration 3: a cloud-only placeholder (iCloud Drive, a file provider) reports its full size but holds no blocks here;
+     reading it would make the system download the whole file because a list was shown. It gets no fingerprint. Where the
+     platform reports no blocks (Windows), this cannot be told, which the plan records. */
+  if (Number.isFinite(st.blocks) && st.blocks === 0 && st.size > 0) return;
   const now = Date.now();
   /* Iteration 2: settled by the CHANGE time only, which the kernel sets on every write and no one can set: a modification
      time in the future (cp -p or an archive from a fast clock, touch -d) would otherwise keep a file unhashed until then. */

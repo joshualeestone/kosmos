@@ -85,3 +85,10 @@ Card: kosmos#6761, from a user feedback report (a project-manager agent, 2026-10
   time alone, which the kernel sets on every write. Test with a future mtime; the mutant (back to mtime) red. NITs,
   fixed: the Documents fill's repaint kept the keyboard focus only by luck; the focused row gets it back (tested, mutant
   red). The Mac's two shell-side refusals go to stderr, as every other refusal on both CLIs.
+- Iteration 3 (opus): WARNING, fixed: a cloud-only placeholder (iCloud Drive, a file provider) reports its full size, so
+  reading it to hash made the system download the whole file because a list was shown. A file with no blocks here and a
+  size above 0 is not fingerprinted (tested; mutant red). ACCEPTED, recorded: on Windows a OneDrive placeholder cannot
+  be told by stat (no blocks reported), so it can still be recalled by a fingerprint read. Weakest premise: few Kosmos
+  project folders live in OneDrive on Windows today. NITs, fixed: the compact rows keep the long list's `[added by X]`
+  mark (#4887) and say an owner through its tree as `name (through #N)` (#5678), both tested (mutant red); the stamp's
+  fingerprint part is JSON records, as the rest of the stamp, so a newline in a name cannot merge two.

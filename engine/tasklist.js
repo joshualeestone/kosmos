@@ -36,8 +36,16 @@ function titleOf(x) {
 }
 function ownerOf(x) {
   if (x.whoNames && x.whoNames.length) return x.whoNames.map(q).join(', ');
-  if (Array.isArray(x.ownerNames) && x.ownerNames.length) return x.ownerNames.map(q).join(', ');   // #5678: through its tree
+  // #5678, as the long list: nobody on it directly, but an open task in its tree is somebody's, said as such.
+  if (Array.isArray(x.ownerNames) && x.ownerNames.length) return x.ownerNames.map(q).join(', ') + ' (through #' + x.ownerFrom + ')';
   return 'nobody';
+}
+/* #4887, as the long list: who added it, when an agent did and it is not one of its owners, so a title that names one
+   agent beside another's line reads as what it is (names compared as store.safeKey keys them). */
+function addedByOf(x) {
+  const key = (v) => String(v).toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  const owners = x.whoNames || [];
+  return x.addedVia === 'process' && x.addedBy && !owners.some((n) => key(n) !== '' && key(n) === key(x.addedBy)) ? ' [added by ' + q(x.addedBy) + ']' : '';
 }
 
 /**
@@ -54,7 +62,7 @@ function compactLines(body, state, project) {
   if (body.listState !== group) {
     return { lines: ['This board is older than --' + state + ', so it listed every task. Update Kosmos, or list without --' + state + '.'], rc: 1 };
   }
-  const lines = tasks.map((x) => '#' + (x.number != null ? x.number : '?') + '  ' + state + '  ' + ownerOf(x) + '  ' + titleOf(x));
+  const lines = tasks.map((x) => '#' + (x.number != null ? x.number : '?') + '  ' + state + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x));
   const n = tasks.length;
   lines.push(n + ' ' + state + ' task' + (n === 1 ? '' : 's') + ' in ' + one(project) + '.');
   if (Number.isInteger(body.count) && body.count !== n) {
