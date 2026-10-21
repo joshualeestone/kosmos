@@ -2,9 +2,9 @@
 pre_challenge: true
 method: challenge-loop
 branch: ptrfreeze-6620
-diff_hash: 5e21c2d74b82060fd7ed4e688880407fbcf57003cbd7bd10ccf7608242093c6a
+diff_hash: 16c8f708bc8e95d81e9bda207b3d368935c6ea09c0569332816846df973d4f26
 validation: passed (tools/test-pointer-freeze.sh, test-deploy-site-promote.sh, test-deploy-landed-5471.sh, test-site-push-race-2276.sh all green; 49 more tools/test-*.sh that use the changed scripts green; node --test tools.*.test.js 1220 pass 0 fail; dash -n on the lib and deploy-site.sh; every new refusal arm also run against the pre-fix code; em-dash sweeps by every reviewer with a control)
-timestamp: 2026-10-21T07:14:35Z
+timestamp: 2026-10-21T11:55:45Z
 iterations: 19
 converged: true
 ---
@@ -47,3 +47,7 @@ runner's git defaults to the branch name master, so each test's bare origin had 
 and every clone of it checked out nothing. The fix creates each bare origin with --initial-branch=main (9 sites, the
 whole file). Reproduced locally with init.defaultBranch=master: 7 red before, 81/81 after; 81/81 under main too. No
 product code changed, so no review round was run for it; the diff_hash above covers it.
+Second test-only change (2026-10-21T11:55:45Z): the hosted run then failed four arms of tools/test-pointer-freeze.sh for the same reason
+(reproduced with init.defaultBranch=master: 4 red; 0 after, under both defaults). Its bare origin, and
+tools/test-deploy-landed-5471.sh's, now start on main. A sweep of every test file this branch touches finds no other
+unpinned bare origin. No product code changed; the diff_hash above covers it.
