@@ -244,6 +244,7 @@ check(Shell.retryAction(failed: nil, current: URL(string: "https://hers.kosmospl
 check(Shell.backAction(provisional: true, current: URL(string: "https://mac-a.kosmosplus.com/")!, canGoBack: true) == .stay, "Back after a failed tap: stay on the page still loaded (Mac A), not skip it")
 check(Shell.backAction(provisional: false, current: URL(string: "https://mac-c.kosmosplus.com/")!, canGoBack: true) == .goBack, "Back after a committed page failed: go back one page")
 check(Shell.backAction(provisional: true, current: nil, canGoBack: false) == .home, "Back when nothing ever loaded: the board home")
+check(Shell.backAction(provisional: false, current: nil, canGoBack: false) == .home, "Back with no history: the board home")
 // kosmos#6850: a Mac that did not answer offers another computer; nothing else does.
 check(Shell.offersOtherComputer(.macUnreachable), "a Mac not answering offers Choose another computer")
 check(!Shell.offersOtherComputer(.offline), "offline: another computer would fail the same way")
@@ -251,7 +252,6 @@ check(!Shell.offersOtherComputer(.unreachable), "Kosmos+ not answering: the comp
 check(!Shell.offersOtherComputer(.other), "any other failure: no computer was at fault")
 check(Shell.otherComputerURL(coordinator: URL(string: "https://login.kosmosplus.com")!).absoluteString == "https://login.kosmosplus.com/account", "Choose another computer opens /account, which never opens a computer by itself")
 check(Shell.otherComputerURL(coordinator: URL(string: "https://login.kosmosplus.com/")!).absoluteString == "https://login.kosmosplus.com/account", "a coordinator with a trailing slash gives the same address")
-check(Shell.backAction(provisional: false, current: nil, canGoBack: false) == .home, "Back with no history: the board home")
 check(Shell.retriesOnShow(failure: .offline, online: true, alreadyRetried: false), "offline page while already online: retry by itself")
 check(!Shell.retriesOnShow(failure: .offline, online: true, alreadyRetried: true), "only once per failure (a captive portal cannot loop)")
 check(!Shell.retriesOnShow(failure: .offline, online: false, alreadyRetried: false), "really offline: wait for the reconnect")

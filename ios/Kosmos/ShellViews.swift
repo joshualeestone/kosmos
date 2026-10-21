@@ -141,6 +141,8 @@ struct LoadFailureView: View {
                             .frame(maxWidth: .infinity, minHeight: 50)
                     }
                     .foregroundColor(KosmosColor.ink)
+                    // The whole outlined row takes the tap, not only the words (it has no fill of its own).
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(KosmosColor.muted, lineWidth: 1))
                 }
                 Button("Back to Kosmos", action: onBack)

@@ -392,6 +392,8 @@ struct WebView: UIViewRepresentable {
     let retryCount: Int
     // Same idea, for "Back to Kosmos" on the failure page.
     let backCount: Int
+    // And for "Choose another computer" (kosmos#6850).
+    let otherComputerCount: Int
 
     func makeUIView(context: Context) -> UIView {
         let host = UIView()
@@ -445,6 +447,7 @@ struct WebView: UIViewRepresentable {
         web.coordinator.home = url
         web.coordinator.lastRetry = retryCount
         web.coordinator.lastBack = backCount
+        web.coordinator.lastOtherComputer = otherComputerCount
         // A cold launch from a tapped notification opens that board straight away.
         webView.load(URLRequest(url: boardToOpen?.url ?? url))
         if let request = boardToOpen {
@@ -470,16 +473,19 @@ struct WebView: UIViewRepresentable {
             case .home: webView.load(URLRequest(url: web.coordinator.home))
             }
         }
-        // kosmos#6850: "Choose another computer" from a Mac that did not answer.
-        if otherComputerCount != context.coordinator.lastOtherComputer {
-            context.coordinator.lastOtherComputer = otherComputerCount
-            context.coordinator.failedURL = nil
-            webView.load(URLRequest(url: Shell.otherComputerURL(coordinator: KosmosConfig.coordinatorOrigin)))
-        }
         // Try again from the failure page (or the automatic retry once back online).
         if retryCount != web.coordinator.lastRetry {
             web.coordinator.lastRetry = retryCount
             web.coordinator.reloadOrHome()
+        }
+        // kosmos#6850: "Choose another computer" from a Mac that did not answer. After Try again, so that if both
+        // ever land in one update the person's choice is the load that stands.
+        if otherComputerCount != web.coordinator.lastOtherComputer {
+            web.coordinator.lastOtherComputer = otherComputerCount
+            web.coordinator.failedURL = nil
+            // A page the app chose: no waiting tab press covers it (as for a tapped agent).
+            web.loadingOwnPage()
+            webView.load(URLRequest(url: Shell.otherComputerURL(coordinator: KosmosConfig.coordinatorOrigin)))
         }
         // Each tap is loaded once, however many times SwiftUI updates before the
         // clear lands.
