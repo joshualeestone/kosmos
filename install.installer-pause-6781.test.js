@@ -75,6 +75,9 @@ test('installer: only a NEWER version is held; a repair or reinstall of the same
   assert.equal(at('1.2.3', '1.2.3'), false, 'the same version (a repair): not held');
   assert.equal(at('1.10.0', '1.9.9'), false, 'older: not held');
   assert.equal(at('1.2.3', ''), true, 'a version this run could not read: held');
+  for (const target of ['latest', 'v1.2.4', '1.2', '0.1.0.9', '1..2', '1.2.']) {
+    assert.equal(at('1.2.3', target), true, 'a target that is not a.b.c (' + target + '): held, never compared');
+  }
   assert.equal(asks({ KOSMOS_UPDATE_PAUSE_URL: paused, KOSMOS_HOME: path.join(tmp, 'no-such-home'), TARGET_VERSION: '1.2.3' }), true,
     'an installed version that cannot be read (a broken install): held');
 });

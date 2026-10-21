@@ -102,3 +102,11 @@ fail open, nothing newer); native-app.update-ifnewer-4382.test.js (the paused ar
   site's bytes; the launcher's own repair advice ("reinstalling fixes this") is held during a pause when the installed
   version cannot be read (the latest release is the suspect one); note_claude_code may create the person's claude
   link before a held run exits.
+- Review 6 (sonnet): a target version present but not a.b.c ("latest", "v1.2.3") compared as not newer and failed
+  open; only a strict a.b.c on both sides is compared now, anything else is held (arms for six shapes). The ask
+  called /usr/bin/curl, tr and grep by absolute path, which fails open on a Linux whose tools live elsewhere; it now
+  calls them by name like the rest of setup.sh, and reads the whole answer as run-setup does (the 64 KiB cap is gone,
+  so the two readers see the same bytes).
+  Left, stated: a pointer naming a valid OLDER version is not held, and if that version's tarball is missing the
+  installer falls back to the unversioned (latest) one. That needs control of the release site's pointer and files,
+  which is the incident the pause exists for; the signed manifest and the board's own run-setup still apply.
