@@ -542,6 +542,69 @@ async function forAgent(who, { limit = 10, now = Date.now(), receiptOf = forTask
   return { ok: true, receipts: out, more };
 }
 
-module.exports = { forAgent, forTask, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION,
+/**
+ * kosmos#6842 slice 2: what a project's closed tasks cost, as the sum of their receipts: tokens per model across every
+ * agent that held a part, the tasks counted and the pull requests they worked on (each once, with the tasks that list
+ * it). The newest `limit` closed tasks are counted (a receipt not yet kept reads transcripts); `notCounted` says how many
+ * older ones were left out. An agent whose work could not be read (no folder, a provider with no receipt) is counted in
+ * `unread`, and a receipt read only in part in `partial`, so the total never reads as more complete than it is. Each
+ * task's receipt is the one its task page shows (forTask), so the two never disagree.
+ */
+async function forProject(projectId, { limit = 50, now = Date.now(), receiptOf = forTask } = {}) {   // receiptOf: a test seam
+  const lim = Math.max(1, Math.min(200, Number(limit) || 50));
+  let proj = null;
+  try { proj = (require('./projects').readAll() || []).find((x) => x && x.id === projectId) || null; }
+  catch { return { ok: false, because: 'unreadable' }; }
+  if (!proj) return { ok: false, because: 'no-project' };
+  const closed = [];
+  for (const task of proj.tasks || []) {
+    const iso = closedAtOf(task);
+    const at = iso ? Date.parse(iso) : NaN;
+    if (Number.isFinite(at)) closed.push({ task, at });
+  }
+  closed.sort((x, y) => y.at - x.at || x.task.number - y.task.number);
+  const picked = closed.slice(0, lim);
+  const receipts = new Array(picked.length);
+  const AT_ONCE = 3;
+  for (let i = 0; i < picked.length; i += AT_ONCE) {
+    await Promise.all(picked.slice(i, i + AT_ONCE).map(async (c, j) => {
+      try { receipts[i + j] = await receiptOf(projectId, c.task, { now }); }
+      catch (err) { console.error('project receipts: task ' + c.task.number + ':', (err && err.message) || err); receipts[i + j] = null; }
+    }));
+  }
+  const models = {};
+  const prs = new Map();   // url (or repo#number) -> { repo, number, url, tasks }
+  let unread = 0;
+  let partial = 0;
+  let failed = 0;
+  let prsMore = 0;   // beyond an agent's own shown list: counted, not named
+  receipts.forEach((r, i) => {
+    const number = picked[i].task.number;
+    if (!r || !Array.isArray(r.agents)) { failed += 1; return; }
+    for (const a of r.agents) {
+      if (!a || typeof a !== 'object') continue;
+      if (!a.available) { unread += 1; continue; }
+      if (a.complete === false) partial += 1;
+      for (const [m, b] of Object.entries(a.models || {})) {
+        if (!b || typeof b !== 'object') continue;
+        const into = models[m] || (models[m] = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 });
+        for (const f of BUCKET_FIELDS) into[f] += Number(b[f]) || 0;
+        into.rows += Number(b.rows) || 0;
+      }
+      prsMore += Number(a.prsMore) || 0;
+      for (const p of Array.isArray(a.prs) ? a.prs : []) {
+        if (!p || typeof p !== 'object' || !Number.isFinite(Number(p.number))) continue;
+        const key = typeof p.url === 'string' && p.url ? p.url : String(p.repo || '') + '#' + p.number;
+        const e = prs.get(key) || { repo: String(p.repo || ''), number: Number(p.number), url: typeof p.url === 'string' ? p.url : '', tasks: [] };
+        if (!e.tasks.includes(number)) e.tasks.push(number);
+        prs.set(key, e);
+      }
+    }
+  });
+  return { ok: true, tasks: picked.length - failed, notCounted: closed.length - picked.length, failed, unread, partial,
+    models, prs: [...prs.values()], prsMore };
+}
+
+module.exports = { forAgent, forTask, forProject, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION,
   /* #5683: engine/agentevents.js reads the same transcript folders (one rule for where they are). */
   transcriptDirs, transcriptsIn };
