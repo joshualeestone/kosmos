@@ -547,3 +547,26 @@ test('#6734: an upload whose part file cannot be written (a full disk) is refuse
   assert.equal(JSON.parse(got.body).error, 'that file could not be kept');
   assert.ok(await until(() => stored().length === before && parts().length === 0), 'a failed write left ' + JSON.stringify(parts()));
 });
+
+test('#6734: a system error while storing an upload reaches the person as a sentence, never as a path with their name', async () => {
+  const before = stored().length;
+  const real = fs.renameSync;
+  let thrown = 0;
+  fs.renameSync = function (from) {
+    if (String(from).endsWith(attachments.PART)) {
+      thrown += 1;
+      throw Object.assign(new Error("ENOSPC: no space left on device, rename '" + from + "'"), { code: 'ENOSPC' });
+    }
+    return real.apply(this, arguments);
+  };
+  let got;
+  try {
+    got = await put({ 'content-type': 'application/octet-stream', 'content-length': '4096', 'x-attachment-name': 'rename-fails.bin' },
+      (req) => { req.on('error', () => {}); req.end(Buffer.alloc(4096, 5)); });
+  } finally { fs.renameSync = real; }
+  assert.ok(thrown > 0, 'the rename was never reached, so this tested nothing');
+  assert.equal(got.status, 400, JSON.stringify(got));
+  assert.equal(JSON.parse(got.body).error, 'we could not keep that file');
+  assert.ok(!got.body.includes(SANDBOX) && !got.body.includes('ENOSPC'), got.body);
+  assert.ok(await until(() => stored().length === before && parts().length === 0), 'a failed rename left ' + JSON.stringify(parts()));
+});

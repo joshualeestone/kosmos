@@ -152,6 +152,10 @@ phone yet: the remaining manual step covers it.
    file could not be kept" and leaves nothing (red with another sentence, and with the folder not removed). The
    `Expect: 100-continue` case stays as recorded under decision 2.
 
+21. **Review 9:** an upload that fails with a system error (a rename or record write on a full disk, say) is refused
+   with "we could not keep that file", not the raw error, which carries a path with the user's name and would reach
+   their phone too. The store's own refusals are sentences with no `code` and pass through unchanged.
+
 ### Considered and not changed (review 6)
 - **No Range support on downloads**: a 100 MB download cut at 90% restarts from zero, and the tunnel retires its
   connection hourly, which cuts a download in flight. Resuming is a feature, not a defect in this change; filed as its
@@ -172,9 +176,8 @@ phone yet: the remaining manual step covers it.
 - **A declared over-cap body larger than the test's 16 bytes** may see a reset before the 400 on a real socket. The
   page refuses an over-cap file before sending, so only the CLI or another client meets it, and the refusal still
   holds (nothing is stored). Not tested with a large body.
-- **The five-minute figure in the slow-upload sentence** is Node's default request timeout on the board. It was not
-  measured through the relay, which is what a phone uses; the relay may cut sooner. The sentence is shown only after
-  a failure, for a file over 25 MB, and says "can take longer", not a promise.
+- **The five-minute figure in the slow-upload sentence**: no longer in any sentence (decisions 13 and 20 removed it),
+  so nothing here depends on the relay's timing.
 
 ## Windows (review 1)
 
@@ -183,7 +186,9 @@ gap, stated here; this branch changes no Windows-side code or test selection, so
 stream is closed before its rename or removal (Windows will not rename an open file). A download now holds the file
 open for its whole length; the only paths that delete an attachment's folder are `abandon` (a failed upload's own
 folder, before anyone can download it), `replyfile.discard` (a reply copy that was never kept, so never offered),
-and the preview's temp folder. All three are best effort (`try`/`catch`), so none can fail a request on EBUSY.
+and the preview's temp folder; and `sweepOrphans` (decision 10), which removes only folders with no record.json,
+which are never served and so never held open by a download. All are best effort (`try`/`catch`), so none can fail a
+request on EBUSY.
 
 ## The chunked over-cap answer (review 1)
 
@@ -191,7 +196,7 @@ The test used to accept a reset in place of the 400. It now requires the 400 wit
 a load average of about 10. If a client ever sees a reset instead, the page's own size check has already refused the
 file before sending it.
 
-## Tests (server.attachment-stream-6734.test.js, 22 tests, and web.attach-slow-6734.test.js, 2 tests, all green)
+## Tests (server.attachment-stream-6734.test.js, 25 tests, and web.attach-slow-6734.test.js, 2 tests, all green)
 
 - the cap is 100 MB and is said as "100 MB";
 - a 6 MB download is byte-identical (sha256) with its Content-Length; HEAD has the length and no body; no

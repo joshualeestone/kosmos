@@ -19071,7 +19071,9 @@ const server = http.createServer(async (req, res) => {
         return require('./engine/attachtext').render(rec).catch(() => null)
           .then(() => sendJson(res, 200, { attachment: attachments.rowField(rec) }));
       })
-      .catch((err) => refuseUpload(req, res, String((err && err.message) || 'we could not keep that file')));
+      /* Review 9: a system error (it has a code, like ENOSPC) carries a path with the user's name; the person and their
+         phone get the sentence instead. The store's own refusals are sentences and have no code. */
+      .catch((err) => refuseUpload(req, res, (err && !err.code && err.message) ? String(err.message) : 'we could not keep that file'));
     return;
   }
   /* #4930: the full-page preview's "Open in Finder": the attachment's own file, selected in its folder (never opened).
