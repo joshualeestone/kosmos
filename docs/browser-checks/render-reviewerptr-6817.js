@@ -56,7 +56,7 @@ async function open(browser, w, h, theme, eng) {
   await page.evaluate(() => {
     const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
     document.querySelectorAll('body > *').forEach((el) => { el.inert = false; });
-    try { localStorage.removeItem('kosmos.reviewerGrantSeen'); } catch { /* none */ }
+    try { localStorage.removeItem('kosmos.reviewerGrantsSeen'); } catch { /* none */ }
     if (typeof showTab === 'function') showTab('agents');
   });
   return { ctx, page, errs };
@@ -103,6 +103,8 @@ async function read(page, answer, status) {
 
     await page.click('#reviewer-slot button[data-reviewer-see]');
     await page.waitForTimeout(800);
+    // The page's 5 s tick is off in this check; in the app it repaints Settings, which marks the list seen once in view.
+    await page.evaluate(() => plusOrgPaint());
     const went = await page.evaluate(() => {
       const box = document.getElementById('plus-org-reviewers');
       const r = box && box.getBoundingClientRect();
@@ -113,7 +115,7 @@ async function read(page, answer, status) {
     chk(went.settings && went.sec === 'plus' && went.listShown && went.listOnScreen && went.notice === 0,
       `${t} See who opens Settings at Kosmos+ with the reviewers list on screen, and the notice is gone`, JSON.stringify(went));
 
-    await page.evaluate(() => { showTab('agents'); localStorage.removeItem('kosmos.reviewerGrantSeen'); });
+    await page.evaluate(() => { showTab('agents'); localStorage.removeItem('kosmos.reviewerGrantsSeen'); });
     const removed = await read(page, company([{ ...g(DAY / 2), removedAt: now - DAY / 2 + 60 }]));
     chk(removed.count === 0, `${t} a grant undone a minute later raises nothing`, JSON.stringify(removed));
     const fam = await read(page, { enrolled: true, kind: 'family', reviewerGrants: [g(DAY)] });

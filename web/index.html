@@ -52488,50 +52488,58 @@ function plusOrgReviewers(st) {
   }
 }
 /* kosmos#6817 item 1: a member who never opens Settings is told on the board that someone in their company (or family)
-   was made a reviewer. One notice in the floating stack while any grant from the last 30 days is newer than the newest
-   this browser has seen; its x and the Settings list on screen count as seen (See who only takes the person there).
-   Seen is kept per browser on this computer (the design call on the card). A removed grant is not news: it raises
-   nothing. Read from /api/org/grants, which spends none of the one-time notes /api/org does. */
-const REVIEWER_NOTE_KEY = 'kosmos.reviewerGrantSeen';
-const REVIEWER_NOTE = { at: 0, grants: null, kind: null, seen: 0 };   // seen: this visit's, for when storage refuses
-function reviewerNoteNewest(grants, now) {
-  let n = 0;
-  for (const g of Array.isArray(grants) ? grants : []) {
-    if (!g || g.removedAt || typeof g.grantedAt !== 'number' || g.grantedAt < now - PLUS_ORG_REVIEWER_DAYS * 86400) continue;
-    // A grant stamped ahead of this clock counts as now, so seeing it can never hide a later one.
-    n = Math.max(n, Math.min(g.grantedAt, now));
-  }
-  return n;
+   was made a reviewer. One notice in the floating stack while any grant from the last 30 days, not removed, is one this
+   browser has not seen; its x and the reviewers list in view count as seen (See who only takes the person there).
+   Seen is the set of grants seen (name and time), kept per browser on this computer (the design call on the card), so
+   no clock comparison is involved: a grant stamped ahead of this computer's clock is just another grant. A removed
+   grant is not news. Read from /api/org/grants, which spends none of the one-time notes /api/org does. */
+const REVIEWER_NOTE_KEY = 'kosmos.reviewerGrantsSeen';
+const REVIEWER_NOTE = { at: 0, grants: null, kind: null, seen: new Set() };   // seen: this visit's, for when storage refuses
+const reviewerNoteKey = (g) => g.grantedAt + '|' + String(g.who || '');
+/* The grants that are news if unseen: in the list's 30 days and not removed. */
+function reviewerNoteFresh(grants, now) {
+  return (Array.isArray(grants) ? grants : []).filter((g) => g && !g.removedAt && typeof g.grantedAt === 'number'
+    && g.grantedAt >= now - PLUS_ORG_REVIEWER_DAYS * 86400).map(reviewerNoteKey);
 }
-function reviewerNoteSeenAt() {
-  let kept = 0;
-  try { kept = Number(localStorage.getItem(REVIEWER_NOTE_KEY)) || 0; } catch { /* refused: this visit's alone */ }
-  return Math.max(kept, REVIEWER_NOTE.seen);
+function reviewerNoteSeenSet() {
+  const seen = new Set(REVIEWER_NOTE.seen);
+  try { for (const k of JSON.parse(localStorage.getItem(REVIEWER_NOTE_KEY) || '[]')) if (typeof k === 'string') seen.add(k); }
+  catch { /* refused or unreadable: this visit's alone */ }
+  return seen;
 }
-function reviewerNoteSeen(at) {
-  if (!(at > reviewerNoteSeenAt())) return;
-  REVIEWER_NOTE.seen = at;
-  try { localStorage.setItem(REVIEWER_NOTE_KEY, String(at)); } catch { /* storage refused: it shows again on the next visit */ }
+function reviewerNoteUnseen(grants, now) {
+  const seen = reviewerNoteSeenSet();
+  return reviewerNoteFresh(grants, now).filter((k) => !seen.has(k));
+}
+/* Marks these grants seen and clears the notice. Kept: what is seen and still inside the 30 days (others cannot show). */
+function reviewerNoteSeen(grants, now) {
+  const fresh = reviewerNoteFresh(grants, now);
+  const keep = new Set([...reviewerNoteSeenSet()].filter((k) => Number(k.split('|')[0]) >= now - PLUS_ORG_REVIEWER_DAYS * 86400));
+  for (const k of fresh) { keep.add(k); REVIEWER_NOTE.seen.add(k); }
+  try { localStorage.setItem(REVIEWER_NOTE_KEY, JSON.stringify([...keep].slice(-100))); } catch { /* refused: kept for this visit */ }
   const slot = document.getElementById('reviewer-slot');
-  if (slot) { slot.innerHTML = ''; delete slot.dataset.v; }
+  if (slot) { slot.innerHTML = ''; slot.dataset.v = ''; }
 }
+/* The reviewers list counts as seen once it is in view, not merely because Settings > Kosmos+ is open. */
 function reviewerNoteSeenList(st) {
   const box = document.getElementById('plus-org-reviewers');
   if (!box || box.hidden || !plusOnScreen()) return;
-  reviewerNoteSeen(reviewerNoteNewest(st && st.reviewerGrants, Date.now() / 1000));
+  const r = box.getBoundingClientRect();
+  if (!(r.height > 0 && r.top < innerHeight && r.bottom > 0)) return;
+  if (reviewerNoteUnseen(st && st.reviewerGrants, Date.now() / 1000).length) reviewerNoteSeen(st.reviewerGrants, Date.now() / 1000);
 }
 function paintReviewerNote() {
   const slot = document.getElementById('reviewer-slot');
   if (!slot) return;
-  const newest = onAgentsTab() && REVIEWER_NOTE.grants ? reviewerNoteNewest(REVIEWER_NOTE.grants, Date.now() / 1000) : 0;
-  const html = newest > reviewerNoteSeenAt()
+  const news = onAgentsTab() && REVIEWER_NOTE.grants ? reviewerNoteUnseen(REVIEWER_NOTE.grants, Date.now() / 1000).length > 0 : false;
+  const html = news
     ? '<div class="utoast reviewer-note"><span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt" role="status"><b>' + esc(plusOrgIn({ kind: REVIEWER_NOTE.kind }, 'Someone was made a reviewer for your company.')) + '</b></div>'
-      + '<div class="uacts"><button type="button" class="uprime" data-reviewer-see="' + newest + '">See who</button></div>'
-      + '<button type="button" class="ux" data-reviewer-hide="' + newest + '" aria-label="Close this notice" title="Close this notice">&times;</button>'
+      + '<div class="uacts"><button type="button" class="uprime" data-reviewer-see>See who</button></div>'
+      + '<button type="button" class="ux" data-reviewer-hide aria-label="Close this notice" title="Close this notice">&times;</button>'
       + '</div>'
     : '';
-  if (slot.dataset.v === html) return;   // a repaint every poll would take focus off its button
+  if (slot.dataset.v === html) return;   // the same words do not repaint, so a poll never takes focus off its button
   slot.dataset.v = html;
   slot.innerHTML = html;
 }
@@ -52550,7 +52558,7 @@ document.addEventListener('click', (e) => {
   const see = e.target.closest && e.target.closest('[data-reviewer-see]');
   const hide = e.target.closest && e.target.closest('[data-reviewer-hide]');
   if (hide) {
-    reviewerNoteSeen(Number(hide.getAttribute('data-reviewer-hide')));
+    reviewerNoteSeen(REVIEWER_NOTE.grants, Date.now() / 1000);   // clears the notice whatever another tab already saw
     // The x went with its notice: focus to the next notice that takes it, else the board, never the page (as survival's).
     const next = document.querySelector('#topnotes .utoast .utxt[tabindex="-1"]');
     if (next) next.focus(); else if (typeof focusBoardHome === 'function') focusBoardHome();

@@ -16,10 +16,13 @@ chromium and webkit, phone fit) pass, each able to fail.
   Rejected: a new banner (a new surface on the main board for one sentence).
 - **Words:** "Someone was made a reviewer for your company." (plusOrgIn gives the family's words.) Action "See who",
   not "See Settings": the action names what the person gets.
-- **Seen is per browser on this computer** (localStorage is per browser and per board address), as the newest grantedAt
-  seen. So the Mac app and a browser tab each show it once. A fresh browser, or the first board after joining, shows
-  the notice for any grant in the list's 30 days, as the list itself does: that is the same news, decided, not missed. Rejected for now: per person (needs the relay
-  to store it). If storage is refused, the notice clears for this visit and may show again next visit.
+- **Seen is the set of grants seen** (name and grantedAt), per browser on this computer (localStorage is per browser and
+  per board address), keeping only those still inside the 30 days. Rejected: one "newest seen" time. That needs a clock
+  comparison, and a grant stamped ahead of this computer's clock either hid later grants (compared raw) or could not be
+  closed (capped at a moving now, review 3's blocker). A set has no clock in it. A fresh browser, or the first board after
+  joining, shows the notice for any grant in the list's 30 days, as the list itself does: decided, not missed.
+  Rejected for now: per person (needs the relay to store it). If storage is refused, seen is kept in memory for the
+  visit, so a closed notice stays closed until a reload.
 - **A new route, GET /api/org/grants.** The board must not read /api/org: a GET there spends the one-time notes
   (stoppedFor, leaveRefused) that the Settings block exists to show, so a board poll would eat them unseen. The new
   route spends nothing and gives grants and the org's kind to the screen only, as /api/org does.
@@ -28,13 +31,9 @@ chromium and webkit, phone fit) pass, each able to fail.
 - **What counts as new:** a grant's grantedAt inside the 30 days the Settings list shows, and not removed. A removed
   grant raises nothing (an admin's mistake undone a minute later must not tell every member someone was made a
   reviewer); a pending grant taking effect is not new.
-- **See who does not mark seen.** The Settings list on screen does (reviewerNoteSeenList), so a list that has not caught
-  up leaves the notice for next time. See who resets the once-a-minute read so Settings reads /api/org fresh.
+- **See who does not mark seen.** The reviewers list in view does (reviewerNoteSeenList, on Settings' repaint), not the
+  Kosmos+ section merely being open, so a list that has not caught up or was never scrolled to leaves the notice. See who resets the once-a-minute read so Settings reads /api/org fresh.
 - **The x hands focus on**, to the next notice that takes focus, else the board (as the restart notices do).
-- **A grant stamped ahead of this computer's clock counts as now**, so seeing it can never hide a later grant (relay and
-  computer clocks can differ).
-- **Storage refused:** seen is also kept for this visit in memory, so a closed notice stays closed until the page
-  reloads (before, the next minute's repaint brought it back).
 - **Known gap, decided:** the notice says "Someone", so a member who was themselves made the reviewer reads it about
   themselves without being told so. The grants carry a display name, not an identity this board can match to its
   person; matching it would be guessing. The Settings list names who.
@@ -46,7 +45,7 @@ a second notice; left out until someone asks.
 
 ## Tests run
 
-- web.reviewerptr-6817.test.js: 8/8. Each kind proved able to fail by a deliberate break: `>=` for `>` (2 red), the
+- web.reviewerptr-6817.test.js: 12/12 at the iteration-3 fix. Each kind proved able to fail by a deliberate break: `>=` for `>` (2 red), the
   board reading /api/org (1 red), the Settings list counting while hidden (1 red), the route spending a note and
   ungated (1 red).
 - Every existing test that touches the stack, the route list or the grants (21 files, 333 tests): pass, after
