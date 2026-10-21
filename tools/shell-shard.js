@@ -46,17 +46,29 @@ function commands(pkg) {
 }
 
 // #6791: the test:shell commands that need macOS (tools/shell-macos-only.txt, with each one's reason and the probe that
-// measured them). A platform of `linux` keeps every command NOT listed, `mac` only the listed ones, and none (a local
-// full run) the whole list. A listed command that test:shell does not have refuses, so the list cannot go stale quietly.
+// measured them). A platform of `linux` keeps every command NOT listed (and the `both:` ones), `mac` only the listed
+// ones, and none (a local full run) the whole list. A listed command that test:shell does not have refuses, so the list cannot go stale quietly.
 const MAC_ONLY_FILE = path.join(ROOT, 'tools', 'shell-macos-only.txt');
 const PLATFORMS = ['linux', 'mac'];
 
+// #6799: a line written `both: <command>` runs in the macOS job AND stays in the Linux shards, for a test whose macOS
+// and Linux arms each cover something the other platform cannot (as the syntax checks below do, by pattern).
+const BOTH = /^both:\s*/;
+
+function listedLines(text) {
+  return String(text).split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+}
+
 function macOnly(text, list) {
-  const listed = String(text).split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  const listed = listedLines(text).map((l) => l.replace(BOTH, ''));
   const known = new Set(list);
   const stale = listed.filter((c) => !known.has(c));
   if (stale.length) throw new Error(`shell-shard: tools/shell-macos-only.txt names commands test:shell does not have: ${stale.join('; ')}`);
   return new Set(listed);
+}
+
+function bothOf(text) {
+  return new Set(listedLines(text).filter((l) => BOTH.test(l)).map((l) => l.replace(BOTH, '')));
 }
 
 // #6791 review 3: a syntax-only check (`sh -n` / `bash -n`) runs on BOTH platforms. On a Mac /bin/sh is bash 3.2 in POSIX
@@ -65,11 +77,13 @@ function macOnly(text, list) {
 // cannot parse. They take about no time, so the macOS job runs every one of them as well.
 const SYNTAX_ONLY = /^(ba)?sh -n /;
 
-function forPlatform(list, platform, mac) {
+function forPlatform(list, platform, mac, both) {
   if (!platform) return list;
   if (!PLATFORMS.includes(platform)) throw new Error(`shell-shard: platform must be linux or mac (got ${platform})`);
-  const set = mac || macOnly(fs.readFileSync(MAC_ONLY_FILE, 'utf8'), list);
-  if (platform === 'linux') return list.filter((c) => !set.has(c));
+  const text = mac ? '' : fs.readFileSync(MAC_ONLY_FILE, 'utf8');
+  const set = mac || macOnly(text, list);
+  const twice = both || bothOf(text);
+  if (platform === 'linux') return list.filter((c) => !set.has(c) || twice.has(c));
   return list.filter((c) => set.has(c) || SYNTAX_ONLY.test(c));
 }
 
@@ -166,7 +180,7 @@ function main(argv) {
   return runShard(list, ii, nn);
 }
 
-module.exports = { commands, shardOf, select, parseShard, runShard, writeAll, macOnly, forPlatform, SHELL_SHARDS, SLOWEST, MAC_ONLY_FILE, SYNTAX_ONLY };
+module.exports = { commands, shardOf, select, parseShard, runShard, writeAll, macOnly, bothOf, forPlatform, SHELL_SHARDS, SLOWEST, MAC_ONLY_FILE, SYNTAX_ONLY };
 
 if (require.main === module) {
   try { process.exitCode = main(process.argv.slice(2)); } catch (e) { console.error(e.message); process.exitCode = 2; }

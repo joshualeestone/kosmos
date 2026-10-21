@@ -8,7 +8,7 @@
 # three of the 26 to Linux (measured there, probe run 39551438303), and a BSD-only `sed -i ''` one more (probe run
 # 39553501883), and a core count and load read only from macOS sysctl (`hw.ncpu`, `vm.loadavg`) two more (probe run
 # 39558291451), and `pgrep -fl`, which prints only the process name on Linux, three more (probe run 39559795454).
-# That is 25 here, and 239 commands on Linux.
+# That is 26 here, and 239 commands on Linux.
 # tools/shell-shard.js reads this file: `linux` shards run everything NOT listed here, the `mac` shard runs these, plus
 # every syntax-only check (`sh -n` / `bash -n`), which runs on both: macOS /bin/sh is bash 3.2, Linux sh is dash.
 # Each line is a test:shell command exactly as package.json writes it; a line naming no such command fails every shard,
@@ -17,7 +17,8 @@
 # The other direction is NOT guarded in PR CI: product shell code that only works on Linux (a GNU-only flag, or bash 4+
 # syntax that a Mac's bash 3.2 refuses at run time) passes its test here, and only the release cut's full macOS suite
 # runs it on a Mac (#6808).
-# Lines starting with # and blank lines are ignored.
+# A line written `both: <command>` runs on macOS AND stays on Linux, for a test whose arms on each platform cover
+# what the other cannot. Lines starting with # and blank lines are ignored.
 
 # Compiles and runs Cocoa code with swiftc; skips off macOS (#6799), so on Linux it would test nothing.
 bash tools/test-a11y-writer-mock-2125.sh
@@ -44,6 +45,9 @@ bash tools/test-launchagent-leak-guard-3011.sh
 bash tools/test-msg-newlines-1927.sh
 # Real codesign and PlistBuddy.
 bash tools/test-release-detached.sh
+# Real pgrep on both: macOS's own ancestor exclusion, which the release guards rely on, and the Linux ancestor filter
+# that reproduces it (#6799).
+both: bash tools/test-running-anchor-5470.sh
 # Compiles Cocoa code with swiftc; skips off macOS (#6799), so on Linux it would test nothing.
 bash tools/test-scan-hatch-symlink-2125b.sh
 # BSD date -v.

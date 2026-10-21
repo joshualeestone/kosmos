@@ -52,17 +52,21 @@ test('every test:shell command is in exactly one shard, for the shard count CI u
 
 test('#6791: linux and mac split test:shell exactly, as the macOS-only list says, and every listed command exists', () => {
   const all = sh.commands();
-  const mac = sh.macOnly(fs.readFileSync(sh.MAC_ONLY_FILE, 'utf8'), all);
+  const text = fs.readFileSync(sh.MAC_ONLY_FILE, 'utf8');
+  const mac = sh.macOnly(text, all);
+  const twice = sh.bothOf(text);
   assert.ok(mac.size > 0, 'tools/shell-macos-only.txt lists nothing');
   const linux = sh.forPlatform(all, 'linux');
   const onMac = sh.forPlatform(all, 'mac');
   assert.deepEqual([...new Set([...linux, ...onMac])].sort(), [...all].sort(), 'a command runs on neither platform');
-  assert.ok(linux.every((c) => !mac.has(c)), 'a listed command runs on linux');
+  assert.ok(linux.every((c) => !mac.has(c) || twice.has(c)), 'a listed command not marked both: runs on linux');
+  assert.ok([...twice].every((c) => linux.includes(c)), 'a both: command is missing from linux');
   assert.ok([...mac].every((c) => onMac.includes(c)), 'a listed command does not run on mac');
-  // Review 3: the only commands on both are syntax-only checks; every one of them runs on mac (bash 3.2's /bin/sh).
+  // Review 3: the only commands on both are syntax-only checks and the `both:` lines (#6799); every syntax check
+  // runs on mac (bash 3.2's /bin/sh).
   const both = linux.filter((c) => onMac.includes(c));
   assert.ok(both.length > 50, `only ${both.length} commands on both platforms: the syntax checks are not on mac`);
-  assert.ok(both.every((c) => sh.SYNTAX_ONLY.test(c)), 'a command that is not a syntax check runs on both: ' + both.filter((c) => !sh.SYNTAX_ONLY.test(c)).join('; '));
+  assert.ok(both.every((c) => sh.SYNTAX_ONLY.test(c) || twice.has(c)), 'a command neither a syntax check nor marked both: runs on both: ' + both.filter((c) => !sh.SYNTAX_ONLY.test(c) && !twice.has(c)).join('; '));
   assert.deepEqual(all.filter((c) => sh.SYNTAX_ONLY.test(c)).filter((c) => !onMac.includes(c)), [], 'a syntax check is missing from the mac job');
   assert.ok(onMac.includes('sh -n install/setup.sh'), 'CONTROL: the installer\u2019s sh -n runs on mac');
   assert.deepEqual(onMac.filter((c) => !sh.SYNTAX_ONLY.test(c)).sort(), [...mac].sort(), 'mac runs the listed commands and syntax checks, nothing else');
@@ -70,6 +74,17 @@ test('#6791: linux and mac split test:shell exactly, as the macOS-only list says
   // The linux shards still cover every linux command exactly once.
   const union = Array.from({ length: sh.SHELL_SHARDS }, (_, k) => sh.select(linux, k + 1, sh.SHELL_SHARDS)).flat();
   assert.deepEqual(union.sort(), [...linux].sort());
+});
+
+test('#6799: a `both:` line runs on mac and stays on linux; an unmarked line leaves linux; a stale both: line refuses', () => {
+  const list = ['bash a.sh', 'bash b.sh', 'bash c.sh'];
+  const text = '# why\nbash b.sh\nboth: bash c.sh\n';
+  assert.deepEqual([...sh.macOnly(text, list)].sort(), ['bash b.sh', 'bash c.sh']);
+  assert.deepEqual([...sh.bothOf(text)], ['bash c.sh']);
+  assert.deepEqual(sh.forPlatform(list, 'linux', sh.macOnly(text, list), sh.bothOf(text)), ['bash a.sh', 'bash c.sh']);
+  assert.deepEqual(sh.forPlatform(list, 'mac', sh.macOnly(text, list), sh.bothOf(text)), ['bash b.sh', 'bash c.sh']);
+  assert.deepEqual(sh.forPlatform(list, 'linux', sh.macOnly(text, list)), ['bash a.sh'], 'CONTROL: without the both set, a listed line leaves linux');
+  assert.throws(() => sh.macOnly('both: bash gone.sh\n', list), /does not have: bash gone\.sh/);
 });
 
 test('#6791: a stale line in the macOS-only list refuses, and so does an unknown platform; comments and blanks are ignored', () => {
