@@ -4,12 +4,11 @@
 the Settings company block). Item 1 is mine by the card's split (Renet has items 2 and 3); the design call is posted on
 the card (10:0x CDT 10-21) and checked against main after #6825.
 
-**Done when.** On the agents tab, a member whose company (or family) granted a reviewer they have not seen gets one
-notice in the floating stack, in the company's or family's words, with See who and a close; the x, See who, or the
-reviewers list in view counts as seen (See who only takes the person there), and the notice does not come back until
-  a grant this browser has not seen; See who lands on the
-Settings list. Unit tests (web.reviewerptr-6817.test.js) and a hermetic browser check (render-reviewerptr-6817.js,
-chromium and webkit, phone fit) pass, each able to fail.
+**Done when.** On the agents tab, a member whose company (or family) granted a reviewer this browser has not seen gets
+one notice in the floating stack, in the company's or family's words, with See who and a close. The x, or the reviewers
+list in view, counts as seen; See who takes the person to the list. The notice does not come back until a grant this
+browser has not seen. Unit tests (web.reviewerptr-6817.test.js, server.reviewergrants-6817.test.js) and a hermetic
+browser check (render-reviewerptr-6817.js, chromium and webkit, phone fit) pass, each able to fail.
 
 ## The calls
 
@@ -38,6 +37,15 @@ chromium and webkit, phone fit) pass, each able to fail.
 - **Known gap, decided:** the notice says "Someone", so a member who was themselves made the reviewer reads it about
   themselves without being told so. The grants carry a display name, not an identity this board can match to its
   person; matching it would be guessing. The Settings list names who.
+
+## Accepted, not fixed (review 6)
+
+- The grants are read at most once a minute, failed reads included, so after a failed first read the notice can be a
+  minute late. Retrying sooner would poll a struggling board every 5 seconds for news.
+- A grant that arrives after the person closed the notice brings it back: that grant is news they have not seen.
+- The list counts as seen once 48 px of it is in view; it is newest first, so the top of it is the newest grant.
+- The notice's role="status" arrives with its text, as its siblings' does, so some screen readers will not announce it;
+  it is found in the stack and by tab order, the same as the restart notices.
 
 ## Weakest premise
 
