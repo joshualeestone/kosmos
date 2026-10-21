@@ -59,7 +59,10 @@ function runtimeFiles() {
 /** JS / C# comments blanked by a small tokenizer that knows strings, templates (with ${} inside) and escapes, so a "/*"
     inside a string ('Read(**\/*.pem)') never opens a comment. Review 3: a plain block-comment pattern did, and hid dozens
     of real lines, a planted launch among them. Newlines are kept, so line numbers hold. Regex literals are not tracked;
-    an escaped slash is skipped, and the one shape left (an unescaped "/*" in a regex) cannot occur in valid JS. */
+    an escaped slash is skipped. Checked against acorn's own comment ranges over all 347 runtime JS files (review 4): it
+    blanks no code today. NOT covered, so nobody reads this as full coverage: a regex whose character class holds an
+    unescaped "/*" (/[/*]/ is valid JS) opens a false comment and hides the lines after it until the next "*\/"; and a
+    backtick inside a regex inverts template state for the rest of that line. Neither occurs in the tree. */
 function stripJsComments(text) {
   let out = '';
   const stack = ['code'];   // code | sq | dq | tpl | line | block
