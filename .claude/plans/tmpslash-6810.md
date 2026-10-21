@@ -12,7 +12,7 @@ into a folder at the filesystem root; TMPDIR=/ strips to nothing too, so an empt
 **Rejected.** Normalising the compared paths instead (it would hide a real doubled slash the product produced);
 stripping every trailing slash (one is what a Mac gives, and the guard names anything else).
 
-**Scope.** 133 tools/test-*.sh files build a scratch root the same way (`grep -lF 'mktemp -d "${TMPDIR:-/tmp}/'`). The
+**Scope.** 132 other tools/test-*.sh files build a scratch root the same way (`grep -lF 'mktemp -d "${TMPDIR:-/tmp}/'`). The
 doubled slash only matters where a test compares an exact path built from it; this card is the one measured failing.
 Left as a note on the card, not a sweep.
 
@@ -23,5 +23,6 @@ has a doubled slash (TMPDIR ending in "//").
 - TMPDIR=<dir>/ : 13 PASS, rc 0 (before the fix: 2 FAIL, rc 1, the card's two arms).
 - TMPDIR=<dir> : 13 PASS, rc 0. TMPDIR empty, and TMPDIR=/ (both the /tmp fallback): 13 PASS, rc 0. No scratch folder left behind.
 - Control, TMPDIR=<dir>// : the new guard FAILs first, by name, then the two exact-path arms; rc 1.
+- Control, TMPDIR=/nonexistent : "could not make a scratch root" and exit 1 before any path is built (review 2).
 
 **Weakest premise.** That nothing else in the file builds a path from TMPDIR directly; it reads TMPDIR once, here.
