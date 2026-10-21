@@ -241,5 +241,29 @@ for w in release promote-channel publish-staging-pointer publish-kosmos-windows;
   has "$out" "FROZEN" && bad "CONTROL: $w.sh says FROZEN with no marker: $(printf '%s' "$out" | tail -2)" || pass "CONTROL: $w.sh with no marker does not refuse for a freeze"
 done
 
+# ---- the lib under dash, run as well as parsed ---------------------------------------------
+# deploy-site.sh (#!/bin/sh) sources the lib, and test:shell's `sh -n` is macOS bash in POSIX mode and sees syntax only.
+LIBF="$HERE/lib/pointer-freeze.sh"
+if command -v dash >/dev/null 2>&1; then
+  D="$T/dash-site"; mkdir -p "$D/dist"; git -C "$D" init -q
+  out="$(dash -c '. "$1"; pointer_freeze_refuse "$2" dashtool' x "$LIBF" "$D" 2>&1)"; rc=$?
+  [ "$rc" = 0 ] && [ -z "$out" ] && pass "dash: the lib loads and an unfrozen site is let through, silently" || bad "dash unfrozen: rc=$rc out=$out"
+  printf 'mac=1.2.3\nbecause=dash arm\n' > "$D/dist/POINTER_FROZEN"
+  out="$(dash -c '. "$1"; pointer_freeze_refuse "$2" dashtool' x "$LIBF" "$D" 2>&1)"; rc=$?
+  [ "$rc" = 1 ] && has "$out" "dashtool: the release pointers are FROZEN at 1.2.3 (dash arm)" && pass "dash: a frozen site is refused, with the version and reason read from the marker" || bad "dash frozen: rc=$rc out=$out"
+  # The time limit: a git that never answers is stopped at the limit (143, SIGTERM), its children with it. The stub
+  # answers the lib's `config core.sshCommand` lookup at once: that is a local read, outside the limit.
+  mkdir -p "$T/hangbin"; printf '#!/bin/sh\ncase "$*" in *" config "*) exit 1 ;; esac\nsleep 30 & echo $! > "$HANG_PID"; wait\n' > "$T/hangbin/git"; chmod +x "$T/hangbin/git"
+  export HANG_PID="$T/hang.pid"; s0=$(date +%s); rc=0; PATH="$T/hangbin:$PATH" dash -c '. "$1"; pointer_freeze_git 2 "$2" fetch -q origin main' x "$LIBF" "$D" || rc=$?
+  el=$(( $(date +%s) - s0 ))
+  [ "$rc" = 143 ] && [ "$el" -lt 10 ] && pass "dash: a git that never answers is stopped at the limit (rc=143 after ${el}s)" || bad "dash time limit: rc=$rc after ${el}s"
+  hp="$(cat "$HANG_PID" 2>/dev/null)"; sleep 1
+  if [ -z "$hp" ]; then bad "dash time limit: the stub never started its child, so this arm proves nothing"
+  elif kill -0 "$hp" 2>/dev/null; then bad "dash time limit: git's child $hp outlived the limit (the whole process group was not stopped)"; kill "$hp" 2>/dev/null
+  else pass "dash: git's child process was stopped with it (the whole group)"; fi
+else
+  echo "SKIP  dash is not installed, so the lib was not run under it"
+fi
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-pointer-freeze: ALL PASS"; else echo "test-pointer-freeze: FAILURES above"; exit 1; fi

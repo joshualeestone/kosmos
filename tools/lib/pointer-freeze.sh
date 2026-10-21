@@ -33,14 +33,16 @@ pointer_freeze_value() {
 # batch mode with a connect timeout (keeping a configured core.sshCommand), a stalled https transfer gives up, and a
 # hard limit of <secs> covers what git itself does not time out (an https connect to a black hole). The limit sends
 # SIGTERM to git's whole process group (its https helper too, which would otherwise hold the output open for the OS's
-# own connect timeout), which git cleans up after (its ref locks), not SIGALRM, which it does not. Returns git's status (143 when
+# own connect timeout), which git cleans up after (its ref locks), not SIGALRM, which it does not. git runs in its own
+# process group, so an operator's Ctrl-C would not reach it: an INT or TERM to the wrapper is passed on the same way. Returns git's status (143 when
 # the limit hit).
 pointer_freeze_git() {  # <secs> <site> <git args...>
   local secs="$1" site="$2" sshc; shift 2
   sshc="${GIT_SSH_COMMAND:-$(git -C "$site" config core.sshCommand 2>/dev/null || echo ssh)}"
   GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$sshc -o BatchMode=yes -o ConnectTimeout=15" \
     perl -e 'my $s = shift; my $p = fork; defined $p or exit 127; if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
-             local $SIG{ALRM} = sub { kill "TERM", -$p }; alarm $s; waitpid $p, 0;
+             local $SIG{ALRM} = sub { kill "TERM", -$p }; local $SIG{INT} = $SIG{TERM} = sub { kill "TERM", -$p };
+             alarm $s; waitpid $p, 0;
              exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "$secs" \
     git -C "$site" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 "$@"
 }

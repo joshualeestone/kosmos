@@ -146,3 +146,16 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
   say a pin lowers the autodeploy mirror's ceiling (builds above the pin leave the site's downloads), read from its
   code. Left as it is: promote-channel.sh checks the freeze at its start, not again before its local write minutes
   later (deploy-site still refuses the result; the leftover pointer files are the cost).
+- After converging at 12, merging main put tools.cut-home-2724.test.js red: its fake git prints a line the test reads
+  first, and the freeze lib's cat-file probes ran (and printed) before the cut home was exported. The probes now print
+  nothing (they answer by exit status). The full tools set is green on the merged tree.
+- Review 13 (two warnings, nits): test-deploy-landed-5471 already ran release.sh's real step-8 block but never loaded
+  the freeze lib, so every arm went through the re-check's fetch-failed path unasserted. It now loads the lib, its
+  site is a checkout with a local origin, and three arms cover the re-check (unfrozen control, a freeze pushed since
+  the site push stops the cut before vercel, an unreachable origin is said and the cut goes on); removing the
+  re-check's exit turns two red. test-pointer-freeze runs the lib under dash (load, refuse, the time limit, and that
+  git's child dies with it; a single-pid kill turns that red). An INT or TERM to the time-limit wrapper is passed to
+  git's process group. Left as they are: a GIT_SSH wrapper is bypassed (nothing here sets one); a missing perl reads
+  as a fetch failure (it fails closed; perl is on every Mac and runner); the "pointer committed on top" hint (a stale
+  checkout after a lift cannot reach that branch: its pointer is still the pinned one); the already-frozen path not
+  re-checking the installer pair (deploy-site checks setup_sha256 at deploy).
