@@ -210,7 +210,7 @@ _fetch_cleanup() {
 # unset variable (set -u) reaches this trap with $? already 0, so it would exit 0 having done nothing. So a 0
 # here is a failure unless a success exit set _DS_FINISHED=1. Unset (this block run on its own, as the #4745
 # test does) counts as finished, which keeps that test's exits as they were.
-trap '_ds_rc=$?; _fetch_cleanup; [ "$_ds_rc" != 0 ] || [ "${_DS_FINISHED:-1}" = 1 ] || { echo "deploy-site: the run ended without finishing (for example a missing library or an unset variable; see the line above). Nothing was verified: treat it as FAILED (kosmos#6826)" >&2; exit 1; }' EXIT
+trap '_ds_rc=$?; _fetch_cleanup; [ "$_ds_rc" != 0 ] || [ "${_DS_FINISHED:-1}" = 1 ] || { echo "deploy-site: the run stopped before finishing (the cause is above: for example a missing library, an unset variable or a signal). Nothing was verified: treat it as FAILED (kosmos#6826)" >&2; exit 1; }' EXIT
 trap '_fetch_cleanup; exit 130' INT
 trap '_fetch_cleanup; exit 143' TERM HUP
 _fetch_tmp_for() {  # <dest> -> the temp path beside it

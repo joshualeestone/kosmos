@@ -7,20 +7,21 @@
 #
 # The fix is a finished flag: every success exit sets _DS_FINISHED=1, and the EXIT trap turns any other 0 into 1.
 # This test runs the REAL trap line, lifted out of deploy-site.sh, against each way to end:
-#   R1 a failed `.`              must exit non-zero
-#   R2 an unset variable         must exit non-zero
+#   R1 a failed `.`              must exit non-zero (and, where the shell loses the status, say so)
+#   R2 an unset variable         must exit non-zero (likewise)
 #   R3 an explicit `exit 3`      must keep 3
 #   R4 a finished `exit 0`       must exit 0 (the success path still works)
 #   C  CONTROL: the old trap (`trap '_fetch_cleanup' EXIT`) on R1, to show this shell really loses the status.
-#      Where the shell keeps it (dash, bash 5), the control cannot show the danger and says so; R1 to R4 still hold.
+#      It runs FIRST. Where the shell keeps the status (dash, bash 5) the trap has nothing to turn into a failure
+#      and prints nothing, so R1, R2, E1 and E2 then check only the non-zero exit.
 # End to end, on a COPY of the real deploy-site.sh with one death injected right after its EXIT trap line (a site
 # repo, the real tools, a stub vercel; nothing is fetched or deployed, the run dies first):
-#   E1 a failed `.`       must exit non-zero with the message
-#   E2 an unset variable  must exit non-zero with the message
+#   E1 a failed `.`       must exit non-zero (with the message, where the shell loses the status)
+#   E2 an unset variable  must exit non-zero (likewise)
 #   EC CONTROL: the same copy with the old plain trap, on E1 (exits 0 on macOS /bin/sh)
 # And one source pin:
-#   P  every `exit 0` alone on its line in deploy-site.sh is directly preceded by `_DS_FINISHED=1`. An inline
-#      `exit 0` (inside `{ ...; }`) is not seen; it would fail safe, a success reported as a failure.
+#   P  every `exit 0` alone on its line in deploy-site.sh is directly preceded by `_DS_FINISHED=1`, and no
+#      `exit 0` sits inline (inside `{ ...; }` or after `;`), where the flag could not be checked.
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -45,18 +46,24 @@ run() {   # run <name> <trap line> <body>; prints the exit status
   echo $?
 }
 
+rc=$(run c "trap '_fetch_cleanup' EXIT" ". $TMP/no-such-lib.sh")
+if [ "$rc" = 0 ]; then pass "C: CONTROL: the old trap exits 0 on a failed . on this shell, so R1 is measuring the real danger"
+else pass "C: CONTROL: this shell keeps the status even with the old trap (rc=$rc), so R1 cannot show the danger here; it does on macOS /bin/sh"; fi
+LOSES=0; [ "$rc" = 0 ] && LOSES=1   # 1: this shell loses the status, so the trap must print its line
+said() { [ "$LOSES" = 0 ] || grep -q 'stopped before finishing' "$1"; }
+
 rc=$(run r1 "$TRAP" ". $TMP/no-such-lib.sh")
-[ "$rc" != 0 ] && grep -q 'ended without finishing' "$TMP/r1.out" \
+[ "$rc" != 0 ] && said "$TMP/r1.out" \
   && pass "R1: a failed . exits $rc and says the run did not finish" \
   || bad "R1: a failed . exited $rc: $(cat "$TMP/r1.out")"
 
 rc=$(run r2 "$TRAP" 'echo "$NO_SUCH_VAR_6826"')
-[ "$rc" != 0 ] && grep -q 'ended without finishing' "$TMP/r2.out" \
+[ "$rc" != 0 ] && said "$TMP/r2.out" \
   && pass "R2: an unset variable exits $rc and says the run did not finish" \
   || bad "R2: an unset variable exited $rc: $(cat "$TMP/r2.out")"
 
 rc=$(run r3 "$TRAP" 'exit 3')
-[ "$rc" = 3 ] && ! grep -q 'ended without finishing' "$TMP/r3.out" \
+[ "$rc" = 3 ] && ! grep -q 'stopped before finishing' "$TMP/r3.out" \
   && pass "R3: an explicit exit 3 keeps 3" \
   || bad "R3: an explicit exit 3 became $rc: $(cat "$TMP/r3.out")"
 
@@ -65,9 +72,6 @@ rc=$(run r4 "$TRAP" '_DS_FINISHED=1; exit 0')
   && pass "R4: a finished run exits 0 and says nothing" \
   || bad "R4: a finished run exited $rc: $(cat "$TMP/r4.out")"
 
-rc=$(run c "trap '_fetch_cleanup' EXIT" ". $TMP/no-such-lib.sh")
-if [ "$rc" = 0 ]; then pass "C: CONTROL: the old trap exits 0 on a failed . on this shell, so R1 is measuring the real danger"
-else pass "C: CONTROL: this shell keeps the status even with the old trap (rc=$rc), so R1 cannot show the danger here; it does on macOS /bin/sh"; fi
 
 # E: the real script, copied, with a death injected straight after its trap line.
 REPO=$(cd "$HERE/.." && pwd)
@@ -83,11 +87,11 @@ e2e() {   # e2e <name> <injected line> [old]; prints the exit status
   echo $?
 }
 rc=$(e2e e1 ". $TMP/no-such-lib.sh")
-[ "$rc" != 0 ] && [ "$rc" != inject-failed ] && grep -q 'ended without finishing' "$TMP/e1.out" \
+[ "$rc" != 0 ] && [ "$rc" != inject-failed ] && said "$TMP/e1.out" \
   && pass "E1: the real script, dying on a failed . after its trap, exits $rc and says so" \
   || bad "E1: the real script exited $rc: $(tail -3 "$TMP/e1.out")"
 rc=$(e2e e2 ': "$NO_SUCH_VAR_6826"')
-[ "$rc" != 0 ] && [ "$rc" != inject-failed ] && grep -q 'ended without finishing' "$TMP/e2.out" \
+[ "$rc" != 0 ] && [ "$rc" != inject-failed ] && said "$TMP/e2.out" \
   && pass "E2: the real script, dying on an unset variable after its trap, exits $rc and says so" \
   || bad "E2: the real script exited $rc: $(tail -3 "$TMP/e2.out")"
 rc=$(e2e ec ". $TMP/no-such-lib.sh" old)
@@ -101,6 +105,9 @@ exits=$(grep -cE '^[[:space:]]*exit 0$' "$DEPLOY")
 [ "$exits" -ge 2 ] && [ -z "$unflagged" ] \
   && pass "P: all $exits success exits in deploy-site.sh set _DS_FINISHED=1 first" \
   || bad "P: success exits without _DS_FINISHED=1 just before them, at lines: ${unflagged:-none} ($exits exit 0 lines)"
+
+inline=$(grep -nE 'exit 0[[:space:]]*(;|\})' "$DEPLOY" | grep -v '^[0-9]*:[[:space:]]*#' || true)
+[ -z "$inline" ] && pass "P: no inline exit 0 in deploy-site.sh" || bad "P: inline exit 0 the flag cannot cover: $inline"
 
 echo
 [ "$fails" = 0 ] && { echo "test-deploy-site-exit-trap-6826: all passed"; exit 0; }

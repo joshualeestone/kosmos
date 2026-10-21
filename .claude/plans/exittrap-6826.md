@@ -14,7 +14,7 @@ trap cannot recover it. A dry run of deploy-site.sh from a worktree died on a mi
 - `_DS_FINISHED=0`, and an EXIT trap that runs the cleanup, keeps any non-zero status, and turns a 0 into exit 1
   (with a line saying the run did not finish) unless `_DS_FINISHED=1`.
 - Both success exits (the dry-run end and the trailing `exit 0`) set `_DS_FINISHED=1` directly before `exit 0`.
-- The finished check IS the block's EXIT trap (line 213), so it covers the run from the moment a trap exists.
+- The finished check IS the block's EXIT trap (the `_ds_rc` trap line), so it covers the run from the moment a trap exists.
   `_DS_FINISHED=0` is set just before the block. The trap reads `${_DS_FINISHED:-1}`, so the block run on its own
   (tools/test-deploy-site-fetch-4745.sh extracts it) counts as finished and keeps its exits as they were.
   First version: the trap sat after the block. That left the old plain trap armed for about 110 lines, and a
@@ -28,8 +28,8 @@ trap cannot recover it. A dry run of deploy-site.sh from a worktree died on a mi
 - Scope: deploy-site.sh only. About 40 other scripts under tools/ share the shape (an EXIT trap plus set -u). Having
   the shape does not make a script affected, so each needs its own look. That stays on the card.
 
-Weakest premise: before line 213 there is no EXIT trap at all, so a death there keeps its real status (measured:
-a failed `.` with no trap exits 1). The only `.` before it is at line 162.
+Weakest premise: before the `_ds_rc` trap line there is no EXIT trap at all, so a death there keeps its real status (measured:
+a failed `.` with no trap exits 1). The only `.` before it is the served-verify one.
 
 ## Tests
 
