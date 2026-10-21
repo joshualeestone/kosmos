@@ -231,3 +231,13 @@ skip (slice 5). The other listed reasons were re-measured on Linux in probe run 
 - NITs, taken: test.yml's env comment names KOSMOS_SHELL_PLATFORM; the twin-reader comment says "same sources" and
   how their fallbacks differ, not "the same way". Left: test-browser-run-guard's chmod after a failed sed (the arm then
   fails on the probe's output, as it should).
+
+## Challenge loop iteration 10 (sonnet): 1 CONVENTION (no defect), 3 NITs, one of them a real regression
+- NIT, fixed (my own iteration-1 change): test-time-scale.sh's fallback lost `|| echo 4`, so on a box where sysctl
+  fails (Linux) a caller under `set -e` without cut-load-guard sourced ended on that line. Now `|| true`, falling to 4.
+  New arm: set -e, no kosmos_cpu_count, sysctl failing, load 8 -> 4.00 then "done"; the previous lib prints nothing
+  (the shell ended), measured.
+- CONVENTION, deferred: not a defect. The reviewer reports it skimmed two long test bodies and found no defect in the
+  library they exercise.
+- NITs, left: one `ps` per hop (iteration 2); the `a && b || c` runs-on expressions (each branch evaluated by
+  test-ci-runner-route-5488).
