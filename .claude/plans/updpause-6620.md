@@ -67,6 +67,10 @@ want one line saying so: a follow-up there, not built here.
 - Only a Kosmos that already carries this code can be paused. Older installs keep updating during a pause, which
   bounds this step's reach until the fleet has taken this release.
 
+- Review 6: /api/update asks only when something is on offer or running (otherwise its answer is "no update" with no
+  ask), and a booted-route test (server.update-pause-6620.test.js) checks the 409, its control and the no-ask case.
+  Left as it is: automatic updates turned on during a pause start an install at the next look that run-setup holds,
+  backing them off for an hour (the same late-not-wrong outcome as the overlapping looks below).
 - Review 5: /api/update asks first, before every other check, so none is read before an ask of seconds (an account
   move begun meanwhile still holds the board); its refusal still answers after the platform and source refusals. Left
   as they are: two overlapping looks can start an automatic install that run-setup then holds, which backs automatic

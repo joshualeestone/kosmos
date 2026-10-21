@@ -176,7 +176,9 @@ function verifySetup({ manifest, sig, setup, version, installedVersion, keys = K
  * Under `node --test` (NODE_TEST_CONTEXT, in the env given or this process's own) it asks nothing unless a test names
  * the address with KOSMOS_UPDATE_PAUSE_URL; tools/run-tests.sh points that at a dead local port for every suite.
  * Two overrides, both needing control of this computer's env: KOSMOS_UPDATE_IGNORE_PAUSE=1 skips the question (for an
- * operator who must install during a pause), and KOSMOS_UPDATE_PAUSE_URL asks another address.
+ * operator who must install during a pause), and KOSMOS_UPDATE_PAUSE_URL asks another address. Neither, nor
+ * AGENT_WORKFORCE_TUNNEL_COORDINATOR, is required to be https: one set to http lets a network in between hold updates,
+ * the same reach as whoever controls the answer above, and setting it already takes control of this computer's env.
  *
  * Not held today: a .pkg install that takes the pinned path (install/pkg-verify/floor not "off") and a pasted
  * install line over an existing install, which run the installer without run-setup (#6781).

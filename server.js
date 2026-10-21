@@ -15575,8 +15575,9 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/update' && req.method === 'POST') {
     /* kosmos#6620: the fleet's update pause, asked live (review 4) and FIRST (review 5): the ask can take seconds, so
        every check below reads the board as it is after it, not before (a move begun meanwhile still holds the board).
-       Its refusal is answered further down, after the platform and source refusals, whose sentences are truer. */
-    const pauseRefusal = await updates.pauseRefusalNow();
+       Its refusal is answered further down, after the platform and source refusals, whose sentences are truer. With
+       nothing on offer and nothing running (review 6), the answer below is "no update" whatever the pause says: no ask. */
+    const pauseRefusal = (updates.available() || updates.alreadyInstalling()) ? await updates.pauseRefusalNow() : null;
     const avail = updates.available();
     if (!avail) { sendJson(res, 409, { error: 'there is no update to install right now' }); return; }
     /* 🛑 #570: THE PLATFORM ARM GOES FIRST, AND ITS ORDER IS THE WHOLE POINT.
