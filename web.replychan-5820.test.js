@@ -48,6 +48,7 @@ function page() {
     // #5959 slice 2: paintDetailState paints the health line, so its pieces come along.
     RAW.match(/^const HEALTH_QUIET_MS = [^\n]*/m)[0],
     RAW.match(/^const HEALTH_READ_STATES = [^\n]*/m)[0],
+    RAW.match(/^const SAID_STATES = [^\n]*/m)[0],   // #6716: which states show their screen line
     pageFnSource('seenAtWords'),
     pageFnSource('healthLine'),
     pageFnSource('paintDetailState'),
@@ -154,6 +155,7 @@ function pageWithCleared(cleared) {
     // #5959 slice 2: paintDetailState paints the health line, so its pieces come along.
     RAW.match(/^const HEALTH_QUIET_MS = [^\n]*/m)[0],
     RAW.match(/^const HEALTH_READ_STATES = [^\n]*/m)[0],
+    RAW.match(/^const SAID_STATES = [^\n]*/m)[0],   // #6716: which states show their screen line
     pageFnSource('seenAtWords'),
     pageFnSource('healthLine'),
     pageFnSource('paintDetailState'),

@@ -339,3 +339,26 @@ test('the update overlay carries the mark, and the loader never claims progress'
   assert.doesNotMatch(String(fn('startKLoader')), /percent|progress|\bpct\b/i,
     'the loader has been given something to fill toward, which it cannot know');
 });
+
+/* #6716 review 8: the agent page's busy line no longer quotes the screen (its fold carries the quote), but the guide's
+   side chat has no fold, so its failed-sign-in line must keep "last seen: ...". Runs the real busyRow. */
+test('#6716: a failed sign-in quotes the screen in the side chat only, not on the agent page', () => {
+  const at = PAGE.indexOf('function busyRow(');
+  let d = 0; let i = PAGE.indexOf('{', at);
+  for (; i < PAGE.length; i++) { if (PAGE[i] === '{') d++; else if (PAGE[i] === '}') { d--; if (d === 0) break; } }
+  // eslint-disable-next-line no-new-func
+  const busyRow = new Function('esc', 'discTint', 'discInk', 'initials', 'WORKING_VERB',
+    PAGE.slice(at, i + 1) + '\nreturn busyRow;')((x) => String(x), () => '#000', () => '#fff', () => 'R', 'working');
+  // A real card from the fleet (fixture-discipline: no hand-built cards), signed out, with its screen's own words.
+  const fleet = require('./test-support/fleet');
+  try {
+    const row = fleet.install([fleet.agent('renet', { state: 'auth_failed' })]).agents.find((a) => a.name === 'renet');
+    assert.ok(row && row.state === 'auth_failed' && String(row.stateEvidence || '').length > 0, `control: the fleet gave a signed-out card with screen text: ${JSON.stringify(row && { state: row.state, ev: row.stateEvidence })}`);
+    assert.match(busyRow(row, 'Renet'), /sign-in isn&rsquo;t working/, 'control: the sign-in line is drawn');
+    assert.doesNotMatch(busyRow(row, 'Renet'), /last seen/, 'the agent page quoted the screen beside its fold');
+    assert.match(busyRow(row, 'Renet', { quote: true }), /last seen: &ldquo;/, 'the side chat lost the screen quote');
+  } finally {
+    fleet.restore();   // fixture-discipline: a fixture leaves no stub behind
+  }
+  assert.match(PAGE, /busyRow\(busyRowOf, who, \{ quote: true \}\)/, 'the side chat does not ask for the quote');
+});

@@ -643,11 +643,16 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    stacks in the name column (#3385: .dnamerow is a flex column). */
 .dnamerow .detail-state { margin: 0; }
 /* The agent's own words, marked as a quotation rather than as our sentence: a
-   rule down the left, the terminal's own face, and no italics (this is copied
-   text, not emphasis). */
-.detail-saidlab { margin: 10px 0 0; font-size: .75rem; color: var(--k-ink-2); }
-.detail-said { margin: 2px 0 0; padding: 6px 0 6px 12px;
-               border-left: 2px solid var(--k-rule); color: var(--k-ink-2);
+   hairline box, the terminal's own face, and no italics (this is copied text,
+   not emphasis). #6716: folded under a summary, which is a full 44px tap. */
+.detail-saidbox { margin: 6px 0 0; }
+/* Height from padding, not flex: a flex summary loses its disclosure triangle. 12 + 20 + 12 = 44px. */
+.detail-saidlab { margin: 0; padding: 12px 0; line-height: 20px;
+                  font-size: .75rem; color: var(--k-ink-2); cursor: pointer; border-radius: 6px; }
+.detail-saidlab:focus-visible { outline: 2px solid var(--label); outline-offset: -2px; }   /* inset (#6716 review 8): .dleft and .dhead scroll and would clip an outset ring at the column's edges */
+/* #6716: a full hairline box, not a left bar (Josh: no solid left accent bars). */
+.detail-said { margin: 4px 0 0; padding: 6px 10px;
+               border: 1px solid var(--k-rule); border-radius: 8px; color: var(--k-ink-2);
                font: .8125rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
                white-space: pre-wrap; overflow-wrap: anywhere; }
 /* What the agent is doing, its own element rather than merged into the badge.
@@ -12914,7 +12919,8 @@ window.kosmosMeasureScrollbarWidth();
            2026-08-21: "is there any way we could show that her usage is full").
            Kosmos cannot know an account is spent; it saw a sentence. So the
            sentence is shown, which names the model and carries the vendor's own
-           remedies, and stays true if that wording changes under us. -->
+           remedies, and stays true if that wording changes under us. Since #6716
+           (Josh, 2026-10-20) it is folded: one tap opens it. Do not unfold it. -->
       <!-- Keeps `d-said`, and now it is the ONLY thing that answers to it. The
            span above shared the id and won every lookup, so this element was
            unreachable and the sentence it exists for was being painted into a
@@ -12936,9 +12942,14 @@ window.kosmosMeasureScrollbarWidth();
            their wording changes. What changes is that it is now ATTRIBUTED, so
            a slash command inside it reads as something its screen showed rather
            than something we are asking for. -->
-      <p class="detail-saidlab" id="d-said-lab" hidden></p>
-      <blockquote class="detail-said" id="d-said" hidden></blockquote>
-      <!-- kosmos#1918: the evidence quote above can relay the CLI's "Please run
+      <!-- #6716 (Josh, 2026-10-20): the quote is folded and shown only for a state that is waiting on something.
+           A working agent's line is Claude Code's raw spinner ("Fermenting... (10m 20s ...)"), which is not for a
+           person; the pill already says Working. -->
+      <details class="detail-saidbox" id="d-said-box" hidden>
+        <summary class="detail-saidlab" id="d-said-lab" hidden></summary>
+        <blockquote class="detail-said" id="d-said" hidden></blockquote>
+      </details>
+      <!-- kosmos#1918: the evidence quote above (folded since #6716) can relay the CLI's "Please run
            /login", which is correct in a terminal and FALSE here: the Terminal tab is
            read-only and the message box under it talks to the AGENT, not the shell, so
            there is nowhere in the product to run it. When sign-in is what is broken,
@@ -39642,7 +39653,7 @@ function memoryBox(a) {
    cannot drift apart on it. */
 const WORKING_VERB = 'working';
 
-function busyRow(fresh, name) {
+function busyRow(fresh, name, opts) {
   const who = name || (fresh && fresh.name) || 'This agent';
   const face = (fresh && fresh.hasAvatar)
     ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/'
@@ -39678,7 +39689,10 @@ function busyRow(fresh, name) {
     return face
       + '<span class="haz" aria-hidden="true">!</span>'
       + '<span>' + esc(who) + '&rsquo;s Claude sign-in isn&rsquo;t working'
-      + (fresh.stateEvidence ? ', last seen: &ldquo;' + esc(fresh.stateEvidence) + '&rdquo;' : '')
+      /* #6716: on the agent page, no quote of its screen here: the page's folded "What <name>'s screen said" carries
+         it, and a quote in this line put the CLI's own words on the page unfolded. The guide's side chat has no fold,
+         so it asks for the quote (opts.quote, review 8): there it is the only place the vendor's own words show. */
+      + (opts && opts.quote && fresh.stateEvidence ? ', last seen: &ldquo;' + esc(fresh.stateEvidence) + '&rdquo;' : '')
       + '</span>';
   }
   return face
@@ -39827,12 +39841,9 @@ function paintBusy(fresh, name) {
      an unchanged working agent keeps ONE continuous animation. */
   const busyKey = [
     fresh.sessionName, fresh.state, (name || fresh.name || ''), fresh.hasAvatar ? '1' : '0',
-    /* auth_failed renders "last seen: <stateEvidence>" (busyRow); include it ONLY
-       there so that line refreshes as the evidence changes poll-to-poll. NOT for
-       working: a working agent's evidence also changes every poll, and keying on
-       it there would rebuild the .act dots each poll -- the exact reset this fix
-       removes. The auth_failed line has no dots, so rebuilding it is free. */
-    fresh.state === 'auth_failed' ? (fresh.stateEvidence || '') : '',
+    /* #6716: the line no longer quotes the screen, so nothing in it changes with the evidence and it is not keyed on.
+       (Never for working either: a working agent's evidence changes every poll, and keying on it would rebuild the
+       .act dots each poll, the exact reset this key exists to stop.) */
     /* \u0001 (SOH) as the join separator: a control character that cannot appear
        in a session name, agent name or screen evidence, so fields cannot collide
        across the boundary (e.g. "a\u0001b" vs "a" + "b"). */
@@ -42785,13 +42796,16 @@ const LINK_LOST_SEEN = new Map();   // #5333: per agent, { n, card, at }: polls 
 /* Six of the board's 5-second polls (setInterval(tick, 5000)): wide enough for a slow answer or a tab the browser
    throttled while hidden (it polls every 5 s again once looked at), narrow enough that a visit long ago never counts. */
 const LINK_LOST_WINDOW_MS = 6 * 5000;
+/* #6716: the states whose screen line the agent page shows, folded. Each is waiting on a person or on something outside
+   the agent; working, idle, stopped, restarting and unknown show none. needs_trust is the board's own state (#3013). */
+const SAID_STATES = new Set(['needs_you', 'needs_trust', 'blocked', 'auth_failed', 'rate_limited', 'connection_lost']);
 function paintDetailState(card) {
   /* The same stale-sample rule as the DM line (workingSampleIsStale), so the two never split.
      ⚠️ The grid card does NOT apply it: on the one poll where a reply has landed after the
      sample, this pill and the DM line say idle while the card still says working. Chosen: the
      split Josh reported was the pill against the DM line on this same page, and a card one
      poll behind resolves on the next sample. The stale sample is dropped whole: its evidence line
-     described the work, so an Idle pill beside "Its screen said: <that work>" would be the same
+     described the work, so an Idle pill beside the screen line about that work would be the same
      split one row lower. */
   /* #5949: and its remembered mark goes with it: that idle comes from a later reply, not from the remembered look. */
   const a = workingSampleIsStale(card) ? { ...card, state: 'idle', stateEvidence: '', stateRead: '' } : card;
@@ -42807,18 +42821,40 @@ function paintDetailState(card) {
      escape, and the engine has already trimmed and capped it. */
   const said = document.getElementById('d-said');
   const saidLab = document.getElementById('d-said-lab');
+  const saidBox = document.getElementById('d-said-box');
   if (said) {
-    const line = String(a.stateEvidence || '').trim();
+    /* #6716: only a state waiting on something shows what its screen said (a prompt, a limit, a failed sign-in). A
+       working or idle agent's line is the CLI's own chrome, never for a person. */
+    const line = SAID_STATES.has(a.state) ? String(a.stateEvidence || '').trim() : '';
+    if (saidBox) {
+      /* Starts folded each time it appears: for another agent, or for this one when it is waiting on something again
+         after it was not. The poll while it stays shown for the same agent leaves an opened fold as the person left it.
+         Review 11: "again" is a new WAIT, not the text coming back. A waiting agent whose screen text is empty for one
+         poll keeps the fold as the person left it (dataset.waiting remembers the last paint's waiting state). Review 12:
+         a move to a different waiting state (a limit, then a failed sign-in) is a new wait too, with new words. */
+      const forName = a.sessionName || '';
+      const waitState = SAID_STATES.has(a.state) ? a.state : '';
+      const appears = !!waitState && saidBox.dataset.waiting !== waitState;
+      if (appears || saidBox.dataset.for !== forName) { saidBox.open = false; saidBox.dataset.for = forName; }
+      saidBox.dataset.waiting = waitState;
+      /* Hiding the fold while its summary has the keyboard would drop focus to the top of the page: it moves to the
+         state line beside the heading instead, which is what changed (tabindex -1, so it adds no Tab stop). */
+      if (!line && !saidBox.hidden && document.activeElement && saidBox.contains(document.activeElement)) {
+        const st = document.getElementById('d-state');
+        if (st) { st.tabIndex = -1; st.focus({ preventScroll: true }); }
+      }
+      saidBox.hidden = !line;
+    }
     if (said.textContent !== line) said.textContent = line;
     said.hidden = !line;
     /* The label follows the quote exactly, or an empty agent page keeps a
-       stranded "Its screen said:" with nothing under it. */
+       stranded "What X's screen said" with nothing under it. */
     if (saidLab) {
       /* `a.name`, which is what the heading two lines up uses. My first version
          called a `dispName()` that DOES NOT EXIST -- it would have thrown the
          moment a rate-limited agent's page opened, and every text-matching test
          passed over it because a regex cannot call a function. */
-      const lab = line ? a.name + '\u2019s screen said:' : '';
+      const lab = line ? 'What ' + a.name + '\u2019s screen said' : '';
       /* Written only when it changes: this runs every poll, and reassigning identical text
          replaces the node, which drops a selection somebody is copying from. */
       if (saidLab.textContent !== lab) saidLab.textContent = lab;
@@ -42826,7 +42862,7 @@ function paintDetailState(card) {
     }
   }
   /* kosmos#1918: the reachable remedy for a broken sign-in. The evidence quote
-     above may name "/login", which has no surface in this product; this button is
+     above (in its fold since #6716) may name "/login", which has no surface in this product; this button is
      that surface. Shown ONLY when the state is auth_failed, so a healthy agent
      never sees a control it does not need, and hidden again the moment the state
      is anything else. The click (wired once below) opens Settings -> Accounts,
@@ -43009,6 +43045,9 @@ function openDetail(sessionName, section, fromProject) {
   // cannot hide the loader during the update's own reload.
   for (const id of ['d-instr-updating', 'd-instr-loading', 'd-instr-retry-row']) document.getElementById(id).hidden = true;   // #4406 too
   document.getElementById('d-instr').placeholder = '';
+  // #6716: opening a page is an appearance too, so the screen-line fold starts closed even for the agent seen last.
+  const saidFold = document.getElementById('d-said-box');
+  if (saidFold) { saidFold.open = false; delete saidFold.dataset.for; delete saidFold.dataset.waiting; }   // review 13: both keys, so an open does not lean on one
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
   /* #5624 review 6: opening an agent (again) is first sight for conversation mode: the thread's poll stopped while it
@@ -85378,7 +85417,7 @@ function asbPaint() {
       signIn ? (row.stateEvidence || '') : ''].join('\u0001');
     const rekeyed = busy.dataset.busyKey !== key;
     if (rekeyed) {
-      busy.innerHTML = !key ? '' : busyRowOf ? busyRow(busyRowOf, who)
+      busy.innerHTML = !key ? '' : busyRowOf ? busyRow(busyRowOf, who, { quote: true })   // #6716: the side chat has no fold, so it keeps the quote
         : '<div class="msg-av" aria-hidden="true"><img src="' + ASB_HOSTED_AVATAR + '" alt=""></div><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>' + esc(who) + ' is ' + WORKING_VERB + '&hellip;</span>';
       busy.dataset.busyKey = key;
     }

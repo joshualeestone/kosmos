@@ -1,4 +1,4 @@
-// Browser-check-surface: d-state d-task d-start-wrap d-linklost d-linklost-text d-linklost-restart d-linklost-msg
+// Browser-check-surface: d-state d-task d-start-wrap d-linklost d-linklost-text d-linklost-restart d-linklost-msg d-said d-said-box d-said-lab
 'use strict';
 /**
  * #3958 (Josh, 2026-09-26): on the agent page the status pill said Idle while the same page's DM
@@ -48,7 +48,9 @@ const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 
 const fail = [];
+let RAN = 0;
 function chk(ok, label, extra) {
+  RAN += 1;
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
   if (!ok) fail.push(label);
 }
@@ -151,12 +153,29 @@ async function read(page) {
            opened shows the Sign in again button and its screen evidence; back to working hides them. */
         setState('auth_failed');
         await page.waitForTimeout(6500);
-        const af = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden, said: !document.getElementById('d-said').hidden }));
+        const af = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden, said: !document.getElementById('d-said').hidden && !document.getElementById('d-said-box').hidden, open: document.getElementById('d-said-box').open }));
         chk(af.reauth && af.said, `${engineName} -> auth_failed: the Sign in again button and the screen evidence appear without reopening`, JSON.stringify(af));
+        /* #6716: it appears folded (a real <details>, not a stub). */
+        chk(af.open === false, `${engineName} -> auth_failed: the screen line appears folded`, JSON.stringify(af));
         setState('working');
         await page.waitForTimeout(6500);
         const ok = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden }));
         chk(!ok.reauth, `${engineName} -> working again: the Sign in again button is gone`, JSON.stringify(ok));
+        /* #6716 (Josh, 2026-10-20): a working agent never shows its screen line. The working agent here carries raw CLI
+           text (Claude Code's retry line): the CONTROL is that the board's own card for it has that text, so the page
+           had something to show and chose not to (the auth_failed arm above shows a waiting state's text does show). */
+        const RAW_SCREEN = 'Reading the lease\n✻ Connection refused (ECONNREFUSED) · Retrying in 5s · attempt 4/10\n';
+        setState('working', { screen: RAW_SCREEN });
+        await page.waitForTimeout(6500);
+        // The CONTROL is read from the card the page itself received on this poll, the one paintDetailState is handed.
+        const work = await page.evaluate(() => {
+          const card = (typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST : []).find((x) => x && (x.sessionName === 'beatrix' || /^beatrix$/i.test(String(x.name || ''))));
+          return { state: card && card.state, evidence: card && card.stateEvidence,
+            box: !document.getElementById('d-said-box').hidden, text: document.getElementById('d-said').textContent };
+        });
+        chk(work.state === 'working' && /Retrying in 5s/.test(String(work.evidence || '')) && !work.box && !/Retrying/.test(work.text),
+          `${engineName} -> working with raw CLI text on screen: no screen line (CONTROL: the page's card carries that text)`,
+          JSON.stringify(work));
         const startShown = () => page.evaluate(() => {
           const w = document.getElementById('d-start-wrap');
           const b = document.getElementById('d-start-agent');
@@ -263,6 +282,10 @@ async function read(page) {
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
+  /* The count is part of the result: arms that silently did not run must not read as "all checks passed". 36 per
+     engine, two engines (#6716 added the folded-on-appear and working-with-raw-text arms). */
+  const EXPECTED = 72;
+  if (RAN !== EXPECTED) { console.log(`FAIL  ran ${RAN} checks, expected ${EXPECTED}`); fail.push('check count'); }
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

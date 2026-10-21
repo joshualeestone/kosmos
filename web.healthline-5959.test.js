@@ -113,6 +113,7 @@ test('#5959 slice 2: the real paintDetailState paints the line from the card it 
     src('workingSampleIsStale'),
     PAGE.match(/\nconst HEALTH_QUIET_MS = [^\n]*\n/)[0],
     PAGE.match(/\nconst HEALTH_READ_STATES = [^\n]*\n/)[0],
+    PAGE.match(/\nconst SAID_STATES = [^\n]*\n/)[0],   // #6716: which states show their screen line
     src('seenAtWords'),
     src('healthLine'),
     src('paintDetailState'),
