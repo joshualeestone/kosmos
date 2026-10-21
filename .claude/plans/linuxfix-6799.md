@@ -209,3 +209,11 @@ skip (slice 5). The other listed reasons were re-measured on Linux in probe run 
 - NITs, taken: run-tests.sh's usage comment names KOSMOS_SHELL_PLATFORM; settle() silences the helper's stderr.
 - NIT, left: kosmos_test_time_scale's load fallback without cut-load-guard sourced is still sysctl only (fails safe to
   1.00; run-tests.sh sources the guard first).
+
+## Challenge loop iteration 8 (sonnet): 1 WARNING (new, deferred), duplicates otherwise
+- WARNING, deferred: on Linux the helper drops the caller's whole ancestor chain, so a parent whose command line is a
+  run of the same script reads as absent. By design: if an ancestor is a run of that script, the caller is inside that
+  run, and the guards define "this run" as self plus its subtree (#1391); macOS pgrep excludes its ancestors the same
+  way, which is the parity the helper exists for, and the helper's comment says so.
+- Duplicates: the renamed macOS job (iteration 6, ruleset measured), one `ps` per hop and a Linux sysctl printing to
+  stdout (iteration 2).
