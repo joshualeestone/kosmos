@@ -13,6 +13,9 @@
 - Rejected: keeping "Join Corporate Account" (wrong for every family); a label per kind (nothing tells the board the
   kind before a code); "Join a family or company" (rewrites more of Josh's 10-10 copy than needed).
 
+- The building icon stays (aria-hidden, decorative): changing a picture Josh chose with the button on 10-10 is a design
+  call, left to Mona Lisa's review rather than made in a wording card (challenge iterations 1 and 3).
+
 ## Weakest premise
 That adding "or Family" costs a company person nothing; Josh picked the old words for companies on 10-10.
 
