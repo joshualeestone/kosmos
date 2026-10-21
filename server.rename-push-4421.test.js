@@ -28,7 +28,6 @@ process.env.AGENT_WORKFORCE_PROJECTS = mk('projects');
 process.env.AGENT_WORKFORCE_LAUNCH = mk('launch');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
-process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';   // nothing here may start a real claude
 const STATE = mk('remote');
@@ -77,7 +76,6 @@ test.before(async () => {
 });
 test.after(() => {
   phonenotify.setSender(null);
-  phonenotify.setClock(null);
   messages.setRunner(null);
   try { sendertoken.revoke(WHO); } catch { /* best effort */ }
   try { server.closeAllConnections(); server.close(); } catch { /* best effort */ }
