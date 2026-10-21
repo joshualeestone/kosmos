@@ -63,3 +63,20 @@ seen. None exists today.
 - A file listed in EXPECTED that is gone says so.
 - Not fixed, stated: `if (x) /re/` (a regex after an if's ')') is read as division. Not in the repo.
 - Controls: 34. Against origin/main's three files: red on all four.
+
+## Review 4 (Sonnet): more ways to fool an inference; the guard is now a SHAPE rule instead
+Four rounds each found new code that a "does this name a socket" inference got wrong (a conditional socket in a
+wrapper, another call's -S inside a wrapper, separators the command split missed, an earlier argument's -S, -S as
+data, tmux's shortened spellings). Patching each was not converging, so the rule changed from inference to shape.
+A kill-server is accepted only as:
+  1. an element of an array literal whose first element is '-S' or '-L'
+  2. an element of an array handed straight to a wrapper listed in WRAPPERS (by calling file), whose definition's
+     first array literal starts with '-S' or '-L' with no '?' before it
+  3. inside a string, only as one whole command "[tmux] -S|-L <name> kill-server"
+Everything else fails, including kill-ser / kill-serv (tmux takes unique prefixes). A new wrapper fails until it is
+listed, so a person reads it. Every real call in the repo already has one of these shapes; no repo file changes.
+Rejected: keeping the inference and patching round 4's cases (a fifth round would find a fifth shape).
+Weakest premise: a listed wrapper is trusted from its first array; a wrapper that builds that array and then drops
+it would pass. Three wrappers today, each read.
+Controls: 35 (each failing shape from rounds 1 to 4 red, each accepted shape green). Against origin/main's three
+files: red on all four.
