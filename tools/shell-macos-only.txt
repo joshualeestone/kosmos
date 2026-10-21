@@ -7,7 +7,7 @@
 # on macOS. They are listed too, at the end. #6799 then fixed a BSD-first `stat -f || stat -c` fallback, which moved
 # three of the 26 to Linux (measured there, probe run 39551438303), and a BSD-only `sed -i ''` one more (probe run
 # 39553501883), and a core count and load read only from macOS sysctl (`hw.ncpu`, `vm.loadavg`) two more (probe run
-# 39558291451), and `pgrep -fl`, which prints only the process name on Linux, three more (probe run PROBE_RUN_ID).
+# 39558291451), and `pgrep -fl`, which prints only the process name on Linux, three more (probe run 39559795454).
 # That is 25 here, and 239 commands on Linux.
 # tools/shell-shard.js reads this file: `linux` shards run everything NOT listed here, the `mac` shard runs these, plus
 # every syntax-only check (`sh -n` / `bash -n`), which runs on both: macOS /bin/sh is bash 3.2, Linux sh is dash.

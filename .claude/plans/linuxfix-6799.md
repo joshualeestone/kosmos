@@ -98,4 +98,6 @@ That Linux `sysctl -n hw.ncpu` fails rather than printing something with rc 0; t
 - Weakest premise: Linux pgrep also lists the CALLER's ancestors (macOS never does). Reasoned safe: each caller drops
   its own run by the self-subtree walk or anchors on a script path an ancestor does not carry. Under run-tests.sh the
   runner itself is an ancestor of these tests; the shard runs through run-tests.sh are what measure it.
-- Linux: probe-6799e (never merged): RESULT PENDING.
+- Linux, probe-6799e (never merged), run 39559795454: all three jobs success. ALONE: each rc 0, 0 failures (test-cut-guard's
+  one "skip" line is the test title "is skipped only for the claim holder", as on macOS). Through run-tests.sh: shard 1/2
+  "all 125 passed", shard 2/2 "all 114 passed" (239 = the list's new count), so the ancestor premise held there too.
