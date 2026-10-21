@@ -393,9 +393,18 @@ test('#6734: a folder a stopped upload left with no record is swept once it is a
   const fresh = make('c'.repeat(24), [attachments.PART], 60000);          // CONTROL: may still be arriving
   const kept = make('d'.repeat(24), ['clip.mov', 'record.json'], HOUR * 5); // CONTROL: a real attachment
   const notAnId = make('not-an-attachment-id', [attachments.PART], HOUR * 5); // CONTROL: not ours to judge
-  assert.equal(attachments.sweepOrphans(), 2);
-  assert.deepEqual([oldPart, oldNoRecord, fresh, kept, notAnId].map((d) => fs.existsSync(d)), [false, false, true, true, true]);
-  fs.rmSync(owner, { recursive: true, force: true });   // the kept controls, so later tests counting part files see none
+  // Review 11: a record.json that is a dangling link still counts as a record, so the folder is kept.
+  const dangling = make('f'.repeat(24), ['clip.mov'], HOUR * 5);
+  fs.symlinkSync(path.join(SCRATCH, 'no-such-record'), path.join(dangling, 'record.json'));
+  const old = (Date.now() - HOUR * 5) / 1000;   // so only the record check, not its age, can keep it
+  fs.lutimesSync(path.join(dangling, 'record.json'), old, old);
+  fs.utimesSync(dangling, old, old);
+  try {
+    assert.equal(attachments.sweepOrphans(), 2);
+    assert.deepEqual([oldPart, oldNoRecord, fresh, kept, notAnId, dangling].map((d) => fs.existsSync(d)), [false, false, true, true, true, true]);
+  } finally {
+    fs.rmSync(owner, { recursive: true, force: true });   // the kept controls, so later tests counting part files see none
+  }
 });
 
 test('#6734: a reply file that grew after it was measured is refused having copied at most one byte past the measure', () => {

@@ -72,7 +72,9 @@ function kindOf(type, name) {
     renderer is always handed the absolute path, never the bare name. */
 const RESERVED = new Set(['record.json', 'preview.png']);
 function safeName(name) {
-  let n = String(name || '').replace(/[/\\\0]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').replace(/^\.+/, '').trim();
+  // #6734 review 11: leading spaces and dots are stripped together, so " .upload.part" cannot keep its dot and be
+  // stored under the part file's own name (the dots used to go before the trim).
+  let n = String(name || '').replace(/[/\\\0]/g, '_').replace(/[\u0000-\u001f\u007f]/g, '').replace(/^[\s.]+/, '').trim();
   n = Array.from(n).slice(0, 160).join('');
   if (!n) n = 'file';
   if (RESERVED.has(n.toLowerCase())) n = 'file-' + n;
@@ -135,7 +137,9 @@ function sweepOrphans(now = Date.now()) {
         if (!/^[0-9a-f]{24}$/.test(id)) continue;
         const dir = path.join(ROOT, scope, owner, id);
         try {
-          if (fs.existsSync(path.join(dir, 'record.json'))) continue;
+          // Review 11: fail closed. Only a record that is certainly absent (ENOENT) makes an orphan; a dangling link or
+          // a stat that fails for any other reason keeps the folder.
+          try { fs.lstatSync(path.join(dir, 'record.json')); continue; } catch (e) { if (!e || e.code !== 'ENOENT') continue; }
           let newest = fs.statSync(dir).mtimeMs;
           for (const f of fs.readdirSync(dir)) newest = Math.max(newest, fs.lstatSync(path.join(dir, f)).mtimeMs);
           if (now - newest < ORPHAN_AGE_MS) continue;

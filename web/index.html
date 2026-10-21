@@ -74774,7 +74774,7 @@ async function attachUpload(file, where) {
        that as a possibility, since the page cannot tell it from Kosmos not being reached (review 8: and no figure, which
        would change with any timeout on the way). */
     msg.textContent = file.size > ATTACH_SLOW_BYTES
-      ? 'We could not reach Kosmos to finish adding ' + file.name + '. If your connection is slow, a file this large can take longer than Kosmos waits for one.'
+      ? 'We could not reach Kosmos to add ' + file.name + '. If your connection is slow, a file this large can take longer than Kosmos waits for one.'
       : 'We could not reach Kosmos to add that file.';
   } finally {
     ATTACH_UPLOADING = Math.max(0, ATTACH_UPLOADING - 1);

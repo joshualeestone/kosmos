@@ -30,6 +30,11 @@ test('kind is decided by type first and extension second, and an unknown file is
 test('a file name becomes one path segment: no separators, no leading dots, never empty', () => {
   assert.equal(attachments.safeName('../../etc/passwd'), '_.._etc_passwd');
   assert.equal(attachments.safeName('record.json'), 'file-record.json', 'a file named like the metadata would overwrite it');
+  // #6734 review 11: a leading space no longer protects a leading dot, so no name can become the part file's.
+  assert.equal(attachments.safeName(' .upload.part'), 'upload.part');
+  assert.equal(attachments.safeName(' .env'), 'env');
+  assert.equal(attachments.safeName(' . .x'), 'x');
+  assert.equal(attachments.safeName('.upload.part'), 'upload.part', 'CONTROL: the plain dotted name was already safe');
   assert.equal(attachments.safeName('Preview.PNG'), 'file-Preview.PNG');
   assert.equal(attachments.safeName('a\u001bb\u0007.txt'), 'ab.txt', 'control characters reach the pane');
   assert.equal(Array.from(attachments.safeName('😀'.repeat(200))).length, 160, 'a surrogate pair was halved');

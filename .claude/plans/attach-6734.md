@@ -149,8 +149,9 @@ phone yet: the remaining manual step covers it.
    file other than attachments.js reaches into the store (by `attachments.ROOT` or by building the path), or if
    replyfile starts writing there (red with either spelling appended to another engine file). An upload whose part
    file cannot be written (a full disk, injected through the write stream's own `fs` option) is refused with "that
-   file could not be kept" and leaves nothing (red with another sentence, and with the folder not removed). The
-   `Expect: 100-continue` case stays as recorded under decision 2.
+   file could not be kept" and leaves nothing (red with another sentence, and with the folder not removed). A client
+   sending `Expect: 100-continue` with an over-cap length gets Node's automatic 100 Continue and then the refusal, so
+   it may send its body before the connection closes: bandwidth only, nothing stored, and the page never sends one.
 
 21. **Review 9:** an upload that fails with a system error (a rename or record write on a full disk, say) is refused
    with "we could not keep that file", not the raw error, which carries a path with the user's name and would reach
@@ -158,7 +159,14 @@ phone yet: the remaining manual step covers it.
 
 22. **Review 10:** a large file's network failure reads "We could not reach Kosmos to finish adding <name>. If your
    connection is slow, a file this large can take longer than Kosmos waits for one.", naming both causes, since the
-   page cannot tell Kosmos being unreachable from the wait running out.
+   page cannot tell Kosmos being unreachable from the wait running out. (Review 11: "to add", not "to finish adding",
+   which was untrue when nothing had started.)
+23. **Review 11:** `safeName` stripped leading dots before trimming, so " .upload.part" kept its dot and was stored
+   under the part file's own name (an attachment that answered 200 and could never be read). Leading spaces and dots
+   are now stripped together (tests: " .upload.part", " .env", " . .x"; red with the old order). The orphan sweep's
+   record check fails closed: only a record that is certainly absent (ENOENT) makes an orphan, so a dangling
+   record.json link keeps its folder (test with backdated times, so age cannot be what keeps it; red with the old
+   `existsSync`). The sweep test cleans its controls in a `finally`.
 
 ### Considered and not changed (review 10)
 - **The orphan sweep's residual cases:** a writer reaching the store by a spelling the guard does not scan (a shell
