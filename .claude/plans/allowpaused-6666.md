@@ -60,3 +60,10 @@ with an ordinary-answer control); web.allow-card.test.js (+1: the line, its plac
   on the next poll (about 5 s) the row is withheld, the card goes, and the paused line shows instead.
 - A future mtime (the clock stepped back) is not fresh, matching the tunnel's `elapsed()` refusal. `ASK.paused` is
   declared with the other state. The Plus-off test asserts `paused === false`, so a missing field fails.
+
+## Review round 4
+- The paused line no longer ends "There is nothing to do": the tunnel can still list code-check rows while paused,
+  each with buttons. It now ends "Nothing new can be allowed until then."
+- Stated limit, not changed: `paused` holds only while the tunnel keeps rewriting pending.json. If it stops (the
+  coordinator unreachable, the tunnel stopped), the line goes after 2 minutes and the section can go blank again.
+  That is the staleness rule working: an old "paused" must not outlive what it describes.
