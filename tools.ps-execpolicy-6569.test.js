@@ -52,40 +52,89 @@ function runtimeFiles() {
   const engine = walk(path.join(ROOT, 'engine'), (p) => /\.js$/.test(p) && !isTest(p));
   const windows = walk(path.join(ROOT, 'tools', 'windows'), (p) => /\.(js|ps1|psm1|cs|cmd|bat|vbs|sh)$/i.test(p));
   const install = walk(path.join(ROOT, 'install'), (p) => !/\.(png|icns|jpg|gif|zip|plist)$/i.test(p));
-  return [...top, ...engine, ...windows, ...install];
+  const bin = walk(path.join(ROOT, 'bin'), (p) => !isTest(p));   // review 3: the supervisor, watchdog and report bridges ship
+  return [...top, ...engine, ...windows, ...install, ...bin];
 }
 
-/** The text with its comments blanked (line numbers kept), by the file's own comment syntax. */
+/** JS / C# comments blanked by a small tokenizer that knows strings, templates (with ${} inside) and escapes, so a "/*"
+    inside a string ('Read(**\/*.pem)') never opens a comment. Review 3: a plain block-comment pattern did, and hid dozens
+    of real lines, a planted launch among them. Newlines are kept, so line numbers hold. Regex literals are not tracked;
+    an escaped slash is skipped, and the one shape left (an unescaped "/*" in a regex) cannot occur in valid JS. */
+function stripJsComments(text) {
+  let out = '';
+  const stack = ['code'];   // code | sq | dq | tpl | line | block
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i]; const n = text[i + 1]; const st = stack[stack.length - 1];
+    const keep = (ch) => { out += ch; };
+    const blank = (ch) => { out += ch === '\n' ? '\n' : ' '; };
+    if (st === 'line') { if (c === '\n') { stack.pop(); keep(c); } else blank(c); continue; }
+    if (st === 'block') { if (c === '*' && n === '/') { stack.pop(); blank(c); blank(n); i += 1; } else blank(c); continue; }
+    if (c === '\\' && st !== 'code') { keep(c); if (n !== undefined) keep(n); i += 1; continue; }
+    if (st === 'sq') { keep(c); if (c === "'" || c === '\n') stack.pop(); continue; }
+    if (st === 'dq') { keep(c); if (c === '"' || c === '\n') stack.pop(); continue; }
+    if (st === 'tpl') {
+      if (c === '`') { stack.pop(); keep(c); continue; }
+      if (c === '$' && n === '{') { stack.push('code'); keep(c); keep(n); i += 1; continue; }
+      keep(c); continue;
+    }
+    // code
+    if (c === '/' && n === '/') { stack.push('line'); blank(c); continue; }
+    if (c === '/' && n === '*') { stack.push('block'); blank(c); blank(n); i += 1; continue; }
+    if (c === '\\') { keep(c); if (n !== undefined) keep(n); i += 1; continue; }
+    if (c === "'") { stack.push('sq'); keep(c); continue; }
+    if (c === '"') { stack.push('dq'); keep(c); continue; }
+    if (c === '`') { stack.push('tpl'); keep(c); continue; }
+    if (c === '}' && stack.length > 1) { stack.pop(); keep(c); continue; }   // the end of a template's ${...}
+    if (c === '{' && stack.length > 1) { stack.push('code'); keep(c); continue; }
+    keep(c);
+  }
+  return out;
+}
+
+/** The text with its comments blanked (line numbers kept). JS and C# by the tokenizer above; PowerShell, .cmd, .bat, .vbs
+    and shell by whole comment lines (a comment after code on the same line is left in, which can only flag more). */
 function stripComments(text, file) {
   const ext = path.extname(String(file || '')).toLowerCase();
-  const blank = (m) => m.replace(/[^\n]/g, ' ');
-  if (ext === '.ps1' || ext === '.psm1') return text.replace(/<#[\s\S]*?#>/g, blank).replace(/(^|\s)#.*$/gm, (m, a) => a + ' '.repeat(m.length - a.length));
-  if (ext === '.cmd' || ext === '.bat') return text.replace(/^\s*(rem\b|::).*$/gim, blank);
-  if (ext === '.vbs') return text.replace(/'.*$/gm, blank);
-  if (ext === '.sh' || ext === '') return text.replace(/^\s*#.*$/gm, blank);
-  // js, cs: block comments, then line comments that start a line (a // inside a string or URL is left alone)
-  return text.replace(/\/\*[\s\S]*?\*\//g, blank).replace(/^\s*\/\/.*$/gm, blank);
+  if (ext === '.js' || ext === '.cs' || ext === '.mjs' || ext === '.cjs') return stripJsComments(text);
+  const ps = ext === '.ps1' || ext === '.psm1';
+  let inPsBlock = false;
+  return text.split(/\r?\n/).map((t) => {
+    const u = t.trim();
+    if (ps) {
+      if (inPsBlock) { if (/#>\s*$/.test(u)) inPsBlock = false; return ''; }
+      if (u.startsWith('<#')) { inPsBlock = !/#>\s*$/.test(u); return ''; }
+      return u.startsWith('#') ? '' : t;
+    }
+    if (ext === '.cmd' || ext === '.bat') return /^(rem\b|::)/i.test(u) ? '' : t;
+    if (ext === '.vbs') return u.startsWith("'") ? '' : t;
+    if (ext === '.sh' || ext === '') return u.startsWith('#') ? '' : t;
+    return t;
+  }).join('\n');
 }
 
-const POLICY = /-ExecutionPolicy\b/i;
+/* Review 3: the policy must be Bypass (AllSigned or Restricted still block the script, which is this card's failure), and
+   a trailing // comment's text does not count. */
+const POLICY = /-ExecutionPolicy['"`]?\s*,?\s*['"`]?Bypass\b/i;
+const codePart = (t) => t.replace(/\s\/\/[^'"`]*$/, '');
 const NAMES_SCRIPT = /(['"`])-fi(l|le)?\1|(['"`])-file\3|(^|[\s(@,])-fil?e?\b(?=\s|$)|\.ps1\b/i;
 
 /* Lines that name a script and are NOT a launch, matched by file and the line's own trimmed text (not its number, so an
    edit elsewhere in the file does not break the match). Each says why. */
 const REVIEWED = [
   ['engine/reporthook.js', "const spellings = plat === 'win32' && !/\\.[A-Za-z0-9]+$/.test(bin) ? [bin, bin + '.exe', bin + '.cmd', bin + '.ps1'] : [bin];", 'looks at which spellings of a CLI exist; a .ps1 is never run (its version is left unknown)'],
-  ['engine/startimports.js', null, 'a list of file extensions an import may carry, not a launch'],
+  ['engine/startimports.js', "'.ps1', '.bat', '.cmd', '.env', '.ini', '.cfg', '.conf', '.config', '.properties', '.sql', '.graphql', '.gql', '.proto', '.vue',", 'a list of file extensions an import may carry, not a launch'],
   ['engine/win32signin.js', "const SCRIPT_EXTENSIONS = Object.freeze(['.cmd', '.bat', '.ps1']);", 'the scripts a direct start cannot be, so they are refused, not run'],
   ['engine/win32update.js', "'bin/kosmos.ps1',", 'a file the update must contain; it is checked, not run'],
-  ['tools/windows/publish-r2.ps1', null, 'printed usage lines (Say "  pwsh ...") on the release PC, not a launch'],
+  ['tools/windows/publish-r2.ps1', 'Say "  pwsh tools/windows/publish-r2.ps1 -Zip $Zip   [-Sig <the .sig file, if it was sent rather than uploaded>]"', 'a printed usage line on the release PC, not a launch'],
+  ['tools/windows/publish-r2.ps1', 'Say "  pwsh tools/windows/publish-r2.ps1 -Promote -ApprovedVersion <v from his go> -ApprovedSha <sha from his go> -ApprovalRef <his message\'s Slack ts or permalink>"', 'a printed usage line on the release PC, not a launch'],
 ];
-const reviewed = (rel, text) => REVIEWED.some(([f, t]) => f === rel && (t === null || t === text));
+const reviewed = (rel, text) => REVIEWED.some(([f, t]) => f === rel && t === text);   // review 3: always the exact line, never a whole file
 
 /** Every code line in a file's text that names a script, as { line, text, policy }. */
 function launchSites(text, file = 'x.js') {
   const out = [];
   stripComments(text, file).split(/\r?\n/).forEach((t, i) => {
-    if (NAMES_SCRIPT.test(t)) out.push({ line: i + 1, text: t.trim(), policy: POLICY.test(t) });
+    if (NAMES_SCRIPT.test(t)) out.push({ line: i + 1, text: t.trim(), policy: POLICY.test(codePart(t)) });
   });
   return out;
 }
@@ -137,6 +186,14 @@ test('#6569 CONTROL: each planted launch with no policy is flagged, the same lau
   assert.deepEqual(launchSites("  // powershell -File kosmos.ps1 hangs on an open stdin"), [], 'a comment is not a launch');
   assert.deepEqual(launchSites("  /* powershell -File kosmos.ps1\n     hangs */"), [], 'a block comment is not a launch');
   assert.deepEqual(launchSites("# powershell -File kosmos.ps1", 'x.ps1'), [], 'a PowerShell comment is not a launch');
+  // review 3: a "/*" inside a string must not hide the launch after it
+  const glob = launchSites("const rules = ['Read(**/*.pem)'];\ncp.spawn('powershell.exe', ['-NoProfile', '-File', helper]);\nconst more = ['Edit(**/x/**)'];");
+  assert.deepEqual(glob.map((x) => x.policy), [false], 'a launch after a /* inside a string was hidden');
+  assert.deepEqual(launchSites("Say 'step #2'; Start-Process powershell -ArgumentList '-File', $x", 'x.ps1').map((x) => x.policy), [false], 'a # inside a PowerShell string hid the launch');
+  assert.deepEqual(launchSites("spawn(ps, ['-File', x]); // no -ExecutionPolicy Bypass here").map((x) => x.policy), [false], 'a policy written in a trailing comment counted');
+  assert.deepEqual(launchSites("spawn(ps, ['-ExecutionPolicy', 'AllSigned', '-File', x]);").map((x) => x.policy), [false], 'AllSigned counted as a policy that lets the script run');
+  assert.deepEqual(launchSites("spawn(ps, ['-ExecutionPolicy', 'Bypass', '-File', x]);").map((x) => x.policy), [true], 'control: Bypass in the argv counts');
+  assert.deepEqual(launchSites('  <#\n  powershell -File kosmos.ps1\n  #>', 'x.ps1'), [], 'a PowerShell block comment is not a launch');
   assert.equal(reviewed('engine/win32update.js', "'bin/kosmos.ps1',"), true, 'control: a reviewed line is recognised');
   assert.equal(reviewed('engine/win32update.js', "cp.spawn('powershell.exe', ['-File', 'bin/kosmos.ps1']);"), false, 'a new line in a reviewed file is not excused by the file');
 });
