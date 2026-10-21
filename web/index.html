@@ -46993,7 +46993,7 @@ function cropPicture(file, verb) {
     document.getElementById('crop-go').textContent = verb || 'Save';
     document.getElementById('cropmodal').hidden = false;
     try { cropPaint(); }
-    catch { cropFinish(true); return; }   // a picture the editor cannot draw is kept as chosen, as a failed cut is
+    catch { cropFinish(true); return; }   // a picture the editor cannot draw is saved as it opened, or kept as chosen if it cannot be cut
     document.getElementById('crop-stage').focus();
   }), () => { CROP_READING = false; return file; });
 }
