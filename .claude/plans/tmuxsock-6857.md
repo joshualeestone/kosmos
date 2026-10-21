@@ -22,3 +22,14 @@ test fails if one is added.
 ## Weakest premise
 The guard is textual: a kill-server built from a variable (`const v = 'kill-server'`) or split across lines is not
 seen. None exists today.
+
+## Review 1 (Opus): three holes in the guard, all fixed with a control each
+- A kill-server inside a command string ('tmux kill-server', a template) was never read: now flagged unless that
+  same string says -S or -L. A command assembled across several strings is flagged even if it names a socket
+  (safe direction; write it as one string or as arguments).
+- The wrapper lookup took the first same-named definition plus three lines, so an unrelated `run` with -L, a -L in
+  a comment, or a -L after the wrapper's end vouched for it. Now: comments stripped, the nearest definition before
+  the call, and only that statement (to its closing bracket).
+- Another call's -S on the same line (capture-pane -S -200) counted. Now only the enclosing call's arguments.
+- The count floor counts command strings too. Control re-run against main's three files (checked out from
+  origin/main, not stashed: committed files do not stash): red on all four calls.
