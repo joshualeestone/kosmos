@@ -1657,7 +1657,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
       signin: limitHold.heldFor === 'signin' && limitHold.behind !== true });
     if (why) {
       unspill(spillFile);
-      const situation = limitHold.behind ? (waiting.length > 0 && waiting.every((e) => e.input === true)
+      const situation = limitHold.behind ? (waiting.some((e) => e.input === true)
         ? 'still has messages kept while its input box held text not yet sent' : 'still has messages kept from while it was out of usage')
         : limitHold.heldFor === 'signin' ? 'is signed out' : 'is out of usage';   // #5948
       return refuse(toName, toName + ' ' + situation + ', and Kosmos ' + (why === 'sender-cap'
@@ -1669,7 +1669,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const until = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : null;
     appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: HELD_STATE, heldUntil: until });
     return heldReceipt(toName, id, at, until, false, limitHold.behind === true, limitHold.heldFor === 'signin',
-      { behindInput: limitHold.behind === true && waiting.length > 0 && waiting.every((e) => e.input === true) });
+      { behindInput: limitHold.behind === true && waiting.some((e) => e.input === true) });   // the same rule as the flag
   }
 
   const finish = (sent) => {

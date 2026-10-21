@@ -175,7 +175,7 @@ test('#6774: a mixed queue (one kept for a usage limit, one for the box) waits f
   } finally { chat.inputBoxEmpty = real.e; chat.limitQueueReleased = real.r; }
 });
 
-test('#6774 review 2: a kosmos msg re-sent while kept BEHIND the box backlog is told the box is the reason', async () => {
+test('#6774: a kosmos msg re-sent while kept BEHIND the box backlog is told the box is the reason', async () => {
   await withFleet(async (board) => {
     await send(board, 'one');
     const two = await send(board, 'two');
@@ -184,7 +184,7 @@ test('#6774 review 2: a kosmos msg re-sent while kept BEHIND the box backlog is 
   });
 });
 
-test('#6774 review 2: past the fold window, a kosmos msg re-sent behind the backlog is answered by its kept copy with the box reason', async () => {
+test('#6774: past the fold window, a kosmos msg re-sent behind the backlog is answered by its kept copy with the box reason', async () => {
   await withFleet(async (board) => {
     await send(board, 'one');
     const two = await send(board, 'two');
@@ -196,5 +196,18 @@ test('#6774 review 2: past the fold window, a kosmos msg re-sent behind the back
     messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));   // reset drops the sender stub
     const again = await send(board, 'two');
     assert.deepEqual([again.duplicate, again.id, again.behindFor], [true, two.id, 'input'], JSON.stringify(again));
+  });
+});
+
+test('#6774: behind a mixed backlog (one kept for a limit, one for the box), the flag and the reason follow one rule', async () => {
+  await withFleet(async (board, tmux, screen) => {
+    const at = new Date().toISOString();
+    limitqueue.add('casey', { id: 'm-limit', from: 'leo', envelope: 'a', at, reset: at });
+    limitqueue.add('casey', { id: 'm-box', from: 'leo', envelope: 'b', at, reset: at, input: true });
+    screen.now = EMPTY;
+    const c = await send(board, 'three');
+    assert.equal(c.behind, true, JSON.stringify(c));
+    assert.equal(c.behindFor, 'input');
+    assert.equal(limitqueue.list('casey').find((e) => e.id === c.id).input, true, 'the flag and the words disagree');
   });
 });

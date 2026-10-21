@@ -18462,7 +18462,7 @@ const server = http.createServer(async (req, res) => {
           /* #6774: the same words sent again by hand while a copy is kept for a stuck input box (or behind messages kept
              for it): that copy stays where it is in the queue and goes once; this one is recorded as not sent, and why.
              Nothing is taken out, so a re-send that then fails cannot lose the words, and the order is kept. */
-          // Plain on both sides (review 2): a message with an attachment or answering another is never folded into one
+          // Plain on both sides: a message with an attachment or answering another is never folded into one
           // that looks the same, and a copy already typed (its removal pending) is not one that waits.
           const plainNow = !(files.recs && files.recs.length) && !answered;
           const keptCopy = plainNow ? limitqueue.list(name).find((e) => e.kind === 'dm' && e.input === true && e.plain === true
@@ -18498,11 +18498,11 @@ const server = http.createServer(async (req, res) => {
             const until = hold && !signin && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
             const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // #5943 review 1: no question note in a held message: by the reset it may be untrue
             const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');   // two sends in one millisecond stay two
-            const behindInput = behind && limitqueue.list(name).every((e) => e.input === true);   // #6774
-            // #6774: kept behind messages kept for the box, it is released by the box rule too (and matched as a re-send).
-            const behindAnyInput = behind && limitqueue.list(name).some((e) => e.input === true);
+            /* #6774: kept behind messages any of which were kept for the box, it is released by the box rule too, is
+               matched as a re-send, and is told that reason: one rule for the flag and the words. */
+            const behindInput = behind && limitqueue.list(name).some((e) => e.input === true);
             const plain = !(files.recs && files.recs.length) && !answered;
-            if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at, signin: signin && !behind, input: behindAnyInput, plain })) {
+            if (limitqueue.add(name, { id: heldId, from: '', kind: 'dm', text: body.text, envelope, trailer, at, reset: hold ? hold.limitReset : at, signin: signin && !behind, input: behindInput, plain })) {
               const heldDelivery = {
                 state: 'held', held: true, heldBy: 'limit', heldUntil: until, at, ...(behind ? { behind: true } : {}), ...(signin ? { heldFor: 'signin' } : {}),
                 ...(behindInput ? { behindFor: 'input' } : {}),
@@ -18617,7 +18617,7 @@ const server = http.createServer(async (req, res) => {
         // (No `agentsUnreadable`: nothing reads it here, and the GET on this
         // same route deleted the identical field for the identical reason.
         // One rule, both halves.)
-        /* #6774 review 2: kept for the box but its row could not be written: taken back out, as the limit path above
+        /* #6774: kept for the box but its row could not be written: taken back out, as the limit path above
            does, so it is never typed later behind a "not sent" the person may send again. The refusal stands. */
         if (inputKept && kept.recorded !== true) {
           require('./engine/limitqueue').remove(name, inputKept.id);

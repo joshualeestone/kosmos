@@ -36,6 +36,10 @@ agent is not held for a limit. They go through the automatic gate like any kept 
 - Review 2, left as it is: two messages sent within the same moment to a stuck box both see an empty queue; if the
   box clears between the first being refused (and kept) and the second being typed, the second arrives first. Closing
   it needs the queue check inside the pane's delivery lock; the window is the length of one refused delivery.
+- Review 3: a message kept behind a backlog any of which was kept for the box is flagged, released by the box rule,
+  matched as a re-send and told that reason: one rule ("any"), so the flag and the words never disagree. Left as it
+  is: the same plain words sent on purpose while the first copy still waits are folded into it (they cannot be told
+  from an accidental re-send, which is the card's ask; the person sees why on the new row).
 - Review 2: a kept message whose row cannot be written is taken back out (the refusal stands), as the limit path does;
   a re-send is folded only into a plain kept copy (no attachment, not a reply) that has not been typed already.
 - A mixed queue waits for both: not limited AND the box empty.
