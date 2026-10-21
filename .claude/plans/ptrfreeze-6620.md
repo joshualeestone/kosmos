@@ -112,3 +112,9 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
   setup.sha256 even when the pointer names none; a same-version re-run verifies origin/main still holds the pin; `off`
   says other checkouts keep refusing until they pull. Left as it is: the fast-forward after `on` can move a clean
   checkout under a cut that has not written yet, which that cut's own site push then refuses (said in the header).
+- Review 5 (three warnings, one convention): every curl in pointer-freeze.sh has a connect and a total time limit; the
+  hard limit on git sends SIGTERM (git cleans its ref locks on TERM, not on ALRM) and keeps a configured
+  core.sshCommand; `on` checks the manifest and .sig are in origin/main's tree (a deploy ships the committed tree
+  whole) as well as served; test:shell runs `sh -n` on the lib deploy-site.sh sources; a mid-run arm proves
+  deploy-site's re-check just before vercel (the fake curl pushes a freeze while the deploy fetches). release.sh's
+  matching late re-check has no harness that can reach it (a real cut): reasoned from the same code, not run.

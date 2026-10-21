@@ -105,7 +105,7 @@ git -C "$SITE" rev-parse --verify HEAD >/dev/null 2>&1 || die "$SITE is not a gi
 cmd_status() {
   local committed live
   committed="$(field "$(cat "$SITE/dist/latest.json" 2>/dev/null)" version)"
-  live="$(field "$("$CURL_CMD" -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json" 2>/dev/null)" version)"
+  live="$(field "$("$CURL_CMD" --connect-timeout 15 --max-time 30 -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json" 2>/dev/null)" version)"
   local m
   pointer_freeze_fetch "$SITE" || say "(could not fetch origin/main: this says what this checkout last saw)"
   if m="$(git -C "$SITE" show "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null)"; then
@@ -157,7 +157,7 @@ cmd_on() {
   art="$(field "$json" artifact)"; sha="$(field "$json" sha256)"
   [ -n "$art" ] && [ -n "$sha" ] || die "the pointer for $v (commit ${found:0:12}) names no artifact or sha256; nothing was changed"
   tmp="$(mktemp "${TMPDIR:-/tmp}/pointer-freeze.XXXXXX")" || die "could not make a temp file; nothing was changed"
-  if ! "$CURL_CMD" -fsSL -o "$tmp" "$HOST/dist/$art"; then rm -f "$tmp"; die "$HOST does not serve $art, so a pin to $v could not deploy; nothing was changed"; fi
+  if ! "$CURL_CMD" --connect-timeout 15 --max-time 900 -fsSL -o "$tmp" "$HOST/dist/$art"; then rm -f "$tmp"; die "$HOST does not serve $art, so a pin to $v could not deploy; nothing was changed"; fi
   got="$(sha_of "$tmp")"; rm -f "$tmp"
   [ "$got" = "$sha" ] || die "$HOST serves $art with sha256 $got, not the pointer's $sha; nothing was changed"
   # The installer that stood with this pointer must be there and, when the pointer names it (#5032), be those bytes:
@@ -169,8 +169,11 @@ cmd_on() {
   local man mf; man="$(field "$json" manifest)"
   [ -n "$man" ] || die "the pointer for $v names no manifest; nothing was changed"
   for mf in "$man" "$man.sig"; do
+    # In the tree that deploys (origin/main: a deploy ships the committed tree whole), and served now.
+    git -C "$SITE" cat-file -e "origin/main:dist/$mf" 2>/dev/null \
+      || die "origin/main does not carry dist/$mf, so a pin deploy would remove it and boards could not verify $v; nothing was changed"
     tmp="$(mktemp "${TMPDIR:-/tmp}/pointer-freeze.XXXXXX")" || die "could not make a temp file; nothing was changed"
-    if ! "$CURL_CMD" -fsSL -o "$tmp" "$HOST/dist/$mf" || [ ! -s "$tmp" ]; then rm -f "$tmp"; die "$HOST does not serve $mf (or serves it empty), so boards could not verify a pin to $v; nothing was changed"; fi
+    if ! "$CURL_CMD" --connect-timeout 15 --max-time 60 -fsSL -o "$tmp" "$HOST/dist/$mf" || [ ! -s "$tmp" ]; then rm -f "$tmp"; die "$HOST does not serve $mf (or serves it empty), so boards could not verify a pin to $v; nothing was changed"; fi
     rm -f "$tmp"
   done
   # The installer's bytes must be what something names: the pointer's setup_sha256 (#5032) when it has one, and always
@@ -200,7 +203,7 @@ cmd_on() {
   say "frozen at $v (from site commit ${found:0:12}): both Mac pointers, the installer pair and $POINTER_FREEZE_FILE pushed to origin/main (${pushed:0:12})."
   # deploy-site.sh --promote refuses a prod pointer equal to live ("nothing to promote"): when prod already serves the
   # pinned version (only staging was bad), the deploy that publishes the pinned staging pointer is --publish.
-  live_v="$(field "$("$CURL_CMD" -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json" 2>/dev/null)" version)"
+  live_v="$(field "$("$CURL_CMD" --connect-timeout 15 --max-time 30 -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json" 2>/dev/null)" version)"
   if [ "$live_v" = "$v" ]; then
     say "NOT deployed yet. Prod already serves $v, so deploy the pinned staging pointer with:"
     say "  KOSMOS_SITE=$SITE KOSMOS_STAGING_ROLLBACK=$v tools/deploy-site.sh --publish"

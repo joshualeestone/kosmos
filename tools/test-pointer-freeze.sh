@@ -45,6 +45,7 @@ make_site() {
   for v in $LOW $GOOD $BAD; do
     printf 'ARTIFACT-%s\n' "$v" > "$HOSTDIR/dist/kosmos-$v-arm64.tar.gz"
     printf '{"manifest":1,"version":"%s"}\n' "$v" > "$HOSTDIR/dist/kosmos-$v-arm64.manifest.json"; printf 'SIG\n' > "$HOSTDIR/dist/kosmos-$v-arm64.manifest.json.sig"
+    cp "$HOSTDIR/dist/kosmos-$v-arm64.manifest.json" "$HOSTDIR/dist/kosmos-$v-arm64.manifest.json.sig" "$s/dist/"   # tracked, as on the real site
     ptr "$v" "$(sha_of "$HOSTDIR/dist/kosmos-$v-arm64.tar.gz")" > "$s/dist/latest.json"
     cp "$s/dist/latest.json" "$s/dist/latest-staging.json"
     printf 'installer for %s KOSMOS_READONLY_APP\n' "$v" > "$s/setup"

@@ -58,6 +58,11 @@ rel="${url#"$HOST_URL"/}"
 # NB: not `path=` -- in zsh `path` is tied to PATH, and tools/test-zsh-tied-names.sh
 # statically refuses any shell file that writes it (a file sourced into zsh would clobber PATH).
 served_file="$LIVE_DIR/$rel"
+# kosmos#6620's mid-run arm: once, when the run fetches FREEZE_MID_RUN_ON, push the freeze waiting in FREEZE_MID_RUN_CLONE
+# (another machine freezing while this deploy fetches its artifacts, after its early freeze check).
+if [ -n "${FREEZE_MID_RUN_ON:-}" ] && [ "$rel" = "$FREEZE_MID_RUN_ON" ] && [ ! -e "$FREEZE_MID_RUN_CLONE.pushed" ]; then
+  git -C "$FREEZE_MID_RUN_CLONE" push -q origin main 2>/dev/null && : > "$FREEZE_MID_RUN_CLONE.pushed"
+fi
 # #5589: an edge that cannot be reached for one file: <name>.down answers like a failed connection
 # (curl prints 000 for -w and exits 7). <name>.dropafter is served once, then goes down.
 case "$rel" in *must-404.bin)
@@ -655,6 +660,8 @@ read -r S47 L47 <<<"$(make_rollback_scenario)"
 git init -q --bare "$S47.origin.git" && git -C "$S47" remote add origin "$S47.origin.git" && git -C "$S47" push -q origin main
 # The pinned build's signed manifest, served (pointer-freeze checks it is, before it pins).
 printf '{"manifest":1}\n' > "$L47/dist/kosmos-$OLD-arm64.manifest.json"; printf 'SIG\n' > "$L47/dist/kosmos-$OLD-arm64.manifest.json.sig"
+cp "$L47/dist/kosmos-$OLD-arm64.manifest.json" "$L47/dist/kosmos-$OLD-arm64.manifest.json.sig" "$S47/dist/"   # tracked on the real site
+git -C "$S47" add -- dist/kosmos-$OLD-arm64.manifest.json dist/kosmos-$OLD-arm64.manifest.json.sig && git -C "$S47" commit -q -m "the manifest pair" -- dist/kosmos-$OLD-arm64.manifest.json dist/kosmos-$OLD-arm64.manifest.json.sig && git -C "$S47" push -q origin main
 fout="$(PATH="$BIN:$PATH" LIVE_DIR="$L47" HOST_URL="$HOSTURL" KOSMOS_SITE="$S47" KOSMOS_SITE_URL="$HOSTURL" \
   bash "$REPO/tools/pointer-freeze.sh" on --mac "$OLD" --because "an end-to-end test incident" 2>&1)"; frc=$?
 [ "$frc" = 0 ] || bad "#6620 end to end: pointer-freeze on (rc=$frc) out=$fout"
@@ -682,6 +689,18 @@ LIVE48="$(cat "$L48/dist/latest.json")"
 run_deploy "$S48" "$L48" --promote
 { [ "$RC" = 1 ] && has "$out" "the pointers are FROZEN at $NEW" && [ "$(cat "$L48/dist/latest.json")" = "$LIVE48" ]; } \
   && pass "#6620: a freeze only on origin/main (this checkout stale) still refuses the deploy" || bad "#6620 origin-only freeze (rc=$RC) out=$out"
+
+# A freeze pushed from another machine WHILE this deploy runs (after its early check, during its artifact fetches):
+# the re-check just before vercel refuses, and live keeps what it served. CONTROL: arm 45 above deploys.
+read -r S51 L51 <<<"$(make_rollback_scenario)"
+git init -q --bare "$S51.origin.git" && git -C "$S51" remote add origin "$S51.origin.git" && git -C "$S51" push -q origin main
+git clone -q "$S51.origin.git" "$S51.other" && git -C "$S51.other" config user.email t@t && git -C "$S51.other" config user.name t
+printf 'mac=%s\nbecause=frozen mid-run\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S51.other/dist/POINTER_FROZEN"
+git -C "$S51.other" add dist/POINTER_FROZEN && git -C "$S51.other" commit -q -m "frozen elsewhere, mid-run"
+LIVE51="$(cat "$L51/dist/latest.json")"
+FREEZE_MID_RUN_ON="dist/$OLDART" FREEZE_MID_RUN_CLONE="$S51.other" run_deploy "$S51" "$L51" --promote
+{ [ "$RC" = 1 ] && [ -e "$S51.other.pushed" ] && has "$out" "FROZEN at $NEW on origin/main while this ran" && [ "$(cat "$L51/dist/latest.json")" = "$LIVE51" ]; } \
+  && pass "#6620: a freeze pushed while the deploy fetches is caught just before vercel, live untouched" || bad "#6620 mid-run freeze (rc=$RC, pushed=$([ -e "$S51.other.pushed" ] && echo y || echo n)) out=$out"
 
 # A site whose origin cannot be fetched: the freeze cannot be checked, so the deploy is refused (fails closed), unless
 # KOSMOS_POINTER_FREEZE_OFFLINE=1 says to decide on the committed tree (CONTROL: then it deploys).

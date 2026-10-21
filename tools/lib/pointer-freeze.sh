@@ -27,12 +27,17 @@ pointer_freeze_value() {
 }
 
 # Every git call the freeze makes over the network goes through this, so none can hang: no credential prompt, ssh in
-# batch mode with a connect timeout, a stalled https transfer gives up, and a hard limit of <secs> covers what git
-# itself does not time out (an https connect to a black hole). Returns git's status (142 when the limit hit).
+# batch mode with a connect timeout (keeping a configured core.sshCommand), a stalled https transfer gives up, and a
+# hard limit of <secs> covers what git itself does not time out (an https connect to a black hole). The limit sends
+# SIGTERM, which git cleans up after (its ref locks), not SIGALRM, which it does not. Returns git's status (143 when
+# the limit hit).
 pointer_freeze_git() {  # <secs> <site> <git args...>
-  local secs="$1" site="$2"; shift 2
-  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes -o ConnectTimeout=15" \
-    perl -e 'alarm shift; exec @ARGV or exit 127' "$secs" \
+  local secs="$1" site="$2" sshc; shift 2
+  sshc="${GIT_SSH_COMMAND:-$(git -C "$site" config core.sshCommand 2>/dev/null || echo ssh)}"
+  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$sshc -o BatchMode=yes -o ConnectTimeout=15" \
+    perl -e 'my $s = shift; my $p = fork; defined $p or exit 127; if (!$p) { exec @ARGV or exit 127 }
+             local $SIG{ALRM} = sub { kill "TERM", $p }; alarm $s; waitpid $p, 0;
+             exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "$secs" \
     git -C "$site" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 "$@"
 }
 
@@ -65,7 +70,7 @@ pointer_freeze_refuse() {
   fi
   pointer_freeze_on "$site" || return 0
   mac="$(pointer_freeze_value "$site" mac)"; because="$(pointer_freeze_value "$site" because)"
-  printf '%s: the release pointers are FROZEN at %s (%s), so no pointer may move and nothing was changed. To release again, an operator runs tools/pointer-freeze.sh off first; if it was lifted already, pull the site checkout (kosmos#6620).\n' \
+  printf '%s: the release pointers are FROZEN at %s (%s), so the release tools may not move them and nothing was changed. To release again, an operator runs tools/pointer-freeze.sh off first; if it was lifted already, pull the site checkout (kosmos#6620).\n' \
     "$tool" "${mac:-an unreadable marker}" "${because:-no reason recorded}" >&2
   return 1
 }
