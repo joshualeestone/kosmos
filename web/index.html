@@ -11796,7 +11796,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-remove-link { color: #f0877a; }
 #s-sec-plus .plus-remove-link:hover { color: #ff9f93; text-decoration: underline; text-underline-offset: 3px; }
 #s-sec-plus .plus-lost-link { color: var(--k-ink-2); font-weight: 500; }
-/* #5791: Join Corporate Account, an outlined button with a tiny building icon; X Cancel at the top right of the entry
+/* #5791: Join Corporate Account (kosmos#6380: Join Company or Family Account), an outlined button with a tiny building icon; X Cancel at the top right of the entry
    pane; Lost your phone? under the devices list. */
 #s-sec-plus .plus-org-open { display: inline-flex; align-items: center; gap: 6px; }
 #s-sec-plus .plus-org-ico { flex: none; opacity: .8; }
@@ -19754,8 +19754,9 @@ window.kosmosMeasureScrollbarWidth();
         <!-- Splinter/Josh 10-08 (0.7.29): a person with no company sees one quiet line, not an Enterprise box. The full
              block shows when this Kosmos is a company's work Kosmos, a code is being checked or reviewed, a company note
              is waiting, or the person opened it. -->
-        <!-- #5791 (Josh 10-10 14:32): an outlined button with a tiny icon, not a text link. -->
-        <button type="button" class="btn plus-org-open" id="plus-org-open"><svg class="plus-org-ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M2.5 14.5V3.2c0-.4.3-.7.7-.7h5.6c.4 0 .7.3.7.7v11.3M9.5 14.5V7.2h3.3c.4 0 .7.3.7.7v6.6M1.5 14.5h13M4.6 5h2.3M4.6 7.6h2.3M4.6 10.2h2.3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Join Corporate Account</button>
+        <!-- #5791 (Josh 10-10 14:32): an outlined button with a tiny icon, not a text link. kosmos#6380: it names both
+             kinds, because it is pressed before the code says which (Josh 10-10's "Join Corporate Account", widened). -->
+        <button type="button" class="btn plus-org-open" id="plus-org-open"><svg class="plus-org-ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M2.5 14.5V3.2c0-.4.3-.7.7-.7h5.6c.4 0 .7.3.7.7v11.3M9.5 14.5V7.2h3.3c.4 0 .7.3.7.7v6.6M1.5 14.5h13M4.6 5h2.3M4.6 7.6h2.3M4.6 10.2h2.3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Join Company or Family Account</button>
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say" tabindex="-1"></p>
@@ -19781,9 +19782,9 @@ window.kosmosMeasureScrollbarWidth();
              Account joins. X Cancel closes it (it had no way out). -->
         <div id="plus-org-out" hidden>
           <div class="plus-org-outhead"><button type="button" class="plus-lost-link plus-org-cancel" id="plus-org-cancel"><span aria-hidden="true">&#x2715;</span> Cancel</button></div>
-          <p class="fhint">Enter your company's code to connect your Kosmos to your corporate enterprise account.</p>
+          <p class="fhint">Enter the code your company or family gave you to connect this Kosmos.</p>
           <div class="frow">
-            <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Your company's code" placeholder="Company code">
+            <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Your company's or family's join code" placeholder="Join code">
             <button class="btn uprime" type="button" id="plus-org-check">Connect Account</button>
           </div>
         </div>

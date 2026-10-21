@@ -10,9 +10,9 @@ const org = PAGE.slice(PAGE.indexOf('<div id="plus-org" hidden'), PAGE.indexOf('
 const fn = (name) => { const at = PAGE.indexOf(name); return at < 0 ? '' : PAGE.slice(at, PAGE.indexOf('\n}\n', at)); };
 
 test('#5791: the opener is an outlined button with an icon, and the entry pane has X Cancel, the new copy and Connect Account', () => {
-  assert.match(org, /<button type="button" class="btn plus-org-open" id="plus-org-open"><svg[^>]*aria-hidden="true"[\s\S]*?<\/svg>Join Corporate Account<\/button>/);
+  assert.match(org, /<button type="button" class="btn plus-org-open" id="plus-org-open"><svg[^>]*aria-hidden="true"[\s\S]*?<\/svg>Join Company or Family Account<\/button>/);
   assert.match(org, /id="plus-org-cancel"><span aria-hidden="true">&#x2715;<\/span> Cancel<\/button>/);
-  assert.match(org, /Enter your company's code to connect your Kosmos to your corporate enterprise account\./);
+  assert.match(org, /Enter the code your company or family gave you to connect this Kosmos\./);
   assert.match(org, /id="plus-org-check">Connect Account<\/button>/);
   assert.doesNotMatch(PAGE, /Joining a company\? Enter its join code|Check code<\/button>|Join with this Kosmos|id="plus-org-consent"|id="plus-org-review"/, 'the old opener, check step, consent box or Review button is back');
 });
