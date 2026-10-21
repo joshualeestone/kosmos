@@ -45,7 +45,7 @@ const USAGE = {
   },
   rootsRead: ['/tmp/fixture'],
   // #6829: the board says how many days since install; two days of usage, 40 days on Kosmos.
-  installDay: '2026-07-24', daysOnKosmos: 40,
+  installDay: '2026-07-23', daysOnKosmos: 40,
   // #2617: the per-agent split, as /api/usage sends it. Ann towers, Bob is small,
   // some work was the person's own, and 2,000 tokens could not be matched.
   byAgent: {
@@ -545,6 +545,9 @@ function readUsage(page) {
     const after = await spinState();
     ok(after.spin === false && /^Counted from/.test(after.text || ''),
       `once it answers, the spinner is gone and the line says what was counted (got ${JSON.stringify(after)})`);
+    // #6829: 40 days on Kosmos is past Claude's 30-day transcript keep, so the line says old days count only if saved.
+    ok(/Claude removes transcripts after about 30 days, so an older day counts only if Kosmos saved it in time\.$/.test(after.text || ''),
+      `an install older than 30 days is told older days count only if saved (got ${JSON.stringify(after.text)})`);
     await p.unroute('**/api/usage*');
     await p.route('**/api/usage*', (r) => r.fulfill({ status: 500, json: { error: 'x' } }));
     await p.evaluate(() => paintUsage());

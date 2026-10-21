@@ -60,7 +60,7 @@ test('ping records installedAt when it mints the id, keeps it through later writ
   assert.equal(ping.read().installId, 'old', 'recording it kept the id');
 });
 
-test('a scan that could not read every transcript shows recent past days but does not save them', { skip: process.getuid && process.getuid() === 0 ? 'root reads a mode-000 folder' : false }, async () => {
+test('the timed save holds a recent day a partial scan could not fully read; a page request saves as before', { skip: process.getuid && process.getuid() === 0 ? 'root reads a mode-000 folder' : false }, async () => {
   const day = (back) => new Date(Date.now() - back * 86400000).toISOString().slice(0, 10);
   const proj = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects');
   const ok = path.join(proj, 'ok');
@@ -76,30 +76,45 @@ test('a scan that could not read every transcript shows recent past days but doe
   fs.rmSync(frozenOld, { force: true });
   fs.chmodSync(locked, 0o000);
   try {
-    const a = await usage.dailyUsageByModel(26);
+    const a = await usage.dailyUsageByModel(26, { holdPartial: true });
     assert.equal(a.byDay[day(3)]['claude-u'].input_tokens, 5, 'shown');
-    assert.equal(fs.existsSync(frozen), false, 'a recent day is not saved while a folder could not be read');
+    assert.equal(fs.existsSync(frozen), false, 'the timed save does not save a recent day while a folder could not be read');
     // A day near Claude's own deletion is saved with what could be read: waiting can only lose more of it.
     assert.equal(JSON.parse(fs.readFileSync(frozenOld, 'utf8'))['claude-u'].input_tokens, 9);
+    // A request from the page is unchanged: it saves what it read, so a lasting bad file cannot make every open slow.
+    await usage.dailyUsageByModel(26);
+    assert.equal(fs.existsSync(frozen), true, 'a page request saves as before');
   } finally {
     fs.chmodSync(locked, 0o755);
   }
-  // Control: the same scan with every folder readable saves the day.
-  await usage.dailyUsageByModel(26);
-  assert.equal(fs.existsSync(frozen), true, 'saved once everything was read');
 });
 
 test('saveSinceInstall runs one read at a time and survives a failure', async () => {
   let calls = 0;
   let release;
-  const slow = () => { calls += 1; return new Promise((r) => { release = r; }); };
+  let go;
+  const started = new Promise((r) => { go = r; });
+  const slow = () => { calls += 1; go(); return new Promise((r) => { release = r; }); };
   const a = usage.saveSinceInstall(slow);
   const b = usage.saveSinceInstall(slow);
   assert.equal(a, b, 'a second call while one runs joins it');
-  await Promise.resolve();
+  await started;
   release({});
   assert.equal(await a, true);
   assert.equal(calls, 1);
   assert.equal(await usage.saveSinceInstall(() => Promise.reject(new Error('disk'))), false);
   assert.equal(usage.startSaving(), false, 'no timers under the test runner');
+});
+
+test('the page read waits for a timed save already running, and vice versa', async () => {
+  const order = [];
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const save = usage.saveSinceInstall(async () => { order.push('save start'); await held; order.push('save end'); });
+  const page = usage.readSinceInstall(async () => { order.push('page'); });
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(order, ['save start'], 'the page read has not started while the save runs');
+  release();
+  await Promise.all([save, page]);
+  assert.deepEqual(order, ['save start', 'save end', 'page']);
 });

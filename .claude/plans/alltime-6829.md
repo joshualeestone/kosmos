@@ -71,3 +71,13 @@ the second signal for that reason.
   `installedAt` only, never the id. ping.js's header names the field.
 - Measured on Agent1s for the card: 61 days since 08-21; 30 saved, 18 lost (08-28 to 09-06, 09-13 to 09-20),
   13 not saved but still recoverable (reasoned from the oldest transcript, 09-21; the first save reads them).
+- Review round 3 redesign: a partial scan (an unreadable transcript) is HELD from saving only in the board's own
+  timed save (`holdPartial`), and only for days newer than 20 days; a page request saves as it always did, so a
+  lasting bad file cannot turn every open into a full rescan. Rejected: holding for every caller (rounds 1-2), which
+  made a permanent bad file block saving and slow every open.
+- Every all-time read (page and timed save) runs in turn (`inTurn`), so the first open after the update and the
+  first save do not scan the same weeks at once.
+- The status line says, past 30 days on Kosmos, that Claude removes transcripts after about 30 days so an older day
+  counts only if Kosmos saved it in time. Rejected: an exact list of lost days, which the engine cannot know.
+- Validation: focused test files run on each review round; the full suite runs once on the final head (two
+  mid-loop full runs were stopped because the next round changed the code under them).

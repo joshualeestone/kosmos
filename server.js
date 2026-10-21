@@ -11808,7 +11808,8 @@ const server = http.createServer(async (req, res) => {
    * #853: real per-model, per-day token usage, not the point-in-time
    * context-window reading `/api/status` answers per agent. `?days=N`
    * (default 7) is clamped inside `dailyUsageByModel` itself, so a bad or
-   * hostile value cannot crash this route.
+   * hostile value cannot crash this route. `?days=all` (#6829) is every day
+   * since install, and adds `installDay` and `daysOnKosmos`.
    *
    * ⚠️ FOUR BUCKETS, NEVER BLENDED -- the response carries
    * input_tokens/output_tokens/cache_creation_input_tokens/
@@ -11832,7 +11833,7 @@ const server = http.createServer(async (req, res) => {
     // hundreds of transcripts (tens of MB) off disk, and a synchronous read
     // there would stall every other route on this single-threaded server
     // for the scan's duration -- found in review, fixed at the source.
-    (sinceInstall ? usage.usageSinceInstall() : usage.dailyUsageByModel(days))
+    (sinceInstall ? usage.readSinceInstall() : usage.dailyUsageByModel(days))
       .then((full) => {
         const { installDay: since, days: n, ...result } = full;
         const extra = sinceInstall ? { installDay: since, daysOnKosmos: n } : {};

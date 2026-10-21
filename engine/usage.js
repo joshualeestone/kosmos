@@ -793,10 +793,10 @@ function todayUtc() {
 // real "last N days" request.
 const MAX_DAYS = 3650;
 
-/* #6829: see the save guard in dailyUsageByModel. 20 days sits inside Claude Code's default 30-day transcript cleanup. */
+/* #6829: see `holdPartial` in dailyUsageByModel. 20 days sits inside Claude Code's default 30-day transcript cleanup
+   (cleanupPeriodDays; a lower setting deletes sooner, and then a held day can be lost before it is saved). */
 const FREEZE_ANYWAY_DAYS = 20;
-let lastUnreadableSaid = null;
-async function dailyUsageByModel(days = 7) {
+async function dailyUsageByModel(days = 7, { holdPartial = false } = {}) {
   const clampedDays = Math.min(MAX_DAYS, Math.max(1, Math.trunc(Number(days)) || 1));
   const today = todayUtc();
   const wanted = [];
@@ -834,16 +834,13 @@ async function dailyUsageByModel(days = 7) {
       ? await scanDayCursor(today)
       : await scanUsage({ sinceDay, untilDay, mtimeCut: true });
     rootsRead = scanResult.rootsRead;
-    /* #6829: a scan that could not read every transcript is shown but not saved, as the providers' half already does
-       (mergeProviders): a past day is never rescanned once saved, so a passing read error would fix it short for good.
-       That matters most now that the board saves on a clock, with nobody looking. */
-    const partial = scanResult.unreadable > 0;
-    if (partial && lastUnreadableSaid !== scanResult.unreadable) {
-      lastUnreadableSaid = scanResult.unreadable;
-      console.error('usage: ' + scanResult.unreadable + ' transcript(s) could not be read; recent past days are shown but not saved, and read again next time');
-    }
-    /* A day that old is close to Claude's own deletion, so waiting for a full read can only lose more of it: it is saved
-       with what could be read. */
+    /* #6829: `holdPartial` is the board's own timed save (saveSinceInstall), which runs with nobody looking: when its
+       scan could not read every transcript, a recent past day is not saved (a past day is never rescanned once saved,
+       so a passing read error would fix it short for good), and the next tick reads it again. A day older than
+       FREEZE_ANYWAY_DAYS is saved with what could be read, since waiting can only lose more of it. A request from the
+       page saves as it always has. */
+    const hold = holdPartial && scanResult.unreadable > 0;
+    if (hold) console.error('usage: ' + scanResult.unreadable + ' transcript(s) could not be read; recent past days are not saved this time');
     const freezeAnywayBefore = new Date(Date.now() - FREEZE_ANYWAY_DAYS * 86400000).toISOString().slice(0, 10);
     for (const day of missing) {
       /* Whichever half of a past day is already frozen keeps it: re-deriving
@@ -854,7 +851,7 @@ async function dailyUsageByModel(days = 7) {
       const folderFrozen = has(byFolder);
       if (!modelFrozen) byDay[day] = scanResult.days[day] || {};
       if (!folderFrozen) byFolder[day] = scanResult.folders[day] || {};
-      if (day !== today && (!partial || day < freezeAnywayBefore)) {
+      if (day !== today && (!hold || day < freezeAnywayBefore)) {
         try {
           await ensureUsageDir();
         } catch { /* the writes below fail and say so */ }
@@ -1031,12 +1028,25 @@ function installDay(deps = {}) {
 
 /* #6829: every day from the install day through today, inclusive. `days` is that count (1 on install day), the
    figure the Active Days tile shows. Clamped by dailyUsageByModel's MAX_DAYS like any other window. */
-async function usageSinceInstall(deps = {}) {
+async function usageSinceInstall(deps = {}, opts = {}) {
   const since = installDay(deps);
   const today = (deps.today || todayUtc)();
   const days = Math.min(MAX_DAYS, Math.round((Date.parse(today + 'T00:00:00Z') - Date.parse(since + 'T00:00:00Z')) / 86400000) + 1);
-  const result = await (deps.daily || dailyUsageByModel)(days);
+  const result = await (deps.daily || dailyUsageByModel)(days, opts);
   return { ...result, installDay: since, days };
+}
+
+/* #6829: every all-time read, the page's and the timed save's, runs one after another, so the first open after this
+   update and the first save do not scan the same weeks of transcripts at once. A later read finds the earlier one's
+   saved days on disk. */
+let allTimeChain = Promise.resolve();
+function inTurn(fn) {
+  const run = allTimeChain.then(fn);
+  allTimeChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+function readSinceInstall(read = () => usageSinceInstall()) {
+  return inTurn(read);
 }
 
 /* #6829: save every completed day while its transcripts still exist. Claude Code deletes transcripts older than its
@@ -1048,9 +1058,9 @@ async function usageSinceInstall(deps = {}) {
 const SAVE_FIRST_MS = 3 * 60 * 1000;
 const SAVE_EVERY_MS = 6 * 60 * 60 * 1000;
 let saving = null;
-function saveSinceInstall(read = usageSinceInstall) {
+function saveSinceInstall(read = () => usageSinceInstall({}, { holdPartial: true })) {
   if (!saving) {
-    saving = Promise.resolve().then(() => read()).then(() => true, (err) => {
+    saving = inTurn(() => read()).then(() => true, (err) => {
       console.error('usage: could not save past days:', (err && err.message) || err);
       return false;
     }).finally(() => { saving = null; });
@@ -1067,6 +1077,7 @@ function startSaving() {
 module.exports = {
   configRoots, // re-exported so a caller can report roots without a second require
   saveSinceInstall,    // kosmos#6829
+  readSinceInstall,    // kosmos#6829: the route's all-time read, in turn with the timed save
   startSaving,         // kosmos#6829
   installDay,          // kosmos#6829
   usageSinceInstall,   // kosmos#6829

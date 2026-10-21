@@ -44075,6 +44075,8 @@ function usageActiveDays(data) {
 }
 /* #6829: the four daily charts keep the approved two-week trend; the series is all-time. */
 const USAGE_CHART_DAYS = 14;
+/* #6829: Claude Code's default cleanupPeriodDays. */
+const USAGE_TRANSCRIPT_KEEP_DAYS = 30;
 function usageChartDays(series) {
   return (series || []).slice(-USAGE_CHART_DAYS);
 }
@@ -44454,7 +44456,7 @@ async function paintUsage() {
   const anote = document.getElementById('usage-agents-note');
   if (!msg || !hero || USAGE_BUSY) return;
   USAGE_BUSY = true;
-  msg.innerHTML = LOAD_SPIN_HTML + ' Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.';   // #5362
+  msg.innerHTML = LOAD_SPIN_HTML + ' Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute, and the first time after an update it can take a few.';   // #5362, #6829
   /* #2840: reset every value-view region to a known-empty state. Shared by the
      no-data and error paths so they cannot drift apart. */
   const clearAll = () => {
@@ -44532,6 +44534,10 @@ async function paintUsage() {
       said += ' The equivalent API cost leaves out '
         + api.unpriced.length + (api.unpriced.length === 1 ? ' model' : ' models')
         + ' with no published price (' + api.unpriced.join(', ') + ').';
+    }
+    /* #6829: on an install older than Claude keeps transcripts, an old day counts only if Kosmos saved it in time. */
+    if (Number(data.daysOnKosmos) > USAGE_TRANSCRIPT_KEEP_DAYS) {
+      said += ' Claude removes transcripts after about ' + USAGE_TRANSCRIPT_KEEP_DAYS + ' days, so an older day counts only if Kosmos saved it in time.';
     }
     msg.textContent = said;
   } catch (e) {
