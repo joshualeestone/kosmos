@@ -13,15 +13,15 @@ alone restores the last open project, which is right for its programmatic caller
 menu (#pnav) already opens tabs by clicking the real tab and Settings by showTab + settingsOpen; this door does the same.
 
 ## Steps
-1. web/index.html: `window.kosmosAppTab` beside burgerClose. Refuses (false, nothing changed) a name it has no section
-   for, a page without #tabs, a board made inert by a full-screen step (first run, an update, a restart; the same
-   `closest('[inert]')` test the phone menu uses), and an open box with its backdrop up (confirmations, What's New;
-   the board's keystroke guard's own backdrop test, since those boxes are not inert), and an open header menu (the
-   user menu, the Kosmos switcher: the tips' tipMenuOpen test less the phone menu, which the door closes, and the
-   burger, which the press closes; hidden at phone width in the app today, so this keeps the door honest elsewhere). Otherwise closes an open phone
-   menu (focus back to its button); agents/projects/tasks press the real tab; settings opens as the user menu opens it
-   (userpopSettingsGo): in place in the consolidated layout, else burgerClose + showTab('settings') +
-   settingsOpen('you').
+1. web/index.html: `window.kosmosAppTab` beside burgerClose. Every path is a REAL PRESS, so it lands where a person's
+   press lands and every click tidier on the page runs (header menus and pickers close on a click elsewhere; review 5
+   showed a refusal on open menus left native tabs dead, and a direct showTab skipped the tidiers): agents/projects/
+   tasks press their tab; settings presses the user menu's Your Profile (#userpop-go-you, the first section; it opens
+   in place in the consolidated layout, userpopSettingsGo). The phone menu, which a press does not close, is closed
+   first, focus back to its button. Refuses (false, nothing changed) a name it has no section for, a missing control,
+   a page without #tabs, a board made inert by a full-screen step (first run, an update, a restart; the phone menu's
+   `closest('[inert]')` test), and an open box with its backdrop up (confirmations, What's New; the keystroke guard's
+   own backdrop test, since those boxes are not inert): a person could not press then either.
 2. web.app-tab-6846.test.js: the press path per tab (mutant: showTab instead of the press goes red), Settings, refusals
    (including a missing button), and pins on what it relies on (the click handler resets before showTab; the three tab
    buttons exist; Settings is buttonless).
