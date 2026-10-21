@@ -33,7 +33,9 @@ compressed object stream is hashed as it is (its dates are not read without infl
 metadata stream, so page text shaped like `/ModDate (...)` changes the print. Outside streams the objects are read as PDF
 syntax with strings opaque (review 9), so a form value, annotation or Title shaped like one does too. Left: a file built so
 a stream's edges are misread (endstream inside a stream with an indirect /Length, or `>> stream` inside a string) could
-match another; a check, not a tamper proof.
+match another; a check, not a tamper proof. Also not emptied (review 10, no renderer measured writes them; each gives
+two fingerprints for one document, never one for two): a date held as an indirect object (`/ModDate 5 0 R`), a key
+name written with `#` escapes, and a comment between a key and its value.
 `task built --file` on a Mac now needs the bundled runtime and engine, as `kosmos handoff` and the Windows CLI already do.
 
 ## Tests run
