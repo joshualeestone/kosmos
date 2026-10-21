@@ -58,3 +58,25 @@ Card: kosmos#6761, from a user feedback report (a project-manager agent, 2026-10
 - engine/filehash.js (background sha256 for Files rows, keyed by dev/ino/size/mtime/ctime, never on the request, a file
   changed mid-read not cached, O_NOFOLLOW): engine/filehash-6761.test.js 5/5; mutants red (no before/after check; a
   cache that ignores identity).
+
+## Row fingerprints (built after the first draft of this plan)
+- projects.listFiles / listDir take `{ fingerprint: true }` and give `sha256` to the rows SHOWN (after the cap), never to
+  every file walked; the stamp includes them, so a polled list repaints when one arrives. The agent /files, /files/browse
+  and project /documents routes opt in. The page: `fileFingerprint(f)` accepts only 64 lowercase hex; the Files screen
+  and the Documents view show `fingerprint <12 hex>`; the narrow lists keep size only and carry `fingerprint sha256
+  <whole>` on hover. Branch stacked on filebrowser-6724 (same views) until that merges.
+
+## Review
+- Iteration 1 (opus): nothing security-relevant found. Findings, all addressed:
+  - WARNING, fixed (measured by the reviewer: a 200 MB file appended to every 200 ms cost 1.8 GB of reads in 10 s): a
+    growing file was re-hashed in full on every poll and never cached. It is hashed only once settled (5 s since its
+    last write) and a file that changed while it was read backs off for 60 s. Tests for both, and the mutants red.
+  - WARNING, fixed: the Documents view reads its list once, so rows sent before their hash stayed without one. A
+    bounded re-read (every 2 s, at most 15) puts arrived fingerprints on the SAME files (name, size and date) and
+    repaints in place; it stops once every row has one, and when the person leaves the view. Tested on the real function.
+  - NIT, fixed: the cache now drops the least recently SHOWN first. NOT added: a byte budget per interval (the settle
+    rule and the 512 MB per-file cap bound it; weakest premise: a folder of many large settled files, each hashed once).
+  - NIT, fixed: the link test could not fail without O_NOFOLLOW; it now checks the open flags (mutant red).
+  - NIT, fixed: the CLIs now agree on the error paths too: a refusal goes to stderr on both, an answer that is not a
+    task list gets one sentence, and an empty word after the flag is refused on both. Tested strictly.
+  - Wording: the rows say "fingerprint"; the hover names the algorithm (sha256) beside the whole value.

@@ -42483,9 +42483,9 @@ function agentFileRow(f, compact = false, label = null) {   // #6724: `label` (t
   const when = f.modified ? new Date(f.modified) : null;
   const day = when && !isNaN(when) ? when.toLocaleDateString() : '';
   const fp = fileFingerprint(f);   // #6761
-  w.textContent = (day && !compact ? day + ' · ' : '') + pjSize(f.size) + (fp && !compact ? ' · sha256 ' + fp.slice(0, 12) : '');
+  w.textContent = (day && !compact ? day + ' · ' : '') + pjSize(f.size) + (fp && !compact ? ' · fingerprint ' + fp.slice(0, 12) : '');
   if (day && compact) b.title = f.name + ', changed ' + day;
-  if (fp) b.title = (b.title || f.name) + ', sha256 ' + fp;   // the whole value (the narrow panel shows it only here)
+  if (fp) b.title = (b.title || f.name) + ', fingerprint sha256 ' + fp;   // the whole value (the narrow panel shows it only here)
   b.append(n, w);
   return b;
 }
@@ -69908,7 +69908,7 @@ const PJ_DOCS_PER = 50;
 function pjDocMeta(f) {
   return pjSize(f.size) + (f.modified ? ' · ' + new Date(f.modified).toLocaleDateString() : '')
     + (typeof f.changedBy === 'string' && f.changedBy ? ' · changed by ' + f.changedBy : '')
-    + (fileFingerprint(f) ? ' · sha256 ' + fileFingerprint(f).slice(0, 12) : '');   // #6761
+    + (fileFingerprint(f) ? ' · fingerprint ' + fileFingerprint(f).slice(0, 12) : '');   // #6761 (plain words; the hover says sha256)
 }
 /* #6761 iteration 1: the Documents view reads its list once, when it opens, and the board hashes files in the background,
    so a row is often sent before its fingerprint exists. While the same open is showing and a listed row has none, read
@@ -69952,7 +69952,7 @@ function pjDocsPaintPage() {
     const n = document.createElement('span'); n.className = 'pj-doc-n'; n.textContent = f.name;
     const w = document.createElement('span'); w.className = 'pj-doc-w';
     w.textContent = pjDocMeta(f);
-    if (fileFingerprint(f)) b.title = f.name + ', sha256 ' + fileFingerprint(f);   // #6761: the whole value
+    if (fileFingerprint(f)) b.title = f.name + ', fingerprint sha256 ' + fileFingerprint(f);   // #6761: the whole value
     b.append(n, w); box.append(b);
   }
   const floor = PJ_DOCS_TOTAL > PJ_DOCS_FILES.length
@@ -70238,7 +70238,7 @@ async function pjLoadDocs(id) {
     const w = document.createElement('span');
     w.className = 'pj-doc-w';
     w.textContent = pjSize(f.size);
-    if (fileFingerprint(f)) b.title = f.name + ', sha256 ' + fileFingerprint(f);   // #6761: the narrow rail shows it on hover
+    if (fileFingerprint(f)) b.title = f.name + ', fingerprint sha256 ' + fileFingerprint(f);   // #6761: the narrow rail shows it on hover
     b.append(n, w);
     box.append(b);
   }

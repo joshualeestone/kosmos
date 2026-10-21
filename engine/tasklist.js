@@ -66,15 +66,16 @@ function compactLines(body, state, project) {
 /* `node tasklist.js compact <state> <project>`, the board's JSON on stdin (install/kosmos). */
 if (require.main === module) {
   const [verb, state, project] = process.argv.slice(2);
-  let out;
-  try {
-    if (verb !== 'compact') throw new Error('usage');
-    out = compactLines(JSON.parse(require('node:fs').readFileSync(0, 'utf8')), state, project || '');
-  } catch {
-    process.stdout.write('Kosmos could not print that list compactly; list it without the flag to see it whole.\n');
+  if (verb !== 'compact' || !COMPACT[state]) {
+    process.stderr.write('Kosmos could not print that list compactly; list it without the flag to see it whole.\n');
     process.exit(1);
   }
-  process.stdout.write(out.lines.join('\n') + '\n');
+  /* Iteration 1: as the Windows CLI: an answer that is not JSON is "no task list" (compactLines' own sentence), and a
+     refusal (rc 1) goes to stderr, a list to stdout. */
+  let body = null;
+  try { body = JSON.parse(require('node:fs').readFileSync(0, 'utf8')); } catch { body = null; }
+  const out = compactLines(body, state, project || '');
+  (out.rc ? process.stderr : process.stdout).write(out.lines.join('\n') + '\n');
   process.exit(out.rc);
 }
 
