@@ -35,7 +35,8 @@ with an ordinary-answer control); web.allow-card.test.js (+1: the line, its plac
   unreachable coordinator leaves the last file behind, and an old "paused" must not keep saying Kosmos+ is paused.
   Test: a 3-minute-old paused snapshot reads not paused, a 1-minute-old one reads paused. Mutant (gate removed): red.
 - The vouch path under FAKE_TUNNEL_MODE=allow-paused: three paused refusals, nothing noted as on this computer, no
-  `devices remove`, and the secret ends after the third try (the Allow card stays the way in).
+  `devices remove`, and the secret ends after the third try (the Allow card stays the way in). SUPERSEDED in round
+  2: a paused refusal is no longer counted, so the secret stays live.
 - Words: "allow it once Kosmos+ is back, if it is still asking". The paused line gets a muted style under
   `.plus-asks`. The self-grant log says "Kosmos+ is paused for maintenance" rather than quoting the person-facing
   sentence.
