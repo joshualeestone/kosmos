@@ -94,6 +94,7 @@ const LOAD_PING = Object.freeze({
   'engine/guidestate.js': 'a comment about an injected function of that name; does not load the module',
   'engine/store.js': 'reads the id to keep it in a profile',
   'engine/updating.js': 'asks whether it is under test; does not read the id',
+  'engine/usage.js': 'kosmos#6829: asks when the install began (installedAt); does not read the id',
   'engine/win32channel.js': 'a message type of that name; does not load the module',
 });
 

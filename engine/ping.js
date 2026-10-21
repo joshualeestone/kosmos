@@ -20,6 +20,8 @@
  * What this file keeps:
  *
  *   installId   a random per-install id, made once and kept in a local file
+ *   installedAt when that id was made (kosmos#6829: Token Usage counts days from it; engine/usage.js reads only
+ *               this, never the id, and it never leaves the computer)
  *   underTest   whether we are inside node's test runner
  *
  * ⚠️ `installId` IS RANDOM, never derived from anything about the machine. A hash
