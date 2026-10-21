@@ -12582,8 +12582,8 @@ window.kosmosMeasureScrollbarWidth();
     <!-- #6714 review 18: the result of a start sits in its own slot, so the notices below keep repainting while it is read. -->
     <div id="survival-report-slot"></div>
     <div id="survival-slot"></div>
-    <!-- kosmos#6817: someone in this person's company (or family) was made a reviewer. One notice, cleared on its x, on
-         See who, or when the Settings list is on screen. Its own slot so it co-occurs with the others. -->
+    <!-- kosmos#6817: someone in this person's company (or family) was made a reviewer. One notice, cleared on its x or
+         when the Settings reviewers list is in view; See who only takes the person there. Its own slot. -->
     <div id="reviewer-slot"></div>
     <!-- #5359: the computer restarted while Kosmos was running and Kosmos came back by itself. A fact, so it sits
          below the notices that need action (update, login); its own slot so it co-occurs with them (Mona Lisa). -->
@@ -25752,7 +25752,7 @@ async function tick() {
     // is active, so `grid.hidden` stopped meaning "not on the agents tab".
     // `onAgentsTab()` reads boardbar, which tracks the tab and nothing else.
     if (onAgentsTab()) { paintRemoved(); paintSurvival(); }
-    reviewerNoteMaybe();   // kosmos#6817: clears itself off the agents tab
+    try { reviewerNoteMaybe(); } catch { /* kosmos#6817: the notice never fails the status read */ }
   } catch (err) {
     clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
     if (answered && !(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;   // a refusal is an answer too (#268)
@@ -52516,6 +52516,7 @@ function reviewerNoteSeen(grants, now) {
   const fresh = reviewerNoteFresh(grants, now);
   const keep = new Set([...reviewerNoteSeenSet()].filter((k) => Number(k.split('|')[0]) >= now - PLUS_ORG_REVIEWER_DAYS * 86400));
   for (const k of fresh) { keep.add(k); REVIEWER_NOTE.seen.add(k); }
+  // 100 is well above the 20 grants the engine keeps (MAX_REVIEWER_GRANTS), so no grant still listed is dropped.
   try { localStorage.setItem(REVIEWER_NOTE_KEY, JSON.stringify([...keep].slice(-100))); } catch { /* refused: kept for this visit */ }
   const slot = document.getElementById('reviewer-slot');
   if (slot) { slot.innerHTML = ''; slot.dataset.v = ''; }
@@ -52525,7 +52526,8 @@ function reviewerNoteSeenList(st) {
   const box = document.getElementById('plus-org-reviewers');
   if (!box || box.hidden || !plusOnScreen()) return;
   const r = box.getBoundingClientRect();
-  if (Math.min(r.bottom, innerHeight) - Math.max(r.top, 0) < Math.min(48, r.height)) return;   // a sliver at an edge is not in view
+  // Rendered (a box under a hidden ancestor measures zero), and more than a sliver at an edge in view.
+  if (!(r.height > 0) || Math.min(r.bottom, innerHeight) - Math.max(r.top, 0) < Math.min(48, r.height)) return;
   if (reviewerNoteUnseen(st && st.reviewerGrants, Date.now() / 1000).length) reviewerNoteSeen(st.reviewerGrants, Date.now() / 1000);
 }
 function paintReviewerNote() {
@@ -52573,7 +52575,12 @@ document.addEventListener('click', (e) => {
   (function land() {
     if (!plusOnScreen()) return;   // the person moved on: do not pull the page around
     const box = document.getElementById('plus-org-reviewers');
-    if (box && !box.hidden) { box.scrollIntoView({ block: 'center' }); return; }
+    if (box && !box.hidden) {
+      box.scrollIntoView({ block: 'center' });
+      const head = document.getElementById('plus-org-reviewers-head');   // focus where they asked to go, not the section top
+      if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); }
+      return;
+    }
     if ((tries += 1) < 40) setTimeout(land, 100);
   })();
 });

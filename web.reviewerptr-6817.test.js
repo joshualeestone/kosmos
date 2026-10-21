@@ -23,7 +23,7 @@ function board({ onAgents = true, seen = null, storageThrows = false, listShown 
   };
   const slot = { innerHTML: '', dataset: {} };
   Object.defineProperty(slot, 'html', { get: () => slot.innerHTML });
-  const box = { hidden: !listShown, getBoundingClientRect: () => (listInView ? { top: 100, bottom: 300, height: 200 } : { top: 2000, bottom: 2200, height: 200 }) };
+  const box = { hidden: !listShown, getBoundingClientRect: () => (listInView === 'zero' ? { top: 0, bottom: 0, height: 0 } : listInView ? { top: 100, bottom: 300, height: 200 } : { top: 2000, bottom: 2200, height: 200 }) };
   const document = { getElementById: (id) => (id === 'reviewer-slot' ? slot : id === 'plus-org-reviewers' ? box : null), addEventListener: () => {} };
   const clock = { t: now };
   const src = 'const PLUS_ORG_REVIEWER_DAYS = 30;\n' + fn('function plusOrgIn(org, text)') + '\n'
@@ -119,7 +119,8 @@ test('#6817: seen keeps only grants still inside the 30 days', () => {
 test('#6817: the reviewers list counts as seen only while it is in view (CONTROL: in view, it does)', () => {
   const st = { reviewerGrants: [grant(DAY)] };
   for (const [opts, why] of [[{ listShown: false, plusShown: true }, 'a hidden list'], [{ listShown: true, plusShown: false }, 'Settings not on screen'],
-    [{ listShown: true, plusShown: true, listInView: false }, 'a list scrolled out of view']]) {
+    [{ listShown: true, plusShown: true, listInView: false }, 'a list scrolled out of view'],
+    [{ listShown: true, plusShown: true, listInView: 'zero' }, 'a list under a hidden ancestor (zero size)']]) {
     const b = board(opts); b.api.reviewerNoteSeenList(st);
     assert.equal(b.store.size, 0, why + ' counted as seen');
   }

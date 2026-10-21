@@ -56,7 +56,7 @@ Also left out until someone asks: a pending grant taking effect as its own momen
 
 ## Tests run
 
-- web.reviewerptr-6817.test.js: 12/12 at the iteration-3 fix. Each kind proved able to fail by a deliberate break: `>=` for `>` (2 red), the
+- web.reviewerptr-6817.test.js 12/12 and server.reviewergrants-6817.test.js 3/3 (iteration 7). Each kind proved able to fail by a deliberate break: `>=` for `>` (2 red), the
   board reading /api/org (1 red), the Settings list counting while hidden (1 red), the route spending a note and
   ungated (1 red).
 - Every existing test that touches the stack, the route list or the grants (21 files, 333 tests): pass, after
