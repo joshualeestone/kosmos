@@ -75104,6 +75104,10 @@ function pjVerdict(m, name) {
     said = 'Could not confirm ' + esc(name) + ' got that'
       + (note ? ' (' + note + ')' : '') + '. '
       + esc(pjSentence(d.because || 'we typed it and could not tell whether it arrived'));
+  } else if (d.duplicateOf) {
+    // #6774: a re-send not sent because the same words were already kept above: not a failure, so not worded as one.
+    mark = ' held';
+    said = esc(pjSentence(d.because || 'the same message was already kept above, so this copy was not sent'));
   } else {
     mark = ' failed';
     /**

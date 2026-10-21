@@ -230,3 +230,13 @@ test('#6774: the same words after the agent has spoken since are a new message (
   assert.equal(after.out.delivery.state, 'held');
   assert.deepEqual(kept().map((k) => k[1]), ['yes', 'yes']);
 });
+
+test('#6774: "yes", "no", "yes" keeps all three: the person\'s own other words since the kept copy stop the fold', async () => {
+  await call({ text: 'yes' });
+  await new Promise((r) => setTimeout(r, 5));
+  await call({ text: 'no' });
+  await new Promise((r) => setTimeout(r, 5));
+  const third = await call({ text: 'yes' });
+  assert.equal(third.out.delivery.duplicateOf, undefined, 'the final "yes" was folded into the first: ' + JSON.stringify(third.out));
+  assert.deepEqual(kept().map((k) => k[1]), ['yes', 'no', 'yes']);
+});

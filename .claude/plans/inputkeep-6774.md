@@ -18,7 +18,7 @@ agent is not held for a limit. They go through the automatic gate like any kept 
   and its row reads held with the reason. Re-sent by hand with the same text while a copy is kept (for the box, or
   behind messages kept for it), the new copy is recorded as not sent, saying the kept one goes once the box is clear;
   the kept copy stays in its place (review 1: taking it out first could lose the words if the re-send then failed,
-  and moved it to the back). Its words going back into the box is the page's rule for any copy not sent.
+  and moved it to the back). The page empties the box for it and words the row as not sent, not as a failure.
 - A message kept behind messages kept for the box carries the same flag, so it waits for the box too, is matched
   as a re-send, and later messages are told the true reason.
 - Send now anyway is not offered on a row kept for the box (it would be refused by the same box); if pressed
@@ -36,6 +36,11 @@ agent is not held for a limit. They go through the automatic gate like any kept 
 - Review 2, left as it is: two messages sent within the same moment to a stuck box both see an empty queue; if the
   box clears between the first being refused (and kept) and the second being typed, the second arrives first. Closing
   it needs the queue check inside the pane's delivery lock; the window is the length of one refused delivery.
+- Review 10: the fold is narrowed to its root rule: only while nothing at all was said in the thread since the kept
+  copy, by either side, apart from earlier re-sends of it (so "yes", "no", "yes" keeps all three). The re-send's row
+  is worded as not sent (pjVerdict), not "Could not deliver", on every reload. Left as it is: the same words sent twice
+  at once, where the box clears between the first's refusal and the second's typing, can arrive twice (the second is
+  typed directly, the first by the sweep); it needs the box to clear inside one delivery, as the order window above.
 - Review 9: a person's re-send folds only while the agent has not spoken since the kept copy (as `kosmos msg`'s fold,
   #4580); after a reply the same words are a new message, kept behind the first, so a repeated answer is not lost.
   Left as they are: a CLI installed before this branch words a box hold as a usage hold (still "do not re-send");
@@ -61,8 +66,7 @@ agent is not held for a limit. They go through the automatic gate like any kept 
   reason (before this branch that queue never held such messages, so its "out of usage" words were true). A re-send
   matches on the text as typed (spacing does not count). The not-sent row's sentence is time-neutral, so it stays true
   after the kept copy goes. The page's words and the hidden button are covered by web.inputkeep-6774.test.js, and the
-  branch carries a Browser-check trailer (wording plus one button condition, covered there). Left as they are: the
-  person's words go back into the box on a re-send answer (the page's rule for any copy not sent); a person's messages
+  branch carries a Browser-check trailer (wording plus one button condition, covered there). Left as they are: a person's messages
   share one sender cap, so past it a message after the box clears is typed ahead of the backlog (the existing
   fall-through); a box holding only the board's own unsent line holds the queue until its retries clear it (minutes).
 - Review 3: a message kept behind a backlog any of which was kept for the box is flagged, released by the box rule,

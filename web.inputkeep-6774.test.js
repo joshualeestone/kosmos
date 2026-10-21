@@ -94,3 +94,15 @@ test('#6774: Send now anyway refused because the box still holds text says so un
   const gone = await run(409, { error: 'that message is no longer held: it was sent or dropped, or is being sent now' });
   assert.equal(gone.painted, 1, 'CONTROL: a message sent or dropped meanwhile repaints');
 });
+
+test('#6774: a re-send row is drawn as not sent, not as "Could not deliver", on every reload', () => {
+  const verdict = lift('pjVerdict', { pjWhenLive: () => '', esc: (x) => String(x), pjSentence: (x) => String(x), dmHeldWords: () => '' });
+  const dup = verdict({ at: 'x', delivery: { state: 'could_not', duplicateOf: 'y', because: 'The same message was already kept above, to be sent once casey\'s input box was clear, so this copy was not sent' } }, 'casey');
+  assert.equal(dup.mark, ' held');
+  assert.doesNotMatch(dup.said, /Could not deliver/);
+  assert.match(dup.said, /so this copy was not sent/);
+  // CONTROL: a refusal that is not a re-send still reads as a failure.
+  const fail = verdict({ at: 'x', delivery: { state: 'could_not', because: 'it is not running' } }, 'casey');
+  assert.equal(fail.mark, ' failed');
+  assert.match(fail.said, /^Could not deliver: /);
+});
