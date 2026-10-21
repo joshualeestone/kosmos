@@ -20,7 +20,7 @@ const FP = 'ab'.repeat(32);
 const env = new Function(page.liftAll(SCRIPT, ['pjSize', 'fileFingerprint', 'pjDocMeta']) + '\nreturn { pjSize, fileFingerprint, pjDocMeta };')();
 
 function rowOf(f, compact) {
-  const make = () => ({ className: '', dataset: {}, textContent: '', parts: [], title: '', append(...c) { this.parts.push(...c); }, insertAdjacentHTML() {} });
+  const make = () => ({ className: '', dataset: {}, textContent: '', parts: [], title: '', attrs: {}, append(...c) { this.parts.push(...c); }, insertAdjacentHTML() {}, setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; } });
   const document = { createElement: make };
   const fn = new Function('document', 'fileIcon', page.liftAll(SCRIPT, ['pjSize', 'fileFingerprint', 'agentFileRow']) + '\nreturn agentFileRow;')(document, () => '');
   return fn(f, compact);
@@ -45,18 +45,21 @@ test('the Files screen row shows the short fingerprint and the whole value on ho
   const full = rowOf(f, false);
   assert.match(full.parts[1].textContent, new RegExp(' · fingerprint ' + FP.slice(0, 12) + '$'));
   assert.equal(full.title, 'report.pdf, fingerprint sha256 ' + FP);
-  assert.equal(full.ariaDescription, 'fingerprint ' + FP.slice(0, 12), 'iteration 7: the spoken description is not the short form');
+  assert.equal(full.getAttribute('aria-description'), 'fingerprint ' + FP.slice(0, 12), 'iteration 7: the spoken description is not the short form');
   const narrow = rowOf(f, true);
   assert.doesNotMatch(narrow.parts[1].textContent, /fingerprint|sha256/, 'the narrow panel row grew a fingerprint (#6497 keeps it to the size)');
-  assert.match(narrow.ariaDescription, new RegExp('^changed .*, fingerprint ' + FP.slice(0, 12) + '$'), 'iteration 7: the narrow row\u2019s spoken description lost its date or is not short');
+  assert.match(narrow.getAttribute('aria-description'), new RegExp('^changed .*, fingerprint ' + FP.slice(0, 12) + '$'), 'iteration 7: the narrow row\u2019s spoken description lost its date or is not short');
   assert.match(narrow.title, new RegExp('^report\\.pdf, changed .*, fingerprint sha256 ' + FP + '$'), 'the whole value is not on the narrow row’s hover');
   const none = rowOf({ name: 'x.txt', size: 1 }, false);
   assert.doesNotMatch(none.parts[1].textContent + none.title, /fingerprint|sha256/, 'CONTROL: a row without one says nothing about it');
-  assert.equal(none.ariaDescription, undefined, 'CONTROL: a row without a fingerprint gets no spoken one');
+  assert.equal(none.getAttribute('aria-description'), null, 'CONTROL: a row without a fingerprint gets no spoken one');
 });
 
 test('the project rail carries the whole value on hover', () => {
   assert.match(SCRIPT, /w\.textContent = pjSize\(f\.size\);\n\s+if \(fileFingerprint\(f\)\) b\.title = f\.name \+ ', fingerprint sha256 ' \+ fileFingerprint\(f\);/);
+  // Iterations 7-8: every fingerprinted row speaks the short form, through the ATTRIBUTE (a reflection property may be an expando nothing reads).
+  assert.equal((SCRIPT.match(/setAttribute\('aria-description', /g) || []).length, 3);
+  assert.doesNotMatch(SCRIPT, /\.ariaDescription\b/);
 });
 
 test('iteration 1: the Documents view fills fingerprints in after it opens, by the same file only, and stops', async () => {

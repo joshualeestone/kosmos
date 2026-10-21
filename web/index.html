@@ -42504,7 +42504,7 @@ function agentFileRow(f, compact = false, label = null) {   // #6724: `label` (t
   if (fp) b.title = (b.title || f.name) + ', fingerprint sha256 ' + fp;   // the whole value (the narrow panel shows it only here)
   /* Iteration 7: a title is also a button's spoken description, and 64 hex read aloud on every row is noise. The
      spoken one carries the short form (and the date the narrow row keeps only on hover). */
-  if (fp) b.ariaDescription = (day && compact ? 'changed ' + day + ', ' : '') + 'fingerprint ' + fp.slice(0, 12);
+  if (fp) b.setAttribute('aria-description', (day && compact ? 'changed ' + day + ', ' : '') + 'fingerprint ' + fp.slice(0, 12));   // iteration 8: the attribute, not the reflection property
   b.append(n, w);
   return b;
 }
@@ -69987,7 +69987,7 @@ function pjDocsPaintPage() {
     const w = document.createElement('span'); w.className = 'pj-doc-w';
     w.textContent = pjDocMeta(f);
     if (fileFingerprint(f)) b.title = f.name + ', fingerprint sha256 ' + fileFingerprint(f);   // #6761: the whole value
-    if (fileFingerprint(f)) b.ariaDescription = 'fingerprint ' + fileFingerprint(f).slice(0, 12);   // iteration 7: spoken short (an empty one would fall back to the title)
+    if (fileFingerprint(f)) b.setAttribute('aria-description', 'fingerprint ' + fileFingerprint(f).slice(0, 12));   // iteration 7: spoken short (an empty one would fall back to the title)
     b.append(n, w); box.append(b);
   }
   const floor = PJ_DOCS_TOTAL > PJ_DOCS_FILES.length
@@ -70278,7 +70278,7 @@ async function pjLoadDocs(id) {
     w.className = 'pj-doc-w';
     w.textContent = pjSize(f.size);
     if (fileFingerprint(f)) b.title = f.name + ', fingerprint sha256 ' + fileFingerprint(f);   // #6761: the narrow rail shows it on hover
-    if (fileFingerprint(f)) b.ariaDescription = 'fingerprint ' + fileFingerprint(f).slice(0, 12);   // iteration 7: spoken short
+    if (fileFingerprint(f)) b.setAttribute('aria-description', 'fingerprint ' + fileFingerprint(f).slice(0, 12));   // iteration 7: spoken short
     b.append(n, w);
     box.append(b);
   }
