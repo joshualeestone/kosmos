@@ -68,6 +68,7 @@ test('#6719 review 4: two stars saved side by side keep both, whichever answer c
   await tick();
   sent[1].answer(['angel']);            // the board did angel's first, so its answer has no renet
   await tick();
+  assert.deepEqual(api.stars(), ['angel', 'renet'], 'angel\'s answer took renet\'s star off while renet\'s save was in flight');
   sent[0].answer(['angel', 'renet']);   // then renet's
   await Promise.all([p1, p2]);
   assert.deepEqual(api.stars(), ['angel', 'renet'], 'an older answer for another star dropped one the board kept');
