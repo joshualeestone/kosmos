@@ -67320,8 +67320,26 @@ function tkReceiptAgentHtml(a, name) {
     : (a.folder ? '<p class="tkr-line tkr-where">In ' + esc(a.folder) + '</p>' : '');
   return '<div class="tkr-agent">' + head
     + '<p class="tkr-line" title="' + esc(usageNum(tokens)) + ' tokens">' + esc(bits.join(', ')) + '.</p>'
+    + tkReceiptPrsHtml(a)
     + toggle
     + '</div>';
+}
+/* kosmos#6842: the pull requests the agent opened while it held the task, beside what they cost. Absent `prs` (a receipt
+   kept before this, or a provider not read for them) shows nothing, never "none". A link only to a github.com pull
+   request, as the engine wrote it. Pure. */
+function tkReceiptPrsHtml(a) {
+  const prs = Array.isArray(a && a.prs) ? a.prs : null;
+  if (!prs || !prs.length) return '';
+  const one = (p) => {
+    const label = esc(String(p.repo || '').split('/').pop() + '#' + p.number);
+    return typeof p.url === 'string' && /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/\d+$/.test(p.url)
+      ? '<a href="' + esc(p.url) + '" target="_blank" rel="noopener noreferrer" title="' + esc(p.repo + '#' + p.number) + '">' + label + '</a>'
+      : label;
+  };
+  const more = Number(a.prsMore) || 0;
+  const n = prs.length + more;
+  return '<p class="tkr-line">' + (n === 1 ? 'Opened pull request ' : 'Opened pull requests ')
+    + prs.map(one).join(', ') + (more ? ' and ' + usageNum(more) + ' more' : '') + '.</p>';
 }
 /* #5153: the whole receipt. Pure. The put-back line first: it ends the task's history above, then the receipt follows
    (Mona Lisa: the receipt between the activity and its summary split the history in two). */

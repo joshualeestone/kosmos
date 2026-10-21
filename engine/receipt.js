@@ -36,8 +36,13 @@ const SYNTHETIC_ROW = /"model":"<[^"]*>"/;
 const FILE_TOOLS = { Edit: 'file_path', Write: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
 const COMMAND_TOOLS = new Set(['Bash']);
 /* Bumped when the receipt's shape or counting changes, so a kept receipt from an older build is worked out again.
-   2: Codex and Gemini CLI agents are read (slice 2). */
-const VERSION = 2;
+   2: Codex and Gemini CLI agents are read (slice 2).
+   3: the pull requests a Claude agent opened while it held the task (`prs`, kosmos#6842). */
+const VERSION = 3;
+/* kosmos#6842: Claude Code writes a `pr-link` row (prRepository, prNumber, prUrl) when a session opens a pull request,
+   and repeats it on later turns of that session. A PR is the hold's when its FIRST row is inside a hold. */
+const PR_REPO = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+const PRS_SHOWN = 20;
 /* Slice 2: the providers read besides Claude, by the agent's recorded runner. */
 const OTHER_PROVIDERS = new Set(['codex', 'gemini']);
 
@@ -189,6 +194,7 @@ async function claudeWork(dir, holds) {
   let complete = true;
   const seenMsg = new Set();
   const seenTool = new Set();
+  const prFirst = new Map();   // "owner/name#n" -> { repo, number, url, t }: each PR's earliest pr-link row
   const found = [];
   for (const d of transcriptDirs(dir)) found.push(...await transcriptsIn(d));
   for (const file of [...new Set(found)]) {
@@ -201,6 +207,24 @@ async function claudeWork(dir, holds) {
       const rl = readline.createInterface({ input: fs.createReadStream(file, { encoding: 'utf8' }), crlfDelay: Infinity });
       for await (const line of rl) {
         if (!line || SYNTHETIC_ROW.test(line)) continue;
+        if (line.includes('"pr-link"')) {
+          let pr;
+          try { pr = JSON.parse(line); } catch { continue; }
+          if (pr && pr.type === 'pr-link') {
+            const repo = pr.prRepository;
+            const number = pr.prNumber;
+            const t = Date.parse(pr.timestamp);
+            if (typeof repo === 'string' && PR_REPO.test(repo) && Number.isSafeInteger(number) && number > 0 && Number.isFinite(t)) {
+              const key = repo + '#' + number;
+              const seen = prFirst.get(key);
+              if (!seen || t < seen.t) {
+                const url = 'https://github.com/' + repo + '/pull/' + number;
+                prFirst.set(key, { repo, number, url: pr.prUrl === url ? url : null, t });
+              }
+            }
+            continue;
+          }
+        }
         const isAssistant = line.includes('"assistant"');
         const isResult = line.includes('"tool_result"');
         if (!isAssistant && !isResult) continue;
@@ -246,7 +270,10 @@ async function claudeWork(dir, holds) {
   const files = new Map();
   for (const [id, shown] of edits) if (answered.has(id) && !failed.has(id)) files.set(shown, true);
   const all = [...files.keys()];
-  return { models, files: all.slice(0, FILES_SHOWN), filesMore: Math.max(0, all.length - FILES_SHOWN), commands, transcriptsWithWork: withWork, transcriptsRead: read, complete };
+  const opened = [...prFirst.values()].filter((p) => inHold(p.t)).sort((a, b) => a.t - b.t)
+    .map(({ repo, number, url }) => ({ repo, number, url }));
+  return { models, files: all.slice(0, FILES_SHOWN), filesMore: Math.max(0, all.length - FILES_SHOWN), commands,
+    prs: opened.slice(0, PRS_SHOWN), prsMore: Math.max(0, opened.length - PRS_SHOWN), transcriptsWithWork: withWork, transcriptsRead: read, complete };
 }
 
 /**
@@ -397,8 +424,11 @@ function closedAtOf(task) {
 }
 
 /* A receipt kept by slice 1 (VERSION 1) is still right when no agent on it was a Codex or Gemini agent, which is all
-   slice 2 changes; working it out again could only lose work whose transcripts have since been pruned (review 1). */
+   slice 2 changes; working it out again could only lose work whose transcripts have since been pruned (review 1).
+   A VERSION 2 receipt is kept as it was for the same reason: it has no `prs`, and the page shows nothing about pull
+   requests for it rather than "none" (kosmos#6842). */
 function keptStillRight(kept) {
+  if (kept.version === 2) return Array.isArray(kept.agents);
   return kept.version === 1 && Array.isArray(kept.agents)
     && !kept.agents.some((a) => a && OTHER_PROVIDERS.has(a.provider));
 }
