@@ -52,10 +52,43 @@ test('#6726: --file sends an absolute path with the words, and says what was att
   assert.match(r.out, /Sent, with cut\.mp4 attached\. It is in their conversation with you\./);
 });
 
-test('#6726: a relative path is made absolute from where the command runs', async () => {
+test('#6726: a relative path is made absolute from where the command runs, joined as text', async () => {
   const r = await run(['reply', '--file=Files/notes.md', 'notes'], kept);
   assert.equal(r.code, 0, r.err);
-  assert.equal(replies(r)[0].body.file, path.join(process.cwd(), 'Files', 'notes.md'));
+  assert.equal(replies(r)[0].body.file, process.cwd() + path.sep + 'Files/notes.md');
+});
+
+test('#6726 review 1: a .. in the path reaches the board as given (the board refuses it there, as on a Mac)', async () => {
+  const rel = await run(['reply', '--file', 'Files/sub/../x.txt', 'x'], kept);
+  assert.equal(rel.code, 0, rel.err);
+  assert.equal(replies(rel)[0].body.file, process.cwd() + path.sep + 'Files/sub/../x.txt');
+  const abs = process.platform === 'win32' ? 'C:\\a\\Files\\sub\\..\\x.txt' : '/a/Files/sub/../x.txt';
+  const given = await run(['reply', '--file', abs, 'x'], kept);
+  assert.equal(given.code, 0, given.err);
+  assert.equal(replies(given)[0].body.file, abs, 'an absolute path was rewritten before it was sent');
+});
+
+test('#6726 review 1: the Windows path forms, with the Windows path rules on any machine', () => {
+  const W = path.win32;
+  const cwd = 'C:\\Users\\a\\';
+  assert.equal(cli.replyFileAbsolute('C:\\a\\..\\x.txt', cwd, W), 'C:\\a\\..\\x.txt');
+  assert.equal(cli.replyFileAbsolute('c:/a/x.txt', cwd, W), 'c:/a/x.txt');
+  assert.equal(cli.replyFileAbsolute('\\\\srv\\share\\x.txt', cwd, W), '\\\\srv\\share\\x.txt');
+  assert.equal(cli.replyFileAbsolute('Files\\x.txt', cwd, W), 'C:\\Users\\a\\Files\\x.txt');
+  assert.equal(cli.replyFileAbsolute('C:foo.txt', cwd, W), null, 'a drive with no folder was sent');
+  assert.equal(cli.replyFileAbsolute('\\foo.txt', cwd, W), null, 'a folder with no drive was sent');
+  assert.equal(cli.replyFileAbsolute('/foo.txt', cwd, W), null, 'a folder with no drive was sent');
+  /* CONTROL: the posix rules take /foo as absolute and join a relative one onto the folder. */
+  assert.equal(cli.replyFileAbsolute('/foo.txt', '/w', path.posix), '/foo.txt');
+  assert.equal(cli.replyFileAbsolute('a/../b', '/w', path.posix), '/w/a/../b');
+});
+
+test('#6726 review 1: kosmos reply --help names --file, as install/kosmos\'s help does', async () => {
+  const r = await run(['reply', '--help'], kept);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.calls.length, 0, '--help sent something');
+  assert.match(r.out, /Usage: kosmos reply \[--stdin\]/);
+  assert.ok(r.out.includes(cli.USAGE_REPLY_FILE), 'reply --help does not show the --file line');
 });
 
 test('#6726: --file after the words is still the flag; past -- it is words', async () => {
