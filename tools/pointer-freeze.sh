@@ -81,7 +81,7 @@ publish_on_origin() {  # <msg> <on|off> <mode,blob,path ...>
       || { echo "pointer-freeze: could not write the commit; nothing was pushed" >&2; return 1; }
     err="$(LC_ALL=C pointer_freeze_git 120 "$SITE" push -q origin "$sha:refs/heads/main" 2>&1)" && { printf '%s\n' "$sha"; return 0; }
     if ! printf '%s' "$err" | grep -qiE 'fetch first|non-fast-forward|\[rejected\]|cannot lock ref'; then
-      echo "pointer-freeze: the push failed and was not retried; nothing was pushed. git said: $err" >&2; return 1
+      echo "pointer-freeze: the push did not confirm and was not retried (a push stopped by the time limit may still have landed). git said: $err" >&2; return 1
     fi
     [ "$attempt" -ge 3 ] && { echo "pointer-freeze: origin/main kept moving; nothing was pushed after 3 tries" >&2; return 1; }
     attempt=$((attempt + 1))

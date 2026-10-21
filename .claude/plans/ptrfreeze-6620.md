@@ -159,3 +159,13 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
   as a fetch failure (it fails closed; perl is on every Mac and runner); the "pointer committed on top" hint (a stale
   checkout after a lift cannot reach that branch: its pointer is still the pinned one); the already-frozen path not
   re-checking the installer pair (deploy-site checks setup_sha256 at deploy).
+- Review 14 (two warnings, nits): deploy-site asked origin/main only when the deploying tree had no marker, so an old
+  freeze in a stale checkout answered for a newer one on origin (only the late re-check, which goes on when its fetch
+  fails, stood between them). origin/main is now asked whenever there is an origin and its marker decides; the tree's
+  decides with no origin, under OFFLINE, or when origin has none. And under a freeze deploy-site refuses when any
+  release pointer (dist/latest*.json, the Windows ones too) or the pinned installer pair differs from the freeze
+  commit, so a hand commit on top of the pin cannot ship under it. Both arms are measured against the pre-fix
+  deploy-site: the stale freeze passed its early check, and the installer arm DEPLOYED (rc 0). Their first fixtures
+  were refused by unrelated guards (a malformed Windows pointer by #2571, a bare installer by #4449) and were replaced
+  with ones only the freeze can object to. A push the time limit stopped is reported as unconfirmed, not "nothing was
+  pushed"; the late re-check names a same-version byte mismatch; a GIT_SSH wrapper is kept (git's own order).

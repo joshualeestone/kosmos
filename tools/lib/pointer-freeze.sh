@@ -38,7 +38,9 @@ pointer_freeze_value() {
 # the limit hit).
 pointer_freeze_git() {  # <secs> <site> <git args...>
   local secs="$1" site="$2" sshc; shift 2
-  sshc="${GIT_SSH_COMMAND:-$(git -C "$site" config core.sshCommand 2>/dev/null || echo ssh)}"
+  # Whatever ssh the operator set is kept, in git's own order (GIT_SSH_COMMAND, core.sshCommand, GIT_SSH), with the
+  # batch options added: setting GIT_SSH_COMMAND alone would silently replace a GIT_SSH wrapper.
+  sshc="${GIT_SSH_COMMAND:-$(git -C "$site" config core.sshCommand 2>/dev/null || echo "${GIT_SSH:-ssh}")}"
   GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$sshc -o BatchMode=yes -o ConnectTimeout=15" \
     perl -e 'my $s = shift; my $p = fork; defined $p or exit 127; if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
              local $SIG{ALRM} = sub { kill "TERM", -$p }; local $SIG{INT} = $SIG{TERM} = sub { kill "TERM", -$p };

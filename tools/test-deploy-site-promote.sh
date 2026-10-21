@@ -714,5 +714,32 @@ KOSMOS_POINTER_FREEZE_OFFLINE=1 run_deploy "$S50" "$L50" --promote
 { [ "$RC" = 0 ] && has "$out" "KOSMOS_POINTER_FREEZE_OFFLINE=1, so deciding the pointer freeze"; } \
   && pass "#6620 CONTROL: with KOSMOS_POINTER_FREEZE_OFFLINE=1 the same deploy goes ahead on the committed tree" || bad "#6620 offline (rc=$RC) out=$out"
 
+# A stale checkout holding an OLD freeze (at the version its own pointers name, so on its own it would deploy) while
+# origin/main is frozen at another version: origin/main decides. CONTROL: arm 45 (the same freeze, no origin) deploys.
+read -r S52 L52 <<<"$(make_rollback_scenario)"
+git init -q --bare "$S52.origin.git" && git -C "$S52" remote add origin "$S52.origin.git" && git -C "$S52" push -q origin main
+git clone -q "$S52.origin.git" "$S52.other" && git -C "$S52.other" config user.email t@t && git -C "$S52.other" config user.name t
+printf 'mac=%s\nbecause=the newer freeze\nat=2026-10-20T01:00:00Z\n' "$NEW" > "$S52.other/dist/POINTER_FROZEN"
+git -C "$S52.other" add dist/POINTER_FROZEN && git -C "$S52.other" commit -q -m "frozen at $NEW elsewhere" && git -C "$S52.other" push -q origin main
+printf 'mac=%s\nbecause=the old freeze\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S52/dist/POINTER_FROZEN"
+git -C "$S52" add -- dist/POINTER_FROZEN && git -C "$S52" commit -q -m "frozen at $OLD here" -- dist/POINTER_FROZEN
+LIVE52="$(cat "$L52/dist/latest.json")"
+run_deploy "$S52" "$L52" --promote
+{ [ "$RC" = 1 ] && has "$out" "the pointers are FROZEN at $NEW" && [ "$(cat "$L52/dist/latest.json")" = "$LIVE52" ]; } \
+  && pass "#6620: an old freeze in this checkout does not answer for a newer one on origin/main; refused, live untouched" || bad "#6620 stale local freeze (rc=$RC) out=$out"
+
+# An installer committed on top of the freeze (a staging pair: the real setup plus one line, so every installer check
+# passes it, and this scenario has no latest-staging.json to name its bytes): refused, so a hand commit cannot ship under the pin. Before kosmos#6620 review 14
+# this deployed. CONTROL: arm 45 deploys.
+read -r S53 L53 <<<"$(make_rollback_scenario)"
+printf 'mac=%s\nbecause=a test incident\nat=2026-10-20T00:00:00Z\n' "$OLD" > "$S53/dist/POINTER_FROZEN"
+git -C "$S53" add -- dist/POINTER_FROZEN && git -C "$S53" commit -q -m "frozen at $OLD" -- dist/POINTER_FROZEN
+{ cat "$S53/setup"; printf '# a hand edit\n'; } > "$S53/setup-staging"; ( cd "$S53" && shasum -a 256 setup-staging > setup-staging.sha256 )
+git -C "$S53" add -- setup-staging setup-staging.sha256 && git -C "$S53" commit -q -m "an installer by hand on top of the freeze" -- setup-staging setup-staging.sha256
+LIVE53="$(cat "$L53/dist/latest.json")"
+run_deploy "$S53" "$L53" --promote
+{ [ "$RC" = 1 ] && has "$out" "since the freeze commit" && has "$out" "setup-staging" && [ "$(cat "$L53/dist/latest.json")" = "$LIVE53" ]; } \
+  && pass "#6620: an installer moved on top of the freeze is refused, live untouched" || bad "#6620 moved on top (rc=$RC) out=$out"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

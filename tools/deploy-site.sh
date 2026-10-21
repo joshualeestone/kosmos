@@ -413,20 +413,23 @@ fi
 [ -z "$CJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest.json" "$CJ" || exit 1
 [ -z "$CSJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest-staging.json" "$CSJ" || exit 1
 # kosmos#6620: while the pointer freeze (tools/pointer-freeze.sh) is on, this deploy publishes only the frozen version:
-# both Mac pointers must name it. The freeze is the marker in $H (the tree that deploys) OR on origin/main, so a stale
-# checkout on another Mac cannot publish over a freeze it has not pulled. A fetch that fails is said, and $H decides.
-# As every writer (tools/lib/pointer-freeze.sh): a site origin that cannot be fetched refuses (nothing deployed), unless
+# both Mac pointers must name it. origin/main is asked whenever there is an origin, even when $H carries a marker of its
+# own (an old freeze in a stale checkout must not answer for a newer one on origin): its marker decides when it has one.
+# $H's marker decides when there is no origin, under KOSMOS_POINTER_FREEZE_OFFLINE=1, or when origin/main has none (a
+# freeze not pushed yet, or a lift this checkout has not pulled: kept frozen, the safe reading). As every writer
+# (tools/lib/pointer-freeze.sh): a site origin that cannot be fetched refuses (nothing deployed), unless
 # KOSMOS_POINTER_FREEZE_OFFLINE=1 says to decide on $H.
 # Checked first: under #!/bin/sh a failed `.` ends the shell before any `||` could speak.
 [ -f "$REPO/tools/lib/pointer-freeze.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/pointer-freeze.sh (kosmos#6620) -- refusing; nothing was deployed"; exit 1; }
 . "$REPO/tools/lib/pointer-freeze.sh"
 FROZEN_SRC=""
-if git -C "$SITE" cat-file -e "$H:dist/POINTER_FROZEN" 2>/dev/null; then FROZEN_SRC="$H"
-elif ! git -C "$SITE" remote get-url origin >/dev/null 2>&1; then :   # no origin at all: $H decides
+H_FROZEN=""; git -C "$SITE" cat-file -e "$H:dist/POINTER_FROZEN" 2>/dev/null && H_FROZEN="$H"
+if ! git -C "$SITE" remote get-url origin >/dev/null 2>&1; then FROZEN_SRC="$H_FROZEN"   # no origin at all: $H decides
 elif pointer_freeze_fetch "$SITE"; then
-  git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null && FROZEN_SRC="origin/main"
+  if git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then FROZEN_SRC="origin/main"; else FROZEN_SRC="$H_FROZEN"; fi
 elif [ "${KOSMOS_POINTER_FREEZE_OFFLINE:-}" = 1 ]; then
   echo "deploy-site: could not fetch origin/main; KOSMOS_POINTER_FREEZE_OFFLINE=1, so deciding the pointer freeze on $H (kosmos#6620)"
+  FROZEN_SRC="$H_FROZEN"
 else
   echo "deploy-site: could not fetch origin/main to check the pointer freeze (kosmos#6620) -- refusing; nothing was deployed. Try again, or set KOSMOS_POINTER_FREEZE_OFFLINE=1 to decide on $H. (exit 75: try again later, #5589)"; exit 75
 fi
@@ -442,7 +445,16 @@ if [ -n "$FROZEN_SRC" ]; then
     [ "$(ptr_sha "$CJ")" = "$FROZEN_SHA" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (sha256 $FROZEN_SHA) but the committed dist/latest.json names other bytes ($(ptr_sha "$CJ")) -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
     [ -z "$CSJ" ] || [ "$(ptr_sha "$CSJ")" = "$FROZEN_SHA" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT but the committed dist/latest-staging.json names other bytes -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
   fi
-  echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (dist/POINTER_FROZEN); the committed Mac pointers name it"
+  # Nothing that releases may have moved since the freeze commit: every release pointer (the Windows ones too, which
+  # publish-kosmos-windows.sh will not change while frozen) and the installer pair the freeze pinned. A hand commit on
+  # top of the pin would otherwise ship under it.
+  FROZEN_COMMIT=$(git -C "$SITE" log -1 --format=%H "$FROZEN_SRC" -- dist/POINTER_FROZEN 2>/dev/null)
+  [ -n "$FROZEN_COMMIT" ] || { echo "deploy-site: could not find the commit that froze the pointers in $FROZEN_SRC -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
+  if ! git -C "$SITE" diff --quiet "$FROZEN_COMMIT" "$H" -- 'dist/latest*.json' setup setup.sha256 setup-staging setup-staging.sha256 2>/dev/null; then
+    echo "deploy-site: the pointers are FROZEN at $FROZEN_AT, and since the freeze commit (${FROZEN_COMMIT%"${FROZEN_COMMIT#????????????}"}) $H changes $(git -C "$SITE" diff --name-only "$FROZEN_COMMIT" "$H" -- 'dist/latest*.json' setup setup.sha256 setup-staging setup-staging.sha256 2>/dev/null | tr '\n' ' ')-- refusing (kosmos#6620); nothing was deployed. $( [ "$FROZEN_SRC" = origin/main ] && echo "If this checkout is behind origin/main, pull it (git -C $SITE pull --ff-only); otherwise" ) restore those files from the freeze commit, or lift the freeze first."
+    exit 1
+  fi
+  echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (dist/POINTER_FROZEN); the committed Mac pointers name it, and no release pointer or installer moved since the freeze"
 fi
 
 # #2571: DERIVE the current Windows versioned zip name from latest-win.json, the same way ART is
@@ -881,7 +893,7 @@ elif git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; t
   _late_sha=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^sha256=//p' | head -1)
   if [ "$(ptr_version "$CJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CJ")" != "$_late_sha" ]; } \
     || { [ -n "$CSJ" ] && { [ "$(ptr_version "$CSJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CSJ")" != "$_late_sha" ]; }; }; }; then
-    echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy carries $(ptr_version "$CJ") -- refusing (kosmos#6620); nothing was deployed"
+    echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy carries $(ptr_version "$CJ")$( [ "$(ptr_version "$CJ")" = "$_late_v" ] && echo " with other bytes than the pinned build (sha256 $(ptr_sha "$CJ"), the freeze names ${_late_sha})") -- refusing (kosmos#6620); nothing was deployed"
     rm -rf "$EXPORT"; exit 1
   fi
 fi
