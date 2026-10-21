@@ -110,3 +110,11 @@ fail open, nothing newer); native-app.update-ifnewer-4382.test.js (the paused ar
   Left, stated: a pointer naming a valid OLDER version is not held, and if that version's tarball is missing the
   installer falls back to the unversioned (latest) one. That needs control of the release site's pointer and files,
   which is the incident the pause exists for; the signed manifest and the board's own run-setup still apply.
+- Review 7 (opus): CONVERGED (no BLOCKER, WARNING or CONVENTION). NITs left as they are: the held look's install.log
+  append orders `>>` before `2>/dev/null` (harmless: the app discards the CLI's stderr); a pointer naming the SAME
+  version can fall back to the unversioned tarball on a transient HEAD failure (the signed manifest check of the
+  archive against TARGET_VERSION refuses foreign bytes on a Mac); a .pkg on its pinned path has no operator override
+  (sudo drops the env) and its held sentence reaches only install.log, like every other early exit; run-setup holds a
+  same-version reinstall while the installer does not (each defensible, now stated); the asked-word vouches for an
+  answer seconds old; an older signed installer run by a new run-setup leaves the asked-word on the board it starts
+  until the fleet carries this installer (stated in review 2).
