@@ -227,10 +227,11 @@ pinned, and `publish-kosmos-windows.sh` will not change them while frozen); and 
 which goes around every script, as below. The re-checks just before a deploy narrow the window to the deploy itself;
 a freeze landing while vercel uploads is not seen.
 
-Expected during a freeze: the site's autodeploy tick (`tools/site-autodeploy.sh`, every 15 minutes) fast-forwards to
-the pushed pin and runs `deploy-site.sh --publish`. When the pin differs from live, that publish is refused (a move
-of the prod pointer needs `--promote`) and the tick parks with a red line. That is the tick declining to move the
-pointer, not a fault: deploy the pin with the line `on` printed, and the tick un-parks once live matches.
+Expected during a freeze, until the pin is deployed: the site's autodeploy tick (`tools/site-autodeploy.sh`, every 15
+minutes) sees site main's pointer differ from what live serves and SKIPS, by design (a website deploy never moves a
+release pointer). It runs nothing, logs "skip: site main's dist/latest.json is not what live serves", and turns red
+after 4 such ticks in a row (about an hour). It does not park. That is not a fault: deploy the pin with the line `on`
+printed, and the tick goes quiet once live serves it.
 
 ## A floor under the installer: never serve one from before 0.7.45 (kosmos#4455)
 

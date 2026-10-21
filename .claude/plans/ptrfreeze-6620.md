@@ -131,3 +131,7 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
   origin/main. The lib is #!/bin/sh and says it must stay POSIX.
 - Review 8 (one warning): the docs say the autodeploy tick's refused --publish during a freeze is expected (it parks
   until the pin is deployed), so it does not read as a fault mid-incident.
+- Review 9 (two warnings): the docs' account of the autodeploy tick is corrected from the code (it SKIPS a pointer
+  mismatch, red after 4 ticks, never parks; my round-8 line described it without reading it). deploy-site no longer
+  offers `off` when the marker is in the deploying tree but a pointer was committed on top of it: it says to restore
+  the pin (off, then on again), never to lift it to get past the refusal.
