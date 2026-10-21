@@ -28,6 +28,14 @@ Coordinator half: kosmos-relay branch projusage-6842. Full plan on kosmos#6842 (
   project total and for this rollup alike; the console labels spend as estimated. De-duplicating spans per agent across
   tasks is a separate change (challenge iteration 1).
 
+- A read that is incomplete (capped, partial, or an agent whose work cannot be read) still sends its rows, and the
+  coordinator replaces the stored week with them. The body says truncated, which makes the member "partial" in the
+  console, and the console now carries that state with the project numbers ("partial" in the drawer). Merging per
+  (project, day) on the coordinator instead was rejected: it would keep rows for tasks since reopened or deleted
+  (challenge iteration 2).
+- An agent whose work cannot be read (removed, or a provider with no receipt) on a task closed in the last 7 days keeps
+  the daily body truncated until that task ages out. Conservative and true: that work is unknown (iteration 2).
+
 ## Weakest premise
 That reading up to a week of receipts inside the daily tick is fast enough. Kept receipts are one file read each; an
 unkept one reads transcripts once and is then kept.
