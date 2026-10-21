@@ -139,10 +139,11 @@ struct LoadFailureView: View {
                         Text("Choose another computer")
                             .font(.body.weight(.semibold))
                             .frame(maxWidth: .infinity, minHeight: 50)
+                            // The whole outlined row takes the tap, not only the words: it has no fill of its own,
+                            // and a button's hit area is its label's (review 2).
+                            .contentShape(Rectangle())
                     }
                     .foregroundColor(KosmosColor.ink)
-                    // The whole outlined row takes the tap, not only the words (it has no fill of its own).
-                    .contentShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(KosmosColor.muted, lineWidth: 1))
                 }
                 Button("Back to Kosmos", action: onBack)
