@@ -113,6 +113,17 @@ the file in memory: an upload is written to disk as it arrives, and a download i
    process hangs (measured: killed by a 20 s alarm). A failed stat before conversion now says "Kosmos could not read
    this file to convert it." rather than calling it too large.
 
+15. **A download of a file that shrank is cut** (review 4): `sendFileStream` destroys the response when its read
+   stream ends before the measured size, instead of ending it short, which left a keep-alive client waiting for the
+   missing bytes (measured: with the check removed the test's client is still waiting at 3 s). `writeHead` moved inside
+   the `try`, so a throw there closes the descriptor.
+16. **A reply copy that cannot be written says so** (review 4): "Kosmos could not store a copy of that file", not
+   "that file could not be read". Test: a read-only output descriptor, with a writable one as the control.
+17. **Only `slot()` makes id-named folders under the store** (review 4 asked; measured with git grep): its three
+   callers (`save`, `saveFilled`, `saveStream`) each write record.json or abandon the folder, and replyfile only reads
+   the store. So the orphan sweep cannot meet a folder some other feature keeps without a record. The preview's temp
+   folder (`preview-<pid>-<time>`) is not id-named and sits inside a record's folder.
+
 ### Considered and not changed (review 3)
 - `attachments.preview(rec)` still reads a file whole. Only tests call it (engine/attachments.test.js); every route uses
   `previewFile` and streams. Kept for those tests; a new route caller would be a review finding.
@@ -144,7 +155,7 @@ The test used to accept a reset in place of the 400. It now requires the 400 wit
 a load average of about 10. If a client ever sees a reset instead, the page's own size check has already refused the
 file before sending it.
 
-## Tests (server.attachment-stream-6734.test.js, 19 tests, and web.attach-slow-6734.test.js, 2 tests, all green)
+## Tests (server.attachment-stream-6734.test.js, 21 tests, and web.attach-slow-6734.test.js, 2 tests, all green)
 
 - the cap is 100 MB and is said as "100 MB";
 - a 6 MB download is byte-identical (sha256) with its Content-Length; HEAD has the length and no body; no

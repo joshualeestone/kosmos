@@ -457,3 +457,43 @@ test('#6734: a download of a stored file swapped for a FIFO is refused at once, 
   ]);
   assert.deepEqual(got, { status: 404 });
 });
+
+test('#6734: a download of a file that shrank after it was measured is cut, not ended short for the client to wait on', async () => {
+  const rec = storedOf(MB, 'shrinks-later.bin');
+  const fstat = fs.fstatSync;
+  // The download's fstat reports 1 MB more than there is: a file that shrank after it was measured.
+  fs.fstatSync = function () { const s = fstat.apply(this, arguments); Object.defineProperty(s, 'size', { value: s.size + MB }); return s; };
+  let got;
+  try {
+    got = await Promise.race([
+      new Promise((resolve) => {
+        const req = http.get({ host: '127.0.0.1', port: port(), path: '/api/attachment/' + rec.id, agent: new http.Agent({ keepAlive: true }) }, (res) => {
+          let n = 0;
+          res.on('data', (c) => { n += c.length; });
+          res.on('end', () => resolve({ ended: true, complete: res.complete, n }));
+          res.on('error', () => resolve({ cut: true, n }));
+          res.on('aborted', () => resolve({ cut: true, n }));
+        });
+        req.on('error', () => resolve({ cut: true }));
+      }),
+      wait(3000).then(() => ({ waiting: true })),
+    ]);
+  } finally { fs.fstatSync = fstat; }
+  assert.ok(got.cut || (got.ended && got.complete === false), 'the client was left ' + JSON.stringify(got));
+});
+
+test('#6734: a reply copy that cannot be written says Kosmos could not store it, not that the file could not be read', () => {
+  const replyfile = require('./engine/replyfile');
+  const src = path.join(fs.mkdtempSync(path.join(SCRATCH, 'wfail-')), 'fine.bin');
+  fs.writeFileSync(src, Buffer.alloc(64 * 1024, 2));
+  const real = fs.realpathSync(src);
+  const ro = path.join(SCRATCH, 'wfail-out-' + process.pid);
+  fs.writeFileSync(ro, '');
+  const out = fs.openSync(ro, 'r');   // a descriptor writes cannot go to
+  let got;
+  try { got = replyfile.readOwn(real, fs.statSync(real), src, out); } finally { fs.closeSync(out); }
+  assert.deepEqual(got, { ok: false, because: 'Kosmos could not store a copy of that file' });
+  // CONTROL: the same file to a writable descriptor is copied.
+  const ok = fs.openSync(ro, 'w');
+  try { assert.deepEqual(replyfile.readOwn(real, fs.statSync(real), src, ok), { ok: true, size: 64 * 1024 }); } finally { fs.closeSync(ok); }
+});

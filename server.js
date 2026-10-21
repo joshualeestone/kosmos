@@ -3766,15 +3766,20 @@ function sendFileStream(req, res, file, unread, headers) {
     const st = fs.fstatSync(fd);
     if (!st.isFile()) throw new Error('not a file');
     size = st.size;
+    res.writeHead(200, { ...headers, 'content-length': size });   // review 4: inside the try, so a throw closes fd
   } catch {
     if (fd !== null) try { fs.closeSync(fd); } catch { /* closed */ }
-    sendJson(res, 404, { error: unread });
+    if (!res.headersSent) sendJson(res, 404, { error: unread });
+    else res.destroy();
     return;
   }
-  res.writeHead(200, { ...headers, 'content-length': size });
   if (req.method === 'HEAD' || size === 0) { res.end(); try { fs.closeSync(fd); } catch { /* closed */ } return; }
-  /* Review 2: read no further than the size measured, so a file that grows meanwhile cannot overrun Content-Length. */
-  pipeline(fs.createReadStream(null, { fd, start: 0, end: size - 1, autoClose: true }), res, () => { /* aborted or failed: both streams are destroyed */ });
+  /* Review 2: read no further than the size measured, so a file that grows meanwhile cannot overrun Content-Length.
+     Review 4: and one that shrank cuts the response at its end instead of ending it short, so a keep-alive client is
+     not left waiting for bytes that will never come. */
+  const rs = fs.createReadStream(null, { fd, start: 0, end: size - 1, autoClose: true });
+  rs.once('end', () => { if (rs.bytesRead < size) res.destroy(); });
+  pipeline(rs, res, () => { /* aborted or failed: both streams are destroyed */ });
 }
 
 /* #6734: an upload answered with a refusal. When the body has not all arrived (over the cap, or the client went),

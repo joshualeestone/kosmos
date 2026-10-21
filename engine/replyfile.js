@@ -392,7 +392,8 @@ function readOwn(real, st, given, out) {
     while (n < limit) {
       const got = fs.readSync(fd, buf, 0, Math.min(buf.length, limit - n), n);
       if (got === 0) break;
-      for (let w = 0; w < got;) w += fs.writeSync(out, buf, w, got - w);
+      // Review 4: a failed write is the store's failure (a full disk, say), not the file's, and is said so.
+      try { for (let w = 0; w < got;) w += fs.writeSync(out, buf, w, got - w); } catch { return { ok: false, because: 'Kosmos could not store a copy of that file' }; }
       n += got;
     }
     /* Exactly the size the descriptor said (review r7 finding 1): more is a file that grew, fewer one that shrank
