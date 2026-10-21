@@ -82,8 +82,10 @@
 # That holds on this macOS-only fleet (it already hardcodes $HOME/work/... and `shasum`); it would
 # need a #!/bin/bash and rework to run under dash.
 set -eu
-# kosmos#6771: a Vercel token given in the environment goes to the vercel command alone, not to any step before it
-# (the checks, the fetches, the build): kept in an unexported variable, and the environment's copy removed first.
+# kosmos#6771: a Vercel token given in the environment goes to the vercel command alone, not to any step this script
+# starts before it (the checks, the fetches, the build): kept in an unexported variable, the environment's copy
+# removed first. That scopes it from CHILDREN only: a same-user tool can still read this process's starting
+# environment (ps -E on macOS), the usual cost of a token passed in the environment.
 _vercel_token="${VERCEL_TOKEN:-}"; unset VERCEL_TOKEN
 
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
@@ -863,7 +865,10 @@ vercel_deploy_rc() {
 # A person at a terminal gets the CLI exactly as before (its own progress display and prompts, and its own plain
 # failure: the explanation below needs the output, so it appears only when output is not a terminal, as in the
 # autodeploy). (A release cut's step 8 calls vercel itself, not this script: release.sh.)
-if [ -t 1 ]; then vercel_deploy_rc; : > "$VOUT"; else vercel_deploy_rc 2>&1 | tee "$VOUT"; fi
+if [ -t 1 ]; then
+  vercel_deploy_rc; : > "$VOUT"
+  [ "$(cat "$VRC" 2>/dev/null)" = 0 ] || echo "deploy-site: if the CLI said 'Not authorized', see kosmos#6771 (sign the CLI in here, or give a VERCEL_TOKEN)"
+else vercel_deploy_rc 2>&1 | tee "$VOUT"; fi
 vrc=$(cat "$VRC"); rm -f "$VRC"
 case "$vrc" in ''|*[!0-9]*) vrc=1 ;; esac   # no code written is a failure, never a pass
 if [ "$vrc" != 0 ]; then

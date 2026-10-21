@@ -535,7 +535,7 @@ grep -q "the accessor said: secrets-map: no credential for target 'vercel-chaosk
 grep -qx '::add-mask::mask-me' "$T/out6" && pass "6771: in GitHub Actions the token is masked" || bad "6771 no mask in Actions: $(head -5 "$T/out6")"
 H6771d=$(advance six-seven-seven-one-d)
 ( unset VERCEL_TOKEN GITHUB_ACTIONS; SEC_TOKEN=do-not-print KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; printf '%s' "$OUT" > "$T/out7" )
-! grep -q 'do-not-print' "$T/out7" && pass "6771: outside Actions the token is never printed" || bad "6771 token printed outside Actions"
+! grep -q 'do-not-print' "$T/out7" && [ "$(cat "$ST/last-deployed")" = "$H6771d" ] && pass "6771: outside Actions the token is never printed (and the tick did reach the deploy)" || bad "6771 token printed outside Actions"
 
 # deploy-site.sh's exit 77 (Vercel refused the authorization) is red once, never counted, never parked, so a new token
 # deploys on the next tick.
@@ -546,6 +546,11 @@ KOSMOS_AUTODEPLOY_DEPLOY='exit 77' tick; r77b=$RC; o77b=$OUT
   && pass "6771: exit 77 twice: red once, then STILL FAILING, no failure counted, not parked" || bad "6771 exit 77 (r=$r77a/$r77b, parked=$(cat "$ST/parked" 2>/dev/null), failures=$(cat "$ST/failures" 2>/dev/null)): $o77b"
 tick
 [ "$RC" = 0 ] && [ "$(cat "$ST/last-deployed")" = "$H6771e" ] && pass "6771: after the refusals, the next tick with a working deploy deploys (nothing parked it)" || bad "6771 after 77 (rc=$RC): $OUT"
+
+# A token with more than one line is refused, never half-masked.
+H6771f=$(advance six-seven-seven-one-f); rm -rf "$ST/reported.d"
+( unset VERCEL_TOKEN; SEC_TOKEN="$(printf 'line1\nline2')" KOSMOS_AUTODEPLOY_SECRETS="$SEC" tick; echo "$RC" > "$T/rc8"; printf '%s' "$OUT" > "$T/out8" )
+{ [ "$(cat "$T/rc8")" = 1 ] && grep -q "has more than one line" "$T/out8" && ! grep -q 'line2' "$T/out8"; } && pass "6771: a two-line token is refused and not printed" || bad "6771 two-line token (rc=$(cat "$T/rc8")): $(cat "$T/out8")"
 
 # 13) no site configured: a usage error, never a deploy.
 nfinal=$(ndeploys); KOSMOS_AUTODEPLOY_SITE="" bash "$AD" 2>/dev/null; RC=$?
