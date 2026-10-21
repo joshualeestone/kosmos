@@ -45,6 +45,10 @@ two apart.
    NITs only. Recorded: the design shot's list cannot be real (a pending grant with a confirmation over a day old);
    a real list shows one or the other.
 
+8. **Review 5: NITs only (converged).** Recorded: the date has no year (grants past 30 days drop, so it is always
+   recent); a record from the #6752 build with a list but no time paints as fresh for at most the hour until the next
+   read replaces it.
+
 ## Tests (each proven red by a mutation)
 `engine/reviewernotice-6752.test.js` (absent keeps list and time, [] clears, another company starts empty) and
 `web.reviewernotice-6752.test.js` (the age line only past a day; the route passes the time). Arms, all red: absent
