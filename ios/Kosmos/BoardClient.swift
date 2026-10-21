@@ -42,12 +42,13 @@ final class BoardClient: ObservableObject {
     private var failedRefreshes = 0
     private var skipSaved = false
     // The Mac answers 401 for a moment after it starts, while keeping the session (kosmos-relay proxy.rs
-    // KeptSession::Hold), so one 401 is a missed refresh and only a second in a row ends the session.
-    private var unauthorizedOnce = false
+    // KeptSession::Hold, until its 5 s account poll answers), so 401s end the session only after 15 s of them.
+    private var unauthorizedSince: Date?
+    private static let unauthorizedGrace: TimeInterval = 15
     private var lastReconnect: Date?
     private static let reconnectGap: TimeInterval = 30
     private static let failuresBeforeNotAnswering = 3
-    private static let freshHandoffsWhileWaiting = 3
+    private static let freshHandoffs = 3
 
     init(coordinator: URL = KosmosConfig.coordinatorOrigin,
          sessionStore: SessionStore = SessionKeychain.live,
@@ -58,8 +59,9 @@ final class BoardClient: ObservableObject {
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieAcceptPolicy = .always
         config.timeoutIntervalForRequest = 15
-        self.cookies = config.httpCookieStorage ?? HTTPCookieStorage()
-        config.httpCookieStorage = cookies
+        // An ephemeral configuration always carries its own private, in-memory cookie store; held here so forget()
+        // clears the very store the session uses.
+        self.cookies = config.httpCookieStorage!
         self.http = URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
     }
 
@@ -104,14 +106,18 @@ final class BoardClient: ObservableObject {
             admitted = (Board.Mac(name: saved.name, address: saved.address, usable: true), url, session)
         }
         skipSaved = false
+        unauthorizedSince = nil
         if case .live = phase {} else { set(.starting, gen) }
         loop = Task { await self.run(gen) }
     }
 
-    // Try again after a failure: ask Kosmos+ for the Macs afresh, so a Mac that went away or came online counts.
+    // Try again after a failure. After "not answering" the kept Mac session is tried again first (the Mac may only
+    // have slept); after a refusal the Macs are asked for afresh, so a Mac that went away or came online counts.
     func retry() {
-        admitted = nil
-        skipSaved = true
+        if case .unreachable = phase {} else {
+            admitted = nil
+            skipSaved = true
+        }
         start()
     }
 
@@ -230,9 +236,11 @@ final class BoardClient: ObservableObject {
             case .denied:
                 set(.denied(mac: mac.name), gen); return false
             case .refused(let because):
-                guard waiting, fresh < Self.freshHandoffsWhileWaiting else {
+                // Refused handoffs are retried a few times: one expires during a long wait for Allow, and a Mac that
+                // has just started refuses until it knows its account again (gate.rs ACCOUNT_NOT_KNOWN_YET).
+                guard fresh < Self.freshHandoffs else {
                     // Logged for the first runs on a phone: this is where the plan's weakest premise would show.
-                    NSLog("[Board] the Mac's gate refused the sign-in (%d): %@", status, because ?? "no reason given")
+                    NSLog("[Board] the Mac's gate refused the sign-in (\(status)): \(because ?? "no reason given")")
                     set(.macRefused(mac: mac.name), gen); return false
                 }
                 fresh += 1
@@ -244,8 +252,8 @@ final class BoardClient: ObservableObject {
         return false
     }
 
-    // false ends the loop. A 401, or the gate's sign-in page in place of the board's answer, means the Mac's session
-    // ended: sign in to it again, at most once every 30 s. Three refreshes in a row with no list (no answer, a 5xx,
+    // false ends the loop. 401s for 15 s, or the gate's sign-in page in place of the board's answer, mean the Mac's
+    // session ended: sign in to it again, at most once every 30 s. Three refreshes in a row with no list (no answer, a 5xx,
     // a redirect, an answer that is not the list) say the Mac is not answering rather than leave an old list up.
     // The list shows as current only after a refresh that read it.
     private func refresh(url: URL, mac: Board.Mac, _ gen: Int) async -> Bool {
@@ -257,17 +265,22 @@ final class BoardClient: ObservableObject {
             agents = Board.sorted(rows)
             updatedAt = Date()
             failedRefreshes = 0
-            unauthorizedOnce = false
+            unauthorizedSince = nil
             set(.live(mac: mac), gen)
             return true
         }
         if Board.sessionEnded(status: status, contentType: answer?.value(forHTTPHeaderField: "Content-Type")) {
-            if status == 401 && !unauthorizedOnce { unauthorizedOnce = true; return true }
-            unauthorizedOnce = false
+            if status == 401 {
+                let since = unauthorizedSince ?? Date()
+                unauthorizedSince = since
+                if Date().timeIntervalSince(since) < Self.unauthorizedGrace { return true }
+            }
+            unauthorizedSince = nil
             admitted = nil
             macStore.delete()
             if let last = lastReconnect, Date().timeIntervalSince(last) < Self.reconnectGap {
-                set(.unreachable(mac: mac.name), gen)
+                // The Mac ended this iPhone's session twice in 30 s: it answers, but will not keep the sign-in.
+                set(.macRefused(mac: mac.name), gen)
                 return false
             }
             lastReconnect = Date()

@@ -167,7 +167,7 @@ struct AgentRow: View {
         }
     }
 
-    // Anything that needs you is in amber, in the board's own words.
+    // Anything that needs you (Board.needsYou) is in amber, in the board's own words.
     private var status: some View {
         Text(Board.statusWord(agent))
             .font(.subheadline.weight(agent.askedYou ? .semibold : .regular))

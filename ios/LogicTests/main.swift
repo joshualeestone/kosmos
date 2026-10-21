@@ -645,6 +645,8 @@ do {
     let macs = Board.parseMacs(Data(json.utf8)) ?? []
     check(macs.count == 4, "a row with no address is dropped")
     check(macs.map(\.usable) == [false, false, true, true], "retired and switched-off Macs are not usable; a null retired_at is")
+    let heldRefused = Board.parseMacs(Data(#"{"macs":[{"address":"h.kosmosplus.com","held":true},{"address":"r.kosmosplus.com","refused":true}]}"#.utf8)) ?? []
+    check(heldRefused.map(\.usable) == [false, false], "a held or refused Mac is not usable either")
     check(macs[3].name == "laptop.kosmosplus.com", "an empty name falls back to the address")
     check(Board.pickMac(macs, remembered: nil)?.address == "laptop.kosmosplus.com", "a usable Mac (none has a last-seen time here, so by address)")
     check(Board.pickMac(macs, remembered: "studio.kosmosplus.com")?.address == "studio.kosmosplus.com", "the remembered Mac while it is usable")
@@ -690,6 +692,8 @@ do {
     check(agents.first { $0.session == "cleo" }?.role == nil, "an empty role is no role")
     check(word("cleo") == "Question" && word("farah") == "Needs permission", "a question and a permission prompt, in the board's words")
     check(agents.first { $0.session == "farah" }?.askedYou == true && agents.first { $0.session == "dana" }?.askedYou == false, "needs you is marked, working is not")
+    check(Board.needsYou(state: "auth_failed", running: true, needsTrust: false) && Board.needsYou(state: "needs_trust", running: true, needsTrust: false), "a broken sign-in and a trust prompt need you too")
+    check(Board.needsYou(state: "working", running: false, needsTrust: true) && !Board.needsYou(state: "idle", running: false, needsTrust: false), "not running at a trust prompt needs you; plain not running does not")
     check(word("gus") == "Not running", "an agent that is not running says so, whatever its last state")
     check(word("hal") == "Reconnecting\u{2026}", "a lost connection that is retrying says Reconnecting")
     check(word("ida") == "Keeps stopping", "a crash loop says Keeps stopping")

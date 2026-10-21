@@ -217,7 +217,8 @@ enum Board {
                          role: (row["role"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                          state: state,
                          task: (row["task"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                         askedYou: state == "needs_you",
+                         askedYou: Board.needsYou(state: state, running: (row["running"] as? Bool) != false,
+                                                  needsTrust: (row["needsTrust"] as? Bool) == true),
                          awaitingApproval: approval,
                          reportedByAgent: (row["stateReportedBy"] as? String) == "agent",
                          running: (row["running"] as? Bool) != false,
@@ -248,6 +249,12 @@ enum Board {
         if agent.state == "needs_you" && agent.awaitingApproval { return "Needs permission" }
         if agent.reconnecting { return "Reconnecting\u{2026}" }
         return stateCopy[agent.state] ?? "Can't tell"
+    }
+
+    // Whatever only the person can move: a question or permission, a trust prompt, a provider sign-in that broke.
+    // Marked in amber and listed first.
+    static func needsYou(state: String, running: Bool, needsTrust: Bool) -> Bool {
+        state == "needs_you" || state == "needs_trust" || state == "auth_failed" || (!running && needsTrust)
     }
 
     // Those that asked you first, then working, then the rest; by name within each.
