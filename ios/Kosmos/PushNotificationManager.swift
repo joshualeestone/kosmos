@@ -136,7 +136,8 @@ final class PushNotificationManager: NSObject, ObservableObject {
             return
         }
         registrar.didReceive(message)
-        // kosmos#6838: a sign-out also ends the Agents tab's kept Mac session, at once rather than at the next visit.
+        // kosmos#6838: a sign-out also makes the Agents tab forget its kept Mac session, at once rather than at the
+        // next visit. (Forgotten on this iPhone; the Mac ends the session on its own schedule, as for the web view.)
         if message == .signedOut {
             SessionKeychain.macSession.delete()
             UserDefaults.standard.removeObject(forKey: Board.rememberedMacKey)

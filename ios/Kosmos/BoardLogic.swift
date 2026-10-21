@@ -95,6 +95,11 @@ enum Board {
         }
     }
 
+    // Only Macs whose address the app may open (macURL): one bad row from Kosmos+ never hides a good Mac.
+    static func reachableMacs(_ macs: [Mac], coordinator: URL) -> [Mac] {
+        macs.filter { macURL(address: $0.address, coordinator: coordinator) != nil }
+    }
+
     // The Mac remembered from last time while it is usable and connected; else a connected usable one, most
     // recently seen first; else the remembered or most recently seen usable one. A Mac that refused this iPhone is
     // picked only when there is no other.

@@ -65,9 +65,11 @@ final class BoardClient: ObservableObject {
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieAcceptPolicy = .always
         config.timeoutIntervalForRequest = 15
-        // An ephemeral configuration always carries its own private, in-memory cookie store; held here so forget()
-        // clears the very store the session uses.
-        self.cookies = config.httpCookieStorage!
+        // An ephemeral configuration carries its own private, in-memory cookie store; held here so forget() clears
+        // the very store the session uses.
+        let jar = config.httpCookieStorage ?? HTTPCookieStorage()
+        config.httpCookieStorage = jar
+        self.cookies = jar
         self.http = URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
     }
 
@@ -92,11 +94,13 @@ final class BoardClient: ObservableObject {
         }
         #endif
         let session = sessionStore.load()
-        if let held = admitted, held.session != session { forget() }
+        // Another account (or a new sign-in) drops everything learned under the old one. No session at all is handled
+        // just below, without touching the kept Mac session.
+        if let held = admitted, let session, held.session != session { forget() }
         // No Kosmos+ session (signed out, or the Keychain could not be read yet): nothing from the last one is shown.
         // The kept Mac session is deleted by the sign-out itself (PushNotificationManager), not here, so a Keychain
         // that is briefly unreadable does not cost it.
-        if session == nil, admitted != nil || !agents.isEmpty {
+        if session == nil {
             admitted = nil
             agents = []
             updatedAt = nil
@@ -206,7 +210,8 @@ final class BoardClient: ObservableObject {
         guard (200...299).contains(status), let data = result?.0, let macs = Board.parseMacs(data) else {
             kosmosPlusFailed(status: status, gen); return nil
         }
-        guard let mac = Board.pickMac(macs, remembered: UserDefaults.standard.string(forKey: Board.rememberedMacKey)) else {
+        guard let mac = Board.pickMac(Board.reachableMacs(macs, coordinator: coordinator),
+                                      remembered: UserDefaults.standard.string(forKey: Board.rememberedMacKey)) else {
             set(.noMac, gen); return nil
         }
         return mac
@@ -253,12 +258,13 @@ final class BoardClient: ObservableObject {
                 // has just started refuses until it knows its account again (gate.rs ACCOUNT_NOT_KNOWN_YET).
                 guard fresh < Self.freshHandoffs else {
                     // Logged for the first runs on a phone: this is where the plan's weakest premise would show.
-                    NSLog("[Board] the Mac's gate refused the sign-in (\(status)): \(because ?? "no reason given")")
+                    NSLog("[Board] the Mac's gate refused the sign-in (\(status)): \(String((because ?? "no reason given").prefix(200)))")
                     set(.macRefused(mac: mac.name), gen); return false
                 }
                 fresh += 1
                 if !waiting { set(.connecting(mac: mac.name), gen) }
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard gen == generation else { return false }
                 guard let next = await handoff(session: session, mac: mac, gen) else { return false }
                 token = next
             }

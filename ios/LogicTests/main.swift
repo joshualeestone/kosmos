@@ -658,6 +658,8 @@ do {
     check(Board.pickMac(r, remembered: "old.kosmosplus.com")?.address == "studio.kosmosplus.com", "not a remembered Mac that is not connected, while another is")
     let allDown = #"{"macs":[{"address":"a.kosmosplus.com","last_seen":5,"not_connected":true},{"address":"b.kosmosplus.com","last_seen":9,"not_connected":true}]}"#
     check(Board.pickMac(Board.parseMacs(Data(allDown.utf8)) ?? [], remembered: nil)?.address == "b.kosmosplus.com", "with none connected, the most recently seen, so the screen can say it is not answering")
+    let mixed = [Board.Mac(name: "Bad", address: "evil.example.com", usable: true, lastSeen: 999), Board.Mac(name: "Good", address: "good.kosmosplus.com", usable: true, lastSeen: 1)]
+    check(Board.pickMac(Board.reachableMacs(mixed, coordinator: coordinator), remembered: nil)?.address == "good.kosmosplus.com", "a row with an address the app may not open never hides a good Mac")
     let tie = [Board.Mac(name: "z", address: "z.kosmosplus.com", usable: true), Board.Mac(name: "a", address: "a.kosmosplus.com", usable: true)]
     check(Board.pickMac(tie, remembered: nil)?.address == "a.kosmosplus.com", "equal last-seen: by address, the same answer every time")
     let refused = #"{"macs":[{"address":"new.kosmosplus.com","last_seen":900,"this_device":"denied"},{"address":"old.kosmosplus.com","last_seen":100}]}"#
@@ -708,6 +710,7 @@ do {
     check(off("working", true, false) == "Waiting on a trust prompt", "not running at a trust prompt says so")
     check(off("working", false, true) == "Can't tell", "not running with a job Kosmos cannot see is Can't tell")
     check(off("restarting", false, false) == "Restarting agent", "a restarting agent is not called Not running")
+    check(w("restarting") == "Restarting agent" && w("question") == "Question" && w("approval") == "Needs permission", "restarting while running, and the question and approval states, in the board's words")
     check(w("connection_lost") == "Connection lost" && w("rate_limited") == "Rate Limit" && w("needs_you") == "Issue", "including the plain ones")
     check(w("something_new") == "Can't tell", "a state the phone does not know says what the board says for it, never blank")
     check(Board.parseAgents(Data(#"{"counts":{}}"#.utf8)) == nil, "a snapshot with no agents list reads as nothing")
