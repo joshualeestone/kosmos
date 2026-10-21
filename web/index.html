@@ -36726,16 +36726,18 @@ function burgerClose() {
    press on the real tab (which resets to the top of the section, as a person's press does; showTab alone would
    restore the last open project), or for Settings, which has no tab, showTab and its first section. Answers false,
    changing nothing, for a name the board has no such section for, and while a full-screen step (first run, an update,
-   a restart) has made #tabs or anything around it inert, as a person's press cannot reach it then either; the app can
-   tell instead of showing the wrong page. A hidden Tasks tab is still opened: it is hidden on a fresh page until the
+   a restart) has made #tabs or anything around it inert, or while a confirmation or other box has its backdrop up
+   (those are not inert; the board's own keystroke guard tests the backdrop the same way), as a person's press cannot
+   reach the tabs then either; the app can tell instead of changing the page under a box. A hidden Tasks tab is still opened: it is hidden on a fresh page until the
    first status poll, and the app offers Tasks only from that same poll's tasksTab (#3559), so refusing would turn an
    earned tab into a silent no-op. */
 if (typeof window !== 'undefined') window.kosmosAppTab = (name) => {
   const tabs = document.getElementById('tabs');
   if (!tabs || tabs.closest('[inert]')) return false;
+  if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return false;
   const real = ['agents', 'projects', 'tasks'].includes(name) && tabs.querySelector('.tab[data-tab="' + name + '"]');
   if (!real && name !== 'settings') return false;
-  /* The phone menu closes first, and focus goes back to its button, as the menu's own choices do. */
+  /* The phone menu closes first, and focus goes back to its button (before the section takes it, for Settings). */
   const menu = document.getElementById('pnav');
   if (menu && !menu.hidden) {
     pnavClose(false);
@@ -36743,7 +36745,9 @@ if (typeof window !== 'undefined') window.kosmosAppTab = (name) => {
     if (btn) btn.focus({ preventScroll: true });
   }
   if (real) real.click();
-  else { showTab('settings'); settingsOpen('you'); }
+  /* Settings as the user menu opens it (userpopSettingsGo): in place in the consolidated layout, else its tab. */
+  else if (document.body.classList.contains('consolidated')) { SETTINGS_SEC = 'you'; openConsolidatedSettings(); }
+  else { burgerClose(); showTab('settings'); settingsOpen('you'); }
   return true;
 };
 

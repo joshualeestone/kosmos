@@ -17,7 +17,7 @@ const SCRIPT = page.scriptOf(PAGE);
 
 const BLOCK = SCRIPT.match(/^if \(typeof window !== 'undefined'\) window\.kosmosAppTab = \(name\) => \{\n[\s\S]*?\n\};$/m);
 
-function run(name, { tabs = ['agents', 'projects', 'tasks'], inert = false, menuOpen = false, noTabs = false } = {}) {
+function run(name, { tabs = ['agents', 'projects', 'tasks'], inert = false, menuOpen = false, noTabs = false, backdrop = false, consolidated = false } = {}) {
   assert.ok(BLOCK, 'the page no longer publishes kosmosAppTab for the iPhone app');
   const calls = [];
   const win = {};
@@ -30,6 +30,11 @@ function run(name, { tabs = ['agents', 'projects', 'tasks'], inert = false, menu
     },
   };
   const doc = {
+    body: { classList: { contains: (c) => c === 'consolidated' && consolidated } },
+    querySelector: (sel) => {
+      assert.equal(sel, '.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])');
+      return backdrop ? {} : null;
+    },
     getElementById: (id) => {
       if (id === 'tabs') return noTabs ? null : tabsEl;
       if (id === 'pnav') return { hidden: !menuOpen };
@@ -37,8 +42,11 @@ function run(name, { tabs = ['agents', 'projects', 'tasks'], inert = false, menu
       throw new Error('unexpected id ' + id);
     },
   };
-  new Function('window', 'document', 'showTab', 'settingsOpen', 'pnavClose', BLOCK[0])(
-    win, doc, (t) => calls.push('showTab ' + t), (s) => calls.push('settingsOpen ' + s), (r) => calls.push('pnavClose ' + r));
+  const scope = { SETTINGS_SEC: 'models' };
+  new Function('window', 'document', 'showTab', 'settingsOpen', 'pnavClose', 'burgerClose', 'openConsolidatedSettings', 'scope',
+    'with (scope) {\n' + BLOCK[0] + '\n}')(
+    win, doc, (t) => calls.push('showTab ' + t), (s) => calls.push('settingsOpen ' + s), (r) => calls.push('pnavClose ' + r),
+    () => calls.push('burgerClose'), () => calls.push('openConsolidatedSettings ' + scope.SETTINGS_SEC), scope);
   return { answer: win.kosmosAppTab(name), calls };
 }
 
@@ -53,7 +61,7 @@ test('#6846: a native tab presses the board\'s own tab, so it lands at the top o
 test('#6846: Settings, which has no tab, opens on its first section, as the phone menu opens it', () => {
   const { answer, calls } = run('settings');
   assert.equal(answer, true);
-  assert.deepEqual(calls, ['showTab settings', 'settingsOpen you']);
+  assert.deepEqual(calls, ['burgerClose', 'showTab settings', 'settingsOpen you']);
 });
 
 test('#6846: a name the board has no section for answers false and changes nothing', () => {
@@ -79,7 +87,7 @@ test('#6846: the press it relies on still resets to the top of the section, and 
 
 test('#6846: the open phone menu closes first and gives focus back to its button, as its own choices do', () => {
   assert.deepEqual(run('projects', { menuOpen: true }).calls, ['pnavClose false', 'focus menu button', 'click projects']);
-  assert.deepEqual(run('settings', { menuOpen: true }).calls, ['pnavClose false', 'focus menu button', 'showTab settings', 'settingsOpen you']);
+  assert.deepEqual(run('settings', { menuOpen: true }).calls, ['pnavClose false', 'focus menu button', 'burgerClose', 'showTab settings', 'settingsOpen you']);
 });
 
 test('#6846: while first run, an update or a restart covers the board, nothing opens and the app is told so', () => {
@@ -91,4 +99,23 @@ test('#6846: while first run, an update or a restart covers the board, nothing o
   assert.equal(run('settings', { noTabs: true }).answer, false, 'a page without the board answered opened');
   // The full-screen steps make the board inert this way; the door's check relies on it.
   assert.ok(SCRIPT.includes("document.querySelectorAll('body > *:not(#firstrun)').forEach((el) => { el.inert = true; });"), 'first run no longer makes the board inert');
+});
+
+test('#6846: while a confirmation or other box has its backdrop up, nothing changes under it and the app is told so', () => {
+  for (const name of ['agents', 'projects', 'tasks', 'settings']) {
+    const { answer, calls } = run(name, { backdrop: true, menuOpen: true });
+    assert.equal(answer, false, name + ' answered opened under an open box');
+    assert.deepEqual(calls, [], name + ' changed the page under an open box');
+  }
+  // The selector is the board's own backdrop test (the keystroke guard), so a new kind of box is covered in both or neither.
+  assert.ok(SCRIPT.includes("if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return;"),
+    'the keystroke guard changed its backdrop test; keep kosmosAppTab in step');
+});
+
+test('#6846: Settings opens in place in the consolidated layout, as the user menu opens it', () => {
+  const { answer, calls } = run('settings', { consolidated: true });
+  assert.equal(answer, true);
+  assert.deepEqual(calls, ['openConsolidatedSettings you'], 'Settings left the consolidated layout, or opened on the last section');
+  assert.match(SCRIPT, /function userpopSettingsGo\(section\) \{[\s\S]{0,1200}?if \(document\.body\.classList\.contains\('consolidated'\)\) \{\n\s*if \(section\) SETTINGS_SEC = section;\n\s*openConsolidatedSettings\(\);/,
+    'the user menu changed how it opens Settings; keep kosmosAppTab in step');
 });
