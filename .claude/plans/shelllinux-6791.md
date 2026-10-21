@@ -23,7 +23,7 @@ at 21:18 against 9 self-hosted). Can the part of test:shell that does not need m
   runner label. ubuntu-latest needs no trust decision (a throwaway VM), so this change uses it.
 
 ## The change
-- `tools/shell-macos-only.txt`: the 26 commands, each with its reason. A DENY list, so a new macOS-only test goes
+- `tools/shell-macos-only.txt`: the 34 commands (26 that fail on Linux, 8 that only skip there; iteration 1), each with its reason. A DENY list, so a new macOS-only test goes
   red on Linux loudly and is listed (or fixed) on purpose, rather than an allow list a new test could skip quietly.
   A line naming no test:shell command refuses (every shard fails), so the list cannot go stale.
 - `tools/shell-shard.js`: `list|run <i> <n> [linux|mac]`. linux keeps every command not listed, mac only the listed,
@@ -40,7 +40,7 @@ at 21:18 against 9 self-hosted). Can the part of test:shell that does not need m
 
 ## Effect (numbers updated by iteration 1: 230 on Linux, 34 on macOS)
 Each run held three hosted macOS runners (node unless self-hosted, and both shell shards). It now holds at most two
-(node unless self-hosted, and the one macOS shell job with 26 commands), and the two shell shards go to the Linux pool.
+(node unless self-hosted, and the one macOS shell job with 34 commands), and the two shell shards go to the Linux pool.
 
 ## Decided, not missed
 - ubuntu-latest, not the Hetzner box from #6790: that box is registered to kosmos-relay only, and a self-hosted Linux
@@ -75,3 +75,16 @@ Mac in either that CI did not catch.
 - NIT, the real Linux job has not run: the PR's own CI is that run; read both Linux shards' logs end to end.
 - NITs fixed: the limit step's label says "shell macOS" and gives a fitting hint; stale wording in test.yml,
   shell-shard.js and test-ci-created-url-6742.sh.
+
+## Review iteration 2 (sonnet): 1 WARNING, 2 NITs
+- WARNING, "230 pass on Linux" was measured with each command ALONE, not through tools/run-tests.sh (which sets its
+  own TMPDIR, fake gh and vercel, dead-port URLs, locale and time scale, and runs the leak guards around the shell
+  part). So the premise is MEASURED ALONE and only REASONED through the runner. Now measured through it too: branch
+  probe-6791-runner (from this branch's head 5df1a84e, never to merge) runs both Linux shards exactly as the changed
+  test.yml would, on ubuntu-latest (run 39540270814). RESULT: both green through the runner. shell 1/2: "all 121
+  passed", 421 s of commands, job 8.5 min. shell 2/2: "all 109 passed", 668 s, job 12.5 min. Both well under the 45 min
+  limit. So the 230 is now measured alone AND through run-tests.sh on Linux.
+- NIT, run-tests.sh's forward of the platform to shell-shard.js was untested (a lost forward would make the macOS job
+  run all of test:shell, green). Now tested with a stub node that records its argv (mac, linux, and a no-platform
+  control); a mutant that drops the forward goes red.
+- NIT, the plan still said 26 in two places; now 34.
