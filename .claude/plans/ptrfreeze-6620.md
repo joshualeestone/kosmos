@@ -195,3 +195,11 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
   file list is one variable in the lib. Left: a missing perl reads as a fetch failure (fails closed; decided in
   round 13); release.sh's structural test (its late re-check now RUNS in test-deploy-landed-5471, which is the
   real coverage).
+- Review 18 (a warning, nits): `on` told the operator to pin the site's latest-win*.json by hand, which round 14's
+  held-files check then refuses (only the off-then-on window gets past it). The output and docs now say they are
+  HELD as they stood at the freeze, so a change to them goes in before `on`. `on` at the frozen version also runs
+  the held-files check (it said "nothing changed" over a moved installer; red against the pre-fix tool). The advice
+  checks diverged before "not frozen on origin", and a checkout ahead of an unfrozen origin/main is told its freeze
+  was never pushed (arm). The batch -o options are added only for OpenSSH (a plink-style GIT_SSH would reject them).
+  Left: the writer CONTROL arms can pass because a sandboxed writer dies at an earlier guard; the frozen arms match
+  each writer's specific FROZEN message, so those are the real coverage.

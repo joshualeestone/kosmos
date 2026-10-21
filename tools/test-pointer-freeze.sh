@@ -241,6 +241,15 @@ for w in release promote-channel publish-staging-pointer publish-kosmos-windows;
   has "$out" "FROZEN" && bad "CONTROL: $w.sh says FROZEN with no marker: $(printf '%s' "$out" | tail -2)" || pass "CONTROL: $w.sh with no marker does not refuse for a freeze"
 done
 
+# ---- on again at the frozen version after a release file moved on top: not "nothing changed" --------------------
+SM="$(make_site)"; out="$(pf "$SM" on --mac $GOOD --because "moved arm")"; rc=$?
+[ $rc = 0 ] || bad "moved arm: on (rc=$rc) out=$out"
+printf 'installer by hand KOSMOS_READONLY_APP\n' > "$SM/setup-staging"; ( cd "$SM" && shasum -a 256 setup-staging > setup-staging.sha256 )
+git -C "$SM" commit -q -m "an installer by hand on top of the freeze" -- setup-staging setup-staging.sha256 && git -C "$SM" push -q origin main
+out="$(pf "$SM" on --mac $GOOD --because again)"; rc=$?
+{ [ $rc = 1 ] && has "$out" "changed since the freeze commit" && has "$out" "setup-staging" && ! has "$out" "nothing changed"; } \
+  && pass "on at the frozen version, with an installer moved on top: says so (a deploy would refuse), not nothing changed" || bad "on moved (rc=$rc) out=$out"
+
 # ---- the lib under dash, run as well as parsed ---------------------------------------------
 # deploy-site.sh (#!/bin/sh) sources the lib, and test:shell's `sh -n` is macOS bash in POSIX mode and sees syntax only.
 LIBF="$HERE/lib/pointer-freeze.sh"

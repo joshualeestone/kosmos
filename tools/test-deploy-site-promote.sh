@@ -834,5 +834,15 @@ run_deploy "$S60" "$L60" --promote
 { [ "$RC" = 1 ] && has "$out" "has diverged from origin/main" && ! has "$out" "pull it" && ! has "$out" "committed on top"; } \
   && pass "#6620: a checkout diverged from a frozen origin/main is told so" || bad "#6620 diverged advice (rc=$RC) out=$out"
 
+# A freeze committed here and never pushed (origin/main not frozen, this checkout ahead of it): told so, with the
+# command that pushes it, not "pull" (which would do nothing).
+read -r S61 L61 <<<"$(make_rollback_scenario)"
+git init -q --bare "$S61.origin.git" && git -C "$S61" remote add origin "$S61.origin.git" && git -C "$S61" push -q origin main
+printf 'mac=%s\nbecause=never pushed\nat=2026-10-20T00:00:00Z\n' "$NEW" > "$S61/dist/POINTER_FROZEN"
+git -C "$S61" add -- dist/POINTER_FROZEN && git -C "$S61" commit -q -m "frozen here only" -- dist/POINTER_FROZEN
+run_deploy "$S61" "$L61" --promote
+{ [ "$RC" = 1 ] && has "$out" "this freeze was never pushed" && ! has "$out" "pull it"; } \
+  && pass "#6620: a freeze committed here and never pushed is told so, with the command that pushes it" || bad "#6620 unpushed advice (rc=$RC) out=$out"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

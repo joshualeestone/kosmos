@@ -430,10 +430,11 @@ freeze_advice() {
   _fa_h="$(git -C "$SITE" rev-parse "$H" 2>/dev/null)"; _fa_o="$(git -C "$SITE" rev-parse origin/main 2>/dev/null)"
   if [ "$ORIGIN_READ" = 1 ] && [ "$_fa_h" != "$_fa_o" ] && git -C "$SITE" merge-base --is-ancestor "$H" origin/main 2>/dev/null; then
     echo "This checkout is behind origin/main: pull it (git -C $SITE pull --ff-only), then deploy."
-  elif [ "$ORIGIN_READ" = 1 ] && [ "$FROZEN_SRC" = "$H" ]; then
-    echo "origin/main is not frozen (lifted there, or this freeze was never pushed): pull this checkout, or if the freeze should stand, run tools/pointer-freeze.sh on --mac $FROZEN_AT again."
   elif [ "$ORIGIN_READ" = 1 ] && [ "$_fa_h" != "$_fa_o" ] && ! git -C "$SITE" merge-base --is-ancestor origin/main "$H" 2>/dev/null; then
     echo "This checkout has diverged from origin/main (commits here that origin/main does not have): save what you need, reset it to origin/main, then deploy."
+  elif [ "$ORIGIN_READ" = 1 ] && [ "$FROZEN_SRC" = "$H" ]; then
+    # Behind and diverged are caught above, so this checkout is ahead of origin/main, which has no marker.
+    echo "This checkout is ahead of origin/main, and origin/main is not frozen: this freeze was never pushed (or it was lifted there since). If it should stand, run tools/pointer-freeze.sh on --mac $FROZEN_AT (it pushes); if not, reset this checkout to origin/main. Then deploy."
   else
     _fa_fc="$(pointer_freeze_commit "$SITE" "$FROZEN_SRC" 2>/dev/null)"
     [ "$ORIGIN_READ" = 1 ] || printf '%s' "(Decided on this checkout alone: origin/main was not read.) "

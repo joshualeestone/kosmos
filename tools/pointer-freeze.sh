@@ -147,8 +147,11 @@ cmd_on() {
       for p in $PTRS; do
         [ "$(field "$(git -C "$SITE" show "origin/main:$p" 2>/dev/null)" version)" = "$v" ] \
           && { [ -z "$fz_sha" ] || [ "$(field "$(git -C "$SITE" show "origin/main:$p" 2>/dev/null)" sha256)" = "$fz_sha" ]; } \
-          || die "origin/main is frozen at $v but its $p no longer names that build: run off, then on again"
+          || die "origin/main is frozen at $v but its $p no longer names that build: put it back as the freeze commit has it (a new commit), or as a last resort off, then on (every release tool may move the pointers between the two)"
       done
+      local moved; moved="$(pointer_freeze_moved "$SITE" origin/main origin/main)" \
+        || die "could not compare origin/main with the commit that froze it; nothing was changed"
+      [ -z "$moved" ] || die "origin/main is frozen at $v but $(printf '%s' "$moved" | tr '\n' ' ')changed since the freeze commit, so a deploy would refuse it: put them back as the freeze commit has them (a new commit)"
       say "already frozen at $v on origin/main, and its Mac pointers still name that build; nothing changed"; return 0
     fi
     die "origin/main is already frozen at ${at:-an unreadable marker}; run off first to move the freeze"
@@ -228,8 +231,9 @@ cmd_on() {
   fi
   say "Not pinned by this, each by hand: the Windows pointers (prod is on R2: tools/windows/publish-r2.ps1 -Promote moves"
   say "prod only onto the STAGED build, with Josh's approval and a passing staging check, so an older good build must be"
-  say "re-staged first; the site's latest-win*.json, which publish-kosmos-windows.sh will not change while frozen) and"
-  say "the site's Kosmos.pkg (a deploy carries the live one)."
+  say "re-staged first) and the site's Kosmos.pkg (a deploy carries the live one). The site's latest-win*.json are HELD"
+  say "as they stood at this freeze: a change committed after it is refused by every deploy, so to point them at another"
+  say "build, commit that before on (after off, before on again)."
 }
 
 cmd_off() {

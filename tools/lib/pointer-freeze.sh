@@ -41,7 +41,9 @@ pointer_freeze_git() {  # <secs> <site> <git args...>
   # Whatever ssh the operator set is kept, in git's own order (GIT_SSH_COMMAND, core.sshCommand, GIT_SSH), with the
   # batch options added: setting GIT_SSH_COMMAND alone would silently replace a GIT_SSH wrapper.
   sshc="${GIT_SSH_COMMAND:-$(git -C "$site" config core.sshCommand 2>/dev/null || echo "${GIT_SSH:-ssh}")}"
-  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$sshc -o BatchMode=yes -o ConnectTimeout=15" \
+  # The batch options are OpenSSH's: a wrapper of another kind (plink, say) would reject -o, so it is passed as set.
+  case "${sshc%% *}" in ssh|*/ssh) sshc="$sshc -o BatchMode=yes -o ConnectTimeout=15" ;; esac
+  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$sshc" \
     perl -e 'my $s = shift; my $p = fork; defined $p or exit 127; if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
              local $SIG{ALRM} = sub { kill "TERM", -$p }; local $SIG{INT} = $SIG{TERM} = sub { kill "TERM", -$p };
              alarm $s; waitpid $p, 0;
