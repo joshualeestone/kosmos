@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pointer-freeze.sh - kosmos#6620 (security hardening O04-5), incident playbook e step 1: "stop the pointer".
 #
-#   tools/pointer-freeze.sh on --mac <version> --because "<why>"   pin the Mac pointers to a known-good version, freeze
+#   tools/pointer-freeze.sh on --mac <version> --because "<why>" [--sha256 <sha>]   pin the Mac pointers and freeze
 #   tools/pointer-freeze.sh off                                    lift the freeze
 #   tools/pointer-freeze.sh status                                 frozen or not, and the committed and live versions
 #
@@ -97,7 +97,7 @@ entry_of() {  # <commit> <path> <as-path>
 # cannot move forward (a colleague's change in the way), is left as it is and said so; origin/main has the change.
 follow_local() {  # <sha>
   [ "$(git -C "$SITE" symbolic-ref --quiet --short HEAD 2>/dev/null)" = main ] || { say "(the site checkout is not on main, so it was not moved; origin/main has the change)"; return 0; }
-  git -C "$SITE" merge -q --ff-only "$1" 2>/dev/null || say "(the site checkout could not fast-forward to ${1:0:12}; origin/main has the change: git -C $SITE pull --ff-only)"
+  git -C "$SITE" merge -q --ff-only "$1" 2>/dev/null || say "(the site checkout could not fast-forward to ${1:0:12}, origin/main has the change. If a pull --ff-only fails too, it holds local commits: see git -C $SITE status before moving it)"
 }
 
 git -C "$SITE" rev-parse --verify HEAD >/dev/null 2>&1 || die "$SITE is not a git checkout with a HEAD (set KOSMOS_SITE)"
@@ -118,12 +118,14 @@ cmd_status() {
 }
 
 cmd_on() {
-  local v="" because="" c json found="" art sha tmp got f
+  # --sha256: the known-good build's sha256 from somewhere OTHER than the site repo (the release record, a colleague's
+  # note): the site's history is part of what an incident may have tainted, so when given, the pointer must match it.
+  local v="" because="" want_sha="" c json found="" art sha tmp got f
   while [ $# -gt 0 ]; do
     case "$1" in
-      --mac|--because) [ $# -ge 2 ] || die "$1 needs a value"
-        if [ "$1" = --mac ]; then v="$2"; else because="$2"; fi; shift 2 ;;
-      *) die "unknown option: $1 (usage: on --mac <version> --because \"<why>\")" ;;
+      --mac|--because|--sha256) [ $# -ge 2 ] || die "$1 needs a value"
+        case "$1" in --mac) v="$2" ;; --because) because="$2" ;; --sha256) want_sha="$2" ;; esac; shift 2 ;;
+      *) die "unknown option: $1 (usage: on --mac <version> --because \"<why>\" [--sha256 <known-good sha256>])" ;;
     esac
   done
   printf '%s' "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || die "--mac needs a version like 0.7.60 (got '${v}')"
@@ -156,6 +158,8 @@ cmd_on() {
   kosmos_setup_floor_pointer_ok "pointer-freeze" "$json" || die "$v is below the setup floor; nothing was changed"
   art="$(field "$json" artifact)"; sha="$(field "$json" sha256)"
   [ -n "$art" ] && [ -n "$sha" ] || die "the pointer for $v (commit ${found:0:12}) names no artifact or sha256; nothing was changed"
+  [ -z "$want_sha" ] || [ "$sha" = "$want_sha" ] \
+    || die "the newest site pointer for $v names sha256 $sha, not the --sha256 given ($want_sha): its history may have been re-cut; nothing was changed"
   tmp="$(mktemp "${TMPDIR:-/tmp}/pointer-freeze.XXXXXX")" || die "could not make a temp file; nothing was changed"
   if ! "$CURL_CMD" --connect-timeout 15 --max-time 900 -fsSL -o "$tmp" "$HOST/dist/$art"; then rm -f "$tmp"; die "$HOST does not serve $art, so a pin to $v could not deploy; nothing was changed"; fi
   got="$(sha_of "$tmp")"; rm -f "$tmp"
@@ -230,5 +234,5 @@ case "${1:-}" in
   on) shift; cmd_on "$@" ;;
   off) cmd_off ;;
   status) cmd_status ;;
-  *) say "usage: $0 on --mac <version> --because \"<why>\" | off | status"; exit 64 ;;
+  *) say "usage: $0 on --mac <version> --because \"<why>\" [--sha256 <known-good sha256>] | off | status"; exit 64 ;;
 esac

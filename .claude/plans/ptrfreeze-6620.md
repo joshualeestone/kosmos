@@ -118,3 +118,9 @@ edited by hand and deployed is not stopped by a marker; deploy-site.sh's check i
   whole) as well as served; test:shell runs `sh -n` on the lib deploy-site.sh sources; a mid-run arm proves
   deploy-site's re-check just before vercel (the fake curl pushes a freeze while the deploy fetches). release.sh's
   matching late re-check has no harness that can reach it (a real cut): reasoned from the same code, not run.
+- Review 6 (four warnings): an optional `--sha256` (from outside the site repo, whose history an incident may have
+  tainted) must match the pointer `on` finds, and the docs recommend it; deploy-site's late re-check says when its
+  fetch fails; release.sh's late re-check is pinned structurally (present, refusing, before `vercel deploy`), since
+  only a real cut reaches it. DECIDED, not missed: the freeze is all-or-nothing, so publish-kosmos-windows.sh refuses
+  during a Mac-only pin too. A release-infrastructure compromise is not scoped to a platform, and a partial freeze is
+  one more state to reason about mid-incident; to publish Windows during a pin, lift it (`off`) deliberately.

@@ -431,7 +431,7 @@ fi
 if [ -n "$FROZEN_SRC" ]; then
   FROZEN_AT=$(git -C "$SITE" show "$FROZEN_SRC:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^mac=//p' | head -1)
   [ -n "$FROZEN_AT" ] || { echo "deploy-site: $FROZEN_SRC carries dist/POINTER_FROZEN but it names no version -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
-  [ "$(ptr_version "$CJ")" = "$FROZEN_AT" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (dist/POINTER_FROZEN) but the committed dist/latest.json names $(ptr_version "$CJ") -- refusing (kosmos#6620); nothing was deployed. Lift it with tools/pointer-freeze.sh off first."; exit 1; }
+  [ "$(ptr_version "$CJ")" = "$FROZEN_AT" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT (dist/POINTER_FROZEN) but the committed dist/latest.json names $(ptr_version "$CJ") -- refusing (kosmos#6620); nothing was deployed. Lift it with tools/pointer-freeze.sh off first; if it was lifted already, pull the site checkout."; exit 1; }
   [ -z "$CSJ" ] || [ "$(ptr_version "$CSJ")" = "$FROZEN_AT" ] || { echo "deploy-site: the pointers are FROZEN at $FROZEN_AT but the committed dist/latest-staging.json names $(ptr_version "$CSJ") -- refusing (kosmos#6620); nothing was deployed"; exit 1; }
   # The marker records the pinned pointer's sha256 (tools/pointer-freeze.sh): the same version with other bytes (a
   # re-cut, a hand edit) is not the frozen build.
@@ -872,7 +872,9 @@ case "$LIVE_PTRS_NOW" in *" 000 "*) echo "deploy-site: could not re-read the liv
 # kosmos#6620: asked again just before vercel (the fetches above take minutes): a freeze pushed meanwhile from another
 # machine, at a version or bytes other than what this deploy carries, stops it. This narrows the window to the deploy
 # itself; it does not close it (a freeze landing while vercel uploads is not seen here).
-if pointer_freeze_fetch "$SITE" && git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then
+if ! pointer_freeze_fetch "$SITE"; then
+  echo "deploy-site: could not fetch origin/main to re-check the pointer freeze just before deploying (kosmos#6620); going on (the early check passed minutes ago)"
+elif git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then
   _late_v=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^mac=//p' | head -1)
   _late_sha=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^sha256=//p' | head -1)
   if [ "$(ptr_version "$CJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CJ")" != "$_late_sha" ]; } \

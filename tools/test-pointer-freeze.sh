@@ -141,6 +141,18 @@ S="$(make_site)"; pf "$S" on --mac $GOOD --because "first" >/dev/null
 out="$(pf "$S" on --mac $GOOD --because "again")"; rc=$?
 { [ $rc = 0 ] && has "$out" "still name that build"; } && pass "CONTROL: on again with the pin intact: nothing to do, and says the pointers still hold" || bad "rerun intact (rc=$rc) out=$out"
 
+# ---- --sha256 given out of band must match the pointer the history holds ------------------------------------------
+S="$(make_site)"; H0="$(git -C "$S" rev-parse HEAD)"
+out="$(pf "$S" on --mac $GOOD --because x --sha256 0000000000000000000000000000000000000000000000000000000000000000)"; rc=$?
+{ [ $rc = 1 ] && has "$out" "not the --sha256 given" && unchanged "$S" "$H0" && ! on_origin "$S"; } && pass "--sha256 that the pointer does not match: refused, nothing frozen" || bad "sha256 mismatch (rc=$rc) out=$out"
+out="$(pf "$S" on --mac $GOOD --because x --sha256 "$(sha_of "$HOSTDIR/dist/kosmos-$GOOD-arm64.tar.gz")")"; rc=$?
+{ [ $rc = 0 ] && on_origin "$S"; } && pass "CONTROL: --sha256 that matches: frozen" || bad "sha256 match (rc=$rc) out=$out"
+# release.sh's re-check just before its own vercel deploy cannot be reached without a real cut: pinned structurally
+# instead (present, asks origin/main, refuses on a marker, and sits before `vercel deploy --prod`). Weaker than a run.
+RS="$HERE/release.sh"; rl_check=$(grep -n 'origin/main:dist/POINTER_FROZEN' "$RS" | tail -1 | cut -d: -f1); rl_vercel=$(grep -n 'vercel deploy --prod --yes' "$RS" | tail -1 | cut -d: -f1)
+{ [ -n "$rl_check" ] && [ -n "$rl_vercel" ] && [ "$rl_check" -lt "$rl_vercel" ] && sed -n "${rl_check},${rl_vercel}p" "$RS" | grep -q 'exit 1'; } \
+  && pass "release.sh: the late freeze re-check is there, refuses, and comes before vercel deploy (structural)" || bad "release.sh late re-check missing or after vercel (check=$rl_check vercel=$rl_vercel)"
+
 # ---- refusals before anything is written ------------------------------------------------------------------------
 S="$(make_site)"; H0="$(git -C "$S" rev-parse HEAD)"
 out="$(pf "$S" on --mac 0.7.99 --because x)"; rc=$?

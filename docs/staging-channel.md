@@ -190,15 +190,17 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
 
 ## Freezing the pointer in an incident (kosmos#6620)
 
-When a release may be compromised, pin the Mac pointers to the last known-good version AND stop every tool from
-moving them again until the incident is over:
+When a release may be compromised, pin the Mac pointers to the last known-good version AND stop the release tools
+in this repo from moving them again until the incident is over:
 
 ```
-tools/pointer-freeze.sh on --mac <known-good version> --because "<one line: why>"
+tools/pointer-freeze.sh on --mac <known-good version> --because "<one line: why>" --sha256 <its sha256, from outside the site repo>
 KOSMOS_STAGING_ROLLBACK=<that version> tools/deploy-site.sh --promote
 ```
 
-(`on` prints the deploy line to run. When prod already serves the pinned version and only staging was bad, it is
+(`--sha256` is optional and recommended: the site's history is part of what an incident may have tainted, so a value
+from the release record or another copy makes `on` refuse a re-cut pointer under the same version. `on` prints the
+deploy line to run. When prod already serves the pinned version and only staging was bad, it is
 `--publish` instead, because `--promote` refuses a prod pointer equal to live.)
 
 `on` restores that version's `latest.json` (to prod and staging) and the installer pair committed with it, from the
