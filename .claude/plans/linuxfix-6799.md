@@ -41,3 +41,8 @@ listed + 110 syntax checks). test-launchagent-leak-guard-3011 stays, with its re
 ## Weakest premise
 That GNU-first is harmless on macOS everywhere it runs: BSD `stat -c` exits non-zero with its usage on stderr only
 (stderr is dropped at each site). Measured on this Mac by the three passing tests above.
+
+## Review iteration 2 (sonnet): 2 NITs, both fixed
+- The list's header still said 34 listed and 230 on Linux, and 26 Linux failures with no word that three were a
+  fallback-order bug; it now says 31 and 233 and names #6799's fix and its probe run.
+- test-launchagent-leak-guard-3011's entry is back in alphabetical place.
