@@ -91,3 +91,14 @@ fail open, nothing newer); native-app.update-ifnewer-4382.test.js (the paused ar
   the old pipeline too (measured, as reviews 2 and 3 found). The comment now says a nested or repeated key can read as
   paused in the shell where run-setup's JSON read says not; only the coordinator writes the answer. The test's default
   environment now sets KOSMOS_HOME, as setup.sh always does (the new `set -u` caught it).
+- Review 5 (opus): the operator's KOSMOS_UPDATE_IGNORE_PAUSE leaked into the board the installer starts, so that
+  board ignored the pause until it restarted: it is now unset with the asked-word (pinned). KOSMOS_UPDATE_PAUSE_URL is
+  kept on purpose: test-install.sh relies on it reaching the boards it starts, so they never ask production.
+  manifest-verify's comment said an older Kosmos could not be paused; the installer now holds it, and its board shows
+  the hold as a failed install (run-setup maps the installer's 96 to 1, and only this code knows "paused"): said in
+  the comment. The ordering pin now also requires the ask after TARGET_VERSION is final. A CLI test title claimed
+  "never asks"; it now says what it checks.
+  Left, stated: the CLI's and run-setup's ask hold any base (a mirror, file://), the installer's only the production
+  site's bytes; the launcher's own repair advice ("reinstalling fixes this") is held during a pause when the installed
+  version cannot be read (the latest release is the suspect one); note_claude_code may create the person's claude
+  link before a held run exits.

@@ -335,7 +335,7 @@ test('#6781: paused, a newer version answers paused and runs nothing; CONTROL: n
   const control = await run(['--if-newer'], { KOSMOS_UPDATE_PAUSE_URL: pauseAnswer('{"updates_paused": false}') });
   assert.equal(control.last, 'updated 1.2.0', control.stdout + control.stderr);
 });
-test('#6781: --install does not pass a pause, an unreachable coordinator does not hold, and nothing newer never asks', async () => {
+test('#6781: --install does not pass a pause, an unreachable coordinator does not hold, and a pause does not hide that nothing is newer', async () => {
   reset({ prod: '1.2.0', consent: '{"on":false}' });
   const forced = await run(['--if-newer', '--install'], { KOSMOS_UPDATE_PAUSE_URL: pauseAnswer('{"updates_paused": true}') });
   assert.equal(forced.last, 'paused 1.2.0', forced.stdout + forced.stderr);

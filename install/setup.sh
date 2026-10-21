@@ -3764,7 +3764,10 @@ if update_paused; then
 fi
 # run-setup's word that it asked is for this run only: the board and anything else this installer starts must not
 # inherit it, or a later pasted install line in their environment would skip the pause.
-unset KOSMOS_UPDATE_PAUSE_ASKED _pause_url _pause_have _pause_body
+# The operator's override is for this one install too: a board this installer starts must keep asking.
+# (KOSMOS_UPDATE_PAUSE_URL is kept: the test harnesses rely on it reaching the boards they start, so those never ask
+# the production coordinator.)
+unset KOSMOS_UPDATE_PAUSE_ASKED KOSMOS_UPDATE_IGNORE_PAUSE _pause_url _pause_have _pause_body
 
 
 # 🔑 A BUSY PORT IS SAID EARLY, AND THE INSTALL STILL FINISHES.

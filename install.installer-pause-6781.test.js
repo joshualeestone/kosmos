@@ -119,12 +119,15 @@ test('installer: the ask runs before the update is downloaded or anything instal
   assert.ok(SETUP.indexOf('[ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ] && FRESH_INSTALL=no') < call,
     'the ask must come after FRESH_INSTALL is known');
   assert.ok(call < SETUP.indexOf('\nstep "Setting up the pieces Kosmos needs."'), 'the ask must come before the downloads');
+  // After the version this run installs is known (the pointer read, and a .pkg's pinned version), or every update in
+  // place would read as "version unknown" and be held, a repair included.
+  assert.ok(SETUP.indexOf('*.*.*) TARGET_VERSION="$KOSMOS_PINNED_VERSION" ;;') < call, 'the ask must come after TARGET_VERSION is final');
   const block = SETUP.slice(call, SETUP.indexOf('\nfi\n', call));
   assert.match(block, /exit 96/);
   assert.match(block, /Updates are paused while Kosmos checks a problem with a release/);
   // run-setup's word that it asked is not passed on to the board or anything else the installer starts.
   const after = SETUP.slice(SETUP.indexOf('\nfi\n', call));
-  assert.ok(/^\nfi\n(#.*\n)*unset KOSMOS_UPDATE_PAUSE_ASKED[ \n]/.test(after), 'KOSMOS_UPDATE_PAUSE_ASKED must be unset right after the ask');
+  assert.ok(/^\nfi\n(#.*\n)*unset KOSMOS_UPDATE_PAUSE_ASKED KOSMOS_UPDATE_IGNORE_PAUSE[ \n]/.test(after), 'KOSMOS_UPDATE_PAUSE_ASKED must be unset right after the ask');
 });
 
 test('run-setup tells the installer it has already asked', () => {
